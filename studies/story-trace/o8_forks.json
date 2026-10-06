@@ -1,0 +1,99 @@
+{
+ "what": "O8's fork chain: O4's alxc disc-1 chain as deployed (31240-31259, FF9CustomMap). O8 starts in member(164) 31256 (at 342), runs 31257 and 31258 and ENDS on arrival in REAL 55 (at 110): 31258 is 166 byte for byte, its only Field() raw, so the chain's one seam (31258 -> 55) is declared, never a defect. Nothing is imported, built or deployed for O8.",
+ "reuses": "studies/story-trace/o4_forks.json",
+ "import": "O4's (o4_forks.json import)",
+ "build": "O4's: C:/gd/_ns_playtest/o4/build",
+ "deploy": "O4's, 2026-10-02 09:04 local",
+ "mod_folder": "FF9CustomMap",
+ "members": {
+  "31240": 64,
+  "31241": 68,
+  "31242": 69,
+  "31243": 150,
+  "31244": 151,
+  "31245": 153,
+  "31246": 154,
+  "31247": 155,
+  "31248": 156,
+  "31249": 157,
+  "31250": 158,
+  "31251": 159,
+  "31252": 160,
+  "31253": 161,
+  "31254": 162,
+  "31255": 163,
+  "31256": 164,
+  "31257": 165,
+  "31258": 166,
+  "31259": 167
+ },
+ "names": {
+  "31240": "O4_AC_AST",
+  "31241": "O4_AC_RST",
+  "31242": "O4_AC_RST_A",
+  "31243": "O4_AC_GDR",
+  "31244": "O4_ALXC_AC_RST",
+  "31245": "O4_AC_H2F",
+  "31246": "O4_AC_FTI",
+  "31247": "O4_AC_LBR",
+  "31248": "O4_AC_PTR",
+  "31249": "O4_AC_KTN",
+  "31250": "O4_AC_FGO",
+  "31251": "O4_AC_GTO",
+  "31252": "O4_AC_LTW",
+  "31253": "O4_AC_RTW",
+  "31254": "O4_AC_LTH",
+  "31255": "O4_AC_LTI",
+  "31256": "O4_ALXC_AC_LTI",
+  "31257": "O4_AC_LTI_2",
+  "31258": "O4_AC_LTT",
+  "31259": "O4_ALXC_AC_LBR"
+ },
+ "route_members": {
+  "31256": 164,
+  "31257": 165,
+  "31258": 166
+ },
+ "seam": {
+  "from": 31258,
+  "donor": 166,
+  "to": 55,
+  "why": "e6 t1 ip871 Field(55) raw in all 7 languages; MAPJUMP does no remap (DoEventCode.cs:1008-1030, HonoluluFieldMain.cs:444)"
+ },
+ "outside": {
+  "31205": 55,
+  "why": "O1's member(55) (ForkDonorPatch line 42): never entered by O8"
+ },
+ "text_blocks": {
+  "3": [
+   31243,
+   31244,
+   31245,
+   31246,
+   31247,
+   31248,
+   31249,
+   31250,
+   31251,
+   31252,
+   31253,
+   31254,
+   31255,
+   31256,
+   31257,
+   31258,
+   31259
+  ]
+ },
+ "deployed": true,
+ "relaunch_needed": false,
+ "relaunch_why": "nothing is deployed for O8; P-LAUNCH proves the launch read the live patch files, P-DONOR-LOG that it logged no collision for 164, 165, 166 or 55",
+ "global_side_effects": "O4's (o4_forks.json global_side_effects): O8 adds none",
+ "known_defects": [],
+ "revert": "O4's (o4_forks.json revert)",
+ "built": {
+  "where": "C:/gd/_ns_playtest/o4/build (O4's build, read-only)",
+  "measured": "C0 (research/o8_design.md 9 PART C), read-only on O4's build, each language's script decoded on its own (us, uk, fr, gr, it, es, jp): member(164) 31256 (O4_ALXC_AC_LTI, 2872 B in every language) differs from 164 in exactly 4 bytes -- e2 t2 ip251 (165), e3 t2 ip251 (163); member(165) 31257 (O4_AC_LTI_2, 2048 B in every language) in exactly 4 bytes -- e2 t2 ip241 (166), e3 t2 ip251 (164); member(166) 31258 (O4_AC_LTT, 2584 B in every language) is 166 BYTE FOR BYTE (each language's sha its donor's), its only Field() e6 t1 ip871 Field(55) RAW. 4 sites, 8 bytes, 21 member files (3 route members x 7 languages); no byte outside those operands differs, and the sites stand at the same ips in all 7 languages -- route_build's BUILD_FIELDS8 and RAW_EXITS8. O4's campaign.toml: route members 31256, 31257, 31258; 31205 is no member"
+ },
+ "verified": null
+}

@@ -13531,7 +13531,7 @@ def test_o2_step_of_refuses_a_step_its_executor_cannot_run():
            (drop(ok["cross"], "to"), "needs \\['to'\\]"), (drop(ok["leave_now"], "target"), "needs \\['target'\\]"),
            (drop(ok["confirm"], "expect"), "needs \\['expect'\\]"), (dict(ok["confirm"], expect="page"), "expect is"),
            (drop(ok["wait_sc"], "sc"), "needs \\['sc'\\]"), (dict(ok["cross"], goal=[0]), "goal is a point"),
-           (dict(ok["trigger"], until={}), "until is a non-empty"), (dict(ok["trigger"], until={"y_le": 0}), "x\\|z"),
+           (dict(ok["trigger"], until={}), "until is a non-empty"), (dict(ok["trigger"], until={"w_le": 0}), "x\\|z\\|y"),
            (dict(ok["cross"], target="nowhere"), "no registered region"),
            (dict(ok["cross"], avoid=["nowhere"]), "no registered region")]
     for s, why in bad:
@@ -26470,27 +26470,31 @@ def _harness_tests_module():
 
 def test_segment_regress_registry_holds_every_item_once():
     """The gate's registry (research/o7_design.md 1.4: renamed from ``..._items_are_g1_to_g33_once`` -- the name says
-    what it pins, not a range, so each extension edits its body): ITEM_ORDER holds G1-G39 each once, printed as always
-    (O6's G34-G37 after G33, then O7's G38 -- 9 B4 -- and G39 -- 9 C2 -- G21 last); every segment's items are in it and
-    no item is two segments' (G21 is no segment's); the pytest items are G7, G12, G13, G19, G26, G32 and G38 with the
-    selections the gate has always run; select_items reads nothing as every item, ``--only`` and ``--segment`` as the
-    union of their items -- O6's six, G32 to G37; O7's G38 and G39 -- and refuses an id or a segment there is none of
-    (G40, O8 and a lower-case id: refused through every later extension too). Break: drop an item from ITEM_ORDER (a full
-    run would then pass without it), or file one under two segments."""
+    what it pins, not a range, so each extension edits its body; research/o8_design.md 1.4, 9 A0 extends it to G43, 9 B4
+    to G44 and 9 C2 to G45): ITEM_ORDER holds G1-G45 each once, printed as always (O6's G34-G37 after G33, then O7's G38
+    -- O7's 9 B4 -- and G39 -- O7's 9 C2 -- then O7's outputs G40-G43, then O8's G44 -- O8's 9 B4 -- and G45 -- O8's 9
+    C2 --, G21 last); every segment's items are in it and no item is two segments' (G21 is no segment's); the pytest
+    items are G7, G12, G13, G19, G26, G32, G38 and G44 with the selections the gate has always run (G44 O8's; G45 is
+    in-process, no pytest item); select_items reads nothing as every item, ``--only`` and ``--segment`` as the union of
+    their items -- O6's six, G32 to G37; O7's six, G38 to G43; O8's G44 and G45 -- and refuses an id or a segment there
+    is none of (G46, O9 and a lower-case id: refused through every later extension too). Break: drop an item from
+    ITEM_ORDER (a full run would then pass without it), or file one under two segments."""
     R = _regress_module()
-    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 40)], R.ITEM_ORDER
-    assert len(set(R.ITEM_ORDER)) == 39 and R.ITEM_ORDER[-1] == "G21"
-    assert R.ITEM_ORDER[-7:-1] == ("G34", "G35", "G36", "G37", "G38", "G39"), R.ITEM_ORDER
+    assert sorted(R.ITEM_ORDER, key=lambda i: int(i[1:])) == [f"G{n}" for n in range(1, 46)], R.ITEM_ORDER
+    assert len(set(R.ITEM_ORDER)) == 45 and R.ITEM_ORDER[-1] == "G21"
+    assert R.ITEM_ORDER[-13:-1] == ("G34", "G35", "G36", "G37", "G38", "G39", "G40", "G41", "G42", "G43", "G44",
+                                    "G45"), R.ITEM_ORDER
     seg = [i for ids in R.SEGMENT_ITEMS.values() for i in ids]
     assert len(seg) == len(set(seg)) and set(seg) | {"G21"} == set(R.ITEM_ORDER), seg
     assert R.PYTEST_ITEMS == {"G7": R.PYTEST_K, "G12": R.PYTEST_K_O2, "G13": R.PYTEST_K_O3, "G19": R.PYTEST_K_O4,
-                              "G26": R.PYTEST_K_O5, "G32": R.PYTEST_K_O6, "G38": R.PYTEST_K_O7}
+                              "G26": R.PYTEST_K_O5, "G32": R.PYTEST_K_O6, "G38": R.PYTEST_K_O7, "G44": R.PYTEST_K_O8}
     assert R.select_items() == set(R.ITEM_ORDER)
     assert R.select_items(["G26", "G27"]) == {"G26", "G27"}
     assert R.select_items((), ["O6"]) == {"G32", "G33", "G34", "G35", "G36", "G37"}
     assert R.select_items(["G21"], ["O6"]) == {"G21", "G32", "G33", "G34", "G35", "G36", "G37"}
-    assert R.select_items((), ["O7"]) == {"G38", "G39"}
-    for only, segs in ((["G40"], ()), ((), ["O8"]), (["g7"], ())):
+    assert R.select_items((), ["O7"]) == {"G38", "G39", "G40", "G41", "G42", "G43"}
+    assert R.select_items((), ["O8"]) == {"G44", "G45"}
+    for only, segs in ((["G46"], ()), ((), ["O9"]), (["g7"], ())):
         with pytest.raises(ValueError):
             R.select_items(only, segs)
 
@@ -26817,8 +26821,10 @@ def test_segment_regress_o6_pins_join_the_union(tmp_path):
     assert sorted(union) == sorted([pick, control, stray, sink, off, site, restores, knobs, walk_out]), union
     assert R.g21_bad(union, R.source_shas(sorted(union), files=files), []) == []
     assert R.union_sources(o3, o4, o5) == {**o3, **o4, **o5}, "three baselines join as they always did"
-    with pytest.raises(ValueError, match="joins at most the O3, O4, O5, O6 baselines, not 5"):
-        R.union_sources(o3, o4, o5, o6, {})
+    over = len(R.PIN_BASELINES) + 1                         # the registry's own bound: every extension keeps this test
+    with pytest.raises(ValueError, match=re.escape(f"joins at most the {', '.join(R.PIN_BASELINES)} baselines, not "
+                                                   f"{over}")):
+        R.union_sources(o3, o4, o5, o6, *[{}] * (over - 4))
 
     def edit(path, old, new):
         text = path.read_text(encoding="utf-8")
@@ -30571,19 +30577,4308 @@ def test_o7_rehearsal_fpass_runs_untraced_to_the_member_on_the_fake(game):
 
 
 def test_segment_dryrun_globs_close_at_their_segment():
-    """A frozen segment's dry run reads the study's predictions files only through its OWN segment (o6_dryrun and
-    o7_dryrun ``frozen_through``): every rung's and O1-O<n>'s, never a later segment's -- so a later freeze cannot move
-    the dry run's output, which the regression gate compares byte for byte (O7's freeze moved O6's 'naming-of' unit,
-    20 -> 21 checks, and failed G36). Break: glob every file (O6's then reads O7's)."""
+    """A frozen segment's dry run reads the study's predictions files only through its OWN segment (o6_dryrun,
+    o7_dryrun and o8_dryrun ``frozen_through``): every rung's and O1-O<n>'s, never a later segment's -- so a later freeze
+    cannot move the dry run's output, which the regression gate compares byte for byte (O7's freeze moved O6's
+    'naming-of' unit, 20 -> 21 checks, and failed G36). O8's (research/o8_design.md 9 C2) holds O7's set and no o9+ file;
+    once o8_predictions_v1.json exists it is in eight and not in seven. Break: glob every file (O6's then reads O7's)."""
     _regress_module()
     import o6_dryrun as D6
     import o7_dryrun as D7
+    import o8_dryrun as D8
     here = REPO / "studies" / "story-trace"
     every = sorted(f.name for f in here.glob("*predictions*.json"))
     six, seven = [f.name for f in D6.frozen_through(6)], [f.name for f in D7.frozen_through(7)]
+    eight = [f.name for f in D8.frozen_through(8)]
     assert "o6_predictions_v1.json" in six and not [n for n in six if n.startswith(("o7_", "o8_", "o9_"))], six
-    assert any(n.startswith("rung") for n in six) and set(six) <= set(seven) <= set(every), (six, seven)
+    assert any(n.startswith("rung") for n in six) and set(six) <= set(seven) <= set(eight) <= set(every), \
+        (six, seven, eight)
     later = [n for n in every if n[:1] == "o" and n.split("_", 1)[0][1:].isdigit() and int(n.split("_", 1)[0][1:]) > 7]
     assert not set(later) & set(seven), seven
+    beyond = [n for n in every if n[:1] == "o" and n.split("_", 1)[0][1:].isdigit() and int(n.split("_", 1)[0][1:]) > 8]
+    assert not set(beyond) & set(eight), eight
     if (here / "o7_predictions_v1.json").is_file():
         assert "o7_predictions_v1.json" in seven and "o7_predictions_v1.json" not in six
+    if (here / "o8_predictions_v1.json").is_file():
+        assert "o8_predictions_v1.json" in eight and "o8_predictions_v1.json" not in seven
+
+
+# ---- O8, PART A (research/o8_design.md section 9): the regression gate extended to O7 (G40-G43, G21 over the union of
+# the O3, O4, O5, O6 and O7 baselines' pins), the O7 replay on the hand-stepped fake (A0b), then the shared opt-in
+# changes -- S20 a walk's arrival height and S21 THE KNIGHT WAIT (A1), S22 a y axis on ``until`` and the loss's height off
+# the ring (A2), S23 the opt-in ``unstick`` (A3). Every ``test_segment_*`` here is collected by G7's selection
+# ("segment"), so the gate re-runs it.
+
+def test_segment_regress_o7_pins_join_the_union(tmp_path):
+    """G21 OVER FIVE BASELINES (research/o8_design.md 1.4, 9 A0), pure, over a temporary COPY of the two pinned files:
+    the O3 baseline's pins (an O1 test, the fake's ``_control``), the O4 baseline's (an O4 test, the fake's story sink),
+    the O5 baseline's (an O5 test, the fake's ``_story_site``), the O6 baseline's (an O6 test, the fake's
+    ``_door_knobs``) and the O7 baseline's (an O7 test, the fake's ``place_height`` and the ``Levels.squeeze`` O7 added)
+    join into ONE set of pins (``union_sources``) that reads clean, and four baselines still join as they always did; a
+    call with more baselines than :data:`PIN_BASELINES` holds is refused (the registry's own bound); an edit to the
+    pinned O7 TEST's body FAILS naming it -- and only it, which the O3-O6 pins alone cannot see; a re-baseline row for
+    that O7-baseline name (its ``old`` the O7 pin) reads clean again. Through files too: G21 over five temporary
+    baselines (``union_base``, as the gate passes them) and a pins file, and ``--rebaseline-source`` finding the name in
+    the O7 baseline alone (``baseline_o7``; without it the name is not pinned, and a refusal writes nothing). A name
+    pinned in TWO baselines is refused at capture (``o7_pin_names``: one the O3, the O4, the O5 or the O6 baseline
+    already pins) and by the union -- and so by ``--rebaseline-source``. The fake's O7 pins are FAKE_PINS_O7, then every
+    method of ``Levels`` in the order fakegame.py defines them (``fake_pins_o7``: a renamed function or class raises,
+    naming it). Break: judge the O3-O6 baselines' sources alone (the edit then passes), or let a union keep one of two
+    pins."""
+    R = _regress_module()
+    test_copy, fake_copy = tmp_path / "test_harness.py", tmp_path / "fakegame.py"
+    test_copy.write_bytes((REPO / R.TEST_REL).read_bytes())
+    fake_copy.write_bytes((REPO / R.FAKE_REL).read_bytes())
+    files = {R.TEST_REL: test_copy, R.FAKE_REL: fake_copy}
+    pick = R.pin_of_test("test_o1_pick_for_reads_the_frozen_rules_by_option_text")
+    control = f"{R.FAKE_REL}::_control"
+    stray = R.pin_of_test("test_o4_stray_answer_attributes_by_the_down_frame")
+    sink = f"{R.FAKE_REL}::FakeGame._story_store"
+    off = R.pin_of_test("test_fake_story_suppress_is_off_by_default")
+    site = f"{R.FAKE_REL}::FakeGame._story_site"
+    restores = R.pin_of_test("test_fake_naming_new_game_restores_the_default_name")
+    knobs = f"{R.FAKE_REL}::_door_knobs"
+    fallback = R.pin_of_test("test_o7_castle_fallback_end_is_one_line")
+    height = f"{R.FAKE_REL}::FakeGame.place_height"
+    squeeze = f"{R.FAKE_REL}::Levels.squeeze"
+    o3 = R.source_shas([pick, control], files=files)
+    o4 = R.source_shas([stray, sink], files=files)
+    o5 = R.source_shas([off, site], files=files)
+    o6 = R.source_shas([restores, knobs], files=files)
+    o7 = R.source_shas([fallback, height, squeeze], files=files)
+    shas = [*o3.values(), *o4.values(), *o5.values(), *o6.values(), *o7.values()]
+    assert all(isinstance(v, str) and len(v) == 64 for v in shas), (o3, o4, o5, o6, o7)
+    assert R.PIN_BASELINES[:5] == ("O3", "O4", "O5", "O6", "O7"), R.PIN_BASELINES
+    union = R.union_sources(o3, o4, o5, o6, o7)
+    assert sorted(union) == sorted([pick, control, stray, sink, off, site, restores, knobs, fallback, height,
+                                    squeeze]), union
+    assert R.g21_bad(union, R.source_shas(sorted(union), files=files), []) == []
+    assert R.union_sources(o3, o4, o5, o6) == {**o3, **o4, **o5, **o6}, "four baselines join as they always did"
+    over = len(R.PIN_BASELINES) + 1                         # the registry's own bound: every extension keeps this test
+    with pytest.raises(ValueError, match=re.escape(f"joins at most the {', '.join(R.PIN_BASELINES)} baselines, not "
+                                                   f"{over}")):
+        R.union_sources(o3, o4, o5, o6, o7, *[{}] * (over - 5))
+
+    def edit(path, old, new):
+        text = path.read_text(encoding="utf-8")
+        assert text.count(old) == 1, f"premise: {old!r} occurs once in the copy"
+        path.write_text(text.replace(old, new), encoding="utf-8")
+    edit(test_copy, '    assert len(pred["chain"]) == 5 and len(pred["table"]) == 5 and len(pred["pattern"]["visits"]) '
+                    '== 5\n',
+         '    assert len(pred["chain"]) == 6 and len(pred["table"]) == 5 and len(pred["pattern"]["visits"]) == 5\n')
+    now = R.source_shas(sorted(union), files=files)
+    bad = R.g21_bad(union, now, [])
+    assert len(bad) == 1 and bad[0].startswith(f"{fallback}: changed (") and "--rebaseline-source" in bad[0], bad
+    four = R.union_sources(o3, o4, o5, o6)
+    assert R.g21_bad(four, R.source_shas(sorted(four), files=files), []) == [], \
+        "premise: the O3-O6 pins alone pass the edit"
+    row = R.pin_row(union, [], fallback, o7[fallback], now[fallback], "  the O7 test changed on purpose ", "abc123")
+    assert row == {"name": fallback, "old": o7[fallback], "new": now[fallback],
+                   "reason": "the O7 test changed on purpose", "head": "abc123"}, row
+    assert R.g21_bad(union, now, [row]) == []
+    # through files: five temporary baselines and a pins file -- G21 over their union, --rebaseline-source on the O7
+    # name
+    b3, b4, b5, b6, b7 = (tmp_path / f"o{n}_regress_baseline.json" for n in (3, 4, 5, 6, 7))
+    pins = tmp_path / "source_pins.json"
+    for path, src in ((b3, o3), (b4, o4), (b5, o5), (b6, o6), (b7, o7)):
+        path.write_text(json.dumps({"sources": src, "sources_python": R._py()}), encoding="utf-8")
+    pins.write_text("[]\n", encoding="utf-8")
+
+    def read(path):
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def g21():
+        return R.g21(R.union_base(read(b3), read(b4), read(b5), read(b6), read(b7)), pins, files=files)
+    ok, what, detail = g21()
+    assert ok is False and what.startswith("G21: ") and f"{fallback}: changed" in detail and pick not in detail, detail
+    assert "the O7 tests G38 collected at the O7 capture" in what and "the O6 tests G32 collected at the O6 capture" \
+        in what, what
+    assert R.rebaseline_source(fallback, "", baseline=b3, baseline_o4=b4, baseline_o5=b5, baseline_o6=b6,
+                               baseline_o7=b7, pins=pins, files=files) == 1
+    assert R.rebaseline_source(fallback, "the O7 test changed on purpose", baseline=b3, baseline_o4=b4,
+                               baseline_o5=b5, baseline_o6=b6, pins=pins, files=files) == 1   # O3-O6 alone: not pinned
+    assert pins.read_text(encoding="utf-8") == "[]\n", "a refusal writes nothing"
+    assert R.rebaseline_source(fallback, "the O7 test changed on purpose", baseline=b3, baseline_o4=b4,
+                               baseline_o5=b5, baseline_o6=b6, baseline_o7=b7, pins=pins, files=files) == 0
+    rows = json.loads(pins.read_text(encoding="utf-8"))
+    assert [(r["name"], r["old"], r["new"]) for r in rows] == [(fallback, o7[fallback], now[fallback])], rows
+    ok, _what, detail = g21()
+    assert ok is True and "11 sources at their pins (1 re-baseline row" in detail, detail
+    # a name pinned in two baselines: refused at capture, no union, no re-baseline
+    for other, label in ((pick, "O3"), (sink, "O4"), (site, "O5"), (knobs, "O6")):
+        with pytest.raises(ValueError, match=f"pinned in both the {label} and the O7 baselines"):
+            R.o7_pin_names(o3, o4, o5, o6, [fallback, height, other])
+    assert R.o7_pin_names(o3, o4, o5, o6, [fallback, height, height, squeeze]) == [fallback, height, squeeze]
+    with pytest.raises(ValueError, match="pinned in both the O6 and the O7 baselines"):
+        R.union_sources(o3, o4, o5, o6, {**o7, restores: o6[restores]})
+    with pytest.raises(ValueError, match="pinned in both the O3 and the O7 baselines"):
+        R.union_sources(o3, o4, o5, o6, {**o7, pick: o3[pick]})
+    b7.write_text(json.dumps({"sources": {**o7, sink: o4[sink]}, "sources_python": R._py()}), encoding="utf-8")
+    assert R.rebaseline_source(fallback, "why", baseline=b3, baseline_o4=b4, baseline_o5=b5, baseline_o6=b6,
+                               baseline_o7=b7, pins=pins, files=files) == 1
+    assert len(json.loads(pins.read_text(encoding="utf-8"))) == 1, "a refusal writes nothing"
+    # the fake's O7 pins: FAKE_PINS_O7 exactly, then every method of Levels in its definition order
+    source = fake_copy.read_text(encoding="utf-8")
+    got = R.fake_pins_o7(source)
+    levels = [q for q in R.functions_of(source) if q.startswith("Levels.")]
+    assert got == list(R.FAKE_PINS_O7) + levels and len(set(R.FAKE_PINS_O7)) == 6, got
+    assert {"FakeGame._move_to", "FakeGame._step_walkers", "_VisitBeat._scene_fires"} <= set(R.FAKE_PINS_O7)
+    assert {"Levels.__init__", "Levels.squeeze", "Levels.wall_gap"} <= set(levels), levels
+    assert source.count("    def place_height(") == 1 and source.count("\nclass Levels:") == 1, "premise: one each"
+    with pytest.raises(ValueError, match=re.escape("no function ['FakeGame.place_height']")):
+        R.fake_pins_o7(source.replace("    def place_height(", "    def place_heights("))
+    with pytest.raises(ValueError, match=re.escape("no function ['Levels']")):
+        R.fake_pins_o7(source.replace("\nclass Levels:", "\nclass Level:"))
+
+
+#: A0b's golden (research/o8_design.md 3.5): O7's route and level, squeeze and walker scenes played by hand on the fake
+#: as the branch point left it, before any O8 fake edit.
+_O7_REPLAY = REPO / "studies" / "story-trace" / "research" / "o7_fake_replay.json"
+#: Its four scenes, in the golden's order.
+_O7_REPLAY_SCENES = ("route-S", "route-F", "balcony", "foot")
+
+
+def _o7_replay_sampler(fake) -> list:
+    """A hand-stepped fake's frame recorder (A0b): ``fake._frame_once`` wrapped ON THE INSTANCE, so every frame the
+    scripted player or a press steps keeps its compact sample when it changed -- ``[frame, field, ui_state, control, x,
+    y, z, [[slot, raw, text], ...], choice, [[sid, x, z, moving], ...]]``: his height included (H20 writes it), the
+    windows the beat lists (each text as the agent would publish it), and the published objects -- a held walker's
+    ``moving`` and place (H23; B2's ``_step_walkers`` edit must leave them), which his own sample alone would not show
+    (Dojebon is talk-only: he never touches Steiner's)."""
+    from harness.fakegame import _VisitBeat
+    frames: list = []
+    last: list = [None]
+    step = fake._frame_once
+
+    def sample() -> list:
+        m = fake._machine
+        assert m is None or isinstance(m, _VisitBeat), m
+        wins = [] if m is None else [[w.slot, w.raw, m.shown(fake, w)] for w in m.windows if not w.gone]
+        objs = [[o["sid"], round(o["x"], 6), round(o["z"], 6), o["moving"]] for o in fake._objects_doc()]
+        return [fake.field_id, fake.ui_state, bool(fake.control), round(float(fake.player[0]), 6),
+                round(float(fake.player[1]), 6), round(float(fake.player[2]), 6), wins,
+                json.loads(json.dumps(fake.choice)), objs]
+
+    def frame_once() -> None:
+        step()
+        s = sample()
+        if s != last[0]:
+            frames.append([fake.frame, *s])
+            last[0] = s
+    fake._frame_once = frame_once
+    return frames
+
+
+def _o7_replay_route(game, side: str) -> dict:
+    """Scenes (1) and (2): O7's route builder (:func:`_o7_route`, ``side``) played BY HAND as
+    test_fake_level_route_plays_to_164_unattended plays it -- field 70's prologue values, the trace armed with the sink's
+    suppression, the raw warp's four residue rows, the visit beats staged in 154's field on the floor-blind box (the
+    ground branch's side: Dojebon latched from the grant), a straight press at each step's goal in turn, every page
+    Confirmed (the monologue once) -- to 164's waiting visit. ``{"frames", "rows"}``: the sampler's frames and every
+    trace row."""
+    fields = _O7_FIELDS[side]
+    fake = _fv_fake(game, field=70, trace=False)
+    fake.walkmesh = _O7_BOX
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(315, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = fields["154"]
+    fake.scene(*_o7_route(side), control=False)
+    frames = _o7_replay_sampler(fake)
+    goals = {fields[p]: [g for _s, g in walks] for p, walks in _O7_WALKS.items()}
+    end = fields["164"]
+    for _ in range(40):
+        fid = fake.field_id
+        if fid == end:
+            break
+        goal = goals[fid][0]
+        _o7_play(fake, toward=goal, until=lambda f: f.field_id != fid or (
+            len(goals[fid]) > 1 and math.hypot(goal[0] - f.player[0], goal[1] - f.player[2]) <= 30))
+        if fake.field_id == fid:
+            goals[fid].pop(0)                            # 154's walk done: on to its cross
+    _cb_until(fake, lambda f: any(e["index"] == 7 and e["kind"] == "wait" for e in f.visit_log), limit=400)
+    fake._story_stop()
+    assert fake.field_id == end and len(_o7_scenes(fake)) == 1, (fake.field_id, _o7_scenes(fake))
+    return {"frames": frames, "rows": _fv_rows(fake)}
+
+
+def _o7_replay_balcony(game, wm) -> dict:
+    """Scene (3), THE BALCONY: 154's visit beat (:func:`_o7_route` ``short`` "154" with ``levels154``: the grant at the
+    bytes' height -1741, Dojebon and the soldiers, the doors by height) on stock 154's levels at Steiner's radius 120
+    (H20), pressed by hand along 154 #0's planned waypoints (:func:`_o7_plan154`: route_avoiding at 120 with the step's
+    119 closures, round e8, e9, e10 and the hazard) from the balcony down the west flight to the ground -- Dojebon held
+    at his placement the whole walk (H23: within 3600, then latched below y 600). No trace."""
+    from harness.fakegame import Levels
+    pw = wm(154)
+    step0, _step1 = _o7_closures154(pw)
+    wps = _o7_plan154(pw, step0, _O7_GRANT154, (0, -600), [_O7_E8, _O7_E9, _O7_E10, _O7_HAZARD])
+    assert wps is not None and len(wps) >= 6, wps
+    fake = _fv_fake(game, *_o7_route("S", short="154", levels154=True), field=30840, fps=60.0, ticks="mean",
+                    trace=False)
+    fake.levels, fake.clearance = {30840: Levels(pw)}, _O7_RADIUS
+    frames = _o7_replay_sampler(fake)
+    _cb_until(fake, lambda f: f.control, limit=400)      # the prologue, then the grant on the balcony
+    for wx, wz in wps:
+        _lv_press(fake, wx, wz)
+    doj = fake.blockers[30840][0]
+    assert math.hypot(fake.player[0], fake.player[2] + 600) <= 45 and fake.player[1] < 100, fake.player
+    assert (doj["sid"], doj["x"], doj["z"], doj["_held"]) == (5, -2700.0, -1700.0, True), doj
+    return {"frames": frames, "rows": []}
+
+
+def _o7_replay_foot(game, wm) -> dict:
+    """Scene (4), THE FOOT: stock 163's stair foot at Steiner's radius 120 with ``squeeze_slack`` 8 (H21), one press up
+    the foot from (2098, 3731) toward (2098, 4115) -- through the pinch on its midline, past it to the top of the foot.
+    No trace."""
+    from harness.fakegame import Levels
+    lv = Levels(wm(163), squeeze_slack=8.0)
+    fake = _lv_fake(game, 30845, lv)
+    frames = _o7_replay_sampler(fake)
+    h = lv.height(lv.tri_nearest(2098, 3731, 0), 2098, 3731)
+    fake.player = [2098.0, 0.0, 3731.0]
+    fake.place_height(2098.0, 3731.0, h)
+    _lv_press(fake, 2098.0, 4115.0, still=20)
+    assert fake.player[2] >= 4090, fake.player
+    return {"frames": frames, "rows": []}
+
+
+def _o7_replay_doc(game, wm) -> dict:
+    """A0b's document (research/o8_design.md 3.5): the four scenes, each ``{"frames", "rows"}``."""
+    return {"what": "O7's route builder (_o7_route, S and F), 154's balcony walk on its levels and 163's stair foot, "
+                    "played by hand on the fake (research/o8_design.md 3.5, 9 A0b): every frame whose compact sample "
+                    "changed -- [frame, field, ui_state, control, x, y, z, [[slot, raw, text], ...], choice, [[sid, x, "
+                    "z, moving], ...]] -- and every trace row",
+            "route-S": _o7_replay_route(game, "S"), "route-F": _o7_replay_route(game, "F"),
+            "balcony": _o7_replay_balcony(game, wm), "foot": _o7_replay_foot(game, wm)}
+
+
+def _o7_replay_text(doc: dict) -> str:
+    """The golden's text (:func:`_replay_text`'s form over A0b's four scenes): JSON, one frame or row a line (a diff
+    names it), ASCII, LF."""
+    out = ["{", f' "what": {json.dumps(doc["what"])},']
+    for n, scene in enumerate(_O7_REPLAY_SCENES):
+        out.append(f' "{scene}": {{')
+        for k, key in enumerate(("frames", "rows")):
+            items = doc[scene][key]
+            out.append(f'  "{key}": [')
+            out += [f"   {json.dumps(x, separators=(',', ':'))}{',' if i < len(items) - 1 else ''}"
+                    for i, x in enumerate(items)]
+            out.append("  ]" + ("," if k == 0 else ""))
+        out.append(" }" + ("," if n < len(_O7_REPLAY_SCENES) - 1 else ""))
+    out.append("}")
+    text = "\n".join(out) + "\n"
+    assert json.loads(text) == json.loads(json.dumps(doc)), "the golden's text is the document"
+    return text
+
+
+def test_fake_spiral_keeps_the_castle_route_identical(game, dali):
+    """A0b, THE O7 REPLAY (research/o8_design.md 3.5, 9 A0b): G1-G43 replay RECORDED sessions and cannot see a fake
+    change, and once B1 and B2 re-baseline O7's pinned ``_move_to`` and ``_step_walkers`` G21 says only that they were
+    re-baselined, never that O7's fake still plays as it did. So four scenes are played BY HAND on the fake (no thread,
+    no wall clock) and the document they build -- every frame whose compact sample changed (his y and the published
+    objects included) and every trace row -- is compared with the golden ``research/o7_fake_replay.json``, captured on
+    the fake as the branch point left it (before H25, H26 and every later fake edit): (1) and (2) O7's route builder,
+    S and F, played as test_fake_level_route_plays_to_164_unattended plays it (the box, the monologue, Dojebon
+    latched); (3) THE BALCONY, 154's visit on its stock levels at radius 120 pressed along 154 #0's planned waypoints
+    down the west flight (H20's level branch, H22's doors by height, H23's hold); (4) THE FOOT, stock 163 with
+    ``squeeze_slack`` 8, one press up through the pinch (H21). A difference FAILS naming the first differing frame of
+    the first differing scene; a missing golden FAILS (never a skip); (3) and (4) read the install (``dali``'s warned
+    skip fails G44). With ``O8_CAPTURE_REPLAY=1`` it WRITES the golden instead -- refusing an existing file, and
+    refusing unless two captures in one process are equal. O6's replay (test_fake_level_keeps_the_steiner_route_identical)
+    and O5's (test_fake_door_keeps_the_hallway_route_identical) run beside it unchanged. Break: any change to how the
+    fake plays O7's scenes (a level's step, the squeeze, a held walker, a door by height, a page's opening by a frame)
+    -- the frame it first shows names it."""
+    wm, _script = dali
+    doc = _o7_replay_doc(game, wm)
+    if os.environ.get("O8_CAPTURE_REPLAY") == "1":
+        assert not _O7_REPLAY.exists(), f"{_O7_REPLAY} exists: the golden is captured once, never overwritten"
+        again = _o7_replay_doc(game, wm)
+        assert _o7_replay_text(again) == _o7_replay_text(doc), "two captures in one process differ: no golden written"
+        _O7_REPLAY.write_bytes(_o7_replay_text(doc).encode("ascii"))
+        return
+    assert _O7_REPLAY.is_file(), (f"no golden at {_O7_REPLAY}: capture it (O8_CAPTURE_REPLAY=1) on the fake as the "
+                                  f"branch point left it, before any fake edit")
+    want = json.loads(_O7_REPLAY.read_text(encoding="utf-8"))
+    got = json.loads(_o7_replay_text(doc))
+    for scene in _O7_REPLAY_SCENES:
+        for key in ("frames", "rows"):
+            a, b = got[scene][key], want[scene][key]
+            i = next((n for n, (x, y) in enumerate(zip(a, b)) if x != y), None)
+            if i is not None:
+                raise AssertionError(f"{scene} {key}[{i}] differs from the golden: got {a[i]!r}, want {b[i]!r}")
+            assert len(a) == len(b), (f"{scene} {key}: {len(a)} entries, the golden {len(b)}; the first unmatched "
+                                      f"{(a[len(b)] if len(a) > len(b) else b[len(a)])!r}")
+    assert got == want
+
+
+# ---- A1: S20 (research/o8_design.md 1.2) -- ``at_y``, THE ARRIVAL'S HEIGHT: a walk's arrival proven on its LEVEL, his
+# published y within the band; S21 -- ``wait_flag``, THE KNIGHT WAIT: at the proven point, nothing pressed, until the
+# watched story bit reads its value -- run out only on BOTH clocks, the game's V8 only on a bit the agent published. On
+# O2's fixture fields (30820 the walk's, 30821 a landing, 30810 the end) over 164's box (research/o8_design.md 3.6) with
+# a test-side plane for his height: the walk from 164's spawn (2040, 3335) up to P1 (1342, 2252), published y ~4780 ->
+# ~8958. A drive ends on the walk's done row: the log moves the fake to 30810 there (rule 1), in the drive's own thread.
+
+#: 164's box floor (research/o8_design.md 3.6): every walk of 164's and 165's cells.
+_O8_BOX = (-1200.0, 1600.0, 3600.0, 5200.0)
+#: Each field's height as a plane through three (x, z, published y) anchors (research/o8_design.md 3.6): 164's spawn,
+#: P1 and e2's fire point; 165's spawn, P1 and e2's fire point. A plane through the box is too steep for H20's step
+#: bound, so the box's heights come from :func:`_o8_plane`, never from ``Levels``.
+_O8_PLANES = {"164": ((2040.0, 3335.0, 4780.0), (1342.0, 2252.0, 8958.0), (24.5, 2270.8, 13008.0)),
+              "165": ((2055.0, 3411.0, 10280.0), (1508.0, 4698.0, 11251.0), (2419.6, 3130.0, 15169.0))}
+_S20_SPAWN = (2040, 3335)
+_S20_P1 = [1342, 2252]
+_S20_BAND = [8800, 9150]
+_S20_FLAG = 3811
+
+
+def _o8_plane_coef(anchors) -> tuple:
+    """``(a, b, c)`` of the plane ``y = a x + b z + c`` through three ``(x, z, y)`` anchors (Cramer's rule)."""
+    (x1, z1, y1), (x2, z2, y2), (x3, z3, y3) = anchors
+    det = x1 * (z2 - z3) - z1 * (x2 - x3) + (x2 * z3 - x3 * z2)
+    a = (y1 * (z2 - z3) - z1 * (y2 - y3) + (y2 * z3 - y3 * z2)) / det
+    b = (x1 * (y2 - y3) - y1 * (x2 - x3) + (x2 * y3 - x3 * y2)) / det
+    c = (x1 * (z2 * y3 - z3 * y2) - z1 * (x2 * y3 - x3 * y2) + y1 * (x2 * z3 - x3 * z2)) / det
+    return a, b, c
+
+
+def _o8_plane(fake, planes: dict) -> None:
+    """research/o8_design.md 3.6's test-side height: ``fake._move_to`` wrapped ON THE INSTANCE, so after every step in
+    a field of ``planes`` (``{field id: three (x, z, published y) anchors}``) his published y (``player[1]``) is that
+    field's plane at where the step left him. Elsewhere -- another field, an arrival (y 0) -- nothing changes."""
+    coef = {int(f): _o8_plane_coef(a) for f, a in planes.items()}
+    move = fake._move_to
+
+    def moved(x, z, calls=1.0):
+        ok = move(x, z, calls)
+        c = coef.get(fake.field_id)
+        if c is not None:
+            fake.player[1] = c[0] * fake.player[0] + c[1] * fake.player[2] + c[2]
+        return ok
+    fake._move_to = moved
+
+
+def _s20_walk(**kw) -> dict:
+    """164 #0's walk on the box: to P1, its arrival at ``at_y`` [8800, 9150] (``kw`` over it)."""
+    return {"kind": "walk", "name": "164: the first spiral to P1", "goal": list(_S20_P1), "at_y": list(_S20_BAND),
+            "beat": "walked", **kw}
+
+
+def _s20_wait(timeout_s=60, **kw) -> dict:
+    """:func:`_s20_walk` with THE KNIGHT WAIT on Bit[3811] := 1."""
+    return _s20_walk(wait_flag={"flag": _S20_FLAG, "value": 1, "timeout_s": timeout_s}, **kw)
+
+
+def _s20_pred(steps, *, regions=None, **defaults) -> dict:
+    """S20's predictions on the fake: ONE visit-scoped cell (30820, SC 1000, visit 1) of ``steps``, the end 30810,
+    route and visits [30820], ``regions`` the registered ones (none by default), ``defaults`` over O2's step defaults."""
+    pred = _o2_pred([{"donor": 30820, "sc": 1000, "visit": 1, "steps": [dict(s) for s in steps]}], beats=["walked"],
+                    end=30810, route=(30820,), regions=dict(regions or {}))
+    pred["visits"] = [30820]
+    pred["steps_default"].update(defaults)
+    return pred
+
+
+class _S20Log(list):
+    """A drive log that ends the run on the walk's DONE row: the fake moved to the end field 30810 and that move
+    PUBLISHED before the drive's next poll -- in the drive's own thread, so no load can let a poll see control held
+    after the cell's last step first (V4). ``on_row(row)``, when set, sees every step row as it is logged."""
+
+    def __init__(self, fake):
+        super().__init__()
+        self.fake, self.g, self.on_row = fake, None, None
+
+    def append(self, row):
+        super().append(row)
+        if isinstance(row, dict) and row.get("k") == "step":
+            if self.on_row is not None:
+                self.on_row(row)
+            if row["outcome"] == "done" and self.g is not None:
+                _o2_move(self.fake, 30810, 0.0, 0.0)
+                published(self.g, lambda s: s.field_id == 30810, timeout=30.0)
+
+
+def _s20_drive(game, pred, *, setup=None, wrap=None, phases=None, deadline=90.0, rerun=lambda out, log: False):
+    """One S20/S21 drive on the fake (``_s17_drive``'s shape): New Game, the raw warp into 30820 at SC 1000, him at
+    164's spawn, the bases cached, 164's plane over the box; the drive built here (``SD._Drive``, as ``drive`` builds
+    it) so ``wrap(g, fake, d)`` can reach it; ``setup(fake)`` before the session, ``phases(log, fake)`` a director's.
+    Re-run -- at most twice -- only while ``rerun(out, log)`` holds (the test's own judgment that a starved harness bent
+    the run, its class asserted there). ``(outcome or the void raised, log, fake)``."""
+    SD = _segment_modules()
+    for attempt in range(3):
+        fake = FakeGame(game, walkmesh=_O8_BOX)
+        fake.regions = {}
+        _o8_plane(fake, {30820: _O8_PLANES["164"]})
+        if setup is not None:
+            setup(fake)
+        log = _S20Log(fake)
+        stop = threading.Event()
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820, entrance=102, scenario=1000)
+            _stand(g, fake, *_S20_SPAWN)
+            for f in (30820, 30821, 30810):
+                g._axes[f] = _prior()
+            log.g = g
+            d = SD._Drive(g, pred, "S", log, deadline=time.time() + deadline,
+                          floor_for=lambda dn, closed: _flat_bgi(*_O8_BOX), prior_for=lambda dn: _prior(),
+                          progress=None, end_fields=None, observe=None, forbid_live=False)
+            if wrap is not None:
+                wrap(g, fake, d)
+            if phases is not None:
+                _o1_director(fake, stop, phases(log, fake))
+            try:
+                try:
+                    out = d.go()
+                except (SD.RouteVoid, HarnessError) as err:
+                    out = err
+            finally:
+                stop.set()
+        if attempt == 2 or not rerun(out, log):
+            return out, log, fake
+
+
+def _s20_rows(log) -> list:
+    return [r for r in log if r.get("k") == "step"]
+
+
+#: segment_drive.NO_LIVE_SAMPLE (the review's #5; the S21 budget-edge test asserts them equal): Session.wait_for's
+#: timeouts that read no live sample -- on the fake, a driver process stalled across a whole window.
+_SD_NO_LIVE_SAMPLE = ("the channel is frozen", "published nothing at all")
+
+
+def _s20_load(out, log) -> bool:
+    """A run a starved harness spoiled (the load-robust rule, research/o8_design.md 9): the walk ended SHORT -- a stall
+    ("from its goal" without the height's clause) -- or the budget, or a window that read NO live sample (the review's
+    #5: Session.wait_for's frozen-channel or nothing-published error -- the driver process stalled across a whole window,
+    the fake's frames unread); never a height's failure, a wait's verdict or a game class."""
+    walks = _s20_rows(log)
+    short = any(r["outcome"] == "failed" and "outside at_y" not in (r.get("why") or "") for r in walks)
+    budget = isinstance(out, Exception) and "the run's budget ran out" in str(out) and "flag wait" not in str(out)
+    starved = isinstance(out, HarnessError) and any(m in str(out) for m in _SD_NO_LIVE_SAMPLE)
+    if short or budget or starved:
+        assert not isinstance(out, Exception) or getattr(out, "by", "driver") == "driver", out
+        return True
+    return False
+
+
+def _s20_counting(g) -> list:
+    """Every request ``g`` sends and every press it makes from now on, in order, as ``("send", steps)`` /
+    ``("press", button)`` -- the instance's ``send`` and ``press`` wrapped."""
+    seen, send, press = [], g.send, g.press
+
+    def sending(*steps, **kw):
+        seen.append(("send", steps))
+        return send(*steps, **kw)
+
+    def pressing(button, frames=2):
+        seen.append(("press", button))
+        return press(button, frames)
+    g.send, g.press = sending, pressing
+    return seen
+
+
+def _s20_on_wait(g, act) -> dict:
+    """The instance's ``wait_for`` wrapped: ``act(n)`` runs BEFORE the n-th call of a flag wait (1, 2, ...) -- every
+    event a wait test stages is keyed on the wait's own call, never on the wall clock. ``{"calls": n}``."""
+    real, seen = g.wait_for, {"calls": 0}
+
+    def wait_for(predicate, *, timeout=20.0, what="condition"):
+        if str(what).startswith("the flag wait"):
+            seen["calls"] += 1
+            act(seen["calls"])
+        return real(predicate, timeout=timeout, what=what)
+    g.wait_for = wait_for
+    return seen
+
+
+def test_segment_step_of_at_y_wait_flag_unstick_and_y_until_are_strict():
+    """S20-S23's keys read strict by ``step_of``, pure (research/o8_design.md 1.2): ``at_y`` on a cross (a walk's key
+    alone), ``[9150, 8800]`` (lo over hi), ``[True, 9000]`` (a bool is no number) and ``[8800]`` refused; ``wait_flag``
+    without ``at_y``, on a trigger, with ``flag`` 16384 (past Byte[2048]) or True, ``value`` 2, ``timeout_s`` 0, an
+    extra or a missing key refused; ``unstick`` "no" refused; S22's ``until {y_gt: 12000}`` accepted on a trigger,
+    ``{w_gt: 1}`` refused ("x|z|y + _"). Every accepted step -- a walk with ``at_y`` and ``wait_flag``, one with
+    ``unstick`` False, the y-until trigger -- is returned EXACTLY ``{**steps_default, **raw}`` with the climb merge: the
+    checks only check (the claim critic's #5). Break: ``step_of`` adding ``unstick`` True to every step (the round trip
+    then fails)."""
+    SD = _segment_modules()
+    pred = {"regions": {"door": {"points": _S14_QUAD, "role": "exit"}}, "steps_default": dict(_O2_DEFAULTS)}
+    walk = _s20_wait()
+    for raw in (walk, _s20_walk(), {**_s20_walk(), "unstick": False}, {"kind": "walk", "goal": [0, 0]}):
+        assert SD.step_of(pred, raw) == {**_O2_DEFAULTS, **raw, "climb": dict(_O2_DEFAULTS["climb"])}, raw
+    cross = {"kind": "cross", "target": "door", "goal": [0, 900], "to": 154}
+    with pytest.raises(ValueError, match=re.escape("['at_y'] only a walk carries")):
+        SD.step_of(pred, {**cross, "at_y": [8800, 9150]})
+    for band in ([9150, 8800], [True, 9000], [8800], [8800, "9150"], 8800):
+        with pytest.raises(ValueError, match="at_y is \\[lo, hi\\]"):
+            SD.step_of(pred, _s20_walk(at_y=band))
+    with pytest.raises(ValueError, match="a wait_flag needs at_y"):
+        SD.step_of(pred, {k: v for k, v in walk.items() if k != "at_y"})
+    trig = {"kind": "trigger", "goal": [0, 900], "until": {"z_gt": 500}, "wait_flag": walk["wait_flag"]}
+    with pytest.raises(ValueError, match=re.escape("['wait_flag'] only a walk carries")):
+        SD.step_of(pred, trig)
+    for change, match in (({"flag": 16384}, "an int in 0..16383"), ({"flag": True}, "an int in 0..16383"),
+                          ({"flag": -1}, "an int in 0..16383"), ({"value": 2}, "value is 0 or 1"),
+                          ({"value": True}, "value is 0 or 1"), ({"timeout_s": 0}, "timeout_s is a positive"),
+                          ({"timeout_s": True}, "timeout_s is a positive"), ({"why": "x"}, "holds exactly"),
+                          ({"value": ...}, "holds exactly")):
+        wf = {**walk["wait_flag"], **change}
+        wf = {k: v for k, v in wf.items() if v is not ...}
+        with pytest.raises(ValueError, match=match):
+            SD.step_of(pred, {**walk, "wait_flag": wf})
+    for bad in ("no", 0, 1.0):
+        with pytest.raises(ValueError, match="unstick is a bool"):
+            SD.step_of(pred, {**_s20_walk(), "unstick": bad})
+    ytrig = {"kind": "trigger", "goal": [24, 2271], "until": {"y_gt": 12000}, "to": 165}
+    assert SD.step_of(pred, ytrig) == {**_O2_DEFAULTS, **ytrig, "climb": dict(_O2_DEFAULTS["climb"])}, ytrig
+    with pytest.raises(ValueError, match=re.escape("is not x|z|y + _ + le|lt|ge|gt")):
+        SD.step_of(pred, {**ytrig, "until": {"w_gt": 1}})
+
+
+def test_segment_walk_at_y_judges_the_arrival_height_on_the_fake(game):
+    """S20 on the fake (research/o8_design.md 1.2): 164's walk up the first spiral to P1 on the box, his height 164's
+    plane (3.6) -- with ``at_y`` [8800, 9150] it is DONE, its row's ``at_y`` the band and the published y read at the
+    arrival (8800-9150 by the plane within the walk's tolerance of P1, ~8958); with [9200, 9500] -- XZ the same, the
+    LEVEL not -- each attempt is ``failed`` naming the y ("outside at_y [9200, 9500]: not the goal's level", route_to
+    reached all the same), and the second is VOID V7 by the driver at the cell. A run a starved harness ended short (a
+    stall, not the height) is re-run, its class asserted. Break: ``at_y`` unread (the second walk then reads done at the
+    wrong level)."""
+    SD = _segment_modules()
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_walk()]), rerun=_s20_load)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"walked": True}, out
+    rows = _s20_rows(log)
+    assert [r["outcome"] for r in rows] == ["done"], rows
+    got = rows[0]["at_y"]
+    assert got["band"] == [8800.0, 9150.0] and 8800 <= got["y"] <= 9150, got
+    assert rows[0]["to"]["control"] and math.hypot(rows[0]["to"]["x"] - 1342, rows[0]["to"]["z"] - 2252) <= 45, rows[0]
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_walk(at_y=[9200, 9500])]), rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V7", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    rows = _s20_rows(log)
+    assert [(r["outcome"], r["attempt"]) for r in rows] == [("failed", 1), ("failed", 2)], rows
+    for r in rows:
+        assert r["route"]["reached"] is True and r["at_y"]["band"] == [9200.0, 9500.0], r
+        assert 8800 <= r["at_y"]["y"] <= 9150 and "outside at_y [9200, 9500]: not the goal's level" in r["why"], r
+        assert "at published y " in r["why"], r["why"]
+
+
+def test_segment_walk_waits_for_its_flag_pressing_nothing_on_the_fake(game):
+    """S21 on the fake (research/o8_design.md 1.2): THE KNIGHT WAIT at P1 -- a test director stores Bit[3811] := 1 (164
+    e1 t1 ip230's store) sixty FAKE frames after the wait's first ``g.wait_for`` call (keyed on the call, never on the
+    wall clock; ``timeout_s`` 60, far over any starvation): the walk is DONE, its row's ``wait_flag`` read True, its
+    ``frame`` the store's or later, ``s`` over 0 (a bound only), ``published`` at least 1 sample, ``last`` 1. Every
+    request sent between the walk's arrival (route_to's return) and its row is the ``watch`` and the ``unwatch`` --
+    no press, no hold -- and the fake watches nothing after. Break: done at the arrival, the flag unread (the row then
+    holds no wait)."""
+    stores: list = []
+
+    def wrap(g, fake_, d):
+        sent = _s20_counting(g)
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)
+            sent.append(("arrived", (x, z)))
+            return rec
+        g.route_to = route_to
+        d.log.on_row = lambda row: sent.append(("row", row["outcome"]))
+        due = {"frame": None}
+        _s20_on_wait(g, lambda n: due.update(frame=fake_.frame + 60) if n == 1 else None)
+        wrap.sent, wrap.due = sent, due
+
+    def phases(log_, fake_):
+        del stores[:]                                    # a re-run stores again
+
+        def store(f):
+            stores.append(f.frame)
+            f.script_store(1, 1, 230, _S20_FLAG >> 3, "Bit", 1, bit=_S20_FLAG)
+        return [(lambda f: wrap.due["frame"] is not None and f.frame >= wrap.due["frame"], store)]
+    out, log, fake = _s20_drive(game, _s20_pred([_s20_wait()]), wrap=wrap, phases=phases, rerun=_s20_load)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"walked": True}, out
+    rows = _s20_rows(log)
+    assert [r["outcome"] for r in rows] == ["done"], rows
+    wf = rows[0]["wait_flag"]
+    assert stores and wf["read"] is True and wf["frame"] >= stores[0] and wf["s"] > 0, (wf, stores)
+    assert wf["published"] >= 1 and wf["last"] == 1 and (wf["flag"], wf["value"]) == (_S20_FLAG, 1), wf
+    assert wf["frame0"] < wf["frame"], wf
+    sent = wrap.sent
+    at = next(i for i, e in enumerate(sent) if e[0] == "arrived")
+    row = next(i for i, e in enumerate(sent) if e[0] == "row")
+    between = [e for e in sent[at + 1:row] if e[0] in ("send", "press")]
+    assert between == [("send", (f"watch {_S20_FLAG}",)), ("send", ("unwatch",))], between
+    assert fake.watch == [], fake.watch
+
+
+def test_segment_walk_wait_timeout_is_the_games_v8_on_the_fake(game):
+    """S21's run-out on the fake (research/o8_design.md 1.2): nothing ever stores Bit[3811] -- the agent publishes it 0
+    -- and ``timeout_s`` 1: once both clocks ran the second, RouteVoid V8 by the GAME at the cell [30820, 1000, 1], the
+    row's ``wait_flag`` read False, ``published`` at least 1, ``last`` 0 -- a deterministic V8 (no store exists to race).
+    Break: the run-out read as the walk's failure (V7) or as the driver's."""
+    SD = _segment_modules()
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait(timeout_s=1)]), rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V8", "game", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    rows = _s20_rows(log)
+    assert len(rows) == 1 and (rows[0]["outcome"], rows[0]["v"], rows[0]["by"]) == ("void", "V8", "game"), rows
+    wf = rows[0]["wait_flag"]
+    assert wf["read"] is False and wf["published"] >= 1 and wf["last"] == 0 and wf["s"] >= 1.0, wf
+    assert wf["game_s"] is not None and wf["game_s"] >= 1.0, wf
+    assert "never 1, through 1s of both clocks" in rows[0]["why"], rows[0]["why"]
+
+
+def test_segment_walk_wait_unpublished_watch_is_the_drivers_v13_on_the_fake(game):
+    """S21's unpublished watch on the fake (research/o8_design.md 1.2; the reviews' A4 / B4): a test-side wrapper on
+    ``g.send`` drops the ``watch`` verb, so no sample carries Bit[3811] -- as the agent's AppendWatch publishes
+    ``"flags":{}`` on any fault -- and ``timeout_s`` 1: VOID V13 by the DRIVER, naming "never published", the row's
+    ``published`` 0 and ``last`` None. Break: an unread bit read as published 0 (the game's V8 for the instrument's
+    miss)."""
+    SD = _segment_modules()
+
+    def wrap(g, fake, d):
+        send = g.send
+        g.send = lambda *steps, **kw: None if steps and str(steps[0]).startswith("watch ") else send(*steps, **kw)
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait(timeout_s=1)]), wrap=wrap, rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    assert "never published Bit[3811]" in str(out), str(out)
+    wf = _s20_rows(log)[0]["wait_flag"]
+    assert wf["read"] is False and wf["published"] == 0 and wf["last"] is None, wf
+
+
+class _S21St:
+    """A stub sample (``State``'s face that S21 reads): frame, control, field, the watched bit, the clocks."""
+
+    def __init__(self, frame, rt, bit):
+        self.frame, self.control, self.field_id, self._bit = frame, True, 30820, bit
+        self.raw = {} if rt is None else {"rt": rt}
+        self.mtime = None
+        self.player_x, self.player_z, self.player_y = 1342.0, 2252.0, 8958.0
+
+    def flag(self, bit):
+        return self._bit
+
+
+class _S21Session:
+    """A stub session whose samples publish ``rt`` advancing ``rate`` times as fast as the wall's (None: no clock it
+    can read -- no ``rt``, no write time) and the bit as 0; ``wait_for`` polls them as Session.wait_for does and runs out
+    with its "... live samples ..." error."""
+
+    def __init__(self, rate):
+        self.t0, self.rate, self.frame, self.sent = time.time(), rate, 0, []
+
+    @property
+    def state(self):
+        self.frame += 1
+        return _S21St(self.frame, None if self.rate is None else (time.time() - self.t0) * self.rate, False)
+
+    def wait_for(self, predicate, *, timeout=20.0, what="condition"):
+        end, n = time.time() + timeout, 0
+        while time.time() < end:
+            st = self.state
+            n += 1
+            if predicate(st):
+                return st
+            time.sleep(0.01)
+        raise HarnessError(f"timed out after {timeout:.0f}s waiting for {what} over {n} live samples")
+
+    def watch(self, *bits):
+        self.sent.append("watch")
+
+    def unwatch(self):
+        self.sent.append("unwatch")
+
+
+def test_segment_walk_wait_runs_out_on_both_clocks():
+    """S21's two clocks, pure (research/o8_design.md 1.2; the claim review's #5), on a stub session (``_Drive`` without
+    ``__init__``): its samples publish ``rt`` advancing a QUARTER as fast as the wall's, the bit 0 -- ``timeout_s`` 0.5
+    is no verdict until the GAME's clock ran it (about 2 s of wall time: asserted as a lower bound, never "about"),
+    then V8 by the game with ``game_s`` at least 0.5; a stub with no clock it can read: the wall's alone (today's rule),
+    V8 with ``game_s`` None; the run's deadline first (0.3 s left, ``timeout_s`` 5): V13 by the driver, "the budget",
+    ``read`` False. The watch is set and cleared each time. Break: the wall's timeout alone (V8 while the game's clock had
+    run a quarter of it)."""
+    SD = _segment_modules()
+    pred = {"regions": {}, "steps_default": dict(_O2_DEFAULTS)}
+
+    def wait(rate, timeout_s, left=60.0):
+        d = SD._Drive.__new__(SD._Drive)
+        d.g, d.fid, d.members, d.deadline = _S21Session(rate), 30820, {}, time.time() + left
+        step = SD.step_of(pred, _s20_wait(timeout_s=timeout_s))
+        t0 = time.time()
+        verdict, out = SD._Drive.wait_flag(d, step, {})
+        return verdict, out, time.time() - t0, d.g.sent
+    verdict, out, took, sent = wait(0.25, 0.5)
+    assert (verdict, out["v"], out["by"]) == ("void", "V8", "game"), (verdict, out)
+    assert took >= 2.0 and out["wait_flag"]["game_s"] >= 0.5 and out["wait_flag"]["read"] is False, (took, out)
+    assert sent == ["watch", "unwatch"], sent
+    verdict, out, took, sent = wait(None, 0.5)
+    assert (verdict, out["v"], out["by"]) == ("void", "V8", "game") and out["wait_flag"]["game_s"] is None, out
+    assert took >= 0.5 and sent == ["watch", "unwatch"], (took, sent)
+    verdict, out, took, sent = wait(0.25, 5.0, left=0.3)
+    assert (verdict, out["v"], out["by"]) == ("void", "V13", "driver") and "the budget" in out["why"], out
+    assert out["wait_flag"]["read"] is False and took < 5.0 and sent == ["watch", "unwatch"], (took, out)
+
+
+class _S21Frozen(_S21Session):
+    """:class:`_S21Session` whose every window reads NO live sample: ``wait_for`` records the window it is asked for,
+    reads one sample, sleeps the window out and raises Session.wait_for's frozen-channel error (``fresh == 0``) -- what
+    a window of a few tens of ms gives, or a harness stall across a window's end."""
+
+    def __init__(self, rate):
+        super().__init__(rate)
+        self.windows = []
+
+    def wait_for(self, predicate, *, timeout=20.0, what="condition"):
+        self.windows.append(round(timeout, 3))
+        st = self.state
+        predicate(st)
+        time.sleep(max(0.0, timeout))
+        raise HarnessError(f"timed out after {timeout:.0f}s waiting for {what}, and the agent's frame counter never "
+                           f"moved off {st.frame} -- the channel is frozen, so this says nothing about the condition.")
+
+
+def test_segment_walk_wait_short_window_is_the_budget_never_the_channel():
+    """S21's budget edge, pure (research/o8_design.md 11.4, the review's #5), on a stub session whose every window reads
+    no live sample (:class:`_S21Frozen`, Session.wait_for's frozen-channel error): with 0.03 s of the run left NO window
+    is opened -- V13 by the driver, "the budget", the stub asked for nothing; with 0.6 s left (over WAIT_FLOOR_S) the one
+    window is the budget's remainder, and its no-live-sample error, the deadline passed, is the deadline's V13 too; with
+    the deadline far the same error is the instrument's and propagates. A ``timeout_s`` of 0.2 opens a window of the
+    floor, 0.5 s. The watch is set and cleared each time; the test helpers' starvation markers are the driver's. Break:
+    a window under the floor opened (0.03 s: the frozen error escapes as an unclassified HarnessError, no V13)."""
+    SD = _segment_modules()
+    pred = {"regions": {}, "steps_default": dict(_O2_DEFAULTS)}
+    assert SD.NO_LIVE_SAMPLE == _SD_NO_LIVE_SAMPLE and SD.WAIT_FLOOR_S == 0.5, (SD.NO_LIVE_SAMPLE, SD.WAIT_FLOOR_S)
+    assert all(m in _O8_LOAD_VOIDS for m in _SD_NO_LIVE_SAMPLE), _O8_LOAD_VOIDS
+
+    def drive(timeout_s, left):
+        d = SD._Drive.__new__(SD._Drive)
+        d.g, d.fid, d.members, d.deadline = _S21Frozen(1.0), 30820, {}, time.time() + left
+        return d, SD.step_of(pred, _s20_wait(timeout_s=timeout_s))
+    d, step = drive(15.0, 0.03)
+    verdict, out = SD._Drive.wait_flag(d, step, {})
+    assert (verdict, out["v"], out["by"]) == ("void", "V13", "driver") and "the budget" in out["why"], out
+    assert d.g.windows == [] and out["wait_flag"]["read"] is False and d.g.sent == ["watch", "unwatch"], d.g.windows
+    d, step = drive(15.0, 0.6)
+    verdict, out = SD._Drive.wait_flag(d, step, {})
+    assert (verdict, out["v"], out["by"]) == ("void", "V13", "driver") and "the budget" in out["why"], out
+    assert len(d.g.windows) == 1 and SD.WAIT_FLOOR_S <= d.g.windows[0] <= 0.6, d.g.windows
+    assert d.g.sent == ["watch", "unwatch"], d.g.sent
+    d, step = drive(0.2, 60.0)
+    with pytest.raises(HarnessError, match="the channel is frozen"):
+        SD._Drive.wait_flag(d, step, {})
+    assert d.g.windows == [0.5] and d.g.sent == ["watch", "unwatch"], (d.g.windows, d.g.sent)
+    assert _s20_load(HarnessError("x -- the channel is frozen, so"), []) is True
+    assert _s20_load(SD.RouteVoid("Bit[3811] read 0, never 1", v="V8", by="game"), []) is False
+
+
+def test_segment_walk_wait_field_change_is_the_games_v11_on_the_fake(game):
+    """S21's field change on the fake (research/o8_design.md 1.2): the director moves the fake into 30821 on the wait's
+    first ``g.wait_for`` call (a scripted transition: control as it was, nothing pressed), ``timeout_s`` 60 -- VOID V11
+    by the GAME at the cell, ``landed`` 30821 on the row, "nothing pressed". Break: the landing read as the walk's
+    stray (V11 by the driver)."""
+    SD = _segment_modules()
+
+    def wrap(g, fake, d):
+        _s20_on_wait(g, lambda n: _o2_move(fake, 30821) if n == 1 else None)
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait()]), wrap=wrap, rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "game", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    rows = _s20_rows(log)
+    assert len(rows) == 1 and (rows[0]["outcome"], rows[0]["landed"]) == ("void", 30821), rows
+    assert "during the flag wait, nothing pressed: landed in 30821" in rows[0]["why"], rows[0]["why"]
+
+
+def test_segment_walk_wait_control_loss_is_interrupted_on_the_fake(game):
+    """S21's control loss on the fake (research/o8_design.md 1.2), every event keyed on a call: control taken on the
+    wait's first ``g.wait_for`` call, P1 away from every exit -- the walk is ``interrupted`` ("control went during the
+    flag wait for Bit[3811] == 1", no door), control given back once that row is logged, and the re-run walks his few
+    units back to P1 and waits again: on its first ``wait_for`` call the bit is stored -- DONE, attempt 2. With a
+    registered exit 5u west of P1 (within ``exit_slack`` 40 wherever the walk stops) and its switch coming 20 fake frames
+    after the loss: VOID V11 by the DRIVER, ``door`` the exit, ``landed`` 30821 -- the landing judge's (door_loss). Break:
+    control gone read as the run-out (V8)."""
+    SD = _segment_modules()
+
+    def regrant(log, fake):
+        return [(lambda f: any(r.get("k") == "step" and r["outcome"] == "interrupted" for r in list(log)),
+                 lambda f: setattr(f, "control", True))]
+
+    def wrap(g, fake, d):
+        def act(n):
+            if n == 1:
+                fake.control = False
+            elif n == 2:
+                fake.script_store(1, 1, 230, _S20_FLAG >> 3, "Bit", 1, bit=_S20_FLAG)
+        _s20_on_wait(g, act)
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait()]), wrap=wrap, phases=regrant, rerun=_s20_load)
+    assert isinstance(out, dict) and out["end"] == "reached", out
+    rows = _s20_rows(log)
+    assert [(r["outcome"], r["attempt"]) for r in rows] == [("interrupted", 1), ("done", 2)], rows
+    assert rows[0]["why"] == f"control went during the flag wait for Bit[{_S20_FLAG}] == 1" and rows[0]["door"] is None, \
+        rows[0]
+    assert rows[0]["wait_flag"]["read"] is None and rows[1]["wait_flag"]["read"] is True, rows
+    door = _rect(1037, 2100, 1337, 2400)                 # its east edge 5u west of P1
+
+    def wrap_door(g, fake, d):
+        def act(n):
+            if n == 1:
+                fake.control = False
+                wrap_door.due = fake.frame + 20
+        wrap_door.due = None
+        _s20_on_wait(g, act)
+
+    def switch(log, fake):
+        return [(lambda f: wrap_door.due is not None and f.frame >= wrap_door.due, lambda f: _o2_move(f, 30821))]
+    pred = _s20_pred([_s20_wait()], regions={"30820.door": {"points": door, "role": "exit"}})
+    out, log, _fake = _s20_drive(game, pred, wrap=wrap_door, phases=switch, rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V11", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s20_rows(log)[0]
+    assert (row["outcome"], row["door"], row["landed"]) == ("void", "30820.door", 30821), row
+
+
+def test_segment_walk_wait_deadline_is_the_drivers_v13_on_the_fake(game):
+    """S21's deadline on the fake (research/o8_design.md 1.2): the run's deadline set 1 s after the walk's arrival (the
+    drive's own, through a wrapper on route_to), ``timeout_s`` 15 -- VOID V13 by the DRIVER on the row ("the run's budget
+    ran out during the flag wait"), ``read`` False, ``s`` under 15. Break: the deadline read as the wait's timeout (V8 by
+    the game)."""
+    SD = _segment_modules()
+
+    def wrap(g, fake, d):
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)
+            d.deadline = time.time() + 1.0
+            return rec
+        g.route_to = route_to
+    out, log, _fake = _s20_drive(game, _s20_pred([_s20_wait(timeout_s=15)]), wrap=wrap, rerun=_s20_load)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s20_rows(log)[0]
+    assert (row["outcome"], row["v"], row["by"]) == ("void", "V13", "driver"), row
+    assert "the run's budget ran out during the flag wait" in row["why"], row["why"]
+    assert row["wait_flag"]["read"] is False and row["wait_flag"]["s"] < 15, row["wait_flag"]
+
+
+# ---- A2: S22 (research/o8_design.md 1.2) -- A y AXIS ON ``until``: ``until_ok`` checks every key FIRST and raises on a y
+# term with no height (never a silent False), and both trigger executors give a y-until's loss his published height --
+# route_to's probe (no y) the ring's sample of its frame AS route_to RETURNS, the executor's own sample its own -- a loss
+# with none the driver's V13. On S14's door fixture (30820's north door, its tag 2 firing past z 600, ExitField's walk-out
+# north, the end 30821) with a test-side plane in 30820, y = 7000 + 10 z: ``y_gt`` 12000 there is S14's ``z_gt`` 500 by
+# height; 30821's arrival publishes y 0.
+
+#: 30820's height on S14's floor: y = 7000 + 10 z (three (x, z, y) anchors for :func:`_o8_plane`).
+_S22_PLANE = ((0.0, 0.0, 7000.0), (100.0, 0.0, 7000.0), (0.0, 100.0, 8000.0))
+#: S14's north door step with its evidence by height: ``y_gt`` 12000 (z > 500 on the plane).
+_S22_STEP = dict(_S14_STEP, until={"y_gt": 12000})
+
+
+def _s22_fake(game, **kw):
+    """:func:`_s14_fake` with 30820's plane (:data:`_S22_PLANE`) over it."""
+    fake = _s14_fake(game, **kw)
+    _o8_plane(fake, {30820: _S22_PLANE})
+    return fake
+
+
+def _s22_drive(game, make, pred, *, gated=False, wrap=None, drive_wrap=None, spoiled=None):
+    """One S22 drive on the fake (:func:`_s14_drive`'s shape, re-run at most twice on its load classes or ``spoiled``):
+    the drive built here (``SD._Drive``, as ``drive`` builds it), so ``drive_wrap(d)`` can reach it; ``wrap(g, fake)``
+    the session's calls. ``(outcome or the void raised, log, fake, the ring's raw samples at the end)``."""
+    SD = _segment_modules()
+    for attempt in range(3):
+        fake = make()
+        gate = threading.Event() if gated else None
+        fake.exit_gate = gate
+        log = _S14Log(gate) if gated else []
+        with session(game, fake) as g:
+            boot(g)
+            g.warp(30820, entrance=102, scenario=1000)
+            _stand(g, fake, 0, -300)
+            for f in (30820, 30821, 30810):
+                g._axes[f] = _prior()
+            if wrap is not None:
+                wrap(g, fake)
+            d = SD._Drive(g, pred, "S", log, deadline=time.time() + 90.0,
+                          floor_for=lambda dn, closed: _flat_bgi(*_S14_FLOOR), prior_for=lambda dn: _prior(),
+                          progress=None, end_fields=None, observe=None, forbid_live=False)
+            if drive_wrap is not None:
+                drive_wrap(d)
+            try:
+                out = d.go()
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+            ring = [raw for _t, _age, raw in g._ring._buf]
+        load = (getattr(out, "by", "driver") == "driver" and any(m in str(out) for m in _S14_LOAD)) \
+            if isinstance(out, Exception) else False
+        if attempt == 2 or not (load or (spoiled is not None and spoiled(out, log))):
+            return out, log, fake, ring
+
+
+def test_segment_until_ok_y_axis_raises_without_y():
+    """S22's ``until_ok``, pure (research/o8_design.md 1.2; the critic's #6, the claim review's #10): a ``y_`` term judges
+    his published height -- ``{y_gt: 12000}`` True at y 13000, False at 11000 -- and RAISES with no height given,
+    whatever x and z read: ``{x_le: 900, y_gt: 1}`` at x 1000 raises (the y check precedes the evaluation: a failing x
+    term cannot hide it), and so do ``{y_gt: 1}`` and ``{w_gt: 1}`` with x None (every key checked before the None rule:
+    "x|z|y + _"); ``{x_le: 900}`` with no y is today's (True at 800, False with x None). ``has_y`` says whether a
+    predicate holds a y term. Break: a missing y read as False, or the None rule run first (``{y_gt: 1}`` with x None
+    then reads False)."""
+    SD = _segment_modules()
+    assert SD.until_ok({"y_gt": 12000}, 0, 0, 13000) is True and SD.until_ok({"y_gt": 12000}, 0, 0, 11000) is False
+    assert SD.until_ok({"x_le": 900, "y_ge": 5}, 800, 0, 5) is True
+    for expr, x, y in (({"y_gt": 12000}, 0, None), ({"x_le": 900, "y_gt": 1}, 1000, None), ({"y_gt": 1}, None, None)):
+        with pytest.raises(ValueError, match="needs his height"):
+            SD.until_ok(expr, x, 0, y)
+    with pytest.raises(ValueError, match=re.escape("is not x|z|y + _ + le|lt|ge|gt")):
+        SD.until_ok({"w_gt": 1}, None, 0)
+    assert SD.until_ok({"x_le": 900}, 800, 0) is True and SD.until_ok({"x_le": 900}, None, 0) is False
+    assert SD.has_y({"y_gt": 1}) and SD.has_y({"x_le": 1, "y_le": 2})
+    assert not SD.has_y({"x_le": 1}) and not SD.has_y(None) and not SD.has_y({})
+
+
+def test_segment_trigger_until_y_reads_the_loss_height_from_the_ring_on_the_fake(game):
+    """S22 in ``x_trigger_to`` on the fake (research/o8_design.md 1.2): S14's north door walked by a trigger whose
+    evidence is his HEIGHT, ``until {y_gt: 12000}`` and ``to`` 30821, on 30820's plane -- the door fires past z 600 (y
+    13000 on the plane), route_to's probe sample carries no y, and the step row's ``lost.y`` is the ring sample's y at
+    ``lost.frame`` -- over 12000 -- read as route_to returned: DONE in ``to``, the run reaching 30821; route_to's own
+    record keeps its loss as it was (no ``y``). Again with the switch EVICTING the loss sample (a test-side wrapper on
+    ``_Drive.switch`` empties the ring before it returns: a slow load; the exit gate held until route_to returns, so
+    ``left_for`` must wait the switch out): ``lost.y`` still read -- loss_y runs as route_to returns, before
+    ``left_for`` (the driver review's #3). Break: the y read from the state after the switch (30821's 0 then fails the
+    evidence) or ``loss_y`` after ``left_for`` (the ring then empty: V13)."""
+    out, log, _fake, ring = _s22_drive(game, lambda: _s22_fake(game, stop_z=700), _s14_pred(_S22_STEP), gated=True)
+    assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, out
+    row = _s14_step_row(log)
+    assert (row["outcome"], row["v"]) == ("done", None), row
+    lost = row["lost"]
+    raw = next((r for r in ring if int(r.get("frame", -1)) == lost["frame"]), None)
+    assert raw is not None and lost["field"] == 30820 and not lost["control"], (lost, raw)
+    assert lost["y"] == round(float(raw["player"]["y"]), 1) and lost["y"] > 12000, (lost, raw["player"])
+    assert "y" not in (row["route"]["lost"] or {}), row["route"]["lost"]
+
+    def hold_then_flip(g, fake):
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)                       # path A: the gate holds the switch until the walk returns
+            fake.exit_gate.set()
+            g.wait_for(lambda s: s.field_id != 30820, timeout=30.0, what="the door's switch")
+            return rec
+        g.route_to = route_to
+
+    def evict(d):
+        real = d.switch
+
+        def switch(out_, where, wait):
+            new = real(out_, where, wait)
+            d.g._ring.clear()                            # a slow load: the loss sample gone from the ring
+            evict.cleared = True
+            return new
+        d.switch = switch
+    evict.cleared = False
+    out, log, _fake, _ring = _s22_drive(game, lambda: _s22_fake(game, stop_z=700), _s14_pred(_S22_STEP),
+                                        gated=True, wrap=hold_then_flip, drive_wrap=evict)
+    assert isinstance(out, dict) and out["end"] == "reached", out
+    row = _s14_step_row(log)
+    assert evict.cleared and (row["outcome"], row["landed"]) == ("done", 30821), row
+    assert row["lost"]["field"] == 30820 and row["lost"]["y"] > 12000, row["lost"]
+
+
+def test_segment_trigger_until_y_unread_height_is_the_drivers_v13_on_the_fake(game):
+    """S22's unread height on the fake (research/o8_design.md 1.2; the claim review's #10): the ring emptied as route_to
+    returns, before the loss's y is read (a test-side wrapper: the probe frame gone) -- VOID V13 by the DRIVER at the
+    cell, naming the loss's frame ("has no height"), the row's ``lost.y`` None; and a loss the executor's OWN sample
+    reads (the walk stopped short of the fire line at (0, 550) with control held, then control taken -- and the
+    published y blanked from then on -- by a test-side wrapper on route_to's return): V13 by the driver too, never a
+    TypeError. Break: the missing y read as False (the loss in the registered door then the landing judge's: V11 or
+    interrupted) or ``round(None)`` (a TypeError)."""
+    SD = _segment_modules()
+
+    def empty_ring(g, fake):
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)
+            g._ring.clear()
+            return rec
+        g.route_to = route_to
+    out, log, _fake, _ring = _s22_drive(game, lambda: _s22_fake(game, stop_z=700), _s14_pred(_S22_STEP),
+                                        gated=True, wrap=empty_ring)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert row["lost"]["y"] is None and row["lost"]["field"] == 30820, row["lost"]
+    assert f"the loss at frame {row['lost']['frame']} in 30820 has no height" in str(out), str(out)
+
+    def blank_own(g, fake):
+        real = g.route_to
+
+        def route_to(x, z, **kw):
+            rec = real(x, z, **kw)
+            fake.control = False                         # the trigger takes control after the walk ends ...
+            fake.player[1] = None                        # ... and every sample from here publishes no height
+            return rec
+        g.route_to = route_to
+    short = dict(_S22_STEP, goal=[0, 550])               # 50u short of the fire line: no fire, control held
+    out, log, _fake, _ring = _s22_drive(game, lambda: _s22_fake(game, stop_z=700), _s14_pred(short), wrap=blank_own)
+    assert isinstance(out, SD.RouteVoid), out
+    assert (out.v, out.by, out.cell) == ("V13", "driver", [30820, 1000, 1]), (out.v, out.by, out.cell, str(out))
+    row = _s14_step_row(log)
+    assert row["lost"]["y"] is None and row["lost"]["field"] == 30820 and "has no height" in row["why"], row
+
+
+def test_segment_trigger_until_without_y_keeps_todays_row_on_the_fake(game):
+    """S22 IS OPT-IN (research/o8_design.md 1.2): S14's door with its ``z_gt`` 500 until -- no y term -- walked by the
+    landing-aware trigger (``to``) and by today's trigger (no ``to``), each on path A (the exit gate held until the row
+    is logged): DONE, and the row's ``lost`` holds no ``y`` key -- every O1-O7 row reads as today. Break: y always
+    added."""
+    for step in (_S14_STEP, {k: v for k, v in _S14_STEP.items() if k != "to"}):
+        out, log, _fake, _ring = _s22_drive(game, lambda: _s14_fake(game, stop_z=700), _s14_pred(step), gated=True)
+        assert isinstance(out, dict) and out["end"] == "reached" and out["beats"] == {"door": True}, (step, out)
+        row = _s14_step_row(log)
+        assert row["outcome"] == "done" and row["lost"]["z"] > 500 and "y" not in row["lost"], (step, row)
+
+
+# ---- A3: S23 (research/o8_design.md 1.2) -- THE OPT-IN ``unstick``: a step's ``unstick`` (a bool, read strict by
+# ``step_of``) reaches route_to only when the step carries it -- today's literal True otherwise -- and the step row
+# carries it the same way. With the step's ``npcs`` false it turns route_to's stall ladder off (no wait, no push, no
+# blocker): THE PINCH's fallback alone (2.5). The stall: O2's fixture with S23's freeze strip across the walk's line,
+# never lifting (deterministic).
+
+def test_segment_walk_kw_passes_unstick_only_when_carried():
+    """S23's ``walk_kw``, pure (research/o8_design.md 1.2; O7's unit_walk_kw stub shape): a step without ``unstick``
+    passes today's literal True; ``unstick`` False passes False and True passes True, every other keyword as the plain
+    step's; and the step row (``run_step`` on a stub drive, its executor stubbed) carries ``unstick`` only when the step
+    does. Break: a default of False (the plain walk then loses its ladder)."""
+    import types
+    SD = _segment_modules()
+    pred = {"regions": {}, "steps_default": dict(_O2_DEFAULTS)}
+    stub = types.SimpleNamespace(pred=pred, floor=lambda closed=None: "mesh", prior_for=lambda d: _prior(), donor=30820)
+    walk = {"kind": "walk", "goal": [0, 900]}
+    plain = SD._Drive.walk_kw(stub, SD.step_of(pred, walk))
+    assert plain["unstick"] is True, plain
+    for flag in (False, True):
+        kw = SD._Drive.walk_kw(stub, SD.step_of(pred, {**walk, "unstick": flag}))
+        assert kw["unstick"] is flag and {**kw, "unstick": True} == plain, (flag, kw)
+    st = types.SimpleNamespace(frame=99, control=True, player_x=0.0, player_z=0.0)
+    d = SD._Drive.__new__(SD._Drive)
+    d.g = types.SimpleNamespace(state=st, states_since=lambda frame: [])
+    d.pred, d.log, d.steps, d.tries, d.done, d.beats = pred, [], [], {}, {}, {}
+    d.visit, d.donor, d.sc, d.fid, d.t0, d.since, d.walked, d.to_row = 1, 30820, 1000, 30820, time.time(), 0.0, None, None
+    d.x_walk = lambda s: ("done", {"route": None, "lost": None, "landed": None})
+    cell = {"donor": 30820, "sc": 1000, "visit": 1,
+            "steps": [walk, {**walk, "unstick": False}, {**walk, "unstick": True}]}
+    for n in range(3):
+        d.run_step(cell, n, st)
+    assert "unstick" not in d.log[0] and d.log[1]["unstick"] is False and d.log[2]["unstick"] is True, d.log
+
+
+def test_segment_unstick_false_places_no_blocker_on_a_stall_on_the_fake(game):
+    """S23 on the fake (research/o8_design.md 1.2, 2.5): O2's fixture, a freeze strip across the walk's line that never
+    lifts (a deterministic stall), the walk's ``npcs`` false (O2's default), one attempt -- with ``unstick`` False
+    route_to runs NO ladder: ``_blocker_ahead`` (counted on the instance) never called, the record's ``waits`` and
+    ``pushes`` 0 and ``blockers`` empty, the walk ``failed`` (V7 by the driver), its row carrying ``unstick`` False;
+    with ``unstick`` True the same stall reaches the ladder -- waits, a push, a blocker (then withdrawn: he never moved,
+    ``frozen``) -- and fails the same way. Break: ``walk_kw`` ignoring the key (the unstick-False walk then climbs the
+    ladder)."""
+    SD = _segment_modules()
+
+    def setup(fake):
+        fake.freezes = {30820: [{"zone": _BAND, "frames": None}]}
+
+    def counting(g, fake):
+        real = g._blocker_ahead
+        counting.calls = []
+
+        def ahead(*a, **kw):
+            counting.calls.append(a)
+            return real(*a, **kw)
+        g._blocker_ahead = ahead
+        g.ROUTE_WAIT_SECONDS = 0.5                      # the ladder's waits short: the test's speed, not its verdict
+    seen = {}
+    for flag in (False, True):
+        pred = _s17_pred([_s17_walk(goal=[200, 0], unstick=flag, attempts=1)])
+        out, log, fake = _s17_drive(game, pred, setup=setup, wrap=counting, start=(-400, 0))
+        assert isinstance(out, SD.RouteVoid) and (out.v, out.by) == ("V7", "driver"), (flag, out)
+        rows = _s17_rows(log, "walk")
+        assert len(rows) == 1 and rows[0]["outcome"] == "failed" and rows[0]["unstick"] is flag, (flag, rows)
+        assert fake._froze and not rows[0]["route"]["reached"], "premise: the walk stepped on the freeze"
+        seen[flag] = (len(counting.calls), rows[0]["route"])
+    calls, route = seen[False]
+    assert calls == 0 and (route["waits"], route["pushes"], route["blockers"]) == (0, 0, []), seen[False]
+    calls, route = seen[True]
+    assert calls >= 1 and route["waits"] >= 1 and route["pushes"] >= 1 and route["frozen"], seen[True]
+
+
+# ---- B1: H26 (research/o8_design.md 3.1) -- THE PER-FIELD CLEARANCE: ``fake.clearances {field id: radius}`` read
+# through ``FakeGame._clearance`` wherever a step reads the clearance (the levels' radius rule, the never-closer rule,
+# H21's squeeze, the push-out), the global ``fake.clearance`` its default -- 164's Steiner walks at radius 80
+# (DoEventCode.cs:1507-1508), 165's at 120, in one run. And THE SPIRALS' MESHES (3.3): stock 164 and 165 under H20's
+# levels, Steiner placed on loop 1 by the bytes' MoveInstantXZY heights, and THE PINCH (2.5) on 164 #1's plan at
+# clearance 64: passed with ``squeeze_slack`` 12, stopped at its mouth with 8. Stepped BY HAND (``_lv_fake``: 60 fps,
+# mean ticks, no trace).
+
+#: 164's and 165's spawns (each Main_Init's grant point), P1s (each step 0's goal) and each step 1's goal
+#: (research/o8_design.md 2.4); the bytes' MoveInstantXZY y operands at the spawns (164 e7 t0 ip89's Map.Int16[2] 59889 =
+#: -5647; 165 e7 t0 ip81's 55017 = -10519): PSX y, up negative.
+_O8_SPAWN = {"164": (2040, 3335), "165": (2055, 3411)}
+_O8_SPAWN_Y = {"164": -5647, "165": -10519}
+_O8_P1 = {"164": (1342, 2252), "165": (1508, 4698)}
+_O8_GOAL1 = {"164": (59, 2214), "165": (2489, 3166)}
+#: Each step's height band (research/o8_design.md 2.4: PSX y, up negative) -- its closures every open triangle whose
+#: centroid lies outside it (:func:`_o8_band_closures`).
+_O8_BANDS = {("164", 0): (-9500, -4700), ("164", 1): (-13100, -8700), ("165", 0): (-11800, -9500),
+             ("165", 1): (-16000, -11000)}
+#: 164's Steiner radius (DoEventCode.cs:1507-1508: SetObjectLogicalSize's 30 made 20 on 164, x 4), and THE PINCH
+#: WINDOW on it (research/o8_design.md 1.3: x, z and his PUBLISHED y -- loop 1 crosses the same XZ at ~5600-5900).
+_O8_RADIUS164 = 80.0
+_O8_PINCH = {"x": (900.0, 1310.0), "z": (4460.0, 4600.0), "y": (10400.0, 11100.0)}
+#: THE PINCH's narrowest point on 164 #1's plan (half-width 68.6, PSX -10695) and the plan's waypoint past it.
+_O8_PINCH_AT = (1202.0, 4520.0)
+_O8_PINCH_PAST = (894.0, 4588.0)
+
+
+def _o8_band_closures(pw, lo, hi) -> list:
+    """research/o8_design.md 1.3's ``band_closures``, test-side (C1's own must equal it): every OPEN triangle of ``pw``
+    (a PlayerWalkmesh: its mask-closed ones aside) whose centroid's PSX y lies outside [``lo``, ``hi``] -- a step's
+    floor cut to its one level. Sorted."""
+    mesh = getattr(pw, "mesh", pw)
+    closed = getattr(pw, "closed", frozenset())
+    wv, tris = mesh.world_verts(), mesh.tris
+    return sorted(i for i in range(len(tris)) if i not in closed
+                  and not lo <= sum(wv[k][1] for k in tris[i].vtx) / 3 <= hi)
+
+
+def _o8_plan(pw, closed, start, goal, avoid=(), clearance=_O8_RADIUS164) -> list:
+    """route_to's own plan (:func:`_o7_plan154`'s): route_avoiding over ``pw``'s mesh with ``closed`` shut, from ``start``
+    to ``goal`` round ``avoid``, KEEPOUT_MARGIN_W, leave_wall, at ``clearance``."""
+    from ff9mapkit.content import pathfind
+    floor = pathfind.PlayerWalkmesh(getattr(pw, "mesh", pw), closed=closed)
+    return pathfind.route_avoiding(floor, tuple(map(float, start)), tuple(map(float, goal)), list(avoid),
+                                   pathfind.KEEPOUT_MARGIN_W, leave_wall=True, clearance=clearance)
+
+
+def _o8_track(fake, wps, *, tol=20.0, limit=400) -> tuple:
+    """:func:`_lv_press` at each waypoint of ``wps`` in turn -- at most ``limit`` frames a waypoint -- until one is not
+    reached within ``tol`` (he stood still short of it): ``(every frame's (frame, x, y, z), the waypoints reached)``."""
+    track, reached = [], 0
+    for wx, wz in wps:
+        track += _lv_press(fake, wx, wz, tol=tol, limit=limit)
+        if math.hypot(fake.player[0] - wx, fake.player[2] - wz) > tol:
+            break
+        reached += 1
+    return track, reached
+
+
+def test_fake_spiral_clearance_per_field_defaults_to_the_global(game):
+    """H26 (research/o8_design.md 3.1): ``fake.clearances`` is read per field, the global ``fake.clearance`` its
+    default. On a flat corridor 400 wide pinched to 180 (half-width 90 over z 0-200, no squeeze), under H20's levels in
+    two fields: an EMPTY ``clearances`` walks every step as today -- a press up the corridor recorded at the global 120
+    and again with an entry equal to it, frame for frame the same (he stops at the 180 corridor's mouth); with
+    ``{30860: 80}`` and the global 120 the same press passes the corridor in 30860 and stops him at its mouth in 30861.
+    The push-out reads the field's radius too: placed 100 u off a wall in 30860 and pressed along it he stays 100 off
+    (100 >= 80: no push), placed 60 off he is pushed out to 80 -- never 120. Break: ``_move_to`` reading the global (the
+    100-u placement pushed to 120; the corridor stops him in 30860 too), or ``_pushed_out`` reading it (the 60-u
+    placement pushed to 120)."""
+    from harness.fakegame import Levels
+    lv = Levels(_lv_pinch_bgi(half=200.0, pinch=90.0))
+
+    def walk(fid, clearances):
+        fake = _lv_fake(game, fid, lv)                   # the global 120
+        fake.levels = {30860: lv, 30861: lv}
+        fake.clearances = dict(clearances)
+        fake.player = [0.0, 0.0, -600.0]
+        fake.place_height(0.0, -600.0, 0.0)
+        return _lv_press(fake, 0.0, 600.0, still=20), fake
+    base, _f = walk(30860, {})
+    same, _f = walk(30860, {30860: 120.0})
+    assert base == same and base, "an entry equal to the global walks every frame as no entry does"
+    assert -110 <= base[-1][3] <= -50, base[-1]                         # the 180 corridor's mouth at radius 120
+    _t, fake = walk(30860, {30860: 80.0})
+    assert fake.player[2] >= 580, fake.player                            # through the corridor at radius 80
+    _t, fake = walk(30861, {30860: 80.0})
+    assert -110 <= fake.player[2] <= -50, fake.player                    # 30861 at the global 120: its mouth
+
+    def placed(x):
+        fake = _lv_fake(game, 30860, lv)
+        fake.clearances = {30860: 80.0}
+        fake.player = [x, 0.0, -600.0]
+        fake.place_height(x, -600.0, 0.0)
+        return _lv_press(fake, x, -300.0, tol=5.0)[0]    # up along the east wall (x = 200): his first moving frame
+    first = placed(100.0)
+    assert first[1] == pytest.approx(100.0) and first[3] > -600, first   # 100 off a wall: no push at radius 80
+    first = placed(140.0)
+    assert 200.0 - first[1] == pytest.approx(80.0, abs=1.0), first      # 60 off: pushed out to 80, never 120
+
+
+def test_fake_spiral_meshes_hold_the_levels_premises(dali):
+    """H20's PREMISES on stock 164 and 165 (research/o8_design.md 3.3; the walk-machinery reader): every pair of open
+    neighbours shares its edge's heights; the steepest change of height a 60-u step makes on an open triangle --
+    MEASURED and printed (93.5 on 164, 76.7 on 165 at the research) -- lies under LEVEL_STEP_DY; and each spiral's
+    stacked open triangles lie further apart than 2 x LEVEL_BAND -- MEASURED and printed (4857.6 / 4774.1). Each of the
+    four steps' bands (2.4) closes a measured number of open triangles (printed: 93, 99, 64 and 16 at the research) and
+    leaves ONE level -- no two of its open triangles overlap in XZ -- so the planner's floor-blind floor is the step's.
+    Numbers printed, bounds asserted, never the numbers. Reads the install (a warned skip fails G44). Break:
+    LEVEL_STEP_DY under the measured slope, or a band that leaves two levels open."""
+    from harness.fakegame import LEVEL_BAND, LEVEL_STEP_DY, Levels
+    from ff9mapkit.content import pathfind
+    from ff9mapkit.scene import bgi
+    wm, _script = dali
+    for fid in (164, 165):
+        pw = wm(fid)
+        lv = Levels(pw)
+        assert lv.open, fid
+        tris = lv.mesh.tris
+        for ti in sorted(lv.open):
+            for k, (i, j) in enumerate(bgi.SLOT_PAIRS):
+                n = tris[ti].nbr[k]
+                if 0 <= n < len(tris) and n in lv.open:
+                    for v in (lv._wv[tris[ti].vtx[i]], lv._wv[tris[ti].vtx[j]]):
+                        assert abs(lv.height(n, v[0], v[2]) - v[1]) <= 1.0, (fid, ti, n, v)
+        steep, tri = _lv_steepest(lv)
+        gap = _lv_stacked_gap(lv)
+        print(f"stock {fid}: the steepest 60-u step changes his height by {steep:.1f} (tri {tri}); the least gap "
+              f"between stacked open triangles {gap:.1f}")
+        assert steep < LEVEL_STEP_DY, (fid, steep, tri, LEVEL_STEP_DY)
+        assert gap != math.inf and gap > LEVEL_STEP_DY and gap > 2 * LEVEL_BAND, (fid, gap, LEVEL_STEP_DY, LEVEL_BAND)
+        for n in (0, 1):
+            lo, hi = _O8_BANDS[(str(fid), n)]
+            closed = _o8_band_closures(pw, lo, hi)
+            one = _lv_stacked_gap(Levels(pathfind.PlayerWalkmesh(pw.mesh, closed=closed)))
+            print(f"stock {fid} step {n}: band [{lo}, {hi}] closes {len(closed)} of {len(lv.open)} open triangles")
+            assert 0 < len(closed) < len(lv.open) and one == math.inf, (fid, n, len(closed), one)
+
+
+def test_fake_spiral_places_steiner_on_loop_1(game, dali):
+    """H20's PLACEMENT on the spirals (research/o8_design.md 3.3, 10 #1): each grant with the bytes' MoveInstantXZY y
+    operand stands him on loop 1, the open triangle under him NEAREST that height (GetTriIdxAtPos,
+    FieldMapActorController.cs:1279-1306) -- 164 ``[2040, 3335, -5647]`` publishes y 4780 +- 1 (tri 145), never loop 2's
+    9776 (tri 110, over it); 165 ``[2055, 3411, -10519]`` publishes 10280 (tri 57), never 15133 (tri 47). Reads the
+    install. Break: place_height taking the first triangle under him (each then lands on the upper loop)."""
+    from harness.fakegame import Levels
+    wm, _script = dali
+    for fid, place, tri, upper, y in ((30860, "164", 145, 110, 4780.0), (30861, "165", 57, 47, 10280.0)):
+        lv = Levels(wm(int(place)))
+        x, z = _O8_SPAWN[place]
+        h = _O8_SPAWN_Y[place]
+        assert (lv.tri_nearest(x, z, h), lv.tri_nearest(x, z, -99999)) == (tri, upper), "premise: two loops here"
+        fake = _lv_fake(game, fid, lv, steps=[{"grant": [x, z, h]}, {"wait": 100000}])
+        fake.clearances = {30860: _O8_RADIUS164}
+        _cb_until(fake, lambda f: f.control, limit=200)
+        assert (fake.player[0], fake.player[2]) == (float(x), float(z)), fake.player
+        assert fake.player[1] == pytest.approx(-lv.height(tri, x, z), abs=0.01), (place, fake.player)
+        assert fake.player[1] == pytest.approx(y, abs=1.0), (place, fake.player)
+        assert abs(fake.player[1] + lv.height(upper, x, z)) > 1000, (place, fake.player)    # never the loop above
+
+
+def test_fake_spiral_pinch_passes_at_slack_12_not_8(game, dali):
+    """THE PINCH on the fake (research/o8_design.md 2.5, 3.1, 3.3; H21 with H26): stock 164's levels, the field's
+    clearance 80 (``clearances {30860: 80}``; the global 120, which would close the spiral), presses by hand along 164
+    #1's plan (route_avoiding at clearance 64 over its band's floor, [-13100, -8700]) from P1 at the bytes' height
+    through THE PINCH WINDOW: with ``squeeze_slack`` 12 he passes the narrowest point (1202, 4520) -- half-width 68.6,
+    within 80 - 12 -- on its midline and reaches (894, 4588), every frame in the window at the window's published y;
+    with 8 (O7's SQUEEZE_SLACK_W) he STOPS at the pinch's mouth -- in the window, east of the narrowest point -- and
+    stands there (the refused step: H21's, research/o8_design.md 11.4 PART B #1). Reads the install. Break: the squeeze
+    without its bound (the 8 then passes too), or the refused step dropped (the 8 then jitters at the mouth, squeezed
+    in and pushed back out a frame at a time: it never stands)."""
+    from harness.fakegame import Levels
+    wm, _script = dali
+    pw = wm(164)
+    lo, hi = _O8_BANDS[("164", 1)]
+    plan = _o8_plan(pw, _o8_band_closures(pw, lo, hi), _O8_P1["164"], _O8_GOAL1["164"], clearance=64.0)
+    assert plan is not None, "premise: 164 #1 routes at clearance 64"
+    k = next(i for i, p in enumerate(plan) if math.hypot(p[0] - _O8_PINCH_PAST[0], p[1] - _O8_PINCH_PAST[1]) < 5)
+    win = _O8_PINCH
+
+    def inside(x, y, z) -> bool:
+        return win["x"][0] <= x <= win["x"][1] and win["z"][0] <= z <= win["z"][1] and win["y"][0] <= y <= win["y"][1]
+    got = {}
+    for slack in (12.0, 8.0):
+        lv = Levels(pw, squeeze_slack=slack)
+        fake = _lv_fake(game, 30860, lv)
+        fake.clearances = {30860: _O8_RADIUS164}
+        fake.player = [float(_O8_P1["164"][0]), 0.0, float(_O8_P1["164"][1])]
+        fake.place_height(*map(float, _O8_P1["164"]), -8958.0)
+        track, reached = _o8_track(fake, plan[:k + 1])
+        got[slack] = (track, reached, list(fake.player))
+        print(f"164 #1 at squeeze_slack {slack}: {reached} of {k + 1} waypoints, ended at ({fake.player[0]:.0f}, "
+              f"{fake.player[2]:.0f}) y {fake.player[1]:.0f}")
+    track, reached, end = got[12.0]
+    assert reached == k + 1 and math.hypot(end[0] - _O8_PINCH_PAST[0], end[2] - _O8_PINCH_PAST[1]) <= 20, end
+    assert min(math.hypot(x - _O8_PINCH_AT[0], z - _O8_PINCH_AT[1]) for _f, x, _y, z in track) <= 30, "the pinch"
+    pinch = [(x, y, z) for _f, x, y, z in track if win["x"][0] <= x <= win["x"][1] and win["z"][0] <= z <= win["z"][1]]
+    assert pinch and all(inside(x, y, z) for x, y, z in pinch), pinch[:3]
+    track, reached, end = got[8.0]
+    assert reached < k and inside(end[0], end[1], end[2]) and end[0] > _O8_PINCH_AT[0] + 25, (reached, end)
+    assert min(x for _f, x, _y, z in track if z > win["z"][0]) > _O8_PINCH_AT[0] + 25, "never past the narrowest"
+    still = [(round(x, 3), round(z, 3)) for _f, x, _y, z in track[-10:]]
+    assert len(set(still)) == 1, still                                   # he STANDS at the mouth: no jitter
+
+
+# ---- B2: H25 (research/o8_design.md 3.2) -- THE KNIGHT WALKER: a walker body's ``start`` (released by the PLAYER's
+# published height, latched) and ``store`` (a script store ``after_ticks`` field ticks after its last index, ONCE, on the
+# body: gone with its visit), and the pair band for such a body (held by him only at |dy| < 400). On 164's box with its
+# test-side plane (3.6), stepped BY HAND at 60 fps, mean ticks (half a tick a frame), the trace on.
+
+#: O8's fixture fields by the place they stand for (research/o8_design.md 3.6): S 30860-30862 the route's 164, 165 and
+#: 166, 30864 the back door's 163; F O4's members. The end is the LITERAL real 55 on both sides (a seam needs a field of
+#: the game's own table: storytrace.real_field).
+_O8_FIELDS = {"S": {"164": 30860, "165": 30861, "166": 30862, "55": 55, "163": 30864},
+              "F": {"164": 31256, "165": 31257, "166": 31258, "55": 55, "163": 31255}}
+#: THE KNIGHT (164 e1; research/o8_design.md 3.2): placed at (249, 4630) on loop 2 (t0 ip14 / ip22), his four Walks (t1
+#: ip194-ip215's 2-byte signed operands) at SetWalkSpeed(15) -- 7.5 u a 60-fps frame -- to his seat (-586, 3884); the
+#: store ip230 ``Bit[3811] := 1`` 61 ticks after his last index (ip221-ip230: the stand anim, RunAnimation(9920)'s 59
+#: frames and WaitAnimation).
+_O8_KNIGHT_PATH = [[249, 4630], [-31, 4436], [-246, 4288], [-409, 4128], [-586, 3884]]
+#: His LEVEL at each point of his path (H25b, the review's #2), read off stock 164's mesh (o8_west_tower.knight_levels):
+#: tris 130, 127, 124, 122 and 120 -- the placement's 11255 climbing to the seat's 11896 along loop 2.
+_O8_KNIGHT_LEVELS = (11255.2, 11447.7, 11598.2, 11727.3, 11896.0)
+_O8_KNIGHT_SEAT = (-586.0, 3884.0)
+_O8_KNIGHT_STORE = [1, 1, 230, 3811 >> 3, "Bit", 1, 3811]
+_O8_KNIGHT_START = {"y_ge": 8400}
+
+
+def _o8_knight(*, after_ticks=61, **over) -> dict:
+    """The knight's body (research/o8_design.md 3.2): sid / uid 1, published r 4 x (20 + 35) and his PRE-release talk_r
+    4 x (30 + 50) + 30 + 60 (0.2 #27: nothing reads it -- talk-only), y his placement's LEVEL climbing with his path to
+    the seat's (H25b, the review's #2: each point's level :data:`_O8_KNIGHT_LEVELS`), his path at 7.5 u a frame,
+    ``once``, ``start`` the release, ``store`` ip230 ``after_ticks`` (default 61) after his last index; ``over`` replaces
+    keys (``store=None``: the missing knight)."""
+    return {"sid": 1, "uid": 1, "x": 249.0, "z": 4630.0, "y": _O8_KNIGHT_LEVELS[0], "r": 220.0, "talk_r": 410.0,
+            "coll": True, "solid": False, "shown": True,
+            "path": [[*p, y] for p, y in zip(_O8_KNIGHT_PATH, _O8_KNIGHT_LEVELS)], "speed": 7.5, "once": True,
+            "start": dict(_O8_KNIGHT_START),
+            "store": {"after_ticks": after_ticks, "args": list(_O8_KNIGHT_STORE)}, **over}
+
+
+def _o8_knight_fake(game, steps, *, bodies):
+    """A hand-stepped fake (:func:`_fv_fake`: 60 fps, mean ticks, the trace on with the sink's suppression) on 164's box
+    (``_O8_BOX``) with 164's plane over 30860, its scene ONE visit of ``steps`` with ``bodies``."""
+    fake = _fv_fake(game, {"visit": {"steps": list(steps), "index": 1, "field_to": dict(_O8_FIELDS["S"]),
+                                     "bodies": [dict(b) for b in bodies]}}, field=30860, fps=60.0, ticks="mean")
+    fake.walkmesh = _O8_BOX
+    _o8_plane(fake, {30860: _O8_PLANES["164"]})
+    return fake
+
+
+def _o8_body(fake, sid) -> dict | None:
+    """This field's published object ``sid`` (:meth:`FakeGame._objects_doc`), or None."""
+    return next((o for o in fake._objects_doc() if o["sid"] == sid), None)
+
+
+def _o8_frame(fake, toward=None) -> tuple:
+    """One hand-stepped frame -- a press at ``toward`` (Up with the twist turned at it) when given and he has control --
+    and what it published: ``(frame, his y, the knight's (x, z), moving)``."""
+    if toward is not None and fake.control:
+        fake.twist = math.degrees(math.atan2(-(toward[0] - fake.player[0]), toward[1] - fake.player[2]))
+        fake._extend("up", 2)
+    fake._frame_once()
+    k = _o8_body(fake, 1)
+    return fake.frame, fake.player[1], None if k is None else (k["x"], k["z"]), None if k is None else k["moving"]
+
+
+def _o8_ip230(fake) -> list:
+    """The trace's ``w`` rows of the knight's store (164 e1 t1 ip230)."""
+    return [r for r in _fv_rows(fake, "w") if (r["sid"], r["tag"], r["ip"]) == (1, 1, 230)]
+
+
+def test_fake_knight_waits_for_his_height_then_walks_and_stores(game):
+    """H25 (research/o8_design.md 3.2): 164's box with its plane, Steiner granted at the spawn (published y 4780) and
+    pressed up toward P1. While his published y is under 8400 the knight STANDS at his placement, published ``moving``
+    False; the first tick it reads 8400 or more (the walkers run before him in a tick: the frame after his) the knight
+    walks -- 1131.4 u at 15 u a tick, 7.5 a frame -- and Steiner pressed back down under 8400 at once does not hold him:
+    LATCHED. At his seat (-586, 3884) he stands, ``moving`` False; 61 ticks (122 frames) after his last index ONE ``w``
+    row, 164 e1 t1 ip230 ``Bit[3811] := 1`` (old 0, ``same`` 0), and never another. Read STRICT (``_walker_knobs``): a
+    ``start`` of two terms, of another axis or to a bool, a ``store`` without ``after_ticks``, with six ``args`` or a
+    negative count, each refuses with a ValueError on the walker's first step. Break: no latch (re-held mid-walk once
+    Steiner is back under 8400); the strict read skipped (a bad knob walks)."""
+    fake = _o8_knight_fake(game, [{"grant": [*_O8_SPAWN["164"], -4780]}, {"wait": 100000}], bodies=[_o8_knight()])
+    _cb_until(fake, lambda f: f.control, limit=200)
+    assert fake.player[1] == pytest.approx(4780.0), fake.player
+    seen = []
+    while True:
+        seen.append(_o8_frame(fake, toward=_O8_P1["164"]))
+        if seen[-1][2] != (249.0, 4630.0):
+            break
+        assert seen[-1][3] is False and seen[-1][1] is not None, seen[-1]
+        assert len(seen) < 2000, "the knight never left his placement"
+    release = seen[-1][0]
+    ys = {f: y for f, y, _xz, _m in seen}
+    assert ys[release - 1] >= 8400 and all(y < 8400 for f, y in ys.items() if f < release - 1), (release, ys)
+    walked = [seen[-1]]
+    while walked[-1][3] is not False:                    # Steiner back down the slope: y under 8400 within frames
+        walked.append(_o8_frame(fake, toward=_O8_SPAWN["164"]))
+        assert len(walked) < 400, "the knight never reached his seat"
+    done = walked[-1][0]
+    assert any(y < 8400 for _f, y, _xz, _m in walked[:20]), "premise: Steiner back under 8400 mid-walk"
+    pts = [(249.0, 4630.0)] + [xz for _f, _y, xz, _m in walked]
+    steps = [math.dist(a, b) for a, b in zip(pts, pts[1:])]
+    assert all(0 < s <= 7.5 + 1e-6 for s in steps), [round(s, 2) for s in steps]          # never held: latched
+    assert sum(steps) == pytest.approx(1131.4, abs=0.2) and pts[-1] == _O8_KNIGHT_SEAT, (sum(steps), pts[-1])
+    assert 151 <= done - release + 1 <= 156, (release, done)                            # 75.4 ticks of walking
+    _cb_until(fake, lambda f: bool(_o8_ip230(f)), limit=400)
+    rows = _o8_ip230(fake)
+    assert len(rows) == 1 and rows[0]["f"] == done + 122, (rows, done)
+    r = rows[0]
+    assert (r["w"], r["bit"], r["byte"], r["old"], r["new"], r["same"]) == ("Bit", 3811, 476, 0, 1, 0), r
+    for _ in range(300):
+        fake._frame_once()
+    assert len(_o8_ip230(fake)) == 1 and _o8_body(fake, 1)["moving"] is False, _o8_ip230(fake)
+    assert (_o8_body(fake, 1)["x"], _o8_body(fake, 1)["z"]) == _O8_KNIGHT_SEAT
+    store = {"after_ticks": 61, "args": list(_O8_KNIGHT_STORE)}
+    for over, match in (({"start": {"y_ge": 8400, "y_lt": 9000}}, "start is exactly one of"),
+                        ({"start": {"x_ge": 8400}}, "start is exactly one of"),
+                        ({"start": {"y_ge": True}}, "start is exactly one of"),
+                        ({"store": {"args": store["args"]}}, "store is"),
+                        ({"store": {**store, "args": store["args"][:6]}}, "store is"),
+                        ({"store": {**store, "after_ticks": -1}}, "store is")):
+        bad = _o8_knight_fake(game, [{"wait": 100000}], bodies=[_o8_knight(**over)])
+        with pytest.raises(ValueError, match=match):
+            bad._frame_once()
+
+
+def test_fake_knight_store_is_missing_when_the_visit_ends_first(game):
+    """H25's store lives ON THE BODY (research/o8_design.md 3.2): the knight released (Steiner past 8400 on his way to
+    P1) and walking, a door at P1 fires and the visit ends -- Field() to 165's id -- long before his 1131 u and 61 ticks
+    are done; its bodies leave with it (``_VisitBeat.end``). No ip230 row then, ever: not in 165's id over 600 frames,
+    nor back in 164's id (a warp: a fresh visit with no beat) over 600 more. Break: a store that outlives its visit's
+    bodies (``_VisitBeat.end`` keeping them: back in 164's id the knight walks on and stores)."""
+    door = {"door": {"doors": [{"name": "e2", "points": _rect(1302, 2212, 1382, 2292), "stores": [], "ticks": 0,
+                                "to": "165"}]}}
+    fake = _o8_knight_fake(game, [{"grant": [*_O8_SPAWN["164"], -4780]}, door], bodies=[_o8_knight()])
+    _cb_until(fake, lambda f: f.control, limit=200)
+    released = False
+    for _ in range(2000):
+        f, _y, xz, _m = _o8_frame(fake, toward=_O8_P1["164"])
+        released = released or (xz is not None and xz != (249.0, 4630.0))
+        if fake.field_id != 30860:
+            break
+    assert released and fake.field_id == 30861, (released, fake.field_id)
+    assert not _o8_ip230(fake) and not fake.blockers.get(30860), fake.blockers.get(30860)
+    for _ in range(600):
+        fake._frame_once()
+    fake._execute(["warp", "30860", "-1", "-1"])
+    for _ in range(600):
+        fake._frame_once()
+    assert fake.field_id == 30860 and not _o8_ip230(fake), _o8_ip230(fake)
+
+
+def test_fake_knight_pairs_at_his_own_level(game):
+    """H25b (research/o8_design.md 11.4, the review's #2): the knight's body follows his path's LEVEL -- 11255.2 at his
+    placement (tri 130) climbing to 11896.0 at his seat (tri 120), :data:`_O8_KNIGHT_LEVELS` read off stock 164 -- and
+    the pair band reads it. Steiner at published y 11000 on his FIRST leg's end (-31, 4436): the knight (released at
+    once) is held a step outside his r, still moving, at a level within 400 of Steiner's (paired at his own height); the
+    same Steiner on his LAST leg (-497.5, 4006): from ~11727 on |dy| > 700, so the knight walks through him to the seat,
+    published y 11896.0 there, and every path point he passes publishes its own level, the levels rising. A path point
+    with a level on some points only refuses (ValueError). Break: the body's y fixed at the seat's (walks through
+    Steiner on the first leg) or at the placement's (held on the last leg)."""
+    def run(at):
+        fake = _o8_knight_fake(game, [{"wait": 100000}], bodies=[_o8_knight(start={"y_ge": 0}, store=None)])
+        fake.player = [at[0], 11000.0, at[1]]
+        seen = []
+        for _ in range(400):
+            fake._frame_once()
+            k = _o8_body(fake, 1)
+            seen.append((k["x"], k["z"], k["y"], k["moving"]))
+        return fake, seen
+    fake, seen = run((-31.0, 4436.0))
+    assert fake.player[1] == 11000.0, fake.player                    # premise: Steiner stood at his y
+    x, z, y, moving = seen[-1]
+    gap = math.hypot(x + 31.0, z - 4436.0)
+    assert moving and 220 <= gap <= 220 + 7.5 + 1e-6 and (x, z) != _O8_KNIGHT_SEAT, seen[-1]     # held, paired
+    assert _O8_KNIGHT_LEVELS[0] < y < _O8_KNIGHT_LEVELS[1] and abs(y - 11000.0) < 400, seen[-1]
+    fake, seen = run((-497.5, 4006.0))
+    assert fake.player[1] == 11000.0, fake.player
+    x, z, y, moving = seen[-1]
+    assert (x, z) == _O8_KNIGHT_SEAT and y == 11896.0 and moving is False, seen[-1]               # walked through
+    at = {(round(a, 3), round(b, 3)): c for a, b, c, _m in seen}
+    for (px, pz), lvl in zip(_O8_KNIGHT_PATH[1:], _O8_KNIGHT_LEVELS[1:]):
+        assert at.get((float(px), float(pz))) == lvl, ((px, pz), lvl)
+    ys = [c for _a, _b, c, _m in seen]
+    assert all(b >= a for a, b in zip(ys, ys[1:])) and ys[0] > _O8_KNIGHT_LEVELS[0], ys[:3]
+    odd = _o8_knight(path=[[249, 4630, 11255.2], [-31, 4436]])
+    bad = _o8_knight_fake(game, [{"wait": 100000}], bodies=[odd])
+    with pytest.raises(ValueError, match="a walker's path is"):
+        bad._frame_once()
+
+
+def test_fake_knight_holds_no_pair_across_levels(game):
+    """H25's PAIR BAND (research/o8_design.md 3.2; WalkMesh.cs:919-921): Steiner standing ON the knight's path, at
+    published y 8958 -- |dy| 2297 to 2938 from the knight's level (11255 climbing to 11896) -- the knight (released at
+    once: ``start`` y >= 0) walks
+    through his XZ to the seat, never held by him; a PLAIN walker (no ``start``, no ``store``) on the same path at the
+    same y is held by him -- today's XZ-only rule, MoveToward.cs:187-189 -- standing short of him, never reaching the
+    seat. Break: the height rule applied to every walker (the plain one walks through), or to none (the knight is held)."""
+    plain = {k: v for k, v in _o8_knight(sid=2, uid=2).items() if k not in ("start", "store")}
+    fake = _o8_knight_fake(game, [{"wait": 100000}],
+                           bodies=[_o8_knight(start={"y_ge": 0}, store=None), plain])
+    fake.player = [-138.0, 8958.0, 4362.0]                # on the knight's path, between (-31, 4436) and (-246, 4288)
+    for _ in range(600):
+        fake._frame_once()
+    knight, held = _o8_body(fake, 1), _o8_body(fake, 2)
+    assert (knight["x"], knight["z"]) == _O8_KNIGHT_SEAT and knight["moving"] is False, knight
+    gap = math.hypot(held["x"] - fake.player[0], held["z"] - fake.player[2])
+    assert held["moving"] and 220 <= gap <= 220 + 7.5 + 1e-6, (gap, held)     # held a step outside his r, moving
+    assert math.dist((held["x"], held["z"]), _O8_KNIGHT_SEAT) > 400, held
+
+
+# ---- B3: O8's ROUTE on the fake (research/o8_design.md 3.4, 3.6): visit beats from the bytes -- 164@342 (its prologue,
+# the grant on loop 1, ip764, the knight (H25), the doors e2 and e3 by height), 165@343 (the same shape), 166@344 (its
+# prologue, ip255, the six pages, ip345 / ip380 under 309, ip502; FMV004 as H9's movie beat; ip863 and Field(55)) and the
+# arrival in REAL 55 at 110 (its prologue, ip255 and ip342) -- every store at its predictions' site, so the builder's
+# trace under ``story_suppress`` IS 4.16's pattern (C1's test_o8_tower_route_builder_matches_the_keys compares it with
+# the draft: one source of truth).
+
+#: O8's fork members by the S fixture id each stands for (research/o8_design.md 3.6), and their registered names.
+_O8_MEMBERS = {31256: 30860, 31257: 30861, 31258: 30862, 31255: 30864}
+_O8_NAMES = {"31255": "O8_163", "31256": "O8_164", "31257": "O8_165", "31258": "O8_166"}
+#: The route's exits (research/o8_design.md 4.15): each the first SetRegion of its entry, in the engine's order --
+#: 164.e2 and 164.e3 and 165.e3 five points (a ring of ears: the middle is dead), 165.e2 four.
+_O8_164E2 = [[946, 2249], [1122, 1974], [222, 2039], [-25, 2186], [93, 2401]]
+_O8_164E3 = [[938, 3257], [1051, 2471], [2066, 2776], [2233, 2840], [1738, 3462]]
+_O8_165E2 = [[3298, 3179], [3241, 2829], [2401, 3074], [2494, 3428]]
+_O8_165E3 = [[1209, 2668], [1437, 2069], [2169, 2636], [2395, 3155], [1780, 3363]]
+#: Where each route door fires in game (research/o8_design.md 2.3: 164 e2 at L 6260, 165 e2 at L 6742) -- its
+#: ExitField walk-out goes toward MJPOS's point for it (:func:`_o7_mjpos`).
+_O8_FIRES = {"164": (24.5, 2270.8), "165": (2419.6, 3130.0)}
+#: The route's places in visit order (S fixture ids), and its visit order by place.
+_O8_ROUTE = ("164", "165", "166")
+_O8_PLACES = tuple(_O8_FIELDS["S"][p] for p in _O8_ROUTE)
+#: 166's six pages (block 3: each holds [STNR]; research/o8_design.md 4.14 route_mes) and FMV004's frames on the fake
+#: (default: no driver test reads the span -- MOVIE's is the dry run's).
+_O8_PAGES = (307, 308, 309, 311, 312, 313)
+
+
+def _o8_door(name, points, stores, to, *, at=None, **terms):
+    """One door of a door step (H18; H22's height ``terms``): its tag 2's stores before its Field(), 25 ticks of fade
+    (164 e2 t2 ip165's op_22(25)), ``to`` a field_to key, and ExitField's walk-out toward MJPOS's point for ``at`` (its
+    in-game fire point) -- for a door the route never takes, for the region's centroid."""
+    at = at if at is not None else (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))
+    return {"name": name, "points": [list(p) for p in points], "stores": [list(s) for s in stores], "ticks": 25,
+            "to": to, "walkout": {"to": _o7_mjpos(points, at), "stop_z": None}, **terms}
+
+
+def _o8_route(side="S", *, short=None, levels=False, wait_scale=0.25, knight=None, movie_frames=120, skip=None,
+              **faults):
+    """O8's route as visit beats (research/o8_design.md 3.4, 3.6) on ``side``'s fields (:data:`_O8_FIELDS`: the end
+    the LITERAL real 55 on both; on F each visit's ``donor`` its place's S id), H15's ``faults`` given to every visit
+    beat (the per-visit ones keyed by ``index``: 164 1, 165 2, 166 3 -- both its visit beats --, 55 4). 164: its
+    prologue (Int16[9] := 385, Byte[13] := 1), the grant on loop 1 -- the box's published 4780 or, with ``levels``, the
+    bytes' MoveInstantXZY -5647 --, ip764, THE KNIGHT (H25; ``knight`` overrides his keys: ``{"store": None}``,
+    ``{"after_ticks": 0}``), e2 (y > 12000: ip243 := 343, Field(165)) and e3 (y <= 6000, the bytes' strict < standing
+    for it: ip243 := 343, Field(163)). 165 the same shape: ip844, e2 (y > 15000: ip205 Byte[13] := 3, ip233 := 344,
+    Field(166)), e3 (y <= 11000: ip243 := 344, Field(164)). 166: its prologue (Int16[9] := -1, Byte[13] := 0), the
+    SYSVAR[3] sync, ip255 Byte[8] := 125, pages 307 and 308 (WindowSync), 309 (WindowAsync) with ip345 / ip380 under it
+    an animation apart and WaitWindow(0), 311, 312, 313, ip502 Byte[8] := 0, the fades; FMV004 as H9's movie beat
+    (``movie_frames``, its skip dialog armed after 40 frames, the engine's No cursor); then ip863 Int16[2] := 110 and
+    Field(55) -- raw on F: ``field_to["55"]`` is 55 itself. 55: its prologue, ip255 Int16[2] := 106, ip342 Byte[8] :=
+    125 (past the cut: the live read's race). ``short`` (a place): that visit alone -- its index kept -- then the next
+    place's arrival (its prologue, no grant) as the end. ``skip`` replaces the movie's skip dict (3.7: ``header`` "",
+    a prompt published empty)."""
+    to = dict(_O8_FIELDS[side])
+    donors = dict(_O8_FIELDS["S"]) if side == "F" else {}
+    p130, p119 = (22, 49, 57, 130, 138, 200), (22, 49, 57, 119, 138, 200)
+    g164 = [*_O8_SPAWN["164"], _O8_SPAWN_Y["164"] if levels else -4780]
+    g165 = [*_O8_SPAWN["165"], _O8_SPAWN_Y["165"] if levels else -10280]
+
+    def page(mes, **kw):
+        return _o5_page("166", mes, 0, **kw)
+    visits = {
+        "164": ([*_o7_prologue(p130, 385, 1), {"wait": 4}, {"grant": g164}, _o5_store(0, 0, 764, 13, "Byte", 2),
+                 {"door": {"doors": [
+                     _o8_door("e2", _O8_164E2, [[2, 2, 243, 2, "Int16", 343, -1]], "165", at=_O8_FIRES["164"],
+                              y_gt=12000),
+                     _o8_door("e3", _O8_164E3, [[3, 2, 243, 2, "Int16", 343, -1]], "163", y_le=6000)]}}],
+                [_o8_knight(**(knight or {}))]),
+        "165": ([*_o7_prologue(p130, 385, 1), {"grant": g165}, _o5_store(0, 0, 844, 13, "Byte", 2),
+                 {"door": {"doors": [
+                     _o8_door("e2", _O8_165E2, [[2, 2, 205, 13, "Byte", 3, -1], [2, 2, 233, 2, "Int16", 344, -1]], "166",
+                              at=_O8_FIRES["165"], y_gt=15000),
+                     _o8_door("e3", _O8_165E3, [[3, 2, 243, 2, "Int16", 344, -1]], "164", y_le=11000)]}}], []),
+        "166": ([*_o7_prologue(p119, -1, 0), {"wait": 2}, _o5_store(0, 0, 255, 8, "Byte", 125), {"wait": 34},
+                 page(307), {"wait": 30}, page(308), page(309, **{"async": True}), {"wait": 4},
+                 _o5_store(6, 1, 345, 208, "Byte", 0), {"wait": _O7_ANIM_TICKS}, _o5_store(6, 1, 380, 208, "Byte", 1),
+                 {"wait": _O7_ANIM_TICKS}, {"wait_window": 0}, {"wait": 140}, page(311), {"wait": 30}, page(312),
+                 {"wait": 30}, page(313), {"wait": 10}, _o5_store(6, 1, 502, 8, "Byte", 0), {"wait": 30}], []),
+        "55": ([*_o7_prologue(p119, -1, 0), _o5_store(0, 0, 255, 2, "Int16", 106), _o5_store(0, 0, 342, 8, "Byte", 125),
+                {"wait": 100000}], [])}
+    after = [{"wait": 6}, _o5_store(6, 1, 863, 2, "Int16", 110), {"field": "55"}]      # 166 after FMV004
+    order = [*_O8_ROUTE, "55"]
+    index = {p: i for i, p in enumerate(order, 1)}
+    plan = order if short is None else order[order.index(str(short)):order.index(str(short)) + 2]
+
+    def visit(where, steps, bodies):
+        knobs = {"steps": steps, "index": index[where], "field_to": to, "wait_scale": wait_scale, **faults}
+        if bodies:
+            knobs["bodies"] = [dict(b) for b in bodies]
+        if donors:
+            knobs["donor"] = donors[where]
+        return {"visit": knobs}
+    beats = []
+    for n, where in enumerate(plan):
+        steps, bodies = visits[where]
+        if short is not None and n == 1:                     # the stage's end: the next place's arrival, no grant
+            beats.append(visit(where, [*steps[:6], {"wait": 100000}], []))
+            continue
+        beats.append(visit(where, steps, bodies))
+        if where == "166":                                   # FMV004, then 166's last two stores and Field(55)
+            beats.append({"movie": int(movie_frames), "skip": dict(skip or dict(_O3_SKIP, armed_after=40))})
+            beats.append(visit(where, after, []))
+    return beats
+
+
+def _o8_register(game):
+    """O8's S fields (30860-30862, 30864) and the F members registered in the fixture's own DictionaryPatch.txt
+    (``_o7_register``'s shape; the ``game`` fixture itself is not edited). 55 is a real field: no line."""
+    patch = game / "FF9CustomMap" / "DictionaryPatch.txt"
+    s = "".join(f"FieldScene {f} 11 O8_{p} O8_{p} {f}\n" for p, f in _O8_FIELDS["S"].items() if f != 55)
+    patch.write_text(patch.read_text(encoding="utf-8") + s
+                     + "".join(f"FieldScene {f} 11 {n} {n} 3\n" for f, n in _O8_NAMES.items()), encoding="utf-8")
+
+
+#: 4.16's pattern on the fake's S places, by IP: each visit's emitted ``w`` rows in order, ``(place, sid, tag, ip,
+#: target, new, same)`` -- 9, 9 and 11, 29 in all, every site first in its epoch; no ``c`` row.
+_O8_PATTERN = (
+    [*_o7_p(30860, (22, 49, 57, 130, 138, 200), 385, 0, 1, 1), (30860, 0, 0, 764, "Global.Byte[13]", 2, 0),
+     (30860, 1, 1, 230, "Global.Bit[3811]", 1, 0), (30860, 2, 2, 243, "Global.Int16[2]", 343, 0)],
+    [*_o7_p(30861, (22, 49, 57, 130, 138, 200), 385, 1, 1, 0), (30861, 0, 0, 844, "Global.Byte[13]", 2, 0),
+     (30861, 2, 2, 205, "Global.Byte[13]", 3, 0), (30861, 2, 2, 233, "Global.Int16[2]", 344, 0)],
+    [*_o7_p(30862, (22, 49, 57, 119, 138, 200), -1, 0, 0, 0), (30862, 0, 0, 255, "Global.Byte[8]", 125, 1),
+     (30862, 6, 1, 345, "Global.Byte[208]", 0, 1), (30862, 6, 1, 380, "Global.Byte[208]", 1, 0),
+     (30862, 6, 1, 502, "Global.Byte[8]", 0, 0), (30862, 6, 1, 863, "Global.Int16[2]", 110, 0)])
+
+
+def _o8_pattern(rows, members=None):
+    """4.16's pattern read off a run's story rows by ip (:func:`_o5_pattern` with O8's end, REAL 55, and route places):
+    ``(visits, counts, cut)``."""
+    return _o5_pattern(rows, members, end=55, route=_O8_PLACES)
+
+
+def _o8_play(fake, *, toward=None, until=None, limit=40000, every=5) -> list:
+    """A scripted player on the hand-stepped fake (:func:`_o7_play`'s, through a movie beat too): with control and
+    ``toward`` (x, z), Up with the twist turned at it; else nothing pressed; without control, every ``every`` frames, a
+    listed page of the running visit Confirmed. Each frame's ``(frame, control, x, y, z)``; stops on ``until(fake)``;
+    an AssertionError past ``limit`` frames."""
+    track = []
+    for _ in range(limit):
+        if until is not None and until(fake):
+            return track
+        m = fake._machine
+        if fake.control:
+            if toward is not None:
+                fake.twist = math.degrees(math.atan2(-(toward[0] - fake.player[0]), toward[1] - fake.player[2]))
+                fake._extend("up", 2)
+        elif m is not None and (fake.frame + 1) % every == 0 and any(w.kind == "page" for w in m.windows
+                                                                      if not w.closing):
+            fake._schedule("confirm", 1)
+        fake._frame_once()
+        track.append((fake.frame, fake.control, fake.player[0], fake.player[1], fake.player[2]))
+    raise AssertionError(f"the play ran {limit} frames without its end (field {fake.field_id})")
+
+
+def _o8_near(goal, reach=30.0):
+    """``until`` for :func:`_o8_play`: he stands within ``reach`` of ``goal``."""
+    return lambda f: math.hypot(goal[0] - f.player[0], goal[1] - f.player[2]) <= reach
+
+
+def _o8_fire_y(fake, place: str) -> float:
+    """The published y, on the box's plane of ``place``, where its door's ``fire`` row stood (``visit_log``)."""
+    fire = next(e for e in fake.visit_log if e["kind"] == "fire" and e["field"] == _O8_FIELDS["S"][place])
+    a, b, c = _o8_plane_coef(_O8_PLANES[place])
+    return a * fire["x"] + b * fire["z"] + c
+
+
+def _o8_box_fake(game, field=70):
+    """:func:`_fv_fake` (30 fps quantized, the trace off: the caller arms it) on 164's box with the two planes."""
+    fake = _fv_fake(game, field=field, trace=False)
+    fake.walkmesh = _O8_BOX
+    _o8_plane(fake, {_O8_FIELDS["S"]["164"]: _O8_PLANES["164"], _O8_FIELDS["S"]["165"]: _O8_PLANES["165"]})
+    return fake
+
+
+def test_fake_tower_route_plays_to_55_unattended(game):
+    """B3 (research/o8_design.md 3.6, 9 B3): the route builder's visit beats played by a SCRIPTED PLAYER, not the driver
+    -- presses on the planed box, every page Confirmed -- from 164@342 (field 70's prologue values and the raw warp's
+    FOUR residue rows first: 342 = 0x0156) to the arrival in REAL 55. 164: the grant at published 4780, round e3 (live
+    at the spawn's level) to P1 -- the knight released, seated, his ip230 stored while Steiner waits there -- then up
+    to e2, which fires only past y 12000 (its ring crossed first at its dead level, ~10200: no fire): ip243 := 343, 165.
+    165 the same (e2 past 15000: ip205, ip233, 166). 166: the six pages Confirmed, ip345 / ip380 under 309, ip502, FMV004
+    played out, ip863, Field(55); 55's prologue. With ``story_suppress`` the trace holds EXACTLY 4.16's 29 rows by ip --
+    9 / 9 / 11, six masked -- no ``c`` row, then the cut 55 e0 t0 ip22 (``same`` 1). Break: doors without their
+    ``y_gt`` (e2 fires on its dead level: the route lands in 165 early, under y 12000)."""
+    fake = _o8_box_fake(game)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(342, 1190)                         # the raw warp's residue, seen in field 70
+    fake.field_id = 30860
+    fake.scene(*_o8_route("S"), control=False)
+    _o8_play(fake, until=lambda f: f.control, limit=400)
+    assert fake.player == [2040.0, 4780.0, 3335.0], fake.player
+    _o8_play(fake, toward=(2350, 2800), until=_o8_near((2350, 2800)))    # round e3: live at the spawn's level
+    _o8_play(fake, toward=_O8_P1["164"], until=_o8_near(_O8_P1["164"]))
+    assert _o8_body(fake, 1)["moving"] is True, _o8_body(fake, 1)          # released past 8400, walking
+    _o8_play(fake, until=lambda f: bool(_o8_ip230(f)), limit=2000)       # the wait at P1: nothing pressed
+    assert (_o8_body(fake, 1)["x"], _o8_body(fake, 1)["z"]) == _O8_KNIGHT_SEAT, _o8_body(fake, 1)
+    _o8_play(fake, toward=_O8_GOAL1["164"], until=lambda f: f.field_id != 30860)
+    assert fake.field_id == 30861 and _o8_fire_y(fake, "164") > 12000, (fake.field_id, fake.visit_log[-3:])
+    _o8_play(fake, until=lambda f: f.control, limit=400)
+    _o8_play(fake, toward=_O8_P1["165"], until=_o8_near(_O8_P1["165"]))
+    _o8_play(fake, toward=_O8_GOAL1["165"], until=lambda f: f.field_id != 30861)
+    assert fake.field_id == 30862 and _o8_fire_y(fake, "165") > 15000, (fake.field_id, fake.visit_log[-3:])
+    _o8_play(fake, until=lambda f: f.field_id == 55 and any(e["index"] == 4 and e["kind"] == "wait"
+                                                            for e in f.visit_log))
+    fake._story_stop()
+    fires = [(e["field"], e["name"]) for e in fake.visit_log if e["kind"] == "fire"]
+    assert fires == [(30860, "e2"), (30861, "e2")], fires
+    assert len(fake.movies) == 1 and (fake.movies[0]["played"], fake.movies[0]["ended"]) == (120, "played"), fake.movies
+    rows = _fv_rows(fake)
+    visits, counts, cut = _o8_pattern(rows)
+    assert visits == [list(v) for v in _O8_PATTERN], visits
+    assert sum(len(v) for v in visits) == 29 and counts == [] and not [r for r in rows if r["k"] == "c"], counts
+    masked = [r for v in visits for r in v if r[4] in ("Global.Bit[191]", "Global.Bit[184]")]
+    assert len(masked) == 6, masked
+    assert cut is not None and (cut["k"], cut["fld"], cut["sid"], cut["tag"], cut["ip"], cut["w"], cut["bit"],
+                                cut["new"], cut["same"]) == ("w", 55, 0, 0, 22, "Bit", 191, 0, 1), cut
+    residue = [(r["fld"], r["byte"], r["old"], r["new"]) for r in rows if r["k"] == "r"]
+    assert residue == [(70, 0, 0, 166), (70, 1, 0, 4), (70, 2, 0, 86), (70, 3, 0, 1)], residue
+    pages = [e["text"] for e in fake.machine_log if e["event"] == "open" and e["kind"] == "page"]
+    assert pages == [f"166 mes {m}" for m in _O8_PAGES], pages
+
+
+def test_fake_tower_movie_skip_dialog_resumes_at_no(game):
+    """H9's skip dialog in 166 (research/o8_design.md 2.7, 3.4): 166's visit ``short`` (its pages, ip502, FMV004 of 120
+    frames, ip863, Field(55)), stepped by hand; ONE stray Confirm once the movie has played 60 frames -- past its
+    ``armed_after`` 40 -- opens the skip dialog with its cursor on No (``selected`` 1, the engine's ETb.sChoose); the
+    answer at that cursor resumes the movie for its remaining frames: ``fake.movies`` holds one movie, played 120 of
+    120, one skip dialog, ended "played", and ip863 lands after its last frame. Break: an answer of No that skips (the
+    frames played then fall short)."""
+    fake = _o8_box_fake(game, field=30862)
+    fake._story_start()
+    fake.scene(*_o8_route("S", short="166"), control=False)
+    _o8_play(fake, until=lambda f: f._movie is not None and f.movies[-1]["played"] >= 60, limit=4000)
+    fake._execute(["press", "confirm"])                 # the stray Confirm: the dialog opens at once
+    assert fake.choice is not None and fake.movies[-1]["skips"] == 1, (fake.choice, fake.movies)
+    _cb_until(fake, lambda f: f._beat_phase == "ready", limit=60)
+    assert fake.choice["selected"] == 1 and fake.choice["options"][1:] == ["Yes", "No"], fake.choice
+    fake._execute(["press", "confirm"])                 # answered at the cursor: No
+    _o8_play(fake, until=lambda f: f.field_id == 55, limit=4000)
+    mv = fake.movies
+    assert fake.answered == [1] and len(mv) == 1, (fake.answered, mv)
+    assert (mv[0]["frames"], mv[0]["played"], mv[0]["skips"], mv[0]["ended"]) == (120, 120, 1, "played"), mv
+    ip863 = [r for r in _fv_rows(fake, "w") if (r["sid"], r["tag"], r["ip"]) == (6, 1, 863)]
+    assert len(ip863) == 1 and ip863[0]["f"] > mv[0]["end"], (ip863, mv)
+
+
+# ---- B4, O8's DRIVER on the fake (research/o8_design.md 2, 9 B4): the route builder's visit beats played by
+# segment_drive.drive with O8's predictions on the fixture's fields (:func:`_o8_pred`): S at 60 fps mean ticks, F through
+# the members at 31 fps quantized where named; the scripted waits at a quarter (``wait_scale`` 0.25), the fake's loop at
+# 4x its render rate, the session keeping every sample (``state_ring`` 5000), 164's and 165's bases seeded by their
+# steps' ``basis: "prior"`` (S19), never pre-cached where S19 is exercised. A run that ends in a DRIVER class a starved
+# harness can cause -- the budget, a walk failed out of its attempts, a loss read across a fade -- is re-run, at most
+# twice (:func:`_o8_run_informative`), its class asserted on the run set aside; never for the class its test asserts,
+# never a game class (V8 above all), a V11, a V19 or the prior basis's V13. Every store, wait and stop a test stages is
+# keyed on a fake frame count, a call or a store, never on the wall clock.
+
+_O8_RUNS = __import__("itertools").count(1)
+#: O7's step defaults exactly (research/o8_design.md 4.15).
+_O8_DEFAULTS = json.loads(json.dumps(_O7_DEFAULTS))
+#: Each route place's entrance (the FieldEntrance its arrival reads): the warp's 342 into 164, then each door's store.
+_O8_ENTRANCES = {"164": 342, "165": 343, "166": 344}
+#: Each route place's beats (research/o8_design.md 4.11): its steps'.
+_O8_BEATS = {"164": ["w164_p1", "t164_e2"], "165": ["w165_p1", "t165_e2"], "166": []}
+#: The route's regions on the fixture (research/o8_design.md 4.15), each exit with the GATE read off its tag 2 (the
+#: analysis's; the driver's landing judge reads role "exit" alone).
+_O8_REGIONS = {
+    "30860.e2": {"points": _O8_164E2, "role": "exit", "to": 30861, "entrance": 343, "face_gate": None,
+                 "gate": {"y_gt": 12000}},
+    "30860.e3": {"points": _O8_164E3, "role": "exit", "to": 30864, "entrance": 343, "face_gate": None,
+                 "gate": {"y_lt": 6000}},
+    "30861.e2": {"points": _O8_165E2, "role": "exit", "to": 30862, "entrance": 344, "face_gate": None,
+                 "gate": {"y_gt": 15000}},
+    "30861.e3": {"points": _O8_165E3, "role": "exit", "to": 30860, "entrance": 344, "face_gate": None,
+                 "gate": {"y_lt": 11000}}}
+#: research/o8_design.md 4.9: the end state read live on arrival in REAL 55, WITHOUT the raced pair (Int16[2], Byte[8])
+#: and without SC (the review's #3: 55's own arrival scene stores it 1400 -- SC 1190 at the cut is O8-NO-SC's): eight
+#: the route leaves and the knight's talk's four targets, untouched since New Game.
+_O8_END_STATE = {"Global.Bit[191]": 0, "Global.Bit[184]": 0, "Global.Int16[9]": -1,
+                 "Global.Byte[13]": 0, "Global.Int16[11]": -1, "Global.Byte[14]": 0, "Global.Bit[3811]": 1,
+                 "Global.Byte[208]": 1, "Global.Bit[3851]": 0, "Global.Bit[3792]": 0, "Global.Bit[7211]": 0,
+                 "Global.Int16[224]": 0}
+#: The driver's classes a starved harness can give (research/o8_design.md 9, the load-robust rule): the budget (the
+#: wait's deadline included), a walk failed out of its attempts (a stalled or timed-out walk), a loss read across a fade,
+#: a window that read no live sample (the review's #5: :data:`_SD_NO_LIVE_SAMPLE`, the driver process stalled across a
+#: whole window). Never the class a test asserts.
+_O8_LOAD_VOIDS = ("went unseen", "the run's budget ran out", "of its 2 attempts", "of its 3 attempts",
+                  *_SD_NO_LIVE_SAMPLE)
+#: 164's and 165's planes over the box, on both sides' ids.
+_O8_BOX_PLANES = {30860: _O8_PLANES["164"], 31256: _O8_PLANES["164"], 30861: _O8_PLANES["165"],
+                  31257: _O8_PLANES["165"]}
+
+
+def _o8_cells(closures=None, *, timeout_s=60) -> dict:
+    """The two visit-scoped cells (research/o8_design.md 2.4) on the fixture's ids, by place: 164 #0 the walk up the
+    first spiral to P1 at ``at_y`` [8800, 9150] with THE KNIGHT WAIT (Bit[3811] == 1, ``timeout_s`` -- 60 on the
+    fixture, far over any starvation: the draft's 15 is F2's), e3 avoided, clearance 80, the prior basis, ``npcs``
+    false, attempts 3; 164 #1 the trigger to e2's west ear, until y > 12000, ``to`` 165, clearance 64, attempts 3; 165
+    #0 the walk to its P1 at ``at_y`` [11100, 11450], e3 avoided, clearance 120, the prior basis; 165 #1 the trigger to
+    e2, until y > 15000, ``to`` 166, clearance 120. ``closures`` (``{"164": (step 0's, step 1's), "165": ...}``, the band
+    closures: :func:`_o8_closures`) each step's ``closed_tris``."""
+    s = _O8_FIELDS["S"]
+    walk164 = {"kind": "walk", "name": "164: the first spiral to P1, then THE KNIGHT WAIT", "goal": list(_O8_P1["164"]),
+               "start": list(_O8_SPAWN["164"]), "at_y": [8800, 9150],
+               "wait_flag": {"flag": 3811, "value": 1, "timeout_s": timeout_s}, "avoid": ["30860.e3"],
+               "clearance": 80, "basis": "prior", "npcs": False, "attempts": 3, "beat": "w164_p1"}
+    trig164 = {"kind": "trigger", "name": "164: the second spiral into e2 at the top", "goal": list(_O8_GOAL1["164"]),
+               "to": s["165"], "start": list(_O8_P1["164"]), "until": {"y_gt": 12000}, "avoid": [], "clearance": 64,
+               "npcs": True, "attempts": 3, "beat": "t164_e2"}
+    walk165 = {"kind": "walk", "name": "165: the lower stretch to P1", "goal": list(_O8_P1["165"]),
+               "start": list(_O8_SPAWN["165"]), "at_y": [11100, 11450], "avoid": ["30861.e3"], "clearance": 120,
+               "basis": "prior", "npcs": True, "beat": "w165_p1"}
+    trig165 = {"kind": "trigger", "name": "165: the upper stretch into e2 at the top", "goal": list(_O8_GOAL1["165"]),
+               "to": s["166"], "start": list(_O8_P1["165"]), "until": {"y_gt": 15000}, "avoid": [], "clearance": 120,
+               "npcs": True, "beat": "t165_e2"}
+    steps = {"164": [walk164, trig164], "165": [walk165, trig165]}
+    for place, pair in (closures or {}).items():
+        for step, closed in zip(steps[place], pair):
+            step["closed_tris"] = list(closed)
+    return {"164": {"donor": s["164"], "sc": 1190, "visit": 1, "steps": steps["164"]},
+            "165": {"donor": s["165"], "sc": 1190, "visit": 2, "steps": steps["165"]}}
+
+
+def _o8_closures(wm) -> dict:
+    """The four steps' band closures (research/o8_design.md 2.4, 1.3 ``band_closures``) on stock 164 and 165."""
+    return {p: tuple(_o8_band_closures(wm(int(p)), *_O8_BANDS[(p, n)]) for n in (0, 1)) for p in ("164", "165")}
+
+
+def _o8_pred(*, short=None, closures=None, timeout_s=60, **over):
+    """O8's driver keys (research/o8_design.md 2.1, 4.1, 4.9, 4.15) on the fixture's fields: the two visit-scoped cells
+    (:func:`_o8_cells`), the run-wide witness, the stop page and THE SKIP NET's two rows (O7's, and the 166-scoped
+    measured-line row "No": 2.1), route and visits the three places, the end REAL 55 on both sides, the members, the
+    regions with their gates, the end-row wait, 4.9's end state. ``short`` (a place): the run starts there -- its cell
+    keeps its visit number -- and ends on the next place's arrival, its beats the cell's, no end state."""
+    s, f = _O8_FIELDS["S"], _O8_FIELDS["F"]
+    cells = _o8_cells(closures, timeout_s=timeout_s)
+    pred = {"version": 1, "start": {"S": s["164"], "F": f["164"]}, "entrance": 342, "scenario": 1190,
+            "end_field": 55, "end_fields": [55], "side_ends": {"S": [55], "F": [55]},
+            "route": list(_O8_PLACES), "visits": list(_O8_PLACES),
+            "members": {str(k): v for k, v in _O8_MEMBERS.items()}, "names": dict(_O8_NAMES),
+            "budget": {"run_s": 180, "run_min_s": 1, "session_s": 900, "settle_s": 0.3, "no_progress_s": 60,
+                       "end_row_s": 10.0},
+            "beats": [b for p in _O8_ROUTE for b in _O8_BEATS[p]], "naming": [], "battles": [], "hotspots": {},
+            "table": [cells["164"], cells["165"]],
+            "forbidden": [{"off_route": True, "cause": "walk",
+                           "why": "a write off the route (163 after 164.e3, backed by its V11 step row)"},
+                          {"donor": s["164"], "sid": 1, "tag": 3, "cause": "confirm_talk", "object": 1,
+                           "why": "the knight's TALK: a Confirm near him with control held"},
+                          {"donor": s["164"], "sid": 7, "tag": 11, "cause": "confirm_talk", "object": 1,
+                           "why": "164 e7 t11, run only by the knight's talk"}],
+            "end_state": dict(_O8_END_STATE), "regions": json.loads(json.dumps(_O8_REGIONS)),
+            "steps_default": json.loads(json.dumps(_O8_DEFAULTS)),
+            "stop_pages": [{"match": "Env Play()", "why": "window 56 of 164, 165, 166: Byte[13]/[14] arrived 9"}],
+            "choices": [{"donor": None, "sc": None, "match": "want to skip", "pick": "default", "once": False,
+                         "beat": None},
+                        {"donor": s["166"], "sc": None, "match": "No", "pick": "default", "once": False,
+                         "beat": None}],
+            "witness": {"input_every_s": 0.05, "why": "a walk is the driver's own input"}}
+    if short is not None:
+        nxt = [*_O8_ROUTE, "55"][_O8_ROUTE.index(short) + 1]
+        pred.update(start={"S": s[short], "F": f[short]}, entrance=_O8_ENTRANCES[short], end_field=s[nxt],
+                    end_fields=[s[nxt]], side_ends={"S": [s[nxt]], "F": [f[nxt]]}, beats=list(_O8_BEATS[short]),
+                    table=[cells[short]] if short in cells else [], end_state={})
+    pred.update(over)
+    return pred
+
+
+def _o8_run(game, side="S", *, short=None, route=None, knobs=None, pred=None, fps=60.0, ticks="mean", trace=True,
+            wrap=None, budget=180.0, register=True, fake_setup=None, floor=None, prior=None, prior_for=None,
+            inside=None, cached=(), observe=None, planes=None, log=None):
+    """One O8 run on the fake (:func:`_o7_run`'s shape): New Game, field 70's prologue values, the trace armed with the
+    sink's suppression, the raw warp ``warp <164's id> 342 1190`` (``short``: into that place at its entrance), the
+    visit beats staged on arrival (``route``, default :func:`_o8_route` of ``side`` with ``knobs``), 164's and 165's
+    planes over the box (``planes``: another map, ``{}`` for none -- a level sets his height itself), the bases of
+    ``cached`` cached, and the driver with ``pred`` (default :func:`_o8_pred`), its floor the box (``floor``: another
+    ``floor_for``), its prior ``prior`` (``prior_for``: per donor), ``observe`` (a factory ``observe(pred, log)``) and
+    its log ``log`` (a factory ``log(fake)``: a list it appends rows to; its ``g`` set once the session is up).
+    ``fake_setup(fake)`` adjusts the fake before it starts; ``wrap(g, fake)`` the session's calls before the drive;
+    ``inside(g, fake, out, log)`` runs in the session after it. ``(outcome or the RouteVoid / HarnessError raised, log,
+    fake, story rows, the ring's raws, inside's value)``."""
+    SD = _segment_modules()
+    if register:
+        _o8_register(game)
+    fake = FakeGame(game, fps=4 * fps, render_fps=fps, ticks=ticks, walkmesh=_O8_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    fake.story_suppress = True
+    _o8_plane(fake, _O8_BOX_PLANES if planes is None else planes)
+    if fake_setup is not None:
+        fake_setup(fake)
+    place = short or "164"
+    start = _O8_FIELDS[side][place]
+    pred = _o8_pred(short=short) if pred is None else pred
+    beats = _o8_route(side, short=short, **(knobs or {})) if route is None else route
+    basis = prior or _prior()
+    log = [] if log is None else log(fake)
+    stop = threading.Event()
+    after = None
+    with Session(game_path=game, run_dir=game / f"run-o8-{next(_O8_RUNS)}", save_dir=game / "player-saves",
+                 pid_probe=lambda: [], launcher=lambda exe: fake.start(), boot_timeout=15.0, verbose=False,
+                 state_ring=5000) as g:
+        boot(g)
+        _o5_field70(fake)
+        if trace:
+            g.storytrace(True)
+        g._check_field_id(start, "warp", True)
+        g.send(f"warp {start} {_O8_ENTRANCES[place]} 1190")
+        g.wait_for(lambda s: s.field_id == start and s.ui_state == "FieldHUD", timeout=10.0, what=f"field {start}")
+        for fid in cached:
+            g._axes[fid] = dict(basis)
+        if hasattr(log, "g"):
+            log.g = g
+        if wrap is not None:
+            wrap(g, fake)
+        _o1_director(fake, stop, [(lambda f: f.field_id == start and not f._beats,
+                                   lambda f: f.scene(*beats, control=False))])
+        try:
+            try:
+                out = SD.drive(g, pred, side, log, deadline=time.time() + budget,
+                               floor_for=floor or (lambda d, c: _flat_bgi(*_O8_BOX)),
+                               prior_for=prior_for or (lambda d: basis), forbid_live=trace, witness=lambda: None,
+                               observe=None if observe is None else observe(pred, log))
+            except (SD.RouteVoid, HarnessError) as err:
+                out = err
+        finally:
+            stop.set()
+        if inside is not None:
+            after = inside(g, fake, out, log)
+        ring = [raw for _t, _age, raw in g._ring._buf]
+        rows = []
+        if trace:
+            try:
+                g.storytrace(False)
+            except HarnessError:
+                pass
+            rows = _fv_rows(fake)
+    return out, log, fake, rows, ring, after
+
+
+def _o8_run_informative(game, *, attempts=3, want=None, spoiled=None, **kw):
+    """:func:`_o8_run` until a run is no DRIVER class a starved harness gives (:data:`_O8_LOAD_VOIDS`) -- a run whose
+    reason holds ``want`` (the test's own assertion) is never re-run, nor a game class -- and ``spoiled(out, log)`` (the
+    test's own judgment that the load bent the run onto a path it does not test, its class asserted there) is not
+    true; at most ``attempts`` runs. ``(out, log, fake, rows, ring, inside's value, the reasons of the runs set aside)``.
+    A re-run registers nothing again."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        out, log, fake, rows, ring, after = _o8_run(game, **kw)
+        why = str(out) if isinstance(out, Exception) else ""
+        driver = isinstance(out, Exception) and getattr(out, "by", None) in (None, "driver")
+        load = driver and any(m in why for m in _O8_LOAD_VOIDS) and not (want is not None and want in why)
+        bent = spoiled is not None and spoiled(out, log)
+        if not (load or bent) or k == attempts:
+            return out, log, fake, rows, ring, after, aside
+        aside.append(why or "spoiled: the load bent the run onto the other path")
+        kw["register"] = False
+
+
+def _o8_covered(out, aside=(), beats=None):
+    """A run that reached its end, every beat set (the drive's own outcome; the analysis's COVER is C1's)."""
+    assert not isinstance(out, Exception), (out, aside)
+    want = beats if beats is not None else [b for p in _O8_ROUTE for b in _O8_BEATS[p]]
+    assert out["end"] == "reached" and out["beats"] == {b: True for b in want}, out
+
+
+def _o8_span(log, field) -> tuple:
+    """THE KNIGHT'S SPAN (research/o8_design.md 1.3 ``exempt_span``, critique #1; test-side: C1's must equal it):
+    ``[the frame0 of the visit's FIRST step-0 row, the frame0 of its FIRST step-1 row)`` -- every attempt of step 0, the
+    gaps between them, the wait and the settle before step 1."""
+    rows = [r for r in log if r.get("k") == "step" and r["field"] == field]
+    return next(r["frame0"] for r in rows if r["n"] == 0), next(r["frame0"] for r in rows if r["n"] == 1)
+
+
+def _o8_rows_at(rows, sid, tag, ip, field=None) -> list:
+    """The trace's ``w`` rows of site (sid, tag, ip) -- of ``field`` when given."""
+    return [r for r in rows if r["k"] == "w" and (r["sid"], r["tag"], r["ip"]) == (sid, tag, ip)
+            and (field is None or r["fld"] == field)]
+
+
+def _o8_order(rows, log, field) -> dict:
+    """O8-ORDER on a run's own rows (research/o8_design.md 2.6, 5.3): the knight's ip230 row in ``field`` -- ONE --
+    inside THE SPAN (:func:`_o8_span`) and before e2 t2 ip243's row by line. ``{"f", "span", "before_243"}``."""
+    k230 = _o8_rows_at(rows, 1, 1, 230, field)
+    k243 = _o8_rows_at(rows, 2, 2, 243, field)
+    assert len(k230) == 1 and len(k243) == 1, (k230, k243)
+    s0, s1 = _o8_span(log, field)
+    return {"f": k230[0]["f"], "span": (s0, s1), "inside": s0 <= k230[0]["f"] < s1,
+            "before_243": rows.index(k230[0]) < rows.index(k243[0])}
+
+
+def test_o8_drive_climbs_the_tower_to_real_55_on_the_fake(game):
+    """THE SEGMENT on the fake (research/o8_design.md 2.2-2.8, 9 B4), S at 60 fps mean ticks and F through the members at
+    31 fps quantized, on the planed box: the driver walks 164 #0 round live e3 to P1 -- DONE on its LEVEL (``at_y``) and
+    after THE KNIGHT WAIT read (its ``wait_flag`` row: read True, the bit published) -- and 164 #1 to e2, which fires
+    past y 12000 (its loss's y off the ring); 165's two steps the same; 166's six pages Confirmed by rule 7 and no press
+    in FMV004's frames; and the arrival in REAL 55 on BOTH sides (F: 31258 -> 55, REACHED, never V19): all four beats,
+    the end row 55 e0 t0 ip22 seen, 4.9's end state, no forbidden row live. THE ORDER: the knight's ip230 inside THE
+    SPAN and before e2's ip243 by line. The trace, under ``story_suppress``, holds 4.16's pattern by ip -- 29 rows, no
+    ``c`` row -- cut at 55's ip22, every member row naming its donor. Break: THE KNIGHT WAIT not waited (``x_walk`` done
+    at the arrival: ip230 then MISSING -- e2's Field(165) unloads him first -- or after step 1's frame0)."""
+    for side, fps, ticks in (("S", 60.0, "mean"), ("F", 31.0, "quantized")):
+        out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, side=side, fps=fps, ticks=ticks,
+                                                                     register=side == "S")
+        _o8_covered(out, aside)
+        f = _O8_FIELDS[side]
+        steps = _o7_steps(log)
+        assert [(r["field"], r["kind"], r["n"], r["outcome"]) for r in steps if r["outcome"] != "failed"] == [
+            (f["164"], "walk", 0, "done"), (f["164"], "trigger", 1, "done"), (f["165"], "walk", 0, "done"),
+            (f["165"], "trigger", 1, "done")], [(r["field"], r["n"], r["outcome"], r.get("why")) for r in steps]
+        order = _o8_order(rows, log, f["164"])                          # ONE ip230, inside THE SPAN, before ip243
+        assert order["inside"] and order["before_243"], order
+        w164 = [r for r in steps if r["field"] == f["164"] and r["n"] == 0][-1]
+        assert 8800 <= w164["at_y"]["y"] <= 9150 and w164["wait_flag"]["read"] is True, w164
+        assert w164["wait_flag"]["published"] >= 1 and w164["wait_flag"]["last"] == 1, w164["wait_flag"]
+        t164, t165 = [r for r in steps if r["n"] == 1 and r["outcome"] == "done"]
+        assert t164["lost"]["y"] > 12000 and t165["lost"]["y"] > 15000, (t164["lost"], t165["lost"])
+        assert out["pages"] == [f"166 mes {m}" for m in _O8_PAGES], out["pages"]
+        mv = fake.movies
+        assert len(mv) == 1 and (mv[0]["played"], mv[0]["skips"], mv[0]["ended"]) == (120, 0, "played"), mv
+        presses = _g_rows(log, "press")
+        assert presses and not [p for p in presses if mv[0]["start"] <= p["pre"]["frame"] <= mv[0]["end"]], presses
+        end = _g_rows(log, "end")
+        assert len(end) == 1 and end[0]["field"] == 55 and end[0]["end_row"]["seen"], end
+        assert out["end_state"] == _O8_END_STATE and not _g_rows(log, "forbidden"), (out["end_state"], log)
+        members = _O8_MEMBERS if side == "F" else None
+        visits, counts, cut = _o8_pattern(rows, members)
+        assert visits == [list(v) for v in _O8_PATTERN] and counts == [], (visits, counts)
+        assert cut is not None and (cut["fld"], cut["sid"], cut["tag"], cut["ip"]) == (55, 0, 0, 22), cut
+        assert all(r["don"] == _O8_MEMBERS.get(r["fld"], r["fld"]) for r in rows if r["k"] == "w"), rows
+
+
+def _o8_stocks(*fids) -> dict:
+    """:func:`_o7_stock` of each real field in ``fids`` -- ``{fid: (PlayerWalkmesh, key prior, twist)}`` -- keyed by its
+    S fixture id."""
+    return {_O8_FIELDS["S"][str(f)]: _o7_stock(f) for f in fids}
+
+
+def _o8_real_setup(stocks, *, slack164=12.0):
+    """``fake_setup`` for the real spirals (research/o8_design.md 3.3): each field's stock levels -- 164's with
+    ``squeeze_slack`` ``slack164`` --, the clearance 120 and 164's 80 (H26), and each field's own key twist, set on every
+    frame from the field he stands in (``_step_world`` wrapped on the instance: one run crosses two twists)."""
+    from harness.fakegame import Levels
+
+    def setup(fake):
+        fake.levels = {fid: Levels(pw, squeeze_slack=slack164 if fid == 30860 else None)
+                       for fid, (pw, _p, _t) in stocks.items()}
+        fake.clearance, fake.clearances = 120.0, {30860: _O8_RADIUS164}
+        twists = {fid: t for fid, (_pw, _p, t) in stocks.items()}
+        step = fake._step_world
+
+        def stepped():
+            fake.twist = twists.get(fake.field_id, fake.twist)
+            step()
+        fake._step_world = stepped
+    return setup
+
+
+def _o8_real_floor(stocks):
+    """``floor_for`` on the real spirals: each stock field's mesh with the step's closures; the box elsewhere."""
+    def floor(d, c):
+        from ff9mapkit.content import pathfind
+        got = stocks.get(d)
+        return pathfind.PlayerWalkmesh(got[0].mesh, closed=c) if got is not None else _flat_bgi(*_O8_BOX)
+    return floor
+
+
+class _O8EndLog(list):
+    """A drive log that ends the run on step ``n``'s DONE row: the fake moved to ``end`` there (a scripted transition)
+    and the move PUBLISHED before the drive's next poll -- in the drive's own thread (:class:`_S20Log`'s rule), so no poll
+    reads control held after the cell's last step first (V4)."""
+
+    def __init__(self, fake, *, n, end):
+        super().__init__()
+        self.fake, self.g, self.n, self.end = fake, None, n, end
+
+    def append(self, row):
+        super().append(row)
+        if isinstance(row, dict) and row.get("k") == "step" and row["n"] == self.n and row["outcome"] == "done" \
+                and self.g is not None:
+            _o2_move(self.fake, self.end, 0.0, 0.0)
+            published(self.g, lambda s: s.field_id == self.end, timeout=30.0)
+
+
+def _o8_stray_press(at=60):
+    """``fake_setup``: ONE stray Confirm queued -- the agent's ``press`` verb, as outside input -- on the fake's own frame
+    once the playing movie has played ``at`` frames (``_step_scene`` wrapped on the instance: keyed on the movie's
+    frames, never on the wall clock; past its ``armed_after`` 40, the skip dialog opens)."""
+    def setup(fake):
+        step = fake._step_scene
+
+        def stepped():
+            step()
+            if not stepped.done and fake._movie is not None and fake.movies[-1]["played"] >= at:
+                stepped.done = True
+                fake.queue.append(["press", "confirm", "4"])
+        stepped.done = False
+        fake._step_scene = stepped
+    return setup
+
+
+def test_o8_drive_walks_the_real_spirals_on_the_fake(game, dali):
+    """164's and 165's REAL SPIRALS (research/o8_design.md 2.4-2.6, 3.3): the fake's floor stock 164's and 165's LEVELS
+    (H20; Steiner granted at the bytes' heights: loop 1), 164 at radius 80 (H26) with ``squeeze_slack`` 12 (THE PINCH),
+    165 at 120, each field's own key twist; the driver's floor each mesh with the FROZEN step pairs' band closures,
+    clearances 80 / 64 / 120 / 120, the prior basis on the #0s, ``npcs`` false on 164 #0, and THE KNIGHT (H25): every
+    step done -- each walk's ``at_y`` held on its level, the knight's wait read, each e2's loss past y 12000 / 15000 (its
+    height off the ring), the landings in 165's and 166's ids -- to the arrival in REAL 55; no calibration probe pressed
+    (``_probe_axis`` never called: the bases are the seeded priors). Reads the install (a warned skip fails G44). Break:
+    164 at the global 120 (no route at the engine radius: 164 #0 fails all three attempts, V7)."""
+    wm, _script = dali
+    stocks = _o8_stocks(164, 165)
+    priors = {fid: p for fid, (_pw, p, _t) in stocks.items()}
+
+    def wrap(g, fake):
+        wrap.probes = _s19_probes(g)
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(
+        game, route=_o8_route("S", levels=True), pred=_o8_pred(closures=_o8_closures(wm)),
+        fake_setup=_o8_real_setup(stocks), wrap=wrap, floor=_o8_real_floor(stocks),
+        prior_for=lambda d: priors.get(d, _prior()), planes={})
+    _o8_covered(out, aside)
+    steps = [r for r in _o7_steps(log) if r["outcome"] == "done"]
+    assert [(r["field"], r["n"]) for r in steps] == [(30860, 0), (30860, 1), (30861, 0), (30861, 1)], _o7_steps(log)
+    w164, t164, w165, t165 = steps
+    assert 8800 <= w164["at_y"]["y"] <= 9150 and w164["wait_flag"]["read"] is True, w164
+    assert 11100 <= w165["at_y"]["y"] <= 11450, w165
+    assert t164["lost"]["y"] > 12000 and t165["lost"]["y"] > 15000, (t164["lost"], t165["lost"])
+    assert t164["landed"] in (None, 30861) and t165["landed"] in (None, 30862), (t164["landed"], t165["landed"])
+    assert (w164["clearance"], t164["clearance"], w165["clearance"], t165["clearance"]) == (80, 64, 120, 120)
+    assert w164["route"]["basis"] == "prior" and w165["route"]["basis"] == "prior", (w164["route"], w165["route"])
+    assert wrap.probes == [] and fake.field_id == 55, (wrap.probes, fake.field_id)
+    order = _o8_order(rows, log, 30860)
+    assert order["inside"] and order["before_243"], order
+
+
+def test_o8_drive_knight_fast_or_slow_keeps_the_order_on_the_fake(game):
+    """THE KNIGHT'S ORDER, fast or slow (research/o8_design.md 2.6; critique #1; 9 B4): 164 alone on the planed box (164
+    -> 165's arrival), the fixture's ``wait_flag`` ``timeout_s`` 60 and S21's run-out on BOTH clocks (a starved fake
+    stretches the wall's alone). FAST: released at y 5000 -- a height reached only once step 0's walk is under way --
+    walking 240 u a tick and storing at once (``after_ticks`` 0): ip230 lands DURING step 0's walk, before the wait
+    begins, and the wait reads the bit at once. SLOW: ``after_ticks`` 300 -- a wait of over 10 s of the FAKE's clock
+    (its ``game_s``). Both done; in both ip230 lies inside THE SPAN and before ip243 by line. Break: THE SPAN's right
+    end at step 0's done row's ``frame0`` (the slow knight's ip230 then outside it); THE KNIGHT WAIT not waited (the slow
+    knight's ip230 MISSING: e2's Field(165) unloads him first)."""
+    fast = {"after_ticks": 0, "start": {"y_ge": 5000}, "speed": 120.0}
+    for name, knight in (("slow", {"after_ticks": 300}), ("fast", fast)):
+        out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, short="164", knobs={"knight": knight},
+                                                                     register=name == "slow")
+        _o8_covered(out, aside, beats=_O8_BEATS["164"])
+        order = _o8_order(rows, log, 30860)                             # ONE ip230, inside THE SPAN, before ip243
+        assert order["inside"] and order["before_243"], (name, order)
+        walk = [r for r in _o7_steps(log, 30860) if r["n"] == 0][-1]
+        assert walk["outcome"] == "done" and walk["wait_flag"]["read"] is True, (name, walk)
+        wf = walk["wait_flag"]
+        if name == "fast":
+            assert walk["frame0"] < order["f"] < wf["frame0"], (walk["frame0"], order, wf)   # during the walk
+        else:
+            assert wf["frame0"] < order["f"] <= wf["frame"] and wf["game_s"] >= 10.0, (order, wf)
+
+
+def test_o8_drive_knight_stores_during_a_failed_first_attempt_on_the_fake(game):
+    """THE SPAN over a FAILED FIRST ATTEMPT (research/o8_design.md 2.6; critique #1, 0.2 #9: one row per attempt, each
+    its own ``frame0``): step 0's first attempt ended SHORT -- a test-side wrapper sends its route_to to (1427, 2305),
+    100 u short of P1 on the last leg and past T0 (the knight released), and returns only once the fake holds Bit[3811]
+    (keyed on the store, never on time): the walk ``failed`` ("100u from its goal"); the second attempt walks the rest
+    and its wait reads the bit at once -- ``done``. ip230 lies AFTER the first row's ``frame0``, BEFORE the done row's
+    ``frame0``, inside THE SPAN and before ip243. Break: a done-row window ([the done row's frame0, its frame]: ip230
+    outside it)."""
+    short_of = (1427.0, 2305.0)
+    held = {"stored": None}
+
+    def wrap(g, fake):
+        real, calls = g.route_to, []
+        held["stored"] = None
+
+        def route_to(x, z, **kw):
+            calls.append((x, z))
+            if len(calls) > 1 or fake.field_id != 30860:
+                return real(x, z, **kw)
+            rec = real(*short_of, **kw)                  # step 0's first attempt: ended short, past T0
+            for _ in range(6000):                        # returns once the knight has stored (his ~136 ticks)
+                if _o7_bit(fake, 3811):
+                    break
+                time.sleep(0.01)
+            held["stored"] = bool(_o7_bit(fake, 3811))
+            return rec
+        g.route_to = route_to
+
+    def bent(out, log):
+        """The load bent the run: the store had not come within the wrapper's 60 s, or a starved walk failed an
+        attempt more -- its class asserted: a driver's, never a game's."""
+        walks = [r for r in log if r.get("k") == "step" and r["n"] == 0]
+        if held["stored"] is False or len(walks) > 2:
+            assert not isinstance(out, Exception) or getattr(out, "by", "driver") == "driver", out
+            return True
+        return False
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, short="164", wrap=wrap, spoiled=bent)
+    _o8_covered(out, aside, beats=_O8_BEATS["164"])
+    walks = [r for r in _o7_steps(log, 30860) if r["n"] == 0]
+    assert [(r["outcome"], r["attempt"]) for r in walks] == [("failed", 1), ("done", 2)], walks
+    assert "u from its goal" in walks[0]["why"], walks[0]["why"]
+    order = _o8_order(rows, log, 30860)
+    assert walks[0]["frame0"] < order["f"] < walks[1]["frame0"], (walks, order)
+    assert order["inside"] and order["before_243"] and walks[1]["wait_flag"]["read"] is True, (order, walks[1])
+
+
+def test_o8_drive_knight_missing_is_the_games_v8_on_the_fake(game):
+    """THE KNIGHT MISSING (research/o8_design.md 2.6, 2.9): the knight walks but never stores (``store`` None) and the
+    wait's ``timeout_s`` is 2 -- the bit PUBLISHED 0 throughout, so once BOTH clocks ran 2 s it is VOID V8 by the GAME
+    at [30860, 1190, 1], the step row's ``wait_flag`` read False, last 0. Deterministic: no store exists to race. Break:
+    the wait not waited (the walk done at its arrival: the run goes on to 165)."""
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, short="164", knobs={"knight": {"store": None}},
+                                                                 pred=_o8_pred(short="164", timeout_s=2))
+    _o5_void(out, "V8", "game", [30860, 1190, 1])
+    walk = [r for r in _o7_steps(log, 30860) if r["n"] == 0][-1]
+    assert (walk["outcome"], walk["v"], walk["by"]) == ("void", "V8", "game"), walk
+    assert walk["wait_flag"]["read"] is False and walk["wait_flag"]["last"] == 0, walk["wait_flag"]
+    assert not _o8_rows_at(rows, 1, 1, 230), rows
+
+
+def test_o8_drive_fork_lands_in_real_55_from_member_166_on_the_fake(game):
+    """THE SEAM on the fake (research/o8_design.md 2.8; decision 8): F through the members at 31 fps quantized, 31256 ->
+    31257 -> 31258, and 31258's RAW Field(55) lands in REAL 55 -- REACHED by rule 1 (55 is F's end too: side_ends {S:
+    [55], F: [55]}), never V19 (no member forks 55) nor V11. The last ``w`` row before the cut is 31258 e6 t1 ip863
+    (Int16[2] := 110, don 30862), and the run's trace digest with the fixture's members holds ONE seam: member(166)
+    [31258] -> 55, its exit row that ip863, its fields [55]. Break: rule 1 judged after rules 2 and 3 (REAL 55 on F is
+    then off the route's order: V11); a digest blind to real fields (no seam)."""
+    from ff9mapkit import storytrace as T
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, side="F", fps=31.0, ticks="quantized")
+    _o8_covered(out, aside)
+    end = _g_rows(log, "end")
+    assert len(end) == 1 and end[0]["field"] == 55 and end[0]["end_row"]["seen"], end
+    cut = next(i for i, r in enumerate(rows) if r["k"] in ("w", "r") and r["fld"] == 55)
+    last = [r for r in rows[:cut] if r["k"] == "w"][-1]
+    assert (last["fld"], last["don"], last["sid"], last["tag"], last["ip"], last["new"]) == (31258, 30862, 6, 1, 863,
+                                                                                             110), last
+    d = T.digest("F", T.read_trace(fake.dir / "story.jsonl"), scripts=lambda fid: None, members=dict(_O8_MEMBERS))
+    assert len(d.seams) == 1, d.seams
+    s = d.seams[0]
+    assert (s.frm, s.donor, s.to, s.fields) == (31258, 30862, 55, [55]), s
+    assert s.exit is not None and (s.exit.fld, s.exit.sid, s.exit.tag, s.exit.ip) == (31258, 6, 1, 863), s.exit
+
+
+def test_o8_drive_fork_landing_in_real_166_is_v19_on_the_fake(game):
+    """A FIELD() THE CHAIN DID NOT RETARGET (research/o8_design.md 2.9 V19): F, and 31257's e2 lands in REAL 166 (H15's
+    ``land_real`` {"166": 30862}, the fixture's stand-in for real 166): 165 #1's landing reads place 166 -- its ``to``,
+    so the step is done -- and rule 2 then judges the field: on F a real route field is V19 by the GAME at [30862, 1190,
+    2] (the visit just left), naming member(166) 31258 as due. Break: rule 2's V19 skipped (the landing then a stray:
+    V11)."""
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, side="F", fps=31.0, ticks="quantized",
+                                                                 knobs={"land_real": {"166": 30862}})
+    _o5_void(out, "V19", "game", [30862, 1190, 2], "31258")
+    t165 = [r for r in _o7_steps(log, 31257) if r["n"] == 1][-1]
+    assert t165["outcome"] == "done" and fake.field_id == 30862, (t165, fake.field_id)
+
+
+def test_o8_drive_back_door_e3_is_the_drivers_v11_on_the_fake(game):
+    """THE BACK DOOR (research/o8_design.md 2.4, 2.9 V11): a MUTANT table walking 165 #0 through 165.e3 at a live height
+    -- e3 out of its ``avoid``, its goal (1300, 2300) past the region -- on the planed box: the walk enters e3's ring at
+    published y ~6700 (<= 11000: live), e3 fires (ip243 := 344) and ExitField takes him to 164's id. The walk's landing
+    judge: VOID V11 by the DRIVER at [30861, 1190, 2], the step row's ``door`` 30861.e3, ``landed`` 30860. Break: no
+    door found for the loss (``exit_at`` blind: the row's ``door`` then None)."""
+    pred = _o8_pred(short="165")
+    pred["table"][0]["steps"][0].update(goal=[1300, 2300], avoid=[])
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, short="165", pred=pred, want="30860")
+    _o5_void(out, "V11", "driver", [30861, 1190, 2], "30860")
+    row = _o7_steps(log, 30861)[-1]
+    assert (row["outcome"], row["door"], row["landed"], row["v"], row["by"]) == ("void", "30861.e3", 30860, "V11",
+                                                                                 "driver"), row
+    assert [(r["sid"], r["ip"], r["new"]) for r in _o8_rows_at(rows, 3, 2, 243)] == [(3, 243, 344)], rows
+
+
+def test_o8_drive_movie_stray_dialog_answered_at_no_on_the_fake(game):
+    """THE SKIP NET in FMV004 (research/o8_design.md 2.1, 2.7): 166 alone (166 -> REAL 55), and ONE stray Confirm -- the
+    fake's own, 60 frames into the movie, past its ``armed_after`` -- opens the skip dialog; rule 6 answers it by O7's
+    net row ("want to skip") at the game's own default, No: a ``choice`` row of rule 0, index "default", inside the
+    movie's span (between the ip502 row and the ip863 row); the movie resumes and plays out (120 of 120, one dialog),
+    and the run REACHES 55. Break: no skip net (``_rule_fits`` matching nothing: V1 by the game)."""
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, short="166", fake_setup=_o8_stray_press())
+    _o8_covered(out, aside, beats=[])
+    ch = _g_rows(log, "choice")
+    assert [(c["rule"], c["index"], c["selected"]) for c in ch] == [(0, "default", 1)], ch
+    f502, f863 = _o8_rows_at(rows, 6, 1, 502)[0]["f"], _o8_rows_at(rows, 6, 1, 863)[0]["f"]
+    assert f502 < ch[0]["frame"] < f863, (f502, ch[0]["frame"], f863)
+    mv = fake.movies
+    assert fake.answered == [1] and len(mv) == 1, (fake.answered, mv)
+    assert (mv[0]["played"], mv[0]["skips"], mv[0]["ended"]) == (120, 1, "played"), mv
+
+
+def test_o8_drive_movie_skip_dialog_with_an_empty_prompt_answered_at_no_on_the_fake(game):
+    """THE NET'S SECOND ROW (research/o8_design.md 2.1; the claim review's #6, 11.3 B6): the skip dialog with its prompt
+    published EMPTY (the movie beat's skip dict with ``header`` ""), one stray Confirm in FMV004: O7's net row ("want to
+    skip") fits nothing -- ``pick_for`` matches the prompt and the shown lines alone -- and the 166-scoped measured-line
+    row ("No") answers it at its default, No: a ``choice`` row of rule 1; the movie resumes, the run REACHES 55. Break:
+    the net without its second row (``_rule_fits`` reading the prompt alone: V1 by the game for a press's dialog)."""
+    skip = dict(_O3_SKIP, header="", armed_after=40)
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(game, short="166", knobs={"skip": skip},
+                                                                 fake_setup=_o8_stray_press())
+    _o8_covered(out, aside, beats=[])
+    ch = _g_rows(log, "choice")
+    assert [(c["rule"], c["index"], c["selected"], c["options"][0]) for c in ch] == [(1, "default", 1, "")], ch
+    assert fake.answered == [1] and (fake.movies[0]["played"], fake.movies[0]["ended"]) == (120, "played"), fake.movies
+
+
+def test_o8_drive_dead_level_door_holds_no_fire_on_the_fake(game):
+    """THE DEAD LEVEL (research/o8_design.md 2.3 #3, #5, 10 #4): on the planed box a MUTANT table walks into each live
+    region of 164 AT ITS DEAD LEVEL -- step 0 from the spawn round e3 to (850, 2100), in e2's east ear at published y
+    ~10800 (e2 fires only past 12000); step 1 on to (1300, 2900), in e3's ring at ~7900 (e3 fires only at or under 6000)
+    -- and stands there: no loss, no door store, both steps done (the run then moved to 165's id on step 1's done row).
+    Break: the doors without their height terms (e2 fires on its dead level: step 0's walk lands in 165's id, V11 by the
+    walk's landing)."""
+    pred = _o8_pred(short="164")
+    pred["table"][0]["steps"] = [
+        {"kind": "walk", "name": "into e2's east ear at its dead level", "goal": [850, 2100],
+         "start": list(_O8_SPAWN["164"]), "avoid": ["30860.e3"], "clearance": 80, "basis": "prior", "npcs": False,
+         "beat": "d0"},
+        {"kind": "walk", "name": "into e3's ring at its dead level", "goal": [1300, 2900], "start": [850, 2100],
+         "avoid": [], "clearance": 80, "npcs": False, "beat": "d1"}]
+    pred["beats"] = ["d0", "d1"]
+    a, b, c = _o8_plane_coef(_O8_PLANES["164"])
+    assert a * 850 + b * 2100 + c < 12000 and a * 1300 + b * 2900 + c > 6000, "premise: each goal at a dead level"
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(
+        game, short="164", pred=pred, log=lambda fake_: _O8EndLog(fake_, n=1, end=30861))
+    _o8_covered(out, aside, beats=["d0", "d1"])
+    walks = _o7_steps(log, 30860)
+    assert [(r["n"], r["outcome"]) for r in walks if r["outcome"] != "failed"] == [(0, "done"), (1, "done")], walks
+    assert all(r["lost"] is None and r["landed"] is None for r in walks), walks
+    assert not [e for e in fake.visit_log if e["kind"] == "fire"], fake.visit_log
+    assert not _o8_rows_at(rows, 2, 2, 243) and not _o8_rows_at(rows, 3, 2, 243), rows
+    from ff9mapkit.content import doorface
+    assert doorface.region_contains(walks[-2]["to"]["x"], walks[-2]["to"]["z"], _O8_164E2), walks[-2]["to"]
+    assert doorface.region_contains(walks[-1]["to"]["x"], walks[-1]["to"]["z"], _O8_164E3), walks[-1]["to"]
+
+
+def test_o8_drive_unstick_false_through_the_pinch_on_the_fake(game, dali):
+    """THE PINCH'S FALLBACK (research/o8_design.md 2.5, S23): stock 164's levels at radius 80, Steiner granted at P1 (the
+    bytes' height), the cell 164 #1 alone with ``unstick`` False and ``npcs`` False -- the NO-GO ladder's middle rung --
+    and a test-side wrapper holding ``squeeze_slack`` at 8 for the step's FIRST route_to call (12 after: by call count,
+    never by time): the first attempt stops at the pinch's mouth and FAILS with no ladder -- ``_blocker_ahead`` never
+    called during it, its route record's blockers empty, its row carrying ``unstick`` False -- and the second, at 12,
+    passes the pinch and is DONE (e2's loss past 12000, the landing 165's id). Reads the install. Break: S23 dropped
+    (``walk_kw`` ignoring the key: the ladder runs at the stall -- a blocker placed)."""
+    wm, _script = dali
+    stocks = _o8_stocks(164)
+    _pw, prior, _twist = stocks[30860]
+    route = _o8_route("S", short="164", levels=True)
+    grant = next(s for s in route[0]["visit"]["steps"] if "grant" in s)
+    grant["grant"] = [*_O8_P1["164"], -8958]
+    pred = _o8_pred(short="164", closures=_o8_closures(wm))
+    pred["table"][0]["steps"] = [dict(pred["table"][0]["steps"][1], unstick=False, npcs=False)]
+    pred["beats"] = ["t164_e2"]
+    blockers: list = []
+
+    def wrap(g, fake):
+        real, ahead, calls = g.route_to, g._blocker_ahead, [0]
+        del blockers[:]                                  # a re-run counts its own
+
+        def route_to(x, z, **kw):
+            calls[0] += 1
+            fake.levels[30860].squeeze_slack = 8.0 if calls[0] == 1 else 12.0
+            return real(x, z, **kw)
+
+        def blocker(*a, **kw):
+            blockers.append(calls[0])
+            return ahead(*a, **kw)
+        g.route_to, g._blocker_ahead = route_to, blocker
+    def bent(out, log):
+        """The load bent the run: a starved walk failed the second attempt too (a third row) -- its class a driver's."""
+        if len([r for r in log if r.get("k") == "step"]) > 2:
+            assert not isinstance(out, Exception) or getattr(out, "by", "driver") == "driver", out
+            return True
+        return False
+    out, log, fake, rows, ring, _a, aside = _o8_run_informative(
+        game, short="164", route=route, pred=pred, fake_setup=_o8_real_setup(stocks), wrap=wrap,
+        floor=_o8_real_floor(stocks), prior=prior, cached=(30860,), planes={}, spoiled=bent)
+    _o8_covered(out, aside, beats=["t164_e2"])
+    trig = _o7_steps(log, 30860)
+    assert [(r["outcome"], r["attempt"]) for r in trig] == [("failed", 1), ("done", 2)], trig
+    assert trig[0]["unstick"] is False and trig[0]["route"]["blockers"] == [] and 1 not in blockers, (trig[0], blockers)
+    assert trig[1]["lost"]["y"] > 12000 and trig[1]["landed"] in (None, 30861), trig[1]
+
+
+# ---- PART C, C1: O8 itself (studies/story-trace/o8_west_tower.py; research/o8_design.md 9 PART C): the draft read from
+# O4's campaign.toml, the step vocabulary and its round trip, the freeze's refusals, the route builder against the draft
+# (one source of truth: its stores, its pattern, its knight's release, the band closures, THE EXEMPT SPAN), the census
+# with its reach proof, the regions' gates read through their jumps, the goals height-aware, the keys' derivations, THE
+# RACED SET, O8-WALK, -ORDER, -KNIGHT, -LANDING, -SEAM and -MOVIE pure, the knight watch under the drive, why_void's
+# start reads, movie and knight, the per-run reseed, the preflight's verdicts and O8-BUILD's raw exit -- each pure or on
+# synthetic chains, rows and installs (the census, the regions, the goals, the keys, the raced set and the builder's
+# pattern read the install's stock scripts and walkmeshes, read-only: a warned skip without it, which fails G44). Every
+# name is test_o8_tower_*: G44's "o8_".
+
+def _o8_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o8_west_tower as O
+    return O
+
+
+def _o8_dryrun():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o8_dryrun as D
+    return D
+
+
+@pytest.fixture(scope="module")
+def o8_stock():
+    """The install's stock scripts (164, 165, 166, 55, 70 and 64 read first) and its walkmeshes, or a WARNED skip --
+    never a silent pass (THE WORKTREE SKIP TRAP)."""
+    import warnings
+    try:
+        from ff9mapkit import extract, storytrace
+        src = storytrace.stock_script_source()
+        assert all(src(f) is not None for f in (164, 165, 166, 55, 70, 64))
+        extract.stock_walkmesh(164)
+    except Exception as err:                                   # noqa: BLE001 -- no install here
+        warnings.warn(f"O8's census, regions, goals, keys, raced set and pattern went UNVERIFIED against real bytes in "
+                      f"this run: the game install is not readable here ({type(err).__name__}). Run on the machine with "
+                      f"the install.", UserWarning)
+        pytest.skip("game install unavailable")
+    return src
+
+
+def _o8_draft(tmp_path, **kw):
+    """The draft on a synthetic alxc chain (:func:`_o4c_campaign`: the twenty donors at 31240 + their position, so
+    member(164) 31256, member(165) 31257, member(166) 31258 as built)."""
+    return _o8_module().draft_predictions(_o4c_campaign(tmp_path), **kw)
+
+
+def _o8_frozen_like(pred):
+    """The draft with the freeze-time values the lead's freeze writes (7.3): the rehearsal run dirs, the render rates
+    they met and the measurements F2-F8 put into ``rehearsed`` -- never pinned by a test."""
+    import copy
+    good = copy.deepcopy(pred)
+    good["rehearsals"] = ["C:/gd/Dream-World-IX/.harness-runs/20261006-000000-o8-rh"]
+    good["rehearsal_fps"] = [31.0, 60.0]
+    good["rehearsed"] = {"stretch_s": 60.0, "wait_s": 4.0, "steps_s": {"164 #0": 70.0}, "movie_span_s": 45.4,
+                         "narrowest_pinch": 70.0}
+    return good
+
+
+def _o8_rehearsal_dir(name):
+    """Whether ``name`` -- a bare run-dir name or a full path, either slash -- is an O8 rehearsal launch's run dir:
+    ``<yyyymmdd>-<hhmmss>-o8-rh``, optionally ``-<suffix>``. Never another segment's and never a session's."""
+    base = re.split(r"[\\/]", str(name))[-1]
+    return re.fullmatch(r"\d{8}-\d{6}-o8-rh(?:[-_][A-Za-z0-9_-]+)?", base, flags=re.IGNORECASE) is not None
+
+
+def test_o8_tower_draft_reads_the_chain_from_campaign(tmp_path):
+    """The draft's members and names are O4's built chain's campaign.toml (research/o8_design.md 1.3, 4.1): its donors
+    exactly the twenty, the three route members DERIVED -- member(164) 31256, member(165) 31257, member(166) 31258 --
+    never 31205 (O1's member(55)); the draft starts F in member(164), ends REAL 55 on both sides (``side_ends`` {S: [55],
+    F: [55]}), visits the three places, carries 20 writes and 3 chain keys, the FOUR residue rows (342 = 0x0156), two
+    visit-scoped cells of two steps each with their clearances (80, 64, 120, 120), the knight's seat, the movie and the
+    seam registered, the end state without the raced pair or a carried target. The rehearsals are read from the draft
+    (the lead names them at the freeze), never pinned. o8_forks.json is O4's chain reused: O4's twenty members and
+    names, its route members derived, the declared seam 31258 -> 55, 31205 outside, deployed, nothing to relaunch, C0's
+    measured diffs. Break: the F side ending in member(166) (no seam)."""
+    O = _o8_module()
+    members, names = O.chain_from_campaign(_o4c_campaign(tmp_path))
+    assert O.route_members8(members) == {164: 31256, 165: 31257, 166: 31258}, O.route_members8(members)
+    assert O.route_members_line(members) == "member(164) 31256, member(165) 31257, member(166) 31258"
+    pred = _o8_draft(tmp_path)
+    assert pred["start"] == {"S": 164, "F": 31256} and pred["side_ends"] == {"S": [55], "F": [55]}, \
+        (pred["start"], pred["side_ends"])
+    assert pred["route"] == pred["visits"] == [164, 165, 166] and pred["end_fields"] == [55]
+    assert 31205 not in {int(f) for f in pred["members"]} and len(pred["members"]) == 20
+    assert pred["members"] == {str(f): d for f, d in members.items()} and pred["names"]["31256"] == "O4_SYNTH_164"
+    assert (pred["entrance"], pred["scenario"], pred["battles"], pred["naming"], pred["start_dependent"]) == (
+        342, 1190, [], [], [])
+    # the lead names the rehearsals at the freeze (7.3): never pin them empty, nor pin their form beyond O8's own dirs
+    assert all(_o8_rehearsal_dir(r) for r in pred["rehearsals"]), pred["rehearsals"]
+    for name in ("20261006-101010-o8-rh", "20261006-101010-o8-rh-fmv", "C:\\gd\\x\\20261006-101010-o8-rh-R-VOID"):
+        assert _o8_rehearsal_dir(name), name
+    for name in ("20261005-101010-o7-rh", "20261006-101010-o8-rhx", "20261006-101010-story-o8", ""):
+        assert not _o8_rehearsal_dir(name), name
+    assert all(_o8_rehearsal_dir(r) for r in _o8_frozen_like(pred)["rehearsals"])
+    assert len(pred["writes"]) == 20 and len(pred["chain"]) == 3 and pred["ladder"] == [], len(pred["writes"])
+    assert pred["start_residue"] == [[0, 0, 166], [1, 0, 4], [2, 0, 86], [3, 0, 1]], pred["start_residue"]
+    steps = [s for c in pred["table"] for s in c["steps"]]
+    assert [c["visit"] for c in pred["table"]] == [1, 2] and [s["clearance"] for s in steps] == [80, 64, 120, 120]
+    assert pred["seat_watch"]["seat"] == [-586, 3884] and pred["movie"]["name"] == "FMV004" and "movies" not in pred
+    assert pred["seam"]["to"] == 55 and pred["seam"]["fields"] == [55], pred["seam"]
+    assert not {"Global.Int16[2]", "Global.Byte[8]", "Global.UInt16[0]"} & set(pred["end_state"]), pred["end_state"]
+    assert set(pred["end_state_trace"]) == {"Global.Int16[2]", "Global.Byte[8]"}, pred["end_state_trace"]
+    assert pred["end_state_scene"]["Global.UInt16[0]"]["sites"] == [[10, 1, 568], [10, 1, 582]], pred["end_state_scene"]
+    assert pred["end_state"] == _O8_END_STATE, (pred["end_state"], _O8_END_STATE)
+    assert not set(pred["carried"]["values"]) & set(pred["end_state"]) and len(pred["carried"]["values"]) == 15
+    man = json.loads(O.MANIFEST.read_text(encoding="utf-8"))
+    o4 = json.loads(O.C4.MANIFEST.read_text(encoding="utf-8"))
+    mm = {int(f): int(d) for f, d in man["members"].items()}
+    assert man["members"] == o4["members"] and man["names"] == o4["names"], "o8_forks.json is not O4's chain"
+    assert man["route_members"] == {str(f): d for d, f in O.route_members8(mm).items()}, man["route_members"]
+    assert (man["seam"]["from"], man["seam"]["donor"], man["seam"]["to"]) == (O.route_members8(mm)[166], 166, 55)
+    assert man["outside"]["31205"] == 55 and "31205" not in man["members"], man["outside"]
+    assert (man["deployed"], man["relaunch_needed"], man["reuses"]) == (True, False,
+                                                                        "studies/story-trace/o4_forks.json"), man
+    for site in ("e2 t2 ip251 (165)", "e3 t2 ip251 (163)", "e2 t2 ip241 (166)", "e3 t2 ip251 (164)",
+                 "166 BYTE FOR BYTE", "e6 t1 ip871 Field(55) RAW", "21 member files"):
+        assert site in man["built"]["measured"], site
+
+
+def test_o8_tower_draft_steps_round_trip_through_step_of(tmp_path):
+    """Critique #5's unit (research/o8_design.md 9 C1): every step of the draft AND of ``as_if_frozen(draft)`` goes
+    through segment_drive.step_of EXACTLY -- ``step_of(pred, raw) == {**steps_default, **raw}`` with the climb dict
+    merged, every S20/S21/S23 key kept as typed, nothing added or dropped -- so the round trip the lead's freeze writes
+    reads back the steps the offline check proved. Break: a step_of that adds a key (the walk's ``target`` None)."""
+    SD = _segment_modules()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    for p in (pred, D.as_if_frozen(pred)):
+        dflt = p["steps_default"]
+        for c in p["table"]:
+            for raw in c["steps"]:
+                want = {**dflt, **raw}
+                if "climb" in raw:
+                    want["climb"] = {**dflt["climb"], **raw["climb"]}
+                got = SD.step_of(p, raw)
+                assert got == want, (raw.get("name"), sorted(set(got) ^ set(want)),
+                                     {k: (got.get(k), want.get(k)) for k in want if got.get(k) != want.get(k)})
+    walk = pred["table"][0]["steps"][0]
+    assert SD.step_of(pred, walk)["wait_flag"] == walk["wait_flag"] and SD.step_of(pred, walk)["at_y"] == walk["at_y"]
+
+
+def test_o8_tower_known_step_keys_refuse_an_unknown_key(o8_stock, tmp_path):
+    """THE STEP VOCABULARY (research/o8_design.md 0.2 #17): :data:`KNOWN_STEP_KEYS8` holds every key a frozen table
+    through O7 or a ``steps_default`` carries (frozen_through(7): rungs and O1-O7) plus S20, S21 and S23's; a step key
+    outside it -- "hold", a mistyped "at_Y" -- FAILS O8-GOALS (g0) by name and the freeze refuses it (segment_drive.step_of
+    passes an unknown key silently: a table that drives without it is a check that cannot fail). Break: a vocabulary
+    missing "basis" (O7's frozen table's key then reads unknown)."""
+    import copy
+    O = _o8_module()
+    D = _o8_dryrun()
+    vocab = set()
+    for f in D.frozen_through(7):
+        p = json.loads(f.read_text(encoding="utf-8"))
+        vocab |= set(p.get("steps_default") or {})
+        for c in p.get("table") or ():
+            for s in c.get("steps") or ():
+                vocab |= set(s)
+    assert vocab and vocab <= set(O.KNOWN_STEP_KEYS8), sorted(vocab - set(O.KNOWN_STEP_KEYS8))
+    assert {"at_y", "wait_flag", "unstick", "basis", "clearance"} <= set(O.KNOWN_STEP_KEYS8)
+    pred = _o8_draft(tmp_path)
+    for key in ("hold", "at_Y"):
+        bad = copy.deepcopy(pred)
+        bad["table"][0]["steps"][0][key] = 1
+        ok, _w, detail = O.O8.goals_check(bad, stock=o8_stock)
+        assert not ok and f"(164, 1190, 1) #0 (g0): unknown step key(s) ['{key}']" in detail, detail[:300]
+        probs = O.O8.freeze_problems(_o8_frozen_like(bad), live_engine=dict(O.ENGINE), prior=O.prior_segments8(),
+                                     o7=O.o7_frozen())
+        assert any(f"carries an unknown key ['{key}']" in p_ for p_ in probs), probs
+
+
+def test_o8_tower_freeze_refuses(o8_stock, tmp_path):
+    """The freeze (research/o8_design.md 1.3, 7.3) writes the draft ONCE -- LF, sorted keys, its sha the bytes' -- on a
+    synthetic chain, the live engine (a stub reader) and the freeze-time values the lead writes
+    (:func:`_o8_frozen_like`). Before anything is written it refuses, each naming its cause and writing nothing: no
+    witness; a rehearsal overlay on a table step (``flag_stop``, ``movie_poke``); a typed ``stale_slack``; a step without
+    ``clearance``; ``choices`` not the net's two rows; 164 #0 without its wait, ``npcs`` false or e3 avoided; 164 #1 at
+    80; 164 #1's until looser than its door's gate (the review's #4); side_ends not {S: [55], F: [55]}; an O1 id among
+    the members; an ``inert`` row; a ``movies`` key; a raced target
+    in ``end_state``; ``end_state_trace`` not the raced set; SC (the arrival scene's: the review's #3) in ``end_state``,
+    or ``end_state_scene`` not the derived scene; a carried target in ``end_state``; ``carried`` not the
+    derivation; ``start_scoped`` not the derivation; a start read without its race; no ``seat_watch``; ``rehearsed``
+    without ``narrowest_pinch``; ``no_progress_s`` under twice the stretch; the wait's timeout under 3 x the longest
+    wait; the shortest movie span under file_s - slack_s; VSync not "1"; no rehearsals; another engine; and a second
+    freeze onto the same file. The real o8_predictions_v1.json is never touched. Break: accept a step's movie_poke."""
+    import copy
+    import hashlib
+    O = _o8_module()
+    _o4c_campaign(tmp_path)
+    seg = O.O8Segment()
+    seg.chain_dir = tmp_path
+    live = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+    good = _o8_frozen_like(seg.draft())
+    assert seg.freeze_problems(good, live_engine=live) == [], seg.freeze_problems(good, live_engine=live)
+
+    def refuses(pred, match, engine=live):
+        seg.draft = lambda: copy.deepcopy(pred)
+        never = tmp_path / "never.json"
+        with pytest.raises(SystemExit, match=match):
+            seg.freeze(never, live_engine=engine)
+        assert not never.exists()
+
+    def edited(fn):
+        p = copy.deepcopy(good)
+        fn(p)
+        return p
+    s0 = lambda p: p["table"][0]["steps"][0]                            # noqa: E731
+    s1 = lambda p: p["table"][0]["steps"][1]                            # noqa: E731
+    refuses(edited(lambda p: p.pop("witness")), "no witness")
+    refuses(edited(lambda p: s0(p).__setitem__("flag_stop", True)), r"rehearsal overlay \['flag_stop'\]")
+    refuses(edited(lambda p: p["table"][1]["steps"][0].__setitem__("movie_poke", {"after_s": 10})),
+            r"rehearsal overlay \['movie_poke'\]")
+    refuses(edited(lambda p: s0(p).__setitem__("stale_slack", 160)), "typed stale_slack")
+    refuses(edited(lambda p: p["table"][1]["steps"][1].pop("clearance")), "carries no clearance")
+    refuses(edited(lambda p: p["choices"].pop()), "are not exactly the skip net's two rows")
+    refuses(edited(lambda p: s0(p).pop("wait_flag")), "164 #0 must carry at_y, wait_flag")
+    refuses(edited(lambda p: s0(p).__setitem__("npcs", True)), "164 #0 must carry")
+    refuses(edited(lambda p: s0(p).__setitem__("avoid", [])), "164 #0 must carry")
+    refuses(edited(lambda p: s1(p).__setitem__("clearance", 80)), "164 #1 must carry an until with a y_gt term")
+    refuses(edited(lambda p: s1(p).__setitem__("until", {"y_gt": 9000})), "164 #1's until {'y_gt': 9000} is looser than "
+                                                                           "its door 164.e2's gate")
+    refuses(dict(copy.deepcopy(good), side_ends={"S": [55], "F": [31258]}), "is not exactly")
+    refuses(edited(lambda p: p["members"].__setitem__("31205", 55)), r"O1 id\(s\) \[31205\]")
+    refuses(dict(copy.deepcopy(good), inert=[{"donor": 164, "sid": 9}]), "inert row")
+    refuses(dict(copy.deepcopy(good), movies=[{"name": "FMV004"}]), "a movies key")
+    refuses(edited(lambda p: p["end_state"].__setitem__("Global.Byte[8]", 125)), r"raced target\(s\)")
+    refuses(edited(lambda p: p["end_state_trace"].pop("Global.Byte[8]")), "end_state_trace's targets")
+    refuses(edited(lambda p: p["end_state"].__setitem__("Global.UInt16[0]", 1190)),
+            r"arrival-scene target\(s\) \['Global\.UInt16\[0\]'\] in end_state")
+    refuses(edited(lambda p: p.pop("end_state_scene")), "end_state_scene's targets")
+    refuses(edited(lambda p: p["end_state"].__setitem__("Global.Bit[3796]", 0)),
+            r"carried target\(s\) \['Global\.Bit\[3796\]'\] in end_state")
+    refuses(edited(lambda p: p["carried"]["values"].pop("Global.Bit[3815]")), "carried differs from the derivation")
+    refuses(edited(lambda p: p["start_scoped"].pop(2)),
+            r"start_scoped differs from the derivation: missing \[\(166, 6, 1, 345\)\], extra \[\]")
+    refuses(edited(lambda p: p["start_reads"][0].pop("race")), "carries no race, race_value and edge")
+    refuses(edited(lambda p: p.pop("seat_watch")), "no seat_watch")
+    refuses(edited(lambda p: p["rehearsed"].pop("narrowest_pinch")), r"rehearsed lacks \['narrowest_pinch'\]")
+    refuses(edited(lambda p: p["budget"].__setitem__("no_progress_s", 100)), "no_progress_s 100 under 2 x")
+    refuses(edited(lambda p: p["rehearsed"].__setitem__("wait_s", 9.0)), r"timeout_s 15\.0 under max\(15, 3 x")
+    refuses(edited(lambda p: p["rehearsed"].__setitem__("movie_span_s", 39.0)), "the shortest movie span 39.0 s")
+    refuses(edited(lambda p: p["settings"]["Graphics"].__setitem__("VSync", "0")), "VSync '1'")
+    refuses(dict(copy.deepcopy(good), rehearsals=[]), "no rehearsals")
+    refuses(good, "is not the live DLLs'", engine={"x64": "0" * 64, "x86": "0" * 64})
+    seg.draft = lambda: copy.deepcopy(good)
+    path = tmp_path / "o8_predictions_v1.json"
+    sha = seg.freeze(path, live_engine=live)
+    data = path.read_bytes()
+    assert sha == hashlib.sha256(data).hexdigest() and b"\r" not in data and data.endswith(b"\n")
+    assert data.decode("utf-8") == json.dumps(good, indent=1, sort_keys=True) + "\n"
+    with pytest.raises(SystemExit, match="frozen"):
+        seg.freeze(path, live_engine=live)
+    assert path.read_bytes() == data
+
+
+def test_o8_tower_route_builder_matches_the_keys(game, o8_stock, tmp_path):
+    """ONE SOURCE OF TRUTH (research/o8_design.md 3.6, 9 C1 and PART B's handoff): the test-side route builder
+    (:func:`_o8_route`, B3's) and the draft agree. Its visit beats played by the scripted player from field 70's prologue
+    values and the raw warp, traced with the sink's suppression, read as the analysis reads a run -- the fixture's fields
+    as their places, cut at 164's first write and at REAL 55's first row: the residue before the start is the draft's
+    FOUR rows; the first write is ``start_first``; the distinct unmasked keys of the route places are EXACTLY the draft's
+    20 writes and 3 chain keys, its masked rows the six prologue rows; the cut row is ``landing.end_row``; O8-PATTERN's
+    reading (joined on the stock bytes) is the draft's ``pattern`` (9 + 9 + 11) and the test-side ``_O8_PATTERN`` its by-ip
+    image. And the builder's knight: his ``start`` is :func:`height_gate` over the pinned ip178 and ip187 -- {y_ge: 8400},
+    the seat watch's release; his path and seat the pins'. The test-side band closures (``_o8_band_closures``) are
+    :func:`band_closures` on stock 164 and 165 (93 / 99 / 64 / 16) and THE SPAN (``_o8_span``) is :func:`exempt_span`.
+    Break: 165's ip844 key at value 3 in the draft's writes (the keys then differ)."""
+    from ff9mapkit import extract, storytrace
+    from ff9mapkit.content import pathfind
+    O = _o8_module()
+    ST = __import__("segment_trace")
+    pred = _o8_draft(tmp_path)
+    fake = _o8_box_fake(game)
+    _o5_field70(fake)
+    fake._story_start()
+    fake._warp_writes(342, 1190)
+    fake.field_id = 30860
+    fake.scene(*_o8_route("S"), control=False)
+    _o8_play(fake, until=lambda f: f.control, limit=400)
+    _o8_play(fake, toward=(2350, 2800), until=_o8_near((2350, 2800)))
+    _o8_play(fake, toward=_O8_P1["164"], until=_o8_near(_O8_P1["164"]))
+    _o8_play(fake, until=lambda f: bool(_o8_ip230(f)), limit=2000)
+    _o8_play(fake, toward=_O8_GOAL1["164"], until=lambda f: f.field_id != 30860)
+    _o8_play(fake, until=lambda f: f.control, limit=400)
+    _o8_play(fake, toward=_O8_P1["165"], until=_o8_near(_O8_P1["165"]))
+    _o8_play(fake, toward=_O8_GOAL1["165"], until=lambda f: f.field_id != 30861)
+    _o8_play(fake, until=lambda f: f.field_id == 55 and any(e["index"] == 4 and e["kind"] == "wait"
+                                                            for e in f.visit_log))
+    fake._story_stop()
+    rows = storytrace.parse_text("".join(json.dumps(r) + "\n" for r in _fv_rows(fake)))
+    places = {f: int(p) for p, f in _O8_FIELDS["S"].items() if p in ("164", "165", "166")}
+    kept, _at, pre = ST.cut_at_start(rows, 164, places)
+    kept, end = ST.cut_at_end(kept, [55], places)
+    assert [[x.byte, x.old, x.new] for x in pre if x.k == "r"] == pred["start_residue"], pre
+    first = next(x for x in kept if x.k == "w")
+    sf = pred["start_first"]
+    assert (first.sid, first.tag, first.ip, first.target, first.new) == (sf["sid"], sf["tag"], sf["ip"], sf["target"],
+                                                                         sf["value"]), first
+    keys = {(places[x.fld], x.sid, x.tag, x.ip, x.target, x.new) for x in kept
+            if x.k == "w" and x.src == "eb" and not storytrace.noise_regions(x)}
+    want = {(k["donor"], k["sid"], k["tag"], k["ip"], k["target"], k["value"]) for k in pred["writes"] + pred["chain"]}
+    assert keys == want and len(want) == 23, (sorted(keys ^ want), len(want))
+    masked = [(places[x.fld], x.ip, x.target) for x in kept if x.k == "w" and x.src == "eb"
+              and storytrace.noise_regions(x)]
+    assert len(masked) == 6 and {t for _p, _ip, t in masked} == {"Global.Bit[191]", "Global.Bit[184]"}, masked
+    cut = next(x for x in rows if x.line == end)
+    lend = pred["landing"]["end_row"]
+    assert (cut.fld, cut.sid, cut.tag, cut.ip, cut.target, cut.new) == (
+        lend["place"], lend["sid"], lend["tag"], lend["ip"], lend["target"], lend["value"]), cut
+    got = O.C5.pattern_of(kept, pred, places, O.C5.stock_join(o8_stock, places))
+    assert got["unjoined"] == 0 and got["counts"] == [] and O.C6.pattern_diff6(got, pred["pattern"]) == [], \
+        O.C6.pattern_diff6(got, pred["pattern"])
+    off = {(k["donor"], k["sid"], k["tag"], k["ip"]): k["off"] for k in pred["writes"] + pred["chain"]}
+    off.update({(p, 0, 0, ip): ip - 6 for p in (164, 165, 166) for ip in (22, 49)})
+    by_ip = [[(places[f], s, t, off[(places[f], s, t, ip)], tg, v, same) for f, s, t, ip, tg, v, same in visit]
+             for visit in _O8_PATTERN]
+    assert by_ip == [[tuple(x) for x in v] for v in pred["pattern"]["visits"]], by_ip
+    assert _o8_knight()["start"] == O.knight_release(pred) == pred["seat_watch"]["release"] == {"y_ge": 8400}
+    start, pts, walk_u, seat = O.knight_walk(pred)
+    assert [list(start)] + [list(p) for p in pts] == [[float(a), float(b)] for a, b in _O8_KNIGHT_PATH], pts
+    assert seat == _O8_KNIGHT_SEAT and abs(walk_u - pred["seat_watch"]["walk_u"]) < 0.05, (seat, walk_u)
+    lv = O.knight_levels(pred, pathfind.PlayerWalkmesh(extract.stock_walkmesh(164)))      # H25b: his level, the mesh's
+    at = {(round(x, 3), round(z, 3)): round(y, 1) for x, z, y in lv}
+    assert [at[(float(a), float(b))] for a, b in _O8_KNIGHT_PATH] == list(_O8_KNIGHT_LEVELS), lv
+    assert (round(lv[0][2]), round(lv[-1][2])) == (pred["seat_watch"]["start_y"], pred["seat_watch"]["y"]) == (
+        11255, 11896), (lv[0], lv[-1])
+    for (p, n), band in O.BANDS8.items():
+        pw = pathfind.PlayerWalkmesh(extract.stock_walkmesh(p))
+        assert O.band_closures(pw, *band) == _o8_band_closures(pw, *_O8_BANDS[(str(p), n)]) == list(
+            O.CLOSURES8[(p, n)]), (p, n)
+    log = [{"k": "step", "field": 30860, "donor": 164, "n": 0, "frame0": 100, "outcome": "failed"},
+           {"k": "step", "field": 30860, "donor": 164, "n": 0, "frame0": 160, "outcome": "done"},
+           {"k": "step", "field": 30860, "donor": 164, "n": 1, "frame0": 300, "outcome": "done"}]
+    assert O.exempt_span(log, 164) == _o8_span(log, 30860) == (100, 300)
+
+
+def test_o8_tower_census_classifies_every_site(o8_stock, tmp_path):
+    """O8-CENSUS (research/o8_design.md 0.2 #4, 6.1) on the real bytes PASSES with its derived counts -- 164 25, 165 18,
+    166 18; error 3 / 3 / 4, dead 7 / 5 / 3 (as built: the talk's ip690 is dead, behind ip641's const(1)) -- every
+    error-path guard and every forbidden site reachable from some arrival value (reach8), no entrance dispatch, 166 e2
+    shared from e6 t1 ip489 and storeless, 166 e1 idle. Then FAILS by name: 164 e3 t2 ip215 moved to ``forbidden_sites``
+    (dead: its own ip54 set Map.Bit[162] 1 before ip193 tests it 0); 166 e6 t1 ip502 out of the writes; 164 e1 t3 ip308
+    out of ``forbidden_sites``; 164 e0 t0 ip97 moved back to ``error_path`` (unreachable: ip57's 385 -- the claim
+    review's #9: class membership alone could not tell an error path from a dead site); 166 e2 holding a global store.
+    Break: no reach proof (ip97 then passes as an error path)."""
+    import copy
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    ok, _w, detail = O.O8.census_check(pred, o8_stock)
+    assert ok and detail == D.CENSUS_LINE, detail
+    for name, (want, got, _d) in zip(("census-164-e3-215-forbidden", "census-166-502", "census-164-308",
+                                      "census-164-97-error", "census-166-e2-store"),
+                                     [(n, ok_, d) for n, ok_, d in D.unit_store_census(pred, o8_stock)][1:]):
+        assert want == name and got is True, (want, name, got, _d)
+    bad = copy.deepcopy(pred)
+    bad["error_path"] = list(bad["error_path"]) + [k for k in bad["dead"] if (k["donor"], k["ip"]) == (164, 97)]
+    bad["dead"] = [k for k in bad["dead"] if (k["donor"], k["ip"]) != (164, 97)]
+    ok, _w, detail = O.O8.census_check(bad, o8_stock)
+    assert not ok and "164 e0 t0 ip97" in detail and "no arrival value reaches" in detail, detail[:300]
+
+
+def test_o8_tower_regions_gates_read_off_the_pins(o8_stock, tmp_path):
+    """O8-REGIONS (c) and O8-KEYS (f): THE HEIGHTS read through their jumps (research/o8_design.md 0.2 #24; the claim
+    review's #7). The four doors' gates off their pinned tag-2 tests AND consuming JMP_IFNOTs -- 164.e2 y > 12000, 164.e3
+    y < 6000, 165.e2 y > 15000, 165.e3 y < 11000 -- and REGIONS PASSES on the draft; a mutated constant moves its gate
+    (53536 -> 53000: y > 12536) and REGIONS (c) FAILS; a door's JMP_IFNOT as JMP_IF inverts its gate (164.e2: y <= 12000)
+    and REGIONS (c) FAILS; the knight's ip187 JMP_IF as JMP_IFNOT makes his release y < 8400 and KEYS (f) FAILS; a B_LE
+    text reads None and is refused. Break: a gate read off the test alone (the flipped jump then passes)."""
+    import copy
+    O = _o8_module()
+    pred = _o8_draft(tmp_path)
+    gates = {}
+    for key in ("164.e2", "164.e3", "165.e2", "165.e3"):
+        d, e_ = int(key.split(".")[0]), int(key.split(".e")[1])
+        _t, tt, _j, jt = O.door_gate_pins(pred, d, e_)
+        gates[key] = O.height_gate(tt, jt)
+        assert pred["regions"][key]["gate"] == gates[key], key
+    assert gates == {"164.e2": {"y_gt": 12000}, "164.e3": {"y_lt": 6000}, "165.e2": {"y_gt": 15000},
+                     "165.e3": {"y_lt": 11000}}, gates
+    assert O.O8.regions_check(pred, o8_stock)[0] is True
+    assert O.knight_release(pred) == {"y_ge": 8400}
+
+    def pin(p, site, old, new):
+        x = next(q for q in p["route_pins"] if q[:4] == site)
+        x[4] = x[4].replace(old, new)
+    moved = copy.deepcopy(pred)
+    pin(moved, [164, 2, 2, 42], "const(53536)", "const(53000)")
+    _t, tt, _j, jt = O.door_gate_pins(moved, 164, 2)
+    assert O.height_gate(tt, jt) == {"y_gt": 12536}
+    ok, _w, detail = O.O8.regions_check(moved, o8_stock)
+    assert not ok and "164.e2 (c): its gate {'y_gt': 12000}" in detail, detail
+    flipped = copy.deepcopy(pred)
+    pin(flipped, [164, 2, 2, 51], "JMP_IFNOT(L221)", "JMP_IF(L221)")
+    _t, tt, _j, jt = O.door_gate_pins(flipped, 164, 2)
+    assert O.height_gate(tt, jt) == {"y_le": 12000}
+    ok, _w, detail = O.O8.regions_check(flipped, o8_stock)
+    assert not ok and "164.e2 (c)" in detail, detail
+    knight = copy.deepcopy(pred)
+    pin(knight, [164, 1, 1, 187], "JMP_IF(L15)", "JMP_IFNOT(L15)")
+    assert O.knight_release(knight) == {"y_lt": 8400}
+    ok, _w, detail = O.O8.keys_check(knight, o8_stock)
+    assert not ok and "(f) the knight's release read off ip178 + ip187 is {'y_lt': 8400}" in detail, detail[:400]
+    assert O.height_gate("SET({obj(uid=250).f[1] const(57136) B_LE B_EXPR_END})", "JMP_IF(L15)") is None
+    assert O.height_gate(tt, "JMP(L221)") is None and O.height_gate(None, None) is None
+
+
+def test_o8_tower_goals_are_height_aware(o8_stock, tmp_path):
+    """O8-GOALS (research/o8_design.md 6.1; decision 4(c), critique #6): on the draft every (g0)-(g7') line reads (the
+    pinned walls and heights, e2 firing at y 13008 and 15169, P1's disc on tri 53's level with 3961 and 13893 the other
+    levels, the wait point 335.2 / 293.5 u from the exits, the release under at_y's 8800, the pinch inside its window),
+    and each clause FAILS on its mutant: a step key "hold"; 164 #0's closures from another band; 164 #1 at 80 (no
+    route); 165 #0 at 110 (a route exists at 120); 165 #0 without 165.e3 avoided; 164 #0's at_y [13000, 14500]; 164 #1's
+    until y > 14000 (the door fires first); 164 #1's until y > 9000 and 165 #1's y > 11000 (looser than the door's
+    gate: the review's #4); the wait's exit_slack 300; at_y [8000, 9150] (under the release); the window's y band
+    [5000, 6000]; the seat watch's start_y 11000 and 9300 (his level off the mesh; loop 1 then within 400 of it: the
+    review's #2). No start-dependent number is pinned. Break: until_ok called without the y (the XZ-only proof RAISES on
+    a y term); (g4') without y_implies (the loose untils PASS)."""
+    D = _o8_dryrun()
+    O = _o8_module()
+    imp = O.y_implies                                    # the review's #4: an until at least as strict as its gate
+    assert imp({"y_gt": 12000}, {"y_gt": 12000}) and imp({"y_gt": 14000}, {"y_gt": 12000})         and imp({"y_ge": 12001}, {"y_gt": 12000}) and imp({"x_gt": 0}, {})
+    assert not imp({"y_gt": 9000}, {"y_gt": 12000}) and not imp({"y_ge": 12000}, {"y_gt": 12000})         and not imp({"z_gt": 500}, {"y_gt": 12000})
+    assert imp({"y_lt": 6000}, {"y_lt": 6000}) and imp({"y_le": 5999}, {"y_lt": 6000})         and not imp({"y_le": 6000}, {"y_lt": 6000}) and imp({"y_gt": 1, "y_lt": 5}, {"y_le": 5})         and not imp({"y_gt": 1}, {"y_le": 5}) and imp({"y_gt": 8400}, {"y_ge": 8400})
+    pred = _o8_draft(tmp_path)
+    got = D.unit_goals(pred, o8_stock)
+    assert [n for n, _ok, _d in got] == ["goals", "goals-hold-key", "goals-164-0-band", "goals-164-1-at-80",
+                                         "goals-165-0-at-110", "goals-165-0-no-e3", "goals-164-0-at-y",
+                                         "goals-164-1-until", "goals-164-1-until-loose", "goals-165-1-until-loose",
+                                         "goals-wait-slack", "goals-release", "goals-knight-start-y",
+                                         "goals-knight-level", "goals-window-y"]
+    bad = [(n, d) for n, ok, d in got if not ok]
+    assert not bad, bad
+
+
+def test_o8_tower_keys_derive_the_carried_scoped_and_reads(o8_stock, tmp_path):
+    """O8-KEYS (b)-(d) (research/o8_design.md 4.5, 6.1) over the repo's seven frozen files: THE CARRIED VALUES are
+    carried8's fifteen -- Bit[3796] among them (1 after O7) -- none in end_state, none read or stored by a function the
+    route RUNS: the scan narrowed by talk_reach (164 e1 t3, e7 t11, e7 t12 set aside) -- without the narrowing the
+    knight's talk reads Bit[3854] / Bit[3855] at e1 t3 ip326 and (d) FAILS; THE START-SCOPED OLDS exactly 164 ip57, 164
+    ip130 and 166 e6 t1 ip345; THE START READS 166 ip255 (race 70 ip249 := 125, before) and 164 ip130 (race 70 ip475 :=
+    2, after). KEYS PASSES with its line; each offline mutant FAILS by name. Break: the carried scan over instanced_texts
+    (the talk read as the route's)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    segs = O.prior_segments8()
+    derived, problems = O.carried8(pred, segs)
+    assert len(segs) == 7 and problems == [] and derived == pred["carried"]["values"] and len(derived) == 15
+    assert derived["Global.Bit[3796]"] == [0, 1] and not set(derived) & set(pred["end_state"])
+    olds, sprob = O.scoped_derivation8(pred, O.o7_frozen(), segs)
+    assert sprob == [] and sorted(s for s, (_t, a, b) in olds.items() if a != b) == [
+        (164, 0, 0, 57), (164, 0, 0, 130), (166, 6, 1, 345)]
+    assert [(x["site"], x["race"], x["race_value"], x["edge"]) for x in pred["start_reads"]] == [
+        ([166, 0, 0, 255], [70, 0, 0, 249], 125, "before"), ([164, 0, 0, 130], [70, 0, 0, 475], 2, "after")]
+    ok, _w, detail = O.O8.keys_check(pred, o8_stock)
+    assert ok and "15 carried values derived from 7 frozen segments" in detail \
+        and "(164 e1 t3, e7 t11, e7 t12 set aside: the knight's talk)" in detail, detail[:400]
+    wide = {164: O.C7.instanced_texts(o8_stock(164), 342)}
+    ok, _w, detail = O.O8.keys_check(pred, o8_stock, scans=wide)
+    assert not ok and "164 e1 t3 ip326 Global.Bit[3854]" in detail, detail[:400]
+    bad = [(n, d) for n, ok_, d in D.unit_offline_mutants(pred, o8_stock) if not ok_]
+    assert not bad, bad
+
+
+def test_o8_tower_end_race_derives_int16_2_and_byte_8(o8_stock, tmp_path):
+    """THE RACED SET (research/o8_design.md 4.9; 0.2 #5, #26): end_race8 walks stock 55's e0 t0 from the arrival's values
+    (the pattern's last values over the raw start, SC 1190) through ip387's yield ON to its RET (ip565) -- {Int16[2] 110
+    -> 106, Byte[8] 0 -> 125}, end_state_trace's keys; a synthetic post-yield store behind a test true on the arrival
+    counts (the tail is walked); KEYS (g)'s other-function proof: stock 55's e10 t1 ip568 / ip582 (UInt16[0] := 1400)
+    unreachable at Map.Byte[24] 1, reachable at 3 -- and the proof holds Map.Byte[24] FREE (the review's #3: e1 t1 ip46
+    / ip76 / ip106 store it on the scene's handshakes; only Map.Bit[159] 1 and Map.Byte[17] 255 held), so both are the
+    ARRIVAL SCENE's, end_state_scene's, SC out of the live read; a synthetic 55 storing the live Byte[208] in case 1, or
+    in case 3, FAILS KEYS by name; and stock 64 from story-o3's arrival values (O3's frozen end state over the raw
+    start): {}. Break: the walk stopped at the first long yield (the raced pair still found, the synthetic tail then
+    missed); Map.Byte[24] held at the arrival's 1 (the case-3 synthetic then PASSES, the scene empty)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    r = O.end_race8(o8_stock(55), O.arrival_values8(pred))
+    assert r["raced"] == {"Global.Int16[2]": [110, 106], "Global.Byte[8]": [0, 125]} and (r["yield"], r["ret"]) == (
+        387, 565), r
+    assert set(r["raced"]) == set(pred["end_state_trace"]) and r["map"].get("Map.Byte[24]") == 1, r["map"]
+    ok, detail = D.unit_end_race(pred, o8_stock)
+    assert ok, detail
+    for ip in (568, 582):
+        assert not O.reach8(o8_stock(55), 10, 1, ip, {"Map.Byte[24]": 1}) and O.reach8(o8_stock(55), 10, 1, ip,
+                                                                                         {"Map.Byte[24]": 3})
+    info, gbad = O.end_proof8(o8_stock(55), pred)
+    assert gbad == [] and info["map"] == {"Map.Bit[159]": 1, "Map.Byte[17]": 255}, (gbad, info["map"])
+    assert info["movers"]["Map.Byte[24]"] == [[1, 1, 46], [1, 1, 76], [1, 1, 106]], info["movers"]
+    assert info["scene"] == {"Global.UInt16[0]": [[10, 1, 568], [10, 1, 582]]}, info["scene"]
+    assert "Global.UInt16[0]" not in pred["end_state"] and sorted(pred["end_state_scene"]) == ["Global.UInt16[0]"]
+    ok, _w, detail = O.O8.keys_check(pred, o8_stock)
+    assert ok and "the arrival scene's reachable stores, never read live" in detail and "e10 t1 ip582 UInt16[0]" in \
+        detail and "Map.Byte[24] by e1 t1" in detail, detail[-900:]
+    for items in (D.SYNTH55_E10, D.SYNTH55_E10_CASE3):
+        ok, _w, detail = O.O8.keys_check(pred, o8_stock, sites55=D.SYNTH55_SITES,
+                                         items55=lambda s, t, it=items: it if (s, t) == (10, 1) else None)
+        assert not ok and "(g) 55 e10 t1 ip20 stores the end_state target Global.Byte[208] and is reachable" in detail
+    assert D.o3_raced(o8_stock, D.o3_frozen())["raced"] == {}
+
+
+def _o8_pure_run(pred, side="S", events=None, log_edit=None, *, digest=None):
+    """A covered run of the dry run's base events (o8_dryrun.render / standard_log: pure), cut at 164 and at REAL 55,
+    with -- when ``digest`` (the stock script source: a member reads its donor's) -- its digest, its seams and its
+    seam keys joined on the stock bytes."""
+    from ff9mapkit import storytrace
+    D = _o8_dryrun()
+    ST = __import__("segment_trace")
+    members = {int(f): d for f, d in pred["members"].items()}
+    m = members if side == "F" else {}
+    ev = events if events is not None else D.base_events()
+    rows = D._rows(ev, side, members)
+    kept, _at, pre = ST.cut_at_start(rows, 164, m)
+    kept, end = ST.cut_at_end(kept, [55], m)
+    log, ctx = D.standard_log(pred, side, D.render(ev, side, members))
+    if log_edit is not None:
+        log = log_edit(log, ctx) or log
+    d = (storytrace.digest(f"{side}#1", kept, scripts=lambda f: digest(members.get(f, f)), donor_scripts=digest,
+                           members=m or None) if digest is not None else None)
+    return {"side": side, "i": 1 if side == "S" else 2, "rows": kept, "log": log, "pre": pre, "cut": end,
+            "cut_row": next((x for x in rows if x.line == end), None), "digest": d}
+
+
+def test_o8_tower_walk_check(tmp_path):
+    """O8-WALK, pure (research/o8_design.md 5.3; THE PAIRED-WALK LAW), every clause on the dry run's base rows and log:
+    the base PASSES on S and F, path B too; (a) a short walk, an arrival off its level (at_y.y 13893), the wait unread,
+    a loss under its until (y 11500), a loss with NO height -- "no height", never until_ok's raise --, a landing
+    elsewhere, path A with no ``landed_frame``, a loss in e3 -- each FAILS by its clause; (b) THE DOORS read from ``to``,
+    their tag-2 SITES exempt by site after the trigger's FIRST frame0 -- a door row before it FAILS, a late-read loss
+    after the door row PASSES -- and ip230 exempt only inside THE EXEMPT SPAN; (c) no first-move check, a 30-degree
+    one, a "cached" first row FAIL. Break: (b) bounded by the read loss frame (the late-loss run then FAILS)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+
+    def walk(side="S", events=None, log_edit=None):
+        ok, _w, det = O.O8.walk_check([_o8_pure_run(pred, side, events, log_edit)], pred)
+        return ok, det
+    assert walk()[0] is True and walk("F")[0] is True and walk(log_edit=D._path_b)[0] is True, walk()[1]
+    for edit, clause in ((D._step(164, 0, to={"x": 1142.0}), "from the goal"),
+                         (D._step(164, 0, at_y={"y": 13893.0}), "not the goal's level"),
+                         (D._step(164, 0, wait_flag={"read": False}), "wait_flag"),
+                         (D._step(164, 1, lost={"y": 11500.0}), "does not satisfy its until"),
+                         (D._step(164, 1, lost={"y": ...}), "has no height"),
+                         (D._landed_164, "landed"),
+                         (D._step(164, 1, landed_frame=None), "no landed_frame"),
+                         (D._step(164, 1, lost={"x": 1700.0, "z": 3000.0}), "beyond exit_slack"),
+                         (D._step(164, 0, route={"basis_check": ...}), "(c)"),
+                         (D._step(164, 0, route={"basis_check": {"angle": 30.0}}), "(c)"),
+                         (D._step(165, 0, route={"basis": "cached"}), "not 'prior'")):
+        ok, det = walk(log_edit=edit)
+        assert ok is False and clause in det, (clause, det[:300])
+    ev = D.base_events()
+    for events, clause in ((D.edit_nth(ev, D.CH164, 0, lambda x: D.with_opt(x, f=2800)), "(b)"),
+                           (D._moved_knight(3500)(ev, 0), "(b)")):
+        ok, det = walk(events=events)
+        assert ok is False and clause in det, det[:300]
+    assert walk(log_edit=D._step(164, 1, lost={"frame": D.F_LOST[164] + 40}))[0] is True
+    assert walk(events=D._moved_knight(2000)(ev, 0))[0] is True
+    ws = {w_["donor"]: w_ for w_ in O.visit_windows8(_o8_pure_run(pred)["log"], pred)}
+    assert ws[164]["doors"] == [{"key": "164.e2", "sites": [(2, 2, 215), (2, 2, 243)], "after": D.F_X0[164]}], ws[164]
+
+
+def test_o8_tower_order_and_knight_checks(tmp_path):
+    """O8-ORDER and O8-KNIGHT, pure (research/o8_design.md 5.3; decision 6, critiques #1 and #9): the base PASSES on S
+    and on F (31256 read as place 164); ORDER (a) no ip230 / two / at REAL 164 on F, (b) after ip243, (c) outside THE
+    EXEMPT SPAN -- each FAILS by its clause, and ip230 inside a FAILED first attempt PASSES; KNIGHT (a) no seat row / a
+    reading at REAL 164 on F, (b) a start1 reading 286 u off the seat -- each FAILS, and KNIGHT judges readings only (the
+    row's ``from`` and its writing poll never read). Break: ORDER (c) over the done row's window."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    ev = D.base_events()
+
+    def order(side="S", events=None, log_edit=None):
+        ok, _w, det = O.O8.order_check([_o8_pure_run(pred, side, events, log_edit)], pred)
+        return ok, det
+
+    def knight(side="S", log_edit=None):
+        ok, _w, det = O.O8.knight_check([_o8_pure_run(pred, side, None, log_edit)], pred)
+        return ok, det
+    assert order()[0] and order("F")[0] and knight()[0] and knight("F")[0], (order()[1], knight("F")[1])
+    for side, events, clause in (("S", D.drop_nth(ev, D.KN230), "(a)"), ("S", D.after(ev, D.KN230, D.w(D.KN230)), "(a)"),
+                                 ("F", D.edit(ev, lambda x: D._is(x, D.KN230), lambda x: D.with_opt(x, fld=164,
+                                                                                                    don=164)), "(a)"),
+                                 ("S", D.move(ev, D.KN230, after_site=D.CH164), "(b)"),
+                                 ("S", D._moved_knight(3500)(ev, 0), "(c)")):
+        ok, det = order(side, events)
+        assert ok is False and clause in det, (clause, det[:300])
+    assert order(events=D._moved_knight(1900)(ev, 0), log_edit=D._failed_first(164, 0))[0] is True
+    for side, edit, clause in (("S", D._no_knight("seat"), "(a): no seat row"),
+                               ("F", D._knight("seat", field=164), "(a)"),
+                               ("S", D._knight("start1", z=3600.0), "(b)")):
+        ok, det = knight(side, edit)
+        assert ok is False and clause in det, (clause, det[:300])
+    assert knight(log_edit=D._knight("seat", **{"from": "a poll in 165"}))[0] is True
+
+
+def test_o8_tower_landing_and_seam_checks(o8_stock, tmp_path):
+    """O8-LANDING and O8-SEAM, pure but for the stock scripts the digest joins its seam keys on (research/o8_design.md
+    5.3; decision 8, critique #3): LANDING is O7's (a)-(d) over
+    seam-free COPIES -- the base F run with its ONE seam PASSES and its digest keeps the seam (the run dict untouched);
+    (b) a dropped chain row, (c) a harness row after ip863, (d) the cut at ip49 FAIL. SEAM: the base F run PASSES (one
+    seam, 31258 -> 55 [55], its exit 31258 e6 t1 ip863 344 -> 110, the cut row REAL 55 ip22); S PASSES saying (f) -- no
+    members, never counted; (a) ZERO seams FAILS (never vacuous), two FAIL; (b) the exit row ip502; (c) a seam key; (d)
+    the cut row's don 31205; (e) a residue row before the cut -- each FAILS by its clause. Break: zero seams read as a
+    pass."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    ev = D.base_events()
+
+    def run(side="S", events=None):
+        r_ = _o8_pure_run(pred, side, events, digest=o8_stock)
+        r_["log"].append({"k": "end", "field": 55})
+        return r_
+    rf = run("F")
+    seams0 = list(rf["digest"].seams)
+    assert len(seams0) == 1 and (seams0[0].frm, seams0[0].to, list(seams0[0].fields)) == (31258, 55, [55]), seams0
+    ok, _w, det = O.O8.landing_check({"S": [run()], "F": [rf]}, pred)
+    assert ok and "(e): O8-SEAM's" in det and list(rf["digest"].seams) == seams0, det
+    for events, clause in ((D.drop_nth(ev, D.CH165), "(b)"),
+                           (D.after(ev, D.CH166, D.w((166, -1, -1, -1, "Global.Byte[300]", 9), src="harness")), "(c)"),
+                           (D.drop_nth(ev, D.END55), "(d)")):
+        ok, _w, det = O.O8.landing_check({"S": [run("S", events)], "F": []}, pred)
+        assert ok is False and clause in det, (clause, det[:300])
+
+    def seam(side="F", events=None):
+        r_ = run(side, events)
+        ok, _w, det = O.O8.seam_check({"S": [r_] if side == "S" else [], "F": [r_] if side == "F" else []}, None, pred)
+        return ok, det
+    ok, det = seam()
+    assert ok and "(b) its exit 31258 e6 t1 ip863 Global.Int16[2] 344 -> 110" in det, det
+    ok, det = seam("S")
+    assert ok and "(f) S: no members, so no seam can arise (not counted)" in det, det
+    for events, clause in ((D._off_at(31258)(ev, 0), "(a) no seam"),
+                           (D.before(ev, D.I22_166, ("e", "swap", 164, {"fld": 164})), "(a) 2 seams"),
+                           (D.drop_nth(ev, D.CH166), "(b)"),
+                           (D.after(ev, D.CH166, D.w(D.S163[2], fld=163, don=163)), "(c)"),
+                           (D.edit(ev, lambda x: D._is(x, D.END55), lambda x: D.with_opt(x, don=31205)), "(d)"),
+                           (D.after(ev, D.CH166, D.r(166, 300, 0, 5)), "(e)")):
+        ok, det = seam("F", events)
+        assert ok is False and clause in det, (clause, det[:300])
+
+
+def test_o8_tower_movie_check(tmp_path):
+    """O8-MOVIE, pure (research/o8_design.md 5.3; decision 7, critique #4) over covered runs: the base PASSES (1411 frames
+    at its clocked 31 fps: 45.5 s); at 60 fps 2730 frames PASS; two clock rows without a write time PASS; a page press
+    AT f502 is outside the half-open span; (a) a press in the span, a skip-shaped choice, a choice of ANOTHER shape (a
+    script's choice where stock has none, answered by the net's default) FAIL; (b) a span of 30 s at its rate FAILS; (c)
+    a skip_seen row FAILS. Break: the rate read across the whole visit (the short span then passes)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+
+    def movie(events=None, log_edit=None):
+        ok, _w, det = O.O8.movie_check([_o8_pure_run(pred, "S", events, log_edit)], pred)
+        return ok, det
+    ok, det = movie()
+    assert ok and "1411 frames at 31.0 fps = 45.52 s" in det, det
+    sixty = D._reanchor((D.F_863, D.F_502 + 2730), (D.F_END, D.F_502 + 2740))(D.base_events(), 0)
+    ok, det = movie(sixty, D._clocked(60.0, D.F_502 + 2740))
+    assert ok and "2730 frames at 60.0 fps = 45.5 s" in det, det
+    assert movie(log_edit=D._mtime_none)[0] and movie(log_edit=D._press_at_502)[0]
+    for edit, clause in ((D._movie_rows(D._stray(why="page")), "(a): a press"),
+                         (D._movie_rows(D._choice_row(8500, D.SKIP_TEXT)), "the skip dialog's"),
+                         (D._movie_rows(D._choice_row(8500, D.SCRIPT_CHOICE, rule=1)), "of another shape"),
+                         (D._movie_rows({"k": "skip_seen", "frame": 8500}), "(c)")):
+        ok, det = movie(log_edit=edit)
+        assert ok is False and clause in det, (clause, det[:300])
+    short = D.edit(D.base_events(), lambda x: D._is(x, D.CH166), lambda x: D.with_opt(x, f=D.F_502 + 930))
+    ok, det = movie(short)
+    assert ok is False and "(b)" in det and "under file_s - slack_s" in det, det
+
+
+class _O8Log(list):
+    """A driver log the session's ``g`` is pinned on (:func:`_o8_run`'s ``log`` factory sets it before the drive): the
+    knight watch reads the session's ring through it."""
+    g = None
+
+
+def _o8_watch_pred(**over):
+    """:func:`_o8_pred` with THE KNIGHT'S SEAT registered on the fixture's 164 (30860) -- the draft's ``seat_watch``,
+    its place the fixture's."""
+    O = _o8_module()
+    sw = dict(O.SEAT, donor=30860, site=[30860, 1, 1, 230])
+    return _o8_pred(seat_watch=sw, **over)
+
+
+def _o8_watched(game, side="S", *, pred=None, **kw):
+    """One O8 run on the fake with O8's observe hook (:func:`o8_west_tower.o8_observe`): ``(out, log, aside)``."""
+    O = _o8_module()
+    pred = pred or _o8_watch_pred()
+    out, log, _fake, _rows, _ring, _a, aside = _o8_run_informative(
+        game, side=side, pred=pred, log=lambda fake: _O8Log(),
+        observe=lambda p, lg: O.o8_observe(lg.g, p, lg), **kw)
+    return out, log, aside
+
+
+def test_o8_tower_knight_watch_reads_the_seat_by_place(game):
+    """THE KNIGHT'S SEAT READINGS under the drive (research/o8_design.md 1.3; decision 6, critique #9; the reviews' A2,
+    B8): the knight on the fake (H25) walks to his seat while Steiner waits at P1, and O8's observe hook writes ONE
+    ``seat`` row -- his reading in the RING sample of the wait's read frame -- and ONE ``start1`` row -- the reading of
+    step 1's frame0 -- each at (-586, 3884), each row's field and place the READING's: 30860 / 30860 on S, 31256 read as
+    30860 on F. PATH B (164 #1's route_to returning only once the field has left 31256, the step-1 row appended after
+    the switch -- 3.7's wrapper) still writes start1, its field the reading's 31256. His sid unpublished (the knight under
+    another sid): no knight row -- the run the analysis's A-KNIGHT (knight_rows reads none). Break: rows gated on the
+    poll's place (path B's start1 then never written)."""
+    O = _o8_module()
+    for side, fps, ticks in (("S", 60.0, "mean"), ("F", 31.0, "quantized")):
+        out, log, aside = _o8_watched(game, side, fps=fps, ticks=ticks, register=side == "S")
+        _o8_covered(out, aside)
+        kn = [x for x in log if x.get("k") == "knight"]
+        f164 = _O8_FIELDS[side]["164"]
+        assert [(x["what"], x["field"], x["donor"], x["sid"], round(x["x"]), round(x["z"])) for x in kn] == [
+            ("seat", f164, 30860, 1, -586, 3884), ("start1", f164, 30860, 1, -586, 3884)], kn
+        assert not [x for x in log if x.get("k") == "observe_error"], log
+        s1 = next(x for x in log if x.get("k") == "step" and x.get("n") == 1 and x["field"] == f164)
+        assert kn[1]["frame"] == s1["frame0"] and kn[0]["from"] == "ring", (kn, s1["frame0"])
+
+    def late(g, fake):                       # PATH B: 164 #1's route_to returns only after the switch (3.7)
+        real = g.route_to
+
+        def route_to(*a, **k):
+            rec = real(*a, **k)
+            if k.get("clearance") == 64 and g.state.field_id == 31256:
+                g.wait_for(lambda s: s.field_id not in (31256, -1), timeout=30.0, what="the switch")
+                rec = dict(rec, landed=g.state.field_id)
+            return rec
+        g.route_to = route_to
+    out, log, aside = _o8_watched(game, "F", fps=31.0, ticks="quantized", register=False, wrap=late)
+    _o8_covered(out, aside)
+    kn = [x for x in log if x.get("k") == "knight"]
+    assert [(x["what"], x["field"], x["donor"]) for x in kn] == [("seat", 31256, 30860), ("start1", 31256, 30860)], kn
+    s1 = next(x for x in log if x.get("k") == "step" and x.get("n") == 1 and x["field"] == 31256
+              and x["outcome"] == "done")
+    assert s1["landed"] == 31257 and log.index(kn[1]) > log.index(s1), (s1["landed"], kn)
+    pred = _o8_watch_pred()
+    pred["seat_watch"]["sid"] = 7                     # the hook watches a sid the fake never publishes
+    out, log, aside = _o8_watched(game, "S", pred=pred, register=False)
+    _o8_covered(out, aside)
+    kr = O.knight_rows(log, pred)
+    assert kr["seat"] is None and kr["start1"] is None and not [x for x in log if x.get("k") == "knight"], kr
+
+
+def test_o8_tower_why_void_reads_the_start_the_movie_and_the_knight(o8_stock, tmp_path):
+    """A-START's START READS with their EXPLICIT races, A-MOVIE and A-KNIGHT (research/o8_design.md 4.5, 5.1; critique
+    #2; the reviews' A1, B3), on a session's own reading (the dry run's sessions): 166 ip255 reading old 0 is A-START
+    naming 70's ip249, 164 ip130 reading old 2 naming ip475 (O7's race_site would name ip130); 70 ip249 / ip475 among the
+    PRE rows A-START (the raced row's branch); every reason led by START_READ; 125 / 1 none; an earlier row of the run on
+    the target none; a press, a dialog answered, a dialog with no press behind it and an unclocked span in (f502, f863]
+    A-MOVIE, each led by MOVIE_SPAN; a non-skip-shaped choice none; no seat row A-KNIGHT led by KNIGHT_UNREAD; the race
+    neutralised (its value off the pin) leaves the raced row to START (a). _void_ids sets aside START_READ and MOVIE_SPAN,
+    never KNIGHT_UNREAD. Break: O7's race_site (164 ip130's race read as 70 ip130)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    path = tmp_path / "o8_draft.json"
+    path.write_bytes((json.dumps(pred, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+    sdir = tmp_path / "sessions"
+    sdir.mkdir()
+    ok, detail = D.unit_why_void(pred, o8_stock, D.fork_scripts(pred, o8_stock), sdir, path)
+    assert ok, detail
+    ok, detail = D.unit_void_ids()
+    assert ok, detail
+    assert O.race_site8(pred, pred["start_reads"][1]) == (70, 0, 0, 475) != O.C7.race_site(pred, pred["start_reads"][1])
+
+
+def test_o8_tower_start_run_forgets_every_seeded_basis(game):
+    """S19's per-run forget (research/o8_design.md 7.1; O7's reseed): a session whose ``_axes`` and S19 state hold 164,
+    165, 166, their members and 159 (each seeded: pending, an angle) -- O8.start_run (its reseed, then New Game, the
+    trace armed, the raw warp on the fake) leaves NONE of the seeded fields, S or F (164, 165, 31256, 31257) and keeps
+    every other (166, 31258, 159: no walk seeds them). Break: no reseed."""
+    O = _o8_module()
+    _o8_register(game)
+    pred = _o8_draft(game)
+    pred["start"] = {"S": 30860, "F": 31256}
+    fake = FakeGame(game)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    every = (164, 165, 166, 159, 31256, 31257, 31258)
+    with session(game, fake) as g:
+        boot(g)
+        for f in every:
+            g._axes[f] = {"v": (0.0, 1.0), "h": (1.0, 0.0)}
+            g._seeded.add(f)
+            g._prior_pending.add(f)
+            g._prior_angle[f] = 1.0
+        g.soft_reset()
+        O.O8.start_run(g, "S", pred, {})
+        assert g.state.field_id == 30860
+        seeded = set(O.C7.seeded_fields(pred))
+        assert seeded == {164, 165, 31256, 31257}, sorted(seeded)
+        assert not (seeded & set(g._axes)) and not (seeded & g._seeded) and not (seeded & g._prior_pending) \
+            and not (seeded & set(g._prior_angle)), (sorted(g._axes), sorted(g._seeded))
+        assert {166, 159, 31258} <= set(g._axes), sorted(g._axes)
+
+
+def test_o8_tower_preflight_verdicts(tmp_path):
+    """O8's preflight extras (research/o8_design.md 6.2), on a synthetic install: exactly P-TEXT (block 3, STRICT),
+    P-RECOVERY, P-DONOR, P-SETTINGS, P-PAD, P-OVERRIDE, P-ENGINE, in that order. P-DONOR reads the ROUTE donors -- 164,
+    165, 166, each forked once: PASS -- and names O1's ``31205 55`` row OUTSIDE the set (55 is the end, real on both
+    sides); over the route AND the end (O5-O7's call) that row FAILS it. P-DONOR-LOG reads [164, 165, 166, 55]. Block 3's
+    uk copy of stock us FAILS (strict). P-SETTINGS on 4.13's 32 keys PASSES; [Graphics] VSync "0" FAILS; VSync missing
+    FAILS. Break: P-DONOR over route + end_fields (the 31205 row then fails a clean install)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    P = __import__("o3_prima_vista")
+    pred = _o8_draft(tmp_path)
+    game = tmp_path / "game"
+    root = game / "FF9CustomMap"
+    root.mkdir(parents=True)
+    (game / "Memoria.ini").write_text(_o3_ini(O.SETTINGS8), encoding="utf-8")
+    (root / "DictionaryPatch.txt").write_text("FieldScene 4600 11 HUB HUB 4600\n", encoding="utf-8")
+    fdp = root / "ForkDonorPatch.txt"
+    fdp.write_text("31205 55\n31256 164\n31257 165\n31258 166\n", encoding="utf-8")
+    langs = ("us", "uk", "fr", "gr", "it", "es", "jp")
+    stock3 = {L: f"stock block 3 {L}".encode() for L in langs}
+
+    def ship(text):
+        for L in langs:
+            p = root / "FF9_Data" / "embeddedasset" / "text" / L / "field" / "3.mes"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(text[L])
+    ship(stock3)
+    eng = {"x64": O.ENGINE["x64"], "x86": O.ENGINE["x86"]}
+
+    def pre():
+        out = O.O8.preflight_extra(pred, [root], pads=lambda slot: None, live_engine=eng, game=game,
+                                   stock_text={3: stock3})
+        return [(w.split(":")[0], ok, d) for ok, w, d in out]
+    rows = pre()
+    assert [r[0] for r in rows] == ["P-TEXT (block 3)", "P-RECOVERY", "P-DONOR", "P-SETTINGS", "P-PAD", "P-OVERRIDE",
+                                    "P-ENGINE"], rows
+    ok = {w: o for w, o, _d in rows}
+    assert ok == {"P-TEXT (block 3)": True, "P-RECOVERY": True, "P-DONOR": True, "P-SETTINGS": True, "P-PAD": True,
+                  "P-OVERRIDE": False, "P-ENGINE": True}, rows
+    det = {w: d for w, _o, d in rows}
+    assert det["P-DONOR"].startswith("164 -> 31256 (FF9CustomMap), 165 -> 31257 (FF9CustomMap), 166 -> 31258 "
+                                     "(FF9CustomMap)") and "outside the set: FF9CustomMap line 1 `31205 55`" in \
+        det["P-DONOR"], det["P-DONOR"]
+    assert "32 keys as frozen" in det["P-SETTINGS"] and "VSync 1" in det["P-SETTINGS"], det["P-SETTINGS"]
+    okx, _dx = P.p_donor({**pred, "route": list(O.ROUTE_DONORS) + [55]}, [root])
+    assert okx is False
+    assert P.p_donor_log(D._LOG_HEAD + D._LOG_DONE, O.LOG_DONORS)[0] and list(O.LOG_DONORS) == [164, 165, 166, 55]
+    ship(dict(stock3, uk=stock3["us"]))
+    _w, o, d = pre()[0]
+    assert not o and "KNOWN-KIT-DEFECT uk: ships stock us" in d and "strict" in d, d
+    ship(stock3)
+    for mutate, clause in ((lambda s: s["Graphics"].__setitem__("VSync", "0"), "[Graphics] VSync = '0'"),
+                           (lambda s: s["Graphics"].pop("VSync"), "VSync")):
+        s = json.loads(json.dumps(O.SETTINGS8))
+        mutate(s)
+        (game / "Memoria.ini").write_text(_o3_ini(s), encoding="utf-8")
+        _w, o, d = pre()[3]
+        assert not o and clause in d, (clause, d)
+
+
+def test_o8_tower_build_pins_hold_member_166_byte_identical_with_its_raw_field55(o8_stock, tmp_path):
+    """O8-BUILD's route pins and THE RAW EXIT (research/o8_design.md 6.1): on synthetic builds through a ``stock_lang``
+    seam the clean build PASSES -- 21 member files, 31256 and 31257 differing from 164 and 165 only in their 4 in-chain
+    Field() operands, 31258 166 byte for byte with e6 t1 ip871 Field(55) raw in every language -- and each mutant FAILS
+    by its clause: 31258 with one byte changed (jp); its Field(55) remapped to 31205 (us); 31256 differing outside its
+    operands (uk). O4's own build PASSES O8-BUILD (read-only; a warned skip without it). Break: the raw exit's literal
+    unread (31258's Field(31205) then passes)."""
+    import warnings
+    O = _o8_module()
+    D = _o8_dryrun()
+    pred = _o8_draft(tmp_path)
+    bad = [(n, d) for n, ok, d in D.unit_build_pins(pred, tmp_path) if not ok]
+    assert not bad, bad
+    if not O.BUILD_DIR.is_dir() or not (O.CHAIN_DIR / "campaign.toml").is_file():
+        warnings.warn("O4's build is not here: O8-BUILD went UNVERIFIED on the real build", UserWarning)
+        pytest.skip("O4's build unavailable")
+    ok, _w, detail = O.O8.build_check(O.O8.draft())                 # the real chain's members and names
+    assert ok and "31258 is 166 byte for byte with e6 t1 ip871 Field(55) raw (7 member files)" in detail, detail
+
+
+# ---- PART C, C2: the dry run's trace summary (research/o8_design.md 7.2, section 8's unit; O4's lesson), and the dry
+# run's cases, units and the story-o3 seam fixture through G45.
+
+def test_o8_tower_trace_summary_cuts_at_end_places(o8_stock, tmp_path):
+    """O8's trace summary (research/o8_design.md 7.2) over the dry run's rendered rows (o8_dryrun.render: real store
+    sites, the sink over the raw warp's start values). A base S run reads the chain 3/3, writes 20/20, the error path,
+    forbidden and dead sites absent; the two crossings -- 164 ip243 into 165 e0 t0 ip22, 165 ip233 into 166 e0 t0 ip22
+    -- and 166 ip863 into the cut REAL 55 e0 t0 ip22; THE KNIGHT's ip230 (frame 2650) before the chain row ip243 by line;
+    the movie's rows ip502 and ip863; Int16[2]'s and Byte[8]'s last pre-cut rows 166 ip863 (110) and ip502 (0); both
+    start reads' olds (125 and 1); 4.16's pattern exactly (9 + 9 + 11, no c row); no unregistered key, no join failure;
+    the FOUR start residue rows (342 = 0x0156). The F run is cut at REAL 55 by its end PLACES (55 is no member: the
+    same row on both sides) with its digest's ONE seam, 31258 -> 55 [55] -- while O3's summary, given the end FIELDS
+    [31205] (O1's member(55): the field no O8 run enters), is not cut at all. Break: the cut row read off the KEPT rows
+    (it lies past the cut: none)."""
+    O = _o8_module()
+    D = _o8_dryrun()
+    P = __import__("o3_prima_vista")
+    pred = _o8_draft(tmp_path)
+    members = {int(f): d for f, d in pred["members"].items()}
+    t = O.trace_summary8(D._rows(D.base_events()), pred, stock=o8_stock)
+    reg = {k: (sum(1 for x in v if x["present"]), len(v)) for k, v in t["registered"].items()}
+    assert reg == {"chain": (3, 3), "writes": (20, 20), "error_path": (0, 10), "forbidden_sites": (0, 7),
+                   "dead": (0, 15)}, reg
+    assert [(c["exit"], c["next"] or c["cut"]) for c in t["crossings"]] == [
+        ("164 e2 t2 ip243 Global.Int16[2]=343", "165 e0 t0 ip22 Global.Bit[191]=0"),
+        ("165 e2 t2 ip233 Global.Int16[2]=344", "166 e0 t0 ip22 Global.Bit[191]=0"),
+        ("166 e6 t1 ip863 Global.Int16[2]=110", "55 e0 t0 ip22 Global.Bit[191]=0")], t["crossings"]
+    kn = t["knight"]
+    assert kn["ip230"]["f"] == D.F_KNIGHT and kn["ip230"]["line"] < kn["chain"]["line"], kn
+    assert (t["movie"]["ip502"]["f"], t["movie"]["ip863"]["f"]) == (D.F_502, D.F_863), t["movie"]
+    assert {k: (v or {}).get("row") for k, v in t["raced"].items()} == {
+        "Global.Int16[2]": "166 e6 t1 ip863 Global.Int16[2]=110",
+        "Global.Byte[8]": "166 e6 t1 ip502 Global.Byte[8]=0"}, t["raced"]
+    assert sorted((x["old"], x["new"]) for x in t["start_reads"]) == [(1, 1), (125, 125)], t["start_reads"]
+    assert [len(v) for v in t["pattern"]["visits"]] == [9, 9, 11] and t["pattern"]["counts"] == []
+    assert t["end_places"] == [55] and t["cut_row"]["fld"] == 55 and "e0 t0 ip22" in t["cut_row"]["text"], t["cut_row"]
+    assert t["unregistered"] == [] and t["failures"] == [], (t["unregistered"], t["failures"])
+    assert [x[1:] for x in t["residue_before"]] == [[0, 0, 166], [1, 0, 4], [2, 0, 86], [3, 0, 1]], t["residue_before"]
+    frows = D._rows(D.base_events(), "F", members)
+    tf = O.trace_summary8(frows, pred, side="F", stock=o8_stock)
+    first55 = next(x.line for x in frows if x.k in ("w", "r") and x.fld == 55)
+    assert tf["end"] == first55 and tf["end_places"] == [55], tf["end"]
+    assert [(s_["frm"], s_["to"], s_["fields"]) for s_ in tf["seams"]] == [(31258, 55, [55])], tf["seams"]
+    assert tf["crossings"][-1]["exit"].startswith("31258 e6 t1 ip863"), tf["crossings"]
+    assert P.trace_summary(frows, pred, side="F", end_fields=[31205], stock=o8_stock)["end"] is None
+
+
+# ---- PART C, C3: O8's REHEARSALS on the fake (studies/story-trace/o8_rehearse.py; research/o8_design.md 7.1-7.2, 9 C3):
+# a launch on a fresh fake in O7's shape -- the warps landing without control (``warp_arrive_control`` False), the
+# sink's suppression, the engine's soft reset where it fires (``soft_reset_ui``), the recovery field granting control
+# -- the route builder's visit beats staged on each arrival in a run's start field, each New Game zeroed and given field
+# 70's prologue; 164's and 165's planes over the box, or their STOCK levels where a test reads the install; the launch
+# reads the fake's own engine DLLs (pinned by the test) and a Memoria.ini holding O8's settings (4.13: [Graphics] VSync
+# "1" among them), and NO field's basis is pinned: every run seeds 164 and 165 (S19, forgotten at each run's start).
+# Every stop, poke and stall a test stages is keyed on a call, a trace row or a frame count -- a movie stop's
+# ``after_s`` (the design's 15 s, scaled) counts from the poll that SAW the ip502 row. Every test is
+# test_o8_rehearsal_*: G44's "o8_".
+
+def _o8_rehearse_module():
+    sys.path.insert(0, str(REPO / "studies" / "story-trace"))
+    import o8_rehearse as R
+    return R
+
+
+def _o8_launch_files(game):
+    """:func:`_o4_launch_files` (the engine DLLs pinned, the launch's Memoria.log, every file dated back an hour) with
+    Memoria.ini holding O8's settings (4.13: [Graphics] VSync "1" among them), dated back too. Register the fields
+    BEFORE: a patch file changed after the log's stamp is P-LAUNCH's relaunch."""
+    O = _o8_module()
+    engine = _o4_launch_files(game)
+    ini = game / "Memoria.ini"
+    ini.write_text(_o3_ini(O.SETTINGS8) + "\n[VoiceActing]\nForceLanguage = -1\n", encoding="utf-8")
+    back = time.time() - 3600
+    os.utime(ini, (back, back))
+    return engine
+
+
+def _o8_rehearse_pred(**over):
+    """:func:`_o8_pred` with what O8's records read too (research/o8_design.md 7.2), on the fixture's places: THE
+    KNIGHT's seat (``seat_watch``: "164"'s sid 1, its store ip230), FMV004 (``movie``: "166" e6 t1 ip502 -> ip863, a
+    clock row every 10 frames), THE SEAM ("166" -> REAL 55, its exit ip863), the chain (each door's FieldEntrance store,
+    then ip863), the crossings and the end row (``landing``), the raced pair read off the trace (``end_state_trace``),
+    both start reads with their races, O8's settings (4.13), the SC and FieldEntrance bytes."""
+    O = _o8_module()
+    s = _O8_FIELDS["S"]
+    m, i16, b191 = s["166"], "Global.Int16[2]", "Global.Bit[191]"
+
+    def site(p, sid, tag, ip, target, value):
+        return {"place": s[p], "sid": sid, "tag": tag, "ip": ip, "target": target, "value": value}
+    hops = (("164", "165", 2, 2, 243, 343), ("165", "166", 2, 2, 233, 344))
+    landing = {"route_places": list(_O8_PLACES),
+               "crossings": [{"from": s[a], "exit": site(a, sid, tag, ip, i16, v), "to": s[b],
+                              "enter": site(b, 0, 0, 22, b191, 0)} for a, b, sid, tag, ip, v in hops],
+               "last": site("166", 6, 1, 863, i16, 110),
+               "end_row": {"place": 55, "sid": 0, "tag": 0, "ip": 22, "target": b191, "value": 0}}
+    chain = [O._key(s[p], sid, tag, ip, off, i16, v, ":=", f"FieldEntrance {v}: the fixture's {p}")
+             for p, sid, tag, ip, off, v in (("164", 2, 2, 243, 209, 343), ("165", 2, 2, 233, 203, 344),
+                                              ("166", 6, 1, 863, 589, 110))]
+    movie = dict(O.MOVIE, donor=m, cinematic=[m, 6, 1, 633], play=[m, 6, 1, 711], clock_every=10,
+                 **{"from": [m, 6, 1, 502], "to": [m, 6, 1, 863]})
+    raced = {"Global.Int16[2]": {"value": 110, "site": {"place": m, "sid": 6, "tag": 1, "ip": 863}},
+             "Global.Byte[8]": {"value": 0, "site": {"place": m, "sid": 6, "tag": 1, "ip": 502}}}
+    reads = [{"site": [m, 0, 0, 255], "target": "Global.Byte[8]", "old": 125, "race": [70, 0, 0, 249],
+              "race_value": 125, "edge": "before", "why": "the fixture's 166 ip255"},
+             {"site": [s["164"], 0, 0, 130], "target": "Global.Byte[13]", "old": 1, "race": [70, 0, 0, 475],
+              "race_value": 2, "edge": "after", "why": "the fixture's 164 ip130"}]
+    return _o8_pred(seat_watch=dict(O.SEAT, donor=s["164"], site=[s["164"], 1, 1, 230]), movie=movie,
+                    seam=dict(O.SEAM, donor=m, exit=[m, 6, 1, 863], field=[m, 6, 1, 871]), chain=chain,
+                    landing=landing, end_state_trace=raced, start_reads=reads,
+                    settings=json.loads(json.dumps(O.SETTINGS8)), sc_bytes=[0, 1], entrance_bytes=[2, 3], **over)
+
+
+def _o8_rh(side="S", short=None, edit=None, **knobs):
+    """One run's ``(start field, beats)`` for :func:`_o8_rh_phases`: the route of ``side`` from ``short`` (default the
+    whole route from "164"), each copy passed through ``edit(beats)`` when given."""
+    def beats():
+        b = _o8_route(side, short=short, **knobs)
+        return edit(b) if edit is not None else b
+    return (_O8_FIELDS[side][short or "164"], beats)
+
+
+def _o8_rh_phases(*runs):
+    """The director's phases for a launch's runs, each ``(start field, beats)`` (:func:`_o8_rh`): each New Game (field 70
+    on the field HUD) zeroed and given field 70's prologue (:func:`_o5_newgame`), each arrival in the run's start field
+    staged with a fresh copy of its beats."""
+    out = []
+    for start, beats in runs:
+        out += [(lambda f: f.field_id == 70 and f.ui_state == "FieldHUD", _o5_newgame),
+                (lambda f, s=start: f.field_id == s and not f._beats, lambda f, b=beats: f.scene(*b(), control=False))]
+    return out
+
+
+def _o8_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=None, wrap=None, witness=None,
+               fps=60.0, ticks="mean", floor_for=None, prior=None, prior_for=None, pinch=None, clock=None,
+               planes=None):
+    """One O8 rehearsal launch on a fresh fake (:func:`_o7_launch`'s shape on O8's box): the director's ``phases``,
+    control handed over in the recovery field, 164's and 165's planes over the box (``planes``: another map, ``{}`` for
+    none -- stock levels set his height themselves), NO basis pinned (each run seeds its own: S19), ``wrap(g, fake)``
+    the test's own calls on the session, ``R.run`` with the test's stages, its floor (``floor_for``, default the box)
+    and prior (``prior_for``, else ``prior``, default the fake's own basis), THE PINCH WINDOW ``pinch``, the clock
+    ``clock``, the stub witness and pad reader and the pinned ``engine``. ``(the record, the fake, the title
+    reached)``."""
+    from harness.fakegame import SOFT_RESET_ENGINE_UI
+    fake = FakeGame(game, fps=4 * fps, render_fps=fps, ticks=ticks, walkmesh=_O8_BOX)
+    fake.warp_arrive_control, fake.warp_field_only = False, True
+    fake.story_suppress = True
+    fake.soft_reset_ui = SOFT_RESET_ENGINE_UI
+    _o8_plane(fake, _O8_BOX_PLANES if planes is None else planes)
+    if fake_setup is not None:
+        fake_setup(fake)
+    basis = prior or _prior()
+    stop = threading.Event()
+    with session(game, fake, state_ring=5000) as g:
+        boot(g)
+        assert g.restore_baseline()[0], "a launch starts at the title"
+        if wrap is not None:
+            wrap(g, fake)
+        _o1_director(fake, stop, phases)
+        _o3_grant_in(fake, stop)
+        try:
+            R.run(g, stages=stages, pred=pred if pred is not None else _o8_rehearse_pred(),
+                  floor_for=floor_for or (lambda d, c: _flat_bgi(*_O8_BOX)),
+                  prior_for=prior_for or (lambda d: basis), stock=lambda fid: None, recovery=_O3_RECOVERY, env=env,
+                  witness=witness or (lambda: None), pads=lambda slot: None, engine=engine, pinch=pinch, clock=clock)
+        finally:
+            stop.set()
+        title = g.state.ui_state
+    return json.loads((game / "run" / "o8_rehearsal.json").read_text(encoding="utf-8")), fake, title
+
+
+def _o8_launch_informative(game, R, stages, env, phases, *, attempts=3, want=None, spoiled=None, **kw):
+    """:func:`_o8_launch` until no run of the launch ended in a driver class a starved harness gives
+    (:data:`_O8_LOAD_VOIDS`; one whose reason holds ``want`` -- the test's own assertion -- is never re-run) and
+    ``spoiled(doc)`` (the test's own: a launch the load bent onto a path it does not test) is not true, at most
+    ``attempts`` launches, each on fresh phases (``phases()``): ``(record, fake, title, the reasons set aside)``."""
+    aside: list = []
+    for k in range(1, attempts + 1):
+        doc, fake, title = _o8_launch(game, R, stages, env, phases(), **kw)
+        whys = [str((r.get("outcome") or {}).get("why") or "") for recs in (doc.get("stages") or {}).values()
+                for r in recs if isinstance(r, dict) and r.get("outcome")]
+        load = [w for w in whys if any(m in w for m in _O8_LOAD_VOIDS) and not (want is not None and want in w)]
+        bent = spoiled is not None and spoiled(doc)
+        if not (load or bent) or k == attempts:
+            return doc, fake, title, aside
+        aside += load or ["spoiled: the load bent the launch onto a path the test does not test"]
+
+
+def _o8_in(win, x, z, y=None) -> bool:
+    """Whether (x, z) -- and y, when given -- stands in a pinch window ``win`` (both ends included)."""
+    ok = win["x"][0] <= x <= win["x"][1] and win["z"][0] <= z <= win["z"][1]
+    return ok and (y is None or win["y"][0] <= y <= win["y"][1])
+
+
+#: A test-side PINCH WINDOW on the box (research/o8_design.md 7.2): round P1 at its level (published y ~8960 on 164's
+#: plane) -- on the box 164 #0's last hold ends there and 164 #1's ONE hold west starts there (a hold's ``from`` is
+#: where the previous hold's ack left him, its ``to`` its own ack's sample).
+_O8_BOX_PINCH = {"place": 30860, "x": [1200.0, 1450.0], "z": [2150.0, 2350.0], "y": [8800.0, 9200.0]}
+
+
+def test_o8_rehearsal_plumbing_on_the_fake(game):
+    """C3 (research/o8_design.md 7.1-7.2): R-FULL's shape on the fake, chosen by ``O8_STAGE`` as a launch chooses it
+    (another stage, which would run too, does not): the capabilities (P-CAP, P-OBJECTS, P-LANG, P-DONOR-LOG over 164,
+    165, 166 and 55, P-LAUNCH with the engine DLLs, P-PAD on a stub reader), the launch's readings (O8's settings --
+    [Graphics] VSync "1" among them -- P-SETTINGS on them, P-OVERRIDE, the fake shipping no field-70 override, and
+    P-ENGINE), then ONE run: the reseed, New Game, the raw warp into "164" at 342 / 1190, the route builder's three
+    visits played by the driver -- FMV004 400 frames -- to the arrival in REAL 55, the trace collected, end_run to the
+    title through the recovery warp. Its record holds EVERY 7.2 section: the warp; the render rate (~60 fps, every
+    route record's); the grants with their published y (4780 in "164", 10280 in "165"); THE BASES (each walk "prior"
+    with its own basis_check, each trigger "cached"); the calibration record; the step rows -- each walk's ``at_y`` and
+    164 #0's ``wait_flag`` kept -- and THE WALKS; THE LEVELS; THE LADDER (a list); THE KNIGHT (T0 off the RING at y >=
+    8400, ip230 after it and inside THE EXEMPT SPAN, the wait read, the seat and start1 rows at his seat, his polls);
+    THE PINCH in a test-side window round P1 (every hold starting or ending in it flagged, with its samples; F5 GO; the
+    report's gap level-aware on the floor given -- the flat box under the plane's y: unmeasured, never a number made
+    up); the dead-level crossing of 164.e2's east ear under y
+    12000; the movie (313 pressed before the ip502 row, the
+    span CLOCKED -- its rate the fake's own frames over state.json's write times: the fake's loop runs at 4x its render
+    rate, so never the published ~60 -- and its seconds the span's frames at it, no press, choice or skip dialog in it,
+    166's Byte[13] old by ip119, no late edge); the
+    crossing (ip863, then 55's ip22); the hold tap's holds; the evidence (no input, no forbidden row); the no-progress
+    stretch; 4.9's end state and end_run's rows; O8's trace summary cut at REAL 55 (the three crossings, the knight's
+    ip230 before the chain row ip243 by line, the movie's two rows, the raced pair's last pre-cut rows "166" ip863 = 110
+    and ip502 = 0, both start reads' olds 125 and 1, the cut row 55 e0 t0 ip22). The rehearsal report prints them.
+    Break: the knight's record dropped."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stages = {"R-TEST": dict(R.STAGES["R-FULL"], field=s["164"], end=[55], runs=1, run_s=150),
+              "R-OTHER": {"field": s["166"], "entrance": 344, "sc": 1190, "end": [55], "runs": 1, "run_s": 5,
+                          "cost_s": 1, "settles": "never run: O8_STAGE names R-TEST"}}
+    doc, fake, title, aside = _o8_launch_informative(game, R, stages, {"O8_STAGE": "R-TEST"},
+                                                     lambda: _o8_rh_phases(_o8_rh(movie_frames=400)), engine=engine,
+                                                     pinch=_O8_BOX_PINCH)
+    run_dir = game / "run"
+    assert list(doc["stages"]) == ["R-TEST"] and doc["stages_run"] == ["R-TEST"] and doc.get("finished"), doc.keys()
+    assert doc["pinch"] == _O8_BOX_PINCH, doc["pinch"]
+    caps = {c[1].split(":")[0]: c[0] for c in doc["capabilities"]}
+    assert caps == {"P-CAP": True, "P-OBJECTS": True, "P-LANG": True, "P-DONOR-LOG": True, "P-LAUNCH": True,
+                    "P-PAD": True}, doc["capabilities"]
+    launch = doc["launch"]
+    assert launch["settings"] == O.SETTINGS8 and launch["settings"]["Graphics"]["VSync"] == "1", launch["settings"]
+    assert launch["engine"] == engine, launch
+    assert {c[1].split(":")[0]: c[0] for c in launch["checks"]} == {"P-SETTINGS": True, "P-OVERRIDE": False,
+                                                                     "P-ENGINE": True}, launch["checks"]
+    rec = doc["stages"]["R-TEST"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 55", (rec["outcome"], aside)
+    assert rec["counted"] is True and "rerun_of" not in rec, rec.get("counted")
+    assert rec["beats"] == {b: True for p in _O8_ROUTE for b in _O8_BEATS[p]}, rec["beats"]
+    assert rec["warp"] == {"field": s["164"], "entrance": 342, "sc": 1190} and rec["end_fields"] == [55], rec["warp"]
+    assert 54.0 < rec["rate"]["fps"] < 66.0 and rec["rate"]["tick_hz"] == 30.0, rec["rate"]
+    rates = [r[3]["fps"] for r in rec["route_fps"] if r[3]]
+    assert rates and all(54.0 < f < 66.0 for f in rates), rec["route_fps"]
+    gy = {gr["field"]: gr["y"] for gr in rec["grants"]}
+    assert set(gy) == {s["164"], s["165"]} and round(gy[s["164"]]) == 4780 and round(gy[s["165"]]) == 10280, gy
+    assert all(gr["objects"] is not None for gr in rec["grants"]), rec["grants"]
+    for p in ("164", "165"):
+        walk, trig = _o7_first(rec, s[p], 0), _o7_first(rec, s[p], 1)
+        assert walk["basis"] == "prior" and walk["check"] is not None and walk["check"]["angle"] < 16.3, rec["bases"]
+        assert trig["basis"] == "cached", rec["bases"]
+    assert set(rec["calibration"]) == {str(s["164"]), str(s["165"])} and all(
+        set(b) == {"v", "h"} for b in rec["calibration"].values()), rec["calibration"]
+    done = [(r["field"], r["kind"], r["n"], r["outcome"]) for r in rec["steps"] if r["outcome"] != "failed"]
+    assert done == [(s["164"], "walk", 0, "done"), (s["164"], "trigger", 1, "done"), (s["165"], "walk", 0, "done"),
+                    (s["165"], "trigger", 1, "done")], done
+    w164 = [r for r in rec["steps"] if r["field"] == s["164"] and r["n"] == 0][-1]
+    assert 8800 <= w164["at_y"]["y"] <= 9150 and w164["wait_flag"]["read"] is True, w164        # S20, S21 kept
+    assert 11100 <= [r for r in rec["steps"] if r["field"] == s["165"] and r["n"] == 0][-1]["at_y"]["y"] <= 11450
+    routed = [r for r in rec["steps"] if r["route"]]
+    assert [(w["field"], w["n"], w["attempt"]) for w in rec["walks"]] == [(r["field"], r["n"], r["attempt"])
+                                                                         for r in routed], rec["walks"]
+    assert all(w["holds"] and w["samples"] for w in rec["walks"] if w["outcome"] == "done"), rec["walks"]
+    lv = rec["levels"]
+    assert len(lv["grants"]) == 2 and len(lv["losses"]) == 2 and all(y > 12000 for _f, _fr, y in lv["losses"]), lv
+    assert {h[0] for h in lv["walk_holds"]} == {s["164"], s["165"]}, lv["walk_holds"]
+    assert isinstance(rec["ladder"], list) and not any(x["pinch"] for x in rec["ladder"]), rec["ladder"]
+    kn = rec["knight"]
+    assert kn["t0"] is not None and kn["t0"]["field"] == s["164"] and kn["t0"]["y"] >= 8400, kn["t0"]
+    lo, hi = kn["span"]
+    assert kn["ip230"] is not None and kn["t0"]["frame"] < kn["ip230"]["f"] and lo <= kn["ip230"]["f"] < hi, kn
+    assert kn["wait"]["read"] is True and kn["wait"]["last"] == 1 and kn["wait"]["frame0"] < kn["wait"]["frame"], kn
+    for row in (kn["seat"], kn["start1"]):
+        assert row is not None and (round(row["x"]), round(row["z"])) == (-586, 3884), (kn["seat"], kn["start1"])
+    assert kn["polls"] and tuple(kn["polls"][-1][1:]) == (-586.0, 3884.0) and kn["errors"] == [], kn["polls"][-3:]
+    pn = rec["pinch"]
+    assert pn["place"] == s["164"] and pn["window"] == {k: _O8_BOX_PINCH[k] for k in ("x", "z", "y")}, pn["window"]
+    assert pn["holds"] and pn["f5"] == "GO" and pn["stalls"] == [] and pn["rungs"] == [], (pn["f5"], pn["stalls"])
+    assert pn["pinch_holds"] and all(h["samples"] for h in pn["pinch_holds"]), pn["pinch_holds"]
+    for h in pn["pinch_holds"]:
+        a, b = h["from"], h["to"]
+        assert _o8_in(_O8_BOX_PINCH, a[0], a[1], h["y0"]) or _o8_in(_O8_BOX_PINCH, b[0], b[1], h["y1"]), h
+    assert not [h for h in pn["holds"] if not h["pinch"] and (_o8_in(_O8_BOX_PINCH, *h["from"], h["y0"])
+                                                              or _o8_in(_O8_BOX_PINCH, *h["to"], h["y1"]))], pn
+    dl = rec["dead_level"]
+    assert [d["key"] for d in dl][:1] == [f"{s['164']}.e2"] and all(d["y"] < 12000 for d in dl
+                                                                    if d["key"] == f"{s['164']}.e2"), dl
+    mv = rec["movie"]
+    sp = mv["span"]
+    assert sp["f502"] is not None and sp["f863"] is not None and sp["f502"] < sp["f863"], sp
+    assert sp["clocks"] >= 2 and sp["fps"] is not None and sp["fps"] > 0, sp      # CLOCKED: the fake's own frame rate
+    assert sp["s"] == round((sp["f863"] - sp["f502"]) / sp["fps"], 2), sp
+    assert mv["p313"] is not None and mv["p313"] < sp["f502"], (mv["p313"], sp)
+    assert (mv["presses"], mv["choices"], mv["skips"], mv["late_v5"], mv["poke"]) == (0, 0, 0, False, None), mv
+    assert mv["ui"] == ["FieldHUD"] and mv["byte13_old"]["ip"] == 119, mv
+    cx = rec["crossing"]
+    assert cx["ip863"] == sp["f863"] and cx["ip22"] is not None and cx["ip22"] >= cx["ip863"], cx
+    assert not [b for b in cx["between"] if b.startswith(("w ", "r "))], cx["between"]
+    assert rec["holds"] and all(h["cached"] for h in rec["holds"]), rec["holds"][:3]
+    ev = rec["evidence"]
+    assert ev["input"] == [] and ev["forbidden"] == [] and ev["press"], ev.keys()
+    assert rec["no_progress"]["longest_s"] >= 0, rec["no_progress"]
+    end = rec["end"]
+    assert end["end_state"] == _O8_END_STATE, end["end_state"]
+    assert end["end_run"]["ok"] and end["end_run"]["title"] and title == "Title", end["end_run"]
+    assert [x["k"] for x in end["end_run"]["how"]] == ["recover-warp"] and end["end_run"]["s"] >= 0, end["end_run"]
+    tr = rec["trace"]
+    assert tr["end_places"] == [55] and tr["start"] is not None, tr
+    assert [(c["exit"] or "").split(" Global")[0] for c in tr["crossings"]] == [
+        f"{s['164']} e2 t2 ip243", f"{s['165']} e2 t2 ip233", f"{s['166']} e6 t1 ip863"], tr["crossings"]
+    assert tr["knight"]["ip230"]["line"] < tr["knight"]["chain"]["line"], tr["knight"]
+    assert (tr["movie"]["ip502"]["f"], tr["movie"]["ip863"]["f"]) == (sp["f502"], sp["f863"]), tr["movie"]
+    assert tr["raced"]["Global.Int16[2]"]["row"].startswith(f"{s['166']} e6 t1 ip863"), tr["raced"]
+    assert tr["raced"]["Global.Byte[8]"]["row"].startswith(f"{s['166']} e6 t1 ip502"), tr["raced"]
+    assert sorted((x["old"], x["want"]) for x in tr["start_reads"]) == [(1, 1), (125, 125)], tr["start_reads"]
+    assert tr["cut_row"]["fld"] == 55 and "e0 t0 ip22" in tr["cut_row"]["text"], tr["cut_row"]
+    assert (run_dir / rec["trace_file"]).is_file() and (run_dir / rec["log_file"]).is_file()
+    report = O.rehearsal_report8(run_dir, walkmesh=lambda p: _flat_bgi(*_O8_BOX))
+    for want in (f"== R-TEST: warp {s['164']} 342 1190 -> [55]", "PASS  P-LAUNCH", "PASS  P-PAD", "launch: settings",
+                 "PASS  P-ENGINE", "render rate ", "levels: grants y",
+                 f"basis {s['164']} ({s['164']}, visit 1) #0 attempt 1: prior, basis_check",
+                 "calibration (each walked field's basis at the drive's end)", "at_y {", "'read': True",
+                 "THE KNIGHT: T0 {", f"THE PINCH in {s['164']}", "F5 GO", f"dead-level crossing: {s['164']}.e2 entered",
+                 "the movie: 313 pressed at", "the crossing: 166 ip863 at frame", "the knight's ip230 {",
+                 "the movie's rows: ip502 {", "rows ['recover-warp']"):
+        assert want in report, (want, report[:4000])
+    # measured here, LEVEL-AWARE, on the floor given: the box lies flat at 0 under the plane's published y
+    assert "the narrowest wall gap a pinch hold passed unmeasured (no sample on a level)" in report, report[:4000]
+
+
+def test_o8_rehearsal_stage_ids_follow_the_chain(tmp_path):
+    """The stage table's ids come from the CHAIN (research/o8_design.md 7.1; O4's review 11.5 #5): on the alxc chain as
+    built F-SMOKE pairs member(164) 31256 / 164 at 342, member(165) 31257 / 165 at 343 and member(166) 31258 / 166 at
+    344, all SC 1190; F-PASS warps F into member(164) 31256 and ends it in REAL 55 -- no member: 55 is the end on both
+    sides -- with no end-row wait; on a chain whose ids run the other way both follow. The launch's order: R-FULL,
+    R-SPIRAL, R-FMV, then R-VOID LAST; ``--field 166`` picks R-FMV, ``--field 164`` names two and refuses, ``--field
+    165`` none (R-SPIRAL165 is by name); ``O8_STAGE`` names any one. R-VOID's three runs (``each``): run 1 into 164 at
+    342 ending at 165 with ``flag_stop`` on the COPY's 164 #0 alone, run 2 the same with ``pinch_stop`` on 164 #1 alone,
+    run 3 into 166 at 344 ending at 55 with ``movie_stop`` {"after_s": 15} left on the stage (166 has no cell: no step
+    carries it); R-FMV's run 3 carries ``movie_poke`` {"after_s": 10} the same way, and R-FMV re-runs a late edge twice
+    at most -- the draft untouched. A run stops one way; a stop on a place with no cell, an unknown key, a
+    ``movie_stop`` with no seconds or negative ones, the stage laid whole or an ``each`` that is not one a run refuse by
+    name. A literal F id that is not the member forking its twin refuses by name, and run() refuses such a table -- or a
+    bad stop -- before it touches the session; so does a launch whose clock (a test-side one) reads inside THE NIGHTLY
+    WINDOW, 03:45-04:45 local, both ends included. Break: name F-SMOKE's members by their ids (a re-fork's smoke then
+    warps into another donor's member)."""
+    import datetime
+    from harness import HarnessError
+    O, R = _o8_module(), _o8_rehearse_module()
+    O4R = __import__("o4_rehearse")
+    assert R.select(R.STAGES, env={}) == ["R-FULL", "R-SPIRAL", "R-FMV", "R-VOID"]
+    assert R.select(R.STAGES, 166, env={}) == ["R-FMV"]
+    with pytest.raises(ValueError, match=r"--field 164 picks \['R-FULL', 'R-SPIRAL'\]"):
+        R.select(R.STAGES, 164, env={})
+    with pytest.raises(ValueError, match=r"--field 165 picks \[\]"):
+        R.select(R.STAGES, 165, env={})
+    for name in R.STAGES:
+        assert R.select(R.STAGES, env={"O8_STAGE": name}) == [name]
+    with pytest.raises(ValueError, match="no stage"):
+        R.select(R.STAGES, env={"O8_STAGE": "R-NONE"})
+    pred = _o8_draft(tmp_path)
+    smoke = O4R.stage_ids(R.STAGES["F-SMOKE"], pred, name="F-SMOKE")
+    assert smoke["pairs"] == [[31256, 164, 342, 1190], [31257, 165, 343, 1190], [31258, 166, 344, 1190]], smoke
+    fpass = O4R.stage_ids(R.STAGES["F-PASS"], pred, name="F-PASS")
+    assert fpass["field"] == {"S": 164, "F": 31256} and O4R.stage_ends(fpass, "F") == [55], fpass
+    sp = R.stage_pred(pred, fpass)
+    assert sp["start"]["F"] == 31256 and sp["budget"]["end_row_s"] is None and R.stage_sides(fpass) == ["F"], sp["start"]
+    rev = O.draft_predictions(_o4c_campaign(tmp_path, ids={d: 31259 - i for i, d in enumerate(O.C4.DONORS)},
+                                            name="reversed.toml"))
+    m = {d: f for f, d in ((int(f), d) for f, d in rev["members"].items())}
+    assert [p[:2] for p in O4R.stage_ids(R.STAGES["F-SMOKE"], rev)["pairs"]] == [[m[d], d] for d in (164, 165, 166)]
+    assert O4R.stage_ids(R.STAGES["F-PASS"], rev)["field"]["F"] == m[164] != 31256
+    full, fmv = R.stage_pred(pred, R.STAGES["R-FULL"]), R.stage_pred(pred, R.stage_run(R.STAGES["R-FMV"], 1))
+    assert (full["start"], full["entrance"], full["scenario"]) == ({"S": 164, "F": 164}, 342, 1190), full["start"]
+    assert (fmv["start"]["S"], fmv["entrance"], fmv["scenario"]) == (166, 344, 1190), fmv["start"]
+    void = R.STAGES["R-VOID"]
+    one, two, three = (R.stage_run(void, k) for k in (1, 2, 3))
+    assert (one["field"], one["entrance"], one["end"], one["flag_stop"], "each" in one) == (
+        164, 342, [165], {"place": 164}, False), one
+    assert (two["field"], two["end"], two["pinch_stop"]) == (164, [165], {"place": 164, "n": 1}), two
+    assert (three["field"], three["entrance"], three["end"], three["movie_stop"]) == (
+        166, 344, [55], {"place": 166, "after_s": 15.0}), three
+    poke = R.stage_run(R.STAGES["R-FMV"], 3)
+    assert poke[R.POKE] == {"place": 166, "after_s": 10.0} and R.STAGES["R-FMV"]["reruns"] == 2, poke
+
+    def marks(p):
+        return [(c["donor"], i, k, s[k]) for c in p["table"] for i, s in enumerate(c["steps"])
+                for k in sorted(O.REHEARSAL_OVERLAYS8) if k in s]
+    assert marks(R.stage_pred(pred, one)) == [(164, 0, "flag_stop", True)]
+    assert marks(R.stage_pred(pred, two)) == [(164, 1, "pinch_stop", True)]
+    assert marks(R.stage_pred(pred, three)) == [] and marks(R.stage_pred(pred, poke)) == []
+    assert marks(pred) == [] and marks(full) == [], "the stop reached the draft"
+    for stage, match in ((dict(one, pinch_stop={"place": 164}), "one way"),
+                         (dict(one, flag_stop={"place": 163}), "place 163"),
+                         (dict(one, flag_stop={"place": 164, "holds": 3}), "no key"),
+                         (dict(three, movie_stop={"place": 166}), "after_s is a number"),
+                         (dict(three, movie_stop={"place": 166, "after_s": -1}), "after_s is a number"),
+                         (void, "run by run")):
+        with pytest.raises(ValueError, match=match):
+            R.stage_pred(pred, stage)
+    with pytest.raises(ValueError, match="one entry a run"):
+        R.stage_run(dict(void, runs=2), 1)
+    bad = [(dict(R.STAGES["F-SMOKE"], pairs=[[31257, 164, 342, 1190]]), r"pairs: 31257 is not a member forking 164"),
+           (dict(R.STAGES["F-PASS"], field={"S": 164, "F": 31257}), r"field\[F\]: 31257 is not a member forking 164")]
+    for stage, match in bad:
+        with pytest.raises(ValueError, match=match):
+            O4R.stage_ids(stage, pred)
+    with pytest.raises(ValueError, match=r"F-PASS field\[F\]: 31257"):
+        R.run(object(), stages={"F-PASS": bad[1][0]}, pred=pred, env={"O8_STAGE": "F-PASS"})
+    worse = dict(void, each=[dict(void["each"][0], flag_stop={"place": 164, "z": 500}), *void["each"][1:]])
+    with pytest.raises(ValueError, match="no key"):
+        R.run(object(), stages={"R-VOID": worse}, pred=pred, env={"O8_STAGE": "R-VOID"})
+    at = datetime.datetime
+    for hh, mm, inside in ((3, 44, False), (3, 45, True), (4, 0, True), (4, 45, True), (4, 46, False)):
+        assert R.in_nightly(at(2026, 10, 6, hh, mm)) is inside, (hh, mm)
+    with pytest.raises(HarnessError, match=r"STOPPED: R-FULL would start at 04:00 local, inside THE NIGHTLY WINDOW "
+                                           r"03:45-04:45"):
+        R.run(object(), stages={"R-FULL": R.STAGES["R-FULL"]}, pred=pred, env={"O8_STAGE": "R-FULL"},
+              clock=lambda: at(2026, 10, 6, 4, 0))
+
+
+def _o8_void_stage(R, k, **over):
+    """R-VOID's run ``k`` alone, on the fixture: ``each`` of one entry -- the stage's own with ``over`` laid on it."""
+    void = R.STAGES["R-VOID"]
+    return dict(void, runs=1, run_s=150, each=[dict(void["each"][k - 1], **over)])
+
+
+def test_o8_rehearsal_t0_scan_marks_an_evicted_release_unmeasured():
+    """THE RING EVICTS (research/o8_design.md 11.4, the review's #1), pure: the recorder's t0_scan over a real StateRing.
+    Armed at frame 999 (field 70's samples before it), 164's climb sampled every 2 frames at 60 fps from y 8000 (+5 a
+    sample) to P1's 8958 -- his release (y >= 8400) crossed at frame 1160 -- then 12 s held at P1 before the next poll's
+    scan. On a ring of 300 (STATE_RING: ~10 s at 60 fps) the crossing is EVICTED: T0 is UNMEASURED -- ``evicted`` True,
+    ``after`` 998 (the last frame read), ``held_from`` the ring's oldest, ``first`` the first passing sample held --
+    never that late frame read as T0, and the report line says UNMEASURED; on a ring of 5000 T0 is frame 1160. A gap
+    BEFORE his place (field 70's samples evicted, then his climb from y 4780 held whole) reads the crossing exactly: a
+    sample under the release follows the gap. Break: the first passing sample read as T0 whatever the ring lost (T0 then
+    ~6 s late)."""
+    import types
+    from harness.artifacts import StateRing
+    R = _o8_rehearse_module()
+    O = _o8_module()
+
+    class _St:
+        def __init__(self, frame, y, fld):
+            self.frame, self.read_at, self.age = frame, 0.0, 0.0
+            self.raw = {"frame": frame, "player": {"y": y}, "field": {"id": fld}}
+
+    def scan(n, run):
+        ring = StateRing(n)
+        for f in range(900, 999, 2):
+            ring.push(_St(f, 0.0, 70))
+        rec = R.Recorder.__new__(R.Recorder)
+        rec.g = types.SimpleNamespace(states_since=ring.since)
+        rec.t0, rec.knight, rec.release, rec.members = None, (164, 1), {"y_ge": 8400}, {}
+        rec.arm(999)
+        f = 998
+        for y, fld in run:
+            f += 2
+            ring.push(_St(f, y, fld))
+        rec.t0_scan(types.SimpleNamespace(frame=f))
+        return rec.t0, ring.frames()[0]
+    climb = [(8000.0 + 5 * k, 164) for k in range(192)] + [(8958.0, 164)] * 360
+    assert next(998 + 2 * (i + 1) for i, (y, _f) in enumerate(climb) if y >= 8400) == 1160
+    t0, oldest = scan(300, climb)
+    assert oldest > 1160 and t0 == {"frame": None, "evicted": True, "after": 998, "held_from": oldest,
+                                    "first": {"frame": oldest, "y": 8958.0, "field": 164}}, (t0, oldest)
+    line = O._knight_record_lines({"t0": t0, "wait": {}, "polls": []})[0]
+    assert f"THE KNIGHT: T0 UNMEASURED (the ring evicted the samples read after frame 998: it held from frame {oldest}"         in line, line
+    t0, oldest = scan(5000, climb)
+    assert oldest == 900 and t0 == {"frame": 1160, "y": 8400.0, "field": 164}, t0
+    assert "THE KNIGHT: T0 {'frame': 1160" in O._knight_record_lines({"t0": t0, "wait": {}, "polls": []})[0]
+    late = [(0.0, 70)] * 400 + [(4780.0 + 20 * k, 164) for k in range(210)] + [(8958.0, 164)] * 30
+    t0, oldest = scan(300, late)
+    assert oldest > 998 + 2 * 300 and t0 == {"frame": 998 + 2 * (400 + 181 + 1), "y": 8400.0, "field": 164}, t0
+
+
+def test_o8_rehearsal_widens_the_state_ring_in_place():
+    """THE REHEARSAL RING (the first R-FULL, 20261005-225603-o8-rh-full: at ~60 fps the 300-sample ring held ~10 s and
+    the walk tap lost the first half of 164 #1's holds), pure: widen_ring takes a real StateRing of 300 holding 400
+    pushed samples (the last 300 kept) to REHEARSAL_RING -- the SAME ring object (every reader holds it), the samples it
+    held kept in order, then 1000 more all kept; a second call and a wider ring are never narrowed; a stand-in session
+    with no ring reads None, None. Break: a new StateRing swapped in (the session's reads would feed the old one), or the
+    deque rebuilt empty."""
+    import types
+    from harness.artifacts import StateRing
+    R = _o8_rehearse_module()
+
+    class _St:
+        def __init__(self, frame):
+            self.frame, self.read_at, self.age, self.raw = frame, 0.0, 0.0, {"frame": frame}
+    ring = StateRing(300)
+    for f in range(0, 800, 2):
+        ring.push(_St(f))
+    g = types.SimpleNamespace(_ring=ring)
+    held = ring.frames()
+    assert len(held) == 300 and held[0] == 200
+    assert R.widen_ring(g) == {"was": 300, "now": R.REHEARSAL_RING} and R.REHEARSAL_RING >= 3000
+    assert g._ring is ring and ring.frames() == held
+    for f in range(800, 2800, 2):
+        ring.push(_St(f))
+    assert len(ring) == 1300 and ring.frames()[0] == 200
+    assert R.widen_ring(g) == {"was": R.REHEARSAL_RING, "now": R.REHEARSAL_RING}
+    wide = types.SimpleNamespace(_ring=StateRing(9000))
+    assert R.widen_ring(wide) == {"was": 9000, "now": 9000}
+    assert R.widen_ring(types.SimpleNamespace()) == {"was": None, "now": None}
+
+
+def test_o8_rehearsal_recorder_reads_only_its_own_runs_movie_rows():
+    """THE RECORDER'S LIVE READ IS THE RUN'S OWN (the second review's #1; the first R-FULL's story.jsonl held two arms,
+    run 1's 166 ip502 and ip863 rows before run 2's), pure: Recorder._live over the kit's own parse of a launch's trace
+    -- run 1 armed, its 166 e6 t1 ip502 and ip863 rows, the cut row in 55, then run 2 armed. On run 2's first read in 166
+    neither is seen (an old ip863 would end the watch at once: no poke, no stop, ever); run 2's own ip502 is then seen
+    with ITS frame, its ip863 after it; a trace with no arm reads nothing. Break: the arm slice dropped (seen863 True on
+    run 2's first read, seen502 run 1's frame)."""
+    import json
+    import types
+    from ff9mapkit.storytrace import parse_text
+    R = _o8_rehearse_module()
+
+    def w(f, fld, sid, tag, ip, byte, kind, old, new, bit=-1):
+        return {"k": "w", "f": f, "p": f, "m": 1, "fld": fld, "don": fld, "sc": 1190, "src": "eb", "sid": sid,
+                "uid": sid, "lvl": 7, "ip": ip, "tag": tag, "add": 0, "byte": byte, "w": kind, "bit": bit, "old": old,
+                "new": new, "same": int(old == new)}
+
+    def arm(f):
+        return {"k": "e", "f": f, "p": f, "m": 1, "fld": 70, "don": 70, "sc": 0, "why": "arm"}
+    run1 = [arm(486), w(5861, 166, 6, 1, 502, 8, "Byte", 125, 0), w(8491, 166, 6, 1, 863, 2, "Int16", 344, 110),
+            w(8495, 55, 0, 0, 22, 23, "Bit", 0, 0, bit=191),
+            {"k": "e", "f": 8500, "p": 8500, "m": 1, "fld": 55, "don": 55, "sc": 1190, "why": "off"}]
+    lines = list(run1) + [arm(8746)]
+    rec = R.Recorder.__new__(R.Recorder)
+    rec.g = types.SimpleNamespace(story_rows=lambda: parse_text("\n".join(json.dumps(x) for x in lines) + "\n"))
+    rec.members, rec.movie_place = {}, 166
+    rec.ip502, rec.ip863 = (6, 1, 502), (6, 1, 863)
+    rec.seen502, rec.seen863, rec._read_t = None, False, 0.0
+    rec._live(types.SimpleNamespace(frame=9000))
+    assert rec.seen502 is None and rec.seen863 is False, (rec.seen502, rec.seen863)
+    lines.append(w(14192, 166, 6, 1, 502, 8, "Byte", 125, 0))
+    rec._read_t = 0.0
+    rec._live(types.SimpleNamespace(frame=14200))
+    assert rec.seen502["row_f"] == 14192 and rec.seen502["frame"] == 14200 and rec.seen863 is False, rec.seen502
+    lines.append(w(16952, 166, 6, 1, 863, 2, "Int16", 344, 110))
+    rec._read_t = 0.0
+    rec._live(types.SimpleNamespace(frame=16960))
+    assert rec.seen863 is True and rec.seen502["row_f"] == 14192
+    bare = R.Recorder.__new__(R.Recorder)
+    bare.__dict__.update(rec.__dict__, seen502=None, seen863=False, _read_t=0.0,
+                         g=types.SimpleNamespace(story_rows=lambda: parse_text(
+                             "\n".join(json.dumps(x) for x in run1[1:3]) + "\n")))
+    bare._live(types.SimpleNamespace(frame=1))
+    assert bare.seen502 is None and bare.seen863 is False
+
+
+def test_o8_rehearsal_pinch_reads_unmeasured_when_a_hold_kept_no_position(monkeypatch):
+    """F5 CANNOT PASS BLIND (the first R-FULL, 20261005-225603-o8-rh-full: 52 of 110 holds in 164 kept no position --
+    the ring evicted them -- and F5 read GO with no hold in THE PINCH WINDOW), pure: pinch_record over one 164 walk whose
+    hold rows are laid by the test (o5_rehearse.hold_rows, o7_rehearse._hold_ys and pressed_dir stubbed). Every hold
+    positioned and none in the window, 164 #1 done, no rung: GO. One hold with no position: UNMEASURED, naming the count,
+    the first frame and that no ladder rung was seen anywhere in the place -- never GO. Not done: NO-GO first. Break: the
+    ``blind`` clause dropped (the evicted run reads GO again)."""
+    R = _o8_rehearse_module()
+
+    def rows(blind):
+        out = [{"ack_frame": 100 + 10 * k, "from": [2000.0 - 50 * k, 3000.0], "to": [1950.0 - 50 * k, 3000.0],
+                "moved": 50.0, "slide": False, "stall": False, "steps": []} for k in range(4)]
+        if blind:
+            out[0] = dict(out[0], **{"from": None, "to": None, "moved": None})
+        return out
+    win = dict(R.PINCH_WINDOW)
+    walks = [{"field": 164, "frame0": 90, "samples": []}]
+    done = [{"k": "step", "donor": 164, "n": 1, "outcome": "done"}]
+    for blind, log, want in ((False, done, "GO"), (True, done, "UNMEASURED: 1 of 4 hold(s) in 164 kept no position"),
+                             (True, [], "NO-GO: 164 #1 is not done")):
+        monkeypatch.setattr(R.O5R, "hold_rows", lambda w, steps, basis, b=blind: rows(b))
+        monkeypatch.setattr(R.O7R, "_hold_ys", lambda w, rs: [(5000.0, 5100.0)] * len(rs))
+        monkeypatch.setattr(R.O5R, "pressed_dir", lambda basis, steps: None)
+        rec = R.pinch_record(walks, log, [], [], {}, win, {})
+        assert rec["f5"].startswith(want), (blind, rec["f5"])
+        assert rec["pinch_holds"] == [], rec["pinch_holds"]
+        if want.startswith("UNMEASURED"):
+            assert "the first at frame 100" in rec["f5"] and "no ladder rung anywhere in the place" in rec["f5"], rec["f5"]
+
+
+def test_o8_rehearsal_void_stops_on_the_wait_on_the_fake(game):
+    """R-VOID's run 1 (research/o8_design.md 7.1, F9) on the fake: ``flag_stop`` {"place": "164"} laid on 164 #0 of the
+    run's COPY (the predictions given keep none), the run warped into "164" at 342. 164 #0 walks to P1 at its level and
+    begins THE KNIGHT WAIT: S21 watches Bit[3811] (``watch 3811``) and calls ``g.wait_for`` -- whose FIRST call opening
+    "the flag wait" in 164 raises the stop's FIXED message "the rehearsal's stop mid-wait (flag_stop)" (never a wrapped
+    call's error text: S21 swallows one holding "live samples" as its own timeout), the session's wait_for restored at
+    once. The run is V13 by the DRIVER -- never S21's V8 by the game --; S21's ``finally`` sent ``unwatch``; no
+    direction hold and no Confirm after the raise; the sends after it are EXACTLY F9's list: ``unwatch``,
+    collect_story's ``storytrace 0``, then end_run's recovery warp FIRST and its ladder; end_run reaches the title
+    (``recover-warp``); the launch finishes; the report prints the stop. Break: a stop message holding a wrapped wait's
+    "live samples" text (S21 swallows it: the wait goes on, the bit reads and the run reaches 165)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stage = _o8_void_stage(R, 1, field=s["164"], end=[s["165"]], flag_stop={"place": s["164"]})
+    pred = _o8_rehearse_pred()
+    before = json.dumps(pred, sort_keys=True)
+    doc, fake, title, aside = _o8_launch_informative(game, R, {"R-VOID": stage}, {"O8_STAGE": "R-VOID"},
+                                                     lambda: _o8_rh_phases(_o8_rh(short="164")), engine=engine,
+                                                     pred=pred, want=R.FLAG_STOP)
+    assert json.dumps(pred, sort_keys=True) == before, "the run's stop reached the predictions given"
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"] == f"STOPPED: {R.FLAG_STOP}", rec["outcome"]
+    fs = rec["flag_stop"]
+    assert fs is not None and fs["field"] == s["164"] and fs["what"] == "the flag wait: Bit[3811] == 1", fs
+    assert fs["holds_after"] == 0 and fs["presses_after"] == 0, fs
+    sa = fs["sends_after"]
+    assert sa[:2] == ["unwatch", "storytrace 0"] and sa[2].startswith(f"warp {_O3_RECOVERY} "), sa
+    assert not [x for x in sa if R.O6R._direction_hold(x) or x.startswith("press confirm")], sa
+    watched = [i for i, x in enumerate(fake.executed) if x[:1] == ["watch"]]
+    assert watched and ["unwatch"] in fake.executed[watched[-1]:], fake.executed[-20:]
+    assert not [r for r in rec["steps"] if r["outcome"] == "done"], rec["steps"]
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+    report = O.rehearsal_report8(game / "run")
+    for want in (f"run 1: warp {s['164']} 342 1190 -> [{s['165']}], flag_stop", "flag_stop: frame",
+                 "after it 0 hold(s) and 0 press(es) (there must be none)", "the sends after it ['unwatch', "):
+        assert want in report, (want, report[:3000])
+
+
+def test_o8_rehearsal_void_stops_mid_movie_on_the_fake(game):
+    """R-VOID's run 3 (research/o8_design.md 7.1, F9; the driver review's #7) on the fake: ``movie_stop`` {"place":
+    "166", "after_s": 1.5} (the design's 15 s, scaled to the fake's 2400-frame FMV004) left on the stage, the run warped
+    into "166" at 344. The recorder reads the LIVE trace at most once a second in 166 and keys the stop on the poll that
+    first SAW the 166 e6 t1 ip502 row: on the first quiet poll (control off, FieldHUD, no window, no choice) at least
+    after_s past it it raises "the rehearsal's stop mid-movie (movie_stop)" -- its frame after the ip502 row's in the
+    trace (the stop's own ``f502`` that row's), inside the movie beat (between the fake's movie start and end), never in
+    the 309 -> 311 quiet stretch; the run V13 by the driver; no hold and no Confirm after it; the sends after it
+    collect_story's ``storytrace 0`` and end_run's recovery warp and ladder (no ``unwatch``); the warp FIRST, from
+    FieldHUD with the movie playing (it ends the movie: ``ended`` "warp"), then the title. Break: the stop keyed on 166's
+    first live row, not the ip502 row (it then fires in a quiet stretch before the movie: no ip502 row before it)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stage = _o8_void_stage(R, 3, field=s["166"], end=[55], movie_stop={"place": s["166"], "after_s": 1.5})
+    doc, fake, title, aside = _o8_launch_informative(game, R, {"R-VOID": stage}, {"O8_STAGE": "R-VOID"},
+                                                     lambda: _o8_rh_phases(_o8_rh(short="166", movie_frames=2400)),
+                                                     engine=engine, want=R.MOVIE_STOP)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"] == f"STOPPED: {R.MOVIE_STOP}", rec["outcome"]
+    ms = rec["movie_stop"]
+    f502 = rec["trace"]["movie"]["ip502"]["f"]
+    assert ms is not None and ms["field"] == s["166"] and ms["f502"] == f502 < ms["frame"], (ms, f502)
+    assert ms["after_s"] >= 1.5 and ms["holds_after"] == 0 and ms["presses_after"] == 0, ms
+    mv = fake.movies
+    assert len(mv) == 1 and mv[0]["start"] < ms["frame"] and mv[0]["ended"] == "warp", (mv, ms)
+    assert rec["trace"]["movie"]["ip863"] is None, rec["trace"]["movie"]
+    sa = ms["sends_after"]
+    assert sa[0] == "storytrace 0" and sa[1].startswith(f"warp {_O3_RECOVERY} ") and "unwatch" not in sa, sa
+    assert not [x for x in sa if R.O6R._direction_hold(x) or x.startswith("press confirm")], sa
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+    report = O.rehearsal_report8(game / "run")
+    for want in ("movie_stop: frame", f"the ip502 row's frame {f502}", "the sends after it ['storytrace 0', "):
+        assert want in report, (want, report[:3000])
+
+
+def test_o8_rehearsal_pokes_the_movie_once_and_the_net_answers_no_on_the_fake(game):
+    """R-FMV's run 3 (research/o8_design.md 7.1, F3; the driver review's #1; 0.2 #23) on the fake: ``movie_poke``
+    {"place": "166", "after_s": 1.0} (the design's 10 s, scaled) on the stage, the run warped into "166" at 344, FMV004
+    2400 frames. On the first quiet poll at least after_s past the poll that SAW the ip502 row the recorder presses ONE
+    Confirm -- a ``press`` row, why "movie_poke", after the ip502 row's frame -- and nothing else: the fake opens the
+    skip dialog (its cursor on No, the movie waiting under it); the drive's net answers it at its default, No (one
+    ``choice`` row of rule 0 inside the span; one ``skip_seen`` row); the movie RESUMES and plays out (2400 of 2400, one
+    dialog, ended "played"); ip863, then REAL 55: REACHED. The record's poke section holds the press's frame and seconds,
+    the dialog, the net's choice and the frame the movie resumed at, no second dialog; the report prints it. Break: a
+    poke on every quiet poll past after_s, not once (a second skip dialog)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    fmv = R.STAGES["R-FMV"]
+    stage = dict(fmv, field=s["166"], end=[55], runs=1, run_s=150,
+                 each=[dict(fmv["each"][2], **{R.POKE: {"place": s["166"], "after_s": 1.0}})])
+    doc, fake, title, aside = _o8_launch_informative(game, R, {"R-FMV": stage}, {"O8_STAGE": "R-FMV"},
+                                                     lambda: _o8_rh_phases(_o8_rh(short="166", movie_frames=2400)),
+                                                     engine=engine)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    recs = doc["stages"]["R-FMV"]
+    assert len(recs) == 1, [r["outcome"] for r in recs]
+    rec = recs[0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 55", (rec["outcome"], aside)
+    log = json.loads((game / "run" / rec["log_file"]).read_text(encoding="utf-8"))["log"]
+    pokes = [x for x in log if x.get("k") == "press" and x.get("why") == R.POKE]
+    f502, f863 = rec["trace"]["movie"]["ip502"]["f"], rec["trace"]["movie"]["ip863"]["f"]
+    assert len(pokes) == 1 and f502 < pokes[0]["pre"]["frame"] < f863, (pokes, f502, f863)
+    seen = [x for x in log if x.get("k") == "skip_seen"]
+    ch = [x for x in log if x.get("k") == "choice"]
+    assert len(seen) == 1 and [(c["rule"], c["index"], c["selected"]) for c in ch] == [(0, "default", 1)], (seen, ch)
+    assert pokes[0]["pre"]["frame"] <= seen[0]["frame"] <= ch[0]["frame"] < f863, (pokes, seen, ch)
+    mv = fake.movies
+    assert fake.answered == [1] and len(mv) == 1, (fake.answered, mv)
+    assert (mv[0]["played"], mv[0]["frames"], mv[0]["skips"], mv[0]["ended"]) == (2400, 2400, 1, "played"), mv
+    pk = rec["movie"]["poke"]
+    assert pk is not None and pk["frame"] == pokes[0]["pre"]["frame"] and pk["after_s"] >= 1.0, pk
+    assert pk["dialog"] is not None and pk["dialog"]["frame"] == seen[0]["frame"] and pk["second"] is False, pk
+    assert [c["rule"] for c in pk["choices"]] == [0] and pk["resumed"] is not None and pk["resumed"] > ch[0]["frame"], pk
+    report = O.rehearsal_report8(game / "run")
+    assert "the poke: pressed at frame" in report and "second dialog False" in report, report[:3000]
+
+
+def test_o8_rehearsal_fmv_reruns_a_late_edge_v5_on_the_fake(game):
+    """THE LATE EDGE (research/o8_design.md 7.1 R-FMV, F3; the driver review's #9) on the fake: R-FMV with ONE run and its
+    re-runs (``reruns`` 2), the launch's first arrival in "166" given ``error_window`` {3: 9} -- Byte[13] arrived 9 (a
+    warp after field 70's ip475): its error store ``Byte[13] := 9`` at ip97 where ip119's would be, window 56 up -- so
+    the run is V5 by the DRIVER (the run's first visit) and its movie record a LATE-EDGE V5 (166's Byte[13] old by
+    ip97); the stage RE-RUNS it at once (``rerun_of`` 1, into its own files ``rh_R-FMV_1r1``: the V5's trace kept), and
+    the re-run reaches 55 (166's Byte[13] by ip119). The first record is ``counted`` False, the re-run's True: F3 reads
+    the re-run alone; the report heads the stage with the run's warp (the stage's: its entry lays none), marks the
+    first SET ASIDE and counts one run. Break: the V5 counted (``counted`` True on it)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stage = dict(R.STAGES["R-FMV"], field=s["166"], end=[55], runs=1, run_s=150, each=[{}])
+    doc, fake, title, aside = _o8_launch_informative(
+        game, R, {"R-FMV": stage}, {"O8_STAGE": "R-FMV"},
+        lambda: _o8_rh_phases(_o8_rh(short="166", error_window={3: 9}), _o8_rh(short="166")), engine=engine,
+        want="Env Play()")
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    late, again = doc["stages"]["R-FMV"]
+    assert (late["outcome"]["end"], late["outcome"]["v"], late["outcome"]["by"]) == ("void", "V5", "driver"), \
+        (late["outcome"], aside)
+    assert late["movie"]["late_v5"] is True and late["movie"]["byte13_old"]["ip"] == 97, late["movie"]
+    assert late["counted"] is False and "rerun_of" not in late and late["trace_file"] == "rh_R-FMV_1.jsonl", late
+    assert again["rerun_of"] == 1 and again["counted"] is True and again["trace_file"] == "rh_R-FMV_1r1.jsonl", again
+    assert again["outcome"]["end"] == "reached" and again["movie"]["late_v5"] is False, again["outcome"]
+    assert again["movie"]["byte13_old"]["ip"] == 119, again["movie"]
+    run_dir = game / "run"
+    assert all((run_dir / f).is_file() for f in ("rh_R-FMV_1.jsonl", "rh_R-FMV_1r1.jsonl", "rh_R-FMV_1_log.json",
+                                                 "rh_R-FMV_1r1_log.json"))
+    report = O.rehearsal_report8(run_dir)
+    for want in (f"== R-FMV: run 1: warp {s['166']} 344 1190 -> [55]", "SET ASIDE: a late-edge V5, re-run, never counted",
+                 "(RE-RUN: a late-edge V5)",
+                 "counted (F3 and every freeze item): 1 run record(s) -- runs [1]; set aside (a late-edge V5, re-run): "
+                 "runs [1]"):
+        assert want in report, (want, report[:3000])
+
+
+def test_o8_rehearsal_smoke_sends_no_storytrace_on_the_fake(game):
+    """F-SMOKE (research/o8_design.md 7.1, F12) on the fake, its pairs O8's table's on the fixture's places --
+    member("164") and "164" at 342, member("165") and "165" at 343, member("166") and "166" at 344, all SC 1190 -- each
+    member read from the chain the predictions carry (31256, 31257, 31258), each warp a RAW one with its pair's OWN
+    entrance and SC and a wait for the field on FieldHUD (o4_rehearse.smoke: never Session.warp()), then the field's
+    published object sids and end_run after each warp (the recovery warp, the title). No ``storytrace`` step is ever
+    executed (no fork data before the freeze). Each member's sids against its twin's: two pairs equal, the third (a
+    body extra) different; the report prints each warp with its entrance and SC. Break: warp member(166) at 343 (165's
+    entrance)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s, f = _O8_FIELDS["S"], _O8_FIELDS["F"]
+    route = ("164", "165", "166")
+    pairs = [[f"member({s[p]})", s[p], e, sc] for p, (_m, _t, e, sc) in zip(route, R.STAGES["F-SMOKE"]["pairs"])]
+    stages = {"F-SMOKE": dict(R.STAGES["F-SMOKE"], pairs=pairs, smoke_s=0.3, warp_s=10.0)}
+    sids = {**{s[p]: [1, 4] for p in route}, **{f[p]: [1, 4] for p in route}, f["166"]: [1, 4, 9]}
+
+    def setup(fake):
+        fake.blockers = {fid: [{"x": 300.0 + 60 * i, "z": 300.0, "r": 30.0, "sid": v, "uid": 128 + i}
+                               for i, v in enumerate(vs)] for fid, vs in sids.items()}
+    doc, fake, _title = _o8_launch(game, R, stages, {"O8_STAGE": "F-SMOKE"}, [], engine=engine, fake_setup=setup)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [x for x in fake.executed if x[0] == "storytrace"], "a storytrace step in the smoke"
+    recs = doc["stages"]["F-SMOKE"]
+    entrances = [342, 343, 344]
+    order = [(f[p], e, 1190) for p, e in zip(route, entrances)] + [(s[p], e, 1190) for p, e in zip(route, entrances)]
+    assert [(r["field"], r["entrance"], r["sc"]) for r in recs] == order, recs
+    for r in recs:
+        reach = r["reached"]
+        assert (reach["field"], reach["ui"], reach["control"]) == (r["field"], "FieldHUD", False), r
+        assert r["sids"] == sorted(sids[r["field"]]) and r["exceptions"] == [], r
+        assert r["end_run"]["ok"] and r["end_run"]["title"], r["end_run"]
+    warps = [x for x in fake.executed if x[0] == "warp"]
+    for field, entrance, sc in order:
+        assert ["warp", str(field), str(entrance), str(sc)] in warps, (field, warps)
+    twins = doc["twins"]["F-SMOKE"]
+    assert [(t["member"], t["twin"], t["equal"]) for t in twins] == [(f[p], s[p], p != "166") for p in route], twins
+    report = O.rehearsal_report8(game / "run")
+    for want in ("== F-SMOKE: the load smoke", f"warp 2: {f['165']} at 343 SC 1190 -> field {f['165']} FieldHUD",
+                 f"warp 3: {f['166']} at 344 SC 1190 -> field {f['166']} FieldHUD",
+                 f"twin {f['164']} vs {s['164']}: EQUAL", f"twin {f['166']} vs {s['166']}: DIFFERENT"):
+        assert want in report, (want, report[:2500])
+
+
+def test_o8_rehearsal_fpass_runs_untraced_to_real_55_on_the_fake(game):
+    """F-PASS (research/o8_design.md 7.1, F13) on the fake: ONE F run, UNTRACED -- O8.reseed FIRST (the session holding a
+    stale basis for both members a run seeds, 31256 and 31257: each forgotten), New Game, ``wait_frames(30)``, the raw
+    warp into member("164") (31256, read from the chain) at 342 / 1190, never the ``storytrace`` verb -- driven through
+    the whole route (31256's walk, THE KNIGHT WAIT and its trigger, 31257's two steps, 31258's six pages and FMV004
+    played out) to REAL 55 through 31258's raw Field(55): reached, every beat, no V-class (never V19: 55 is F's end
+    too), the live forbidden scan off and no end-row wait; 31256's and 31257's walks SEEDED afresh ("prior", judged)
+    though the session held their bases; the record holds no trace, the exceptions since the warp (none) and the
+    Memoria.log lines; end_run reaches the title. The report marks it UNTRACED. Break: F-PASS started without the
+    reseed (the stale basis then reads "cached", unjudged)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s, f = _O8_FIELDS["S"], _O8_FIELDS["F"]
+    stages = {"F-PASS": dict(R.STAGES["F-PASS"], field={"S": s["164"], "F": f"member({s['164']})"}, end=[55],
+                             run_s=150)}
+
+    def wrap(g, fake):
+        for fid in (f["164"], f["165"]):
+            g._axes[fid] = dict(_prior())
+    doc, fake, title, aside = _o8_launch_informative(game, R, stages, {"O8_STAGE": "F-PASS"},
+                                                     lambda: _o8_rh_phases(_o8_rh(side="F")), engine=engine, wrap=wrap,
+                                                     fps=31.0, ticks="quantized")
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    assert not [x for x in fake.executed if x[0] == "storytrace"], "a storytrace step in the untraced pass"
+    rec = doc["stages"]["F-PASS"][0]
+    assert rec["side"] == "F" and rec["traced"] is False and rec["trace_file"] is None, rec
+    assert rec["forbid_live"] is False and rec["warp"] == {"field": f["164"], "entrance": 342, "sc": 1190}, rec["warp"]
+    assert rec["end_fields"] == [55], rec["end_fields"]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 55", (rec["outcome"], aside)
+    assert rec["outcome"]["v"] is None, rec["outcome"]
+    assert rec["beats"] == {b: True for p in _O8_ROUTE for b in _O8_BEATS[p]}, rec["beats"]
+    for fid in (f["164"], f["165"]):
+        walk = _o7_first(rec, fid, 0)
+        assert walk["basis"] == "prior" and walk["check"] is not None and walk["check"]["angle"] < 16.3, rec["bases"]
+    log = json.loads((game / "run" / rec["log_file"]).read_text(encoding="utf-8"))["log"]
+    end = [x for x in log if x.get("k") == "end"]
+    assert len(end) == 1 and end[0]["field"] == 55 and "end_row" not in end[0], end
+    t165 = [r for r in rec["steps"] if r["field"] == f["165"] and r["n"] == 1 and r["outcome"] == "done"]
+    assert t165 and t165[-1]["landed"] in (None, f["166"]), rec["steps"]
+    assert len(fake.movies) == 1 and fake.movies[0]["ended"] == "played", fake.movies
+    assert rec["trace"] == {} and rec["exceptions"] == [] and isinstance(rec["log_lines"], list), rec["exceptions"]
+    assert rec["end"]["end_run"]["ok"] and title == "Title", rec["end"]["end_run"]
+    report = O.rehearsal_report8(game / "run")
+    assert "UNTRACED" in report and "untraced: exceptions since the warp []" in report, report[:2500]
+
+
+def _o8_stock_launch(game, R, stages, env, runs, *, wm, fids=(164,), slack164=12.0, wrap=None, **kw):
+    """An O8 rehearsal launch on STOCK spirals (:func:`_o8_launch_informative` with :func:`_o8_real_setup`'s levels for
+    ``fids``, :func:`_o8_real_floor`'s floor, each field's own prior and key twist, no plane): the steps' band closures
+    (:func:`_o8_closures` over ``wm``) in the predictions, THE PINCH WINDOW the design's (``_O8_PINCH`` on "164"), the
+    runs' phases from ``runs()`` (fresh each launch). ``((record, fake, title, the reasons set aside), the window, the
+    stocks)``."""
+    stocks = _o8_stocks(*fids)
+    priors = {fid: p for fid, (_pw, p, _t) in stocks.items()}
+    win = {"place": _O8_FIELDS["S"]["164"], **{k: list(v) for k, v in _O8_PINCH.items()}}
+    pred = kw.pop("pred", None) or _o8_rehearse_pred(closures=_o8_closures(wm))
+    return _o8_launch_informative(game, R, stages, env, lambda: _o8_rh_phases(*runs()), pred=pred,
+                                  fake_setup=_o8_real_setup(stocks, slack164=slack164),
+                                  floor_for=_o8_real_floor(stocks), prior_for=lambda d: priors.get(d, _prior()),
+                                  planes={}, pinch=win, wrap=wrap, **kw), win, stocks
+
+
+def test_o8_rehearsal_void_stops_in_the_pinch_window_on_the_fake(game, dali):
+    """R-VOID's run 2 (research/o8_design.md 7.1, F9) on the fake, on STOCK 164 (H20's levels at radius 80,
+    ``squeeze_slack`` 12, its key twist; the steps' band closures; the prior basis; the grant on loop 1 by the bytes'
+    height): ``pinch_stop`` {"place": "164", "n": 1} on 164 #1 of the run's COPY, the run warped into "164" at 342, THE
+    PINCH WINDOW the design's (x 900-1310, z 4460-4600, published y 10400-11100). 164 #0 climbs the first spiral --
+    passing UNDER the window's XZ on loop 1 (y ~5600-5900): its holds there never fire it -- to P1 and the knight's
+    wait; 164 #1 climbs the second, and the FIRST direction hold sent while his published x, z AND y lie in the window
+    raises "the rehearsal's stop in the pinch (pinch_stop)" BEFORE it is sent, the session's send restored at once:
+    the run V13 by the driver; no hold and no Confirm after it; the sends after it collect_story's ``storytrace 0`` and
+    end_run's recovery warp and ladder (no ``unwatch``: no wait was running); the title. Reads the install (a warned
+    skip fails G44). Break: the stop's hold sent before the raise (holds_after 1)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    wm, _script = dali
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stage = _o8_void_stage(R, 2, field=s["164"], end=[s["165"]], pinch_stop={"place": s["164"], "n": 1})
+    (doc, fake, title, aside), win, _st = _o8_stock_launch(game, R, {"R-VOID": stage}, {"O8_STAGE": "R-VOID"},
+                                                           lambda: [_o8_rh(short="164", levels=True)], wm=wm,
+                                                           engine=engine, want=R.PINCH_STOP)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-VOID"][0]
+    assert (rec["outcome"]["end"], rec["outcome"]["v"], rec["outcome"]["by"]) == ("void", "V13", "driver"), \
+        (rec["outcome"], aside)
+    assert rec["outcome"]["why"] == f"STOPPED: {R.PINCH_STOP}", rec["outcome"]
+    ps = rec["pinch_stop"]
+    assert ps is not None and ps["field"] == s["164"] and ps["control"] is True, ps
+    assert _o8_in(win, ps["x"], ps["z"], ps["y"]), (ps, win)
+    assert any(R.O6R._direction_hold(x) for x in ps["steps"]), ps["steps"]
+    assert ps["holds_after"] == 0 and ps["presses_after"] == 0, ps
+    sa = ps["sends_after"]
+    assert sa[0] == "storytrace 0" and sa[1].startswith(f"warp {_O3_RECOVERY} ") and "unwatch" not in sa, sa
+    assert not [x for x in sa if R.O6R._direction_hold(x) or x.startswith("press confirm")], sa
+    steps = rec["steps"]
+    assert [(r["n"], r["outcome"]) for r in steps if r["outcome"] == "done"] == [(0, "done")], steps
+    lo = [h for h in rec["holds"] if h["field"] == s["164"] and h["frame"] < steps[0]["frame"]]
+    under = [h for h in lo if _o8_in(win, h["x"], h["z"]) and not _o8_in(win, h["x"], h["z"], h["y"])]
+    assert under and all(h["y"] < win["y"][0] - 4000 for h in under), lo                  # loop 1, the same XZ
+    sent = [h for h in rec["holds"] if h["field"] == s["164"] and h["frame"] >= steps[0]["frame"]]
+    assert sent and not [h for h in sent if _o8_in(win, h["x"], h["z"], h["y"])], sent    # none sent in the window
+    er = rec["end"]["end_run"]
+    assert er["ok"] and er["title"] and title == "Title", er
+    assert [x["k"] for x in er["how"]] == ["recover-warp"], er["how"]
+    report = O.rehearsal_report8(game / "run")
+    for want in (f"run 1: warp {s['164']} 342 1190 -> [{s['165']}], pinch_stop", "pinch_stop: frame",
+                 "after it 0 hold(s) and 0 press(es) (there must be none)", "the sends after it ['storytrace 0', "):
+        assert want in report, (want, report[:3000])
+
+
+def test_o8_rehearsal_records_the_knight_the_pinch_and_the_movie_on_the_fake(game, dali):
+    """THE KNIGHT, THE PINCH and THE MOVIE as a run records them (research/o8_design.md 7.2, F2, F3, F5) on the fake: an
+    R-FULL-shaped stage on STOCK 164 and 165 (H20's levels, 164 at radius 80 with ``squeeze_slack`` 12, each field's
+    key twist and prior; the steps' band closures) through 166 -- FMV004 400 frames -- to REAL 55, THE PINCH WINDOW the
+    design's. A test-side wrapper holds 164's ``squeeze_slack`` at 8 for 164 #1's FIRST route call (by call count, never
+    by time): that attempt STALLS at the pinch's mouth inside the window and the ladder climbs there; the next, at 12,
+    passes: 164 #1 failed then done. THE PINCH records every hold starting or ending in the window with its samples,
+    every ladder rung after one flagged ``pinch``, EACH STALL CLASSIFIED by the rung right after it (rejected,
+    blocker-sealed or slid -- here the refused step: sealed by the blocker the ladder placed and froze on, rejected
+    after it, never slid) and F5 NO-GO (a rung followed a pinch hold); the report MEASURES the narrowest wall gap a
+    pinch hold passed on stock 164, level-aware: under the radius 80, never under what the squeeze lets him pass (80 -
+    12; 68.6 measured, the pinch's half-width). THE KNIGHT: T0 the first RING sample in "164" at published y >= 8400
+    (on loop 2, during 164 #0's walk:
+    after the step's frame0, before its end), ip230 after T0 and inside THE EXEMPT SPAN, the wait read (the bit
+    published, last 1, its seconds on both clocks), the seat and start1 rows at (-586, 3884), his polls -- moving, then
+    seated. THE MOVIE: the 313 press before the ip502 row, the span clocked, no press, choice or skip dialog, 166's
+    Byte[13] old by ip119. Reads the install (a warned skip fails G44). Break: a stall classified without the rung
+    after it (every stall "rejected": the blocker the ladder placed and froze on never read)."""
+    O, R = _o8_module(), _o8_rehearse_module()
+    wm, _script = dali
+    _o8_register(game)
+    engine = _o8_launch_files(game)
+    s = _O8_FIELDS["S"]
+    stages = {"R-FULL": dict(R.STAGES["R-FULL"], field=s["164"], end=[55], runs=1, run_s=240)}
+
+    def wrap(g, fake):
+        real, calls = g.route_to, [0]
+
+        def route_to(*a, **kw):
+            if g.state.field_id == s["164"] and kw.get("clearance") == 64:
+                calls[0] += 1
+                fake.levels[s["164"]].squeeze_slack = 8.0 if calls[0] == 1 else 12.0
+            return real(*a, **kw)
+        g.route_to = route_to
+
+    def bent(doc):
+        """The load bent the launch: 164 #1 not failed exactly once before its done row (a starved walk failed the
+        second attempt too) -- its class asserted: a driver's, never a game's."""
+        rec = (doc.get("stages") or {}).get("R-FULL", [{}])[0]
+        rows = [(r["n"], r["outcome"]) for r in rec.get("steps") or () if r.get("field") == s["164"] and r["n"] == 1]
+        if rows != [(1, "failed"), (1, "done")]:
+            assert (rec.get("outcome") or {}).get("by") in (None, "driver"), rec.get("outcome")
+            return True
+        return False
+    (doc, fake, title, aside), win, stocks = _o8_stock_launch(
+        game, R, stages, {"O8_STAGE": "R-FULL"}, lambda: [_o8_rh(levels=True, movie_frames=400)], wm=wm,
+        fids=(164, 165), wrap=wrap, engine=engine, spoiled=bent)
+    assert doc.get("finished") and "stopped" not in doc, doc.get("stopped")
+    rec = doc["stages"]["R-FULL"][0]
+    assert rec["outcome"]["end"] == "reached" and rec["outcome"]["why"] == "field 55", (rec["outcome"], aside)
+    t164 = [r for r in rec["steps"] if r["field"] == s["164"] and r["n"] == 1]
+    assert [r["outcome"] for r in t164] == ["failed", "done"], t164
+    pn = rec["pinch"]
+    assert pn["place"] == s["164"] and pn["pinch_holds"] and pn["stalls"], (pn["pinch_holds"], pn["stalls"])
+    for h in pn["pinch_holds"]:
+        assert h["samples"] and (_o8_in(win, *h["from"], h["y0"]) or _o8_in(win, *h["to"], h["y1"])), h
+    pinch_rungs = [x for x in rec["ladder"] if x["pinch"]]
+    assert pinch_rungs and pinch_rungs[0]["step"]["n"] == 1 and pinch_rungs[0]["step"]["attempt"] == 1, rec["ladder"]
+    sealing = [x for x in pinch_rungs if "blocker" in x["rungs"] and {"boxed", "frozen"} & set(x["rungs"])]
+    assert sealing, pinch_rungs                                     # the ladder placed a blocker there and froze
+    for x in pn["stalls"]:                                          # the rung right after it decides; none: its own move
+        assert _o8_in(win, x["x"], x["z"]) and x["why"].startswith("moved "), x
+        nxt = [r for r in pn["rungs"] if r["frame"] is not None and r["frame"] >= x["frame"]][:1]
+        sealed = bool(nxt and "blocker" in nxt[0]["rungs"] and {"boxed", "frozen"} & set(nxt[0]["rungs"]))
+        assert x["class"] == ("blocker-sealed" if sealed else "slid" if "slide True" in x["why"] else "rejected"), x
+    assert "blocker-sealed" in {x["class"] for x in pn["stalls"]}, pn["stalls"]
+    assert pn["f5"].startswith("NO-GO: a ladder rung") and "THE PINCH WINDOW" in pn["f5"], pn["f5"]
+    kn = rec["knight"]
+    w0 = [r for r in rec["steps"] if r["field"] == s["164"] and r["n"] == 0][-1]
+    assert kn["t0"]["field"] == s["164"] and kn["t0"]["y"] >= 8400 and w0["frame0"] < kn["t0"]["frame"] < w0["frame"], \
+        (kn["t0"], w0["frame0"], w0["frame"])
+    lo, hi = kn["span"]
+    assert kn["t0"]["frame"] < kn["ip230"]["f"] and lo <= kn["ip230"]["f"] < hi, (kn["t0"], kn["ip230"], kn["span"])
+    wt = kn["wait"]
+    assert wt["read"] is True and wt["last"] == 1 and wt["published"] >= 1 and wt["s"] >= 0 and wt["game_s"] >= 0, wt
+    for row in (kn["seat"], kn["start1"]):
+        assert row is not None and (round(row["x"]), round(row["z"])) == (-586, 3884), (kn["seat"], kn["start1"])
+    spots = [tuple(p[1:]) for p in kn["polls"]]
+    assert len(set(spots)) > 1 and spots[-1] == (-586.0, 3884.0), spots
+    mv = rec["movie"]
+    assert mv["span"]["fps"] is not None and mv["p313"] < mv["span"]["f502"], mv
+    assert (mv["presses"], mv["choices"], mv["skips"], mv["byte13_old"]["ip"]) == (0, 0, 0, 119), mv
+    report = O.rehearsal_report8(game / "run", walkmesh=lambda p: stocks[p][0] if p in stocks else None)
+    gaps = [float(m) for m in re.findall(r"the narrowest wall gap a pinch hold passed (\d+(?:\.\d+)?)", report)]
+    assert len(gaps) == 1 and 80.0 - 12.0 - 0.5 <= gaps[0] < _O8_RADIUS164, (gaps, report[:5000])  # 68.6 measured
+    for want in ("F5 NO-GO: a ladder rung", "-- IN THE PINCH WINDOW", "stall at frame", "THE KNIGHT: T0 {",
+                 "the movie: 313 pressed at"):
+        assert want in report, (want, report[:5000])
