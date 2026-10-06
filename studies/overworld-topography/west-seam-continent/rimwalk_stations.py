@@ -187,7 +187,25 @@ def main():
                    "end": [round((LANDING[0] + ux * length) % SPAN, 2), round(LANDING[1] + uz * length, 2)]}
     print(f"grass run: {run}")
 
-    OUT.write_text(json.dumps({"stations": rows, "seam": seam, "grass_run": run,
+    # ---- look-only VIEWS: lawn standpoints facing the owner's named spots (take 9: the SE corner
+    #      the owner annotated 1-4 + the NW tip of the old sliver), each on flat grass with grass all
+    #      the way in to 4u short of the target, so the harness can teleport there safely ----
+    views = []
+    for name, (tx, tz) in (("se-corner", (1436.0, -488.0)), ("nw-tip", (1417.0, -465.0))):
+        for b in range(0, 360, 30):
+            ux, uz = math.cos(math.radians(b)), math.sin(math.radians(b))
+            for dist in (16.0, 22.0):
+                sx, sz = tx + ux * dist, tz + uz * dist          # standpoint, looking back along -u
+                line = [(tx + ux * d, tz + uz * d) for d in range(4, int(dist) + 1, 2)]
+                st0 = g.top(sx, sz)
+                if st0 is None or _flat_grass(g, line, y0=st0[0], tol=1.2) is None:
+                    continue
+                views.append({"name": f"{name}-b{b:03d}", "target": [tx, tz], "at": [round(sx, 2), round(sz, 2)],
+                              "bearing": round((b + 180.0) % 360.0, 1), "dist": dist})
+                break
+    print(f"views: {[v['name'] for v in views]}")
+
+    OUT.write_text(json.dumps({"stations": rows, "seam": seam, "grass_run": run, "views": views,
                                "massif": list(MASSIF), "landing": list(LANDING)}, indent=1),
                    encoding="utf-8")
     print(f"wrote {OUT.name}: {len(rows)} stations "

@@ -142,6 +142,17 @@ def run(g):
                 g.check(r["rise"] <= CURB_MAX, f"take 8 {r['tag']}: no curb on the flat end",
                         f"rose {r['rise']:.2f}u above the lawn (max {CURB_MAX})")
 
+    # ---- look-only views of the owner's named spots (take 9: the SE corner, the NW tip) ----
+    for v in PLAN.get("views", []):
+        try:
+            g.teleport(*v["at"])
+            g.world_face(v["bearing"], home=tuple(v["at"]), tolerance=4.0)
+            _frame(g, f"view-{v['name']}")
+        except Exception as err:
+            print(f"[rim] view {v['name']} failed: {err}")
+            if not g.state.on_world:
+                g.wait_world(timeout=60)
+
     # ---- checklist 7: the seam ----
     for k, line in enumerate(PLAN["seam"]):
         z = line["z"]

@@ -332,7 +332,14 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > rim FOOTPRINT the corner clears 3.79u against its neighbours' 3.82u (a staircase pull was built, levelled
 > nothing here, and was removed). The corner is where the donor's carried SHALLOW SE bench (its rim near the
 > lawn) meets the rising face; the zip fans off F to reach where the face actually starts.
-> **TAKE 9 (BENCH, not deployed, branch `claude/r4-take9`):** sliver + band + the 1/2 seam fixed at the
+> **TAKE 9 DEPLOYED (2026-10-06, owner: "deploy take 9"), harness 20/20** (`.harness-runs/20261006-122647-rimwalk-take9`,
+> incl. look-only frames of the SE corner + NW tip): live state re-verified = take 8 first; backup of all 612
+> massif-block files, both discs -> `backups/west-seam-continent/r4-take9-pre.20261006-122309` (verified 612/612;
+> THE REVERT); `r4-pre.20260828-103332` overlaid, carved with take 9's code + `stamp_area_policy.py`
+> (backup `r3-pre-area14.20261006-122540`), probe_area14 a-e PASS; live Disc1 byte-identical to the bench
+> (55/55), Disc4 mirror identical (45/45). Every window foot stops at its contact (13: +0.5u), no climb, seam
+> + safe road hold. NEXT: option A (owner) -- the SE corner's protruding lawn step, on the bench (take 10).
+> **TAKE 9 (as built on the bench, branch `claude/r4-take9`):** sliver + band + the 1/2 seam fixed at the
 > mechanism (see the commit). Bench: fringe seams 10/32 -> 0/28; window density 0.45-0.56 -> 0.23-0.27
 > tile-heights/u (owner-passed faces 0.23-0.29); rock under the lawn 0; A1 38-56 deg (stock floor 33). The
 > recipe that reproduces live take 8 byte-for-byte from `r4-pre.20260828-103332` is the PLAIN one (no
