@@ -34017,9 +34017,12 @@ def _o8_launch(game, R, stages, env, phases, *, engine, pred=None, fake_setup=No
     none -- stock levels set his height themselves), NO basis pinned (each run seeds its own: S19), ``wrap(g, fake)``
     the test's own calls on the session, ``R.run`` with the test's stages, its floor (``floor_for``, default the box)
     and prior (``prior_for``, else ``prior``, default the fake's own basis), THE PINCH WINDOW ``pinch``, the clock
-    ``clock``, the stub witness and pad reader and the pinned ``engine``. ``(the record, the fake, the title
-    reached)``."""
+    ``clock`` (default a fixed noon: the nightly gate runs this file INSIDE THE NIGHTLY WINDOW, where the wall clock
+    would refuse every launch), the stub witness and pad reader and the pinned ``engine``. ``(the record, the fake,
+    the title reached)``."""
+    import datetime
     from harness.fakegame import SOFT_RESET_ENGINE_UI
+    clock = clock or (lambda: datetime.datetime(2026, 10, 6, 12, 0))
     fake = FakeGame(game, fps=4 * fps, render_fps=fps, ticks=ticks, walkmesh=_O8_BOX)
     fake.warp_arrive_control, fake.warp_field_only = False, True
     fake.story_suppress = True
