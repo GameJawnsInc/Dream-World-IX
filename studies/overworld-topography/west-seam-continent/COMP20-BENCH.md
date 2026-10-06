@@ -64,3 +64,29 @@ clearance), retry at the R4 slot `--near 1452,-468` with the same reach. Any oth
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+Run 2026-10-06 on `scratchpad/bench-comp20` (a fresh mirror of live). Nothing live was written.
+
+### The registered score (C1–C3; C4 waits for the owner's look)
+
+| | measured | verdict |
+|---|---|---|
+| **R4 revert** | bench vs `r4-pre`: 0 diffs in 560; 0 of the 54 created parts remain | **exact** |
+| **C1** the carve is clean | the plan's line, unchanged, no fallback needed. Placement rot 90° at **(1486, −386)**, clearance 61.3u. Rigid rim heights 2.94–3.65 vs ground 3.20. Apron lift max 0.39u. Zip 82 tris (rise 0.51, ny ≥ 0.97, 0/82 below envelope). down 0, near-miss 0, rock rigidity 0.6%, apron slope 1.6°, atlas 0, census MISS 0. The R3 re-stamp: 1,050 verts, 52 files | **HOLDS** |
+| **C2** the placed rim | the sector-map instrument re-aimed (`comp20_placed_screen.py`) calibrates exactly: rot 90°, DY +0.3644, 106/106 carried rock verts rigid on the bench mesh. Rim E over the lawn: p10 −0.14, p50 0.00, p90 +0.20; **100% ≤ +0.75**; contacts grass 96.2u + buried coastal rock 44.6u; **0% forest**, 0% high approach. No foot course, pull, conform or cap was needed or used | **HOLDS** |
+| **C3** only the intended files change | `bench_vs_live.py`: 92 differing paths, all in the R4 revert set or comp20's 4 span blocks (22-23 × 5-6); **0 outside**. The "added" files are the carve's own `.bak` parkings. The col-23 x = 1536 seam weld is byte-identical on rows 5 and 6 | **HOLDS** |
+
+**Recorded, not a gate:** with an ABSOLUTE `--mod-folder` (a bench path), `discmirror.auto_mirror` cannot
+derive the game root and silently returns. So the bench's Disc4 was NOT mirrored. A live deploy names the
+folder (`FF9CustomMap-world`) and mirrors as takes 9 and 12 did; check the mirror on that deploy.
+
+**The renders** (`world-render --around 1486,-386`; atlas pixels, so they stay in the scratchpad): the rock
+meets the lawn all round on its own grass-fringed foot, with no visible ramp or knoll. The horseshoe is gone
+(the revert).
+
+### For the owner's look (C4), after a live deploy on the owner's go
+
+- **Teleport:** (1519.8, −389.3) on lawn, 34u east of the massif. Face WEST (bearing ~174°). That puts
+  comp20's buried coastal-rock stretches, named target #1, straight ahead.
+- **The deploy itself:** the R4 revert, then the carve line with `--mod-folder FF9CustomMap-world`, then
+  `stamp_area_policy.py`, all with backups first. The bench measured all of it.
