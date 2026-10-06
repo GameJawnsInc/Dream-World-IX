@@ -34361,6 +34361,67 @@ def test_o8_rehearsal_t0_scan_marks_an_evicted_release_unmeasured():
     assert oldest > 998 + 2 * 300 and t0 == {"frame": 998 + 2 * (400 + 181 + 1), "y": 8400.0, "field": 164}, t0
 
 
+def test_o8_rehearsal_widens_the_state_ring_in_place():
+    """THE REHEARSAL RING (the first R-FULL, 20261005-225603-o8-rh-full: at ~60 fps the 300-sample ring held ~10 s and
+    the walk tap lost the first half of 164 #1's holds), pure: widen_ring takes a real StateRing of 300 holding 400
+    pushed samples (the last 300 kept) to REHEARSAL_RING -- the SAME ring object (every reader holds it), the samples it
+    held kept in order, then 1000 more all kept; a second call and a wider ring are never narrowed; a stand-in session
+    with no ring reads None, None. Break: a new StateRing swapped in (the session's reads would feed the old one), or the
+    deque rebuilt empty."""
+    import types
+    from harness.artifacts import StateRing
+    R = _o8_rehearse_module()
+
+    class _St:
+        def __init__(self, frame):
+            self.frame, self.read_at, self.age, self.raw = frame, 0.0, 0.0, {"frame": frame}
+    ring = StateRing(300)
+    for f in range(0, 800, 2):
+        ring.push(_St(f))
+    g = types.SimpleNamespace(_ring=ring)
+    held = ring.frames()
+    assert len(held) == 300 and held[0] == 200
+    assert R.widen_ring(g) == {"was": 300, "now": R.REHEARSAL_RING} and R.REHEARSAL_RING >= 3000
+    assert g._ring is ring and ring.frames() == held
+    for f in range(800, 2800, 2):
+        ring.push(_St(f))
+    assert len(ring) == 1300 and ring.frames()[0] == 200
+    assert R.widen_ring(g) == {"was": R.REHEARSAL_RING, "now": R.REHEARSAL_RING}
+    wide = types.SimpleNamespace(_ring=StateRing(9000))
+    assert R.widen_ring(wide) == {"was": 9000, "now": 9000}
+    assert R.widen_ring(types.SimpleNamespace()) == {"was": None, "now": None}
+
+
+def test_o8_rehearsal_pinch_reads_unmeasured_when_a_hold_kept_no_position(monkeypatch):
+    """F5 CANNOT PASS BLIND (the first R-FULL, 20261005-225603-o8-rh-full: 52 of 110 holds in 164 kept no position --
+    the ring evicted them -- and F5 read GO with no hold in THE PINCH WINDOW), pure: pinch_record over one 164 walk whose
+    hold rows are laid by the test (o5_rehearse.hold_rows, o7_rehearse._hold_ys and pressed_dir stubbed). Every hold
+    positioned and none in the window, 164 #1 done, no rung: GO. One hold with no position: UNMEASURED, naming the count,
+    the first frame and that no ladder rung was seen anywhere in the place -- never GO. Not done: NO-GO first. Break: the
+    ``blind`` clause dropped (the evicted run reads GO again)."""
+    R = _o8_rehearse_module()
+
+    def rows(blind):
+        out = [{"ack_frame": 100 + 10 * k, "from": [2000.0 - 50 * k, 3000.0], "to": [1950.0 - 50 * k, 3000.0],
+                "moved": 50.0, "slide": False, "stall": False, "steps": []} for k in range(4)]
+        if blind:
+            out[0] = dict(out[0], **{"from": None, "to": None, "moved": None})
+        return out
+    win = dict(R.PINCH_WINDOW)
+    walks = [{"field": 164, "frame0": 90, "samples": []}]
+    done = [{"k": "step", "donor": 164, "n": 1, "outcome": "done"}]
+    for blind, log, want in ((False, done, "GO"), (True, done, "UNMEASURED: 1 of 4 hold(s) in 164 kept no position"),
+                             (True, [], "NO-GO: 164 #1 is not done")):
+        monkeypatch.setattr(R.O5R, "hold_rows", lambda w, steps, basis, b=blind: rows(b))
+        monkeypatch.setattr(R.O7R, "_hold_ys", lambda w, rs: [(5000.0, 5100.0)] * len(rs))
+        monkeypatch.setattr(R.O5R, "pressed_dir", lambda basis, steps: None)
+        rec = R.pinch_record(walks, log, [], [], {}, win, {})
+        assert rec["f5"].startswith(want), (blind, rec["f5"])
+        assert rec["pinch_holds"] == [], rec["pinch_holds"]
+        if want.startswith("UNMEASURED"):
+            assert "the first at frame 100" in rec["f5"] and "no ladder rung anywhere in the place" in rec["f5"], rec["f5"]
+
+
 def test_o8_rehearsal_void_stops_on_the_wait_on_the_fake(game):
     """R-VOID's run 1 (research/o8_design.md 7.1, F9) on the fake: ``flag_stop`` {"place": "164"} laid on 164 #0 of the
     run's COPY (the predictions given keep none), the run warped into "164" at 342. 164 #0 walks to P1 at its level and

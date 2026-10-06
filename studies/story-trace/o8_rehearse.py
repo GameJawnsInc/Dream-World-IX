@@ -52,6 +52,7 @@ wait; it may only STOP the session (F13), never shape a frozen value.
 """
 from __future__ import annotations
 
+import collections
 import copy
 import datetime as _dt
 import json
@@ -86,6 +87,12 @@ MOVIE_STOP = "the rehearsal's stop mid-movie (movie_stop)"
 POKE = "movie_poke"
 #: THE PINCH WINDOW (research/o8_design.md 2.5, 7.2): 164 #1's narrowest stretch -- x, z and his PUBLISHED y.
 PINCH_WINDOW = dict(O.PINCH_WINDOW)
+#: THE REHEARSAL RING (the first R-FULL, 20261005-225603-o8-rh-full): the walk tap takes each route_to call's samples off
+#: the session's ring as the call returns (o7_rehearse.WalkTap), and the ring holds STATE_RING (300) distinct samples --
+#: ~20 s at 31 fps, where O7 rehearsed, but ~10 s at 60, where that launch ran. 164 #1 lasts ~17 s: the first half of its
+#: holds kept no position, THE PINCH among them, and F5 read a GO no hold could have failed. A rehearsal launch widens
+#: the ring to this (~100 s at 60 fps, any one call whole); the session keeps the harness's own.
+REHEARSAL_RING = 3000
 #: THE NIGHTLY WINDOW (7.1; the driver review's #10): no stage starts between these local times.
 NIGHTLY = ((3, 45), (4, 45))
 #: A stop's keys (7.1): ``flag_stop`` and ``pinch_stop`` -- their place (and step ``n``); ``movie_stop`` and
@@ -541,7 +548,8 @@ def pinch_record(walks: list, log: list, ladder: list, steps: list, axes: dict, 
     the window (x, z AND y), such a hold with its samples (``[frame, x, y, z]``: --rehearsal-report measures the
     narrowest wall gap on them, level-aware); every ladder rung there, those after a hold wholly elsewhere apart
     (recorded, never judged); each STALL in the window classified (:func:`_stall_class`); and F5's verdict -- GO when the
-    place's step 1 is done and no rung followed a pinch hold, else NO-GO naming why. ``{}`` when the run never walked
+    place's step 1 is done, no rung followed a pinch hold and every hold in the place kept its position; UNMEASURED when
+    one did not (an evicted sample: :data:`REHEARSAL_RING`); else NO-GO naming why. ``{}`` when the run never walked
     there."""
     fp = win["place"]
     mine = [w for w in walks if place(w["field"], members) == fp]
@@ -576,11 +584,17 @@ def pinch_record(walks: list, log: list, ladder: list, steps: list, axes: dict, 
                            "class": _stall_class(h, after), "why": f"moved {h['moved']}, slide {h['slide']}"})
     done = any(r.get("outcome") == "done" for r in log or () if r.get("k") == "step" and r.get("donor") == fp
                and r.get("n") == 1)
+    blind = [h for h in holds if h["from"] is None or h["to"] is None]
     if not done:
         f5 = f"NO-GO: {fp} #1 is not done in this run"
     elif bad:
         f5 = (f"NO-GO: a ladder rung ({'/'.join(bad[0]['rungs']) or bad[0].get('outcome')}) at frame {bad[0]['frame']} "
               f"followed a hold that started or ended in THE PINCH WINDOW")
+    elif blind:
+        # a hold with no position can be in no window: F5 is not measured, never a GO (REHEARSAL_RING)
+        f5 = (f"UNMEASURED: {len(blind)} of {len(holds)} hold(s) in {fp} kept no position (the ring evicted their "
+              f"samples, the first at frame {blind[0]['frame']}): no hold could be judged in THE PINCH WINDOW"
+              + ("; no ladder rung anywhere in the place" if not rungs else ""))
     else:
         f5 = "GO"
     return {"place": fp, "window": {k: list(win[k]) for k in ("x", "z", "y")}, "holds": holds,
@@ -841,6 +855,20 @@ def one(g, name: str, stage: dict, pred: dict, n: int, *, side: str = "S", t0: f
     return rec
 
 
+def widen_ring(g, n: int = REHEARSAL_RING) -> dict:
+    """THE REHEARSAL RING: the session's state ring widened IN PLACE to hold ``n`` distinct samples -- the samples it
+    holds kept, the ring object the same (every reader holds it) -- so the walk tap keeps every hold's position at either
+    render rate. Never narrowed. Returns ``{"was": <maxlen>, "now": <maxlen>}`` for the record (both None on a stand-in
+    session with no ring)."""
+    ring = getattr(g, "_ring", None)
+    if ring is None:
+        return {"was": None, "now": None}
+    was = ring._buf.maxlen
+    if was is None or was < n:
+        ring._buf = collections.deque(ring._buf, maxlen=int(n))
+    return {"was": was, "now": ring._buf.maxlen}
+
+
 def run(g, field=None, *, stages=None, pred=None, floor_for=None, prior_for=None, stock=None, recovery=None,
         env=None, witness=None, pads=..., engine=None, live_engine=None, pinch=None, clock=None) -> None:
     """The rehearsal launch (tools/play.py's entry; ``field`` from ``--field``). Before anything, each selected stage
@@ -873,7 +901,7 @@ def run(g, field=None, *, stages=None, pred=None, floor_for=None, prior_for=None
               "draft_sha256": O2R._draft_sha(pred), "stages_run": names,
               "stage_defs": {n: stages[n] for n in names}, "pinch": win,
               "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "capabilities": [], "launch": {}, "stages": {},
-              "twins": {}}
+              "twins": {}, "ring": widen_ring(g)}
     path = g.run_dir / O.REHEARSAL_FILE
 
     def save() -> None:
