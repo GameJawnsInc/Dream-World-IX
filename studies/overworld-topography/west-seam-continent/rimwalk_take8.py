@@ -27,6 +27,9 @@ PLAN = json.loads((HERE / "rimwalk_stations.json").read_text(encoding="utf-8"))
 
 LANDING_FIELD = 6603                 # FARSHORE, FF9CustomMap-world
 EXIT_AT = (400.0, -1400.0)           # inside the door quad, ~300u west (screen-left) of the spawn (900, -1400)
+# the door quad itself (landing.field.toml [[gateway]] zone): calibration probes must keep out of it --
+# the spawn sits ~200u from its edge, and a probe that walked in fired the exit mid-calibration (take-12 run 1)
+DOOR = [[285, -352], [875, -460], [424, -2944], [-166, -2836]]
 LANDING = tuple(PLAN["landing"])     # the door's arrive point
 OVERSHOOT = 24.0                     # how far past the contact a station walk is SENT
 CONTACT_TOL = 6.0                    # a stop within this of the contact is "stopped at the contact"
@@ -87,7 +90,7 @@ def run(g):
     g.newgame()
     g.warp(LANDING_FIELD)
     g.wait_frames(45)
-    g.calibrate_axes()
+    g.calibrate_axes(hazards=[DOOR])
     g.shot("00-farshore")
 
     # ---- the walk-out: field -> world (never run in-game by the harness before) ----

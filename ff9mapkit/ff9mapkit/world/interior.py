@@ -109,6 +109,11 @@ MTN_FC_RIM_ABOVE = 0.25          # ...AND only where the NEAREST carried rim nod
 #                                  low slab's rim under the plateau, 6u from a rising face,
 #                                  minted fringe rock lying on a free-base dip -- "should be
 #                                  ground")
+MTN_FC_SLOPE_MIN = 25.0         # a foot tri shallower than this is GROUND, not a wall: stock's
+#                                  rock-grass contact tris, p01 (stock_fringe census, R4 take 11)
+MTN_FC_TILE_W = 4.6              # course LENGTH one fringe tile spans along the contact (the
+#                                  foot course's own ~4.6u chaining since take 5); u is a per-
+#                                  vertex function of arc length, mirror-repeated (R4 take 11)
 MTN_FC_TILE_H = 3.0              # the course height ONE full fringe tile spans: v is a per-
 #                                  VERTEX function of height over the lawn line, capped at
 #                                  1/3 tile-height per unit -- stock's own short-contact
@@ -1777,9 +1782,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                             best = (_d, _rn[2])
             return best is None or best[1] > ground_med + MTN_FC_RIM_ABOVE
 
-        def _fc_rock_here(x, z):
-            if not _fc_rim_above(x, z):
-                return False
+        def _fc_rises(x, z):
             _cx6, _cz6 = math.floor(x / 6.0), math.floor(z / 6.0)
             for _gx in (_cx6 - 1, _cx6, _cx6 + 1):
                 for _gz in (_cz6 - 1, _cz6, _cz6 + 1):
@@ -1788,6 +1791,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                                 and _w3[1] - ground_med >= MTN_FC_MIN_RISE:
                             return True
             return False
+
+        def _fc_rock_here(x, z):
+            # the hole cut + the apron hold: a POSITION's question, so the nearest rim decides
+            return _fc_rim_above(x, z) and _fc_rises(x, z)
     # THE HIGH-FOOT CONFORM (2026-08-28, the R4 knoll): with ``max_apron_lift`` set, the
     # apron chases a high donor foot only this far; any outer-rim column still higher
     # CONFORMS DOWN to the capped grass instead -- the carried bottom wall row stretches
@@ -2430,7 +2437,42 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             cand = [p for _gx in (_cx6 - 1, _cx6, _cx6 + 1) for _gz in (_cz6 - 1, _cz6, _cz6 + 1)
                     for p in _fch.get((_gx, _gz), ())] or H
             return min(cand, key=lambda p: (p[0] - px2) ** 2 + (p[2] - pz2) ** 2)[1]
-        log(f"foot course: exemplar cols {fc_cols}; window rects {fc_rects}")
+
+        # THE STRIP (R4 take 11): the longest CONTIGUOUS run of exemplar cols (the donor's
+        # r10 c6-c9 is one painted strip; a white gutter follows c9), its painted u extent,
+        # and v constants every foot tri shares -- the innermost of the cols' own fringe/top
+        # edges, so one vertex never takes two v from two columns
+        _runs, _cur = [], [fc_cols[0]]
+        for _c in fc_cols[1:]:
+            if _c == _cur[-1] + 1:
+                _cur.append(_c)
+            else:
+                _runs.append(_cur)
+                _cur = [_c]
+        _runs.append(_cur)
+        fc_strip = max(_runs, key=len)
+        fc_ulo, fc_uhi = fc_ex[fc_strip[0]][0], fc_ex[fc_strip[-1]][1]
+        _vbs = [fc_ex[_c][2] for _c in fc_strip]
+        _vts = [fc_ex[_c][3] for _c in fc_strip]
+        if _vbs[0] > _vts[0]:
+            fc_vb, fc_vt = min(_vbs), max(_vts)
+        else:
+            fc_vb, fc_vt = max(_vbs), min(_vts)
+        # the s origin sits OUTSIDE the window (the ring vert farthest from the window
+        # centre), so the ring's own s=0 cut never falls inside a foot course
+        _wcx = sum((r[0] + r[2]) / 2 for r in fc_rects) / len(fc_rects)
+        _wcz = sum((r[1] + r[3]) / 2 for r in fc_rects) / len(fc_rects)
+        _iref = max(range(len(H)), key=lambda _i: (H[_i][0] - _wcx) ** 2 + (H[_i][2] - _wcz) ** 2)
+        fc_sref = fc_SH[_iref]
+        _ncol = len(fc_strip)
+
+        def fc_u_of(px2, pz2):
+            _U = ((fc_s_of(px2, pz2) - fc_sref) % fc_STOT) / MTN_FC_TILE_W
+            _x = _U % (2 * _ncol)
+            _t = _x if _x <= _ncol else 2 * _ncol - _x
+            return fc_ulo + (_t / _ncol) * (fc_uhi - fc_ulo)
+
+        log(f"foot course: exemplar cols {fc_cols} (strip {fc_strip}); window rects {fc_rects}")
     ID_FOOT = float(X.encode_id(topograph=49))
     fc_n = 0
     fc_ny_min = 1.0
@@ -2449,11 +2491,27 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         # ground or a CURB standing over nothing (both owner-filed defect classes);
         # the contact retreats to grass there and the wider hole gives it room to
         # ramp gently.
-        # ...and never a tri lying wholly at or below the lawn (R4 take 9): the predicate
-        # reads the nearest rim to the CENTROID, and a flat dip tri beside a taller rim
-        # node passed it (t672, top 2.75 on a 3.2 plateau) -- rock paint on ground
-        is_foot = (_in_fc(_cx0, _cz0) and _fc_rock_here(_cx0, _cz0)
-                   and max(float(p[1]) for p in tri3) > ground_med + MTN_FC_RIM_ABOVE)
+        # ...asked of the TRI itself (R4 take 10): rock where the massif rises within 6u AND the
+        # tri rises above the lawn -- never one lying wholly at or below it (the NW sliver,
+        # t672/t673-t675, tops 2.62-3.05 on a 3.2 plateau). NOT the nearest-rim test the hole
+        # cut uses: at the SE corner the nearest rim to a centroid was the donor's BURIED rim
+        # (P, 2.45) while the tri itself climbs to M (4.58) -- take 9 painted that 52 deg face
+        # grass, a regression the owner saw ("looks worse")
+        is_foot = (_in_fc(_cx0, _cz0) and _fc_rises(_cx0, _cz0)
+                   and max(float(p[1]) for p in tri3) > ground_med + MTN_FC_RIM_ABOVE
+                   # ...and STEEP ENOUGH to be a wall (R4 take 11): stock's rock-grass contact
+                   # tris are shallower than 25 deg in 1.1% of 1130 (p01; p05 31) -- the SE
+                   # corner's 21 deg skirt (t630, the owner's "3") is ground, and seen from
+                   # the lawn its fringe foreshortened into the streak takes 8-10 all showed
+                   and abs(float(nrm[1])) / nl < math.cos(math.radians(MTN_FC_SLOPE_MIN))
+                   # ...and never a FIN reaching down to a BURIED rim (R4 take 12): the donor's
+                   # rim under the lawn is ground, part of its free-base burial. As rock, a fin
+                   # put two verts on the fringe edge row and smeared it (the SE corner's t631,
+                   # takes 10-11); as plain rock (owner option A, on the bench) it read as a grey
+                   # shard lying on the lawn -- the NW one (t673) like the original sliver.
+                   # As grass both blend: a steep bank at most (the zip's own bank budget)
+                   and not any(kk3(p) not in fc_hole_keys
+                               and float(p[1]) < ground_med - MTN_FC_RIM_ABOVE for p in tri3))
         if is_foot:
             fc_n += 1
             fc_ny_min = min(fc_ny_min, abs(float(nrm[1])) / nl)
@@ -2473,23 +2531,22 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             # window at natural density samples only the painted fringe zone and
             # smears green), u chained along the hole chain in ~4.6u windows, cols
             # cycling (the sawtooth; THE COL-FREEDOM LAW), one window per tri.
-            _cx3 = float(a[0] + b[0] + c[0]) / 3
-            _cz3 = float(a[2] + b[2] + c[2]) / 3
-            _w = int(fc_s_of(_cx3, _cz3) / 4.6)
-            _u0, _u1, _vb, _vt = fc_ex[fc_cols[_w % len(fc_cols)]]
-            # ONE TILE PER QUAD IN BOTH AXES (the synth round-2 law): the tri's OWN
-            # s-extent spans the full tile width -- a fixed window grid clamps long
-            # DP chords and freezes texels into horizontal streaks
-            _svs = [fc_s_of(p[0], p[2]) for p in tri3]
-            if max(_svs) - min(_svs) > fc_STOT / 2:        # the ring's s=0 cut
-                _svs = [s2 + fc_STOT if s2 < fc_STOT / 2 else s2 for s2 in _svs]
-            _smap = dict(zip((kk3(p) for p in tri3), _svs))
-            _s0, _s1 = min(_svs), max(_svs)
+            # u PER VERTEX along the course (R4 take 11): the vertex's arc parameter s at
+            # MTN_FC_TILE_W per tile, MIRROR-repeated across the contiguous exemplar strip
+            # (fc_u_of). Take 5-10 stretched each tri's OWN s-extent over one full tile
+            # width ("one tile per quad"): on the thin fan tris of a corner that squeezes or
+            # stretches the tile sideways -- the owner's streaks at the SE corner (a tooth in
+            # take 8, a smear in 9 and 10) -- and restarts u at every tri (window abs-u spread
+            # p50 0.97 tile; stock p50 0.00). A mirror never jumps (c9's right edge is a
+            # Moguri gutter, so a sawtooth could not wrap inside the strip) and never
+            # clamps (the fixed-window grid's frozen-texel streaks, the reason the per-tri
+            # stretch existed).
+            _vb, _vt = fc_vb, fc_vt
             corners = []
             for pnt in order:
                 key = kk3(pnt)
                 n3 = pos_nrm.get(key) or rim_nrm.get(key, [0.0, 1.0, 0.0])
-                _su = max(0.0, min(1.0, (_smap[key] - _s0) / max(0.5, _s1 - _s0)))
+                _uu = fc_u_of(float(pnt[0]), float(pnt[2]))
                 if key in fc_hole_keys:
                     _v = _vb
                 elif key in fc_rim_v:
@@ -2505,7 +2562,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                     _dev = abs(float(pnt[1]) - fc_lawn_y(float(pnt[0]), float(pnt[2])))
                     _v = _vb + min(1.0, _dev / MTN_FC_TILE_H) * (_vt - _vb)
                 corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]),
-                                _u0 + _su * (_u1 - _u0), _v, *n3))
+                                _uu, _v, *n3))
             new_parents.append((tuple(corners), ID_FOOT, "foot"))
             continue
         cell = cell_of(float(a[0] + b[0] + c[0]) / 3, float(a[2] + b[2] + c[2]) / 3)

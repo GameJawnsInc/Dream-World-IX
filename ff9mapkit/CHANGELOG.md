@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-mountain --foot-course`: a continuous fringe along the base, and no false walls at a corner
+- Owner-filed on the R4 west-seam massif's SE corner (take 9's harness frames): a stretched transition tile, a
+  grass triangle cutting into the mountain, and the streaks left when the texture was fixed vertically.
+- Fringe u is a per-VERTEX function: arc length along the course (4.6u per tile), mirror-repeated across the
+  contiguous exemplar strip (its right edge is an atlas gutter, so a plain repeat could not wrap). Before, every
+  tri stretched its own arc extent over one full tile width: foot-to-foot u seams on most shared positions.
+- Rock-vs-grass is asked of the TRI (the massif rises within 6u and the tri rises above the lawn), not of the
+  nearest rim to its centroid — which at a buried rim painted a 52° face grass.
+- A foot tri shallower than 25° (stock's rock-grass contact p01; p05 31°) is ground, and so is one reaching
+  down to a BURIED rim (the donor's rim under the lawn, its free-base burial): as rock the first was a skirt
+  and the second smeared the fringe's edge row; as plain face rock it read as a shard lying on the lawn.
+- The foot-course tests carve a saddle that stands a real wall; the window test asserts "no apron lift" as
+  the law it means (every grass vert above the plateau is a rim position).
+
 ### Fixed — `world-mountain --foot-course`: no rock lying on the ground, and a fringe course that matches stock
 - Owner-filed on the R4 west-seam massif (take 8, judged from the first overworld harness run's
   frames): a thin rock sliver lying on the lawn, a squashed grass-to-rock transition band along
