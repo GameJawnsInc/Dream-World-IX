@@ -3,53 +3,53 @@
   {
    "kind": "window",
    "contact": [
-    1416.0,
-    -466.0
+    1417.42,
+    -465.84
    ],
    "uphill": [
-    -0.9844,
-    -0.1757
+    0.9986,
+    -0.0522
    ],
-   "rises": false,
-   "lawn_y": 2.83,
+   "rises": true,
+   "lawn_y": 1.72,
    "approach": null,
-   "approach_d": null,
-   "bearing": 190.1
-  },
-  {
-   "kind": "window",
-   "contact": [
-    1416.0,
-    -462.0
-   ],
-   "uphill": [
-    -0.9956,
-    -0.0939
-   ],
-   "rises": false,
-   "lawn_y": 2.43,
-   "approach": null,
-   "approach_d": null,
-   "bearing": 185.4
+   "approach_d": 4,
+   "bearing": 357.0
   },
   {
    "kind": "window",
    "contact": [
     1418.0,
-    -470.0
+    -462.05
    ],
    "uphill": [
-    0.7505,
-    0.6609
+    0.9453,
+    -0.3263
    ],
    "rises": true,
-   "lawn_y": 3.12,
+   "lawn_y": 1.43,
+   "approach": null,
+   "approach_d": 4,
+   "bearing": 341.0
+  },
+  {
+   "kind": "window",
+   "contact": [
+    1418.78,
+    -469.81
+   ],
+   "uphill": [
+    0.9138,
+    0.4061
+   ],
+   "rises": true,
+   "lawn_y": 2.41,
    "approach": [
-    1402.99,
-    -483.22
+    1400.5,
+    -477.93
    ],
    "approach_d": 20,
-   "bearing": 41.4
+   "bearing": 24.0
   },
   {
    "kind": "window",
@@ -58,17 +58,17 @@
     -474.0
    ],
    "uphill": [
-    0.7071,
-    0.7071
+    0.7626,
+    0.6469
    ],
    "rises": true,
-   "lawn_y": 3.2,
+   "lawn_y": 2.97,
    "approach": [
-    1407.86,
-    -488.14
+    1406.75,
+    -486.94
    ],
    "approach_d": 20,
-   "bearing": 45.0
+   "bearing": 40.3
   },
   {
    "kind": "window",
@@ -77,17 +77,17 @@
     -478.0
    ],
    "uphill": [
-    0.7071,
-    0.7071
+    0.7098,
+    0.7044
    ],
    "rises": true,
-   "lawn_y": 3.2,
+   "lawn_y": 3.19,
    "approach": [
-    1411.86,
-    -492.14
+    1411.8,
+    -492.09
    ],
    "approach_d": 20,
-   "bearing": 45.0
+   "bearing": 44.8
   },
   {
    "kind": "window",
@@ -96,17 +96,17 @@
     -482.0
    ],
    "uphill": [
-    0.7021,
-    0.7121
+    0.6603,
+    0.751
    ],
    "rises": true,
-   "lawn_y": 3.19,
+   "lawn_y": 3.09,
    "approach": [
-    1415.96,
-    -496.24
+    1416.79,
+    -497.02
    ],
    "approach_d": 20,
-   "bearing": 45.4
+   "bearing": 48.7
   },
   {
    "kind": "window",
@@ -115,33 +115,33 @@
     -486.0
    ],
    "uphill": [
-    0.9973,
-    0.0728
+    0.9958,
+    0.0915
    ],
    "rises": true,
-   "lawn_y": 3.13,
+   "lawn_y": 2.9,
    "approach": [
-    1412.05,
-    -487.46
+    1412.08,
+    -487.83
    ],
    "approach_d": 20,
-   "bearing": 4.2
+   "bearing": 5.3
   },
   {
    "kind": "window",
    "contact": [
-    1437.26,
-    -489.8
+    1436.12,
+    -487.21
    ],
    "uphill": [
     0.7486,
     0.6631
    ],
    "rises": true,
-   "lawn_y": 2.37,
+   "lawn_y": 3.52,
    "approach": [
-    1422.29,
-    -503.06
+    1421.14,
+    -500.47
    ],
    "approach_d": 20,
    "bearing": 41.5
@@ -249,6 +249,164 @@
    -328.09
   ]
  },
+ "views": [
+  {
+   "name": "se-corner-b180",
+   "target": [
+    1436.0,
+    -488.0
+   ],
+   "at": [
+    1420.0,
+    -488.0
+   ],
+   "bearing": 0.0,
+   "dist": 16.0
+  },
+  {
+   "name": "se-corner-b210",
+   "target": [
+    1436.0,
+    -488.0
+   ],
+   "at": [
+    1422.14,
+    -496.0
+   ],
+   "bearing": 30.0,
+   "dist": 16.0
+  },
+  {
+   "name": "se-corner-b240",
+   "target": [
+    1436.0,
+    -488.0
+   ],
+   "at": [
+    1428.0,
+    -501.86
+   ],
+   "bearing": 60.0,
+   "dist": 16.0
+  },
+  {
+   "name": "se-corner-b270",
+   "target": [
+    1436.0,
+    -488.0
+   ],
+   "at": [
+    1436.0,
+    -504.0
+   ],
+   "bearing": 90.0,
+   "dist": 16.0
+  },
+  {
+   "name": "se-corner-b300",
+   "target": [
+    1436.0,
+    -488.0
+   ],
+   "at": [
+    1444.0,
+    -501.86
+   ],
+   "bearing": 120.0,
+   "dist": 16.0
+  },
+  {
+   "name": "nw-tip-b090",
+   "target": [
+    1417.0,
+    -465.0
+   ],
+   "at": [
+    1417.0,
+    -449.0
+   ],
+   "bearing": 270.0,
+   "dist": 16.0
+  },
+  {
+   "name": "nw-tip-b120",
+   "target": [
+    1417.0,
+    -465.0
+   ],
+   "at": [
+    1409.0,
+    -451.14
+   ],
+   "bearing": 300.0,
+   "dist": 16.0
+  },
+  {
+   "name": "nw-tip-b150",
+   "target": [
+    1417.0,
+    -465.0
+   ],
+   "at": [
+    1403.14,
+    -457.0
+   ],
+   "bearing": 330.0,
+   "dist": 16.0
+  },
+  {
+   "name": "nw-tip-b180",
+   "target": [
+    1417.0,
+    -465.0
+   ],
+   "at": [
+    1401.0,
+    -465.0
+   ],
+   "bearing": 0.0,
+   "dist": 16.0
+  },
+  {
+   "name": "nw-tip-b210",
+   "target": [
+    1417.0,
+    -465.0
+   ],
+   "at": [
+    1403.14,
+    -473.0
+   ],
+   "bearing": 30.0,
+   "dist": 16.0
+  },
+  {
+   "name": "nw-tip-b240",
+   "target": [
+    1417.0,
+    -465.0
+   ],
+   "at": [
+    1409.0,
+    -478.86
+   ],
+   "bearing": 60.0,
+   "dist": 16.0
+  },
+  {
+   "name": "nw-tip-b270",
+   "target": [
+    1417.0,
+    -465.0
+   ],
+   "at": [
+    1417.0,
+    -481.0
+   ],
+   "bearing": 90.0,
+   "dist": 16.0
+  }
+ ],
  "massif": [
   1462.0,
   -462.0

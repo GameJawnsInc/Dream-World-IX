@@ -94,14 +94,16 @@ def main():
     out = Image.fromarray(img)
     dr = ImageDraw.Draw(out)
     colors = {"sliver": (255, 40, 40), "band": (255, 230, 0), "wedge": (0, 255, 255)}
-    for kind, r in marks:
+    import os as _os
+    for kind, r in (marks if _os.environ.get("FF9MK_VIEW_MARKS", "1") != "0" else []):
         poly = [px(p[0], p[2]) for p in r["w"]]
         dr.polygon(poly, outline=colors[kind])
     for gxu in range(int(ROI[0]), int(ROI[2]) + 1, 8):
         dr.text(px(gxu, ROI[3]), str(gxu), fill=(255, 255, 255))
     for gzu in range(int(ROI[1]), int(ROI[3]) + 1, 8):
         dr.text(px(ROI[0], gzu), str(gzu), fill=(255, 255, 255))
-    dest = REPO_RUNS / "take8_defect_view.png"           # atlas pixels = game bytes: never committed
+    import os
+    dest = Path(os.environ.get("FF9MK_VIEW_OUT", str(REPO_RUNS / "take8_defect_view.png")))   # atlas pixels: never committed
     dest.parent.mkdir(parents=True, exist_ok=True)
     out.save(dest)
     from collections import Counter

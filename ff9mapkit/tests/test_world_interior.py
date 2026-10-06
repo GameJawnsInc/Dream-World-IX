@@ -28,6 +28,7 @@ fresh-mint dent-tolerance TRACK B). The rest covers the hermetic machinery:
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 
 import pytest
 
@@ -1041,9 +1042,11 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
     assert len(rock) == (4 + r["foot_tris"]) * 3
     for p, u2 in rock:
         assert u0 - 1e-6 <= u2[0] <= u1 + 1e-6 and v0 - 1e-6 <= u2[1] <= v1 + 1e-6
-    # fringe pinning: foot verts at bench ground sample the exemplar's fringe edge (the
-    # harvest's v_bot = the donor pair's two lowest verts = v1 exactly)
-    foot_ground = [u2 for p, u2 in rock if abs(p[1] - 3.2) < 1e-6]
+    # fringe pinning: foot verts at the lawn line sample the exemplar's fringe edge (the
+    # harvest's v_bot = the donor pair's two lowest verts = v1 exactly). At, not "at 3.2":
+    # take 9 hands the saddle's below-lawn rim nodes back to the apron (the free-base
+    # burial take 8 meant for them), which settles the hole a little under the plateau
+    foot_ground = [u2 for p, u2 in rock if p[1] < 3.2 + 0.05]
     assert foot_ground and all(u2[1] == pytest.approx(v1, abs=1e-9) for u2 in foot_ground)
 
     # refusal: a window that catches no zip tri
@@ -1052,6 +1055,44 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
         IN.carve_mountain(soup2, center=(22.0, -24.0), alcove=None, game=tmp_path,
                           foot_course_rects=[(200.0, -260.0, 220.0, -240.0)],
                           log=lambda *a: None)
+
+
+def _foot_window_carve(monkeypatch, tmp_path, hs=(0.0, 1.2, 0.0, 1.0)):
+    _patch_donor(monkeypatch, _r10_saddle_donor(hs=hs))
+    soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    res = IN.carve_mountain(soup, center=(22.0, -24.0), alcove=None, game=tmp_path,
+                            foot_course_rects=[(0.0, -64.0, 64.0, 0.0)], log=lambda *a: None)
+    bm = res["changed"][(0, 0)]
+    P, U, Tn = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_UV], bm.chan_arrays[CH_TAN]
+    rock = [(i, i + 1, i + 2) for i in range(0, len(P), 3) if Tn[i][0] == MASSIF]
+    return res, P, U, rock
+
+
+def test_carve_mountain_foot_course_no_rock_below_the_lawn(monkeypatch, tmp_path):
+    # R4 take 9, the owner-filed NW sliver ("should be ground"): the saddle's low corners
+    # sit under the plateau, 6u from the risen apex -- take 8's centroid predicate saw the
+    # apex and minted fringe rock lying flat on the dip there (2 tris on this donor). Rock
+    # only where the nearest rim stands above the lawn AND the tri itself rises over it.
+    res, P, U, rock = _foot_window_carve(monkeypatch, tmp_path)
+    assert res["report"]["foot_tris"] > 0
+    lying = [t for t in rock if max(float(P[i][1]) for i in t) <= 3.2 + IN.MTN_FC_RIM_ABOVE]
+    assert lying == []
+
+
+def test_carve_mountain_foot_course_v_is_per_vertex(monkeypatch, tmp_path):
+    # R4 take 9, the owner's "1 has a grass edge, 2 has a mountain edge, but they meet at
+    # an edge": take 8 spread each tri's own full tile over its own span, so a shared rim
+    # vert took a different v in every neighbour (0.33 tile apart on this donor; 0.97 on
+    # the live SE corner). v is now a function of the VERTEX -- the donor's own cut tile
+    # at a carried rim vert, the stock-density lawn deviation elsewhere -- so every tri
+    # sharing a position samples the same texel row there (stock: 6 seams in 2536).
+    _, P, U, rock = _foot_window_carve(monkeypatch, tmp_path)
+    at = defaultdict(set)
+    for t in rock:
+        for i in t:
+            at[tuple(round(float(x), 3) for x in P[i])].add(round(float(U[i][1]), 7))
+    seams = {k: v for k, v in at.items() if max(v) - min(v) > 1e-6}
+    assert seams == {}
 
 
 def test_carve_mountain_foot_course_relief_gate(monkeypatch, tmp_path):

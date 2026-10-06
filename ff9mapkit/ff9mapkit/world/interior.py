@@ -104,6 +104,18 @@ MTN_FC_CLEAR = 0.75              # window hole clearance: the contact hugs the r
 MTN_FC_MIN_RISE = 2.5            # a rock foot course exists only where the CARRIED massif
 #                                  rises this far above the lawn within 6u -- else the
 #                                  mountain has ended there and the contact is grass
+MTN_FC_RIM_ABOVE = 0.25          # ...AND only where the NEAREST carried rim node stands this
+#                                  far above the lawn (R4 take 9, the owner-filed NW sliver: a
+#                                  low slab's rim under the plateau, 6u from a rising face,
+#                                  minted fringe rock lying on a free-base dip -- "should be
+#                                  ground")
+MTN_FC_TILE_H = 3.0              # the course height ONE full fringe tile spans: v is a per-
+#                                  VERTEX function of height over the lawn line, capped at
+#                                  1/3 tile-height per unit -- stock's own short-contact
+#                                  density (stock_fringe_census: 1130 disc-1 rock-grass
+#                                  contacts, short ones p50 0.33; all p50 0.25 / p90 0.34).
+#                                  A shorter course shows a PARTIAL tile from the fringe edge,
+#                                  as stock does; a taller one the full tile, as before
 MTN_FOOT_NY_FLOOR = 0.25         # foot-course tris are DELIBERATELY steep rock (blocked
 #                                  topo 49, exempt from the grass zip envelope); below
 #                                  ~75 deg they are slivers, refuse
@@ -1745,7 +1757,29 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 _fcg[(math.floor(_w3[0] / 6.0), math.floor(_w3[2] / 6.0))].append(
                     (_w3[0], _w3[1], _w3[2]))
 
+        # THE RIM-ABOVE-LAWN test (R4 take 9): "the massif rises within 6u" also holds on a
+        # taper tip whose OWN rim sits below the plateau -- a low slab beside a tall face --
+        # and there take 8 minted fringe rock lying flat on the free-base dip (t673-t675,
+        # the owner's "should be ground"). The nearest carried rim node must stand above
+        # the lawn too; in the same predicate, so hole cut, apron hold and emission agree.
+        _fcr = defaultdict(list)
+        for _rn in rim_nodes:
+            _fcr[(math.floor(_rn[0] / 6.0), math.floor(_rn[1] / 6.0))].append(_rn)
+
+        def _fc_rim_above(x, z):
+            _cx6, _cz6 = math.floor(x / 6.0), math.floor(z / 6.0)
+            best = None
+            for _gx in (_cx6 - 1, _cx6, _cx6 + 1):
+                for _gz in (_cz6 - 1, _cz6, _cz6 + 1):
+                    for _rn in _fcr.get((_gx, _gz), ()):
+                        _d = (x - _rn[0]) ** 2 + (z - _rn[1]) ** 2
+                        if best is None or _d < best[0]:
+                            best = (_d, _rn[2])
+            return best is None or best[1] > ground_med + MTN_FC_RIM_ABOVE
+
         def _fc_rock_here(x, z):
+            if not _fc_rim_above(x, z):
+                return False
             _cx6, _cz6 = math.floor(x / 6.0), math.floor(z / 6.0)
             for _gx in (_cx6 - 1, _cx6, _cx6 + 1):
                 for _gz in (_cz6 - 1, _cz6, _cz6 + 1):
@@ -2347,6 +2381,21 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                                                 H[_i2][2] - H[_i2 - 1][2]))
         fc_STOT = fc_SH[-1] + math.hypot(H[0][0] - H[-1][0], H[0][2] - H[-1][2])
         fc_hole_keys = {kk3(p) for p in H}
+        # THE DONOR'S CUT TILE (R4 take 9): the donor's own lowest course already wears the
+        # r10 fringe tile, and the carve cuts it MID-TILE at the rim (the window's high-foot
+        # arc: v-frac 0.53-0.66 there). A foot course that restarts a fresh tile under it
+        # seams at every shared rim vert; one that FINISHES the donor's tile -- fringe edge
+        # at the lawn, the donor's own v at the rim -- is continuous there by construction,
+        # and lands at stock density (~0.4-0.5 tile over the 1.1-1.6u course).
+        fc_rim_v = {}
+        for _t in blob:
+            _tri = dtri[_t]
+            _vc = sum(dU[i][1] for i in _tri) / 3
+            _uc = sum(dU[i][0] for i in _tri) / 3
+            if int((_vc - pvA) / 0.03125) != 10 or int((_uc - puA) / 0.0625) not in (6, 7, 8, 9):
+                continue
+            for _k in range(3):
+                fc_rim_v.setdefault(kk3(carried[_t][_k]), dU[_tri[_k]][1])
 
         def fc_s_of(px2, pz2):
             """Continuous arc parameter: project onto the hole ring's SEGMENTS --
@@ -2365,6 +2414,22 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                     best_d = _dd
                     best_s = fc_SH[_i3] + _tt * math.sqrt(_L2)
             return best_s
+
+        _fch = defaultdict(list)
+        for _hp in H:
+            _fch[(math.floor(_hp[0] / 6.0), math.floor(_hp[2] / 6.0))].append(_hp)
+
+        def fc_lawn_y(px2, pz2):
+            """The lawn line under a course vertex: the height of the NEAREST hole-ring
+            position. A pure function of POSITION, so every tri sharing a vertex gives it the
+            same v -- the per-tri (ylow, yspan) it replaces put one rim vert at v 0.03, 0.21,
+            0.53 and 0.66 in four neighbours (take 8's SE corner: one tri's fringe meeting its
+            neighbour's rock top along their shared edge; 10 of 32 window fringe positions
+            seamed > 0.25 tile vs 6 of 2536 in stock -- stock_fringe_continuity)."""
+            _cx6, _cz6 = math.floor(px2 / 6.0), math.floor(pz2 / 6.0)
+            cand = [p for _gx in (_cx6 - 1, _cx6, _cx6 + 1) for _gz in (_cz6 - 1, _cz6, _cz6 + 1)
+                    for p in _fch.get((_gx, _gz), ())] or H
+            return min(cand, key=lambda p: (p[0] - px2) ** 2 + (p[2] - pz2) ** 2)[1]
         log(f"foot course: exemplar cols {fc_cols}; window rects {fc_rects}")
     ID_FOOT = float(X.encode_id(topograph=49))
     fc_n = 0
@@ -2384,7 +2449,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         # ground or a CURB standing over nothing (both owner-filed defect classes);
         # the contact retreats to grass there and the wider hole gives it room to
         # ramp gently.
-        is_foot = _in_fc(_cx0, _cz0) and _fc_rock_here(_cx0, _cz0)
+        # ...and never a tri lying wholly at or below the lawn (R4 take 9): the predicate
+        # reads the nearest rim to the CENTROID, and a flat dip tri beside a taller rim
+        # node passed it (t672, top 2.75 on a 3.2 plateau) -- rock paint on ground
+        is_foot = (_in_fc(_cx0, _cz0) and _fc_rock_here(_cx0, _cz0)
+                   and max(float(p[1]) for p in tri3) > ground_med + MTN_FC_RIM_ABOVE)
         if is_foot:
             fc_n += 1
             fc_ny_min = min(fc_ny_min, abs(float(nrm[1])) / nl)
@@ -2416,13 +2485,6 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 _svs = [s2 + fc_STOT if s2 < fc_STOT / 2 else s2 for s2 in _svs]
             _smap = dict(zip((kk3(p) for p in tri3), _svs))
             _s0, _s1 = min(_svs), max(_svs)
-            _hys = [p[1] for p in tri3 if kk3(p) in fc_hole_keys]
-            _ylow = min(_hys) if _hys else min(p[1] for p in tri3)
-            # |deviation| from the lawn line: an ASCENDING course shades fringe->rock
-            # upward, a FREE-BASE dip shades fringe->rock DOWNWARD the same way (a
-            # signed fraction collapses the dip to all-fringe = a dark smear)
-            _yspan = max((abs(p[1] - _ylow) for p in tri3
-                          if kk3(p) not in fc_hole_keys), default=0.0)
             corners = []
             for pnt in order:
                 key = kk3(pnt)
@@ -2430,9 +2492,18 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 _su = max(0.0, min(1.0, (_smap[key] - _s0) / max(0.5, _s1 - _s0)))
                 if key in fc_hole_keys:
                     _v = _vb
+                elif key in fc_rim_v:
+                    _v = fc_rim_v[key]                     # finish the donor's cut tile
                 else:
-                    _v = _vb + max(0.0, min(1.0, abs(float(pnt[1]) - _ylow)
-                                            / max(0.8, _yspan))) * (_vt - _vb)
+                    # PER VERTEX, at stock density (R4 take 9): |deviation| from the lawn
+                    # line under THIS vertex (an ascending course shades fringe->rock
+                    # upward, a FREE-BASE dip downward the same way), one full tile per
+                    # MTN_FC_TILE_H of it. Take 8 spread the full tile over each tri's own
+                    # span: on the 1.6-1.9u high-foot courses that squashed the fringe to
+                    # 0.45-0.56 tile-heights/u (stock p90 0.34) -- the owner's "stretched
+                    # transition tile" -- and gave shared verts tri-dependent v.
+                    _dev = abs(float(pnt[1]) - fc_lawn_y(float(pnt[0]), float(pnt[2])))
+                    _v = _vb + min(1.0, _dev / MTN_FC_TILE_H) * (_vt - _vb)
                 corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]),
                                 _u0 + _su * (_u1 - _u0), _v, *n3))
             new_parents.append((tuple(corners), ID_FOOT, "foot"))

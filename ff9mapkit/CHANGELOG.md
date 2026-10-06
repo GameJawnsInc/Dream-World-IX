@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-mountain --foot-course`: no rock lying on the ground, and a fringe course that matches stock
+- Owner-filed on the R4 west-seam massif (take 8, judged from the first overworld harness run's
+  frames): a thin rock sliver lying on the lawn, a squashed grass-to-rock transition band along
+  the base, and one tri's fringe meeting its neighbour's rock top along a shared edge.
+- The rock-vs-grass predicate also requires the NEAREST carried rim to stand above the lawn, and
+  no foot tri lying wholly at or below the lawn is painted rock: a low slab beside a tall face
+  rejoins the apron for its free-base burial instead of minting rock on a dip.
+- Fringe v is a per-VERTEX function: at a carried rim vert the course finishes the donor's own cut
+  r10 tile; elsewhere one full tile spans 3u of height over the lawn line (stock's short-contact
+  density, p50 0.33 tile-heights/u over 1130 disc-1 rock-grass contacts). Before, each tri spread
+  a full tile over its own span: 0.45–0.56 tile-heights/u on short courses (stock p90 0.34) and a
+  different v for one vertex in every tri sharing it. Measured on the massif: fringe seams > 0.25
+  tile 10/32 → 0/28 (stock 6/2536), base density 0.23–0.27 (owner-passed faces 0.23–0.29).
+
 ### Added — `PlayerWalkmesh(closed=...)`: triangles a script has closed
 - `content.pathfind.PlayerWalkmesh` takes an opt-in `closed` set: the triangles a field script shuts after load
   (`EnablePathTriangle(n, 0)`, or a whole floor under `EnablePath`), which the walkmesh bytes on disk cannot show.

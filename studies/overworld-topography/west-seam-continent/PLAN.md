@@ -322,6 +322,30 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > green" does not hold at stock's own short-course density. (3) THE WEDGE = rule (b)'s flat minted grass
 > in the SE concave corner (1432-1452, -486..-500): the outline turns east at (1432,-486) and grass sits
 > between two rock walls (station 12's frame). Awaiting the owner on what belongs there.
+> **The owner's SE-corner annotation (1-4 + a circled fan vert F (1438.73,-491.54), y 2.29 in a free-base
+> dip):** 1/2 = THE PER-TRI V SEAM -- take 8 spread each foot tri's full tile over its own span, so rim vert
+> M (1436.4,-486.4) took v 0.03/0.21/0.53/0.62/0.66 in five neighbours; one tri's fringe met the next's rock
+> top along a shared edge. Stock is continuous (`stock_fringe_continuity.py`: 6 seams > 0.25 tile in 2536
+> shared positions; take 8 window 10 in 32). 3 = t636, a shallow (~19 deg) foot "skirt" from the hole corner
+> (1432,-488) up to M; 4 = t639, flat minted grass between that corner, P (1435.8,-488.0) and F. Fans are
+> stock-normal (stock max 10/vertex, F has 7); aspect too (stock p99 10.3, t450 8). NOT a staircase: vs the
+> rim FOOTPRINT the corner clears 3.79u against its neighbours' 3.82u (a staircase pull was built, levelled
+> nothing here, and was removed). The corner is where the donor's carried SHALLOW SE bench (its rim near the
+> lawn) meets the rising face; the zip fans off F to reach where the face actually starts.
+> **TAKE 9 DEPLOYED (2026-10-06, owner: "deploy take 9"), harness 20/20** (`.harness-runs/20261006-122647-rimwalk-take9`,
+> incl. look-only frames of the SE corner + NW tip): live state re-verified = take 8 first; backup of all 612
+> massif-block files, both discs -> `backups/west-seam-continent/r4-take9-pre.20261006-122309` (verified 612/612;
+> THE REVERT); `r4-pre.20260828-103332` overlaid, carved with take 9's code + `stamp_area_policy.py`
+> (backup `r3-pre-area14.20261006-122540`), probe_area14 a-e PASS; live Disc1 byte-identical to the bench
+> (55/55), Disc4 mirror identical (45/45). Every window foot stops at its contact (13: +0.5u), no climb, seam
+> + safe road hold. NEXT: option A (owner) -- the SE corner's protruding lawn step, on the bench (take 10).
+> **TAKE 9 (as built on the bench, branch `claude/r4-take9`):** sliver + band + the 1/2 seam fixed at the
+> mechanism (see the commit). Bench: fringe seams 10/32 -> 0/28; window density 0.45-0.56 -> 0.23-0.27
+> tile-heights/u (owner-passed faces 0.23-0.29); rock under the lawn 0; A1 38-56 deg (stock floor 33). The
+> recipe that reproduces live take 8 byte-for-byte from `r4-pre.20260828-103332` is the PLAIN one (no
+> `--max-apron-lift`): `--near 1452,-468 --donor 5-6,15-16 --reach 66 --foot-course 1415,-489,1440,-462`,
+> then `stamp_area_policy.py`. Only blocks (21,7),(22,7) change. Residual, measured not fixed: u restarts a
+> tile per tri (window abs-u spread p50 0.97 tile; stock p50 0.00 with its own c6->c9 wrap).
 > Deployed state is TAKE 8; reverts: fringe-realign-pre.* (paint), r4-take4-pre.* (any take),
 > r4-pre.20260828-103332 (pre-massif host). Original deploy note: All gates CLEAN on
 > the dry run and the deploy: **placement (1462,−462) rot 90°** (the scan slid +10,+6 off the
