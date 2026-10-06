@@ -81,3 +81,55 @@ A screen that flags Uaho fails its own calibration.
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+Run 2026-10-06 (`context_screen.py`, data `context_screen.json`). **Cross-check:** the per-station E equals
+the sector map's at all 307 horseshoe stations (|diff| p90 0.00).
+
+### The registered score
+
+| | measured | verdict |
+|---|---|---|
+| **P1** Uaho raised grass ≥ 10% | 3.5% (3.4u). Uaho's E: p50 −0.04, p90 +0.81, max +1.97. Its raised stretches are 3.4u of grass + 8.0u of coastal rock. The record's "±3u" did not survive measurement | **FAILS**: the discriminant is unavailable from Uaho |
+| **P2** horseshoe passed-raised are grass | 16.6u raised in PASSED; 18 of 20 stations grass | **HOLDS** |
+| **P3** H-context mechanism | raised grass (18.2u, both donors): home grass at 2u within 1.0u on 100%. But the forest stretch's nearest grass is ≥ 1.0u below on only 58%: some forest stations reach coastal rock before any grass | **FAILS** as registered |
+| **calibration** | horseshoe FOREST run 25.7u (want 26–32: the FOREST class is raised-only, and its end stations sit at/below the seat; forest CONTACT is 28.4u). Uaho SAFE 74% (want ≥ 90) | **FAILS**: the screen is NOT quotable for donor rows |
+
+### What the verdicts can and cannot say (post-registration)
+
+- **Uaho's raised coastal-rock stretch can't be used.** It lies 5–6u from its blob centre, deep in the
+  ALCOVE NOTCH, the part of the July carry that had its own floor carry and aperture plug. It is not open
+  lawn. Uaho's open outer rim (r ≥ 12u, 49u) never rises above +0.62.
+- **The one PASSED horseshoe station above the failed minimum (+1.13) is a FOREST contact** at (1436.2, −486.0),
+  3.2u outside the take-1 box: the forest run's own SE end, the corner of later complaints. It is a label
+  artifact, not evidence.
+- **Excluding it, every passed station sits ≤ ~+1.1 and every failed station is forest at +1.13..+1.69.**
+  So the verdicts are separated perfectly by BOTH:
+  - **H-datum** with a threshold near +1.12;
+  - **H-forest-raised** (forest contact AND raised).
+
+  **They cannot be told apart by the evidence in hand.**
+- **Pure H-forest (any forest contact fails) IS falsified:** Uaho's forest contacts at E +0.26..+0.58
+  passed.
+
+### THE STOCK-WIDE SCREEN (post-registration; uncalibrated, so read as structure, not verdicts)
+
+Of 23 stock massifs ≥ 100 tris that form a carry unit (2 ranges skipped, 2 refused by `_mountain_blob`):
+- **Only TWO have raised rim stretches at all:**
+  - the horseshoe (raised forest);
+  - **(14-15,14), the Path D mesa donor:** 14% raised forest + 5.3u of raised RISING GRASS up to E +1.48.
+- **Every other massif's rim sits at or below its own seat everywhere** (SAFE / SAFE-SEAT / UNTESTED-low).
+- crag: 100% SAFE-SEAT (desert contacts). comp20: SAFE 68% + SAFE-SEAT 32% (buried coastal rock). Uaho:
+  SAFE 71%, SAFE-SEAT 13%, the notch 16%.
+
+So for every donor except those two, **the forest-or-datum question does not arise**: a bare carry
+leaves no raised foot. Their open risk is the CONTEXT CLASS of their buried contacts (coastal rock 58,
+desert 17), and no verdict covers those classes yet on open lawn.
+
+### The decisive test, if the owner wants the question settled
+
+The (14-15,14) mesa's 5.3u of raised rising grass is the ONLY stock stretch that separates H-datum from
+H-forest-raised. Path D carried that donor through many judged rounds. **Before any bench build, its
+record should be read** (own prior art first): did any round seat that stretch, unlifted and unburied, on
+open lawn?
+- If yes, the verdict may already exist.
+- If not, a bench carry of that stretch plus one owner look settles the question.
