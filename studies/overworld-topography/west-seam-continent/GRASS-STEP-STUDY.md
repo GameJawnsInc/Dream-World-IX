@@ -132,3 +132,17 @@ y p50 3.11.
   - *Costs:* it re-seats R4 (its placement gates; R5's gap grows) and re-authors that stretch of coast.
 
 Either way, the authored ground must follow P-B1: ramps ~8–22u wide at ≤ ~8°, and no lips.
+
+### ERRATUM (2026-10-06, found while designing the coast-join study) — P-C1's instrument misread a cliff
+
+P-C1 tested "flat over the ray's last 10u" (range ≤ 1.0u). A cliff whose WALL lies inside that window
+reads as a 2.6u range. That is exactly what happened: the window took in the topo-58 tris at the end
+of every ray. Re-measured at 0.25u steps on the same 33 rays, the coast there is a **CLIFF**:
+- grass flat at y 3.20 right to the edge (p10 = p50 = 3.20);
+- then a topo-58 wall of plan run 1.00u, falling to a foot at y p50 0.48 (~70°).
+
+That is `world-island`'s minted cliff (land 3.2, rim_run 1.0). **P-C1's claim holds; its registered
+verdict above is wrong for an instrument reason.** The "low grass shore" reading in the RESULT, and in
+the chat report, is retracted. P-C2 (low cliff tops ≤ 2.2u are 5% of stock) therefore DOES apply: (c1)
+would have lowered our cliff top to ~2.0, into that rare class. The lesson is the brief's: an instrument
+needs a positive control. B had one; C did not.
