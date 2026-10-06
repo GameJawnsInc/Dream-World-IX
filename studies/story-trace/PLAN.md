@@ -1679,7 +1679,7 @@ scratchpad paths are that session's: re-point them), in a fresh `claude/story-tr
 `o8_rehearse.py` stages, the freeze, `--preflight`, the session, the full gate on a whole-file receipt, merge. The O7
 run dirs the gate reads are archived in the MAIN repo's `.harness-runs/20261005-*`.
 
-## O8 -- Steiner up the west tower under the trace, a US session: 164 -> 165 -> 166 -> FMV004 -> real 55 (draft: rehearsals pending, freeze pending)
+## O8 -- Steiner up the west tower under the trace, a US session: 164 -> 165 -> 166 -> FMV004 -> real 55 (PROVEN: story-o8, v1 38df9cce)
 
 **The question.** From a raw warp onto the west tower's first spiral (164, entrance 342, SC 1190) -- up 164's two
 spirals, the knight sitting down on the way, up 165, then 166's six pages and FMV004 played out to the arrival in REAL 55
@@ -1807,21 +1807,60 @@ on this arrival, holding a Map variable only where no other 55 function stores i
   ORDER, KNIGHT, MOVIE, PATTERN (9 / 9 / 11, no `c` row), MASKED, STATE (a)-(c) (the live end state; the raced pair
   from the trace) and JOIN over the covered runs; THROW.
 
-**Status: draft: rehearsals pending, freeze pending.** The offline build is done on branch `claude/story-trace-o8`
-(PARTs A-C of the design's section 9): `--offline-check` 6 PASS on the draft; `--preflight` 12/12 on the live install
-(nothing to deploy); `o8_dryrun.py` 219/219 on the draft and as if frozen (117 cases, the story-o3 seam fixture -- its
-own raced set EMPTY -- and the units); the regression gate G1-G45 with G21 (O1-O7 byte-identical; O8's tests G44, its
-dry run G45); the rehearsals' launcher [`o8_rehearse.py`](o8_rehearse.py) proven on the fake. Nothing is frozen: the
-draft's `rehearsals`, `rehearsal_fps` and `rehearsed` are empty. The lead's sequence (research/o8_design.md 7.1-7.4):
-`--preflight`; the rehearsals -- R-FULL x2, R-SPIRAL x2, R-FMV x2 and its `movie_poke` run, R-VOID x3 LAST
-(`flag_stop`, `pinch_stop`, `movie_stop`), then F-SMOKE and F-PASS by name, R-SPIRAL165 optional; NO stage starts
-between 03:45 and 04:45 local (the nightly gate's `-n 6` starves the game and the driver: `o8_rehearse.run` refuses
-one) -- each launch `py tools/play.py studies/story-trace/o8_rehearse.py --label o8-rh --timeout 240` (`O8_STAGE=<name>`
-picks one), read with `py studies/story-trace/o8_west_tower.py --rehearsal-report <run dir>`; the freeze checklist
-F1-F14; `--freeze` (v1); the session, `py tools/play.py studies/story-trace/o8_west_tower.py --label story-o8 --timeout
-240`, unattended and never started 03:45-04:45; the rehearsal and session run dirs copied into the MAIN repo's
-`.harness-runs\` before any gate reads them, then one `harness_tests.py whole` and one `segment_regress.py
---pytest-junit` on its receipt.
+**Status: ★★ PROVEN (session `story-o8`, v1 `38df9cce`), a US session.** Steiner up the west tower under the trace:
+the raw warp onto 164's first spiral at SC 1190, loop 1 to P1 and THE KNIGHT WAIT, the second spiral through THE PINCH
+into e2 at the top, 165's two stretches, 166's six pages and FMV004 played out to the arrival in REAL 55; O4's deployed
+alxc members 31256, 31257 and 31258 write the real game's story state key for key, and every F run crosses the declared
+seam member(166) 31258 -> REAL 55. S F S F S F, 6/6 covered (S 3 of 3, F 3 of 3), unattended, 912 s, no re-run; every
+check PASS (40/40): FROZEN, COVER, FORBIDDEN, VOID-ASYM (none), START (the four residue rows, 164's first row ip22, its
+first Byte[13] row ip130 from the warp's 1), NO-SC (SC 1190 throughout), CHAIN (342 -> 343 -> 344 -> 110), RESIDUE,
+WRITES (exactly 23 keys a run: 20 writes and the 3-key chain), NULL (23 keys matched, 0 stock-only, 0 fork-only, NO
+noise), STABLE, LANDING (a)-(d), SEAM (one seam a F run, 31258 -> 55, its exit 31258 e6 t1 ip863, nothing between it
+and 55's ip22), WALK (THE PAIRED-WALK LAW over the four steps: each done on its FIRST attempt with its evidence -- the
+walks' arrival heights, the knight's wait, the triggers' losses by height in their doors -- with no wait, push or
+blocker, THE PINCH included; every seeded field's first move on the prior basis 0.0 deg off), ORDER (ip230 inside THE
+EXEMPT SPAN and before ip243 in every run), KNIGHT (his seat read 0.7 u off at the wait's end and at step 1's start),
+MOVIE (no press, choice or skip dialog in FMV004's span; 46.69-46.87 s at the rate measured inside it, 51.9-59.2 fps),
+PATTERN (9 / 9 / 11, no `c` row), MASKED, STATE (the twelve live targets the same; Int16[2] 110 and Byte[8] 0 from 166's
+ip863 / ip502 by place), JOIN (186 rows, 0 failures), THROW. Runs 144-154 s; the knight's wait 1.73-2.79 s. Archive:
+`C:\gd\Dream-World-IX\.harness-runs\20261005-234144-story-o8` (o8_report.txt). EVERY rehearsal and the session ran at
+~52-60 fps: O8 is the first O-segment walked at 60 (O7's ran at ~31); 31 fps is UNEXERCISED for O8 -- the game picks
+its rate (F14). F5 took no fallback.
+
+The rehearsals before the freeze (archived `20261005-22*-o8-rh-*` / `-23*-o8-rh-*`; F1-F14 met):
+
+| stage | runs | what it settled |
+|---|---|---|
+| R-FULL (stock 164 -> REAL 55), two launches | 4/4 reached | every grant at the bytes' spawn (164 (2040, 3335) y 4780.3, 165 (2055, 3411) y 10280.3); THE PRIOR BASIS 0.0 deg off at 164 ('left') and 165 ('up+left'); 164 #0's arrival at P1 on its level (y 8943-8956), THE KNIGHT WAIT read in 1.85-2.96 s, ip230 inside THE EXEMPT SPAN, his seat (-585.4, 3883.7); every dead-level crossing (164.e2 on #0, 164.e3 and 165.e3 on the #1s) without a loss; e2's losses at y 13012-13025 and 15169; 166's six pages, FMV004 46.78-46.83 s with no press, choice or skip dialog; 166 ip863 -> 55 ip22 four frames apart, nothing between; 20/20 writes, 3/3 chain, 0 unregistered, 9/9/11, 6 masked, the four runs tuple for tuple identical bar frames; 160.2 / 150.0 / 160.1 / 147.4 s. Launch 1's pinch was UNMEASURED (THE REHEARSAL RING, below); launch 2 measured it: 5 holds a run in THE PINCH WINDOW, narrowest wall gap 59.4 / 59.7 u (radius 80: the engine squeezed him ~20 u), two stalls classified rejected, no ladder rung -- F5 GO |
+| R-SPIRAL | 2/2 reached 165 | F5 GO again: 4 pinch holds a run, narrowest 69.0 / 59.7 u, one stall slid, no rung; the wait 3.05 / 2.59 s |
+| R-FMV | 3/3 reached 55 | the six pages under rule 7 (a dropped first Confirm re-pressed), FMV004 46.80 / 46.75 s, no press after 313 until ip863; RUN 3's `movie_poke` (one Confirm 10 s past ip502): the skip dialog published in full, the net's No at the default, the movie RESUMED 16 frames later and played out (48.1 s with the pause), no second dialog -- the No path proven in game |
+| R-VOID | 3 | `flag_stop` mid-wait, `pinch_stop` in THE PINCH WINDOW (y 10635), `movie_stop` 15 s into FMV004 (frame 6815 after ip502's 5906): each V13 (the driver's), nothing held or pressed after the raise, `end_run` to the title in 4.3-4.4 s |
+| F-SMOKE | 3 + 3 warps | 31256@342, 31257@343, 31258@344 load, their object sids EQUAL to their twins' |
+| F-PASS (untraced) | 1 | one F run 31256 -> 31257 -> 31258 -> REAL 55, the pinch at radius 80 through EffectiveFieldId (narrowest 68.9 u), the wait 2.88 s, no V-class, no exception |
+
+The freeze's numbers (F8): `run_s` 321 (2 x the slowest R-FULL), `run_min_s` 199 (1.25 x the median 155.05 s + the
+longest recovery 4.4 s), `session_s` 3041, `no_progress_s` 141 (3 x FMV004's 47.0 s, the longest stretch);
+`rehearsed`: stretch 47.0 s, wait 3.05 s, movie span 46.75 s, narrowest pinch 59.4 u; `wait_flag.timeout_s` 15
+(max(15, 3 x 3.05)); `rehearsal_fps` [60.0]. The fake's squeeze_slack 12 is the conservative side of the measured ~20.
+
+Two instrument defects found in the rehearsals, each fixed (with a test that fails without it) before the freeze:
+- THE REHEARSAL RING (`60d1a4ed`): the walk tap takes each route_to call's samples off the session's 300-sample state
+  ring as the call returns -- ~20 s at 31 fps, where O7 rehearsed, but ~10 s at 60, where O8 ran. 164 #1 lasts ~17 s, so
+  launch 1 lost the first half of its holds' positions, THE PINCH among them, and `pinch_record` read them "not in the
+  window": a GO no hold could have failed (its ladder tap, which never reads the ring, was empty). A rehearsal launch now
+  widens the ring IN PLACE to 3000 (the session keeps the harness's own), and F5 reads UNMEASURED, never GO, when a hold
+  kept no position.
+- THE RECORDER'S LIVE READ (`e8067a0d`, found by an independent second review of the movie/seam/end lens -- the build's
+  own reviewer there returned nothing): `Recorder._live` read the whole story.jsonl, which keeps every run of a launch,
+  so a later run in 166 saw an earlier run's ip863 at once -- R-FMV run 3's poke and a `movie_stop` after an earlier 166
+  run would never have fired. It now reads the rows after the run's last arm (the driver's own idiom). R-FMV's run 3
+  proved it: the poke fired after two earlier 166 runs in the same launch.
+
+The offline build, as it stood before the rehearsals (branch `claude/story-trace-o8`, PARTs A-C of the design's section
+9): `--offline-check` 6 PASS; `--preflight` 12/12 on the live install (nothing to deploy); the dry run 227/227 on the
+draft and as if frozen (the story-o3 seam fixture among the cases); the regression gate G1-G45 with G21 (O1-O7
+byte-identical: the O7 baseline captured first, G40-G43; O8's tests G44, its dry run G45); a code review's five findings
+each fixed (research/o8_design.md 11.4). The build workflow took 12.4 h (O7's 10.8 h); the research 2.0 h.
 
 **Next, O9:** O8 ends on the arrival in REAL 55 at 110 (cut at 55 e0 t0 ip22) on both sides. O9 starts with a raw `warp
 55 110 1190` (S) / `warp 31205 110 1190` (F): the fork side SWITCHES CHAINS there (O4's alxc -> O1's tshp, whose
@@ -1841,8 +1880,15 @@ knight wait (`wait_flag`), the y axis on `until` with the loss's height off the 
 per-field fake clearance, the height-triggered walker with a store, the declared seam (O8-SEAM), the raced end-state set
 derived from the end field's bytes to its Main_Init's RET (`end_race8`), and `reach8` -- a store site's reachability
 from given values, e.g. which of 55's e8 t1 / e10 t1 sites a `Map.Byte[24]` case reaches -- with `end_map_held8`, which
-holds a Map variable only where no other function of the field stores it. If O8's F5 took the fallback (`unstick:
-false`), say so here.
+holds a Map variable only where no other function of the field stores it. O8's F5 took no fallback: THE PINCH passed
+at clearance 64 in every rehearsal and session run, `unstick` untouched. O9's walks, if any, rehearse at whatever rate
+the game picks: O8 ran wholly at ~60 fps, O7 wholly at ~31 -- size every ring-read instrument for the faster.
+RESUME (a new session): read this section and "Build testing" below, then the same pipeline as O8 -- the research
+workflow (template: O8's, `o8-research-wf_5a11d057-2e1.js`), then the build workflow (template: `o8-build-wf_abe63a11-a91.js`;
+both under `~/.claude/projects/C--gd-Dream-World-IX--claude-worktrees-story-trace-o8-studies-story-trace/4376ce2b-*/
+workflows/scripts/`; their scratchpad paths are that session's: re-point them) in a fresh `claude/story-trace-o9`
+worktree off master -- after the owner picks O9's start option above. The O8 run dirs the gate reads are archived in
+the MAIN repo's `.harness-runs/20261005-2*-o8-rh-*` and `20261005-234144-story-o8`.
 
 ## Build testing (every segment's build, from O7) -- overrides any design's section 9 where it differs
 
