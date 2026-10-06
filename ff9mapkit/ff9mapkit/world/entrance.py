@@ -1054,6 +1054,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                                                    or building.get("tile_uv") is not None), "planned": True}
         else:
             from . import blendio as BIO
+            from . import discmirror as DM
             stock = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="object", game=game,
                                        missing_ok=True, fresh=fresh) if keep else None
             summary["building"] = BIO.build_from_obj(
@@ -1063,7 +1064,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                 keep_block=keep, solid_base=building.get("solid_base", False),
                 texture=building.get("texture", False), tile=building.get("tile"),
                 tile_uv=building.get("tile_uv"), stock_bm=stock, terrain_bm=ter, game=game,
-                skip_mirror=True)
+                skip_mirror=DM.DEFERRED)
             entrance_written.extend(summary["building"].get("written") or [])
     if not dry_run:
         from . import discmirror as DM

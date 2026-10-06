@@ -274,7 +274,7 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
     explicitly (e.g. an already-deployed override so a placement STACKS on a prior edit / seats on a flattened pad,
     rather than re-reading pristine p0data). Both default to a fresh pristine read of ``into_block``. Returns a
     summary. Auto-mirrors the written override to Disc4 (THE DISC-4 GAP; ``skip_mirror=True`` opts out --
-    :func:`~ff9mapkit.world.entrance.author_entrance` passes ``skip_mirror=True`` here and does its own single
+    :func:`~ff9mapkit.world.entrance.author_entrance` passes ``skip_mirror=DEFERRED`` here and does its own single
     mirror pass after its terrain + building writes both land).
 
     THE WRITE PATH IS FAIL-CLOSED (audit rec 15): the TERRAIN rebuild lane is refused (the OBJ round-trip destroys

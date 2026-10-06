@@ -5219,14 +5219,14 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         if not args.dry_run:
             # both inner writers force-skip their own auto-mirror -- the CLI unions their
             # written paths and does ONE mirror pass for the whole carve, below.
+            from .world import discmirror as DM
             mountain_written = IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                                                 game=args.game, skip_mirror=True,
+                                                 game=args.game, skip_mirror=DM.DEFERRED,
                                                  target_disc=args.target_disc)
             mountain_written = list(mountain_written) + list(
                 IN.deploy_mountain_parts(res, mod_folder=args.mod_folder, disc=args.disc,
-                                         game=args.game, skip_mirror=True,
+                                         game=args.game, skip_mirror=DM.DEFERRED,
                                          target_disc=args.target_disc))
-            from .world import discmirror as DM
             DM.auto_mirror(mountain_written, mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
