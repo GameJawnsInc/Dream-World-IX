@@ -1,0 +1,36 @@
+NOT CLEAN -- deploy refused (every gate must pass; iterate with --dry-run)
+verbatim REGION transplant: donor rect (5, 15)+3x2 -> target rect (21, 1)+3x2 (rot 0 deg, shift +0,-4; tongue strips: N; coverage strips: E,S,W)
+  carried: terrain:1798  beach1:0  sea1:0  sea2:0  sea3:597  sea4:1100  sea5:292
+  cell 21,1: donor prefab (6, 15)  terrain:444  sea3:84  sea4:141  sea5:10
+  cell 22,1: donor prefab (6, 15)  terrain:271  sea3:90  sea4:233  sea5:46
+  cell 23,1: donor prefab (7, 15)  terrain:53  sea3:159  sea4:216  sea5:130
+  cell 21,2: donor prefab (6, 15)  terrain:334  sea3:46  sea4:226  sea5:28
+  cell 22,2: donor prefab (6, 15)  terrain:462  sea3:68  sea4:71  sea5:40
+  cell 23,2: donor prefab (7, 16)  terrain:234  sea3:150  sea4:213  sea5:38
+  GATE effective-prefab[21,1]: armed=False  bound=[sea3,sea4,sea5,terrain]  unbindable=[] -> ok
+  GATE effective-prefab[22,1]: armed=False  bound=[sea3,sea4,sea5,terrain]  unbindable=[] -> ok
+  GATE effective-prefab[23,1]: armed=False  bound=[sea3,sea4,sea5,terrain]  unbindable=[] -> ok
+  GATE effective-prefab[21,2]: armed=False  bound=[sea3,sea4,sea5,terrain]  unbindable=[] -> ok
+  GATE effective-prefab[22,2]: armed=False  bound=[sea3,sea4,sea5,terrain]  unbindable=[] -> ok
+  GATE effective-prefab[23,2]: armed=False  bound=[sea3,sea4,sea5,terrain]  unbindable=[] -> ok
+  GATE wang-carry: incoherent=51  incoherent_deep=51  incoherent_shallow=0  enforced=False  detail=(21,1)@(0, 6).W; (21,1)@(0, 7).W; (21,1)@(0, 8).W; (21,1)@(0, 9).W; (21,1)@(0, 10).W; (21,1)@(0, 11).W -> ok
+  !! WARNING wang-carry: 51 cropped-Wang frame seam(s) on the carried rim (51 deep sea3/sea5, 0 shallow sea1/sea2) -- shipping FF9 abuts neither mid nor shallow water to the deep ring, so review these in-game and re-tile the rim (`world-rim-retile` for sea3/sea5, the {sea1,sea5} ladder for sea1/sea2), or pass --enforce-wang-carry to refuse (--allow-wang-seams to silence).
+  GATE orphan-decals: checked=0  checked_mains=541  n_orphans=0  cells=[]  redress=False  n_redressed=0  detail=0  enforced=False  n_ambiguous=0  ambiguous_cells=[]  ring_blocks=[[20,3]] -> ok
+  GATE tex-zero-uv: checked=1798  n_zero_uv_area=9  zero_uv_area_frac=0.005006  n_bit_identical=0  ceiling=0.0005  enforced=False  detail=(21, 1)@(349, -32) topo49; (22, 1)@(353, -32) topo58; (22, 1)@(354, -32) topo13; (22, 1)@(354, -32) topo13; (21, 2)@(349, -33) topo49; (21, 2)@(349, -33) topo49  status=warn -> ok
+  !! WARNING tex-zero-uv: (21, 1)@(349, -32) topo49; (22, 1)@(353, -32) topo58; (22, 1)@(354, -32) topo13; (22, 1)@(354, -32) topo13; (21, 2)@(349, -33) topo49; (21, 2)@(349, -33) topo49 -- the Rung-F UV/relief arc's own acceptance criteria (studies/overworld-topography, 8 in-game rounds). Review in-game (a flat-sheet texture stain, a white atlas gutter, or a sea-plane defect) or pass --enforce-texture-gates to refuse (--allow-texture-gates to silence).
+  GATE tex-one-window: skipped=True  checked=0  mains_tris=541  n_multi_window=0  multi_window_frac=None  ceiling=0.0005  enforced=False  detail=no (quad,ori) field supplied -- see texgates docstring calibration  status=pass -> ok
+  GATE tex-family-rect: checked_by_family={'grass': 524, 'desert': 17}  out_of_region_by_family={}  zero_area_by_family={'grass': 2}  region_eps=0.006  escaped_every_mains_rect_ADVISORY=147  enforced=False  detail=(22, 1)@(354, -32) grass zero-area; (22, 1)@(354, -32) grass zero-area  status=warn -> ok
+  !! WARNING tex-family-rect: (22, 1)@(354, -32) grass zero-area; (22, 1)@(354, -32) grass zero-area -- the Rung-F UV/relief arc's own acceptance criteria (studies/overworld-topography, 8 in-game rounds). Review in-game (a flat-sheet texture stain, a white atlas gutter, or a sea-plane defect) or pass --enforce-texture-gates to refuse (--allow-texture-gates to silence).
+  GATE sea-plan: A_submerged_tris=0  A_per_vertex_at_or_below_0_DIAGNOSTIC=485  A_tris_checked=1798  A_verts_checked=5394  A_min_y=0  A_ok=True  B_pairs=7  B_max_ratio=3.104  B_violations=0  B_ceiling=4  B_ok=True  C_land_cells=680  C_real_sea_cells=444  C_overlap_cells=69  C_overlap_frac=0.101471  C_placeholders_excluded=0  C_real_sea_parts=12  C_ceiling=0.1913  C_ok=True  enforced=False  detail=0  status=pass -> ok
+  GATE bounds: x=[0,192]  z=[-128,4.44089e-16] -> ok
+  GATE land-fit: bbox=[6.55859,181.633,-128,4.44089e-16]  margin=2 -> FAIL
+  GATE object-anchor[5,15]: x=[370.711,380.445]  z=[-1024,-1020]  moved=True -> FAIL
+  GATE object-anchor[5,16]: x=[374.766,384]  z=[-1032,-1024]  moved=True -> FAIL
+  GATE object-anchor[6,16]: x=[384,388.355]  z=[-1026.38,-1024]  moved=True -> FAIL
+  GATE prefab-parts: bad=[] -> ok
+  GATE weld-audit: pairs=1  frame_pairs=0  border_t_pairs=14 -> FAIL
+  GATE tjunc: new=0  inherited=0  frame=0  layered=0  allowed=0  edited=201 -> ok
+  GATE clip-drop: area2=0 -> ok
+  GATE census: miss=21  inherited=21  introduced=0  samples=3456 -> ok
+  GATE border-census: holes=0  probed=896 -> ok
+  GATE mod-overwrite: cells=6  redeploys=0  existing=0 -> ok

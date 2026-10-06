@@ -69,3 +69,49 @@ round and is reported.
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+### THE ROUND STOPPED at its registered stop condition (2026-10-06)
+
+**B3 HOLDS.** The bench mirror (`scratchpad/bench-isle`) was built and the R4 revert applied: the bench's
+continent is byte-identical to `r4-pre` (0 diffs in 560 files), and none of the 54 R4-created parts remain.
+
+**B1 FAILS. The registered command refused** (`isle_logs/dryrun_excise.log`):
+
+> --excise refused: the carry would KEEP 25 land tris and DROP 1670 -- this rect excises its own subject.
+> An assembly is the island PLUS its welded water ring, so a rect whose frame the ring reaches classifies
+> the island itself as foreign.
+
+So the horseshoe island's own shallow-water ring reaches the 3×2 rect's frame, and the verb's excise
+cannot tell the island from the two crumbs. This is not the declared land-margin case, so per the
+registration the round stopped. **Nothing was written to the bench by the transplant; B2, B4 and B5 never
+ran.**
+
+**One read-only diagnostic after the stop** (the same dry run without `--excise`, writes nothing;
+`isle_logs/dryrun_no_excise_DIAGNOSTIC.log`). It shows four independent blockers:
+
+| gate | result | cause / fix |
+|---|---|---|
+| land-fit | FAIL | without excise, the two foreign crumbs cross the north frame |
+| object-anchor ×3 | FAIL | the verb's default AUTO shift (+0,−4, "centre the land") moved the falls/river objects off their natural pose. THE OBJECT POSE LAW requires unshifted; fix = explicit `--shift 0,0` |
+| weld-audit | FAIL | 1 near-miss pair + 14 border-T pairs; cause NOT yet known |
+| wang-carry (report-only) | 51 cropped deep seams (sea3/sea5) on the outer frame | as B1 predicted; follow-up = `world-rim-retile` |
+
+Everything else passed: effective-prefab ×6, prefab-parts, the T-junction differential, the census
+(0 introduced misses, 21 inherited), border-census, mod-overwrite, clip-drop. Two texture gates WARN on
+9 zero-uv-area tris, all inherited from the donor's own bytes at (349..354, −32): (21,1)/(22,1)/(21,2).
+
+**Also noticed: the carry lists terrain + sea parts only.** The ensemble (Object/Falls/River/RiverJoint)
+renders through each cell's `Donor.txt` prefab, and the auto-shift made the verb pick substitute
+prefabs (6,15) / (7,15) / (7,16) instead of the natural (5,15) / (5,16). Unshifted, the natural sidecars
+should return; the gates will say.
+
+### What the next round needs (a read-only rect study, before any re-registration)
+
+1. **A donor rect that holds the island AND its whole water ring inside the frame,** so excise can drop
+   only the crumbs (or the crumbs fall inside and ride along). The island's land runs z −962..−1086; its
+   ring reaches the 3×2 frame, so the rect likely needs a 4th row.
+2. **An open-ocean target that big.** North of the continent, cols 19–23 × rows 0–2 are open (5×3), but
+   rows 3 are stock content at cols 19–21. A 4-row target needs either the z-wrap (row 19) or the south
+   (cols 23 / 0 / 1 × rows 10–13 are open, but that crosses the x-seam). Whether `world-transplant`
+   handles either wrap is unverified.
+3. **`--shift 0,0`,** and a diagnosis of the weld-audit pairs.

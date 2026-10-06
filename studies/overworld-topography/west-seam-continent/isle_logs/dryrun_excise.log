@@ -1,0 +1,2 @@
+--excise refused: the carry would KEEP 25 land tris and DROP 1670 -- this rect excises its own subject. An assembly is the island PLUS its welded water ring, so a rect whose frame the ring reaches classifies the island itself as foreign. Shrink the rect, or the mass cannot be carried at this size (pass keep_largest=False to override deliberately).
+excise: assemblies=[2376, 106, 28, 23, 10, 6] foreign=[0, 1] dropped={} fill=0 tris, weld_exact=True
