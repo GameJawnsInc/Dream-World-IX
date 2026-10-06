@@ -810,9 +810,10 @@ O7_DRYRUN_FLOOR = 174
 #: re-registered ones: last-place-harness S only) and "predictions-changed", the story-o3 seam fixture's 9 (o3-seam-F,
 #: o3-landing, o3-state-c and their 6 mutants), its 40 units, and its 52 listed units (O8-CENSUS and its 5 mutants,
 #: O8-REGIONS and its 4, O8-GOALS and its 10, the route pins and route_mes with their 8, O8-BUILD's pins and raw exit on a
-#: synthetic build and its 3, the draft through O8-KEYS and its 16 offline mutants) when G45 joined. A case added raises
-#: N; one dropped falls under the floor.
-O8_DRYRUN_FLOOR = 219
+#: synthetic build and its 3, the draft through O8-KEYS and its 16 offline mutants) when G45 joined (219); the review's
+#: fixes (research/o8_design.md 11.4, "The review") raised it -- O8-GOALS' goals-164-1-until-loose and
+#: goals-165-1-until-loose (#4). A case added raises N; one dropped falls under the floor.
+O8_DRYRUN_FLOOR = 221
 #: G38 (research/o7_design.md 1.4, from 9 B4): every ``test_o7_*``, ``test_fake_level_*``, ``test_fake_monologue_*`` and
 #: ``test_fake_patrol_*`` name, each with the step that adds it -- G38 joined the gate in the commit that added B4's
 #: tests.

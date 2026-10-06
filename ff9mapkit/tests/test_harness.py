@@ -33127,7 +33127,8 @@ def test_o8_tower_freeze_refuses(o8_stock, tmp_path):
     (:func:`_o8_frozen_like`). Before anything is written it refuses, each naming its cause and writing nothing: no
     witness; a rehearsal overlay on a table step (``flag_stop``, ``movie_poke``); a typed ``stale_slack``; a step without
     ``clearance``; ``choices`` not the net's two rows; 164 #0 without its wait, ``npcs`` false or e3 avoided; 164 #1 at
-    80; side_ends not {S: [55], F: [55]}; an O1 id among the members; an ``inert`` row; a ``movies`` key; a raced target
+    80; 164 #1's until looser than its door's gate (the review's #4); side_ends not {S: [55], F: [55]}; an O1 id among
+    the members; an ``inert`` row; a ``movies`` key; a raced target
     in ``end_state``; ``end_state_trace`` not the raced set; a carried target in ``end_state``; ``carried`` not the
     derivation; ``start_scoped`` not the derivation; a start read without its race; no ``seat_watch``; ``rehearsed``
     without ``narrowest_pinch``; ``no_progress_s`` under twice the stretch; the wait's timeout under 3 x the longest
@@ -33167,6 +33168,8 @@ def test_o8_tower_freeze_refuses(o8_stock, tmp_path):
     refuses(edited(lambda p: s0(p).__setitem__("npcs", True)), "164 #0 must carry")
     refuses(edited(lambda p: s0(p).__setitem__("avoid", [])), "164 #0 must carry")
     refuses(edited(lambda p: s1(p).__setitem__("clearance", 80)), "164 #1 must carry an until with a y_gt term")
+    refuses(edited(lambda p: s1(p).__setitem__("until", {"y_gt": 9000})), "164 #1's until {'y_gt': 9000} is looser than "
+                                                                           "its door 164.e2's gate")
     refuses(dict(copy.deepcopy(good), side_ends={"S": [55], "F": [31258]}), "is not exactly")
     refuses(edited(lambda p: p["members"].__setitem__("31205", 55)), r"O1 id\(s\) \[31205\]")
     refuses(dict(copy.deepcopy(good), inert=[{"donor": 164, "sid": 9}]), "inert row")
@@ -33351,15 +33354,22 @@ def test_o8_tower_goals_are_height_aware(o8_stock, tmp_path):
     levels, the wait point 335.2 / 293.5 u from the exits, the release under at_y's 8800, the pinch inside its window),
     and each clause FAILS on its mutant: a step key "hold"; 164 #0's closures from another band; 164 #1 at 80 (no
     route); 165 #0 at 110 (a route exists at 120); 165 #0 without 165.e3 avoided; 164 #0's at_y [13000, 14500]; 164 #1's
-    until y > 14000 (the door fires first); the wait's exit_slack 300; at_y [8000, 9150] (under the release); the
-    window's y band [5000, 6000]. No start-dependent number is pinned. Break: until_ok called without the y (the
-    XZ-only proof RAISES on a y term)."""
+    until y > 14000 (the door fires first); 164 #1's until y > 9000 and 165 #1's y > 11000 (looser than the door's
+    gate: the review's #4); the wait's exit_slack 300; at_y [8000, 9150] (under the release); the window's y band
+    [5000, 6000]. No start-dependent number is pinned. Break: until_ok called without the y (the XZ-only proof RAISES on
+    a y term); (g4') without y_implies (the loose untils PASS)."""
     D = _o8_dryrun()
+    O = _o8_module()
+    imp = O.y_implies                                    # the review's #4: an until at least as strict as its gate
+    assert imp({"y_gt": 12000}, {"y_gt": 12000}) and imp({"y_gt": 14000}, {"y_gt": 12000})         and imp({"y_ge": 12001}, {"y_gt": 12000}) and imp({"x_gt": 0}, {})
+    assert not imp({"y_gt": 9000}, {"y_gt": 12000}) and not imp({"y_ge": 12000}, {"y_gt": 12000})         and not imp({"z_gt": 500}, {"y_gt": 12000})
+    assert imp({"y_lt": 6000}, {"y_lt": 6000}) and imp({"y_le": 5999}, {"y_lt": 6000})         and not imp({"y_le": 6000}, {"y_lt": 6000}) and imp({"y_gt": 1, "y_lt": 5}, {"y_le": 5})         and not imp({"y_gt": 1}, {"y_le": 5}) and imp({"y_gt": 8400}, {"y_ge": 8400})
     pred = _o8_draft(tmp_path)
     got = D.unit_goals(pred, o8_stock)
     assert [n for n, _ok, _d in got] == ["goals", "goals-hold-key", "goals-164-0-band", "goals-164-1-at-80",
                                          "goals-165-0-at-110", "goals-165-0-no-e3", "goals-164-0-at-y",
-                                         "goals-164-1-until", "goals-wait-slack", "goals-release", "goals-window-y"]
+                                         "goals-164-1-until", "goals-164-1-until-loose", "goals-165-1-until-loose",
+                                         "goals-wait-slack", "goals-release", "goals-window-y"]
     bad = [(n, d) for n, ok, d in got if not ok]
     assert not bad, bad
 

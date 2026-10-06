@@ -803,6 +803,32 @@ def gate_text(gate: dict) -> str:
     return f"y {dict(y_gt='>', y_ge='>=', y_lt='<', y_le='<=').get(k, k)} {v}"
 
 
+def y_implies(until: dict, gate: dict) -> bool:
+    """Whether an ``until``'s y terms are AT LEAST AS STRICT as a door's height ``gate`` -- every published height the
+    until admits satisfies the gate, so a control loss the until accepts as the door's is one the door can cause
+    (research/o8_design.md 11.4, the review's #4). Per gate term: ``{"y_gt": g}`` needs a ``y_gt`` term >= g or a
+    ``y_ge`` term > g; ``{"y_ge": g}`` a ``y_gt`` or ``y_ge`` term >= g; ``{"y_lt": g}`` a ``y_lt`` term <= g or a
+    ``y_le`` term < g; ``{"y_le": g}`` a ``y_lt`` or ``y_le`` term <= g. x and z terms imply no height; an empty gate is
+    implied by anything."""
+    inf = float("inf")
+    t = {k: float(v) for k, v in (until or {}).items() if k.startswith("y_")}
+    for k, v in (gate or {}).items():
+        g = float(v)
+        if k == "y_gt":
+            ok = t.get("y_gt", -inf) >= g or t.get("y_ge", -inf) > g
+        elif k == "y_ge":
+            ok = max(t.get("y_gt", -inf), t.get("y_ge", -inf)) >= g
+        elif k == "y_lt":
+            ok = t.get("y_lt", inf) <= g or t.get("y_le", inf) < g
+        elif k == "y_le":
+            ok = min(t.get("y_lt", inf), t.get("y_le", inf)) <= g
+        else:
+            ok = False
+        if not ok:
+            return False
+    return True
+
+
 def pin_text(pred: dict, site) -> str | None:
     """The pinned text of ``[donor, sid, tag, ip]``, or None."""
     return C7.pin_text(pred, site)
@@ -1844,9 +1870,11 @@ def goals8(pred: dict, walkmesh=None, *, cache: dict | None = None, window=None)
            step's floor inside its polygon (a dead-level crossing); a trigger's own door never avoided;
       (g3') THE ARRIVAL'S HEIGHT (a walk with ``at_y``): every point within ``tolerance`` of the goal on open tris
            whose published heights lie inside ``at_y``, every OTHER level of the stock mesh at the goal's XZ outside it;
-      (g4') THE TRIGGER'S HEIGHT (a y-until): the goal inside its door's polygon on an open tri where the until holds;
-           the planned route's FIRST sample where the door's gate holds inside its polygon satisfies the until; every
-           sample inside ANOTHER exit's polygon stands where that exit's gate fails;
+      (g4') THE TRIGGER'S HEIGHT (a y-until): the until AT LEAST AS STRICT as its door's gate (:func:`y_implies`: a
+           loss the until accepts is one the door can cause -- the review's #4; the first-sample clause alone holds for
+           any looser until); the goal inside its door's polygon on an open tri where the until holds; the planned
+           route's FIRST sample where the door's gate holds inside its polygon satisfies the until; every sample inside
+           ANOTHER exit's polygon stands where that exit's gate fails;
       (g5') THE WAIT POINT (a ``wait_flag``): every point within ``tolerance`` of the goal at least ``exit_slack`` +
            the place's engine radius from every registered exit;
       (g6') THE KNIGHT: ``at_y``'s low end inside his release; his seat more than his planning disc (ROUTE_BODY_MARGIN
@@ -2012,6 +2040,10 @@ def goals8(pred: dict, walkmesh=None, *, cache: dict | None = None, window=None)
                                       f"({first[0]:.1f}, {first[1]:.1f}) y {first[2]:.0f}")
                                    + f", where its until {s['until']} does not hold: the door fires before the "
                                      f"evidence holds")
+                    if not y_implies(s["until"], gate):
+                        bad.append(f"{lab} (g4'): its until {s['until']} is looser than its door {door_key}'s gate "
+                                   f"({gate_text(gate) if gate else 'none'}): a loss of control below the door's "
+                                   f"height would read as its firing")
                     live = {k: v["live"] for k, v in crossed.items() if v["live"]}
                     if live:
                         bad.append(f"{lab} (g4'): the plan crosses another exit where its gate holds: {live}")
@@ -2019,7 +2051,7 @@ def goals8(pred: dict, walkmesh=None, *, cache: dict | None = None, window=None)
                         dead = "; ".join(f"{k} crossed at y {min(v['dead'])}-{max(v['dead'])} (dead)"
                                          for k, v in sorted(crossed.items()) if v["dead"])
                         lines.append(f"{lab} (g4') fires {door_key} at ({first[0]:.1f}, {first[1]:.1f}) y {first[2]:.0f} "
-                                     f"({gate_text(gate)})" + (f"; {dead}" if dead else ""))
+                                     f"({gate_text(gate)}, its until as strict)" + (f"; {dead}" if dead else ""))
             # (g5')
             if s["kind"] == "walk" and s.get("wait_flag") is not None:
                 need = float(s["exit_slack"]) + radius
@@ -2366,6 +2398,12 @@ class O8Segment(C7.O7Segment):
             bad.append("165 #0 must carry 165.e3 in its avoid and at_y (2.4)")
         if not ("y_gt" in (t1.get("until") or {}) and t1.get("to") == 166):
             bad.append("165 #1 must carry a y_gt until and to 166 (2.4)")
+        for donor, trig in ((164, t0), (165, t1)):                # the review's #4: the until is the door's evidence
+            key = door_sites8(pred, donor, trig.get("to"))[0] if trig.get("to") is not None else None
+            gate = ((pred.get("regions") or {}).get(key) or {}).get("gate") if key else None
+            if trig.get("until") and not (gate and y_implies(trig["until"], gate)):
+                bad.append(f"{donor} #1's until {trig.get('until')} is looser than its door {key}'s gate {gate}: a loss "
+                           f"below the door's height would read as its firing (the review's #4)")
         if pred.get("side_ends") != {"S": [END_FIELD], "F": [END_FIELD]}:
             bad.append(f"side_ends {pred.get('side_ends')} is not exactly {{S: [55], F: [55]}}")
         try:

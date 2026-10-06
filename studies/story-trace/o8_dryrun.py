@@ -2869,7 +2869,8 @@ def unit_goals(pred: dict, stock) -> list:
     """O8-GOALS on the install PASSES with 6.1's lines; each mutant FAILS by its clause: a step key "hold" (g0); 164
     #0's closures from another band (g0); 164 #1 at 80 (g1': no route, the step's own (g0)); 165 #0 at 110 (g1': a route
     exists at 120); 165 #0 without 165.e3 in ``avoid`` (g2'); 164 #0's at_y [13000, 14500] (g3': tri 98's level); 164
-    #1's until y_gt 14000 (g4': the door fires before the evidence holds); 164 #0's exit_slack 300 (g5': 335u from
+    #1's until y_gt 14000 (g4': the door fires before the evidence holds); 164 #1's until y_gt 9000 and 165 #1's y_gt
+    11000 (g4': looser than the door's gate -- the review's #4); 164 #0's exit_slack 300 (g5': 335u from
     164.e2 under 300 + 80 -- as built: the design's "P1 moved 200 u toward e2" lands 40u from a wall, so the step plans
     nothing and (g5') is never read); at_y [8000,
     9150] (g6': under the release 8400 -- a mutant (g3') fails too); the window's y band [5000, 6000] (g7')."""
@@ -2904,6 +2905,10 @@ def unit_goals(pred: dict, stock) -> list:
         ("goals-165-0-no-e3", no_e3, "(165, 1190, 2) #0 (g2'): the registered exit 165.e3 is not in its avoid"),
         ("goals-164-0-at-y", step(0, 0, at_y=[13000, 14500]), "(164, 1190, 1) #0 (g3')"),
         ("goals-164-1-until", step(0, 1, until={"y_gt": 14000}), "(164, 1190, 1) #1 (g4'): the door 164.e2 fires"),
+        ("goals-164-1-until-loose", step(0, 1, until={"y_gt": 9000}),
+         "(164, 1190, 1) #1 (g4'): its until {'y_gt': 9000} is looser than its door 164.e2's gate (y > 12000)"),
+        ("goals-165-1-until-loose", step(1, 1, until={"y_gt": 11000}),
+         "(165, 1190, 2) #1 (g4'): its until {'y_gt': 11000} is looser than its door 165.e2's gate (y > 15000)"),
         ("goals-wait-slack", step(0, 0, exit_slack=300), "(164, 1190, 1) #0 (g5'): within 45 of the wait point"),
         ("goals-release", step(0, 0, at_y=[8000, 9150]), "(164, 1190, 1) #0 (g6')"),
         ("goals-window-y", window, "(164, 1190, 1) #1 (g7')")])
