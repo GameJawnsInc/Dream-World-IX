@@ -215,6 +215,10 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > stock forest-contact massif. Stock's forest edge (always welded, never under ~1.6u, never in a hollow)
 > rules out (a), (a') and (b). What remains is (c): a coastal shelf ~1.1u lower on the forest side, which
 > already faces the west coast 66-80u out. Its grass step is to be stock-measured before it is built.
+> **The grass-step study ran** ([`GRASS-STEP-STUDY.md`](GRASS-STEP-STUDY.md)). Stock ~1u grass steps are
+> ~12u ramps at <= ~8 deg, never lips. At home the horseshoe is a small island whose forest side is a
+> forested coastal slope to the sea in 10-24u. Owner call: (c1) a shelf out to our existing shore, or
+> (c2) re-seat the massif so its forest side becomes the coast.
 
 > **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
 > the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**
