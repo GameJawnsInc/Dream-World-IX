@@ -228,6 +228,10 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > [`ISLE-RECT-STUDY.md`](ISLE-RECT-STUDY.md)). Daguerreo is separable on land but shares one shallow-water ladder
 > with 2-6 neighbouring masses, so no rect up to 4x4 carries it (as `coast-shape-language/PALETTE.md` had
 > recorded). The bench's R4 revert is verified exact. Owner call next.
+> **comp20 DEPLOYED LIVE in the horseshoe's place (2026-10-06)** ([`COMP20-BENCH.md`](COMP20-BENCH.md)):
+> R4 reverted (r4-pre restored, the 54 ensemble parts removed), comp20 carved at (1486,-386) rot 90 by
+> the plan's own line, R3 re-stamped (probe a-e PASS). Live = the measured bench (727/727). Revert =
+> the continent's files from `comp20-pre.20261006-193908`. Owner look pending: teleport (1519.8,-389.3), face west.
 
 > **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
 > the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**

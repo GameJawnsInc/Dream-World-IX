@@ -90,3 +90,33 @@ meets the lawn all round on its own grass-fringed foot, with no visible ramp or 
   comp20's buried coastal-rock stretches, named target #1, straight ahead.
 - **The deploy itself:** the R4 revert, then the carve line with `--mod-folder FF9CustomMap-world`, then
   `stamp_area_policy.py`, all with backups first. The bench measured all of it.
+
+### DEPLOYED LIVE (2026-10-06, owner: "yes, deploy comp20 live")
+
+- **Preflight:**
+  - live's R4 blocks = the take-12 bench (55/55);
+  - live unchanged since the bench (the same 92 expected diffs, 0 outside);
+  - FF9.exe not running.
+- **Backup:** the whole live WorldMap Disc1/0_1 + Disc4/0_1 tree → `backups/west-seam-continent/comp20-pre.20261006-193908`
+  (1,737 files, 0 mismatches). **THE REVERT.** Restore only the continent's blocks from it: it also holds other
+  sessions' content as of 19:39.
+- **The R4 revert live:**
+  - restored 560 files from `r4-pre`;
+  - removed the 54 R4-created ensemble parts, each confirmed present in the backup first;
+  - 0 diffs, 0 left.
+- **The carve live:** `world-mountain --mod-folder FF9CustomMap-world --near 1476,-376 --donor 12,16-17 --reach 44`.
+  Identical to the bench: rot 90° at (1486, −386), clearance 61.3u, every gate the same. **Disc4 auto-mirror ran**
+  (36 files: the folder was named).
+- **The re-stamp live:** run from the MAIN repo copy, so its backup lands there:
+  - 2,100 verts across 52 files (both discs);
+  - backup `r3-pre-area14.20261006-194031`;
+  - `probe_area14.py` ALL CHECKS PASS (a–e).
+- **Verification:**
+  - live Disc1 = the measured bench Disc1 (727 identical, 0 differing; `.bak` parkings excluded);
+  - Disc4 Terrain = Disc1 on all 4 span blocks.
+
+**For the owner's look (C4):**
+- teleport **(1519.8, −389.3)** and face WEST (~174°); the coastal-rock stretches are straight ahead;
+- walk the base all round;
+- the harness's `rimwalk_take8.py` stations are for the horseshoe and are now STALE (re-derive for comp20
+  after the look).
