@@ -971,6 +971,8 @@ REQUIRED_TESTS_O8: tuple = (
     "test_o8_rehearsal_records_the_knight_the_pinch_and_the_movie_on_the_fake",
     "test_o8_rehearsal_smoke_sends_no_storytrace_on_the_fake",
     "test_o8_rehearsal_fpass_runs_untraced_to_real_55_on_the_fake",
+    # research/o8_design.md 11.4, the review's fixes, each with its finding
+    "test_o8_rehearsal_t0_scan_marks_an_evicted_release_unmeasured",            # #1: T0 off an evicting ring
 )
 
 # -- G21, the driver's source pins (research/o4_design.md 1.4, rev. 2)

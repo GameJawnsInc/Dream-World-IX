@@ -279,6 +279,8 @@ class Recorder(O7R.Recorder):
         self.knight_polls: list = []
         self.t0 = None
         self._kscanned = None                           # the ring's last frame t0_scan read
+        self._kgap = None                               # the last eviction gap t0_scan met: [last read, oldest held]
+        self._kbelow = False                            # a sample in his place under the release read since that gap
         mv = pred.get("movie") or {}
         self.movie_place = mv.get("donor")
         self.ip502 = tuple((mv.get("from") or [0, 0, 0, 0])[1:])
@@ -295,28 +297,51 @@ class Recorder(O7R.Recorder):
         """O7's grant scan from ``frame`` on, and :meth:`t0_scan`'s too: the run's start, before its New Game."""
         super().arm(frame)
         self._kscanned = int(frame) - 1
+        self._kgap, self._kbelow = None, False
 
     def t0_scan(self, st) -> None:
         """T0 (7.2, F2) off the RING at every poll until found: each sample the harness read since the last scan,
         once, oldest first -- the first in the knight's place whose published player y passes his release
-        (``seat_watch.release``: y >= 8400 on 164's loop 2) is T0, ``{"frame", "y", "field"}``."""
+        (``seat_watch.release``: y >= 8400 on 164's loop 2) is T0, ``{"frame", "y", "field"}``.
+
+        THE RING EVICTS (research/o8_design.md 11.4, the review's #1): it holds the last STATE_RING distinct samples
+        (~10 s at 60 fps), and no poll -- so no scan -- runs inside a step's executor (164 #0's walk and THE KNIGHT
+        WAIT). A scan whose ring no longer holds the last frame read (its oldest sample is newer) has LOST the samples
+        between, the crossing perhaps among them: from then on the first passing sample is T0 only once a sample in his
+        place UNDER the release has been read after that gap (the crossing then on record); else T0 is UNMEASURED,
+        ``{"frame": None, "evicted": True, "after": the last frame read before the gap, "held_from": the oldest frame
+        held after it, "first": the first passing sample read}`` -- never a late frame read as his release. (A climb
+        that crossed, fell back under the release and crossed again inside the gap would read the second crossing: the
+        walk to P1 climbs.)"""
         if self.t0 is not None or self.knight[0] is None:
             return
         since = st.frame - 1 if self._kscanned is None else self._kscanned
         try:
-            raws = self.g.states_since(since)
+            held = self.g.states_since(-1)                         # the whole ring, oldest first
         except Exception:                                      # noqa: BLE001 -- a record, never the run
             return
-        for raw in raws:
+        oldest = int(held[0].get("frame", -1)) if held else None
+        if oldest is not None and oldest > since:              # nothing at or before `since` left: an eviction gap
+            self._kgap, self._kbelow = [since, oldest], False
+        for raw in held:
             f = int(raw.get("frame", -1))
-            if self._kscanned is not None and f <= self._kscanned:
+            if f <= since:
                 continue
             self._kscanned = f
             y = (raw.get("player") or {}).get("y")
             fld = int((raw.get("field") or {}).get("id", -1))
-            if y is not None and place(fld, self.members) == self.knight[0] and O.gate_holds(self.release, y):
-                self.t0 = {"frame": f, "y": _r(y), "field": fld}
-                return
+            if y is None or place(fld, self.members) != self.knight[0]:
+                continue
+            if not O.gate_holds(self.release, y):
+                self._kbelow = True
+                continue
+            first = {"frame": f, "y": _r(y), "field": fld}
+            if self._kgap is not None and not self._kbelow:
+                self.t0 = {"frame": None, "evicted": True, "after": self._kgap[0], "held_from": self._kgap[1],
+                           "first": first}
+            else:
+                self.t0 = first
+            return
 
     def _live(self, st) -> None:
         """At most once a second in the movie's place: the live trace's rows -- the first ip502 row seen, ip863's."""

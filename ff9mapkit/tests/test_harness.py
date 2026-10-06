@@ -34231,6 +34231,55 @@ def _o8_void_stage(R, k, **over):
     return dict(void, runs=1, run_s=150, each=[dict(void["each"][k - 1], **over)])
 
 
+def test_o8_rehearsal_t0_scan_marks_an_evicted_release_unmeasured():
+    """THE RING EVICTS (research/o8_design.md 11.4, the review's #1), pure: the recorder's t0_scan over a real StateRing.
+    Armed at frame 999 (field 70's samples before it), 164's climb sampled every 2 frames at 60 fps from y 8000 (+5 a
+    sample) to P1's 8958 -- his release (y >= 8400) crossed at frame 1160 -- then 12 s held at P1 before the next poll's
+    scan. On a ring of 300 (STATE_RING: ~10 s at 60 fps) the crossing is EVICTED: T0 is UNMEASURED -- ``evicted`` True,
+    ``after`` 998 (the last frame read), ``held_from`` the ring's oldest, ``first`` the first passing sample held --
+    never that late frame read as T0, and the report line says UNMEASURED; on a ring of 5000 T0 is frame 1160. A gap
+    BEFORE his place (field 70's samples evicted, then his climb from y 4780 held whole) reads the crossing exactly: a
+    sample under the release follows the gap. Break: the first passing sample read as T0 whatever the ring lost (T0 then
+    ~6 s late)."""
+    import types
+    from harness.artifacts import StateRing
+    R = _o8_rehearse_module()
+    O = _o8_module()
+
+    class _St:
+        def __init__(self, frame, y, fld):
+            self.frame, self.read_at, self.age = frame, 0.0, 0.0
+            self.raw = {"frame": frame, "player": {"y": y}, "field": {"id": fld}}
+
+    def scan(n, run):
+        ring = StateRing(n)
+        for f in range(900, 999, 2):
+            ring.push(_St(f, 0.0, 70))
+        rec = R.Recorder.__new__(R.Recorder)
+        rec.g = types.SimpleNamespace(states_since=ring.since)
+        rec.t0, rec.knight, rec.release, rec.members = None, (164, 1), {"y_ge": 8400}, {}
+        rec.arm(999)
+        f = 998
+        for y, fld in run:
+            f += 2
+            ring.push(_St(f, y, fld))
+        rec.t0_scan(types.SimpleNamespace(frame=f))
+        return rec.t0, ring.frames()[0]
+    climb = [(8000.0 + 5 * k, 164) for k in range(192)] + [(8958.0, 164)] * 360
+    assert next(998 + 2 * (i + 1) for i, (y, _f) in enumerate(climb) if y >= 8400) == 1160
+    t0, oldest = scan(300, climb)
+    assert oldest > 1160 and t0 == {"frame": None, "evicted": True, "after": 998, "held_from": oldest,
+                                    "first": {"frame": oldest, "y": 8958.0, "field": 164}}, (t0, oldest)
+    line = O._knight_record_lines({"t0": t0, "wait": {}, "polls": []})[0]
+    assert f"THE KNIGHT: T0 UNMEASURED (the ring evicted the samples read after frame 998: it held from frame {oldest}"         in line, line
+    t0, oldest = scan(5000, climb)
+    assert oldest == 900 and t0 == {"frame": 1160, "y": 8400.0, "field": 164}, t0
+    assert "THE KNIGHT: T0 {'frame': 1160" in O._knight_record_lines({"t0": t0, "wait": {}, "polls": []})[0]
+    late = [(0.0, 70)] * 400 + [(4780.0 + 20 * k, 164) for k in range(210)] + [(8958.0, 164)] * 30
+    t0, oldest = scan(300, late)
+    assert oldest > 998 + 2 * 300 and t0 == {"frame": 998 + 2 * (400 + 181 + 1), "y": 8400.0, "field": 164}, t0
+
+
 def test_o8_rehearsal_void_stops_on_the_wait_on_the_fake(game):
     """R-VOID's run 1 (research/o8_design.md 7.1, F9) on the fake: ``flag_stop`` {"place": "164"} laid on 164 #0 of the
     run's COPY (the predictions given keep none), the run warped into "164" at 342. 164 #0 walks to P1 at its level and

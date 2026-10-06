@@ -3590,7 +3590,11 @@ def _knight_record_lines(kn: dict) -> list:
         return []
     w = kn.get("wait") or {}
     polls = kn.get("polls") or []
-    return [f"    THE KNIGHT: T0 {kn.get('t0')}; ip230 {kn.get('ip230')}; THE EXEMPT SPAN {kn.get('span')}; the wait "
+    t0 = kn.get("t0")
+    if isinstance(t0, dict) and t0.get("evicted"):       # the review's #1: the ring lost the crossing -- never a late T0
+        t0 = (f"UNMEASURED (the ring evicted the samples read after frame {t0.get('after')}: it held from frame "
+              f"{t0.get('held_from')}, his first sample past the release there {t0.get('first')})")
+    return [f"    THE KNIGHT: T0 {t0}; ip230 {kn.get('ip230')}; THE EXEMPT SPAN {kn.get('span')}; the wait "
             f"frame0 {w.get('frame0')} read {w.get('read')} at {w.get('frame')}, {w.get('s')} s (game {w.get('game_s')} "
             f"s), published {w.get('published')}, last {w.get('last')}",
             f"      seat {kn.get('seat')}; start1 {kn.get('start1')}; {len(polls)} poll reading(s), distinct positions "
