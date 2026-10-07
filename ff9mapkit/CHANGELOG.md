@@ -5,16 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Fixed — `world-mountain`: a seat on all-lawn ground no longer refuses as "not a kit island"
+### Fixed — `world-mountain`: small massifs seat on a continent interior (all-lawn spans, deployed neighbours)
 - A span with no non-plain tri (a small donor's single-block seat in a continent's interior) used to refuse
   with "no coast to place against": the placement scan ranks candidates by clearance to the coast, and there was
   none to measure. Clearance is now unbounded there. The scan takes the candidate nearest the requested seat
   (rot 0 keeps its 0.75u preference), and the apron's coast taper sees no coast. Every downstream gate still runs.
 - Byte-neutral wherever a coast exists. The rebuilt July Uaho bench and comp20's continent carve produce
   identical bytes before and after.
-- Known limit, not fixed here: a single-block seat whose grass apron reaches a border shared with DEPLOYED
-  neighbour blocks cracks the weld there (the neighbours aren't in the span). The geometry gate refuses it, as
-  it did for Uaho at the west-seam R4 slot.
+- A small donor beside DEPLOYED neighbour blocks now takes the multi-block span. It used to take the
+  single-block pipeline, which loads only the seed block, so an apron lift reaching a border it shares with
+  a deployed neighbour split the weld. The geometry gate refused it (Uaho at the west-seam R4 slot: 8 new
+  once-edges on x=1472). Now a deployed neighbour inside the apron reach (and a fully covered core rect)
+  routes the carve to the multi-block span, which loads the neighbour and lifts per position on both sides.
+  - With no neighbour in the soup (the Uaho identity bench), the single-block pipeline runs byte-frozen.
+  - The same A/B holds: the July bench and comp20 are byte-identical.
+  - Uaho at the R4 slot now carves with every gate clean.
 
 ### Fixed — `world-mountain --foot-course`: a continuous fringe along the base, and no false walls at a corner
 - Owner-filed on the R4 west-seam massif's SE corner (take 9's harness frames): a stretched transition tile, a

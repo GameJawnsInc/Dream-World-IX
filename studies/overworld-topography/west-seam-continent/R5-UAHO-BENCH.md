@@ -133,3 +133,20 @@ already loads them and lifts per POSITION across borders, and it carved comp20 a
 - The July identity case loads only (2,19), so it stays single-block and byte-identical.
 - comp20 and the horseshoe are already multi-block.
 - Uaho's output on the continent would be NEW bytes, judged by the gates and then the owner.
+
+### Path 3 BUILT (2026-10-06, owner: "yes, route it to the multi-block path"): THE CONTINENT ROUTE
+
+- **The change:** a single-block-sized blob with a DEPLOYED neighbour block inside its apron reach
+  (r_rim + gblend + 2), and a fully covered core rect, takes the multi-block span. Otherwise the single-block
+  pipeline runs byte-frozen.
+- **The test:** `test_carve_mountain_small_donor_beside_deployed_neighbours_takes_the_multiblock_span`, with two
+  deployed lawn blocks and the saddle donor's apron reaching their shared border.
+  - Red on the old code with the exact R5 failure: "mountain geometry gate failed".
+  - Green on the fix: every x = 64 position holds ONE height across both blocks, and the lift really reaches
+    the border, so the test isn't vacuous.
+  - The carve test files: 98 passed, 2 skipped (the install-gated ones).
+- **A/B:** the July bench and comp20 are byte-identical again (sha1 on all 5 blocks).
+- **The R5 case** (live continent, `--near 1452,-468`, donor (0,0)) now carves on the multi-block span with
+  every gate clean: placement rot 0 at **(1442, −478)**, clearance 65.3u. The widened span now holds comp20's
+  rock, so the clearance is measured from comp20, and the scan keeps Uaho clear of it on its own.
+- **Next:** the registered bench round, rerun as registered on a fresh mirror.

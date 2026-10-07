@@ -1405,17 +1405,33 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     CX, CZ = float(seed_pt[0]), float(seed_pt[1])
     seed_blk = (int(math.floor(CX / BLOCK)), int(math.floor(-CZ / BLOCK)))
     half = r_rim + SCAN_BAND + 2.0
-    if 2.0 * half <= BLOCK:
+
+    def rect(h):
+        sx0 = int(math.floor((CX - h) / BLOCK))
+        sx1 = int(math.floor((CX + h) / BLOCK))
+        sy0 = int(math.floor(-(CZ + h) / BLOCK))
+        sy1 = int(math.floor(-(CZ - h) / BLOCK))
+        return [(sbx, sby) for sby in range(sy0, sy1 + 1)
+                for sbx in range(sx0, sx1 + 1)]
+    # THE CONTINENT ROUTE (west-seam R5, studies/overworld-topography/west-seam-continent/R5-UAHO-BENCH.md):
+    # the single-block pipeline loads ONLY the seed block, so its borders must face open ocean (a small
+    # kit island). On a continent they weld to DEPLOYED neighbours the span never loads, and an apron
+    # lift reaching a border split the weld there (Uaho at the R4 slot: 8 new once-edges on x=1472).
+    # A deployed neighbour inside the apron reach therefore routes a small donor to the multi-block
+    # span -- which loads it and lifts per POSITION on both sides -- whenever that span's core rect is
+    # fully covered. Otherwise (the Uaho identity bench: no neighbour in the soup) the single-block
+    # pipeline runs byte-frozen as before.
+    nb_deployed = sorted(b for b in rect(r_rim + gblend + 2.0)
+                         if b != seed_blk and b in soup["blocks"])
+    route = (2.0 * half <= BLOCK and bool(nb_deployed)
+             and all(b in soup["blocks"] for b in rect(half)))
+    if 2.0 * half <= BLOCK and not route:
         # the proven single-block pipeline (byte-frozen -- the Uaho identity acceptance)
         span = [seed_blk]
     else:
-        def rect(h):
-            sx0 = int(math.floor((CX - h) / BLOCK))
-            sx1 = int(math.floor((CX + h) / BLOCK))
-            sy0 = int(math.floor(-(CZ + h) / BLOCK))
-            sy1 = int(math.floor(-(CZ - h) / BLOCK))
-            return [(sbx, sby) for sby in range(sy0, sy1 + 1)
-                    for sbx in range(sx0, sx1 + 1)]
+        if route:
+            log(f"single-block-sized blob beside deployed neighbour block(s) {nb_deployed} inside "
+                f"the apron reach: the MULTI-block span (welds per position across their borders)")
         # the CORE rect (rim + band) must be fully covered -- the hole/zip live there.
         # Around it, widen the span with every PRESENT block of the APRON rect (rim +
         # gblend): the lift taper only fires at borders facing non-span blocks, and a
