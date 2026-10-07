@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-mountain`: no step in the grass fringe where two donor texture charts meet
+- Where two of a donor's uv charts meet at a corner of a rock-to-grass contact triangle, the fringe's blades
+  ended at a different height on either side of the shared edge: a dark rock tooth hanging below the fringe.
+  Stock has 6 such seams in 2,536 shared fringe positions on disc 1, every one on a contact triangle, and 3 in
+  Uaho's home.
+- The carve now moves every rock corner at such a position onto one value already present there: one that flips
+  no triangle's texture and moves the fewest corners. A position holding a plug or foot-course corner, or one
+  with no flip-free value, is left and named.
+- UV only: no position moves, every gate reads the same, and the step logs what it moved.
+- Byte-neutral for a donor with no such seam: comp20 carves identically. Uaho moves 8 v values at 2 positions.
+
 ### Fixed — `world-mountain`: the rock's grass fringe meets the lawn where stock puts it
 - Stock seats every rock-to-grass contact (rock wearing the fringed r10 c6-9 tile) on the tile's painted
   lawn line: 2,081 of 2,088 disc-1 contact-edge ends. A donor rim vertex that stood off it at home read as

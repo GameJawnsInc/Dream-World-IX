@@ -1189,6 +1189,71 @@ def test_lawn_line_snap_skips_a_position_an_interior_rock_tri_fans_at():
     assert out2 == parents + [fan]
 
 
+def test_carve_mountain_unifies_a_fringe_seam_at_a_contact_tri_corner(monkeypatch, tmp_path):
+    """THE FRINGE-SEAM UNIFY (UAHO-SEAM-BENCH.md): stock carries 6 fringe v-seams > 0.25 tile in 2,536 shared
+    fringe positions, every one on a contact tri. Where two donor charts meet at a contact tri's corner, the
+    blades end at a different height either side of their shared edge (R5b's tooth). The carve moves every rock
+    corner there onto the present value that moves the fewest -- here one face's apex of four -- so the carve
+    equals the carve of the same donor without the seam, byte for byte."""
+    pvA = IN.ROCK_CHART_PHASE[1]
+    good = _r10_saddle_donor()
+    apex = (24.0 + 1.5, 6.0, -24.0 + 1.5)
+    hits = [i for i, p in enumerate(good.chan_arrays[CH_POS]) if tuple(p) == apex]
+    assert len(hits) == 4
+    U = [list(u) for u in good.chan_arrays[CH_UV]]
+    U[hits[3]][1] = pvA + 9.4 * 0.03125                      # one face's chart maps the apex 0.63 tile higher
+    bad = BlockMesh(name=good.name, disc=1, x=0, y=0, lod="0_1", vcount=good.vcount, stride=48,
+                    channels=dict(good.channels), chan_arrays={**good.chan_arrays, CH_UV: U},
+                    flat_index=good.flat_index, tris=good.tris, raw_vbuf=b"", raw_ibuf=b"", use32=True,
+                    submeshes=[])
+
+    def carve(donor):
+        _patch_donor(monkeypatch, donor)
+        logs = []
+        res = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _mountain_bench()}), center=(22.0, -24.0),
+                                alcove=None, game=tmp_path,
+                                log=lambda *a: logs.append(" ".join(str(x) for x in a)))
+        return res["changed"][(0, 0)], logs
+
+    bm_good, logs_good = carve(good)
+    bm_bad, logs_bad = carve(bad)
+    assert any("fringe-seam unify: 1 position, 1 carried corner" in line for line in logs_bad)
+    assert not any("fringe-seam unify:" in line for line in logs_good)
+    for ch in (CH_POS, CH_NRM, CH_TAN, CH_UV):
+        assert bm_bad.chan_arrays[ch] == bm_good.chan_arrays[ch], ch
+
+
+def test_fringe_seam_unify_never_flips_the_texture_and_leaves_a_plug_corner():
+    """Candidates are the v values already present; one that would invert a tri (v rising with height) is
+    invalid -- R5b's V0, where chart A's value would flip two chart-B tris. A position holding a non-carried rock
+    corner (a plug) is left and named."""
+    puA, pvA = IN.ROCK_CHART_PHASE
+    u = puA + 6.5 * 0.0625
+
+    def v(t):
+        return pvA + t * 0.03125
+
+    def c8(p, vt):
+        return (*p, u, v(vt), 0.0, 1.0, 0.0)
+
+    rock = float(encode_id(topograph=49))
+    P, Q, LA, RB, M, Z = (0.0, 1.0, 0.0), (0.0, 5.0, 0.0), (-4.0, 1.0, 0.0), (4.0, 1.0, 0.0), \
+        (3.0, 4.5, -2.0), (0.0, 1.0, 4.0)
+    parents = [((c8(P, 11), c8(LA, 11), c8(Q, 10.0625)), rock, "mountain"),     # chart A
+               ((c8(RB, 11), c8(P, 11), c8(Q, 9.375)), rock, "mountain"),       # chart B
+               ((c8(Q, 9.375), c8(M, 9.9), c8(RB, 11)), rock, "mountain"),      # chart B, M below Q at 9.9
+               ((c8(LA, 25), c8(P, 25), c8(Z, 25)), GRASS, "zip"),
+               ((c8(P, 25), c8(RB, 25), c8(Z, 25)), GRASS, "zip")]
+    out, st = IN._fringe_seam_unify(parents, rock_topos={49}, log=lambda *a: None)
+    assert st == {"positions": 1, "entries": 1, "left": 0}
+    assert [c[4] for corners, _, fam in out if fam == "mountain" for c in corners if c[:3] == Q] == [v(9.375)] * 3
+    assert out[1:] == parents[1:]
+    # a plug corner at Q: left alone
+    plug = ((c8(Q, 9.375), c8((1.0, 4.0, 1.0), 9.9), c8(M, 9.9)), rock, "plug")
+    out2, st2 = IN._fringe_seam_unify(parents + [plug], rock_topos={49}, log=lambda *a: None)
+    assert st2 == {"positions": 0, "entries": 0, "left": 1} and out2 == parents + [plug]
+
+
 def _foot_window_carve(monkeypatch, tmp_path, hs=WALL_SADDLE):
     _patch_donor(monkeypatch, _r10_saddle_donor(hs=hs))
     soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})

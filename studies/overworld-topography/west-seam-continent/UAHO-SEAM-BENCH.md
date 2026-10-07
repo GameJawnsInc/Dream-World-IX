@@ -81,3 +81,26 @@ registered R5 line carved (now with the snap AND the unify), and the R3 re-stamp
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+### Run 2026-10-07: S1–S4 hold as registered; S5 awaits the owner
+
+| | measured | verdict |
+|---|---|---|
+| **S1** the kit | **Red on R5b's code, green on the fix:** `test_carve_mountain_unifies_a_fringe_seam_at_a_contact_tri_corner` (R5b's code carries the seamed apex through: 1 uv entry differs) and `test_fringe_seam_unify_never_flips_the_texture_and_leaves_a_plug_corner`. **Suite:** the 16 world test files touching the carve, 361 passed, 4 skipped. **`ab_carve.py` vs R5b's code:** comp20 byte-identical. July and the pre-Uaho continent each change **8 v floats at 2 positions**, nothing else (11 bytes, all in the uv block). The picks match the screen exactly: NW → 9.656 (t395/t397/t403/t424), SE → 9.375 (t513/t517/t519/t536). Kit and instrument agree, so the declared stop did not fire | **HOLDS** |
+| **S2** the bench carve | **Rewind:** fresh live mirror (2,384 files), rewound to `uaho-pre` as in R5b; live (22,7) was still byte-equal to the R5b-era bench. **Carve:** every gate line identical to the live carve's. Log: "lawn-line snap: 2 rim positions, 3 carried corners" and "fringe-seam unify: 2 positions, 8 carried corners". **Bench vs live:** 726 identical, (22,7) Terrain differs by **11 v floats** (15 bytes, all in the uv block). **vs the R5b bench:** 8 v floats | **HOLDS** |
+| **S3** the screen | **0 positions selected** on the bench; comp20 0; stock unchanged at 6. The lawn-line census is still clean (t538 out of scope) | **HOLDS** |
+| **S4** the render | Live, R5b and R5c compared, with id buffers. **Ownership:** in all 11 views (4 SE chase, 3 SE zoom, 4 NW zoom), every changed pixel is owned by the 8 touched tris; none outside. **SE:** the band-height step on V9–V0 is gone, exactly by construction (both tris now carry the same v at both ends of the edge). Visually the blades end at matching heights, and at chase distance R5b's notch is gone, so the base reads as one continuous fringe. **NW:** no new feature in its four zoom views; its old chart lines stay where they were | **HOLDS** |
+
+**Seen, as named in advance:** the vertical chart line at V9–V0 remains (eye-landing #1). It is the u seam:
+- t536 samples fringe column 9.3 and t537 column 7.8, so the blade PATTERN changes across the line even though its
+  height now matches;
+- it is visible in the close zooms, faint at chase distance.
+
+Eye-landings #2 (chart A's band narrows) and #3 (NW t403 0.43 → 0.56) show no distinct feature in the renders.
+
+**For the owner:**
+- Bench at `scratchpad/bench-uaho-r5d` (R5b's snap + R5c's unify). Renders in `scratchpad/render_seam/` (atlas
+  pixels, not committed). Live is untouched.
+- A live deploy replaces (22,7) on Disc1 and mirrors it to Disc4. Revert = `uaho-pre` (22,7) plus the re-carve, or
+  restore the pre-deploy backup the deploy takes.
+- S5 then scores two clauses: the SE end, and the twice-passed NW.
