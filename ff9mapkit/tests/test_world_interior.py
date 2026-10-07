@@ -1121,6 +1121,74 @@ def test_carve_mountain_foot_course_window(monkeypatch, tmp_path):
                           log=lambda *a: None)
 
 
+def _off_lawn_line(bm, corner, vs):
+    """The donor with ``corner``'s v moved OFF the lawn line in each face meeting it -- Uaho's home t404/t405
+    (one rim vertex at v 10.53 / 10.19 tiles, the painted fringe row at 11.0)."""
+    U = [list(u) for u in bm.chan_arrays[CH_UV]]
+    hits = [i for i, p in enumerate(bm.chan_arrays[CH_POS]) if tuple(p) == corner]
+    assert len(hits) == len(vs)
+    for i, v in zip(hits, vs):
+        U[i][1] = v
+    return BlockMesh(name=bm.name, disc=1, x=0, y=0, lod="0_1", vcount=bm.vcount, stride=48,
+                     channels=dict(bm.channels), chan_arrays={**bm.chan_arrays, CH_UV: U},
+                     flat_index=bm.flat_index, tris=bm.tris, raw_vbuf=b"", raw_ibuf=b"", use32=True,
+                     submeshes=[])
+
+
+def test_carve_mountain_snaps_an_off_lawn_line_rim_vertex_onto_the_fringe_row(monkeypatch, tmp_path):
+    """THE LAWN-LINE SNAP (UAHO-LAWN-LINE-BENCH.md): stock seats every fringe contact edge on the tile's
+    painted lawn line (2,081 of 2,088 disc-1 ends). A donor rim vertex off it reads as bare rock hitting
+    the lawn once the zip grass meets it (the owner's Uaho SE end: "no transition tile"). The carve snaps
+    it onto the line in every carried corner there -- UV only, so the snapped carve equals the carve of
+    the same donor already on the line, byte for byte."""
+    pvA = IN.ROCK_CHART_PHASE[1]
+    v1 = pvA + 11 * 0.03125
+    good = _r10_saddle_donor()
+    corner = (24.0 - 2.5, 0.0, -24.0 - 2.5)                  # the saddle's c00 (hs[0] = 0.0)
+    bad = _off_lawn_line(good, corner, [v1 - 0.81 * 0.03125, v1 - 0.47 * 0.03125])
+
+    def carve(donor):
+        _patch_donor(monkeypatch, donor)
+        logs = []
+        res = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _mountain_bench()}), center=(22.0, -24.0),
+                                alcove=None, game=tmp_path,
+                                log=lambda *a: logs.append(" ".join(str(x) for x in a)))
+        return res["changed"][(0, 0)], logs
+
+    bm_good, logs_good = carve(good)
+    bm_bad, logs_bad = carve(bad)
+    assert any("lawn-line snap: 1 rim position, 2 carried corners" in line for line in logs_bad)
+    assert not any("lawn-line snap:" in line for line in logs_good)    # already on the line: a no-op
+    for ch in (CH_POS, CH_NRM, CH_TAN, CH_UV):
+        assert bm_bad.chan_arrays[ch] == bm_good.chan_arrays[ch], ch
+
+
+def test_lawn_line_snap_skips_a_position_an_interior_rock_tri_fans_at():
+    """A snap only where EVERY carried rock corner at the position is a zip contact: an interior tri fanning
+    there would take a v seam instead -- the position is left and named."""
+    pvA = IN.ROCK_CHART_PHASE[1]
+    u, v1, v0 = IN.ROCK_CHART_PHASE[0] + 6.5 * 0.0625, pvA + 11 * 0.03125, pvA + 10 * 0.03125
+    off = v1 - 0.5 * 0.03125
+    P, Q, R, T = (0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (-4.0, 0.0, 0.0), (0.0, 3.0, -2.0)
+
+    def c8(p, v):
+        return (*p, u, v, 0.0, 1.0, 0.0)
+
+    rock = float(encode_id(topograph=49))
+    parents = [((c8(P, off), c8(Q, v1), c8(T, v0)), rock, "mountain"),
+               ((c8(R, v1), c8(P, off), c8(T, v0)), rock, "mountain"),
+               ((c8(Q, 9.0), c8(P, 9.0), c8((0.0, 0.0, 4.0), 9.0)), GRASS, "zip"),
+               ((c8(P, 9.0), c8(R, 9.0), c8((0.0, 0.0, 4.0), 9.0)), GRASS, "zip")]
+    out, st = IN._lawn_line_snap(parents, rock_topos={49}, log=lambda *a: None)
+    assert st["positions"] == 1 and st["entries"] == 2 and st["left"] == 0
+    assert all(c[4] == v1 for corners, _, fam in out if fam == "mountain" for c in corners if c[:3] == P)
+    # an interior rock tri fanning at P (no zip edge through it): the snap leaves P alone
+    fan = ((c8(P, off), c8(T, v0), c8((0.0, 2.0, -4.0), v0)), rock, "mountain")
+    out2, st2 = IN._lawn_line_snap(parents + [fan], rock_topos={49}, log=lambda *a: None)
+    assert st2["positions"] == 0 and st2["left"] == 2
+    assert out2 == parents + [fan]
+
+
 def _foot_window_carve(monkeypatch, tmp_path, hs=WALL_SADDLE):
     _patch_donor(monkeypatch, _r10_saddle_donor(hs=hs))
     soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})

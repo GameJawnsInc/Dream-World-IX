@@ -130,6 +130,10 @@ MTN_APRON_SLOPE = 29.5           # the grass apron's slope envelope (deg)
 # (its out/daguerreo_massif.json "phase"); the aperture-plug chart gate quantizes against
 # it (cols 5-10, rows 6-12 = the painted rock band).
 ROCK_CHART_PHASE = (0.015625, 0.01953125)
+LAWN_LINE_TOL = 0.05             # THE LAWN-LINE SNAP (UAHO-LAWN-LINE-BENCH.md): a carried fringe
+#                                  contact-edge end further than this (tiles) off the painted lawn
+#                                  line snaps onto it -- stock disc 1 seats 2,081 of 2,088 ends ON
+#                                  it (v = phase + 11 rows), p99.5 0.031
 # THE ENSEMBLE CARRY's auxiliary part universe (canonical override spellings): a big
 # massif's aperture is a river/falls MOUTH whose ring is owned by the UNION of these
 # parts (the horseshoe: object 22 + falls 12 + river 15 + riverjoint 4 of 43 ring pts) --
@@ -2606,6 +2610,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                             u + g_du, v + g_dv, *n3))
         new_parents.append((tuple(corners), ID0, "zip"))
 
+    # ---- 5d. THE LAWN-LINE SNAP: the carried rock meets the zip on its painted lawn line ----
+    new_parents, lawn_snap = _lawn_line_snap(new_parents, rock_topos=ROCK, log=log)
+
     # ---- 6. gates + assembly ------------------------------------------------------------
     for corners, idall, fam in new_parents:
         for p in corners:
@@ -2975,8 +2982,77 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                        "zip_rise": round(zip_rise, 2), "rock_rigid": round(worst_rig, 4),
                        "apron_slope": round(g_worst, 1), "lifted": len(lift_of),
                        "patched_holes": patched_holes,
+                       "lawn_snapped": lawn_snap["entries"],
                        "teleport": (math.floor(TX - r_out - 2) + 0.5,
                                     math.floor(TZ) + 0.5)}}
+
+
+def _lawn_line_snap(new_parents, *, rock_topos, log=print):
+    """THE LAWN-LINE SNAP (R5 U5 / UAHO-LAWN-LINE-BENCH.md). Stock seats every fringe contact edge
+    -- rock wearing the r10 c6-9 chart tile, against grass -- on the tile's painted lawn line (v =
+    phase + 11 rows on 2,081 of 2,088 disc-1 contact-edge ends). A donor rim vertex that stood off it
+    at home (Uaho t404/t405, a 2u shore strip nobody sees) reads as bare rock hitting the lawn once the
+    zip grass meets it on open ground: the owner's "no transition tile". Each carried fringe-tile
+    ("mountain") corner on an edge it shares with a ZIP tri, further than LAWN_LINE_TOL off the line,
+    snaps onto it -- in every rock corner at that position, and only where all of them are such
+    contacts (an interior tri fanning there would take a v seam instead; that position is left and
+    named). UV only: no position moves. Returns (new_parents, {"positions", "entries", "left"})."""
+    puA, pvA = ROCK_CHART_PHASE
+    lawn = pvA + 11 * 0.03125
+
+    def topo(idall):
+        return (int(round(idall)) >> 2) & 0x3F
+
+    zip_edges = set()
+    for corners, _idall, fam in new_parents:
+        if fam == "zip":
+            ks = [kk3(c) for c in corners]
+            zip_edges.update(tuple(sorted((ks[a], ks[b]))) for a, b in ((0, 1), (1, 2), (2, 0)))
+    rock_at = defaultdict(set)                   # position -> every rock corner (parent, corner) there
+    contact_at = defaultdict(set)                # position -> the fringe zip-contact corners there
+    off = set()                                  # positions with a contact end off the lawn line
+    for pi, (corners, idall, fam) in enumerate(new_parents):
+        if topo(idall) not in rock_topos:
+            continue
+        ks = [kk3(c) for c in corners]
+        for ci, k in enumerate(ks):
+            rock_at[k].add((pi, ci))
+        if fam != "mountain":
+            continue
+        row = int((sum(c[4] for c in corners) / 3 - pvA) / 0.03125)
+        col = int((sum(c[3] for c in corners) / 3 - puA) / 0.0625)
+        if row != 10 or col not in (6, 7, 8, 9):
+            continue
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            if tuple(sorted((ks[a], ks[b]))) not in zip_edges:
+                continue
+            for ci in (a, b):
+                contact_at[ks[ci]].add((pi, ci))
+                if abs((corners[ci][4] - pvA) / 0.03125 - 11.0) > LAWN_LINE_TOL:
+                    off.add(ks[ci])
+    snap, left = {}, []
+    for k in sorted(off):
+        if rock_at[k] <= contact_at[k]:
+            for pc in rock_at[k]:
+                snap[pc] = lawn
+        else:
+            left.append(k)
+    snap = {pc: v for pc, v in snap.items() if new_parents[pc[0]][0][pc[1]][4] != v}   # real moves only
+    out = list(new_parents)
+    for pi in sorted({pi for pi, _ci in snap}):
+        corners, idall, fam = out[pi]
+        out[pi] = (tuple((*c[:4], snap[(pi, ci)], *c[5:]) if (pi, ci) in snap else c
+                         for ci, c in enumerate(corners)), idall, fam)
+    n_pos = len(off) - len(left)
+    if n_pos:
+        log(f"lawn-line snap: {n_pos} rim position{'s' if n_pos != 1 else ''}, {len(snap)} carried "
+            f"corner{'s' if len(snap) != 1 else ''} onto the fringe row's painted lawn line")
+    n_left = sum(1 for k in left for pc in contact_at[k]
+                 if abs((new_parents[pc[0]][0][pc[1]][4] - pvA) / 0.03125 - 11.0) > LAWN_LINE_TOL)
+    if left:
+        log(f"!! lawn-line: {n_left} zip contact end(s) left OFF the lawn line at {len(left)} position(s) "
+            f"-- an interior rock tri fans there, a snap would seam it: {left[:3]}")
+    return out, {"positions": n_pos, "entries": len(snap), "left": n_left}
 
 
 def _atlas_gate_mountain(new_parents, *, game=None, log=print):

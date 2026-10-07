@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-mountain`: the rock's grass fringe meets the lawn where stock puts it
+- Stock seats every rock-to-grass contact (rock wearing the fringed r10 c6-9 tile) on the tile's painted
+  lawn line: 2,081 of 2,088 disc-1 contact-edge ends. A donor rim vertex that stood off it at home read as
+  bare rock hitting the grass once carried onto open lawn. Uaho's SE end, a shore strip nobody saw at home,
+  drew the owner's "no transition tile".
+- The carve now snaps such a contact end onto the line, wherever the carried rock meets the zip grass. It
+  moves the end in every rock corner at that position, and only where all of them are zip contacts: a
+  position an interior tri fans at is left alone and named, because a snap there would open a v seam.
+- UV only: no position moves, every gate reads the same, and the snap logs what it moved.
+- Byte-neutral for a donor already on the line: comp20 carves identically. Uaho moves 3 v values at 2 rim
+  positions.
+
 ### Fixed — `world-mountain`: small massifs seat on a continent interior (all-lawn spans, deployed neighbours)
 - A span with no non-plain tri (a small donor's single-block seat in a continent's interior) used to refuse
   with "no coast to place against": the placement scan ranks candidates by clearance to the coast, and there was
