@@ -7,6 +7,10 @@ prefix of another part name on the same block can collide: sea4 / sea4f, and riv
 
 This script replicates the lookup on the index (cheap, no decode) and then CONFIRMS each mismatch by
 calling the real X.read_block and comparing vcount against the exact decode. Read-only.
+
+FIXED since: read_block now matches the part EXACTLY (extract._find_block_part). The replicated OLD rule
+below still reports its 3 mismatches by construction; the LIVE line and `read_block_wrong` are the verdict
+on the current code (0 and False once the fix is in). Regression test: tests/test_world_block_part_lookup.py.
 Run: py C:/gd/Dream-World-IX/studies/terrain-malleability/disc4/verify_prefix_collision.py
 """
 import json
@@ -45,7 +49,12 @@ for (d, lod, x, y, p), o in sorted(objs.items()):
             break
     if hit is None or hit[1] is not o:
         mism.append({"disc": d, "lod": lod, "x": x, "y": y, "part": p, "resolved": hit[0] if hit else None})
-print(f"{len(objs)} exact meshes swept; read_block-lookup mismatches: {len(mism)}")
+print(f"{len(objs)} exact meshes swept; OLD substring rule (replicated) mismatches: {len(mism)}")
+if hasattr(X, "_find_block_part"):                   # the live lookup; absent on pre-fix code
+    from ff9mapkit.extract import env_lock           # noqa: E402
+    with env_lock:
+        live = [k for k, o in sorted(objs.items()) if X._find_block_part(env, *k) is not o]
+    print(f"LIVE read_block lookup mismatches: {len(live)} {live}")
 conf = []
 for m in mism:
     bm = X.read_block(m["x"], m["y"], disc=m["disc"], lod=m["lod"], part=m["part"])

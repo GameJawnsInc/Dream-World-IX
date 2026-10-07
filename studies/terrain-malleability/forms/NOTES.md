@@ -143,7 +143,7 @@ two flag-gated places are consistent on disc 4.
 
 **F12 measurement -- 38 orphan 0_2 meshes.** 94 (disc 1) / 93 (disc 4) meshes live under `0_2`; prefabs reference
 56/55; the 38 orphans are all water/beach parts on switchable cells; 31 (disc 1) are identical to their 0_1 twin, 7
-DIFFER, e.g. (19,11) river 17 vs 66 tris, falls, riverjoint, (0,0) sea4 (`orphan_02.py`). The only runtime-reachable
+DIFFER, e.g. (19,11) river 69 vs 66 tris (42 shared; first recorded as 17 vs 66 through the D4-17 bug), falls, riverjoint, (0,0) sea4 (`orphan_02.py`). The only runtime-reachable
 `0_2` reference is the dead baker (WMWorldPrefabMaker.cs:36); the Unity port draws form-1 water in both forms.
 
 ## 4. Override interaction
