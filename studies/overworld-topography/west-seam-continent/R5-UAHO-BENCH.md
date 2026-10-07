@@ -195,3 +195,54 @@ The renders are `scratchpad/uaho_r5_sheet.png` (game atlas pixels, not committed
 **For the owner's look (U5):**
 - **(1412.6, −490.7), face north-east:** the raised coastal-rock stretch + its lifted grass bank;
 - **(1473.6, −472.8), face west:** the alcove + its plug.
+
+### U5, THE OWNER'S LOOK (2026-10-07): one complaint, at two carried donor tris
+
+What the owner said about the live deploy (three screenshots):
+- At viewpoint 1, (1412, −490): "i'm far away from the mountain … are those coordinates correct?"
+- At (1434, −482): "i think i see the raised grass bank here? … looks fine to me"
+- At (1456, −491): "the real problem is screenshot 3. the cliff hits the grass with no transition tile."
+- "the rest of that mini-mountain reads pretty well overall besides screenshot 3"
+
+| | verdict |
+|---|---|
+| target #1, the raised coastal-rock stretch + its lifted bank | **PASSES.** (1434, −482) is the stretch itself: stations 15–18, E up to +1.97. |
+| target #2, the alcove + its plug | passes ("reads pretty well overall") |
+| **U5** no complaint about either mountain's base | **FAILS on one stretch:** Uaho's SE end. comp20 had already passed. |
+
+**Viewpoint 1 was an instrument error.** The viewpoint script stood 32u from the BLOB CENTRE along the stretch's bearing.
+But the stretch sits in the blob's concave west waist at r ≈ 7–8u, so the stand-off was ~25u from the stretch, not
+the intended ~12u.
+
+### Localization (`uaho_contact_tiles.py`, read-only on live)
+
+- **The offline render reproduces the complaint.** The views were rendered from the owner's standpoint; the
+  renders are in the scratchpad (atlas pixels, not committed). The SE end's base is a clean rock edge, while the
+  flank beside it shows the grass-blade fringe.
+- **The tile is not missing.** All 27 live rock-grass contact tris wear the fringe tile, r10 c6-9. Calibration:
+  the same predicate over stock disc 1 reads 1130 contacts, 92% fringe, matching `stock_fringe_census.py` exactly.
+- **THE LAWN-LINE LAW (new, measured on stock disc 1).** Stock seats each fringe contact EDGE exactly on the
+  tile's painted lawn line, v = 1.0 of its row:
+  - 1037 of 1044 edges sit within 0.02 tile of it (p99 0.000);
+  - only 3 edges map-wide fall below 0.90: two are **Uaho's own home tris, (0,0) t404/t405**; the third is at (18,9).
+- **Live:**
+  - comp20: 0 of 36 contact edges off the line.
+  - Uaho: 3 of 27 (7.4u). t537 (home t405) reads lawn line [1.0, 0.188] and t536 (home t404) reads [0.531, 1.0].
+    Their shared rim vertex (1452.2, −492.8, y 2.48) carries v 10.19 / 10.53, not 11.0, so the base there samples
+    mid-tile rock with no blades. These edges lie 3.1u and 5.5u from the owner's standpoint.
+  - The third Uaho edge, t538 (0.884) at the alcove floor, was not flagged.
+- **Authorship: the donor's bytes, carried verbatim, NOT anything the carve wrote.** No verdict ever covered these edges:
+  - at home they meet a 2u grass strip on Uaho's island shore;
+  - in July they faced 12u of bench lawn and then the bench coast, on the far side of the rock from the owner's
+    July viewpoint, which faced the west rim;
+  - on open continent lawn every side is in view.
+
+**What it adds to the rule:** the screen now carries two flags: RAISED FOREST contacts, and **OFF-LAWN-LINE contact
+edges**. Both are the same class: the home context hid a donor-verbatim surface, and the carry exposes it (THE
+OVERHANG-CONTEXT class). Unlike the marginal gates, this is a stock-SHAPE predicate: stock builds it on 3 of 1044
+edges. Run before the deploy, it would have named this exact stretch.
+
+**The candidate fix (owner's call; NOT built):** snap the one rim vertex's v onto the lawn line in its two tris.
+- It changes 2 uv entries and no geometry.
+- Density doesn't change: t536 stays 0.24 tile/u and t537 0.52, t537's figure being the donor's own.
+- It does author the rock-to-grass contact's UV, conforming it to the stock law.

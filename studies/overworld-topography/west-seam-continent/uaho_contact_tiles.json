@@ -1,0 +1,2027 @@
+[
+ {
+  "block": [
+   22,
+   6
+  ],
+  "tri": 467,
+  "massif": "comp20",
+  "c": [
+   1466.01,
+   4.69,
+   -401.76
+  ],
+  "bearing": 218.3,
+  "course": 4.43,
+  "ymin": 3.21,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 312,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 89.8
+ },
+ {
+  "block": [
+   22,
+   6
+  ],
+  "tri": 471,
+  "massif": "comp20",
+  "c": [
+   1470.66,
+   4.7,
+   -401.82
+  ],
+  "bearing": 225.9,
+  "course": 4.4,
+  "ymin": 3.23,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 90.4
+ },
+ {
+  "block": [
+   22,
+   6
+  ],
+  "tri": 480,
+  "massif": "comp20",
+  "c": [
+   1461.43,
+   4.61,
+   -401.42
+  ],
+  "bearing": 212.1,
+  "course": 4.23,
+  "ymin": 3.2,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 233,
+   "nb": [
+    0,
+    49,
+    null
+   ],
+   "fringe": true
+  },
+  "shot3": 89.7
+ },
+ {
+  "block": [
+   22,
+   6
+  ],
+  "tri": 492,
+  "massif": "comp20",
+  "c": [
+   1466.47,
+   4.51,
+   -389.99
+  ],
+  "bearing": 191.6,
+  "course": 4.3,
+  "ymin": 3.07,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 306,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 101.5
+ },
+ {
+  "block": [
+   22,
+   6
+  ],
+  "tri": 493,
+  "massif": "comp20",
+  "c": [
+   1462.44,
+   4.53,
+   -393.29
+  ],
+  "bearing": 197.2,
+  "course": 4.31,
+  "ymin": 3.08,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 307,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 97.9
+ },
+ {
+  "block": [
+   22,
+   6
+  ],
+  "tri": 495,
+  "massif": "comp20",
+  "c": [
+   1470.86,
+   3.66,
+   -387.57
+  ],
+  "bearing": 185.9,
+  "course": 1.8,
+  "ymin": 3.07,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 104.5
+ },
+ {
+  "block": [
+   22,
+   6
+  ],
+  "tri": 500,
+  "massif": "comp20",
+  "c": [
+   1459.48,
+   4.57,
+   -397.59
+  ],
+  "bearing": 203.6,
+  "course": 4.31,
+  "ymin": 3.11,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    17
+   ],
+   "tri": 19,
+   "nb": [
+    0,
+    49,
+    null
+   ],
+   "fringe": true
+  },
+  "shot3": 93.5
+ },
+ {
+  "block": [
+   22,
+   6
+  ],
+  "tri": 501,
+  "massif": "comp20",
+  "c": [
+   1459.48,
+   4.6,
+   -400.26
+  ],
+  "bearing": 208.3,
+  "course": 4.27,
+  "ymin": 3.16,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    17
+   ],
+   "tri": 20,
+   "nb": [
+    0,
+    49,
+    null
+   ],
+   "fringe": true
+  },
+  "shot3": 90.8
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 394,
+  "massif": "uaho",
+  "c": [
+   1442.82,
+   4.24,
+   -468.16
+  ],
+  "bearing": 85.2,
+  "course": 5.86,
+  "ymin": 1.78,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 0,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 26.4
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 396,
+  "massif": "uaho",
+  "c": [
+   1439.43,
+   3.41,
+   -464.9
+  ],
+  "bearing": 101.1,
+  "course": 5.05,
+  "ymin": 1.71,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 2,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 30.9
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 397,
+  "massif": "uaho",
+  "c": [
+   1432.36,
+   3.6,
+   -463.61
+  ],
+  "bearing": 123.8,
+  "course": 3.85,
+  "ymin": 1.94,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 3,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 36.2
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 399,
+  "massif": "uaho",
+  "c": [
+   1431.89,
+   4.16,
+   -471.36
+  ],
+  "bearing": 146.7,
+  "course": 4.29,
+  "ymin": 2.31,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 5,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 31.1
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 400,
+  "massif": "uaho",
+  "c": [
+   1431.03,
+   4.01,
+   -464.95
+  ],
+  "bearing": 130.0,
+  "course": 2.7,
+  "ymin": 3.08,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 6,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 36.1
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 424,
+  "massif": "uaho",
+  "c": [
+   1435.03,
+   3.14,
+   -463.61
+  ],
+  "bearing": 115.9,
+  "course": 4.08,
+  "ymin": 1.71,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 30,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 34.5
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 425,
+  "massif": "uaho",
+  "c": [
+   1431.03,
+   4.18,
+   -467.61
+  ],
+  "bearing": 136.6,
+  "course": 2.61,
+  "ymin": 3.17,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 31,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 34.2
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 439,
+  "massif": "uaho",
+  "c": [
+   1446.81,
+   4.99,
+   -472.25
+  ],
+  "bearing": 50.1,
+  "course": 2.81,
+  "ymin": 4.03,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 105,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 20.9
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 440,
+  "massif": "uaho",
+  "c": [
+   1446.02,
+   4.14,
+   -470.8
+  ],
+  "bearing": 60.8,
+  "course": 1.73,
+  "ymin": 3.3,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 106,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 22.5
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 446,
+  "massif": "uaho",
+  "c": [
+   1447.24,
+   4.92,
+   -473.26
+  ],
+  "bearing": 42.1,
+  "course": 2.94,
+  "ymin": 3.9,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 112,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 19.8
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 449,
+  "massif": "uaho",
+  "c": [
+   1438.82,
+   4.49,
+   -483.56
+  ],
+  "bearing": 240.3,
+  "course": 2.86,
+  "ymin": 3.15,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 202,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 18.7
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 450,
+  "massif": "uaho",
+  "c": [
+   1440.4,
+   3.91,
+   -487.29
+  ],
+  "bearing": 260.2,
+  "course": 2.63,
+  "ymin": 2.98,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 203,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 16.0
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 451,
+  "massif": "uaho",
+  "c": [
+   1434.21,
+   5.18,
+   -475.61
+  ],
+  "bearing": 163.0,
+  "course": 6.34,
+  "ymin": 2.31,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 204,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 26.7
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 461,
+  "massif": "uaho",
+  "c": [
+   1444.37,
+   3.43,
+   -491.01
+  ],
+  "bearing": 280.3,
+  "course": 2.64,
+  "ymin": 2.34,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 214,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 11.6
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 471,
+  "massif": "uaho",
+  "c": [
+   1436.39,
+   5.45,
+   -480.91
+  ],
+  "bearing": 207.4,
+  "course": 2.44,
+  "ymin": 4.31,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 224,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 22.1
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 486,
+  "massif": "uaho",
+  "c": [
+   1435.34,
+   5.19,
+   -479.16
+  ],
+  "bearing": 189.9,
+  "course": 1.15,
+  "ymin": 4.57,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 239,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 23.8
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 514,
+  "massif": "uaho",
+  "c": [
+   1452.11,
+   3.89,
+   -489.61
+  ],
+  "bearing": 311.0,
+  "course": 2.59,
+  "ymin": 3.02,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 382,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 4.1
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 517,
+  "massif": "uaho",
+  "c": [
+   1448.36,
+   3.2,
+   -492.3
+  ],
+  "bearing": 294.0,
+  "course": 3.97,
+  "ymin": 1.64,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 385,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 7.7
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 522,
+  "massif": "uaho",
+  "c": [
+   1448.6,
+   4.62,
+   -479.22
+  ],
+  "bearing": 349.5,
+  "course": 3.18,
+  "ymin": 3.52,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 390,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 13.9
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 524,
+  "massif": "uaho",
+  "c": [
+   1450.62,
+   3.92,
+   -484.83
+  ],
+  "bearing": 321.6,
+  "course": 1.99,
+  "ymin": 3.2,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 392,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 8.2
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 525,
+  "massif": "uaho",
+  "c": [
+   1449.07,
+   4.22,
+   -481.79
+  ],
+  "bearing": 331.8,
+  "course": 2.4,
+  "ymin": 3.37,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 393,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 11.5
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 533,
+  "massif": "uaho",
+  "c": [
+   1451.55,
+   3.94,
+   -487.99
+  ],
+  "bearing": 313.7,
+  "course": 2.59,
+  "ymin": 3.02,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 401,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 5.4
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 534,
+  "massif": "uaho",
+  "c": [
+   1447.49,
+   4.35,
+   -474.6
+  ],
+  "bearing": 31.8,
+  "course": 1.45,
+  "ymin": 3.84,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 402,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 18.5
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 536,
+  "massif": "uaho",
+  "c": [
+   1450.53,
+   3.24,
+   -492.26
+  ],
+  "bearing": 300.9,
+  "course": 3.97,
+  "ymin": 1.64,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 404,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 5.6
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 537,
+  "massif": "uaho",
+  "c": [
+   1451.89,
+   3.71,
+   -491.11
+  ],
+  "bearing": 307.0,
+  "course": 3.13,
+  "ymin": 2.48,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    0,
+    0
+   ],
+   "tri": 405,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 4.1
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 538,
+  "massif": "uaho",
+  "c": [
+   1447.45,
+   4.44,
+   -475.75
+  ],
+  "bearing": 22.5,
+  "course": 1.95,
+  "ymin": 3.76,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 17.5
+ },
+ {
+  "block": [
+   22,
+   7
+  ],
+  "tri": 539,
+  "massif": "uaho",
+  "c": [
+   1448.1,
+   4.61,
+   -477.7
+  ],
+  "bearing": 2.8,
+  "course": 2.78,
+  "ymin": 3.65,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 15.5
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 433,
+  "massif": "comp20",
+  "c": [
+   1493.77,
+   4.63,
+   -370.28
+  ],
+  "bearing": 63.7,
+  "course": 3.96,
+  "ymin": 3.28,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 15,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 126.5
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 436,
+  "massif": "comp20",
+  "c": [
+   1508.9,
+   4.5,
+   -377.1
+  ],
+  "bearing": 21.2,
+  "course": 4.32,
+  "ymin": 3.04,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 18,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 125.6
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 442,
+  "massif": "comp20",
+  "c": [
+   1504.08,
+   4.46,
+   -372.96
+  ],
+  "bearing": 35.8,
+  "course": 4.25,
+  "ymin": 3.04,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 30,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 127.5
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 443,
+  "massif": "comp20",
+  "c": [
+   1498.59,
+   4.56,
+   -370.62
+  ],
+  "bearing": 50.7,
+  "course": 4.19,
+  "ymin": 3.06,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 31,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 127.7
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 453,
+  "massif": "comp20",
+  "c": [
+   1512.03,
+   4.73,
+   -381.04
+  ],
+  "bearing": 10.8,
+  "course": 4.86,
+  "ymin": 3.1,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 68,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 123.4
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 460,
+  "massif": "comp20",
+  "c": [
+   1513.65,
+   3.7,
+   -383.54
+  ],
+  "bearing": 5.1,
+  "course": 1.64,
+  "ymin": 3.15,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 121.9
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 476,
+  "massif": "comp20",
+  "c": [
+   1491.84,
+   4.49,
+   -370.77
+  ],
+  "bearing": 69.0,
+  "course": 4.29,
+  "ymin": 2.94,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 146,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 125.5
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 485,
+  "massif": "comp20",
+  "c": [
+   1489.96,
+   4.55,
+   -371.82
+  ],
+  "bearing": 74.4,
+  "course": 4.29,
+  "ymin": 2.94,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 162,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 123.9
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 486,
+  "massif": "comp20",
+  "c": [
+   1486.15,
+   4.78,
+   -374.4
+  ],
+  "bearing": 89.3,
+  "course": 3.8,
+  "ymin": 3.46,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 163,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 120.4
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 487,
+  "massif": "comp20",
+  "c": [
+   1483.07,
+   4.78,
+   -377.16
+  ],
+  "bearing": 108.3,
+  "course": 3.84,
+  "ymin": 3.43,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 164,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 117.0
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 494,
+  "massif": "comp20",
+  "c": [
+   1479.52,
+   4.59,
+   -380.92
+  ],
+  "bearing": 141.9,
+  "course": 4.26,
+  "ymin": 3.04,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 226,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 112.6
+ },
+ {
+  "block": [
+   23,
+   5
+  ],
+  "tri": 515,
+  "massif": "comp20",
+  "c": [
+   1476.16,
+   3.37,
+   -383.74
+  ],
+  "bearing": 167.0,
+  "course": 1.0,
+  "ymin": 3.04,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 109.1
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 434,
+  "massif": "comp20",
+  "c": [
+   1493.18,
+   4.69,
+   -391.61
+  ],
+  "bearing": 322.0,
+  "course": 4.23,
+  "ymin": 3.21,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 79,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 106.1
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 435,
+  "massif": "comp20",
+  "c": [
+   1496.88,
+   4.61,
+   -390.08
+  ],
+  "bearing": 339.4,
+  "course": 4.24,
+  "ymin": 3.19,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 81,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 108.9
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 436,
+  "massif": "comp20",
+  "c": [
+   1508.87,
+   4.61,
+   -388.26
+  ],
+  "bearing": 354.3,
+  "course": 4.24,
+  "ymin": 3.2,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 82,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 115.5
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 437,
+  "massif": "comp20",
+  "c": [
+   1513.35,
+   3.7,
+   -384.36
+  ],
+  "bearing": 3.4,
+  "course": 1.63,
+  "ymin": 3.16,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 121.1
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 438,
+  "massif": "comp20",
+  "c": [
+   1500.04,
+   4.6,
+   -389.41
+  ],
+  "bearing": 346.3,
+  "course": 4.24,
+  "ymin": 3.19,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 84,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 110.7
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 439,
+  "massif": "comp20",
+  "c": [
+   1512.28,
+   3.72,
+   -386.03
+  ],
+  "bearing": 359.9,
+  "course": 1.62,
+  "ymin": 3.17,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 119.1
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 441,
+  "massif": "comp20",
+  "c": [
+   1506.95,
+   4.61,
+   -388.69
+  ],
+  "bearing": 352.7,
+  "course": 4.23,
+  "ymin": 3.2,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 86,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 114.3
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 448,
+  "massif": "comp20",
+  "c": [
+   1502.09,
+   4.61,
+   -389.37
+  ],
+  "bearing": 348.2,
+  "course": 4.24,
+  "ymin": 3.19,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 113,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 111.6
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 465,
+  "massif": "comp20",
+  "c": [
+   1472.6,
+   4.44,
+   -401.93
+  ],
+  "bearing": 229.9,
+  "course": 3.61,
+  "ymin": 3.24,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 90.6
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 473,
+  "massif": "comp20",
+  "c": [
+   1485.3,
+   4.64,
+   -397.44
+  ],
+  "bearing": 266.5,
+  "course": 4.24,
+  "ymin": 3.23,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 312,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 98.0
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 474,
+  "massif": "comp20",
+  "c": [
+   1487.87,
+   4.76,
+   -396.06
+  ],
+  "bearing": 280.5,
+  "course": 4.23,
+  "ymin": 3.24,
+  "tile": [
+   10,
+   7
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 223,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 100.1
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 479,
+  "massif": "comp20",
+  "c": [
+   1480.71,
+   4.65,
+   -399.14
+  ],
+  "bearing": 248.1,
+  "course": 4.25,
+  "ymin": 3.23,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    17
+   ],
+   "tri": 19,
+   "nb": [
+    0,
+    49,
+    null
+   ],
+   "fringe": true
+  },
+  "shot3": 95.1
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 516,
+  "massif": "comp20",
+  "c": [
+   1476.35,
+   4.65,
+   -400.99
+  ],
+  "bearing": 237.2,
+  "course": 4.23,
+  "ymin": 3.24,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 307,
+   "nb": [
+    0,
+    49
+   ],
+   "fringe": true
+  },
+  "shot3": 92.3
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 527,
+  "massif": "comp20",
+  "c": [
+   1490.48,
+   4.81,
+   -393.56
+  ],
+  "bearing": 300.6,
+  "course": 4.03,
+  "ymin": 3.42,
+  "tile": [
+   10,
+   8
+  ],
+  "fringe": true,
+  "home": {
+   "block": [
+    12,
+    16
+   ],
+   "tri": 309,
+   "nb": [
+    49,
+    58
+   ],
+   "fringe": true
+  },
+  "shot3": 103.4
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 529,
+  "massif": "comp20",
+  "c": [
+   1474.97,
+   4.49,
+   -385.75
+  ],
+  "bearing": 178.7,
+  "course": 4.3,
+  "ymin": 3.05,
+  "tile": [
+   10,
+   9
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 107.0
+ },
+ {
+  "block": [
+   23,
+   6
+  ],
+  "tri": 531,
+  "massif": "comp20",
+  "c": [
+   1472.29,
+   3.66,
+   -387.12
+  ],
+  "bearing": 184.7,
+  "course": 1.8,
+  "ymin": 3.07,
+  "tile": [
+   10,
+   6
+  ],
+  "fringe": true,
+  "home": null,
+  "shot3": 105.2
+ }
+]
