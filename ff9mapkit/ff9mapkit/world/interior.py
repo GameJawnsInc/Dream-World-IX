@@ -134,6 +134,10 @@ LAWN_LINE_TOL = 0.05             # THE LAWN-LINE SNAP (UAHO-LAWN-LINE-BENCH.md):
 #                                  contact-edge end further than this (tiles) off the painted lawn
 #                                  line snaps onto it -- stock disc 1 seats 2,081 of 2,088 ends ON
 #                                  it (v = phase + 11 rows), p99.5 0.031
+FRINGE_SEAM_TOL = 0.25           # THE FRINGE-SEAM UNIFY (UAHO-SEAM-BENCH.md): a v spread above this
+#                                  (tiles) among the fringe corners at a contact tri's corner is a
+#                                  seam -- stock disc 1 has 6 in 2,536 shared fringe positions, every
+#                                  one on a contact tri (stock_fringe_continuity.py)
 # THE ENSEMBLE CARRY's auxiliary part universe (canonical override spellings): a big
 # massif's aperture is a river/falls MOUTH whose ring is owned by the UNION of these
 # parts (the horseshoe: object 22 + falls 12 + river 15 + riverjoint 4 of 43 ring pts) --
@@ -2612,6 +2616,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
 
     # ---- 5d. THE LAWN-LINE SNAP: the carried rock meets the zip on its painted lawn line ----
     new_parents, lawn_snap = _lawn_line_snap(new_parents, rock_topos=ROCK, log=log)
+    new_parents, seam_unify = _fringe_seam_unify(new_parents, rock_topos=ROCK, log=log)
 
     # ---- 6. gates + assembly ------------------------------------------------------------
     for corners, idall, fam in new_parents:
@@ -2983,6 +2988,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                        "apron_slope": round(g_worst, 1), "lifted": len(lift_of),
                        "patched_holes": patched_holes,
                        "lawn_snapped": lawn_snap["entries"],
+                       "seam_unified": seam_unify["entries"],
                        "teleport": (math.floor(TX - r_out - 2) + 0.5,
                                     math.floor(TZ) + 0.5)}}
 
@@ -3053,6 +3059,93 @@ def _lawn_line_snap(new_parents, *, rock_topos, log=print):
         log(f"!! lawn-line: {n_left} zip contact end(s) left OFF the lawn line at {len(left)} position(s) "
             f"-- an interior rock tri fans there, a snap would seam it: {left[:3]}")
     return out, {"positions": n_pos, "entries": len(snap), "left": n_left}
+
+
+def _fringe_seam_unify(new_parents, *, rock_topos, log=print):
+    """THE FRINGE-SEAM UNIFY (UAHO-SEAM-BENCH.md, R5b's tooth). Two donor uv charts can meet at a contact tri's
+    corner with different v: the fringe band (the blades, at the tile's bottom) then ends at a different height
+    either side of their shared edge. Stock has 6 such seams (> FRINGE_SEAM_TOL) in 2,536 shared fringe
+    positions on disc 1, every one on a contact tri -- 3 in Uaho's home. At every corner of a carried fringe tri
+    with a ZIP contact edge whose fringe corners disagree by more than that, every rock corner there moves to ONE
+    v: a value already present (nothing invented) that inverts no rock tri there (the texture never flips),
+    moving the fewest corners (then the lower worst density, then the lower v). A position holding a non-carried
+    rock corner (plug chart, foot course) or with no flip-free value is left and named. UV only. Returns
+    (new_parents, {"positions", "entries", "left"})."""
+    puA, pvA = ROCK_CHART_PHASE
+
+    def topo(idall):
+        return (int(round(idall)) >> 2) & 0x3F
+
+    def vt(v):
+        return (v - pvA) / 0.03125
+
+    def fringe(corners):
+        row = int((sum(c[4] for c in corners) / 3 - pvA) / 0.03125)
+        col = int((sum(c[3] for c in corners) / 3 - puA) / 0.0625)
+        return row == 10 and col in (6, 7, 8, 9)
+
+    def flips(pts):                              # pairs whose v order disagrees with the height order
+        return {(i, j) for i in range(3) for j in range(3)
+                if pts[i][0] < pts[j][0] - 0.05 and pts[i][1] < pts[j][1] - 1e-3}
+
+    zip_edges = set()
+    for corners, _idall, fam in new_parents:
+        if fam == "zip":
+            ks = [kk3(c) for c in corners]
+            zip_edges.update(tuple(sorted((ks[a], ks[b]))) for a, b in ((0, 1), (1, 2), (2, 0)))
+    cur = [list(corners) for corners, _i, _f in new_parents]
+    rock_at = defaultdict(list)                  # position -> [(parent, corner)] of every rock corner there
+    scope = set()
+    for pi, (corners, idall, fam) in enumerate(new_parents):
+        if topo(idall) not in rock_topos:
+            continue
+        ks = [kk3(c) for c in corners]
+        for ci, k in enumerate(ks):
+            rock_at[k].append((pi, ci))
+        if fam == "mountain" and fringe(corners) and any(
+                tuple(sorted((ks[a], ks[b]))) in zip_edges for a, b in ((0, 1), (1, 2), (2, 0))):
+            scope.update(ks)
+    n_pos, moved, left = 0, set(), []
+    for k in sorted(scope):
+        here = rock_at[k]
+        fr = [vt(cur[pi][ci][4]) for pi, ci in here if fringe(cur[pi])]
+        if len(fr) < 2 or max(fr) - min(fr) <= FRINGE_SEAM_TOL:
+            continue
+        if any(new_parents[pi][2] != "mountain" for pi, _ci in here):
+            left.append(k)
+            continue
+        best = None
+        for cand in sorted({cur[pi][ci][4] for pi, ci in here}):
+            n_move, worst, ok = 0, 0.0, True
+            for pi, ci in here:
+                before = [(c[1], vt(c[4])) for c in cur[pi]]
+                after = [(c[1], vt(cand) if j == ci else vt(c[4])) for j, c in enumerate(cur[pi])]
+                if flips(after) - flips(before):
+                    ok = False
+                    break
+                n_move += cur[pi][ci][4] != cand
+                ys, vs = [p[0] for p in after], [p[1] for p in after]
+                worst = max(worst, (max(vs) - min(vs)) / max(1e-6, max(ys) - min(ys)))
+            if ok and (best is None or (n_move, worst, cand) < best):
+                best = (n_move, worst, cand)
+        if best is None:
+            left.append(k)
+            continue
+        n_pos += 1
+        for pi, ci in here:
+            if cur[pi][ci][4] != best[2]:
+                c = cur[pi][ci]
+                cur[pi][ci] = (*c[:4], best[2], *c[5:])
+                moved.add((pi, ci))
+    out = [(tuple(cur[pi]), idall, fam) if any((pi, ci) in moved for ci in range(3)) else (corners, idall, fam)
+           for pi, (corners, idall, fam) in enumerate(new_parents)]
+    if n_pos:
+        log(f"fringe-seam unify: {n_pos} position{'s' if n_pos != 1 else ''}, {len(moved)} carried "
+            f"corner{'s' if len(moved) != 1 else ''} onto one present v (no flip, fewest moves)")
+    if left:
+        log(f"!! fringe-seam: {len(left)} seam position(s) left (a non-carried rock corner there, or every "
+            f"present value would flip a tri): {left[:3]}")
+    return out, {"positions": n_pos, "entries": len(moved), "left": len(left)}
 
 
 def _atlas_gate_mountain(new_parents, *, game=None, log=print):
