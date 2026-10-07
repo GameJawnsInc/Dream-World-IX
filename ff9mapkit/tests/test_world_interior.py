@@ -411,6 +411,35 @@ def _saddle_pyramid_donor(cx=24.0, cz=-24.0, half=4.0, apex=5.0):
     return _bm(tris, name="Block[0][0] Terrain", x=0, y=0)
 
 
+def test_carve_mountain_small_donor_beside_deployed_neighbours_takes_the_multiblock_span(monkeypatch, tmp_path):
+    """THE CONTINENT ROUTE (R5-UAHO-BENCH.md): a small donor fits one block, but on a continent that block's
+    borders weld to DEPLOYED neighbours the single-block span never loads, so the apron lift reaching a border
+    split the weld there (Uaho at the west-seam R4 slot: 8 new once-edges on x=1472). With a deployed
+    neighbour inside the apron reach, the carve takes the multi-block span: the neighbour loads and the lift
+    applies per POSITION on both sides of the border."""
+    _patch_donor(monkeypatch, _saddle_pyramid_donor())
+    logs = []
+    soup = IN.soup_from_blocks({(0, 0): _grid_block(0, 0), (1, 0): _grid_block(1, 0)})
+    res = IN.carve_mountain(soup, center=(50.0, -24.0), alcove=None, game=tmp_path,
+                            log=lambda *a: logs.append(" ".join(str(x) for x in a)))
+    assert any("deployed neighbour" in line for line in logs)
+    assert sorted(map(tuple, res["report"]["blocks"])) == [(0, 0), (1, 0)]
+    # the shared border x = 64: every position on it carries ONE height, whichever block holds it
+    out = {blk: bm for blk, bm in soup["blocks"].items()}
+    out.update(res["changed"])
+
+    def border(blk, local_x):
+        bx, _by = blk
+        return {round(float(p[2]), 4): round(float(p[1]), 6) for p in out[blk].chan_arrays[CH_POS]
+                if abs(float(p[0]) - local_x) < 1e-6}
+    left, right = border((0, 0), 64.0), border((1, 0), 0.0)
+    shared = set(left) & set(right)
+    assert len(shared) >= 10
+    assert all(left[z] == right[z] for z in shared), "the x=64 weld split"
+    # and the lift really reached the border (the case is not vacuous)
+    assert any(abs(left[z] - 3.2) > 1e-4 for z in shared)
+
+
 def _with_mains_uv(bm, tris):
     """Rewrite each GRASS tri's corner UVs to its centroid cell's exact mains map
     (quad (0,0), ori 0) so the mint-hole patch can decode every cell."""
