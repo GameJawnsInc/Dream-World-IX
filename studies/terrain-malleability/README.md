@@ -550,6 +550,12 @@ encounters at fog 0 (the Southern Ring runs at fog 1) and checks tags against th
 
 ## 7. Ranked next experiments
 
+**In-game results so far → [`ingame/RESULTS.md`](ingame/RESULTS.md)** (harness, no deploy). Ranks 1 and 5 confirmed,
+apart from the vehicle and Disc9 parts. The zone-5 battle on the (19,18) Cleyra tiles is proven, and so are the
+canopy sink of exactly 1.171875 and the −5.76 basin. The stock form switch is proven by height, including "decided
+once per world load". The rank-11 ridge blocks from both sides. The deploy-gated ranks (2's F0/F1, 3, 4, 6-10) await
+the owner's go.
+
 Cost classes: **no-DLL, no deploy** / **no-DLL, deploy** (mod files only) / **patch** (a new `memoria-patches` entry) /
 **rebake** (none is ever needed: forms F17). Harness: memory `project-ff9-test-harness`; capture: `tools/game_snap.ps1`.
 
