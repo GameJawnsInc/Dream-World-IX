@@ -97,3 +97,8 @@ span reaches the coast.
    - It needs a regression test that fails on today's code and the identity test kept green.
 3. **Force the multi-block path for small donors** (a flag). A bigger change: the single-block path is the
    frozen identity pipeline, so the multi-block path's output for Uaho would be NEW bytes, not July's.
+
+**Correction to path 2's "identity unaffected":** `test_carve_mountain_reproduces_deployed_uaho_bench` currently
+SKIPS, because its pristine r31 input and the deployed July bench are both gone. The honest regression check
+for the fix is an A/B on the rebuilt r31 seed-42 bench (UAHO-JULY-STRETCHES.md's rebuild): the carve's bytes
+with and without the fix must be identical where a coast exists.
