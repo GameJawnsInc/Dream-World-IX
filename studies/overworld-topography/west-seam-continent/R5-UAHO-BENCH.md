@@ -150,3 +150,24 @@ already loads them and lifts per POSITION across borders, and it carved comp20 a
   every gate clean: placement rot 0 at **(1442, −478)**, clearance 65.3u. The widened span now holds comp20's
   rock, so the clearance is measured from comp20, and the scan keeps Uaho clear of it on its own.
 - **Next:** the registered bench round, rerun as registered on a fresh mirror.
+
+### THE ROUND, RERUN AS REGISTERED (2026-10-06, after paths 2 + 3): U1, U3, U4 hold; U2 fails on one clause
+
+Fresh mirror of live (`scratchpad/bench-uaho-r5b`, 2,384 files). The registered command, unchanged:
+`world-mountain --mod-folder <BENCH> --near 1452,-468 --donor 0,0 --reach 32`.
+
+| | measured | verdict |
+|---|---|---|
+| **U1** the carve is clean | the route fired ("beside deployed neighbour block(s) [(22,6), (23,6), (23,7)] … the MULTI-block span"); span (22-23 × 6-7). Placement rot 0 at **(1442, −478)**, clearance 65.3u (measured from comp20's rock, which is now in the span). Rim 1.64–5.29 vs ground 3.20; apron lift max 1.20u; zip 57 (rise 2.26, ny ≥ 0.86, 0/57 below envelope); down 0, near-miss 0, annulus once-edges 0; apron slope 8.9°; **rock rigidity 3.1% vs the 3.5% gate (passes, little margin)**. Alcove floor + 5 aperture-plug tris as July. R3 re-stamp: 618 verts | **HOLDS** |
+| **U2** the placed screen | instrument with `UAHO_ALCOVE`: rot 0, DY −1.5887, 84/89 rock verts rigid on the bench mesh. Raised (E > 0.75) **11.8%** (≤ 12% ✓), **0% raised forest** ✓, but 3.4u of the raised rim is GRASS contact at E +0.76..+0.88, not all coastal rock ✗. That 3.4u was already in FOREST-OR-DATUM's numbers; the registered clause was written too narrowly | **FAILS on one clause** |
+| **U3** only intended files change | `bench_vs_live.py`: 2 paths differ, both in (22,7) (its Terrain + the carve's `.bak`); comp20's blocks untouched; the x = 1536 seam weld byte-identical on rows 4–9 | **HOLDS** |
+| **U4** mutual clearance | closest rims 64.1u apart (Uaho (1438.1, −462.6) – comp20 (1460.8, −402.7)): ≥ 40u of open lawn beyond both aprons | **HOLDS** |
+
+**Disc4 on the bench** was not mirrored: an absolute bench path. The parallel auto-mirror fix now says so
+explicitly. A live deploy names the folder.
+
+**For the owner's look (U5), after a live deploy on the owner's go:**
+- **(1412.6, −490.7), face north-east:** the raised coastal-rock stretch with its lifted grass bank, target #1;
+- **(1473.6, −472.8), face west:** the alcove and its plug, target #2.
+
+The renders are `scratchpad/uaho_r5_sheet.png` (game atlas pixels, not committed).
