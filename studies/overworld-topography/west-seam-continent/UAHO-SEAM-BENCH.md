@@ -104,3 +104,32 @@ Eye-landings #2 (chart A's band narrows) and #3 (NW t403 0.43 → 0.56) show no 
 - A live deploy replaces (22,7) on Disc1 and mirrors it to Disc4. Revert = `uaho-pre` (22,7) plus the re-carve, or
   restore the pre-deploy backup the deploy takes.
 - S5 then scores two clauses: the SE end, and the twice-passed NW.
+
+### DEPLOYED LIVE (2026-10-07, owner: "yes, deploy it live") — R5b's snap + R5c's unify together
+
+- **Preflight:**
+  - FF9.exe not running; no harness arm file (`x64/ff9harness/arm`);
+  - master's `interior.py` = the worktree's;
+  - live differed from `uaho-pre` only in (22,7) Terrain × 2 discs + the R5 carve's `.bak`;
+  - live Disc1 differed from this round's measured bench only in (22,7) Terrain.
+- **Backup:** the whole live WorldMap Disc1/0_1 + Disc4/0_1 → `backups/west-seam-continent/r5c-pre.20261007-015210`
+  (1,688 files, 0 mismatches). **THE REVERT:** restore (22,7) Terrain on both discs from it. That gives back R5's
+  Uaho; the backup also holds other sessions' content.
+- **Rewind:** (22,7) Terrain on both discs ← `uaho-pre.20261006-231630`, verified byte-equal.
+- **The carve live** (master code, from the main repo's `ff9mapkit/`): the registered line, unchanged.
+  - The route fired. Every carve line is IDENTICAL to the bench carve's: placement, snap 2/3, unify 2/8, gates.
+  - Disc4 auto-mirror: 9 files.
+- **The re-stamp live** (from the MAIN repo): 1,236 verts / 52 files, backup `r3-pre-area14.20261007-015240`,
+  `probe_area14.py` **ALL CHECKS PASS (a–e)**.
+- **Verification:**
+  - live Disc1 = the measured R5c bench Disc1, **727 identical, 0 differing** (`.bak` excluded);
+  - Disc4 (22,7) Terrain = Disc1;
+  - vs the pre-deploy backup, exactly 3 paths changed: (22,7) Terrain on both discs + the carve's
+    `.bak-20261007-015234`.
+
+**For the owner's look (S5).** Standpoints checked on live lawn, measured from the SEAM itself, not the blob centre
+(U5's viewpoint error):
+- **The SE end:** stand at **(1456, −491)**, the owner's own screenshot-3 spot, 5u from the seam, and face west.
+  Alternative: (1452, −499), facing north.
+- **The NW seam:** stand at **(1425.2, −466.3)**, 8.5u out, and face east. Alternative: (1433.7, −457.8), facing
+  south.
