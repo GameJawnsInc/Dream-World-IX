@@ -1,0 +1,64 @@
+# R5 — Uaho on the continent — bench round (registered)
+
+Registered 2026-10-06 BEFORE any bench write or dry run. Owner: "set up the R5 bench round with Uaho."
+Follows [`COMP20-BENCH.md`](COMP20-BENCH.md) (comp20 deployed, owner-passed, rim walk 32/32) and the rule from
+[`UAHO-JULY-STRETCHES.md`](UAHO-JULY-STRETCHES.md): **flag RAISED FOREST contacts; everything else carries.**
+
+## Why Uaho, and what the rule predicts
+
+- **Uaho** is `(0,0)`: 144 tris with its alcove floor, an object-class aperture (plugged by its own object
+  tris), r_rim 20u.
+- **Rim screen:** SAFE 71%, buried coastal rock 13%, and one raised COASTAL-ROCK stretch: 8u at E +1.49,
+  lifted by a grass bank. That stretch passed in July, in the owner's direct view.
+- **Forest:** its contacts all sit at/below the seat (+0.26..+0.58).
+- **The rule's prediction:** no flagged stretch, so it reads right with today's `world-mountain`.
+
+**What this round can test that comp20 couldn't:** Uaho carries one RAISED non-forest stretch with an
+authored lift. Its first verdict was on a small r31 bench island; this is its first on open continent
+lawn. A pass extends the rule's evidence by a second judged instance of a raised, lifted, non-forest
+stretch.
+
+## The seat
+
+The plan's R5 seat (1488, −392) is now comp20's (deployed at (1486, −386)). The free, already-measured slot
+is R4's old west-span seat:
+- `--near 1452,-468`: clearance 96.8u there against the horseshoe's need of 72.3u; Uaho needs ~38;
+- ~89u from comp20's centre.
+
+The rest of the line is the plan's own Uaho flags, unchanged:
+```
+py -m ff9mapkit world-mountain --mod-folder <BENCH> --near 1452,-468 --donor 0,0 --reach 32
+```
+**Declared:** if the scan refuses at that seat, the round STOPS and reports. No improvised re-seat.
+
+## What gets built (on a scratch mirror of the live `FF9CustomMap-world`; nothing live)
+
+1. A fresh mirror of live. It already holds the R4 revert and comp20.
+2. The carve above: dry run first, then the bench write.
+3. The R3 re-stamp (`stamp_area_policy.py`, `FF9MK_WM` / `FF9MK_BACKUP` seams).
+
+## Registered predictions
+
+- **U1, the carve is clean.** Every `world-mountain` gate passes, the alcove floor and aperture plug included.
+  The re-stamp's probes pass.
+- **U2, the placed screen** (the sector-map instrument re-aimed, WITH `UAHO_ALCOVE` so its rim is the carved
+  one):
+  - 0% raised forest;
+  - raised (E > +0.75) rim ≤ 12% of length, all of it coastal-rock contact;
+  - no foot course, pull, conform or cap.
+- **U3, only the intended files change.** Versus live, the bench differs ONLY in Uaho's span blocks (+ the
+  stamp's area bits, + `.bak` parkings). comp20's blocks are untouched. If the span reaches col 23, the
+  x = 1536 seam weld is byte-identical.
+- **U4, mutual clearance:** ≥ 20u of open lawn between Uaho's placed rim and comp20's at their closest.
+- **U5, scored after the owner's look on a live deploy:** no complaint about either mountain's base.
+
+## Where the owner's eye will most likely land (named now)
+
+1. **The raised coastal-rock stretch with its lifted grass bank** (~1.2u over ~8u): the one authored lift.
+2. **The alcove and its object plug.** It has a July history: "object hole filled with grass", fixed by the
+   collar-chart plug and approved.
+3. **The pair together:** two mountains ~89u apart. That's a composition call, not a defect.
+
+## RESULT
+
+(appended after the run, below this line; nothing above edited)
