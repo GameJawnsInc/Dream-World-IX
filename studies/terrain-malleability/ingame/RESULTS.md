@@ -123,7 +123,7 @@ The lab folder carried two files:
 Together with F3 (forms are decided once per world load, section 3), the kit has a working, DLL-free lever for terrain
 that changes with the story on the 26 switchable cells.
 
-## 6. The beach-seam tear (rank 3): a one-way wall at +3, and a descent stall nobody predicted
+## 6. The beach-seam tear (rank 3): a one-way wall at +3; the "descent stall" was a harness artifact
 
 `world-terrain --radius 16 --at 480 -1120 --raise 3`, then `--raise 1` as the control, both into the lab folder.
 Three lines cross the Terrain/Beach1 seam at x = 476.28 / 479.64 / 480.18; the beach is to the south, at z ≈ −1120.
@@ -131,19 +131,28 @@ Three lines cross the Terrain/Beach1 seam at x = 476.28 / 479.64 / 480.18; the b
 | check | +3 | +1 control |
 |---|---|---|
 | beach → terrain (climb) | **REFUSED at all 3 lines**: progress 0.18-0.36u, height unchanged | **legal at all 3**: climbed 0.89 / 1.14 / 1.07u onto the terrain and walked on |
-| terrain → beach (descent) | legal at 476.28, where the seam drop is 2.53u; **refused at 479.64 and 480.18**, where the drop is ~3.06u | not reached: a battle (scene 828) began on line 2 |
+| terrain → beach (descent) | **legal** (see the correction below); session 5's harness read "blocked" at 479.64 and 480.18 | not reached: a battle (scene 828) began on line 2 |
 
-**The descent stall (new, not predicted).** On the two refused lines the actor crept in shrinking steps
-(0.81 → 0.06 → 0.05 → 0.075u) to the torn terrain edge at z ≈ −1119.80, then stopped dead, 3.06u above the beach.
-- The raycast imposes no descent limit: `WMBlock.Raycast` never reads `distance`.
-- But `w_movementControl` normalises each step by the 3D displacement, `step = speed² / |Δxyz|` (`ff9.cs:5568-5593`),
-  and that step collapses as the drop grows.
-- **Leading hypothesis:** the collapsed step then lands on the seam line and misses both triangles, and keeps doing so
-  every tick because the step is deterministic.
+**Correction: the descent stall was a harness artifact** (stall session, `.harness-runs/*-stall-session`, 8/8;
+design and simulator `stall_sim.py`, `stall_PLAN.md`, adversarially reviewed). Session 5 saw the actor creep in
+shrinking steps to the torn edge and "stop dead" there, 3.06u above the beach. What actually happens:
+- The engine has no descent limit: `WMBlock.Raycast` never reads `distance`.
+- `w_movementControl` normalises each step by the 3D displacement, `step = speed² / |Δxyz|` (`ff9.cs:5568-5593`).
+  Near a ~3u drop the step collapses to ~0.06u per tick: a slow CREEP.
+- `world_approach` judged the creep "blocked" after one short burst and released the stick. The final identical
+  samples were simply no input.
 
-**Status:** observed twice in-game; the mechanism is OPEN and needs a source-level trace.
-**Consequence:** a Terrain-only edit at a beach does not only make a one-way wall. Where the torn drop is about 3u, it
-can also trap a player who walks to the edge from above.
+The confirmation run:
+- **Held on past the "stall"**, the actor crept on and dropped onto the beach within 2 bursts (K3).
+- **A start shifted** so the last full step ends 0.036u from the edge crossed with no creep at all, at the same x and
+  the same 2.96u drop (K4).
+- **The "passing" x 476.28** reads "blocked" too, once its start is shifted into the creep (K5).
+- **Instrument control:** the +3 CLIMB is a true stall that the creep walker does see (K1).
+- **The simulated mesh is the live one:** the deployed mesh's sha256 matches it, and the teleport heights match it exactly (K0).
+
+**Verdict:** a Terrain-only +3 edit at a beach is a ONE-WAY wall: beach → terrain is refused, and terrain → beach is
+legal but slow at the edge. It does not trap a player. **Harness lesson:** `world_approach` must not call a single
+short burst "blocked". Require consecutive sub-threshold bursts, or zero motion.
 
 ## 7. The disc-4 crack and its replay (rank 4, defect 8): both proven
 
@@ -175,12 +184,104 @@ is 21,845 tris under the flat contract.
 - The 65000 bound merged at `b68e1c6b` is over-strict by 535 vertices, and its comment states a false fact.
 - It is functionally harmless (the largest deployed part is 4,647 vertices), but it should be corrected.
 
+## Round 2 (2026-10-07, owner's go: "work on vehicles in the harness and the other items that don't need my eye")
+
+Designed offline by a 5-lane workflow (`veh_*`, `png_*`, `stall_*`, `d9_*`, `cost_*`; each lane wrote `<lane>_PLAN.md`).
+The vehicle and stall designs were adversarially reviewed, and the review fixed real defects in both before any run.
+Deploys used the same scratch-folder protocol: the ini was backed up to
+`backups/Memoria.ini.pre-terrain-lab2.<stamp>`; the lab was first in FolderNames, with one change per run, and was
+removed after.
+
+### 9. Vehicles under the harness: DLL-free, proven
+
+**The route** (`veh_PLAN.md` section 2):
+- The controlled vehicle is decided at world load from gEventGlobal[190].
+- The harness warps to field 6603 at a chosen scenario counter, then pokes [190] (vehicle mode), [191], and the
+  vehicle's position record ([74..82] for the boat and airship, [83..91] for the chocobo, plus bits 809/810).
+- It reads every byte back, then walks out of the door.
+- Proof of binding: the published world position equals the poked record (the on-foot actor would arrive at (68, −444)).
+
+**Inputs:** "confirm" is the airship throttle, "down" climbs (InvertedFlightY = 1), and Cancel lands. On the boat,
+"up" goes forward and left/right turn the hull. The chocobo uses the on-foot verbs.
+
+| session | result |
+|---|---|
+| 1, Hilda Garde III (no deploy) | **13/13.** Bound at the poked record (0.001u). **RANK 5: over the 42.64 summit the airship reads exactly 42.1875 -- 0.45u INSIDE the rock** (the ceiling is applied after the floor raise). It never rises above 42.1875, and diving stops on the ground. **V13 landing:** Cancel over sea is refused; over topograph 42 it is refused (the engine accepts, the world .eb only lands on topographs 0-13); over topograph 12 it lands and puts the player down **exactly 2.50u** away. |
+| 2, chocobo (no deploy) | 8/10. Bound as yellow (vehicle 1) and light blue (vehicle 2). **The canopy sink applies on a chocobo:** forest −1.1732, lawn −0.0035. The light-blue chocobo enters sea water (y −0.16), as its mask allows. **Misses:** (a) the speed ratio chocobo/foot is 2.24, not the predicted 200/112 = 1.79 (a real prediction miss, cause unknown); (b) the yellow "waterline" check proved nothing -- it slid ESE along the beach and stayed on Beach1 topograph 30, never touching water, and the progress metric counted the slide. |
+| 3, the no-fly ring (lab: a `Block[1][13] Terrain` with a topograph-15 ring) | **7/7. A topograph-15 ring stops the Hilda Garde at its edge (r 8.24) at y 2.0 AND at the 42.1875 ceiling; climbing while pushing into it is refused too; a topograph-41 control ring is crossed at both heights.** A no-fly wall is authorable from topographs alone. |
+| 4, the boat under a reclaimed cell (lab: `world-reclaim` on (21,1), no `Donor.txt`) | 6/6 for each of flat6, flat1.2 and island. **H1 CONFIRMED: with land at 6u, the Blue Narciss sails UNDER the reclaimed slab at water level (open lane, 44u in). On the rim lane it stops at 19.81u in (pred 19.75), on the hidden islet rim of the free-riding `Block[12][10]` water.** Slabs at 1.2u and the island profile stop it at the cell edge. The stock-coast instrument control stalled at 16.47u (sim 16.38) in every phase. The optional "none" phase did not run: field 6603's axis calibration failed twice on a frame hitch. |
+
+**Verdict:** the harness can drive every vehicle class with no DLL. Defect 18 (a sidecar-less reclaim free-rides
+`Block[12][10]`'s water) is now player-visible: boats sail under such land. `terrain.reclaim` should write a
+`Donor.txt` or blank the water parts.
+
+### 10. The per-cell texture override (rank 6): 22/22, the clobber confirmed
+
+Treatment cell (21,1) carried a magenta `Terrain.png`, a red `Sea4.png`, and a lime `Sea3.png` with no Sea3 mesh. The
+control cell (0,13) carried the same meshes with no PNGs. All judging was numeric (vivid-pixel counts):
+- **Terrain PNG:** loaded (the log has the receipt) but **NOT rendered**: the Moguri atlas from `SetupPreloadedMaterials` overwrites it.
+- **Sea4 PNG:** **renders** (28-29% of the frame, static across the animated sea).
+- **Sea3 PNG with no Sea3 mesh:** never opened.
+- **Reload:** PNGs are re-read on every world load.
+
+C10/CAP-9 are confirmed: per-block TERRAIN textures need the engine patch P2; per-block WATER textures work today.
+
+### 11. The disc-4 ridge and the descent stall, revisited
+
+The "descent stall" correction is in section 6 (a harness artifact).
+
+### 12. The Disc9 walk (rank 1 b/c): carried encounter area proven, bind oracle calibrated off disc 1
+
+Bench field 30950 plus its `WorldMap(9013)` splice were deployed into the lab, then reverted.
+
+**Control loop** (area-0 landing lawn): the battle was scene 5 (Ironite), which is in zone 0's set.
+
+**Carry loops** (Uaho cell (13,15), donor area 63):
+- Battles were **778 (Adamantoise) twice on topograph 0** and **780 (Worm Hydra) on topograph 37**. Those are exactly
+  zone 24's fog-0 records.
+- So a verbatim carry imports its donor's encounter area onto the Path D world, and s75's mist suppression reaches
+  `w_frameFog`.
+- Heights matched the mesh, canopy sink included, in 52/52 bursts.
+
+**Bind oracle on Disc9:** 65/65 cells, 238 lines per load, 0 mismatches over 4 loads -- its first receipts off disc 1.
+
+The first attempt lost three loops to field 30950's calibration hitch. A retry fixed it (`d9_session.py`).
+
+### 13. The in-game cost budget (rank 10): x4/x16 free at normal speed, x64 halves the frame rate
+
+One launch with 18 world loads (`.harness-runs/*-cost-session`, 21 min).
+- **Arms:** the same flat plane on cell (21,1) at x1 / x4 / x16 / x64 density (338 / 1,352 / 5,408 / 21,632 tris).
+  Each arm is identified by its walked height tag; P1 passed 17/17, with one lab load line per world load.
+- **Bracketing:** every test arm is bracketed by x1 loads, and the one lab file is swapped during field round trips.
+- **Per load:** idle, a 600-tick circle walk at 28 ticks/s, then the same at timescale 4 (the positive control).
+
+**The pre-registered verdicts were INCONCLUSIVE.** The decision rule counts only segments classed as the ~31 or ~60 fps
+regime, and this launch ran steadily at ~40 fps ("other"), so the filter discarded almost every segment. **The
+bracketed raw data below are a POST-HOC reading** (walking fps of each test load against the mean of its two x1
+neighbours; the A-A noise sigma is 0.97 fps):
+
+| arm | walk fps delta vs neighbours (1x ticks) | at timescale 4 (112 ticks/s) | idle (render) |
+|---|---|---|---|
+| x4 | +1.9, +1.1 → **free** | 39.7 / 39.1 fps (x1 ~37-42) → free | unchanged |
+| x16 | −2.0, +1.4 → **free** | **14.4 / 15.4 fps** → costs at 4x the tick rate | unchanged |
+| x64 | **−20.6, −22.2, −18.8** → **halves the frame rate** (~41 → ~21) | **0.93 fps**; only ~30 of 112 ticks/s run | unchanged |
+
+- The extra triangles cost nothing to RENDER (idle fps is flat in every arm). The cost is the ground-query scan,
+  paid per tick while moving: it is the walker's 2 probes plus the camera's 4 un-cached sky probes (CAP-10).
+- Implied per-test cost: about 0.3-0.45 µs per triangle test (x64 at 1x: ~18 ms extra a tick for 55,552 tests;
+  x16 at 4x: ~5.7 ms a tick for 12,808 tests). This agrees with the registered central c = 0.25 µs.
+- World-load time shows no arm effect (the LoadBlocks frame is bimodal, 130 ms vs 1,600 ms, independently of the arm).
+- The last pair (W16/W17) is contaminated: a system-wide slowdown hit the x1 reference too (23 fps). It is excluded.
+
+**Verdict (post-hoc):** a walkable cell can be refined about 16x (5.4k tris) with no measurable cost in normal play.
+At 64x (21.6k tris, near the per-part cap) walking on it halves the frame rate. The kit has no density gate. A soft
+budget of about 5k tris per walkable part, or a lint warning above it, is justified. The decision rule needs a
+regime-agnostic bracket test before it is reused (`cost_post.py`).
+
 ## Not run
 
-- Rank 1(b), the Disc9 battle walk: bench field 30950 is not registered in any live folder.
-- Rank 5's flight part and rank 7's boat drive: the harness cannot summon a vehicle.
-- Rank 6 (per-cell PNG overwrite), rank 9 (rock stretch, which needs the owner's eye on the Uaho bench) and rank 10
-  (frame-cost budget): not attempted this round.
+- Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
+- The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
 
