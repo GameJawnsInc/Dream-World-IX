@@ -202,9 +202,9 @@ def _pyramid_donor(cx=24.0, cz=-24.0, half=4.0, apex=4.0):
     return _bm(tris, name="Block[0][0] Terrain", x=0, y=0)
 
 
-def _mountain_bench(y=3.2, n=13, cell=4.0):
-    """The mains grid plus one topo-58 coast tri in the far corner (the mountain scan
-    needs SOME non-plain tri to measure clearance against)."""
+def _mountain_bench(y=3.2, n=13, cell=4.0, coast=True):
+    """The mains grid plus one topo-58 coast tri in the far corner. ``coast=False`` drops it:
+    the all-lawn span of a small donor's single-block seat in a continent's interior."""
     tris = []
     for i in range(n):
         for j in range(n):
@@ -212,7 +212,8 @@ def _mountain_bench(y=3.2, n=13, cell=4.0):
             z0, z1 = -j * cell, -(j + 1) * cell
             tris.append((((x0, y, z0), (x1, y, z0), (x0, y, z1)), GRASS, _MAIN_U))
             tris.append((((x1, y, z0), (x1, y, z1), (x0, y, z1)), GRASS, _MAIN_U))
-    tris.append((((54.0, y, -54.0), (58.0, y, -54.0), (54.0, y, -58.0)), ROCK, 0.9))
+    if coast:
+        tris.append((((54.0, y, -54.0), (58.0, y, -54.0), (54.0, y, -58.0)), ROCK, 0.9))
     return _bm(tris)
 
 
@@ -272,6 +273,27 @@ def test_carve_mountain_carries_the_pyramid_rigidly(monkeypatch, tmp_path):
     rock_ids = [t4[0] for t4 in bm.chan_arrays[CH_TAN] if t4[0] == MASSIF]
     assert len(rock_ids) == 4 * 3
     assert not any(t4[0] == MASSIF_DONOR for t4 in bm.chan_arrays[CH_TAN])
+
+
+def test_carve_mountain_seats_on_an_all_lawn_interior_span(monkeypatch, tmp_path):
+    """THE INTERIOR SEAT (R5-UAHO-BENCH.md): a span with NO non-plain tri is a continent's interior lawn,
+    not a malformed bench -- the carve places (it used to refuse: "no coast to place against"). With no
+    coast to rank clearance by, the scan takes the candidate nearest the requested seat, rot 0 preferred,
+    and every downstream gate still runs."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    logs = []
+    soup = IN.soup_from_blocks({(0, 0): _mountain_bench(coast=False)})
+    res = IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                            log=lambda *a: logs.append(" ".join(str(x) for x in a)))
+    assert res["center"] == (26, -26) and res["rot"] == 0
+    assert any("INTERIOR seat" in line for line in logs)
+    assert any("clearance unbounded" in line for line in logs)
+    r = res["report"]
+    assert r["blob_tris"] == 4 and r["peak_y"] == pytest.approx(3.2 + 4.0, abs=1e-6)
+    # an exact --center on the same all-lawn span places too
+    res2 = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _mountain_bench(coast=False)}),
+                             center=(30.0, -30.0), alcove=None, game=tmp_path, log=lambda *a: None)
+    assert res2["center"] == (30.0, -30.0)
 
 
 def test_carve_mountain_refusals(monkeypatch, tmp_path):

@@ -1552,9 +1552,18 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
               (gpos[tri[0]][2] + gpos[tri[1]][2] + gpos[tri[2]][2]) / 3)
              for tri in gtris]
     nonplain_c = np.array([tri_c[t] for t in range(len(gtris)) if not plain[t]])
-    if not len(nonplain_c):
-        raise ValueError(f"block span {span} has no non-plain tris at all -- not a kit "
-                         f"island (no coast to place against)")
+    # THE INTERIOR SEAT (west-seam R5, studies/overworld-topography/west-seam-continent/R5-UAHO-BENCH.md):
+    # a span with NO non-plain tri is the interior lawn of a larger kit landmass -- a small donor's
+    # single-block span on a continent -- not a malformed bench. Clearance to the coast is unbounded
+    # inside it, so the scan ranks candidates by distance to the requested seat instead (rot 0 keeps
+    # the same 0.75u preference). A span with ANY non-plain tri runs the clearance ranking unchanged.
+    interior = not len(nonplain_c)
+    if interior:
+        log(f"block span {span} has no non-plain tris: an INTERIOR seat -- clearance unbounded "
+            f"within the span; candidates rank by distance to the requested seat")
+
+    def clr(d):
+        return "unbounded" if math.isinf(d) else f"{d:.1f}u"
     log(f"bench: {len(gtris)} tris ({sum(plain)} plain-grass mains)")
     # PRISTINE once-edge baseline, captured BEFORE any mutation: computed after the lift
     # it cancels self-consistent weld splits and the crack gate goes blind
@@ -1609,10 +1618,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                              f"plain-grass mains (band {SCAN_BAND}u)")
         pp = (np.array([(p[0], p[2]) for p in (rot_pt(q, ROT) for q in rim)])
               + np.array([TX - c_local[0], TZ - c_local[1]]))
-        dmin = float(np.sqrt(((nonplain_c[:, None, :] - pp[None, :, :]) ** 2)
-                             .sum(axis=2).min()))
+        dmin = math.inf if interior else float(np.sqrt(((nonplain_c[:, None, :] - pp[None, :, :]) ** 2)
+                                                       .sum(axis=2).min()))
         log(f"placement (exact): rot 0deg, blob centre -> ({TX},{TZ}) "
-            f"(raw clearance {dmin:.1f}u)")
+            f"(raw clearance {clr(dmin)})")
     else:
         cands = []                                         # (score, dmin, ROT, gx, gz)
         for ROT in (0, 1, 2, 3):
@@ -1623,6 +1632,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                     if pp[:, 0].min() < SPX0 + SCAN_BAND + 2 or pp[:, 0].max() > SPX1 - SCAN_BAND - 2 \
                             or pp[:, 1].min() < SPZ0 + SCAN_BAND + 2 or pp[:, 1].max() > SPZ1 - SCAN_BAND - 2:
                         continue
+                    if interior:                           # no coast: nearest the requested seat
+                        cands.append((-math.hypot(gx - CX, gz - CZ) + (0.75 if ROT == 0 else 0.0),
+                                      math.inf, ROT, gx, gz))
+                        continue
                     # numpy prefilter: nearest non-plain centroid to any poly vertex
                     dmin = float(np.sqrt(
                         ((nonplain_c[:, None, :] - pp[None, :, :]) ** 2).sum(axis=2).min()))
@@ -1632,7 +1645,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                              f"(radius {r_rim:.1f}u + band {SCAN_BAND}u) does not fit "
                              f"the covered span {span}")
         cands.sort(reverse=True)
-        log(f"scan: best raw clearance {cands[0][1]:.1f}u (rot {cands[0][2] * 90}deg) "
+        log(f"scan: best raw clearance {clr(cands[0][1])} (rot {cands[0][2] * 90}deg) "
             f"of {len(cands)} in-bounds candidates")
         chosen = None
         for score, dmin, ROT, gx, gz in cands[:scan_cutoff]:
@@ -1643,10 +1656,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 break
         if not chosen:
             raise ValueError(f"no lawful placement -- best raw clearance "
-                             f"{cands[0][1]:.1f}u vs the {SCAN_BAND}u band")
+                             f"{clr(cands[0][1])} vs the {SCAN_BAND}u band")
         ROT, TX, TZ, dmin = chosen
         log(f"placement: rot {ROT * 90}deg, blob centre -> ({TX},{TZ}) "
-            f"(clearance {dmin:.1f}u)")
+            f"(clearance {clr(dmin)})")
     DX, DZ = TX - c_local[0], TZ - c_local[1]
     rim_poly = [(p[0] + DX, p[2] + DZ) for p in (rot_pt(q, ROT) for q in rim)]
 
@@ -1882,9 +1895,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             k = kk3(gpos[i])
             if k in cand:
                 continue
-            dnp = float(np.sqrt(((nonplain_pos - np.array([k[0], k[2]])) ** 2)
-                                .sum(axis=1).min()))
-            cand[k] = ground_lift(k[0], k[2], gpos[i][1], dnp)
+            dnp = math.inf if interior else float(np.sqrt(((nonplain_pos - np.array([k[0], k[2]])) ** 2)
+                                                          .sum(axis=1).min()))
+            cand[k] = ground_lift(k[0], k[2], gpos[i][1], dnp)  # interior: no coast band to taper before
 
     # THE T-JUNCTION LERP LAW (the R4 west-seam hairlines at --gblend 26): the bench
     # lattice holds T-verts -- a position lying colinear INSIDE a neighboring tri's edge
