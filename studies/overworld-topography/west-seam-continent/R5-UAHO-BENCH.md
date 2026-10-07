@@ -62,3 +62,38 @@ py -m ff9mapkit world-mountain --mod-folder <BENCH> --near 1452,-468 --donor 0,0
 ## RESULT
 
 (appended after the run, below this line; nothing above edited)
+
+### THE ROUND STOPPED at its registered stop (2026-10-06): the carve refused at the declared seat
+
+`world-mountain --near 1452,-468 --donor 0,0 --reach 32 --dry-run` on a fresh live mirror (2,384 files):
+
+```
+donor rock component: 134 tris; alcove floor carried: 10 tris; object apertures: [7] pts (plugged)
+blob: 144 tris, extent 25x31u y[2.3,13.3]; rim 27 pts max plan radius 20.0u
+block span [(22, 7)] has no non-plain tris at all -- not a kit island (no coast to place against)
+```
+
+The donor side is exactly July's: 134 + 10 alcove-floor tris, the 7-pt object aperture.
+
+**What it means** (`interior.carve_mountain`, ~:1550): Uaho is small (2·(r_rim + band) ≤ 64), so the carve takes
+its byte-frozen SINGLE-BLOCK path. The span is then just the seed's block, (22,7). The placement scan scores
+clearance against the span's NON-PLAIN tris (coast, cliff). With R4 reverted, block (22,7) is pure lawn, so
+there is nothing to measure against, and the guard refuses.
+
+The guard assumes every massif seat is a small kit island with a coast in its block. A large continent's
+interior violates that by design. The horseshoe and comp20 were big enough for the MULTI-block path, whose
+span reaches the coast.
+
+**Nothing was written to the bench; U1–U5 never ran.** Per the registration, no improvised re-seat.
+
+### The paths out (owner's call)
+
+1. **A seat whose single block holds some coast**, e.g. a west-coast block. That trades the measured R4 slot
+   for a coast-adjacent seat, which needs its own clearance numbers.
+2. **A small kit fix:** when a span has no non-plain tris, treat clearance as unbounded (the block is interior
+   lawn) instead of refusing.
+   - It is placement scoring only: no geometry changes.
+   - Uaho's July identity acceptance is unaffected (that bench has a coast, so the path is byte-identical).
+   - It needs a regression test that fails on today's code and the identity test kept green.
+3. **Force the multi-block path for small donors** (a flag). A bigger change: the single-block path is the
+   frozen identity pipeline, so the multi-block path's output for Uaho would be NEW bytes, not July's.

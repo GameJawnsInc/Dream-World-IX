@@ -1,0 +1,6 @@
+block span [(22, 7)] has no non-plain tris at all -- not a kit island (no coast to place against)
+donor rock component: 134 tris (next [])
+alcove floor carried: 10 tris (verbatim, incl. the cave-floor tiles)
+object apertures: [7] pts (plugged with the object's own tris)
+blob: 144 tris, extent 25x31u y[2.3,13.3]; rim 27 pts max plan radius 20.0u
+de-tilt: rim plane slope 3.6deg, residual [-1.57,+2.08]u
