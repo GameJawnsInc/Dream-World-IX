@@ -236,6 +236,12 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > (1442,-478) rot 0, on the kit's new continent route (a small donor beside deployed neighbours takes the
 > multi-block span). Revert = (22,7) from `uaho-pre.20261006-231630`. Owner look pending: (1412.6,-490.7)
 > NE and (1473.6,-472.8) W.
+> **U5 (2026-10-07):** raised stretch + alcove passed; the SE end failed ("no transition tile") = two carried
+> donor tris off THE LAWN-LINE LAW. Kit fixes, both UV-only and comp20-byte-neutral: R5b THE LAWN-LINE SNAP
+> ([`UAHO-LAWN-LINE-BENCH.md`](UAHO-LAWN-LINE-BENCH.md)) + R5c THE FRINGE-SEAM UNIFY
+> ([`UAHO-SEAM-BENCH.md`](UAHO-SEAM-BENCH.md)). **R5c DEPLOYED LIVE (2026-10-07)**: live = the measured bench
+> 727/727. Revert = (22,7) both discs from `r5c-pre.20261007-015210`. Owner look pending: the SE end
+> (1456,-491) W, and the NW seam (1425.2,-466.3) E.
 
 > **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
 > the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**
