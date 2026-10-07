@@ -284,6 +284,39 @@ def _mesh_index(env) -> dict:
     return idx
 
 
+def _block_part_target(disc: int, lod: str, x: int, y: int, part: str) -> str:
+    """The lowercase, extension-less container key one block part resolves by:
+    ``worldmap/disc{disc}/{lod}/r{y}/block[{x}][{y}] {part}``."""
+    return f"worldmap/disc{disc}/{lod}/r{y}/block[{x}][{y}] {part}".lower()
+
+
+def _is_block_part_container(container: str, target: str) -> bool:
+    """EXACT part match: ``container`` (lowercase, as :func:`_mesh_index` keys it) names ``target`` iff, with
+    its one file extension dropped (every real block container ends ``.asset``), it IS ``target`` or ends
+    ``"/" + target``. Never a substring test -- part names prefix one another on the SAME block
+    (``sea4``/``sea4f`` at disc-4 (12,0); ``river``/``riverjoint`` at (19,11), (5,16), (16,15)), and the
+    old ``target in container`` rule handed back whichever came first in ``env.objects`` order (D4-17,
+    ``studies/terrain-malleability/disc4/verify_prefix_collision.py``)."""
+    head, slash, base = container.rpartition("/")
+    dot = base.rfind(".")
+    if dot >= 0:                                     # part names carry no '.', so this is only the extension
+        base = base[:dot]
+    stem = head + slash + base
+    return stem == target or stem.endswith("/" + target)
+
+
+def _find_block_part(env, disc: int, lod: str, x: int, y: int, part: str):
+    """The Mesh object holding block ``(x, y)``'s ``part`` on ``disc``/``lod``, or ``None`` if the block has
+    none. Walks :func:`_mesh_index` in ``env.objects`` order with the EXACT :func:`_is_block_part_container`
+    rule, so the first hit can only lose to a true duplicate container. Seeks nothing itself, but builds the
+    index on first use -- call it under ``env_lock``, as :func:`read_block` does."""
+    target = _block_part_target(disc, lod, x, y, part)
+    for c, o in _mesh_index(env).items():
+        if _is_block_part_container(c, target):
+            return o
+    return None
+
+
 _BLOCK_MEMO_MAX = 512          # masters are ~0.4 MB avg; unbounded, a host that read every key would retain ~800 MB
 
 
@@ -321,7 +354,9 @@ def read_block(x: int, y: int, *, disc: int = 1, lod: str = "0_1", part: str = "
     """Decode disc ``disc`` block ``(x, y)``'s sub-mesh. ``x`` in 0..23, ``y`` in 0..19. ``part`` selects the block
     layer: ``"terrain"`` (ground + walkmesh + the tangent.x entrance IDALL) or ``"object"`` (the baked buildings /
     towns / trees + decorative geometry). Only ~63 blocks carry an ``object`` mesh (those with a structure);
-    :func:`list_object_blocks` enumerates them."""
+    :func:`list_object_blocks` enumerates them. ``part`` names one sub-mesh EXACTLY (case-insensitive):
+    ``sea4`` never answers with ``Sea4f``, nor ``river`` with ``RiverJoint`` -- a block without that part
+    raises ``ValueError`` ("mesh not found")."""
     env = _worldmap_env(disc, game)
     key = (disc, lod, x, y, part)
     from ..extract import env_lock                   # decode/index seek the env's SHARED stateful reader, and a
@@ -329,13 +364,9 @@ def read_block(x: int, y: int, *, disc: int = 1, lod: str = "0_1", part: str = "
         memo = _block_memo(env)
         master = memo.get(key)
         if master is None:
-            target = f"worldmap/disc{disc}/{lod}/r{y}/block[{x}][{y}] {part.lower()}"
-            o = None
-            for c, oo in _mesh_index(env).items():   # insertion order == env.objects order: first match wins,
-                if c.endswith(target) or (target in c):   # exactly the original linear scan's semantics
-                    o = oo
-                    break
+            o = _find_block_part(env, disc, lod, x, y, part)
             if o is None:
+                target = _block_part_target(disc, lod, x, y, part)
                 raise ValueError(f"disc{disc} block[{x}][{y}] {part} mesh not found (looked for container {target!r})")
             master = _decode_world_mesh(o, disc=disc, x=x, y=y, lod=lod)
             memo[key] = master
@@ -370,7 +401,7 @@ def list_coastal_donors(*, disc: int = 1, lod: str = "0_1", game=None, beach_onl
     import re
     env = _worldmap_env(disc, game)
     land = set(list_blocks(disc=disc, lod=lod, game=game))
-    pat = re.compile(rf"worldmap/disc{disc}/{lod}/r\d+/block\[(\d+)\]\[(\d+)\] (beach1|beach2|sea\d)")
+    pat = re.compile(rf"worldmap/disc{disc}/{lod}/r\d+/block\[(\d+)\]\[(\d+)\] (beach1|beach2|sea\d)(?:\.asset)?$")
     found: dict = {}
     for k in env.container:
         m = pat.search((k or "").lower())
