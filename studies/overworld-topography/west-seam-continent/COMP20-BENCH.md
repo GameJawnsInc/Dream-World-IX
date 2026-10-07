@@ -120,3 +120,12 @@ meets the lawn all round on its own grass-fringed foot, with no visible ramp or 
 - walk the base all round;
 - the harness's `rimwalk_take8.py` stations are for the horseshoe and are now STALE (re-derive for comp20
   after the look).
+
+### C4 — THE OWNER'S LOOK (2026-10-06): **HOLDS**
+
+> "paused to review in-game, don't see any seams, stretching, or errors in general. good to go with the rim-walk"
+
+The registered prediction was no complaint about the base or the grass–mountain transition anywhere around
+comp20. It held on the first live deploy. Per the round's own declared limit, this confirms the continent
+can host a mountain that reads right with no authored foot. It does NOT further discriminate the forest
+rule: comp20 has no forest contact.
