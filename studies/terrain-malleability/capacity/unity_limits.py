@@ -6,6 +6,8 @@ write seam (ff9mapkit/world/mesh.py:121) both accept vcount <= 65535 "because Un
 Index WIDTH is not the only gate: Unity <= 2017.2 ALSO caps Mesh.vertices at 65000 in native code. If the
 player binary carries that message, the true per-mesh ceiling is 65000 verts -> 21666 tris under the
 UNINDEXED CONTRACT (vcount == icount), and 65001..65535 is a window both checks wrongly admit.
+REFUTED IN-GAME (ingame/RESULTS.md section 8): the string is in the binary, but 65001- and 65535-vert parts
+render and walk. The binding ceiling is s34's 65535 (21845 tris); the kit matches it.
 
 Calibration: the same scan must find the triangle-setter messages that every Unity 5.x player has
 ("Failed setting triangles...") -- if those are absent the instrument is blind, not the limit.

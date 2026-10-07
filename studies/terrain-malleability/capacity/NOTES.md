@@ -30,6 +30,8 @@ Outputs go to `out/` and hold derived numbers only (no asset bytes).
 
 ## THE CAPACITY ENVELOPE
 
+> E1, E2 and E4's "natively refused" gap: **REFUTED IN-GAME** (`../ingame/RESULTS.md` §8): 65,001- and 65,535-vertex parts render and walk. The ceiling is s34's 65535 = 21,845 tris; the kit and s34 agree and need no change.
+
 | # | Limit | Value | Source | What breaks | Stock max / margin |
 |---|---|---|---|---|---|
 | E1 | Vertices per part mesh (native) | **65000** | Unity 5.2.3p2 player string in x64+x86 `FF9.exe` (`unity_limits.py`) | `mesh.vertices=` refused natively, so the part is empty or missing (predicted, see X1) | stock max 2316 verts (Terrain (18,13) disc4), **28x** headroom |
@@ -49,6 +51,8 @@ Outputs go to `out/` and hold derived numbers only (no asset bytes).
 ## Findings
 
 ### X1. The real per-mesh vertex cap is 65000, not 65535 (contradicts a recorded bound)
+
+> **REFUTED IN-GAME** (`../ingame/RESULTS.md` §8): 65,001- and 65,535-vertex parts render and walk. The ceiling is s34's 65535 = 21,845 tris; the kit and s34 agree and need no change.
 
 **Kind:** law for the cap string; the failure mode is open. **Confidence:** high for the cap.
 
