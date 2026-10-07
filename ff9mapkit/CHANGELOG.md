@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-mountain`: a seat on all-lawn ground no longer refuses as "not a kit island"
+- A span with no non-plain tri (a small donor's single-block seat in a continent's interior) used to refuse
+  with "no coast to place against": the placement scan ranks candidates by clearance to the coast, and there was
+  none to measure. Clearance is now unbounded there. The scan takes the candidate nearest the requested seat
+  (rot 0 keeps its 0.75u preference), and the apron's coast taper sees no coast. Every downstream gate still runs.
+- Byte-neutral wherever a coast exists. The rebuilt July Uaho bench and comp20's continent carve produce
+  identical bytes before and after.
+- Known limit, not fixed here: a single-block seat whose grass apron reaches a border shared with DEPLOYED
+  neighbour blocks cracks the weld there (the neighbours aren't in the span). The geometry gate refuses it, as
+  it did for Uaho at the west-seam R4 slot.
+
 ### Fixed — `world-mountain --foot-course`: a continuous fringe along the base, and no false walls at a corner
 - Owner-filed on the R4 west-seam massif's SE corner (take 9's harness frames): a stretched transition tile, a
   grass triangle cutting into the mountain, and the streaks left when the texture was fixed vertically.

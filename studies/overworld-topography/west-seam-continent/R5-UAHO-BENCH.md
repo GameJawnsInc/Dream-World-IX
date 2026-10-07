@@ -102,3 +102,34 @@ span reaches the coast.
 SKIPS, because its pristine r31 input and the deployed July bench are both gone. The honest regression check
 for the fix is an A/B on the rebuilt r31 seed-42 bench (UAHO-JULY-STRETCHES.md's rebuild): the carve's bytes
 with and without the fix must be identical where a coast exists.
+
+### Path 2 BUILT (2026-10-06, owner: "yes, make the fix in (1)"): the interior-seat clearance fix
+
+- **The change:** `interior.carve_mountain` treats a span with no non-plain tri as an INTERIOR seat:
+  - clearance is unbounded;
+  - the scan ranks by distance to the requested seat (rot 0 keeps its 0.75u preference);
+  - the apron's coast taper sees no coast;
+  - the old refusal is gone.
+- **The test:** `test_carve_mountain_seats_on_an_all_lawn_interior_span` failed on the old code with the exact
+  refusal, and passes on the fix. Every test file that exercises the carve: 97 passed, 2 skipped (the
+  install-gated identity tests, whose inputs are gone).
+- **THE A/B on real data** (`scratchpad/ab_carve.py`, the carve in memory, before vs after): the rebuilt July
+  Uaho bench (single-block path) and comp20 on the pre-massif continent (multi-block path) are
+  **byte-identical** (sha1 match on all 5 blocks). The fix is byte-neutral wherever a coast exists.
+
+### …and it is not sufficient for Uaho at this seat: the geometry gate refuses (a new, separate finding)
+
+With the fix, the R5 carve places Uaho at **(1450, −474) rot 0**, the nearest band-clean in-span seat to the
+request. Then `gates: ... annulusOnce=8 ...` → "mountain geometry gate failed". The 8 new once-edges all lie
+on **x = 1472, the east border of block (22,7)**, at y 3.194–3.217: hairline cracks.
+
+The single-block path loads ONLY the seed block, so the apron lift near its border (gblend 12) can't reach the
+deployed neighbour (23,7)'s twin verts. On a small island a block's borders face open ocean and need no weld; on a
+continent all four weld to deployed land. The gate is doing its job.
+
+**The completion, for the owner's go (it changes geometry, which path 2 promised not to):** route a small donor
+to the MULTI-block span whenever deployed neighbour blocks lie within its apron reach. The multi-block path
+already loads them and lifts per POSITION across borders, and it carved comp20 and the horseshoe cleanly.
+- The July identity case loads only (2,19), so it stays single-block and byte-identical.
+- comp20 and the horseshoe are already multi-block.
+- Uaho's output on the continent would be NEW bytes, judged by the gates and then the owner.
