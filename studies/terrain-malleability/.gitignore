@@ -1,0 +1,3 @@
+# Regenerable per-lane outputs (derived counts, renders, caches) -- rerun the lane scripts; see README.md section 1.3
+*/out/
+__pycache__/
