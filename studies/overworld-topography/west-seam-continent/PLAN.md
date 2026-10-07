@@ -232,6 +232,10 @@ encounters; one stock plains spot (Alexandria region) unchanged as the control.
 > R4 reverted (r4-pre restored, the 54 ensemble parts removed), comp20 carved at (1486,-386) rot 90 by
 > the plan's own line, R3 re-stamped (probe a-e PASS). Live = the measured bench (727/727). Revert =
 > the continent's files from `comp20-pre.20261006-193908`. Owner look pending: teleport (1519.8,-389.3), face west.
+> **comp20 owner-passed + harness 32/32. R5 = Uaho DEPLOYED LIVE (2026-10-06)** ([`R5-UAHO-BENCH.md`](R5-UAHO-BENCH.md)) at
+> (1442,-478) rot 0, on the kit's new continent route (a small donor beside deployed neighbours takes the
+> multi-block span). Revert = (22,7) from `uaho-pre.20261006-231630`. Owner look pending: (1412.6,-490.7)
+> NE and (1473.6,-472.8) W.
 
 > **DEFECT ROUND (owner rim walk): the (1418–1433, −469..−485) arc showed a grassy knoll against
 > the mountain with no grass–mountain transition; the rest of the perimeter and the plateau passed.**

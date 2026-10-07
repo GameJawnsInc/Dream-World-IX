@@ -171,3 +171,27 @@ explicitly. A live deploy names the folder.
 - **(1473.6, −472.8), face west:** the alcove and its plug, target #2.
 
 The renders are `scratchpad/uaho_r5_sheet.png` (game atlas pixels, not committed).
+
+### DEPLOYED LIVE (2026-10-06, owner: "yes, deploy Uaho live")
+
+- **Preflight:**
+  - live = the bench except (22,7), the carve itself (bench_vs_live: 2 paths, 0 outside);
+  - FF9.exe not running, no harness arm file;
+  - the worktree carve code = master.
+- **Backup:** the whole live WorldMap Disc1/0_1 + Disc4/0_1 → `backups/west-seam-continent/uaho-pre.20261006-231630`
+  (1,687 files, 0 mismatches). **THE REVERT.** Restore only (22,7) + its Disc4 mirror, since the backup holds
+  other sessions' content too.
+- **The carve live:** `world-mountain --mod-folder FF9CustomMap-world --near 1452,-468 --donor 0,0 --reach 32`.
+  The route fired as on the bench; rot 0 at (1442, −478), clearance 65.3u, every gate identical. **Disc4
+  mirrored** (9 files).
+- **The re-stamp live** (from the MAIN repo):
+  - 1,236 verts across 52 files;
+  - backup `r3-pre-area14.20261006-231700`;
+  - `probe_area14.py` ALL CHECKS PASS (a–e).
+- **Verification:**
+  - live Disc1 = the measured bench Disc1 (727 identical, 0 differing; `.bak` excluded);
+  - Disc4 (22,7) Terrain = Disc1.
+
+**For the owner's look (U5):**
+- **(1412.6, −490.7), face north-east:** the raised coastal-rock stretch + its lifted grass bank;
+- **(1473.6, −472.8), face west:** the alcove + its plug.
