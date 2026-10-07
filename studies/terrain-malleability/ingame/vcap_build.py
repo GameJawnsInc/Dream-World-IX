@@ -1,8 +1,9 @@
 """BUILD the two meshes for in-game experiment 8 (the VERTEX-CAP WINDOW, capacity CAP-1).
 
-Unity 5.2.3p2 refuses a Mesh with more than 65000 vertices natively ("Mesh.vertices is too large"); the s34 loader
-still admits up to 65535 (WorldMeshOverride.cs:186, queued for the next DLL round); the kit now refuses > 65000
-(master b68e1c6b). Under the flat contract (vcount == icount) the lawful ceiling is 64998 verts = 21666 tris.
+The claim under test: Unity 5.2.3p2 refuses a Mesh with more than 65000 vertices natively ("Mesh.vertices is too
+large"), while the s34 loader admits up to 65535 (WorldMeshOverride.cs:186). At build time the kit refused > 65000
+(master b68e1c6b), so the 'over' mesh had to be hand-packed. RESULT (RESULTS.md section 8): REFUTED -- 65001 and
+65535 verts both render and walk. The kit is back to 65535 (mesh.MAX_MESH_VERTS), so it now accepts 'over' too.
 
 Two Terrain overrides for the isolated open-ocean cell (21,1) (IsSea, all 8 neighbours sea, no live content):
   under  64998 verts (21666 tris) -- written through the kit (ff9mesh_bytes validates it)
@@ -90,7 +91,7 @@ def main():
     (SCRATCH / "under.ff9mesh").write_bytes(kit)
     (SCRATCH / "over.ff9mesh").write_bytes(pack(over))
     print(f"under: vcount {under.vcount} (kit-written, validated); over: vcount {over.vcount} "
-          f"(hand-packed; the kit refuses it: {refused!r}); calibration: hand packer == kit bytes")
+          f"(hand-packed; kit verdict: {refused or 'accepted'!r}); calibration: hand packer == kit bytes")
 
 
 if __name__ == "__main__":

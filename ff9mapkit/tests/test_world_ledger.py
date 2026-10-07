@@ -189,47 +189,53 @@ def test_validate_blockmesh_engine_predicates_each_refuse(tmp_path):
 
 def _flat_bm(nverts):
     """A real unindexed Terrain part of ``nverts`` verts (nverts // 3 tris), every channel
-    full-length -- the shape the write seam serializes, not a header-only stub."""
+    full-length -- the shape the write seam serializes, not a header-only stub. ``tris`` is
+    ``flat_index`` cut into threes, so it stays coherent with it (the rec-18 check runs before
+    the vertex bound) even for a count that is not a multiple of 3 (a short last chunk)."""
     import dataclasses
     ok = _bm()
     pos = [[float(i % 64), 3.2, -float(i // 64 % 64)] for i in range(nverts)]
     ca = {CH_POS: pos, CH_NRM: [[0.0, 1.0, 0.0]] * nverts, CH_UV: [[0.0, 0.0]] * nverts,
           CH_TAN: [[GRASS, 0.0, 0.0, 1.0]] * nverts}
-    return dataclasses.replace(ok, vcount=nverts, chan_arrays=ca, flat_index=list(range(nverts)),
-                               tris=[[i, i + 1, i + 2] for i in range(0, nverts, 3)])
+    idx = list(range(nverts))
+    return dataclasses.replace(ok, vcount=nverts, chan_arrays=ca, flat_index=idx,
+                               tris=[idx[i:i + 3] for i in range(0, nverts, 3)])
 
 
-def test_vertex_ceiling_is_unitys_native_65000_not_16bit(tmp_path):
-    """CAP-1 (studies/terrain-malleability §4.4, defect #2): Unity 5.2.3p2 refuses a Mesh over
-    65000 verts natively, so the old 16-bit bound (65535) admitted a 65001..65535 window the
-    game cannot load. Under the unindexed contract the largest legal part is 64998 verts =
-    21666 tris; the next legal size, 65001 (21667 tris), must be refused at the write seam."""
-    assert M.MAX_MESH_VERTS == 65000
-    top = _flat_bm(64998)
+def test_vertex_ceiling_is_the_s34_loaders_65535(tmp_path):
+    """The per-part ceiling is s34 ReadMesh's own 65535 (16-bit indices), PROVEN IN-GAME:
+    flat Terrain overrides of 65001 and 65535 verts both render and walk, no "Mesh.vertices
+    is too large" in either log (studies/terrain-malleability/ingame/RESULTS.md section 8).
+    That refuted CAP-1's 65000 "native" cap, which the kit briefly enforced (b68e1c6b). Under
+    the unindexed contract the largest part is 65535 verts = 21845 tris; 65536 is refused, and
+    so is the next tri-soup size a builder can actually emit, 65538 (21846 tris)."""
+    assert M.MAX_MESH_VERTS == 65535
+    top = _flat_bm(65535)
+    assert len(top.tris) == 21845
     M.validate_blockmesh(top)
     p = M.write_ff9mesh(top, tmp_path / "top.ff9mesh")
-    assert M.read_ff9mesh_header(p.read_bytes())[1:3] == (64998, 64998)
-    over = _flat_bm(65001)
-    with pytest.raises(ValueError, match="vertex count out of range: 65001"):
-        M.validate_blockmesh(over)
-    with pytest.raises(ValueError, match="65000 vertices natively"):
-        M.write_ff9mesh(over, tmp_path / "over.ff9mesh")
-    assert not (tmp_path / "over.ff9mesh").exists()       # refused before any byte hits disk
+    assert M.read_ff9mesh_header(p.read_bytes())[1:3] == (65535, 65535)
+    for n in (65536, 65538):
+        over = _flat_bm(n)
+        with pytest.raises(ValueError, match=f"out of range for the engine loader: {n} "):
+            M.validate_blockmesh(over)
+        with pytest.raises(ValueError, match="16-bit mesh indices only"):
+            M.write_ff9mesh(over, tmp_path / f"over{n}.ff9mesh")
+        assert not (tmp_path / f"over{n}.ff9mesh").exists()   # refused before any byte hits disk
 
 
 def test_engine_patch_literals_are_pinned():
     """THE DRIFT PIN: validate_blockmesh transcribes s34 ReadMesh. If the engine side bumps
     a literal, this fails the kit's suite instead of silently voiding every deploy. The vertex
-    bound is pinned as an INEQUALITY: the kit (65000, Unity's native cap) is deliberately
-    stricter than s34's 65535 until the next DLL round fixes the engine side
-    (memoria-patches/README.md); the kit must never admit a count the loader refuses."""
+    bound is pinned as an EQUALITY: a kit stricter than the loader refuses parts the game
+    loads (the refuted 65000 cap), a looser one ships parts the loader rejects."""
     import re
     from pathlib import Path
     patch = (Path(__file__).resolve().parents[2] / "memoria-patches" /
              "s34-worldmap-mesh-override.patch").read_text(encoding="utf-8", errors="replace")
     assert "SupportedVersion = 1" in patch
     loader_max = [int(n) for n in re.findall(r"vcount > (\d+)", patch)]
-    assert len(loader_max) == 1 and M.MAX_MESH_VERTS <= loader_max[0]
+    assert loader_max == [M.MAX_MESH_VERTS]
     assert "icount > vcount * 3" in patch
     assert "idx < 0 || idx >= vcount" in patch
 

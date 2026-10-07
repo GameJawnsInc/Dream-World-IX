@@ -37,15 +37,16 @@ GRID_COLS, GRID_ROWS = 24, 20                            # block cols 0..23 (X),
 GRID_WORLD_X_MAX = GRID_COLS * 64 - 1                    # world x spans [0, 1535]  (24 * 64 = 1536)
 GRID_WORLD_Z_MIN = -(GRID_ROWS * 64 - 1)                 # world z spans [-1279, 0] (20 * 64 = 1280)
 
-# THE PER-PART VERTEX CEILING (CAP-1, studies/terrain-malleability/README.md §4.4). The game's
-# Unity 5.2.3p2 player refuses a Mesh over 65000 vertices in NATIVE code -- FF9.exe carries
-# "Mesh.vertices is too large. A mesh may not have more than 65000 vertices." (found by
-# studies/terrain-malleability/capacity/unity_limits.py) -- and has no 32-bit index path
-# (Mesh.indexFormat is Unity >= 2017.3). 16-bit index WIDTH (65535) is not the binding limit.
-# Under the UNINDEXED CONTRACT (vcount == icount, 3 fresh verts per tri) the largest legal part
-# is therefore 64998 verts = 21666 tris. The s34 loader still admits 65535
-# (WorldMeshOverride.cs:186); the kit is deliberately the stricter of the two.
-MAX_MESH_VERTS = 65000
+# THE PER-PART VERTEX CEILING = the s34 loader's own bound: ReadMesh (WorldMeshOverride.cs:186)
+# admits 1..65535 (16-bit mesh indices; Unity 5.2.3 has no 32-bit index path). PROVEN IN-GAME
+# (studies/terrain-malleability/ingame/RESULTS.md §8; harness runs *-terrain-session7-under,
+# *-over, *-max65535; meshes from ingame/vcap_build.py): flat Terrain overrides of 65001 and
+# 65535 verts both RENDER and WALK (actor stands at y 6.0), with no "Mesh.vertices is too large"
+# in output_log.txt or Memoria.log. That refutes CAP-1, the offline claim that the player refuses
+# a Mesh over 65000 verts natively (FF9.exe carries that message, but it does not fire on this
+# path) -- do NOT re-tighten to 65000. Under the UNINDEXED CONTRACT (vcount == icount, 3 fresh
+# verts per tri) the largest part is 65535 verts = 21845 tris.
+MAX_MESH_VERTS = 65535
 
 
 def block_in_grid(x: int, y: int) -> bool:
@@ -102,9 +103,9 @@ def write_ff9mesh(bm, path) -> Path:
 def validate_blockmesh(bm) -> None:
     """THE ENGINE'S OWN LOADER PREDICATES at the write seam (audit rec 10 step 1), transcribed
     from the s34 patch's ``ReadMesh`` (``memoria-patches/s34-worldmap-mesh-override
-    .patch``: ``SupportedVersion = 1``; ``icount < 0 or icount > vcount * 3``; every ``idx`` in
-    ``[0, vcount)``; and the vertex range, which the kit TIGHTENS from the loader's 65535 to
-    :data:`MAX_MESH_VERTS` = 65000 -- Unity refuses 65001..65535 natively, CAP-1), plus the
+    .patch``: ``SupportedVersion = 1``; ``vcount <= 0 or vcount > 65535`` -- 16-bit mesh
+    indices, :data:`MAX_MESH_VERTS`, in-game proven; ``icount < 0 or icount > vcount * 3``;
+    every ``idx`` in ``[0, vcount)``), plus the
     UNINDEXED CONTRACT and a NaN/inf scan the loader can NOT catch
     (a NaN vert loads fine and renders/queries as garbage). Raises ``ValueError`` -- the
     ``require_block_in_grid`` convention, not assert -- because a runtime-rejected override
@@ -112,8 +113,8 @@ def validate_blockmesh(bm) -> None:
     block's walkable geometry at the wrong coordinates (the nastiest boundary failure the
     audit found), so nothing rejectable may ever reach the file. Deliberately NO
     degenerate-triangle gate: THE WALL LAW records that filter misfiring (zero-plan-area
-    curtains are real content). A drift test pins the patch's literals against this copy, and
-    pins the kit's vertex ceiling at or below the loader's."""
+    curtains are real content). A drift test pins the patch's literals against this copy,
+    the vertex ceiling included (kit == loader)."""
     idx = bm.flat_index
     vcount, icount = bm.vcount, len(idx)
     if vcount != icount:
@@ -131,9 +132,9 @@ def validate_blockmesh(bm) -> None:
         raise ValueError("tris/flat_index topology divergence: the flattened tris do not equal "
                          "flat_index -- a builder edited one representation and not the other")
     if vcount <= 0 or vcount > MAX_MESH_VERTS:
-        raise ValueError(f"vertex count out of range: {vcount} (1..{MAX_MESH_VERTS}; Unity 5.2.3p2 "
-                         f"refuses a Mesh over {MAX_MESH_VERTS} vertices natively -- unindexed, a "
-                         f"part holds at most {MAX_MESH_VERTS // 3} tris)")
+        raise ValueError(f"vertex count out of range for the engine loader: {vcount} "
+                         f"(1..{MAX_MESH_VERTS}; Unity 5.2.3 has 16-bit mesh indices only -- "
+                         f"unindexed, a part holds at most {MAX_MESH_VERTS // 3} tris)")
     if icount < 0 or icount > vcount * 3:
         raise ValueError(f"index count out of range for the engine loader: {icount} > vcount*3")
     for i in idx:
