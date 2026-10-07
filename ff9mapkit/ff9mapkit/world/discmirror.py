@@ -61,6 +61,12 @@ _DISC_SEG_RE = re.compile(r"^Disc(\d+)$")
 # path is a SYNTHETIC namespace (Path D's sentinel, engine patch s74) and must never be mirrored into a real one.
 _REAL_DISCS = (1, 4)
 
+#: ``skip_mirror=DEFERRED`` -- what an ORCHESTRATOR hands its inner writers when it unions their written paths and
+#: runs ONE :func:`auto_mirror` pass itself (the ``world-mountain`` CLI, ``fuse_layout``, ``author_entrance``).
+#: Truthy, so the inner writer still skips; distinct from ``True`` so its log line says the mirror is DEFERRED
+#: instead of claiming the operator passed ``--skip-mirror`` (which they never did).
+DEFERRED = "deferred"
+
 
 def _real_parts(disc: int, lod: str = "0_1", *, game=None) -> dict:
     """{(bx, by): {part, ...}} of the REAL map's per-block mesh assets on ``disc`` at ``lod``."""
@@ -89,6 +95,27 @@ def _cell_of(path: Path):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
+def _game_root_of(path: Path, mod_folder):
+    """The game root ``path`` was deployed under, or ``None`` when ``path`` does not lie under ``mod_folder``.
+
+    Every writer joins ``<game> / mod_folder``, so the two spellings land differently: a RELATIVE ``mod_folder``
+    (the usual bare ``FF9CustomMap-world``) appears as a run of whole segments and the root is everything before
+    it; an ABSOLUTE one (a bench / scratch tree) replaces ``<game>`` outright, so it matches as a path PREFIX and
+    the root is its parent -- no segment of the written path ever equals the whole absolute string."""
+    mf = Path(mod_folder)
+    if mf.is_absolute():
+        try:
+            mf, path = mf.resolve(), path.resolve()
+        except OSError:
+            return None
+        return mf.parent if path.is_relative_to(mf) else None
+    seg, parts = mf.parts, path.parts
+    for i in range(len(parts) - len(seg) + 1):
+        if parts[i:i + len(seg)] == seg:
+            return Path(*parts[:i])
+    return None
+
+
 def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc: int = 4, log=print):
     """Automatic POST-STEP for every world-deploy writer: pass it ``written`` -- the list/iterable of
     return values of THIS call's own real :func:`~ff9mapkit.world.mesh.deploy_override` /
@@ -101,21 +128,29 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
     EVIDENCE CONTRACT. In order:
 
     1. ``skip_mirror=True`` (CLI ``--skip-mirror``) opts out explicitly -- logs one line, does nothing.
+       ``skip_mirror=DEFERRED`` is the same no-op for an inner writer whose orchestrator runs the one pass
+       itself; its line says so instead of blaming a ``--skip-mirror`` nobody passed.
     2. Every entry of ``written`` that is not a real, existing ``str``/``Path`` under a ``WorldMap/Disc{n}``
        tree (``n != dst_disc``) is dropped. A ``MagicMock`` (a hermetic test that mocked the deploy calls
        out) fails the ``isinstance`` check -- if NOTHING survives (a dry run, a mocked writer, or a writer
        that deployed straight to ``dst_disc`` already), this is a silent no-op.
     3. The game root, source disc, lod, and cell set are derived purely by parsing the surviving paths
-       (the ``Disc{n}`` segment + the segment after it + each filename's ``Block[x][y]``) -- grouped per
+       (:func:`_game_root_of` -- ``mod_folder`` as whole segments, or as a path prefix when it is absolute --
+       then the ``Disc{n}`` segment + the segment after it + each filename's ``Block[x][y]``) -- grouped per
        source disc (a single writer call touches one disc in practice; a mixed set is handled by looping).
+       Real writes that survived but sit under no ``mod_folder`` log one ``NOT RUN`` line and return.
     4. :func:`mirror` runs once per source-disc group, scoped to exactly that group's cells via its
        ``cells=`` filter -- an unrelated write elsewhere in the tree is never touched. A ``ValueError`` out
        of :func:`mirror` itself (e.g. the derived game root has no real StreamingAssets bundle data to
-       compare cells against -- a hermetic caller exercising just the writer, not a real install) is
-       swallowed per group: this is a best-effort POST-step, not a new hard requirement on every deploy call.
+       compare cells against -- a bench tree, or a hermetic caller exercising just the writer) is logged
+       as ``NOT RUN`` and swallowed per group: this is a best-effort POST-step, not a new hard requirement
+       on every deploy call -- but never a silent one.
 
     Returns the last :func:`mirror` summary dict, or ``None`` when it never ran. The standalone
     ``world-mirror`` verb (a direct :func:`mirror` call, ``cells=None``) is unaffected either way."""
+    if skip_mirror == DEFERRED:
+        log(f"disc-{dst_disc} mirror: deferred to the calling verb's single pass over all of its writes")
+        return None
     if skip_mirror:
         log(f"disc-{dst_disc} mirror: skipped (--skip-mirror)")
         return None
@@ -149,17 +184,19 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
     # ---- derive the game root (must agree across every surviving path -- there is only one install) ----
     game_root = None
     for pp, _disc_idx, _src_disc in hits:
-        parts = pp.parts
-        if mod_folder not in parts:
+        root = _game_root_of(pp, mod_folder)
+        if root is None:
             continue
-        root = Path(*parts[:parts.index(mod_folder)])
         if game_root is None:
             game_root = root
         elif root != game_root:
             raise ValueError(f"auto_mirror: written paths disagree on the game root ({game_root} vs "
                              f"{root}) -- refusing to guess which is right")
-    if game_root is None:
-        return None                                          # no surviving path actually carries mod_folder
+    if game_root is None:                                    # real writes, but none under mod_folder -- say so
+        log(f"disc-{dst_disc} mirror: NOT RUN -- could not derive the game root from --mod-folder "
+            f"{mod_folder!r} (none of the {len(hits)} written override(s) lies under it); "
+            f"Disc{dst_disc} is NOT mirrored -- run world-mirror by hand")
+        return None
 
     # ---- group per source disc: lod (the segment right after Disc{n}) + the cell set actually written ----
     by_disc = defaultdict(lambda: {"lod": None, "cells": set()})
@@ -193,10 +230,12 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
         try:
             out = mirror(mod_folder, src_disc=src_disc, dst_disc=dst_disc, lod=grp["lod"] or "0_1",
                          game=game_root, cells=grp["cells"], log=log)
-        except ValueError as e:               # defensive -- mirror() re-validates the same tree (e.g. the
-            log(f"disc-{dst_disc} mirror: skipped ({e})")  # derived game_root has no real StreamingAssets
-            continue                                       # bundle data -- a best-effort post-step, not a new
-                                                           # hard requirement on every deploy call
+        except ValueError as e:
+            # defensive -- mirror() re-validates the same tree (e.g. the derived game_root has no real
+            # StreamingAssets bundle data: a bench tree) -- a best-effort post-step, not a new hard requirement
+            # on every deploy call, but never a silent one
+            log(f"disc-{dst_disc} mirror: NOT RUN for Disc{src_disc} ({e}) -- run world-mirror by hand")
+            continue
     return out
 
 

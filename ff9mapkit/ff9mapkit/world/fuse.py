@@ -207,12 +207,12 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
            "clean": clean, "dry_run": dry_run, "deployed": []}
     if dry_run or not clean:
         return out
+    from . import discmirror as DM
     for pl in placements:
         s = TR.transplant_region(mod_folder, disc=disc, lod=lod, game=game,
-                                 dry_run=False, skip_mirror=True, target_disc=rtarget,
+                                 dry_run=False, skip_mirror=DM.DEFERRED, target_disc=rtarget,
                                  all_sea_target=all_sea_target, **_kw(pl))
         out["deployed"].extend(s["deployed"])
-    from . import discmirror as DM
     DM.auto_mirror(out["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return out
 
@@ -388,15 +388,15 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,
                            parts=res.get("changed_parts"))
         if not dry_run:
+            from . import discmirror as DM
             written = list(IN.deploy_changed(res["changed"], mod_folder=mod_folder,
-                                             disc=disc, game=game, skip_mirror=True,
+                                             disc=disc, game=game, skip_mirror=DM.DEFERRED,
                                              target_disc=target_disc))
             if table == "mountain":
                 written += list(IN.deploy_mountain_parts(res, mod_folder=mod_folder,
                                                          disc=disc, game=game,
-                                                         skip_mirror=True,
+                                                         skip_mirror=DM.DEFERRED,
                                                          target_disc=target_disc))
-            from . import discmirror as DM
             DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
         return res
 

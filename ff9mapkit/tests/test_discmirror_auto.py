@@ -286,6 +286,122 @@ def test_auto_mirror_inconsistent_game_roots_raises(tmp_path):
         DM.auto_mirror([a, b], mod_folder=MOD, log=lambda *a, **k: None)
 
 
+# --------------------------------------------------------------------------- an ABSOLUTE --mod-folder (a bench)
+
+def _bench(tmp_path, monkeypatch):
+    """A bench layout: an ABSOLUTE scratch mod folder (``<tmp>/bench-comp20/FF9CustomMap-world``) beside a
+    stand-in for the real install the writers resolve ``game=None`` to. ``find_game_path`` honours an explicit
+    root exactly as the real one does (an existing dir is trusted) and records every call, so a test can see
+    WHICH root the mirror resolved -- and nothing ever reaches the developer's real install."""
+    install = tmp_path / "the_real_install"
+    install.mkdir()
+    bench = tmp_path / "bench-comp20" / "FF9CustomMap-world"
+    bench.mkdir(parents=True)
+    calls = []
+
+    def _find(game=None):
+        calls.append(game)
+        return Path(game) if game is not None else install
+
+    monkeypatch.setattr(config, "find_game_path", _find)
+    return install, bench, calls
+
+
+def test_auto_mirror_absolute_mod_folder_bench_write_mirrors(tmp_path, monkeypatch):
+    """THE BENCH REGRESSION (comp20, 2026-10-06): ``world-mountain --mod-folder <ABSOLUTE PATH>`` wrote the Disc1
+    overrides and never mirrored Disc4, with no log line. The old root derivation looked for the whole absolute
+    string as ONE path segment -- which no segment ever is -- so the root stayed None and auto_mirror returned
+    silently. An absolute mod folder is a path PREFIX of every written path; the root is its parent."""
+    install, bench, calls = _bench(tmp_path, monkeypatch)
+    _patch_open_ocean(monkeypatch)
+    p = M.deploy_override(_tri_blockmesh("Block[3][5] Terrain", disc=1, x=3, y=5),
+                          mod_folder=str(bench), game=None, lod="0_1", part="Terrain")
+    assert p.is_relative_to(bench)                              # the writer's `<game> / <absolute>` join
+
+    logged = []
+    out = DM.auto_mirror([p], mod_folder=str(bench), log=logged.append)
+    assert out is not None, logged
+    dst = bench / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r5" / "Block[3][5] Terrain.ff9mesh"
+    assert dst.read_bytes() == p.read_bytes()
+    assert out["mirrored"] == [dst]
+    assert bench.parent.resolve() in [Path(c).resolve() for c in calls if c is not None]   # the derived root
+    assert list(install.iterdir()) == []                        # the install is never written
+
+
+def test_auto_mirror_absolute_mod_folder_str_with_forward_slashes(tmp_path, monkeypatch):
+    """The CLI hands the flag through verbatim, so the bench may be spelled with forward slashes (the comp20
+    carve was) -- the prefix match compares resolved paths, not strings."""
+    _install, bench, _calls = _bench(tmp_path, monkeypatch)
+    _patch_open_ocean(monkeypatch)
+    p = M.deploy_override(_tri_blockmesh("Block[3][5] Terrain", disc=1, x=3, y=5),
+                          mod_folder=str(bench), game=None, lod="0_1", part="Terrain")
+
+    out = DM.auto_mirror([str(p)], mod_folder=bench.as_posix(), log=lambda *a, **k: None)
+    assert out is not None
+    assert (bench / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r5" / "Block[3][5] Terrain.ff9mesh").is_file()
+
+
+def test_auto_mirror_absolute_bench_without_bundle_data_logs_not_run(tmp_path, monkeypatch):
+    """A real bench has NO StreamingAssets beside it, so the derived root carries no bundle data to gate cells
+    against. That runs the REAL bundle lookup (only the UnityPy import is stubbed -- the optional ``assets``
+    extra) and must end in one explicit NOT RUN line naming the reason -- never a silent return, and never a
+    half-mirror."""
+    _install, bench, _calls = _bench(tmp_path, monkeypatch)
+    monkeypatch.setattr(X, "_unitypy", lambda: None)
+    p = M.deploy_override(_tri_blockmesh("Block[3][5] Terrain", disc=1, x=3, y=5),
+                          mod_folder=str(bench), game=None, lod="0_1", part="Terrain")
+
+    logged = []
+    assert DM.auto_mirror([p], mod_folder=str(bench), log=logged.append) is None
+    not_run = [m for m in logged if "disc-4 mirror: NOT RUN" in m]
+    assert len(not_run) == 1, logged
+    assert "no worldmap terrain meshes" in not_run[0]           # the bundle-less root, named
+    assert "world-mirror" in not_run[0]                         # and what to do about it
+    assert not (bench / "FF9_Data" / "WorldMap" / "Disc4").exists()
+
+
+def test_auto_mirror_logs_not_run_when_no_write_lies_under_mod_folder(tmp_path, monkeypatch):
+    """Real writes survived filtering but none sits under ``mod_folder`` (here: a mismatched folder name), so no
+    game root can be derived. That used to be a bare ``return None`` -- the Disc1 overrides landed, Disc4 did
+    not, and nothing said so. It must log ONE explicit line and still never guess a root."""
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    p = M.deploy_override(_tri_blockmesh("Block[3][5] Terrain", disc=1, x=3, y=5),
+                          mod_folder="FF9CustomMap-world", game=None, lod="0_1", part="Terrain")
+
+    logged = []
+    assert DM.auto_mirror([p], mod_folder=MOD, log=logged.append) is None
+    assert len(logged) == 1, logged
+    assert logged[0].startswith("disc-4 mirror: NOT RUN -- could not derive the game root from --mod-folder")
+    assert repr(MOD) in logged[0]
+    assert not (tmp_path / "FF9CustomMap-world" / "FF9_Data" / "WorldMap" / "Disc4").exists()
+
+
+def test_auto_mirror_relative_multi_segment_mod_folder_still_derives_the_root(tmp_path, monkeypatch):
+    """A relative ``mod_folder`` matches as a run of WHOLE segments: the bare name is the one-segment case (the
+    existing behaviour); ``sub/FF9CustomMap`` must not fall through to the NOT RUN line."""
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    _patch_open_ocean(monkeypatch)
+    mf = "sub/" + MOD
+    p = M.deploy_override(_tri_blockmesh("Block[3][5] Terrain", disc=1, x=3, y=5),
+                          mod_folder=mf, game=None, lod="0_1", part="Terrain")
+
+    assert DM.auto_mirror([p], mod_folder=mf, log=lambda *a, **k: None) is not None
+    assert (tmp_path / "sub" / MOD / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r5"
+            / "Block[3][5] Terrain.ff9mesh").is_file()
+
+
+def test_auto_mirror_deferred_names_the_deferral_not_the_skip_flag(tmp_path):
+    """An orchestrator's inner writers are force-skipped so ONE pass runs over the union. Their line used to read
+    ``skipped (--skip-mirror)`` -- a flag the operator never passed. DEFERRED says what actually happens."""
+    logged = []
+    out = DM.auto_mirror([tmp_path / "Block[3][5] Terrain.ff9mesh"], mod_folder=MOD,
+                         skip_mirror=DM.DEFERRED, log=logged.append)
+    assert out is None
+    assert len(logged) == 1
+    assert "deferred" in logged[0] and "--skip-mirror" not in logged[0]
+    assert DM.DEFERRED                                          # truthy: a writer that tests it still skips
+
+
 def test_mirror_cells_param_restricts_to_the_given_set(tmp_path, monkeypatch):
     """mirror()'s new ``cells=`` kwarg: a whole tree with TWO deployed cells, restricted via ``cells=`` to
     just one, mirrors only that one. The standalone world-mirror verb never passes this (cells=None default
@@ -454,12 +570,53 @@ def test_cli_world_mountain_unions_written_paths_into_one_auto_mirror_call(monke
     rc = cli._cmd_world_mountain(args)
 
     assert rc == 0
-    assert changed_kwargs.get("skip_mirror") is True             # both inner writers suppress their OWN mirror
-    assert parts_kwargs.get("skip_mirror") is True
+    assert changed_kwargs.get("skip_mirror") == DM.DEFERRED      # both inner writers defer their OWN mirror
+    assert parts_kwargs.get("skip_mirror") == DM.DEFERRED        # (DEFERRED, not True: the operator passed no
+                                                                 # --skip-mirror, so no line may claim they did)
     assert len(mirror_calls) == 1                                # exactly ONE auto_mirror call, at the CLI level
     written, kw = mirror_calls[0]
     assert written == ["A.ff9mesh", "B.ff9mesh", "C.ff9mesh"]    # the UNION, in call order
     assert kw.get("mod_folder") == MOD
+    assert kw.get("skip_mirror") is False                        # the CLI's own pass runs unless --skip-mirror
+
+
+def test_cli_world_mountain_absolute_bench_mod_folder_mirrors_end_to_end(tmp_path, monkeypatch, capsys):
+    """THE BENCH CARVE, end to end through the CLI: ``world-mountain --mod-folder <ABSOLUTE PATH>`` with the REAL
+    inner writers (``deploy_changed`` + ``deploy_mountain_parts``, Terrain + ensemble blanks + Donor.txt) and the
+    REAL auto_mirror. Only the carve's geometry and the bundle layer are faked. Before the fix this wrote Disc1,
+    left Disc4 empty, and printed nothing but the inner writers' ``skipped (--skip-mirror)`` -- a flag nobody
+    passed. Now Disc4 matches Disc1 byte for byte and no line mentions --skip-mirror."""
+    from ff9mapkit import cli
+
+    install, bench, _calls = _bench(tmp_path, monkeypatch)
+    _patch_open_ocean(monkeypatch)
+    bm = _tri_blockmesh("Block[4][4] Terrain", disc=1, x=4, y=4)
+    monkeypatch.setattr(IN, "read_deployed_blocks", lambda *a, **k: {})
+    monkeypatch.setattr(IN, "soup_from_blocks", lambda blocks: object())
+    monkeypatch.setattr(IN, "carve_mountain", lambda soup, **k: {
+        "center": (0.0, 0.0), "changed": {(4, 4): bm}, "changed_parts": {}, "donor_ref": (10, 5),
+        "report": {"blocks": [[4, 4]], "rot_deg": 0, "blob_tris": 0, "plugs": 0, "dropped": 0,
+                  "zip_tris": 0, "peak_y": 0.0, "rock_rigid": 0.0, "apron_slope": 0.0,
+                  "teleport": (0, 0)},
+    })
+    monkeypatch.setattr(IN, "census_gate", lambda *a, **k: None)
+
+    args = cli.build_parser().parse_args(
+        ["world-mountain", "--mod-folder", str(bench), "--center", "0,0", "--donor", "10,5"])
+    rc = cli._cmd_world_mountain(args)
+    out = capsys.readouterr().out
+
+    assert rc == 0, out
+    assert "--skip-mirror" not in out                            # the misleading line is gone
+    assert out.count("disc-4 mirror: deferred") == 2             # one per inner writer
+    assert "NOT RUN" not in out
+    disc1 = bench / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r4"
+    disc4 = bench / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r4"
+    src = sorted(p.name for p in disc1.iterdir() if p.name.startswith("Block["))
+    assert "Block[4][4] Terrain.ff9mesh" in src and "Block[4][4] Donor.txt" in src
+    for name in src:                                             # every Disc1 write mirrored, byte for byte
+        assert (disc4 / name).read_bytes() == (disc1 / name).read_bytes(), name
+    assert list(install.iterdir()) == []                         # nothing landed in the install
 
 
 # --------------------------------------------------------------------------- wired into real writers (smoke)
