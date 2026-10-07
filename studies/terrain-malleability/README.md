@@ -511,7 +511,7 @@ The memory store is shared and not under version control: make surgical edits.
 | # | defect | where | evidence | exposure today |
 |---|---|---|---|---|
 | 1 | `extract.read_block` resolves parts by substring: disc-4 (12,0) `sea4` → Sea4f; disc-1 (19,11) and disc-4 (5,16) `river` → RiverJoint | `world/extract.py:332-336`; reaches `water.py:463/504`, `transplant.py:127`, `discmirror.py:323`, `palette.py:51` | D4-17; `disc4/verify_prefix_collision.py` | the pin path pins RiverJoint twice and never River for a `(19,11)` donor (G10); false mirror SKIP at (12,0). **FIXED** after this study: exact match, `tests/test_world_block_part_lookup.py`; the fix's census also found (16,15) `river` → RiverJoint on both discs, a block with no River; no deployed write read any of the five |
-| 2 | vertex bound 65535 admits 65001-65535, which Unity refuses natively | `mesh.py:121-123`, s34 `WorldMeshOverride.cs:186`, test pin `test_world_ledger.py:197` | CAP-1 | latent (deployed max 4647 verts) |
+| 2 | vertex bound 65535 admits 65001-65535, which Unity refuses natively | `mesh.py:121-123`, s34 `WorldMeshOverride.cs:186`, test pin `test_world_ledger.py:197` | CAP-1 | latent (deployed max 4647 verts). **Kit side FIXED** (`mesh.MAX_MESH_VERTS` = 65000); s34 queued for the next DLL round (`memoria-patches/README.md`) |
 | 3 | four in-place writers read pristine stock, so a second edit erases the first; a later reshape/retarget silently kills a `world-entrance` (event tiles erased, `.eb` trigger left) | `terrain.py:139-143`, `cli.py:4149`, `cli.py:4275`, `transplant.py:3305` | S3 (8/8) | any repeat edit of one real block |
 | 4 | the ownership ledger allows kit-on-kit erasure; no overwrite gate on those four writers | `mesh.py:491` | S3, S10 | same |
 | 5 | Terrain-only Y edits tear cross-part welds: one-way walls at ±3 u in 149-154 of 154 beach-centred edits; a random r16 edit tears a stitch ~45% of the time, r96 (the `world-deploy` default) 99% | `terrain.py:159` | S5, S6, S8 | every coastal or object-bearing real-block edit |
@@ -549,6 +549,12 @@ encounters at fog 0 (the Southern Ring runs at fog 1) and checks tags against th
 ---
 
 ## 7. Ranked next experiments
+
+**In-game results so far → [`ingame/RESULTS.md`](ingame/RESULTS.md)** (harness, no deploy). Ranks 1 and 5 confirmed,
+apart from the vehicle and Disc9 parts. The zone-5 battle on the (19,18) Cleyra tiles is proven, and so are the
+canopy sink of exactly 1.171875 and the −5.76 basin. The stock form switch is proven by height, including "decided
+once per world load". The rank-11 ridge blocks from both sides. The deploy-gated ranks (2's F0/F1, 3, 4, 6-10) await
+the owner's go.
 
 Cost classes: **no-DLL, no deploy** / **no-DLL, deploy** (mod files only) / **patch** (a new `memoria-patches` entry) /
 **rebake** (none is ever needed: forms F17). Harness: memory `project-ff9-test-harness`; capture: `tools/game_snap.ps1`.

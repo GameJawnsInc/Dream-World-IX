@@ -14,6 +14,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   RiverJoint twice and never River. `world-island --disc 4` built its open sea from Sea4f.
 - The lookup now matches the part name exactly. A block without the part reports "mesh not found".
 
+### Fixed — overworld mesh writes refuse a part Unity cannot load (over 65,000 vertices)
+- The write seam allowed up to 65,535 vertices per part, which was the 16-bit index width. But the game's Unity
+  5.2.3p2 player rejects any mesh over 65,000 vertices natively, and it has no 32-bit index path. A part
+  between 65,001 and 65,535 vertices would deploy and then fail to load.
+- `validate_blockmesh` now caps vertices at `mesh.MAX_MESH_VERTS = 65000`. Parts are unindexed (three fresh
+  vertices per triangle), so the largest legal part is 64,998 vertices = 21,666 triangles.
+- No deployed part comes close (largest: 4,647 vertices). The s34 engine loader still says 65,535; that fix is
+  queued for the next DLL round (`memoria-patches/README.md`).
+
 ### Fixed — `world-mountain`: no step in the grass fringe where two donor texture charts meet
 - Where two of a donor's uv charts meet at a corner of a rock-to-grass contact triangle, the fringe's blades
   ended at a different height on either side of the shared edge: a dark rock tooth hanging below the fringe.
