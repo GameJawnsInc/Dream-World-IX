@@ -1,0 +1,311 @@
+{
+ "stations": [
+  {
+   "kind": "control",
+   "contact": [
+    1512.12,
+    -387.05
+   ],
+   "uphill": [
+    -0.8159,
+    0.5782
+   ],
+   "rises": true,
+   "lawn_y": 3.18,
+   "approach": [
+    1528.44,
+    -398.61
+   ],
+   "approach_d": 20,
+   "bearing": 144.7,
+   "rim_bearing": 357.7
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1505.31,
+    -372.62
+   ],
+   "uphill": [
+    -0.5062,
+    -0.8624
+   ],
+   "rises": true,
+   "lawn_y": 3.05,
+   "approach": [
+    1515.44,
+    -355.37
+   ],
+   "approach_d": 20,
+   "bearing": 239.6,
+   "rim_bearing": 34.7
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1499.66,
+    -370.1
+   ],
+   "uphill": [
+    -0.3529,
+    -0.9357
+   ],
+   "rises": true,
+   "lawn_y": 3.21,
+   "approach": [
+    1506.72,
+    -351.39
+   ],
+   "approach_d": 20,
+   "bearing": 249.3,
+   "rim_bearing": 49.3
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1485.41,
+    -374.19
+   ],
+   "uphill": [
+    0.6451,
+    -0.7641
+   ],
+   "rises": true,
+   "lawn_y": 3.55,
+   "approach": [
+    1472.51,
+    -358.91
+   ],
+   "approach_d": 20,
+   "bearing": 310.2,
+   "rim_bearing": 92.9
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1482.24,
+    -377.02
+   ],
+   "uphill": [
+    0.6829,
+    -0.7305
+   ],
+   "rises": true,
+   "lawn_y": 3.54,
+   "approach": [
+    1468.58,
+    -362.41
+   ],
+   "approach_d": 20,
+   "bearing": 313.1,
+   "rim_bearing": 112.7
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1478.44,
+    -380.92
+   ],
+   "uphill": [
+    0.7801,
+    -0.6257
+   ],
+   "rises": true,
+   "lawn_y": 3.24,
+   "approach": [
+    1462.83,
+    -368.4
+   ],
+   "approach_d": 20,
+   "bearing": 321.3,
+   "rim_bearing": 146.1
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1474.24,
+    -385.32
+   ],
+   "uphill": [
+    0.689,
+    -0.7248
+   ],
+   "rises": true,
+   "lawn_y": 3.06,
+   "approach": [
+    1460.46,
+    -370.82
+   ],
+   "approach_d": 20,
+   "bearing": 313.5,
+   "rim_bearing": 176.7
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1459.0,
+    -401.07
+   ],
+   "uphill": [
+    0.739,
+    0.6737
+   ],
+   "rises": true,
+   "lawn_y": 3.18,
+   "approach": [
+    1444.22,
+    -414.54
+   ],
+   "approach_d": 20,
+   "bearing": 42.4,
+   "rim_bearing": 209.2
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1476.31,
+    -402.17
+   ],
+   "uphill": [
+    -0.2189,
+    0.9757
+   ],
+   "rises": true,
+   "lawn_y": 3.24,
+   "approach": [
+    1480.69,
+    -421.68
+   ],
+   "approach_d": 20,
+   "bearing": 102.6,
+   "rim_bearing": 239.1
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1485.31,
+    -398.41
+   ],
+   "uphill": [
+    -0.1276,
+    0.9918
+   ],
+   "rises": true,
+   "lawn_y": 3.23,
+   "approach": [
+    1487.86,
+    -418.25
+   ],
+   "approach_d": 20,
+   "bearing": 97.3,
+   "rim_bearing": 266.8
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1491.39,
+    -393.88
+   ],
+   "uphill": [
+    -0.604,
+    0.7969
+   ],
+   "rises": true,
+   "lawn_y": 3.49,
+   "approach": [
+    1503.47,
+    -409.82
+   ],
+   "approach_d": 20,
+   "bearing": 127.2,
+   "rim_bearing": 304.3
+  },
+  {
+   "kind": "control",
+   "contact": [
+    1496.73,
+    -390.73
+   ],
+   "uphill": [
+    -0.1488,
+    0.9889
+   ],
+   "rises": true,
+   "lawn_y": 3.2,
+   "approach": [
+    1499.71,
+    -410.51
+   ],
+   "approach_d": 20,
+   "bearing": 98.6,
+   "rim_bearing": 336.2
+  }
+ ],
+ "seam": [
+  {
+   "z": -320.0,
+   "from_x": 1490.0,
+   "to_x": 40.0,
+   "y": 3.2
+  },
+  {
+   "z": -568.0,
+   "from_x": 1490.0,
+   "to_x": 40.0,
+   "y": 3.2
+  }
+ ],
+ "grass_run": {
+  "start": [
+   68.0,
+   -444.0
+  ],
+  "bearing": 105.0,
+  "length": 120.0
+ },
+ "views": [
+  {
+   "name": "east-coastal-rock",
+   "at": [
+    1519.8,
+    -389.3
+   ],
+   "bearing": 174.4
+  },
+  {
+   "name": "north",
+   "at": [
+    1486.0,
+    -352.0
+   ],
+   "bearing": 270.0,
+   "dist": 34.0
+  },
+  {
+   "name": "south",
+   "at": [
+    1486.0,
+    -420.0
+   ],
+   "bearing": 90.0,
+   "dist": 34.0
+  },
+  {
+   "name": "west",
+   "at": [
+    1452.0,
+    -386.0
+   ],
+   "bearing": 0.0,
+   "dist": 34.0
+  }
+ ],
+ "massif": [
+  1486.0,
+  -386.0
+ ],
+ "landing": [
+  68.0,
+  -444.0
+ ]
+}

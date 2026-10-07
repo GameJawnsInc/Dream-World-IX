@@ -129,3 +129,22 @@ The registered prediction was no complaint about the base or the grass–mountai
 comp20. It held on the first live deploy. Per the round's own declared limit, this confirms the continent
 can host a mountain that reads right with no authored foot. It does NOT further discriminate the forest
 rule: comp20 has no forest contact.
+
+### THE HARNESS RIM WALK (2026-10-06, owner: "good to go with the rim-walk"): **32/32 in-game**
+
+- **Stations:** `rimwalk_comp20_stations.py` → `rimwalk_comp20.json`, from the deployed mesh: 12 stations, one
+  per 30° of the rim, all rising, each with a clean 20u lawn approach. Plus the seam latitudes (z −320 /
+  −568), the safe-road run from the landing, and 4 look-only views (the owner-look teleport + N / S / W).
+- **Scenario:** `rimwalk_comp20.py`, built from `rimwalk_take8.py`'s proven station walk, frames, battle
+  recovery and 6603 door hazard. Every station is a control (C4 passed every face).
+- **Offline dry run first** (the stand-in game over the real mesh): 32/32. That proves the code path, not a
+  verdict.
+- **In-game** (`.harness-runs/20261006-222756-rimwalk-comp20`, archived to the main repo; 456s):
+  - the 6603 walk-out lands at (68, −444), 0.0u off;
+  - the published height matches the mesh lawn (+0.019u);
+  - **all 12 stations: rock stops him at the contact (−0.1..+0.0u), no climb (≤ 0.15u rise)**;
+  - both seam crossings are one flat walk (3.20..3.20);
+  - 6 safe-road legs, 0 battles over ~672u;
+  - all 4 views captured. `comp20-views-sheet.png` sits in the run dir (game pixels: not committed).
+- The horseshoe's `rimwalk_take8.py` + `rimwalk_stations.json` remain as the R4 record; they no longer match
+  the live mesh.
