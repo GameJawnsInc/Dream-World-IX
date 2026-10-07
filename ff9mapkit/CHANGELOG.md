@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — overworld block reads: a part name no longer matches a longer part that starts with it
+- Reading a block's `sea4` sub-mesh could hand back its `Sea4f`, and `river` could hand back `RiverJoint`,
+  depending on which one came first in the game bundle. Five reads were wrong: disc-4 (12,0) `sea4`,
+  `river` at disc-1 (19,11) and disc-4 (5,16), and `river` at (16,15) on both discs, a block with no River.
+- Every world verb that copies, mirrors or compares a block's parts inherited it. `world-mirror`'s
+  identical-part check skipped disc-4 (12,0) when the parts were identical. A (19,11) donor pinned
+  RiverJoint twice and never River. `world-island --disc 4` built its open sea from Sea4f.
+- The lookup now matches the part name exactly. A block without the part reports "mesh not found".
+
 ### Fixed — `world-mountain`: no step in the grass fringe where two donor texture charts meet
 - Where two of a donor's uv charts meet at a corner of a rock-to-grass contact triangle, the fringe's blades
   ended at a different height on either side of the shared edge: a dark rock tooth hanging below the fringe.

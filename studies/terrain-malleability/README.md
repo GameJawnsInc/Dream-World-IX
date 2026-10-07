@@ -510,7 +510,7 @@ The memory store is shared and not under version control: make surgical edits.
 
 | # | defect | where | evidence | exposure today |
 |---|---|---|---|---|
-| 1 | `extract.read_block` resolves parts by substring: disc-4 (12,0) `sea4` → Sea4f; disc-1 (19,11) and disc-4 (5,16) `river` → RiverJoint | `world/extract.py:332-336`; reaches `water.py:463/504`, `transplant.py:127`, `discmirror.py:323`, `palette.py:51` | D4-17; `disc4/verify_prefix_collision.py` | the pin path pins RiverJoint twice and never River for a `(19,11)` donor (G10); false mirror SKIP at (12,0) |
+| 1 | `extract.read_block` resolves parts by substring: disc-4 (12,0) `sea4` → Sea4f; disc-1 (19,11) and disc-4 (5,16) `river` → RiverJoint | `world/extract.py:332-336`; reaches `water.py:463/504`, `transplant.py:127`, `discmirror.py:323`, `palette.py:51` | D4-17; `disc4/verify_prefix_collision.py` | the pin path pins RiverJoint twice and never River for a `(19,11)` donor (G10); false mirror SKIP at (12,0). **FIXED** after this study: exact match, `tests/test_world_block_part_lookup.py`; the fix's census also found (16,15) `river` → RiverJoint on both discs, a block with no River; no deployed write read any of the five |
 | 2 | vertex bound 65535 admits 65001-65535, which Unity refuses natively | `mesh.py:121-123`, s34 `WorldMeshOverride.cs:186`, test pin `test_world_ledger.py:197` | CAP-1 | latent (deployed max 4647 verts) |
 | 3 | four in-place writers read pristine stock, so a second edit erases the first; a later reshape/retarget silently kills a `world-entrance` (event tiles erased, `.eb` trigger left) | `terrain.py:139-143`, `cli.py:4149`, `cli.py:4275`, `transplant.py:3305` | S3 (8/8) | any repeat edit of one real block |
 | 4 | the ownership ledger allows kit-on-kit erasure; no overwrite gate on those four writers | `mesh.py:491` | S3, S10 | same |
@@ -604,7 +604,7 @@ Cost classes: **no-DLL, no deploy** / **no-DLL, deploy** (mod files only) / **pa
 | — | Falls/Stream normals change pixels | depends on the world light colours being nonzero |
 | — | Bind oracle predictions for Disc4 and Disc9 | calibrated on disc 1 only; Disc9 assumes BLANK mode |
 | — | A mid-visit `RunWorldCode(501)` flip on (7,1), (8,1), (13,12), (14,12) throws (cached walk index out of range) | reachable only from the Bee debug scene |
-| — | The 7 orphan `0_2` water variants that differ from `0_1` (e.g. (19,11) river 17 vs 66 tris) are PSX Form-2 water the port dropped | unknown |
+| — | The 7 orphan `0_2` water variants that differ from `0_1` (e.g. (19,11) river 69 vs 66 tris, 42 shared) are PSX Form-2 water the port dropped | unknown |
 | — | Which run carried stock Cleyra's tiles onto (19,18) | the Cleyra-region junction/dunes carry is the likely source; unproven |
 | — | Whether `w_frameDisc` is 1 on the Path D namespace (which encounter table) | cannot flip a hole/record verdict (tables equal); open |
 | — | Whether the Southern Ring quay tiles roll a battle before the WorldEvent dispatch on the same step | open |

@@ -19,7 +19,7 @@ METHOD (all offline, reads your own install; ~1 min):
   4. HIDDEN WATER    -- rule out a pond baked into terrain topo (48/50/51) instead of a part;
                         identify topo-62 (the channel bank).
 
-RESULT (disc 1, 2026-07-22): 6 water components, **ZERO OPEN tips**. Every water-feature
+RESULT (disc 1, 2026-07-22): 5 water components (6 until the D4-17 read_block fix), **ZERO OPEN tips**. Every water-feature
 terminus is anchored to the SEA or to a MASSIF (mountain rock). No stock stream has a
 self-contained open-lowland source -- every river rises in a mountain (geographically
 correct). => CLOSED BY CENSUS: the lawful carriable unit for ANY water feature is the whole

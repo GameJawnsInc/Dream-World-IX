@@ -1153,17 +1153,18 @@ water-topo tris are baked into terrain (single channel markers on (17,14)/(18,13
 is **no** pond hidden in terrain — every real feature is a part. (`sea6`/`sea4f` are sea
 layers, not features; `volcanocrater`/`volcanolava` = Gulug.)
 
-**THE TERMINATION CENSUS is decisive: 6 water components map-wide, ZERO OPEN tips.** Welding
+**THE TERMINATION CENSUS is decisive: 5 water components map-wide, ZERO OPEN tips.** (First recorded as
+6: the `read_block` prefix bug, D4-17, since fixed, read RiverJoint for (19,11)'s River and split cluster D
+into two components; re-run on the fix, they weld into one.) Welding
 all water parts into components and classifying each component's two flow-axis tips as
 SEA-anchored / MASSIF-anchored / OPEN (far from both), **every single tip is SEA or MASSIF**:
 
 | comp | parts | y-range | tip A / tip B | blocks | reading |
 |---|---|---|---|---|---|
-| 0 | river+joint+stream | 0.4–2.9 | MASSIF / MASSIF | (18,13)(19,11-13) | valley stream, both ends rock |
+| 0 | falls+river+joint+stream | 0.4–26.4 | MASSIF / MASSIF | (18,13)(19,10-13)(20,10-11) | cluster D: plateau river + falls + valley stream, one system |
 | 1 | joint+stream | −0.2–1.0 | **SEA** / **MASSIF** | (16,14)(16,15)(17,14) | lowland river-to-sea — source at massif foot |
-| 2 | falls+river+joint | 2.5–26.4 | MASSIF / MASSIF | (19,10-11)(20,10-11) | plateau river + falls |
-| 3 | river | 26.1–27.8 | MASSIF / MASSIF | (14,17)(15,17) | highland plateau river |
-| 4,5 | falls+river+joint | 15.2–26.0 | MASSIF | (5-6,15-16) | Daguerreo (already carried) |
+| 2 | river | 26.1–27.8 | MASSIF / MASSIF | (14,17)(15,17) | highland plateau river |
+| 3,4 | falls+river+joint | 15.2–26.0 | MASSIF | (5-6,15-16) | Daguerreo (already carried) |
 
 **Every stock river rises in a mountain** (geographically correct) or runs massif-to-massif.
 The closest thing to a standalone lowland feature is **cluster C** (16,14)/(16,15)/(17,14):

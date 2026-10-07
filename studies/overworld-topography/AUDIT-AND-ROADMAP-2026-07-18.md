@@ -372,7 +372,7 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   riverjoint) — over the **topo-62** channel bank (480 tris on 10 blocks, **10/10 within one block of a water part** ⇒
   topo 62 IS the carved channel, part of every ensemble); only **2** water-topo tris (48/50/51) are baked into terrain
   (single channel markers on (17,14)/(18,13)) — **no pond hides in terrain**, every real feature is a part.
-  **THE TERMINATION CENSUS is decisive: 6 welded water components map-wide, ZERO OPEN tips** — welding all water parts
+  **THE TERMINATION CENSUS is decisive: 5 welded water components map-wide, ZERO OPEN tips** (6 until the D4-17 `read_block` fix) — welding all water parts
   and classifying each component's two flow-axis tips (SEA-anchored <8u / MASSIF-anchored <8u / OPEN >15u from both),
   **every single terminus is SEA or MASSIF.** Every stock river rises in a mountain (geographically correct) or runs
   massif-to-massif. The four systems: Daguerreo (5-6,15-16, both tips MASSIF — already carried); Plateau-B (14-15,17,

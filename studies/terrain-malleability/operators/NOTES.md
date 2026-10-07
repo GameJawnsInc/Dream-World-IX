@@ -229,7 +229,7 @@ True for entrance DISPATCH; false for the engine: area -> zone -> encounter reco
 **F6 [measurement, law] The Disc-4 axis is the weakest.** `discmirror.mirror` copies a cell to Disc4 only if the destination's REAL
 cell is absent or part-set-equal AND byte-identical in every part (discmirror.py:275-289). Calling that gate's own helpers over
 all real blocks (`disc_mirror_eligible.py`; calibrated: an open-ocean cell passes, distinct blocks differ): of 260 land blocks
-**71 are eligible, 189 blocked** (184 differ in some part, 5 differ in part set); 13 of 15 sea-only blocks eligible.
+**71 are eligible, 189 blocked** (184 differ in some part, 5 differ in part set); 14 of 15 sea-only blocks eligible (13 as first measured: the D4-17 `read_block` bug read disc-4 (12,0) `sea4` as Sea4f).
 Terrain alone: 81 identical / 179 differ, and 175 of the 179 differ in GEOMETRY (115 by vertex count = re-tessellated; 60 by
 vertices) (`disc_tree_channels.py`; the 4 geometry-identical ones differ in UV (3) or normals (1) only). So a `world-terrain` /
 `--in-place` / `world-retarget` edit on 73% of real land exists on discs 1-3 only, and needs a separate `--disc 4` run
