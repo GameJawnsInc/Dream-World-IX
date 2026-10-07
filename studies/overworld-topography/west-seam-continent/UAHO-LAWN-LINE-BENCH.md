@@ -108,4 +108,4 @@ live carve.
 - Bench at `scratchpad/bench-uaho-r5c`. Renders in `scratchpad/render_lawn_ab/` (atlas pixels, not committed).
 - Live is untouched.
 - The tooth (the top seam) is NOT in this round's scope. Closing it would mean authoring the v of a donor vertex
-  shared by four carried tris (t514/t517/t536/t537). That is a new rule (fringe v-seam continuity) and a new round.
+  shared by nine carried tris (five at v 9.375: t514/t518/t532/t533/t537; four at 10.062: t513/t517/t519/t536). That is a new rule (fringe v-seam continuity) and a new round.
