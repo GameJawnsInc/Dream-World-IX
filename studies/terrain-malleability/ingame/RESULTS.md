@@ -215,6 +215,12 @@ removed after.
 `Block[12][10]`'s water) is now player-visible: boats sail under such land. `terrain.reclaim` should write a
 `Donor.txt` or blank the water parts.
 
+**Fixed after the round (blank, no sidecar):** reclaim now writes a hidden stub for each of 12,10's Sea1/3/4/5.
+Offline, the same `veh_prep` boat simulator, fed the old shape, reproduces this session's registered numbers
+exactly (flat6 open 123.81, rim 19.75; cliff crossing too). Fed the new shape it stalls at into −0.05 on both lanes,
+at all 9 hull headings, for flat6, flat1.2, island and cliff. The in-game re-drive (flat6, expect a stall at into
+−1.0..+0.1 on both lanes) has not been run.
+
 ### 10. The per-cell texture override (rank 6): 22/22, the clobber confirmed
 
 Treatment cell (21,1) carried a magenta `Terrain.png`, a red `Sea4.png`, and a lime `Sea3.png` with no Sea3 mesh. The

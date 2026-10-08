@@ -218,16 +218,25 @@ def main(argv=None):
         snaps = sorted(Path(os.environ.get("TEMP", "")).glob("claude/*/*/scratchpad/Memoria.*.log"))
         logp = snaps[-1] if snaps else game / "Memoria.log"
     seqs = defaultdict(list)
+    seq_folders = defaultdict(set)
     log_t = None
     for ln in logp.read_text(encoding="utf-8", errors="replace").splitlines():
         m = LOG_RE.match(ln)
         if m:
-            dd, mo, yy, hh, mi, ss, ns, _r, x, y, part, _folder = m.groups()
+            dd, mo, yy, hh, mi, ss, ns, _r, x, y, part, folder = m.groups()
             t = datetime(int(yy), int(mo), int(dd), int(hh), int(mi), int(ss)).timestamp()
             log_t = t if log_t is None else min(log_t, t)
             seqs[(int(ns), int(x), int(y))].append(part)
-    cal = {"log": str(logp), "blocks_in_log": len(seqs), "match": 0, "mismatch": [], "excluded_changed_after_log": []}
+            seq_folders[(int(ns), int(x), int(y))].add(folder)
+    cal = {"log": str(logp), "blocks_in_log": len(seqs), "match": 0, "mismatch": [], "excluded_changed_after_log": [],
+           "excluded_folder_gone": []}
     for key, seq in sorted(seqs.items()):
+        # a receipt from a folder no longer in FolderNames (a removed scratch lab) is stale, not a miss: the
+        # mtime test below cannot see files that were DELETED after the log
+        gone = sorted(seq_folders[key] - set(folders))
+        if gone:
+            cal["excluded_folder_gone"].append(f"{key} from {gone}")
+            continue
         pred = predicted.get(key, ([], 0))
         if pred[1] and log_t and pred[1] > log_t:
             cal["excluded_changed_after_log"].append(f"{key}")
@@ -271,10 +280,13 @@ def main(argv=None):
                               "walk_registered": [n for n, s in b if s != "__bare_object__"],
                               "render_only": [n for n, s in b if s == "__bare_object__"],
                               "stock_free_riders": [n for n, s in order if s != "__bare_object__" and f"{n}.ff9mesh" not in fs]})
-    # the shipped `world-reclaim` deploy shape: ONE Terrain override, no Donor.txt (terrain.reclaim writes no sidecar)
-    for label, (cx, cy) in [("world-reclaim shape on SEA cell", (11, 19)), ("world-reclaim shape on WATER-ONLY non-IsSea", (8, 4)),
-                            ("world-reclaim shape on PLAIN LAND", (15, 13))]:
-        fs = {"Terrain.ff9mesh": [(0, "x", None, 0)]}
+    # `world-reclaim`'s deploy shape, no Donor.txt either way: PRE-FIX one Terrain override (defect 18, its Sea1/3/4/5
+    # free-ride); FIXED = Terrain + hidden stubs for terrain.LAND_DONOR_WATER (12,10's water children)
+    for label, (cx, cy), parts in [("world-reclaim pre-fix on SEA cell", (11, 19), ["Terrain"]),
+                                   ("world-reclaim FIXED on SEA cell", (11, 19), ["Terrain", "Sea1", "Sea3", "Sea4", "Sea5"]),
+                                   ("world-reclaim pre-fix on WATER-ONLY non-IsSea", (8, 4), ["Terrain"]),
+                                   ("world-reclaim pre-fix on PLAIN LAND", (15, 13), ["Terrain"])]:
+        fs = {f"{p}.ff9mesh": [(0, "x", None, 0)] for p in parts}
         pk, why, dstate = E.effective(1, cx, cy, fs)
         order, b = E.bind_list(1, cx, cy, pk, fs)
         cases.append({"case": label, "cell": f"{cx},{cy}", "IsSea": E.is_sea(1, cx, cy), "terrain_override": True,
@@ -297,7 +309,8 @@ def main(argv=None):
     print(f"folders: {folders}")
     print(f"override cells scanned: {len(files)}   log: {logp.name}  blocks in log: {len(seqs)}")
     print(f"CALIB engine receipts: match={cal['match']} mismatch={len(cal['mismatch'])} "
-          f"excluded(changed after log)={len(cal['excluded_changed_after_log'])}")
+          f"excluded(changed after log)={len(cal['excluded_changed_after_log'])} "
+          f"excluded(folder gone)={cal['excluded_folder_gone']}")
     for mm in cal["mismatch"][:10]:
         print("   MISMATCH", mm)
     print(f"CALIB (11,19) pre-fix replay: {cal['case_11_19_prefix']}")

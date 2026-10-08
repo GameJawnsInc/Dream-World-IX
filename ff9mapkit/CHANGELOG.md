@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-reclaim`: no sea under reclaimed land, so a boat can no longer sail beneath it
+- A reclaimed ocean cell writes no `Donor.txt`, so the engine loads its fallback land donor, `Block[12][10]`.
+  That block is an open-ocean islet: its Sea1/Sea3/Sea4/Sea5 cover 97% of the cell. The water stayed in place
+  under the new land. In-game, the boat sailed under a 6u flat reclaim, and stopped on the islet's hidden rim.
+- Each reclaimed cell now also gets a hidden stub for those four water parts, so nothing stays in place under
+  the land. A boat stops at the cell edge for every profile; the cliff profile was also boat-permeable before.
+- Every profile fills its cell at or above the waterline. A `flat` reclaim with a negative `--height` is now
+  refused, since the cell has no water left to cover it. No `Donor.txt` is written, so nothing else about the
+  cell changes. A cell reclaimed before this fix keeps the free-riding water until it is re-run with
+  `--allow-overwrite`.
+
 ### Fixed — overworld block reads: a part name no longer matches a longer part that starts with it
 - Reading a block's `sea4` sub-mesh could hand back its `Sea4f`, and `river` could hand back `RiverJoint`,
   depending on which one came first in the game bundle. Five reads were wrong: disc-4 (12,0) `sea4`,
