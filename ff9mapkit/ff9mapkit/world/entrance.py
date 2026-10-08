@@ -15,9 +15,11 @@ gating + fade). So a working entrance is THREE things wired together, each of wh
      body is language-independent). There are 13 dispatchers
      (``EVT_WORLD_WORLD00..12``) selected by entry/story state, so an entrance authored into only one is dead in
      every other state -- this covers them all.
-  2. **the event tile(s)** -- set the terrain tiles in the cell to ``event=<id>`` (+ a cosmetic ``area=<case>``
-     stamp; the area bits are NOT read by dispatch) as a loose Terrain ``.ff9mesh`` override, so walking there
-     fires ``WorldEvent`` with the matching tag.
+  2. **the event tile(s)** -- set the terrain tiles in the cell to ``event=<id>`` as a loose Terrain ``.ff9mesh``
+     override, so walking there fires ``WorldEvent`` with the matching tag. Their AREA becomes the area of the
+     ground around them (:func:`ff9mapkit.world.mesh.host_area`), as stock's entrance tiles carry. Dispatch never
+     reads area, but the encounter zone, camera, labels and beach search do, so a trigger stamped with anything
+     else is a patch of foreign region inside the host ground.
   3. **(optional) the building** -- a Blender-modelled OBJ placed + seated in the cell as the Object mesh (the
      visible structure you walk up to), via :func:`ff9mapkit.world.blendio.build_from_obj`.
 
@@ -671,6 +673,31 @@ def _cell_openness_note(ter, cwx, cwz, ox, oz, summary, stock_obj=None):
                 f"structure here can pinch a trap-pocket against it. Prefer an open cell away from towns.")
 
 
+def _area_mismatch_note(areas, host: int) -> str:
+    """Name what trigger tiles carrying ``areas`` do that their host ground (area ``host``) does not."""
+    h = M.area_effects(host)
+    rows = []
+    for a in areas:
+        if a == host:
+            continue
+        e = M.area_effects(a)
+        diff = []
+        if e["zone"] != h["zone"]:
+            diff.append(f"encounter zone {h['zone']} -> {e['zone']}")
+        if e["camera_place"] != h["camera_place"]:
+            diff.append(f"camera place {h['camera_place']} -> {e['camera_place']} (a walkable camera jump; "
+                        f"stock has none)")
+        if e["camera_lock"]:
+            diff.append("the area-12 camera lock below scenario 4990")
+        if e["weather"] and not h["weather"]:
+            diff.append("spawn weather")
+        if e["beach_search"] and not h["beach_search"]:
+            diff.append("the beach search")
+        rows.append(f"area {a}: " + "; ".join(diff + ["its own location label"]))
+    return (f"the trigger tiles are off their host ground's area {host} -- " + " | ".join(rows)
+            + ". Stock's entrance tiles carry their host's area; --tile-area host restores it")
+
+
 def _building_world_box(building, default_at, margin: float = 2.0):
     """The world-XZ bounding box ``(xmin, xmax, zmin, zmax)`` a building occupies once placed (its XZ centroid at its
     ``at`` / ``default_at``), padded by ``margin``. Entrance-trigger tiles are kept OUT of this box so the player never
@@ -760,7 +787,7 @@ def fresh_discard_note(mod_folder: str, bx: int, by: int, *, disc: int = 1, lod:
 
 def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_field=None,
                     event: int = 1, disc: int = 1, lod: str = "0_1",
-                    trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
+                    trigger_at=None, trigger_radius: float = 14.0, tile_area="host", set_tile_area=None,
                     building=None, flatten_pad=None, block_footprint: bool = True, fresh: bool = False,
                     trigger_only: bool = False, prompt: bool = False, nameplate: bool = False,
                     nameplate_name: str = None, nameplate_case: int = NAMEPLATE_SURGERY_CASE,
@@ -770,7 +797,12 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
 
     Destination: ``field=<id>`` (resolved to a dispatch case) or ``case=<n>`` (raw). ``event`` is the tile trigger
     id (1-3). ``trigger_at``/``trigger_radius`` place the event-tile cluster (default: the cell centre, r=14, kept
-    inside the 32u cell). ``building`` (a dict ``{obj, at?, seat?, keep_block?, topograph?, idall?, texture?, tile?,
+    inside the 32u cell). ``tile_area`` sets the trigger tiles' AREA bits: ``"host"`` (default) = the area of the
+    walkable ground around the cluster (:func:`ff9mapkit.world.mesh.host_area`, stock's own rule), ``"keep"`` = each
+    tile keeps its current area, ``"case"`` = the dispatch case & 0x3F (the pre-fix default: it aliased an unrelated
+    stock region -- 3 of 151 cases lock the camera, 70 make the trigger roll battles), or an int 0-63. Any choice
+    that leaves the triggers off their host's area is reported as ``tile_area_warning``. ``set_tile_area`` is the
+    deprecated bool form (False = ``"keep"``, True = ``"case"``). ``building`` (a dict ``{obj, at?, seat?, keep_block?, topograph?, idall?, texture?, tile?,
     tile_uv?}``) additionally models + seats a structure in the cell; the texture keys forward to
     :func:`ff9mapkit.world.blendio.build_from_obj` (stamp real atlas tiles / one picked tile / a custom UV rect
     onto UV-less faces -- seated against the STACKED terrain, so it works on a transplanted cell too). ``block_footprint`` (default True) makes the TERRAIN under the building impassable
@@ -819,6 +851,11 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
 
     if building and not Path(building["obj"]).is_file():   # fail BEFORE any write, so a bad path can't half-deploy
         raise ValueError(f"--building OBJ not found: {building['obj']}")
+    if set_tile_area is not None:                          # the deprecated bool form
+        tile_area = "case" if set_tile_area else "keep"
+    if not (tile_area in ("host", "keep", "case")
+            or (type(tile_area) is int and 0 <= tile_area <= 63)):
+        raise ValueError(f"tile_area must be 'host', 'keep', 'case' or an area 0-63, not {tile_area!r}")
 
     alld = load_all_dispatchers(game)                      # {name: {lang: bytes}} -- per-lang (JP layout differs)
     us_disp = {n: L["us"] for n, L in alld.items() if "us" in L}
@@ -898,6 +935,8 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                          if "us" in L and (cases := dispatcher_cases(L["us"])) is not None and the_case in cases)
     if not targets:
         raise ValueError(f"no world dispatcher carries case {the_case} -- cannot route this entrance")
+    if tile_area == "case" and the_case is None:
+        raise ValueError("tile_area='case' needs a dispatch case; the direct route (direct_field) has none")
 
     eb_root = game_path / mod_folder / _WORLD_EB_SUBDIR
     summary = {
@@ -1024,11 +1063,29 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
     # triggers OUTSIDE the building outline (walkable beside it). ORDER MATTERS: the footprint split above
     # already partitioned every straddling triangle at the hull, so this centroid-based exclusion is EXACT
     # here by construction -- do not stamp events before the split, or straddlers leak triggers under the wall
-    n_tiles = M.retarget_tiles(ter, event=event, area=(the_case if set_tile_area else None),
-                               center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by),
-                               exclude_polygon=hull)
+    # THE AREA (defect 14): event bits first, area kept; then read the host ground's area around the now-stamped
+    # cluster (its own tiles no longer vote) and stamp it onto the same selection -- stock's rule, never the case
+    origin = W.block_world_origin(bx, by)
+    trig = []
+    n_tiles = M.retarget_tiles(ter, event=event, center=at, radius=trigger_radius, world_origin=origin,
+                               exclude_polygon=hull, out_tris=trig)
+    host = M.host_area(ter, center=at, radius=trigger_radius, world_origin=origin, exclude_polygon=hull)
+    area = (host["area"] if tile_area == "host" else None if tile_area == "keep"
+            else the_case if tile_area == "case" else tile_area)
+    if area is not None and n_tiles:
+        M.retarget_tiles(ter, event=event, area=area, center=at, radius=trigger_radius, world_origin=origin,
+                         exclude_polygon=hull)
+    got = sorted({W.decode_id(int(round(ter.tangents[ter.tris[k][0]][0])))["area"] for k in trig})
     summary["tiles_set"] = n_tiles
-    summary["tile_area_stamped"] = bool(set_tile_area)       # False => each tile KEEPS its existing area field
+    summary["tile_area_mode"] = tile_area
+    summary["tile_area"] = got                               # the area(s) the trigger tiles now carry
+    summary["tile_area_host"] = host
+    summary["tile_area_stamped"] = area is not None          # False => each tile KEPT its existing area field
+    if n_tiles and host["area"] is None:
+        summary["tile_area_warning"] = (f"block[{bx}][{by}] has no walkable event-0 ground to take a host area "
+                                        f"from; the trigger tiles carry area {got}")
+    elif any(a != host["area"] for a in got):
+        summary["tile_area_warning"] = _area_mismatch_note(got, host["area"])
     summary["footprint_blocked"] = n_block
     summary["pad_flattened"] = n_flat
     if hull:

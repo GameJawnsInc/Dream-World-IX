@@ -1376,7 +1376,7 @@ def _point_in_polygon(px, pz, poly) -> bool:
 
 def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, radius=None,
                    world_origin=(0.0, 0.0), only_entrances: bool = False, exclude_box=None, only_box=None,
-                   exclude_polygon=None, only_polygon=None) -> int:
+                   exclude_polygon=None, only_polygon=None, out_tris=None) -> int:
     """Rewrite the per-triangle IDALL (stored in ``tangent.x``) for tiles in a region. ``event`` (0=land, 1-3=
     entrance-trigger bits), ``area`` (0-63), ``topograph`` (0-63 = terrain type) each default to KEEP the tile's
     current value. Sets tangent.x on all 3 corner verts of each affected triangle (the engine reads the HIT
@@ -1387,7 +1387,7 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
     ``only_box`` (same form) is the INVERSE -- restrict to tiles INSIDE it; with ``topograph=59`` it makes the terrain
     UNDER a building impassable so the whole footprint blocks and the player stops at its EDGE (the terrain conforms to
     the ground, so it blocks reliably where a flat floating prop base would bury/float). Geometry (verts/normals/uv) is
-    UNTOUCHED. Returns the triangle count changed.
+    UNTOUCHED. Returns the triangle count changed; ``out_tris`` (a list), if given, also receives their indices.
 
     WHAT THIS CONTROLS (in-game verified 2026-07-01):
       * ``topograph`` -> WALKABILITY + terrain type. The overworld move gate (``ff9.w_movementRoundCheck`` ->
@@ -1398,14 +1398,17 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
         ``0x8000|(cellZ<<8)|(cellX<<2)|event`` and ``GetIP``-matches it against the world ``.eb`` entry table; NO
         matching entry -> silent no-op (PROVEN: setting event+area on a plain block warped nowhere). So the entry,
         not the tile, defines the destination. Creating/moving an entrance needs a world ``.eb`` entry for that
-        cell (Lever A+ = world-.eb authoring); the tile's ``event``/``area`` are only the trigger flag + cosmetic."""
+        cell (Lever A+ = world-.eb authoring); the tile's ``event`` is only the trigger flag.
+      * ``area`` is NOT the dispatch key, but it is NOT cosmetic: it drives the encounter zone, camera place,
+        area-12 lock, spawn weather, the location labels and the beach search (:func:`area_effects`). An entrance
+        trigger takes its host ground's area (:func:`host_area`), as stock's do."""
     from .extract import decode_id, encode_id
     tan = bm.tangents
     if tan is None:
         raise ValueError("block mesh has no tangent channel -- no IDALL to edit")
     ox, oz = world_origin
     verts, changed = bm.verts, 0
-    for tri in bm.tris:
+    for k, tri in enumerate(bm.tris):
         d = decode_id(int(round(tan[tri[0]][0])))
         if only_entrances and not d["event"]:
             continue
@@ -1433,7 +1436,102 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
         for vi in tri:
             tan[vi][0] = float(idall)
         changed += 1
+        if out_tris is not None:
+            out_tris.append(k)
     return changed
+
+
+#: the engine's walk-skip IDALLs: ``WMPhysics.Raycast`` passes straight through them, so their "area" bits are a
+#: decode artifact, never ground (4078 = 0x0FEE decodes as area 15)
+WALK_SKIP_IDS = frozenset({4078, 4088, 2040})
+#: the canopy topographs: a block-wide host vote skips them (a forest's area need not be the road's)
+CANOPY_TOPOGRAPHS = frozenset({36, 37, 38})
+#: how far outside a trigger cluster :func:`host_area` reads the ground around it. Stock gives 53 of its 55
+#: entrance clusters with walkable ground around them exactly that ground's area within 3u, and this function
+#: recovers it from the raw Terrain mesh for the same 53 (disc 4: 33/35). The 2 exceptions are area-0 triggers on
+#: topographs 55/56, which the party cannot walk on. Stock never stamps the dispatch case (0 of 51 on disc 1).
+#: Evidence: the terrain study's ``gap_area_layer/stock_entrance_area.py``
+HOST_RING = 3.0
+#: area -> what it does beyond the encounter zone (terrain study gap_area_layer section A1): the area-12 camera lock
+#: below scenario 4990 (ff9.cs:2771/3199), spawn weather (ff9.cs:8510), the beach search (EMinigame.cs:768)
+AREA_LOCK = 12
+AREA_WEATHER = frozenset({9, 12, 13})
+AREA_BEACH = frozenset({4, 5, 13, 16, 17, 18, 19, 25, 29, 30, 31, 33, 37, 38, 46, 47, 49, 50, 51, 52, 58})
+
+
+def area_camera_place(area: int) -> int:
+    """The on-foot camera PLACE an area selects every frame, with no easing (``w_cameraArea2Place``, ff9.cs:81/3117):
+    0 for areas 0-26 and 46-50, 1 for 40-45, 2 for 27-39 and 51-63. Stock has no walkable seam between places."""
+    if 40 <= area <= 45:
+        return 1
+    return 0 if area <= 26 or 46 <= area <= 50 else 2
+
+
+def area_effects(area: int) -> dict:
+    """What tile ``area`` (0-63) drives in the engine and the world scripts. Area is NOT the entrance dispatch key
+    (that is the cell tag), but it is not cosmetic either: it picks the encounter zone (and with it the zone's
+    ENCRATE), the camera place, the area-12 lock, spawn weather, the location label in the window title, main menu
+    and save slot, and the beach search."""
+    from .worldpack import area_to_zone
+    area &= 0x3F
+    return {"area": area, "zone": area_to_zone(area), "camera_place": area_camera_place(area),
+            "camera_lock": area == AREA_LOCK, "weather": area in AREA_WEATHER, "beach_search": area in AREA_BEACH}
+
+
+def host_area(bm, *, center, radius: float, ring: float = HOST_RING, world_origin=(0.0, 0.0),
+              exclude_polygon=None) -> dict:
+    """The tile AREA stock gives an entrance-trigger cluster: the dominant area of the walkable ground the player
+    stands on just outside it -- the engine's ground query (:func:`ff9mapkit.world.placement.place`) at 1u samples
+    in the ``ring``-wide annulus around ``center``/``radius`` (world XZ), counting only event-0 hits on a walkable
+    topograph, so the trigger's own (already event-stamped) tiles and any neighbouring entrance never vote.
+
+    When the ring has no walkable ground (a trigger cut into rock), the ring's event-0 ground of any topograph votes
+    instead (``"ring-any"``); failing that, the dominant area by XZ area of the block's event-0 walkable non-canopy
+    tris (``"block"``). Returns ``{"area", "source": "ring" | "ring-any" | "block" | None, "votes": {area: n}}``;
+    ``area`` is ``None`` when the block has no such ground at all. Only ``bm`` is read, so a ring that crosses the
+    block edge votes with its inside part.
+
+    Over every stock disc-1 Terrain entrance cluster on walkable ground this returns the tiles' own area for 75 of 76;
+    the miss, at (2,7), sits on a 43/44 area boundary where the votes are near even (``tests/test_world_entrance_area.py``)."""
+    from collections import Counter
+    from .extract import decode_id
+    from .placement import WALK_OK, build_index, place
+    ox, oz = world_origin
+    cx, cz = center
+    outer = radius + ring
+    index = [build_index(bm)]
+    votes, any_votes = Counter(), Counter()
+    gx0, gz0 = math.floor(cx - outer), math.floor(cz - outer)
+    for i in range(int(2 * outer) + 2):
+        for j in range(int(2 * outer) + 2):
+            wx, wz = gx0 + i + 0.37, gz0 + j + 0.61          # off the 4u lattice, as the stock atlas samples
+            if not radius < math.hypot(wx - cx, wz - cz) <= outer:
+                continue
+            if exclude_polygon is not None and _point_in_polygon(wx, wz, exclude_polygon):
+                continue
+            _y, name, idall, topo = place([("Terrain", bm)], wx - ox, wz - oz, index=index)
+            if name == "MISS":
+                continue
+            d = decode_id(idall)
+            if d["event"] == 0:
+                any_votes[d["area"]] += 1
+                if topo in WALK_OK:
+                    votes[d["area"]] += 1
+    for source, v in (("ring", votes), ("ring-any", any_votes)):
+        if v:
+            return {"area": min(v, key=lambda a: (-v[a], a)), "source": source, "votes": dict(v)}
+    weight = Counter()
+    for a, b, c in bm.tris:
+        idall = int(round(bm.tangents[a][0]))
+        d = decode_id(idall)
+        if idall in WALK_SKIP_IDS or d["event"] or d["topograph"] not in WALK_OK or d["topograph"] in CANOPY_TOPOGRAPHS:
+            continue
+        va, vb, vc = bm.verts[a], bm.verts[b], bm.verts[c]
+        weight[d["area"]] += abs((vb[0] - va[0]) * (vc[2] - va[2]) - (vc[0] - va[0]) * (vb[2] - va[2])) / 2.0
+    if weight:
+        return {"area": min(weight, key=lambda a: (-weight[a], a)), "source": "block",
+                "votes": {a: round(w, 2) for a, w in weight.items()}}
+    return {"area": None, "source": None, "votes": {}}
 
 
 def _hp_side(ea, eb, p):

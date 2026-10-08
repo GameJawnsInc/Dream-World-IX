@@ -4256,7 +4256,7 @@ def _cmd_world_locate(args: argparse.Namespace) -> int:
             print(f"         cells: {cells}   blocks: {blk}")
     print(f"\n{len(rows)} row(s). Read: CELLS + a field = a walk-on overworld entrance (the walked cell's packed "
           "tag picks the object-0 trigger, whose Byte[39] case picks the destination -- the tile's IDALL area "
-          "bits are NOT the key, they are a cosmetic regional tag); FIELD only = a scripted/return destination "
+          "bits are NOT the key, though they drive encounters, camera and labels); FIELD only = a scripted/return destination "
           "with no walk-on tile; ~landmark = nearest engine navipos marker to the cells, with its distance. "
           "Destinations are BASE-game -- a deployed journey may field_remap them.")
     return 0
@@ -4312,7 +4312,8 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
     print("  TOPOGRAPH edits change WALKABILITY/encounters (the move gate reads "
           "the tile topograph). NOTE: --event/--area alone do NOT create a warp -- the destination comes from the "
           "world .eb object-0 trigger GetIP-keyed to the CELL position, and the tile's area bits are not read by "
-          "dispatch at all (cosmetic regional tag).")
+          "dispatch at all. AREA edits are NOT cosmetic: area picks the encounter zone, camera place, the "
+          "area-12 camera lock, spawn weather, the location labels and the beach search.")
     _world_coupling_note(minimap=False, encounters=True)
     return 0
 
@@ -5438,6 +5439,13 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             return 2
     building = None
     try:
+        tile_area = args.tile_area or ("keep" if args.no_tile_area else "host")
+        if args.tile_area and args.no_tile_area:
+            raise ValueError("--no-tile-area is --tile-area keep; give one of them")
+        if tile_area not in ("host", "keep", "case"):
+            if not tile_area.isdigit() or not 0 <= int(tile_area) <= 63:
+                raise ValueError(f"--tile-area must be host, keep, case or an area 0-63, not {tile_area!r}")
+            tile_area = int(tile_area)
         if args.building:
             if args.building_idall is not None and not 0 <= args.building_idall <= 0xFFFF:
                 raise ValueError("--building-idall must be 0..65535 (the raw 16-bit tangent.x IDALL)")
@@ -5450,7 +5458,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             cell=tuple(args.cell), mod_folder=args.mod_folder, field=args.field, case=args.case,
             direct_field=args.field_direct, event=args.event,
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
-            trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
+            trigger_radius=args.trigger_radius, tile_area=tile_area, building=building,
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
             trigger_only=args.trigger_only, prompt=args.action_prompt, nameplate=args.nameplate,
             nameplate_name=args.nameplate_name, nameplate_case=args.nameplate_case,
@@ -5497,11 +5505,16 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     else:
         pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
         blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
-        # report the area field HONESTLY: --no-tile-area leaves each tile's own area untouched, and printing
-        # the case there reads as "we stamped it", which is exactly how a wrong deploy gets believed
-        area = f"area={info['case']}" if info.get("tile_area_stamped", True) else "area=KEPT (--no-tile-area)"
-        print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} {area} "
+        # report the area field HONESTLY: name what the tiles now carry and where it came from, never the case
+        # by assumption -- printing a value that was not written is exactly how a wrong deploy gets believed
+        got = "/".join(str(a) for a in info.get("tile_area", [])) or "-"
+        mode = info.get("tile_area_mode", "host")
+        src = {"host": f"the host ground's, by {(info.get('tile_area_host') or {}).get('source')}",
+               "keep": "KEPT", "case": "the case"}.get(mode, "explicit")
+        print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={got} ({src}) "
               f"in block{tuple(info['block'])}{pad}{blk}")
+        if info.get("tile_area_warning"):
+            print(f"  !! WARNING: {info['tile_area_warning']}")
     if info.get("terrain_override"):
         print(f"    -> {info['terrain_override']}")
     if info.get("building"):
@@ -9026,9 +9039,11 @@ def build_parser() -> argparse.ArgumentParser:
     wr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wr.add_argument("--lod", default="0_1", help="LOD dir (default 0_1)")
     wr.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
-    wr.add_argument("--area", type=int, help="set the tile's IDALL area bits -- a COSMETIC regional tag, NOT the "
-                                             "dispatch key (the destination comes from the cell's dispatcher "
-                                             "trigger; see world-locate / world-entrance)")
+    wr.add_argument("--area", type=int, help="set the tile's IDALL area bits -- NOT the dispatch key (the "
+                                             "destination comes from the cell's dispatcher trigger; see "
+                                             "world-locate / world-entrance), but NOT cosmetic: it picks the "
+                                             "encounter zone, camera place, the area-12 lock, weather, the "
+                                             "location labels and the beach search")
     wr.add_argument("--event", type=int, choices=[0, 1, 2, 3],
                     help="set the event-trigger bits (0=land, 1-3=fires WorldEvent) -- NOTE: bits alone do NOT make "
                          "a working entrance; the destination is a world .eb entry keyed to the cell")
@@ -9887,9 +9902,14 @@ def build_parser() -> argparse.ArgumentParser:
                           "cell -- tiles that spill into a neighbour pack a different tag and fire nothing")
     wen.add_argument("--trigger-radius", type=float, default=14.0,
                      help="event-tile cluster radius in world units (default 14; the cell is 32u wide)")
+    wen.add_argument("--tile-area", default=None, metavar="host|keep|case|N",
+                     help="the trigger tiles' AREA bits (default host = the area of the walkable ground around them, "
+                          "as stock's entrances carry). Dispatch never reads area, but the encounter zone, camera, "
+                          "area-12 lock, weather, location labels and beach search do. keep = leave each tile's "
+                          "own; case = the dispatch case & 0x3F (the old default: it imports an unrelated region); "
+                          "N = an explicit area 0-63. A trigger off its host's area prints a WARNING")
     wen.add_argument("--no-tile-area", action="store_true",
-                     help="do NOT stamp the cosmetic tile AREA (dispatch reads Byte[39], not the tile area; "
-                          "world-locate reads the dispatcher's trigger table, so the stamp is pure bookkeeping)")
+                     help="deprecated alias of --tile-area keep")
     wen.add_argument("--trigger-only", action="store_true",
                      help="refresh ONLY the dispatcher trigger functions (.eb) -- leave the deployed terrain / "
                           "event tiles / building untouched. The re-deploy mode for picking up a kit upgrade to "

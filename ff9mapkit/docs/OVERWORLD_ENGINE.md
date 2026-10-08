@@ -341,9 +341,12 @@ entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingF
    MapNo (9000-9012). Add the func to **every full dispatcher that has your clone source** (WORLD00/02/03/07/09/10/11
    all have `0x9895` + the area-4 case; WORLD01/04/06/12 are tiny cutscene states; WORLD05/08 have area-4 but not
    `0x9895`). Missing the loaded WORLDxx = silent no-op (a real failure mode: a func added only to WORLD00 never fires on the other states).
-4. **Set the tile event bits.** `ff9mapkit.world.mesh.retarget_tiles(bm, event=1, area=4, center=<cell centre>,
+4. **Set the tile event bits.** `ff9mapkit.world.mesh.retarget_tiles(bm, event=1, center=<cell centre>,
    radius<=16)` + `deploy_override(...)` — a loose `.ff9mesh` (needs the `s34` WorldMeshOverride engine patch). Keep the
-   radius inside the 32-unit cell so it doesn't spill into a neighbour's entrance.
+   radius inside the 32-unit cell so it doesn't spill into a neighbour's entrance. **Give the tiles their HOST ground's
+   area** (`mesh.host_area`, then `retarget_tiles(..., area=<host>)` on the same selection), never the dispatch case:
+   dispatch ignores area, but the encounter zone, camera place, area-12 lock, weather, location labels and beach
+   search all read it. Every stock entrance tile carries the area of the ground around it, and none its case.
 5. **Deploy + relaunch.** World `.eb` → `<mod>/StreamingAssets/assets/resources/commonasset/eventengine/eventbinary/
    world/<lang>/EVT_WORLD_WORLDxx.eb.bytes` for **all 7 langs** (loader uses `Localization.CurrentSymbol`). ⚠ **Patch each
    language's OWN dispatcher, don't clone US to all** — unlike field scripts, the world dispatchers are NOT fully
@@ -394,9 +397,15 @@ What it does, generalizing + hardening the manual recipe:
 - **Stacking + idempotency.** Reads the mod-folder `.eb`/`.ff9mesh` as the base when present (so a 2nd entrance ADDS to the
   1st, and terrain/building overrides compose via `mesh.blockmesh_from_ff9mesh`), backs up each pre-edit dispatcher, and
   **skips** a dispatcher that already has the cell's tag (never clobbers). `--dry-run` prints the full plan writing nothing.
-- **Event tiles + building.** Sets the cell's terrain event bits (`event`/`area`, radius kept inside the 32u cell — warns if
-  0 tiles match), and with `--building` places+seats the OBJ as the Object mesh (folds `world-mesh-build`: `--building-at`,
+- **Event tiles + building.** Sets the cell's terrain event bits (radius kept inside the 32u cell — warns if 0 tiles
+  match), and with `--building` places+seats the OBJ as the Object mesh (folds `world-mesh-build`: `--building-at`,
   `--no-seat`, `--replace-town`, `--topograph`).
+- **Trigger AREA = the host ground's (`--tile-area`, default `host`).** The trigger tiles take the dominant area of the
+  walkable ground within 3u around them (`mesh.host_area`), which is what stock's own entrance tiles carry. Through
+  1.0.0b19 the default was the dispatch case (`& 0x3F`), which imported an unrelated region onto the trigger (the case
+  aliases a stock area: 3 of 151 cases lock the camera, 70 make the trigger roll battles). `keep` leaves each tile's area,
+  `case` restores the old stamp, `N` sets one; any of them that leaves the trigger off its host's area prints a
+  `!! WARNING` naming what changes.
 - **⚠ SEAT, don't flatten.** `--flatten-pad R` reshapes WALKABLE ground; on bumpy terrain the former high bumps become
   local walls you get stuck against (the overworld only raycasts DOWN, so you can't climb back out). It's auto-capped to
   the building's INSCRIBED footprint (min centroid-to-edge, not the max corner — an asymmetric building would poke a

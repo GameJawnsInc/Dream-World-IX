@@ -198,6 +198,7 @@ py studies/terrain-malleability/gap_area_layer/camera_place_effect.py
 py studies/terrain-malleability/gap_area_layer/live_audit.py
 py studies/terrain-malleability/gap_area_layer/lead_1918.py
 py studies/terrain-malleability/gap_area_layer/writer_audit.py
+py studies/terrain-malleability/gap_area_layer/stock_entrance_area.py   # after stock_atlas.py
 py studies/terrain-malleability/gap_area_layer/area_table.py
 py studies/terrain-malleability/gap_area_layer/area_lint.py
 py studies/terrain-malleability/gap_area_layer/verify_place_seams.py
@@ -302,7 +303,7 @@ only; **open** = needs an in-game run. Kit operators come from the operators lan
 | **Retexture a region (UV)** | any UV: render-only, zero gameplay effect | `WorldMap/Terrain` binds uv0 (C2); UV read nowhere else (UV-01) | `GroundRetile`, `TileRetexture` (carries only), `world-rim-retile` (water only) | in-game for carries | per-cell Terrain/Object PNG is overwritten by `SetupPreloadedMaterials` (CAP-9, C10), so per-block re-baking needs an engine change |
 | **Retexture globally** | one shared atlas: terrain 2048x4096, objects 4096x4096 (Moguri HD); 28-33 HD px/u | `WMBlock.cs:273-326` (CAP-8) | `world-atlas-reskin`, `world-atlas-add-tile` | offline | finer geometry adds silhouette, not texture (a median edge spans ~133 texels) |
 | **Re-topograph** | any topograph per triangle, as long as the full IDALL avoids the 10 special values | corner-0 tangent.x (C3); movement mask `ff9.cs:5924-5939` | `world-retarget` (circle), `world-coastnav` (water), transplant ground retile | in-game | 14 flight-blocked topographs {8,9,14,15,24,25,26,29,39,40,43,44,47,63} are unused anywhere in stock (V12); as no-fly walls they are unplayed |
-| **Area re-stamp** | 64 areas, all used by stock. Walkable ground must not change camera place across a walkable edge (stock: 0 such seams on both discs, also for chocobos). Area 12 locks the camera below scenario 4990. Areas 9/12/13 set spawn weather. | the 7 area channels (section 2, GA1-GA4) | `world-retarget --area` (user flag); `world-entrance` stamps area := case by default; island/reclaim/mesh emitters stamp 0; `world-mountain` strips to 0; `world-forest`, transplant and Path D carries keep the donor's area | offline; area-14 safe road in-game | no area policy in the kit; policy R1-R10 and lint AL1-AL8 proposed (`gap_area_layer/NOTES.md` §E) |
+| **Area re-stamp** | 64 areas, all used by stock. Walkable ground must not change camera place across a walkable edge (stock: 0 such seams on both discs, also for chocobos). Area 12 locks the camera below scenario 4990. Areas 9/12/13 set spawn weather. | the 7 area channels (section 2, GA1-GA4) | `world-retarget --area` (user flag); `world-entrance` stamps the host ground's area (defect 14, fixed); island/reclaim/mesh emitters stamp 0; `world-mountain` strips to 0; `world-forest`, transplant and Path D carries keep the donor's area | offline; area-14 safe road in-game | policy R2 built (`world-entrance`); R1, R3-R10 and lint AL1-AL8 proposed (`gap_area_layer/NOTES.md` §E) |
 | **Event / entrance tiles** | event bits 14-15; the destination is the world `.eb` object-0 cell tag, not area | `ff9.cs:5345-5352` | `world-entrance` (reads stacked; tiles + building + `.eb` trigger) | in-game | a later `world-terrain`/`world-retarget` erases the 312 event corners and leaves a dangling `.eb` trigger (S3) |
 | **Add land** | whole 64 u ocean cells | the divert (layer 4); 15 `IsSea=false` water-only cells cannot take land at all | `world-island`, `world-reclaim`, `world-transplant`, `world-coast`, `world-fuse`, `world-water` | in-game | a sidecar-less reclaim loads `Block[12][10]`, whose Sea1/3/4/5 (97.3% of the cell) free-ride under the new land (C7) |
 | **Remove land** | stock does it by re-cut (disc-4 Shimmering Island: 1,856 samples Terrain → Sea4, event 1 → 2) | water must be a part of the cell's effective prefab | no primary operator (operators F11, unverified) | open | no land → sea operator for real land |
@@ -476,9 +477,9 @@ The memory store is shared and not under version control: make surgical edits.
 | recorded claim | where | correct statement | evidence |
 |---|---|---|---|
 | "`0_2` is a far LOD" | `ff9mapkit/ff9mapkit/world/extract.py:11`; `cli.py:8960` (`world-extract --lod` help) | Form-2 mesh set | F16 |
-| area is "a coarse REGIONAL tag" / "the cosmetic regional tag" | `world/extract.py:68-89` (`decode_id`, `encode_id`) | 7 channels | GA1 |
-| "a cosmetic `area=<case>` stamp"; retarget "only the trigger flag + cosmetic" | `world/entrance.py:18`; `world/mesh.py:1393-1398` | same | GA1, GA10 |
-| `--area` "a COSMETIC regional tag"; `--no-tile-area` "the stamp is pure bookkeeping" | `cli.py:9025`; `cli.py:9886-9888` | same | GA10 |
+| ~~area is "a coarse REGIONAL tag" / "the cosmetic regional tag"~~ **fixed 2026-10-08** | `world/extract.py:68-89` (`decode_id`, `encode_id`) | 7 channels | GA1 |
+| ~~"a cosmetic `area=<case>` stamp"; retarget "only the trigger flag + cosmetic"~~ **fixed 2026-10-08** | `world/entrance.py:18`; `world/mesh.py:1393-1398` | same | GA1, GA10 |
+| ~~`--area` "a COSMETIC regional tag"; `--no-tile-area` "the stamp is pure bookkeeping"~~ **fixed 2026-10-08** (also `world-locate`'s footer and `world-retarget`'s note) | `cli.py:9025`; `cli.py:9886-9888` | same | GA10 |
 | ~~vcount ≤ 65535 ("16-bit mesh indices only")~~ **withdrawn: the claim is right** | `world/mesh.py` `MAX_MESH_VERTS`; `WorldMeshOverride.cs:186` (s34); pin `test_world_ledger.py::test_engine_patch_literals_are_pinned` | ~~native cap 65000~~ 65535 is the binding ceiling, in-game proven (`ingame/RESULTS.md` §8) | CAP-1 (refuted) |
 | `terrain.reshape` and `morph_in_place` "READ the deployed override and write it back" | `world/mesh.py:347-351` (`mod_overwrite_gate` docstring) | both read pristine stock on real discs; true only for reshape's Path-D `target_disc` branch | S3 |
 | entrance reads the deployed override "exactly as for terrain.reshape" | `world/entrance.py:741-743` | reshape does not; entrance does | S4 |
@@ -506,7 +507,7 @@ The memory store is shared and not under version control: make surgical edits.
 
 ---
 
-## 6. Latent defects found (evidence only; nothing was fixed)
+## 6. Latent defects found (the study fixed nothing; rows marked FIXED were fixed after it)
 
 | # | defect | where | evidence | exposure today |
 |---|---|---|---|---|
@@ -523,7 +524,7 @@ The memory store is shared and not under version control: make surgical edits.
 | 11 | `VertexDisplace` co-moves only `transplant.PARTS`; a 1 u Object tear passes every `morph_in_place` gate | `transplant.py:46`, `:817-834` | S11 | in-place morphs near Object/River/Beach2/Sea6 |
 | 12 | `.bak` parks collide within one wall-clock second and lose the earlier bytes (5/5 trials) | `mesh.py:501`, `:284` | S12 | rapid successive writes |
 | 13 | disc-4 (18,4) Terrain has 3 stock near-miss pairs, so a disc-4 carry of it fails transplant's 0-pair weld gate on unmodified bytes | `mesh.py:1557-1559` | S17 | disc-4 carries of (18,4) |
-| 14 | `world-entrance` stamps area := case by default: of 151 stampable cases, 3 lock the camera, 9 set weather, 62 change camera place, 49 arm the beach search, 70 make topograph-0 trigger tiles encounter-live, 89 wrap (case ≥ 64) | `entrance.py:763`, `:1027`; mask `extract.py:90` | GA10 | every new entrance |
+| 14 | `world-entrance` stamps area := case by default: of 151 stampable cases, 3 lock the camera, 9 set weather, 62 change camera place, 49 arm the beach search, 70 make topograph-0 trigger tiles encounter-live, 89 wrap (case ≥ 64) | `entrance.py:763`, `:1027`; mask `extract.py:90` | GA10 | none. **FIXED 2026-10-08** (policy R2): the default is `--tile-area host`, the walkable ground's area within 3u (`mesh.host_area`), stock's own rule: it recovers the tiles' own area for 75/76 stock Terrain entrance clusters on disc 1 and 54/55 on disc 4, and 0 stock clusters carry their case (`gap_area_layer/stock_entrance_area.py`, `tests/test_world_entrance_area.py`). keep/case/N warn when off the host. Entrances deployed before the fix keep their tiles |
 | 15 | live Disc1/Disc4 `Block[19][18]` Terrain carries stock Cleyra's 45 entrance tris with area 12: camera lock, spawn weather, zone-5 battles, "Vube Desert" labels; inert as an entrance | live `FF9CustomMap-world` | GA7, `verify_1918.py`; in-game RESULTS section 1 | none. **FIXED 2026-10-08** with 16-17 by the host-area stamp (southern-ring `REVERT.md` section 32): area -> the block's host 14, area bits only; in game 11/11 (`ingame/RESULTS.md` section 15) |
 | 16 | five Southern Ring quay trigger clusters keep area 0 / topograph 0, so they can roll zone-0 battles inside the area-14 safe road: (0,18), (1,6), (6,19), (10,9) 48 u² each; (22,18) 58 u² | live overrides | GA6 | none. **FIXED 2026-10-08** (REVERT section 32): all six quay triggers, Grimhorn's too, now area 14; Confirm still enters the Lantern Hall in game |
 | 17 | Sandreach Beach1 at (12,18)/(12,19) kept donor area 49 (a beach-search arm); the R4b restamp covered Terrain only | live overrides | GA6 | none. **FIXED 2026-10-08** (REVERT section 32): area 14; the title reads Lindblum Plateau in game |
