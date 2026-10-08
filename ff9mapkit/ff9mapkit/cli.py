@@ -4548,6 +4548,8 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
     for c in summary["cells"]:
         edges = f", {c['water_edges']} water edge(s)" if "water_edges" in c else ""
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts{edges}")
+    print(f"  + per cell, hidden {'/'.join(summary['blanked'])} stubs: the fallback donor Block[12][10]'s "
+          f"water never rides under the land")
     if not args.dry_run:
         _world_apply_note(needs="the CUSTOM engine (s34 ocean->land divert)")
         _world_coupling_note(encounters=True)

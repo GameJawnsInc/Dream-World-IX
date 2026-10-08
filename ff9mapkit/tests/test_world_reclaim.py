@@ -185,7 +185,61 @@ def test_reclaim_dry_run_and_dispatch(monkeypatch):
     assert s["cells"][0]["water_edges"] == 2
     assert deployed == []                                                     # dry-run writes nothing
     T.reclaim("MOD", cells=[(2, 12)], profile="flat", topograph=17)
-    assert deployed == [(2, 12, "Terrain")]                                   # deploys the Terrain override
+    # the Terrain override, then a blank for every water child of the fallback donor Block[12][10] (defect 18)
+    assert deployed == [(2, 12, "Terrain"), (2, 12, "Sea1"), (2, 12, "Sea3"), (2, 12, "Sea4"), (2, 12, "Sea5")]
+
+
+def test_reclaim_blanks_the_fallback_donor_water(monkeypatch):
+    """DEFECT 18 (terrain study C7). With no Donor.txt the divert loads Block[12][10], an islet whose
+    Sea1/3/4/5 cover 97.3% of the cell; un-overridden, that water free-rode under the land and a boat sailed
+    UNDER a 6u slab in-game. Every stub is a render-nothing hidden mesh, named for its own cell, and lands in
+    the WRITE disc's namespace."""
+    seen = []
+    monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)
+    monkeypatch.setattr(X, "list_blocks", lambda **k: [])
+    monkeypatch.setattr(M, "deploy_override", lambda bm, **k: seen.append((bm, k)))
+    s = T.reclaim("MOD", cells=[(5, 3), (6, 3)], profile="island", target_disc=9, skip_mirror=True)
+    assert s["blanked"] == ["Sea1", "Sea3", "Sea4", "Sea5"] == list(T.LAND_DONOR_WATER)
+    assert T.LAND_DONOR == (12, 10)
+    assert [(bm.x, bm.y, k["part"]) for bm, k in seen] == [
+        (c, 3, p) for c in (5, 6) for p in ("Terrain", "Sea1", "Sea3", "Sea4", "Sea5")]
+    assert all(k["disc"] == 9 for _bm, k in seen)                             # the s74 write namespace
+    for bm, k in seen:
+        if k["part"] == "Terrain":
+            continue
+        assert bm.name == f"Block[{bm.x}][{bm.y}] {k['part']}"
+        assert all(v[1] == -80.0 for v in bm.verts)                           # far below the world: renders nothing
+        assert len(bm.tris) == 1 and bm.vcount == len(bm.flat_index) == 3    # flat/unindexed contract
+
+
+@pytest.mark.parametrize("profile,height", [("island", None), ("cliff", None), ("flat", None), ("flat", 6.0),
+                                            ("island", 1.0), ("cliff", 0.8)])
+def test_every_reclaim_profile_fills_its_cell_above_the_waterline(monkeypatch, profile, height):
+    """The blank is right ONLY because each profile covers the whole cell at or above y=0 -- otherwise the cell
+    would need a cut sea. Pinned over lone cells (4 water edges), coast-backed cells and interior cells."""
+    monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)
+    for land in ([], [(4, 3), (6, 3), (5, 2), (5, 4)], [(4, 3)]):
+        monkeypatch.setattr(X, "list_blocks", lambda land=land, **k: land)
+        T.reclaim("MOD", cells=[(5, 3)], profile=profile, height=height, dry_run=True)   # raises if not
+
+
+def test_reclaim_refuses_sunken_land_before_any_write(monkeypatch):
+    """A reclaimed cell carries no water, so ground below the waterline would show the void. The check runs
+    over EVERY cell before the first write: no half-deploy."""
+    seen = []
+    monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)
+    monkeypatch.setattr(M, "deploy_override", lambda bm, **k: seen.append(k["part"]))
+    with pytest.raises(ValueError, match=r"dips to y=-1\.000, below the waterline"):
+        T.reclaim("MOD", cells=[(2, 12), (3, 12)], profile="flat", height=-1.0)
+    assert seen == []
+
+
+def test_reclaim_refuses_a_mesh_that_leaves_water_in_its_cell():
+    half = M.flat_block_mesh(disc=1, x=2, y=12, seg=4)
+    for v in half.verts:
+        v[0] *= 0.5                                                           # covers only the west half
+    with pytest.raises(ValueError, match="does not span the whole cell"):
+        T._check_blankable(half, (2, 12), "flat")
 
 
 def test_reclaim_rejects_out_of_grid(monkeypatch):
@@ -209,6 +263,19 @@ def _game_ready() -> bool:
         return (config.find_game_path(None) / "StreamingAssets").is_dir()
     except Exception:
         return False
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+@pytest.mark.parametrize("disc", [1, 4])
+def test_land_donor_water_matches_the_real_block(disc):
+    """LAND_DONOR_WATER is a hand-held list; pin it to the real Block[12][10] on both trees. A missed child
+    free-rides; an extra one is a dead file."""
+    from ff9mapkit.world import transplant as TR
+    probe = ("object", "beach1", "beach2", "stream", "river", "falls",
+             "sea1", "sea2", "sea3", "sea4", "sea5", "sea6")
+    present = {p for p in probe if TR.world_tris(*T.LAND_DONOR, p, disc=disc)}
+    assert present == {p.lower() for p in T.LAND_DONOR_WATER}
+    assert TR.world_tris(*T.LAND_DONOR, "terrain", disc=disc)                 # the child the override binds
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

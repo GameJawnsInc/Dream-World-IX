@@ -21,7 +21,7 @@ import json, os, re, sys
 from collections import defaultdict
 
 sys.path.insert(0, r"C:\gd\Dream-World-IX\ff9mapkit")
-from ff9mapkit.world import extract as X, island as I, transplant as T, interior as IN, water as W
+from ff9mapkit.world import extract as X, island as I, transplant as T, interior as IN, water as W, terrain as TR
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 
@@ -49,7 +49,9 @@ LANES = {
     "world-island (beach block, desert pins)": (low({"Terrain", "Sea4", "Sea1", "Sea2", "Sea5", "Beach1", "Object", "Sea3"}),
                                                 I.BEACH_PINS["desert"], "island.py landmass() is_bch branch"),
     "world-water": (low({"Terrain"}) | low(W.LADDER) | low(W.BLANK), (15, 4), "water.py _deploy_ocean_cell (donor default 15,4)"),
-    "world-reclaim (no sidecar -> LandDonorPrefab 12,10)": (low({"Terrain"}), (12, 10), "terrain.reclaim + WMWorld.cs:1210"),
+    # defect 18: before the fix the set was {"Terrain"} alone, and Sea1/3/4/5 free-rode (H1, in-game RESULTS section 9)
+    "world-reclaim (no sidecar -> LandDonorPrefab 12,10)": (low({"Terrain"}) | low(TR.LAND_DONOR_WATER), TR.LAND_DONOR,
+                                                            "terrain.reclaim Terrain + LAND_DONOR_WATER + WMWorld.cs:1210"),
     "world-coast (donor 18,15)": (low({"Terrain"}), (18, 15), "terrain.coast: Terrain only + Donor.txt"),
     "world-transplant (donor 7,17)": (low(T.PARTS), (7, 17), "transplant.PARTS"),
     "world-transplant (donor 20,5)": (low(T.PARTS), (20, 5), "transplant.PARTS"),

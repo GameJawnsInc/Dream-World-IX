@@ -670,10 +670,11 @@ def test_terrain_reclaim_auto_mirrors_disc4(tmp_path, monkeypatch):
     monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)   # no install needed
 
     T.reclaim(MOD, cells=[(2, 2)], profile="flat", topograph=0, height=0.0)
-    src = tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r2" / "Block[2][2] Terrain.ff9mesh"
-    dst = tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r2" / "Block[2][2] Terrain.ff9mesh"
-    assert src.is_file() and dst.is_file()
-    assert dst.read_bytes() == src.read_bytes()
+    for part in ("Terrain",) + T.LAND_DONOR_WATER:      # the defect-18 water blanks mirror with the land
+        src = tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r2" / f"Block[2][2] {part}.ff9mesh"
+        dst = tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r2" / f"Block[2][2] {part}.ff9mesh"
+        assert src.is_file() and dst.is_file()
+        assert dst.read_bytes() == src.read_bytes()
 
 
 def test_terrain_reclaim_skip_mirror(tmp_path, monkeypatch):
