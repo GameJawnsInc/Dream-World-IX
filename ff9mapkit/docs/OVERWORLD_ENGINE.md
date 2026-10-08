@@ -508,6 +508,17 @@ discards and refuses to erase a kit entrance's trigger tiles without `--allow-ov
 already changed (the same waiver applies). Stacking also lets `world-terrain` reshape a **kit island**, which it used
 to skip as open sea.
 
+**Seams hold (after 1.0.0b19; terrain study defect 5).** The stock overworld is one conforming mesh: every place
+Terrain meets a sea, beach, river, Object or volcano part (11.4% of Terrain positions) is an exact shared vertex.
+`world-terrain` and `world-deploy` write Terrain only, so a reshape used to tear exactly the seams it moved. A +3 edit
+at a beach left a 3u slit and a one-way wall (in-game proven), and 149-154 of 154 beach-centred ±3 edits did. Now
+every Terrain vertex welded to another part is **held**, in its own block and its neighbours; the water stays at its
+level and Objects stay rigid. The land fades in over `--seam-taper` units from those seams (default 4, one lattice
+step; 0 is a hard hold, which can leave a near-vertical lip). A **stitch gate** checks every weld before the first
+write and refuses on any tear (`mesh.stitch_gate`; the old `weld_audit` only sees splits under 0.05u). The verbs print
+how many vertices they held. A flatten with no `--height` now uses one mean across all its blocks; per-block means
+pulled shared borders apart.
+
 ## `world-reclaim` — reclaim ocean cells as walkable land
 
 The overworld is a **fixed 24×20 = 480-block grid where every ocean cell already exists as a real `WMBlock`** — it

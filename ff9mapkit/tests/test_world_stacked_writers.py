@@ -55,8 +55,8 @@ def world(tmp_path, monkeypatch):
     """A tmp game root; stock = a flat Block[16][14] (every other block is sea); no mirror."""
     monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
 
-    def stock(bx, by, **k):
-        if (bx, by) != BLK:
+    def stock(bx, by, part="terrain", **k):
+        if (bx, by) != BLK or part != "terrain":
             raise ValueError("mesh not found")
         return _flat_block()
     monkeypatch.setattr(X, "read_block", stock)

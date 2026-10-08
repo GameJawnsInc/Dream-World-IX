@@ -133,7 +133,11 @@ def _flat_block(n=16, cell=4.0, y=3.0):
 def _real_reshape(monkeypatch, **kw):
     """reshape() with a REAL mesh + REAL deform; only IO stubbed."""
     from ff9mapkit.world import discmirror as DM
-    monkeypatch.setattr(X, "read_block", lambda bx, by, **k: _flat_block())
+    def terrain_only(bx, by, part="terrain", **k):              # the block carries Terrain and nothing else
+        if part != "terrain":
+            raise ValueError("mesh not found")
+        return _flat_block()
+    monkeypatch.setattr(X, "read_block", terrain_only)
     monkeypatch.setattr(M, "deploy_override", lambda ter, **k: f"stub/{ter.name}")
     monkeypatch.setattr(DM, "auto_mirror", lambda *a, **k: None)
     return T.reshape("MOD", **kw)

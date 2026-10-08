@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-terrain`/`world-deploy` no longer tear the seams where land meets water, beach, rivers or buildings
+- Both verbs write Terrain only, but stock Terrain shares exact vertices with every other part it touches. A reshape
+  moved the Terrain side of those seams and left the other side behind. A +3 edit at a beach opened a 3u slit and a
+  one-way wall: you could walk down onto the beach but not back up. Before the fix, 149-154 of 154 beach-centred ±3
+  edits did this.
+- Every Terrain vertex shared with another part is now held in place, and the land fades in over `--seam-taper`
+  units from it (default 4; `0` holds without a fade). Re-run over the study's 588 seam-centred r16 ±3 edits, 0 tear
+  and 3 leave a wall where 345 did, keeping 70% of the edit's displacement next to the seam.
+- A stitch gate checks every seam before anything is written and refuses on any tear. With the hold switched off it
+  counts exactly the study's model, edit for edit.
+- A reshape now reads and checks every block before writing any, so a refusal never leaves earlier blocks written.
+- A flatten with no `--height` spanning several blocks flattened each to its own mean, splitting their shared border.
+  It now uses one mean.
+- `--lift`/`--spike` (`world-deploy` diagnostics) still tear by design; they now print a warning.
+- New: `mesh.stitch_gate`, `mesh.stitch_pins`/`StitchPins`, `mesh.mean_height`, `terrain.stitch_partners`,
+  `terrain.SEAM_TAPER`; the deform functions take `pinned=`.
+
 ### Fixed — in-place world edits stack: a second edit of a block no longer erases the first
 - `world-terrain`, `world-deploy`, `world-retarget` and `world-transplant --in-place` read pristine stock, so the
   last writer silently erased every earlier edit of the block. A reshape or retarget also killed a
