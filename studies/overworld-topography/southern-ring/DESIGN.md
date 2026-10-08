@@ -227,6 +227,11 @@ decodes to topos {53,54,57} (validated by reproducing the foot-walk table); the 
 
 ## R4b — THE TABLE IS THE LAW ★ DEPLOYED (2026-07-26; re-playtest pending): the 36-38 law FALSIFIED in-game, the safe road AUTHORED
 
+**Completed 2026-10-08 (REVERT.md section 32, the host-area stamp, in-game verified):** the tiles R4b left on old
+areas now carry the safe road's 14 too: the 45 carried Cleyra tiles at (19,18) (area 12: camera lock, zone-5
+battles, "Vube Desert"), the six quay triggers (area 0: zone-0 battles) and Sandreach's Beach1 (area 49: a beach
+arm). The quays still dispatch: their cases ride cell tags, not area.
+
 The R4 playtest fought Lizard Man/Sand Scorpion/Axe Beak/Ironite on "the grass of the island" —
 fingerprinted to **Grimhorn's bench** (carried area 12 → zone 5's topo-16/41 rows; three earlier
 hypotheses each killed by data). The "topo 36-38 engine law" is FALSE: `ProcessEncount` has no
