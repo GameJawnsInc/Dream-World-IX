@@ -41,7 +41,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Raising or lowering the ground under an entrance is allowed. A field exit stores a landing height, but the world
   load then drops the player onto whatever ground is there. In game, a landing raised 3.6u above its stored height
   put the player on the new ground, and he walked off it. An interim rule on master refused raising ground more
-  than 1.17u near an entrance; it was dropped on that evidence before any release.
+  than 1.17u near an entrance; it was dropped on that evidence before any release. The July 2026 Dali freeze it
+  was built on reproduces in game as something else: a hill raised without the seam pins left Dali's walkable town
+  plate at the bottom of a 21u shaft, and walking into town trapped the player there. The pins (below) prevent it.
 - New: `mesh.entrance_guard`, `entrance.door_arrivals` (the 43 stock door-arrival points, read from the install's
   field scripts); `terrain.reshape`/`morph_in_place` take `allow_entrances=`.
 

@@ -543,8 +543,15 @@ he walked onto the entrance tile. The stored height does not decide where he sta
 then loads every block and casts every actor down from the sky (`w_movementChrInitSlice`, `ff9.cs:3700-3705`), so he
 lands on whatever ground is there now. In game (terrain study in-game round 3), Burmecia's landing lowered 3u, raised
 1u and raised 4u (3.6u above its stored height, past the walk ray's reach) each put him at rest on the new ground,
-and he walked. So raising or lowering the ground under an entrance is safe. The July 2026 "hill at Dali froze the
-player" report, which an interim rise rule was built on, is unexplained.
+and he walked. So raising or lowering the ground under an entrance is safe.
+
+**What froze the player at Dali in July 2026 was a shaft (terrain study in-game round 4).** Dali's walkable town plate
+is an Object that fills a hole in the Terrain, and the ground query takes the first mesh in registration order that
+its ray hits, not the highest. The kit of that day had no seam pins. Its +24 hill raised the hole's rim 21u and left
+the plate where it was. The exit still landed the player on the hilltop, but walking into town dropped him onto the
+plate at the bottom of a 21u shaft, walled beyond his reach on every side. Rebuilt with that kit, the edit traps him
+exactly so in game; rebuilt with today's kit, the seam pins hold the plate's welded rim and he climbs out. So the
+seam pins ("Seams hold" above) are what prevent this.
 
 ## `world-reclaim` — reclaim ocean cells as walkable land
 

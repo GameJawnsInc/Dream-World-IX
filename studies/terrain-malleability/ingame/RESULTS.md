@@ -423,6 +423,52 @@ Session 6's edit was rerun: `world-terrain --at 256 -872 --radius 16 --raise 4`.
 
 On disc 4 (world 9008, scenario 11101) the walk west from E **crossed x = 256** and reached 5.2u, ending at 252.42. Session 6's crack refused it at 256.03. Memoria.log bound the two lab Disc1 files on the disc-1 load and the two Disc4 files on the disc-4 load. Run: `.harness-runs/20261008-154918-r3-replay`.
 
+## Round 4 (2026-10-08, owner's go: "in-game session"): the July Dali freeze reproduced as a shaft, 10/10
+
+The protocol was the same as round 3: the ini was backed up to `backups/Memoria.ini.pre-r4-lab.20261008-185803`, the lab sat first in FolderNames, and afterwards the ini was restored byte-exact (sha256 `0b5a4985…`, verified) and the lab removed. Stages and predictions come from `r4_build.py`; the session is `r4_session.py` (one launch, the lab swapped between Dali visits); lab loads were scored with `r3_post.py`.
+
+### 19. The July Dali freeze: a shaft round the town plate, not the landing
+
+**The question.** Round 3 refuted the reading of July's "a hill at Dali froze the player". So what did freeze him?
+- The July edit was never recorded: no command and no transcript survive. It is reconstructed as `world-deploy`'s own help example on the block Dali's landing sits in: `world-deploy --block 17 12 --hill 24`, default radius r96.
+- It was built twice: by today's kit (stage D_hill24), and by the kit as it stood on 2026-07-01 (`git archive 08de70ac`, stage D_hill24_july), which has no seam pins.
+- A third stage, D_raise4 (`world-terrain` +4 r16 on the landing), is an edit the slope gate refused before defect 23.
+
+**The route.** Field 350 (Dali/Village Road) at scenario 9500: Zidane, and the world exit (entry 31) armed outside its story windows. The exit stores (1102.855, 26.574, -812.359) and loads world 9003.
+- Launches 1-2 lost the run to random battles during the facing probes. The second, scene 942, came on forest canopy (topograph 36), the Ragtime Mouse's ground.
+- Launch 3 carried `world-encounter-frequency --peaceful` and `world-encounter-rate --peaceful` in the lab: dispatcher scripts only, no geometry.
+
+**The trap hypothesis.** North of the landing, Dali's walkable town plate (an Object at 26.5, about 10×8u) fills a hole in the Terrain: the object pose law.
+- The engine's ground query takes the FIRST mesh in registration order that the ray hits, not the highest. So the plate keeps answering under raised terrain.
+- With no pins, the July hill raises the hole's rim 21-24u and leaves the plate at the bottom of a shaft.
+- Today's kit holds the Terrain vertices welded to the plate (defect 5's pins), so the rim stays at the plate's height.
+
+| stage | at rest after the exit (pred) | first step | walk west onto the plate | four escape holds from the plate |
+|---|---|---|---|---|
+| stock | **26.574** (26.578) | 2.16u, on the ground | reached, y 26.45 | free (max y 27.69; flat) |
+| D_raise4 (old gate refused it) | **29.789** (29.790; +3.2) | 2.59u, on the ground | reached, y 26.43 | free (max 28.37) |
+| D_hill24, today's kit | **43.746** (43.746; +17.2) | 1.97u, on the ground | crept at the long drop, held on: on the plate, y 26.53 | **climbed out** onto the held rim: max y 28.97 |
+| D_hill24_july, the 2026-07-01 kit | **47.590** (47.592; +21.0) | 2.63u, on the ground | crept, held on: on the plate, y 26.53 | **TRAPPED**: moved 4-11u around the plate, never above y 26.74, with the terrain 21u up on every side |
+
+Run: `.harness-runs/20261008-190331-r4-dali`, **10/10**, 0 exceptions. Memoria.log bound each stage's own lab Terrain files on its world load (D_raise4: (16,12) and (17,12); both hills: 13 blocks); the stock load bound none.
+
+**Verdict.**
+1. The field exit is safe at Dali too. Every stage, the July kit's included, set him at rest on the new ground, 3.2-21.0u above the stored height. The first world frame of the July stage still read the stored 26.574, and once the load finished he stood at 47.59.
+2. **The July freeze reproduces as a SHAFT, not at the landing.** An unpinned raise lifts the terrain around a town's walkable Object plate but not the plate. Walking off the hilltop into town drops the player onto the plate at the bottom of a 21u shaft, with walls far past his 2.34u reach in every direction.
+   - The frame (`shots/R3-july-trapped.png`) shows only a wall of grass at the camera: the view from inside the shaft.
+   - Re-exiting Dali sets him back on the hilltop beside the shaft, consistent with July's "re-entry didn't fix it".
+   - The same day's notes also record "entrance props sunk in a visible pit": the same shaft seen from above.
+3. **Today's kit does not build it.** The seam pins hold the plate's welded rim, and he climbed off the plate in the first escape holds. His max y was 28.97, onto the held rim. The model says a climbable route continues up to the hilltop; that route was not walked.
+   - The frame (`shots/R4-today-plate.png`) shows the plate as open ground with the "Dali / Enter with X" prompt.
+4. **D_raise4 (newly allowed by defect 23) is fine.** He lands on it, walks it, and walks onto the plate and off it.
+
+So the July freeze needed no landing-height rule: defect 5's pins are what prevent it. The guard removed in round 3 never did. The reconstruction is a hypothesis about July's exact edit; the mechanism it demonstrates is real either way.
+
+**Instrument lessons.**
+- World encounters ruin long harness walks near towns. For a geometry session, put `world-encounter-frequency --peaceful` AND `world-encounter-rate --peaceful` in the lab (the Ragtime Mouse rolls on canopy).
+- A drop of 20u+ creeps, as at the round-1 beach: the walk reads "blocked" at the rim and needs a hold-on.
+- `world_face` probes walk ~10u: turn the camera at a spot with no entrance tile within 13u, or a probe walks into town.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
