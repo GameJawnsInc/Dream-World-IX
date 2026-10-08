@@ -217,6 +217,7 @@ calibrate_walk.py
 tear_sweep.py
 tear_exposure.py
 composition_probe.py      # writes only to scratch mod folders under the session scratchpad
+composition_postfix.py    # the S3 pairs re-run after the defect 3-4 fix (same scratch rule)
 gate_coverage.py
 engine_cites.py
 probe_detail.py
@@ -425,8 +426,8 @@ Each line: the law, its source, and the script that shows it.
 | 11.4% of Terrain positions are welded to a non-Terrain part (5,648 of 49,419 on disc 1). | S2 | `stitch_census.py` |
 | Stock borders: 436 of 443 land pairs closed; 7 open pairs (17.24 u total, max 3.07 u). | S13 corrected | `border_closure.py` |
 | THE BERM LAW's 664/702 is grass-sand (topo 31) corner incidences with foam-welded ends kept. | S14 | `calibrate.py` |
-| `world-terrain`, `world-deploy`, `world-retarget` and `morph_in_place` read pristine stock, so the last writer wins (8/8 pairs). | S3 | `composition_probe.py` |
-| On a real disc, `world-terrain` cannot touch a kit island: an ocean cell with a deployed Terrain override is skipped as sea. | S4 | `composition_probe.py` |
+| `world-terrain`, `world-deploy`, `world-retarget` and `morph_in_place` read pristine stock, so the last writer wins (8/8 pairs). **Fixed 2026-10-08: they stack** (defect 3). | S3 | `composition_probe.py`, `composition_postfix.py` |
+| On a real disc, `world-terrain` cannot touch a kit island: an ocean cell with a deployed Terrain override is skipped as sea. **Fixed 2026-10-08** with defect 3. | S4 | `composition_probe.py`, `composition_postfix.py` |
 | The torn-weld gap of a Terrain-only edit is exactly abs(f) at each welded position. | S5 | `composition_probe.py` |
 | A replayed reshape (a pure function of world XZ) keeps disc-4 border welds; disc 4 adds no border T-junctions. | G5 | `gap_disc4_edit_reach/s5c_border_welds.py` |
 | A disc-1 → disc-4 byte delta must be tested on an XZ footprint: 26-63% of disc-4-only triangles are invisible to a vertex-keyed test. | G7 corrected | `gap_disc4_edit_reach/s2_footprint.py`, `verify_newpos_blind.py` |
@@ -481,8 +482,8 @@ The memory store is shared and not under version control: make surgical edits.
 | ~~"a cosmetic `area=<case>` stamp"; retarget "only the trigger flag + cosmetic"~~ **fixed 2026-10-08** | `world/entrance.py:18`; `world/mesh.py:1393-1398` | same | GA1, GA10 |
 | ~~`--area` "a COSMETIC regional tag"; `--no-tile-area` "the stamp is pure bookkeeping"~~ **fixed 2026-10-08** (also `world-locate`'s footer and `world-retarget`'s note) | `cli.py:9025`; `cli.py:9886-9888` | same | GA10 |
 | ~~vcount ≤ 65535 ("16-bit mesh indices only")~~ **withdrawn: the claim is right** | `world/mesh.py` `MAX_MESH_VERTS`; `WorldMeshOverride.cs:186` (s34); pin `test_world_ledger.py::test_engine_patch_literals_are_pinned` | ~~native cap 65000~~ 65535 is the binding ceiling, in-game proven (`ingame/RESULTS.md` §8) | CAP-1 (refuted) |
-| `terrain.reshape` and `morph_in_place` "READ the deployed override and write it back" | `world/mesh.py:347-351` (`mod_overwrite_gate` docstring) | both read pristine stock on real discs; true only for reshape's Path-D `target_disc` branch | S3 |
-| entrance reads the deployed override "exactly as for terrain.reshape" | `world/entrance.py:741-743` | reshape does not; entrance does | S4 |
+| `terrain.reshape` and `morph_in_place` "READ the deployed override and write it back" | `world/mesh.py:347-351` (`mod_overwrite_gate` docstring) | both read pristine stock on real discs; true only for reshape's Path-D `target_disc` branch. **True since 2026-10-08**: the code now does what the docstring said (defect 3) | S3 |
+| entrance reads the deployed override "exactly as for terrain.reshape" | `world/entrance.py:741-743` | reshape does not; entrance does. **True since 2026-10-08** (defect 3) | S4 |
 | "shared block-edge verts move identically → seamless"; "so nothing tears" | `world/terrain.py:9-10`; `cli.py:4091-4093` | true for Terrain-Terrain only; every cross-part weld tears | S5 |
 | VertexDisplace keeps "every instance ... in EVERY part" coincident | `world/transplant.py:817-834` | only within the parts the caller loads (`transplant.PARTS`) | S11 |
 | "The verbatim donor blocks have ZERO such pairs" | `world/mesh.py:1557-1559` (`weld_audit`) | false for disc-4 (18,4) Terrain (3 stock near-miss pairs) | S17 |
@@ -513,8 +514,8 @@ The memory store is shared and not under version control: make surgical edits.
 |---|---|---|---|---|
 | 1 | `extract.read_block` resolves parts by substring: disc-4 (12,0) `sea4` → Sea4f; disc-1 (19,11) and disc-4 (5,16) `river` → RiverJoint | `world/extract.py:332-336`; reaches `water.py:463/504`, `transplant.py:127`, `discmirror.py:323`, `palette.py:51` | D4-17; `disc4/verify_prefix_collision.py` | the pin path pins RiverJoint twice and never River for a `(19,11)` donor (G10); false mirror SKIP at (12,0). **FIXED** after this study: exact match, `tests/test_world_block_part_lookup.py`; the fix's census also found (16,15) `river` → RiverJoint on both discs, a block with no River; no deployed write read any of the five |
 | 2 | ~~vertex bound 65535 admits 65001-65535, which Unity refuses natively~~ **NOT A DEFECT, refuted in-game** (65,001 and 65,535 verts render and walk); the 65000 kit change it prompted (`b68e1c6b`) was over-strict and is reverted | `mesh.py:121-123`, s34 `WorldMeshOverride.cs:186`, test pin `test_world_ledger.py:197` | CAP-1 | none: the kit is back to 65535 (`mesh.MAX_MESH_VERTS`, equal to s34's bound), and s34 needs no change |
-| 3 | four in-place writers read pristine stock, so a second edit erases the first; a later reshape/retarget silently kills a `world-entrance` (event tiles erased, `.eb` trigger left) | `terrain.py:139-143`, `cli.py:4149`, `cli.py:4275`, `transplant.py:3305` | S3 (8/8) | any repeat edit of one real block |
-| 4 | the ownership ledger allows kit-on-kit erasure; no overwrite gate on those four writers | `mesh.py:491` | S3, S10 | same |
+| 3 | four in-place writers read pristine stock, so a second edit erases the first; a later reshape/retarget silently kills a `world-entrance` (event tiles erased, `.eb` trigger left) | `terrain.py:139-143`, `cli.py:4149`, `cli.py:4275`, `transplant.py:3305` | S3 (8/8) | none. **FIXED 2026-10-08** (stitch lane change 1): all four read the deployed override first; re-run on the real block, 9 pairs STACK and reshape -> morph refuses, writing nothing (`gap_inplace_stitch_composition/composition_postfix.py`, `tests/test_world_stacked_writers.py`). A re-run now compounds; `--fresh` resets to stock |
+| 4 | the ownership ledger allows kit-on-kit erasure; no overwrite gate on those four writers | `mesh.py:491` | S3, S10 | none. **FIXED 2026-10-08** (change 2): a pristine read now happens only under `--fresh`, through `mesh.fresh_reset_gate`. The gate names every discarded file and refuses to erase kit entrance tiles without `--allow-overwrite`. An in-place morph also refuses to change tris a deployed edit changed (its tweaks are built from stock) |
 | 5 | Terrain-only Y edits tear cross-part welds: one-way walls at ±3 u in 149-154 of 154 beach-centred edits; a random r16 edit tears a stitch ~45% of the time, r96 (the `world-deploy` default) 99% | `terrain.py:159` | S5, S6, S8 | every coastal or object-bearing real-block edit |
 | 6 | no entrance guard in `terrain.reshape` or `morph_in_place` (only `world-deploy` has one, `cli.py:4154-4165`) | `terrain.py`, `transplant.py:3286` | S9 | entrance blocks |
 | 7 | `terrain.reshape` is not edit-atomic: a later block's wall-gate refusal leaves earlier blocks written (25.4% of disc-1-refused reshapes; a 0.62 u disc-1 step shown) | `terrain.py:126-167` | gap_disc4 A1, `verify_writer_atomicity.py` | multi-block reshapes |

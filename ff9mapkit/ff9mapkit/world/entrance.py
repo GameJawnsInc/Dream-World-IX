@@ -610,14 +610,12 @@ def read_block_stacked(mod_folder: str, x: int, y: int, *, disc: int = 1, lod: s
     """Read block ``(x, y)``'s ``part`` mesh, preferring an already-deployed mod-folder ``.ff9mesh`` OVERRIDE (so a
     new edit stacks on a prior one) and falling back to the pristine p0data block. ``fresh=True`` IGNORES the override
     and reads pristine -- for re-iterating a block cleanly (GEOMETRY edits like a flatten pad / a kept building would
-    otherwise COMPOUND on re-run). ``missing_ok`` returns ``None`` when neither exists (a block with no stock mesh)."""
+    otherwise COMPOUND on re-run). ``missing_ok`` returns ``None`` when neither exists (a block with no stock mesh).
+    Every in-place writer reads through here (terrain study defect 3: four of them read pristine stock, so a second
+    edit erased the first)."""
     if not fresh:
-        # canonical_part, not str.capitalize: capitalize lowercases the tail, so it can NEVER
-        # name a deployed "... RiverJoint.ff9mesh" override (audit rec 11).
-        from .placement import canonical_part
-        dest = config.find_game_path(game) / mod_folder / M.override_relpath(
-            disc, x, y, lod, canonical_part(part) or part.capitalize())
-        if dest.is_file():
+        dest = M.deployed_override(mod_folder, x, y, disc=disc, lod=lod, part=part, game=game)
+        if dest is not None:
             return M.blockmesh_from_ff9mesh(dest, disc=disc, x=x, y=y, lod=lod, part=part)
     try:
         return W.read_block(x, y, disc=disc, lod=lod, part=part, game=game)

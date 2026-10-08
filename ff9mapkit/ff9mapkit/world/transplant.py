@@ -129,14 +129,40 @@ def world_tris(bx: int, by: int, part: str, *, disc: int = 1, lod: str = "0_1", 
         if "mesh not found" in str(e):
             return []
         raise
+    return _soup(m, bx, by)
+
+
+def _soup(m, bx: int, by: int) -> list:
+    """A block mesh as :func:`world_tris`' WORLD-coordinate triangle soup. A deployed ``.ff9mesh`` may omit
+    normals/UVs/tangents (a hidden stub does); those read as up / (0, 0) / IDALL 0."""
     if not m.verts:
         return []
+    nrm = m.normals or [(0.0, 1.0, 0.0)] * len(m.verts)
+    uvs = m.uvs or [(0.0, 0.0)] * len(m.verts)
+    tan = m.tangents or [(0.0, 0.0, 0.0, 1.0)] * len(m.verts)
     out = []
     for t in range(len(m.flat_index) // 3):
         idx = m.flat_index[3 * t:3 * t + 3]
         out.append([((m.verts[i][0] + 64.0 * bx, m.verts[i][1], m.verts[i][2] - 64.0 * by),
-                     tuple(m.normals[i]), tuple(m.uvs[i]), tuple(m.tangents[i])) for i in idx])
+                     tuple(nrm[i]), tuple(uvs[i]), tuple(tan[i])) for i in idx])
     return out
+
+
+def _poly_key(tri) -> tuple:
+    """A tri's identity for comparing deployed geometry with stock: its world positions to 1e-4."""
+    return tuple((round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4)) for v in tri)
+
+
+def world_tris_stacked(mod_folder: str, bx: int, by: int, part: str, *, disc: int = 1, lod: str = "0_1",
+                       game=None):
+    """:func:`world_tris`, reading the mod folder's DEPLOYED override of ``part`` when there is one (THE STACKED
+    READ, terrain study defect 3: an in-place morph read pristine stock and erased the cell's earlier edits).
+    Returns ``(tris, override_path_or_None)``."""
+    from . import mesh as M
+    dep = M.deployed_override(mod_folder, bx, by, disc=disc, lod=lod, part=part, game=game)
+    if dep is None:
+        return world_tris(bx, by, part, disc=disc, lod=lod, game=game), None
+    return _soup(M.blockmesh_from_ff9mesh(dep, disc=disc, x=bx, y=by, lod=lod, part=part), bx, by), dep
 
 
 def _lerp_vert(a, b, t):
@@ -3285,7 +3311,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
 
 def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                    lod: str = "0_1", game=None, dry_run: bool = False,
-                   skip_mirror: bool = False) -> dict:
+                   skip_mirror: bool = False, fresh: bool = False,
+                   allow_overwrite: bool = False) -> dict:
     """Apply tweak objects to a REAL world cell IN PLACE -- the coast-morph demonstrator
     path for shores no single-cell transplant can carry (a nose beach's landmass is always
     a coastline fragment; only (7,17)'s pocket is fully in-block). Reads the cell's own
@@ -3295,14 +3322,36 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     Terrain-only precedent). No Donor.txt, no placement census, no land-fit: the cell
     keeps its real neighbours, so tweaks must be frame-safe by construction (the
     coastmorph fields pin block-frame verts). Reversible: delete the deployed files. A real
-    deploy auto-mirrors the written overrides to Disc4 (``skip_mirror=True`` opts out)."""
+    deploy auto-mirrors the written overrides to Disc4 (``skip_mirror=True`` opts out).
+
+    THE STACKED READ (terrain study defect 3): each part is read from the mod folder's deployed override when
+    there is one (:func:`world_tris_stacked`), so a morph composes with the cell's earlier edits instead of erasing
+    them; ``summary["stacked_on"]`` names those files, and the in-place-frame gate compares against them. The
+    tweaks are built from STOCK, so they may change only tris still identical to stock: one that would change a
+    deployed edit's tris refuses unless ``allow_overwrite`` (``summary["stack_conflicts"]``, per part).
+    ``fresh=True`` reads pristine stock (re-running a morph from scratch), through
+    :func:`ff9mapkit.world.mesh.fresh_reset_gate` (``allow_overwrite`` to discard kit entrance tiles)."""
     from . import mesh as M
+    from .placement import canonical_part
     tweaks = list(tweaks)
     _check_tweak(tweaks)               # the Tweak protocol, at the call site (rec 16)
     bx, by = cell
-    raw, originals = {}, {}
+    stack = {"stacked_on": []}
+    if fresh:                          # before any write: name what the reset to stock discards
+        stack.update(M.fresh_reset_gate([(bx, by)], mod_folder, disc=disc, lod=lod, game=game,
+                                        parts=tuple(canonical_part(p) or part_name(p) for p in parts),
+                                        allow_overwrite=allow_overwrite))
+    raw, originals, conflicts = {}, {}, {}
     for p in parts:
-        tris = world_tris(bx, by, p, disc=disc, lod=lod, game=game)
+        stock_keys = None
+        if fresh:
+            tris = world_tris(bx, by, p, disc=disc, lod=lod, game=game)
+        else:
+            tris, dep = world_tris_stacked(mod_folder, bx, by, p, disc=disc, lod=lod, game=game)
+            if dep is not None:
+                stack["stacked_on"].append(str(dep))
+                # the tweaks are BUILT from stock: they may change only tris still identical to stock
+                stock_keys = {_poly_key(t) for t in world_tris(bx, by, p, disc=disc, lod=lod, game=game)}
         if not tris:
             # a part the cell does not carry: the prefab has NO transform for it, so
             # a loose override could never bind (the (6,17) lesson) -- a tweak that
@@ -3319,14 +3368,16 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
             continue
         polys, touched = [], False
         for tri in tris:
-            poly = list(tri)
+            poly, changed = list(tri), False
             for tw in tweaks:
                 p2 = tw.apply(p, poly)
                 if p2 is not poly:
-                    touched = True
+                    touched = changed = True
                 poly = p2
                 if poly is None:
                     break
+            if changed and stock_keys is not None and _poly_key(tri) not in stock_keys:
+                conflicts[p] = conflicts.get(p, 0) + 1
             if poly is not None:
                 polys.append(poly)
         for tw in tweaks:
@@ -3338,6 +3389,14 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
         if touched:
             raw[p] = polys
             originals[p] = tris
+    if conflicts:
+        stack["stack_conflicts"] = conflicts
+        if not allow_overwrite:
+            raise ValueError(
+                f"cell {cell}: the morph would change tris a deployed edit already changed ({conflicts} per part; "
+                f"they differ from stock). Its tweaks are built from stock, so stacking them onto edited geometry "
+                f"is unverified. Re-site the window, re-read stock with fresh/--fresh (discarding the deployed "
+                f"parts, each named), or apply anyway with allow_overwrite/--allow-mod-overwrite.")
     gates = [tw.gate() for tw in tweaks]
 
     # IN-PLACE-specific gates: the cell keeps its REAL neighbours, so (a) every vert on
@@ -3361,7 +3420,7 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                       else "CHANGED", "out_of_cell": oob, "ok": fw_ok and oob == 0})
     clean = all(g.get("ok", True) for g in gates)
     summary = {"op": "morph-in-place", "cell": [bx, by], "touched": sorted(raw),
-               "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": []}
+               "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": [], **stack}
     if not raw:
         raise ValueError("no tweak touched this cell -- nothing to morph in place")
     if dry_run or not clean:

@@ -195,6 +195,13 @@ The trace confirms each writer's read path:
 The ownership ledger does not prevent this. On every overwrite `_ledger_shas` ran and allowed it (our own bytes are in
 the ledger; mesh.py:491), and the previous bytes were parked as `.bak-<ts>`.
 
+**S3 after the fix (2026-10-08, `composition_postfix.py`; terrain study defects 3-4).** The four writers now read
+the deployed override first (changes 1 and 2 below, built). The same scenarios on the same block: every pair STACKS,
+including the two entrance kills, except reshape -> morph, where the morph's VertexDisplace was keyed on a stock
+vertex the reshape had moved. It refuses ("no tweak touched this cell") and writes nothing. A kit island at (23,10) now
+reshapes (335 verts). `--fresh` over an entrance refuses, and with `--allow-overwrite` discards the 104 event tris;
+`world-retarget --fresh` refuses the same way.
+
 **S4. [law, probe] The two docstrings that say otherwise are wrong for reshape and morph.**
 
 - mesh.py:347-351 (`mod_overwrite_gate`) lists `terrain.reshape` and `transplant.morph_in_place` as writers that "READ
@@ -330,7 +337,7 @@ same writes 1.2 s apart leave 2 parks.
 
 ## 5. Ranked kit changes, each tied to a measured failure
 
-1. **Stacking reads (or an explicit stock-reset flag) for the four pristine in-place writers.** Measured failure: S3,
+1. **BUILT 2026-10-08.** **Stacking reads (or an explicit stock-reset flag) for the four pristine in-place writers.** Measured failure: S3,
    8/8 last-writer-wins, including two silent entrance kills. Change:
    - `terrain.reshape` (terrain.py:139-143): read via `entrance.read_block_stacked(mod_folder, ...)` on real discs too,
      with `fresh=` for the documented "re-shape from stock" intent;
@@ -338,7 +345,8 @@ same writes 1.2 s apart leave 2 parks.
    - `transplant.morph_in_place` (transplant.py:3305, `world_tris`): a stacked `world_tris` per part.
 
    Then fix the docstrings at mesh.py:347-351 and entrance.py:741-743.
-2. **An overwrite gate for any writer that still reads pristine.** Measured failure: S3/S9, the ledger lets kit-on-kit
+2. **BUILT 2026-10-08** as `mesh.fresh_reset_gate` (pristine reads now happen only under `--fresh`; it names the
+   discards and refuses to erase kit entrance tiles without `--allow-overwrite`). **An overwrite gate for any writer that still reads pristine.** Measured failure: S3/S9, the ledger lets kit-on-kit
    erasure through. Call `mesh.mod_overwrite_gate(cells, mod_folder, disc=write_disc, parts=(written part,))` in the
    same four functions before writing. Refuse unless `--fresh` / `allow_overwrite`.
 3. **An entrance guard in `terrain.reshape` and `transplant.morph_in_place`.** Measured failure: S8, plus S6/S7 at 3-74%

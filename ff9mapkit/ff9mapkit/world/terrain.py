@@ -88,20 +88,27 @@ def _walk_gate(ter, pre_y, blk, summary, *, allow_steep: bool):
 def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float | None = None,
             flatten: bool = False, height: float | None = None, disc: int = 1, falloff: str = "smooth",
             game=None, dry_run: bool = False, skip_mirror: bool = False,
-            target_disc: int | None = None, allow_steep: bool = False) -> dict:
+            target_disc: int | None = None, allow_steep: bool = False, fresh: bool = False,
+            allow_overwrite: bool = False) -> dict:
     """Reshape overworld terrain within ``radius`` world units, across every block it touches. Exactly one SHAPE:
     ``at=(x, z)`` (a radial hill/crater/plateau) or ``seg=((x0,z0),(x1,z1))`` (a ridge/valley). Exactly one OP:
     ``amount`` (signed: ``+`` raise, ``-`` lower) or ``flatten=True`` (level toward ``height``, default the local mean).
     Returns a summary; deploys a Terrain override per touched land block (unless ``dry_run``), then auto-mirrors
     the written overrides to Disc4 (THE DISC-4 GAP; pass ``skip_mirror=True`` to opt out). Apply via the world-scene reload (no relaunch).
 
+    THE STACKED READ (terrain study defect 3). Each block is read from the mod folder's deployed Terrain override
+    when there is one, else from stock, so the reshape composes with what is there: a kit island, a prior hill, an
+    entrance's trigger tiles. It used to read pristine stock on a real disc, so it silently erased every earlier
+    edit of the block and killed entrances (their ``.eb`` trigger left with no tile). The cost: re-running the same
+    reshape COMPOUNDS on its last pass. ``summary["stacked_on"]`` names the overrides read. ``fresh=True`` re-reads
+    pristine stock instead (the old behaviour, for re-doing a reshape from scratch); it names what it discards and
+    refuses to erase kit entrance tiles unless ``allow_overwrite`` (:func:`ff9mapkit.world.mesh.fresh_reset_gate`).
+
     THE READ/WRITE DISC SPLIT. ``disc`` is the READ disc and must stay 1 or 4 -- ``extract`` has no other
     stock bundle tree. ``target_disc`` is purely where the result is DEPLOYED (a synthetic world's override
-    namespace; engine patch s74). **When they differ the READ also moves**, unlike every other split verb:
-    a synthetic world has no pristine tree, so its land exists ONLY as an already-deployed override and
-    ``read_block`` would see open sea and skip every block. Reads then come from the target's deployed
-    override and a block with none is skipped as sea. On a real disc the pristine read is unchanged --
-    deliberate, so a re-run re-shapes from stock instead of COMPOUNDING on its own last pass."""
+    namespace; engine patch s74). **When they differ the READ also moves**: a synthetic world has no pristine
+    tree, so its land exists ONLY as an already-deployed override there, a block with none is skipped as sea,
+    and ``fresh`` has no stock to reset to."""
     from . import extract as X, mesh as M
     if (at is None) == (seg is None):
         raise ValueError("give exactly one shape: at=(x,z) OR seg=((x0,z0),(x1,z1))")
@@ -118,8 +125,16 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     op = "flatten" if flatten else ("raise" if amount >= 0 else "lower") if seg is None else \
         ("ridge+" if amount >= 0 else "ridge-")
     rtarget = disc if target_disc is None else int(target_disc)
+    if fresh and rtarget != disc:
+        raise ValueError("fresh re-reads pristine stock, and a synthetic world (target_disc) has none")
     summary = {"op": op, "radius": radius, "dry_run": dry_run, "disc": disc, "target_disc": rtarget,
-               "blocks": [], "skipped_sea": [], "off_grid": []}
+               "blocks": [], "skipped_sea": [], "off_grid": [], "stacked_on": []}
+    in_grid = [(bx, by) for bx in range(bx0, bx1 + 1) for by in range(by0, by1 + 1)
+               if 0 <= bx < GRID_X and 0 <= by < GRID_Y]
+    if fresh:                                                       # before any write: name the discards
+        summary.update(M.fresh_reset_gate(in_grid, mod_folder, disc=disc, game=game,
+                                          allow_overwrite=allow_overwrite))
+    from .entrance import read_block_stacked
     written = []
     for bx in range(bx0, bx1 + 1):
         for by in range(by0, by1 + 1):
@@ -129,18 +144,15 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                 # side, leaving a cross-seam crack with no report anywhere.
                 summary["off_grid"].append([bx, by])
                 continue
-            if rtarget != disc:
-                # a synthetic namespace has no pristine tree -- its land IS the deployed override
-                from .entrance import read_block_stacked
-                ter = read_block_stacked(mod_folder, bx, by, disc=rtarget, part="terrain",
-                                         game=game, missing_ok=True)
-                if ter is None:
-                    summary["skipped_sea"].append([bx, by]); continue
-            else:
-                try:
-                    ter = X.read_block(bx, by, disc=disc, part="terrain", game=game)
-                except (ValueError, FileNotFoundError):
-                    summary["skipped_sea"].append([bx, by]); continue     # sea / no terrain mesh
+            # stacked (a synthetic namespace's land IS its deployed override); fresh = pristine stock
+            ter = read_block_stacked(mod_folder, bx, by, disc=rtarget, part="terrain", game=game,
+                                     missing_ok=True, fresh=fresh)
+            if ter is None:
+                summary["skipped_sea"].append([bx, by]); continue          # sea / no terrain mesh
+            if not fresh:
+                dep = M.deployed_override(mod_folder, bx, by, disc=rtarget, part="Terrain", game=game)
+                if dep is not None:
+                    summary["stacked_on"].append(str(dep))
             wo = X.block_world_origin(bx, by)
             _ca = getattr(ter, "chan_arrays", None)
             from .extract import CH_POS as _CP
