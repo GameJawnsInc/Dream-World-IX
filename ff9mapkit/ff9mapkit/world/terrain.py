@@ -370,8 +370,10 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         stand on: rim med 3.7 but land med 3.1, so a 4u mesa reads too high), ``rim_run`` 1.0 (wall run -> ~73deg). The
         wall is topo 58 (on-foot BLOCKED -- the player stops at the rim); no shallow ladder / foam.
       * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest. The cell carries
-        no water, so a lifted slab floats over nothing; ``height=0`` sits flush with the surrounding sea (the old
-        height-0 z-fight fit the free-riding donor Sea4, study C7). A negative height is refused.
+        no water, so a lifted slab floats over nothing: open sky shows under any edge beside open sea, which the
+        summary's ``warnings`` names (use ``"cliff"`` or ``world-island`` for raised land). ``height=0`` sits flush with
+        the surrounding sea (the old height-0 z-fight fit the free-riding donor Sea4, study C7). A negative height is
+        refused.
 
     Requires the CUSTOM engine: the shipped ``s34`` divert routes a sea cell carrying such an override onto a land
     donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of ``SeaBlockPrefab`` -- a stock sea cell
@@ -410,7 +412,8 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
                          allow_overwrite=allow_overwrite, what="reclaim target cell(s)")
     reclaimed = set(cells)
     land = set()
-    if profile in ("island", "cliff") and not all_sea_target:
+    raised_flat = profile == "flat" and height > 1e-6         # its open-water edges show sky beneath (warned below)
+    if (profile in ("island", "cliff") or raised_flat) and not all_sea_target:
         try:                                              # real-land set: a neighbour that is real coast is NOT water
             land = set(X.list_blocks(disc=disc, game=game))
         except Exception:                                 # noqa: BLE001 -- offline/no install -> treat non-reclaimed as water
@@ -420,12 +423,13 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     # exist there. NOTE the guard is on the flag, NOT on `target != disc` -- an s75 CLONE target has the stock
     # IsSea pattern, so its neighbours' real-land status is exactly right and must still be read.
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
-               "dry_run": dry_run, "cells": [], "blanked": list(LAND_DONOR_WATER)}
+               "dry_run": dry_run, "cells": [], "blanked": list(LAND_DONOR_WATER), "warnings": []}
     built = []
+    open_edged = []
     for (bx, by) in cells:
+        water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
+                 and (bx + dx, by + dy) not in land]
         if profile in ("island", "cliff"):
-            water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
-                     and (bx + dx, by + dy) not in land]
             if profile == "cliff":                         # STEEP rock wall (faithful), not island's gentle apron
                 # NOTE: the smooth-blob island (mesh.blob_cliff_block_mesh) is UNWIRED -- a lone cliff-ringed island is
                 # un-landable on foot (100% topo-58 shore = no walkable beach, + a partial-cell spawn drops you at water
@@ -444,9 +448,20 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
             bm = M.flat_block_mesh(disc=disc, x=bx, y=by, seg=seg, topograph=topograph, height=height)
             bm = PAL.apply_palette_uvs(bm, topograph=topograph, disc=disc, part="terrain", game=game)
             info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount}
+            if raised_flat:
+                info["water_edges"] = len(water)
+                if water:
+                    open_edged.append((bx, by))
         _check_blankable(bm, (bx, by), profile)
         built.append(bm)
         summary["cells"].append(info)
+    if open_edged:
+        # in game (terrain study RESULTS section 14): the slab's open-sea edge shows open sky beneath it, because a
+        # reclaimed cell carries no water (defect 18). A bench slab is fine; land meant to be seen should not be flat.
+        summary["warnings"].append(
+            f"flat slab at height {height:g} has open sea beside cell(s) {', '.join(map(str, open_edged))}: open sky "
+            f"shows under its edge, since a reclaimed cell carries no water. For raised land use --profile cliff "
+            f"(walled down to the waterline) or world-island (a rounded coast)")
     written = []
     if not dry_run:
         for bm in built:                                   # every cell is built + checked BEFORE the first write

@@ -13,7 +13,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the land. A boat stops at the cell edge for every profile; the cliff profile was also boat-permeable before.
   Confirmed in game for the flat and cliff profiles.
 - A `flat` slab raised above the water now shows open sky under its edge, where the free-riding sea used to
-  show. Use `--profile cliff` for raised land: its rock wall comes down to the waterline.
+  show. `world-reclaim` warns when a raised flat slab has open sea beside it, and names the cells. Use
+  `--profile cliff` for raised land (its rock wall comes down to the waterline) or `world-island` for a
+  rounded coast.
 - Every profile fills its cell at or above the waterline. A `flat` reclaim with a negative `--height` is now
   refused, since the cell has no water left to cover it. No `Donor.txt` is written, so nothing else about the
   cell changes. A cell reclaimed before this fix keeps the free-riding water until it is re-run with
