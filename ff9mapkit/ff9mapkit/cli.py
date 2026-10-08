@@ -4092,26 +4092,22 @@ def _print_stitch(summary: dict) -> None:
               f"an open slit, and a one-way wall above ~2.34u")
 
 
-_ALLOW_ENTRANCES_HELP = ("raise ground more than 1.17u within 8u of a walk-on entrance tile or a stock door arrival, or "
-                         "drop an entrance tile, anyway. Refused by default: a field exit sets the player down there at "
-                         "the old height, under the new ground (in game a hill at Dali froze the player). Lowering is "
-                         "fine")
+_ALLOW_ENTRANCES_HELP = ("drop or re-cut a walk-on entrance tile anyway (refused by default: the dispatcher still "
+                         "routes that entrance, but its trigger would be gone). Raising or lowering the ground under "
+                         "an entrance needs no flag: a field exit re-grounds the player on whatever ground is there")
 
 
 def _print_entrances(summary: dict) -> None:
-    """THE ENTRANCE GUARD's receipt (terrain study defect 6): entrances an edit moved tiles of, or (allowed) raised
-    the landing ground at."""
+    """THE ENTRANCE GUARD's receipt (terrain study defect 6): entrances an edit moved tiles of, or (allowed) dropped
+    tiles of."""
     for h in summary.get("entrances") or ():
         where = f"block [{h['block'][0]}][{h['block'][1]}]"
         if not h["refused"]:
-            print(f"  note: moved {h['tiles_moved']} entrance tile(s) in {where} -- lowered or raised under 1.17u, "
-                  f"so the trigger still fires and a field exit still lands on the ground")
+            print(f"  note: moved {h['tiles_moved']} entrance tile(s) in {where} -- the trigger still fires, and a "
+                  f"field exit sets the player down on the new ground")
             continue
-        what = ([f"{h['tiles_dropped']} entrance tile(s) dropped"] if h["tiles_dropped"] else []) + (
-            [f"ground raised {h['max_rise']:g}u {h['nearest']:g}u from "
-             f"{'a door arrival' if h['door_arrival'] else 'an entrance tile'}"] if h["max_rise"] else [])
-        print(f"  !! WARNING: {'; '.join(what)} in {where} -- --allow-entrances. Leave that entrance's field once "
-              f"in game to check the player lands on the ground.")
+        print(f"  !! WARNING: dropped {h['tiles_dropped']} entrance tile(s) in {where} -- --allow-entrances. That "
+              f"entrance has no trigger there now.")
 
 
 def _add_fresh_args(p, what: str, *, overwrite_flag: str = "--allow-overwrite") -> None:
@@ -4276,16 +4272,10 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
             if reshape:
                 tiles.append(((x, y), M.bm_tiles(bm, pre, rows[-1][2])))
             ops.append((bm, op))
-        # THE ENTRANCE GUARD (defect 6, shared with world-terrain and the in-place morph): a reshape that raises ground
-        # where a field exit sets the player down refuses -- in game a hill at Dali soft-locked the player there
+        # THE ENTRANCE GUARD (defect 6, shared with world-terrain and the in-place morph): the entrance tiles this
+        # reshape moved (reported); a dropped tile would refuse
         if reshape:
-            from .world.entrance import door_arrivals
-            C = M.ENTRANCE_CLEARANCE
-            tiles += TER.entrance_context((cx - args.radius - C, cx + args.radius + C, cz - args.radius - C,
-                                           cz + args.radius + C), {t[0] for t in tiles}, args.mod_folder,
-                                          disc=args.disc, lod=args.lod, game=args.game, fresh=args.fresh)
-            stack["entrances"] = M.entrance_guard(tiles, arrivals=door_arrivals(args.game),
-                                                  allow=args.allow_entrances)
+            stack["entrances"] = M.entrance_guard(tiles, allow=args.allow_entrances)
         gate = M.stitch_gate(rows + [(n, pos, pos) for n, pos in
                                      ((n, M.world_positions(pb, o)) for n, pb, o in partners)])
         if gate["torn"] and reshape:
@@ -4305,7 +4295,7 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
                 # THE REPLAY (terrain study O2): where disc 4's real ground differs, re-run this reshape there
                 # (same centre, radius and op; a flatten keeps this run's height) instead of copying disc-1 bytes
                 def replay(d):
-                    ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": True, "height": height})
+                    ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY, "height": height})
                     if _cmd_world_deploy(ns) != 0:
                         raise ValueError(f"world-deploy --disc {d} refused the same reshape (see above)")
             DM.auto_mirror([w[3] for w in written], mod_folder=args.mod_folder, skip_mirror=args.skip_mirror,

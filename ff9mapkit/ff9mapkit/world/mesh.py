@@ -426,92 +426,52 @@ def soup_tiles(pre, post=None) -> list:
             for a, b in zip(pre, post)]
 
 
-#: the reach (XZ, u) of a landing: two 4u lattice steps. The ground under a point is set by the corners of its 4u cell
-#: (up to 5.66u away), and a field exit sets the player down on the tile they walked onto or at a door arrival (37 of
-#: 41 stock arrivals lie within 4u of a tile, median 1.7u: terrain study ``door_arrivals.py``)
-ENTRANCE_CLEARANCE = 8.0
-#: the most ground may rise under a landing and still be found: the walk ray starts 2.34375u above the player
-#: (``placement.WALK_RAY_START``), and on canopy (topographs 36-38) the player stands 1.171875u sunk
-ENTRANCE_RISE = 1.171875
+def entrance_guard(blocks, *, allow: bool = False) -> list:
+    """THE ENTRANCE GUARD (terrain study defect 6; one rule for world-terrain, world-deploy and the in-place morph):
+    an edit may not DROP or re-cut a walk-on entrance tile. Its trigger would be gone while the dispatcher still
+    routes that entrance. A tile the edit only moves, raised or lowered, still fires: reported (``tiles_moved``),
+    never refused.
 
+    Moving the ground under an entrance is safe. A field exit does store a landing height in the position record
+    (WORLD09 e13 tag0 ``MoveInstantXZY``; 56 stock exits write one, :func:`ff9mapkit.world.entrance.door_arrivals`),
+    but the world load then casts every actor down from the sky (``w_frameMainRoutine`` ->
+    ``w_movementChrInitSlice``, ff9.cs:3700-3705). In game (terrain study round 3, ``ingame/RESULTS.md`` §16)
+    Burmecia's landing raised 3.6u above its stored height stood the player on the new ground, and he walked. An
+    earlier version refused raising ground more than 1.17u near a tile or a door arrival on the opposite premise (the
+    July 2026 Dali freeze, cause still unknown); it refused safe edits and is gone.
 
-def entrance_guard(blocks, *, arrivals=(), clearance: float = ENTRANCE_CLEARANCE, rise: float = ENTRANCE_RISE,
-                   allow: bool = False) -> list:
-    """THE ENTRANCE GUARD (terrain study defect 6; one rule for world-terrain, world-deploy and the in-place morph).
-    In game a hill at Dali soft-locked the player (commit 3e388d0d). The world sets the player down where the save's
-    position record points -- the entrance tile they walked onto, or a stock door arrival a field exit wrote
-    (:func:`ff9mapkit.world.entrance.door_arrivals`) -- at the height stored there. Under ground raised past the
-    walk ray's start the player is frozen in every direction; lowered ground just drops them. So an edit may not
-    RAISE ground by more than ``rise`` within ``clearance`` of an entrance tile or a door arrival (a raised tile is
-    its own nearest point), nor drop or re-cut an entrance tile (its trigger would be gone). A tile lowered, or raised
-    less than that, still fires and still lands the player: reported (``tiles_moved``), not refused.
-
-    ``blocks`` = ``[(cell, tris)]``: every block the edit read, its tris as :func:`bm_tiles` / :func:`soup_tiles`
-    rows ``(idall, pre_pts, post_pts)`` (``post_pts`` None = dropped or re-cut; a block left alone still lends its
-    tiles); ``arrivals`` = door-arrival ``(x, z)``. Geometry the edit only ADDS is not judged here. Raises the refusal
-    unless ``allow``; returns the hits ``[{"block", "areas", "tiles_dropped", "tiles_moved", "max_rise", "nearest",
-    "door_arrival"}]`` per block (refused or reported): the tiles dropped and moved, the highest rise past ``rise``
-    within reach, its distance to the tile or arrival, and which."""
+    ``blocks`` = ``[(cell, tris)]``: every block the edit writes, its tris as :func:`bm_tiles` / :func:`soup_tiles`
+    rows ``(idall, pre_pts, post_pts)`` (``post_pts`` None = dropped or re-cut; a tri the edit left alone is not a
+    hit). Geometry the edit only ADDS is not judged here. Raises the refusal unless ``allow``; returns the hits
+    ``[{"block", "areas", "tiles_dropped", "tiles_moved", "refused"}]`` per block, ``areas`` being the touched
+    tiles' own area values."""
     from .extract import decode_id
-
-    def _ent(i):
-        return i not in WALK_SKIP_IDS and decode_id(i)["event"]
-
-    C = float(clearance)
-    grid = {}                                                    # (gx, gz) -> [(x, z, area or None)]
-    for _cell, tris in blocks:
-        for i, pre, _post in tris:
-            if _ent(i):
-                for p in pre:
-                    grid.setdefault((math.floor(p[0] / C), math.floor(p[2] / C)), []).append(
-                        (p[0], p[2], decode_id(i)["area"]))
-    for (x, z) in arrivals:
-        grid.setdefault((math.floor(x / C), math.floor(z / C)), []).append((x, z, None))
-    if not grid:
-        return []
     hits = []
     for cell, tris in blocks:
-        tiles_dropped = sum(1 for i, _pre, post in tris if _ent(i) and post is None)
-        tiles_moved = sum(1 for i, pre, post in tris if _ent(i) and post is not None and post != pre)
-        top, areas = None, set()                                 # (rise, distance, near point area-or-None)
-        for _i, pre, post in tris:
-            if post is None or post == pre:
+        dropped = moved = 0
+        areas = set()
+        for i, pre, post in tris:
+            if i in WALK_SKIP_IDS or not decode_id(i)["event"]:
                 continue
-            for a, b in zip(pre, post):
-                up = b[1] - a[1]
-                if up <= rise:
-                    continue
-                gx, gz = math.floor(a[0] / C), math.floor(a[2] / C)
-                for dx in (-1, 0, 1):
-                    for dz in (-1, 0, 1):
-                        for (x, z, area) in grid.get((gx + dx, gz + dz), ()):
-                            d = math.hypot(a[0] - x, a[2] - z)
-                            if d > C:
-                                continue
-                            if area is not None:
-                                areas.add(area)
-                            if top is None or (up, -d) > (top[0], -top[1]):
-                                top = (up, d, area)
-        if tiles_dropped or tiles_moved or top is not None:
+            if post is None:
+                dropped += 1
+            elif post != pre:
+                moved += 1
+            else:
+                continue
+            areas.add(decode_id(i)["area"])
+        if dropped or moved:
             hits.append({"block": [int(cell[0]), int(cell[1])], "areas": sorted(areas),
-                         "tiles_dropped": tiles_dropped, "tiles_moved": tiles_moved,
-                         "max_rise": None if top is None else round(top[0], 3),
-                         "nearest": None if top is None else round(top[1], 1),
-                         "door_arrival": top is not None and top[2] is None,
-                         "refused": bool(tiles_dropped or top is not None)})
+                         "tiles_dropped": dropped, "tiles_moved": moved, "refused": bool(dropped)})
     bad = [h for h in hits if h["refused"]]
     if bad and not allow:
-        rows = "; ".join(f"[{h['block'][0]}][{h['block'][1]}] " + ", ".join(
-            ([f"{h['tiles_dropped']} entrance tile(s) dropped"] if h["tiles_dropped"] else [])
-            + ([f"ground raised {h['max_rise']:g}u {h['nearest']:g}u from "
-                f"{'a door arrival' if h['door_arrival'] else 'an entrance tile'}"] if h["max_rise"] else []))
-            + (f" (area(s) {h['areas']})" if h["areas"] else "") for h in bad)
+        rows = "; ".join(f"[{h['block'][0]}][{h['block'][1]}] {h['tiles_dropped']} tile(s)"
+                         + (f" (area(s) {h['areas']})" if h["areas"] else "") for h in bad)
         raise ValueError(
-            f"REFUSED: this edit raises the ground where a field exit sets the player down (more than {rise:.2f}u "
-            f"within {C:g}u of a place-ENTRANCE) or drops an entrance tile -- {rows}. The player lands at the old "
-            f"height, under the new ground: in game at Dali, frozen in every direction. Lowering there is fine (the "
-            f"player drops). Move the edit off it (another centre, a smaller radius, less height), or pass "
-            f"allow_entrances / --allow-entrances. Nothing was written.")
+            f"REFUSED: this edit drops or re-cuts walk-on entrance tile(s) -- {rows}. The dispatcher still routes that "
+            f"entrance, but its trigger would be gone. Keep the tiles whole (another shape or window), or pass "
+            f"allow_entrances / --allow-entrances. Raising or lowering the ground under an entrance is fine. Nothing "
+            f"was written.")
     return hits
 
 

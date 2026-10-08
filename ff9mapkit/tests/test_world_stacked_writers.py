@@ -113,10 +113,10 @@ def test_fresh_refuses_to_erase_kit_entrance_tiles(world):
     assert _events(dep) == n > 0                                    # refused before any write
     s = T.reshape("MOD", at=AT, radius=12.0, amount=2.0, fresh=True, allow_overwrite=True)
     assert list(s["fresh_lost_entrances"]) == ["16,14"] and _events(dep) == 0
-    # the default (stacked) path keeps them: the hill is position-based, the IDALLs ride along (the entrance guard
-    # refuses moving an entrance block's ground at all unless allowed -- test_world_guards)
+    # the default (stacked) path keeps them: the hill is position-based, the IDALLs ride along (moved tiles are only
+    # reported by the entrance guard -- test_world_guards)
     dep2 = _deploy(_flat_block(event_near=(30.0, -30.0)))
-    T.reshape("MOD", at=AT, radius=12.0, amount=2.0, allow_entrances=True)
+    T.reshape("MOD", at=AT, radius=12.0, amount=2.0)
     assert _events(dep2) == n
 
 

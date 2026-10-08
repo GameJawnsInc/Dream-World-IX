@@ -202,7 +202,7 @@ def test_reshape_hands_auto_mirror_a_disc4_replay_of_itself(monkeypatch):
     monkeypatch.setattr(T, "reshape", lambda mod, **k: calls.append((mod, k)))
     seen["replay"](4)
     mod, k = calls[0]
-    assert mod == "MOD" and k["disc"] == 4 and k["skip_mirror"] is True and k["flatten"] is True
+    assert mod == "MOD" and k["disc"] == 4 and k["skip_mirror"] == DM.REPLAY and k["flatten"] is True
     assert k["at"] == (1030.0, -910.0) and k["radius"] == 8.0 and k["height"] == 7.5 and k["seam_taper"] == 2.0
 
 
@@ -239,11 +239,19 @@ def test_world_deploy_replays_itself_on_disc4(monkeypatch):
     monkeypatch.setattr(M, "deform_radial", lambda bm, **k: 3)
     monkeypatch.setattr(M, "deploy_override", lambda bm, **k: Path("x"))
     monkeypatch.setattr(T, "stitch_partners", lambda *a, **k: [])
-    monkeypatch.setattr(T, "entrance_context", lambda *a, **k: [])
     assert real(ns) == 0
     monkeypatch.setattr(cli, "_cmd_world_deploy", lambda a: calls.append(a) or 0)
     seen["replay"](4)
-    assert calls[0].disc == 4 and calls[0].skip_mirror is True and calls[0].center == [1030.0, -910.0]
+    assert calls[0].disc == 4 and calls[0].skip_mirror == DM.REPLAY and calls[0].center == [1030.0, -910.0]
     monkeypatch.setattr(cli, "_cmd_world_deploy", lambda a: 2)
     with pytest.raises(ValueError, match="world-deploy --disc 4 refused the same reshape"):
         seen["replay"](4)
+
+
+def test_the_replayed_call_skips_its_own_mirror_silently():
+    # the writer call a replay re-runs on disc 4 IS the mirror: it used to print "skipped (--skip-mirror)" mid-replay
+    lines = []
+    assert DM.auto_mirror(["x"], mod_folder="MOD", skip_mirror=DM.REPLAY, log=lines.append) is None
+    assert lines == []
+    assert DM.auto_mirror(["x"], mod_folder="MOD", skip_mirror=True, log=lines.append) is None
+    assert lines == ["disc-4 mirror: skipped (--skip-mirror)"]

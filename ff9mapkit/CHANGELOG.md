@@ -17,21 +17,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - The copy gate compares each real part as a triangle multiset, so the 10 land cells whose triangles disc 4 only
   stores in another order are now copied (179 land cells refused, not 189).
 - The standalone `world-mirror` still gates cell by cell, and now names any refused cell that borders a copied one.
-  New: `discmirror.mirror(atomic=, replay=)`, `auto_mirror(replay=)`.
+  New: `discmirror.mirror(atomic=, replay=)`, `auto_mirror(replay=)`, and `discmirror.REPLAY`, the `skip_mirror`
+  value a replay hands the call it re-runs, which skips its own mirror without a log line.
 
-### Fixed — reshaping near an overworld entrance can no longer trap the player at the field exit
-- The world map sets the player down from a saved position record, height included: at a door arrival a field
-  exit wrote (56 stock exits, 43 points) or on the entrance tile they walked onto. A hill raised there buried that
-  height; in game a hill at Dali froze the player in every direction. Only `world-deploy` refused, and it refused any
-  reshape of a block that carried entrance tiles at all: half of all r16 edits. `world-terrain` and
-  `world-transplant --in-place` had no guard.
-- All three now share one rule: refuse an edit that raises ground more than 1.17u within 8u of an entrance tile or a
-  door arrival, or that drops an entrance tile. Lowering is allowed (the player drops onto the new ground), and a
-  tile moved within those limits is reported, not refused. Over random land edits a +3 r16 hill now refuses 12.7% of
-  the time, and a +1 hill or any lowering never. `--allow-entrances` (now on all three verbs) overrides.
-- The door arrivals are read from the install's own field scripts (`entrance.door_arrivals`, about 2s once per
-  run). New: `mesh.entrance_guard`, `mesh.ENTRANCE_CLEARANCE`, `mesh.ENTRANCE_RISE`, `terrain.entrance_context`;
-  `terrain.reshape`/`morph_in_place` take `allow_entrances=`.
+### Fixed — reshaping can no longer delete an overworld entrance's trigger tiles, and no longer refuses to raise one
+- Only `world-deploy` guarded entrances, and it refused any reshape of a block that carried entrance tiles at all:
+  half of all r16 edits. `world-terrain` and `world-transplant --in-place` had no guard.
+- All three now share one rule: refuse an edit that drops or re-cuts a walk-on entrance tile, because the
+  dispatcher would still route that entrance with no trigger left to fire it. `--allow-entrances` (now on all three
+  verbs) overrides. A tile the edit only moves is reported, not refused.
+- Raising or lowering the ground under an entrance is allowed. A field exit stores a landing height, but the world
+  load then drops the player onto whatever ground is there. In game, a landing raised 3.6u above its stored height
+  put the player on the new ground, and he walked off it. An interim rule on master refused raising ground more
+  than 1.17u near an entrance; it was dropped on that evidence before any release.
+- New: `mesh.entrance_guard`, `entrance.door_arrivals` (the 43 stock door-arrival points, read from the install's
+  field scripts); `terrain.reshape`/`morph_in_place` take `allow_entrances=`.
 
 ### Fixed — `world-transplant` checks every seam the carry or morph could tear
 - `world-transplant --in-place` moved only the parts it loads (terrain, beach and the sea layers). A vertex welded to
