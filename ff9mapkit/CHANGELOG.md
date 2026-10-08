@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the automatic disc-4 mirror no longer leaves a step where an edit crosses a cell disc 4 changed
+- Every world writer mirrors what it wrote into the `Disc4` tree, but cell by cell: a cell whose real ground differs
+  on disc 4 is skipped, and its neighbours were copied anyway. An edit across both left the edit on one side of
+  their border and stock ground on the other. Over 400 random multi-cell reshapes near such cells, 60 left a step on
+  disc 4 (35 of 1u or more, up to 3.9u).
+- The mirror now takes a group of adjacent written cells whole or not at all, and prints `NOT MIRRORED` when it holds
+  one back. `world-terrain` and `world-deploy` re-run the same reshape on disc 4's own ground instead of copying
+  (every gate runs again there) and name each cell where disc 4 differs. Over the same 400 edits: 0 steps; 399 were
+  re-run on disc 4, and 1 was refused by disc 4's own wall gate, which left disc 4 untouched.
+- The copy gate compares each real part as a triangle multiset, so the 10 land cells whose triangles disc 4 only
+  stores in another order are now copied (179 land cells refused, not 189).
+- The standalone `world-mirror` still gates cell by cell, and now names any refused cell that borders a copied one.
+  New: `discmirror.mirror(atomic=, replay=)`, `auto_mirror(replay=)`.
+
 ### Fixed — reshaping near an overworld entrance can no longer trap the player at the field exit
 - The world map sets the player down from a saved position record, height included: at a door arrival a field
   exit wrote (56 stock exits, 43 points) or on the entrance tile they walked onto. A hill raised there buried that

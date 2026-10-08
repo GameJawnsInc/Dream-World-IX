@@ -830,12 +830,22 @@ Every s34 lookup — override files, `Donor.txt` sidecars, the reclaim fallback 
 engine's `currentDisc`, so custom land deployed only under `Disc1/` VANISHES once the scenario (or
 the debug-menu disc switch) crosses the disc-4 threshold (SC ≥ 11090). `world-mirror --mod-folder M` closes
 the gap: it copies every Block override + sidecar into the `Disc4` tree, gated per cell (the
-destination's real cell must be open ocean, or byte-identical across discs — real cells that differ,
+destination's real cell must be open ocean, or the same mesh on both discs, compared as a triangle multiset so
+a cell that only holds its triangles in another order still passes — real cells that differ,
 e.g. (9,17), skip with a warning), and **pins** a sidecar cell's un-overridden donor-prefab
 free-ride parts (falls/rivers/objects) as explicit source-disc-byte overrides — several real donors
 (the Daguerreo blocks) genuinely differ between the trees. **This now runs AUTOMATICALLY** after every
 worldmap-override deploy verb, scoped to exactly the cell(s) that verb just wrote (`--skip-mirror` opts
 out); the standalone `world-mirror` command above remains for a manual whole-tree re-sync. Relaunch to apply.
+
+**The automatic mirror is edit-atomic (after 1.0.0b19; terrain study defects 7-9).** It used to gate each written
+cell alone, so an edit across a copyable cell and one whose disc-4 ground differs reached disc 4 on one side of
+their border only: a +4 hill left a 4.0u step there. Now a group of adjacent written cells is mirrored whole or not
+at all, and the verb says `NOT MIRRORED` when it holds one back. `world-terrain` and `world-deploy` go further: they
+re-run the same reshape on disc 4's own ground (its own seams, every gate) where it cannot be copied, and name each
+cell where disc 4 differs so it can be checked there. A replay the verb's gates refuse on disc 4 leaves disc 4
+untouched. The standalone `world-mirror` still gates cell by cell and names any refused cell that borders a copied
+one.
 
 ### `world-forest` + `world-hill` — interior topography on a deployed island
 

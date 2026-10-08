@@ -11,9 +11,12 @@ does not exist once the scenario (or the debug-menu disc switch) crosses the dis
 
 * every deployed ``Block[x][y] *.ff9mesh`` + ``Donor.txt`` under the source tree copies
   byte-verbatim into the destination tree, gated per cell -- the destination's REAL cell
-  must be open ocean (no real assets) or byte-identical to the source disc's (an
-  ``--in-place`` edit of a real block that DIFFERS across discs must not be transplanted
-  between them -- those cells skip with a warning);
+  must be open ocean (no real assets) or the same mesh as the source disc's, compared as a
+  triangle multiset (an ``--in-place`` edit of a real block that DIFFERS across discs must
+  not be transplanted between them -- those cells skip with a warning). The auto-run is
+  EDIT-ATOMIC: a cell is never copied while an adjacent cell of the same write is refused
+  (that left a step on disc 4), and a writer that hands in a ``replay`` gets its edit re-run
+  on disc 4's own ground instead (terrain study defects 7-9, O2);
 * THE FREE-RIDE PIN: a sidecar cell's un-overridden donor-prefab parts (falls, rivers,
   objects -- the parts that ride the prefab verbatim) would load the DESTINATION disc's
   variants, which can differ from the source disc's (the Daguerreo donors do). Every such
@@ -48,7 +51,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from . import extract as X
@@ -80,11 +83,71 @@ def _real_parts(disc: int, lod: str = "0_1", *, game=None) -> dict:
     return parts
 
 
+def _tri_multiset(bm) -> Counter:
+    """``bm``'s triangles as an ORDER-INVARIANT multiset: each triangle's three corner records (position, normal,
+    uv, tangent -- every channel a ``.ff9mesh`` carries) rotated to the smallest start, which keeps the winding,
+    plus the IDALL the engine reads (``tangent.x`` of the triangle's first buffer corner, ``WMBlock.cs:210``)."""
+    pos, nrm, uvs, tan = bm.verts, bm.normals or (), bm.uvs or (), bm.tangents or ()
+
+    def rec(i):
+        return (tuple(pos[i]), tuple(nrm[i]) if nrm else (), tuple(uvs[i]) if uvs else (),
+                tuple(tan[i]) if tan else ())
+    fi, out = bm.flat_index, Counter()
+    for t in range(len(fi) // 3):
+        a, b, c = fi[3 * t:3 * t + 3]
+        r = (rec(a), rec(b), rec(c))
+        out[(min(r, r[1:] + r[:1], r[2:] + r[:2]), int(round(tan[a][0])) if tan else None)] += 1
+    return out
+
+
 def _parts_identical(blk, part: str, src_disc: int, dst_disc: int, lod: str = "0_1", *, game=None) -> bool:
+    """Is the REAL ``part`` of ``blk`` the same mesh on both discs? Compared as a triangle MULTISET
+    (:func:`_tri_multiset`), not as ordered arrays (terrain study defect 9): 10 real land cells hold the same
+    triangles in a different buffer order on disc 4, and the ordered compare refused them. The ground the engine
+    finds differs only on exact shared edges, a set of measure zero (the study's G2: 0 of 163,840 jittered samples)."""
     a = X.read_block(blk[0], blk[1], disc=src_disc, lod=lod, part=part, game=game)
     b = X.read_block(blk[0], blk[1], disc=dst_disc, lod=lod, part=part, game=game)
-    return (a.vcount == b.vcount and a.verts == b.verts and a.flat_index == b.flat_index
-            and a.uvs == b.uvs and a.tangents == b.tangents and a.normals == b.normals)
+    return (a.vcount == b.vcount and len(a.flat_index) == len(b.flat_index)
+            and _tri_multiset(a) == _tri_multiset(b))
+
+
+def _cell_refusal(blk, real_src: dict, real_dst: dict, src_disc: int, dst_disc: int, lod: str, *, game=None):
+    """Why ``blk``'s deployed overrides may not be COPIED across discs, or ``None`` when they may: the
+    destination's real cell must be open ocean, or carry the same real parts as the source disc, each the same
+    mesh (an edit of real ground built from one disc's bytes does not fit the other's)."""
+    dst_real = real_dst.get(blk, set())
+    if not dst_real:
+        return None
+    src_real = real_src.get(blk, set())
+    if src_real != dst_real:
+        return f"real cell part sets differ across discs ({sorted(src_real)} vs {sorted(dst_real)})"
+    diff = [pt for pt in sorted(dst_real) if not _parts_identical(blk, pt, src_disc, dst_disc, lod, game=game)]
+    if diff:
+        return f"real cell differs across discs in {diff}"
+    return None
+
+
+def _neighbours(blk):
+    """The 4 neighbours of a block on the 24x20 torus."""
+    x, y = blk
+    gx, gy = M.GRID_COLS, M.GRID_ROWS
+    return {((x + 1) % gx, y), ((x - 1) % gx, y), (x, (y + 1) % gy), (x, (y - 1) % gy)}
+
+
+def _components(cells) -> list:
+    """``cells`` split into 4-connected groups (torus-aware): the units an edit can tear apart at a shared border."""
+    left, out = set(cells), []
+    while left:
+        seed = left.pop()
+        comp, todo = {seed}, [seed]
+        while todo:
+            for n in _neighbours(todo.pop()):
+                if n in left:
+                    left.discard(n)
+                    comp.add(n)
+                    todo.append(n)
+        out.append(comp)
+    return sorted(out, key=lambda c: min(c))
 
 
 def _cell_of(path: Path):
@@ -116,7 +179,8 @@ def _game_root_of(path: Path, mod_folder):
     return None
 
 
-def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc: int = 4, log=print):
+def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc: int = 4, replay=None,
+                log=print):
     """Automatic POST-STEP for every world-deploy writer: pass it ``written`` -- the list/iterable of
     return values of THIS call's own real :func:`~ff9mapkit.world.mesh.deploy_override` /
     :func:`~ff9mapkit.world.mesh.deploy_donor_sidecar` calls -- right after a verb finishes writing, to
@@ -140,7 +204,11 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
        source disc (a single writer call touches one disc in practice; a mixed set is handled by looping).
        Real writes that survived but sit under no ``mod_folder`` log one ``NOT RUN`` line and return.
     4. :func:`mirror` runs once per source-disc group, scoped to exactly that group's cells via its
-       ``cells=`` filter -- an unrelated write elsewhere in the tree is never touched. A ``ValueError`` out
+       ``cells=`` filter -- an unrelated write elsewhere in the tree is never touched -- and EDIT-ATOMIC
+       (``atomic=True``): a group of adjacent written cells reaches disc 4 whole or not at all (terrain study
+       defect 8). ``replay`` (``replay(dst_disc)``, the writer's own call re-run on the destination disc) edits
+       disc 4's own ground when a written cell cannot be copied; writers without one leave such an edit
+       un-mirrored and say so. A ``ValueError`` out
        of :func:`mirror` itself (e.g. the derived game root has no real StreamingAssets bundle data to
        compare cells against -- a bench tree, or a hermetic caller exercising just the writer) is logged
        as ``NOT RUN`` and swallowed per group: this is a best-effort POST-step, not a new hard requirement
@@ -229,7 +297,7 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
             continue
         try:
             out = mirror(mod_folder, src_disc=src_disc, dst_disc=dst_disc, lod=grp["lod"] or "0_1",
-                         game=game_root, cells=grp["cells"], log=log)
+                         game=game_root, cells=grp["cells"], atomic=True, replay=replay, log=log)
         except ValueError as e:
             # defensive -- mirror() re-validates the same tree (e.g. the derived game_root has no real
             # StreamingAssets bundle data: a bench tree) -- a best-effort post-step, not a new hard requirement
@@ -240,14 +308,27 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
 
 
 def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = "0_1",
-           game=None, dry_run: bool = False, cells: set | None = None, log=print) -> dict:
+           game=None, dry_run: bool = False, cells: set | None = None, atomic: bool = False,
+           replay=None, log=print) -> dict:
     """Mirror ``mod_folder``'s ``Disc{src}`` WorldMap overrides into ``Disc{dst}``. ``cells`` (a
     ``{(x, y), ...}`` set, default ``None``) restricts the mirror to exactly those cells -- the scoping
     :func:`auto_mirror` uses so a write to one cell can never re-mirror (and potentially clobber a
     hand-diverged Disc4 variant of) an unrelated cell elsewhere in the same tree. ``None`` mirrors every
     deployed cell under the source tree -- the standalone ``world-mirror`` CLI verb's always-runs,
-    whole-tree behavior, unchanged.
-    Returns ``{"mirrored": [paths], "pinned": [paths], "skipped": [(cell, why)]}``."""
+    whole-tree behavior.
+
+    THE EDIT-ATOMIC MIRROR (terrain study defect 8). A cell whose real ground differs across discs is never
+    copied (:func:`_cell_refusal`). Copying its NEIGHBOURS anyway cracked disc 4: a +4 hill across an eligible
+    and a refused cell left a 4.0u step at their border (study G3; 7.5% of random multi-cell reshapes).
+    ``atomic=True`` (what :func:`auto_mirror` passes) holds back every cell 4-connected to a refused one within the
+    scope, so a group of written cells reaches disc 4 whole or not at all. Then, when the writer handed in a
+    ``replay`` (``replay(dst_disc)`` = the same edit run again on the destination disc's own stock, through the
+    verb's own gates), nothing is copied: the replay edits disc 4's ground itself (a copy of an identical cell and
+    its replay are byte-equal, study K1/K2 71/71). A replay that refuses (``ValueError``) leaves disc 4 untouched.
+    Without ``atomic`` (the standalone verb) each cell is gated alone, as before, and a refused cell next to a
+    copied one is named, since disc 4 may show a step along their border.
+    Returns ``{"mirrored": [paths], "pinned": [paths], "skipped": [(cell, why)], "held": [cells], "replay":
+    None | {"cells", "differs"} | {"refused"}}``."""
     from .. import config
     gp = Path(config.find_game_path(game))
     src_root = gp / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{src_disc}" / lod
@@ -269,24 +350,46 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
     real_src = _real_parts(src_disc, lod, game=game)
     real_dst = _real_parts(dst_disc, lod, game=game)
 
-    out = {"mirrored": [], "pinned": [], "skipped": []}
+    out = {"mirrored": [], "pinned": [], "skipped": [], "held": [], "replay": None}
+    verdict = {blk: _cell_refusal(blk, real_src, real_dst, src_disc, dst_disc, lod, game=game) for blk in by_cell}
+    refused = {blk: why for blk, why in verdict.items() if why}
+    held = {}                                                 # blk -> the refused cells its group carries
+    if atomic:
+        for comp in _components(by_cell):
+            bad = sorted(c for c in comp if c in refused)
+            if bad:
+                held.update({c: bad for c in comp if c not in refused})
+    # ---- THE REPLAY: the edit run again on the destination disc's own ground ----------------
+    if atomic and replay is not None and refused:
+        out["skipped"] = sorted(refused.items())
+        log(f"  disc {dst_disc} differs from disc {src_disc} at {sorted(refused)} -- REPLAYING the edit on "
+            f"Disc{dst_disc}'s own ground instead of copying it")
+        if dry_run:
+            out["replay"] = {"cells": sorted(by_cell), "differs": dict(sorted(refused.items())), "dry_run": True}
+            return out
+        try:
+            replay(dst_disc)
+        except ValueError as e:
+            out["replay"] = {"refused": str(e)}
+            log(f"  !! NOT MIRRORED: the replay on Disc{dst_disc} refused ({str(e).splitlines()[0][:200]}) -- "
+                f"disc {dst_disc} keeps its own ground there, without this edit")
+            return out
+        out["replay"] = {"cells": sorted(by_cell), "differs": dict(sorted(refused.items()))}
+        for blk, why in sorted(refused.items()):
+            log(f"  REPLAYED {blk} on Disc{dst_disc} ({why}): disc {dst_disc}'s own ground there was edited -- "
+                f"check it on disc {dst_disc} in game (ridges, objects and entrances differ there)")
+        return out
     for blk in sorted(by_cell):
         files = by_cell[blk]
-        # ---- the per-cell gate ----------------------------------------------------------
-        dst_real = real_dst.get(blk, set())
-        if dst_real:
-            src_real = real_src.get(blk, set())
-            if src_real != dst_real:
-                out["skipped"].append((blk, f"real cell part sets differ across discs "
-                                            f"({sorted(src_real)} vs {sorted(dst_real)})"))
-                log(f"  SKIP {blk}: real part sets differ across discs")
-                continue
-            diff = [pt for pt in sorted(dst_real)
-                    if not _parts_identical(blk, pt, src_disc, dst_disc, lod, game=game)]
-            if diff:
-                out["skipped"].append((blk, f"real cell differs across discs in {diff}"))
-                log(f"  SKIP {blk}: real cell differs across discs in {diff}")
-                continue
+        # ---- the per-cell gate (+ the atomic hold) ---------------------------------------
+        if blk in refused:
+            out["skipped"].append((blk, refused[blk]))
+            log(f"  SKIP {blk}: {refused[blk]}")
+            continue
+        if blk in held:
+            out["held"].append(blk)
+            out["skipped"].append((blk, f"held back: its edit spans refused cell(s) {held[blk]}"))
+            continue
         # ---- copy the deployed files ----------------------------------------------------
         for name, p in sorted(files.items()):
             dst = dst_root / f"r{blk[1]}" / name
@@ -335,6 +438,16 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
             out["pinned"].append(dst)
             log(f"  PIN {blk} <- donor ({dx},{dy}) {part_name} "
                 f"({len(bm.tris)} tris, source-disc bytes)")
+    if out["held"]:
+        log(f"  !! NOT MIRRORED: {sorted(out['held'])} -- their edit also covers {sorted({c for blk in out['held'] for c in held[blk]})}, "
+            f"which differ(s) on disc {dst_disc}; copying the rest would leave a step at the shared border. Disc "
+            f"{dst_disc} keeps its own ground there; re-run the edit with --disc {dst_disc} to edit it on purpose")
+    if not atomic:
+        copied = {blk for blk in by_cell if blk not in refused}
+        risk = sorted((a, b) for b in refused for a in _neighbours(b) if a in copied)
+        if risk:
+            log(f"  !! WARNING: a refused cell borders a mirrored one at {risk[:8]}{' ...' if len(risk) > 8 else ''}: "
+                f"if one edit covers both, disc {dst_disc} shows a step along that border")
     log(f"mirrored {len(out['mirrored'])} file(s), pinned {len(out['pinned'])} free-ride "
         f"part(s), skipped {len(out['skipped'])} cell(s) -> Disc{dst_disc}")
     return out

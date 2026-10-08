@@ -292,7 +292,19 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
             "reshaped, so a cross-seam edit leaves a step at x=0/1536 or z=0/-1280.")
     if not dry_run and summary["blocks"]:
         from . import discmirror as DM
-        DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
+        replay = None
+        if rtarget == disc:
+            # THE REPLAY (terrain study O2): where disc 4's real ground differs, the mirror re-runs this same
+            # reshape on disc 4 -- its own stock or deployed override, its own seams, every gate -- instead of copying
+            # disc-1 bytes there; a flatten keeps the height this run chose
+            flat_h = height if height is not None else summary.get("flatten_height")
+
+            def replay(d):
+                return reshape(mod_folder, radius=radius, at=at, seg=seg, amount=amount, flatten=flatten,
+                               height=flat_h, disc=d, falloff=falloff, game=game, skip_mirror=True,
+                               allow_steep=allow_steep, fresh=fresh, allow_overwrite=allow_overwrite,
+                               seam_taper=seam_taper, allow_entrances=allow_entrances)
+        summary["mirror"] = DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror, replay=replay)
     return summary
 
 

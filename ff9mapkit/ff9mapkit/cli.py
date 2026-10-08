@@ -4300,7 +4300,16 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
             written.append((bm.x, bm.y, op, dest))
         if written:
             from .world import discmirror as DM
-            DM.auto_mirror([w[3] for w in written], mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
+            replay = None
+            if reshape:
+                # THE REPLAY (terrain study O2): where disc 4's real ground differs, re-run this reshape there
+                # (same centre, radius and op; a flatten keeps this run's height) instead of copying disc-1 bytes
+                def replay(d):
+                    ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": True, "height": height})
+                    if _cmd_world_deploy(ns) != 0:
+                        raise ValueError(f"world-deploy --disc {d} refused the same reshape (see above)")
+            DM.auto_mirror([w[3] for w in written], mod_folder=args.mod_folder, skip_mirror=args.skip_mirror,
+                           replay=replay)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
