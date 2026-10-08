@@ -293,10 +293,7 @@ def deploy_donor_sidecar(donor_x: int, donor_y: int, *, mod_folder: str, disc: i
                     f"{(last or {}).get('utc')} argv={(last or {}).get('argv')}). "
                     "Pass force_overwrite=True / set FF9_WORLD_FORCE_OVERWRITE to proceed.")
             if backup:
-                import shutil
-                from datetime import datetime
-                ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-                shutil.copyfile(dest, dest.with_name(dest.name + f".bak-{ts}"))
+                park_backup(dest)
     dest.write_bytes(payload)
     record_ledger_write(dest, cell=(x, y), part="Donor", write_disc=disc)
     return dest
@@ -408,6 +405,134 @@ def entrance_tags(bm) -> set:
         cz = sum(verts[i][2] for i in t) / 3.0 + oz
         out.add((int(cx // 32), int(-cz // 32), ev))
     return out
+
+
+def bm_tiles(bm, pre, post=None) -> list:
+    """``bm``'s tris as :func:`entrance_guard` rows ``[(idall, pre_pts, post_pts)]``: ``pre``/``post`` are its WORLD
+    vertex positions before and after an edit (:func:`world_positions`; ``post`` defaults to ``pre``, an unchanged
+    block); IDALLs from its tangents."""
+    tan = getattr(bm, "tangents", None)
+    post = pre if post is None else post
+    return [(int(round(tan[t[0]][0])) if tan else 0, tuple(pre[i] for i in t), tuple(post[i] for i in t))
+            for t in bm.tris]
+
+
+def soup_tiles(pre, post=None) -> list:
+    """WORLD tri soups (``transplant.world_tris``: vertices ``(pos, normal, uv, tangent)``) as :func:`entrance_guard`
+    rows, ``post`` index-aligned with ``pre`` (``None`` = unchanged; a ``None`` entry = a tri the edit dropped or
+    re-cut)."""
+    post = pre if post is None else post
+    return [(int(round(a[0][3][0])), tuple(v[0] for v in a), None if b is None else tuple(v[0] for v in b))
+            for a, b in zip(pre, post)]
+
+
+#: the reach (XZ, u) of a landing: two 4u lattice steps. The ground under a point is set by the corners of its 4u cell
+#: (up to 5.66u away), and a field exit sets the player down on the tile they walked onto or at a door arrival (37 of
+#: 41 stock arrivals lie within 4u of a tile, median 1.7u: terrain study ``door_arrivals.py``)
+ENTRANCE_CLEARANCE = 8.0
+#: the most ground may rise under a landing and still be found: the walk ray starts 2.34375u above the player
+#: (``placement.WALK_RAY_START``), and on canopy (topographs 36-38) the player stands 1.171875u sunk
+ENTRANCE_RISE = 1.171875
+
+
+def entrance_guard(blocks, *, arrivals=(), clearance: float = ENTRANCE_CLEARANCE, rise: float = ENTRANCE_RISE,
+                   allow: bool = False) -> list:
+    """THE ENTRANCE GUARD (terrain study defect 6; one rule for world-terrain, world-deploy and the in-place morph).
+    In game a hill at Dali soft-locked the player (commit 3e388d0d). The world sets the player down where the save's
+    position record points -- the entrance tile they walked onto, or a stock door arrival a field exit wrote
+    (:func:`ff9mapkit.world.entrance.door_arrivals`) -- at the height stored there. Under ground raised past the
+    walk ray's start the player is frozen in every direction; lowered ground just drops them. So an edit may not
+    RAISE ground by more than ``rise`` within ``clearance`` of an entrance tile or a door arrival (a raised tile is
+    its own nearest point), nor drop or re-cut an entrance tile (its trigger would be gone). A tile lowered, or raised
+    less than that, still fires and still lands the player: reported (``tiles_moved``), not refused.
+
+    ``blocks`` = ``[(cell, tris)]``: every block the edit read, its tris as :func:`bm_tiles` / :func:`soup_tiles`
+    rows ``(idall, pre_pts, post_pts)`` (``post_pts`` None = dropped or re-cut; a block left alone still lends its
+    tiles); ``arrivals`` = door-arrival ``(x, z)``. Geometry the edit only ADDS is not judged here. Raises the refusal
+    unless ``allow``; returns the hits ``[{"block", "areas", "tiles_dropped", "tiles_moved", "max_rise", "nearest",
+    "door_arrival"}]`` per block (refused or reported): the tiles dropped and moved, the highest rise past ``rise``
+    within reach, its distance to the tile or arrival, and which."""
+    from .extract import decode_id
+
+    def _ent(i):
+        return i not in WALK_SKIP_IDS and decode_id(i)["event"]
+
+    C = float(clearance)
+    grid = {}                                                    # (gx, gz) -> [(x, z, area or None)]
+    for _cell, tris in blocks:
+        for i, pre, _post in tris:
+            if _ent(i):
+                for p in pre:
+                    grid.setdefault((math.floor(p[0] / C), math.floor(p[2] / C)), []).append(
+                        (p[0], p[2], decode_id(i)["area"]))
+    for (x, z) in arrivals:
+        grid.setdefault((math.floor(x / C), math.floor(z / C)), []).append((x, z, None))
+    if not grid:
+        return []
+    hits = []
+    for cell, tris in blocks:
+        tiles_dropped = sum(1 for i, _pre, post in tris if _ent(i) and post is None)
+        tiles_moved = sum(1 for i, pre, post in tris if _ent(i) and post is not None and post != pre)
+        top, areas = None, set()                                 # (rise, distance, near point area-or-None)
+        for _i, pre, post in tris:
+            if post is None or post == pre:
+                continue
+            for a, b in zip(pre, post):
+                up = b[1] - a[1]
+                if up <= rise:
+                    continue
+                gx, gz = math.floor(a[0] / C), math.floor(a[2] / C)
+                for dx in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        for (x, z, area) in grid.get((gx + dx, gz + dz), ()):
+                            d = math.hypot(a[0] - x, a[2] - z)
+                            if d > C:
+                                continue
+                            if area is not None:
+                                areas.add(area)
+                            if top is None or (up, -d) > (top[0], -top[1]):
+                                top = (up, d, area)
+        if tiles_dropped or tiles_moved or top is not None:
+            hits.append({"block": [int(cell[0]), int(cell[1])], "areas": sorted(areas),
+                         "tiles_dropped": tiles_dropped, "tiles_moved": tiles_moved,
+                         "max_rise": None if top is None else round(top[0], 3),
+                         "nearest": None if top is None else round(top[1], 1),
+                         "door_arrival": top is not None and top[2] is None,
+                         "refused": bool(tiles_dropped or top is not None)})
+    bad = [h for h in hits if h["refused"]]
+    if bad and not allow:
+        rows = "; ".join(f"[{h['block'][0]}][{h['block'][1]}] " + ", ".join(
+            ([f"{h['tiles_dropped']} entrance tile(s) dropped"] if h["tiles_dropped"] else [])
+            + ([f"ground raised {h['max_rise']:g}u {h['nearest']:g}u from "
+                f"{'a door arrival' if h['door_arrival'] else 'an entrance tile'}"] if h["max_rise"] else []))
+            + (f" (area(s) {h['areas']})" if h["areas"] else "") for h in bad)
+        raise ValueError(
+            f"REFUSED: this edit raises the ground where a field exit sets the player down (more than {rise:.2f}u "
+            f"within {C:g}u of a place-ENTRANCE) or drops an entrance tile -- {rows}. The player lands at the old "
+            f"height, under the new ground: in game at Dali, frozen in every direction. Lowering there is fine (the "
+            f"player drops). Move the edit off it (another centre, a smaller radius, less height), or pass "
+            f"allow_entrances / --allow-entrances. Nothing was written.")
+    return hits
+
+
+def park_backup(dest) -> Path:
+    """Copy ``dest`` aside as ``<name>.bak-<YYYYmmdd-HHMMSS>`` before an overwrite, adding ``-2``, ``-3``, ... when that
+    name is taken (terrain study defect 12: two writes in one wall-clock second shared a name, and the second park
+    overwrote the first, losing its bytes 5/5 times). Created exclusively, so a concurrent session cannot clobber it
+    either. The suffix stays invisible to the disc mirror's block regex and :func:`existing_overrides`."""
+    from datetime import datetime
+    dest = Path(dest)
+    data = dest.read_bytes()
+    base = dest.name + ".bak-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    n = 1
+    while True:
+        cand = dest.with_name(base if n == 1 else f"{base}-{n}")
+        try:
+            with open(cand, "xb") as fh:
+                fh.write(data)
+            return cand
+        except FileExistsError:
+            n += 1
 
 
 def fresh_reset_gate(blocks, mod_folder: str, *, disc: int, lod: str = "0_1", game=None, parts=("Terrain",),
@@ -588,10 +713,7 @@ def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: s
                     f"{(last or {}).get('utc')} argv={(last or {}).get('argv')}). "
                     "Pass force_overwrite=True / set FF9_WORLD_FORCE_OVERWRITE to proceed.")
             if backup:
-                import shutil
-                from datetime import datetime
-                ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-                shutil.copyfile(dest, dest.with_name(dest.name + f".bak-{ts}"))
+                park_backup(dest)
     out = write_ff9mesh(bm, dest)
     _append_ledger(mod_root, out, bm, part, wdisc)
     return out
@@ -1496,7 +1618,7 @@ def stitch_pins(partners, terrain=(), *, taper: float = 0.0) -> StitchPins:
     return StitchPins(keys, taper)
 
 
-def stitch_gate(meshes, *, tol: float = STITCH_TOL) -> dict:
+def stitch_gate(meshes, *, tol: float = STITCH_TOL, rewelded=None) -> dict:
     """THE STITCH GATE (terrain study defect 5; the stitch lane's change 4). ``meshes`` = ``[(name, pre, post)]``, one
     row per mesh around an edit, each a list of WORLD vertex positions, ``post`` index-aligned with ``pre`` (an
     unchanged mesh passes the same list twice). Every ``pre`` position held by two or more vertices is a WELD -- stock
@@ -1504,14 +1626,20 @@ def stitch_gate(meshes, *, tol: float = STITCH_TOL) -> dict:
     A weld whose ``post`` instances spread more than ``tol`` is TORN: an open slit, and a one-way wall where the
     split passes the climb ceiling. ``kit.mesh.weld_audit`` cannot see this (it flags only 0 < d < 0.05u).
 
-    Returns ``{"welds", "torn", "max_sep", "by_mesh": {name: n}, "sample": [...]}``."""
+    ``rewelded`` = the :func:`world_key` positions of geometry the edit ADDED (a growth cut's filler column): a weld
+    it split on purpose is closed again when every separated instance lands on one of them, and is counted as
+    ``rewelded``, not torn (the fill's own seams are the T-junction and census gates' to judge).
+
+    Returns ``{"welds", "torn", "rewelded", "max_sep", "by_mesh": {name: n}, "sample": [...]}``."""
     from collections import Counter
+
+    def _k(p):
+        return (round(p[0], STITCH_DECIMALS), round(p[1], STITCH_DECIMALS), round(p[2], STITCH_DECIMALS))
     cl = {}
     for mi, (_name, pre, _post) in enumerate(meshes):
         for vi, p in enumerate(pre):
-            cl.setdefault((round(p[0], STITCH_DECIMALS), round(p[1], STITCH_DECIMALS),
-                           round(p[2], STITCH_DECIMALS)), []).append((mi, vi))
-    welds, torn, max_sep, by_mesh = 0, [], 0.0, Counter()
+            cl.setdefault(_k(p), []).append((mi, vi))
+    welds, torn, rew, max_sep, by_mesh = 0, [], 0, 0.0, Counter()
     for key, inst in cl.items():
         if len(inst) < 2:                        # (an unindexed mesh repeats its own shared verts: those count too)
             continue
@@ -1520,12 +1648,15 @@ def stitch_gate(meshes, *, tol: float = STITCH_TOL) -> dict:
         pts = [meshes[mi][2][vi] for mi, vi in inst]
         sep = max(max(p[k] for p in pts) - min(p[k] for p in pts) for k in range(3))
         if sep > tol:
+            if rewelded and all(_k(p) in rewelded for p in pts):
+                rew += 1
+                continue
             names = sorted({meshes[mi][0] for mi in owners})
             torn.append({"at": list(key), "sep": round(sep, 4), "meshes": names})
             by_mesh.update(names)
             max_sep = max(max_sep, sep)
-    return {"welds": welds, "torn": len(torn), "max_sep": round(max_sep, 4), "by_mesh": dict(by_mesh),
-            "sample": torn[:8]}
+    return {"welds": welds, "torn": len(torn), "rewelded": rew, "max_sep": round(max_sep, 4),
+            "by_mesh": dict(by_mesh), "sample": torn[:8]}
 
 
 def world_positions(bm, world_origin) -> list:

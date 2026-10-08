@@ -96,9 +96,27 @@ def test_reshape_real_block_moves_verts(monkeypatch):
     from pathlib import Path
     written = []
     monkeypatch.setattr(M, "deploy_override", lambda ter, **k: written.append(1) or Path("x"))
-    s = T.reshape("FF9CustomMap", at=(1054.0, -951.0), radius=16.0, amount=6.0)
+    mod = "FF9CustomMap-absent-test-folder"      # the read stacks on a mod folder's overrides: name one that has none
+    s = T.reshape(mod, at=(1054.0, -951.0), radius=16.0, amount=6.0, allow_entrances=True, skip_mirror=True)
     assert any(b["block"] == [16, 14] for b in s["blocks"])       # the real Alexandria-area block reshapes
     assert sum(b["moved"] for b in s["blocks"]) > 100 and written
+    assert all(h["tiles_moved"] or h["nearest"] <= M.ENTRANCE_CLEARANCE for h in s["entrances"])
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_entrance_guard_reads_the_stock_door_arrivals(monkeypatch):
+    """THE ENTRANCE GUARD's door arrivals come from the install's own field scripts: 56 stock exits write the world
+    position record (43 points; terrain study ``door_arrivals.py``). A hill on Dali's arrival refuses."""
+    from pathlib import Path
+    from ff9mapkit.world import entrance as EN
+    arr = EN.door_arrivals()
+    assert len(arr) == 43 and (1102.855, -812.359) in arr        # Dali's exit (EVT_DALI_A_AP_FID_0)
+    written = []
+    monkeypatch.setattr(M, "deploy_override", lambda ter, **k: written.append(1) or Path("x"))
+    with pytest.raises(ValueError, match="place-ENTRANCE"):
+        T.reshape("FF9CustomMap-absent-test-folder", at=(1102.855, -812.359), radius=8.0, amount=3.0,
+                  skip_mirror=True)
+    assert not written
 
 
 # ---- THE ONE-WAY WALL GATE (audit rec 9 step 4, recalibrated) -------------------------------------------------------

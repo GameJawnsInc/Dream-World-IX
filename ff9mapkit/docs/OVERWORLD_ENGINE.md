@@ -517,7 +517,21 @@ level and Objects stay rigid. The land fades in over `--seam-taper` units from t
 step; 0 is a hard hold, which can leave a near-vertical lip). A **stitch gate** checks every weld before the first
 write and refuses on any tear (`mesh.stitch_gate`; the old `weld_audit` only sees splits under 0.05u). The verbs print
 how many vertices they held. A flatten with no `--height` now uses one mean across all its blocks; per-block means
-pulled shared borders apart.
+pulled shared borders apart. `world-transplant` runs the same gate (defects 10-11): an `--in-place` morph checks every
+weld on the cell, including the parts it does not load (Object, river, falls, volcano, Beach2, Sea6), which it never
+moves; a carry checks every donor weld through its tweaks, rotation and shift, against the parts the donor's prefab
+still renders where they are. A growth cut splits the welds on its line on purpose; its filler column re-welds them.
+
+**Entrances are guarded (after 1.0.0b19; terrain study defect 6).** The world map sets the player down from a
+persisted position record (`MoveInstantXZY(Global.Int24[64], Int16[67], Int24[69])` in every free-roam dispatcher's
+player Init): either a constant a field exit wrote (56 stock exits, 43 door arrivals) or wherever the player stood when
+they walked onto the entrance tile. The height is stored too, so ground raised more than the walk ray's start above
+it traps the player: a hill at Dali froze them in every direction. `world-terrain`, `world-deploy` and
+`world-transplant --in-place` now refuse an edit that raises ground more than 1.17u (the canopy step) within 8u of an
+entrance tile or a door arrival (`entrance.door_arrivals`, read from the install's field scripts), or that drops an
+entrance tile; `--allow-entrances` overrides. Lowering there is fine: the player drops. A tile moved within those
+limits still fires and is reported, not refused. `world-deploy` used to refuse any reshape of a block that carries
+entrance tiles at all (half of all r16 edits); a +3 r16 hill now refuses 12.7% of the time, and a +1 hill never.
 
 ## `world-reclaim` — reclaim ocean cells as walkable land
 

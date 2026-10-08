@@ -4092,6 +4092,28 @@ def _print_stitch(summary: dict) -> None:
               f"an open slit, and a one-way wall above ~2.34u")
 
 
+_ALLOW_ENTRANCES_HELP = ("raise ground more than 1.17u within 8u of a walk-on entrance tile or a stock door arrival, or "
+                         "drop an entrance tile, anyway. Refused by default: a field exit sets the player down there at "
+                         "the old height, under the new ground (in game a hill at Dali froze the player). Lowering is "
+                         "fine")
+
+
+def _print_entrances(summary: dict) -> None:
+    """THE ENTRANCE GUARD's receipt (terrain study defect 6): entrances an edit moved tiles of, or (allowed) raised
+    the landing ground at."""
+    for h in summary.get("entrances") or ():
+        where = f"block [{h['block'][0]}][{h['block'][1]}]"
+        if not h["refused"]:
+            print(f"  note: moved {h['tiles_moved']} entrance tile(s) in {where} -- lowered or raised under 1.17u, "
+                  f"so the trigger still fires and a field exit still lands on the ground")
+            continue
+        what = ([f"{h['tiles_dropped']} entrance tile(s) dropped"] if h["tiles_dropped"] else []) + (
+            [f"ground raised {h['max_rise']:g}u {h['nearest']:g}u from "
+             f"{'a door arrival' if h['door_arrival'] else 'an entrance tile'}"] if h["max_rise"] else [])
+        print(f"  !! WARNING: {'; '.join(what)} in {where} -- --allow-entrances. Leave that entrance's field once "
+              f"in game to check the player lands on the ground.")
+
+
 def _add_fresh_args(p, what: str, *, overwrite_flag: str = "--allow-overwrite") -> None:
     """``--fresh`` (+ ``--allow-overwrite``) for an in-place world writer that stacks on deployed overrides. A verb
     that already has its own overwrite waiver names it in ``overwrite_flag`` and gets no second one."""
@@ -4198,8 +4220,8 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         else:
             targets = explicit
 
-        # read all targets first, so the entrance-safety refusal below never leaves a partial deploy. STACKED on the
-        # deployed override (defect 3: a pristine read erased every earlier edit); --fresh = stock, gated
+        # read all targets first, so no refusal below ever leaves a partial deploy. STACKED on the deployed override
+        # (defect 3: a pristine read erased every earlier edit); --fresh = stock, gated
         from .world import entrance as EN
         stack = {"stacked_on": []}
         if args.fresh:
@@ -4211,22 +4233,6 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
                                                                 lod=args.lod, game=args.game)) is not None]
         bms = [EN.read_block_stacked(args.mod_folder, x, y, disc=args.disc, lod=args.lod, game=args.game,
                                      fresh=args.fresh) for (x, y) in targets]
-
-        # SAFETY: a reshape that raises/lowers a place-ENTRANCE block softlocks the player -- the spawn/field-exit
-        # drops the actor at the tile's STALE pre-raise Y, below the new surface, and foot movement raycasts DOWN
-        # so it never reaches the raised tiles -- AND sinks the entrance prop model into a pit. Refuse unless forced.
-        if reshape and not args.allow_entrances:
-            ent = [(bm.x, bm.y, sorted({W.decode_id(i)["area"] for i in W.block_mapids(bm) if W.decode_id(i)["event"]}))
-                   for bm in bms]
-            ent = [(x, y, a) for (x, y, a) in ent if a]
-            if ent:
-                print("REFUSED: this reshape touches place-ENTRANCE block(s) -- raising/lowering them softlocks the "
-                      "player (embed) and sinks the entrance prop into a pit:", file=sys.stderr)
-                for (x, y, a) in ent:
-                    print(f"  [{x}][{y}] entrance area(s) {a}", file=sys.stderr)
-                print("  move the edit off them (adjust --center / smaller --radius), or pass --allow-entrances to "
-                      "override.", file=sys.stderr)
-                return 2
 
         # THE STITCH PINS (defect 5): every Terrain vertex shared with another part, in range, stays put; the
         # stitch gate checks every weld before the first write (reshape: refuse; the [diag] lift/spike: warn)
@@ -4243,7 +4249,7 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         if args.flatten and height is None:                    # ONE target for every block, or their border tears
             height = M.mean_height([(bm, W.block_world_origin(bm.x, bm.y)) for bm in bms], center=(cx, cz),
                                    radius=args.radius)
-        stats, ops, rows = {}, [], []
+        stats, ops, rows, tiles = {}, [], [], []
         for bm in bms:
             x, y = bm.x, bm.y
             ox, oz = W.block_world_origin(x, y)
@@ -4267,7 +4273,19 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
             if reshape and not args.no_normals:
                 M.recompute_normals(bm)
             rows.append((bm.name, pre, M.world_positions(bm, (ox, oz))))
+            if reshape:
+                tiles.append(((x, y), M.bm_tiles(bm, pre, rows[-1][2])))
             ops.append((bm, op))
+        # THE ENTRANCE GUARD (defect 6, shared with world-terrain and the in-place morph): a reshape that raises ground
+        # where a field exit sets the player down refuses -- in game a hill at Dali soft-locked the player there
+        if reshape:
+            from .world.entrance import door_arrivals
+            C = M.ENTRANCE_CLEARANCE
+            tiles += TER.entrance_context((cx - args.radius - C, cx + args.radius + C, cz - args.radius - C,
+                                           cz + args.radius + C), {t[0] for t in tiles}, args.mod_folder,
+                                          disc=args.disc, lod=args.lod, game=args.game, fresh=args.fresh)
+            stack["entrances"] = M.entrance_guard(tiles, arrivals=door_arrivals(args.game),
+                                                  allow=args.allow_entrances)
         gate = M.stitch_gate(rows + [(n, pos, pos) for n, pos in
                                      ((n, M.world_positions(pb, o)) for n, pb, o in partners)])
         if gate["torn"] and reshape:
@@ -4290,6 +4308,7 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
     print(f"deployed {len(written)} block override(s) into {args.mod_folder}")
     _print_stack_notes(stack)
     _print_stitch(stack)
+    _print_entrances(stack)
     if reshape:
         kind = "flatten" if args.flatten else ("hill" if hill_amt > 0 else "crater")
         print(f"  {kind}: centre world ({cx:.0f},{cz:.0f}) radius {args.radius:g} falloff {args.falloff}"
@@ -4584,7 +4603,8 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
                             flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
                             game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror,
                             target_disc=args.target_disc, allow_steep=args.allow_steep, fresh=args.fresh,
-                            allow_overwrite=args.allow_overwrite, seam_taper=args.seam_taper)
+                            allow_overwrite=args.allow_overwrite, seam_taper=args.seam_taper,
+                            allow_entrances=args.allow_entrances)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4592,6 +4612,7 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
     print(f"{verb} terrain ({summary['op']}, radius {summary['radius']}) across {len(summary['blocks'])} block(s):")
     _print_stack_notes(summary)
     _print_stitch(summary)
+    _print_entrances(summary)
     for b in summary["blocks"]:
         walk = summary.get("walkability", {}).get(str(b["block"]))
         note = ""
@@ -4928,7 +4949,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             summary = TR.morph_in_place(args.mod_folder, cell=(bx, by), tweaks=list(tweaks),
                                         disc=args.disc, game=args.game,
                                         dry_run=args.dry_run, skip_mirror=args.skip_mirror,
-                                        fresh=args.fresh, allow_overwrite=args.allow_mod_overwrite)
+                                        fresh=args.fresh, allow_overwrite=args.allow_mod_overwrite,
+                                        allow_entrances=getattr(args, "allow_entrances", False))
         else:
             kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                       tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
@@ -9126,9 +9148,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="reshape falloff shape (default smooth = creaseless smoothstep dome)")
     wd.add_argument("--no-normals", action="store_true",
                     help="skip the smooth-normal recompute after a reshape (leaves stale shading)")
-    wd.add_argument("--allow-entrances", action="store_true",
-                    help="override the safety refusal when a reshape touches a place-entrance block "
-                         "(raising/lowering those softlocks the player + pits the entrance prop)")
+    wd.add_argument("--allow-entrances", action="store_true", help=_ALLOW_ENTRANCES_HELP)
     # diagnostics (single-vertex / whole-block, no auto-expand -- the override-mechanism proofs)
     wd.add_argument("--spike", type=float, default=0.0,
                     help="[diag] raise the centre vertex by N units (tears on the unindexed mesh; a hook test)")
@@ -9308,6 +9328,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="every Terrain vertex shared with another part (sea, beach, river, Object) is HELD, so "
                           "the edit cannot tear a seam; the land fades in over this many units from those seams "
                           "(default 4, one lattice step; 0 = a hard hold, which can leave a near-vertical lip)")
+    wtr.add_argument("--allow-entrances", action="store_true", help=_ALLOW_ENTRANCES_HELP)
     _add_fresh_args(wtr, "reshape")
     wtr.set_defaults(func=_cmd_world_terrain)
 
@@ -9630,6 +9651,8 @@ def build_parser() -> argparse.ArgumentParser:
                           "the deployed files. Each part stacks on its deployed override if the cell "
                           "has one (--fresh: from stock).")
     _add_fresh_args(wtp, "--in-place morph", overwrite_flag="--allow-mod-overwrite")
+    wtp.add_argument("--allow-entrances", action="store_true",
+                     help="with --in-place: " + _ALLOW_ENTRANCES_HELP)
     wtp.add_argument("--beach-rebuild", default=None, metavar="X0,Z0:X1,Z1",
                      help="STRUCTURAL beach, identity mode (in-game proven ~indistinguishable): drop the "
                           "window's shore ladder (foam run tiles / sea2 wash / sea1 Wang ring) and re-derive "
