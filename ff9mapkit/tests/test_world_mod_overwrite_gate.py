@@ -130,7 +130,8 @@ def test_reclaim_allow_overwrite_waives_the_gate(tmp_path, monkeypatch, wrote):
     _reclaim_offline(monkeypatch)
     _deployed(tmp_path)
     s = T.reclaim(MOD, cells=[(3, 1)], profile="flat", game=tmp_path, allow_overwrite=True, skip_mirror=True)
-    assert len(s["cells"]) == 1 and wrote == [(3, 1, "Terrain")]
+    assert len(s["cells"]) == 1
+    assert wrote == [(3, 1, "Terrain")] + [(3, 1, p) for p in T.LAND_DONOR_WATER]   # + the defect-18 blanks
 
 
 def test_reclaim_refuses_the_whole_run_not_the_occupied_cell(tmp_path, monkeypatch, wrote):

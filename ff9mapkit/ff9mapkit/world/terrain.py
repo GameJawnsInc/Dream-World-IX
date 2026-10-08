@@ -314,6 +314,33 @@ def _apply_cliff_rock_uvs(bm, *, density: float = 0.0125, outline=None):
     return bm
 
 
+# THE RECLAIM FALLBACK DONOR (terrain study C7, defect 18). A reclaim writes no Donor.txt, so the s34 divert loads
+# LandDonorPrefab = Block[12][10] of the current disc (WMWorld.cs:1210-1211; on a Path D disc the real asset disc,
+# s74). That prefab is NOT plain land: it is an open-ocean ISLET whose Sea1/3/4/5 cover 97.3% of the cell
+# (studies/terrain-malleability/consumption/landdonor_water.py). An un-overridden prefab child FREE-RIDES, so that
+# water registered as walkmesh under the new land, and a boat sailed UNDER a 6u reclaimed slab (in-game,
+# ingame/RESULTS.md section 9). Every reclaim profile fills the whole cell at or above the waterline, so the cell's
+# correct sea is NONE (THE SEA4-UNDER-LAND LAW) and these exact children are blanked. Same four on discs 1 and 4
+# (consumption census; pinned against the install by tests/test_world_reclaim.py).
+LAND_DONOR = (12, 10)
+LAND_DONOR_WATER = ("Sea1", "Sea3", "Sea4", "Sea5")
+
+
+def _check_blankable(bm, cell, profile: str, eps: float = 1e-6) -> None:
+    """Refuse a reclaim mesh that would need water inside its own cell. Blanking the donor's water is right only
+    while the land covers the whole 64u cell and nothing in it sits below the waterline; a profile that leaves open
+    water or sunken ground in the cell needs a CUT sea plane (``island._cut_plane``), not a blank."""
+    xs = [v[0] for v in bm.verts]
+    zs = [v[2] for v in bm.verts]
+    ymin = min(v[1] for v in bm.verts)
+    if not (min(xs) <= eps and max(xs) >= 64.0 - eps and min(zs) <= -64.0 + eps and max(zs) >= -eps):
+        raise ValueError(f"reclaim cell {cell}: the {profile} mesh does not span the whole cell, so the fallback "
+                         f"donor's water cannot simply be blanked")
+    if ymin < -eps:
+        raise ValueError(f"reclaim cell {cell}: the {profile} mesh dips to y={ymin:.3f}, below the waterline; a "
+                         f"reclaimed cell carries no water, so that ground would show the void. Raise --height")
+
+
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
             height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
             shore_topo: int | None = None, shore_frac: float | None = None, rim_run: float | None = None,
@@ -324,7 +351,8 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
     this SYNTHESIZES the mesh, stamps real terrain-atlas UVs (:func:`ff9mapkit.world.palette.apply_palette_uvs`), and
-    deploys a ``Block[x][y] Terrain.ff9mesh`` override.
+    deploys a ``Block[x][y] Terrain.ff9mesh`` override plus hidden stubs for the fallback donor's water children
+    (:data:`LAND_DONOR_WATER`), so no sea free-rides under the land and a boat stops at the cell edge.
 
     ``profile`` shapes the land:
       * ``"island"`` (default) -- a NATURAL island: a walkable GREEN-GRASS plateau at ``Y=height`` that ramps down to a
@@ -341,8 +369,9 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         topograph palette guess. Cliff defaults (survey of 208 real cliffs): ``height`` 3.2 (~ the interior-land Y you
         stand on: rim med 3.7 but land med 3.1, so a 4u mesa reads too high), ``rim_run`` 1.0 (wall run -> ~73deg). The
         wall is topo 58 (on-foot BLOCKED -- the player stops at the rim); no shallow ladder / foam.
-      * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest; z-fights the sea
-        surface at ``height=0`` (lift it a few units for an open-ocean cell), fine flush (``height=0``) against a coast.
+      * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest. The cell carries
+        no water, so a lifted slab floats over nothing; ``height=0`` sits flush with the surrounding sea (the old
+        height-0 z-fight fit the free-riding donor Sea4, study C7). A negative height is refused.
 
     Requires the CUSTOM engine: the shipped ``s34`` divert routes a sea cell carrying such an override onto a land
     donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of ``SeaBlockPrefab`` -- a stock sea cell
@@ -391,8 +420,8 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     # exist there. NOTE the guard is on the flag, NOT on `target != disc` -- an s75 CLONE target has the stock
     # IsSea pattern, so its neighbours' real-land status is exactly right and must still be read.
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
-               "dry_run": dry_run, "cells": []}
-    written = []
+               "dry_run": dry_run, "cells": [], "blanked": list(LAND_DONOR_WATER)}
+    built = []
     for (bx, by) in cells:
         if profile in ("island", "cliff"):
             water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
@@ -415,9 +444,16 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
             bm = M.flat_block_mesh(disc=disc, x=bx, y=by, seg=seg, topograph=topograph, height=height)
             bm = PAL.apply_palette_uvs(bm, topograph=topograph, disc=disc, part="terrain", game=game)
             info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount}
-        if not dry_run:
-            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, disc=target, part="Terrain"))
+        _check_blankable(bm, (bx, by), profile)
+        built.append(bm)
         summary["cells"].append(info)
+    written = []
+    if not dry_run:
+        for bm in built:                                   # every cell is built + checked BEFORE the first write
+            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, disc=target, part="Terrain"))
+            for part in LAND_DONOR_WATER:                  # defect 18: no donor water may ride under the land
+                stub = M.hidden_block_mesh(name=f"Block[{bm.x}][{bm.y}] {part}", disc=disc, x=bm.x, y=bm.y)
+                written.append(M.deploy_override(stub, mod_folder=mod_folder, game=game, disc=target, part=part))
     if not dry_run and summary["cells"]:
         from . import discmirror as DM
         DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)

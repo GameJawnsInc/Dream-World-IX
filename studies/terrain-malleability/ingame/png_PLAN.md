@@ -1,6 +1,6 @@
 # In-game plan: the per-cell PNG texture override (README section 7.1, rank 6)
 
-Lane `png` of the terrain-study in-game round. **Not yet run.** Every prediction below was registered (in
+Lane `png` of the terrain-study in-game round. **Run in round 2: 22/22, results in `RESULTS.md` §10.** Every prediction below was registered (in
 `png_session.py`'s docstring and here) before any launch. The scenario is driven by the in-game test harness and
 judged numerically: engine log receipts, published heights, and pixel counts of three vivid hue classes.
 
