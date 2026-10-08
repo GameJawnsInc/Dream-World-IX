@@ -218,8 +218,7 @@ removed after.
 **Fixed after the round (blank, no sidecar):** reclaim now writes a hidden stub for each of 12,10's Sea1/3/4/5.
 Offline, the same `veh_prep` boat simulator, fed the old shape, reproduces this session's registered numbers
 exactly (flat6 open 123.81, rim 19.75; cliff crossing too). Fed the new shape it stalls at into −0.05 on both lanes,
-at all 9 hull headings, for flat6, flat1.2, island and cliff. The in-game re-drive (flat6, expect a stall at into
-−1.0..+0.1 on both lanes) has not been run.
+at all 9 hull headings, for flat6, flat1.2, island and cliff. **Re-driven in game: section 14.**
 
 ### 10. The per-cell texture override (rank 6): 22/22, the clobber confirmed
 
@@ -283,6 +282,41 @@ neighbours; the A-A noise sigma is 0.97 fps):
 At 64x (21.6k tris, near the per-part cap) walking on it halves the frame rate. The kit has no density gate. A soft
 budget of about 5k tris per walkable part, or a lint warning above it, is justified. The decision rule needs a
 regime-agnostic bracket test before it is reused (`cost_post.py`).
+
+### 14. Defect 18 re-driven after the fix (2026-10-08): the boat stops at the cell edge, flat6 and cliff
+
+Owner's go for both launches. Same scratch-folder protocol: ini backed up to
+`backups/Memoria.ini.pre-d18-redrive.20261008-100040`, the lab first in FolderNames, one deploy per launch, then
+the ini restored byte-exact (sha256 `0b5a4985…`, verified) and the lab removed. Kit at `519b5f83` (the fix).
+
+- **Registered first** (`d18_predict.py` → `out/d18_predict.json`). It drives the real `terrain.reclaim` output
+  through the round-2 simulator, after reproducing round 2's registered pre-fix numbers. Prediction: a stall at
+  into −0.05 on both lanes, at all 9 headings. `veh_session4.py` gained the phases `flat6-fixed` and `cliff-fixed`,
+  each judged as a stall at into −1.0..+0.1.
+- **Lab contents per launch:** Terrain plus hidden Sea1/Sea3/Sea4/Sea5, and no `Donor.txt`. `Memoria.log` bound
+  exactly those five files from the lab, the bind oracle's prediction, with 0 exceptions.
+
+| launch | checks | OPEN lane | RIM lane | before the fix (round 2 / sim) |
+|---|---|---|---|---|
+| flat6-fixed (`.harness-runs/20261008-100049-…`) | **6/6** | stall at into −0.002 | stall at into −0.002 | crossed the cell under the slab / stopped on the hidden islet rim at 19.81 |
+| cliff-fixed (`.harness-runs/20261008-100425-…`) | **6/6** | stall at into −0.002 | stall at into −0.002 | sim: crossed the cell (123.54 / 118.87) |
+
+Instruments held in both launches: B0 bound the boat at the poked record (0.001u), B1 heading 0.0, and C0 stalled
+at 16.47 (sim 16.38, round 2 16.47).
+
+**Verdict: defect 18 is fixed in game.** A reclaimed cell carries no water, so the boat's sea-level probe misses at
+the cell edge: the engine's vehicle wall.
+
+**Seen in the frames.** The cliff edge reads clean: the rock wall meets the water, and the boat sits at its foot.
+A raised `flat` slab shows open sky through the hole beneath its edge (`open-flat6-fixed.png`). It used to show the
+free-riding sea there. That is a visual regression for raised flat slabs, and the island and cliff profiles do
+not have it, since both come down to the waterline at the cell edge.
+
+**Frame rate (the owner flagged a laggy overworld on the flat6 launch).** Overworld fps, median (10th–90th
+percentile): flat6-fixed 40.9 (27.3–51.2), cliff-fixed 47.2 (37.6–57.4), round-2 flat6 46.4 (29.4–58.9). Fields
+ran 51–57. Both fixed launches carry the same five files, and the fix replaces 501 free-riding water tris with
+four 1-tri stubs. So the dip tracks the machine's background load (two Godot and three python processes held about
+40% of the CPU), not the geometry.
 
 ## Not run
 
