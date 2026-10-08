@@ -234,6 +234,51 @@ def test_reclaim_refuses_sunken_land_before_any_write(monkeypatch):
     assert seen == []
 
 
+def _offline(monkeypatch, land=()):
+    monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)
+    monkeypatch.setattr(X, "list_blocks", lambda **k: list(land))
+
+
+def test_a_raised_flat_slab_beside_open_sea_is_warned(monkeypatch):
+    """In game (terrain study RESULTS section 14), a raised flat slab shows open sky under its open-sea edge: the cell
+    carries no water since the defect-18 fix. The warning names exactly the cells with such an edge."""
+    _offline(monkeypatch, land=[(6, 2)])                 # real land beside (6,3)
+    s = T.reclaim("MOD", cells=[(5, 3), (6, 3)], profile="flat", height=6.0, dry_run=True)
+    assert len(s["warnings"]) == 1
+    w = s["warnings"][0]
+    assert "(5, 3), (6, 3)" in w and "open sky" in w and "--profile cliff" in w and "world-island" in w
+    # (5,3): 3 open sides (its 4th is the reclaimed (6,3)); (6,3): 2 (one reclaimed, one real land)
+    assert [c["water_edges"] for c in s["cells"]] == [3, 2]
+
+
+@pytest.mark.parametrize("kw,land", [
+    (dict(profile="flat", height=0.0), ()),                                   # flush with the sea: nothing beneath
+    (dict(profile="flat", height=6.0), [(4, 3), (6, 3), (5, 2), (5, 4)]),     # every side real land: no open edge
+    (dict(profile="cliff"), ()),                                              # walled down to the waterline
+    (dict(profile="island"), ()),                                             # ramps down to the waterline
+])
+def test_no_warning_where_nothing_shows_under_the_edge(monkeypatch, kw, land):
+    _offline(monkeypatch, land=land)
+    assert T.reclaim("MOD", cells=[(5, 3)], dry_run=True, **kw)["warnings"] == []
+
+
+def test_the_raised_flat_warning_holds_on_an_all_sea_target(monkeypatch):
+    """A Path D BLANK grid skips the real-land probe on purpose: every neighbour there really is sea."""
+    _offline(monkeypatch, land=[(4, 3), (6, 3), (5, 2), (5, 4)])   # must NOT be read
+    s = T.reclaim("MOD", cells=[(5, 3)], profile="flat", height=6.0, dry_run=True, all_sea_target=True)
+    assert len(s["warnings"]) == 1 and s["cells"][0]["water_edges"] == 4
+
+
+def test_cli_prints_the_reclaim_warnings(monkeypatch, capsys):
+    from ff9mapkit import cli
+    canned = {"op": "reclaim", "profile": "flat", "disc": 1, "cells": [{"cell": [5, 3], "tris": 200, "verts": 600,
+              "water_edges": 4}], "blanked": list(T.LAND_DONOR_WATER), "warnings": ["flat slab at height 6 ..."]}
+    monkeypatch.setattr(T, "reclaim", lambda *a, **k: canned)
+    assert cli.main(["world-reclaim", "--mod-folder", "X", "--cells", "5,3", "--profile", "flat",
+                     "--height", "6", "--dry-run"]) == 0
+    assert "  !! WARNING: flat slab at height 6 ..." in capsys.readouterr().out
+
+
 def test_reclaim_refuses_a_mesh_that_leaves_water_in_its_cell():
     half = M.flat_block_mesh(disc=1, x=2, y=12, seg=4)
     for v in half.verts:
