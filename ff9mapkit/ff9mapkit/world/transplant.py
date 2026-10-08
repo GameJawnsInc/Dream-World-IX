@@ -842,9 +842,10 @@ class PatchRecover:
 
 class VertexDisplace:
     """Tweak class 3 (frontier: the multi-column GEOMETRIC waterline move) -- displace exact
-    donor verts, weld-preserving by construction: every instance of a keyed position, in EVERY
-    part (``part=None``), moves by the same delta, so coincident beach1/sea2/... weld verts stay
-    coincident and the weld audit stays at zero. UVs, tangents and normals are left VERBATIM --
+    donor verts, weld-preserving by construction: every instance of a keyed position, in every
+    part the caller LOADS (``part=None``; :data:`PARTS` by default), moves by the same delta, so
+    coincident beach1/sea2/... weld verts stay coincident. A weld to a part not loaded (Object,
+    river, falls ...) stays behind: the callers' stitch gate refuses that (terrain study S10/S11). UVs, tangents and normals are left VERBATIM --
     the texture STRETCHES over the moved geometry, which is exactly how real shore-conforming
     tiles absorb lateral waterline variation (measured: real interior waterline verts sit up to
     ~1.5u off the 4u lattice; the swash ribbon's width varies 3.3-6.7u; sea2's wash is uniform
@@ -2875,6 +2876,27 @@ def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     return ext_r[0] / 2.0 + dx, -ext_r[1] / 2.0 + dz
 
 
+def _carry_stitch_gate(pairs: dict, fwd, loc, fixed=(), emitted=()) -> dict:
+    """THE CARRY STITCH GATE (terrain study defect 10: ``weld_audit`` flags only near-miss pairs, 0 < d < 0.05u, so it
+    cannot see a weld torn wider than that). ``pairs`` = ``{part: (pre, post)}``: the donor-cell vertices of every
+    tri a tweak kept whole, in donor WORLD coordinates before and after the tweaks; ``fwd`` maps a post-tweak position
+    into the target frame (rotation + shift) and ``loc`` a donor position into the same frame at identity; ``fixed`` =
+    ``[(name, positions)]`` already in that frame, for parts that render where they are (a donor prefab's uncarried
+    parts; ``(name, pre, post)`` when it renders somewhere else). ``emitted`` = the post-tweak positions of every tri
+    the tweaks EMIT: a growth cut splits the welds on its line on purpose and its filler column re-welds both sides,
+    so a split weld whose every piece lands on emitted geometry is ``rewelded``, not torn. Every other donor weld must
+    still hold in the carry (:func:`ff9mapkit.world.mesh.stitch_gate`)."""
+    from . import mesh as M
+    from .placement import canonical_part
+    rows = [(f"carried {canonical_part(p) or part_name(p)}", [loc(q) for q in pre], [fwd(q) for q in post])
+            for p, (pre, post) in sorted(pairs.items())]
+    rows += [(f[0], f[1], f[1] if len(f) == 2 else f[2]) for f in fixed]
+    rew = {M.world_key(fwd(q)) for q in emitted}
+    sg = M.stitch_gate(rows, rewelded=rew)
+    return {"gate": "stitch", "welds": sg["welds"], "torn": sg["torn"], "rewelded": sg["rewelded"],
+            "max_sep": sg["max_sep"], "by_mesh": sg["by_mesh"], "sample": sg["sample"][:3], "ok": sg["torn"] == 0}
+
+
 def _soup_block_mesh(name: str, cell, tris, *, disc: int, lod: str) -> BlockMesh:
     """A BlockMesh from (pos, nrm, uv, tan) triangles in the block-LOCAL frame -- fresh verts per
     tri (unindexed, matching the stock world blocks), all four channels carried."""
@@ -3007,6 +3029,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
             raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of E/W/N/S -- got {strips!r}")
     raw: dict = {}
     pristine: dict = {}                     # p -> gathered polys, donor WORLD, PRE-tweak (tjunc baseline)
+    weld_pairs: dict = {}                   # p -> (pre, post-tweak) donor-cell vertices (the stitch gate)
+    emitted_pos: list = []                  # every vertex the tweaks EMIT (a re-weld, for the stitch gate)
     donor_has_part: dict = {}
     strips_with_data: set = set()
     for p in parts:
@@ -3028,16 +3052,23 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                         continue
                     strips_with_data.add(dname)
                 pris_p.append(list(poly))
+                pre_poly = poly
                 for tw in tweaks:
                     poly = tw.apply(p, poly)
                     if poly is None:
                         break
                 if poly is None:
                     continue
+                if dname is None and len(poly) == len(pre_poly):
+                    wp = weld_pairs.setdefault(p, ([], []))
+                    wp[0].extend(v[0] for v in pre_poly)
+                    wp[1].extend(v[0] for v in poly)
                 polys.append((dname, poly))
         for tw in tweaks:
             if tw.part == p:
-                polys.extend((None, e) for e in tw.emit())
+                em = tw.emit()
+                polys.extend((None, e) for e in em)
+                emitted_pos.extend(v[0] for e in em for v in e)
         raw[p] = polys
     if not any(donor_has_part.values()):
         raise ValueError(f"donor ({dbx},{dby}) has no block mesh data -- open ocean renders from the "
@@ -3198,6 +3229,23 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     weld_in, weld_fr = _split_frame_pairs(M.weld_audit(meshes), (0.0, 64.0), (0.0, -64.0))
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
                   "ok": not weld_in})
+    # THE CARRY STITCH GATE (defect 10): every donor weld must hold. The parts the carry does not take (Object, river,
+    # falls, volcano ...) render from the donor's prefab at their own pose (Donor.txt names the donor), so a weld to
+    # one of them holds only where the carried vertex lands back on it.
+
+    def _loc(q):
+        return (q[0] - 64.0 * dbx, q[1], q[2] + 64.0 * dby)
+
+    def _fwd(q):
+        rx, rz = _rot_xz(q[0] - 64.0 * dbx, q[2] + 64.0 * dby, nrot)
+        return (rx + sh_x, q[1], rz + sh_z)
+    fixed = []
+    for p in ("terrain",) + M.STITCH_PARTNER_PARTS:
+        if p not in parts:
+            tris = world_tris(dbx, dby, p, disc=disc, lod=lod, game=game)
+            if tris:
+                fixed.append((f"prefab {part_name(p)}", [_loc(v[0]) for t in tris for v in t]))
+    gates.append(_carry_stitch_gate(weld_pairs, _fwd, _loc, fixed, emitted_pos))
     # THE T-JUNCTION DIFFERENTIAL (audit rec 14) -- same law as census/stacked: stock may
     # T-junction, the carry may not MINT one. Back-map = the census inverse WITHOUT its
     # donor-frame range check (strip geometry legally maps beyond the donor frame and is
@@ -3312,7 +3360,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
 def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                    lod: str = "0_1", game=None, dry_run: bool = False,
                    skip_mirror: bool = False, fresh: bool = False,
-                   allow_overwrite: bool = False) -> dict:
+                   allow_overwrite: bool = False, allow_entrances: bool = False) -> dict:
     """Apply tweak objects to a REAL world cell IN PLACE -- the coast-morph demonstrator
     path for shores no single-cell transplant can carry (a nose beach's landmass is always
     a coastline fragment; only (7,17)'s pocket is fully in-block). Reads the cell's own
@@ -3330,7 +3378,17 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     tweaks are built from STOCK, so they may change only tris still identical to stock: one that would change a
     deployed edit's tris refuses unless ``allow_overwrite`` (``summary["stack_conflicts"]``, per part).
     ``fresh=True`` reads pristine stock (re-running a morph from scratch), through
-    :func:`ff9mapkit.world.mesh.fresh_reset_gate` (``allow_overwrite`` to discard kit entrance tiles)."""
+    :func:`ff9mapkit.world.mesh.fresh_reset_gate` (``allow_overwrite`` to discard kit entrance tiles).
+
+    THE STITCH GATE (terrain study defects 10-11). :class:`VertexDisplace` keeps a weld whole only across the parts
+    loaded here (``parts``), so a moved Terrain vertex left the Object, river, falls or volcano vertex it was welded
+    to behind, and a 1u tear passed every gate. The ``stitch`` gate row checks every weld on the cell -- the loaded
+    parts and every other part the cell carries (:data:`ff9mapkit.world.mesh.STITCH_PARTNER_PARTS`) -- and fails on
+    any tear (:func:`ff9mapkit.world.mesh.stitch_gate`; a dropped, emitted or re-cut tri is not a weld instance). The
+    other parts are never co-moved: an Object is rigid, and the kit writes only parts a tweak meant to touch.
+
+    THE ENTRANCE GUARD (defect 6). The ``entrance`` gate row fails when the morph moves the land (Terrain, Beach1) of
+    a cell carrying walk-on entrance tiles, unless ``allow_entrances`` (:func:`ff9mapkit.world.mesh.entrance_guard`)."""
     from . import mesh as M
     from .placement import canonical_part
     tweaks = list(tweaks)
@@ -3341,7 +3399,9 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
         stack.update(M.fresh_reset_gate([(bx, by)], mod_folder, disc=disc, lod=lod, game=game,
                                         parts=tuple(canonical_part(p) or part_name(p) for p in parts),
                                         allow_overwrite=allow_overwrite))
-    raw, originals, conflicts = {}, {}, {}
+    raw, originals, conflicts, loaded = {}, {}, {}, {}
+    weld_rows = {}                     # p -> (pre, post) world positions of every tri a tweak kept whole
+    guard_tris = {}                    # land p -> [(tri, its poly if kept whole else None)] (the entrance guard)
     for p in parts:
         stock_keys = None
         if fresh:
@@ -3366,7 +3426,9 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                     f"An in-place morph can only emit into parts the REAL cell "
                     f"already has; pick a window on a block that carries them")
             continue
+        loaded[p] = tris
         polys, touched = [], False
+        pre_w, post_w = weld_rows.setdefault(p, ([], []))
         for tri in tris:
             poly, changed = list(tri), False
             for tw in tweaks:
@@ -3378,8 +3440,14 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                     break
             if changed and stock_keys is not None and _poly_key(tri) not in stock_keys:
                 conflicts[p] = conflicts.get(p, 0) + 1
+            whole = poly is not None and len(poly) == len(tri)     # vertex i of the tri is vertex i of the poly
             if poly is not None:
                 polys.append(poly)
+                if whole:
+                    pre_w.extend(v[0] for v in tri)
+                    post_w.extend(v[0] for v in poly)
+            if p in LAND_PARTS:
+                guard_tris.setdefault(p, []).append((tri, poly if whole else None))
         for tw in tweaks:
             if getattr(tw, "part", None) == p:
                 em = tw.emit()
@@ -3418,6 +3486,36 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                           and -64.01 <= v[0][2] + 64.0 * by <= 0.01))
         gates.append({"gate": f"in-place-frame[{p}]", "welds": "unchanged" if fw_ok
                       else "CHANGED", "out_of_cell": oob, "ok": fw_ok and oob == 0})
+    # THE STITCH GATE (defects 10-11): every weld on the cell, the parts not loaded here held where they are
+    def _nm(p):
+        return f"Block[{bx}][{by}] {canonical_part(p) or part_name(p)}"
+    rows = [(_nm(p), pre, post) for p, (pre, post) in sorted(weld_rows.items())]
+    for p in ("terrain",) + M.STITCH_PARTNER_PARTS:
+        if p in weld_rows:
+            continue
+        if fresh:
+            other = world_tris(bx, by, p, disc=disc, lod=lod, game=game)
+        else:
+            other, _dep = world_tris_stacked(mod_folder, bx, by, p, disc=disc, lod=lod, game=game)
+        if other:
+            pos = [v[0] for t in other for v in t]
+            rows.append((_nm(p), pos, pos))
+    sg = M.stitch_gate(rows)
+    gates.append({"gate": "stitch", "welds": sg["welds"], "torn": sg["torn"], "max_sep": sg["max_sep"],
+                  "by_mesh": sg["by_mesh"], "sample": sg["sample"][:3], "ok": sg["torn"] == 0})
+    # THE ENTRANCE GUARD (defect 6): raising land where a field exit sets the player down strands them there
+    from .entrance import door_arrivals
+    from .terrain import entrance_context
+    rows_e = [((bx, by), [r for p in sorted(guard_tris) for r in M.soup_tiles([t for t, _q in guard_tris[p]],
+                                                                            [q for _t, q in guard_tris[p]])])]
+    C = M.ENTRANCE_CLEARANCE
+    rows_e += entrance_context((64.0 * bx - C, 64.0 * (bx + 1) + C, -64.0 * (by + 1) - C, -64.0 * by + C),
+                               {(bx, by)} if "terrain" in loaded else set(), mod_folder, disc=disc, lod=lod,
+                               game=game, fresh=fresh)
+    hits = M.entrance_guard(rows_e, arrivals=door_arrivals(game) if disc in (1, 4) else (), allow=True)
+    if hits:
+        gates.append({"gate": "entrance", "blocks": hits, "allowed": allow_entrances,
+                      "ok": allow_entrances or not any(h["refused"] for h in hits)})
     clean = all(g.get("ok", True) for g in gates)
     summary = {"op": "morph-in-place", "cell": [bx, by], "touched": sorted(raw),
                "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": [], **stack}
@@ -3582,6 +3680,8 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
             raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of E/W/N/S -- got {strips!r}")
     raw: dict = {}
     pristine: dict = {}                     # p -> gathered polys, donor WORLD, PRE-tweak (tjunc baseline)
+    weld_pairs: dict = {}                   # p -> (pre, post-tweak) donor-cell vertices (the stitch gate)
+    emitted_pos: list = []                  # every vertex the tweaks EMIT (a re-weld, for the stitch gate)
     strips_with_data: set = set()
     for p in parts:
         srcs = [(None, donor_cell_part[c][p], None) for c in dcells]
@@ -3603,16 +3703,23 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                         continue
                     strips_with_data.add(dname)
                 pris_p.append(list(poly))
+                pre_poly = poly
                 for tw_ in tweaks:
                     poly = tw_.apply(p, poly)
                     if poly is None:
                         break
                 if poly is None:
                     continue
+                if dname is None and len(poly) == len(pre_poly):
+                    wp = weld_pairs.setdefault(p, ([], []))
+                    wp[0].extend(v[0] for v in pre_poly)
+                    wp[1].extend(v[0] for v in poly)
                 polys.append((dname, poly))
         for tw_ in tweaks:
             if tw_.part == p:
-                polys.extend((None, e) for e in tw_.emit())
+                em = tw_.emit()
+                polys.extend((None, e) for e in em)
+                emitted_pos.extend(v[0] for e in em for v in e)
         raw[p] = polys
 
     # 2) ROTATE about the donor REGION centre; LAND normals rotate, sea normals keep the shared
@@ -3952,6 +4059,29 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                                            tuple(-64.0 * j for j in range(1, th)))
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
                   "border_t_pairs": len(weld_bt), "ok": not weld_in})
+    # THE CARRY STITCH GATE (defect 10; see transplant()). Each target cell's sidecar prefab renders the parts the
+    # carry does not take (Object, river, falls ...) at their block-local pose inside THAT target cell.
+
+    def _rloc(q):
+        return (q[0] - 64.0 * dbx, q[1], q[2] + 64.0 * dby)
+
+    def _rfwd(q):
+        rx, rz = _rot_region_xz(q[0] - 64.0 * dbx, q[2] + 64.0 * dby, nrot, ext, ext_r)
+        return (rx + sh_x, q[1], rz + sh_z)
+    fixed = []
+    for (i, j), meta in sorted(cell_meta.items()):
+        ci, cj = meta["donor"][0] - dbx, meta["donor"][1] - dby
+        if not (0 <= ci < nx and 0 <= cj < ny):
+            continue                              # a map-wide fallback prefab: no weld of the donor rect
+        for p in ("terrain",) + M.STITCH_PARTNER_PARTS:
+            if p in parts:
+                continue
+            tris = world_tris(dbx + ci, dby + cj, p, disc=disc, lod=lod, game=game)
+            if tris:
+                pre = [_rloc(v[0]) for t in tris for v in t]
+                fixed.append((f"prefab {part_name(p)} in [{bx + i}][{by + j}]", pre,
+                              [(q[0] + 64.0 * (i - ci), q[1], q[2] - 64.0 * (j - cj)) for q in pre]))
+    gates.append(_carry_stitch_gate(weld_pairs, _rfwd, _rloc, fixed, emitted_pos))
     # THE T-JUNCTION DIFFERENTIAL (audit rec 14) -- see transplant()'s call site. The frame
     # planes include the INTERIOR block borders: a re-partition clip vert mid-edge of the
     # neighbour cell's coincident run is the weld gate's border_t_pairs class, judged there.

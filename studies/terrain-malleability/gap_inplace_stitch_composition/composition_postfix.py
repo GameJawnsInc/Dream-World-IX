@@ -12,6 +12,12 @@ Registered predictions:
   * ``fresh`` reads stock and names what it discards; over an entrance it REFUSES unless ``allow_overwrite``,
     and with it the entrance's event tiles are gone (the pre-fix behaviour, now explicit);
   * world-retarget ``--fresh`` hits the same refusal.
+Added 2026-10-08 with defects 6 and 10-11 (the entrance guard, the morph stitch gate):
+  * entrance -> reshape: the +3 hill 8u from the new entrance's tiles raises its landing past 1.17u, so the reshape
+    REFUSES and writes nothing; with ``allow_entrances`` it stacks (pre-guard: it stacked silently);
+  * S8 re-run on stock entrance block (7,4): reshape, world-deploy and the in-place morph all refuse (pre-fix only
+    world-deploy did);
+  * S10 re-run: the morph that moved a Terrain vertex welded to Treno's Object by 1u is no longer clean (stitch).
 Writes out/composition_postfix.json.
 Run:  py C:/gd/Dream-World-IX/studies/terrain-malleability/gap_inplace_stitch_composition/composition_postfix.py
 """
@@ -29,8 +35,8 @@ import composition_probe as CP                         # noqa: E402
 
 PRED = {"entrance_then_entrance": "STACKS", "reshape_then_reshape": "STACKS", "reshape_then_retarget": "STACKS",
         "retarget_then_reshape": "STACKS", "morph_then_reshape": "STACKS", "reshape_then_morph": "E2 REFUSED",
-        "deploy_then_deploy": "STACKS", "entrance_then_reshape": "STACKS", "reshape_then_entrance": "STACKS",
-        "entrance_then_retarget": "STACKS"}
+        "deploy_then_deploy": "STACKS", "entrance_then_reshape": "E2 REFUSED, STACKS when allowed",
+        "reshape_then_entrance": "STACKS", "entrance_then_retarget": "STACKS"}
 
 
 def _events(mf, blk=CP.BLK):
@@ -62,7 +68,22 @@ def main():
                                             == before else "E2 NOT REFUSED"}, "E2_error": rm}
     print(f"  reshape_then_morph: {sc['reshape_then_morph']['compare']['verdict']} ({rm})")
     CP.scenario("deploy_then_deploy", CP.E_deploy(CP.C1), CP.E_deploy(CP.C2), sc)
-    CP.scenario("entrance_then_reshape", CP.E_entrance(cellA), CP.E_reshape(CP.C2), sc)
+    # entrance -> reshape: the entrance guard refuses (the hill raises the new tiles' landing), allowed it stacks
+    m2 = CP.fresh("entrance_then_reshape__E1thenE2")
+    CP.E_entrance(cellA)(m2)
+    before, n_ev = CP.terrain_file(m2).read_bytes(), _events(m2)
+    try:
+        CP.E_reshape(CP.C2)(m2)
+        er = None
+    except ValueError as e:
+        er = str(e)[:240]
+    refused_e = er is not None and "place-ENTRANCE" in er and CP.terrain_file(m2).read_bytes() == before
+    CP.TER.reshape(m2, at=CP.C2, radius=16.0, amount=3.0, game=CP.GAME, skip_mirror=True, allow_entrances=True)
+    stacked = CP.terrain_file(m2).read_bytes() != before and _events(m2) == n_ev
+    sc["entrance_then_reshape"] = {"compare": {"verdict": ("E2 REFUSED, STACKS when allowed" if refused_e and stacked
+                                                           else f"refused={refused_e} stacked={stacked}")},
+                                   "E2_error": er}
+    print(f"  entrance_then_reshape: {sc['entrance_then_reshape']['compare']['verdict']}")
     CP.scenario("reshape_then_entrance", CP.E_reshape(CP.C2), CP.E_entrance(cellA), sc)
     CP.scenario("entrance_then_retarget", CP.E_entrance(cellA), CP.E_retarget(CP.C2), sc)
     res["scenarios"] = sc
@@ -112,9 +133,54 @@ def main():
                          "event_tris_after_allow": _events(mfe),
                          "retarget_fresh_rc": rc, "retarget_fresh_stderr": se.getvalue()[:240]}
 
+    # S8 re-run (defect 6): stock entrance block (7,4), +3 r12 centred on an event tri -- all three writers refuse
+    eb = (7, 4)
+    st = CP.X.read_block(eb[0], eb[1], disc=1, part="terrain", game=CP.GAME)
+    ev = [t for t in range(len(st.tris)) if CP.X.decode_id(int(round(st.tangents[st.tris[t][0]][0])))["event"]]
+    cs = [st.verts[i] for i in st.tris[ev[0]]]
+    at = (sum(c[0] for c in cs) / 3 + eb[0] * 64, sum(c[2] for c in cs) / 3 - eb[1] * 64)
+    s8 = {}
+    mf = CP.fresh("S8_reshape")
+    try:
+        CP.TER.reshape(mf, at=at, radius=12.0, amount=3.0, game=CP.GAME, skip_mirror=True)
+        s8["reshape"] = "NOT REFUSED"
+    except ValueError as e:
+        s8["reshape"] = "REFUSED" if "place-ENTRANCE" in str(e) and not CP.inventory(mf)["files"] else str(e)[:160]
+    d = CP.E_deploy(at, hill=3.0, radius=12.0, blk=eb)(CP.fresh("S8_deploy"))
+    s8["world_deploy"] = "REFUSED" if d["rc"] == 2 and "place-ENTRANCE" in d["stderr"] else d["stderr"][:160]
+    pos = next((v[0] + eb[0] * 64, v[1], v[2] - eb[1] * 64) for v in st.verts
+               if 4 < v[0] < 60 and -60 < v[2] < -4 and ((v[0] + eb[0] * 64 - at[0]) ** 2
+                                                          + (v[2] - eb[1] * 64 - at[1]) ** 2) < 36)
+    n = sum(1 for v in st.verts if (round(v[0] + eb[0] * 64, 4), round(v[1], 4), round(v[2] - eb[1] * 64, 4))
+            == (round(pos[0], 4), round(pos[1], 4), round(pos[2], 4)))
+    r3 = CP.TR.morph_in_place(CP.fresh("S8_morph"), cell=eb, game=CP.GAME, skip_mirror=True,
+                              tweaks=[CP.TR.VertexDisplace(moves={pos: (0.0, 3.0, 0.0)}, expected=n)])
+    g = next((g for g in r3["gates"] if g["gate"] == "entrance"), None)
+    s8["morph_in_place"] = "REFUSED" if (g is not None and not g["ok"] and not r3["clean"]
+                                         and not r3["deployed"]) else f"clean={r3['clean']}"
+    res["S8_entrance_block"] = s8
+    # S10 re-run (defect 11): a Terrain vertex welded to Treno's gate Object, moved 1u by the in-place morph
+    ob = (19, 14)
+    terb = CP.X.read_block(ob[0], ob[1], disc=1, part="terrain", game=CP.GAME)
+    objb = CP.X.read_block(ob[0], ob[1], disc=1, part="object", game=CP.GAME)
+    okeys = {(round(v[0], 4), round(v[1], 4), round(v[2], 4)) for v in objb.verts}
+    pick = next(v for v in terb.verts if (round(v[0], 4), round(v[1], 4), round(v[2], 4)) in okeys
+                and 1 < v[0] < 63 and -63 < v[2] < -1)
+    n_ter = sum(1 for v in terb.verts if (round(v[0], 4), round(v[1], 4), round(v[2], 4))
+                == (round(pick[0], 4), round(pick[1], 4), round(pick[2], 4)))
+    rv = CP.TR.morph_in_place(CP.fresh("S10_object_weld"), cell=ob, game=CP.GAME, skip_mirror=True, tweaks=[
+        CP.TR.VertexDisplace(moves={(pick[0] + ob[0] * 64, pick[1], pick[2] - ob[1] * 64): (0.0, 1.0, 0.0)},
+                             expected=n_ter)])
+    sg = next(g for g in rv["gates"] if g["gate"] == "stitch")
+    res["S10_object_weld"] = {"clean": rv["clean"], "stitch": {k: sg[k] for k in ("torn", "max_sep", "by_mesh")},
+                              "deployed": rv["deployed"]}
+    print("S8 entrance block:", s8)
+    print("S10 object weld:", res["S10_object_weld"])
+
     ok = (res["all_as_predicted"] and res["kit_island"]["file_changed"] and not res["kit_island"]["skipped_sea"]
           and refused is not None and kept_after_refusal == n_ev > 0 and res["fresh_gate"]["event_tris_after_allow"] == 0
-          and rc == 2 and "refusing --fresh" in res["fresh_gate"]["retarget_fresh_stderr"])
+          and rc == 2 and "refusing --fresh" in res["fresh_gate"]["retarget_fresh_stderr"]
+          and set(s8.values()) == {"REFUSED"} and not rv["clean"] and not rv["deployed"] and sg["torn"] >= 1)
     res["ok"] = ok
     (CP.S.OUT / "composition_postfix.json").write_text(json.dumps(res, indent=1, default=str), encoding="utf-8")
     print("verdicts:", json.dumps(got, indent=1))

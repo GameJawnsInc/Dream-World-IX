@@ -5,6 +5,54 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the automatic disc-4 mirror no longer leaves a step where an edit crosses a cell disc 4 changed
+- Every world writer mirrors what it wrote into the `Disc4` tree, but cell by cell: a cell whose real ground differs
+  on disc 4 is skipped, and its neighbours were copied anyway. An edit across both left the edit on one side of
+  their border and stock ground on the other. Over 400 random multi-cell reshapes near such cells, 60 left a step on
+  disc 4 (35 of 1u or more, up to 3.9u).
+- The mirror now takes a group of adjacent written cells whole or not at all, and prints `NOT MIRRORED` when it holds
+  one back. `world-terrain` and `world-deploy` re-run the same reshape on disc 4's own ground instead of copying
+  (every gate runs again there) and name each cell where disc 4 differs. Over the same 400 edits: 0 steps; 399 were
+  re-run on disc 4, and 1 was refused by disc 4's own wall gate, which left disc 4 untouched.
+- The copy gate compares each real part as a triangle multiset, so the 10 land cells whose triangles disc 4 only
+  stores in another order are now copied (179 land cells refused, not 189).
+- The standalone `world-mirror` still gates cell by cell, and now names any refused cell that borders a copied one.
+  New: `discmirror.mirror(atomic=, replay=)`, `auto_mirror(replay=)`.
+
+### Fixed — reshaping near an overworld entrance can no longer trap the player at the field exit
+- The world map sets the player down from a saved position record, height included: at a door arrival a field
+  exit wrote (56 stock exits, 43 points) or on the entrance tile they walked onto. A hill raised there buried that
+  height; in game a hill at Dali froze the player in every direction. Only `world-deploy` refused, and it refused any
+  reshape of a block that carried entrance tiles at all: half of all r16 edits. `world-terrain` and
+  `world-transplant --in-place` had no guard.
+- All three now share one rule: refuse an edit that raises ground more than 1.17u within 8u of an entrance tile or a
+  door arrival, or that drops an entrance tile. Lowering is allowed (the player drops onto the new ground), and a
+  tile moved within those limits is reported, not refused. Over random land edits a +3 r16 hill now refuses 12.7% of
+  the time, and a +1 hill or any lowering never. `--allow-entrances` (now on all three verbs) overrides.
+- The door arrivals are read from the install's own field scripts (`entrance.door_arrivals`, about 2s once per
+  run). New: `mesh.entrance_guard`, `mesh.ENTRANCE_CLEARANCE`, `mesh.ENTRANCE_RISE`, `terrain.entrance_context`;
+  `terrain.reshape`/`morph_in_place` take `allow_entrances=`.
+
+### Fixed — `world-transplant` checks every seam the carry or morph could tear
+- `world-transplant --in-place` moved only the parts it loads (terrain, beach and the sea layers). A vertex welded to
+  an Object, river, falls, volcano, Beach2 or Sea6 stayed behind, and a 1u tear passed every gate. The morph now runs
+  the stitch gate over every part the cell carries, holding the ones it does not move; a tear fails the gate.
+- A carry (`world-transplant` without `--in-place`) still ran only the near-miss weld audit, which cannot see a seam
+  pulled wider than 0.05u. It now also checks every donor weld through its tweaks, rotation and shift, against the
+  parts the donor's prefab still renders where they are. A growth cut's split welds count as re-welded when its
+  filler column lands on both pieces.
+- Calibrated on real data: of the 453 morphs the `world-morphs` scanner certified under the old gates, the stitch
+  gate fails 4, all one cliff window at (8,15) that pulled a Terrain/Sea4 vertex 0.75u off its Sea6 weld (the
+  entrance guard refuses none of them and reports moved tiles on 2); over every disc-1 block carried by
+  default it fails none of the carries that passed before, and every carry it does fail names a part the carry
+  leaves behind. The 334 transplant-family tests pass unchanged.
+- `mesh.stitch_gate` takes `rewelded=` and reports a `rewelded` count.
+
+### Fixed — overwritten world overrides keep every backup
+- Two writes to the same file in one second gave their `.bak-<time>` copies the same name, so the second backup
+  replaced the first. Backups now take `-2`, `-3`, ... when the name is taken, and are created so that no other
+  session can overwrite one either (`mesh.park_backup`).
+
 ### Changed — `world-island` and `world-reclaim` stamp a chosen area on new land, not area 0
 - Every minted tri used to carry area 0. Area 0 is encounter zone 0, so the grass rolled Mist Continent battles
   (Goblin, Python, Mu), and the window title, main menu and save slot read "Gunitas Basin". The Southern Ring had

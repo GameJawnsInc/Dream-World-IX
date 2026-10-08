@@ -26,6 +26,7 @@ reads the outputs of the earlier ones. All of them exit 0, and their calibration
 | `s6_semantic.py` | Per-part refusals, overlay/new-position census, dispatcher coverage of closed entrances, area re-zoning, and the pin-path bug. | 5 s |
 | `s7_morph_replay.py` | A byte-carried in-place verb: the documented (16,5) site, plus a certified cliff-bump on every refused coastal cell. | 10 min |
 | `s8_summarize.py` | Prints every headline number below from `out/*.json`. | 1 s |
+| `o2_postfix.py [--n 400]` | O2 after the fix: the kit gate vs `s1`'s order-invariant column, the `s5b` edit, and random multi-cell reshapes mirrored the old way and the new way, cracks counted against stock disc 4. | 6 min |
 
 `lib.py` holds the shared instruments: the exact container index (the disc4 lane's `MESH_RE`), `tri_keys` and
 `delta_transfer`.
@@ -292,6 +293,15 @@ slopes it did not create.** (`s5d`, `s5`)
 | T3 | `~` disc switch loads 9009, not 9008 (G8) | n/a | the in-game view is not faithful for entrance semantics | n/a |
 
 ## Recommended discmirror design (function-level)
+
+**Status 2026-10-08 (ranked experiment O2; `o2_postfix.py`):** 1 BUILT (`discmirror._tri_multiset`; the exact
+container came with defect 1); 2 NOT BUILT, deliberately: since defect 5 a Terrain edit HOLDS the vertices welded to
+its partner parts, so a copied Terrain edit fits only the partners it was built against, and on a cell whose other
+parts differ across discs it can tear; replay covers those cells instead; 3 BUILT (`mirror(atomic=True)`, per
+4-connected group of written cells, what `auto_mirror` passes); 4 BUILT for `world-terrain` and `world-deploy`
+(`replay=`); the hazard check is a per-cell WARN naming how disc 4 differs, not the H1-H5 layers; retarget, entrance
+and the in-place morph have no replay yet (single-cell writers: they cannot crack, they stay un-mirrored); 5 NOT
+BUILT; 6 DONE with defect 1.
 
 1. **`_parts_identical(blk, part, …)` becomes order-invariant and exact-container.**
    - Compare multisets of `lib.tri_keys` (canonical-rotation, all-channel, with the engine IDALL) through an

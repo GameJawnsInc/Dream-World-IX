@@ -82,8 +82,8 @@ def _row(bm, z):
 def test_stitch_gate_finds_a_split_weld_and_only_that():
     a = [(0.0, 3.0, 0.0), (4.0, 3.0, 0.0)]
     b = [(0.0, 3.0, 0.0), (9.0, 1.0, 9.0)]
-    assert M.stitch_gate([("A", a, a), ("B", b, b)]) == {"welds": 1, "torn": 0, "max_sep": 0.0, "by_mesh": {},
-                                                         "sample": []}
+    assert M.stitch_gate([("A", a, a), ("B", b, b)]) == {"welds": 1, "torn": 0, "rewelded": 0, "max_sep": 0.0,
+                                                         "by_mesh": {}, "sample": []}
     moved = [(0.0, 3.06, 0.0), (4.0, 3.0, 0.0)]
     g = M.stitch_gate([("A", a, moved), ("B", b, b)])
     assert g["torn"] == 1 and g["by_mesh"] == {"A": 1, "B": 1} and g["max_sep"] == 0.06

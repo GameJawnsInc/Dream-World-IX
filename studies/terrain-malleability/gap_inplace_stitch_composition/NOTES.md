@@ -34,6 +34,12 @@ All paths are `C:/gd/Dream-World-IX/studies/terrain-malleability/gap_inplace_sti
 | `gate_coverage.py` | **Method D (static).** AST reach of each writer to the gate functions; cross-checks the trace → `out/gate_coverage.json` | ~3 s |
 | `engine_cites.py` | EVIDENCE LAW: verifies every engine cite, STOCK vs PATCHED, against `git diff HEAD` hunks and `memoria-patches/*.patch` → `out/engine_cites.json` | ~5 s |
 | `probe_detail.py` | Prediction numbers for the two proposed in-game probes → `out/probe_detail.json` | ~2 s |
+| `stitch_postfix.py` | Defect 5 after the fix: the sweep through the real kit code → `out/stitch_postfix.json` | ~50 min |
+| `composition_postfix.py` | Defects 3-4, 6, 11 after the fix: S3, S8 and S10 re-run → `out/composition_postfix.json` | ~1 min |
+| `door_arrivals.py` | Every stock field exit's constant write to the world position record → `out/door_arrivals.json` | ~10 s |
+| `entrance_guard_exposure.py` | How often each entrance rule refuses a random land edit → `out/entrance_guard_exposure.json` | ~1 min |
+| `morph_gate_calibration.py` | The morph's stitch + entrance gates over the `world-morphs` scanner → `out/morph_gate_calibration.json` | ~5 min |
+| `carry_gate_calibration.py` | The carry stitch gate over every disc-1 donor → `out/carry_gate_calibration.json` | ~2 min |
 
 Order: run `stitch_census.py` before `calibrate.py`, `tear_sweep.py` before `composition_probe.py`, and
 `composition_probe.py` before `gate_coverage.py`. The others are independent.
@@ -330,6 +336,36 @@ River 147, RiverJoint 44, Falls 42, Volcano 37, Beach2 34, Sea6 1. On disc 4 the
 Probe: a VertexDisplace (+1u) on a Terrain vertex welded to the Treno-gate Object (19,14). The gates are clean, only
 Terrain is written, and the 3 Object instances stay put. That is a 1u tear that every morph gate passes.
 
+**S8/S10/S11 after the fix (2026-10-08; terrain study defects 6, 10-12).**
+- **The spawn mechanism, decoded.** Every free-roam dispatcher's player Init places the player with
+  `MoveInstantXZY(Global.Int24[64], Int16[67], Int24[69])` (WORLD09 e13 tag0), the persisted record, height included;
+  only `D8:2 == 0` stamps a default first. `door_arrivals.py`: 56 of 818 stock field scripts write a constant into the
+  record before `WorldMap()`, 43 points; 37 of the 41 with an entrance tile within a block sit within 4u of one
+  (median 1.7u); the far ones are scripted story arrivals (Oeil Vert 70u, Hilda Garde 58u, the Evil Forest tent 48u).
+  Every other exit lands where the record last stood: the entrance tile the player walked onto. The memory's "hardcoded
+  door arrival" is these 56 exits' writes, not a dispatcher table.
+- **The entrance guard** (`mesh.entrance_guard`, change 3) refuses raising ground > 1.17u (the canopy step) within 8u
+  of an entrance tile or a door arrival, or dropping a tile; lowering passes, a tile moved within the limits is
+  reported. Three rules were measured over 9,780 land centres (`entrance_guard_exposure.py`):
+
+  | rule | r8 | r16 | r24 | r48 | r96 |
+  |---|---|---|---|---|---|
+  | world-deploy's old whole-block rule | 42.1% | 49.7% | 57.5% | 76.1% | 95.3% |
+  | any move of a tile (the first kit draft) | 4.9% | 11.6% | 20.1% | 46.1% | 82.9% |
+  | the kit's rule, +3 hill | 7.7% | 12.7% | 16.8% | 33.6% | 63.1% |
+  | the kit's rule, +1 hill or any lowering | 0% | 0% | 0% | 0% | 0% |
+
+  (an upper bound: the stitch pins are ignored.) `composition_postfix.py`: S8's (7,4) edit now refuses in all three
+  writers; entrance -> reshape refuses and stacks when allowed.
+- **The morph stitch gate** (change 6): S10's 1u Object tear is no longer clean. `morph_gate_calibration.py`: of the
+  453 morphs the `world-morphs` scanner certifies under the old gates, it fails 4, all one cliff window at (8,15)
+  (~0.75u lateral, a Sea6 vertex left behind); the entrance guard refuses none and reports moved tiles on 2.
+- **The carry stitch gate** (defect 10): `carry_gate_calibration.py`, all 260 disc-1 donors carried by default onto
+  (23,10): fires on 0 of the 7 previously clean carries and on 27 others, all under a nonzero shift, every partner a
+  prefab part the carry leaves (19 Object, Beach2 4, River 3, RiverJoint 3, Sea6 3, Falls 2, Stream 1, VolcanoCrater
+  1). A growth cut's split welds are `rewelded` (its filler lands on both pieces); the 9 growth-cut tests pass.
+- **`.bak` parks** (change 7): `mesh.park_backup` never reuses a name.
+
 **S11. [measurement] `.bak` parking loses bytes inside one second.**
 
 `deploy_override` names the park `.bak-%Y%m%d-%H%M%S` (mesh.py:501; sidecar :284), at 1-second resolution, and
@@ -371,7 +407,10 @@ same writes 1.2 s apart leave 2 parks.
    discards and refuses to erase kit entrance tiles without `--allow-overwrite`). **An overwrite gate for any writer that still reads pristine.** Measured failure: S3/S9, the ledger lets kit-on-kit
    erasure through. Call `mesh.mod_overwrite_gate(cells, mod_folder, disc=write_disc, parts=(written part,))` in the
    same four functions before writing. Refuse unless `--fresh` / `allow_overwrite`.
-3. **An entrance guard in `terrain.reshape` and `transplant.morph_in_place`.** Measured failure: S8, plus S6/S7 at 3-74%
+3. **BUILT 2026-10-08** as `mesh.entrance_guard`, shared by world-terrain, world-deploy and `morph_in_place`, and
+   narrower than proposed: it refuses raising ground > 1.17u within 8u of an entrance tile or a stock door arrival
+   (`door_arrivals.py`), or dropping a tile, not every edit of an entrance block (`entrance_guard_exposure.py`: a +3
+   r16 hill refuses 12.7%, the whole-block rule 49.7%). **An entrance guard in `terrain.reshape` and `transplant.morph_in_place`.** Measured failure: S8, plus S6/S7 at 3-74%
    exposure. Lift the cli.py:4154-4170 `block_mapids` event check into a shared `mesh.entrance_guard(bms)` and call it
    from both, plus `_cmd_world_deploy`.
 4. **BUILT 2026-10-08** as `mesh.stitch_gate`, in world-terrain and world-deploy (refuse on any tear; world-deploy's [diag] lift/spike warn). **A STITCH GATE (pre/post weld preservation), not `weld_audit`.** Measured failure: C3, weld_audit flags 0 for a
@@ -388,11 +427,13 @@ same writes 1.2 s apart leave 2 parks.
      widened to all registered parts.
    - Do NOT co-move Sea: water must stay at its layer (vertical lane V9 envelope: open sea 0, shallow rim ≤ +0.8u).
      **Pin** Sea-welded Terrain verts (weight 0) instead, and let the walk gate catch any slope this creates.
-6. **Widen `morph_in_place`'s part set to every registered part.** Measured failure: S10, 1,222 weld positions
+6. **BUILT 2026-10-08 as a gate, not a wider part set** (an Object co-moved is a sheared building): `morph_in_place`
+   and both transplant paths run `mesh.stitch_gate` over every part the cell carries, the unloaded ones held
+   (`morph_gate_calibration.py`, `carry_gate_calibration.py`). **Widen `morph_in_place`'s part set to every registered part.** Measured failure: S10, 1,222 weld positions
    unreachable and a 1u Object tear passing every gate. Change the `parts=PARTS` default in
    `transplant.morph_in_place` to the full `placement.REGISTRATION_ORDER` set present on the cell, or make
    `_frame_set` / the stitch gate cover intra-block cross-part welds.
-7. **Collision-proof `.bak` names.** Measured failure: S11, 5/5 trials lost a park. In `mesh.deploy_override` (:501)
+7. **BUILT 2026-10-08** as `mesh.park_backup` (increment-until-free, exclusive create). **Collision-proof `.bak` names.** Measured failure: S11, 5/5 trials lost a park. In `mesh.deploy_override` (:501)
    and `deploy_donor_sidecar` (:284), add microseconds or an increment-until-free suffix.
 8. **(Docs) "seam-continuous / nothing tears" is Terrain-only.** The module docstring at terrain.py:9-10 and the
    `_cmd_world_deploy` docstring (cli.py:4091-4092) should say so (S2/S5).

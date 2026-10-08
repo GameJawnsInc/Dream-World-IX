@@ -129,6 +129,51 @@ def load_world_dispatchers(game=None) -> dict:
     return {name: langs["us"] for name, langs in load_all_dispatchers(game).items() if "us" in langs}
 
 
+#: the world player's persisted position record (``content.worldexit._POS_ONFOOT`` / ``_POS_VEHICLE``): x/z var
+#: classes+indices, written as ``05 <class> <idx> 7E <i32> 2C 7F`` (world * 256)
+_ARRIVAL_XZ = (((0xC8, 0x40), (0xC8, 0x45)), ((0xC8, 0x53), (0xC8, 0x58)))
+_ARRIVAL_CACHE: dict = {}
+
+
+def door_arrivals(game=None) -> tuple:
+    """The world ``(x, z)`` of every stock DOOR ARRIVAL: where a field exit sets the player down on the world map.
+    Every free-roam dispatcher's player Init places the player at the persisted position record
+    (``MoveInstantXZY(Global.Int24[64], Int16[67], Int24[69])``, WORLD09 e13 tag0); 56 stock field scripts write a
+    constant into it before ``WorldMap()`` (43 points). Every other exit lands where the record last stood -- on the
+    entrance tile the player walked onto. Measured (terrain study ``door_arrivals.py``): 37 of the 41 points with
+    an entrance tile within a block sit within 4u of one (median 1.7u); the far ones are scripted story arrivals.
+    Read from the install's field scripts (us) once per process (~2s); ``()`` when there is no install."""
+    try:
+        root = str(config.find_game_path(game))
+    except Exception:                                    # noqa: BLE001 -- no install: nothing to read
+        return ()
+    if root in _ARRIVAL_CACHE:
+        return _ARRIVAL_CACHE[root]
+    out = set()
+    try:
+        import struct
+        from .. import extract as FX
+        bundle = FX._events_bundle(game)
+        env = FX._load_env(FX._streaming_assets(game) / bundle) if bundle else None
+        for k, obj in (env.container.items() if env is not None else ()):
+            kl = k.lower()
+            if "eventbinary/field/us/" not in kl or not kl.endswith(".eb.bytes"):
+                continue
+            data = FX._raw_bytes(obj.read())
+            writes = [(m.start(), (m.group(1)[0], m.group(2)[0]), struct.unpack("<i", m.group(3))[0])
+                      for m in re.finditer(rb"\x05([\xC8])(.)\x7E(.{4})\x2C\x7F", data, re.S)]
+            for xv, zv in _ARRIVAL_XZ:
+                for o, var, x in writes:
+                    if var == xv:
+                        z = next((v for o2, var2, v in writes if var2 == zv and o2 > o), None)
+                        if z is not None:
+                            out.add((round(x / 256.0, 3), round(z / 256.0, 3)))
+    except Exception:                                    # noqa: BLE001 -- an unreadable bundle: no arrivals known
+        out = set()
+    _ARRIVAL_CACHE[root] = tuple(sorted(out))
+    return _ARRIVAL_CACHE[root]
+
+
 def dispatcher_cases(dispatcher_bytes: bytes):
     """The set of base-2 AREA-switch case values in a dispatcher's entry-1/tag-1 function, or ``None`` if it has no
     such switch (a tiny cutscene-state dispatcher). A destination case is only reachable in dispatchers that carry it."""
