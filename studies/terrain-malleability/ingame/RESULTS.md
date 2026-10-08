@@ -388,7 +388,7 @@ Of the 43 stock door arrivals, it is one of few where the kit's r16 reshape pass
 **Older evidence, which pointed the same way and was never read for it.** The kit's own field 6603 exit stores y = +1024. Under stock's sign that is world −4.0: Dali stores −6803, which is its ground 26.578. So it sits 7.2u under its 3.2 landing ground, and every harness arrival there read 3.199 before any input (vehicle sessions 2 and 4, the d9 loops).
 
 **What this means for the kit.**
-- The guard's rise rule refuses safe edits: 12.7% of +3 r16 edits, by `entrance_guard_exposure.py`.
+- The guard's rise rule refused safe edits: 12.7% of +3 r16 edits, by `entrance_guard_exposure.py`. It was removed the same day (owner's go); the guard now refuses only a dropped or re-cut tile.
 - Its other rule still stands. Dropping or re-cutting an entrance tile removes the trigger.
 - What froze the player at Dali in July 2026 is unexplained. That same day's notes misattributed another freeze to Dali (a hollow building's courtyard), and nothing here reproduces a freeze from raised ground at a landing.
 
