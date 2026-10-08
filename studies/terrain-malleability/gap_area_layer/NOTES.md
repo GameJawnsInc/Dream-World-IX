@@ -246,7 +246,7 @@ Every writer **declares** a target area. The **site policy area** is chosen in t
 
 | # | writer | rule | measured consequence it prevents |
 |---|---|---|---|
-| R1 | world-island, world-reclaim, mesh emitters | stamp the **site policy area**, not 0 | Area 0 is zone 0, which has records at topographs {0,13,37}, so minted grass rolls Python/Goblin/Mu. The ring needed a post-hoc 85,236-vert / 112-file restamp (REVERT §26). |
+| R1 | world-island, world-reclaim, mesh emitters | **BUILT 2026-10-08**: `--area N`; else a reclaim cell joining stock land takes the walkable ground's area along the shared edge (camera place carries on); else, at open sea, 14, the safe road (the owner's pick). Stamped on the ground parts only; the sea keeps 0. Was: stamp the **site policy area**, not 0 | Area 0 is zone 0, which has records at topographs {0,13,37}, so minted grass rolls Python/Goblin/Mu. The ring needed a post-hoc 85,236-vert / 112-file restamp (REVERT §26). |
 | R2 | world-entrance | **BUILT 2026-10-08** as `--tile-area host` (the default): event tiles take the dominant area of the walkable ground within 3u, the stock rule measured in §F. Never area := case. keep/case/N warn when off the host. | 3/151 cases lock, 62/151 change the place, 70/151 make the trigger encounter-live, 89 wrap. Live: 5 armed quay clusters are zone-0 islands inside safe area-14 ground (AL3/AL5). |
 | R3 | world-retarget `--area` | keep as a user flag, but print the area's consequence row, refuse area 12 and any place change against neighbouring ground unless `--force`, and fix the help text | AL1/AL2 |
 | R4 | world-mountain | keep the strip, but strip to the **site policy area** instead of 0 | a carried Uaho at 63 would be place 2 and zone 24 (Path D measured: 754 u² encounter-live) |

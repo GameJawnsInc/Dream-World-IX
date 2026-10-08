@@ -30,16 +30,17 @@ KIT = Path(r"C:\gd\Dream-World-IX\ff9mapkit\ff9mapkit")
 
 # (writer / verb, class, [(relpath, needle)], note)
 WRITERS = [
-    ("world-island (island.py)", "STAMP-CONST 0",
-     [("world/island.py", "idw = float(encode_id(topograph=CLIFF_TOPO))"),
-      ("world/island.py", "idg = float(encode_id(topograph=gspec[\"topo\"]))"),
-      ("world/islandbeach.py", "id_sand = float(encode_id(topograph=SAND_TOPO[ground]))")],
-     "every minted tri area 0 -> zone 0 (Alexandria/Mist start fauna), place 0, label 'area 0'"),
-    ("world-reclaim / synthetic emitters (terrain.reclaim -> mesh.*_block_mesh)", "STAMP-CONST 0",
+    ("world-island (island.py)", "STAMP-POLICY (14 at open sea, or --area)",
+     [("world/island.py", "idg = float(encode_id(topograph=gspec[\"topo\"]))"),
+      ("world/island.py", "M.stamp_area(bmw, stamp[\"area\"])"),
+      ("world/terrain.py", "a, src = M.SAFE_ROAD_AREA, \"open-sea\"")],
+     "R1 BUILT: the builders still emit area 0, then the writer stamps Terrain + Beach1 with --area or 14 (the "
+     "safe road); the sea keeps 0. Was: every minted tri area 0 -> zone 0, place 0, 'Gunitas Basin'"),
+    ("world-reclaim / synthetic emitters (terrain.reclaim -> mesh.*_block_mesh)", "STAMP-POLICY (host, else 14)",
      [("world/mesh.py", "idall = float(encode_id(event=0, area=0, topograph=topograph))"),
-      ("world/mesh.py", "idg, ids = float(encode_id(topograph=grass_topo)), float(encode_id(topograph=shore_topo))"),
-      ("world/mesh.py", "idL, idC = float(encode_id(topograph=land_topo)), float(encode_id(topograph=cliff_topo))")],
-     "flat/island/cliff cells: area 0"),
+      ("world/terrain.py", "M.stamp_area(bm, stamp[\"area\"])"),
+      ("world/terrain.py", "def host_area_for_cells(cells, mod_folder: str, *, disc: int = 1, game=None, band: float = 8.0)")],
+     "R1 BUILT: --area, else the joining ground's area (8u strip), else 14. Was: flat/island/cliff cells area 0"),
     ("building (blendio.build_from_obj)", "STAMP-CONST 0 (or caller idall)",
      [("world/blendio.py", "idall = float(encode_id(event=0, area=0, topograph=topograph) if idall is None")],
      "idall=4078 (0x0FEE) recommended on donor-backed cells -> decodes as area 15 but is walk-skip, never a ground hit"),

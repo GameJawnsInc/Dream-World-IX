@@ -24,9 +24,9 @@ import math
 
 BLOCK = 64
 #: how far (XZ, u) a Terrain edit fades in from a held seam weld (THE STITCH PINS): one 4u lattice step. Measured
-#: over the 588 seam-centred +-3 r16 edits of the study's tear sweep (``stitch_postfix.py``): a hard pin (0) leaves a
-#: lip where a held vertex sits beside a moved one (48 edits gained a one-way edge, vs 10 before the fix); 4u brings
-#: that back to 10 and keeps 70% of the edit's displacement; 8u keeps only 48%
+#: over the study's 5,292 seam-centred tear-sweep edits (``stitch_postfix.py``): a hard pin (0) leaves a lip where a
+#: held vertex sits beside a moved one (581 edits gained a one-way edge, vs 91 before the fix); 4u brings that to 112
+#: and keeps 70% of the edit's displacement; 8u keeps only 48%
 SEAM_TAPER = 4.0
 from .mesh import GRID_COLS as GRID_X, GRID_ROWS as GRID_Y  # noqa: E402  the authoritative 24x20 grid
 
