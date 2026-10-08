@@ -54,6 +54,10 @@ New scripts, all read-only and all writing to `out/verify_*.json`:
 3. **One Path-D cell carries an un-blanked stock object.** Disc9 (13,15) uses donor (0,0) without an Object blank, so
    (0,0)'s stock `Object` (5 tris, all topograph 59) free-rides as render and walkmesh. Every other donor-(0,0) cell
    blanks it. This is an oracle prediction in BLANK mode with no receipt.
+   **Refuted 2026-10-08 (README defect 21):** the prediction holds, but the free-ride is correct. (13,15)'s Terrain
+   is (0,0)'s own, verbatim and unmoved, and its centre hole is exactly the Object's footprint. The other donor-(0,0)
+   cells carry other terrain, so they must blank it. A free-rider list is not a defect list: ask what the carried
+   ground needs.
 4. **The weather consumer of area bits is one-shot per world entry.** It runs only when `w_frameCounterReady == 10`,
    so for weather what matters is the area under the spawn point. Encounters, sysvars, the camera and the title
    still read area continuously.
