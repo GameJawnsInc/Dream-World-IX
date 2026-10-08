@@ -2983,3 +2983,64 @@ stand. With this, THE RING'S RATIFIED BOARD IS CLOSED IN-GAME: R1 (hub/hall/ferr
 quays) · R3 (Lamplight + the virgin-case plates) · R4 (forest + the encounter table-hole chain)
 · R5 (the boat: wake, plate, engine landings, the interior seal, the standoff) — all
 owner-confirmed.
+
+---
+
+# 32. THE HOST-AREA STAMP — terrain study defects 15-17 — **APPLIED + IN-GAME VERIFIED** (2026-10-08, hot)
+
+Run 2026-10-08 from the terrain-malleability study (`studies/terrain-malleability/README.md` section 6, defects
+15-17; evidence `gap_area_layer/NOTES.md` C and E). R4b (section 26.2) stamped open Terrain ground area 14 but left
+three things on their old area, all live:
+
+* **(19,18) Terrain: 45 carried stock Cleyra entrance tris, area 12** (IDALL 19620). In game (terrain study
+  `ingame/RESULTS.md` section 1) they locked the camera below scenario 4990, refused R2, labelled the place
+  "Vube Desert" and rolled zone-5 battles (scene 174) inside the safe road. Inert as an entrance.
+* **The six quay triggers** (Ashvale (0,18), Eastbay (1,6), Tidefall (6,19), Larkspur (10,9), Grimhorn (18,18),
+  Lamplight (22,18)): area 0 = zone 0, so the topograph-0 triggers could roll battles inside the safe road.
+  Section 26.2 skipped them on purpose ("ours stay area 0 -- the probes' invariant").
+* **Sandreach Beach1 (12,18)/(12,19): donor area 49** -- a beach-search arm and the "Palmnell Island" label.
+  R4b covered Terrain only.
+
+## 32.1 The change
+
+`stamp_area_host.py --apply`: each target takes its block's HOST area -- the dominant area of the block's own open
+Terrain ground (event 0, not the 36-38 canopy, not a walk-skip id) -- which is 14 in all nine blocks. Only the six
+area bits of tangent.x change (bits 8-13); event, topograph, flags, geometry, UVs and normals are byte-preserved.
+The trigger cases 65-68 and the ferry dispatch through dispatcher cell tags, not area (THE CELL-TAG JOIN), so the
+quays are unchanged. Zone 6 has records only at topographs 10/36 on both discs; the targets are 0/17/34/41, so
+with s60 none can encounter.
+
+Write set, both discs (18 files, Disc1 == Disc4 byte-identical after):
+
+| block | part | tris | area |
+|---|---|---|---|
+| (19,18) | Terrain | 45 | 12 -> 14 |
+| (0,18) (1,6) (6,19) (10,9) (18,18) | Terrain | 6 each | 0 -> 14 |
+| (22,18) | Terrain | 7 | 0 -> 14 |
+| (12,18) / (12,19) | Beach1 | 20 / 7 | 49 -> 14 |
+
+Pre-state: 16 of the 18 files matched `probe_r3/md5_after_r4b.txt`; the two Eastbay files were in the kit ledger.
+Written through `mesh.deploy_override` (force, since R4b's study-script stamp never entered the ledger: the ledger
+now records these bytes). The script refuses unless every count and host area matches the audit, and verifies that
+no byte outside the targeted tangent.x floats moved. Report: `probe_r3/area_host_stamp.json`.
+
+## 32.2 Verified
+
+* **Offline.** The study's area lint (`gap_area_layer/area_lint.py`), Disc1 and Disc4 each: AL1 (lock) 1 -> 0,
+  AL4 (weather) 1 -> 0, AL3 (event area) 8 -> 1 (left: the inert (9,17) Object event tris at (12,18), not a
+  target), AL5 (encounter-live ground) 8 -> 2 (left: the designed canopy). Disc9 unchanged. `probe_area14_stamp.py`
+  ALL PASS after its invariant (c) moved to "event tiles carry area 14, other bits untouched" -- it fails with
+  exactly 456 violations against the pre-stamp backup, so the new check bites. `probe_quay_sites.py` 40/40 at each
+  of the five snapshotted sites (Eastbay has no pre-deploy snapshot, so the "all" sweep could not run before this
+  either).
+* **In game** (`studies/terrain-malleability/ingame/area_host_session.py`, run `.harness-runs/20261008-105035-
+  area-host-hall`, **11/11**). On round 1's lock spot the title reads "Lindblum Plateau" and R2 now toggles the
+  camera (change 22.4 vs noise 0.004; round 1: refused). Sandreach Beach1 and Ashvale's trigger both read
+  "Lindblum Plateau". Confirm on Ashvale's trigger still enters the Lantern Hall, which renders and grants control.
+  Calibrated: before each fixed point the title read "Vube Desert" on a stock area-12 control, so the title is live.
+
+## 32.3 Undo
+
+Restore the 18 files from `backups/southern-ring-area-host.20261008-103932/` (same relative paths under
+`FF9CustomMap-world/`), then re-enter the overworld; no relaunch. The kit also parked `.bak-*` copies beside each
+file.

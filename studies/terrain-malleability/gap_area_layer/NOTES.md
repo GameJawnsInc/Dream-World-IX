@@ -270,7 +270,10 @@ differs from stock at that position. Path D samples are all authored.
 | AL7 SKIP-DECODE | INFO | override tris carry 4078/4088/2040 (area bits are a decode artifact) | WMPhysics skip |
 | AL8 INERT-EVENT | INFO | an authored event tile's cell tag matches no live dispatcher tag | WorldEvent / GetIP |
 
-**Live result.**
+**Live result** (2026-10-07; **since 2026-10-08** the host-area stamp, southern-ring `REVERT.md` section 32, fixed
+the Cleyra set, the five armed quays plus Grimhorn and the Sandreach Beach1. Disc1 and Disc4 now read AL3 x1, the
+inert (12,18) Object tris, AL5 x2, the canopy, and AL8 x2. Calibration C-a now rebuilds the pre-fix (19,18) layer in
+memory, since the live cell no longer fires):
 * **Disc1 and Disc4 (identical):**
   * AL1 ×1 and AL4 ×1 at (19,18).
   * AL3 ×8: 5 armed quays, Grimhorn, the inert Cleyra set, and (12,18). At (12,18) the donor (9,17) Object's

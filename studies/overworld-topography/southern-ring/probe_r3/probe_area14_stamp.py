@@ -7,8 +7,10 @@ topos 10/36: a hole for every topograph our ground carries). Invariants:
 
   (a) NON-event, NON-encounter-topo tiles carry area 14 -- everywhere, both discs;
   (b) encounter-topo tiles (36/37/38 -- the canopy) keep area 0 (zone 0: Python/Goblin/Mu);
-  (c) EVENT tiles are byte-identical to the pre-stamp backup (ours stay area 0; the horseshoe
-      carry's stock event tiles keep whatever areas they always carried);
+  (c) EVENT tiles carry the host area 14 too, and differ from the pre-stamp backup ONLY in their area
+      bits (REVERT section 32, 2026-10-08 -- the host-area stamp: R4b originally left them at area 0,
+      and the carried Cleyra tiles at 12, which kept zone-0 triggers and an area-12 camera lock live
+      inside the safe road; their dispatch rides cell tags, not area, so the triggers are unchanged);
   (d) the stamp changed ONLY area bits (topo/event/flags identical to the backup);
   (e) Disc1/Disc4 parity.
 
@@ -58,8 +60,13 @@ def main() -> int:
                     if dd["event"]:
                         n_ev += 1
                         ev_areas[dd["area"]] += 1
-                        if pre_idall is not None and pre_idall != idall:
-                            viol.append((disc, f.name, k, "event tile changed"))
+                        if dd["area"] != SAFE_AREA:
+                            viol.append((disc, f.name, k, f"event tile area {dd['area']} (REVERT 32)"))
+                        if pre_idall is not None:
+                            pd = W.decode_id(pre_idall)
+                            if (pd["topograph"], pd["event"], pd["flags"]) != \
+                               (dd["topograph"], dd["event"], dd["flags"]):
+                                viol.append((disc, f.name, k, "event tile non-area bits changed"))
                     elif dd["topograph"] in ENC:
                         n_enc += 1
                         if dd["area"] != 0:
@@ -74,7 +81,7 @@ def main() -> int:
                                (dd["topograph"], dd["event"], dd["flags"]):
                                 viol.append((disc, f.name, k, "non-area bits changed"))
     print(f"open-ground verts area-{SAFE_AREA}: {n_open}  canopy verts area-0: {n_enc}  "
-          f"event verts untouched: {n_ev}")
+          f"event verts (host area, other bits untouched): {n_ev}")
     print("event-tile areas (incl. the horseshoe carry's stock tiles):", dict(sorted(ev_areas.items())))
     mism = []
     for r in ROWS:

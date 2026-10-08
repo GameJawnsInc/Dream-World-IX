@@ -318,6 +318,33 @@ ran 51–57. Both fixed launches carry the same five files, and the fix replaces
 four 1-tri stubs. So the dip tracks the machine's background load (two Godot and three python processes held about
 40% of the CPU), not the geometry.
 
+### 15. Defects 15-17 fixed on the live Ring, verified in game (2026-10-08): 11/11
+
+The fix is southern-ring `REVERT.md` section 32 (the host-area stamp): 18 live files, area bits only, both discs.
+No deploy for the session itself; it reads the live install. `area_host_prep.py` reads every point off the stamped
+mesh first; `area_host_session.py` reuses round 1's route (6603 door) and frame instruments.
+
+| check | result | evidence |
+|---|---|---|
+| H0 scenario < 4990, so an area-12 tile would still lock | PASS | scenario 0 |
+| H2 control: R2 on P14 | PASS | change 18.7 vs noise 0.002 |
+| C1-C3 the title follows the tile: a stock area-12 control reads "Vube Desert" before each fixed point | 3/3 PASS | the window title |
+| H1 P12, round 1's lock spot on the carried Cleyra tiles, now reads "Lindblum Plateau" | PASS | round 1: "Vube Desert" |
+| H2 R2 on P12 now toggles the camera | PASS | change 22.4 vs noise 0.004; round 1: refused |
+| H3 Sandreach Beach1 reads "Lindblum Plateau" | PASS | before: "Palmnell Island" |
+| H4a Ashvale's trigger reads "Lindblum Plateau" | PASS | before: "Gunitas Basin" |
+| H4b Confirm on the trigger still enters field 6601 | PASS | the dispatch rides the cell tag |
+| H4c the Lantern Hall renders and grants control | PASS | mean luma 60.1, `shots/hall.png` |
+
+Runs: `.harness-runs/20261008-104545-area-host` (7/7, no title control), `…-104834-area-host-controlled` (10/10),
+`…-105035-area-host-hall` (11/11, the record of this section). Memoria.log: 0 exceptions.
+
+**Two instrument lessons.**
+- The first run's three title checks all expected "Lindblum Plateau", which the P14 control also shows. A title
+  that never updated would have passed every one. Read a DIFFERENT name between the points.
+- The first run's frame 60 frames after Confirm was black while the state said field 6601 and FieldHUD: the hall
+  had not published the player yet. `wait_control` first, then judge the frame.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.

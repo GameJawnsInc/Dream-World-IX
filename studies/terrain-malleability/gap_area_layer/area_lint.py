@@ -193,11 +193,17 @@ def main():
     cells = A.live_cells()
     tags = live_tags()
     res = {"calibration": {}}
-    # ---- C-a: Block[19][18] must fire AL1 + AL4 + AL3 ----
+    # ---- C-a: the PRE-FIX Block[19][18] must fire AL1 + AL4 + AL3. The live cell was fixed 2026-10-08 (southern-ring
+    # REVERT section 32: its 45 carried Cleyra tiles went area 12 -> 14), so a control on the live bytes would now fail
+    # for the right reason. The pre-fix layer is rebuilt in memory instead: area 12 back on exactly those tiles. ----
     L1, _ = live_layers(1, {k: v for k, v in cells.items() if k == (1, 19, 18)})
+    v1 = L1[(19, 18)]
+    cleyra = (v1["event"] != 0) & (v1["topo"] == 41)
+    v1["area"] = np.where(cleyra, 12, v1["area"])
+    v1["ids"] = np.where(cleyra, (v1["ids"] & ~(0x3F << 8)) | (12 << 8), v1["ids"])
     f_a = lint(1, L1, tags, base=base[1])
     rules_a = {f["rule"] for f in f_a if f["level"] in ("ERROR", "WARN")}
-    ok_a = {"AL1", "AL4", "AL3"} <= rules_a
+    ok_a = {"AL1", "AL4", "AL3"} <= rules_a and int(cleyra.sum()) > 0
     # ---- C-b: synthetic area-40 stamp on half of a live area-14 cell must fire AL2 ----
     Lb, _ = live_layers(1, {k: v for k, v in cells.items() if k == (1, 10, 9)})
     Lsyn = {k: dict(v) for k, v in Lb.items()}

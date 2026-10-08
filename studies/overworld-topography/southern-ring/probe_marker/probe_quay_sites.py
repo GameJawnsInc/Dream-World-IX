@@ -49,6 +49,9 @@ BEACON_IDALL = 4078
 BEACON_TRIS, BEACON_VERTS = 270, 810
 HULL_TOPO = 59
 TRIGGER_IDALL = 16384
+# The trigger's area is its HOST ground's, 14 (REVERT section 32, 2026-10-08). `--no-tile-area` left it at 0, which
+# kept each quay a zone-0 island that could roll battles inside the safe road. Dispatch rides cell tags, not area.
+TRIGGER_AREA = 14
 # `--trigger-radius 3.0` stamps every up-facing tri whose tile intersects the rect, so the COUNT
 # follows the block's own triangulation: the four quays' reclaim-donor terrain yields 6, the
 # Lamplight island's minted terrain yields 7 (dry-run-predicted and deploy-confirmed). The bbox
@@ -140,15 +143,14 @@ def probe_site(key, backup_root: Path) -> None:
         ev = [t for t in range(len(ter.tris)) if W.decode_id(idall_of(ter, t))["event"]]
         n_trig = TRIGGER_TRIS_BY_SITE.get(key, TRIGGER_TRIS)
         check(len(ev) == n_trig, f"exactly {n_trig} event tris", f"got {len(ev)}")
-        # The invariant is event==1 AND area==0 -- NOT a raw idall equality. `retarget_tiles` sets the
-        # event bit and (with --no-tile-area) leaves area alone, but it also PRESERVES each tile's own
-        # TOPOGRAPH, which is the site's terrain type: Ashvale/Tidefall/Larkspur sit on topo 0 (idall
-        # 16384) while Grimhorn's bench ground is topo 17 (idall 16452). Demanding 16384 everywhere
-        # would have flagged a correct deploy.
+        # The invariant is event==1 AND area==TRIGGER_AREA -- NOT a raw idall equality. `retarget_tiles`
+        # sets the event bit and (with --no-tile-area) leaves area alone, but it also PRESERVES each tile's
+        # own TOPOGRAPH, which is the site's terrain type: Ashvale/Tidefall/Larkspur sit on topo 0 while
+        # Grimhorn's bench ground is topo 17. Demanding one idall everywhere would flag a correct deploy.
         dec = [W.decode_id(idall_of(ter, t)) for t in ev]
-        check(all(d["event"] == 1 and d["area"] == 0 for d in dec)
+        check(all(d["event"] == 1 and d["area"] == TRIGGER_AREA for d in dec)
               and len({idall_of(ter, t) for t in ev}) == 1,
-              "all event tris are event 1 / area 0, and mutually consistent",
+              f"all event tris are event 1 / area {TRIGGER_AREA}, and mutually consistent",
               f"idall {sorted({idall_of(ter, t) for t in ev})} -> "
               f"topo {sorted({d['topograph'] for d in dec})}")
         pts = [p for t in ev for p in tri_pts(ter, t)]
@@ -170,8 +172,8 @@ def probe_site(key, backup_root: Path) -> None:
               f"pre {len(pre_ev)} / post {len(post_ev)}")
         g = ground(tri_pts, parts, *S.trigger_at)
         gd = W.decode_id(g[2]) if g else None
-        check(g is not None and gd["event"] == 1 and gd["area"] == 0,
-              f"ground query {S.trigger_at} lands on an event-1/area-0 trigger tile",
+        check(g is not None and gd["event"] == 1 and gd["area"] == TRIGGER_AREA,
+              f"ground query {S.trigger_at} lands on an event-1/area-{TRIGGER_AREA} trigger tile",
               "MISS" if g is None else f"{g[0]} idall={g[2]} {gd} y={g[1]:.3f}")
 
         # (b) arrive, both modes
