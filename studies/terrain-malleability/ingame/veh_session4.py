@@ -8,6 +8,13 @@ folder FF9CustomMap-lab (veh_PLAN.md section 5, deploys D2-D5):
     island   world-reclaim --cells 21,1 --profile island            --skip-mirror      (control: the kit default)
     cliff    world-reclaim --cells 21,1 --profile cliff             --skip-mirror      (exploratory, low confidence)
 
+  DEFECT-18 RE-DRIVE (after the fix, 10a3758e: reclaim now ALSO writes hidden Sea1/3/4/5 stubs, so no Block[12][10]
+  water rides under the land). Same deploy commands, kit at or after the fix; the lab then holds 5 files per cell.
+    flat6-fixed   as flat6     REGISTERED (d18_predict.py -> out/d18_predict.json): both lanes STALL at the cell
+    cliff-fixed   as cliff     edge, into -0.05 at heading 0 and at all 9 headings of the +-2 deg band (the sea-level
+                               probe now MISSES inside the cell = the vehicle wall). Pre-fix the same simulator crossed
+                               the cell on flat6 OPEN (123.81) and on both cliff lanes (123.54 / 118.87).
+
     py studies/terrain-malleability/ingame/veh_prep.py
     $env:VEH_PHASE = "flat6"; py tools/play.py studies/terrain-malleability/ingame/veh_session4.py --label veh-session4-flat6
     py studies/terrain-malleability/ingame/veh_post.py <run dir>
@@ -74,6 +81,8 @@ PRED = {
     "flat1.2": {"open": ("stall", (-1.0, 0.1)), "rim": ("stall", (-1.0, 0.1))},
     "island":  {"open": ("stall", (-1.0, 0.1)), "rim": ("stall", (-1.0, 0.1))},
     "cliff":   {"open": ("explore", None), "rim": ("explore", None)},
+    "flat6-fixed": {"open": ("stall", (-1.0, 0.1)), "rim": ("stall", (-1.0, 0.1))},     # defect 18 fixed
+    "cliff-fixed": {"open": ("stall", (-1.0, 0.1)), "rim": ("stall", (-1.0, 0.1))},
 }
 
 
