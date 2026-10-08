@@ -522,6 +522,14 @@ weld on the cell, including the parts it does not load (Object, river, falls, vo
 moves; a carry checks every donor weld through its tweaks, rotation and shift, against the parts the donor's prefab
 still renders where they are. A growth cut splits the welds on its line on purpose; its filler column re-welds them.
 
+**Walls are judged by what the edit makes (after 1.0.0b19; terrain study defect 23).** On foot the player moves
+0.4375u a tick and finds ground at most 2.34375u above him (the walk ray's start; 1.171875u from canopy, where he
+stands sunk). So an edge longer than a step is unclimbable above ~79.4°, and a shorter one when it rises more than
+the reach; in game a ~1u vertical step was climbed and a 2.5-3u one was not. `world-terrain` refuses an edit only for
+an edge it turns from climbable into unclimbable on a tile the walker can enter (`--allow-steep` overrides). Stock
+town walls and cliffs, and rock tiles walled by their topograph, never refuse. The old gate refused any touched edge
+over ~79.4° and turned down half of all random ±4 land edits for walls that were already there.
+
 **Entrances are guarded (after 1.0.0b19; terrain study defect 6).** `world-terrain`, `world-deploy` and
 `world-transplant --in-place` refuse an edit that drops or re-cuts a walk-on entrance tile: the dispatcher still
 routes that entrance, with no tile left to fire it. `--allow-entrances` overrides. A tile an edit only moves still

@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-terrain` no longer refuses an edit for a wall that was already there
+- The one-way-wall gate refused a reshape when any edge of a triangle it touched was steeper than ~79.4°. Most such
+  edges were stock town walls and cliffs the edit never made: over 2,400 random ±4 land edits (r8-24) it refused
+  1,218, and 28 of the 43 stock door-arrival spots could not take even a +1 hill or a 3u lowering.
+- It now refuses only an edge the edit turns from climbable into unclimbable, on a tile the walker can enter. An edge
+  longer than one 0.4375u step is unclimbable above ~79.4°; a shorter one when it rises more than 2.34375u (in game a
+  ~1u vertical step was climbed and a 2.5-3u one was not). On canopy the reach is 1.171875u, since the player stands
+  sunk. Rock tiles (topograph 49 and the like) are walls by their topograph and never refuse.
+- The same 2,400 edits now refuse none; steep sculpts still refuse (36 of 360 r4-6 ±12-20 sculpts, a median 2.19u
+  past the climb limit). The stretch warning (28.6°) now names the steepest edge the edit made steeper, and the
+  summary's `walkability` row carries the refusing edge as `barrier`. `--allow-steep` still overrides.
+
 ### Fixed — the automatic disc-4 mirror no longer leaves a step where an edit crosses a cell disc 4 changed
 - Every world writer mirrors what it wrote into the `Disc4` tree, but cell by cell: a cell whose real ground differs
   on disc 4 is skipped, and its neighbours were copied anyway. An edit across both left the edit on one side of
