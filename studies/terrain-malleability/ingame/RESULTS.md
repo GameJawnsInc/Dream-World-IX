@@ -345,6 +345,84 @@ Runs: `.harness-runs/20261008-104545-area-host` (7/7, no title control), `…-10
 - The first run's frame 60 frames after Confirm was black while the state said field 6601 and FieldHUD: the hall
   had not published the player yet. `wait_control` first, then judge the frame.
 
+## Round 3 (2026-10-08, owner's go: "in-game session"): the defect 5-6 and O2 fixes in game
+
+Three launches checked the kit changes merged at `80219f6a`. They used the same scratch-folder protocol:
+- the ini was backed up to `backups/Memoria.ini.pre-r3-lab.20261008-154311`;
+- the lab sat first in FolderNames;
+- the ini was restored byte-exact afterwards (sha256 `0b5a4985…`, verified) and the lab was removed.
+
+Every lab file is a stage from `r3_build.py`, which is the CLI's own output (`world-terrain --mod-folder FF9CustomMap-lab ...`, run from `ff9mapkit/`). Each stage was snapshotted, and the session checks the lab byte-for-byte against the snapshot.
+
+Predictions came from the sky ground query on each stage (`out/r3_build.json`) and were registered in the `r3_session.py` docstring before the runs. `r3_post.py` lists the lab files each world load bound in `Memoria.log`.
+
+### 16. The entrance guard's premise is REFUTED: the world load re-grounds the player from the sky
+
+The question: does a field exit set the player down at the height stored in the position record (H-RECORD), or on the topmost ground (H-SKY)?
+- **What H-RECORD says.** This is the guard's premise and the July Dali reading. The guard (`mesh.entrance_guard`, defect 6) refuses raising ground more than 1.17u near a landing because of it.
+- **What H-SKY rests on.** `w_frameMainRoutine` (`ff9.cs:3700-3705`) loads every block synchronously, then runs `w_movementChrInitSlice`: a cast from the sky with an infinite ray. This happens after the scripts' Init.
+
+**The site** (`guard_prep.py`). Burmecia/Entrance (field 750) has a simple exit:
+- from scenario 3800 it arms only the player and its two regions;
+- the exit region (entry 21) is a straight 500u walk from the default spawn;
+- it stores (963.234, 3.086, −718.910);
+- at scenario 4000 its cascade (key 51) loads world 9000.
+
+Of the 43 stock door arrivals, it is one of few where the kit's r16 reshape passes every other gate. The others are refused by the one-way-wall gate, on the vertical town walls already there: defect 23.
+
+**The edits.** Four world loads in one launch, with the lab swapped while he stood in the field (the engine checks every override with `File.Exists` at each load). All edits are r16, centred on the landing.
+
+| stage | edit | ground at the landing (stage) | first WorldHUD frame | at rest, no input | first step |
+|---|---|---|---|---|---|
+| stock | none | 3.088 | 3.086 | **3.086** | 2.62u; y 2.875 vs ground 2.876 |
+| A_lower3 | `--lower 3` | 0.378 | 0.375 | **0.375** | 2.62u; y 0.320 vs 0.321 |
+| A_raise1 | `--raise 1` | 3.992 | 3.086 | **3.988** | 2.61u; y 3.727 vs 3.727 |
+| A_raise4 | `--raise 4 --allow-entrances` (refused by default: exit 2, nothing written) | 6.701 | 6.699 | **6.699** | 2.59u; y 6.281 vs 6.285 |
+
+**Verdict: H-SKY, in game, 16/16** (`.harness-runs/20261008-154635-r3-guard`).
+- Every landing put him at rest on the NEW ground with no input, on the first press in a direction.
+- At +4 that is 3.6u above the stored height, past the 2.34375 reach of the walk ray, so no ray could have lifted him there.
+- The first published world frame shows the order of events: the record's stored height is applied first (A_raise1 first read 3.086), then the load's sky cast replaces it.
+- Memoria.log bound the three lab Terrain files on loads 1-3 and none on load 0; there were 0 exceptions.
+
+**Older evidence, which pointed the same way and was never read for it.** The kit's own field 6603 exit stores y = +1024. Under stock's sign that is world −4.0: Dali stores −6803, which is its ground 26.578. So it sits 7.2u under its 3.2 landing ground, and every harness arrival there read 3.199 before any input (vehicle sessions 2 and 4, the d9 loops).
+
+**What this means for the kit.**
+- The guard's rise rule refuses safe edits: 12.7% of +3 r16 edits, by `entrance_guard_exposure.py`.
+- Its other rule still stands. Dropping or re-cutting an entrance tile removes the trigger.
+- What froze the player at Dali in July 2026 is unexplained. That same day's notes misattributed another freeze to Dali (a hollow building's courtyard), and nothing here reproduces a freeze from raised ground at a landing.
+
+**Instrument lessons.**
+- (a) A blind calibration probe beside an exit is refused (launch 1); pass `prior=g.key_prior(field)`, which comes from the field's `SetControlDirection`.
+- (b) **The first WorldHUD frame comes before the all-block load.** The next frame arrived 4.4s later. Launch 2 (15/16) judged "at rest" on wall-clock stillness of that one stalled frame. G1 read the stored 3.086 there, and the lowered ground three frames later with no input. Count stillness in advancing frames (`r3_session.rest`).
+
+### 17. The beach seam after the stitch pins (defect 5): the one-way wall is gone, 2/2
+
+Session 5's edit was rerun: `world-terrain --at 480 -1120 --radius 16 --raise 3` on (7,17). The kit held 40 seam vertices, and the land fades in over 4u. Offline, the steepest per-step rise north from the foam is 0.37-0.38u on all three lines (stock 0.10-0.15; session 5 about 3u).
+
+| line x | beach → terrain (3u north) | terrain → beach (4u south) |
+|---|---|---|
+| 476.28 | **reached** 3.70u, y 0.36 → 3.38 | reached 4.72u, y 3.00 → 0.29 |
+| 479.64 | **reached** 3.05u, y 0.77 → 3.23 | reached 4.32u |
+| 480.18 | **reached** 3.75u, y 0.77 → 3.71 | reached 4.75u |
+
+Session 5 at the same +3 refused all three climbs. The frame from the south (`shots/beach-look.png`) shows no slit: sand runs up the raised slope to the grass, beside (7,17)'s stock rock face. The kit warned the steepest edge is 75.5° (texture stretch); whether it looks right is the owner's call. Run: `.harness-runs/20261008-154747-r3-beach`, Memoria.log bound the lab (7,17) Terrain.
+
+### 18. The disc-4 replay (O2): disc 4 gets the same hill, with no wall, 3/3
+
+Session 6's edit was rerun: `world-terrain --at 256 -872 --radius 16 --raise 4`.
+- Its log: `disc 4 differs from disc 1 at [(4, 13)] -- REPLAYING the edit on Disc4's own ground`.
+- The auto-mirror wrote Disc4 (3,13) and (4,13), with no manual `--disc 4` run.
+
+| point | disc 1 (pred) | disc 4 (pred) | disc 4 stock (session 6's crack) |
+|---|---|---|---|
+| W | 5.195 (5.198) | 5.195 (5.198) | 1.534 |
+| E | 5.395 (5.397) | 5.395 (5.397) | 1.750 |
+| W2 | 4.887 (4.888) | 4.887 (4.888) | 1.575 |
+| E2 | 5.457 (5.460) | 5.457 (5.460) | 2.088 |
+
+On disc 4 (world 9008, scenario 11101) the walk west from E **crossed x = 256** and reached 5.2u, ending at 252.42. Session 6's crack refused it at 256.03. Memoria.log bound the two lab Disc1 files on the disc-1 load and the two Disc4 files on the disc-4 load. Run: `.harness-runs/20261008-154918-r3-replay`.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
