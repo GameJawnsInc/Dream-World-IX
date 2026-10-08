@@ -8,6 +8,8 @@ Hard-won in-game lessons this encodes:
     keeps hitting that stock surface -> the overlay is non-walkable decoration, never ground you climb.
   * WORLD-SPACE, MULTI-BLOCK. A reshape wider than one 64u block is applied to EVERY block it touches with the SAME
     world center/radius/amount, so shared block-edge verts move identically -> seamless (no cut/crack at the grid).
+    That holds for Terrain-Terrain only: the other parts are never written, so every Terrain vertex they share is
+    PINNED (see :func:`reshape`), and the stitch gate refuses any tear.
   * Blocks are LOCAL-frame; ``deform_*`` take ``world_origin`` and read a block's verts (local) + origin to test the
     world distance, so the frame is handled here.
 
@@ -21,6 +23,11 @@ from __future__ import annotations
 import math
 
 BLOCK = 64
+#: how far (XZ, u) a Terrain edit fades in from a held seam weld (THE STITCH PINS): one 4u lattice step. Measured
+#: over the study's 5,292 seam-centred tear-sweep edits (``stitch_postfix.py``): a hard pin (0) leaves a lip where a
+#: held vertex sits beside a moved one (581 edits gained a one-way edge, vs 91 before the fix); 4u brings that to 112
+#: and keeps 70% of the edit's displacement; 8u keeps only 48%
+SEAM_TAPER = 4.0
 from .mesh import GRID_COLS as GRID_X, GRID_ROWS as GRID_Y  # noqa: E402  the authoritative 24x20 grid
 
 
@@ -85,11 +92,35 @@ def _walk_gate(ter, pre_y, blk, summary, *, allow_steep: bool):
             "the sculpt is deliberately impassable terrain.")
 
 
+def stitch_partners(blocks, mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=None,
+                    fresh: bool = False) -> list:
+    """Every non-Terrain part mesh of ``blocks`` (:data:`ff9mapkit.world.mesh.STITCH_PARTNER_PARTS`) -- the mod
+    folder's deployed override when there is one (unless ``fresh``), else stock -- as ``[(name, bm, world_origin)]``:
+    what a Terrain edit there is stitched to. A Terrain edit's block range already holds every partner vertex it can
+    reach (a vertex the field moves lies within the radius, so its partner's block does too). Not modelled: the
+    un-overridden parts a ``Donor.txt`` prefab lends its cell (kit carries blank the parts they do not carry)."""
+    from ..config import ConfigError
+    from . import extract as X, mesh as M
+    from .entrance import read_block_stacked
+    from .placement import canonical_part
+    out = []
+    for (bx, by) in blocks:
+        for p in M.STITCH_PARTNER_PARTS:
+            try:
+                bm = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part=p, game=game, missing_ok=True,
+                                        fresh=fresh)
+            except ConfigError:                    # no install resolves (a hermetic run): nothing stock to read
+                return out
+            if bm is not None and getattr(bm, "verts", None):
+                out.append((f"Block[{bx}][{by}] {canonical_part(p) or p}", bm, X.block_world_origin(bx, by)))
+    return out
+
+
 def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float | None = None,
             flatten: bool = False, height: float | None = None, disc: int = 1, falloff: str = "smooth",
             game=None, dry_run: bool = False, skip_mirror: bool = False,
             target_disc: int | None = None, allow_steep: bool = False, fresh: bool = False,
-            allow_overwrite: bool = False) -> dict:
+            allow_overwrite: bool = False, seam_taper: float | None = None) -> dict:
     """Reshape overworld terrain within ``radius`` world units, across every block it touches. Exactly one SHAPE:
     ``at=(x, z)`` (a radial hill/crater/plateau) or ``seg=((x0,z0),(x1,z1))`` (a ridge/valley). Exactly one OP:
     ``amount`` (signed: ``+`` raise, ``-`` lower) or ``flatten=True`` (level toward ``height``, default the local mean).
@@ -103,6 +134,15 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     reshape COMPOUNDS on its last pass. ``summary["stacked_on"]`` names the overrides read. ``fresh=True`` re-reads
     pristine stock instead (the old behaviour, for re-doing a reshape from scratch); it names what it discards and
     refuses to erase kit entrance tiles unless ``allow_overwrite`` (:func:`ff9mapkit.world.mesh.fresh_reset_gate`).
+
+    THE STITCH PINS (terrain study defect 5). Only Terrain is written, so every Terrain vertex shared with another
+    part (sea, beach, river, Object, volcano; this block or a neighbour, :func:`stitch_partners`) is held in place:
+    the land bends to meet the seam instead of tearing away from it. Before, a +3 reshape at a beach left a 3u slit
+    and a one-way wall (in-game proven), and a random r16 edit tore some seam 46-50% of the time. The water stays at
+    its level and Objects stay rigid (the ROCK RIGID law the mountain carry proved). ``summary["pinned"]`` counts the
+    held vertices the field reached; the one-way-wall gate then judges the slope the pins leave. THE STITCH GATE
+    (:func:`ff9mapkit.world.mesh.stitch_gate`) checks every weld before anything is written, and refuses on any tear.
+    A flatten with no ``height`` uses ONE mean over every block (per-block means pulled shared borders apart).
 
     THE READ/WRITE DISC SPLIT. ``disc`` is the READ disc and must stay 1 or 4 -- ``extract`` has no other
     stock bundle tree. ``target_disc`` is purely where the result is DEPLOYED (a synthetic world's override
@@ -135,7 +175,10 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
         summary.update(M.fresh_reset_gate(in_grid, mod_folder, disc=disc, game=game,
                                           allow_overwrite=allow_overwrite))
     from .entrance import read_block_stacked
-    written = []
+    from .extract import CH_POS as _CP
+    # read every block (and the parts its Terrain is stitched to) BEFORE deforming any: the stitch pins, the shared
+    # flatten height and both gates need the whole edit, and a refusal must come before the first write
+    ters = []
     for bx in range(bx0, bx1 + 1):
         for by in range(by0, by1 + 1):
             if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
@@ -153,24 +196,49 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                 dep = M.deployed_override(mod_folder, bx, by, disc=rtarget, part="Terrain", game=game)
                 if dep is not None:
                     summary["stacked_on"].append(str(dep))
-            wo = X.block_world_origin(bx, by)
-            _ca = getattr(ter, "chan_arrays", None)
-            from .extract import CH_POS as _CP
-            pre_y = [v[1] for v in _ca[_CP]] if isinstance(_ca, dict) and _CP in _ca else []
-            if flatten:
-                moved = M.flatten_region(ter, radius=radius, center=at, height=height, falloff=falloff, world_origin=wo)
-            elif seg is not None:
-                moved = M.deform_ridge(ter, p0=seg[0], p1=seg[1], amount=amount, radius=radius, falloff=falloff,
-                                       world_origin=wo)
-            else:
-                moved = M.deform_radial(ter, amount=amount, radius=radius, center=at, falloff=falloff, world_origin=wo)
-            if not moved:
-                continue
-            _walk_gate(ter, pre_y, (bx, by), summary, allow_steep=allow_steep)
-            if not dry_run:
-                written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain",
-                                                 disc=rtarget))
-            summary["blocks"].append({"block": [bx, by], "moved": moved})
+            ters.append((bx, by, ter, X.block_world_origin(bx, by)))
+    # THE STITCH PINS (defect 5): every Terrain vertex shared with another part -- sea, beach, river, Object, volcano,
+    # in this block or a neighbour -- stays put, so the edit never opens a slit or a one-way wall at a seam
+    partners = stitch_partners(in_grid, mod_folder, disc=rtarget, game=game, fresh=fresh)
+    taper = SEAM_TAPER if seam_taper is None else float(seam_taper)
+    pins = M.stitch_pins(partners, [(t, wo) for _x, _y, t, wo in ters if getattr(t, "verts", None)], taper=taper)
+    if flatten and height is None:                                  # ONE target for every block, or their border tears
+        height = M.mean_height([(t, wo) for _x, _y, t, wo in ters if getattr(t, "verts", None)],
+                               center=at, radius=radius)
+        summary["flatten_height"] = round(height, 4)
+    stats, built, rows = {}, [], []
+    for bx, by, ter, wo in ters:
+        _ca = getattr(ter, "chan_arrays", None)
+        pre_y = [v[1] for v in _ca[_CP]] if isinstance(_ca, dict) and _CP in _ca else []
+        pre = M.world_positions(ter, wo) if getattr(ter, "verts", None) else None
+        if flatten:
+            moved = M.flatten_region(ter, radius=radius, center=at, height=height, falloff=falloff, world_origin=wo,
+                                     pinned=pins, stats=stats)
+        elif seg is not None:
+            moved = M.deform_ridge(ter, p0=seg[0], p1=seg[1], amount=amount, radius=radius, falloff=falloff,
+                                   world_origin=wo, pinned=pins, stats=stats)
+        else:
+            moved = M.deform_radial(ter, amount=amount, radius=radius, center=at, falloff=falloff, world_origin=wo,
+                                    pinned=pins, stats=stats)
+        if pre is not None:
+            rows.append((getattr(ter, "name", f"Block[{bx}][{by}] Terrain"), pre, M.world_positions(ter, wo)))
+        if not moved:
+            continue
+        _walk_gate(ter, pre_y, (bx, by), summary, allow_steep=allow_steep)
+        built.append((bx, by, ter, moved))
+    gate = M.stitch_gate(rows + [(n, pos, pos) for n, pos in
+                                 ((n, M.world_positions(bm, o)) for n, bm, o in partners)])
+    summary["stitch"] = {k: gate[k] for k in ("welds", "torn", "max_sep", "by_mesh")}
+    summary["pinned"] = stats.get("held", 0)
+    if gate["torn"]:
+        raise ValueError(f"STITCH GATE: this reshape would tear {gate['torn']} weld(s) (max {gate['max_sep']}u): "
+                         f"{gate['sample'][:3]}. Every weld should be pinned or move as one -- this is a kit bug, "
+                         f"nothing was written.")
+    written = []
+    for bx, by, ter, moved in built:
+        if not dry_run:
+            written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain", disc=rtarget))
+        summary["blocks"].append({"block": [bx, by], "moved": moved})
     if summary["off_grid"]:
         import warnings
         warnings.warn(
@@ -353,12 +421,74 @@ def _check_blankable(bm, cell, profile: str, eps: float = 1e-6) -> None:
                          f"reclaimed cell carries no water, so that ground would show the void. Raise --height")
 
 
+def host_area_for_cells(cells, mod_folder: str, *, disc: int = 1, game=None, band: float = 8.0) -> dict:
+    """The AREA of the ground new land in ``cells`` would be walked onto from: the dominant area, by XZ area, of the
+    event-free, walkable, non-canopy Terrain within ``band`` u of the cells' outer edges in the neighbouring blocks
+    (the deployed override first, else stock). Land that joins a region continues its camera place, battles and
+    label, as stock's own regions do (they have no walkable camera seam). ``area`` is ``None`` when nothing walkable
+    touches the cells (open sea). Returns ``{"area", "votes": {area: u2}}``."""
+    from collections import Counter
+    from ..config import ConfigError
+    from . import mesh as M
+    from .entrance import read_block_stacked
+    from .extract import decode_id
+    from .placement import WALK_OK
+    cells = {tuple(c) for c in cells}
+    votes = Counter()
+    for (bx, by) in sorted(cells):
+        for (dx, dy) in _DIRS:
+            nb = (bx + dx, by + dy)
+            if nb in cells or not (0 <= nb[0] < GRID_X and 0 <= nb[1] < GRID_Y):
+                continue
+            try:
+                ter = read_block_stacked(mod_folder, nb[0], nb[1], disc=disc, part="terrain", game=game,
+                                         missing_ok=True)
+            except ConfigError:                    # no install resolves (a hermetic run): no stock ground to join
+                ter = None
+            if ter is None or not getattr(ter, "verts", None) or ter.tangents is None:
+                continue
+            # the neighbour's strip along the shared edge, block-local (x 0..64, z 0..-64; by grows southward)
+            inside = {(1, 0): lambda x, z: x <= band, (-1, 0): lambda x, z: x >= BLOCK - band,
+                      (0, 1): lambda x, z: z >= -band, (0, -1): lambda x, z: z <= -BLOCK + band}[(dx, dy)]
+            V = ter.verts
+            for t in ter.tris:
+                idall = int(round(ter.tangents[t[0]][0]))
+                d = decode_id(idall)
+                if idall in M.WALK_SKIP_IDS or d["event"] or d["topograph"] not in WALK_OK                         or d["topograph"] in M.CANOPY_TOPOGRAPHS:
+                    continue
+                a, b, c = V[t[0]], V[t[1]], V[t[2]]
+                if not inside((a[0] + b[0] + c[0]) / 3.0, (a[2] + b[2] + c[2]) / 3.0):
+                    continue
+                votes[d["area"]] += abs((b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2])) / 2.0
+    if not votes:
+        return {"area": None, "votes": {}}
+    return {"area": min(votes, key=lambda k: (-votes[k], k)), "votes": {k: round(v, 2) for k, v in votes.items()}}
+
+
+def minted_area(area, *, host=None) -> dict:
+    """THE MINTED-LAND AREA (terrain study policy R1). An explicit ``area`` wins; else the ``host`` vote
+    (:func:`host_area_for_cells`) for land that joins a region; else :data:`ff9mapkit.world.mesh.SAFE_ROAD_AREA` for
+    land out at open sea. Area 0 -- what every mint used to stamp -- is zone 0: its grass rolled Mist Continent battles
+    and read "Gunitas Basin" (the Southern Ring needed a 112-file restamp). Returns the area, its source and its
+    :func:`~ff9mapkit.world.mesh.area_effects`."""
+    from . import mesh as M
+    if area is not None:
+        if type(area) is not int or not 0 <= area <= 63:
+            raise ValueError(f"area must be an int 0-63, not {area!r}")
+        a, src = area, "explicit"
+    elif host and host.get("area") is not None:
+        a, src = host["area"], "host"
+    else:
+        a, src = M.SAFE_ROAD_AREA, "open-sea"
+    return {"area": a, "source": src, "votes": (host or {}).get("votes", {}), **M.area_effects(a)}
+
+
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
             height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
             shore_topo: int | None = None, shore_frac: float | None = None, rim_run: float | None = None,
             game=None, dry_run: bool = False, skip_mirror: bool = False,
             target_disc: int | None = None, all_sea_target: bool = False,
-            allow_overwrite: bool = False) -> dict:
+            allow_overwrite: bool = False, area: int | None = None) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -389,7 +519,12 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
 
     Requires the CUSTOM engine: the shipped ``s34`` divert routes a sea cell carrying such an override onto a land
     donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of ``SeaBlockPrefab`` -- a stock sea cell
-    short-circuits before the override can fire, so on stock Memoria this is a no-op. REFUSES a target that
+    short-circuits before the override can fire, so on stock Memoria this is a no-op.
+
+    THE AREA (terrain study policy R1): the ground is stamped with ``area`` when given; else the area of the walkable
+    ground the cells join (:func:`host_area_for_cells`), so a bridge continues its region's camera, battles and label;
+    else, out at open sea, the safe road :data:`ff9mapkit.world.mesh.SAFE_ROAD_AREA` (14). Every reclaim used to stamp
+    area 0, Mist Continent battles. ``summary["area"]`` reports the choice. REFUSES a target that
     already holds another deploy's override files (THE MOD-OVERWRITE GATE; ``allow_overwrite=True`` /
     ``--allow-overwrite`` waives it). A LONE reclaimed cell is an
     ISLAND (surrounding stock sea non-walkable on foot); build a contiguous BRIDGE of cells from the coast for an
@@ -434,8 +569,10 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     # really is water, so probing the unrelated real disc would invent coastline against continents that do not
     # exist there. NOTE the guard is on the flag, NOT on `target != disc` -- an s75 CLONE target has the stock
     # IsSea pattern, so its neighbours' real-land status is exactly right and must still be read.
+    host = None if area is not None else host_area_for_cells(cells, mod_folder, disc=target, game=game)
+    stamp = minted_area(area, host=host)
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
-               "dry_run": dry_run, "cells": [], "blanked": list(LAND_DONOR_WATER), "warnings": []}
+               "dry_run": dry_run, "cells": [], "blanked": list(LAND_DONOR_WATER), "warnings": [], "area": stamp}
     built = []
     open_edged = []
     for (bx, by) in cells:
@@ -465,6 +602,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
                 if water:
                     open_edged.append((bx, by))
         _check_blankable(bm, (bx, by), profile)
+        M.stamp_area(bm, stamp["area"])
         built.append(bm)
         summary["cells"].append(info)
     if open_edged:

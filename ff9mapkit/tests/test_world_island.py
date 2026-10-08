@@ -295,6 +295,30 @@ def test_landmass_deploy_orchestration(monkeypatch):
     assert sidecars == [(0, 0, 3, 1)]
 
 
+def test_landmass_stamps_the_safe_road_area_on_its_ground_only(monkeypatch):
+    """Terrain study policy R1: a mint stamped area 0 (zone 0: Mist Continent battles on its grass, "Gunitas
+    Basin" in the title). An island never joins stock land, so its ground takes the safe road, area 14, unless
+    --area says otherwise; its sea keeps area 0, as the stock ocean does."""
+    from ff9mapkit.world.extract import decode_id
+    _mock_landmass_deploy(monkeypatch)
+    seen = []
+    monkeypatch.setattr(M, "deploy_override", lambda bm, **k: seen.append((k.get("part"), bm)))
+
+    def areas(bm):
+        return {decode_id(int(round(bm.tangents[t[0]][0])))["area"] for t in bm.tris}
+    s = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True)
+    assert s["area"]["area"] == 14 and s["area"]["source"] == "open-sea"
+    ter = [bm for p, bm in seen if p == "Terrain"]
+    sea = [bm for p, bm in seen if p == "Sea4"]
+    assert ter and all(areas(bm) == {14} for bm in ter)
+    assert sea and all(areas(bm) == {0} for bm in sea)
+    seen.clear()
+    I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True, area=7)
+    assert all(areas(bm) == {7} for p, bm in seen if p == "Terrain")
+    with pytest.raises(ValueError, match="area must be"):
+        I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True, area=64)
+
+
 # --- THE COAST-NAV EMITTER DEFAULT (Path D handoff step 5) ---------------------------------------
 
 

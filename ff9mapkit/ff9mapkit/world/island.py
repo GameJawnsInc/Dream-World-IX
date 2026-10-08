@@ -990,7 +990,7 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
              game=None, dry_run: bool = False, skip_mirror: bool = False,
              target_disc: int | None = None, all_sea_target: bool = False,
              coastnav: bool = True, coastnav_policy: str = "land-anywhere",
-             allow_overwrite: bool = False) -> dict:
+             allow_overwrite: bool = False, area: int | None = None) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
@@ -1006,9 +1006,17 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     R5d/R5e lesson, re-derived from scratch once already. Runs BEFORE the disc-4 mirror so the mirror
     carries the stamped bytes. ``coastnav_policy``: ``"land-anywhere"`` (default -- the Southern
     Ring's plateau-isle property) or ``"cliffs-refuse"`` (stock grammar: a shore with no low ground
-    can be sailed to but never disembarked on)."""
+    can be sailed to but never disembarked on).
+
+    THE AREA (terrain study policy R1): the island's ground -- Terrain and the Beach1 sand -- is stamped with ``area``,
+    default :data:`ff9mapkit.world.mesh.SAFE_ROAD_AREA` (14, the safe road: no random battles on kit ground under the
+    s60 engine patch; reads "Lindblum Plateau"). The open-ocean target law means an island never joins stock land, so
+    there is no host area to inherit. Its sea keeps area 0, as the stock ocean does. Mints used to stamp area 0: zone 0,
+    Mist Continent battles on the grass and "Gunitas Basin" in the title."""
     from . import mesh as M
     from . import discmirror as DM
+    from .terrain import minted_area
+    stamp = minted_area(area)
     if center is None:
         if cell is None:
             raise ValueError("give center=(wx, wz) or cell=(bx, by)")
@@ -1067,7 +1075,7 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     if not report["clean"]:
         raise ValueError(f"landmass NOT CLEAN -- refusing to deploy: { {k: v for k, v in report.items() if k != 'placement'} }")
     summary = {"op": "landmass", "center": list(built["center"]), "seed": built["seed"],
-               "radius": base_radius, "blocks": [], "report": report}
+               "radius": base_radius, "blocks": [], "report": report, "area": stamp}
     # THE READ/WRITE DISC SPLIT. `disc` stays the READ disc -- which stock tree the meshes, sea plane, stamps
     # and donor prefabs borrow real bytes from. It MUST remain 1 or 4: extract._worldmap_env has no other
     # `worldmap/disc{N}/` bundle tree to scan and raises for anything else. `target` is purely where the
@@ -1089,6 +1097,7 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         is_bch = bch is not None and tuple(bch["block"]) == blk
         if not dry_run:
             bmw = bm if wbx == bx else dataclasses.replace(bm, x=wbx, name=f"Block[{wbx}][{by}] Terrain")
+            M.stamp_area(bmw, stamp["area"])
             written.append(M.deploy_override(bmw, mod_folder=mod_folder, game=game, lod=lod, disc=target, part="Terrain"))
             # THE SEA4-UNDER-LAND LAW -- the land footprint is cut from the plane on EVERY land block,
             # beach or cliff (see _cut_plane). Leaving it whole makes the island boat-permeable.
@@ -1098,8 +1107,11 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
                 # the beach block: real ladder parts + the beach-bearing divert donor
                 for part, key in (("Sea1", "sea1"), ("Sea2", "wash"),
                                   ("Sea5", "sea5"), ("Beach1", "foam")):
-                    written.append(M.deploy_override(_part_blockmesh(part, blk, bch[key], disc, label_x=wbx),
-                                                     mod_folder=mod_folder, game=game, lod=lod, disc=target, part=part))
+                    pbm = _part_blockmesh(part, blk, bch[key], disc, label_x=wbx)
+                    if part == "Beach1":                   # walkable sand: the island's area (the sea keeps 0)
+                        M.stamp_area(pbm, stamp["area"])
+                    written.append(M.deploy_override(pbm, mod_folder=mod_folder, game=game, lod=lod, disc=target,
+                                                     part=part))
                 for part in ("Object", "Sea3"):
                     written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{wbx}][{by}] {part}",
                                                                          disc=disc, x=wbx, y=by),

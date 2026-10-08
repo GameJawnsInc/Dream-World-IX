@@ -4068,6 +4068,30 @@ def _print_stack_notes(summary: dict) -> None:
               f"{summary['fresh_lost_entrances']} -- re-run their world-entrance or those entrances stay dead")
 
 
+def _print_minted_area(a: dict) -> None:
+    """The minted ground's AREA (terrain study policy R1): which one, why, and what it drives."""
+    why = {"explicit": "--area", "host": "the walkable ground it joins",
+           "open-sea": "open sea: the safe road -- no random battles on kit ground (with the s60 engine patch); "
+                       "the title reads \"Lindblum Plateau\""}[a["source"]]
+    extra = [x for x, on in (("the area-12 camera LOCK", a["camera_lock"]), ("spawn weather", a["weather"]),
+                             ("the beach search", a["beach_search"])) if on]
+    print(f"  ground area {a['area']} ({why}): encounter zone {a['zone']}, camera place {a['camera_place']}"
+          + (f"; also {', '.join(extra)}" if extra else "") + ". --area N picks another.")
+
+
+def _print_stitch(summary: dict) -> None:
+    """THE STITCH GATE's receipt (terrain study defect 5): how many seams the edit held, and any it tore."""
+    g = summary.get("stitch")
+    if g is None:
+        return
+    if summary.get("pinned"):
+        print(f"  held {summary['pinned']} vertex(es) where the terrain meets another part (sea, beach, river, "
+              f"Object): the land bends to the seam instead of tearing from it")
+    if g["torn"]:
+        print(f"  !! WARNING: {g['torn']} seam weld(s) torn, up to {g['max_sep']}u ({sorted(g['by_mesh'])[:6]}): "
+              f"an open slit, and a one-way wall above ~2.34u")
+
+
 def _add_fresh_args(p, what: str, *, overwrite_flag: str = "--allow-overwrite") -> None:
     """``--fresh`` (+ ``--allow-overwrite``) for an in-place world writer that stacks on deployed overrides. A verb
     that already has its own overwrite waiver names it in ``overwrite_flag`` and gets no second one."""
@@ -4117,7 +4141,9 @@ def _world_gate_headline(rows, clean_text: str) -> str:
 def _cmd_world_deploy(args: argparse.Namespace) -> int:
     """Deploy an (optionally reshaped) overworld block, or a whole reshaped region, as loose .ff9mesh override(s)
     (needs the WorldMeshOverride engine patch). Reshapes (--hill/--crater/--flatten) are seam-continuous: the edit
-    is evaluated in WORLD XZ and every block whose footprint the radius touches is redeployed, so nothing tears."""
+    is evaluated in WORLD XZ and every block whose footprint the radius touches is redeployed, so Terrain-Terrain
+    borders move as one, and every Terrain vertex shared with another part is HELD (terrain study defect 5), so no
+    seam tears; the stitch gate checks that before the first write."""
     from .world import extract as W, mesh as M
 
     if args.flatten and (args.hill or args.crater):
@@ -4202,10 +4228,26 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
                       "override.", file=sys.stderr)
                 return 2
 
-        written = []
+        # THE STITCH PINS (defect 5): every Terrain vertex shared with another part, in range, stays put; the
+        # stitch gate checks every weld before the first write (reshape: refuse; the [diag] lift/spike: warn)
+        from .world import terrain as TER
+        pbx0, pbx1, pby0, pby1 = TER._block_index_range(cx - args.radius, cx + args.radius,
+                                                          cz - args.radius, cz + args.radius)
+        near = sorted(set(targets) | {(x, y) for x in range(pbx0, pbx1 + 1) for y in range(pby0, pby1 + 1)
+                                      if 0 <= x < TER.GRID_X and 0 <= y < TER.GRID_Y})
+        partners = TER.stitch_partners(near, args.mod_folder, disc=args.disc, lod=args.lod, game=args.game,
+                                       fresh=args.fresh)
+        pins = (M.stitch_pins(partners, [(bm, W.block_world_origin(bm.x, bm.y)) for bm in bms],
+                              taper=TER.SEAM_TAPER) if reshape else None)
+        height = args.height
+        if args.flatten and height is None:                    # ONE target for every block, or their border tears
+            height = M.mean_height([(bm, W.block_world_origin(bm.x, bm.y)) for bm in bms], center=(cx, cz),
+                                   radius=args.radius)
+        stats, ops, rows = {}, [], []
         for bm in bms:
             x, y = bm.x, bm.y
             ox, oz = W.block_world_origin(x, y)
+            pre = M.world_positions(bm, (ox, oz))
             if args.lift:
                 M.lift_block(bm, args.lift)
                 op = f"lift +{args.lift:g}"
@@ -4213,19 +4255,31 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
                 bi = M.raise_vertex_near_center(bm, args.spike)
                 op = f"spike vtx {bi} +{args.spike:g}"
             elif args.flatten:
-                n = M.flatten_region(bm, radius=args.radius, center=(cx, cz), height=args.height,
-                                     falloff=args.falloff, world_origin=(ox, oz))
+                n = M.flatten_region(bm, radius=args.radius, center=(cx, cz), height=height,
+                                     falloff=args.falloff, world_origin=(ox, oz), pinned=pins, stats=stats)
                 op = f"flatten r{args.radius:g} ({n} v)"
             elif reshape:
                 n = M.deform_radial(bm, amount=hill_amt, radius=args.radius, center=(cx, cz),
-                                    falloff=args.falloff, world_origin=(ox, oz))
+                                    falloff=args.falloff, world_origin=(ox, oz), pinned=pins, stats=stats)
                 op = f"{'hill' if hill_amt > 0 else 'crater'} {hill_amt:+g} r{args.radius:g} ({n} v)"
             else:
                 op = "faithful copy"
             if reshape and not args.no_normals:
                 M.recompute_normals(bm)
+            rows.append((bm.name, pre, M.world_positions(bm, (ox, oz))))
+            ops.append((bm, op))
+        gate = M.stitch_gate(rows + [(n, pos, pos) for n, pos in
+                                     ((n, M.world_positions(pb, o)) for n, pb, o in partners)])
+        if gate["torn"] and reshape:
+            raise ValueError(f"STITCH GATE: this reshape would tear {gate['torn']} weld(s) (max {gate['max_sep']}u): "
+                             f"{gate['sample'][:3]}. Every weld should be pinned or move as one -- this is a kit "
+                             f"bug, nothing was written.")
+        stack["stitch"] = gate
+        stack["pinned"] = stats.get("held", 0)
+        written = []
+        for bm, op in ops:
             dest = M.deploy_override(bm, mod_folder=args.mod_folder, game=args.game, lod=args.lod)
-            written.append((x, y, op, dest))
+            written.append((bm.x, bm.y, op, dest))
         if written:
             from .world import discmirror as DM
             DM.auto_mirror([w[3] for w in written], mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
@@ -4235,6 +4289,7 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
 
     print(f"deployed {len(written)} block override(s) into {args.mod_folder}")
     _print_stack_notes(stack)
+    _print_stitch(stack)
     if reshape:
         kind = "flatten" if args.flatten else ("hill" if hill_amt > 0 else "crater")
         print(f"  {kind}: centre world ({cx:.0f},{cz:.0f}) radius {args.radius:g} falloff {args.falloff}"
@@ -4529,13 +4584,14 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
                             flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
                             game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror,
                             target_disc=args.target_disc, allow_steep=args.allow_steep, fresh=args.fresh,
-                            allow_overwrite=args.allow_overwrite)
+                            allow_overwrite=args.allow_overwrite, seam_taper=args.seam_taper)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     verb = "would reshape" if args.dry_run else "reshaped"
     print(f"{verb} terrain ({summary['op']}, radius {summary['radius']}) across {len(summary['blocks'])} block(s):")
     _print_stack_notes(summary)
+    _print_stitch(summary)
     for b in summary["blocks"]:
         walk = summary.get("walkability", {}).get(str(b["block"]))
         note = ""
@@ -4592,7 +4648,8 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
                             topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
                             shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run,
                             skip_mirror=args.skip_mirror, target_disc=args.target_disc,
-                            all_sea_target=args.all_sea_target, allow_overwrite=args.allow_overwrite)
+                            all_sea_target=args.all_sea_target, allow_overwrite=args.allow_overwrite,
+                            area=args.area)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4604,6 +4661,8 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts{edges}")
     print(f"  + per cell, hidden {'/'.join(summary['blanked'])} stubs: the fallback donor Block[12][10]'s "
           f"water never rides under the land")
+    if summary.get("area"):
+        _print_minted_area(summary["area"])
     for w in summary.get("warnings", []):
         print(f"  !! WARNING: {w}")
     if not args.dry_run:
@@ -5085,7 +5144,7 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
                   skip_mirror=args.skip_mirror, target_disc=args.target_disc,
                   all_sea_target=args.all_sea_target,
                   coastnav=not args.skip_coastnav, coastnav_policy=args.coastnav_policy,
-                  allow_overwrite=args.allow_overwrite)
+                  allow_overwrite=args.allow_overwrite, area=args.area)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -5111,6 +5170,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
             gy, nm, topo = place["centre"]
             extra = f"; centre grounds y={gy} on {nm} topo {topo}"
         print(f"  block {blk}: {b['tris']} tris ({b['verts']} verts){extra}")
+    if summary.get("area"):
+        _print_minted_area(summary["area"])
     for g in summary["report"].get("texgates", []):
         if g.get("warn"):
             print(f"  !! WARNING {g['gate']}: {g.get('detail') or 'see the report'} -- THE TEXTURE + "
@@ -9243,6 +9304,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "(the grass-look p99) always print a stretch warning.")
     wtr.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wtr.add_argument("--seam-taper", type=float, default=None, metavar="U",
+                     help="every Terrain vertex shared with another part (sea, beach, river, Object) is HELD, so "
+                          "the edit cannot tear a seam; the land fades in over this many units from those seams "
+                          "(default 4, one lattice step; 0 = a hard hold, which can leave a near-vertical lip)")
     _add_fresh_args(wtr, "reshape")
     wtr.set_defaults(func=_cmd_world_terrain)
 
@@ -9267,6 +9332,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="cliff wall RUN in units (default 1.0 -> ~73deg at height 3.2); smaller = steeper (cliff profile)")
     wrc.add_argument("--shore-topo", type=int, default=None,
                      help="island shore-edge terrain type (default 20 sand; 58 is on-foot BLOCKED)")
+    wrc.add_argument("--area", type=int, default=None, metavar="N",
+                     help="the ground's AREA bits 0-63 (encounter zone, camera, location name). Default: the area "
+                          "of the walkable ground the cells join; out at open sea, 14, the safe road (no random "
+                          "battles on kit ground with the s60 engine patch; reads \"Lindblum Plateau\")")
     wrc.add_argument("--topograph", type=int, default=0,
                      help="flat-profile terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
     wrc.add_argument("--seg", type=int, default=10, help="tessellation per 64u block edge (default 10)")
@@ -9643,6 +9712,10 @@ def build_parser() -> argparse.ArgumentParser:
                               "undulation (local prominence still = world-hill/world-forest/world-mountain). "
                               "Needs the custom engine; re-enter the world.")
     wis.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wis.add_argument("--area", type=int, default=None, metavar="N",
+                     help="the island ground's AREA bits 0-63 (encounter zone, camera, location name). Default 14, "
+                          "the safe road: no random battles on kit ground with the s60 engine patch; reads "
+                          "\"Lindblum Plateau\". The sea keeps area 0, like the stock ocean")
     wis.add_argument("--allow-overwrite", action="store_true",
                      help="deploy even though the footprint already holds another deploy's override files. "
                           "OFF by default: THE MOD-OVERWRITE GATE (back-ported from world-transplant's "

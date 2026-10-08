@@ -5,6 +5,38 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `world-island` and `world-reclaim` stamp a chosen area on new land, not area 0
+- Every minted tri used to carry area 0. Area 0 is encounter zone 0, so the grass rolled Mist Continent battles
+  (Goblin, Python, Mu), and the window title, main menu and save slot read "Gunitas Basin". The Southern Ring had
+  to restamp 112 files afterwards to get its safe road.
+- Land out at open sea now gets area 14, the safe road: zone 6 has no battle records for any ground the kit mints,
+  so with the s60 engine patch (in the engine bundle) nothing rolls; it reads "Lindblum Plateau". `world-island`
+  always mints at open sea.
+- A `world-reclaim` cell beside stock land with walkable ground at the shared edge takes that ground's area, so the
+  camera, battles and name carry on across the join (stock has no walkable camera seam).
+- `--area N` (both verbs) picks any area; the verb prints the area, why it was chosen, and what it drives. Sea parts
+  keep area 0, as the stock ocean does.
+- Land deployed before this change keeps area 0 until it is re-minted. New: `mesh.SAFE_ROAD_AREA`, `mesh.stamp_area`,
+  `terrain.host_area_for_cells`, `terrain.minted_area`.
+
+### Fixed — `world-terrain`/`world-deploy` no longer tear the seams where land meets water, beach, rivers or buildings
+- Both verbs write Terrain only, but stock Terrain shares exact vertices with every other part it touches. A reshape
+  moved the Terrain side of those seams and left the other side behind. A +3 edit at a beach opened a 3u slit and a
+  one-way wall: you could walk down onto the beach but not back up. Before the fix, 149-154 of 154 beach-centred ±3
+  edits did this.
+- Every Terrain vertex shared with another part is now held in place, and the land fades in over `--seam-taper`
+  units from it (default 4; `0` holds without a fade). Re-run over the study's 5,292 seam-centred edits, 0 tear,
+  and 22 leave a wall where 2,085 did, all at Treno's gate; beach walls go from 455-460 of 462 at ±3/±6 to 0. The
+  edit keeps 70% of its displacement next to the seam.
+- A stitch gate checks every seam before anything is written and refuses on any tear. With the hold switched off it
+  counts exactly the study's tear model on all 5,292 edits.
+- A reshape now reads and checks every block before writing any, so a refusal never leaves earlier blocks written.
+- A flatten with no `--height` spanning several blocks flattened each to its own mean, splitting their shared border.
+  It now uses one mean.
+- `--lift`/`--spike` (`world-deploy` diagnostics) still tear by design; they now print a warning.
+- New: `mesh.stitch_gate`, `mesh.stitch_pins`/`StitchPins`, `mesh.mean_height`, `terrain.stitch_partners`,
+  `terrain.SEAM_TAPER`; the deform functions take `pinned=`.
+
 ### Fixed — in-place world edits stack: a second edit of a block no longer erases the first
 - `world-terrain`, `world-deploy`, `world-retarget` and `world-transplant --in-place` read pristine stock, so the
   last writer silently erased every earlier edit of the block. A reshape or retarget also killed a

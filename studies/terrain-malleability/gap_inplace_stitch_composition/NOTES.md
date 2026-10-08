@@ -226,6 +226,28 @@ calibrated against the writer.
 
 Terrain|Terrain never tears inside the grid, because reshape displaces every in-range block with one world weight.
 
+**S5/S6 after the fix (2026-10-08, `stitch_postfix.py`; terrain study defect 5).** world-terrain and world-deploy
+now HOLD every Terrain vertex welded to another part (`mesh.stitch_pins`, built from `terrain.stitch_partners`), and
+`mesh.stitch_gate` refuses any tear before the first write. The script runs all 5,292 sweep edits through the real
+kit `terrain.reshape` (dry run). Calibration first: with the pins switched off, the kit gate counts the sweep model's
+torn positions on 5,292/5,292 edits, and the sweep's own crossing instrument reproduces its walls on 5,292/5,292 (the
+stored centres are rounded to 3 decimals; snapping each back to its weld vertex removes the one crossing that differed).
+
+| mode | edits torn | edits with a crossing wall | edits with an introduced one-way edge | edits the walk gate refuses | displacement kept (median) |
+|---|---|---|---|---|---|
+| unpinned (before) | 5,292 | 2,085 | 91 | 1,026 | 100% |
+| hard hold (taper 0) | 0 | 27 | 581 | 1,221 | 76% |
+| **taper 4u (the default)** | **0** | **22** | **112** | **976** | **70%** |
+| taper 8u | 0 | 6 | 60 | 968 | 48% |
+
+- Beach walls: 455-460 of 462 at ±3/±6 before, 0 after, in every amount class.
+- The 22 remaining wall edits are all Object raises (+3: 9, +6: 13) inside (19-20,14-15), Treno's gate: the class
+  VERIFY S7 showed to be zero-width line artifacts before the fix. They were not re-checked on the post-fix meshes.
+- A hard hold trades slits for lips: a held vertex 0.5u from a +3 neighbour is an 80-degree face, past the climb
+  ceiling (581 edits gain one). The 4u taper brings that near the unpinned rate and keeps 70% of the displacement at
+  these worst-case seam-centred edits; 8u keeps under half.
+- "The walk gate refuses" counts edits with any moved edge above the ceiling, mostly stock slopes (defect 23).
+
 **S6. [measurement] What a tear costs: the reference sweep** (`tear_sweep.py`).
 
 The sweep covers 44 beach blocks (154 centres) and 63 Object blocks (140 centres), with amounts ±1/±3/±6 at radius
@@ -352,13 +374,13 @@ same writes 1.2 s apart leave 2 parks.
 3. **An entrance guard in `terrain.reshape` and `transplant.morph_in_place`.** Measured failure: S8, plus S6/S7 at 3-74%
    exposure. Lift the cli.py:4154-4170 `block_mapids` event check into a shared `mesh.entrance_guard(bms)` and call it
    from both, plus `_cmd_world_deploy`.
-4. **A STITCH GATE (pre/post weld preservation), not `weld_audit`.** Measured failure: C3, weld_audit flags 0 for a
+4. **BUILT 2026-10-08** as `mesh.stitch_gate`, in world-terrain and world-deploy (refuse on any tear; world-deploy's [diag] lift/spike warn). **A STITCH GATE (pre/post weld preservation), not `weld_audit`.** Measured failure: C3, weld_audit flags 0 for a
    0.06u tear and passes any larger one.
    - New `mesh.stitch_gate(pre_parts_by_cell, post_parts_by_cell, tol=0.05)`: every stock exact-weld cluster
      (stitch_census instrument 1, including the 4 torus neighbours) must stay within tol.
    - Call it in `terrain.reshape`, `_cmd_world_deploy` and `morph_in_place`. Make it WARN by default and REFUSE on
      walkable partners (Beach1/2/Object) above 2.34375 / 1.171875.
-5. **Multi-part co-displacement where it is lawful.** Measured failure: S5/S6, one-way walls in 149-154/154 beach edits
+5. **BUILT 2026-10-08 as a HOLD, not co-displacement**: every Terrain vertex welded to ANY other part stays put and the field fades in over 4u. Co-moving beach, Object and river parts would lift sand off the waterline, shear buildings, and mint override files for parts the edit never meant to touch; the hold follows the ROCK RIGID law the mountain carry proved, and writes Terrain only. **Multi-part co-displacement where it is lawful.** Measured failure: S5/S6, one-way walls in 149-154/154 beach edits
    at ±3; Object burial/float.
    - In `mesh.deform_radial` / `deform_ridge` / `flatten_region`, called from `terrain.reshape` and `_cmd_world_deploy`,
      move every exact-coincident vertex in Beach1/Beach2/Object/River/RiverJoint/Falls/Stream of the touched blocks

@@ -1348,54 +1348,190 @@ def _dist_point_segment(px, pz, ax, az, bx, bz) -> float:
 
 
 def deform_radial(bm, *, amount: float, radius: float, center=None, falloff: str = "smooth",
-                  world_origin=(0.0, 0.0)) -> int:
+                  world_origin=(0.0, 0.0), pinned=None, stats=None) -> int:
     """RESHAPE: raise a smooth HILL (``amount > 0``) or sink a CRATER (``amount < 0``) within ``radius`` world
-    units of ``center`` (world XZ; default = the block's centroid). Tear-free (see module note). ``+Y`` is up in
-    these meshes (proven by the whole-block lift). Mutates ``bm`` in place (tangents/ids untouched). Returns the
-    number of vertices moved."""
+    units of ``center`` (world XZ; default = the block's centroid). Tear-free across blocks (see module note), and
+    across parts when ``pinned`` holds the :func:`world_key` of every vertex the mesh shares with another part
+    (:func:`stitch_pins`): those stay put. ``+Y`` is up in these meshes (proven by the whole-block lift). Mutates
+    ``bm`` in place (tangents/ids untouched). Returns the number of vertices moved; ``stats["held"]`` (if given)
+    counts the pinned vertices the field would have moved."""
     ox, oz = world_origin
     cx, cz = center if center is not None else _xz_centroid(bm, ox, oz)
     moved = 0
     for v in bm.verts:
         w = _falloff(math.hypot(v[0] + ox - cx, v[2] + oz - cz) / radius, falloff)
         if w > 0.0:
-            v[1] += amount * w
+            if _held(v, ox, oz, pinned, stats):
+                continue
+            v[1] += amount * w * _taper(v, ox, oz, pinned)
             moved += 1
     return moved
 
 
 def deform_ridge(bm, *, p0, p1, amount: float, radius: float, falloff: str = "smooth",
-                 world_origin=(0.0, 0.0)) -> int:
+                 world_origin=(0.0, 0.0), pinned=None, stats=None) -> int:
     """RESHAPE: raise a RIDGE (``amount > 0``) or carve a VALLEY (``amount < 0``) of half-width ``radius`` along the
-    world-XZ segment ``p0 -> p1`` (each an ``(x, z)`` pair). Tear-free. Returns the number of vertices moved."""
+    world-XZ segment ``p0 -> p1`` (each an ``(x, z)`` pair). Tear-free; ``pinned``/``stats`` as for
+    :func:`deform_radial`. Returns the number of vertices moved."""
     ox, oz = world_origin
     (ax, az), (bx, bz) = p0, p1
     moved = 0
     for v in bm.verts:
         w = _falloff(_dist_point_segment(v[0] + ox, v[2] + oz, ax, az, bx, bz) / radius, falloff)
         if w > 0.0:
-            v[1] += amount * w
+            if _held(v, ox, oz, pinned, stats):
+                continue
+            v[1] += amount * w * _taper(v, ox, oz, pinned)
             moved += 1
     return moved
 
 
 def flatten_region(bm, *, radius: float, center=None, height=None, falloff: str = "smooth",
-                   world_origin=(0.0, 0.0)) -> int:
+                   world_origin=(0.0, 0.0), pinned=None, stats=None) -> int:
     """RESHAPE: flatten toward ``height`` (default = the mean Y under the disc) within ``radius`` -- a plateau /
     clearing. Each vertex Y is blended toward ``height`` by the falloff weight (fully flat at the centre, untouched
-    at the rim), so the surrounding terrain stitches in smoothly. Tear-free. Returns the number of vertices moved."""
+    at the rim), so the surrounding terrain stitches in smoothly. Tear-free; ``pinned``/``stats`` as for
+    :func:`deform_radial`. Returns the number of vertices moved. ⚠ The default height is THIS block's mean: a
+    multi-block flatten must pass one shared ``height`` (:func:`mean_height`), or the blocks' shared border verts
+    are pulled to different heights and tear."""
     ox, oz = world_origin
     cx, cz = center if center is not None else _xz_centroid(bm, ox, oz)
     if height is None:
-        ys = [v[1] for v in bm.verts if math.hypot(v[0] + ox - cx, v[2] + oz - cz) < radius]
-        height = sum(ys) / len(ys) if ys else 0.0
+        height = mean_height([(bm, world_origin)], center=(cx, cz), radius=radius)
     moved = 0
     for v in bm.verts:
         w = _falloff(math.hypot(v[0] + ox - cx, v[2] + oz - cz) / radius, falloff)
         if w > 0.0:
-            v[1] += (height - v[1]) * w
+            if _held(v, ox, oz, pinned, stats):
+                continue
+            v[1] += (height - v[1]) * w * _taper(v, ox, oz, pinned)
             moved += 1
     return moved
+
+
+def mean_height(blocks, *, center, radius: float) -> float:
+    """The mean Y of every vertex within ``radius`` of world-XZ ``center`` over ``blocks`` = ``[(bm, world_origin)]``
+    -- the one flatten target a multi-block flatten shares (0.0 when none lies inside)."""
+    cx, cz = center
+    ys = [v[1] for bm, (ox, oz) in blocks for v in bm.verts if math.hypot(v[0] + ox - cx, v[2] + oz - cz) < radius]
+    return sum(ys) / len(ys) if ys else 0.0
+
+
+#: every non-Terrain part a stock block carries (both discs' 0_1 trees): what a Terrain-only edit can tear against
+STITCH_PARTNER_PARTS = ("object", "beach1", "beach2", "stream", "river", "riverjoint", "falls", "sea1", "sea2", "sea3",
+                        "sea4", "sea4f", "sea5", "sea6", "volcanocrater", "volcanolava")
+#: a weld is an exact shared vertex (stock: 0 T-junctions, 0 near-miss pairs on disc 1), keyed at 1e-4u
+STITCH_DECIMALS = 4
+#: a weld whose instances end more than this apart is TORN (weld_audit's tolerance; the study's C3 control: a 0.06u
+#: split is a tear, 0.01u is not)
+STITCH_TOL = 0.05
+
+
+def world_key(v, ox: float = 0.0, oz: float = 0.0) -> tuple:
+    """A block-local vertex's world position, rounded to :data:`STITCH_DECIMALS` -- the identity of a weld."""
+    return (round(v[0] + ox, STITCH_DECIMALS), round(v[1], STITCH_DECIMALS), round(v[2] + oz, STITCH_DECIMALS))
+
+
+def _held(v, ox, oz, pinned, stats) -> bool:
+    if pinned and world_key(v, ox, oz) in pinned:
+        if stats is not None:
+            stats["held"] = stats.get("held", 0) + 1
+        return True
+    return False
+
+
+def _taper(v, ox, oz, pinned) -> float:
+    """The field's fade-in near the held welds (1.0 without a taper)."""
+    return pinned.scale(v[0] + ox, v[2] + oz) if isinstance(pinned, StitchPins) else 1.0
+
+
+class StitchPins:
+    """The welds a Terrain deform holds (:func:`stitch_pins`): a set of :func:`world_key` (``key in pins``), plus an
+    optional TAPER: within ``taper`` u (XZ) of a held weld the field fades in by a smoothstep, so the land ramps up
+    from the seam instead of standing as a near-vertical lip against it (a held vertex 0.5u from a +3 neighbour is
+    an 80-degree face, past the climb ceiling)."""
+
+    def __init__(self, keys, taper: float = 0.0):
+        self.keys = set(keys)
+        self.taper = float(taper)
+        self._grid = {}
+        if self.taper > 0:
+            for k in self.keys:
+                self._grid.setdefault((math.floor(k[0] / self.taper), math.floor(k[2] / self.taper)),
+                                      []).append((k[0], k[2]))
+
+    def __contains__(self, key) -> bool:
+        return key in self.keys
+
+    def __bool__(self) -> bool:
+        return bool(self.keys)
+
+    def __len__(self) -> int:
+        return len(self.keys)
+
+    def scale(self, wx: float, wz: float) -> float:
+        if self.taper <= 0 or not self._grid:
+            return 1.0
+        T = self.taper
+        gx, gz = math.floor(wx / T), math.floor(wz / T)
+        best = T
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for px, pz in self._grid.get((gx + dx, gz + dz), ()):
+                    d = math.hypot(wx - px, wz - pz)
+                    if d < best:
+                        best = d
+        t = best / T
+        return t * t * (3.0 - 2.0 * t)
+
+
+def stitch_pins(partners, terrain=(), *, taper: float = 0.0) -> StitchPins:
+    """The welds a Terrain deform must hold: every vertex of ``terrain`` = ``[(bm, world_origin)]`` that coincides with
+    a vertex of ``partners`` = ``[(name, bm, world_origin)]`` (the non-Terrain parts around the edit), as
+    :func:`world_key`. Pass it as ``pinned`` and the deform leaves each such vertex in place; with ``taper`` the field
+    also fades in over that distance from them. With no ``terrain`` given, every partner vertex is held."""
+    keys = {world_key(v, *o) for _n, bm, o in partners for v in bm.verts}
+    if terrain:
+        keys &= {world_key(v, *o) for bm, o in terrain for v in bm.verts}
+    return StitchPins(keys, taper)
+
+
+def stitch_gate(meshes, *, tol: float = STITCH_TOL) -> dict:
+    """THE STITCH GATE (terrain study defect 5; the stitch lane's change 4). ``meshes`` = ``[(name, pre, post)]``, one
+    row per mesh around an edit, each a list of WORLD vertex positions, ``post`` index-aligned with ``pre`` (an
+    unchanged mesh passes the same list twice). Every ``pre`` position held by two or more vertices is a WELD -- stock
+    is one conforming mesh with 0 T-junctions, so every stitch between parts and blocks is an exact shared vertex.
+    A weld whose ``post`` instances spread more than ``tol`` is TORN: an open slit, and a one-way wall where the
+    split passes the climb ceiling. ``kit.mesh.weld_audit`` cannot see this (it flags only 0 < d < 0.05u).
+
+    Returns ``{"welds", "torn", "max_sep", "by_mesh": {name: n}, "sample": [...]}``."""
+    from collections import Counter
+    cl = {}
+    for mi, (_name, pre, _post) in enumerate(meshes):
+        for vi, p in enumerate(pre):
+            cl.setdefault((round(p[0], STITCH_DECIMALS), round(p[1], STITCH_DECIMALS),
+                           round(p[2], STITCH_DECIMALS)), []).append((mi, vi))
+    welds, torn, max_sep, by_mesh = 0, [], 0.0, Counter()
+    for key, inst in cl.items():
+        if len(inst) < 2:                        # (an unindexed mesh repeats its own shared verts: those count too)
+            continue
+        owners = {mi for mi, _ in inst}
+        welds += 1
+        pts = [meshes[mi][2][vi] for mi, vi in inst]
+        sep = max(max(p[k] for p in pts) - min(p[k] for p in pts) for k in range(3))
+        if sep > tol:
+            names = sorted({meshes[mi][0] for mi in owners})
+            torn.append({"at": list(key), "sep": round(sep, 4), "meshes": names})
+            by_mesh.update(names)
+            max_sep = max(max_sep, sep)
+    return {"welds": welds, "torn": len(torn), "max_sep": round(max_sep, 4), "by_mesh": dict(by_mesh),
+            "sample": torn[:8]}
+
+
+def world_positions(bm, world_origin) -> list:
+    """``bm``'s vertices in world XZ (Y unchanged) -- a :func:`stitch_gate` row."""
+    ox, oz = world_origin
+    return [(v[0] + ox, v[1], v[2] + oz) for v in bm.verts]
 
 
 def recompute_normals(bm, *, tol: float = 1e-3) -> int:
@@ -1535,6 +1671,33 @@ HOST_RING = 3.0
 AREA_LOCK = 12
 AREA_WEATHER = frozenset({9, 12, 13})
 AREA_BEACH = frozenset({4, 5, 13, 16, 17, 18, 19, 25, 29, 30, 31, 33, 37, 38, 46, 47, 49, 50, 51, 52, 58})
+
+
+#: THE SAFE-ROAD AREA: what land minted on open sea is stamped (terrain study policy R1; the owner's pick). Area 14
+#: "Lindblum Plateau": zone 6, camera place 0, no lock, weather or beach search. Zone 6 has encounter records only at
+#: topographs 10 and 36, so every kit ground topograph is a table HOLE: no random battle under the s60 engine patch
+#: the bundle ships (stock Memoria falls back to the zone's last record). The Southern Ring's in-game proven safe road.
+SAFE_ROAD_AREA = 14
+
+
+def stamp_area(bm, area: int) -> int:
+    """Set the AREA bits of every event-free ground tri of ``bm`` to ``area``, keeping topograph, event and flags;
+    walk-skip IDALLs and entrance tiles are left alone. Returns the tris changed."""
+    from .extract import decode_id, encode_id
+    tan = bm.tangents
+    if tan is None:
+        return 0
+    n = 0
+    for t in bm.tris:
+        idall = int(round(tan[t[0]][0]))
+        d = decode_id(idall)
+        if idall in WALK_SKIP_IDS or d["event"] or d["area"] == area:
+            continue
+        new = float(encode_id(0, area, d["topograph"], d["flags"]))
+        for i in t:
+            tan[i][0] = new
+        n += 1
+    return n
 
 
 def area_camera_place(area: int) -> int:

@@ -508,6 +508,17 @@ discards and refuses to erase a kit entrance's trigger tiles without `--allow-ov
 already changed (the same waiver applies). Stacking also lets `world-terrain` reshape a **kit island**, which it used
 to skip as open sea.
 
+**Seams hold (after 1.0.0b19; terrain study defect 5).** The stock overworld is one conforming mesh: every place
+Terrain meets a sea, beach, river, Object or volcano part (11.4% of Terrain positions) is an exact shared vertex.
+`world-terrain` and `world-deploy` write Terrain only, so a reshape used to tear exactly the seams it moved. A +3 edit
+at a beach left a 3u slit and a one-way wall (in-game proven), and 149-154 of 154 beach-centred ±3 edits did. Now
+every Terrain vertex welded to another part is **held**, in its own block and its neighbours; the water stays at its
+level and Objects stay rigid. The land fades in over `--seam-taper` units from those seams (default 4, one lattice
+step; 0 is a hard hold, which can leave a near-vertical lip). A **stitch gate** checks every weld before the first
+write and refuses on any tear (`mesh.stitch_gate`; the old `weld_audit` only sees splits under 0.05u). The verbs print
+how many vertices they held. A flatten with no `--height` now uses one mean across all its blocks; per-block means
+pulled shared borders apart.
+
 ## `world-reclaim` — reclaim ocean cells as walkable land
 
 The overworld is a **fixed 24×20 = 480-block grid where every ocean cell already exists as a real `WMBlock`** — it
@@ -517,6 +528,14 @@ continent" is **make designated ocean cells load land**, not mint a new world. `
 <mod> --cells "x,y;x,y"` (or a range `x0-x1,y0-y1`) synthesizes a fresh flat, textured, **walkable** terrain override
 per sea cell (`world/terrain.py` `reclaim` → `mesh.flat_block_mesh` + `palette.apply_palette_uvs` → a loose
 `Block[x][y] Terrain.ff9mesh`, deployed like any Terrain override).
+
+**The ground's AREA (terrain study policy R1).** Area picks the encounter zone, the camera place and the location
+name (window title, main menu, save slot). Mints used to stamp area 0: zone 0, Mist Continent battles on the grass and
+"Gunitas Basin". Now `--area N` wins; else a `world-reclaim` cell that joins stock land with walkable ground at the
+shared edge takes that ground's area (`terrain.host_area_for_cells`: the 8u strip along the edge), so the camera,
+battles and name carry on; else, out at open sea, **area 14, the safe road** (zone 6 has no battle records for any
+ground the kit mints, so with the s60 patch nothing rolls; it reads "Lindblum Plateau"). `world-island` always mints at
+open sea. The verb prints the area and why. Sea parts keep area 0, like the stock ocean.
 
 **Why it needs an engine change (the make-or-break, RE'd over the WM source):** `block.IsSea` is read in EXACTLY two
 places, both pure prefab-routing to `SeaBlockPrefab` — there is **NO** downstream movement / collision / encounter /
@@ -753,6 +772,8 @@ approved — up to an r52 pure-plain desert island — so it was retired, 2026-0
 open ocean (the open-ocean target law — a real sea-skirt block loads its own prefab and the fragment silently never
 renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
 Proven in-game; the proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
+Its ground (Terrain and the Beach1 sand) is stamped area 14, the safe road, or `--area N`: see `world-reclaim`'s
+**The ground's AREA** above.
 
 **Ground families — `--ground` (★ 2026-07-15).** THE TRANSLATION LAW IS UNIVERSAL: every stock walkable
 ground family is the grass language translated in the atlas — same mains 2×2 rects (widths, gutters,
