@@ -38,27 +38,44 @@ def _block_index_range(minx: float, maxx: float, minz: float, maxz: float):
     return bx0, bx1, by0, by1
 
 
+#: on canopy (topographs 36-38) the on-foot actor stands this far below the surface (in game to 0.0015u, terrain
+#: study RESULTS section 2), so from a canopy tile the walk ray reaches only WALK_RAY_START - CANOPY_SINK above it
+CANOPY_TOPOS = (36, 37, 38)
+CANOPY_SINK = 1.171875
+
+
+def _climb_barrier(rise: float, run: float, reach: float) -> bool:
+    """Can the walker NOT climb an edge of this rise over this run? Per tick he moves WALK_SPEED (0.4375u) and finds
+    ground at most ``reach`` above him (the walk ray's start, 2.34375u). An edge longer than a step is a barrier above
+    that slope (~79.4 deg); a shorter one is crossed within one tick, so only its rise counts. In game (terrain study
+    RESULTS section 6) a ~1u vertical step was climbed at all three lines and a 2.5-3u one refused at all three: the
+    slope rule alone called both walls."""
+    from .placement import WALK_SPEED
+    return rise > reach * max(run, WALK_SPEED) / WALK_SPEED
+
+
 def _walk_gate(ter, pre_y, blk, summary, *, allow_steep: bool):
     """THE ONE-WAY WALL GATE + THE FLANK WARNING (audit rec 9 step 4 -- reshape wrote
-    displaced stock land with no check of any kind). Two DIFFERENT ceilings, measured on
-    the post-deform mesh's moved-vert edges:
+    displaced stock land with no check of any kind). Judged on every edge of a triangle the edit moved, against the
+    same edge before the edit:
 
-    * REFUSE (unless ``allow_steep``): rise/run above ``WALK_RAY_START/WALK_SPEED``
-      (~79.4 deg). A displaced continuous mesh never makes a step DISCONTINUITY, so the
-      engine's real limit is per-tick -- ground may rise 2.34375 per 0.4375u step. Beyond
-      it the face is a ONE-WAY WALL: walkable down (any drop is legal), unclimbable up --
-      a crater with such walls is a soft-lock pit. NOTE the deliberate divergence from the
-      audit's letter (interior.GATE_CLIMB per edge): that ceiling guards step
-      discontinuities between SEPARATE surfaces; applied to a smooth reshape it would have
-      refused a 43-deg hill the engine walks happily.
-    * WARN: edge slope above ``interior.MAX_FLANK`` (28.6 deg, the measured lowland-grass
-      p99) -- the LOOK ceiling; the ground texture stretches. Look is the owner's call, so
-      it reports, never refuses.
+    * REFUSE (unless ``allow_steep``) an edge the edit turned into a CLIMB BARRIER (:func:`_climb_barrier`) on a
+      triangle the walker may enter (its topograph in ``placement.WALK_OK``; on canopy his reach is the walk ray's
+      less :data:`CANOPY_SINK`). Such a face is a ONE-WAY WALL: walkable down (any drop is legal), unclimbable up --
+      a crater with such walls is a soft-lock pit. An edge that was already a barrier (a town wall, a cliff) or lies
+      on a tile the walker cannot enter anyway (topograph 49 rock) is not the edit's doing. TERRAIN STUDY DEFECT 23:
+      the gate used to refuse any touched edge over the slope ceiling, and those pre-existing slopes were 98.9% of
+      its refusals. Over 2,400 random +-4 r8-24 land edits through this code it refused 1,218; this rule refuses 0,
+      and on steep sculpts it still refuses 36 of 360 with a median 2.19u past the climb limit
+      (``gap_disc4_edit_reach/d23_wallgate_rules.py``).
+    * WARN: an edge the edit made steeper than ``interior.MAX_FLANK`` (28.6 deg, the measured lowland-grass p99) --
+      the LOOK ceiling; the ground texture stretches. Look is the owner's call, so it reports, never refuses.
 
-    Skips meshes without position channels (the hermetic orchestration tests stub them)."""
+    Not modelled: vehicles (their own topograph masks and speeds). Skips meshes without position channels (the
+    hermetic orchestration tests stub them)."""
     from .interior import MAX_FLANK
-    from .placement import WALK_RAY_START, WALK_SPEED
-    from .extract import CH_POS
+    from .placement import WALK_RAY_START, WALK_OK
+    from .extract import CH_POS, decode_id
     ca = getattr(ter, "chan_arrays", None)
     tris = getattr(ter, "tris", None)
     if not isinstance(ca, dict) or CH_POS not in ca or not tris:
@@ -67,29 +84,37 @@ def _walk_gate(ter, pre_y, blk, summary, *, allow_steep: bool):
     moved = {i for i, v in enumerate(pos) if v[1] != pre_y[i]}
     if not moved:
         return
-    wall_tan = WALK_RAY_START / WALK_SPEED
-    worst_t, worst_at = 0.0, None
+    tan = getattr(ter, "tangents", None)
+    steep_t, steep_at, wall = 0.0, None, None        # the steepest edge the edit steepened; the worst new barrier
     for tri in tris:
         if not (moved & {tri[0], tri[1], tri[2]}):
             continue
+        topo = decode_id(int(round(tan[tri[0]][0])))["topograph"] if tan else 0
+        reach = WALK_RAY_START - CANOPY_SINK if topo in CANOPY_TOPOS else WALK_RAY_START
         for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
             va, vb = pos[a], pos[b]
-            rise = abs(vb[1] - va[1])
+            rise, rise0 = abs(vb[1] - va[1]), abs(pre_y[b] - pre_y[a])
             run = math.hypot(vb[0] - va[0], vb[2] - va[2])
-            t = rise / run if run > 1e-9 else (float("inf") if rise > 1e-9 else 0.0)
-            if t > worst_t:
-                worst_t, worst_at = t, (round(va[0], 1), round(va[2], 1))
-    deg = math.degrees(math.atan(worst_t)) if worst_t != float("inf") else 90.0
-    entry = {"max_slope_deg": round(deg, 1), "at": worst_at,
-             "flank_warn": deg > MAX_FLANK, "one_way_wall": worst_t > wall_tan}
+            if rise <= rise0:
+                continue                             # the edit did not steepen this edge
+            t = rise / run if run > 1e-9 else float("inf")
+            if t > steep_t:
+                steep_t, steep_at = t, (round(va[0], 1), round(va[2], 1))
+            if topo in WALK_OK and _climb_barrier(rise, run, reach) and not _climb_barrier(rise0, run, reach):
+                if wall is None or rise > wall["rise"]:
+                    wall = {"rise": round(rise, 3), "was": round(rise0, 3), "run": round(run, 3), "reach": reach,
+                            "topograph": topo, "at": (round(va[0], 1), round(va[2], 1))}
+    deg = math.degrees(math.atan(steep_t)) if steep_t != float("inf") else 90.0
+    entry = {"max_slope_deg": round(deg, 1), "at": steep_at, "flank_warn": deg > MAX_FLANK,
+             "one_way_wall": wall is not None, "barrier": wall}
     summary.setdefault("walkability", {})[str(list(blk))] = entry
-    if entry["one_way_wall"] and not allow_steep:
+    if wall is not None and not allow_steep:
         raise ValueError(
-            f"ONE-WAY WALL in block {blk}: slope {deg:.1f} deg at ~{worst_at} exceeds the "
-            f"walkable ceiling (~{math.degrees(math.atan(wall_tan)):.1f} deg -- ground may "
-            f"rise {WALK_RAY_START} per {WALK_SPEED}u tick). Descendable, UNCLIMBABLE: a "
-            "pit with such walls soft-locks the player. Pass allow_steep/--allow-steep if "
-            "the sculpt is deliberately impassable terrain.")
+            f"ONE-WAY WALL in block {blk}: at ~{wall['at']} the edit raises an edge's rise from {wall['was']:g}u to "
+            f"{wall['rise']:g}u over {wall['run']:g}u on walkable ground (topograph {wall['topograph']}). The walker "
+            f"climbs at most {wall['reach']:g}u per 0.4375u step (~79.4 deg on a longer edge). Descendable, "
+            "UNCLIMBABLE: a pit with such walls soft-locks the player. Pass allow_steep/--allow-steep if the sculpt "
+            "is deliberately impassable terrain.")
 
 
 def stitch_partners(blocks, mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=None,

@@ -148,13 +148,13 @@ def _flat_block(n=16, cell=4.0, y=3.0):
                      submeshes=[])
 
 
-def _real_reshape(monkeypatch, **kw):
-    """reshape() with a REAL mesh + REAL deform; only IO stubbed."""
+def _real_reshape(monkeypatch, block=None, **kw):
+    """reshape() with a REAL mesh + REAL deform; only IO stubbed. ``block`` builds the stock mesh (default flat)."""
     from ff9mapkit.world import discmirror as DM
     def terrain_only(bx, by, part="terrain", **k):              # the block carries Terrain and nothing else
         if part != "terrain":
             raise ValueError("mesh not found")
-        return _flat_block()
+        return (block or _flat_block)()
     monkeypatch.setattr(X, "read_block", terrain_only)
     monkeypatch.setattr(M, "deploy_override", lambda ter, **k: f"stub/{ter.name}")
     monkeypatch.setattr(DM, "auto_mirror", lambda *a, **k: None)
@@ -186,3 +186,66 @@ def test_walk_gate_refuses_the_one_way_wall_and_allow_steep_escapes(monkeypatch)
                       allow_steep=True)
     walk = s["walkability"][str([16, 14])]
     assert walk["one_way_wall"] and walk["max_slope_deg"] > 79.0
+    assert walk["barrier"]["rise"] == 30.0 and walk["barrier"]["was"] == 0.0
+
+
+# ---- TERRAIN STUDY DEFECT 23: only a barrier the EDIT makes, on ground the walker can enter, refuses -----------------
+
+def _cliff_block():
+    """The flat block with a stock CLIFF BAND: every vertex at local x >= 36 sits 25u up, so the tris spanning
+    x 32..36 rise 25u over 4u (~81 deg): over the slope ceiling before any edit (a town wall, a stock cliff)."""
+    from ff9mapkit.world.extract import CH_POS
+    bm = _flat_block()
+    for v in bm.chan_arrays[CH_POS]:
+        if v[0] >= 36.0:
+            v[1] += 25.0
+    return bm
+
+
+def test_walk_gate_passes_a_gentle_hill_beside_a_stock_cliff(monkeypatch):
+    # the old gate refused this: the hill moves the cliff band's foot (x = 32, 8u off), so it touches the band's tris,
+    # whose edges were over the ceiling in stock. It never reaches the top (x = 36), so the band only gets gentler:
+    # the steepest edge the EDIT steepened is the hill's own (12.8 deg), not the 81-deg stock cliff
+    s = _real_reshape(monkeypatch, block=_cliff_block, at=(1024.0 + 24.0, -896.0 - 30.0), radius=12.0, amount=2.0)
+    walk = s["walkability"][str([16, 14])]
+    assert not walk["one_way_wall"] and walk["barrier"] is None and s["blocks"]
+    assert walk["max_slope_deg"] < 28.6 and not walk["flank_warn"]
+
+
+def test_walk_gate_passes_a_hill_that_makes_a_stock_cliff_taller(monkeypatch):
+    # on the plateau the hill lifts the cliff's top edge and not its foot: the band was already a barrier, so a taller
+    # one is not the edit's wall
+    s = _real_reshape(monkeypatch, block=_cliff_block, at=(1024.0 + 44.0, -896.0 - 30.0), radius=12.0, amount=2.0)
+    walk = s["walkability"][str([16, 14])]
+    assert not walk["one_way_wall"] and walk["max_slope_deg"] > 79.4             # it did steepen the cliff
+
+
+def _gate(pre, post, topo=0):
+    """``_walk_gate`` over an unindexed tri soup: ``pre``/``post`` = vertex positions, 3 per tri."""
+    from types import SimpleNamespace
+    from ff9mapkit.world.extract import CH_POS, encode_id
+    idall = float(encode_id(topograph=topo))
+    ter = SimpleNamespace(chan_arrays={CH_POS: [list(p) for p in post]},
+                          tris=[[i, i + 1, i + 2] for i in range(0, len(post), 3)],
+                          tangents=[[idall, 0.0, 0.0, 1.0]] * len(post))
+    s = {}
+    try:
+        T._walk_gate(ter, [p[1] for p in pre], (16, 14), s, allow_steep=False)
+    except ValueError as e:
+        return "REFUSED", str(e)
+    return "passed", s["walkability"]["[16, 14]"]
+
+
+def test_walk_gate_unit_rules():
+    wall = [(0.0, 0.0, 0.0), (0.1, 5.0, 0.0), (4.0, 0.0, 4.0)]            # a 5u rise over 0.1u: a barrier in stock
+    assert _gate(wall, [wall[0], wall[1], (4.0, 0.5, 4.0)])[0] == "passed"          # the edit leaves the wall alone
+    assert _gate(wall, [wall[0], (0.1, 6.0, 0.0), wall[2]])[0] == "passed"          # ... or makes it taller
+    lip = [(0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (4.0, 0.0, 4.0)]             # a 1u vertical lip: climbed in game
+    verdict, why = _gate(lip, [lip[0], (0.0, 3.0, 0.0), lip[2]])                    # raised to 3u: past the reach
+    assert verdict == "REFUSED" and "from 1u to 3u over 0u" in why and "climbs at most 2.34375u" in why
+    assert _gate(lip, [lip[0], (0.0, 2.3, 0.0), lip[2]])[0] == "passed"             # 2.3u: still within one step
+    assert _gate(lip, [lip[0], (0.0, 3.0, 0.0), lip[2]], topo=49)[0] == "passed"    # rock: walled by its topograph
+    step = [(0.0, 0.0, 0.0), (0.2, 0.8, 0.0), (4.0, 0.0, 4.0)]
+    raised = [step[0], (0.2, 1.6, 0.0), step[2]]
+    assert _gate(step, raised, topo=37)[0] == "REFUSED"                             # canopy: 1.171875u reach
+    assert _gate(step, raised, topo=0)[0] == "passed"                               # lawn: 2.34375u

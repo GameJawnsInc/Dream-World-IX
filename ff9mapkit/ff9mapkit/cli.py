@@ -9316,11 +9316,12 @@ def build_parser() -> argparse.ArgumentParser:
     wtr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wtr.add_argument("--dry-run", action="store_true", help="report the blocks it would reshape, write nothing")
     wtr.add_argument("--allow-steep", action="store_true", dest="allow_steep",
-                     help="permit ONE-WAY WALL slopes (edge rise/run above ~79.4 deg, the engine's "
-                          "per-tick climb ceiling: ground may rise 2.34375 per 0.4375u step). Such "
-                          "faces are walkable DOWN but not up -- a pit with them soft-locks the "
-                          "player -- so the reshape refuses without this flag. Slopes above 28.6 deg "
-                          "(the grass-look p99) always print a stretch warning.")
+                     help="permit ONE-WAY WALLS: an edge the edit makes unclimbable on ground the walker "
+                          "can enter (he climbs at most 2.34375u per 0.4375u step -- ~79.4 deg on a longer "
+                          "edge -- and 1.171875u from canopy). Such faces are walkable DOWN but not up -- a "
+                          "pit with them soft-locks the player -- so the reshape refuses without this flag. "
+                          "Walls already in stock (town walls, cliffs) and rock tiles never refuse. An edge "
+                          "the edit steepens past 28.6 deg (the grass-look p99) prints a stretch warning.")
     wtr.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wtr.add_argument("--seam-taper", type=float, default=None, metavar="U",
