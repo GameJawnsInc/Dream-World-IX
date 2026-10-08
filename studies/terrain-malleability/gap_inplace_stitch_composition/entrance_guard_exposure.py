@@ -1,4 +1,7 @@
 """EXPOSURE of the entrance guard (terrain study defect 6, 2026-10-08): how often does a random land edit refuse?
+(The KIT rule below was removed the same day: in game the world load casts the player down from the sky, so a raised
+landing is safe -- ingame/RESULTS.md section 16. The kit now refuses only a dropped tile; this records what the
+rise rule cost.)
 
 Two rules, judged on stock disc-1 Terrain for smooth radial edits at every land point of an 8u lattice:
   BLOCK  world-deploy's old rule: refuse when any block the edit changes carries walk-on entrance tiles;
@@ -30,8 +33,13 @@ AMOUNTS = (1.0, 3.0, 6.0, -3.0)
 STEP = 8.0
 
 
+#: the rule this measured (mesh.ENTRANCE_CLEARANCE / ENTRANCE_RISE at 80219f6a). The kit dropped the rise rule after
+#: in-game round 3 refuted its premise (ingame/RESULTS.md section 16); the numbers are kept here so this still runs.
+CLEARANCE, RISE_LIMIT = 8.0, 1.171875
+
+
 def main():
-    C, RISE = M.ENTRANCE_CLEARANCE, M.ENTRANCE_RISE
+    C, RISE = CLEARANCE, RISE_LIMIT
     verts, vblock, tile_v, ent_blocks = [], [], set(), set()
     for (bx, by, *_r) in X.list_blocks(disc=1, game=S.GAME):
         try:

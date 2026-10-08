@@ -69,6 +69,9 @@ _REAL_DISCS = (1, 4)
 #: Truthy, so the inner writer still skips; distinct from ``True`` so its log line says the mirror is DEFERRED
 #: instead of claiming the operator passed ``--skip-mirror`` (which they never did).
 DEFERRED = "deferred"
+#: ``skip_mirror=REPLAY`` -- what a ``replay`` hands the writer call it re-runs on the destination disc: that call IS
+#: the mirror, so it skips silently (it used to print "skipped (--skip-mirror)" in the middle of the replay's own log)
+REPLAY = "replay"
 
 
 def _real_parts(disc: int, lod: str = "0_1", *, game=None) -> dict:
@@ -193,7 +196,8 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
 
     1. ``skip_mirror=True`` (CLI ``--skip-mirror``) opts out explicitly -- logs one line, does nothing.
        ``skip_mirror=DEFERRED`` is the same no-op for an inner writer whose orchestrator runs the one pass
-       itself; its line says so instead of blaming a ``--skip-mirror`` nobody passed.
+       itself; its line says so instead of blaming a ``--skip-mirror`` nobody passed. ``skip_mirror=REPLAY`` is the
+       silent no-op for the writer call a ``replay`` re-runs on the destination disc.
     2. Every entry of ``written`` that is not a real, existing ``str``/``Path`` under a ``WorldMap/Disc{n}``
        tree (``n != dst_disc``) is dropped. A ``MagicMock`` (a hermetic test that mocked the deploy calls
        out) fails the ``isinstance`` check -- if NOTHING survives (a dry run, a mocked writer, or a writer
@@ -218,6 +222,8 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
     ``world-mirror`` verb (a direct :func:`mirror` call, ``cells=None``) is unaffected either way."""
     if skip_mirror == DEFERRED:
         log(f"disc-{dst_disc} mirror: deferred to the calling verb's single pass over all of its writes")
+        return None
+    if skip_mirror == REPLAY:
         return None
     if skip_mirror:
         log(f"disc-{dst_disc} mirror: skipped (--skip-mirror)")

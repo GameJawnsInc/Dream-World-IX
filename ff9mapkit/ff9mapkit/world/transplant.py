@@ -3387,8 +3387,9 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     any tear (:func:`ff9mapkit.world.mesh.stitch_gate`; a dropped, emitted or re-cut tri is not a weld instance). The
     other parts are never co-moved: an Object is rigid, and the kit writes only parts a tweak meant to touch.
 
-    THE ENTRANCE GUARD (defect 6). The ``entrance`` gate row fails when the morph moves the land (Terrain, Beach1) of
-    a cell carrying walk-on entrance tiles, unless ``allow_entrances`` (:func:`ff9mapkit.world.mesh.entrance_guard`)."""
+    THE ENTRANCE GUARD (defect 6). The ``entrance`` gate row fails when the morph drops or re-cuts a walk-on entrance
+    tile of the land it loads (Terrain, Beach1), unless ``allow_entrances``; tiles it only moves are reported in the
+    row (:func:`ff9mapkit.world.mesh.entrance_guard`)."""
     from . import mesh as M
     from .placement import canonical_part
     tweaks = list(tweaks)
@@ -3503,16 +3504,10 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     sg = M.stitch_gate(rows)
     gates.append({"gate": "stitch", "welds": sg["welds"], "torn": sg["torn"], "max_sep": sg["max_sep"],
                   "by_mesh": sg["by_mesh"], "sample": sg["sample"][:3], "ok": sg["torn"] == 0})
-    # THE ENTRANCE GUARD (defect 6): raising land where a field exit sets the player down strands them there
-    from .entrance import door_arrivals
-    from .terrain import entrance_context
+    # THE ENTRANCE GUARD (defect 6): a morph that drops or re-cuts an entrance tile leaves the entrance with no trigger
     rows_e = [((bx, by), [r for p in sorted(guard_tris) for r in M.soup_tiles([t for t, _q in guard_tris[p]],
                                                                             [q for _t, q in guard_tris[p]])])]
-    C = M.ENTRANCE_CLEARANCE
-    rows_e += entrance_context((64.0 * bx - C, 64.0 * (bx + 1) + C, -64.0 * (by + 1) - C, -64.0 * by + C),
-                               {(bx, by)} if "terrain" in loaded else set(), mod_folder, disc=disc, lod=lod,
-                               game=game, fresh=fresh)
-    hits = M.entrance_guard(rows_e, arrivals=door_arrivals(game) if disc in (1, 4) else (), allow=True)
+    hits = M.entrance_guard(rows_e, allow=True)
     if hits:
         gates.append({"gate": "entrance", "blocks": hits, "allowed": allow_entrances,
                       "ok": allow_entrances or not any(h["refused"] for h in hits)})

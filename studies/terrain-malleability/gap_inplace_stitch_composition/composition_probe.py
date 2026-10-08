@@ -190,7 +190,7 @@ def E_deploy(center, hill=3.0, radius=16.0, blk=BLK, allow_entrances=False):
                                 allow_overwrite=False)
         with contextlib.redirect_stdout(io.StringIO()) as so, contextlib.redirect_stderr(io.StringIO()) as se:
             rc = CLI._cmd_world_deploy(ns)
-        return {"rc": rc, "stdout": so.getvalue()[-600:], "stderr": se.getvalue()[-600:]}
+        return {"rc": rc, "stdout": so.getvalue()[-4000:], "stderr": se.getvalue()[-600:]}
     return run
 
 

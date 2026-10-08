@@ -1,8 +1,9 @@
 """THE ENTRANCE GUARD, THE MORPH STITCH GATE and COLLISION-PROOF BACKUPS (terrain study defects 6, 10-11, 12).
 
-* Defect 6: only world-deploy refused to move an entrance block's ground (a hill at Dali soft-locked the player at
-  the field exit in game, commit 3e388d0d); world-terrain and world-transplant --in-place did it silently (study S8).
-  ``mesh.entrance_guard`` is now the one rule for all three, and it judges the blocks the edit actually changes.
+* Defect 6: only world-deploy guarded entrances, and it refused any reshape of an entrance block; world-terrain and
+  world-transplant --in-place guarded nothing (study S8). ``mesh.entrance_guard`` is now the one rule for all three:
+  refuse dropping or re-cutting an entrance tile, report moving one. Moving the ground under a landing is allowed:
+  in game the world load casts the player down from the sky (terrain study round 3, ``ingame/RESULTS.md`` §16).
 * Defects 10-11: VertexDisplace keeps a weld whole only across the parts ``morph_in_place`` loads, so a 1u tear
   against an Object passed every gate (study S10). The morph now runs ``mesh.stitch_gate`` over every part the cell
   carries.
@@ -91,66 +92,37 @@ def test_guard_ignores_moved_ground_without_entrance_tiles():
     assert M.entrance_guard([_rows(_flat_block(), dy_at=(OX + 8.0, OZ - 8.0))]) == []
 
 
-def test_guard_allows_moved_ground_far_from_the_tiles():
-    # the same block, 26u from its entrance tiles: where a field exit sets the player down is untouched
-    bm = _flat_block(event_near=(30.0, -30.0))
-    assert M.entrance_guard([_rows(bm, dy_at=(OX + 4.0, OZ - 4.0))]) == []
-
-
-def test_guard_refuses_raised_ground_within_the_clearance():
+def test_guard_never_refuses_ground_raised_beside_the_tiles():
+    # THE REFUTED RISE RULE stays gone (terrain study round 3: the world load casts the player down from the sky, so a
+    # landing raised 3.6u above its stored height was walked off in game). One lattice step off the tiles, any height.
     bm = _flat_block(event_near=(30.0, -30.0))
     corner = min(_tile_corners(bm), key=lambda p: (p[0], -p[2]))   # the tiles' north-west corner
-    node = (corner[0] - 4.0, corner[2] + 4.0)                       # one lattice step out on both axes: 5.66u
-    rows = _rows(bm, dy_at=node)                                    # raised 2u: past the 1.17u a landing finds
-    with pytest.raises(ValueError, match=r"REFUSED: this edit raises the ground where a field exit sets the player "
-                                         r"down \(more than 1\.17u within 8u of a place-ENTRANCE\) or drops an "
-                                         r"entrance tile -- \[16\]\[14\] ground raised 2u 5\.7u from an entrance "
-                                         r"tile \(area\(s\) \[14\]\)"):
-        M.entrance_guard([rows])
-    hits = M.entrance_guard([rows], allow=True)
-    assert hits[0]["block"] == [16, 14] and hits[0]["tiles_moved"] == 0 and not hits[0]["door_arrival"]
-    assert hits[0]["max_rise"] == 2.0 and hits[0]["refused"]
-    far = (corner[0] - 8.0, corner[2] + 8.0)                        # two steps out: 11.3u, clear
-    assert M.entrance_guard([_rows(bm, dy_at=far)]) == []
+    node = (corner[0] - 4.0, corner[2] + 4.0)                       # 5.66u off: the old rule refused past 1.17u here
+    for dy in (2.0, 6.0, -6.0):
+        assert M.entrance_guard([_rows(bm, dy_at=node, dy=dy)]) == []
 
 
-def test_guard_allows_a_small_raise_and_any_lowering_near_the_tiles():
-    bm = _flat_block(event_near=(30.0, -30.0))
-    corner = min(_tile_corners(bm), key=lambda p: (p[0], -p[2]))
-    node = (corner[0] - 4.0, corner[2] + 4.0)
-    assert M.entrance_guard([_rows(bm, dy_at=node, dy=1.0)]) == []          # the landing still finds the ground
-    assert M.entrance_guard([_rows(bm, dy_at=node, dy=-6.0)]) == []         # the player drops: legal
-
-
-def test_guard_reports_a_moved_tile_and_refuses_a_raised_or_dropped_one():
+def test_guard_reports_a_moved_tile_raised_or_lowered():
     bm = _flat_block(event_near=(30.0, -30.0))
     tile_node = (OX + 28.0, OZ - 28.0)
-    for dy in (0.5, -3.0):                                           # the trigger still fires, the landing still finds
+    for dy in (0.5, 2.0, 6.0, -3.0):                                 # the trigger still fires at any height
         hits = M.entrance_guard([_rows(bm, dy_at=tile_node, dy=dy)])
-        assert hits[0]["tiles_moved"] > 0 and hits[0]["max_rise"] is None and not hits[0]["refused"]
-    with pytest.raises(ValueError, match=r"ground raised 2u 0u from an entrance tile"):
-        M.entrance_guard([_rows(bm, dy_at=tile_node, dy=2.0)])        # a raised tile is its own landing point
+        assert hits == [{"block": [16, 14], "areas": [14], "tiles_moved": hits[0]["tiles_moved"],
+                         "tiles_dropped": 0, "refused": False}] and hits[0]["tiles_moved"] > 0
+
+
+def test_guard_refuses_a_dropped_tile():
+    bm = _flat_block(event_near=(30.0, -30.0))
     cell, tris = _rows(bm)
+    n = sum(1 for i, _pre, _post in tris if X.decode_id(i)["event"])
     dropped = [(i, pre, None if X.decode_id(i)["event"] else post) for i, pre, post in tris]
-    with pytest.raises(ValueError, match=r"\[16\]\[14\] \d+ entrance tile\(s\) dropped"):
+    with pytest.raises(ValueError, match=rf"REFUSED: this edit drops or re-cuts walk-on entrance tile\(s\) -- "
+                                         rf"\[16\]\[14\] {n} tile\(s\) \(area\(s\) \[14\]\)"):
         M.entrance_guard([(cell, dropped)])                          # its trigger would be gone
-
-
-def test_guard_sees_a_tile_across_the_block_border():
-    # the edit's block has no tiles; its neighbour's tile corner sits 4u away (an unchanged row lends it)
-    edit = _rows(_flat_block(), dy_at=(OX + 60.0, OZ - 32.0))
-    pts = ((OX + 64.0, 3.0, OZ - 32.0), (OX + 68.0, 3.0, OZ - 32.0), (OX + 64.0, 3.0, OZ - 36.0))
-    hits = M.entrance_guard([edit, ((17, 14), [(int(X.encode_id(1, 14, 0)), pts, pts)])], allow=True)
-    assert [h["block"] for h in hits] == [[16, 14]] and hits[0]["nearest"] == 4.0
-
-
-def test_guard_refuses_near_a_door_arrival():
-    edit = _rows(_flat_block(), dy_at=(OX + 20.0, OZ - 20.0))
-    hits = M.entrance_guard([edit], arrivals=[(OX + 23.0, OZ - 24.0)], allow=True)
-    assert hits[0]["door_arrival"] and hits[0]["nearest"] == 5.0 and hits[0]["areas"] == []
-    with pytest.raises(ValueError, match="from a door arrival"):
-        M.entrance_guard([edit], arrivals=[(OX + 23.0, OZ - 24.0)])
-    assert M.entrance_guard([edit], arrivals=[(OX + 40.0, OZ - 40.0)]) == []
+    hits = M.entrance_guard([(cell, dropped)], allow=True)
+    assert hits[0]["tiles_dropped"] == n and hits[0]["tiles_moved"] == 0 and hits[0]["refused"]
+    plain = [(i, pre, None) for i, pre, _post in _rows(_flat_block())[1]]   # dropping plain ground is not its business
+    assert M.entrance_guard([(cell, plain)]) == []
 
 
 # ---- world-terrain, world-deploy, the in-place morph ---------------------------------------------------------------
@@ -158,14 +130,12 @@ def test_guard_refuses_near_a_door_arrival():
 NEAR = (OX + 30.0, OZ - 42.0)              # a hill whose 12u radius reaches the (30, -30) tiles
 
 
-def test_reshape_refuses_near_an_entrance_and_writes_nothing(world):
+def test_reshape_raises_an_entrance_and_reports_its_moved_tiles(world):
     dep = _deploy(_flat_block(event_near=(30.0, -30.0)))
-    before = dep.read_bytes()
-    with pytest.raises(ValueError, match="place-ENTRANCE"):
-        T.reshape("MOD", at=NEAR, radius=12.0, amount=2.0)
-    assert dep.read_bytes() == before                                # refused before the first write
-    s = T.reshape("MOD", at=NEAR, radius=12.0, amount=2.0, allow_entrances=True)
-    assert [h["block"] for h in s["entrances"]] == [[16, 14]] and dep.read_bytes() != before
+    before, n = dep.read_bytes(), _events(dep)
+    s = T.reshape("MOD", at=NEAR, radius=12.0, amount=2.0)           # no flag needed: a landing re-grounds in game
+    assert [(h["block"], h["refused"]) for h in s["entrances"]] == [([16, 14], False)]
+    assert s["entrances"][0]["tiles_moved"] > 0 and dep.read_bytes() != before and _events(dep) == n
 
 
 def test_reshape_away_from_the_entrance_passes(world):
@@ -197,23 +167,18 @@ def test_world_deploy_uses_the_shared_guard(world, monkeypatch, capsys):
     monkeypatch.setattr(X, "list_blocks", lambda **k: [BLK])
     dep = _deploy(_flat_block(event_near=(30.0, -30.0)))
     before = dep.read_bytes()
-    assert cli._cmd_world_deploy(_deploy_ns(center=list(NEAR))) == 2
-    err = capsys.readouterr().err
-    assert "REFUSED: this edit raises the ground where a field exit sets the player down" in err
-    assert "-- [16][14] " in err
-    assert dep.read_bytes() == before
-    assert cli._cmd_world_deploy(_deploy_ns(center=list(NEAR), allow_entrances=True)) == 0
+    assert cli._cmd_world_deploy(_deploy_ns(center=list(NEAR))) == 0
     out = capsys.readouterr().out
-    assert "in block [16][14] -- --allow-entrances" in out and dep.read_bytes() != before
+    assert "note: moved" in out and "entrance tile(s) in block [16][14] -- the trigger still fires" in out
+    assert dep.read_bytes() != before
 
 
-def test_world_terrain_cli_flag(world, capsys):
+def test_world_terrain_cli_reports_moved_tiles(world, capsys):
     _deploy(_flat_block(event_near=(30.0, -30.0)))
     base = ["world-terrain", "--mod-folder", "MOD", "--at", str(NEAR[0]), str(NEAR[1]), "--radius", "12", "--raise",
             "2", "--skip-mirror"]
-    assert cli.main(base) == 2 and "place-ENTRANCE" in capsys.readouterr().err
-    assert cli.main(base + ["--allow-entrances"]) == 0
-    assert "in block [16][14] -- --allow-entrances" in capsys.readouterr().out
+    assert cli.main(base) == 0
+    assert "entrance tile(s) in block [16][14] -- the trigger still fires" in capsys.readouterr().out
 
 
 def _soup_quad(x0, z0, y, *, part_idall=0.0, size=4.0):
@@ -238,11 +203,12 @@ def _displace(local_xz, y=3.0, dy=1.0, expected=6):
     return TR.VertexDisplace(moves={(local_xz[0] + OX, y, local_xz[1] + OZ): (0.0, dy, 0.0)}, expected=expected)
 
 
-def test_morph_entrance_gate_allows_lowering_near_the_tiles(morph_cell, world):
+def test_morph_entrance_gate_allows_moving_ground_near_the_tiles(morph_cell, world):
     _deploy(_flat_block(event_near=(30.0, -30.0)))
-    s = TR.morph_in_place("MOD", cell=BLK, tweaks=[_displace((32.0, -40.0), dy=-2.0)], parts=("terrain",),
-                          dry_run=True)
-    assert not any(g["gate"] == "entrance" for g in s["gates"]) and s["clean"]
+    for dy in (-2.0, 2.0):                                           # beside the tiles, not on them: no row at all
+        s = TR.morph_in_place("MOD", cell=BLK, tweaks=[_displace((32.0, -40.0), dy=dy)], parts=("terrain",),
+                              dry_run=True)
+        assert not any(g["gate"] == "entrance" for g in s["gates"]) and s["clean"]
 
 
 def test_morph_stitch_gate_catches_the_object_tear(morph_cell):
@@ -266,18 +232,38 @@ def test_morph_stitch_gate_refuses_the_deploy(morph_cell, world):
     assert not s["clean"] and s["deployed"] == [] and not list(world.rglob("*.ff9mesh"))
 
 
+class _DropTiles:
+    """An in-place tweak that drops every walk-on entrance tile of the Terrain (``apply`` -> None)."""
+    part = "terrain"
+
+    def apply(self, part, poly):
+        if part == "terrain" and X.decode_id(int(round(poly[0][3][0])))["event"]:
+            return None
+        return poly
+
+    def emit(self):
+        return []
+
+    def gate(self):
+        return {"gate": "drop", "ok": True}
+
+    def census_inverse(self, x, z):
+        return x, z
+
+
 def test_morph_entrance_gate(morph_cell, world):
     _deploy(_flat_block(event_near=(30.0, -30.0)))                   # a kit entrance on the cell
-    s = TR.morph_in_place("MOD", cell=BLK, tweaks=[_displace((32.0, -40.0), dy=2.0)], parts=("terrain",),
-                          dry_run=True)
+    moved = TR.morph_in_place("MOD", cell=BLK, tweaks=[_displace((28.0, -28.0), dy=2.0)], parts=("terrain",),
+                              dry_run=True)                         # a tile corner raised: reported, never refused
+    g = next(g for g in moved["gates"] if g["gate"] == "entrance")
+    assert g["ok"] and g["blocks"][0]["tiles_moved"] > 0 and not g["blocks"][0]["refused"] and moved["clean"]
+    s = TR.morph_in_place("MOD", cell=BLK, tweaks=[_DropTiles()], parts=("terrain",), dry_run=True)
     g = next(g for g in s["gates"] if g["gate"] == "entrance")
-    assert not g["ok"] and g["blocks"][0]["block"] == [16, 14] and not s["clean"]
-    s = TR.morph_in_place("MOD", cell=BLK, tweaks=[_displace((32.0, -40.0), dy=2.0)], parts=("terrain",),
-                          dry_run=True, allow_entrances=True)
+    assert not g["ok"] and g["blocks"][0]["block"] == [16, 14] and g["blocks"][0]["tiles_dropped"] > 0
+    assert not s["clean"]
+    s = TR.morph_in_place("MOD", cell=BLK, tweaks=[_DropTiles()], parts=("terrain",), dry_run=True,
+                          allow_entrances=True)
     assert next(g for g in s["gates"] if g["gate"] == "entrance")["ok"] and s["clean"]
-    far = TR.morph_in_place("MOD", cell=BLK, tweaks=[_displace((8.0, -56.0), dy=2.0)], parts=("terrain",),
-                            dry_run=True)
-    assert not any(g["gate"] == "entrance" for g in far["gates"]) and far["clean"]   # 30u+ off: no gate row
 
 
 def test_morph_entrance_gate_ignores_a_retexture(morph_cell, world):

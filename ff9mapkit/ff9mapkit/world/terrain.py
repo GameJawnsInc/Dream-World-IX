@@ -116,33 +116,6 @@ def stitch_partners(blocks, mod_folder: str, *, disc: int = 1, lod: str = "0_1",
     return out
 
 
-def entrance_context(box, have, mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=None,
-                     fresh: bool = False) -> list:
-    """:func:`ff9mapkit.world.mesh.entrance_guard` rows for the blocks around an edit that it does not itself read:
-    every in-grid block whose footprint meets the world-XZ ``box`` = ``(minx, maxx, minz, maxz)`` (the edit's reach
-    grown by :data:`~ff9mapkit.world.mesh.ENTRANCE_CLEARANCE`) and is not in ``have``, read (stacked, or stock with
-    ``fresh``) only for its entrance tiles, as unchanged ``(cell, tris)`` rows. An entrance tile just across a block
-    border from the edit counts."""
-    from ..config import ConfigError
-    from . import extract as X, mesh as M
-    from .entrance import read_block_stacked
-    bx0, bx1, by0, by1 = _block_index_range(*box)
-    out = []
-    for bx in range(bx0, bx1 + 1):
-        for by in range(by0, by1 + 1):
-            if (bx, by) in have or not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
-                continue
-            try:
-                ter = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="terrain", game=game,
-                                         missing_ok=True, fresh=fresh)
-            except ConfigError:
-                return out
-            if ter is None or not getattr(ter, "tris", None) or not getattr(ter, "verts", None):
-                continue
-            out.append(((bx, by), M.bm_tiles(ter, M.world_positions(ter, X.block_world_origin(bx, by)))))
-    return out
-
-
 def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float | None = None,
             flatten: bool = False, height: float | None = None, disc: int = 1, falloff: str = "smooth",
             game=None, dry_run: bool = False, skip_mirror: bool = False,
@@ -172,10 +145,10 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     (:func:`ff9mapkit.world.mesh.stitch_gate`) checks every weld before anything is written, and refuses on any tear.
     A flatten with no ``height`` uses ONE mean over every block (per-block means pulled shared borders apart).
 
-    THE ENTRANCE GUARD (terrain study defect 6; :func:`ff9mapkit.world.mesh.entrance_guard`). A reshape that moves the
-    ground of a block carrying walk-on entrance tiles refuses unless ``allow_entrances``: a field exit there can set
-    the player down under the new ground (a hill at Dali soft-locked them in game). Only ``world-deploy`` had this
-    refusal; ``summary["entrances"]`` lists the blocks an allowed reshape moved anyway.
+    THE ENTRANCE GUARD (terrain study defect 6; :func:`ff9mapkit.world.mesh.entrance_guard`). A deform only moves
+    vertices, so it never drops an entrance tile, and moving the ground under an entrance is safe in game (the world
+    load casts the player down from the sky, terrain study round 3). ``summary["entrances"]`` reports the entrance
+    tiles each block's edit moved; ``allow_entrances`` is accepted for the refusal the guard keeps (a dropped tile).
 
     THE READ/WRITE DISC SPLIT. ``disc`` is the READ disc and must stay 1 or 4 -- ``extract`` has no other
     stock bundle tree. ``target_disc`` is purely where the result is DEPLOYED (a synthetic world's override
@@ -262,14 +235,8 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
             continue
         _walk_gate(ter, pre_y, (bx, by), summary, allow_steep=allow_steep)
         built.append((bx, by, ter, moved))
-    # THE ENTRANCE GUARD (defect 6), before the first write: the entrance tiles in reach (this edit's blocks and the
-    # ring around them) and, on a real disc, the stock door arrivals
-    from .entrance import door_arrivals
-    C = M.ENTRANCE_CLEARANCE
-    tiles += entrance_context((minx - radius - C, maxx + radius + C, minz - radius - C, maxz + radius + C),
-                              {t[0] for t in tiles}, mod_folder, disc=rtarget, game=game, fresh=fresh)
-    summary["entrances"] = M.entrance_guard(tiles, arrivals=door_arrivals(game) if rtarget in (1, 4) else (),
-                                            allow=allow_entrances)
+    # THE ENTRANCE GUARD (defect 6), before the first write: the entrance tiles this edit moved, per block
+    summary["entrances"] = M.entrance_guard(tiles, allow=allow_entrances)
     gate = M.stitch_gate(rows + [(n, pos, pos) for n, pos in
                                  ((n, M.world_positions(bm, o)) for n, bm, o in partners)])
     summary["stitch"] = {k: gate[k] for k in ("welds", "torn", "max_sep", "by_mesh")}
@@ -301,7 +268,7 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
 
             def replay(d):
                 return reshape(mod_folder, radius=radius, at=at, seg=seg, amount=amount, flatten=flatten,
-                               height=flat_h, disc=d, falloff=falloff, game=game, skip_mirror=True,
+                               height=flat_h, disc=d, falloff=falloff, game=game, skip_mirror=DM.REPLAY,
                                allow_steep=allow_steep, fresh=fresh, allow_overwrite=allow_overwrite,
                                seam_taper=seam_taper, allow_entrances=allow_entrances)
         summary["mirror"] = DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror, replay=replay)

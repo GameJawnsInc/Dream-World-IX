@@ -522,16 +522,21 @@ weld on the cell, including the parts it does not load (Object, river, falls, vo
 moves; a carry checks every donor weld through its tweaks, rotation and shift, against the parts the donor's prefab
 still renders where they are. A growth cut splits the welds on its line on purpose; its filler column re-welds them.
 
-**Entrances are guarded (after 1.0.0b19; terrain study defect 6).** The world map sets the player down from a
-persisted position record (`MoveInstantXZY(Global.Int24[64], Int16[67], Int24[69])` in every free-roam dispatcher's
-player Init): either a constant a field exit wrote (56 stock exits, 43 door arrivals) or wherever the player stood when
-they walked onto the entrance tile. The height is stored too, so ground raised more than the walk ray's start above
-it traps the player: a hill at Dali froze them in every direction. `world-terrain`, `world-deploy` and
-`world-transplant --in-place` now refuse an edit that raises ground more than 1.17u (the canopy step) within 8u of an
-entrance tile or a door arrival (`entrance.door_arrivals`, read from the install's field scripts), or that drops an
-entrance tile; `--allow-entrances` overrides. Lowering there is fine: the player drops. A tile moved within those
-limits still fires and is reported, not refused. `world-deploy` used to refuse any reshape of a block that carries
-entrance tiles at all (half of all r16 edits); a +3 r16 hill now refuses 12.7% of the time, and a +1 hill never.
+**Entrances are guarded (after 1.0.0b19; terrain study defect 6).** `world-terrain`, `world-deploy` and
+`world-transplant --in-place` refuse an edit that drops or re-cuts a walk-on entrance tile: the dispatcher still
+routes that entrance, with no tile left to fire it. `--allow-entrances` overrides. A tile an edit only moves still
+fires and is reported. `world-deploy` used to refuse any reshape of a block that carries entrance tiles at all (half
+of all r16 edits).
+
+**Where a field exit sets the player down.** Every free-roam dispatcher's player Init places him from a persisted
+position record, height included (`MoveInstantXZY(Global.Int24[64], Int16[67], Int24[69])`). The record holds either
+a constant a field exit wrote (56 stock exits, 43 door arrivals: `entrance.door_arrivals`) or wherever he stood when
+he walked onto the entrance tile. The stored height does not decide where he stands, though. `w_frameMainRoutine`
+then loads every block and casts every actor down from the sky (`w_movementChrInitSlice`, `ff9.cs:3700-3705`), so he
+lands on whatever ground is there now. In game (terrain study in-game round 3), Burmecia's landing lowered 3u, raised
+1u and raised 4u (3.6u above its stored height, past the walk ray's reach) each put him at rest on the new ground,
+and he walked. So raising or lowering the ground under an entrance is safe. The July 2026 "hill at Dali froze the
+player" report, which an interim rise rule was built on, is unexplained.
 
 ## `world-reclaim` — reclaim ocean cells as walkable land
 
