@@ -1673,6 +1673,33 @@ AREA_WEATHER = frozenset({9, 12, 13})
 AREA_BEACH = frozenset({4, 5, 13, 16, 17, 18, 19, 25, 29, 30, 31, 33, 37, 38, 46, 47, 49, 50, 51, 52, 58})
 
 
+#: THE SAFE-ROAD AREA: what land minted on open sea is stamped (terrain study policy R1; the owner's pick). Area 14
+#: "Lindblum Plateau": zone 6, camera place 0, no lock, weather or beach search. Zone 6 has encounter records only at
+#: topographs 10 and 36, so every kit ground topograph is a table HOLE: no random battle under the s60 engine patch
+#: the bundle ships (stock Memoria falls back to the zone's last record). The Southern Ring's in-game proven safe road.
+SAFE_ROAD_AREA = 14
+
+
+def stamp_area(bm, area: int) -> int:
+    """Set the AREA bits of every event-free ground tri of ``bm`` to ``area``, keeping topograph, event and flags;
+    walk-skip IDALLs and entrance tiles are left alone. Returns the tris changed."""
+    from .extract import decode_id, encode_id
+    tan = bm.tangents
+    if tan is None:
+        return 0
+    n = 0
+    for t in bm.tris:
+        idall = int(round(tan[t[0]][0]))
+        d = decode_id(idall)
+        if idall in WALK_SKIP_IDS or d["event"] or d["area"] == area:
+            continue
+        new = float(encode_id(0, area, d["topograph"], d["flags"]))
+        for i in t:
+            tan[i][0] = new
+        n += 1
+    return n
+
+
 def area_camera_place(area: int) -> int:
     """The on-foot camera PLACE an area selects every frame, with no easing (``w_cameraArea2Place``, ff9.cs:81/3117):
     0 for areas 0-26 and 46-50, 1 for 40-45, 2 for 27-39 and 51-63. Stock has no walkable seam between places."""

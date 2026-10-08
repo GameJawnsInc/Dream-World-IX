@@ -529,6 +529,14 @@ continent" is **make designated ocean cells load land**, not mint a new world. `
 per sea cell (`world/terrain.py` `reclaim` → `mesh.flat_block_mesh` + `palette.apply_palette_uvs` → a loose
 `Block[x][y] Terrain.ff9mesh`, deployed like any Terrain override).
 
+**The ground's AREA (terrain study policy R1).** Area picks the encounter zone, the camera place and the location
+name (window title, main menu, save slot). Mints used to stamp area 0: zone 0, Mist Continent battles on the grass and
+"Gunitas Basin". Now `--area N` wins; else a `world-reclaim` cell that joins stock land with walkable ground at the
+shared edge takes that ground's area (`terrain.host_area_for_cells`: the 8u strip along the edge), so the camera,
+battles and name carry on; else, out at open sea, **area 14, the safe road** (zone 6 has no battle records for any
+ground the kit mints, so with the s60 patch nothing rolls; it reads "Lindblum Plateau"). `world-island` always mints at
+open sea. The verb prints the area and why. Sea parts keep area 0, like the stock ocean.
+
 **Why it needs an engine change (the make-or-break, RE'd over the WM source):** `block.IsSea` is read in EXACTLY two
 places, both pure prefab-routing to `SeaBlockPrefab` — there is **NO** downstream movement / collision / encounter /
 camera gate on it (walkability is 100% the mesh's `tangent.x` topograph, `WMBlock.Raycast@210`; `w_worldSeaBlockPtr` /
@@ -764,6 +772,8 @@ approved — up to an r52 pure-plain desert island — so it was retired, 2026-0
 open ocean (the open-ocean target law — a real sea-skirt block loads its own prefab and the fragment silently never
 renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
 Proven in-game; the proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
+Its ground (Terrain and the Beach1 sand) is stamped area 14, the safe road, or `--area N`: see `world-reclaim`'s
+**The ground's AREA** above.
 
 **Ground families — `--ground` (★ 2026-07-15).** THE TRANSLATION LAW IS UNIVERSAL: every stock walkable
 ground family is the grass language translated in the atlas — same mains 2×2 rects (widths, gutters,

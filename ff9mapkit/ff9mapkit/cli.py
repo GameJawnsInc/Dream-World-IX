@@ -4068,6 +4068,17 @@ def _print_stack_notes(summary: dict) -> None:
               f"{summary['fresh_lost_entrances']} -- re-run their world-entrance or those entrances stay dead")
 
 
+def _print_minted_area(a: dict) -> None:
+    """The minted ground's AREA (terrain study policy R1): which one, why, and what it drives."""
+    why = {"explicit": "--area", "host": "the walkable ground it joins",
+           "open-sea": "open sea: the safe road -- no random battles on kit ground (with the s60 engine patch); "
+                       "the title reads \"Lindblum Plateau\""}[a["source"]]
+    extra = [x for x, on in (("the area-12 camera LOCK", a["camera_lock"]), ("spawn weather", a["weather"]),
+                             ("the beach search", a["beach_search"])) if on]
+    print(f"  ground area {a['area']} ({why}): encounter zone {a['zone']}, camera place {a['camera_place']}"
+          + (f"; also {', '.join(extra)}" if extra else "") + ". --area N picks another.")
+
+
 def _print_stitch(summary: dict) -> None:
     """THE STITCH GATE's receipt (terrain study defect 5): how many seams the edit held, and any it tore."""
     g = summary.get("stitch")
@@ -4637,7 +4648,8 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
                             topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
                             shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run,
                             skip_mirror=args.skip_mirror, target_disc=args.target_disc,
-                            all_sea_target=args.all_sea_target, allow_overwrite=args.allow_overwrite)
+                            all_sea_target=args.all_sea_target, allow_overwrite=args.allow_overwrite,
+                            area=args.area)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4649,6 +4661,8 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts{edges}")
     print(f"  + per cell, hidden {'/'.join(summary['blanked'])} stubs: the fallback donor Block[12][10]'s "
           f"water never rides under the land")
+    if summary.get("area"):
+        _print_minted_area(summary["area"])
     for w in summary.get("warnings", []):
         print(f"  !! WARNING: {w}")
     if not args.dry_run:
@@ -5130,7 +5144,7 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
                   skip_mirror=args.skip_mirror, target_disc=args.target_disc,
                   all_sea_target=args.all_sea_target,
                   coastnav=not args.skip_coastnav, coastnav_policy=args.coastnav_policy,
-                  allow_overwrite=args.allow_overwrite)
+                  allow_overwrite=args.allow_overwrite, area=args.area)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -5156,6 +5170,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
             gy, nm, topo = place["centre"]
             extra = f"; centre grounds y={gy} on {nm} topo {topo}"
         print(f"  block {blk}: {b['tris']} tris ({b['verts']} verts){extra}")
+    if summary.get("area"):
+        _print_minted_area(summary["area"])
     for g in summary["report"].get("texgates", []):
         if g.get("warn"):
             print(f"  !! WARNING {g['gate']}: {g.get('detail') or 'see the report'} -- THE TEXTURE + "
@@ -9316,6 +9332,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="cliff wall RUN in units (default 1.0 -> ~73deg at height 3.2); smaller = steeper (cliff profile)")
     wrc.add_argument("--shore-topo", type=int, default=None,
                      help="island shore-edge terrain type (default 20 sand; 58 is on-foot BLOCKED)")
+    wrc.add_argument("--area", type=int, default=None, metavar="N",
+                     help="the ground's AREA bits 0-63 (encounter zone, camera, location name). Default: the area "
+                          "of the walkable ground the cells join; out at open sea, 14, the safe road (no random "
+                          "battles on kit ground with the s60 engine patch; reads \"Lindblum Plateau\")")
     wrc.add_argument("--topograph", type=int, default=0,
                      help="flat-profile terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
     wrc.add_argument("--seg", type=int, default=10, help="tessellation per 64u block edge (default 10)")
@@ -9692,6 +9712,10 @@ def build_parser() -> argparse.ArgumentParser:
                               "undulation (local prominence still = world-hill/world-forest/world-mountain). "
                               "Needs the custom engine; re-enter the world.")
     wis.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wis.add_argument("--area", type=int, default=None, metavar="N",
+                     help="the island ground's AREA bits 0-63 (encounter zone, camera, location name). Default 14, "
+                          "the safe road: no random battles on kit ground with the s60 engine patch; reads "
+                          "\"Lindblum Plateau\". The sea keeps area 0, like the stock ocean")
     wis.add_argument("--allow-overwrite", action="store_true",
                      help="deploy even though the footprint already holds another deploy's override files. "
                           "OFF by default: THE MOD-OVERWRITE GATE (back-ported from world-transplant's "

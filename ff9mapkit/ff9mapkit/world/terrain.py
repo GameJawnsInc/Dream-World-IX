@@ -99,14 +99,18 @@ def stitch_partners(blocks, mod_folder: str, *, disc: int = 1, lod: str = "0_1",
     what a Terrain edit there is stitched to. A Terrain edit's block range already holds every partner vertex it can
     reach (a vertex the field moves lies within the radius, so its partner's block does too). Not modelled: the
     un-overridden parts a ``Donor.txt`` prefab lends its cell (kit carries blank the parts they do not carry)."""
+    from ..config import ConfigError
     from . import extract as X, mesh as M
     from .entrance import read_block_stacked
     from .placement import canonical_part
     out = []
     for (bx, by) in blocks:
         for p in M.STITCH_PARTNER_PARTS:
-            bm = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part=p, game=game, missing_ok=True,
-                                    fresh=fresh)
+            try:
+                bm = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part=p, game=game, missing_ok=True,
+                                        fresh=fresh)
+            except ConfigError:                    # no install resolves (a hermetic run): nothing stock to read
+                return out
             if bm is not None and getattr(bm, "verts", None):
                 out.append((f"Block[{bx}][{by}] {canonical_part(p) or p}", bm, X.block_world_origin(bx, by)))
     return out
@@ -417,12 +421,74 @@ def _check_blankable(bm, cell, profile: str, eps: float = 1e-6) -> None:
                          f"reclaimed cell carries no water, so that ground would show the void. Raise --height")
 
 
+def host_area_for_cells(cells, mod_folder: str, *, disc: int = 1, game=None, band: float = 8.0) -> dict:
+    """The AREA of the ground new land in ``cells`` would be walked onto from: the dominant area, by XZ area, of the
+    event-free, walkable, non-canopy Terrain within ``band`` u of the cells' outer edges in the neighbouring blocks
+    (the deployed override first, else stock). Land that joins a region continues its camera place, battles and
+    label, as stock's own regions do (they have no walkable camera seam). ``area`` is ``None`` when nothing walkable
+    touches the cells (open sea). Returns ``{"area", "votes": {area: u2}}``."""
+    from collections import Counter
+    from ..config import ConfigError
+    from . import mesh as M
+    from .entrance import read_block_stacked
+    from .extract import decode_id
+    from .placement import WALK_OK
+    cells = {tuple(c) for c in cells}
+    votes = Counter()
+    for (bx, by) in sorted(cells):
+        for (dx, dy) in _DIRS:
+            nb = (bx + dx, by + dy)
+            if nb in cells or not (0 <= nb[0] < GRID_X and 0 <= nb[1] < GRID_Y):
+                continue
+            try:
+                ter = read_block_stacked(mod_folder, nb[0], nb[1], disc=disc, part="terrain", game=game,
+                                         missing_ok=True)
+            except ConfigError:                    # no install resolves (a hermetic run): no stock ground to join
+                ter = None
+            if ter is None or not getattr(ter, "verts", None) or ter.tangents is None:
+                continue
+            # the neighbour's strip along the shared edge, block-local (x 0..64, z 0..-64; by grows southward)
+            inside = {(1, 0): lambda x, z: x <= band, (-1, 0): lambda x, z: x >= BLOCK - band,
+                      (0, 1): lambda x, z: z >= -band, (0, -1): lambda x, z: z <= -BLOCK + band}[(dx, dy)]
+            V = ter.verts
+            for t in ter.tris:
+                idall = int(round(ter.tangents[t[0]][0]))
+                d = decode_id(idall)
+                if idall in M.WALK_SKIP_IDS or d["event"] or d["topograph"] not in WALK_OK                         or d["topograph"] in M.CANOPY_TOPOGRAPHS:
+                    continue
+                a, b, c = V[t[0]], V[t[1]], V[t[2]]
+                if not inside((a[0] + b[0] + c[0]) / 3.0, (a[2] + b[2] + c[2]) / 3.0):
+                    continue
+                votes[d["area"]] += abs((b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2])) / 2.0
+    if not votes:
+        return {"area": None, "votes": {}}
+    return {"area": min(votes, key=lambda k: (-votes[k], k)), "votes": {k: round(v, 2) for k, v in votes.items()}}
+
+
+def minted_area(area, *, host=None) -> dict:
+    """THE MINTED-LAND AREA (terrain study policy R1). An explicit ``area`` wins; else the ``host`` vote
+    (:func:`host_area_for_cells`) for land that joins a region; else :data:`ff9mapkit.world.mesh.SAFE_ROAD_AREA` for
+    land out at open sea. Area 0 -- what every mint used to stamp -- is zone 0: its grass rolled Mist Continent battles
+    and read "Gunitas Basin" (the Southern Ring needed a 112-file restamp). Returns the area, its source and its
+    :func:`~ff9mapkit.world.mesh.area_effects`."""
+    from . import mesh as M
+    if area is not None:
+        if type(area) is not int or not 0 <= area <= 63:
+            raise ValueError(f"area must be an int 0-63, not {area!r}")
+        a, src = area, "explicit"
+    elif host and host.get("area") is not None:
+        a, src = host["area"], "host"
+    else:
+        a, src = M.SAFE_ROAD_AREA, "open-sea"
+    return {"area": a, "source": src, "votes": (host or {}).get("votes", {}), **M.area_effects(a)}
+
+
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
             height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
             shore_topo: int | None = None, shore_frac: float | None = None, rim_run: float | None = None,
             game=None, dry_run: bool = False, skip_mirror: bool = False,
             target_disc: int | None = None, all_sea_target: bool = False,
-            allow_overwrite: bool = False) -> dict:
+            allow_overwrite: bool = False, area: int | None = None) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -453,7 +519,12 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
 
     Requires the CUSTOM engine: the shipped ``s34`` divert routes a sea cell carrying such an override onto a land
     donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of ``SeaBlockPrefab`` -- a stock sea cell
-    short-circuits before the override can fire, so on stock Memoria this is a no-op. REFUSES a target that
+    short-circuits before the override can fire, so on stock Memoria this is a no-op.
+
+    THE AREA (terrain study policy R1): the ground is stamped with ``area`` when given; else the area of the walkable
+    ground the cells join (:func:`host_area_for_cells`), so a bridge continues its region's camera, battles and label;
+    else, out at open sea, the safe road :data:`ff9mapkit.world.mesh.SAFE_ROAD_AREA` (14). Every reclaim used to stamp
+    area 0, Mist Continent battles. ``summary["area"]`` reports the choice. REFUSES a target that
     already holds another deploy's override files (THE MOD-OVERWRITE GATE; ``allow_overwrite=True`` /
     ``--allow-overwrite`` waives it). A LONE reclaimed cell is an
     ISLAND (surrounding stock sea non-walkable on foot); build a contiguous BRIDGE of cells from the coast for an
@@ -498,8 +569,10 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     # really is water, so probing the unrelated real disc would invent coastline against continents that do not
     # exist there. NOTE the guard is on the flag, NOT on `target != disc` -- an s75 CLONE target has the stock
     # IsSea pattern, so its neighbours' real-land status is exactly right and must still be read.
+    host = None if area is not None else host_area_for_cells(cells, mod_folder, disc=target, game=game)
+    stamp = minted_area(area, host=host)
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
-               "dry_run": dry_run, "cells": [], "blanked": list(LAND_DONOR_WATER), "warnings": []}
+               "dry_run": dry_run, "cells": [], "blanked": list(LAND_DONOR_WATER), "warnings": [], "area": stamp}
     built = []
     open_edged = []
     for (bx, by) in cells:
@@ -529,6 +602,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
                 if water:
                     open_edged.append((bx, by))
         _check_blankable(bm, (bx, by), profile)
+        M.stamp_area(bm, stamp["area"])
         built.append(bm)
         summary["cells"].append(info)
     if open_edged:

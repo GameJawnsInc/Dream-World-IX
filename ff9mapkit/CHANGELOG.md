@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `world-island` and `world-reclaim` stamp a chosen area on new land, not area 0
+- Every minted tri used to carry area 0. Area 0 is encounter zone 0, so the grass rolled Mist Continent battles
+  (Goblin, Python, Mu), and the window title, main menu and save slot read "Gunitas Basin". The Southern Ring had
+  to restamp 112 files afterwards to get its safe road.
+- Land out at open sea now gets area 14, the safe road: zone 6 has no battle records for any ground the kit mints,
+  so with the s60 engine patch (in the engine bundle) nothing rolls; it reads "Lindblum Plateau". `world-island`
+  always mints at open sea.
+- A `world-reclaim` cell beside stock land with walkable ground at the shared edge takes that ground's area, so the
+  camera, battles and name carry on across the join (stock has no walkable camera seam).
+- `--area N` (both verbs) picks any area; the verb prints the area, why it was chosen, and what it drives. Sea parts
+  keep area 0, as the stock ocean does.
+- Land deployed before this change keeps area 0 until it is re-minted. New: `mesh.SAFE_ROAD_AREA`, `mesh.stamp_area`,
+  `terrain.host_area_for_cells`, `terrain.minted_area`.
+
 ### Fixed — `world-terrain`/`world-deploy` no longer tear the seams where land meets water, beach, rivers or buildings
 - Both verbs write Terrain only, but stock Terrain shares exact vertices with every other part it touches. A reshape
   moved the Terrain side of those seams and left the other side behind. A +3 edit at a beach opened a 3u slit and a
