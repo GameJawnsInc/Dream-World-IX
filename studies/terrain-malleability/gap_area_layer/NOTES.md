@@ -22,6 +22,7 @@ cases). Every number below comes from a script in this directory. Each script ch
 | `py studies/terrain-malleability/gap_area_layer/lead_1918.py` | the Block[19][18] lead. Output `out/lead_1918.json` | — |
 | `py studies/terrain-malleability/gap_area_layer/writer_audit.py` | per-writer area class with re-located cites, every case world-entrance can stamp, and donor areas. Output `out/writer_audit.json` | every code needle must be found |
 | `py studies/terrain-malleability/gap_area_layer/area_table.py` | all 64 areas against every consumer, plus safe-road candidates per camera place. Output `out/area_table.json` | — |
+| `py studies/terrain-malleability/gap_area_layer/stock_entrance_area.py` | every stock entrance cluster in the atlas against its 3u walkable ring, its block's dominant area, and its dispatch case. Output `out/stock_entrance_area.json` | the cell-tag join resolves (Byte[39] cases found) |
 | `py studies/terrain-malleability/gap_area_layer/area_lint.py` | the prototype lint AL1-AL8 over all live cells. Output `out/area_lint.json` | **FIRES** on Block[19][18] (AL1+AL3+AL4). **FIRES** AL2 on a synthetic area-40 stamp (1973 u², 64 seam pairs). **SILENT** on the same cell unstamped. **SILENT** (no ERROR/WARN) on stock Uaho (0,0) fed in as authored. |
 
 Stock meshes are cached as numpy in the session scratchpad (`arealib.SCRATCH`), outside the repo. `out/` holds only
@@ -246,7 +247,7 @@ Every writer **declares** a target area. The **site policy area** is chosen in t
 | # | writer | rule | measured consequence it prevents |
 |---|---|---|---|
 | R1 | world-island, world-reclaim, mesh emitters | stamp the **site policy area**, not 0 | Area 0 is zone 0, which has records at topographs {0,13,37}, so minted grass rolls Python/Goblin/Mu. The ring needed a post-hoc 85,236-vert / 112-file restamp (REVERT §26). |
-| R2 | world-entrance | default `--no-tile-area`: event tiles **inherit the host ground's area** (the dominant area of the authored ground in the cell). Never area := case. | 3/151 cases lock, 62/151 change the place, 70/151 make the trigger encounter-live, 89 wrap. Live: 5 armed quay clusters are zone-0 islands inside safe area-14 ground (AL3/AL5). |
+| R2 | world-entrance | **BUILT 2026-10-08** as `--tile-area host` (the default): event tiles take the dominant area of the walkable ground within 3u, the stock rule measured in §F. Never area := case. keep/case/N warn when off the host. | 3/151 cases lock, 62/151 change the place, 70/151 make the trigger encounter-live, 89 wrap. Live: 5 armed quay clusters are zone-0 islands inside safe area-14 ground (AL3/AL5). |
 | R3 | world-retarget `--area` | keep as a user flag, but print the area's consequence row, refuse area 12 and any place change against neighbouring ground unless `--force`, and fix the help text | AL1/AL2 |
 | R4 | world-mountain | keep the strip, but strip to the **site policy area** instead of 0 | a carried Uaho at 63 would be place 2 and zone 24 (Path D measured: 754 u² encounter-live) |
 | R5 | world-forest | stamp the canopy to a declared **canopy area** (the ring uses 0); default to the site policy area; carrying 7 must be deliberate | Path D area-7 canopy: 1,566 u² of zone-2 encounters |
@@ -284,7 +285,29 @@ memory, since the live cell no longer fires):
 * "Authored" means the IDALL differs from the cell's background: the stock cell, or BLANK sea4f on Disc9. So
   Donor.txt free riders that were moved to a new position count as authored.
 
+## F. What stock gives its own entrance tiles (`stock_entrance_area.py`, 2026-10-08)
+
+The ground for R2. Over the atlas (first-hit ground query, all parts) on disc 1:
+* 267 event-tile clusters, each a single area. 212 have no walkable ground within 3u; nearly all of those are
+  small patches (under 20 samples) inside sea topograph 57.
+* Of the **55** clusters with walkable non-event ground within 3u, **53** carry exactly that ground's dominant area.
+  The 2 exceptions are area-0 triggers on topographs 55/56, which the party cannot walk on.
+* The block's dominant non-canopy area matches only 45 of those 55: entrances near an area boundary take the local
+  ground's area, not the block majority. So R2 reads a ring, not the block (the Ring's REVERT §32 stamp used the
+  block; every Ring host was 14 either way).
+* **0 of 51** clusters with a resolved dispatch case carry `case & 0x3F`. Stock never stamps the case.
+* Disc 4: 33/35 ring matches, the same two exceptions; 0/29 carry their case.
+
+The kit's `mesh.host_area` reads the raw Terrain mesh instead of the atlas. Over every stock Terrain entrance
+cluster on a walkable topograph it returns the tiles' own area for **75/76** on disc 1 and **54/55** on disc 4
+(pinned in `ff9mapkit/tests/test_world_entrance_area.py`). One cluster at (13,17) is cut into area-14 rock with no
+walkable ground near it, so the rock's area votes (`ring-any`). The single miss is the same (2,7) trigger on both
+discs: area 44 on a 43/44 boundary, ring votes 28 to 16 for 43. Reading the neighbour block does not flip it (27
+to 24). Areas 43 and 44 share zone 16 and camera place 1, so the miss changes only the label.
+
 ## Recorded claims this contradicts
+
+(Claims 1 and 2 were corrected in the kit on 2026-10-08, with the defect-14 fix.)
 
 1. **`ff9mapkit/ff9mapkit/world/extract.py:68-89`.** The `decode_id` docstring says area is "a coarse REGIONAL
    tag"; `encode_id` says "the cosmetic regional tag". Area has seven engine/script channels (A1/A2). Also

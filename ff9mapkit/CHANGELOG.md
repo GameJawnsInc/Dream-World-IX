@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-entrance`: trigger tiles take the area of the ground around them, not the dispatch case
+- The trigger tiles' AREA bits were stamped with the dispatch case number (`& 0x3F`). Dispatch never reads area,
+  but the encounter zone, camera place, the area-12 camera lock, spawn weather, the location label (window title,
+  main menu, save slot) and the beach search do. So the case imported an unrelated stock region onto the trigger:
+  of the 151 cases it could stamp, 3 lock the camera, 9 set weather, 62 move the camera, 49 arm the beach search,
+  and 70 make the trigger roll battles. The Southern Ring's quays rolled zone-0 battles inside a safe road this way.
+- The default is now `--tile-area host`: the dominant area of the walkable ground within 3u of the trigger, read
+  with the engine's ground query (`mesh.host_area`). That is stock's own rule. Over every stock entrance cluster
+  it returns the tiles' own area for 75 of 76 on disc 1 and 54 of 55 on disc 4. The miss is a trigger on a 43/44
+  boundary, which only changes the label. No stock entrance carries its case.
+- `--tile-area keep` leaves each tile's area, `case` restores the old stamp, and `N` sets one area. Any of them
+  that leaves the trigger off its host's area prints a `!! WARNING` naming what changes. `--no-tile-area` still
+  works, as `--tile-area keep`, and the library's `set_tile_area` bool still works too.
+- Help text and docstrings no longer call the area "cosmetic" (`world-retarget --area`, `world-locate`,
+  `extract.decode_id`, `mesh.retarget_tiles`). New `mesh.area_effects(area)` names what an area drives.
+- An entrance deployed before this fix keeps its tiles' area. Re-running its original `world-entrance` command
+  (with the same `--building`, if it had one) restamps them.
+
 ### Fixed — `world-reclaim`: no sea under reclaimed land, so a boat can no longer sail beneath it
 - A reclaimed ocean cell writes no `Donor.txt`, so the engine loads its fallback land donor, `Block[12][10]`.
   That block is an open-ocean islet: its Sea1/Sea3/Sea4/Sea5 cover 97% of the cell. The water stayed in place
