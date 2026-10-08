@@ -4055,6 +4055,33 @@ def _world_apply_note(needs: str | None = None, extra: str | None = None) -> Non
         print("  " + extra)
 
 
+def _print_stack_notes(summary: dict) -> None:
+    """THE STACKED READ's receipt (terrain study defects 3-4): what an in-place writer composed onto, or what its
+    --fresh reset to stock discarded. Silence here would hide the one behaviour a re-run depends on."""
+    if summary.get("stacked_on"):
+        print(f"  stacked on {len(summary['stacked_on'])} deployed override(s): the edit composes with what is "
+              f"there, so re-running it compounds. --fresh re-reads stock instead (and discards them).")
+    if summary.get("fresh_warning"):
+        print(f"  !! WARNING: {summary['fresh_warning']}")
+    if summary.get("fresh_lost_entrances"):
+        print(f"  !! WARNING: entrance trigger tiles discarded (--allow-overwrite), by block: "
+              f"{summary['fresh_lost_entrances']} -- re-run their world-entrance or those entrances stay dead")
+
+
+def _add_fresh_args(p, what: str, *, overwrite_flag: str = "--allow-overwrite") -> None:
+    """``--fresh`` (+ ``--allow-overwrite``) for an in-place world writer that stacks on deployed overrides. A verb
+    that already has its own overwrite waiver names it in ``overwrite_flag`` and gets no second one."""
+    p.add_argument("--fresh", action="store_true",
+                   help=f"re-read the block(s) from PRISTINE stock instead of stacking on the mod folder's deployed "
+                        f"override(s), e.g. to re-do a {what} from scratch (stacked, a re-run compounds). Discards "
+                        f"what is deployed there (each file is named), and refuses to erase a kit entrance's "
+                        f"trigger tiles without {overwrite_flag}")
+    if overwrite_flag == "--allow-overwrite":
+        p.add_argument("--allow-overwrite", action="store_true",
+                       help="with --fresh: discard kit entrance trigger tiles too (their world .eb triggers then "
+                            "fire nothing until world-entrance re-runs)")
+
+
 def _world_coupling_note(*, coastnav: bool = True, minimap: bool = True,
                          encounters: bool = False) -> None:
     """What a geometry edit silently invalidates (audit rec 8 / critic #1): the disc mirror
@@ -4145,8 +4172,19 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         else:
             targets = explicit
 
-        # read all targets first, so the entrance-safety refusal below never leaves a partial deploy
-        bms = [W.read_block(x, y, disc=args.disc, lod=args.lod, game=args.game) for (x, y) in targets]
+        # read all targets first, so the entrance-safety refusal below never leaves a partial deploy. STACKED on the
+        # deployed override (defect 3: a pristine read erased every earlier edit); --fresh = stock, gated
+        from .world import entrance as EN
+        stack = {"stacked_on": []}
+        if args.fresh:
+            stack.update(M.fresh_reset_gate(targets, args.mod_folder, disc=args.disc, lod=args.lod,
+                                            game=args.game, allow_overwrite=args.allow_overwrite))
+        else:
+            stack["stacked_on"] = [str(p) for (x, y) in targets
+                                   if (p := M.deployed_override(args.mod_folder, x, y, disc=args.disc,
+                                                                lod=args.lod, game=args.game)) is not None]
+        bms = [EN.read_block_stacked(args.mod_folder, x, y, disc=args.disc, lod=args.lod, game=args.game,
+                                     fresh=args.fresh) for (x, y) in targets]
 
         # SAFETY: a reshape that raises/lowers a place-ENTRANCE block softlocks the player -- the spawn/field-exit
         # drops the actor at the tile's STALE pre-raise Y, below the new surface, and foot movement raycasts DOWN
@@ -4196,6 +4234,7 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         return 2
 
     print(f"deployed {len(written)} block override(s) into {args.mod_folder}")
+    _print_stack_notes(stack)
     if reshape:
         kind = "flatten" if args.flatten else ("hill" if hill_amt > 0 else "crater")
         print(f"  {kind}: centre world ({cx:.0f},{cz:.0f}) radius {args.radius:g} falloff {args.falloff}"
@@ -4272,7 +4311,18 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
         return 2
     x, y = args.block
     try:
-        bm = W.read_block(x, y, disc=args.disc, lod=args.lod, game=args.game)
+        # STACKED on the deployed override (defect 3: a pristine read erased the block's earlier edits, an entrance
+        # included); --fresh = stock, gated
+        from .world import entrance as EN
+        stack = {"stacked_on": []}
+        if args.fresh:
+            stack.update(M.fresh_reset_gate([(x, y)], args.mod_folder, disc=args.disc, lod=args.lod,
+                                            game=args.game, allow_overwrite=args.allow_overwrite))
+        else:
+            dep = M.deployed_override(args.mod_folder, x, y, disc=args.disc, lod=args.lod, game=args.game)
+            stack["stacked_on"] = [str(dep)] if dep is not None else []
+        bm = EN.read_block_stacked(args.mod_folder, x, y, disc=args.disc, lod=args.lod, game=args.game,
+                                   fresh=args.fresh)
         before = W.block_summary(bm)["place_entrances"]
         n = M.retarget_tiles(bm, event=args.event, area=args.area, topograph=args.topograph,
                              center=(tuple(args.center) if args.center else None), radius=args.radius,
@@ -4288,6 +4338,7 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     print(f"retargeted {n} tile(s) on block[{x}][{y}] -> {dest}")
+    _print_stack_notes(stack)
     print(f"  entrances before: {[(e['area'], e['event']) for e in before]}")
     print(f"  entrances after:  {[(e['area'], e['event']) for e in after]}")
     try:                                                     # what the DISPATCHER says about this block's cells
@@ -4460,7 +4511,7 @@ def _cmd_world_atlas_catalog(args: argparse.Namespace) -> int:
 
 
 def _cmd_world_terrain(args: argparse.Namespace) -> int:
-    """Reshape walkable overworld terrain (raise/lower/flatten a hill, or a ridge/valley) by deforming the stock mesh
+    """Reshape walkable overworld terrain (raise/lower/flatten a hill, or a ridge/valley) by deforming the ground mesh
     across every block it touches. No DLL (loose Terrain override via s34); apply via the world-scene reload."""
     from .world import terrain as T
     at = seg = None
@@ -4477,12 +4528,14 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
         summary = T.reshape(args.mod_folder, at=at, seg=seg, radius=args.radius, amount=amount,
                             flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
                             game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror,
-                            target_disc=args.target_disc, allow_steep=args.allow_steep)
+                            target_disc=args.target_disc, allow_steep=args.allow_steep, fresh=args.fresh,
+                            allow_overwrite=args.allow_overwrite)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     verb = "would reshape" if args.dry_run else "reshaped"
     print(f"{verb} terrain ({summary['op']}, radius {summary['radius']}) across {len(summary['blocks'])} block(s):")
+    _print_stack_notes(summary)
     for b in summary["blocks"]:
         walk = summary.get("walkability", {}).get(str(b["block"]))
         note = ""
@@ -4664,6 +4717,9 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             return "[" + ",".join(_fmt(x) for x in v) + "]"
         return str(v)
 
+    if args.fresh and not args.in_place:
+        print("--fresh re-reads a cell's own parts from stock: it applies to --in-place only", file=sys.stderr)
+        return 2
     try:
         bx, by = (int(v) for v in args.cell.split(","))
         dx, dy = (int(v) for v in args.donor.split(","))
@@ -4812,7 +4868,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 raise ConfigError("--in-place needs at least one morph flag to apply")
             summary = TR.morph_in_place(args.mod_folder, cell=(bx, by), tweaks=list(tweaks),
                                         disc=args.disc, game=args.game,
-                                        dry_run=args.dry_run, skip_mirror=args.skip_mirror)
+                                        dry_run=args.dry_run, skip_mirror=args.skip_mirror,
+                                        fresh=args.fresh, allow_overwrite=args.allow_mod_overwrite)
         else:
             kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                       tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
@@ -4838,6 +4895,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     if summary["op"] == "morph-in-place":
         print(f"IN-PLACE morph: real cell {tuple(summary['cell'])} "
               f"(touched parts: {', '.join(summary['touched'])})")
+        _print_stack_notes(summary)
         for g in summary["gates"]:
             detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items()
                                if k not in ("gate", "ok"))
@@ -9017,6 +9075,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="[diag] raise the WHOLE block(s) by N units -- an unmistakable plateau")
     wd.add_argument("--skip-mirror", action="store_true",
                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    _add_fresh_args(wd, "reshape")
     wd.set_defaults(func=_cmd_world_deploy)
 
     wl = sub.add_parser("world-locate",
@@ -9055,6 +9114,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only retarget tiles that ALREADY carry an entrance (re-point, don't create)")
     wr.add_argument("--skip-mirror", action="store_true",
                     help="don't auto-mirror the written override to Disc4 (THE DISC-4 GAP; default: mirror)")
+    _add_fresh_args(wr, "retarget")
     wr.set_defaults(func=_cmd_world_retarget)
 
     wme = sub.add_parser("world-mesh-export",
@@ -9158,7 +9218,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     wtr = sub.add_parser("world-terrain",
                          help="reshape WALKABLE overworld terrain -- raise/lower/flatten a hill or a ridge/valley by "
-                              "deforming the stock mesh across every block it touches (seamless). No DLL; relaunch.")
+                              "deforming the ground across every block it touches (seamless): the deployed override where there is one, "
+                              "else stock. No DLL; relaunch.")
     wtr.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
     wtr.add_argument("--radius", type=float, required=True, help="reshape radius (world units)")
     _shape = wtr.add_mutually_exclusive_group(required=True)
@@ -9182,6 +9243,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "(the grass-look p99) always print a stretch warning.")
     wtr.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    _add_fresh_args(wtr, "reshape")
     wtr.set_defaults(func=_cmd_world_terrain)
 
     wrc = sub.add_parser("world-reclaim",
@@ -9496,7 +9558,9 @@ def build_parser() -> argparse.ArgumentParser:
                           "block). The route for shores no single-cell transplant can carry -- every "
                           "nose beach's landmass is a coastline fragment. No census/land-fit (the cell "
                           "keeps its real neighbours; morphs pin block-frame verts). Revert = delete "
-                          "the deployed files.")
+                          "the deployed files. Each part stacks on its deployed override if the cell "
+                          "has one (--fresh: from stock).")
+    _add_fresh_args(wtp, "--in-place morph", overwrite_flag="--allow-mod-overwrite")
     wtp.add_argument("--beach-rebuild", default=None, metavar="X0,Z0:X1,Z1",
                      help="STRUCTURAL beach, identity mode (in-game proven ~indistinguishable): drop the "
                           "window's shore ladder (foam run tiles / sea2 wash / sea1 Wang ring) and re-derive "

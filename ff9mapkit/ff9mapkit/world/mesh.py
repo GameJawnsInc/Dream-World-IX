@@ -360,9 +360,10 @@ def mod_overwrite_gate(cells, mod_folder: str, *, disc: int, lod: str = "0_1", g
 
     ⚠ ONLY for a writer that SYNTHESIZES or CARRIES its bytes -- one that reads nothing from the mod
     tree. A writer that READS the deployed override and writes it back (``terrain.reshape``,
-    ``transplant.morph_in_place``, the ``interior`` relief verbs, ``entrance.author_entrance``)
-    overwrites an already-deployed cell BY DESIGN and on every legitimate run; a refusal there is a
-    wall, not a guard rail. Warn there instead."""
+    ``world-deploy``, ``world-retarget``, ``transplant.morph_in_place``, the ``interior`` relief verbs,
+    ``entrance.author_entrance``) overwrites an already-deployed cell BY DESIGN and on every legitimate
+    run; a refusal there is a wall, not a guard rail. Their ``fresh`` reset to stock is the one path that
+    discards, and it goes through :func:`fresh_reset_gate` instead."""
     try:
         clash = existing_overrides(cells, mod_folder, disc=disc, lod=lod, game=game, parts=parts)
     except Exception:                            # noqa: BLE001 -- no install resolvable: nothing to hit
@@ -374,6 +375,83 @@ def mod_overwrite_gate(cells, mod_folder: str, *, disc: int, lod: str = "0_1", g
             f"Re-site the target, or pass allow_overwrite=True (--allow-overwrite) if you really "
             f"mean to replace what is there.")
     return clash
+
+
+def deployed_override(mod_folder: str, x: int, y: int, *, disc: int, lod: str = "0_1", part: str = "Terrain",
+                      game=None):
+    """The override file deployed in ``mod_folder`` for block ``(x, y)``'s ``part``, or ``None`` when there is
+    none -- or no install resolves (a hermetic test, which then reads its stubbed stock)."""
+    from .placement import canonical_part
+    try:
+        root = config.find_game_path(game)
+    except config.ConfigError:
+        return None
+    p = root / mod_folder / override_relpath(disc, x, y, lod, canonical_part(part) or part.capitalize())
+    return p if p.is_file() else None
+
+
+def entrance_tags(bm) -> set:
+    """``(cell_x, cell_z, event)`` for every walk-on trigger tri in ``bm`` (event bits set, walk-skip IDALLs
+    excluded): the cell tags its tiles make ``WorldEvent`` fire, each one a dispatcher trigger's key."""
+    from .extract import block_world_origin, decode_id
+    tan = bm.tangents
+    if tan is None:
+        return set()
+    ox, oz = block_world_origin(bm.x, bm.y)
+    verts, out = bm.verts, set()
+    for t in bm.tris:
+        idall = int(round(tan[t[0]][0]))
+        ev = decode_id(idall)["event"]
+        if not ev or idall in WALK_SKIP_IDS:
+            continue
+        cx = sum(verts[i][0] for i in t) / 3.0 + ox
+        cz = sum(verts[i][2] for i in t) / 3.0 + oz
+        out.add((int(cx // 32), int(-cz // 32), ev))
+    return out
+
+
+def fresh_reset_gate(blocks, mod_folder: str, *, disc: int, lod: str = "0_1", game=None, parts=("Terrain",),
+                     allow_overwrite: bool = False) -> dict:
+    """THE FRESH-RESET GATE (terrain study defects 3-4). The in-place writers stack on what the mod folder holds;
+    ``fresh`` re-reads PRISTINE stock instead and so DISCARDS the deployed ``parts`` at ``blocks``. Name every such
+    file (``fresh_discards`` / ``fresh_warning``), and REFUSE unless ``allow_overwrite`` when a discarded Terrain
+    override carries entrance trigger tiles stock does not: erasing them leaves the world ``.eb`` trigger with no tile
+    to fire it, a dead entrance nobody sees until they walk there (the study's S3: a reshape and a retarget each did
+    exactly that, silently). Runs before any write. Returns ``{}`` when nothing would be discarded."""
+    try:
+        discards = existing_overrides(blocks, mod_folder, disc=disc, lod=lod, game=game, parts=parts)
+    except config.ConfigError:
+        return {}
+    if not discards:
+        return {}
+    out = {"fresh_discards": discards,
+           "fresh_warning": (f"--fresh re-reads PRISTINE stock, DISCARDING {len(discards)} deployed override(s) "
+                             f"in {mod_folder}: {[Path(p).name for p in discards[:6]]}"
+                             + (" ..." if len(discards) > 6 else ""))}
+    if "Terrain" not in parts:
+        return out
+    from .extract import read_block
+    lost = {}
+    for (x, y) in blocks:
+        dest = deployed_override(mod_folder, x, y, disc=disc, lod=lod, part="Terrain", game=game)
+        if dest is None:
+            continue
+        mine = entrance_tags(blockmesh_from_ff9mesh(dest, disc=disc, x=x, y=y, lod=lod))
+        try:
+            stock = entrance_tags(read_block(x, y, disc=disc, lod=lod, part="terrain", game=game))
+        except (ValueError, FileNotFoundError):
+            stock = set()
+        if mine - stock:
+            lost[(x, y)] = sorted(mine - stock)
+    if lost:
+        out["fresh_lost_entrances"] = {f"{x},{y}": [list(t) for t in g] for (x, y), g in sorted(lost.items())}
+        if not allow_overwrite:
+            cells = "; ".join(f"block ({x},{y}) cells {[(c[0], c[1]) for c in g]}" for (x, y), g in sorted(lost.items()))
+            raise ValueError(
+                f"refusing --fresh: it would erase entrance trigger tiles a deploy added ({cells}). Their world .eb "
+                f"triggers would stay, with no tile left to fire them: dead entrances. Drop --fresh to edit on top "
+                f"of them, or pass --allow-overwrite to discard them anyway (then re-run their world-entrance).")
+    return out
 
 
 #: the world lane's append-only deploy ledger, one JSON line per deploy_override write,

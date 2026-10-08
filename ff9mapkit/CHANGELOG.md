@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — in-place world edits stack: a second edit of a block no longer erases the first
+- `world-terrain`, `world-deploy`, `world-retarget` and `world-transplant --in-place` read pristine stock, so the
+  last writer silently erased every earlier edit of the block. A reshape or retarget also killed a
+  `world-entrance`: its trigger tiles were erased, but its world `.eb` trigger remained, so the entrance was dead.
+  Measured over 8 cross-writer pairs on one real block: every one erased the first edit.
+- All four now read the mod folder's deployed override when there is one (as `world-entrance` always did) and print
+  `stacked on N deployed override(s)`. Re-run against a real block, 9 of the pairs stack; the tenth refuses (below).
+  `world-terrain` can now also reshape a kit island, which it used to skip as open sea.
+- **A re-run now compounds**: `--raise 3` run twice is +6. `--fresh` (new on all four) re-reads stock to re-do an
+  edit from scratch. It names every deployed file it discards, and refuses to erase a kit entrance's trigger tiles
+  unless `--allow-overwrite` is also given (`--allow-mod-overwrite` on `world-transplant`). The library calls take
+  `fresh=` and `allow_overwrite=`.
+- `world-transplant --in-place` builds its tweaks from stock, so it now refuses to change tris that a deployed edit
+  already changed, and names the count per part. The same waiver applies.
+- New: `mesh.deployed_override`, `mesh.entrance_tags`, `mesh.fresh_reset_gate`, `transplant.world_tris_stacked`.
+
 ### Fixed — `world-entrance`: trigger tiles take the area of the ground around them, not the dispatch case
 - The trigger tiles' AREA bits were stamped with the dispatch case number (`& 0x3F`). Dispatch never reads area,
   but the encounter zone, camera place, the area-12 camera lock, spawn weather, the location label (window title,

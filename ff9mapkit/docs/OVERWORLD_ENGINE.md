@@ -497,6 +497,17 @@ faces). And **multi-block**: a deform wider than one 64u block is applied to EVE
 at the grid boundary). Reshape keeps the stock texture + walkability topograph. ★ Proven: a seamless walkable grassy
 hill across blocks (16,14)+(16,15).
 
+**Edits stack (after 1.0.0b19; terrain study defects 3-4).** `world-terrain`, `world-deploy`, `world-retarget` and
+`world-transplant --in-place` read each block from the mod folder's **deployed override** when there is one, like
+`world-entrance` always did, so a second edit composes with the first. Before, they read pristine stock: the last
+writer silently erased every earlier edit of the block, and a reshape or retarget killed a `world-entrance` (its `.eb`
+trigger left with no tile to fire it). They print `stacked on N deployed override(s)`. **A re-run compounds** (a
+`--raise 3` run twice is +6). **`--fresh`** re-reads stock to re-do an edit from scratch; it names every file it
+discards and refuses to erase a kit entrance's trigger tiles without `--allow-overwrite` (`--allow-mod-overwrite` on
+`world-transplant`). An in-place morph's tweaks are built from stock, so it refuses to change tris a deployed edit
+already changed (the same waiver applies). Stacking also lets `world-terrain` reshape a **kit island**, which it used
+to skip as open sea.
+
 ## `world-reclaim` — reclaim ocean cells as walkable land
 
 The overworld is a **fixed 24×20 = 480-block grid where every ocean cell already exists as a real `WMBlock`** — it

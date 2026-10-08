@@ -173,7 +173,8 @@ def E_retarget(at, radius=10.0, topograph=17, blk=BLK):
     def run(mf):
         ns = argparse.Namespace(block=list(blk), disc=1, lod="0_1", game=GAME, mod_folder=mf, event=None,
                                 area=None, topograph=topograph, center=list(at), radius=radius,
-                                only_entrances=False, skip_mirror=True)
+                                only_entrances=False, skip_mirror=True, fresh=False,
+                                allow_overwrite=False)
         with contextlib.redirect_stdout(io.StringIO()) as so, contextlib.redirect_stderr(io.StringIO()) as se:
             rc = CLI._cmd_world_retarget(ns)
         return {"rc": rc, "stdout": so.getvalue()[-400:], "stderr": se.getvalue()[-400:]}
@@ -185,7 +186,8 @@ def E_deploy(center, hill=3.0, radius=16.0, blk=BLK, allow_entrances=False):
         ns = argparse.Namespace(block=list(blk), cluster=None, disc=1, lod="0_1", mod_folder=mf, hill=hill,
                                 crater=0.0, flatten=False, height=None, radius=radius, center=list(center),
                                 falloff="smooth", no_normals=False, allow_entrances=allow_entrances, spike=0.0,
-                                lift=0.0, skip_mirror=True, game=GAME)
+                                lift=0.0, skip_mirror=True, game=GAME, fresh=False,
+                                allow_overwrite=False)
         with contextlib.redirect_stdout(io.StringIO()) as so, contextlib.redirect_stderr(io.StringIO()) as se:
             rc = CLI._cmd_world_deploy(ns)
         return {"rc": rc, "stdout": so.getvalue()[-600:], "stderr": se.getvalue()[-600:]}
