@@ -938,6 +938,19 @@ replay the verb's gates refuse on disc 4 leaves disc 4 untouched, and an `--in-p
 will be (copied, replayed, or refused there). The standalone `world-mirror` still gates cell by cell and names any refused cell that borders a copied
 one.
 
+### `world-sink` — turn a real island into open sea
+
+`world-sink --mod-folder M --at WX WZ` removes the whole island under the point, the way disc 4 removes Shimmering
+Island (the game deletes it and re-tiles the water; nothing is left under the sea). The island's land, every 4u tile
+it touched and the coast-conforming deep sea round it are replaced by whole stock tiles of open sea (sea4, y 0,
+topograph 57), and near-shore water (topographs 53-56) that no other land explains becomes open water, or a ring the
+Blue Narciss cannot cross would wall off where the island was. An island over several blocks sinks in one edit, every
+block gated before any is written; a block left with no land gets the hidden blanking stub. Disc 4 is replayed on its
+own ground where it differs. `--list` finds the islands it takes: only an island whose land meets deep sea directly
+(an island with shallows or a beach is one mesh with its neighbours through that water), with no building on it.
+A party standing where the island was stands in the sea, 1.367u under the surface (the walk sink on topograph 57).
+The big map still draws the island: `world-minimap` paints deployed land and cannot erase stock land.
+
 ### `world-forest` + `world-hill` — interior topography on a deployed island
 
 Both verbs reshape the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job)

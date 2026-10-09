@@ -726,12 +726,72 @@ The four stopping frames, side by side: `shots/r9-edge-sheet.png`.
 folder, where it finds nothing, so the probe silently read stock: on the bumped ground it looked like a 2.3u miss. The
 ground model now refuses a relative path.
 
+## Round 10 (2026-10-09, owner's go: "do cliffs 2, land to sea"): a whole island turned into open sea, 28/28 on the third launch
+
+Runs `.harness-runs/20261009-151643-r10-sink` (launch 1), `20261009-152007-r10-sink` (launch 2) and
+`20261009-152801-r10-sink` (launch 3), each one launch with 6 world loads, under 100 s, 0 exceptions. One scratch folder,
+first in FolderNames for each launch; ini backed up per launch (`backups/Memoria.ini.pre-r10*-lab.*`) and restored
+byte-exact (`0b5a4985…`) after each, the lab removed. Build and predictions: `r10_build.py`; scenario: `r10_session.py`;
+the lane: `../land2sea/NOTES.md`.
+
+### 25. `world-sink`: a whole island becomes open sea, on both discs, and a boat sails where it stood
+
+The island is the largest `world-sink --list` takes: 4,813 u² of bare-coast land, up to y 26.5, over five blocks
+(9,6) (9,7) (10,5) (10,6) (10,7), with no building and no entrance. Disc 4 redrew two of those blocks, so the deploy
+REPLAYS the sink on disc 4's own ground. The files came from the kit's CLI:
+- **FULL** = `world-sink --at 679.033 -386.717`: Disc1 plus the replay on Disc4, 10 files each. 440 4u tiles are
+  re-tiled as open sea and 17 near-shore tris are turned to open water. The island was all the land in its five
+  blocks, so each block's Terrain becomes the hidden blanking stub, on both discs.
+- **OLD** = the same with `--skip-mirror`: Disc1 only.
+
+The read points: P1 near the summit (y 26.30), P2 at mid height (13.14), P3 on the lowland (3.24).
+
+**Launch 3 (the record):**
+
+| stage | lab | world | on foot at P1 / P2 / P3 | boat, eastbound from (588.5, −395.63) | lab files bound |
+|---|---|---|---|---|---|
+| d1_stock | - | 9011 | 26.297 / 13.141 / 3.242 | | 0 |
+| d1_sink | FULL | 9011 | **−1.367** at all three | | 10 (Disc1) |
+| boat_stock | - | 9003 | | stalls at x 647.998, the island's west coast (sim 647.96) | 0 |
+| boat_sink | FULL | 9003 | | **sails 121u to x 718.8**, past the island's east side (699.5) | 10 (Disc1) |
+| d4_old | OLD | 9008 | 26.297 / 13.141 / 3.242: disc 4 keeps its island | | 0 |
+| d4_sink | FULL | 9008 | **−1.367** at all three | | 10 (Disc4) |
+
+On the sunk island the party stands in open sea. Its published y is the sea surface, 0, minus the walk sink on
+topograph 57: `w_movementSinkArray` row 1 gives 450 for that class, 350/256 = 1.3671875u (`ff9.cs:19`, class switch
+`:5636-5667`). It is the same mechanism as the 1.171875u canopy sink.
+
+The frames: `shots/r10-sheet.png` (launch 3) and `shots/r10-strip-fix.png` (launches 2 and 3).
+
+**Verdict.**
+1. **`world-sink` removes a whole real island.** Where it stood there is open deep sea on disc 1, and the Blue
+   Narciss sails straight across. On stock, the same lane stops at its coast.
+2. **The replay carries it to disc 4.** Disc 4's own ground is sunk too. With the files the kit writes when nothing
+   is mirrored, disc 4 keeps the island.
+
+**The first two launches** (they are not counted; each changed the instrument or the kit, never the prediction after
+the fact):
+- **Launch 1 (22/28):** the six sunk-point checks predicted y 0.0 and read −1.3671875, all six. The prediction left
+  out the party's walk sink on open sea. Launch 2 registered it from the engine's table before running.
+- **Launch 2 (28/28), and a kit defect the checks did not measure:** its sunk frames showed a small grey quad in the
+  sky. Two near-vertical hillside strips of the island had been kept: 2 tris each in (9,7) and (10,6), topograph
+  38, y 4-8. They stand exactly on 4u tile lines, so they have no plan area and touch no tile, and the plan's drop
+  loop asked "does it touch the region?" before "is it the island?". Fixed: every island tri is dropped first. Two new
+  gates guard it: every island tri dropped, and no kept land vertex inside the re-tiled region. A land piece welded to
+  nothing that lies within the region now sinks with the island. Launch 3 ran with the rebuilt files: exactly those
+  four Terrain files changed, on both discs, and the sky is clear.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
+
+- A party standing on water sinks too: on open sea (topograph 57) its published y is 1.3671875 under the surface
+  (`w_movementSinkArray`, the same table as the canopy sink). Predict on-foot heights as ground minus the walk sink.
+- Look at every frame, not only at the checks. Round 10's second launch passed 28/28 with a piece of the island
+  floating in the sky in its frames: the checks read heights at three points, and no point stood under the strip.
 
 - Pass `r3_build.ground` its stage as an ABSOLUTE path. A relative one silently read stock (round 9's post-run probe);
   it now refuses.

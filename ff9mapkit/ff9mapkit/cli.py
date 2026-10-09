@@ -4852,30 +4852,114 @@ def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
     return 0
 
 
-def _preview_disc4_morph(args: argparse.Namespace, cell) -> None:
-    """An ``--in-place`` dry run on disc 1 says what the deploy will do on disc 4 (THE DISC-4 REPLAY): copy the edit
-    where disc 4's real cell is the same, else re-run the morph there -- and then whether that replay passes its own
-    gates, so a coast disc 4 cannot take is named before anything is written."""
+def _preview_disc4(args: argparse.Namespace, cells, cmd, what: str, keeps: str) -> None:
+    """A disc-1 dry run says what the deploy will do on disc 4 (THE DISC-4 REPLAY): copy the edit where disc 4's real
+    cells are the same, else re-run ``cmd`` there -- and then whether that replay passes its own gates, so an edit
+    disc 4 cannot take is named before anything is written."""
     from .world import discmirror as DM
     if args.skip_mirror or args.disc != 1:
         return
     try:
-        why = DM.copy_refusal(cell, src_disc=1, dst_disc=4, game=args.game)
+        whys = {c: DM.copy_refusal(c, src_disc=1, dst_disc=4, game=args.game) for c in cells}
     except ValueError as e:
         print(f"disc 4: not checked ({e})")
         return
-    if why is None:
-        print("disc 4: the deploy copies this edit there (disc 4's real cell is the same)")
+    differ = {c: w for c, w in whys.items() if w}
+    if not differ:
+        print(f"disc 4: the deploy copies this edit there (disc 4's real cell{'s are' if len(cells) > 1 else ' is'} "
+              f"the same)")
         return
-    print(f"disc 4: {why} -- the deploy re-runs this morph on disc 4's own coast. Its dry run:")
+    why = (next(iter(differ.values())) if len(cells) == 1 else
+           f"{len(differ)} of the {len(cells)} blocks differ across discs ({', '.join(map(str, sorted(differ)))})")
+    print(f"disc 4: {why} -- the deploy re-runs this {what} on disc 4's own ground. Its dry run:")
     sys.stdout.flush()                         # its refusal goes to stderr: keep it below this line
     ns = argparse.Namespace(**{**vars(args), "disc": 4, "skip_mirror": DM.REPLAY, "dry_run": True,
                                "disc4_preview": True})
-    if _cmd_world_transplant(ns) == 0:
+    if cmd(ns) == 0:
         print("disc 4: the replay passes its gates -- the deploy edits both discs")
     else:
-        print("disc 4: !! the replay REFUSES there (above) -- the deploy edits disc 1 only; disc 4 keeps its stock "
-              "coast in this cell")
+        print(f"disc 4: !! the replay REFUSES there (above) -- the deploy edits disc 1 only; disc 4 keeps {keeps}")
+
+
+def _preview_disc4_morph(args: argparse.Namespace, cell) -> None:
+    """An ``--in-place`` morph's disc-4 preview (:func:`_preview_disc4`)."""
+    _preview_disc4(args, [cell], _cmd_world_transplant, "morph", "its stock coast in this cell")
+
+
+def _gate_line(g: dict) -> str:
+    def fmt(v):
+        if isinstance(v, float):
+            return f"{v:.6g}"
+        if isinstance(v, (list, tuple)):
+            return "[" + ",".join(fmt(x) for x in v) + "]"
+        return str(v)
+    detail = "  ".join(f"{k}={fmt(v)}" for k, v in g.items() if k not in ("gate", "ok"))
+    return f"GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}"
+
+
+def _cmd_world_sink(args: argparse.Namespace) -> int:
+    """LAND -> SEA: sink a whole bare-coast REAL island into open sea, in place (``transplant.sink``)."""
+    from .world import discmirror as DM, transplant as TR
+    if args.list:
+        print(f"scanning disc {args.disc} for islands a sink takes (a few minutes)...")
+        rows = TR.sink_candidates(disc=args.disc, game=args.game)
+        ok = [r for r in rows if r["ok"]]
+        print(f"{len(ok)} of {len(rows)} islands (land not welded into a continent) can sink:")
+        for r in ok:
+            print(f"  {r['land_u2']:8.1f} u2  up to y {r['max_y']:5.2f}  blocks {' '.join(map(str, r['blocks']))}\n"
+                  f"      py -m ff9mapkit world-sink --mod-folder <F> --at {r['at'][0]} {r['at'][1]}")
+        for r in rows:
+            if not r["ok"]:
+                print(f"  refused {r['land_u2']:8.1f} u2 at ({r['at'][0]}, {r['at'][1]}): {r['why']}")
+        return 0
+    if args.at is None or not args.mod_folder:
+        print("world-sink needs --mod-folder F and --at WX WZ (a point on the island), or --list", file=sys.stderr)
+        return 2
+    at = (float(args.at[0]), float(args.at[1]))
+
+    # THE DISC-4 REPLAY: where disc 4's blocks differ, this same command runs again there, on disc 4's own island
+    def replay(d):
+        sys.stdout.flush()
+        ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY})
+        if _cmd_world_sink(ns) != 0:
+            raise ValueError(f"world-sink --disc {d} refused the same island (see above)")
+    try:
+        s = TR.sink(args.mod_folder, at, disc=args.disc, game=args.game, dry_run=args.dry_run,
+                    skip_mirror=args.skip_mirror, fresh=args.fresh, allow_overwrite=args.allow_overwrite,
+                    allow_entrances=args.allow_entrances, replay=replay)
+    except (ValueError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"SINK, disc {args.disc}: the island at ({at[0]}, {at[1]}) -- {s['land_tris']} land tris, {s['land_u2']} u2, "
+          f"up to y {s['max_y']}, over block(s) {' '.join(str(tuple(b)) for b in s['blocks'])}")
+    print(f"  {s['tiles']} 4u tiles re-tiled as open sea ({s['fill_tris']} tris, area {s['fill_area']}), "
+          f"{s['sea_replaced']} coastal sea tris replaced, {s['edge_welds']} edge weld(s), {s['keel_to_open']} "
+          f"near-shore tris turned open water")
+    if s["entrance_tris"]:
+        print(f"  !! {s['entrance_tris']} entrance tris on the island"
+              + (": dropped (--allow-entrances), so that entrance never fires again" if args.allow_entrances else ""))
+    for b, r in sorted(s["per_block"].items()):
+        print(f"  block ({b}):")
+        _print_stack_notes(r)
+        for g in r["gates"]:
+            print("    " + _gate_line(g))
+    if not s["clean"]:
+        print("NOT CLEAN -- nothing written", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        if getattr(args, "disc4_preview", False):
+            return 0                       # the disc-1 dry run that asked says what this one means
+        print("dry run: gates CLEAN -- re-run without --dry-run to deploy")
+        _preview_disc4(args, [tuple(int(v) for v in b.split(",")) for b in s["per_block"]], _cmd_world_sink, "sink",
+                       "this island")
+        return 0
+    print("deployed:")
+    for q in s["deployed"]:
+        print("  " + q)
+    _world_apply_note(needs="the CUSTOM engine (s34)", extra="revert = delete the deployed files.")
+    print("  !! A save standing on the island loads onto open water: move such saves off it first. The big map still "
+          "draws the island (world-minimap paints deployed land; it cannot erase stock land).")
+    return 0
 
 
 def _cmd_world_transplant(args: argparse.Namespace) -> int:
@@ -9962,6 +10046,27 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wtp.set_defaults(func=_cmd_world_transplant)
+
+    wsk = sub.add_parser("world-sink",
+                         help="LAND -> SEA: sink a whole REAL island into open sea, in place, the way disc 4 removed "
+                              "Shimmering Island: its land and the coastal sea round it become whole stock tiles of "
+                              "open deep sea, and its near-shore band open water (a boat can sail there). A "
+                              "bare-coast island only (its land meets deep sea directly; one with shallows or a "
+                              "beach is welded into its neighbours'), no building on it, within 9 blocks. Replayed on "
+                              "disc 4. --list finds them.")
+    wsk.add_argument("--mod-folder", default=None, help="the mod folder to deploy into")
+    wsk.add_argument("--at", type=float, nargs=2, metavar=("WX", "WZ"), default=None,
+                     help="a point on the island's land (world x z)")
+    wsk.add_argument("--list", action="store_true",
+                     help="scan the map and list every island a sink takes, with its ready-to-run line, and why the "
+                          "rest are refused")
+    wsk.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wsk.add_argument("--dry-run", action="store_true", help="plan and run every gate, write nothing (and say what "
+                                                            "disc 4 will get)")
+    wsk.add_argument("--skip-mirror", action="store_true", help="don't mirror or replay the edit on disc 4")
+    _add_fresh_args(wsk, "sink")
+    wsk.add_argument("--allow-entrances", action="store_true", help=_ALLOW_ENTRANCES_HELP)
+    wsk.set_defaults(func=_cmd_world_sink)
 
     wms = sub.add_parser("world-morphs",
                          help="the COAST WINDOW SCANNER: walk a real block's beach waterline runs + cliff "
