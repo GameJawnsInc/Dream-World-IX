@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `world-deploy --lift`/`--spike` refuse a torn seam unless `--allow-tear`
+- The two diagnostic bumps hold no seam, and only printed a warning after writing. Round a town's walkable floor (an
+  Object filling a hole in the Terrain), a lift builds the shaft that froze the player at Dali in July 2026 (terrain
+  study in-game round 4). On Dali's block, `--lift 4` tears 96 welds, the town plate's among them.
+- They now refuse before anything is written. `--allow-tear` deploys the test anyway, with the warning. The gate also
+  reads the unedited neighbour blocks' Terrain, because a lift splits every border of its block; a reshape moves
+  every block its radius reaches as one field, so it never needed to.
+- `--allow-tear` without `--lift`/`--spike` is a usage error: a reshape's tear is a kit bug and always refuses.
+
 ### Fixed — `world-terrain` no longer refuses an edit for a wall that was already there
 - The one-way-wall gate refused a reshape when any edge of a triangle it touched was steeper than ~79.4°. Most such
   edges were stock town walls and cliffs the edit never made: over 2,400 random ±4 land edits (r8-24) it refused
@@ -95,7 +104,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - A reshape now reads and checks every block before writing any, so a refusal never leaves earlier blocks written.
 - A flatten with no `--height` spanning several blocks flattened each to its own mean, splitting their shared border.
   It now uses one mean.
-- `--lift`/`--spike` (`world-deploy` diagnostics) still tear by design; they now print a warning.
+- `--lift`/`--spike` (`world-deploy` diagnostics) hold no seam; they refuse a tear unless `--allow-tear` (above).
 - New: `mesh.stitch_gate`, `mesh.stitch_pins`/`StitchPins`, `mesh.mean_height`, `terrain.stitch_partners`,
   `terrain.SEAM_TAPER`; the deform functions take `pinned=`.
 

@@ -1374,20 +1374,20 @@ def raise_vertex_near_center(bm, amount: float) -> int:
 # / ridge can span several blocks continuously (the deform reasons in world XZ). For a self-contained
 # block-local edit leave it (0, 0) and the default centre is the block's own XZ centroid.
 #
-# AUTHORING GOTCHAS (in-game 2026-07-01 -- the render/collision mechanism is solid; these are the real traps
-# when reshaping the LIVE overworld):
-#   * WALKABILITY IS TOPOGRAPH, NOT SLOPE. The overworld move gate (ff9.w_movementRoundCheck ->
-#     w_movementCheckTopographID) only checks the target tile's TOPOGRAPH against the control's allowed set
-#     (`limit`) -- there is NO slope/step-height gate. A reshape leaves tangent.x (topograph) untouched, so a
-#     raised slope stays walkable at ANY grade. (Earlier "slope compounds" theory was WRONG.)
-#   * PLACEMENT / EMBED is the real trap. What froze the player at Dali: a spawn / field-exit drops the actor
-#     at the tile's STALE (pre-raise) Y, BELOW the new surface, and foot movement raycasts DOWN from the actor,
-#     so it never reaches the raised tiles -> stuck in every direction (field re-entry did NOT fix it, because
-#     the entry Y is effectively fixed). RULE: do NOT reshape terrain under a spawn / field-entry tile; reshape
-#     AWAY from entries and the player walking in from adjacent unraised ground lands on top and moves fine.
-#   * FIELD-ENTRANCE PITS. Raising a block lifts the entrance *tiles* but NOT the entrance *prop models*
-#     (they stay at their old Y), leaving the props sunk in a visible pit. Another reason to avoid reshaping
-#     blocks that carry a place entrance (``extract.block_summary(...)['place_entrances']``).
+# AUTHORING GOTCHAS (in-game 2026-07-01, corrected by the terrain study's in-game rounds 3-4 and defect 23 -- the
+# render/collision mechanism is solid; these are the real traps when reshaping the LIVE overworld):
+#   * WALKABILITY IS TOPOGRAPH, plus the walk ray's reach. The overworld move gate (ff9.w_movementRoundCheck ->
+#     w_movementCheckTopographID) only checks the target tile's TOPOGRAPH, and a reshape leaves tangent.x
+#     (topograph) untouched. But the foot ground ray starts 2.34375u above the player (1.171875u on canopy), so an
+#     edge that rises past that within a 0.4375u step is a wall he cannot climb (terrain._climb_barrier).
+#   * THE SHAFT is the real trap. What froze the player at Dali in July: a hill raised the Terrain round Dali's
+#     walkable town plate (an Object filling a Terrain hole; the ground query takes the first mesh its ray hits)
+#     and left the plate, so walking into town dropped him to the bottom of a 21u shaft. The seam pins
+#     (stitch_pins) hold that rim; lift_block / raise_vertex_near_center hold nothing, so world-deploy refuses their
+#     tears unless --allow-tear. A field exit is NOT a trap: the world load casts every actor down from the sky onto
+#     whatever ground is there (ff9.cs:3700-3705), whatever height the exit stored.
+#   * TOWN BOWLS. Raising ground round a place lifts its entrance *tiles* but not its Object (buildings, plate):
+#     with the pins the rim holds and the town sits in a bowl; without them, in the shaft above.
 #   * COORDINATES. A block's edit key is its InitialX/InitialY == the mesh-file coord == the extraction coord
 #     (the wrap's CurrentX/CurrentY is only screen position). To find which blocks a place occupies, trust the
 #     runtime (the debug menu / a ground raycast), NOT the offline area->place decoder -- its area labels are unreliable.

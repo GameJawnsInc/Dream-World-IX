@@ -464,6 +464,8 @@ Run: `.harness-runs/20261008-190331-r4-dali`, **10/10**, 0 exceptions. Memoria.l
 
 So the July freeze needed no landing-height rule: defect 5's pins are what prevent it. The guard removed in round 3 never did. The reconstruction is a hypothesis about July's exact edit; the mechanism it demonstrates is real either way.
 
+Follow-up (kit): `world-deploy`'s diagnostic `--lift`/`--spike` hold no seam, so they could still build this shaft. They now refuse a torn seam unless `--allow-tear`, judged against the unedited neighbour blocks' Terrain too. On Dali's block `--lift 4` is refused with 96 torn welds, `Block[17][12] Object` (the plate) among them.
+
 **Instrument lessons.**
 - World encounters ruin long harness walks near towns. For a geometry session, put `world-encounter-frequency --peaceful` AND `world-encounter-rate --peaceful` in the lab (the Ragtime Mouse rolls on canopy).
 - A drop of 20u+ creeps, as at the round-1 beach: the walk reads "blocked" at the rim and needs a hold-on.

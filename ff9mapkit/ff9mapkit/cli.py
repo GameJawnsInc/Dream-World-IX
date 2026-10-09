@@ -4161,7 +4161,8 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
     (needs the WorldMeshOverride engine patch). Reshapes (--hill/--crater/--flatten) are seam-continuous: the edit
     is evaluated in WORLD XZ and every block whose footprint the radius touches is redeployed, so Terrain-Terrain
     borders move as one, and every Terrain vertex shared with another part is HELD (terrain study defect 5), so no
-    seam tears; the stitch gate checks that before the first write."""
+    seam tears; the stitch gate checks that before the first write. The [diag] --lift/--spike hold no seam: the gate
+    refuses one that tears (neighbour blocks' Terrain included) unless --allow-tear."""
     from .world import extract as W, mesh as M
 
     if args.flatten and (args.hill or args.crater):
@@ -4174,7 +4175,12 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         print("--lift/--spike are a [diag] flat bump, not a reshape -- pick --hill/--crater/--flatten OR "
               "--lift/--spike, not both", file=sys.stderr)
         return 2
+    if args.allow_tear and not (args.lift or args.spike):
+        print("--allow-tear waives only the [diag] --lift/--spike tear: a reshape holds its seams, and a tear there "
+              "is a kit bug it always refuses", file=sys.stderr)
+        return 2
     reshape = bool(args.hill or args.crater or args.flatten)
+    diag = bool(args.lift or args.spike)
     hill_amt = args.hill if args.hill else (-args.crater if args.crater else 0.0)
 
     def _explicit():
@@ -4231,7 +4237,8 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
                                      fresh=args.fresh) for (x, y) in targets]
 
         # THE STITCH PINS (defect 5): every Terrain vertex shared with another part, in range, stays put; the
-        # stitch gate checks every weld before the first write (reshape: refuse; the [diag] lift/spike: warn)
+        # stitch gate checks every weld before the first write (reshape: refuse, a kit bug; the [diag] lift/spike,
+        # which hold nothing: refuse unless --allow-tear)
         from .world import terrain as TER
         pbx0, pbx1, pby0, pby1 = TER._block_index_range(cx - args.radius, cx + args.radius,
                                                           cz - args.radius, cz + args.radius)
@@ -4276,12 +4283,31 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         # reshape moved (reported); a dropped tile would refuse
         if reshape:
             stack["entrances"] = M.entrance_guard(tiles, allow=args.allow_entrances)
-        gate = M.stitch_gate(rows + [(n, pos, pos) for n, pos in
-                                     ((n, M.world_positions(pb, o)) for n, pb, o in partners)])
+        held = [(n, M.world_positions(pb, o)) for n, pb, o in partners]
+        if diag:
+            # a reshape moves every block its radius reaches as one field, so its block borders cannot split; a
+            # [diag] bump moves the block's edge, so judge it against the unedited neighbours' Terrain too
+            tset = set(targets)
+            for (nx, ny) in sorted({(x + dx, y + dy) for (x, y) in targets for dx in (-1, 0, 1)
+                                    for dy in (-1, 0, 1)} - tset):
+                if 0 <= nx < TER.GRID_X and 0 <= ny < TER.GRID_Y:
+                    nb = EN.read_block_stacked(args.mod_folder, nx, ny, disc=args.disc, lod=args.lod, game=args.game,
+                                               missing_ok=True, fresh=args.fresh)
+                    if nb is not None and nb.verts:
+                        held.append((nb.name, M.world_positions(nb, W.block_world_origin(nx, ny))))
+        gate = M.stitch_gate(rows + [(n, pos, pos) for n, pos in held])
         if gate["torn"] and reshape:
             raise ValueError(f"STITCH GATE: this reshape would tear {gate['torn']} weld(s) (max {gate['max_sep']}u): "
                              f"{gate['sample'][:3]}. Every weld should be pinned or move as one -- this is a kit "
                              f"bug, nothing was written.")
+        if gate["torn"] and not args.allow_tear:
+            raise ValueError(f"REFUSED: this {'--lift' if args.lift else '--spike'} tears {gate['torn']} seam "
+                             f"weld(s), up to {gate['max_sep']}u ({sorted(gate['by_mesh'])[:6]}). A torn seam is "
+                             f"an open slit and a one-way wall above ~2.34u, and round a town's walkable floor (an "
+                             f"Object in a Terrain hole) a shaft the player cannot climb out of: the July 2026 Dali "
+                             f"freeze (terrain study in-game round 4). --lift/--spike are hook tests that hold no "
+                             f"seam; reshape with --hill/--crater/--flatten, or pass --allow-tear to deploy the test "
+                             f"anyway. Nothing was written.")
         stack["stitch"] = gate
         stack["pinned"] = stats.get("held", 0)
         written = []
@@ -9150,9 +9176,14 @@ def build_parser() -> argparse.ArgumentParser:
     wd.add_argument("--allow-entrances", action="store_true", help=_ALLOW_ENTRANCES_HELP)
     # diagnostics (single-vertex / whole-block, no auto-expand -- the override-mechanism proofs)
     wd.add_argument("--spike", type=float, default=0.0,
-                    help="[diag] raise the centre vertex by N units (tears on the unindexed mesh; a hook test)")
+                    help="[diag] raise the centre vertex by N units (tears on the unindexed mesh, so it needs "
+                         "--allow-tear; a hook test)")
     wd.add_argument("--lift", type=float, default=0.0,
-                    help="[diag] raise the WHOLE block(s) by N units -- an unmistakable plateau")
+                    help="[diag] raise the WHOLE block(s) by N units -- an unmistakable plateau (tears every seam it "
+                         "moves, so it needs --allow-tear)")
+    wd.add_argument("--allow-tear", action="store_true",
+                    help="[diag] deploy a --lift/--spike that tears seam welds anyway (refused by default: a slit, a "
+                         "one-way wall, and round a town's walkable floor a shaft the player cannot climb out of)")
     wd.add_argument("--skip-mirror", action="store_true",
                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     _add_fresh_args(wd, "reshape")
