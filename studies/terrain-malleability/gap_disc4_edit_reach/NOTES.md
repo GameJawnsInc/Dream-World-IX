@@ -156,6 +156,14 @@ r24. Then come OBJECT (2-13%), ENTR_LOST (1-7%), ENTR_NEW (≤2%) and LAND2SEA (
 - The only weld a smooth reshape can open is a border T-junction, and that happens on either disc. Disc 4 has
   **10 such vertices against disc 1's 11** over 443 land|land pairs, and **no pair has more on disc 4**. A replay
   is never worse at a border than the same edit on disc 1.
+- **Inside the blocks (ranked experiment O6, 2026-10-08, `o6_tjunctions.py`): 0 T-junctions on either disc.** Over
+  260 land cells, Terrain plus its partner parts, three classes (a Terrain vertex on a Terrain edge, on a partner
+  edge, a partner or welded vertex on a Terrain edge), 9,019 re-cut disc-4 Terrain triangles in 144 cells: none. The
+  419 plan crossings are identical on both discs and all layered (vertical offset 0.797u or more). The registered
+  prediction ("re-cut boundaries add interior T-junctions with small gaps") is refuted in the safe direction: the
+  re-cut is conforming. Calibration: the grid finder equals `meshedit.find_tjunctions` on 6 real blocks, each with
+  one injected mid-edge split; the 3-point gap model equals the real `deform_radial` (stitch pins, 4u taper) to
+  1e-6. An injected junction opens 0.33-2.27u at +4 r16, so one would matter; stock has none.
 
 **G6 [measurement] Strategy (iii), the region-disjoint delta, reaches 37.5% of edits. It never moves or retypes a
 disc-4-changed Terrain triangle.** (`s5`, `s4`, `s7`)
