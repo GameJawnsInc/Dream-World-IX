@@ -169,17 +169,71 @@ def test_a_multi_block_flatten_shares_one_height(tmp_path, monkeypatch):
 def _deploy_ns(**kw):
     ns = dict(block=None, cluster=None, disc=1, lod="0_1", mod_folder="MOD", hill=3.0, crater=0.0, flatten=False,
               height=None, radius=12.0, center=list(AT), falloff="smooth", no_normals=True, allow_entrances=False,
-              spike=0.0, lift=0.0, skip_mirror=True, game=None, fresh=False, allow_overwrite=False)
+              spike=0.0, lift=0.0, skip_mirror=True, game=None, fresh=False, allow_overwrite=False, allow_tear=False)
     ns.update(kw)
     return argparse.Namespace(**ns)
 
 
-def test_world_deploy_holds_the_seam_and_its_lift_diag_warns(seam, monkeypatch, capsys):
+def test_world_deploy_holds_the_seam_and_refuses_a_tearing_lift(seam, monkeypatch, capsys):
+    """The [diag] --lift holds no seam. Round a town's walkable Object plate an unpinned raise builds a shaft the
+    player cannot climb out of (the July Dali freeze, terrain study in-game round 4), so a tear refuses before any
+    write unless --allow-tear; allowed, it still warns."""
     monkeypatch.setattr(X, "list_blocks", lambda **k: [BLK])
     assert cli._cmd_world_deploy(_deploy_ns()) == 0
     assert _row(seam[-1], SEAM_Z) == [3.0] and "held " in capsys.readouterr().out
-    assert cli._cmd_world_deploy(_deploy_ns(hill=0.0, lift=2.0, block=list(BLK))) == 0
-    assert "seam weld(s) torn" in capsys.readouterr().out          # a [diag] lift tears by design: warned, not refused
+    n = len(seam)
+    assert cli._cmd_world_deploy(_deploy_ns(hill=0.0, lift=2.0, block=list(BLK))) == 2
+    err = capsys.readouterr().err
+    assert "REFUSED: this --lift tears 17 seam weld(s)" in err and "Nothing was written" in err
+    assert len(seam) == n
+    assert cli._cmd_world_deploy(_deploy_ns(hill=0.0, lift=2.0, block=list(BLK), allow_tear=True)) == 0
+    assert "seam weld(s) torn" in capsys.readouterr().out and len(seam) == n + 1
+
+
+@pytest.fixture
+def inland(tmp_path, monkeypatch):
+    """Two Terrain blocks side by side, (16,14)|(17,14), welded along x = 1088 and to nothing else."""
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    blocks = {BLK: _terrain, (17, 14): lambda: _terrain(x=17, yb=14)}
+
+    def stock(bx, by, part="terrain", **k):
+        if part == "terrain" and (bx, by) in blocks:
+            return blocks[(bx, by)]()
+        raise ValueError("mesh not found")
+    monkeypatch.setattr(X, "read_block", stock)
+    monkeypatch.setattr(DM, "auto_mirror", lambda *a, **k: None)
+    written = []
+    monkeypatch.setattr(M, "deploy_override", lambda bm, **k: written.append(bm) or tmp_path / bm.name)
+    return blocks, written
+
+
+def test_a_lift_is_judged_against_the_neighbour_blocks_terrain(inland, capsys):
+    """A lift splits its block's border with every unedited neighbour: a cliff with a slit under it. The neighbours'
+    Terrain is no stitch partner (a reshape moves every block its radius reaches as one field), so the [diag] gate
+    reads it itself."""
+    blocks, written = inland
+    assert cli._cmd_world_deploy(_deploy_ns(hill=0.0, lift=2.0, block=list(BLK))) == 2
+    err = capsys.readouterr().err
+    assert "REFUSED: this --lift tears 17 seam weld(s)" in err and "Block[17][14] Terrain" in err and written == []
+    del blocks[(17, 14)]                                           # alone, the block lifts as one: nothing to tear
+    assert cli._cmd_world_deploy(_deploy_ns(hill=0.0, lift=2.0, block=list(BLK))) == 0 and len(written) == 1
+
+
+def test_a_spike_tears_its_own_unindexed_mesh_and_is_refused(inland, capsys):
+    blocks, written = inland
+    del blocks[(17, 14)]
+    assert cli._cmd_world_deploy(_deploy_ns(hill=0.0, spike=2.0, block=list(BLK))) == 2
+    assert "REFUSED: this --spike tears 1 seam weld(s), up to 2.0u" in capsys.readouterr().err and written == []
+    assert cli._cmd_world_deploy(_deploy_ns(hill=0.0, spike=2.0, block=list(BLK), allow_tear=True)) == 0
+
+
+def test_allow_tear_is_only_for_the_diag(seam, capsys):
+    """A reshape's tear is a kit bug the gate always refuses; --allow-tear on one is a usage error, not a waiver."""
+    ns = cli.build_parser().parse_args(["world-deploy", "--mod-folder", "MOD", "--block", "16", "14", "--lift", "2",
+                                        "--allow-tear"])
+    assert ns.allow_tear is True
+    assert cli._cmd_world_deploy(_deploy_ns(allow_tear=True)) == 2
+    assert "waives only the [diag] --lift/--spike tear" in capsys.readouterr().err and seam == []
 
 
 def _game_ready() -> bool:

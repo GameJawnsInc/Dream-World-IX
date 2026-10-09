@@ -413,7 +413,7 @@ same writes 1.2 s apart leave 2 parks.
    r16 hill refuses 12.7%, the whole-block rule 49.7%). **An entrance guard in `terrain.reshape` and `transplant.morph_in_place`.** Measured failure: S8, plus S6/S7 at 3-74%
    exposure. Lift the cli.py:4154-4170 `block_mapids` event check into a shared `mesh.entrance_guard(bms)` and call it
    from both, plus `_cmd_world_deploy`.
-4. **BUILT 2026-10-08** as `mesh.stitch_gate`, in world-terrain and world-deploy (refuse on any tear; world-deploy's [diag] lift/spike warn). **A STITCH GATE (pre/post weld preservation), not `weld_audit`.** Measured failure: C3, weld_audit flags 0 for a
+4. **BUILT 2026-10-08** as `mesh.stitch_gate`, in world-terrain and world-deploy (refuse on any tear; world-deploy's [diag] lift/spike warned, and since in-game round 4 refuse unless `--allow-tear`, judged against the neighbour blocks' Terrain too). **A STITCH GATE (pre/post weld preservation), not `weld_audit`.** Measured failure: C3, weld_audit flags 0 for a
    0.06u tear and passes any larger one.
    - New `mesh.stitch_gate(pre_parts_by_cell, post_parts_by_cell, tol=0.05)`: every stock exact-weld cluster
      (stitch_census instrument 1, including the 4 torus neighbours) must stay within tol.

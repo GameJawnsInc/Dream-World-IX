@@ -551,7 +551,9 @@ its ray hits, not the highest. The kit of that day had no seam pins. Its +24 hil
 the plate where it was. The exit still landed the player on the hilltop, but walking into town dropped him onto the
 plate at the bottom of a 21u shaft, walled beyond his reach on every side. Rebuilt with that kit, the edit traps him
 exactly so in game; rebuilt with today's kit, the seam pins hold the plate's welded rim and he climbs out. So the
-seam pins ("Seams hold" above) are what prevent this.
+seam pins ("Seams hold" above) are what prevent this. `world-deploy`'s diagnostic `--lift`/`--spike` hold no seam,
+so the stitch gate refuses their tears (the unedited neighbour blocks' Terrain included) unless `--allow-tear`; on
+Dali's block `--lift 4` tears 96 welds, the town plate's among them.
 
 ## `world-reclaim` — reclaim ocean cells as walkable land
 

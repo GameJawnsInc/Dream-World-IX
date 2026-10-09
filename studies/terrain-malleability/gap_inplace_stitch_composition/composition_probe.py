@@ -187,7 +187,7 @@ def E_deploy(center, hill=3.0, radius=16.0, blk=BLK, allow_entrances=False):
                                 crater=0.0, flatten=False, height=None, radius=radius, center=list(center),
                                 falloff="smooth", no_normals=False, allow_entrances=allow_entrances, spike=0.0,
                                 lift=0.0, skip_mirror=True, game=GAME, fresh=False,
-                                allow_overwrite=False)
+                                allow_overwrite=False, allow_tear=False)
         with contextlib.redirect_stdout(io.StringIO()) as so, contextlib.redirect_stderr(io.StringIO()) as se:
             rc = CLI._cmd_world_deploy(ns)
         return {"rc": rc, "stdout": so.getvalue()[-4000:], "stderr": se.getvalue()[-600:]}
