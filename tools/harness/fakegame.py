@@ -413,6 +413,7 @@ class FakeGame:
         self.watch: list[int] = []
         self.error: str | None = None
         self.note = ""
+        self.no_encounter = False          # s94: the F4 booster
         self.shots_taken = 0
         #: The co-op client's observables, at the engine's "nothing" sentinels. The stand-in models
         #: the GATES and the state block -- what each `netsync` verb refuses, what it publishes
@@ -1349,7 +1350,10 @@ class FakeGame:
             self.state_every = 2
             self._release_netsync()
             self._story_stop()                 # one scenario's trace must not run on into the next
+            self.no_encounter = False          # s94: reset switches the booster off again
             self._block(2)
+        elif op == "noencounter":                      # s94: the F4 booster, set directly
+            self.no_encounter = num(0, 1) != 0
         elif op == "timescale":
             if real(0, 1.0) <= 0.0:
                 raise RuntimeError("timescale must be positive")

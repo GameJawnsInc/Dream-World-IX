@@ -347,6 +347,13 @@ ground there). On a cell with no stock building, `s92` ignores an `Object2`; `s9
 makes a bare kit `Object` beside it form 1 only. Proven in game (terrain study round 7): a removed building, an added
 one and `keep`, on two cells sharing one condition, on discs 1 and 4.
 
+**Entrances that change with the story (`world-forms --entrance2`).** An entrance is ground tiles with IDALL event
+bits, and the form switch swaps the walked ground whole, so an armed cell's entrance follows its two grounds: `off`
+clears the bits in its `Terrain2` (closed once it switches), `only` clears them in its form-1 `Terrain` (open only
+once it switches), `both` restores either. The world script's trigger stays; with no tile it never fires. Proven in
+game on the Ice Cavern's entrance (terrain study round 8): an entrance is a prompt ("Enter with X"), and with
+its tiles' bits cleared the prompt never shows.
+
 ## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own

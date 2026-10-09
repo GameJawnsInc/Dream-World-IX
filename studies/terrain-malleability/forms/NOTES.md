@@ -190,6 +190,11 @@ form 1 only beside it. `object2_census.py` measured what removing a stock buildi
 one, nothing else answers under 90% of its footprint, so the kit fills the hole (closed holes only). Proven in game
 by round 7 (`ingame/RESULTS.md` section 22, 15/15).
 
+**Story entrances (`world-forms --entrance2`).** F10's mechanism on any armed cell: the switch swaps the walked
+ground's IDALL with it, so clearing the event bits in one form's ground closes the entrance in that form. Proven in
+game by round 8 (`ingame/RESULTS.md` section 23, 10/10): the Ice Cavern on (18,12) closed with `off`, opened only
+on the flag with `only`.
+
 ## 5. Verdict
 
 Story-driven terrain change (bridge appears, forest burns, lake drains on a flag) is **viable, and mostly built

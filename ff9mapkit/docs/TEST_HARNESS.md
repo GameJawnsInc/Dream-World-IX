@@ -121,7 +121,7 @@ the rung worked**:
 
 | Rung | What it does |
 |---|---|
-| `reset` | releases every held button, clears the watch list, restores timescale |
+| `reset` | releases every held button, clears the watch list, restores timescale, turns encounters back on |
 | `close_ui` | presses Cancel until the game is on a field, the world map, or the title |
 | soft reset | FF9's own L1+L2+R1+R2+Start+Select — closes every dialog, disables all button groups and the battle menu, un-pauses, normalises `btl_seq`, and replaces the scene with Title |
 
@@ -472,6 +472,7 @@ with Session(label="chest") as g:
 | `g.flag(bit, value)` / `g.poke(index, value)` | Story flags / raw `gEventGlobal` bytes. |
 | `g.storytrace(on=True)` / `g.story_rows()` | The s88 story-write trace: every `gEventGlobal` store with the script position that made it, as validated rows (`ff9mapkit.storytrace`; read collected runs with `ff9mapkit story-trace`). Refused on an engine whose `state.json` does not advertise it. `storytrace(False)` returns only once `story.jsonl` holds every row the engine counted, and raises on a tracer that faulted; teardown closes an open trace before the disarm, and a suite member that traced gets its own `story.jsonl`. One launch's file holds one run per `storytrace 1` -- `story-trace RUN#N` picks one. |
 | `g.timescale(x)` | Speed the game up — a long walk need not cost real seconds. |
+| `g.no_encounters(on=True)` | Random encounters off (engine s94): Memoria's no-random-encounter booster, the one F4 toggles, set directly. A world walk at level 1 otherwise dies in its first random battle. `reset` turns it off again. |
 | `g.shot(name)` | Returns the PNG path once it is on disk. |
 
 Buttons take the enum names plus the aliases you would actually type: `confirm`/`x`, `cancel`,
