@@ -84,7 +84,7 @@ def test_world_forms_fires_on_a_synthetic_edit_at_20_10(tmp_path, monkeypatch, c
     monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
     mod = tmp_path / "MOD"
     _override(mod, 9, 14, 12, "Terrain")
-    ns = argparse.Namespace(mod_folder="MOD", stack=False, game=None)
+    ns = argparse.Namespace(mod_folder="MOD", stack=False, game=None, arm=None, disarm=None, when=None, disc=1)
     assert cli._cmd_world_forms(ns) == 0
     out = capsys.readouterr().out
     assert "1 override(s) on a switchable cell, 0 where the place switches" in out and "dormant: Block[14][12]" in out
@@ -94,6 +94,6 @@ def test_world_forms_fires_on_a_synthetic_edit_at_20_10(tmp_path, monkeypatch, c
     _override(mod, 1, 20, 10, "Terrain2")
     assert cli._cmd_world_forms(ns) == 0
     (tmp_path / "Memoria.ini").write_text('[Mod]\nFolderNames = "MOD", "OTHER"\n', encoding="utf-8")
-    assert cli._cmd_world_forms(argparse.Namespace(mod_folder=None, stack=True, game=None)) == 0
+    assert cli._cmd_world_forms(argparse.Namespace(mod_folder=None, stack=True, game=None, arm=None, disarm=None, when=None, disc=1)) == 0
     out = capsys.readouterr().out
     assert "\nMOD: 3 override(s)" in out and "\nOTHER: 0 override(s)" in out

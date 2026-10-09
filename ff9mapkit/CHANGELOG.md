@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — story terrain on any overworld cell (custom engine patch `s92`; `world-forms --arm`)
+- Stock FF9 switches exactly 26 cells between two block forms; every other cell is baked unswitchable, and no data
+  file could change that. Engine patch `s92` makes any cell switch: a cell with a loose `Terrain2` override is armed
+  at world load, and switches to that ground when its `Block[x][y] Form.txt` condition holds (one NCalc line,
+  evaluated once per world load like an `Environment.txt` condition). Its form-1 Object stays in form 2 unless a loose
+  `Object2` replaces it. No serialized field is added; without those files every load is stock.
+- `world-forms --mod-folder F --arm X Y --when "<condition>"` writes the `Form.txt` (`--disarm` removes it; `--disc`
+  picks the namespace); it refuses the 26 stock cells, whose condition is their place's. `world-forms` lists each
+  folder's custom cells and whether they are armed (a `Terrain2` is there too).
+- `world-terrain`/`world-deploy --form 2` edit a custom cell's `Terrain2`, starting from its own form-1 ground.
+  Cells with the same condition switch, and are edited, together; cells on different conditions refuse one edit. Its
+  pins keep the form-1 Object (or the deployed `Object2`). Disc 4: replayed only where the cells are armed there too.
+- The form check warns about a form-1 `Terrain` edit on a custom cell, naming its condition.
+- Needs the custom engine. The live DLL was rebuilt with `s92` (pre-build backup `20261009-092849`); the shipped
+  bundle lags until it is re-cut. In-game proof is terrain study round 6 (staged).
+
 ### Added — `world-terrain --form 2` and `world-deploy --form 2`: edit a switchable cell's alternate ground
 - On the 26 cells that switch with a story place, a reshape edited only form 1, the ground shown until the place
   switches; in game that edit vanished the moment the place switched (terrain study round 5). No verb could write

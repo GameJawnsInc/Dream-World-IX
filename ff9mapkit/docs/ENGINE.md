@@ -62,7 +62,8 @@ The engine bundle carries more than the fidelity wraps. By theme:
   capability, not a fork wrap) required by the custom-overworld mesh commands, plus overworld
   stability fixes, corrected vehicle-physics data rows, and the **third-overworld substrate** (a
   `WorldScene` DictionaryPatch directive, a sentinel disc namespace, and CLONE/BLANK modes on ids
-  9013–9099 — inert until a mod arms it).
+  9013–9099 — inert until a mod arms it), and **story terrain on any cell** (`s92`: a cell with a loose
+  `Terrain2` and a `Form.txt` condition switches ground with the story; inert without those files).
 - **Two-player co-op** — the **netsync patch suite** behind the experimental `coop`
   ([FEATURES §Multiplayer](FEATURES.md#multiplayer-experimental)), including field-follow and
   link-reliability fixes. The wire protocol is versioned, so bundles from different releases refuse

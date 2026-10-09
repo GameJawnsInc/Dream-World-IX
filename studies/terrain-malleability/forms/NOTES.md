@@ -179,6 +179,10 @@ WorldDiscSpike.cs:191 [s75]). **Minimal patch (one engine patch, about 50 lines,
    evaluates true, call `mw_worldSetFormBit(x, y)`.
 Must NOT add serialized fields to WMBlock: its scene instances are typetree-stripped (F9), the same layout trap the
 s34 note records for WMWorld (hypothesis, strong precedent).
+**Built after the study (P1, engine patch s92):** steps 1-3 as sketched, with the sidecar named `Block[x][y] Form.txt`
+(one NCalc line, evaluated like an Environment.txt condition); the arm runs at the end of `WMWorld.Initialize`, which
+precedes `w_worldChangeBlockSet` and every block load; `RegisterBlockComponent` gained an optional child name. No
+serialized field was added.
 
 ## 5. Verdict
 

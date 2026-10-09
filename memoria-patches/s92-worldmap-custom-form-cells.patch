@@ -1,0 +1,273 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index 2731b88..bc5bc15 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1383,6 +1383,7 @@
+     <Compile Include="Memoria\World\WorldConfiguration.cs" />
+     <Compile Include="Memoria\World\WorldMeshOverride.cs" />
+     <Compile Include="Memoria\World\WorldDiscSpike.cs" />
++    <Compile Include="Memoria\World\CustomFormCells.cs" />
+     <Compile Include="Memoria\World\WorldEffect.cs" />
+     <Compile Include="Memoria\World\WorldPlace.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncClient.cs" />
+diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+index 6a5438d..3f97214 100644
+--- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
++++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+@@ -177,6 +177,10 @@ public class WMWorld : Singleton<WMWorld>
+         this.overrideDiscTag = Memoria.World.WorldDiscSpike.Engaged
+             ? Memoria.World.WorldDiscSpike.SentinelDisc
+             : this.currentDisc;
++        // [ff9mapkit s92] STORY TERRAIN ON ANY CELL: arm every non-stock cell that has a loose Terrain2 in this
++        // namespace (IsSwitchable, at runtime) -- BEFORE ff9.w_worldChangeBlockSet decides the forms, and before any
++        // block loads, so LoadBlock registers its form 2 and ApplyForm shows the right one.
++        Memoria.World.CustomFormCells.Arm(this.InitialBlocks, this.overrideDiscTag);
+         this.LoadEffects();
+         this.LoadSPS();
+     }
+@@ -585,19 +589,33 @@ public class WMWorld : Singleton<WMWorld>
+         block.Form1WalkMeshes = new List<WMMesh>();
+         block.Form2WalkMeshes = new List<WMMesh>();
+         block.Form1Transforms = new List<Transform>();
++        // [ff9mapkit s92] a cell CustomFormCells armed (a loose Terrain2 on a cell stock never switches): its form-1
++        // Object stays in form 2 as well, unless a loose Object2 replaces it there; its form 2 is registered below
++        Boolean customForm = !prefab.TerrainForm2 && prefab.TerrainForm1
++            && Memoria.World.CustomFormCells.IsArmed(block.InitialX, block.InitialY);
++        Boolean customObject2 = customForm && prefab.ObjectForm1
++            && Memoria.World.CustomFormCells.HasPart(this.overrideDiscTag, block.InitialX, block.InitialY, "Object2");
+         if (prefab.ObjectForm1)
+-            RegisterBlockComponent(block, prefab.ObjectForm1, true, false);
++            RegisterBlockComponent(block, prefab.ObjectForm1, true, customForm && !customObject2);
+         if (prefab.TerrainForm1)
+             RegisterBlockComponent(block, prefab.TerrainForm1, true, false);
+         // DWIX Path C (s34): a BARE block (open land, no stock ObjectForm1) that has a loose "Object" .ff9mesh
+         // override -- create + render it. Without this the building is INVISIBLE (the RegisterBlockComponent calls
+         // above only OVERRIDE an existing component; open blocks have no Object component to override).
+         if (!prefab.ObjectForm1 && prefab.TerrainForm1)
+-            RegisterBareObjectOverride(block, prefab.TerrainForm1);
++            RegisterBareObjectOverride(block, prefab.TerrainForm1, customForm);
+         if (prefab.ObjectForm2)
+             RegisterBlockComponent(block, prefab.ObjectForm2, false, true);
+         if (prefab.TerrainForm2)
+             RegisterBlockComponent(block, prefab.TerrainForm2, false, true);
++        if (customForm)
++        {
++            // [s92] the armed cell's form 2: a copy of its form-1 terrain under the child name "Terrain2" (the s34 key,
++            // so the loose Terrain2 replaces it, render and walk), and an Object2 the same way when one exists
++            RegisterBlockComponent(block, prefab.TerrainForm1, false, true, "Terrain2");
++            if (customObject2)
++                RegisterBlockComponent(block, prefab.ObjectForm1, false, true, "Object2");
++        }
+         if (block.Number == 219 && !Memoria.World.WorldDiscSpike.SuppressStockLandmarks)   // [s74] no stock Water Shrine on a Path D disc
+         {
+             block.SetTextureFilterMode(); // declared before sea/beach/quicksand, or they become static (theirs is declared in WMRenderTextureBank and WMBlocks)
+@@ -809,10 +827,13 @@ public class WMWorld : Singleton<WMWorld>
+         block.ApplyForm();
+     }
+ 
+-    private void RegisterBlockComponent(WMBlock block, Transform transform, Boolean form1, Boolean form2)
++    private void RegisterBlockComponent(WMBlock block, Transform transform, Boolean form1, Boolean form2,
++        String name = null)
+     {
++        // [ff9mapkit s92] `name`: register `transform` under another child name -- an armed custom-form cell's form-1
++        // terrain becomes its "Terrain2" (the override key and the material key both follow the name)
+         Transform copy = UnityEngine.Object.Instantiate<Transform>(transform);
+-        copy.name = transform.name;
++        copy.name = name ?? transform.name;
+         copy.parent = block.transform;
+         copy.localPosition = Vector3.zero;
+         copy.localScale = new Vector3(1f, 1f, 1f);
+@@ -822,7 +843,7 @@ public class WMWorld : Singleton<WMWorld>
+         // rendered mesh (one object). InitialX/InitialY = the block's grid coords; transform.name = the part ("Terrain").
+         Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(String.Format(
+             "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] {4}", this.overrideDiscTag, block.InitialY, block.InitialX,
+-            block.InitialY, transform.name));   // [s74] loose-file namespace, not the asset disc
++            block.InitialY, copy.name));   // [s74] loose-file namespace, not the asset disc ([s92] the child name)
+         if (ff9Override != (UnityEngine.Object)null)
+         {
+             mesh = ff9Override;
+@@ -833,7 +854,7 @@ public class WMWorld : Singleton<WMWorld>
+             // water gradient), render this sub-mesh with a CLONED material using that texture instead of the shared
+             // stock material -- a custom ocean becomes a seamless gradient, no discrete tile shades. Cell-scoped.
+             Texture2D custTex = Memoria.World.WorldMeshOverride.TryLoadTexture(
+-                this.overrideDiscTag, block.InitialX, block.InitialY, transform.name);   // [s74] loose-file namespace
++                this.overrideDiscTag, block.InitialX, block.InitialY, copy.name);   // [s74] loose-file namespace
+             if (custTex != (UnityEngine.Object)null)
+             {
+                 MeshRenderer mr = copy.GetComponent<MeshRenderer>();
+@@ -865,7 +886,7 @@ public class WMWorld : Singleton<WMWorld>
+     // its back-face-culled walls + below-ground base into INVISIBLE collision. Collision instead comes from the
+     // world-entrance TERRAIN footprint (topograph 59 under the building's hull), which is flat + conforms to the
+     // ground, so the player stops at the visible edge with nothing invisible to bump.
+-    private void RegisterBareObjectOverride(WMBlock block, Transform template)
++    private void RegisterBareObjectOverride(WMBlock block, Transform template, Boolean alsoForm2 = false)
+     {
+         Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(String.Format(
+             "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Object", this.overrideDiscTag, block.InitialY, block.InitialX,
+@@ -881,6 +902,8 @@ public class WMWorld : Singleton<WMWorld>
+         if (mf != (UnityEngine.Object)null)
+             mf.sharedMesh = ff9Override;
+         block.AddForm1Transform(copy);   // render + visibility only (Form1); NO AddWalkMeshForm1 -- see note above
++        if (alsoForm2)
++            block.AddForm2Transform(copy);   // [s92] an armed custom-form cell keeps its building in form 2 too
+     }
+ 
+     private IEnumerator LoadBlockAsync(Int32 disc, WMBlock block)
+diff --git a/Assembly-CSharp/Global/ff9/ff9.cs b/Assembly-CSharp/Global/ff9/ff9.cs
+index 5c97ea3..611927c 100644
+--- a/Assembly-CSharp/Global/ff9/ff9.cs
++++ b/Assembly-CSharp/Global/ff9/ff9.cs
+@@ -9205,6 +9205,9 @@ public static class ff9
+             ff9.mw_worldSetFormBit(16, 14);
+             ff9.mw_worldSetFormBit(9, 17);
+         }
++        // [ff9mapkit s92] STORY TERRAIN ON ANY CELL: every cell WMWorld.Initialize armed (a loose Terrain2) whose
++        // Form.txt condition holds switches to form 2 too -- once per world load, like the places above
++        Memoria.World.CustomFormCells.SetForms();
+     }
+ 
+     public static void mw_worldSetFormBit(Int32 x, Int32 z)
+diff --git a/Assembly-CSharp/Memoria/World/CustomFormCells.cs b/Assembly-CSharp/Memoria/World/CustomFormCells.cs
+new file mode 100644
+index e69de29..c950949 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/World/CustomFormCells.cs
+@@ -0,0 +1,138 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using Memoria.Prime;
++using NCalc;
++
++namespace Memoria.World
++{
++    // [ff9mapkit s92] Dream World IX -- STORY TERRAIN ON ANY CELL (terrain study P1; the forms lane's F15 sketch).
++    //
++    // Stock FF9 swaps exactly 26 cells between two block forms (ff9.w_worldChangeBlockSet: 9 places, decided by
++    // WorldConfiguration.UsePlaceAlternateForm or a mod's Environment.txt). Every other cell is baked IsSwitchable =
++    // false with no form-2 parts, so WMBlock.SetForm is a no-op there and no data file could change that.
++    //
++    // This makes any cell switchable from DATA, adding no serialized field (WMBlock and WMWorld are baked):
++    //   * ARM (WMWorld.Initialize, before any block loads): a cell that is not stock-switchable and has a loose
++    //     "Block[x][y] Terrain2.ff9mesh" override in the active override namespace is set IsSwitchable at runtime.
++    //   * LOAD (WMWorld.LoadBlock): an armed cell registers a second copy of its form-1 terrain under the child name
++    //     "Terrain2" -- the s34 key, so the loose Terrain2 replaces it, render and walk -- and keeps its form-1 Object
++    //     in form 2 too (stock registers it for form 1 only), unless a loose "Object2" override replaces it there.
++    //   * SWITCH (end of ff9.w_worldChangeBlockSet, once per world load like the stock places): an armed cell whose
++    //     "Block[x][y] Form.txt" sidecar holds an NCalc condition that evaluates true switches to form 2. It is
++    //     evaluated like an Environment.txt [Condition=...] (WorldDisc, ScenarioCounter, GetEventGlobalByte(i), ...).
++    //     No Form.txt, or a condition that throws, = form 1 (logged).
++    // Identity-safe: with no Terrain2 file on a non-stock cell nothing is armed and every load is stock. The 26 stock
++    // cells are never touched: their own form 2 and Place condition rule them.
++    public static class CustomFormCells
++    {
++        private const Int32 GridX = 24;
++        // x + y * GridX -> the cell's Form.txt condition (null: none)
++        private static readonly Dictionary<Int32, String> Armed = new Dictionary<Int32, String>();
++
++        public static Boolean IsArmed(Int32 x, Int32 y)
++        {
++            return Armed.ContainsKey(x + y * GridX);
++        }
++
++        // Does a loose override of this part exist for the cell (e.g. "Object2")?
++        public static Boolean HasPart(Int32 overrideDisc, Int32 x, Int32 y, String part)
++        {
++            return WorldMeshOverride.Exists(Key(overrideDisc, x, y, part));
++        }
++
++        public static void Arm(WMBlock[,] blocks, Int32 overrideDisc)
++        {
++            Armed.Clear();
++            if (blocks == null)
++                return;
++            for (Int32 x = 0; x < blocks.GetLength(0); x++)
++            {
++                for (Int32 y = 0; y < blocks.GetLength(1); y++)
++                {
++                    WMBlock block = blocks[x, y];
++                    if (block == null || block.IsSwitchable || !HasPart(overrideDisc, x, y, "Terrain2"))
++                        continue;
++                    String condition = ReadCondition(overrideDisc, x, y);
++                    block.IsSwitchable = true;
++                    Armed[x + y * GridX] = condition;
++                    Log.Message("[CustomFormCells] armed Block[" + x + "][" + y + "] (Disc" + overrideDisc
++                        + "): it has a loose Terrain2, and switches to it when "
++                        + (condition ?? "<no Form.txt: never>"));
++                }
++            }
++        }
++
++        public static void SetForms()
++        {
++            foreach (KeyValuePair<Int32, String> cell in Armed)
++            {
++                Int32 x = cell.Key % GridX;
++                Int32 y = cell.Key / GridX;
++                if (!Evaluate(cell.Value, x, y))
++                    continue;
++                global::ff9.mw_worldSetFormBit(x, y);
++                Log.Message("[CustomFormCells] Block[" + x + "][" + y + "] switched to form 2 (" + cell.Value + ")");
++            }
++        }
++
++        private static Boolean Evaluate(String condition, Int32 x, Int32 y)
++        {
++            if (String.IsNullOrEmpty(condition))
++                return false;
++            try
++            {
++                Expression c = new Expression(condition);
++                c.EvaluateFunction += NCalcUtility.commonNCalcFunctions;
++                c.EvaluateParameter += NCalcUtility.commonNCalcParameters;
++                c.EvaluateParameter += NCalcUtility.worldNCalcParameters;
++                return NCalcUtility.EvaluateNCalcCondition(c.Evaluate());
++            }
++            catch (Exception ex)
++            {
++                Log.Error("[CustomFormCells] Block[" + x + "][" + y + "] Form.txt: cannot evaluate '" + condition
++                    + "' (" + ex.Message + "); the cell stays in form 1");
++                return false;
++            }
++        }
++
++        // The first line of the highest-priority "Block[x][y] Form.txt" that is neither blank nor a comment (# or //),
++        // or null. Same folder search and base key as WorldMeshOverride.TryReadDonorPath.
++        private static String ReadCondition(Int32 overrideDisc, Int32 x, Int32 y)
++        {
++            if (AssetManager.FolderHighToLow == null)
++                return null;
++            String rel = AssetManagerUtil.GetResourcesAssetsPath(true) + "/" + Key(overrideDisc, x, y, "Form") + ".txt";
++            foreach (AssetManager.AssetFolder folder in AssetManager.FolderHighToLow)
++            {
++                if (folder == null || String.IsNullOrEmpty(folder.FolderPath))
++                    continue;
++                String full = folder.FolderPath + rel;
++                if (!File.Exists(full))
++                    continue;
++                try
++                {
++                    foreach (String line in File.ReadAllLines(full))
++                    {
++                        String s = line.Trim();
++                        if (s.Length > 0 && !s.StartsWith("#") && !s.StartsWith("//"))
++                            return s;
++                    }
++                    Log.Error("[CustomFormCells] empty Form.txt: " + full);
++                    return null;
++                }
++                catch (Exception ex)
++                {
++                    Log.Error("[CustomFormCells] failed Form.txt " + full + ": " + ex.Message);
++                    return null;
++                }
++            }
++            return null;
++        }
++
++        private static String Key(Int32 disc, Int32 x, Int32 y, String part)
++        {
++            return String.Format("WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] {4}", disc, y, x, y, part);
++        }
++    }
++}
