@@ -781,6 +781,56 @@ the fact):
   nothing that lies within the region now sinks with the island. Launch 3 ran with the rebuilt files: exactly those
   four Terrain files changed, on both discs, and the sky is clear.
 
+## Round 11 (2026-10-09, owner's go: "do the islands with shallows next"): islands in shallow water sink, re-banded, 48/48 on the first launch
+
+Run `.harness-runs/20261009-163926-r11-shallows`: one launch, 8 world loads, 134 s, 0 exceptions. One scratch folder,
+first in FolderNames; ini backed up (`backups/Memoria.ini.pre-r11-lab.20261009-163919`) and restored byte-exact
+(`0b5a4985…`), the lab removed. Build and predictions: `r11_build.py`; scenario: `r11_session.py`; the lane:
+`../land2sea/NOTES.md` section 5.
+
+### 26. `world-sink` in shallow water: the new water takes the bands round it, on both discs
+
+Two islands `world-sink --list` takes, both in shallow water, both replayed on disc 4:
+- **A**, (16,16)+(17,16), `--at 1082.667 -1057.732`: a 448 u² island with a beach, in a lagoon of mid water. Its own
+  beach water (32 sea1/sea2 tris) goes with it. 70 tiles re-band: 64 mid water (sea3), 6 transition tiles (sea5).
+- **B**, (4,15), `--at 278.667 -1006.732`: a 601 u² island on a shelf edge, mid water to its north and deep sea to
+  its south. 87 tiles re-band: 41 sea3, 13 sea5, 33 sea4, the transition band carried across where it stood.
+
+FULL = both sinks into one folder (Disc1 plus the replay on Disc4, 13 files each); OLD = the same with
+`--skip-mirror` (Disc1 only). Read points: A1 on A's summit, A2 on its beach; B1-B4 on B, each where the sink lays a
+different water class (B1 sea3, B2 a transition tile's mid-water tri, B3 its deep tri, B4 sea4).
+
+| stage | lab | world | A1 / A2 | B1 / B2 / B3 / B4 | boat, eastbound | lab files bound |
+|---|---|---|---|---|---|---|
+| d1_stock | - | 9011 | 3.379 / 0.227 | 3.949 / 3.574 / 3.527 / 3.023 | | 0 |
+| d1_sink | FULL | 9011 | **−0.586** / **−0.586** | **−0.586** / **−0.586** / **−1.367** / **−1.367** | | 13 (Disc1) |
+| boatA_stock | - | 9003 | | | stalls at x 1067.7, at A's standoff belt (sim 1067.69) | 0 |
+| boatA_sink | FULL | 9003 | | | **sails to x 1117.8**, past A's east side (1098.5) | 13 (Disc1) |
+| boatB_stock | - | 9003 | | | stalls at x 263.3, at B's standoff belt (sim 263.26) | 0 |
+| boatB_sink | FULL | 9003 | | | **sails to x 313.7**, past B's east side (294.5) | 13 (Disc1) |
+| d4_old | OLD | 9008 | 3.379 / 0.227 | 3.941 / 3.574 / 3.527 / 3.023: disc 4 keeps both islands | | 0 |
+| d4_sink | FULL | 9008 | **−0.586** / **−0.586** | **−0.586** / **−0.586** / **−1.367** / **−1.367** | | 13 (Disc4) |
+
+Every reading is the registered one to the last bit. A party on the new water stands at its class's walk sink
+(`w_movementSinkArray` row 1, `ff9.cs:19`): mid water, topograph 54, reads 150/256 = 0.5859375 under the surface, the
+first read of that class; open water, 57, 1.3671875 (round 10). B2 and B3 stand on two tris of the same transition
+tile: the kit splits a corner tile on the diagonal that cuts off its deep corner and gives that tri 57 and the other
+54, as stock does (`../land2sea/sh_q7_sea5_class.py`), and the game reads them so.
+
+The frames: `shots/r11-sheet.png` (A1, B1, B3 on both discs, stock and sunk) and `shots/r11-boats.png`. Where each
+island stood the water is continuous, with no seam where the new tiles meet the kept ones, and on B the lighter mid
+water runs over into the deep. One frame differs between the discs before the sink: on disc 4, B carries a
+bark-and-rock slab in the grass that disc 1 does not have. It is disc 4's own ground (20 Terrain tris in (4,15),
+topographs 0 and 49, y 3.5-4.9, absent on disc 1), and the disc-4 replay's plan drops all 20 with the rest of disc 4's
+island: that is the replay working on disc 4's own bytes, as designed.
+
+**Verdict.**
+1. **An island in shallow water sinks, and the water heals in its own bands.** A lagoon island becomes mid water, a
+   shelf-edge island mid water, transition and deep sea; its beach and beach water go with it.
+2. **A boat sails where it stood.** On stock both lanes stop at the island; sunk, both cross.
+3. **The replay carries it to disc 4**, including ground disc 4 adds; with the files a non-mirrored deploy writes,
+   disc 4 keeps both islands.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
@@ -788,8 +838,10 @@ the fact):
 
 ## Instrument lessons (for the next scenario)
 
-- A party standing on water sinks too: on open sea (topograph 57) its published y is 1.3671875 under the surface
-  (`w_movementSinkArray`, the same table as the canopy sink). Predict on-foot heights as ground minus the walk sink.
+- A party standing on water sinks too: its published y is the surface minus the walk sink of the tile's topograph
+  (`w_movementSinkArray` row 1 minus 100, /256, `ff9.cs:19` and `:5636-5667`): 53 0.195, 54 0.586 (round 11), 55
+  0.391, 56 and 57 1.367 (round 10), 36-38 1.172, 48 and 51 0.781, the rest 0. Predict on-foot heights as ground minus
+  the walk sink.
 - Look at every frame, not only at the checks. Round 10's second launch passed 28/28 with a piece of the island
   floating in the sky in its frames: the checks read heights at three points, and no point stood under the strip.
 
