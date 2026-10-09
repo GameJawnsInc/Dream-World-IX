@@ -4738,8 +4738,21 @@ SEA_COAST_TOPOS = frozenset({53, 54, 55, 56})
 #: how far from land stock puts a coastal id on sea4: topo 56 on 4,357 disc-1 tris, centroid to nearest land p99 2.95u,
 #: max 4.14u (studies/terrain-malleability/land2sea/keel_reach.py)
 SEA_COAST_REACH = 4.5
-#: the parts an island ASSEMBLY is traced over (the excise's unit: land plus its welded shallow ladder)
-SINK_TRACE_PARTS = ("terrain", "beach1", "sea1", "sea2", "sea3", "sea5")
+#: an island is a LAND COMPONENT: terrain and beach1 joined by shared vertices. Not an assembly over its water -- the
+#: shallow bands are continuous meshes, so through them every island with shallows is one mesh with a continent
+#: (studies/terrain-malleability/land2sea/sh_q1_halos.py)
+SINK_LAND_PARTS = ("terrain", "beach1")
+#: the island's SHORE: true shallows (sea1, sea2) are bound to a shore (the water-ladder law), so its own go with it
+SINK_SHORE_PARTS = ("sea1", "sea2")
+#: the open-water alphabet the sink re-bands where the island stood (water.py's marching band: sea3 mid water, sea5 the
+#: transition, sea4 deep), and each band's navigation class (topograph) in open water and within SINK_BELT_REACH of
+#: land. Stock (sh_q3_topo_reach.py): sea3 is 55 within 2u of land (2,480 of 2,488 tris), 54 past 4u; sea4 56 within
+#: 2u, 57 past 4u; sea5 55/56 within 2u, then 54 or 57 by its tile's deep edges (:func:`_sea5_class`; 54 where a
+#: kept tile does not decode)
+SINK_BAND_PARTS = ("sea3", "sea5", "sea4")
+SINK_OPEN_TOPO = {"sea3": 54, "sea5": 54, "sea4": 57}
+SINK_SHORE_TOPO = {"sea3": 55, "sea5": 55, "sea4": 56}
+SINK_BELT_REACH = 2.0
 #: how far from the island the fringe closure may reach before it is another coast's sea
 SINK_FRINGE_REACH = 12.0
 
@@ -4872,33 +4885,96 @@ def _tile_block(ij) -> tuple:
     return (int(math.floor((ij[0] * 4.0 + 2.0) / 64.0)), int(math.floor(-(ij[1] * 4.0 + 2.0) / 64.0)))
 
 
+#: a 4u tile's edges as lattice-line keys: ("v", i, j) is x = 4i over tile row j, ("h", i, j) is z = 4j over column i
+_TILE_EDGE = {"E": lambda i, j: ("v", i + 1, j), "W": lambda i, j: ("v", i, j),
+              "N": lambda i, j: ("h", i, j + 1), "S": lambda i, j: ("h", i, j)}
+_OPP_DIR = {"E": "W", "W": "E", "N": "S", "S": "N"}
+
+
+def _edge_mid(e) -> tuple:
+    return (4.0 * e[1], 4.0 * e[2] + 2.0) if e[0] == "v" else (4.0 * e[1] + 2.0, 4.0 * e[2])
+
+
+def _deep_corner(es) -> tuple:
+    """A corner transition tile's deep corner, as tile fractions ``(fx, fz)``."""
+    return (1.0 if "E" in es else 0.0, 1.0 if "N" in es else 0.0)
+
+
+def _sea5_class(tri, es, ij) -> int:
+    """Stock's open-water class of a sea5 transition tri (studies/terrain-malleability/land2sea/sh_q7_sea5_class.py,
+    disc 1): a tile with one deep edge is 54 on both tris (890 of 890), three 57 (625 of 626); a corner tile is split
+    on the diagonal that cuts off its deep corner, 57 on that corner's tri and 54 on the other (1,620 of 1,630)."""
+    if len(es) == 1:
+        return 54
+    if len(es) != 2:
+        return 57
+    cx, cz = _deep_corner(es)
+    c = _plan_centroid(tri)
+    fx, fz = c[0] / 4.0 - ij[0], c[1] / 4.0 - ij[1]
+    return 57 if math.hypot(fx - cx, fz - cz) < math.hypot(fx - 1.0 + cx, fz - 1.0 + cz) else 54
+
+
+def _cut_corner(ts, es, ij, wind) -> list:
+    """A whole corner transition tile (two tris, four lattice corners) split as stock splits one: on the diagonal that
+    cuts off its deep corner. The uv map is affine over the tile, so either diagonal draws the same texture; the split
+    decides which tri carries the deep corner's class."""
+    verts = {}
+    for t in ts:
+        for v in t:
+            verts[(round(v[0][0] - 4.0 * ij[0]), round(v[0][2] - 4.0 * ij[1]))] = v
+    if len(ts) != 2 or set(verts) != {(0, 0), (4, 0), (4, 4), (0, 4)}:
+        return ts                                       # an edge weld split it: not a plain tile
+    cx, cz = _deep_corner(es)
+    d, o = verts[(int(4 * cx), int(4 * cz))], verts[(int(4 - 4 * cx), int(4 - 4 * cz))]
+    a, b = verts[(int(4 * cx), int(4 - 4 * cz))], verts[(int(4 - 4 * cx), int(4 * cz))]
+    out = []
+    for t in ((d, a, b), (o, a, b)):
+        p0, p1, p2 = (v[0] for v in t)
+        cross = (p1[0] - p0[0]) * (p2[2] - p0[2]) - (p2[0] - p0[0]) * (p1[2] - p0[2])
+        out.append(list(t) if cross * wind > 0 else [t[0], t[2], t[1]])
+    return out
+
+
 def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int = 9) -> tuple:
-    """THE ISLAND SINK: turn a whole REAL island into open sea in place, the way disc 4 removed Shimmering Island.
+    """THE ISLAND SINK: turn a whole REAL island into open water in place, the way disc 4 removed Shimmering Island.
 
     Measured on disc 4 (terrain study, land2sea): the game deleted the island's Terrain (530 tris, nothing left below
     y=0), deleted the deep-sea tiles round its coast, re-tiled every touched 4u tile as one whole stock tile of open
     sea (sea4 at y=0, its own normal and winding, one quadrant per tile, topograph 57), re-id'd the topo-56 keel ring
-    to 57 (or a boat could never reach where the island was), and left the shallow bands alone. This does the same:
+    to 57 (or a boat could never reach where the island was), and left the shallow bands alone. Shimmering stood in
+    deep water. An island in shallow water is sunk the same way, with the water's own bands:
 
-    - THE UNIT is the island's ASSEMBLY (the excise's): tris joined by shared vertices over terrain, beach1 and the
-      shallow parts, traced ACROSS block borders (stock welds exactly there) until it closes, in at most
-      ``max_blocks`` blocks. Only a bare-coast island sinks: one that owns shallow water (sea1/2/3/5, beach1) is welded
-      through it to its neighbours -- on disc 1 every such island is one assembly with a continent.
-    - THE REGION is every 4u lattice tile the island covers, closed over stock's coast-conforming sea4 tris (they
-      span tiles: every tile one reaches joins, until the region ends on whole stock tiles). Each must hold nothing
-      but the island and stock deep-sea
-      (sea4) tris lying wholly inside it, with no entrance bits on that sea; all of it is dropped and the tile re-filled
-      whole (:func:`~ff9mapkit.world.meshedit.lattice_patch` on the tile square: stock's own two tris), so the new sea
-      meets the kept sea only at tile corners (THE T-JUNCTION GATE refuses a kept vertex part-way along a region edge).
-    - THE KEEL: a kept sea4 tri with a coastal id (53-56) whose centroid lies within SEA_COAST_REACH of the island and
-      farther than that from every remaining land tri (the 3x3 blocks round it) becomes 57 (:class:`RetopoTris`).
-    - The fill keeps the sea's area: the most common area of the sea4 tris it replaces.
-    Refuses (``ValueError``, nothing planned) on: no land under ``at``; an island that owns shallows; one past
-    ``max_blocks`` blocks; a region tile holding anything else (an Object, other land, a shallow or beach part, a river)
-    or a sea tri crossing its edge; a region block with no sea4 part; entrance bits on the sea it would replace; a
-    T-junction; a fill that does not cover the region exactly once. Entrance tiles on the island itself are left to
+    - THE UNIT is the island's LAND (terrain and beach1 joined by shared vertices), traced ACROSS block borders (stock
+      welds exactly there) until it closes, in at most ``max_blocks`` blocks; plus THE SHORE, its own true shallows
+      (sea1, sea2 nearer to it than to any other land): shore-bound water (the water-ladder law) goes with its shore.
+      Shore water joined to another coast's is refused.
+    - THE REGION is every 4u lattice tile the island and its shore cover, closed over the coast-conforming water tris
+      round them (sea3, sea5, sea4: they span tiles, so every tile one reaches joins, until the region ends on whole
+      stock tiles). Each must hold nothing but the island, its shore and those water tris lying wholly inside it, with
+      no entrance bits on that water; all of it is dropped and every tile re-filled whole
+      (:func:`~ff9mapkit.world.meshedit.lattice_patch` on the tile square: stock's own two tris), so the new water meets
+      the kept water only at tile corners (THE T-JUNCTION GATE refuses a kept vertex part-way along a region edge).
+    - THE BANDS (water.py's open-ocean marching band, in-game proven): every tile EDGE is deep or not. An edge on the
+      region's rim takes its state from the kept water across it (sea4 deep, sea3 not, a sea5 transition tile what its
+      own decoded deep-edge-set says, another coast's sea1 not); an interior edge takes the inverse-distance-weighted
+      state of the rim's. A tile with no deep edge is sea3, four sea4, one to three a sea5 transition tile drawn from
+      the learned Wang table (:data:`STRIP_EDGESET`); a channel (two opposite deep edges) has no tile, so its weakest
+      free edge flips. Every kept transition tile keeps its deep-edge-set, so nothing outside the region changes look.
+      An island in deep water re-bands to sea4 throughout: disc 4's Shimmering recipe exactly.
+    - THE NAVIGATION CLASS: a new tri within SINK_BELT_REACH of remaining land takes its band's shore class (sea4 56,
+      sea3/sea5 55), else its open class (sea4 57, sea3 54, sea5 by its deep edges as stock: :func:`_sea5_class`, a
+      corner tile split on the diagonal that cuts off its deep corner). A
+      kept water tri with a coastal id within SEA_COAST_REACH of the island and farther than that from every remaining
+      land tri (the 3x3 blocks round it) takes its band's open class (:class:`RetopoTris`), or a boat could never reach
+      where the island stood.
+    - The fill keeps the water's area: the most common area of the water tris it replaces.
+    Refuses (``ValueError``, nothing planned) on: no land under ``at``; one past ``max_blocks`` blocks; shore water
+    shared with another coast; a region tile holding anything else (an Object, other land, another coast's wash, a
+    river) or a water tri crossing its edge; entrance bits on the water it would replace; a region block whose prefab
+    lacks a band the tile needs (the absent-part law); a band pair stock never lays side by side; a T-junction; a fill
+    that does not cover the region exactly once. Entrance tiles on the island itself are left to
     :func:`morph_in_place`'s entrance gate. Returns ``({block: [tweaks]}, report)``."""
-    from . import discmirror as DM, meshedit as ME
+    from . import coastmorph as CM, discmirror as DM, meshedit as ME
 
     real = DM._real_parts(disc, lod, game=game)
     cache: dict = {}
@@ -4908,20 +4984,17 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
             cache[(b, p)] = world_tris(b[0], b[1], p, disc=disc, lod=lod, game=game) if p in real.get(b, ()) else []
         return cache[(b, p)]
 
+    def around(bs):
+        return sorted({(b[0] + dx, b[1] + dy) for b in bs for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                       if (b[0] + dx, b[1] + dy) in real})
+
     home = (int(math.floor(at[0] / 64.0)), int(math.floor(-at[1] / 64.0)))
     blocks = {home}
     while True:
-        tagged = [(p, b, t) for b in sorted(blocks) for p in SINK_TRACE_PARTS for t in tris(b, p)]
-        own = {id(t): p for p, _b, t in tagged}
-        pick = next((c for c in ME.vertex_components([t for _, _, t in tagged])
-                     if any(own[id(t)] in LAND_PARTS and _tri_has(t, at) for t in c)), None)
+        tagged = [t for b in sorted(blocks) for p in SINK_LAND_PARTS for t in tris(b, p)]
+        pick = next((c for c in ME.vertex_components(tagged) if any(_tri_has(t, at) for t in c)), None)
         if pick is None:
             raise ValueError(f"no land lies under ({at[0]}, {at[1]}) on disc {disc}")
-        shallow = sorted({own[id(t)] for t in pick} - {"terrain"})
-        if shallow:
-            raise ValueError(f"the island owns shallow water or a beach ({', '.join(shallow)} welded to its coast): "
-                             f"through it, it is one mesh with its neighbours, out to a continent. A sink takes a "
-                             f"bare-coast island (its land meets deep sea directly), as disc 4's Shimmering Island did")
         grow = set()
         for t in pick:
             for v in t:
@@ -4939,6 +5012,35 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
                              f"island a sink takes")
     island = {id(t) for t in pick}
     land = list(pick)
+    # THE SHORE: the true shallows nearer to the island than to any other land go with it
+    xs = [v[0][0] for t in land for v in t]
+    zs = [v[0][2] for t in land for v in t]
+    box = (min(xs) - SINK_FRINGE_REACH, max(xs) + SINK_FRINGE_REACH, min(zs) - SINK_FRINGE_REACH,
+           max(zs) + SINK_FRINGE_REACH)
+    nb0 = around(blocks)
+    others = [t for b in nb0 for p in SINK_LAND_PARTS for t in tris(b, p) if id(t) not in island]
+    shore_all = [t for b in nb0 for p in SINK_SHORE_PARTS for t in tris(b, p)]
+    owned = set()
+    for t in shore_all:
+        c = _plan_centroid(t)
+        if not (box[0] <= c[0] <= box[1] and box[2] <= c[1] <= box[3]):
+            continue
+        di = _plan_dist(c, land)
+        if di <= SINK_FRINGE_REACH and di < _plan_dist(c, others):
+            owned.add(id(t))
+    shore = []
+    if owned:
+        for comp in ME.vertex_components(shore_all):
+            if not any(id(t) in owned for t in comp):
+                continue
+            theirs = next((t for t in comp if id(t) not in owned), None)
+            if theirs is not None:
+                c = _plan_centroid(theirs)
+                raise ValueError(f"the island's shore water (sea1/sea2) runs on into another coast's (near "
+                                 f"({c[0]:.1f}, {c[1]:.1f})): true shallows are bound to a shore, and this one is "
+                                 f"shared")
+            shore += comp
+    shore_ids = {id(t) for t in shore}
     touched: dict = {}
 
     def tiles(t):
@@ -4946,34 +5048,36 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
             touched[id(t)] = _tiles_touched(t)
         return touched[id(t)]
     region = set()
-    for t in land:
+    for t in land + shore:
         region |= tiles(t)
-    # THE FRINGE CLOSURE: stock's coast-conforming sea4 tris span several tiles (disc 1's partly-covered coast tiles
+    # THE FRINGE CLOSURE: stock's coast-conforming water tris span several tiles (disc 1's partly-covered coast tiles
     # round Shimmering: 0 of 158 were one clean tile), so every tile such a tri reaches joins the region, until the
     # region closes on whole stock tiles -- disc 4 re-tiled exactly those tiles whole
     # (bounded: a coastal tri farther than SINK_FRINGE_REACH from the island belongs to another coast)
+    ref = land + shore
     seen: set = set()
     grew = True
     while grew:
         grew = False
         for b in sorted({_tile_block(ij) for ij in region}):
-            for t in tris(b, "sea4"):
-                if id(t) in seen or not tiles(t) & region:
-                    continue
-                seen.add(id(t))
-                if not tiles(t) <= region:
-                    c = _plan_centroid(t)
-                    if _plan_dist(c, land) > SINK_FRINGE_REACH:
-                        raise ValueError(f"the coastal sea round the island runs on into another coast's (a sea tri "
-                                         f"at ({c[0]:.1f}, {c[1]:.1f}) spans tiles {SINK_FRINGE_REACH}u+ from it)")
-                    region |= tiles(t)
-                    grew = True
+            for p in ("sea4", "sea3", "sea5"):
+                for t in tris(b, p):
+                    if id(t) in seen or not tiles(t) & region:
+                        continue
+                    seen.add(id(t))
+                    if not tiles(t) <= region:
+                        c = _plan_centroid(t)
+                        if _plan_dist(c, ref) > SINK_FRINGE_REACH:
+                            raise ValueError(f"the coastal sea round the island runs on into another coast's (a {p} "
+                                             f"tri at ({c[0]:.1f}, {c[1]:.1f}) spans tiles {SINK_FRINGE_REACH}u+ "
+                                             f"from it)")
+                        region |= tiles(t)
+                        grew = True
     rblocks = sorted({_tile_block(ij) for ij in region})
+    near = around(rblocks)
     # THE ISLAND'S FRAGMENTS: a land piece welded to nothing, lying wholly within the region's tiles (inside the
     # island's footprint, or on its edges), is part of the island: it sinks with it, or it would stand over open sea.
-    near = sorted({(b[0] + dx, b[1] + dy) for b in rblocks for dx in (-1, 0, 1) for dy in (-1, 0, 1)
-                   if (b[0] + dx, b[1] + dy) in real})
-    loose = [t for b in near for p in ("terrain", "beach1") for t in tris(b, p) if id(t) not in island]
+    loose = [t for b in near for p in SINK_LAND_PARTS for t in tris(b, p) if id(t) not in island]
     frag = [c for c in ME.vertex_components(loose) if all(_in_region(v, region) for t in c for v in t)]
     for c in frag:
         island |= {id(t) for t in c}
@@ -4984,34 +5088,32 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
               "land_tris": len(land), "max_y": round(max(v[0][1] for t in land for v in t), 3),
               "land_u2": round(sum(_plan_clip_area([(v[0][0], v[0][2]) for v in t], -1e9, 1e9, -1e9, 1e9)
                                    for t in land), 1),
-              "entrance_tris": sum(1 for t in land if decode_id(int(round(t[0][3][0])))["event"])}
-    no_sea = [b for b in rblocks if "sea4" not in real.get(b, ())]
-    if no_sea:
-        raise ValueError(f"block(s) {no_sea} have no sea4 part: their prefab has no deep-water transform, so no sea "
-                         f"could render where the island was")
+              "entrance_tris": sum(1 for t in land if decode_id(int(round(t[0][3][0])))["event"]),
+              "shore_tris": len(shore)}
+    owners = island | shore_ids
     drops, sea_drop = {}, []
-    for b in sorted(set(rblocks) | {b for b in near if any(id(t) in island for p in SINK_TRACE_PARTS
+    for b in sorted(set(rblocks) | {b for b in near if any(id(t) in owners for p in SINK_LAND_PARTS + SINK_SHORE_PARTS
                                                              for t in tris(b, p))}):
         for p in sorted(real.get(b, ())):
             for t in tris(b, p):
                 # EVERY island tri goes, first: a near-vertical one standing on a tile line has no plan area, touches
                 # no tile, and was KEPT (in-game round 10, launch 2: two hillside strips left floating in the sky)
-                if id(t) in island:
+                if id(t) in owners:
                     drops.setdefault((b, p), []).append(t)
                     continue
                 hit = tiles(t)
                 if not hit & region:
                     continue
                 c = _plan_centroid(t)
-                if p != "sea4":
+                if p not in SINK_BAND_PARTS:
                     raise ValueError(f"a '{p}' tri near ({c[0]:.1f}, {c[1]:.1f}) shares a 4u tile with the island "
-                                     f"(an Object, other land, shallow water or a river): a sink re-tiles every tile "
-                                     f"the island touches as open sea, and would take it too")
+                                     f"(an Object, other land, another coast's shallows or a river): a sink re-tiles "
+                                     f"every tile the island touches as open water, and would take it too")
                 if not hit <= region:
-                    raise ValueError(f"a deep-sea tri near ({c[0]:.1f}, {c[1]:.1f}) crosses the edge of a tile the "
-                                     f"sink would re-tile: it is not a stock 4u tile")
+                    raise ValueError(f"a {p} tri near ({c[0]:.1f}, {c[1]:.1f}) crosses the edge of a tile the sink "
+                                     f"would re-tile: it is not a stock 4u tile")
                 if decode_id(int(round(t[0][3][0])))["event"]:
-                    raise ValueError(f"the deep sea at ({c[0]:.1f}, {c[1]:.1f}) carries entrance bits: an entrance on "
+                    raise ValueError(f"the water at ({c[0]:.1f}, {c[1]:.1f}) carries entrance bits: an entrance on "
                                      f"the water beside the island")
                 drops.setdefault((b, p), []).append(t)
                 sea_drop.append(t)
@@ -5019,17 +5121,120 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
     if gone != len(land):
         raise ValueError(f"the plan drops {gone} of the island's {len(land)} land tris: the rest would stand over the "
                          f"new sea")
-    sea_ref = next(t for b in rblocks for t in tris(b, "sea4"))
+    sea_ref = next((t for p in ("sea4", "sea3", "sea5") for b in rblocks for t in tris(b, p)), None)
+    if sea_ref is None:
+        raise ValueError(f"block(s) {rblocks} have no water part: their prefab has no water transform, so no sea could "
+                         f"render where the island was")
     a, bq, cq = [v[0] for v in sea_ref]
     wind = -1.0 if ((bq[0] - a[0]) * (cq[2] - a[2]) - (cq[0] - a[0]) * (bq[2] - a[2])) < 0 else 1.0
     areas = collections.Counter(decode_id(int(round(t[0][3][0])))["area"] for t in sea_drop)
     area = areas.most_common(1)[0][0] if areas else 0
-    idall = encode_id(area=area, topograph=57)
+    dropped = {id(t) for ts in drops.values() for t in ts}
+    # THE BANDS: every tile edge deep or not; the rim's from the kept water across it, the interior's interpolated
+    tindex: dict = collections.defaultdict(list)
+    for b in near:
+        for p in sorted(real[b]):
+            for t in tris(b, p):
+                for ij in tiles(t):
+                    tindex[ij].append((p, t))
+
+    def sample(q, kept):
+        ij = (math.floor(q[0] / 4.0), math.floor(q[1] / 4.0))
+        if _tile_block(ij) not in real:
+            return ("sea4", None)                   # an open-ocean block: the shared SeaBlockPrefab's deep sheet
+        return next(((p, t) for p, t in tindex.get(ij, ()) if not (kept and id(t) in dropped) and _tri_has(t, q)),
+                    None)
+    fixed, free, rim = {}, set(), {}
+    for (i, j) in sorted(region):
+        for d, (di, dj) in _DIRS.items():
+            e = _TILE_EDGE[d](i, j)
+            if (i + di, j + dj) in region:
+                free.add(e)
+                continue
+            m = _edge_mid(e)
+            out = sample((m[0] + 0.25 * di, m[1] + 0.25 * dj), True)
+            p_out = out[0] if out else None
+            rim[((i, j), d)] = p_out
+            if p_out == "sea4":
+                fixed[e] = 1
+            elif p_out == "sea3":
+                fixed[e] = 0
+            elif p_out == "sea5":
+                es = strip_edge_set(out[1]) if out[1] is not None else None
+                if es is not None:
+                    fixed[e] = int(_OPP_DIR[d] in es)
+                else:                                   # a conforming transition tile: was the water across it deep?
+                    inn = sample((m[0] - 0.25 * di, m[1] - 0.25 * dj), False)
+                    fixed[e] = int(bool(inn) and inn[0] == "sea4")
+            elif p_out == "sea1":
+                inn = sample((m[0] - 0.25 * di, m[1] - 0.25 * dj), False)
+                if not inn or inn[0] not in SINK_BAND_PARTS:
+                    raise ValueError(f"another coast's shore water (sea1) at ({m[0]:.1f}, {m[1]:.1f}) meets the "
+                                     f"island's own: re-banded, its beach ladder would end on open water")
+                fixed[e] = 0
+            elif p_out == "sea2":
+                raise ValueError(f"another coast's wash (sea2) at ({m[0]:.1f}, {m[1]:.1f}) borders a tile the sink "
+                                 f"re-bands: the wash only ever meets its shore band")
+            else:
+                free.add(e)                             # land, an object or nothing: it does not bind the water
+    if not fixed:
+        raise ValueError("no water borders the island's tiles to take its bands from")
+    fk = sorted(fixed)
+    fm = [_edge_mid(e) for e in fk]
+    val = {}
+    for e in sorted(free - set(fixed)):
+        m = _edge_mid(e)
+        num = den = 0.0
+        for q, f in zip(fm, fk):
+            w = 1.0 / ((m[0] - q[0]) ** 2 + (m[1] - q[1]) ** 2)
+            num += w * fixed[f]
+            den += w
+        val[e] = num / den
+    state = {**fixed, **{e: int(v > 0.5) for e, v in val.items()}}
+
+    def deep(ij):
+        return frozenset(d for d in _DIRS if state[_TILE_EDGE[d](*ij)])
+    locked, flips = set(fixed), 0
+    for _ in range(4 * len(region) + 8):
+        chan = sorted(ij for ij in region if deep(ij) in (frozenset("EW"), frozenset("NS")))
+        if not chan:
+            break
+        ij = chan[0]
+        cand = [_TILE_EDGE[d](*ij) for d in sorted(_DIRS) if _TILE_EDGE[d](*ij) not in locked]
+        if not cand:
+            raise ValueError(f"tile {ij} lies in a channel between two fixed sides of the kept water: no stock "
+                             f"transition tile draws one")
+        e = min(cand, key=lambda e: (abs(val.get(e, 0.5) - 0.5), e))
+        state[e] ^= 1
+        locked.add(e)
+        flips += 1
+    band = {}
+    for ij in sorted(region):
+        es = deep(ij)
+        band[ij] = ("sea3" if not es else "sea4" if len(es) == 4 else "sea5", es)
+        if band[ij][0] == "sea5" and es not in EDGESET2STRIP:
+            raise ValueError(f"tile {ij}: the band field left deep edges {sorted(es)}, which no stock transition tile "
+                             f"draws")
+    # THE ABSENT-PART GATE: a prefab carries transforms only for its own parts
+    for ij, (p, _es) in sorted(band.items()):
+        if p not in real.get(_tile_block(ij), ()):
+            raise ValueError(f"block {_tile_block(ij)} has no {p} part: the {p} tile the sink needs at {ij} could not "
+                             f"render (a prefab carries transforms only for its own parts)")
+    # THE BAND GATE: every pair of 4-neighbours, inside the region and across its rim, is one stock lays side by side
+    bad = []
+    for (ij, d), p_out in sorted(rim.items()):
+        if p_out in CM.WATER_DEPTH and frozenset((band[ij][0], p_out)) not in CM._LAWFUL_ADJ:
+            bad.append((ij, d, band[ij][0], p_out))
+    for ij in sorted(region):
+        for d in ("E", "N"):
+            o = (ij[0] + _DIRS[d][0], ij[1] + _DIRS[d][1])
+            if o in band and frozenset((band[ij][0], band[o][0])) not in CM._LAWFUL_ADJ:
+                bad.append((ij, d, band[ij][0], band[o][0]))
+    if bad:
+        raise ValueError(f"{len(bad)} band pair(s) stock never lays side by side (first: tile {bad[0][0]} {bad[0][2]} "
+                         f"against {bad[0][3]} to its {bad[0][1]})")
     # THE EDGE WELD: a kept vertex lying part-way along a region tile's outer edge (a coast-conforming neighbour) joins
     # that tile's outline, so the re-tiled sea meets it vertex to vertex -- a whole tile would pass it (a T-junction)
-    dropped = {id(t) for ts in drops.values() for t in ts}
-    near = sorted({(b[0] + dx, b[1] + dy) for b in rblocks for dx in (-1, 0, 1) for dy in (-1, 0, 1)
-                   if (b[0] + dx, b[1] + dy) in real})
     extra: dict = {}
     for b in near:
         for p in sorted(real[b]):
@@ -5047,6 +5252,13 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
                              for dx in (-1e-3, 1e-3) for dz in (-1e-3, 1e-3)}
                     for ij in cands & region:
                         extra.setdefault(ij, set()).add((x, z))
+    rest = [t for b in near for p in SINK_LAND_PARTS for t in tris(b, p) if id(t) not in island]
+    rest_at: dict = collections.defaultdict(list)
+    for t in rest:
+        for ij in tiles(t) or {(math.floor(t[0][0][0] / 4.0), math.floor(t[0][0][2] / 4.0))}:
+            rest_at[ij].append(t)
+    sea3_map = CM._sea3_factory()
+    nrm = tuple(sea_ref[0][1])
     fill: dict = {}
     for (i, j) in sorted(region):
         x0, z0, x1, z1 = i * 4.0, j * 4.0, i * 4.0 + 4.0, j * 4.0 + 4.0
@@ -5060,11 +5272,36 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
                   or (abs(q[0] - ax) < 1e-4 and abs(ax - bx_) < 1e-9 and min(az, bz_) + 1e-4 < q[1] < max(az, bz_) - 1e-4)]
             on.sort(key=lambda q: abs(q[0] - ax) + abs(q[1] - az))
             ring += [(q[0], 0.0, q[1]) for q in on]
-        fill.setdefault(_tile_block((i, j)), []).extend(
-            ME.lattice_patch(ring, y=0.0, uv_quads=SEA4_QUADS, idall=idall, normal=tuple(sea_ref[0][1]),
-                             winding=wind))
+        p, es = band[(i, j)]
+        if p == "sea4":
+            ts = ME.lattice_patch(ring, y=0.0, uv_quads=SEA4_QUADS, idall=0, normal=nrm, winding=wind)
+        else:
+            uvf = sea3_map((i, j)) if p == "sea3" else CM._strip_uvf((i, j), es)
+            ts = [[(v[0], v[1], tuple(uvf(v[0][0], v[0][2])), v[3]) for v in t]
+                  for t in ME.lattice_patch(ring, y=0.0, uv_quads=((0.0, 0.0, 1.0, 1.0),), idall=0, normal=nrm,
+                                            winding=wind)]
+            if p == "sea5" and len(es) == 2:
+                ts = _cut_corner(ts, es, (i, j), wind)
+            # THE DECODE GATE: a drawn transition tile reads back as the deep edges it was drawn for (a frame error in
+            # the tile table would draw the shore on the wrong side)
+            if p == "sea5" and any(strip_edge_set(t) != es for t in ts):
+                raise ValueError(f"tile {(i, j)}: the transition tile drawn for deep edges {sorted(es)} does not "
+                                 f"decode as those edges")
+        by_near = [t for di in (-1, 0, 1) for dj in (-1, 0, 1) for t in rest_at.get((i + di, j + dj), ())]
+        for t in ts:
+            c = _plan_centroid(t)
+            if by_near and _plan_dist(c, by_near) < SINK_BELT_REACH:
+                topo = SINK_SHORE_TOPO[p]
+            elif p == "sea5":
+                topo = _sea5_class(t, es, (i, j))
+            else:
+                topo = SINK_OPEN_TOPO[p]
+            ida = float(encode_id(area=area, topograph=topo))
+            fill.setdefault((_tile_block((i, j)), p), []).append([(v[0], v[1], v[2], (ida,) + tuple(v[3][1:]))
+                                                                  for v in t])
     report.update(fill_area=area, fill_tris=sum(len(v) for v in fill.values()), sea_replaced=len(sea_drop),
-                  edge_welds=sum(len(v) for v in extra.values()))
+                  edge_welds=sum(len(v) for v in extra.values()),
+                  bands={p: sum(1 for v in band.values() if v[0] == p) for p in SINK_BAND_PARTS}, band_flips=flips)
     # THE T-JUNCTION GATE: every kept vertex on a region edge is now a vertex of the fill
     fverts = {(round(v[0][0], 5), round(v[0][2], 5)) for ts in fill.values() for t in ts for v in t}
     mid = [q for ps in extra.values() for q in ps if (round(q[0], 5), round(q[1], 5)) not in fverts]
@@ -5078,27 +5315,33 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
     if afloat:
         raise ValueError(f"{len(afloat)} kept land vertex/vertices would stand over the new sea (first {afloat[0]}): "
                          f"land joined to more than the island reaches into its tiles")
-    # THE KEEL: coastal ids only the island explained become open water
-    rest = [t for b in near for p in ("terrain", "beach1") for t in tris(b, p) if id(t) not in island]
+    # THE KEEL: coastal ids only the island explained take their band's open class
     retopo: dict = {}
-    for b in rblocks:
-        for t in tris(b, "sea4"):
-            if id(t) in dropped or decode_id(int(round(t[0][3][0])))["topograph"] not in SEA_COAST_TOPOS:
-                continue
-            c = _plan_centroid(t)
-            if _plan_dist(c, land) <= SEA_COAST_REACH < _plan_dist(c, rest):
-                retopo.setdefault(b, []).append(t)
+    for b in near:
+        for p in SINK_BAND_PARTS:
+            for t in tris(b, p):
+                topo = decode_id(int(round(t[0][3][0])))["topograph"]
+                if id(t) in dropped or topo not in SEA_COAST_TOPOS or topo == SINK_OPEN_TOPO[p]:
+                    continue
+                c = _plan_centroid(t)
+                if _plan_dist(c, land) <= SEA_COAST_REACH < _plan_dist(c, rest):
+                    es = strip_edge_set(t) if p == "sea5" else None
+                    to = (_sea5_class(t, es, (math.floor(c[0] / 4.0), math.floor(c[1] / 4.0))) if es
+                          else SINK_OPEN_TOPO[p])
+                    if to != topo:
+                        retopo.setdefault((b, p, to), []).append(t)
     report["keel_to_open"] = sum(len(v) for v in retopo.values())
     # THE COVERAGE GATE: every sample of the region under exactly one fill tri, and no kept tri of any part
     miss = over = n = 0
     for (i, j) in sorted(region):
         b = _tile_block((i, j))
         kept = [t for p in real.get(b, ()) for t in tris(b, p) if id(t) not in dropped]
+        mine = [t for p in SINK_BAND_PARTS for t in fill.get((b, p), ())]
         for u in (0.3, 1.3, 2.3, 3.3):                 # off both diagonals: a stock tile splits on one
             for w in (0.6, 1.55, 2.45, 3.4):
                 q = (i * 4.0 + u, j * 4.0 + w)
                 n += 1
-                k = sum(1 for t in fill[b] if _tri_has(t, q))
+                k = sum(1 for t in mine if _tri_has(t, q))
                 if k == 0:
                     miss += 1
                 elif k > 1 or any(_tri_has(t, q) for t in kept):
@@ -5110,43 +5353,43 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
     plan: dict = {}
     for (b, p), ts in sorted(drops.items()):
         plan.setdefault(b, []).append(DropTris(p, ts))
-    for b, ts in sorted(retopo.items()):
-        plan.setdefault(b, []).append(RetopoTris("sea4", ts, 57))
-    for b, ts in sorted(fill.items()):
-        plan.setdefault(b, []).append(EmitTris("sea4", ts))
+    for (b, p, topo), ts in sorted(retopo.items()):
+        plan.setdefault(b, []).append(RetopoTris(p, ts, topo))
+    for (b, p), ts in sorted(fill.items()):
+        plan.setdefault(b, []).append(EmitTris(p, ts))
     report["dropped"] = {f"{b[0]},{b[1]} {p}": len(ts) for (b, p), ts in sorted(drops.items())}
     return plan, report
 
 
-def sink_candidates(*, disc: int = 1, lod: str = "0_1", game=None) -> list:
-    """Every island the sink could be pointed at on ``disc``, with its verdict: each land ASSEMBLY of the whole map
-    (traced as :func:`sink_plan` traces one, over every block) that is not welded into a continent through shallow
-    water, tried with :func:`sink_plan` at the centroid of its largest flat land tri. Rows ``{"at", "land_u2", "max_y",
-    "blocks", "ok", "why"}``, largest first."""
+def sink_candidates(*, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int = 9) -> list:
+    """Every island the sink could be pointed at on ``disc``, with its verdict: each LAND component of the whole map
+    (terrain and beach1 joined by shared vertices, traced as :func:`sink_plan` traces one) within ``max_blocks``
+    blocks, tried with :func:`sink_plan` at the centroid of its largest flat land tri. Rows ``{"at", "land_u2", "max_y",
+    "blocks", "ok", "why", "bands", "shore_tris"}``, largest first."""
     from . import discmirror as DM, meshedit as ME
     real = DM._real_parts(disc, lod, game=game)
     tagged = []
     for b in sorted(real):
-        for p in SINK_TRACE_PARTS:
+        for p in SINK_LAND_PARTS:
             if p in real[b]:
                 tagged += [(p, b, t) for t in world_tris(b[0], b[1], p, disc=disc, lod=lod, game=game)]
     own = {id(t): (p, b) for p, b, t in tagged}
     rows = []
     for c in ME.vertex_components([t for _, _, t in tagged]):
-        land = [t for t in c if own[id(t)][0] in LAND_PARTS]
-        if not land or any(own[id(t)][0] not in LAND_PARTS for t in c):
-            continue                                   # no land, or welded through shallows into its neighbours
+        blocks = sorted({own[id(t)][1] for t in c})
+        if len(blocks) > max_blocks:
+            continue                                   # a continent
 
         def flat(t):
             return abs((t[1][0][0] - t[0][0][0]) * (t[2][0][2] - t[0][0][2])
                        - (t[2][0][0] - t[0][0][0]) * (t[1][0][2] - t[0][0][2]))
-        at = tuple(round(v, 3) for v in _plan_centroid(max(land, key=flat)))
-        row = {"at": list(at), "land_u2": round(sum(flat(t) for t in land) / 2.0, 1),
-               "max_y": round(max(v[0][1] for t in land for v in t), 2),
-               "blocks": sorted({own[id(t)][1] for t in c})}
+        at = tuple(round(v, 3) for v in _plan_centroid(max(c, key=flat)))
+        row = {"at": list(at), "land_u2": round(sum(flat(t) for t in c) / 2.0, 1),
+               "max_y": round(max(v[0][1] for t in c for v in t), 2), "blocks": blocks, "bands": None,
+               "shore_tris": 0}
         try:
-            sink_plan(at, disc=disc, lod=lod, game=game)
-            row.update(ok=True, why=None)
+            _plan, rep = sink_plan(at, disc=disc, lod=lod, game=game, max_blocks=max_blocks)
+            row.update(ok=True, why=None, bands=rep["bands"], shore_tris=rep["shore_tris"], blocks=rep["blocks"])
         except ValueError as e:
             row.update(ok=False, why=str(e).split(":")[0][:160])
         rows.append(row)

@@ -5,17 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — sink an island into open sea (`world-sink`)
-- `world-sink --mod-folder F --at WX WZ` turns a whole real island into open deep sea, in place, the way disc 4
-  removes Shimmering Island: the island's land goes, every 4u tile it touched (with the coast-conforming sea round it)
-  is re-tiled whole as stock open sea, and the near-shore band only the island explained becomes open water, so a
+### Added — sink an island into open water (`world-sink`)
+- `world-sink --mod-folder F --at WX WZ` turns a whole real island into open water, in place, the way disc 4
+  removes Shimmering Island: the island's land goes, every 4u tile it touched (with the coast-conforming water round
+  it) is re-tiled whole as stock water, and the near-shore band only the island explained becomes open water, so a
   boat can sail where it stood. Islands across several blocks sink in one edit; a block left with no land gets the
   hidden blanking stub. Replayed on disc 4 where disc 4's blocks differ; `--dry-run` says what disc 4 will get.
-- `world-sink --list` scans the map: of disc 1's 19 islands not welded into a continent, 8 sink (45 to 4,813 u²),
-  each with its ready-to-run line, and the rest are named with the reason. An island with shallows or a beach is
-  refused (its shallow water is one mesh with its neighbours'), and so is one with a building on it.
-- Proven in game (terrain study round 10, 28/28): a 4,813 u² island over five blocks became open sea on both discs,
-  and the Blue Narciss sailed across where it stood (on stock it stops at the island's coast).
+- Islands in shallow water sink too: the new water takes the bands of the water round it, as the open-ocean
+  marching band lays them (`world-water`'s model): mid water (sea3) where the island stood in mid water, deep sea
+  (sea4) where in deep, and where it stood on the edge of a shelf the transition band (sea5) carried across where
+  it stood, each transition tile drawn from the learned tile table so every kept tile round it keeps its look. The
+  island's own beach water (sea1, sea2) goes with it. New water carries stock's navigation classes for its band
+  (mid water 54 and deep 57 are sailable; within 2u of remaining land, the belt and keel). New gates: a block whose
+  prefab lacks a band the sink needs, a band pair stock never lays side by side, a transition tile that does not
+  decode as its own edges.
+- `world-sink --list` scans the map: 25 of disc 1's 53 islands sink (45 to 4,813 u², 17 of them in shallow water),
+  all 25 replayed on disc 4, each with its ready-to-run line and the bands it re-lays; the rest are named with the
+  reason (coastal water or beach water shared with another coast, a building or other land in its tiles).
+- Proven in game: terrain study round 10 (28/28), a 4,813 u² island over five blocks became open sea on both discs
+  and the Blue Narciss sailed across where it stood (on stock it stops at the island's coast); round 11 (48/48), a
+  lagoon island with a beach and a shelf-edge island sank on both discs, the water re-banded round them, and the
+  boat crossed where each stood.
 - `world-transplant --in-place` writes the hidden blanking stub for a part an edit empties (a 0-vert mesh was refused
   mid-deploy), and its frame gate can compare positions across parts and exempt a border shared with another block of
   the same edit (`morph_in_place(frame_shared=..., frame_across_parts=True)`).

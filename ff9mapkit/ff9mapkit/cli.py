@@ -4898,15 +4898,19 @@ def _gate_line(g: dict) -> str:
 
 
 def _cmd_world_sink(args: argparse.Namespace) -> int:
-    """LAND -> SEA: sink a whole bare-coast REAL island into open sea, in place (``transplant.sink``)."""
+    """LAND -> SEA: sink a whole REAL island into open water, in place (``transplant.sink``)."""
     from .world import discmirror as DM, transplant as TR
+
+    def bands(b):
+        return ", ".join(f"{p} {n}" for p, n in b.items() if n) or "none"
     if args.list:
         print(f"scanning disc {args.disc} for islands a sink takes (a few minutes)...")
         rows = TR.sink_candidates(disc=args.disc, game=args.game)
         ok = [r for r in rows if r["ok"]]
-        print(f"{len(ok)} of {len(rows)} islands (land not welded into a continent) can sink:")
+        print(f"{len(ok)} of {len(rows)} islands (land within 9 blocks) can sink:")
         for r in ok:
-            print(f"  {r['land_u2']:8.1f} u2  up to y {r['max_y']:5.2f}  blocks {' '.join(map(str, r['blocks']))}\n"
+            print(f"  {r['land_u2']:8.1f} u2  up to y {r['max_y']:5.2f}  blocks {' '.join(map(str, r['blocks']))}  "
+                  f"re-banded: {bands(r['bands'])}{'  (and its beach water)' if r['shore_tris'] else ''}\n"
                   f"      py -m ff9mapkit world-sink --mod-folder <F> --at {r['at'][0]} {r['at'][1]}")
         for r in rows:
             if not r["ok"]:
@@ -4932,9 +4936,11 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
         return 2
     print(f"SINK, disc {args.disc}: the island at ({at[0]}, {at[1]}) -- {s['land_tris']} land tris, {s['land_u2']} u2, "
           f"up to y {s['max_y']}, over block(s) {' '.join(str(tuple(b)) for b in s['blocks'])}")
-    print(f"  {s['tiles']} 4u tiles re-tiled as open sea ({s['fill_tris']} tris, area {s['fill_area']}), "
-          f"{s['sea_replaced']} coastal sea tris replaced, {s['edge_welds']} edge weld(s), {s['keel_to_open']} "
-          f"near-shore tris turned open water")
+    print(f"  {s['tiles']} 4u tiles re-tiled as open water -- {bands(s['bands'])} tiles ({s['fill_tris']} tris, area "
+          f"{s['fill_area']}), {s['sea_replaced']} coastal water tris replaced, {s['edge_welds']} edge weld(s), "
+          f"{s['keel_to_open']} near-shore tris turned open water")
+    if s["shore_tris"]:
+        print(f"  {s['shore_tris']} tris of the island's own beach water (sea1/sea2) go with it")
     if s["entrance_tris"]:
         print(f"  !! {s['entrance_tris']} entrance tris on the island"
               + (": dropped (--allow-entrances), so that entrance never fires again" if args.allow_entrances else ""))
@@ -10048,12 +10054,12 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.set_defaults(func=_cmd_world_transplant)
 
     wsk = sub.add_parser("world-sink",
-                         help="LAND -> SEA: sink a whole REAL island into open sea, in place, the way disc 4 removed "
-                              "Shimmering Island: its land and the coastal sea round it become whole stock tiles of "
-                              "open deep sea, and its near-shore band open water (a boat can sail there). A "
-                              "bare-coast island only (its land meets deep sea directly; one with shallows or a "
-                              "beach is welded into its neighbours'), no building on it, within 9 blocks. Replayed on "
-                              "disc 4. --list finds them.")
+                         help="LAND -> SEA: sink a whole REAL island into open water, in place, the way disc 4 removed "
+                              "Shimmering Island: its land, its own beach water and the coastal water round it become "
+                              "whole stock tiles of the water it stands in -- deep sea, mid water, or both with the "
+                              "transition band carried across where it stood -- and its near-shore band open water (a "
+                              "boat can sail there). No building on it, no beach water shared with another coast, "
+                              "within 9 blocks. Replayed on disc 4. --list finds them.")
     wsk.add_argument("--mod-folder", default=None, help="the mod folder to deploy into")
     wsk.add_argument("--at", type=float, nargs=2, metavar=("WX", "WZ"), default=None,
                      help="a point on the island's land (world x z)")

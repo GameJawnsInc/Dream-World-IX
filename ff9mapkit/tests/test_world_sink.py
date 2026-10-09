@@ -1,8 +1,9 @@
-"""THE ISLAND SINK (`world-sink`; `transplant.sink_plan` / `sink`): a whole bare-coast REAL island turned into open sea,
-in place, the way disc 4 removed Shimmering Island (terrain study, land -> sea).
+"""THE ISLAND SINK (`world-sink`; `transplant.sink_plan` / `sink`): a whole REAL island turned into open water, in
+place, the way disc 4 removed Shimmering Island (terrain study, land -> sea), re-banded to the water it stands in.
 
-A synthetic world: block (5,5) is a sheet of stock deep-sea tiles (two tris per 4u tile, sea4 topograph 57, negative
-winding, the stock normal) with islands cut into it; each island's coast welds to the tile corners at y=0.
+A synthetic world: block (5,5) is a sheet of stock water tiles (two tris per 4u tile, negative winding, the stock
+normal; deep sea4 topograph 57 unless a test lays mid-water sea3 and sea5 transition tiles drawn for their deep edges)
+with islands cut into it; each island's coast welds to the tile corners at y=0.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ import warnings
 import pytest
 
 from ff9mapkit import cli, config
-from ff9mapkit.world import discmirror as DM, extract as X, transplant as TR
+from ff9mapkit.world import coastmorph as CM, discmirror as DM, extract as X, transplant as TR
 
 NRM = (-0.1211, 0.9785, 0.1665)
 SEA = 228                                         # topograph 57, area 0
@@ -45,6 +46,27 @@ def pyramid(i0, j0, n, h=3.0, idall=LAND):
     return [[sq[k], sq[(k + 1) % 4], c] for k in range(4)]
 
 
+def btile(i, j, part, es=frozenset(), idall=None):
+    """A stock lattice tile of water band ``part``: a sea5 transition tile's uv drawn for its deep edges ``es`` (so it
+    decodes as them), sea3/sea4 plain."""
+    x0, z0 = 4.0 * i, 4.0 * j
+    ida = idall if idall is not None else X.encode_id(topograph={"sea1": 53, "sea2": 53, "sea3": 54, "sea5": 54,
+                                                                 "sea4": 57}[part])
+    uvf = CM._strip_uvf((i, j), frozenset(es)) if part == "sea5" else (lambda x, z: (0.0, 0.0))
+
+    def P(x, z):
+        return ((float(x), 0.0, float(z)), NRM, tuple(uvf(x, z)), (float(ida), 0.0, 0.0, 1.0))
+    p = [P(x0, z0), P(x0 + 4, z0), P(x0 + 4, z0 + 4), P(x0, z0 + 4)]
+    return [neg(p[0], p[1], p[2]), neg(p[0], p[2], p[3])]
+
+
+def topo(t):
+    return X.decode_id(int(t[0][3][0]))["topograph"]
+
+
+BELT = X.encode_id(topograph=55)
+
+
 class World:
     def __init__(self):
         self.parts = {}
@@ -58,6 +80,16 @@ class World:
             for j in range(-by * 16 - 16, -by * 16):
                 if (i, j) not in skip:
                     self.add(b, "sea4", tile(i, j, KEEL if (i, j) in keel else SEA))
+
+    def bands(self, b, fn):
+        """Lay block ``b`` with water tiles: ``fn(i, j)`` gives ``(part, deep_edges, idall)`` or None (no water)."""
+        bx, by = b
+        for i in range(bx * 16, bx * 16 + 16):
+            for j in range(-by * 16 - 16, -by * 16):
+                got = fn(i, j)
+                if got:
+                    part, es, ida = got
+                    self.add(b, part, btile(i, j, part, es, ida))
 
     def real(self, disc, lod="0_1", game=None):
         out = {}
@@ -160,9 +192,6 @@ def test_refusals(world):
     _island(world)
     with pytest.raises(ValueError, match="no land lies under"):
         TR.sink_plan((330.0, -330.0))
-    world.add(B, "sea3", [[V(348, 0, -364, SEA), V(352, 0, -364, SEA), V(348, 0, -360, SEA)]])
-    with pytest.raises(ValueError, match="owns shallow water"):
-        TR.sink_plan((344.0, -360.0))
 
 
 def test_a_building_or_other_land_in_its_tiles_refuses(world):
@@ -308,13 +337,14 @@ def test_cli_dry_run_previews_disc4_and_the_replay_reruns_the_sink(world, monkey
     args = cli.build_parser().parse_args(["world-sink", "--mod-folder", "MOD", "--at", "344", "-360", "--dry-run"])
     assert cli._cmd_world_sink(args) == 0
     out = capsys.readouterr().out
-    assert "4 4u tiles re-tiled as open sea" in out and "24 near-shore tris turned open water" in out
+    assert "4 4u tiles re-tiled as open water -- sea4 4 tiles" in out and "24 near-shore tris turned open water" in out
     assert "the deploy re-runs this sink on disc 4's own ground" in out
     assert "disc 4: the replay passes its gates -- the deploy edits both discs" in out
     seen = {}
     monkeypatch.setattr(TR, "sink", lambda mod, at, **k: seen.update(k) or {
         "land_tris": 4, "land_u2": 64.0, "max_y": 3.0, "blocks": [[5, 5]], "tiles": 4, "fill_tris": 8,
         "fill_area": 0, "sea_replaced": 0, "edge_welds": 0, "keel_to_open": 0, "entrance_tris": 0,
+        "bands": {"sea3": 0, "sea5": 0, "sea4": 4}, "shore_tris": 0,
         "per_block": {}, "clean": True, "deployed": []})
     args = cli.build_parser().parse_args(["world-sink", "--mod-folder", "MOD", "--at", "344", "-360"])
     assert cli._cmd_world_sink(args) == 0
@@ -323,6 +353,208 @@ def test_cli_dry_run_previews_disc4_and_the_replay_reruns_the_sink(world, monkey
     with pytest.raises(ValueError, match="world-sink --disc 4 refused the same island"):
         seen["replay"](4)
     assert runs[0].disc == 4 and runs[0].skip_mirror == DM.REPLAY and runs[0].at == [344.0, -360.0]
+
+
+ISLE = {(85, -91), (86, -91), (85, -90), (86, -90)}       # pyramid(85, -91, 2)'s tiles
+
+
+def _lagoon(world, belt=True):
+    """Island A in mid water: sea3 all round, its ring the standoff belt (topograph 55)."""
+    r = ring(85, -91, 2)
+    world.bands(B, lambda i, j: None if (i, j) in ISLE else ("sea3", (), BELT if belt and (i, j) in r else None))
+    world.add(B, "terrain", pyramid(85, -91, 2))
+    return (344.0, -360.0)
+
+
+def test_an_island_in_mid_water_sinks_into_mid_water(world):
+    """A lagoon island: every rim edge is mid water, so its tiles re-band as sea3 (the open class 54), and the belt
+    ring only it explained turns 54 too."""
+    at = _lagoon(world)
+    plan, rep = TR.sink_plan(at)
+    assert rep["bands"] == {"sea3": 4, "sea5": 0, "sea4": 0} and rep["band_flips"] == 0 and rep["miss"] == 0
+    fill = next(tw for tw in plan[B] if isinstance(tw, TR.EmitTris))
+    assert fill.part == "sea3" and len(fill.emit()) == 8 and {topo(t) for t in fill.emit()} == {54}
+    retopo = next(tw for tw in plan[B] if isinstance(tw, TR.RetopoTris))
+    assert (retopo.part, retopo.topograph, retopo.expected, rep["keel_to_open"]) == ("sea3", 54, 24, 24)
+    s = TR.morph_in_place("MOD", cell=B, tweaks=plan[B], dry_run=True, frame_across_parts=True)
+    assert s["clean"], s["gates"]
+
+
+def test_an_island_on_the_shelf_edge_carries_the_transition_across(world):
+    """Mid water west, deep east, a sea5 column (deep edge E) between, the island across the column: its west tiles
+    re-band as sea3, its east tiles as sea5 transition tiles deep to the east, each drawn to decode as its edges."""
+    world.bands(B, lambda i, j: None if (i, j) in ISLE else
+                ("sea3", (), None) if i < 86 else ("sea5", "E", None) if i == 86 else ("sea4", (), None))
+    world.add(B, "terrain", pyramid(85, -91, 2))
+    plan, rep = TR.sink_plan((344.0, -360.0))
+    assert rep["bands"] == {"sea3": 2, "sea5": 2, "sea4": 0}
+    fills = {tw.part: tw.emit() for tw in plan[B] if isinstance(tw, TR.EmitTris)}
+    assert {math.floor(TR._plan_centroid(t)[0] / 4) for t in fills["sea3"]} == {85}
+    assert {math.floor(TR._plan_centroid(t)[0] / 4) for t in fills["sea5"]} == {86}
+    assert all("E" in TR.strip_edge_set(t) for t in fills["sea5"])
+    # the navigation class as stock's (sh_q7): these two are corner tiles (deep east and, between them, the
+    # interpolated edge), split on the diagonal that cuts off the deep corner -- 57 there, 54 on the other tri
+    assert {frozenset(TR.strip_edge_set(t)) for t in fills["sea5"]} == {frozenset("EN"), frozenset("ES")}
+    for z in (-362.0, -358.0):
+        east = next(t for t in fills["sea5"] if TR._tri_has(t, (347.7, z)))
+        west = next(t for t in fills["sea5"] if TR._tri_has(t, (344.3, z)))
+        assert (topo(east), topo(west)) == (57, 54)
+    s = TR.morph_in_place("MOD", cell=B, tweaks=plan[B], dry_run=True, frame_across_parts=True)
+    assert s["clean"], s["gates"]
+
+
+def test_a_transition_tile_across_the_rim_keeps_its_deep_edge(world):
+    """The island on the deep side of a sea5 column: the column's tiles are deep to the east, toward the island, so
+    the island's west edges stay deep and its tiles re-band as deep sea, leaving the column's tiles unchanged."""
+    isle = {(87, -91), (88, -91), (87, -90), (88, -90)}
+    world.bands(B, lambda i, j: None if (i, j) in isle else
+                ("sea3", (), None) if i < 86 else ("sea5", "E", None) if i == 86 else ("sea4", (), None))
+    world.add(B, "terrain", pyramid(87, -91, 2))
+    _plan, rep = TR.sink_plan((352.0, -360.0))
+    assert rep["bands"] == {"sea3": 0, "sea5": 0, "sea4": 4}
+
+
+def test_new_water_beside_remaining_land_takes_its_shore_class(world):
+    """A fill tri within SINK_BELT_REACH of land that stays (an islet just east of the island, not welded to it)
+    takes its band's shore class: sea3's standoff belt, 55."""
+    at = _lagoon(world, belt=False)
+    world.parts[(B, "sea3")] = [t for t in world.parts[(B, "sea3")]
+                                if (math.floor(TR._plan_centroid(t)[0] / 4), math.floor(TR._plan_centroid(t)[1] / 4))
+                                != (87, -91)]
+    c = V(350, 1, -362, LAND)
+    sq = [V(348.5, 0, -363.5, LAND), V(351.5, 0, -363.5, LAND), V(351.5, 0, -360.5, LAND), V(348.5, 0, -360.5, LAND)]
+    islet = [[sq[k], sq[(k + 1) % 4], c] for k in range(4)]
+    world.add(B, "terrain", islet)
+    plan, _rep = TR.sink_plan(at)
+    fill = next(tw for tw in plan[B] if isinstance(tw, TR.EmitTris)).emit()
+    near = [t for t in fill if TR._plan_dist(TR._plan_centroid(t), islet) < TR.SINK_BELT_REACH]
+    assert near and {topo(t) for t in near} == {55} and 54 in {topo(t) for t in fill}
+
+
+def test_the_keel_reaches_across_a_block_border(world):
+    """An island on the top row of block (5,5): the keel ring tiles north of it lie in block (5,4), which the sink
+    otherwise leaves alone -- they still turn open water (one more block in the plan, retopo only)."""
+    up = (5, 4)
+    isle = {(85, -82), (86, -82), (85, -81), (86, -81)}
+    r = ring(85, -82, 2)
+    world.sea(B, skip=isle, keel=r)
+    world.sea(up, keel=r)
+    world.add(B, "terrain", pyramid(85, -82, 2))
+    plan, rep = TR.sink_plan((344.0, -324.0))
+    assert rep["keel_to_open"] == 24 and sorted(plan) == [up, B]
+    assert [type(tw).__name__ for tw in plan[up]] == ["RetopoTris"] and plan[up][0].expected == 8
+
+
+def test_mid_water_spanning_tiles_pulls_its_tiles_in(world):
+    """THE FRINGE CLOSURE over every band: a thin island in a lagoon, one sea3 rect over the east half of its tile and
+    the whole of the next, welded at x 342 -- both tiles re-band as sea3."""
+    mid = X.encode_id(topograph=54)
+    world.bands(B, lambda i, j: None if (i, j) in {(85, -91), (86, -91)} else ("sea3", (), None))
+    world.add(B, "terrain", [[V(340, 0, -364, LAND), V(342, 0, -364, LAND), V(341, 2, -362, LAND)],
+                             [V(342, 0, -364, LAND), V(342, 0, -360, LAND), V(341, 2, -362, LAND)],
+                             [V(342, 0, -360, LAND), V(340, 0, -360, LAND), V(341, 2, -362, LAND)],
+                             [V(340, 0, -360, LAND), V(340, 0, -364, LAND), V(341, 2, -362, LAND)]])
+    world.add(B, "sea3", [neg(V(342, 0, -364, mid), V(348, 0, -364, mid), V(348, 0, -360, mid)),
+                          neg(V(342, 0, -364, mid), V(348, 0, -360, mid), V(342, 0, -360, mid))])
+    _plan, rep = TR.sink_plan((341.0, -362.5))
+    assert rep["tiles"] == 2 and rep["sea_replaced"] == 2 and rep["bands"]["sea3"] == 2 and rep["miss"] == 0
+
+
+def test_the_island_takes_its_own_beach_water_and_refuses_a_shared_one(world):
+    """THE SHORE: the sea1 strip east of the island is nearer it than any other land, so it goes with it (its tiles
+    re-band as sea3). Run it on to another island and it is that coast's too: refused."""
+    shore = {(87, -91), (87, -90)}
+    world.bands(B, lambda i, j: None if (i, j) in ISLE else ("sea1", "W", None) if (i, j) in shore
+                else ("sea3", (), None))
+    world.add(B, "terrain", pyramid(85, -91, 2))
+    plan, rep = TR.sink_plan((344.0, -360.0))
+    assert rep["shore_tris"] == 4 and rep["tiles"] == 6 and rep["bands"]["sea3"] == 6
+    assert ("sea1", 4) in [(tw.part, tw.expected) for tw in plan[B] if isinstance(tw, TR.DropTris)]
+    # the strip runs on east, along the coast of island B at (90..91, -91..-90)
+    for i in (88, 89):
+        for j in (-91, -90):
+            world.parts[(B, "sea3")] = [t for t in world.parts[(B, "sea3")]
+                                        if (math.floor(TR._plan_centroid(t)[0] / 4),
+                                            math.floor(TR._plan_centroid(t)[1] / 4)) != (i, j)]
+            world.add(B, "sea1", btile(i, j, "sea1", "N"))
+    world.parts[(B, "sea3")] = [t for t in world.parts[(B, "sea3")]
+                                if (math.floor(TR._plan_centroid(t)[0] / 4), math.floor(TR._plan_centroid(t)[1] / 4))
+                                not in {(90, -91), (91, -91), (90, -90), (91, -90)}]
+    world.add(B, "terrain", pyramid(90, -91, 2))
+    with pytest.raises(ValueError, match="shore water .* runs on into another coast's"):
+        TR.sink_plan((344.0, -360.0))
+
+
+def test_another_coasts_wash_beside_the_island_refuses(world):
+    """A sea2 wash tile across the rim that is nearer other land (an islet just east of it) than the island (a thin
+    one on the west half of its tile): re-banded water would meet that wash, which only ever meets its own shore."""
+    world.bands(B, lambda i, j: None if (i, j) in {(85, -91), (86, -91), (87, -91)} else ("sea3", (), None))
+    mid = X.encode_id(topograph=54)
+    world.add(B, "terrain", [[V(340, 0, -364, LAND), V(342, 0, -364, LAND), V(341, 2, -362, LAND)],
+                             [V(342, 0, -364, LAND), V(342, 0, -360, LAND), V(341, 2, -362, LAND)],
+                             [V(342, 0, -360, LAND), V(340, 0, -360, LAND), V(341, 2, -362, LAND)],
+                             [V(340, 0, -360, LAND), V(340, 0, -364, LAND), V(341, 2, -362, LAND)]]
+              + pyramid(87, -91, 1))
+    world.add(B, "sea3", [neg(V(342, 0, -364, mid), V(344, 0, -364, mid), V(344, 0, -360, mid)),
+                          neg(V(342, 0, -364, mid), V(344, 0, -360, mid), V(342, 0, -360, mid))])
+    world.add(B, "sea2", btile(86, -91, "sea2"))
+    with pytest.raises(ValueError, match="wash .* borders a tile the sink re-bands"):
+        TR.sink_plan((341.0, -362.5))
+
+
+def test_a_band_the_block_has_no_part_for_refuses(world):
+    """THE ABSENT-PART GATE: mid water west, deep east, no sea5 anywhere in the block -- the transition the island's
+    east tiles need has no transform to render on."""
+    world.bands(B, lambda i, j: None if (i, j) in ISLE else ("sea3", (), None) if i < 87 else ("sea4", (), None))
+    world.add(B, "terrain", pyramid(85, -91, 2))
+    with pytest.raises(ValueError, match="has no sea5 part"):
+        TR.sink_plan((344.0, -360.0))
+
+
+def test_a_channel_flips_its_free_edge_and_refuses_when_none_is_free(world):
+    """A two-tile island: deep west of its west tile and all round its east tile, mid water north and south of the west
+    tile. The edge between them interpolates deep, leaving the west tile deep on two opposite sides (a channel no tile
+    draws): that free edge flips. A one-tile island with deep east and west and mid water north and south has no free
+    edge: refused."""
+    two = {(85, -91), (86, -91)}
+    world.bands(B, lambda i, j: None if (i, j) in two else
+                ("sea3", (), None) if (i, j) in {(85, -90), (85, -92)} else ("sea4", (), None) if
+                (i, j) in {(84, -91), (86, -90), (86, -92), (87, -91)} else ("sea5", "S", None))
+    world.add(B, "terrain", pyramid(85, -91, 1) + pyramid(86, -91, 1))
+    plan, rep = TR.sink_plan((342.0, -362.0))
+    assert rep["band_flips"] == 1 and rep["bands"] == {"sea3": 0, "sea5": 2, "sea4": 0}
+    # the west tile is left deep to the west only (stock's class 54 on both tris), the east one deep on three sides (57)
+    fill = next(tw for tw in plan[B] if isinstance(tw, TR.EmitTris)).emit()
+    cls = {}
+    for t in fill:
+        cls.setdefault(math.floor(TR._plan_centroid(t)[0] / 4), set()).add(topo(t))
+    assert cls == {85: {54}, 86: {57}}
+    world.parts.clear()
+    world.bands(B, lambda i, j: None if (i, j) == (85, -91) else
+                ("sea3", (), None) if (i, j) in {(85, -90), (85, -92)} else ("sea4", (), None) if
+                (i, j) in {(84, -91), (86, -91)} else ("sea5", "S", None))
+    world.add(B, "terrain", pyramid(85, -91, 1))
+    with pytest.raises(ValueError, match="channel"):
+        TR.sink_plan((342.0, -362.0))
+
+
+def test_the_band_and_decode_gates_are_live(world, monkeypatch):
+    """THE BAND GATE refuses a pair stock never lays side by side; THE DECODE GATE a transition tile drawn for other
+    edges than its own (here every tile drawn as if deep to the north)."""
+    at = _lagoon(world, belt=False)
+    lawful = CM._LAWFUL_ADJ
+    monkeypatch.setattr(CM, "_LAWFUL_ADJ", lawful - {frozenset(("sea3",))})
+    with pytest.raises(ValueError, match="stock never lays side by side"):
+        TR.sink_plan(at)
+    monkeypatch.setattr(CM, "_LAWFUL_ADJ", lawful)
+    world.parts.clear()
+    world.bands(B, lambda i, j: None if (i, j) in ISLE else
+                ("sea3", (), None) if i < 86 else ("sea5", "E", None) if i == 86 else ("sea4", (), None))
+    world.add(B, "terrain", pyramid(85, -91, 2))
+    real = CM._strip_uvf
+    monkeypatch.setattr(CM, "_strip_uvf", lambda cell, es: real(cell, frozenset("N")))
+    with pytest.raises(ValueError, match="does not decode as those edges"):
+        TR.sink_plan((344.0, -360.0))
 
 
 def _need_install() -> None:
@@ -345,3 +577,16 @@ def test_real_two_block_island_sinks_and_shimmering_is_refused():
     assert s["clean"] and s["blocks"] == [[20, 9], [21, 9]] and s["land_tris"] == 76 and s["miss"] == 0
     with pytest.raises(ValueError, match="another coast's"):
         TR.sink_plan((441.992, -311.975))
+
+
+def test_real_islands_in_shallow_water_sink_and_a_shared_beach_is_refused():
+    """(17,16): a 502u2 lagoon island re-bands as mid water with seven transition tiles; (16,16)+(17,16): a beach island
+    takes its own beach water with it; (14,1)-(15,1): an island whose beach water runs on to the next coast is
+    refused."""
+    _need_install()
+    s = TR.sink("FF9CustomMap_test_nonexistent", (1177.333, -1065.824), dry_run=True)
+    assert s["clean"] and s["bands"] == {"sea3": 72, "sea5": 7, "sea4": 0} and s["miss"] == 0
+    s = TR.sink("FF9CustomMap_test_nonexistent", (1082.667, -1057.732), dry_run=True)
+    assert s["clean"] and s["shore_tris"] == 32 and s["bands"]["sea3"] == 64
+    with pytest.raises(ValueError, match="shore water .* runs on into another coast's"):
+        TR.sink_plan((1089.672, -106.59))

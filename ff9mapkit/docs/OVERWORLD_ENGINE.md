@@ -938,18 +938,29 @@ replay the verb's gates refuse on disc 4 leaves disc 4 untouched, and an `--in-p
 will be (copied, replayed, or refused there). The standalone `world-mirror` still gates cell by cell and names any refused cell that borders a copied
 one.
 
-### `world-sink` — turn a real island into open sea
+### `world-sink` — turn a real island into open water
 
 `world-sink --mod-folder M --at WX WZ` removes the whole island under the point, the way disc 4 removes Shimmering
-Island (the game deletes it and re-tiles the water; nothing is left under the sea). The island's land, every 4u tile
-it touched and the coast-conforming deep sea round it are replaced by whole stock tiles of open sea (sea4, y 0,
-topograph 57), and near-shore water (topographs 53-56) that no other land explains becomes open water, or a ring the
-Blue Narciss cannot cross would wall off where the island was. An island over several blocks sinks in one edit, every
-block gated before any is written; a block left with no land gets the hidden blanking stub. Disc 4 is replayed on its
-own ground where it differs. `--list` finds the islands it takes: only an island whose land meets deep sea directly
-(an island with shallows or a beach is one mesh with its neighbours through that water), with no building on it.
-A party standing where the island was stands in the sea, 1.367u under the surface (the walk sink on topograph 57).
-The big map still draws the island: `world-minimap` paints deployed land and cannot erase stock land.
+Island (the game deletes it and re-tiles the water; nothing is left under the sea). The island is its land (terrain
+and beach1 joined by shared vertices) plus its own beach water (sea1, sea2 nearer to it than to other land). Its land,
+every 4u tile it touched and the coast-conforming water round it are replaced by whole stock water tiles at y 0, and
+near-shore water that no other land explains takes its band's open class, or a ring the Blue Narciss cannot cross
+would wall off where the island was.
+
+The new water takes the bands of the water round it, by the open-ocean marching band `world-water` lays (every tile
+edge deep or not; no deep edge is mid water, sea3; four is deep sea, sea4; one to three is a sea5 transition tile drawn
+for its deep edges from the learned tile table). An edge on the region's rim reads the kept water across it, so a kept
+transition tile keeps its look; an interior edge interpolates the rim's. An island in deep water re-bands to deep sea
+throughout; an island in mid water to mid water; an island on a shelf edge gets the transition band carried across
+where it stood. Navigation classes follow stock: mid water 54 and deep 57 away from land (both sailable), a
+transition tile by its deep edges, the standoff belt 55 and keel 56 within 2u of land that stays.
+
+An island over several blocks sinks in one edit, every block gated before any is written; a block left with no land
+gets the hidden blanking stub. Disc 4 is replayed on its own ground where it differs. `--list` finds the islands it
+takes. Refused: coastal water or beach water that runs on into another coast's, a building or other land in the
+island's tiles, a block whose prefab lacks a band the tiles need. A party standing where the island was stands in
+the water at its class's walk sink (0.586u under the surface on mid water, 1.367u on deep). The big map still draws
+the island: `world-minimap` paints deployed land and cannot erase stock land.
 
 ### `world-forest` + `world-hill` — interior topography on a deployed island
 

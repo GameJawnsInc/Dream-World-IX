@@ -2,7 +2,8 @@
 
 The terrain-malleability matrix had one row with no operator: **remove land**. This lane measured how the stock game
 does it, which islands the same recipe can take, and built `world-sink` (`ff9mapkit/world/transplant.py`
-`sink_plan` / `sink` / `sink_candidates`). In-game proof: `../ingame/RESULTS.md` section 25.
+`sink_plan` / `sink` / `sink_candidates`). In-game proof: `../ingame/RESULTS.md` sections 25 (deep water) and 26
+(shallow water).
 
 ## 1. How disc 4 removed Shimmering Island (`shim_*.py`)
 
@@ -75,10 +76,76 @@ blocks). The 11 refusals:
 
 The 4 continents are refused as larger than 9 blocks or owning shallows.
 
-## 5. Not done
+## 5. Islands in shallow water (`sh_q*.py`)
 
-- **Islands with shallows or a beach.** Sinking one needs re-tiling the shallow ladder round what is left. The coast
-  laws say shallows are copied, never synthesized, so this needs its own study.
+The bare-coast unit (land plus its welded shallows) cannot separate an island with shallows: the shallow bands are
+continuous meshes, out to a continent. These islands are the common case: disc 1 has 57 land components (terrain and
+beach1 joined by shared vertices), 53 within 9 blocks.
+
+**What water they stand in** (`sh_q1_halos.py`, `sh_q2_plot.py`):
+- Most stand in mid water (sea3), often on the edge of a shelf: mid water on one side, deep sea4 on the other, with
+  the sea5 transition band between. Their land meets sea3 and sea4 directly, and sea5 only at a few tiles.
+- Only true shallows (sea1, sea2) and the sand (beach1) are bound to a shore. Six small islands carry them.
+- No water lies under other water: 0 of 20,582 shallow tris have sea4 under them. Every band is cut against the
+  others, like sea4 is cut under land.
+- All water bands sit flat at y 0, share the stock normal (-0.1211, 0.9785, 0.1665), wind negative and carry area 0.
+
+**Their navigation classes** (`sh_q3_topo_reach.py`, `sh_q7_sea5_class.py`). The topograph is the engine's
+navigation key, not the band:
+
+| band | within 2u of land | past 4u |
+|---|---|---|
+| sea3 | 55, the standoff belt (2,480 of 2,488 tris) | 54 (sailable) |
+| sea4 | 56, the keel | 57 |
+| sea5 | 55/56 | one deep edge: 54 on both tris (890 of 890); a corner (two deep edges): the tile is split on the diagonal that cuts off its deep corner, 57 on that tri and 54 on the other (1,620 of 1,630); three deep edges: 57 (625 of 626) |
+
+The Blue Narciss sails 53, 54 and 57, so mid water away from land is sailable. A party on foot sinks into water by
+class (`w_movementSinkArray` row 1, `ff9.cs:19`): 54 reads 0.586 under the surface, 55 0.391, 56 and 57 1.367.
+
+**The band model** (`world/water.py`'s open-ocean marching band, in-game proven 2026-07-05). Every tile edge is deep
+or not; a tile with no deep edge is sea3, four sea4, one to three a sea5 transition tile drawn for its deep-edge-set
+(transplant.py's learned Wang table). Stock agrees: on 827 edges shared by two decodable sea5 tiles, both decode the
+edge the same way, every time (312 deep, 515 not). A corner tile's two variants (v-strips 1 and 3) split about 50/50
+whatever its diagonal neighbour holds (`sh_q4_corner_variants.py`): a free variation choice.
+
+**The sink, generalized** (`transplant.sink_plan`):
+1. The unit is the island's land component, traced across block borders, plus its own shore: sea1 and sea2 nearer to
+   it than to any other land. Shore water joined to another coast's is refused.
+2. The region is every tile they touch, closed over the coast-conforming water (sea3, sea5, sea4) round them, within
+   12u.
+3. The bands: an edge on the region's rim takes its state from the kept water across it (sea4 deep, sea3 not, a sea5
+   tile what its own decoded deep-edge-set says, another coast's sea1 not). Another coast's wash (sea2) refuses. An
+   interior edge takes the inverse-distance-weighted state of the rim's. A channel (two opposite deep edges, which no
+   tile draws) flips its weakest free edge. Every kept transition tile keeps its deep-edge-set, so nothing outside the
+   region changes look. An island in deep water re-bands to sea4 throughout: the bare-coast sink exactly (7 of round
+   10's 8 islands plan byte for byte the same; see below for the eighth).
+4. Each tile is filled whole in its band: sea4 as before, sea3 in its learned quadrant language, sea5 as the learned
+   transition tile. A corner tile is split as stock splits it.
+5. Navigation classes as stock (the table above), the shore classes within 2u of land that stays. A kept tri with a
+   coastal class that only the island explained takes its band's open class, in the 3x3 blocks round the region. The
+   old sink looked only in the region's own blocks: at the (7,4) island this missed 4 keel tris of its ring in (7,5).
+6. New gates: the absent-part gate (a block whose prefab lacks the band a tile needs), the band gate (every pair of
+   neighbours is one stock lays side by side), the decode gate (every drawn transition tile decodes as the edges it
+   was drawn for).
+
+**What it takes** (`sh_q5_census.py`; `world-sink --list`): 25 of the 53 islands, all 25 replayed on disc 4 (up from
+8). 17 of them stand in shallow water; one takes its own beach water (32 sea1/sea2 tris). No band field needed a
+channel flip. The 28 refusals: 14 run their coastal water on into another coast's, 5 share their beach water with
+another coast, 8 have a building, other land or a waterfall in their tiles, 1 has a kept land vertex on a re-tiled
+tile's edge.
+
+**The look, offline** (`sh_q6_render.py`): top-down renders with the game's own textures (unlit, no wave animation)
+of five sinks show the lagoon healed as plain mid water, and on a shelf island the mid-water edge running on across
+where it stood. No seam is visible.
+
+**In game** (`../ingame/RESULTS.md` section 26, 48/48 on the first launch): a lagoon island with a beach and a
+shelf-edge island sank on both discs. A party where they stood reads each new class's walk sink to the last bit (mid
+water 0.586 under the surface, open water 1.367, both tris of a split corner tile as stock classes them), the Blue
+Narciss crossed where each stood (on stock it stops at their standoff belt), and the frames show continuous water.
+
+## 6. Not done
+
 - **Island clusters** (Shimmering and its islets), and islands with a building.
+- **Islands sharing their beach water** with another coast, or whose coastal water runs on into another coast's.
 - **The big map** still draws a sunk island: `world-minimap` paints deployed land, it cannot erase stock land.
 - **Moving an entrance onto the new sea,** as disc 4 did for Shimmering.
