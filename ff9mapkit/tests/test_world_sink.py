@@ -557,6 +557,248 @@ def test_the_band_and_decode_gates_are_live(world, monkeypatch):
         TR.sink_plan((344.0, -360.0))
 
 
+def _diamond(world, keel=True):
+    """A diamond island inside tiles (85..86, -91..-90), its coast at (344,-363) (347,-360) (344,-357) (341,-360), in
+    a sea4 sheet; the 2x2 tiles round it hold twelve coast-conforming water tris (no tile of them is whole water),
+    topograph 56 (the keel) when ``keel``. Returns a point on it."""
+    world.sea(B, skip=ISLE)
+    w = KEEL if keel else SEA
+    S = [V(340, 0, -364, w), V(348, 0, -364, w), V(348, 0, -356, w), V(340, 0, -356, w)]       # SW SE NE NW
+    M = [V(344, 0, -364, w), V(348, 0, -360, w), V(344, 0, -356, w), V(340, 0, -360, w)]       # S E N W
+    D = [V(344, 0, -363, w), V(347, 0, -360, w), V(344, 0, -357, w), V(341, 0, -360, w)]       # S E N W
+    water = [(S[0], M[0], D[0]), (S[0], D[0], D[3]), (S[0], D[3], M[3]),
+             (S[1], M[1], D[1]), (S[1], D[1], D[0]), (S[1], D[0], M[0]),
+             (S[2], M[2], D[2]), (S[2], D[2], D[1]), (S[2], D[1], M[1]),
+             (S[3], M[3], D[3]), (S[3], D[3], D[2]), (S[3], D[2], M[2])]
+    world.add(B, "sea4", [neg(*t) for t in water])
+    top = V(344, 2.5, -360, LAND)
+    L = [V(*v[0], LAND) for v in D]
+    world.add(B, "terrain", [[L[k], L[(k + 1) % 4], top] for k in range(4)])
+    return (344.0, -360.0)
+
+
+def _open_edges(world, plan):
+    """The new tris' edges no other tri shares, after the plan, round block B (none: watertight)."""
+    soup = {k: list(v) for k, v in world.parts.items()}
+    new = []
+    for b, tws in plan.items():
+        for tw in tws:
+            if isinstance(tw, TR.DropTris):
+                soup[(b, tw.part)] = [t for t in soup.get((b, tw.part), []) if tw._key_set(t) not in tw.keys]
+            elif isinstance(tw, TR.EmitTris):
+                em = tw.emit()
+                soup.setdefault((b, tw.part), []).extend(em)
+                new += em
+
+    def k(v):
+        return (round(v[0][0], 4), round(v[0][2], 4))
+    ec = {}
+    for ts in soup.values():
+        for t in ts:
+            for i in range(3):
+                e = tuple(sorted((k(t[i]), k(t[(i + 1) % 3]))))
+                ec[e] = ec.get(e, 0) + 1
+    rim = (320.0, 384.0, -384.0, -320.0)
+    out = []
+    for t in new:
+        for i in range(3):
+            e = tuple(sorted((k(t[i]), k(t[(i + 1) % 3]))))
+            if ec[e] == 1 and not all(p[0] in rim[:2] or p[1] in rim[2:] for p in e):
+                out.append(e)
+    return out
+
+
+def _t_junctions(world, plan):
+    """Vertices (any tri, after the plan) lying part-way along a new tri's edge round block B (none: no T-junction)."""
+    soup = {k: list(v) for k, v in world.parts.items()}
+    new = []
+    for b, tws in plan.items():
+        for tw in tws:
+            if isinstance(tw, TR.DropTris):
+                soup[(b, tw.part)] = [t for t in soup.get((b, tw.part), []) if tw._key_set(t) not in tw.keys]
+            elif isinstance(tw, TR.EmitTris):
+                em = tw.emit()
+                soup.setdefault((b, tw.part), []).extend(em)
+                new += em
+    verts = {(round(v[0][0], 5), round(v[0][2], 5)) for ts in soup.values() for t in ts for v in t if v[0][1] == 0.0}
+    out = set()
+    for t in new:
+        if TR._plan_clip_area([(v[0][0], v[0][2]) for v in t], -1e9, 1e9, -1e9, 1e9) < 1e-9:
+            continue
+        for i in range(3):
+            a, b = (t[i][0][0], t[i][0][2]), (t[(i + 1) % 3][0][0], t[(i + 1) % 3][0][2])
+            for q in verts:
+                ends = ((round(a[0], 5), round(a[1], 5)), (round(b[0], 5), round(b[1], 5)))
+                if q not in ends and TR._seg_dist(q, a, b) < 1e-5:
+                    out.add(q)
+    return sorted(out)
+
+
+def test_the_footprint_sink_fills_only_the_island_and_keeps_the_water_round_it(world):
+    """THE FOOTPRINT SINK: only the island's land goes; each cell's piece of its footprint continues the kept water
+    beside it (band, uv map); nothing else is dropped, the coverage is exact and the result is watertight. The keel
+    round it, which only the island explained, turns open water."""
+    at = _diamond(world)
+    plan, rep = TR.sink_footprint_plan(at)
+    assert rep["fill"] == "footprint" and rep["cells_whole"] == 0 and rep["cells_partial"] == 4
+    assert rep["footprint_u2"] == 18.0 and rep["fill_u2"] == 18.0 and rep["miss"] == rep["overlap"] == 0
+    drops = [(tw.part, tw.expected) for tw in plan[B] if isinstance(tw, TR.DropTris)]
+    assert drops == [("terrain", 4)]
+    fill = [t for tw in plan[B] if isinstance(tw, TR.EmitTris) for t in tw.emit()]
+    assert len(fill) == 4 and all(v[0][1] == 0.0 for t in fill for v in t)
+    assert {topo(t) for t in fill} == {57} and rep["keel_to_open"] == 12
+    assert _open_edges(world, plan) == [] and _t_junctions(world, plan) == []
+    s = TR.morph_in_place("MOD", cell=B, tweaks=plan[B], dry_run=True, frame_across_parts=True)
+    assert s["clean"], s["gates"]
+
+
+def test_the_footprint_sink_carries_the_kept_water_uv_on_over_the_old_coast(world):
+    """A part-cell's piece takes the affine uv map of the kept water across its old coast edge (here a distinctive one
+    on the tri across the diamond's south-west edge), so the water runs on over the old coastline with no seam."""
+    at = _diamond(world, keel=False)
+    sw = next(t for t in world.parts[(B, "sea4")] if {(v[0][0], v[0][2]) for v in t} ==
+              {(340.0, -364.0), (344.0, -363.0), (341.0, -360.0)})
+    shifted = [(v[0], v[1], (v[0][0] * 0.01, v[0][2] * 0.02), v[3]) for v in sw]   # a distinctive affine map
+    world.parts[(B, "sea4")] = [shifted if t is sw else t for t in world.parts[(B, "sea4")]]
+    plan, _rep = TR.sink_footprint_plan(at)
+    piece = next(t for tw in plan[B] if isinstance(tw, TR.EmitTris) for t in tw.emit()
+                 if TR._tri_has(t, (343.0, -361.0)))
+    for v in piece:
+        assert abs(v[2][0] - v[0][0] * 0.01) < 1e-6 and abs(v[2][1] - v[0][2] * 0.02) < 1e-6
+
+
+def test_the_footprint_sink_splits_kept_water_where_a_tile_line_crosses_the_old_coast(world):
+    """Move the diamond's north corner to (345.715, -357.221): its north-west coast edge now crosses x 344 (where the
+    crossing rounds differently by the order its ends are taken in). The kept water tri across it is split there, the
+    result stays watertight, and the crossing is one and the same float in the fill and in the split water (computed
+    from the edge's ends in one canonical order -- either winding of the land)."""
+    for reverse in (False, True):
+        world.parts.clear()
+        at = _diamond(world)
+
+        def mv(v):
+            p = {(344.0, -357.0): (345.715, 0.0, -357.221)}.get((v[0][0], v[0][2]))
+            return (p, v[1], v[2], v[3]) if p else v
+        for part in ("terrain", "sea4"):
+            world.parts[(B, part)] = [[mv(v) for v in t] for t in world.parts[(B, part)]]
+        if reverse:
+            world.parts[(B, "terrain")] = [list(reversed(t)) for t in world.parts[(B, "terrain")]]
+        plan, rep = TR.sink_footprint_plan(at)
+        assert rep["split_tris"] >= 1 and rep["miss"] == rep["overlap"] == 0
+        assert _open_edges(world, plan) == [] and _t_junctions(world, plan) == []
+        xs = {v[0] for tw in plan[B] if isinstance(tw, TR.EmitTris) for t in tw.emit() for v in t
+              if v[0][0] == 344.0 and -357.221 > v[0][2] > -360.0}
+        assert len(xs) == 1, xs
+
+
+def test_the_footprint_sink_meets_stock_s_coast_t_junction_vertices(world):
+    """Stock's coast T-junction: a zero-area water sliver along the diamond's south-east coast puts a kept vertex at
+    (345.5, -361.5), part-way along that coast edge, and the water beside it meets the land there. The fill takes that
+    vertex: no T-junction."""
+    at = _diamond(world)
+    w = KEEL
+    S10, Ds, De, Mid = V(348, 0, -364, w), V(344, 0, -363, w), V(347, 0, -360, w), V(345.5, 0, -361.5, w)
+    old = next(t for t in world.parts[(B, "sea4")] if {(v[0][0], v[0][2]) for v in t} ==
+               {(348.0, -364.0), (347.0, -360.0), (344.0, -363.0)})
+    world.parts[(B, "sea4")].remove(old)
+    world.add(B, "sea4", [neg(S10, De, Mid), neg(S10, Mid, Ds), [Ds, Mid, De]])
+    plan, rep = TR.sink_footprint_plan(at)
+    fill = [t for tw in plan[B] if isinstance(tw, TR.EmitTris) for t in tw.emit()]
+    assert (345.5, 0.0, -361.5) in {v[0] for t in fill for v in t}
+    assert _t_junctions(world, plan) == [] and rep["miss"] == rep["overlap"] == 0
+
+
+def test_the_footprint_sink_takes_a_loose_piece_over_the_island_with_it(world):
+    at = _diamond(world)
+    world.add(B, "terrain", [[V(343, 3, -361, LAND), V(345, 3, -361, LAND), V(344, 3, -359, LAND)]])
+    _plan, rep = TR.sink_footprint_plan(at)
+    assert rep["fragment_tris"] == 1 and rep["land_tris"] == 5
+
+
+def test_the_footprint_sink_refusals(world):
+    at = _diamond(world)
+    world.add(B, "object", [[V(344, 0, -363, LAND), V(344, 1, -362, LAND), V(345, 1, -362, LAND)]])
+    with pytest.raises(ValueError, match="a building stands on the island"):
+        TR.sink_footprint_plan(at)
+    world.parts.pop((B, "object"))
+    gone = next(t for t in world.parts[(B, "sea4")] if {(v[0][0], v[0][2]) for v in t} ==
+                {(340.0, -364.0), (344.0, -363.0), (341.0, -360.0)})
+    world.parts[(B, "sea4")].remove(gone)
+    with pytest.raises(ValueError, match="meet no water"):
+        TR.sink_footprint_plan(at)
+    world.parts.clear()
+    at = _diamond(world)
+    up = {(341.0, -360.0)}
+    for part in ("terrain", "sea4"):
+        world.parts[(B, part)] = [[(((v[0][0], 0.5, v[0][2]) if (v[0][0], v[0][2]) in up else v[0]),) + v[1:]
+                                   for v in t] for t in world.parts[(B, part)]]
+    with pytest.raises(ValueError, match="leaves the waterline"):
+        TR.sink_footprint_plan(at)
+
+
+def test_the_footprint_coverage_gate_is_live(world, monkeypatch):
+    at = _diamond(world)
+    from ff9mapkit.world import meshedit as ME
+    real = ME.earclip
+    monkeypatch.setattr(ME, "earclip", lambda lp, **k: real(lp, **k)[1:])
+    with pytest.raises(ValueError, match="does not cover the island's footprint exactly once"):
+        TR.sink_footprint_plan(at)
+
+
+def test_the_whole_tile_sink_splits_a_kept_tri_running_past_a_tile_corner(world):
+    """THE SPLIT WELD: west of the island, one kept coastal tri runs the whole of x 340 from -364 to -356, past the
+    re-tiled tiles' corner at (340, -360): it is split there, so the two meet vertex to vertex (no T-junction)."""
+    at = _island(world, keel=False, other=False)
+    west = [t for t in world.parts[(B, "sea4")] if 336 <= TR._plan_centroid(t)[0] <= 340
+            and -364 <= TR._plan_centroid(t)[1] <= -356]
+    for t in west:
+        world.parts[(B, "sea4")].remove(t)
+    world.add(B, "sea4", [neg(V(336, 0, -364, KEEL), V(340, 0, -364, KEEL), V(340, 0, -356, KEEL)),
+                          neg(V(336, 0, -364, SEA), V(340, 0, -356, SEA), V(336, 0, -356, SEA))])
+    plan, rep = TR.sink_plan(at)
+    assert rep["split_tris"] == 1 and _open_edges(world, plan) == []
+    # the split tri was keel only the island explained: its pieces carry the open class, no retopo looks for it
+    assert not any(isinstance(tw, TR.RetopoTris) and tw.expected for tw in plan[B])
+    pieces = [t for tw in plan[B] if isinstance(tw, TR.EmitTris) for t in tw.emit()
+              if TR._plan_centroid(t)[0] < 340]
+    assert len(pieces) == 2 and all((340.0, 0.0, -360.0) in {v[0] for v in t} for t in pieces)
+    assert {topo(t) for t in pieces} == {57}
+
+
+def test_a_joined_island_sinks_alone_by_its_footprint_and_cluster_sinks_them_together(world, monkeypatch):
+    """sink_auto_plan: the whole-tile sink first; refused at another coast (SinkJoined) or by a building in its tiles
+    (SinkCrowded), the island alone by its footprint; ``cluster`` sinks the island and the land the refusal names."""
+    at = _diamond(world)
+    calls = []
+    real_plan = TR.sink_plan
+
+    def joined(pts, **k):
+        calls.append(pts)
+        raise TR.SinkJoined("the coastal sea round the island runs on into another coast's (test)", (360.0, -340.0))
+    monkeypatch.setattr(TR, "sink_plan", joined)
+    plan, rep = TR.sink_auto_plan(at)
+    assert rep["fill"] == "footprint" and rep["joined"].startswith("the coastal sea round the island runs on")
+    monkeypatch.setattr(TR, "sink_plan", lambda pts, **k: (_ for _ in ()).throw(TR.SinkCrowded("a 'object' tri")))
+    assert TR.sink_auto_plan(at)[1]["fill"] == "footprint"
+    # the cluster: island B (88..89, -91..-90) joins; the second plan closes
+    world.add(B, "terrain", pyramid(88, -86, 2))
+
+    def cluster(pts, **k):
+        on_b = len(pts) > 1 and any(TR._tri_has(t, tuple(pts[1])) for t in pyramid(88, -86, 2))
+        if not on_b:            # a refusal nearer the island than the other land: the cluster must skip its own
+            raise TR.SinkJoined("runs on into another coast's", (349.0, -352.0))
+        return real_plan(pts[:1], **k)
+    monkeypatch.setattr(TR, "sink_plan", cluster)
+    _plan, rep = TR.sink_auto_plan(at, cluster=True)
+    assert len(rep["members"]) == 2 and TR._tri_has(pyramid(88, -86, 2)[0], tuple(rep["members"][1])) or \
+        any(TR._tri_has(t, tuple(rep["members"][1])) for t in pyramid(88, -86, 2))
+    # no land within reach of the refusal: the cluster does not close
+    monkeypatch.setattr(TR, "sink_plan", lambda pts, **k: (_ for _ in ()).throw(
+        TR.SinkJoined("runs on into another coast's", (500.0, -500.0))))
+    with pytest.raises(ValueError, match="no island there closes the cluster"):
+        TR.sink_cluster_plan(at)
+
+
 def _need_install() -> None:
     try:
         import UnityPy  # noqa: F401
@@ -590,3 +832,35 @@ def test_real_islands_in_shallow_water_sink_and_a_shared_beach_is_refused():
     assert s["clean"] and s["shore_tris"] == 32 and s["bands"]["sea3"] == 64
     with pytest.raises(ValueError, match="shore water .* runs on into another coast's"):
         TR.sink_plan((1089.672, -106.59))
+
+
+def test_cli_cluster_flag_and_the_footprint_report(world, monkeypatch, capsys):
+    seen = {}
+    monkeypatch.setattr(TR, "sink", lambda mod, at, **k: seen.update(k) or {
+        "land_tris": 489, "land_u2": 1861.3, "max_y": 11.3, "blocks": [[6, 4]], "tiles": 160, "fill_tris": 360,
+        "fill_area": 0, "sea_replaced": 0, "edge_welds": 0, "keel_to_open": 100, "entrance_tris": 0,
+        "bands": {"sea3": 0, "sea5": 0, "sea4": 86}, "shore_tris": 0, "fill": "footprint", "cells_whole": 86,
+        "cells_partial": 74, "split_tris": 47, "joined": "the coastal sea ...", "per_block": {}, "clean": True,
+        "deployed": []})
+    args = cli.build_parser().parse_args(["world-sink", "--mod-folder", "MOD", "--at", "441.992", "-311.975",
+                                          "--cluster"])
+    assert cli._cmd_world_sink(args) == 0 and seen["cluster"] is True
+    out = capsys.readouterr().out
+    assert "the island alone goes" in out and "86 whole cells re-tiled (sea4 86), 74 part-cells" in out
+    assert "47 kept water tris split" in out
+
+
+def test_real_shimmering_sinks_alone_its_islets_kept_and_as_a_cluster():
+    """Shimmering Island (disc 4 removes it itself and keeps its seven islets): its coastal sea runs on into its
+    islets', so it sinks alone by its footprint, exact; --cluster sinks it with the two islets its water joins. The
+    (0,0) island carries a building and is refused."""
+    _need_install()
+    _plan, rep = TR.sink_auto_plan((441.992, -311.975))
+    assert rep["fill"] == "footprint" and rep["land_tris"] == 489 and rep["miss"] == rep["overlap"] == 0
+    assert (rep["cells_whole"], rep["cells_partial"], rep["split_tris"]) == (86, 74, 47)
+    assert rep["footprint_u2"] == rep["fill_u2"] and sorted(map(tuple, rep["blocks"])) == [(6, 4), (6, 5), (7, 4),
+                                                                                             (7, 5)]
+    _plan, rep = TR.sink_cluster_plan((441.992, -311.975))
+    assert len(rep["members"]) == 3
+    with pytest.raises(ValueError, match="a building stands on the island"):
+        TR.sink_auto_plan((9.909, -22.582))

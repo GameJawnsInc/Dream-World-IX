@@ -19,13 +19,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (mid water 54 and deep 57 are sailable; within 2u of remaining land, the belt and keel). New gates: a block whose
   prefab lacks a band the sink needs, a band pair stock never lays side by side, a transition tile that does not
   decode as its own edges.
-- `world-sink --list` scans the map: 25 of disc 1's 53 islands sink (45 to 4,813 u², 17 of them in shallow water),
-  all 25 replayed on disc 4, each with its ready-to-run line and the bands it re-lays; the rest are named with the
-  reason (coastal water or beach water shared with another coast, a building or other land in its tiles).
+- Island clusters: where an island's coastal water also hugs a neighbour's coast, the island sinks ALONE by its
+  footprint, the way disc 4 removed Shimmering Island and kept its seven islets: its land becomes water, a cell it
+  covers whole re-tiled in the band round it, a part-cell carrying on the kept water beside it (band, uv map), and
+  every water tri round it and every neighbour stays; where a 4u line crosses the old coastline the kept water is
+  split there, so the fill meets it vertex to vertex. `--cluster` sinks the island together with every island its
+  water joins instead.
+- The whole-tile sink now splits a kept coastal tri that runs past a re-tiled tile's corner (it left a T-junction
+  there on 20 of 25 islands); its fills are otherwise byte-identical.
+- `world-sink --list` scans the map: 40 of disc 1's 53 islands sink (25 re-tiled, 15 by their footprint; 45 to
+  4,813 u²), all but Shimmering replayed on disc 4 (disc 4 removed that one itself), each with its ready-to-run
+  line; with `--cluster`, 4 clusters sink together. The rest are named with the reason (a building on the island,
+  beach water shared with another coast).
 - Proven in game: terrain study round 10 (28/28), a 4,813 u² island over five blocks became open sea on both discs
   and the Blue Narciss sailed across where it stood (on stock it stops at the island's coast); round 11 (48/48), a
   lagoon island with a beach and a shelf-edge island sank on both discs, the water re-banded round them, and the
-  boat crossed where each stood.
+  boat crossed where each stood; round 12 (60/60), Shimmering's main island sank alone on disc 1 with its islets
+  kept, as disc 4 has it, a pair sank together with `--cluster`, and the boat crossed both.
 - `world-transplant --in-place` writes the hidden blanking stub for a part an edit empties (a 0-vert mesh was refused
   mid-deploy), and its frame gate can compare positions across parts and exempt a border shared with another block of
   the same edit (`morph_in_place(frame_shared=..., frame_across_parts=True)`).

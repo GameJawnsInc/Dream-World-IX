@@ -955,10 +955,19 @@ throughout; an island in mid water to mid water; an island on a shelf edge gets 
 where it stood. Navigation classes follow stock: mid water 54 and deep 57 away from land (both sailable), a
 transition tile by its deep edges, the standoff belt 55 and keel 56 within 2u of land that stays.
 
+**Island clusters.** Where the island's coastal water also hugs a neighbour's coast, re-tiling its tiles would take
+the neighbour's water too. Then the island sinks alone by its FOOTPRINT, the way disc 4 removed Shimmering Island and
+kept its seven islets: only its land (and its own beach water) goes; a 4u cell its footprint covers whole is re-tiled
+in the band the marching band gives it, and a part-cell continues the kept water beside it (that water's band, affine
+uv map, normal and area), so the water runs on over the old coastline; every water tri round it and every neighbour
+stays. Where a 4u line crosses the old coastline, the kept water tri there is split, so the fill meets it vertex to
+vertex (the whole-tile sink splits a kept coastal tri running past a re-tiled tile's corner the same way).
+`--cluster` instead sinks the island together with every island its water joins, re-tiled as one.
+
 An island over several blocks sinks in one edit, every block gated before any is written; a block left with no land
 gets the hidden blanking stub. Disc 4 is replayed on its own ground where it differs. `--list` finds the islands it
-takes. Refused: coastal water or beach water that runs on into another coast's, a building or other land in the
-island's tiles, a block whose prefab lacks a band the tiles need. A party standing where the island was stands in
+takes. Refused: a building on the island, beach water another coast shares, a block whose prefab lacks a band the
+tiles need. An entrance on the island goes with it only with `--allow-entrances`. A party standing where the island was stands in
 the water at its class's walk sink (0.586u under the surface on mid water, 1.367u on deep). The big map still draws
 the island: `world-minimap` paints deployed land and cannot erase stock land.
 

@@ -2,8 +2,8 @@
 
 The terrain-malleability matrix had one row with no operator: **remove land**. This lane measured how the stock game
 does it, which islands the same recipe can take, and built `world-sink` (`ff9mapkit/world/transplant.py`
-`sink_plan` / `sink` / `sink_candidates`). In-game proof: `../ingame/RESULTS.md` sections 25 (deep water) and 26
-(shallow water).
+`sink_plan` / `sink_footprint_plan` / `sink_cluster_plan` / `sink` / `sink_candidates`). In-game proof:
+`../ingame/RESULTS.md` sections 25 (deep water), 26 (shallow water) and 27 (clusters).
 
 ## 1. How disc 4 removed Shimmering Island (`shim_*.py`)
 
@@ -143,9 +143,61 @@ shelf-edge island sank on both discs. A party where they stood reads each new cl
 water 0.586 under the surface, open water 1.367, both tris of a split corner tile as stock classes them), the Blue
 Narciss crossed where each stood (on stock it stops at their standoff belt), and the frames show continuous water.
 
-## 6. Not done
+## 6. Island clusters (`sh_c*.py`)
 
-- **Island clusters** (Shimmering and its islets), and islands with a building.
-- **Islands sharing their beach water** with another coast, or whose coastal water runs on into another coast's.
+An island whose coastal water also hugs a neighbour's coast is part of a CLUSTER. The whole-tile sink re-tiles every
+tile the island touches, closed over the coast-hugging water round it, so here it runs on into the neighbour's coast
+and refuses. 19 of the 28 islands refused in section 5 were refused at another coast or its beach water.
+
+**How disc 4 removed Shimmering Island and kept its islets** (`sh_c1_shimmering.py`). Shimmering's main island and
+seven islets share their coastal water. Disc 4 removed the main island (489 land tris), and kept all seven islets.
+Three kept their land and coast byte for byte, one changed 4 of its 113 land tris and 2 of its water tris, and three,
+where the strait water touched the main island too, had their coast water rebuilt: the new water tris span 2 to 4
+tiles and run from the islet's coast vertices to lattice points, and the islets' land got 53 new tris, some at new
+heights. That is hand work: the bytes cannot be copied.
+
+**Two operators:**
+
+| | what goes | what stays | how |
+|---|---|---|---|
+| THE FOOTPRINT SINK (the default for a joined island) | the island's land and its own beach water | every water tri round it, every neighbour | its plan footprint becomes water, cell by cell |
+| THE CLUSTER SINK (`--cluster`) | the island and every island its water joins | the water past them | the whole-tile sink on the union |
+
+**The footprint fill** (`sh_c2_hole.py` to `sh_c4_footprint.py`; `transplant.sink_footprint_plan`):
+- `sh_c2`: filling the hole's outline with `lattice_patch` fails twice. Shimmering's outline encloses a kept islet (a
+  loop inside the loop), and an irregular outline clipped to a cell leaves a piece the ear-clipper cannot take.
+- `sh_c3`: cutting each dropped tri against each 4u cell instead (one convex piece, its crossings computed from the
+  original edge in one canonical order) and merging a cell's pieces by edge cancellation fills both exactly. But
+  where the hole's outline crosses a 4u line it adds a vertex part-way along a kept tri's edge: a T-junction.
+- `sh_c4`: so keep all the water and replace only the land. The footprint is the island's land; a cell it covers
+  whole becomes a stock tile in the band the marching band gives it; a part-cell continues the kept water beside it
+  (that water's band, affine uv map, normal and area), so the water runs on over the old coastline with no seam;
+  where a 4u line crosses the old coastline, the kept water tri on it is split there (same plane, same uv map).
+  Stock puts zero-area water slivers along coasts, with a vertex part-way along the land's edge: the fill takes
+  those vertices too. On all four sites the fill equals the footprint to 0.01 u2, with no kept water under it.
+- Shimmering by footprint (`out/sh_q6_441_311.png`): the main island goes, all seven islets stay, as on disc 4.
+
+**THE SPLIT WELD** (`sh_c6_welds.py`, an independent check of the finished mesh: open edges, T-junctions, near
+misses). It found that the whole-tile sink of rounds 10-11 left T-junctions on 20 of its 25 islands (122 edges): a
+re-tiled tile's corner part-way along a kept coastal tri that runs past it. The whole-tile sink now splits that kept
+tri there too; its fills are byte-identical to before on all 25 islands and both discs, only the split pieces are
+added. After it, all 40 sinkable islands are watertight (0 open edges, 0 T-junctions). The near misses left (1 to 5 on
+7 islands) are welded short edges: a stock coast vertex within 0.05u of a 4u line.
+
+**What it takes** (`sh_c5_census.py`; `world-sink --list`): 40 of disc 1's 53 islands, up from 25: 25 by the
+whole-tile sink and 15 by the footprint sink. All 40 replay on disc 4 except Shimmering, which disc 4 already
+removed (no land there: the replay refuses and disc 4 keeps its own ground). With `--cluster`, 4 clusters sink
+together (Shimmering's main island with two islets, and three pairs), all but Shimmering's on disc 4 too.
+The 13 refused: 7 have a building on them, 5 share their beach water with another coast, 1 needs a band its
+block's prefab has no part for.
+
+**In game** (`../ingame/RESULTS.md` section 27, 60/60 on the first launch): Shimmering's main island sank alone on
+disc 1 by its footprint, its islets read their stock heights to the last bit, and the frames match disc 4's own
+Shimmering; the (8,16) pair sank together with `--cluster` on both discs; the Blue Narciss crossed where each stood;
+round 11's island, re-deployed with the split weld, read as before.
+
+## 7. Not done
+
+- **Islands with a building,** and islands whose beach water another coast shares.
 - **The big map** still draws a sunk island: `world-minimap` paints deployed land, it cannot erase stock land.
-- **Moving an entrance onto the new sea,** as disc 4 did for Shimmering.
+- **Moving an entrance onto the new sea,** as disc 4 did for Shimmering (`--allow-entrances` drops it).
