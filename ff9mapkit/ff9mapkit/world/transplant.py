@@ -1514,6 +1514,33 @@ def _split_frame_pairs(weld, planes_x, planes_z, tol: float = 0.05):
     return interior, frame
 
 
+def _inherited_weld_pairs(pairs, pristine_by_part, back, *, match: float = 1e-4):
+    """THE WELD DIFFERENTIAL (terrain study defect 13) -- the same law as the T-junction and census gates: stock may
+    carry a near-miss pair, the carry may not MINT one. Disc 4's (18,4) Terrain+Sea3 holds 3 stock pairs (S17), so
+    the absolute gate refused a disc-4 carry of it on unmodified bytes, in every pose.
+
+    ``pairs`` = the weld audit's interior pairs in the built frame; ``pristine_by_part`` = the gather (donor + strip
+    polys, donor WORLD, pre-tweak); ``back(x, z)`` = the census inverse (unshift, unrotate, tweak inverses) into donor
+    world. A pair is INHERITED only when both of its ends map back within ``match`` of the two ends of one stock pair
+    (heights unchanged: a tweak that moves a height mints). Returns ``(minted, inherited)``."""
+    from . import mesh as M
+    if not pairs:
+        return [], []
+    base = M.near_miss_pairs(v[0] for polys in pristine_by_part.values() for poly in polys for v in poly)
+    if not base:
+        return list(pairs), []
+
+    def at(q, s):
+        return all(abs(q[k] - s[k]) <= match for k in range(3))
+    minted, inherited = [], []
+    for a, b in pairs:
+        (ax, az), (bx, bz) = back(a[0], a[2]), back(b[0], b[2])
+        ma, mb = (ax, a[1], az), (bx, b[1], bz)
+        hit = any((at(ma, p) and at(mb, q)) or (at(ma, q) and at(mb, p)) for p, q in base)
+        (inherited if hit else minted).append((a, b))
+    return minted, inherited
+
+
 def _split_border_pairs(pairs, planes_x, planes_z, tol: float = 0.05, exact: float = 1e-6):
     """Split interior weld pairs at INTERIOR block-border planes into ``(cracks, t_pairs)``
     -- the non-easternmost-cut law (the rejected 592 build's two undiagnosed x=64 pairs,
@@ -3226,9 +3253,26 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                       "ok": (not moved) or allow_object_misalign})
     for tw in tweaks:
         gates.append(tw.gate())
+    # the census inverse, built frame -> donor world (the weld and T-junction differentials). Back-map = the census
+    # inverse WITHOUT its donor-frame range check (strip geometry legally maps beyond the donor frame and is part of
+    # the pristine baseline).
+    tj_tinv = _tweak_inverse_x(tweaks)
+    tj_tinv_z = _tweak_inverse_z(tweaks)
+
+    def _tj_back(x, z):
+        dlx, dlz = _rot_xz(x - sh_x, z - sh_z, (4 - nrot) % 4)
+        wx = tj_tinv(dlx + 64.0 * dbx)
+        wz = tj_tinv_z(dlz - 64.0 * dby)
+        for tw_ in tweaks:
+            inv = getattr(tw_, "census_inverse", None)
+            if inv is not None:
+                wx, wz = inv(wx, wz)
+        return wx, wz
+
     weld_in, weld_fr = _split_frame_pairs(M.weld_audit(meshes), (0.0, 64.0), (0.0, -64.0))
+    weld_in, weld_inh = _inherited_weld_pairs(weld_in, pristine, _tj_back)     # defect 13: stock may, a carry may not
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
-                  "ok": not weld_in})
+                  "inherited": len(weld_inh), "ok": not weld_in})
     # THE CARRY STITCH GATE (defect 10): every donor weld must hold. The parts the carry does not take (Object, river,
     # falls, volcano ...) render from the donor's prefab at their own pose (Donor.txt names the donor), so a weld to
     # one of them holds only where the carried vertex lands back on it.
@@ -3247,22 +3291,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                 fixed.append((f"prefab {part_name(p)}", [_loc(v[0]) for t in tris for v in t]))
     gates.append(_carry_stitch_gate(weld_pairs, _fwd, _loc, fixed, emitted_pos))
     # THE T-JUNCTION DIFFERENTIAL (audit rec 14) -- same law as census/stacked: stock may
-    # T-junction, the carry may not MINT one. Back-map = the census inverse WITHOUT its
-    # donor-frame range check (strip geometry legally maps beyond the donor frame and is
-    # part of the pristine baseline).
-    tj_tinv = _tweak_inverse_x(tweaks)
-    tj_tinv_z = _tweak_inverse_z(tweaks)
-
-    def _tj_back(x, z):
-        dlx, dlz = _rot_xz(x - sh_x, z - sh_z, (4 - nrot) % 4)
-        wx = tj_tinv(dlx + 64.0 * dbx)
-        wz = tj_tinv_z(dlz - 64.0 * dby)
-        for tw_ in tweaks:
-            inv = getattr(tw_, "census_inverse", None)
-            if inv is not None:
-                wx, wz = inv(wx, wz)
-        return wx, wz
-
+    # T-junction, the carry may not MINT one (back-map: _tj_back above).
     gates.append(_tjunc_gate(part_tris, pristine, _tj_back,
                              (0.0, 64.0), (0.0, -64.0), allow=allow_tjunc))
     # THE CLIP-DROP gate (the hairline law's root accounting, 2026-07-09): the sliver
@@ -4048,12 +4077,27 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     for tw_ in tweaks:
         gates.append(tw_.gate())
     gates.append({"gate": "prefab-parts", "bad": prefab_bad, "ok": not prefab_bad})
+    # the census inverse, region frame -> donor world (the weld and T-junction differentials; see transplant())
+    tj_tinv = _tweak_inverse_x(tweaks)
+    tj_tinv_z = _tweak_inverse_z(tweaks)
+
+    def _tj_back(x, z):
+        dlx, dlz = _rot_region_xz(x - sh_x, z - sh_z, inv_rot, ext_r, ext)
+        wx = tj_tinv(dlx + 64.0 * dbx)
+        wz = tj_tinv_z(dlz - 64.0 * dby)
+        for tw_ in tweaks:
+            inv = getattr(tw_, "census_inverse", None)
+            if inv is not None:
+                wx, wz = inv(wx, wz)
+        return wx, wz
+
     weld_in, weld_fr = _split_frame_pairs(M.weld_audit(audit_meshes),
                                           (0.0, ext_r[0]), (0.0, -ext_r[1]))
     weld_in, weld_bt = _split_border_pairs(weld_in, tuple(64.0 * i for i in range(1, tw)),
                                            tuple(-64.0 * j for j in range(1, th)))
+    weld_in, weld_inh = _inherited_weld_pairs(weld_in, pristine, _tj_back)     # defect 13 (see transplant())
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
-                  "border_t_pairs": len(weld_bt), "ok": not weld_in})
+                  "border_t_pairs": len(weld_bt), "inherited": len(weld_inh), "ok": not weld_in})
     # THE CARRY STITCH GATE (defect 10; see transplant()). Each target cell's sidecar prefab renders the parts the
     # carry does not take (Object, river, falls ...) at their block-local pose inside THAT target cell.
 
@@ -4079,20 +4123,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     gates.append(_carry_stitch_gate(weld_pairs, _rfwd, _rloc, fixed, emitted_pos))
     # THE T-JUNCTION DIFFERENTIAL (audit rec 14) -- see transplant()'s call site. The frame
     # planes include the INTERIOR block borders: a re-partition clip vert mid-edge of the
-    # neighbour cell's coincident run is the weld gate's border_t_pairs class, judged there.
-    tj_tinv = _tweak_inverse_x(tweaks)
-    tj_tinv_z = _tweak_inverse_z(tweaks)
-
-    def _tj_back(x, z):
-        dlx, dlz = _rot_region_xz(x - sh_x, z - sh_z, inv_rot, ext_r, ext)
-        wx = tj_tinv(dlx + 64.0 * dbx)
-        wz = tj_tinv_z(dlz - 64.0 * dby)
-        for tw_ in tweaks:
-            inv = getattr(tw_, "census_inverse", None)
-            if inv is not None:
-                wx, wz = inv(wx, wz)
-        return wx, wz
-
+    # neighbour cell's coincident run is the weld gate's border_t_pairs class, judged there (back-map: _tj_back above).
     gates.append(_tjunc_gate({p: [t for c in tcells for t in cell_tris[c][p]] for p in parts},
                              pristine, _tj_back,
                              tuple(64.0 * i for i in range(tw + 1)),

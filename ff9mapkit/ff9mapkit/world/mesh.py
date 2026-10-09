@@ -1998,18 +1998,24 @@ def split_retarget_by_polygon(bm, polygon, *, topograph, event=None, area=None,
 def weld_audit(meshes, *, tol: float = 0.05) -> list:
     """NEAR-MISS vertex census across mesh parts -- the hairline-crack gate. Any two vertices (from any parts:
     cracks live BETWEEN parts too) closer than ``tol`` world units but not identical are a crack candidate: the
-    background peeks through the sliver in-game. The verbatim donor blocks have ZERO such pairs, so any edit must
-    too -- every hairline seam of the beach-end saga traced to HAND-ROUNDED coordinates (real donor verts are
+    background peeks through the sliver in-game. Stock has none, with one exception: disc 4's (18,4) Terrain+Sea3
+    carries 3 (terrain study S17/defect 13; disc 1 and every other disc-4 block have 0). So an edit must mint none
+    -- transplant's gate subtracts the donor's own pairs (``transplant._inherited_weld_pairs``). Every hairline seam
+    of the beach-end saga traced to HAND-ROUNDED coordinates (real donor verts are
     off-lattice floats like ``x=496.046875``; never hand-type geometry, capture exact floats from the tris you
     consume). ``meshes`` = an iterable of :class:`~ff9mapkit.world.extract.BlockMesh` or ``(name, BlockMesh)``.
     Returns the offending ``(pos_a, pos_b)`` pairs (positions rounded to 6dp for identity), sorted; gate on
     ``== []``. Spatial-hashed: fine for whole-block audits."""
+    return near_miss_pairs((v for m in meshes for v in ((m[1] if isinstance(m, tuple) else m).verts or [])),
+                           tol=tol)
+
+
+def near_miss_pairs(points, *, tol: float = 0.05) -> list:
+    """:func:`weld_audit` over bare ``(x, y, z)`` positions."""
     cells: dict = {}
-    for m in meshes:
-        bm = m[1] if isinstance(m, tuple) else m
-        for v in (bm.verts or []):
-            p = (round(v[0], 6), round(v[1], 6), round(v[2], 6))
-            cells.setdefault((int(p[0] // tol), int(p[1] // tol), int(p[2] // tol)), set()).add(p)
+    for v in points:
+        p = (round(v[0], 6), round(v[1], 6), round(v[2], 6))
+        cells.setdefault((int(p[0] // tol), int(p[1] // tol), int(p[2] // tol)), set()).add(p)
     pairs = set()
     for (cx, cy, cz), pts in cells.items():
         cand: set = set()

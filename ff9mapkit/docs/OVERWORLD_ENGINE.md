@@ -266,7 +266,8 @@ emits the file (`ff9mapkit/world/environment.py`, `build_environment_txt`/`write
 ```toml
 [world_environment]
 mist  = false                    # force the Mist-Continent mist OFF (true = on; omit a key = engine default)
-disc4 = "w_frameDisc == 4"       # NCalc condition passthrough
+disc4 = "ScenarioCounter >= 11090"   # NCalc condition passthrough (WorldDisc, ScenarioCounter, GetEventGlobalByte(i), ...)
+# stack = "combine"              # OR with lower-priority folders' conditions instead of replacing them
 
 [[world_environment.rain]]       # -> Rain Add [Position] [RadiusLarge] [RadiusSmall] [RainSpeed] [RainStrength]
 position = [700, -800]           # WORLD units (engine ×256 via ff9.S); the numeric params are optional
@@ -285,9 +286,33 @@ on = false
 name = "Alexandria"
 on = true
 ```
-Valid enum names: `environment.WORLD_PLACES` / `WORLD_EFFECTS` (baked from `Memoria/World/WorldPlace.cs` +
-`WorldEffect.cs`). RELAUNCH to apply (parsed at overworld init). The `Title` token (banner rect/timing) is not yet
+Valid effect names: `environment.WORLD_EFFECTS` (baked from `Memoria/World/WorldEffect.cs`). A place must be one of
+the 9 with an alternate block form (`environment.FORM_PLACES`: SouthGate_Gate, Alexandria, FireShrine, Lindblum,
+Cleyra, BlackMageVillage, WaterShrine, MognetCentral, ChocoboParadise); the engine never asks about any other, so the
+kit refuses one. RELAUNCH to apply (parsed at overworld init). The `Title` token (banner rect/timing) is not yet
 exposed. **★ in-game proven 2026-07-02** (`mist = false` forced the disc-1 Mist-Continent mist off).
+
+**Stacking (after 1.0.0b19; terrain study defect 20).** The engine reads the base file, then every FolderNames folder
+from the lowest priority to the highest, and conditions for one key accumulate: two folders that set `Place Cleyra`
+OR their conditions. So the kit writes each place/effect/mist/disc4 line after its `Clear` (`Place Cleyra Clear`),
+and the folder's condition replaces what lower folders set for that key; a higher folder is read later and can still
+add a condition or clear this one. `stack = "combine"` writes no `Clear`. Rain and light zones are lists and always
+add. On write the verb names each stacked line for the same keys (replaced below, still applied above). Memoria's
+shipped `Environment.txt` header tells modders to write `Clean`, but the parser reads only `Clear`: a `Clean` line
+does nothing, and the verb flags one in any stacked folder.
+
+**What a place switches: 26 cells, two block forms (terrain study defect 19).** Each of the 9 places swaps a fixed
+set of cells to their form-2 meshes once per world load (`ff9.w_worldChangeBlockSet`, ff9.cs:9153-9208; `world-forms`
+lists the cells and the default conditions). Seven are gated on disc 1; Mognet Central and Chocobo's Paradise switch
+on a story flag on every disc. On those cells `Terrain`, `Object`, `VolcanoCrater1`, `VolcanoLava1` (and `Sea3-5` at
+the Water Shrine cell (3,9)) are form-1 parts, and `Terrain2`, `Object2` and the other `*2` parts are form 2; water
+and river parts render in both (`WMWorld.LoadBlock`). The s34 override key is the part's name, so a kit `Terrain`
+edit there replaces form 1 only: when the place switches, the stock `Terrain2` comes back and the edit vanishes. A
+`Block[x][y] Terrain2.ff9mesh` override replaces form 2 (walked in game: terrain study in-game round 1, story terrain
+with no DLL). Every world writer now warns when it writes a form-1 part of such a cell with no form-2 override beside
+it (the post-step every writer runs, `discmirror.auto_mirror`), and `world-forms --mod-folder F` or `--stack` checks
+deployed overrides (exit 1 on one). A disc-1 place's cells on disc 4, and a Path D namespace's cells (switched only
+in `CloneStockWorld` mode), are reported as dormant.
 
 ## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
@@ -646,7 +671,9 @@ silently. The shift window follows the carried strips: shifting may only vacate 
 
 Every build must pass the OFFLINE GATE SET before any file is written: the engine-placement census (`miss=0` — full
 walk/sail coverage), the **weld audit** (`ff9mapkit.world.mesh.weld_audit`, 0 near-miss vertex pairs — the
-hairline-crack detector: two verts closer than 0.05u but not identical read as a crack in-game), land-fit, frame
+hairline-crack detector: two verts closer than 0.05u but not identical read as a crack in-game; judged as a
+differential, like the T-junction gate: a pair the donor itself carries, mapped through the carry, is reported as
+`inherited`, not refused — only disc 4's (18,4) has any, 3, terrain study defect 13), land-fit, frame
 bounds, and each edit's exact tri-count scope. Component EDITS on a transplant are library-level
 (`ff9mapkit.world.transplant`): `TileRetexture` retextures whole lattice cells in the learned tile language (UVs +
 IDALL only, geometry verbatim — the proven chocobo-track de-quest), and `PatchRecover` drops tris and re-covers their

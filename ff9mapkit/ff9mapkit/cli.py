@@ -5867,14 +5867,27 @@ def _cmd_world_environment(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(ENV.build_environment_txt(cfg), end="")
         return 0
+    from . import config as C
     try:
         dest = ENV.write_environment(cfg, mod_folder=args.mod_folder, game=args.game)
+        rep = ENV.stack_report(cfg, mod_folder=args.mod_folder, game_dir=C.find_game_path(args.game))
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"wrote {dest}")
-    print("  RELAUNCH the game (or re-enter the overworld) to apply. The mod folder must be in "
-          "Memoria.ini [Mod] FolderNames.")
+    print("  RELAUNCH the game (or re-enter the overworld) to apply.")
+    # THE STACK (terrain study defect 20): what the other stacked Environment.txt files set for the same keys
+    if not rep["in_stack"]:
+        print(f"  NOTE: '{args.mod_folder}' is not in Memoria.ini [Mod] FolderNames, so nothing loads this file.")
+    verb = "replaces" if cfg.get("stack", "replace") == "replace" else "ORs with"
+    for src, line in rep["below"]:
+        print(f"  {verb} {src}: `{line}`")
+    for src, line in rep["above"]:
+        print(f"  !! WARNING: {src} is higher priority and is read after this file: `{line}` still applies on top "
+              f"of yours (another condition ORs in; a Clear drops yours)")
+    for src, line in rep["clean"]:
+        print(f"  !! WARNING: {src}: `{line}` does nothing -- the parser reads `Clear`, not the `Clean` that "
+              f"Memoria's shipped Environment.txt header documents")
     return 0
 
 
@@ -5967,6 +5980,49 @@ def _cmd_world_render(args: argparse.Namespace) -> int:
         return 2
     print(f"\n{R.BLIND_SPOTS}")
     return 0
+
+
+def _cmd_world_forms(args: argparse.Namespace) -> int:
+    """List the 26 overworld cells that switch block form with a place, and with ``--mod-folder``/``--stack`` every
+    deployed override that replaces only one form of one (terrain study defect 19). Exit 1 when a live form-1 edit
+    has no form-2 override beside it."""
+    from . import config as C
+    from .world import forms as FM
+    print("The 26 cells that switch block form, by place (ff9.cs w_worldChangeBlockSet; default condition):")
+    for place, cells in FM.PLACE_CELLS.items():
+        where = "every disc" if place in FM.FLAG_PLACES else "disc 1"
+        print(f"  {place:16s} {' '.join(f'({x},{y})' for x, y in cells):36s} {where}: {FM.DEFAULT_CONDITION[place]}")
+    if not (args.mod_folder or args.stack):
+        return 0
+    try:
+        game = C.find_game_path(args.game)
+        if args.stack:
+            from .deploystack import parse_folder_names
+            ini = game / "Memoria.ini"
+            folders = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+        else:
+            folders = [args.mod_folder]
+        roots = [(f, C.find_mod_root(game, f)) for f in folders]
+    except (ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    bad = 0
+    for folder, root in roots:
+        hits = FM.mod_folder_hits(root)
+        live = [h for h in hits if not h["dormant"]]
+        print(f"\n{folder}: {len(hits)} override(s) on a switchable cell, {len(live)} where the place switches by "
+              f"default")
+        for line in FM.note_lines(live):
+            print(line)
+        for h in hits:
+            if h["dormant"]:
+                (x, y) = h["cell"]
+                why = ("it switches on disc 1 only" if h["disc"] == 4 else
+                       "a Path D namespace copies the switch only in CLONE mode")
+                print(f"  dormant: Block[{x}][{y}] {h['part']} (Disc{h['disc']}) -- {h['place']} does not switch "
+                      f"here by default: {why}")
+        bad += sum(1 for h in live if h["form"] == 1 and not h["covered"])
+    return 1 if bad else 0
 
 
 def _cmd_world_ledger(args: argparse.Namespace) -> int:
@@ -10227,7 +10283,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "a mod folder from a [world_environment] toml. No DLL (stock-Memoria seam); relaunch to apply.")
     wev.add_argument("config", help="a .toml with a [world_environment] table: mist/disc4 = true|false|<NCalc>, plus "
                                     "[[world_environment.rain]] / [[..light]] / [[..effect]] / [[..place]] lists "
-                                    "(a bare doc with those keys also works)")
+                                    "(a bare doc with those keys also works). Each place/effect/mist/disc4 line "
+                                    "replaces what lower-priority mod folders set for it; stack = \"combine\" ORs "
+                                    "with them instead")
     wev.add_argument("--mod-folder", required=True,
                      help="the FolderNames mod folder to write into (e.g. FF9CustomMap); file -> "
                           "<mod>/StreamingAssets/Data/World/Environment.txt")
@@ -10300,6 +10358,16 @@ def build_parser() -> argparse.ArgumentParser:
                      help="hash every deployed Block*.ff9mesh and report unledgered bytes")
     wlg.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wlg.set_defaults(func=_cmd_world_ledger)
+
+    wfm = sub.add_parser("world-forms",
+                         help="list the 26 overworld cells that switch block form with a story place (Alexandria "
+                              "destroyed, Cleyra gone, the Water Shrine opened ...), and check a mod folder for "
+                              "overrides that replace only one form: a Terrain/Object edit there vanishes when the "
+                              "place switches unless a Terrain2/Object2 override covers form 2. Exit 1 on one.")
+    wfm.add_argument("--mod-folder", default=None, help="check this mod folder's deployed overrides")
+    wfm.add_argument("--stack", action="store_true", help="check every Memoria.ini FolderNames folder")
+    wfm.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    wfm.set_defaults(func=_cmd_world_forms)
 
     wrb = sub.add_parser("world-readback",
                          help="reconcile an s22 debug-menu block DUMP (engine ACTUALS: every child "

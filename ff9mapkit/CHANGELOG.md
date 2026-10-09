@@ -5,6 +5,41 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-transplant` no longer refuses a disc-4 carry of (18,4) for near-miss pairs stock already has
+- The weld audit refused any two vertices closer than 0.05u, on the claim that stock has none. Disc 4's (18,4)
+  Terrain+Sea3 has 3 (disc 1 and every other disc-4 block have 0), so a disc-4 carry of it failed on unmodified
+  bytes, in every pose.
+- The gate is now a differential, like the T-junction gate beside it: a pair whose ends both map back, through the
+  carry's own inverse, onto one stock pair of the donor is reported as `inherited`, not refused. A pair the carry
+  makes (or one whose height a tweak moved) still refuses. Applies to single-cell and region carries.
+- New: `mesh.near_miss_pairs` (the weld audit over bare positions); the weld gate reports `inherited`.
+
+### Added — the world writers warn when an edit lands on one form of a switchable cell; new `world-forms`
+- 26 overworld cells swap block form when one of 9 story places switches (Alexandria destroyed, Cleyra gone, the
+  Water Shrine opened ...). There `Terrain` and `Object` are form-1 parts, so a kit edit of one vanishes, render and
+  walk, the moment the place switches and the stock `Terrain2`/`Object2` comes back. No kit check knew the set.
+- Every world writer now names such an edit in its post-step (it runs under `--skip-mirror` too), unless a form-2
+  override (`Terrain2`, `Object2`) already sits beside it. A disc-1 place's cells on disc 4 and Path D cells are
+  quiet: they do not switch by default.
+- `world-forms` lists the 26 cells with each place's default condition; `--mod-folder F` or `--stack` checks deployed
+  overrides and exits 1 on an uncovered one. On today's live install it finds none on discs 1 and 4, and one dormant
+  Path D cell.
+- New: `world/forms.py` (`PLACE_CELLS`, `DEFAULT_CONDITION`, `part_form`, `form_hits`, `mod_folder_hits`).
+  `environment.FORM_PLACES` now comes from it.
+
+### Fixed — `world-environment`'s conditions replace lower mod folders' instead of OR-ing with them
+- The engine reads every stacked `Environment.txt` from the lowest-priority folder to the highest, and conditions for
+  one key accumulate. A kit `Place Cleyra` line in a folder that stacks over another that also sets Cleyra ORed with
+  it, so the place could switch on a condition the author never wrote.
+- Each place/effect/mist/disc4 line now follows its `Clear` (`Place Cleyra Clear`), so the folder's condition
+  replaces what lower folders set for that key. `stack = "combine"` keeps the old OR. Rain and light zones still add.
+- On write the verb names every stacked line for the same keys: lower folders' (replaced), higher folders' (read
+  later, still applied), and any `Clean` line. Memoria's shipped header documents `Clean`, but the parser reads only
+  `Clear`, so such a line does nothing.
+- A place without an alternate block form (56 of the 65 names) is refused: the engine only ever asks about the 9 that
+  switch (`environment.FORM_PLACES`). A place or effect listed twice is refused too.
+- The docs' `disc4` example used `w_frameDisc`, which is not an NCalc parameter; it is now `ScenarioCounter >= 11090`.
+
 ### Changed — `world-deploy --lift`/`--spike` refuse a torn seam unless `--allow-tear`
 - The two diagnostic bumps hold no seam, and only printed a warning after writing. Round a town's walkable floor (an
   Object filling a hole in the Terrain), a lift builds the shaft that froze the player at Dali in July 2026 (terrain
