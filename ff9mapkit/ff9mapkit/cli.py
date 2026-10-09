@@ -4092,6 +4092,11 @@ def _print_stitch(summary: dict) -> None:
               f"an open slit, and a one-way wall above ~2.34u")
 
 
+_FORM_HELP = ("which ground of a cell that switches with a story place to edit (`world-forms` lists the 26): 1 "
+              "(default) = the one it shows until the place switches; 2 = the alternate it shows after (Alexandria "
+              "destroyed, Cleyra gone ...), written as Terrain2. A form-1 edit there vanishes when the place switches: "
+              "run the same edit with --form 2 too to keep it in both. Form 2 edits one place's cells and holds every "
+              "other cell at its border")
 _ALLOW_ENTRANCES_HELP = ("drop or re-cut a walk-on entrance tile anyway (refused by default: the dispatcher still "
                          "routes that entrance, but its trigger would be gone). Raising or lowering the ground under "
                          "an entrance needs no flag: a field exit re-grounds the player on whatever ground is there")
@@ -4195,6 +4200,35 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
         print("give a target: --block X Y, --cluster XMIN YMIN XMAX YMAX, or (with a reshape) --center WX WZ",
               file=sys.stderr)
         return 2
+    if args.lod != "0_1":
+        print(f"--lod {args.lod}: the engine reads block overrides only under 0_1 (WMWorld.cs:823-825), so this file "
+              f"would never load. 0_2 is where stock keeps a switchable cell's form-2 meshes: to edit that ground, "
+              f"use --form 2 (it writes Terrain2 under 0_1)", file=sys.stderr)
+        return 2
+    if args.form == 2:
+        # THE FORM-2 RESHAPE (terrain study defect 19): one place's alternate ground, through world-terrain's core
+        if not reshape:
+            print("--form 2 reshapes a place's alternate ground: give --hill, --crater or --flatten (--lift/--spike "
+                  "and the faithful copy are form-1 hook tests)", file=sys.stderr)
+            return 2
+        if args.center:
+            cx, cz = args.center
+        else:
+            oxs = [x * W.BLOCK_SIZE for (x, _) in explicit]
+            ozt = [-y * W.BLOCK_SIZE for (_, y) in explicit]
+            cx, cz = (min(oxs) + max(oxs) + W.BLOCK_SIZE) / 2.0, (min(ozt) + max(ozt) - W.BLOCK_SIZE) / 2.0
+        from .world import terrain as TER
+        try:
+            summary = TER.reshape(args.mod_folder, at=(cx, cz), radius=args.radius,
+                                  amount=None if args.flatten else hill_amt, flatten=bool(args.flatten),
+                                  height=args.height, disc=args.disc, falloff=args.falloff, game=args.game,
+                                  skip_mirror=args.skip_mirror, fresh=args.fresh,
+                                  allow_overwrite=args.allow_overwrite, allow_entrances=args.allow_entrances,
+                                  form=2)
+        except (ValueError, ConfigError, FileNotFoundError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        return _report_reshape(summary, dry_run=False)
 
     try:
         if args.center:
@@ -4629,12 +4663,18 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
                             game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror,
                             target_disc=args.target_disc, allow_steep=args.allow_steep, fresh=args.fresh,
                             allow_overwrite=args.allow_overwrite, seam_taper=args.seam_taper,
-                            allow_entrances=args.allow_entrances)
+                            allow_entrances=args.allow_entrances, form=args.form)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
-    verb = "would reshape" if args.dry_run else "reshaped"
-    print(f"{verb} terrain ({summary['op']}, radius {summary['radius']}) across {len(summary['blocks'])} block(s):")
+    return _report_reshape(summary, dry_run=args.dry_run)
+
+
+def _report_reshape(summary: dict, *, dry_run: bool) -> int:
+    """The receipt of a :func:`ff9mapkit.world.terrain.reshape` (world-terrain, and world-deploy --form 2)."""
+    verb = "would reshape" if dry_run else "reshaped"
+    what = f"{summary['place']}'s FORM-2 ground (Terrain2)" if summary.get("form") == 2 else "terrain"
+    print(f"{verb} {what} ({summary['op']}, radius {summary['radius']}) across {len(summary['blocks'])} block(s):")
     _print_stack_notes(summary)
     _print_stitch(summary)
     _print_entrances(summary)
@@ -4653,7 +4693,10 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
     if not summary["blocks"]:
         print("  nothing moved -- check --at/--radius (is the spot on land, in range?)", file=sys.stderr)
         return 2
-    if not args.dry_run:
+    if summary.get("form") == 2:
+        print(f"  form 2 shows only while {summary['place']} has switched; its form-1 ground is untouched (run the "
+              f"same edit without --form 2 to change that one too)")
+    if not dry_run:
         _world_apply_note(extra="Reshaping keeps the stock texture + walkability (single surface = walkable).")
         _world_coupling_note(encounters=False)
     return 0
@@ -9237,6 +9280,9 @@ def build_parser() -> argparse.ArgumentParser:
     wd.add_argument("--lift", type=float, default=0.0,
                     help="[diag] raise the WHOLE block(s) by N units -- an unmistakable plateau (tears every seam it "
                          "moves, so it needs --allow-tear)")
+    wd.add_argument("--form", type=int, choices=[1, 2], default=1,
+                    help=_FORM_HELP + " (with --hill/--crater/--flatten; it runs world-terrain's reshape, so its "
+                                      "one-way-wall gate applies)")
     wd.add_argument("--allow-tear", action="store_true",
                     help="[diag] deploy a --lift/--spike that tears seam welds anyway (refused by default: a slit, a "
                          "one-way wall, and round a town's walkable floor a shaft the player cannot climb out of)")
@@ -9416,6 +9462,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "the edit cannot tear a seam; the land fades in over this many units from those seams "
                           "(default 4, one lattice step; 0 = a hard hold, which can leave a near-vertical lip)")
     wtr.add_argument("--allow-entrances", action="store_true", help=_ALLOW_ENTRANCES_HELP)
+    wtr.add_argument("--form", type=int, choices=[1, 2], default=1, help=_FORM_HELP)
     _add_fresh_args(wtr, "reshape")
     wtr.set_defaults(func=_cmd_world_terrain)
 

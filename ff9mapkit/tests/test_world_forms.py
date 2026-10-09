@@ -50,7 +50,7 @@ def test_form_hits_and_their_receipt(tmp_path):
     assert [(h["cell"], h["part"], h["form"], h["covered"]) for h in hits] == [((20, 10), "Terrain", 1, False)]
     (line,) = F.note_lines(hits)
     assert "!! WARNING: Block[20][10] Terrain (Disc1) replaces FORM 1 ONLY" in line and "Alexandria" in line
-    assert "Write a Terrain2 override too" in line and "ScenarioCounter >= 8800" in line
+    assert "run the same edit again with --form 2" in line and "ScenarioCounter >= 8800" in line
     _override(tmp_path, 1, 20, 10, "Terrain2")
     (h,) = F.form_hits([t])
     assert h["covered"] and F.note_lines([h])[0].startswith("  note:")

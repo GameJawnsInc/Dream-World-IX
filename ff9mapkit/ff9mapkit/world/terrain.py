@@ -141,12 +141,122 @@ def stitch_partners(blocks, mod_folder: str, *, disc: int = 1, lod: str = "0_1",
     return out
 
 
+#: on a switchable cell these partner parts render in form 1 only (WMWorld.LoadBlock, WMWorld.cs:588-657) -- and at the
+#: Water Shrine cell its seas too -- so a form-2 Terrain edit is not stitched to them
+_FORM1_ONLY_PARTNERS = ("object", "volcanocrater", "volcanolava")
+#: the form-2 parts: stock keeps them under 0_2 by their base name (forms lane F9); an override uses the child name
+_FORM2_PARTS = {"object": "Object2", "volcanocrater": "VolcanoCrater2", "volcanolava": "VolcanoLava2"}
+_WATER_SHRINE_FORM2 = {"sea3": "Sea3_2", "sea4": "Sea4_2", "sea5": "Sea5_2"}
+
+
+def form2_part(mod_folder: str, bx: int, by: int, base: str, child: str, *, disc: int = 1, game=None,
+               fresh: bool = False):
+    """A switchable cell's FORM-2 part: the mod folder's deployed ``child`` override (``Terrain2``/``Object2``/...,
+    under ``0_1``: the s34 key hard-codes it, forms lane F13) unless ``fresh``, else stock ``base`` under ``0_2``,
+    where the prefabs keep form 2. ``None`` when the cell has neither (or no install resolves)."""
+    import dataclasses
+    from ..config import ConfigError
+    from . import extract as X, mesh as M
+    if not fresh:
+        dep = M.deployed_override(mod_folder, bx, by, disc=disc, lod="0_1", part=child, game=game)
+        if dep is not None:
+            return M.blockmesh_from_ff9mesh(dep, disc=disc, x=bx, y=by, lod="0_1", part=child)
+    try:
+        bm = X.read_block(bx, by, disc=disc, lod="0_2", part=base, game=game)
+    except (ValueError, FileNotFoundError, ConfigError):
+        return None
+    return dataclasses.replace(bm, name=f"Block[{bx}][{by}] {child}")
+
+
+def form2_partners(place_cells, other_blocks, mod_folder: str, *, disc: int = 1, game=None,
+                   fresh: bool = False) -> list:
+    """What a FORM-2 Terrain edit is stitched to, as ``[(name, bm, world_origin)]`` (:func:`stitch_partners`' shape).
+    On the place's own cells: the parts that render in form 2 -- the shared beach/river/sea parts (stacked, ``0_1``)
+    and the form-2 Object, volcano and (at the Water Shrine) seas -- never the form-1 ones. On every ``other_blocks``
+    cell, which a form-2 edit does not move: all of its parts, its Terrain included, so the edit meets that cell's
+    ground at their shared border instead of tearing from it while the place is switched."""
+    from ..config import ConfigError
+    from . import extract as X, mesh as M
+    from .entrance import read_block_stacked
+    from .forms import WATER_SHRINE_CELL
+    from .placement import canonical_part
+    out = []
+    try:
+        for (bx, by) in place_cells:
+            o = X.block_world_origin(bx, by)
+            shrine = (bx, by) == WATER_SHRINE_CELL
+            for p in M.STITCH_PARTNER_PARTS:
+                if p in _FORM1_ONLY_PARTNERS or (shrine and p in _WATER_SHRINE_FORM2):
+                    continue
+                bm = read_block_stacked(mod_folder, bx, by, disc=disc, part=p, game=game, missing_ok=True,
+                                        fresh=fresh)
+                if bm is not None and getattr(bm, "verts", None):
+                    out.append((f"Block[{bx}][{by}] {canonical_part(p) or p}", bm, o))
+            for base, child in {**_FORM2_PARTS, **(_WATER_SHRINE_FORM2 if shrine else {})}.items():
+                bm = form2_part(mod_folder, bx, by, base, child, disc=disc, game=game, fresh=fresh)
+                if bm is not None and getattr(bm, "verts", None):
+                    out.append((f"Block[{bx}][{by}] {child}", bm, o))
+        for (bx, by) in other_blocks:
+            out += stitch_partners([(bx, by)], mod_folder, disc=disc, game=game, fresh=fresh)
+            ter = read_block_stacked(mod_folder, bx, by, disc=disc, part="terrain", game=game, missing_ok=True,
+                                     fresh=fresh)
+            if ter is not None and getattr(ter, "verts", None):
+                out.append((f"Block[{bx}][{by}] Terrain", ter, X.block_world_origin(bx, by)))
+    except ConfigError:                                 # no install resolves (a hermetic run): nothing stock to read
+        pass
+    return out
+
+
+def _reaches(blk, at, seg, radius: float) -> bool:
+    """Does the edit's field reach block ``blk`` (its 64u footprint within ``radius`` of the shape)?"""
+    bx, by = blk
+    x0, x1, z0, z1 = bx * BLOCK, (bx + 1) * BLOCK, -(by + 1) * BLOCK, -by * BLOCK
+
+    def dist(px, pz):
+        return math.hypot(max(x0 - px, 0.0, px - x1), max(z0 - pz, 0.0, pz - z1))
+    if seg is None:
+        return dist(*at) < radius
+    (ax, az), (bx_, bz) = seg
+    n = max(1, int(math.hypot(bx_ - ax, bz - az)))
+    return any(dist(ax + (bx_ - ax) * i / n, az + (bz - az) * i / n) < radius for i in range(n + 1))
+
+
+def _form2_disc4(place: str, written, *, rtarget: int, skip_mirror, replay, log=print):
+    """A form-2 edit's post-step, in place of :func:`ff9mapkit.world.discmirror.auto_mirror`'s copy. That copy gates on
+    the cell's form-1 parts, but disc 4's form-2 ground differs from disc 1's on 5 of 20 cells (forms lane F11), so a
+    form-2 edit is never copied: where disc 4 switches the place too (Mognet Central, Chocobo's Paradise: a story flag
+    on every disc) the edit is REPLAYED on disc 4's own form-2 ground; a disc-1 place never shows its form 2 on disc 4
+    by default, so nothing is done there and the log says so."""
+    from . import discmirror as DM, forms as FM
+    if skip_mirror == DM.REPLAY:
+        return None
+    for line in FM.note_lines(FM.form_hits(written)):
+        log(line)
+    if skip_mirror:
+        log("disc-4 mirror: skipped (--skip-mirror)")
+        return None
+    if rtarget != 1:
+        return None
+    if place not in FM.FLAG_PLACES:
+        log(f"disc-4 mirror: not needed -- {place} switches on disc 1 only by default, so disc 4 never shows this "
+            f"form (re-run with --disc 4 to edit disc 4's own form 2 anyway)")
+        return {"skipped": "a disc-1 place"}
+    log(f"disc-4 mirror: {place} switches on disc 4 too -- REPLAYING the edit on disc 4's own form-2 ground")
+    try:
+        replay(4)
+    except ValueError as e:
+        log(f"  !! NOT MIRRORED: the replay on Disc4 refused ({str(e).splitlines()[0][:200]}) -- disc 4 keeps its "
+            f"own form 2 there, without this edit")
+        return {"replay": {"refused": str(e)}}
+    return {"replay": {"disc": 4}}
+
+
 def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float | None = None,
             flatten: bool = False, height: float | None = None, disc: int = 1, falloff: str = "smooth",
             game=None, dry_run: bool = False, skip_mirror: bool = False,
             target_disc: int | None = None, allow_steep: bool = False, fresh: bool = False,
             allow_overwrite: bool = False, seam_taper: float | None = None,
-            allow_entrances: bool = False) -> dict:
+            allow_entrances: bool = False, form: int = 1) -> dict:
     """Reshape overworld terrain within ``radius`` world units, across every block it touches. Exactly one SHAPE:
     ``at=(x, z)`` (a radial hill/crater/plateau) or ``seg=((x0,z0),(x1,z1))`` (a ridge/valley). Exactly one OP:
     ``amount`` (signed: ``+`` raise, ``-`` lower) or ``flatten=True`` (level toward ``height``, default the local mean).
@@ -179,7 +289,17 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     stock bundle tree. ``target_disc`` is purely where the result is DEPLOYED (a synthetic world's override
     namespace; engine patch s74). **When they differ the READ also moves**: a synthetic world has no pristine
     tree, so its land exists ONLY as an already-deployed override there, a block with none is skipped as sea,
-    and ``fresh`` has no stock to reset to."""
+    and ``fresh`` has no stock to reset to.
+
+    FORM 2 (terrain study defect 19). On the 26 cells that switch with a story place (:mod:`ff9mapkit.world.forms`)
+    the default edit is of form 1, the ``Terrain`` the cell shows until its place switches; the moment it does, stock
+    ``Terrain2`` comes back and the edit is gone (in-game proven, RESULTS section 20). ``form=2`` edits that
+    alternate ground instead: each of the place's cells within reach reads its deployed ``Terrain2`` (else stock form
+    2, ``0_2``) and writes ``Terrain2``. The pins follow the form: on the place's cells, the parts form 2 renders (the
+    shared water, the form-2 Object), never the form-1 Object; every other cell in range is not moved and is held at
+    its border, Terrain included. One place per edit (two switch independently, so an edit across them would tear
+    whenever one had switched and the other had not), and only on disc 1 or 4. Disc 4: see :func:`_form2_disc4`.
+    Run the same edit with ``form=1`` and ``form=2`` to make it in both forms."""
     from . import extract as X, mesh as M
     if (at is None) == (seg is None):
         raise ValueError("give exactly one shape: at=(x,z) OR seg=((x0,z0),(x1,z1))")
@@ -202,11 +322,32 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                "blocks": [], "skipped_sea": [], "off_grid": [], "stacked_on": []}
     in_grid = [(bx, by) for bx in range(bx0, bx1 + 1) for by in range(by0, by1 + 1)
                if 0 <= bx < GRID_X and 0 <= by < GRID_Y]
+    if form not in (1, 2):
+        raise ValueError("form must be 1 (the ground a cell shows until its place switches) or 2 (the alternate)")
+    place, place_cells = None, set()
+    if form == 2:                                                   # FORM 2: one place's cells, the rest held
+        from .forms import SWITCHABLE
+        if rtarget != disc:
+            raise ValueError("form 2: a Path D namespace switches a cell's form only in CLONE mode -- edit form 2 "
+                             "on disc 1 or 4")
+        places = sorted({SWITCHABLE[b] for b in in_grid if b in SWITCHABLE and _reaches(b, at, seg, radius)})
+        if not places:
+            raise ValueError("form 2 edits the alternate ground of a cell that switches with a story place, and no "
+                             "such cell is within the radius (`world-forms` lists the 26)")
+        if len(places) > 1:
+            raise ValueError(f"form 2: the radius reaches cells of {places}, which switch independently -- an edit "
+                             f"across them would tear whenever one had switched and the other had not. Shrink the "
+                             f"radius or move the centre onto one place's cells.")
+        place = places[0]
+        place_cells = {b for b in in_grid if SWITCHABLE.get(b) == place}
+        summary.update(form=2, place=place)
     if fresh:                                                       # before any write: name the discards
-        summary.update(M.fresh_reset_gate(in_grid, mod_folder, disc=disc, game=game,
+        summary.update(M.fresh_reset_gate(sorted(place_cells) if form == 2 else in_grid, mod_folder, disc=disc,
+                                          game=game, parts=("Terrain2",) if form == 2 else ("Terrain",),
                                           allow_overwrite=allow_overwrite))
     from .entrance import read_block_stacked
     from .extract import CH_POS as _CP
+    write_part = "Terrain2" if form == 2 else "Terrain"
     # read every block (and the parts its Terrain is stitched to) BEFORE deforming any: the stitch pins, the shared
     # flatten height and both gates need the whole edit, and a refusal must come before the first write
     ters = []
@@ -219,18 +360,27 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                 summary["off_grid"].append([bx, by])
                 continue
             # stacked (a synthetic namespace's land IS its deployed override); fresh = pristine stock
-            ter = read_block_stacked(mod_folder, bx, by, disc=rtarget, part="terrain", game=game,
-                                     missing_ok=True, fresh=fresh)
+            if form == 2:
+                if (bx, by) not in place_cells:
+                    continue                                        # not this place's: held, a partner below
+                ter = form2_part(mod_folder, bx, by, "terrain", "Terrain2", disc=rtarget, game=game, fresh=fresh)
+            else:
+                ter = read_block_stacked(mod_folder, bx, by, disc=rtarget, part="terrain", game=game,
+                                         missing_ok=True, fresh=fresh)
             if ter is None:
                 summary["skipped_sea"].append([bx, by]); continue          # sea / no terrain mesh
             if not fresh:
-                dep = M.deployed_override(mod_folder, bx, by, disc=rtarget, part="Terrain", game=game)
+                dep = M.deployed_override(mod_folder, bx, by, disc=rtarget, part=write_part, game=game)
                 if dep is not None:
                     summary["stacked_on"].append(str(dep))
             ters.append((bx, by, ter, X.block_world_origin(bx, by)))
     # THE STITCH PINS (defect 5): every Terrain vertex shared with another part -- sea, beach, river, Object, volcano,
     # in this block or a neighbour -- stays put, so the edit never opens a slit or a one-way wall at a seam
-    partners = stitch_partners(in_grid, mod_folder, disc=rtarget, game=game, fresh=fresh)
+    if form == 2:
+        partners = form2_partners(sorted(place_cells), [b for b in in_grid if b not in place_cells], mod_folder,
+                                  disc=rtarget, game=game, fresh=fresh)
+    else:
+        partners = stitch_partners(in_grid, mod_folder, disc=rtarget, game=game, fresh=fresh)
     taper = SEAM_TAPER if seam_taper is None else float(seam_taper)
     pins = M.stitch_pins(partners, [(t, wo) for _x, _y, t, wo in ters if getattr(t, "verts", None)], taper=taper)
     if flatten and height is None:                                  # ONE target for every block, or their border tears
@@ -273,7 +423,7 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     written = []
     for bx, by, ter, moved in built:
         if not dry_run:
-            written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain", disc=rtarget))
+            written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part=write_part, disc=rtarget))
         summary["blocks"].append({"block": [bx, by], "moved": moved})
     if summary["off_grid"]:
         import warnings
@@ -295,8 +445,11 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
                 return reshape(mod_folder, radius=radius, at=at, seg=seg, amount=amount, flatten=flatten,
                                height=flat_h, disc=d, falloff=falloff, game=game, skip_mirror=DM.REPLAY,
                                allow_steep=allow_steep, fresh=fresh, allow_overwrite=allow_overwrite,
-                               seam_taper=seam_taper, allow_entrances=allow_entrances)
-        summary["mirror"] = DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror, replay=replay)
+                               seam_taper=seam_taper, allow_entrances=allow_entrances, form=form)
+        if form == 2:
+            summary["mirror"] = _form2_disc4(place, written, rtarget=rtarget, skip_mirror=skip_mirror, replay=replay)
+        else:
+            summary["mirror"] = DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror, replay=replay)
     return summary
 
 

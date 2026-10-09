@@ -128,7 +128,7 @@ def test_reshape_fresh_has_no_stock_on_a_synthetic_world(world):
 def _deploy_ns(**kw):
     ns = dict(block=None, cluster=None, disc=1, lod="0_1", mod_folder="MOD", hill=2.0, crater=0.0, flatten=False,
               height=None, radius=12.0, center=list(AT), falloff="smooth", no_normals=False, allow_entrances=False,
-              spike=0.0, lift=0.0, skip_mirror=True, game=None, fresh=False, allow_overwrite=False, allow_tear=False)
+              spike=0.0, lift=0.0, skip_mirror=True, game=None, fresh=False, allow_overwrite=False, allow_tear=False, form=1)
     ns.update(kw)
     return argparse.Namespace(**ns)
 

@@ -145,8 +145,11 @@ def note_lines(hits) -> list:
                          f"{when}), and form 2 has no {h['part']} here, so the edit vanishes when it does. Pin the "
                          f"place's condition with world-environment to keep it.")
         else:
+            how = ("run the same edit again with --form 2 (world-terrain / world-deploy) to make it in form 2 too"
+                   if h["counterpart"] == "Terrain2" else
+                   f"write a {h['counterpart']} override too (mesh.deploy_override(bm, part=\"{h['counterpart']}\"))")
             lines.append(f"  !! WARNING: {where} replaces FORM 1 ONLY: this cell switches with {place} (by default: "
                          f"{when}), and when it does the stock {h['counterpart']} mesh comes back and this edit "
-                         f"vanishes, render and walk. Write a {h['counterpart']} override too to keep it in both "
-                         f"forms, or pin the place's condition with world-environment.")
+                         f"vanishes, render and walk. To keep it, {how}, or pin the place's condition with "
+                         f"world-environment.")
     return lines
