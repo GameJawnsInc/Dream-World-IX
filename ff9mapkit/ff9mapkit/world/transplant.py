@@ -3424,8 +3424,12 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     other parts are never co-moved: an Object is rigid, and the kit writes only parts a tweak meant to touch.
 
     THE ENTRANCE GUARD (defect 6). The ``entrance`` gate row fails when the morph drops or re-cuts a walk-on entrance
-    tile of the land it loads (Terrain, Beach1), unless ``allow_entrances``; tiles it only moves are reported in the
-    row (:func:`ff9mapkit.world.mesh.entrance_guard`)."""
+    tile of the land it loads (Terrain, Beach1, and an Object or river when ``parts`` names one: Daguerreo's entrance
+    tiles are its Object's), unless ``allow_entrances``; tiles it only moves are reported in the row
+    (:func:`ff9mapkit.world.mesh.entrance_guard`).
+
+    Each part deploys under the engine's own name (:func:`~ff9mapkit.world.placement.canonical_part`: ``RiverJoint``,
+    which ``str.capitalize`` turns into a name no block registers)."""
     from . import mesh as M
     from .placement import canonical_part
     tweaks = list(tweaks)
@@ -3483,7 +3487,7 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                 if whole:
                     pre_w.extend(v[0] for v in tri)
                     post_w.extend(v[0] for v in poly)
-            if p in LAND_PARTS:
+            if p not in SINK_WATER_PARTS:          # land, and a building's Object (stock's first-scanned walk part)
                 guard_tris.setdefault(p, []).append((tri, poly if whole else None))
         for tw in tweaks:
             if getattr(tw, "part", None) == p:
@@ -3576,13 +3580,13 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     for p in sorted(raw):
         loc = [[((v[0][0] - 64.0 * bx, v[0][1], v[0][2] + 64.0 * by), v[1], v[2], v[3])
                 for v in poly] for poly in raw[p]]
-        nm = f"Block[{bx}][{by}] {part_name(p)}"
+        nm = f"Block[{bx}][{by}] {canonical_part(p) or part_name(p)}"
         # AN EMPTIED PART (an island sink can take a block's whole Terrain): the hidden blanking stub, as the island
         # builder writes for an interior block's sea -- a 0-vert mesh is refused by the writer, mid-deploy
         bm = (_soup_block_mesh(nm, (bx, by), loc, disc=disc, lod=lod) if loc
               else M.hidden_block_mesh(name=nm, disc=disc, x=bx, y=by, lod=lod))
         summary["deployed"].append(str(M.deploy_override(
-            bm, mod_folder=mod_folder, game=game, lod=lod, part=part_name(p))))
+            bm, mod_folder=mod_folder, game=game, lod=lod, part=canonical_part(p) or part_name(p))))
     from . import discmirror as DM
     DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror, replay=replay)
     return summary
@@ -4755,6 +4759,9 @@ SINK_SHORE_TOPO = {"sea3": 55, "sea5": 55, "sea4": 56}
 SINK_BELT_REACH = 2.0
 #: how far from the island the fringe closure may reach before it is another coast's sea
 SINK_FRINGE_REACH = 12.0
+#: every water part a block can carry; a part that is neither water nor SINK_LAND_PARTS (the Object, a waterfall, a
+#: river and its joints, a stream) can be an island's BUILDING (:func:`_sink_building`)
+SINK_WATER_PARTS = ("sea1", "sea2", "sea3", "sea4", "sea5", "sea6", "sea4f")
 
 
 class RetopoTris:
@@ -5012,6 +5019,82 @@ def _sink_unit(at, real, tris, around, *, disc: int, max_blocks: int) -> tuple:
     return pts, land, island, shore, blocks
 
 
+def _sink_building(land, shore, near, real, tris) -> tuple:
+    """THE ISLAND'S BUILDING (terrain study, islands with buildings; ``land2sea/sh_b1_buildings.py``,
+    ``sh_b2_plugs.py``): every tri of a part that is neither land nor water (the Object, a waterfall, a river and its
+    joints, a stream) joined by shared vertices to the island's land or shore, with all it is joined to in turn -- land
+    included -- in the blocks ``near``. It goes with the island.
+
+    EVERY STOCK BUILDING PLUGS A HOLE (forms/object2_census.py): in the sheet of the island's land and shore and the
+    water and land round them, the building fills a hole -- inside the island (Daguerreo, the corner island at (0, 0))
+    or across its coast (the lagoon island at (553, -1127): part land, part water). Each such hole, a boundary cycle of
+    the sheet with every vertex a building vertex and nothing of the sheet inside it, is a PLUG: when the building goes
+    it becomes water with the island. Returns ``(building, carried, plugs, by_part)``: ``carried`` is the land in the
+    building (Daguerreo's waterfall carries 2 terrain tris), ``plugs`` flat triangles over each hole (ear-clipped in
+    plan, every vertex the ring's own 3D point, so they weld to the ground round the hole), ``by_part`` the building's
+    tris by part. Raises :class:`SinkJoined` when the building also stands on other land (a carried land vertex
+    outside the island and its plugs)."""
+    from . import meshedit as ME
+
+    def k3(p):
+        return (round(p[0], 4), round(p[1], 4), round(p[2], 4))
+    unit = list(land) + list(shore)
+    uid = {id(t) for t in unit}
+    ukeys = {k3(v[0]) for t in unit for v in t}
+    cand = [(p, t) for b in near for p in sorted(real[b]) if p not in SINK_WATER_PARTS for t in tris(b, p)
+            if id(t) not in uid]
+    kind = {id(t): p for p, t in cand}
+    # a component is closed under shared vertices, so one that touches the island is all of its building (land alone
+    # never does: land sharing a vertex with the island is the island)
+    building = [t for c in ME.vertex_components([t for _p, t in cand]) if any(k3(v[0]) in ukeys for t in c for v in t)
+                for t in c]
+    if not building:
+        return [], [], [], collections.Counter()
+    bid = {id(t) for t in building}
+    bkeys = {k3(v[0]) for t in building for v in t}
+    carried = [t for t in building if kind[id(t)] in SINK_LAND_PARTS]
+    sheet = unit + [t for b in near for p in sorted(real[b]) if p in SINK_WATER_PARTS + SINK_LAND_PARTS
+                    for t in tris(b, p) if id(t) not in uid and id(t) not in bid]
+    def index(ts):
+        out: dict = collections.defaultdict(list)
+        for t in ts:
+            for ij in _tiles_touched(t):
+                out[ij].append(t)
+        return out
+
+    def over(ix, q):                                   # a point on a 4u line looks in the tiles either side
+        cells = {(math.floor((q[0] + d) / 4.0), math.floor((q[1] + e) / 4.0)) for d in (-1e-6, 1e-6)
+                 for e in (-1e-6, 1e-6)}
+        return any(_tri_has(t, q) for ij in cells for t in ix.get(ij, ()))
+    stile = index(sheet)
+    plugs = []
+    for ring in ME.boundary_cycles(sheet):
+        if not all(k3(p) in bkeys for p in ring):
+            continue
+        at3 = {_pk((p[0], p[2])): tuple(p) for p in ring}
+        ears = ME.earclip([(p[0], p[2]) for p in ring], quality=True)
+        # a HOLE has nothing of the sheet inside it (the outer edge of ground a building rings round does)
+        if any(over(stile, ((a[0] + b[0] + c[0]) / 3.0, (a[1] + b[1] + c[1]) / 3.0)) for a, b, c in ears):
+            continue
+        plugs += [[(at3[_pk(q)], (0.0, 1.0, 0.0), (0.0, 0.0), (0.0, 0.0, 0.0, 1.0)) for q in e] for e in ears]
+    ptile = index(unit + plugs)
+    for t in carried:
+        for v in t:
+            q = (v[0][0], v[0][2])
+            if not over(ptile, q):
+                raise SinkJoined(f"the island's building also stands on other land (near ({q[0]:.1f}, {q[1]:.1f})): "
+                                 f"a sink would take that land's building from under it", q)
+    return building, carried, plugs, collections.Counter(kind[id(t)] for t in building)
+
+
+def _building_report(by_part, plugs) -> dict:
+    """A sink report's building keys: its tris by part (``by_part``, the land it carries included), and its plugs' tris
+    and plan area."""
+    return {"building": dict(sorted(by_part.items())), "plug_tris": len(plugs),
+            "plug_u2": round(sum(_plan_clip_area([(v[0][0], v[0][2]) for v in t], -1e9, 1e9, -1e9, 1e9)
+                                 for t in plugs), 2)}
+
+
 def _band_tile(ring, p, es, ij, sea3_map, nrm, wind) -> list:
     """One re-tiled cell's tris in band ``p`` (``ring``: its outline, the tile square plus any edge welds): sea4 in its
     quadrant language, sea3 in its learned quadrant language, sea5 the learned transition tile for deep edges ``es`` (a
@@ -5128,7 +5211,9 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
       welds exactly there) until it closes, in at most ``max_blocks`` blocks; plus THE SHORE, its own true shallows
       (sea1, sea2 nearer to it than to any other land): shore-bound water (the water-ladder law) goes with its shore.
       Shore water joined to another coast's is refused.
-    - THE REGION is every 4u lattice tile the island and its shore cover, closed over the coast-conforming water tris
+    - THE BUILDING (:func:`_sink_building`): an Object, waterfall or river joined to the island goes with it, with any
+      land it carries; one that also stands on other land refuses (:class:`SinkJoined`).
+    - THE REGION is every 4u lattice tile the island, its shore and its building cover, closed over the coast-conforming water tris
       round them (sea3, sea5, sea4: they span tiles, so every tile one reaches joins, until the region ends on whole
       stock tiles). Each must hold nothing but the island, its shore and those water tris lying wholly inside it, with
       no entrance bits on that water; all of it is dropped and every tile re-filled whole
@@ -5149,10 +5234,10 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
       where the island stood.
     - The fill keeps the water's area: the most common area of the water tris it replaces.
     Refuses (``ValueError``, nothing planned) on: no land under ``at``; one past ``max_blocks`` blocks; shore water
-    shared with another coast; a region tile holding anything else (an Object, other land, another coast's wash, a
-    river) or a water tri crossing its edge; entrance bits on the water it would replace; a region block whose prefab
+    shared with another coast; a building that also stands on other land; a region tile holding anything else (an
+    Object not the island's, other land, another coast's wash, a river) or a water tri crossing its edge; entrance bits on the water it would replace; a region block whose prefab
     lacks a band the tile needs (the absent-part law); a band pair stock never lays side by side; a T-junction; a fill
-    that does not cover the region exactly once. Entrance tiles on the island itself are left to
+    that does not cover the region exactly once. Entrance tiles on the island or its building are left to
     :func:`morph_in_place`'s entrance gate. Returns ``({block: [tweaks]}, report)``."""
     from . import coastmorph as CM, discmirror as DM, meshedit as ME
 
@@ -5169,6 +5254,10 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
                        if (b[0] + dx, b[1] + dy) in real})
 
     pts, land, island, shore, blocks = _sink_unit(at, real, tris, around, disc=disc, max_blocks=max_blocks)
+    # THE BUILDING goes with its island (the land it carries is the island's too)
+    building, carried, plugs, by_part = _sink_building(land, shore, around(blocks), real, tris)
+    land = list(land) + carried
+    island |= {id(t) for t in carried}
     shore_ids = {id(t) for t in shore}
     touched: dict = {}
 
@@ -5177,7 +5266,7 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
             touched[id(t)] = _tiles_touched(t)
         return touched[id(t)]
     region = set()
-    for t in land + shore:
+    for t in land + shore + building:
         region |= tiles(t)
     # THE FRINGE CLOSURE: stock's coast-conforming water tris span several tiles (disc 1's partly-covered coast tiles
     # round Shimmering: 0 of 158 were one clean tile), so every tile such a tri reaches joins the region, until the
@@ -5217,12 +5306,11 @@ def sink_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int
               "land_tris": len(land), "max_y": round(max(v[0][1] for t in land for v in t), 3),
               "land_u2": round(sum(_plan_clip_area([(v[0][0], v[0][2]) for v in t], -1e9, 1e9, -1e9, 1e9)
                                    for t in land), 1),
-              "entrance_tris": sum(1 for t in land if decode_id(int(round(t[0][3][0])))["event"]),
-              "shore_tris": len(shore)}
-    owners = island | shore_ids
+              "entrance_tris": sum(1 for t in land + building if decode_id(int(round(t[0][3][0])))["event"]),
+              "shore_tris": len(shore), **_building_report(by_part, plugs)}
+    owners = island | shore_ids | {id(t) for t in building}
     drops, sea_drop = {}, []
-    for b in sorted(set(rblocks) | {b for b in near if any(id(t) in owners for p in SINK_LAND_PARTS + SINK_SHORE_PARTS
-                                                             for t in tris(b, p))}):
+    for b in sorted(set(rblocks) | {b for b in near if any(id(t) in owners for p in real[b] for t in tris(b, p))}):
         for p in sorted(real.get(b, ())):
             for t in tris(b, p):
                 # EVERY island tri goes, first: a near-vertical one standing on a tile line has no plan area, touches
@@ -5625,9 +5713,10 @@ def sink_footprint_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_b
 
     The whole-tile sink (:func:`sink_plan`) re-tiles every tile the island touches, so it must take the coast-conforming
     water round it; where that water also conforms to another coast, it runs into it. Here only the island goes -- its
-    land and its own beach water (:func:`_sink_unit`) -- and the water round it all stays:
+    land and its own beach water (:func:`_sink_unit`), and its building with the holes it plugs (:func:`_sink_building`)
+    -- and the water round it all stays:
     - THE COASTLINE is the boundary of what goes. Every vertex on it must sit at the waterline, and only water may lie
-      across it (a building welded to the coast, a hole, another coast's beach water refuse).
+      across it (a hole no building plugs, another coast's beach water refuse).
     - THE FOOTPRINT is filled cell by cell: each dropped tri is cut against each 4u cell it covers (one convex piece,
       crossings computed from the original edge in one canonical order), and a cell's pieces merge into its outline. A
       cell the footprint covers whole is re-tiled as a stock tile, in the band the open-ocean marching band gives it
@@ -5659,9 +5748,12 @@ def sink_footprint_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_b
     _pts, land, island, shore, blocks = _sink_unit(at, real, tris, around, disc=disc, max_blocks=max_blocks)
     near = around(blocks)
     src = {id(t): (b, p) for b in near for p in sorted(real[b]) for t in tris(b, p)}
+    # THE BUILDING goes with its island; the holes it plugs are the island's footprint too
+    building, carried, plugs, by_part = _sink_building(land, shore, near, real, tris)
     # THE ISLAND'S FRAGMENTS: loose land wholly over the footprint goes with it (it would stand over the sea)
-    unit = list(land) + list(shore)                    # the coastline and the footprint are the island's own
-    gone = list(unit)
+    unit = list(land) + list(shore) + plugs            # the coastline and the footprint are the island's own
+    gone = list(land) + list(shore) + building
+    land = list(land) + carried
     gid = {id(t) for t in gone}
     gtile: dict = collections.defaultdict(list)
     for t in unit:
@@ -5695,12 +5787,6 @@ def sink_footprint_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_b
                 ec[tuple(sorted((ks[k], ks[(k + 1) % 3])))] += 1
     coast = {e for e, n in ec.items() if n == 1}
     gkeys = {k3(v) for t in gone for v in t}
-    for b in near:
-        for t in tris(b, "object"):
-            if any(k3(v) in gkeys for v in t):
-                c = _plan_centroid(t)
-                raise ValueError(f"a building stands on the island (its Object welds to the island's ground near "
-                                 f"({c[0]:.1f}, {c[1]:.1f})): a sink would leave it standing over the sea")
     high = sorted({v for e in coast for v in e if abs(v[1]) > 1e-6})
     if high:
         raise ValueError(f"the island's coast leaves the waterline at {high[0]}: water can only meet it at y 0")
@@ -5968,7 +6054,8 @@ def sink_footprint_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, max_b
               "max_y": round(max(v[0][1] for t in land for v in t), 3),
               "land_u2": round(sum(_plan_clip_area([(v[0][0], v[0][2]) for v in t], -1e9, 1e9, -1e9, 1e9)
                                    for t in land), 1),
-              "entrance_tris": sum(1 for t in land if decode_id(int(round(t[0][3][0])))["event"]),
+              "entrance_tris": sum(1 for t in land + building if decode_id(int(round(t[0][3][0])))["event"]),
+              **_building_report(by_part, plugs),
               "shore_tris": len(shore), "fill_area": area, "fill_tris": sum(len(v) for v in fill.values()),
               "fill_u2": round(fill_u2, 2), "footprint_u2": round(foot_u2, 2),
               "split_tris": len(split), "sea_replaced": 0, "edge_welds": 0,
@@ -6085,11 +6172,12 @@ def sink_auto_plan(at, *, disc: int = 1, lod: str = "0_1", game=None, cluster: b
 def sink_candidates(*, disc: int = 1, lod: str = "0_1", game=None, max_blocks: int = 9) -> list:
     """Every island the sink could be pointed at on ``disc``, with its verdict: each LAND component of the whole map
     (terrain and beach1 joined by shared vertices, traced as :func:`sink_plan` traces one) within ``max_blocks``
-    blocks, tried with :func:`sink_plan` at the centroid of its largest flat land tri; one refused at another coast is
+    blocks that water meets (a land piece no water touches is not an island), tried with :func:`sink_plan` at the
+    centroid of its largest flat land tri; one refused at another coast is
     tried alone with its neighbours kept (:func:`sink_footprint_plan`, ``fill`` "footprint", ``joined`` the whole-tile
     refusal) and as a cluster (:func:`sink_cluster_plan`). Rows ``{"at", "land_u2", "max_y", "blocks", "ok", "why",
-    "bands", "shore_tris", "fill", "joined", "cluster"}`` (``cluster``: None, or ``{"ok", "members", "blocks", "bands",
-    "why"}``), largest first."""
+    "bands", "shore_tris", "fill", "joined", "building", "entrance_tris", "cluster"}`` (``building``: its tris by part,
+    or None; ``cluster``: None, or ``{"ok", "members", "blocks", "bands", "why"}``), largest first."""
     from . import discmirror as DM, meshedit as ME
     real = DM._real_parts(disc, lod, game=game)
     tagged = []
@@ -6098,11 +6186,24 @@ def sink_candidates(*, disc: int = 1, lod: str = "0_1", game=None, max_blocks: i
             if p in real[b]:
                 tagged += [(p, b, t) for t in world_tris(b[0], b[1], p, disc=disc, lod=lod, game=game)]
     own = {id(t): (p, b) for p, b, t in tagged}
+    wkeys: dict = {}
+
+    def water_keys(b):
+        if b not in wkeys:
+            wkeys[b] = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4)) for p in SINK_WATER_PARTS
+                        if p in real.get(b, ()) for t in world_tris(b[0], b[1], p, disc=disc, lod=lod, game=game)
+                        for v in t}
+        return wkeys[b]
     rows = []
     for c in ME.vertex_components([t for _, _, t in tagged]):
         blocks = sorted({own[id(t)][1] for t in c})
         if len(blocks) > max_blocks:
             continue                                   # a continent
+        # NOT AN ISLAND: land no water meets (a rock top an Object rings, a plateau between falls and a river, a sliver
+        # of a waterfall: sh_b1_buildings.py found 4 among disc 1's land components)
+        ck = {(round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4)) for t in c for v in t}
+        if not any(ck & water_keys((b[0] + dx, b[1] + dy)) for b in blocks for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+            continue
 
         def flat(t):
             return abs((t[1][0][0] - t[0][0][0]) * (t[2][0][2] - t[0][0][2])
@@ -6110,16 +6211,19 @@ def sink_candidates(*, disc: int = 1, lod: str = "0_1", game=None, max_blocks: i
         at = tuple(round(v, 3) for v in _plan_centroid(max(c, key=flat)))
         row = {"at": list(at), "land_u2": round(sum(flat(t) for t in c) / 2.0, 1),
                "max_y": round(max(v[0][1] for t in c for v in t), 2), "blocks": blocks, "bands": None,
-               "shore_tris": 0, "cluster": None, "fill": "tiles", "joined": None}
+               "shore_tris": 0, "cluster": None, "fill": "tiles", "joined": None, "building": None,
+               "entrance_tris": 0}
         try:
             _plan, rep = sink_plan(at, disc=disc, lod=lod, game=game, max_blocks=max_blocks)
-            row.update(ok=True, why=None, bands=rep["bands"], shore_tris=rep["shore_tris"], blocks=rep["blocks"])
+            row.update(ok=True, why=None, bands=rep["bands"], shore_tris=rep["shore_tris"], blocks=rep["blocks"],
+                       building=rep["building"] or None, entrance_tris=rep["entrance_tris"])
         except (SinkJoined, SinkCrowded) as e:
             row.update(ok=False, why=str(e).split(":")[0][:160])
             try:
                 _plan, rep = sink_footprint_plan(at, disc=disc, lod=lod, game=game, max_blocks=max_blocks)
                 row.update(ok=True, fill="footprint", joined=row["why"], why=None, bands=rep["bands"],
-                           shore_tris=rep["shore_tris"], blocks=rep["blocks"])
+                           shore_tris=rep["shore_tris"], blocks=rep["blocks"], building=rep["building"] or None,
+                           entrance_tris=rep["entrance_tris"])
             except ValueError as e3:
                 row["why"] = str(e3).split(":")[0][:160]
             if not isinstance(e, SinkJoined):
@@ -6152,8 +6256,10 @@ def sink(mod_folder: str, at, *, disc: int = 1, lod: str = "0_1", game=None, dry
     plan, report = planned()
     edited = set(plan)
     out = {"op": "sink", **report, "per_block": {}, "deployed": [], "dry_run": dry_run}
+    # the morph loads land and water; a building's parts (its Object, a waterfall, a river) only where the plan has one
+    extra = sorted({tw.part for tws in plan.values() for tw in tws if getattr(tw, "part", None) not in PARTS})
     kw = dict(disc=disc, lod=lod, game=game, fresh=fresh, allow_overwrite=allow_overwrite,
-              allow_entrances=allow_entrances, frame_across_parts=True)
+              allow_entrances=allow_entrances, frame_across_parts=True, parts=PARTS + tuple(extra))
     for b in sorted(edited):
         s = morph_in_place(mod_folder, cell=b, tweaks=plan[b], dry_run=True, frame_shared=edited - {b}, **kw)
         out["per_block"][f"{b[0]},{b[1]}"] = s

@@ -964,10 +964,17 @@ stays. Where a 4u line crosses the old coastline, the kept water tri there is sp
 vertex (the whole-tile sink splits a kept coastal tri running past a re-tiled tile's corner the same way).
 `--cluster` instead sinks the island together with every island its water joins, re-tiled as one.
 
+**Islands with a building.** Every stock building plugs a hole in its ground. The island's building -- every Object,
+waterfall, river and river-joint tri joined to it by shared vertices, with any land it carries -- goes with it, and the
+hole it plugged becomes water too: inside the island (Daguerreo, its Object, waterfall and rivers), or across its
+coast, part land and part water (a lagoon island's cliff arch). A building that also stands on other land is refused.
+Each part the building empties is blanked under the engine's own name (`Object`, `Falls`, `River`, `RiverJoint`).
+
 An island over several blocks sinks in one edit, every block gated before any is written; a block left with no land
 gets the hidden blanking stub. Disc 4 is replayed on its own ground where it differs. `--list` finds the islands it
-takes. Refused: a building on the island, beach water another coast shares, a block whose prefab lacks a band the
-tiles need. An entrance on the island goes with it only with `--allow-entrances`. A party standing where the island was stands in
+takes (land no water meets is not an island). Refused: beach water another coast shares, a block whose prefab lacks a
+band the tiles need. An entrance on the island or its building goes with it only with `--allow-entrances` (sinking
+Daguerreo drops a story location's entrance). A party standing where the island was stands in
 the water at its class's walk sink (0.586u under the surface on mid water, 1.367u on deep). The big map still draws
 the island: `world-minimap` paints deployed land and cannot erase stock land.
 
