@@ -266,7 +266,8 @@ emits the file (`ff9mapkit/world/environment.py`, `build_environment_txt`/`write
 ```toml
 [world_environment]
 mist  = false                    # force the Mist-Continent mist OFF (true = on; omit a key = engine default)
-disc4 = "w_frameDisc == 4"       # NCalc condition passthrough
+disc4 = "ScenarioCounter >= 11090"   # NCalc condition passthrough (WorldDisc, ScenarioCounter, GetEventGlobalByte(i), ...)
+# stack = "combine"              # OR with lower-priority folders' conditions instead of replacing them
 
 [[world_environment.rain]]       # -> Rain Add [Position] [RadiusLarge] [RadiusSmall] [RainSpeed] [RainStrength]
 position = [700, -800]           # WORLD units (engine ×256 via ff9.S); the numeric params are optional
@@ -285,9 +286,20 @@ on = false
 name = "Alexandria"
 on = true
 ```
-Valid enum names: `environment.WORLD_PLACES` / `WORLD_EFFECTS` (baked from `Memoria/World/WorldPlace.cs` +
-`WorldEffect.cs`). RELAUNCH to apply (parsed at overworld init). The `Title` token (banner rect/timing) is not yet
+Valid effect names: `environment.WORLD_EFFECTS` (baked from `Memoria/World/WorldEffect.cs`). A place must be one of
+the 9 with an alternate block form (`environment.FORM_PLACES`: SouthGate_Gate, Alexandria, FireShrine, Lindblum,
+Cleyra, BlackMageVillage, WaterShrine, MognetCentral, ChocoboParadise); the engine never asks about any other, so the
+kit refuses one. RELAUNCH to apply (parsed at overworld init). The `Title` token (banner rect/timing) is not yet
 exposed. **★ in-game proven 2026-07-02** (`mist = false` forced the disc-1 Mist-Continent mist off).
+
+**Stacking (after 1.0.0b19; terrain study defect 20).** The engine reads the base file, then every FolderNames folder
+from the lowest priority to the highest, and conditions for one key accumulate: two folders that set `Place Cleyra`
+OR their conditions. So the kit writes each place/effect/mist/disc4 line after its `Clear` (`Place Cleyra Clear`),
+and the folder's condition replaces what lower folders set for that key; a higher folder is read later and can still
+add a condition or clear this one. `stack = "combine"` writes no `Clear`. Rain and light zones are lists and always
+add. On write the verb names each stacked line for the same keys (replaced below, still applied above). Memoria's
+shipped `Environment.txt` header tells modders to write `Clean`, but the parser reads only `Clear`: a `Clean` line
+does nothing, and the verb flags one in any stacked folder.
 
 ## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**

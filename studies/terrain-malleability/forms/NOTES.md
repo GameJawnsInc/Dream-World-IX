@@ -82,7 +82,9 @@ places (`label_forms.py`).
 -> highest priority, WorldConfiguration.cs:104-113, 412-421) and the kit never emits `Clear`; (b) Memoria's shipped
 `StreamingAssets/Data/World/Environment.txt` header tells modders to write `Place Alexandria Clean`, but the parser only
 accepts `Clear` (:400, :407) -- following the doc is a silent no-op. Also the kit validates any of the 64 place
-names (environment.py:28-41), while only 9 have block forms.
+names (environment.py:28-41), while only 9 have block forms. **Fixed after the study (defect 20):** the kit emits
+`<key> Clear` before each keyed line (opt out: `stack = "combine"`), refuses a place without a form, and reports the
+stacked lines for its keys plus any `Clean`.
 
 **F8 measurement -- the world .eb writes the two flag-gated bits itself.** `Global.Bit[814]` (Chocobo's Paradise)
 and `Global.Bit[815]` (Mognet Central) are B_LET-assigned 1 in entry 5 (tag 15/16) of 5 free-roam dispatchers

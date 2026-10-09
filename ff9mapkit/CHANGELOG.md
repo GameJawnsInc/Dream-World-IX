@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-environment`'s conditions replace lower mod folders' instead of OR-ing with them
+- The engine reads every stacked `Environment.txt` from the lowest-priority folder to the highest, and conditions for
+  one key accumulate. A kit `Place Cleyra` line in a folder that stacks over another that also sets Cleyra ORed with
+  it, so the place could switch on a condition the author never wrote.
+- Each place/effect/mist/disc4 line now follows its `Clear` (`Place Cleyra Clear`), so the folder's condition
+  replaces what lower folders set for that key. `stack = "combine"` keeps the old OR. Rain and light zones still add.
+- On write the verb names every stacked line for the same keys: lower folders' (replaced), higher folders' (read
+  later, still applied), and any `Clean` line. Memoria's shipped header documents `Clean`, but the parser reads only
+  `Clear`, so such a line does nothing.
+- A place without an alternate block form (56 of the 65 names) is refused: the engine only ever asks about the 9 that
+  switch (`environment.FORM_PLACES`). A place or effect listed twice is refused too.
+- The docs' `disc4` example used `w_frameDisc`, which is not an NCalc parameter; it is now `ScenarioCounter >= 11090`.
+
 ### Changed — `world-deploy --lift`/`--spike` refuse a torn seam unless `--allow-tear`
 - The two diagnostic bumps hold no seam, and only printed a warning after writing. Round a town's walkable floor (an
   Object filling a hole in the Terrain), a lift builds the shaft that froze the player at Dali in July 2026 (terrain

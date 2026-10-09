@@ -5867,14 +5867,27 @@ def _cmd_world_environment(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(ENV.build_environment_txt(cfg), end="")
         return 0
+    from . import config as C
     try:
         dest = ENV.write_environment(cfg, mod_folder=args.mod_folder, game=args.game)
+        rep = ENV.stack_report(cfg, mod_folder=args.mod_folder, game_dir=C.find_game_path(args.game))
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"wrote {dest}")
-    print("  RELAUNCH the game (or re-enter the overworld) to apply. The mod folder must be in "
-          "Memoria.ini [Mod] FolderNames.")
+    print("  RELAUNCH the game (or re-enter the overworld) to apply.")
+    # THE STACK (terrain study defect 20): what the other stacked Environment.txt files set for the same keys
+    if not rep["in_stack"]:
+        print(f"  NOTE: '{args.mod_folder}' is not in Memoria.ini [Mod] FolderNames, so nothing loads this file.")
+    verb = "replaces" if cfg.get("stack", "replace") == "replace" else "ORs with"
+    for src, line in rep["below"]:
+        print(f"  {verb} {src}: `{line}`")
+    for src, line in rep["above"]:
+        print(f"  !! WARNING: {src} is higher priority and is read after this file: `{line}` still applies on top "
+              f"of yours (another condition ORs in; a Clear drops yours)")
+    for src, line in rep["clean"]:
+        print(f"  !! WARNING: {src}: `{line}` does nothing -- the parser reads `Clear`, not the `Clean` that "
+              f"Memoria's shipped Environment.txt header documents")
     return 0
 
 
@@ -10227,7 +10240,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "a mod folder from a [world_environment] toml. No DLL (stock-Memoria seam); relaunch to apply.")
     wev.add_argument("config", help="a .toml with a [world_environment] table: mist/disc4 = true|false|<NCalc>, plus "
                                     "[[world_environment.rain]] / [[..light]] / [[..effect]] / [[..place]] lists "
-                                    "(a bare doc with those keys also works)")
+                                    "(a bare doc with those keys also works). Each place/effect/mist/disc4 line "
+                                    "replaces what lower-priority mod folders set for it; stack = \"combine\" ORs "
+                                    "with them instead")
     wev.add_argument("--mod-folder", required=True,
                      help="the FolderNames mod folder to write into (e.g. FF9CustomMap); file -> "
                           "<mod>/StreamingAssets/Data/World/Environment.txt")
