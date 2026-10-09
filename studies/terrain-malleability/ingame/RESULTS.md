@@ -471,12 +471,74 @@ Follow-up (kit): `world-deploy`'s diagnostic `--lift`/`--spike` hold no seam, so
 - A drop of 20u+ creeps, as at the round-1 beach: the walk reads "blocked" at the rim and needs a hold-on.
 - `world_face` probes walk ~10u: turn the camera at a spot with no entrance tile within 13u, or a probe walks into town.
 
+## Round 5 (2026-10-08, owner's go: "in-game session"): defects 19 and 20 in game, all ten stages as predicted
+
+Run `.harness-runs/20261008-214406-r5-forms`, one launch, 10 world loads, 0 exceptions. Two scratch folders, both
+first in FolderNames for the launch (`"FF9CustomMap-lab", "FF9CustomMap-lab2", ...`, so lab2 is parsed before the
+lab); ini backed up to `backups/Memoria.ini.pre-r5-lab.20261008-214401` and restored byte-exact (`0b5a4985…`), both labs
+removed. Build and predictions: `r5_build.py`; scenario: `r5_session.py`.
+
+### 20. A form-1 edit vanishes when its place switches; a Terrain2 keeps it; `Clear` replaces a lower folder's condition
+
+The cell is Black Mage Village's (22,14). Its stock switch changes nothing (form 2 is byte-equal to form 1), so every
+height change is ours. Ground sources at the read points:
+- **STOCK** (stock terrain, either form);
+- **T27**: the kit's own form-1 `Terrain`, `world-deploy --center 1440 -928 --radius 12 --flatten --height 27`. Its
+  receipt printed the new defect-19 warning ("replaces FORM 1 ONLY ...");
+- **T2_26**: a `Terrain2` flattened to 26, byte-equal to the one round 1 walked.
+
+The conditions are the kit's `world-environment` output (with `Clear`; `stack = "combine"` for the old output), plus
+Memoria's documented `Clean`, written by hand.
+
+| stage | lab | lab2 | predicted (= read) | m1-m4 max off |
+|---|---|---|---|---|
+| stock | - | - | STOCK | 0.0030 |
+| d19_t_f1 | T27, place false | - | T27 (the edit shows) | 0.0014 |
+| **d19_t_f2** | T27, place true | - | **STOCK: the form-1 edit is gone** | 0.0030 |
+| **d19_t_t2_f2** | T27 + T2_26, place true | - | **T2_26: a Terrain2 keeps the edit in form 2** | 0.0013 |
+| **d20_clear** | T27 + T2_26, `Clear` + false | true | **T27: the lab's Clear drops lab2's true** | 0.0014 |
+| d20_lower | T27 + T2_26, none | true | T2_26 (lab2's line is read) | 0.0013 |
+| d20_clear2 | as d20_clear | true | T27 | 0.0014 |
+| **d20_or** | T27 + T2_26, false (no Clear) | true | **T2_26: the old output ORs, so lab2 wins** | 0.0013 |
+| d20_clear3 | as d20_clear | true | T27 | 0.0014 |
+| **d20_clean** | T27 + T2_26, `Clean` + false | true | **T2_26: `Clean` does nothing** | 0.0013 |
+
+Every staged mesh bound from the lab on its world load (Memoria.log, 10/10).
+
+The frames show the same as the numbers:
+- `shots/r5-d19_t_f1.png`: a flattened shelf cut into the rock where Zidane stands.
+- `shots/r5-d19_t_f2.png`: plain steep slope; the edit is gone.
+- `shots/r5-d19_t_t2_f2.png`: the shelf again.
+
+**The control failed, and the instrument was at fault (post-hoc, labelled as such).** The control point (1421.37,
+−941.61) was registered at 29.2506 and read 28.0742 in all 10 stages. Its tile is canopy (topograph 36), where the
+player stands sunk 1.171875 (the canopy step law, RESULTS section 2), and my prediction left the sink out:
+29.2506 − 1.171875 = 28.0787, 0.0045 from the read. The control's job was to stay the same across stages, and it did.
+The harness scored the launch 10/20 because of it: the 10 failures are the control's absolute value, not a stage
+result.
+
+**Verdict.**
+1. **Defect 19's premise is proven in game.** A form-1 `Terrain` override on a switchable cell is replaced, render and
+   walk, by the stock form-2 mesh the moment its place switches. A `Terrain2` beside it carries the edit into form 2.
+   The kit's new warning describes exactly what happened.
+2. **Defect 20's fix is proven in game.** The engine parses a lower-priority folder first. A higher folder's
+   `Place X Clear` drops that folder's condition, so the kit's output now decides the place. The old output (no
+   `Clear`) ORs with it, and the lower folder's `true` wins. Memoria's documented `Clean` changes nothing.
+3. Each walk out re-read both Environment.txt files and both meshes: alternating predictions held across all ten
+   loads.
+
+Gap this round exposed: no `world-*` verb writes a `Terrain2`, so the warning's advice ("write a Terrain2 override
+too") can be followed only from the library (`mesh.deploy_override(bm, part="Terrain2")`, as `forms_build.py` does).
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
+
+- A height prediction on topograph 36-38 must subtract the canopy sink (1.171875): round 5's control missed by exactly
+  that. Read the tile's topograph before registering a number.
 
 - Memoria retitles the window `FINAL FANTASY IX - <message>` (`PlayerWindow.cs:51`); match by substring.
 - Walking on encounter tiles at level 1 ends in GameOver; teleport onto them instead (encounters need movement).
