@@ -74,7 +74,7 @@ One mechanism per playtest. Verdicts are the owner's; the gate suite is not an o
 | Rung | Delivers | New surface | Verdict question |
 |---|---|---|---|
 | 0 | probes + `adjust`/`drift` | `adjust`, `[[behavior.drift]]` | ★ DONE offline |
-| 1 | THE FIRST MEAL — one Sim (VIV), one need, one stove, one directive menu, HUD | none (wiring) | **BUILT + DEPLOYED (30430), ⚠ playtest pending** — does the number move and does the Sim go? |
+| 1 | THE FIRST MEAL — one Sim (VIV), one need, one stove, one directive menu, HUD | none (wiring) | **★ MECHANISM PROVEN in-game by the harness (27/27)**; feel = owner — does the number move and does the Sim go? |
 | 2 | five needs, ~6 objects, priority-branch autonomy, the day clock, speed control | none | alive when you stop directing it? |
 | 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | visibly smarter? if not, DROP it |
 | 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `[TBLE]` lane, gauge `source` | is failing funny? |
@@ -100,7 +100,7 @@ Standing rung-1 notes:
 - Furniture placement position is OUT OF SCOPE (needs a cursor + live walkmesh
   rebuild); bought objects appear at designated slots.
 
-## Rung 1 — BUILT + DEPLOYED (2026-08-14), ⚠ playtest pending
+## Rung 1 — ★ MECHANISM PROVEN IN-GAME (harness, 27/27); feel verdict = owner
 
 `sims_bench.py` (`gen`/`sim`/`deploy`) → **30430 "MANOR1"**: Bilba (VIV) wanders a
 home corner; the soup pot (`GEO_ACC_F0_SUP`) sits east inside a press-action zone
@@ -123,6 +123,33 @@ something." → Bilba walks over; (3) number climbs to 95+, Bilba ambles home;
 full meal is ~5s — tune `COOK_BY`/`COOK_EVERY`/`DECAY_EVERY` to taste at rung 2.
 ⚠ B_SYSVAR[20] probe deferred out of rung 1 (kept the bench one-mechanism).
 Revert: `tools/scroll_out/revert_deploy_30430.py`.
+
+**THE HARNESS RUN (`rung1_meal.py`, 27/27 on run 5; `py tools/play.py studies/sims/rung1_meal.py`).**
+30430 had dropped out of every DictionaryPatch since rung 1 (the bench toml is gitignored) -- regenerated
+and redeployed from `sims_bench.py`; the offline sim still passes on today's compiler. All five checklist
+points measured live, from published state only: hunger = the rendered HUD strip, Bilba = her s89
+`objects` uid, the order = watched bit 14867.
+- (1) boots 80, decays **0.60/s** with nobody directing (design 0.67; 7 points in 11.7 s, quantized);
+  unordered Bilba stays <= 253u of home and ambles (moved 181-417u).
+- (2) Confirm in the pot zone opens "The soup pot sits cold." / cook / Never mind; ordered, Bilba reaches
+  her cooking spot in **1.5-3.1 s**; the "!" bubble renders (frame `4-cooking`).
+- (3) hunger climbs **68-71 -> 95 in 3.5-4.0 s**, the order flag clears itself, Bilba is home 1.3-5.7 s
+  later; the clamp holds (peak 95).
+- (4) with an order pending the cook row is HIDDEN (`active [1]`, "Never mind." only); after the meal it is back.
+- (5) re-entry (a warp to 30430 -- what ~ Reload stands in for) mid-order: hunger 80, Bilba home, flag clear.
+- Zero exceptions in either log.
+
+Findings the run taught (for the owner's feel verdict and for rung 2):
+- **The order lands when the REPLY closes, not at the pick** (reply out frame 1747, flag 1751): "Bilba
+  shuffles toward the pot." is read while she stands still. Consider no reply, or a reply that fits the pause.
+- **The steward is still Zidane** (the design's moogle steward is not wired yet) -- a rung-2 dressing item.
+- The camera scrolls east with the steward; standing at the pot zone's east side puts him in front of the
+  pot on screen. Place the pot zone so the steward stands beside, not in front of, the stove.
+- ⚠ **HARNESS DEFECT (not the bench): `choose_landed` credits a Confirm pressed while the choice window is
+  still OPENING** (menu group `''`, not yet `Dialog.Choice`): the game drops it, and the first read fails
+  `_choice_ready`, which it scores as "left" = landed. Proven in run 3's ring (menu up 2128 at group '',
+  Confirm ~2130, group `Dialog.Choice` from 2136 with the flag still clear). `rung1_meal.py` waits for the
+  group before picking; the driver fix is spun off separately.
 
 ## Bench
 
