@@ -5,6 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — buildings that change with the story (`world-forms --building2`; custom engine patch `s93`)
+- `world-forms --mod-folder F --building2 X Y none|keep|PATH.obj` sets an armed custom cell's building in form 2:
+  - `none` removes its stock building there. Every stock building plugs a hole in its cell's ground (on all 59 disc-1
+    cells with one, nothing else answers under 90% of its footprint), so the cell's `Terrain2` gets that hole filled
+    from the tiles around it: the hole's edge tiles are split at the 4u tile lines (each keeps its look), and the coast
+    morphs' gated tile carry fills it from nearby tiles that map onto one atlas rect (never an entrance tile; walkable
+    ground when any is near). Refused, before anything is written, when the hole reaches the cell's edge or a fill gate
+    fails. On disc 1, 8 of the 37 buildings outside the 26 switchable cells can be removed (the same 8 on disc 4;
+    (6,12)'s 117 u^2 is the largest, the rest 0.5-13.5 u^2); 25 stand on ground open to the cell's edge, where the
+    building is the ground, and 4 fail a fill gate.
+  - `PATH.obj` shows that building instead, also on a cell with no building (engine patch `s93`): render only, the
+    ground under its footprint impassable (topograph 59), seated on the form-2 ground; `--at WX WZ` places it.
+  - `keep` deletes the `Object2` again, so the form-1 building stays in form 2.
+  - Planned on every disc before the first write; replayed on disc 4's own ground when the cell is armed there too. A
+    cell whose building is a kit `Object` is refused (its footprint's topograph 59 is in the ground both forms share).
+- `world-forms` lists what form 2 does to each custom cell's building; the form check counts a kit `Object` on an
+  armed cell with an `Object2` as form 1 only.
+- Engine patch `s93` (custom engine): an armed cell's loose `Object2` counts on a cell with no stock building too,
+  where it renders in form 2 only and a bare kit `Object` beside it in form 1 only. The live DLL was rebuilt with it
+  (pre-build backup `20261009-121328`); the shipped bundle lags until it is re-cut.
+- Proven in game (terrain study round 7, 15/15): on one story flag, (6,12)'s building vanished in form 2 with the fill
+  under it, a beacon appeared on bare (7,12) and blocked the walk at its face, `keep` brought the building back, and
+  disc 4 did the same on its own ground.
+
 ### Added — story terrain on any overworld cell (custom engine patch `s92`; `world-forms --arm`)
 - Stock FF9 switches exactly 26 cells between two block forms; every other cell is baked unswitchable, and no data
   file could change that. Engine patch `s92` makes any cell switch: a cell with a loose `Terrain2` override is armed

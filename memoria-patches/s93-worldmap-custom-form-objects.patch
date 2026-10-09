@@ -1,0 +1,70 @@
+diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+index 3f97214..c5bab1c 100644
+--- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
++++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
+@@ -593,7 +593,9 @@ public class WMWorld : Singleton<WMWorld>
+         // Object stays in form 2 as well, unless a loose Object2 replaces it there; its form 2 is registered below
+         Boolean customForm = !prefab.TerrainForm2 && prefab.TerrainForm1
+             && Memoria.World.CustomFormCells.IsArmed(block.InitialX, block.InitialY);
+-        Boolean customObject2 = customForm && prefab.ObjectForm1
++        // [s93] a loose Object2 counts on a BARE cell too (no stock Object): there it is a building that appears in
++        // form 2 only, and a bare kit Object beside it is form 1 only -- the same rule as a stock Object's
++        Boolean customObject2 = customForm
+             && Memoria.World.CustomFormCells.HasPart(this.overrideDiscTag, block.InitialX, block.InitialY, "Object2");
+         if (prefab.ObjectForm1)
+             RegisterBlockComponent(block, prefab.ObjectForm1, true, customForm && !customObject2);
+@@ -603,7 +605,7 @@ public class WMWorld : Singleton<WMWorld>
+         // override -- create + render it. Without this the building is INVISIBLE (the RegisterBlockComponent calls
+         // above only OVERRIDE an existing component; open blocks have no Object component to override).
+         if (!prefab.ObjectForm1 && prefab.TerrainForm1)
+-            RegisterBareObjectOverride(block, prefab.TerrainForm1, customForm);
++            RegisterBareObjectOverride(block, prefab.TerrainForm1, true, customForm && !customObject2);
+         if (prefab.ObjectForm2)
+             RegisterBlockComponent(block, prefab.ObjectForm2, false, true);
+         if (prefab.TerrainForm2)
+@@ -613,8 +615,10 @@ public class WMWorld : Singleton<WMWorld>
+             // [s92] the armed cell's form 2: a copy of its form-1 terrain under the child name "Terrain2" (the s34 key,
+             // so the loose Terrain2 replaces it, render and walk), and an Object2 the same way when one exists
+             RegisterBlockComponent(block, prefab.TerrainForm1, false, true, "Terrain2");
+-            if (customObject2)
++            if (customObject2 && prefab.ObjectForm1)
+                 RegisterBlockComponent(block, prefab.ObjectForm1, false, true, "Object2");
++            else if (customObject2)   // [s93] a bare cell: its Object2 renders in form 2 only, like a bare Object
++                RegisterBareObjectOverride(block, prefab.TerrainForm1, false, true, "Object2");
+         }
+         if (block.Number == 219 && !Memoria.World.WorldDiscSpike.SuppressStockLandmarks)   // [s74] no stock Water Shrine on a Path D disc
+         {
+@@ -886,23 +890,27 @@ public class WMWorld : Singleton<WMWorld>
+     // its back-face-culled walls + below-ground base into INVISIBLE collision. Collision instead comes from the
+     // world-entrance TERRAIN footprint (topograph 59 under the building's hull), which is flat + conforms to the
+     // ground, so the player stops at the visible edge with nothing invisible to bump.
+-    private void RegisterBareObjectOverride(WMBlock block, Transform template, Boolean alsoForm2 = false)
++    // [s93] `form1`/`form2`/`name`: an armed custom-form cell's bare "Object2" registers here as well (form 2 only;
++    // "Object2" maps to the same OBJECT-atlas material)
++    private void RegisterBareObjectOverride(WMBlock block, Transform template, Boolean form1 = true,
++        Boolean form2 = false, String name = "Object")
+     {
+         Mesh ff9Override = Memoria.World.WorldMeshOverride.TryLoad(String.Format(
+-            "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] Object", this.overrideDiscTag, block.InitialY, block.InitialX,
+-            block.InitialY));   // [s74] loose-file namespace, not the asset disc
++            "WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] {4}", this.overrideDiscTag, block.InitialY, block.InitialX,
++            block.InitialY, name));   // [s74] loose-file namespace, not the asset disc
+         if (ff9Override == (UnityEngine.Object)null)
+             return;
+         Transform copy = UnityEngine.Object.Instantiate<Transform>(template);
+-        copy.name = "Object";
++        copy.name = name;
+         copy.parent = block.transform;
+         copy.localPosition = Vector3.zero;
+         copy.localScale = new Vector3(1f, 1f, 1f);
+         MeshFilter mf = copy.GetComponent<MeshFilter>();
+         if (mf != (UnityEngine.Object)null)
+             mf.sharedMesh = ff9Override;
+-        block.AddForm1Transform(copy);   // render + visibility only (Form1); NO AddWalkMeshForm1 -- see note above
+-        if (alsoForm2)
++        if (form1)
++            block.AddForm1Transform(copy);   // render + visibility only (Form1); NO AddWalkMeshForm1 -- see note above
++        if (form2)
+             block.AddForm2Transform(copy);   // [s92] an armed custom-form cell keeps its building in form 2 too
+     }
+ 

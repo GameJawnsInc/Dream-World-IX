@@ -6031,6 +6031,31 @@ def _cmd_world_forms(args: argparse.Namespace) -> int:
     has no form-2 override beside it."""
     from . import config as C
     from .world import forms as FM
+    if getattr(args, "building2", None):
+        # A CUSTOM FORM CELL'S BUILDING IN FORM 2 (engine patches s92 + s93): Object2 + the Terrain2 it needs
+        from .world import formobject as FO
+        if not args.mod_folder or args.stack:
+            print("--building2 needs --mod-folder (one folder)", file=sys.stderr)
+            return 2
+        x, y, what = args.building2
+        try:
+            x, y = int(x), int(y)
+        except ValueError:
+            print("--building2 X Y {none|keep|PATH.obj}: X and Y are the cell", file=sys.stderr)
+            return 2
+        try:
+            res = FO.apply(args.mod_folder, x, y, what, at=tuple(args.at) if args.at else None, disc=args.disc,
+                           game=args.game, dry_run=args.dry_run)
+        except (ValueError, ConfigError, FileNotFoundError) as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return 2
+        for line in FO.receipt(res):
+            print(line)
+        if args.dry_run:
+            print("(dry run: nothing written)")
+        else:
+            print("  needs the custom engine (patches s92 + s93); the change shows on the next world load")
+        return 0
     if args.arm or args.disarm:
         # ARM A CUSTOM FORM CELL (engine patch s92): its Form.txt condition; the Terrain2 comes from --form 2
         if not args.mod_folder or args.stack:
@@ -6093,8 +6118,10 @@ def _cmd_world_forms(args: argparse.Namespace) -> int:
             (x, y) = c["cell"]
             state = ("armed" if c["armed"] else "NOT ARMED: no Terrain2 yet (world-terrain --form 2), so it never "
                      "switches")
+            bld = {"blank": "; its building is REMOVED in form 2", "mesh": "; a new building shows in form 2",
+                   None: ""}[c.get("object2")]
             print(f"  custom cell Block[{x}][{y}] (Disc{c['disc']}, engine s92): switches when {c['condition']} -- "
-                  f"{state}")
+                  f"{state}{bld}")
         bad += sum(1 for h in live if h["form"] == 1 and not h["covered"])
     return 1 if bad else 0
 
@@ -10451,7 +10478,17 @@ def build_parser() -> argparse.ArgumentParser:
                      help="with --arm: the NCalc condition (as in Environment.txt), e.g. "
                           "\"(GetEventGlobalByte(1089) & 1) != 0\" or \"ScenarioCounter >= 6000\"")
     wfm.add_argument("--disarm", type=int, nargs=2, metavar=("X", "Y"), help="remove a cell's Form.txt")
-    wfm.add_argument("--disc", type=int, default=1, help="with --arm/--disarm: the override namespace (default 1)")
+    wfm.add_argument("--building2", nargs=3, metavar=("X", "Y", "WHAT"),
+                     help="an ARMED custom cell's building in form 2 (custom engine, patches s92 + s93): 'none' removes "
+                          "its stock building there (the hole under it is filled from the ground around it, or the "
+                          "edit is refused); PATH.obj shows that building instead (render only; the ground under its "
+                          "footprint blocks), also on a cell with no building; 'keep' undoes it (the form-1 building "
+                          "stays). Replayed on disc 4 when the cell is armed there too")
+    wfm.add_argument("--at", type=float, nargs=2, metavar=("WX", "WZ"), default=None,
+                     help="with --building2 PATH.obj: where the building's centre goes (default the cell centre)")
+    wfm.add_argument("--dry-run", action="store_true", help="with --building2: plan and gate, write nothing")
+    wfm.add_argument("--disc", type=int, default=1,
+                     help="with --arm/--disarm/--building2: the override namespace (default 1)")
     wfm.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wfm.set_defaults(func=_cmd_world_forms)
 

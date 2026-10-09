@@ -96,7 +96,7 @@ def test_custom_cells_and_the_form_check(tmp_path):
     ter = d / "Block[23][14] Terrain.ff9mesh"
     ter.write_bytes(b"x")
     (d / "Block[23][14] Object.ff9mesh").write_bytes(b"x")
-    assert F.custom_cells(tmp_path) == [{"disc": 1, "cell": CELL, "condition": COND, "armed": False}]
+    assert F.custom_cells(tmp_path) == [{"disc": 1, "cell": CELL, "condition": COND, "armed": False, "object2": None}]
     hits = F.form_hits(sorted(d.glob("*.ff9mesh")))
     assert [(h["part"], h["form"], h["place"]) for h in hits] == [("Terrain", 1, None)]   # the Object is in both forms
     (line,) = F.note_lines(hits)
