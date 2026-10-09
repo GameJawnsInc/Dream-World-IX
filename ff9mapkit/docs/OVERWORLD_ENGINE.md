@@ -323,6 +323,19 @@ copied to (its form 2 differs from disc 1's on 5 of 20 cells): Mognet Central an
 there too, get the edit re-run on disc 4's own form 2; the disc-1 places are left alone there. The Black Mage Village
 flatten round 1 built by hand is exactly `world-terrain --at 1440 -928 --radius 12 --flatten --height 26 --form 2`.
 
+**Story terrain on ANY cell (custom engine patch `s92`; terrain study P1).** Stock bakes the 26 cells above as the only
+switchable ones. With `s92`, any other cell that has a loose `Block[x][y] Terrain2.ff9mesh` is armed at world load
+(`IsSwitchable` set at runtime; no serialized field added), and switches to that ground when its
+`Block[x][y] Form.txt` holds -- one NCalc line, evaluated once per world load like an `Environment.txt` condition
+(`WorldDisc`, `ScenarioCounter`, `GetEventGlobalByte(i)` ...); no `Form.txt` = never. The engine registers a copy of
+the cell's form-1 terrain as `Terrain2` (so the loose file replaces it) and keeps its form-1 Object in form 2, unless
+a loose `Object2` replaces it. Authoring: `world-forms --mod-folder F --arm X Y --when "(GetEventGlobalByte(1089) & 1)
+!= 0"` writes the `Form.txt`, then `world-terrain --form 2 ...` edits the cell's `Terrain2` starting from its own
+form-1 ground. Cells with the same condition switch together and may be edited together; cells on different
+conditions refuse one edit, as two places do. Disc 4 needs its own `--arm ... --disc 4`; then a form-2 edit is replayed
+there. `Memoria.log` names each armed cell (`[CustomFormCells] armed ...`) and each switch. Stock Memoria ignores both
+files.
+
 ## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own

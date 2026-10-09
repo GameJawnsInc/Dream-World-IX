@@ -6031,6 +6031,31 @@ def _cmd_world_forms(args: argparse.Namespace) -> int:
     has no form-2 override beside it."""
     from . import config as C
     from .world import forms as FM
+    if args.arm or args.disarm:
+        # ARM A CUSTOM FORM CELL (engine patch s92): its Form.txt condition; the Terrain2 comes from --form 2
+        if not args.mod_folder or args.stack:
+            print("--arm/--disarm need --mod-folder (one folder)", file=sys.stderr)
+            return 2
+        if args.arm and not args.when:
+            print("--arm needs --when \"<NCalc condition>\", e.g. --when \"(GetEventGlobalByte(1089) & 1) != 0\"",
+                  file=sys.stderr)
+            return 2
+        x, y = args.arm or args.disarm
+        try:
+            root = C.find_mod_root(C.find_game_path(args.game), args.mod_folder)
+            dest = FM.write_condition(root, args.disc, x, y, args.when if args.arm else None)
+        except (ValueError, ConfigError, FileNotFoundError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if args.disarm:
+            print(f"disarmed Block[{x}][{y}] (Disc{args.disc}): removed {dest.name}; its Terrain2, if any, stays (it "
+                  f"never shows without a condition)")
+            return 0
+        print(f"armed Block[{x}][{y}] (Disc{args.disc}): {dest}")
+        print(f"  it switches to its Terrain2 once per world load when: {args.when.strip()}")
+        print(f"  next: edit that ground with world-terrain --form 2 (it writes Terrain2; the engine arms the cell only "
+              f"once that file exists). Needs the custom engine (patch s92): stock Memoria ignores both files.")
+        return 0
     print("The 26 cells that switch block form, by place (ff9.cs w_worldChangeBlockSet; default condition):")
     for place, cells in FM.PLACE_CELLS.items():
         where = "every disc" if place in FM.FLAG_PLACES else "disc 1"
@@ -6064,6 +6089,12 @@ def _cmd_world_forms(args: argparse.Namespace) -> int:
                        "a Path D namespace copies the switch only in CLONE mode")
                 print(f"  dormant: Block[{x}][{y}] {h['part']} (Disc{h['disc']}) -- {h['place']} does not switch "
                       f"here by default: {why}")
+        for c in FM.custom_cells(root):
+            (x, y) = c["cell"]
+            state = ("armed" if c["armed"] else "NOT ARMED: no Terrain2 yet (world-terrain --form 2), so it never "
+                     "switches")
+            print(f"  custom cell Block[{x}][{y}] (Disc{c['disc']}, engine s92): switches when {c['condition']} -- "
+                  f"{state}")
         bad += sum(1 for h in live if h["form"] == 1 and not h["covered"])
     return 1 if bad else 0
 
@@ -10413,6 +10444,14 @@ def build_parser() -> argparse.ArgumentParser:
                               "place switches unless a Terrain2/Object2 override covers form 2. Exit 1 on one.")
     wfm.add_argument("--mod-folder", default=None, help="check this mod folder's deployed overrides")
     wfm.add_argument("--stack", action="store_true", help="check every Memoria.ini FolderNames folder")
+    wfm.add_argument("--arm", type=int, nargs=2, metavar=("X", "Y"),
+                     help="make ANY other cell switch with the story (needs the custom engine, patch s92): write its "
+                          "Form.txt; with --when. Then edit its alternate ground with world-terrain --form 2")
+    wfm.add_argument("--when", default=None,
+                     help="with --arm: the NCalc condition (as in Environment.txt), e.g. "
+                          "\"(GetEventGlobalByte(1089) & 1) != 0\" or \"ScenarioCounter >= 6000\"")
+    wfm.add_argument("--disarm", type=int, nargs=2, metavar=("X", "Y"), help="remove a cell's Form.txt")
+    wfm.add_argument("--disc", type=int, default=1, help="with --arm/--disarm: the override namespace (default 1)")
     wfm.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wfm.set_defaults(func=_cmd_world_forms)
 

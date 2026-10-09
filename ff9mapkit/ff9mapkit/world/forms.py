@@ -19,6 +19,12 @@ Seven places are gated on ``w_frameDisc == 1``, so on disc 4 they never switch b
 revert disc 4's ground to disc-1-era geometry: forms lane F11). Chocobo's Paradise and Mognet Central switch on a
 story flag on every disc. A Path D namespace (``Disc9``) copies the switch flags only in CLONE mode
 (``WorldDiscSpike.CloneStockWorld``, default off), so its cells are dormant by default.
+
+ANY OTHER CELL (engine patch s92, terrain study P1). The custom engine arms a cell stock never switches when it has a
+loose ``Terrain2`` override, and switches it to that ground once per world load when its ``Block[x][y] Form.txt``
+sidecar holds an NCalc condition that evaluates true (like an Environment.txt ``[Condition=...]``). On such a cell
+the form-1 Object stays in form 2 (unless a loose ``Object2`` replaces it), so only ``Terrain`` is form-1-only and
+``Terrain2`` form-2-only. :func:`write_condition` arms one (``world-forms --arm``); stock Memoria ignores both files.
 """
 from __future__ import annotations
 
@@ -58,6 +64,9 @@ FORM2_OF = {"terrain": "Terrain2", "object": "Object2", "volcanocrater1": None, 
 WATER_SHRINE_FORM2_OF = {"sea3": "Sea3_2", "sea4": "Sea4_2", "sea5": "Sea5_2"}
 FORM2_PARTS = {"terrain2", "object2", "volcanocrater2", "volcanolava2", "sea3_2", "sea4_2", "sea5_2"}
 
+#: the per-cell condition sidecar of a custom form cell (engine patch s92), beside its overrides
+FORM_SIDECAR = "Form"
+
 _OVERRIDE_RE = re.compile(r"Disc(\d+)[\\/]0_1[\\/]r(\d+)[\\/]Block\[(\d+)\]\[(\d+)\] ([^\\/]+)\.ff9mesh$", re.I)
 
 
@@ -72,6 +81,55 @@ def part_form(x: int, y: int, part: str) -> int | None:
     if p in FORM2_PARTS:
         return 2
     return None
+
+
+def form_sidecar_relpath(disc: int, x: int, y: int) -> str:
+    """The mod-folder-relative path of a cell's ``Form.txt`` (beside its ``.ff9mesh`` overrides, under ``0_1``)."""
+    return f"FF9_Data/WorldMap/Disc{disc}/0_1/r{y}/Block[{x}][{y}] {FORM_SIDECAR}.txt"
+
+
+def read_condition(path) -> str | None:
+    """A ``Form.txt``'s condition: its first line that is neither blank nor a comment (``#`` or ``//``) -- the
+    engine's rule -- or ``None`` (no file, or nothing in it)."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith("#") and not s.startswith("//"):
+            return s
+    return None
+
+
+def custom_condition(mod_root, disc: int, x: int, y: int) -> str | None:
+    """The condition ``mod_root`` arms cell ``(x, y)`` with in namespace ``Disc{disc}``, or ``None``."""
+    return read_condition(Path(mod_root) / form_sidecar_relpath(disc, x, y))
+
+
+def write_condition(mod_root, disc: int, x: int, y: int, condition: str | None) -> Path:
+    """Arm (or, with ``condition=None``, disarm) cell ``(x, y)``: write or delete its ``Form.txt``. Refuses one of the
+    26 stock cells (a place's Environment.txt condition rules those: ``world-environment``), a cell off the grid, and a
+    condition that is empty or spans lines. Returns the path."""
+    from .mesh import GRID_COLS, GRID_ROWS
+    if not (0 <= x < GRID_COLS and 0 <= y < GRID_ROWS):
+        raise ValueError(f"cell ({x},{y}) is off the {GRID_COLS}x{GRID_ROWS} grid")
+    if (x, y) in SWITCHABLE:
+        raise ValueError(f"cell ({x},{y}) already switches with {SWITCHABLE[(x, y)]}: its condition is that place's "
+                         f"(world-environment [[place]]), and its form 2 is edited with --form 2 directly")
+    dest = Path(mod_root) / form_sidecar_relpath(disc, x, y)
+    if condition is None:
+        if dest.is_file():
+            dest.unlink()
+        return dest
+    cond = str(condition).strip()
+    if not cond or "\n" in cond or "\r" in cond:
+        raise ValueError("give the condition as one NCalc expression on one line, e.g. "
+                         "\"(GetEventGlobalByte(1089) & 1) != 0\"")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"# ff9mapkit: Block[{x}][{y}] switches to its loose Terrain2 when this holds (engine patch s92)\n"
+                    f"{cond}\n", encoding="utf-8")
+    return dest
 
 
 def dormant(place: str, disc_tag: int) -> bool:
@@ -104,19 +162,41 @@ def form_hits(paths, *, include_dormant: bool = False) -> list:
         except OSError:
             continue
         disc, y, x, part = int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(5)
-        form = part_form(x, y, part)
-        if form is None:
-            continue
-        place = SWITCHABLE[(x, y)]
-        quiet = dormant(place, disc)
+        if (x, y) in SWITCHABLE:
+            form = part_form(x, y, part)
+            if form is None:
+                continue
+            place = SWITCHABLE[(x, y)]
+            when, quiet = DEFAULT_CONDITION[place], dormant(place, disc)
+            cp = (FORM2_OF.get(part.lower()) or WATER_SHRINE_FORM2_OF.get(part.lower())) if form == 1 else None
+        else:                                   # a custom form cell (engine s92): armed by the Form.txt beside it
+            when = read_condition(pp.with_name(f"Block[{x}][{y}] {FORM_SIDECAR}.txt"))
+            form = {"terrain": 1, "terrain2": 2, "object2": 2}.get(part.lower()) if when else None
+            if form is None:
+                continue                        # not armed, or a part that renders in both forms there
+            place, quiet, cp = None, False, ("Terrain2" if form == 1 else None)
         if quiet and not include_dormant:
             continue
-        cp = None
-        if form == 1:
-            cp = FORM2_OF.get(part.lower()) or WATER_SHRINE_FORM2_OF.get(part.lower())
         covered = bool(cp) and pp.with_name(f"Block[{x}][{y}] {cp}.ff9mesh").is_file()
         out.append({"path": str(pp), "disc": disc, "cell": (x, y), "part": part, "place": place, "form": form,
-                    "dormant": quiet, "counterpart": cp, "covered": covered})
+                    "dormant": quiet, "counterpart": cp, "covered": covered, "when": when})
+    return out
+
+
+def custom_cells(mod_root) -> list:
+    """Every custom form cell ``mod_root`` defines (engine s92): ``[{"disc", "cell", "condition", "armed"}]``, one per
+    ``Form.txt``. ``armed`` = its ``Terrain2`` is there too; without it the engine arms nothing and the cell never
+    switches."""
+    wm = Path(mod_root) / "FF9_Data" / "WorldMap"
+    out = []
+    pat = re.compile(r"Disc(\d+)[\\/]0_1[\\/]r\d+[\\/]Block\[(\d+)\]\[(\d+)\] " + FORM_SIDECAR + r"\.txt$", re.I)
+    for p in sorted(wm.rglob(f"Block*{FORM_SIDECAR}.txt")) if wm.is_dir() else []:
+        m = pat.search(str(p))
+        if not m:
+            continue
+        disc, x, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        out.append({"disc": disc, "cell": (x, y), "condition": read_condition(p),
+                    "armed": p.with_name(f"Block[{x}][{y}] Terrain2.ff9mesh").is_file()})
     return out
 
 
@@ -133,23 +213,25 @@ def note_lines(hits) -> list:
     for h in hits:
         (x, y), place = h["cell"], h["place"]
         where = f"Block[{x}][{y}] {h['part']} (Disc{h['disc']})"
-        when = DEFAULT_CONDITION[place]
+        when = h.get("when") or DEFAULT_CONDITION[place]
+        switches = (f"switches with {place} (by default: {when})" if place else
+                    f"switches to its Terrain2 when its Form.txt holds ({when}; engine s92)")
+        pin = ("pin the place's condition with world-environment" if place else
+               "change or remove its Form.txt (world-forms --arm / --disarm)")
         if h["form"] == 2:
-            lines.append(f"  note: {where} is the FORM-2 mesh of a cell that switches with {place}: it shows only "
-                         f"while the place has switched (by default: {when})")
+            lines.append(f"  note: {where} is the FORM-2 mesh of a cell that {switches}: it shows only while the "
+                         f"cell has switched")
         elif h["covered"]:
-            lines.append(f"  note: {where} replaces form 1 of a cell that switches with {place}; its form-2 "
-                         f"override ({h['counterpart']}) is there too")
+            lines.append(f"  note: {where} replaces form 1 of a cell that {switches}; its form-2 override "
+                         f"({h['counterpart']}) is there too")
         elif h["counterpart"] is None:
-            lines.append(f"  !! WARNING: {where} replaces FORM 1 ONLY: this cell switches with {place} (by default: "
-                         f"{when}), and form 2 has no {h['part']} here, so the edit vanishes when it does. Pin the "
-                         f"place's condition with world-environment to keep it.")
+            lines.append(f"  !! WARNING: {where} replaces FORM 1 ONLY: this cell {switches}, and form 2 has no "
+                         f"{h['part']} here, so the edit vanishes when it does. To keep it, {pin}.")
         else:
             how = ("run the same edit again with --form 2 (world-terrain / world-deploy) to make it in form 2 too"
                    if h["counterpart"] == "Terrain2" else
                    f"write a {h['counterpart']} override too (mesh.deploy_override(bm, part=\"{h['counterpart']}\"))")
-            lines.append(f"  !! WARNING: {where} replaces FORM 1 ONLY: this cell switches with {place} (by default: "
-                         f"{when}), and when it does the stock {h['counterpart']} mesh comes back and this edit "
-                         f"vanishes, render and walk. To keep it, {how}, or pin the place's condition with "
-                         f"world-environment.")
+            lines.append(f"  !! WARNING: {where} replaces FORM 1 ONLY: this cell {switches}, and when it does the "
+                         f"{h['counterpart']} mesh replaces it and this edit vanishes, render and walk. To keep it, "
+                         f"{how}, or {pin}.")
     return lines
