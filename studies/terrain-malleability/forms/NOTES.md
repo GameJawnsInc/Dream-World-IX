@@ -182,7 +182,7 @@ s34 note records for WMWorld (hypothesis, strong precedent).
 **Built after the study (P1, engine patch s92):** steps 1-3 as sketched, with the sidecar named `Block[x][y] Form.txt`
 (one NCalc line, evaluated like an Environment.txt condition); the arm runs at the end of `WMWorld.Initialize`, which
 precedes `w_worldChangeBlockSet` and every block load; `RegisterBlockComponent` gained an optional child name. No
-serialized field was added.
+serialized field was added. Proven in game by round 6 (`ingame/RESULTS.md` section 21, 12/12).
 
 ## 5. Verdict
 
