@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-transplant` no longer refuses a disc-4 carry of (18,4) for near-miss pairs stock already has
+- The weld audit refused any two vertices closer than 0.05u, on the claim that stock has none. Disc 4's (18,4)
+  Terrain+Sea3 has 3 (disc 1 and every other disc-4 block have 0), so a disc-4 carry of it failed on unmodified
+  bytes, in every pose.
+- The gate is now a differential, like the T-junction gate beside it: a pair whose ends both map back, through the
+  carry's own inverse, onto one stock pair of the donor is reported as `inherited`, not refused. A pair the carry
+  makes (or one whose height a tweak moved) still refuses. Applies to single-cell and region carries.
+- New: `mesh.near_miss_pairs` (the weld audit over bare positions); the weld gate reports `inherited`.
+
 ### Added — the world writers warn when an edit lands on one form of a switchable cell; new `world-forms`
 - 26 overworld cells swap block form when one of 9 story places switches (Alexandria destroyed, Cleyra gone, the
   Water Shrine opened ...). There `Terrain` and `Object` are form-1 parts, so a kit edit of one vanishes, render and

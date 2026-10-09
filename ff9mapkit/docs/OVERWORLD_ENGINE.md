@@ -671,7 +671,9 @@ silently. The shift window follows the carried strips: shifting may only vacate 
 
 Every build must pass the OFFLINE GATE SET before any file is written: the engine-placement census (`miss=0` — full
 walk/sail coverage), the **weld audit** (`ff9mapkit.world.mesh.weld_audit`, 0 near-miss vertex pairs — the
-hairline-crack detector: two verts closer than 0.05u but not identical read as a crack in-game), land-fit, frame
+hairline-crack detector: two verts closer than 0.05u but not identical read as a crack in-game; judged as a
+differential, like the T-junction gate: a pair the donor itself carries, mapped through the carry, is reported as
+`inherited`, not refused — only disc 4's (18,4) has any, 3, terrain study defect 13), land-fit, frame
 bounds, and each edit's exact tri-count scope. Component EDITS on a transplant are library-level
 (`ff9mapkit.world.transplant`): `TileRetexture` retextures whole lattice cells in the learned tile language (UVs +
 IDALL only, geometry verbatim — the proven chocobo-track de-quest), and `PatchRecover` drops tris and re-covers their
