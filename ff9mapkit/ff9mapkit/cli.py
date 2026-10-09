@@ -4852,6 +4852,32 @@ def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
     return 0
 
 
+def _preview_disc4_morph(args: argparse.Namespace, cell) -> None:
+    """An ``--in-place`` dry run on disc 1 says what the deploy will do on disc 4 (THE DISC-4 REPLAY): copy the edit
+    where disc 4's real cell is the same, else re-run the morph there -- and then whether that replay passes its own
+    gates, so a coast disc 4 cannot take is named before anything is written."""
+    from .world import discmirror as DM
+    if args.skip_mirror or args.disc != 1:
+        return
+    try:
+        why = DM.copy_refusal(cell, src_disc=1, dst_disc=4, game=args.game)
+    except ValueError as e:
+        print(f"disc 4: not checked ({e})")
+        return
+    if why is None:
+        print("disc 4: the deploy copies this edit there (disc 4's real cell is the same)")
+        return
+    print(f"disc 4: {why} -- the deploy re-runs this morph on disc 4's own coast. Its dry run:")
+    sys.stdout.flush()                         # its refusal goes to stderr: keep it below this line
+    ns = argparse.Namespace(**{**vars(args), "disc": 4, "skip_mirror": DM.REPLAY, "dry_run": True,
+                               "disc4_preview": True})
+    if _cmd_world_transplant(ns) == 0:
+        print("disc 4: the replay passes its gates -- the deploy edits both discs")
+    else:
+        print("disc 4: !! the replay REFUSES there (above) -- the deploy edits disc 1 only; disc 4 keeps its stock "
+              "coast in this cell")
+
+
 def _cmd_world_transplant(args: argparse.Namespace) -> int:
     """VERBATIM island transplant: carry a complete real coastal block -- land + beach + the full Wang'd
     ocean, every sub-mesh -- to a custom ocean cell, with a 0-mod-4 in-cell shift + 90-degree rotation,
@@ -5014,11 +5040,21 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                                   "must equal --donor")
             if not tweaks:
                 raise ConfigError("--in-place needs at least one morph flag to apply")
+            from .world import discmirror as DM
+
+            # THE DISC-4 REPLAY (terrain study O2): where disc 4's real cell differs, this same command runs again
+            # there -- every morph rebuilt from disc 4's own bytes, through the same gates -- instead of a copy
+            def replay(d):
+                sys.stdout.flush()
+                ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY})
+                if _cmd_world_transplant(ns) != 0:
+                    raise ValueError(f"world-transplant --in-place --disc {d} refused the same morph (see above)")
             summary = TR.morph_in_place(args.mod_folder, cell=(bx, by), tweaks=list(tweaks),
                                         disc=args.disc, game=args.game,
                                         dry_run=args.dry_run, skip_mirror=args.skip_mirror,
                                         fresh=args.fresh, allow_overwrite=args.allow_mod_overwrite,
-                                        allow_entrances=getattr(args, "allow_entrances", False))
+                                        allow_entrances=getattr(args, "allow_entrances", False),
+                                        replay=replay)
         else:
             kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                       tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
@@ -5053,8 +5089,11 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             print("NOT CLEAN -- deploy refused", file=sys.stderr)
             return 2
         if args.dry_run:
+            if getattr(args, "disc4_preview", False):
+                return 0                       # the disc-1 dry run that asked says what this one means
             print("dry run: " + _world_gate_headline(summary["gates"],
                   "gates CLEAN") + " -- re-run without --dry-run to deploy")
+            _preview_disc4_morph(args, (bx, by))
             return 0
         print("deployed:")
         for q in summary["deployed"]:
@@ -9863,7 +9902,9 @@ def build_parser() -> argparse.ArgumentParser:
                           "nose beach's landmass is a coastline fragment. No census/land-fit (the cell "
                           "keeps its real neighbours; morphs pin block-frame verts). Revert = delete "
                           "the deployed files. Each part stacks on its deployed override if the cell "
-                          "has one (--fresh: from stock).")
+                          "has one (--fresh: from stock). Disc 4 takes the edit too: copied where its "
+                          "real cell is the same, else the morph re-runs on disc 4's own coast through "
+                          "the same gates (refused there = disc 1 only); the dry run says which.")
     _add_fresh_args(wtp, "--in-place morph", overwrite_flag="--allow-mod-overwrite")
     wtp.add_argument("--allow-entrances", action="store_true",
                      help="with --in-place: " + _ALLOW_ENTRANCES_HELP)

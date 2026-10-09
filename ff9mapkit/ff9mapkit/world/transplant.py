@@ -3389,7 +3389,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
 def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                    lod: str = "0_1", game=None, dry_run: bool = False,
                    skip_mirror: bool = False, fresh: bool = False,
-                   allow_overwrite: bool = False, allow_entrances: bool = False) -> dict:
+                   allow_overwrite: bool = False, allow_entrances: bool = False, replay=None) -> dict:
     """Apply tweak objects to a REAL world cell IN PLACE -- the coast-morph demonstrator
     path for shores no single-cell transplant can carry (a nose beach's landmass is always
     a coastline fragment; only (7,17)'s pocket is fully in-block). Reads the cell's own
@@ -3400,6 +3400,12 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     keeps its real neighbours, so tweaks must be frame-safe by construction (the
     coastmorph fields pin block-frame verts). Reversible: delete the deployed files. A real
     deploy auto-mirrors the written overrides to Disc4 (``skip_mirror=True`` opts out).
+
+    THE DISC-4 REPLAY (terrain study O2, recommendation 4). The tweaks are built from one disc's bytes, so where
+    disc 4's real cell differs the mirror cannot copy them (on most coasts: disc 4 re-cut 180 of 275 blocks).
+    ``replay`` (``replay(dst_disc)``: the caller's own builders re-run on that disc, then this function with
+    ``disc=dst_disc``) is handed to :func:`~ff9mapkit.world.discmirror.auto_mirror`, which runs it for such a cell:
+    disc 4's own coast takes the same morph through every gate here, or keeps its stock coast and says so.
 
     THE STACKED READ (terrain study defect 3): each part is read from the mod folder's deployed override when
     there is one (:func:`world_tris_stacked`), so a morph composes with the cell's earlier edits instead of erasing
@@ -3555,7 +3561,7 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
         summary["deployed"].append(str(M.deploy_override(
             bm, mod_folder=mod_folder, game=game, lod=lod, part=part_name(p))))
     from . import discmirror as DM
-    DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
+    DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror, replay=replay)
     return summary
 
 

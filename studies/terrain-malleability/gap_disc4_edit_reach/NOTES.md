@@ -25,6 +25,7 @@ reads the outputs of the earlier ones. All of them exit 0, and their calibration
 | `s5d_wallgate_preexisting.py` | Side observation: why the one-way-wall gate refuses so much. | 5 s |
 | `s6_semantic.py` | Per-part refusals, overlay/new-position census, dispatcher coverage of closed entrances, area re-zoning, and the pin-path bug. | 5 s |
 | `s7_morph_replay.py` | A byte-carried in-place verb: the documented (16,5) site, plus a certified cliff-bump on every refused coastal cell. | 10 min |
+| `s9_morph_reach.py` | The SHIPPED replay (2026-10-09) over s7's 129 cells, through `world-transplant --in-place --dry-run`: 106 replayed, 10 copied, 13 refused on disc 4 (s7's 13). | 8 min |
 | `s8_summarize.py` | Prints every headline number below from `out/*.json`. | 1 s |
 | `o2_postfix.py [--n 400]` | O2 after the fix: the kit gate vs `s1`'s order-invariant column, the `s5b` edit, and random multi-cell reshapes mirrored the old way and the new way, cracks counted against stock disc 4. | 6 min |
 
@@ -307,9 +308,10 @@ container came with defect 1); 2 NOT BUILT, deliberately: since defect 5 a Terra
 its partner parts, so a copied Terrain edit fits only the partners it was built against, and on a cell whose other
 parts differ across discs it can tear; replay covers those cells instead; 3 BUILT (`mirror(atomic=True)`, per
 4-connected group of written cells, what `auto_mirror` passes); 4 BUILT for `world-terrain` and `world-deploy`
-(`replay=`); the hazard check is a per-cell WARN naming how disc 4 differs, not the H1-H5 layers; retarget, entrance
-and the in-place morph have no replay yet (single-cell writers: they cannot crack, they stay un-mirrored); 5 NOT
-BUILT; 6 DONE with defect 1.
+(`replay=`); the hazard check is a per-cell WARN naming how disc 4 differs, not the H1-H5 layers; retarget and entrance have no
+replay yet (single-cell writers: they cannot crack, they stay un-mirrored); the in-place morph's replay is BUILT
+2026-10-09 (`world-transplant --in-place` re-runs itself with `--disc 4`, every builder on disc 4's bytes; its dry run
+previews it; in game: terrain study round 9); 5 NOT BUILT; 6 DONE with defect 1.
 
 1. **`_parts_identical(blk, part, …)` becomes order-invariant and exact-container.**
    - Compare multisets of `lib.tri_keys` (canonical-rotation, all-channel, with the engine IDALL) through an

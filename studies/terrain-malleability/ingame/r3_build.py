@@ -95,6 +95,9 @@ _MESH = {}
 
 
 def _cells(stage):
+    # a RELATIVE stage path resolves under the game folder, finds nothing there and silently reads stock (round 9: a
+    # probe read the bumped coast as stock and looked like a 2.3u miss in game)
+    assert stage is None or Path(stage).is_absolute(), f"ground(): pass the stage as an absolute path, not {stage!r}"
     key = str(stage)
     if key not in _CELLS:
         folders = ([str(stage)] if stage else []) + BO.folder_names(A.GAME)
