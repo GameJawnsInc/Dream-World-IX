@@ -25,6 +25,8 @@ loose ``Terrain2`` override, and switches it to that ground once per world load 
 sidecar holds an NCalc condition that evaluates true (like an Environment.txt ``[Condition=...]``). On such a cell
 the form-1 Object stays in form 2 (unless a loose ``Object2`` replaces it), so only ``Terrain`` is form-1-only and
 ``Terrain2`` form-2-only. :func:`write_condition` arms one (``world-forms --arm``); stock Memoria ignores both files.
+Engine patch s93 extends the ``Object2`` rule to a cell with no stock building (it appears in form 2 only, and a bare
+kit ``Object`` beside it shows in form 1 only); :mod:`ff9mapkit.world.formobject` writes one (``--building2``).
 """
 from __future__ import annotations
 
@@ -172,9 +174,11 @@ def form_hits(paths, *, include_dormant: bool = False) -> list:
         else:                                   # a custom form cell (engine s92): armed by the Form.txt beside it
             when = read_condition(pp.with_name(f"Block[{x}][{y}] {FORM_SIDECAR}.txt"))
             form = {"terrain": 1, "terrain2": 2, "object2": 2}.get(part.lower()) if when else None
+            if when and part.lower() == "object" and pp.with_name(f"Block[{x}][{y}] Object2.ff9mesh").is_file():
+                form = 1                        # an Object2 replaces the form-1 building in form 2 (s92 + s93)
             if form is None:
                 continue                        # not armed, or a part that renders in both forms there
-            place, quiet, cp = None, False, ("Terrain2" if form == 1 else None)
+            place, quiet, cp = None, False, (FORM2_OF[part.lower()] if form == 1 else None)
         if quiet and not include_dormant:
             continue
         covered = bool(cp) and pp.with_name(f"Block[{x}][{y}] {cp}.ff9mesh").is_file()
@@ -183,10 +187,23 @@ def form_hits(paths, *, include_dormant: bool = False) -> list:
     return out
 
 
+def object2_kind(path) -> str | None:
+    """What a cell's loose ``Object2`` does in form 2: ``"blank"`` (a hidden one-triangle stub, the building is gone),
+    ``"mesh"`` (another building), or ``None`` (no file: the form-1 building stays)."""
+    import struct
+    try:
+        head = Path(path).read_bytes()[:20]
+    except OSError:
+        return None
+    if head[:4] != b"F9WM" or len(head) < 20:
+        return "mesh"
+    return "blank" if struct.unpack_from("<i", head, 8)[0] <= 3 else "mesh"
+
+
 def custom_cells(mod_root) -> list:
-    """Every custom form cell ``mod_root`` defines (engine s92): ``[{"disc", "cell", "condition", "armed"}]``, one per
-    ``Form.txt``. ``armed`` = its ``Terrain2`` is there too; without it the engine arms nothing and the cell never
-    switches."""
+    """Every custom form cell ``mod_root`` defines (engine s92): ``[{"disc", "cell", "condition", "armed",
+    "object2"}]``, one per ``Form.txt``. ``armed`` = its ``Terrain2`` is there too; without it the engine arms nothing
+    and the cell never switches. ``object2`` = :func:`object2_kind`."""
     wm = Path(mod_root) / "FF9_Data" / "WorldMap"
     out = []
     pat = re.compile(r"Disc(\d+)[\\/]0_1[\\/]r\d+[\\/]Block\[(\d+)\]\[(\d+)\] " + FORM_SIDECAR + r"\.txt$", re.I)
@@ -196,7 +213,8 @@ def custom_cells(mod_root) -> list:
             continue
         disc, x, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
         out.append({"disc": disc, "cell": (x, y), "condition": read_condition(p),
-                    "armed": p.with_name(f"Block[{x}][{y}] Terrain2.ff9mesh").is_file()})
+                    "armed": p.with_name(f"Block[{x}][{y}] Terrain2.ff9mesh").is_file(),
+                    "object2": object2_kind(p.with_name(f"Block[{x}][{y}] Object2.ff9mesh"))})
     return out
 
 

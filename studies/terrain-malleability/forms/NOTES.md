@@ -184,6 +184,12 @@ s34 note records for WMWorld (hypothesis, strong precedent).
 precedes `w_worldChangeBlockSet` and every block load; `RegisterBlockComponent` gained an optional child name. No
 serialized field was added. Proven in game by round 6 (`ingame/RESULTS.md` section 21, 12/12).
 
+**Story buildings (engine patch s93, `world-forms --building2`).** s92 read an `Object2` only where the cell has a
+stock Object; s93 also registers a bare cell's `Object2` (form 2 only, render only) and makes a bare kit `Object`
+form 1 only beside it. `object2_census.py` measured what removing a stock building leaves: on all 59 disc-1 cells with
+one, nothing else answers under 90% of its footprint, so the kit fills the hole (closed holes only). Proven in game
+by round 7 (`ingame/RESULTS.md` section 22, 15/15).
+
 ## 5. Verdict
 
 Story-driven terrain change (bridge appears, forest burns, lake drains on a flag) is **viable, and mostly built

@@ -573,6 +573,62 @@ The frames illustrate the same: in `shots/r6-armed_true.png` the canyon wall to 
 Not covered this round: an `Object2` replacing the Object, disc 4 (`--arm ... --disc 4`), and several cells on one
 condition. The kit tests cover all three offline.
 
+## Round 7 (2026-10-09, owner's go: "do 1"): buildings that change with the story, 15/15
+
+Run `.harness-runs/20261009-122026-r7-buildings`, one launch, 5 world loads (4 on disc 1, 1 on disc 4), 171 s, 0
+exceptions. One scratch folder, first in FolderNames for the launch; ini backed up to
+`backups/Memoria.ini.pre-r7-lab.20261009-122014` and restored byte-exact (`0b5a4985…`), the lab removed. Engine: the
+live `s93` build (pre-build backup `20261009-121328`). Build and predictions: `r7_build.py`; scenario: `r7_session.py`.
+
+### 22. Engine patch s93 + `world-forms --building2`: a building removed, a building added, on one condition
+
+Two neighbouring cells, both armed on one condition, flag 8712 (`(GetEventGlobalByte(1089) & 1) != 0`), on discs 1
+and 4. Every file came from the kit's CLI:
+- **A = (6,12)**, round 6's cell. It has a stock building over an 11-point hole in its ground. `--building2 6 12 none`
+  wrote a blank `Object2` and a `Terrain2` with the hole filled: 26 tiles on disc 1 (117 u²), 42 on disc 4 (two holes,
+  76.5 u²).
+- **B = (7,12)**, a cell with no building. `--building2 7 12 quay_beacon.obj --at 468 -796` wrote the Southern Ring
+  beacon as its `Object2` (render only) and made the ground under its footprint impassable.
+- One `world-terrain --form 2 --at 448 -778.6 --radius 8 --raise 2` hill across their shared border, written to both
+  cells' `Terrain2` and replayed on disc 4.
+- **KEEP** = the same files after `--building2 6 12 keep`, which deleted A's `Object2` on both discs.
+
+Read points: R1 and R2 on A's roof (topograph 59, about 5u above the fill that replaces it), W on A's walkable plaza,
+the hill 0.63u either side of the border, and ctl. B's check was a 9u walk south into the beacon's footprint.
+
+| stage | lab | flag | disc | A (R1 / R2 / W) | hill (H_w / H_e) | walk into B | max off |
+|---|---|---|---|---|---|---|---|
+| stock | - | off | 1 | building: 8.83 / 8.28 / 3.01 | 3.29 / 3.00 | reached (10.05u) | 0.0072 |
+| off | FULL | off | 1 | building | stock | reached (9.18u) | 0.0072 |
+| **on** | FULL | **on** | 1 | **gone: 3.33 / 3.27 / 3.62 (the fill)** | **4.92 / 4.63** | **blocked at z −793.45 (6.09u)** | 0.0027 |
+| keep | KEEP | on | 1 | building again (s92 carries it) | raised | blocked | 0.0072 |
+| **on_disc4** | FULL | **on** | **4** | **gone: 2.99 / 3.03 / 3.54** | raised | blocked | 0.0052 |
+
+Each stage passed three checks (15/15): the heights against the registered predictions (tolerance 0.15), the walk, and
+`Memoria.log`. In the log, both cells were armed in every stage but stock, and both switched exactly in on, keep and
+on_disc4. B's `Object2` bound from the lab in every armed stage (the s93 path); A's did in off, on and on_disc4, and
+not in keep.
+
+The frames show the same:
+- `shots/r7-off-A.png` and `r7-keep-A.png`: the building (a slanted beam against the canyon wall).
+- `r7-on-A.png`: no building, and the filled ground runs on with no hole.
+- `r7-off-beacon.png`: open sand.
+- `r7-on-beacon.png` and `r7-on_disc4-beacon.png`: the beacon, with Zidane stopped at its north face.
+
+**Verdict.**
+1. **Removing a stock building works in game.** In form 2 A's building is gone, render and walk. Its roof points
+   read the kit's fill (5.5u lower), and the plaza point reads the fill's 3.62 instead of the building's 3.01. Without
+   the fill there would be no ground there at all (`forms/object2_census.py`: every stock building plugs a hole).
+2. **A building appears on a cell that has none (s93).** B's beacon renders only in form 2, and the impassable
+   ground under its footprint stops the walk at its face. The same files in form 1 leave the walk free.
+3. **`keep` undoes a removal.** With A's `Object2` deleted, form 2 shows the stock building again, standing on its own
+   heights over the hidden fill.
+4. **Two cells on one condition switch together**, and the shared hill reads raised on both sides of their border.
+5. **Disc 4 works on its own ground.** The replayed fill, beacon and hill were all where the disc-4 files put them.
+
+**Scope.** Removal applies only where the building stands over a closed hole. On disc 1 that is 8 of the 37 buildings
+outside the 26 switchable cells (the same 8 on disc 4); the kit refuses the rest before writing anything.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.

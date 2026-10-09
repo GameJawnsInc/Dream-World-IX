@@ -337,6 +337,16 @@ there. `Memoria.log` names each armed cell (`[CustomFormCells] armed ...`) and e
 files. Proven in game on cell (6,12) (terrain study round 6): it switched on `true` and on a story flag set in a field,
 stayed stock on `false`, the flag off and no `Form.txt`, and kept its Object walkable in form 2.
 
+**Buildings that change with the story (engine patch `s93`; `world-forms --building2`).** An armed cell's building in
+form 2 is its loose `Object2`: `--building2 X Y none` removes the stock building there, `PATH.obj` shows another
+(render only; topograph 59 under its footprint), `keep` undoes it. Every stock building plugs a hole in its cell's
+ground -- over 59 disc-1 cells, nothing else answers the ground query under 90% of a building's footprint
+(`studies/terrain-malleability/forms/object2_census.py`) -- so removing one writes the cell's `Terrain2` with that hole
+filled from the tiles around it, and refuses when the hole reaches the cell's edge (most towns: the building is the
+ground there). On a cell with no stock building, `s92` ignores an `Object2`; `s93` registers it in form 2 only, and
+makes a bare kit `Object` beside it form 1 only. Proven in game (terrain study round 7): a removed building, an added
+one and `keep`, on two cells sharing one condition, on discs 1 and 4.
+
 ## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own
