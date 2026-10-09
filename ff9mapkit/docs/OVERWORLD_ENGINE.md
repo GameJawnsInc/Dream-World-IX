@@ -930,10 +930,12 @@ out); the standalone `world-mirror` command above remains for a manual whole-tre
 **The automatic mirror is edit-atomic (after 1.0.0b19; terrain study defects 7-9).** It used to gate each written
 cell alone, so an edit across a copyable cell and one whose disc-4 ground differs reached disc 4 on one side of
 their border only: a +4 hill left a 4.0u step there. Now a group of adjacent written cells is mirrored whole or not
-at all, and the verb says `NOT MIRRORED` when it holds one back. `world-terrain` and `world-deploy` go further: they
-re-run the same reshape on disc 4's own ground (its own seams, every gate) where it cannot be copied, and name each
-cell where disc 4 differs so it can be checked there. A replay the verb's gates refuse on disc 4 leaves disc 4
-untouched. The standalone `world-mirror` still gates cell by cell and names any refused cell that borders a copied
+at all, and the verb says `NOT MIRRORED` when it holds one back. `world-terrain`, `world-deploy` and the coast
+morphs (`world-transplant --in-place`) go further: they re-run the same edit on disc 4's own ground (its own seams,
+every gate; a morph rebuilds its window from disc 4's bytes) where it cannot be copied, and name each cell where disc 4
+differs so it can be checked there. Disc 4 redrew 180 of its 275 blocks, so on most real coasts a morph replays. A
+replay the verb's gates refuse on disc 4 leaves disc 4 untouched, and an `--in-place` dry run says beforehand which it
+will be (copied, replayed, or refused there). The standalone `world-mirror` still gates cell by cell and names any refused cell that borders a copied
 one.
 
 ### `world-forest` + `world-hill` — interior topography on a deployed island

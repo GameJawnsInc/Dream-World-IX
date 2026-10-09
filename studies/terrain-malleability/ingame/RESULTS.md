@@ -672,12 +672,69 @@ The prompt frames are `shots/r8-<stage>-prompt.png`.
   control. Its frames already matched every prediction for the prompt: shown in stock, off_f0 and only_f1; absent in
   off_f1 and only_f0.
 
+## Round 9 (2026-10-09, owner's go: "do cliffs 1, the disc-4 fix"): a real coast morph reaches disc 4, 16/16
+
+Run `.harness-runs/20261009-142011-r9-coast-disc4`, one launch, 4 world loads, 131 s, 0 exceptions. One scratch folder,
+first in FolderNames for the launch; ini backed up (`backups/Memoria.ini.pre-r9-lab.20261009-142006`) and restored
+byte-exact (`0b5a4985…`) afterwards, the lab removed. Engine: the live build (s92-s94; this round needs only s34). Site
+scan: `r9_site_scan.py`; build and predictions: `r9_build.py`; scenario: `r9_session.py`.
+
+### 24. `world-transplant --in-place` replays a coast morph on disc 4's own coast
+
+Before this fix an in-place coast morph on a cell that disc 4 redrew stayed on disc 1. The mirror cannot copy an edit
+built from disc 1's bytes onto different disc-4 ground, so it skipped the cell with one `SKIP` line and disc 4 kept its
+stock coast. Now the verb re-runs itself with `--disc 4` there: every morph is rebuilt from disc 4's bytes and every
+gate runs again.
+
+**The site.** (7,13) is a lake shore in the desert south of round 7's cells: a 4.84u lip (topograph 58, not walkable)
+over the water. The window is the scanner's certified cliff bump, `--cliff-bump 505.16,-832:465.02,-832:2.5`, which
+runs right round the lake's south shore. Disc 4 redrew 40 of the cell's 484 Terrain triangles at the window's east
+end, where it raised a rock ridge (topograph 49). `r9_site_scan.py` found the site among the terrain study's 116
+coastal cells where a bump replays: 19 have their deepest column facing within 12 degrees of a compass bearing,
+walkable ground behind the edge, and no live mod-folder override. 9 of those face a bearing exactly, and (7,13) was
+picked from them for its 40u window (only (10,5)'s is longer, 42u) and its place beside round 7's cells.
+
+**The files**, from the kit's CLI:
+- **FULL** = the fixed verb: Disc1, plus the morph REPLAYED on disc 4 ("REPLAYED (7, 13) on Disc4 (real cell differs
+  across discs in ['terrain'])"). The dry run said so beforehand.
+- **OLD** = the same run with `--skip-mirror`: Disc1 only, byte-identical to FULL's Disc1 files. This is exactly what the
+  kit wrote before the fix on a cell disc 4 redrew.
+
+Each stage teleported 6u south of the edge at x = 484.37 and walked north for 10u. Then it read R (1.25u north of the
+stock edge) and X (on disc 4's ridge: disc 1 has lawn there, at y 3.42; the bump changes neither disc's ground there).
+
+| stage | lab | disc (world) | walk stops at z (predicted) | R, y (predicted) | X, y (predicted) | lab parts bound |
+|---|---|---|---|---|---|---|
+| d1_stock | - | 1 (9011) | −844.015 (−844.0) | 0.707 (0.710) | 3.422 (3.424) | none |
+| d1_bump | FULL | 1 (9011) | **−841.386** (−841.3 at its end x) | **4.844** (4.844) | 3.422 (3.424) | Disc1 Terrain + Sea4 |
+| d4_old | OLD | 4 (9008) | −844.015 (−844.0) | 0.707 (0.710) | 4.641 (4.646) | none |
+| d4_bump | FULL | 4 (9008) | **−841.154** (−841.13 at its end x) | **4.844** (4.844) | **4.641** (4.646) | Disc4 Terrain + Sea4 |
+
+On the bumped ground the walk slid west along the new edge, by 1.5u on disc 1 and 2.3u on disc 4, before it stopped.
+Recomputed at the x where each walk actually ended, all four stops are 0.015-0.086u short of the predicted edge.
+
+The four stopping frames, side by side: `shots/r9-edge-sheet.png`.
+
+**Verdict.**
+1. **The fix works in game.** With the fixed verb, disc 4 shows the bump: its lake shore moved 2.5u north and the walk
+   stops there, exactly as on disc 1.
+2. **The defect is reproduced.** With the kit's old output, disc 4 shows its stock shore and never reads the lab's files.
+3. **Disc 4 keeps its own ground.** The replay edited disc 4's ground rather than copying disc 1's: on the replayed
+   cell, X still reads disc 4's own ridge (4.64), not disc 1's lawn (3.42).
+
+**Instrument note.** One post-run probe passed `r3_build.ground` a relative stage path. That path resolves under the game
+folder, where it finds nothing, so the probe silently read stock: on the bumped ground it looked like a 2.3u miss. The
+ground model now refuses a relative path.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
+
+- Pass `r3_build.ground` its stage as an ABSOLUTE path. A relative one silently read stock (round 9's post-run probe);
+  it now refuses.
 
 - Turn random encounters off with `g.no_encounters()` (engine s94, the F4 booster) before any world walk: round 8's
   first launch died in a random battle at level 1.

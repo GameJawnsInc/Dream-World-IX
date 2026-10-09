@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — coast morphs on the real map now reach disc 4 (`world-transplant --in-place`)
+- An in-place cliff or beach morph (`--cliff-bump`, `--cliff-bay`, `--beach-reshape`, ...) builds its edit from one
+  disc's bytes, so where disc 4's real cell differs (disc 4 redrew 180 of its 275 blocks) the automatic mirror could
+  not copy it: the edit stayed on disc 1 and disc 4 kept its stock coast, with one `SKIP` line. Now the verb re-runs
+  itself on disc 4 there, every morph rebuilt from disc 4's own coast and checked by the same gates, as `world-terrain`
+  and `world-deploy` already did. Where the morph does not fit disc 4's coast, disc 4 keeps its stock coast and the
+  deploy says `NOT MIRRORED`. Over the terrain study's 129 coastal cells where a certified cliff bump used to stay on
+  disc 1, 116 now reach disc 4 (106 replayed, 10 copied: they differ from disc 1 only in triangle order) and 13 stay on
+  disc 1 (the bump folds or has no cliff run on disc 4's coast).
+- An `--in-place --dry-run` now ends with what disc 4 will get: a copy (the cell is the same there), a replay that
+  passes its gates, or a refusal there (disc 1 only), with disc 4's own gate table.
+- Proven in game (terrain study round 9, 16/16): a cliff bump round a lake shore on (7,13) moved the shore 2.5u on
+  disc 1 and, replayed, on disc 4; the kit's old output left disc 4's shore stock; disc 4's own rock ridge in the
+  cell survived the replay.
+
 ### Added — entrances that change with the story (`world-forms --entrance2`)
 - `world-forms --mod-folder F --entrance2 X Y off|only|both` sets an armed custom cell's entrance in form 2, the
   way the stock game closes Cleyra's entrance and opens the Water Shrine's: `off` closes it when the cell switches

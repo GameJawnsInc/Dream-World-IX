@@ -130,6 +130,14 @@ def _cell_refusal(blk, real_src: dict, real_dst: dict, src_disc: int, dst_disc: 
     return None
 
 
+def copy_refusal(blk, *, src_disc: int = 1, dst_disc: int = 4, lod: str = "0_1", game=None):
+    """Why an edit of ``blk``'s real ground could not be COPIED from ``src_disc`` to ``dst_disc`` (the cell differs
+    there), or ``None`` when the mirror copies it: :func:`_cell_refusal` against both discs' real part lists, for a
+    caller that has written nothing yet (a dry run asking what disc 4 will do)."""
+    return _cell_refusal(blk, _real_parts(src_disc, lod, game=game), _real_parts(dst_disc, lod, game=game),
+                         src_disc, dst_disc, lod, game=game)
+
+
 def _neighbours(blk):
     """The 4 neighbours of a block on the 24x20 torus."""
     x, y = blk
