@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — sink an island into open sea (`world-sink`)
+- `world-sink --mod-folder F --at WX WZ` turns a whole real island into open deep sea, in place, the way disc 4
+  removes Shimmering Island: the island's land goes, every 4u tile it touched (with the coast-conforming sea round it)
+  is re-tiled whole as stock open sea, and the near-shore band only the island explained becomes open water, so a
+  boat can sail where it stood. Islands across several blocks sink in one edit; a block left with no land gets the
+  hidden blanking stub. Replayed on disc 4 where disc 4's blocks differ; `--dry-run` says what disc 4 will get.
+- `world-sink --list` scans the map: of disc 1's 19 islands not welded into a continent, 8 sink (45 to 4,813 u²),
+  each with its ready-to-run line, and the rest are named with the reason. An island with shallows or a beach is
+  refused (its shallow water is one mesh with its neighbours'), and so is one with a building on it.
+- Proven in game (terrain study round 10, 28/28): a 4,813 u² island over five blocks became open sea on both discs,
+  and the Blue Narciss sailed across where it stood (on stock it stops at the island's coast).
+- `world-transplant --in-place` writes the hidden blanking stub for a part an edit empties (a 0-vert mesh was refused
+  mid-deploy), and its frame gate can compare positions across parts and exempt a border shared with another block of
+  the same edit (`morph_in_place(frame_shared=..., frame_across_parts=True)`).
+
 ### Fixed — coast morphs on the real map now reach disc 4 (`world-transplant --in-place`)
 - An in-place cliff or beach morph (`--cliff-bump`, `--cliff-bay`, `--beach-reshape`, ...) builds its edit from one
   disc's bytes, so where disc 4's real cell differs (disc 4 redrew 180 of its 275 blocks) the automatic mirror could

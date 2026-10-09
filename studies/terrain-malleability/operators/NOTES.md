@@ -261,7 +261,7 @@ Path D (disc 9) support is verb-by-verb: only 11 verbs expose `--target-disc` (c
 mountain, reclaim, rim-retile, terrain, transplant); water, entrance, mesh-build, retarget and deploy do not (coastnav has its
 own `--disc` namespace flag).
 
-**F11 [law] Axis R is empty.** No operator removes REAL land in place: `--excise` is carry-only; `excise_plan` yields a non-empty
+**F11 [law] Axis R is empty.** (2026-10-09: no longer -- `world-sink` removes a whole bare-coast island, `../land2sea/NOTES.md`.) No operator removes REAL land in place: `--excise` is carry-only; `excise_plan` yields a non-empty
 plan on **0 of 260** real 1x1 cells (`probe_inplace_excise.py`; control: a scanner-certified cliff bump passes the same in-place
 dry-run, so the harness works) and `morph_in_place` is single-cell. The nearest things are all secondary and bounded: `cliff-bay` converts a depth-limited wedge of coastal
 grass to sea (pure-sea4 shores only; refused if it reaches a land component), `bank_lower` sinks a bank (Y only), and
