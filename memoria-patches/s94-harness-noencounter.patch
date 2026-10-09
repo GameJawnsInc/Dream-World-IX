@@ -1,0 +1,38 @@
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 2c9536e..d341e50 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -880,6 +880,21 @@ namespace Memoria.Harness
+                     _stateEvery = Math.Max(1, Arg(s, 0, 2));
+                     break;
+ 
++                // [ff9mapkit s94] THE F4 CHEAT AS A VERB: `noencounter 1|0` sets Memoria's no-random-encounter
++                // booster (what F4 and the pause menu toggle; SettingsState.IsNoEncounter, read by the field step
++                // roll and the world roll) directly. Injected controller input cannot press a keyboard key, and a
++                // scenario that walks the overworld at level 1 otherwise ends in its first random battle. Not gated
++                // on [Cheats] NoRandomEncounter: the harness is a dev tool. In memory only (never saved); `reset`
++                // switches it off again.
++                case "noencounter":
++                {
++                    Boolean on = Arg(s, 0, 1) != 0;
++                    FF9StateSystem.Settings.CallBoosterButtonFuntion(BoosterType.NoRandomEncounter, on);
++                    PersistenSingleton<UIManager>.Instance.Booster.SetBoosterHudIcon(BoosterType.NoRandomEncounter, on);
++                    Event("noencounter", "on", on ? "1" : "0");
++                    break;
++                }
++
+                 case "shot":
+                     _shotsPending++;
+                     StartCoroutine(CaptureShot(s.Args.Length > 0 ? s.Args[0] : "shot"));
+@@ -902,6 +917,11 @@ namespace Memoria.Harness
+                     ReleaseNetsyncOverride();
+                     StoryTrace.Stop();          // s88: one scenario's trace must not run on into the next
+                     Time.timeScale = 1f;
++                    if (FF9StateSystem.Settings.IsBoosterButtonActive[(Int32)BoosterType.NoRandomEncounter])
++                    {
++                        FF9StateSystem.Settings.CallBoosterButtonFuntion(BoosterType.NoRandomEncounter, false);   // s94
++                        PersistenSingleton<UIManager>.Instance.Booster.SetBoosterHudIcon(BoosterType.NoRandomEncounter, false);
++                    }
+                     Event("reset");
+                     Block(2);
+                     break;

@@ -629,12 +629,60 @@ The frames show the same:
 **Scope.** Removal applies only where the building stands over a closed hole. On disc 1 that is 8 of the 37 buildings
 outside the 26 switchable cells (the same 8 on disc 4); the kit refuses the rest before writing anything.
 
+## Round 8 (2026-10-09, owner's go: "do 1"): entrances that change with the story, 10/10 on the third launch
+
+Run `.harness-runs/20261009-131156-r8-entrances`, one launch, 5 world loads, 164 s, 0 exceptions. One scratch folder,
+first in FolderNames for each launch; ini backed up per launch (`backups/Memoria.ini.pre-r8*-lab.*`) and restored
+byte-exact (`0b5a4985…`) after each, the lab removed. Engine: the live build with s94 (pre-build backup
+`20261009-130705`). Build and predictions: `r8_build.py`; scenario: `r8_session.py`.
+
+### 23. `world-forms --entrance2`: an entrance closes, or opens, with the story
+
+The cell is (18,12), outside the 26 switchable cells. It holds the Ice Cavern's entrance: two tiles with event bits,
+cell tag (37,24), dispatch case 4 -> field 300, no story condition. Every free-roam world script carries that case,
+including world 9011, where the FARSHORE route lands at the new-game story point. Disc 4's (18,12) has no such tile,
+so this round is disc 1 only. Every file came from the kit's CLI, with the cell armed on flag 8712:
+- **OFF** = `--entrance2 18 12 off`: a `Terrain2` without the tiles' event bits.
+- **ONLY** = `--entrance2 18 12 only`: a form-1 `Terrain` without them, and a `Terrain2` with them.
+
+| stage | lab | flag 8712 | standing on the tile | Confirm | `Memoria.log` |
+|---|---|---|---|---|---|
+| stock | - | off | "Enter with X" prompt, `?` nameplate, `!` balloon | **enters field 300** | nothing armed |
+| off_f0 | OFF | off | prompt | **enters** | armed, Terrain2 bound |
+| **off_f1** | OFF | **on** | **no prompt** | **stays on the map** | armed, switched |
+| **only_f0** | ONLY | off | **no prompt** | **stays** | armed; Terrain and Terrain2 bound |
+| **only_f1** | ONLY | **on** | **prompt** | **enters** | armed, switched |
+
+The prompt frames are `shots/r8-<stage>-prompt.png`.
+
+**Verdict.**
+1. **`off` closes an entrance with the story.** With the flag set, the cell's form-2 ground carries no event bits.
+   Standing on the tile shows nothing, and Confirm does nothing.
+2. **`only` opens an entrance with the story.** Without the flag the form-1 ground has no entrance. With it, the
+   prompt appears and Confirm enters the Ice Cavern, the same as stock.
+3. The world script's trigger is untouched in every stage. Only the walked ground's event bits decide, which is how
+   the stock game closes Cleyra's entrance and opens the Water Shrine's.
+
+**The first two launches** taught the instrument two things (they are not counted):
+- **`.harness-runs/20261009-125210-r8-entrances`:** a random battle on the walk to the tile killed the level-1 party
+  (the owner watched it). The harness could not press F4, so engine patch s94 adds `noencounter`
+  (`g.no_encounters()`): the F4 booster, set directly. No battle occurred in either later launch.
+- **`.harness-runs/20261009-130914-r8-entrances` (7/10):** the walk onto the stock tile showed the prompt but did not
+  enter, because an overworld entrance is a prompt, not a walk-on warp. The three "enters" checks failed on the stock
+  control. Its frames already matched every prediction for the prompt: shown in stock, off_f0 and only_f1; absent in
+  off_f1 and only_f0.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
+
+- Turn random encounters off with `g.no_encounters()` (engine s94, the F4 booster) before any world walk: round 8's
+  first launch died in a random battle at level 1.
+- An overworld entrance is a PROMPT: standing on its tile shows "Enter with X" and the place's nameplate, and
+  Confirm takes it. A walk across the tile alone never enters (round 8's second launch).
 
 - A height prediction on topograph 36-38 must subtract the canopy sink (1.171875): round 5's control missed by exactly
   that. Read the tile's topograph before registering a number.

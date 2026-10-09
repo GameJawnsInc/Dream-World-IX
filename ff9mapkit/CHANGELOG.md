@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — entrances that change with the story (`world-forms --entrance2`)
+- `world-forms --mod-folder F --entrance2 X Y off|only|both` sets an armed custom cell's entrance in form 2, the
+  way the stock game closes Cleyra's entrance and opens the Water Shrine's: `off` closes it when the cell switches
+  (its `Terrain2` tiles lose their event bits), `only` opens it only then (the form-1 `Terrain` loses them, a
+  form-1-only override on purpose), `both` gives each form's ground the other's again. Only event bits change; the
+  world script's trigger is untouched. Events follow the plan onto a re-cut `Terrain2` (a `--building2` fill or a
+  split). Replayed on disc 4 when the cell is armed there and has the entrance there too (else noted and skipped).
+  Needs engine `s92`; no DLL change.
+- Proven in game (terrain study round 8, 10/10): on (18,12) the Ice Cavern's entrance closed on a story flag with
+  `off` (no prompt, Confirm does nothing) and opened only on it with `only`.
+
+### Added — `Session.no_encounters()`: random encounters off in harness runs (custom engine patch `s94`)
+- The harness's `noencounter` verb sets Memoria's no-random-encounter booster, the one F4 toggles (injected input
+  cannot press a keyboard key). A level-1 world walk otherwise dies in its first random battle. `reset` turns it
+  off; memory only, never saved. The live DLL was rebuilt with it (pre-build backup `20261009-130705`).
+
 ### Added — buildings that change with the story (`world-forms --building2`; custom engine patch `s93`)
 - `world-forms --mod-folder F --building2 X Y none|keep|PATH.obj` sets an armed custom cell's building in form 2:
   - `none` removes its stock building there. Every stock building plugs a hole in its cell's ground (on all 59 disc-1

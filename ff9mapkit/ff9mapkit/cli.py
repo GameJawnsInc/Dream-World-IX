@@ -6031,6 +6031,28 @@ def _cmd_world_forms(args: argparse.Namespace) -> int:
     has no form-2 override beside it."""
     from . import config as C
     from .world import forms as FM
+    if getattr(args, "entrance2", None):
+        # A CUSTOM FORM CELL'S ENTRANCE IN FORM 2 (engine patch s92): the event bits of its two grounds
+        from .world import formentrance as FE
+        if not args.mod_folder or args.stack:
+            print("--entrance2 needs --mod-folder (one folder)", file=sys.stderr)
+            return 2
+        x, y, mode = args.entrance2
+        try:
+            x, y = int(x), int(y)
+        except ValueError:
+            print(f"--entrance2 X Y {{{'|'.join(FE.MODES)}}}: X and Y are the cell", file=sys.stderr)
+            return 2
+        try:
+            res = FE.apply(args.mod_folder, x, y, mode, disc=args.disc, game=args.game, dry_run=args.dry_run)
+        except (ValueError, ConfigError, FileNotFoundError) as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return 2
+        for line in FE.receipt(res):
+            print(line)
+        print("(dry run: nothing written)" if args.dry_run else
+              "  needs the custom engine (patch s92); the change shows on the next world load")
+        return 0
     if getattr(args, "building2", None):
         # A CUSTOM FORM CELL'S BUILDING IN FORM 2 (engine patches s92 + s93): Object2 + the Terrain2 it needs
         from .world import formobject as FO
@@ -10484,11 +10506,17 @@ def build_parser() -> argparse.ArgumentParser:
                           "edit is refused); PATH.obj shows that building instead (render only; the ground under its "
                           "footprint blocks), also on a cell with no building; 'keep' undoes it (the form-1 building "
                           "stays). Replayed on disc 4 when the cell is armed there too")
+    wfm.add_argument("--entrance2", nargs=3, metavar=("X", "Y", "MODE"),
+                     help="an ARMED custom cell's entrance in form 2 (custom engine, patch s92): 'off' closes it when "
+                          "the cell switches, 'only' opens it only then (the form-1 ground loses its entrance tiles), "
+                          "'both' undoes either. Only the tiles' event bits change; replayed on disc 4 when the cell "
+                          "is armed there too")
     wfm.add_argument("--at", type=float, nargs=2, metavar=("WX", "WZ"), default=None,
                      help="with --building2 PATH.obj: where the building's centre goes (default the cell centre)")
-    wfm.add_argument("--dry-run", action="store_true", help="with --building2: plan and gate, write nothing")
+    wfm.add_argument("--dry-run", action="store_true",
+                     help="with --building2/--entrance2: plan and gate, write nothing")
     wfm.add_argument("--disc", type=int, default=1,
-                     help="with --arm/--disarm/--building2: the override namespace (default 1)")
+                     help="with --arm/--disarm/--building2/--entrance2: the override namespace (default 1)")
     wfm.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wfm.set_defaults(func=_cmd_world_forms)
 

@@ -8231,6 +8231,14 @@ class Session:
         self._check_flag_bit(bit, "flag")
         self.send(f"flag {int(bit)} {1 if value else 0}")
 
+    def no_encounters(self, on: bool = True) -> None:
+        """Switch random encounters off (or back on): Memoria's no-random-encounter booster, what F4 and the pause
+        menu toggle, set directly (engine patch s94; injected input cannot press a keyboard key). A world walk at
+        level 1 otherwise ends in its first random battle -- terrain study round 8 died outside the Ice Cavern. It
+        lasts until switched off, ``reset`` or quit (memory only, never saved); an engine without s94 refuses the
+        verb."""
+        self.send(f"noencounter {1 if on else 0}")
+
     def poke(self, index: int, value: int) -> None:
         """Write one raw ``gEventGlobal`` byte."""
         self.send(f"byte {int(index)} {int(value)}")

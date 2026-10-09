@@ -824,6 +824,21 @@ def test_timescale_zero_is_refused(game):
             g.timescale(0)
 
 
+def test_no_encounters_sets_the_f4_booster_and_reset_clears_it(game):
+    """s94: the F4 cheat as a verb -- a world walk at level 1 otherwise ends in its first random battle; `reset`
+    switches it off so it never leaks into the next scenario."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.no_encounters()
+        assert fake.no_encounter is True
+        g.no_encounters(False)
+        assert fake.no_encounter is False
+        g.no_encounters()
+        g.send("reset")
+        assert fake.no_encounter is False
+
+
 def test_report_json_is_not_green_with_zero_checks(game):
     """A run that recorded nothing proved nothing; 'passed: true' there is the purest false green."""
     fake = FakeGame(game)
