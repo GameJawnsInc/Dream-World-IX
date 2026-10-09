@@ -26,6 +26,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   Path D cell.
 - New: `world/forms.py` (`PLACE_CELLS`, `DEFAULT_CONDITION`, `part_form`, `form_hits`, `mod_folder_hits`).
   `environment.FORM_PLACES` now comes from it.
+- Proven in game (terrain study round 5): a `world-deploy` edit on Black Mage Village's cell vanished when its place
+  switched, and a `Terrain2` beside it kept the edit. No `world-*` verb writes a `Terrain2` yet; the library does
+  (`mesh.deploy_override(bm, part="Terrain2")`).
 
 ### Fixed — `world-environment`'s conditions replace lower mod folders' instead of OR-ing with them
 - The engine reads every stacked `Environment.txt` from the lowest-priority folder to the highest, and conditions for
@@ -39,6 +42,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - A place without an alternate block form (56 of the 65 names) is refused: the engine only ever asks about the 9 that
   switch (`environment.FORM_PLACES`). A place or effect listed twice is refused too.
 - The docs' `disc4` example used `w_frameDisc`, which is not an NCalc parameter; it is now `ScenarioCounter >= 11090`.
+- Proven in game (terrain study round 5, two stacked folders): the higher folder's `Clear` replaced the lower folder's
+  condition, the old output (no `Clear`) ORed with it so the lower folder's `true` won, and `Clean` did nothing.
 
 ### Changed — `world-deploy --lift`/`--spike` refuse a torn seam unless `--allow-tear`
 - The two diagnostic bumps hold no seam, and only printed a warning after writing. Round a town's walkable floor (an
