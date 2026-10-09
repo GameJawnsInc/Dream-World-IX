@@ -334,7 +334,8 @@ a loose `Object2` replaces it. Authoring: `world-forms --mod-folder F --arm X Y 
 form-1 ground. Cells with the same condition switch together and may be edited together; cells on different
 conditions refuse one edit, as two places do. Disc 4 needs its own `--arm ... --disc 4`; then a form-2 edit is replayed
 there. `Memoria.log` names each armed cell (`[CustomFormCells] armed ...`) and each switch. Stock Memoria ignores both
-files.
+files. Proven in game on cell (6,12) (terrain study round 6): it switched on `true` and on a story flag set in a field,
+stayed stock on `false`, the flag off and no `Form.txt`, and kept its Object walkable in form 2.
 
 ## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**

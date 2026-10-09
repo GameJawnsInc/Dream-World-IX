@@ -530,6 +530,49 @@ result.
 Gap this round exposed: no `world-*` verb writes a `Terrain2`, so the warning's advice ("write a Terrain2 override
 too") can be followed only from the library (`mesh.deploy_override(bm, part="Terrain2")`, as `forms_build.py` does). **Closed the same day:** `world-terrain`/`world-deploy --form 2`; the BMV flatten above is `world-terrain --at 1440 -928 --radius 12 --flatten --height 26 --form 2`, byte for byte.
 
+## Round 6 (2026-10-09, owner's go: "yes, run round 6"): story terrain on a cell stock never switches, 12/12
+
+Run `.harness-runs/20261009-103502-r6-anycell`, one launch, 6 world loads, 84 s, 0 exceptions. One scratch folder,
+first in FolderNames for the launch; ini backed up to `backups/Memoria.ini.pre-r6-lab.20261009-103455` and restored
+byte-exact (`0b5a4985…`), the lab removed. Engine: the live `s92` build (pre-build backup `20261009-092849`). Build and
+predictions: `r6_build.py`; scenario: `r6_session.py`.
+
+### 21. Engine patch s92: any cell switches ground on its own condition, and keeps its Object
+
+The cell is (6,12), which stock never switches. Its Object has a walkable tile (O, 395.47 −799.35) beside plain ground
+(T 7u east, T2 on the slope 5.3u further); ctl lies outside the edit. Every file came from the kit's CLI:
+`world-forms --arm 6 12 --when ...` wrote `Block[6][12] Form.txt`, and `world-terrain --form 2 --at 402.68 -799.52
+--radius 16 --raise 6` wrote `Block[6][12] Terrain2` (the cell's own ground, raised 6 at T). The story condition is
+`(GetEventGlobalByte(1089) & 1) != 0`, flag 8712, which the scenario set in field 6603 before walking out.
+
+| stage | lab | flag 8712 | predicted (= read) | `Memoria.log` | max off |
+|---|---|---|---|---|---|
+| stock | - | off | STOCK | nothing armed | 0.0027 |
+| armed_false | Terrain2 + `false` | off | STOCK | armed, not switched | 0.0027 |
+| **armed_true** | Terrain2 + `true` | off | **FORM 2**: T 4.45, T2 7.34, O 2.96 (the Object) | armed, switched | 0.0032 |
+| flag_off | Terrain2 + flag | off | STOCK | armed, not switched | 0.0027 |
+| **flag_on** | Terrain2 + flag | **on** | **FORM 2** | armed, switched | 0.0032 |
+| no_form | Terrain2 only | off | STOCK | armed, "<no Form.txt: never>" | 0.0027 |
+
+STOCK read O 2.9609 (the Object), T and T2 2.9688, ctl 12.4102. ctl read the same in all six stages. The Terrain2
+bound from the lab on every armed load (5/5).
+
+The frames illustrate the same: in `shots/r6-armed_true.png` the canyon wall to Zidane's right is pushed up into a peak
+(the raised hill's top); in `shots/r6-armed_false.png` it is stock. The camera framing differs between the two
+(easing after the teleport), so the heights are the measure.
+
+**Verdict.**
+1. **s92 works in game.** A cell outside stock's 26 switched ground, render and walk, on its own condition; `false`, a
+   cleared flag and a missing `Form.txt` each left it stock.
+2. **The condition is story-driven.** The same files gave stock with flag 8712 off and form 2 with it on: a save bit,
+   set in a field, decided the ground on the next world load.
+3. **The Object is carried.** O read the Object's 2.96 in form 2. Had the engine not kept the form-1 Object in form 2,
+   O would have had no ground at all (the Terrain2 has no triangle there).
+4. Each walk out re-read `Form.txt` and the mesh; the alternating stages held over six loads.
+
+Not covered this round: an `Object2` replacing the Object, disc 4 (`--arm ... --disc 4`), and several cells on one
+condition. The kit tests cover all three offline.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.

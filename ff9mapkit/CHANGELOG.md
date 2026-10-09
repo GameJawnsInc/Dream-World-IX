@@ -19,7 +19,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   pins keep the form-1 Object (or the deployed `Object2`). Disc 4: replayed only where the cells are armed there too.
 - The form check warns about a form-1 `Terrain` edit on a custom cell, naming its condition.
 - Needs the custom engine. The live DLL was rebuilt with `s92` (pre-build backup `20261009-092849`); the shipped
-  bundle lags until it is re-cut. In-game proof is terrain study round 6 (staged).
+  bundle lags until it is re-cut.
+- Proven in game (terrain study round 6, 12/12): on cell (6,12) a `true` condition and a story flag set in a field
+  each switched the ground; `false`, the flag off and no `Form.txt` each left it stock; the Object stayed walkable in
+  form 2.
 
 ### Added — `world-terrain --form 2` and `world-deploy --form 2`: edit a switchable cell's alternate ground
 - On the 26 cells that switch with a story place, a reshape edited only form 1, the ground shown until the place
