@@ -4909,12 +4909,26 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
         ok = [r for r in rows if r["ok"]]
         print(f"{len(ok)} of {len(rows)} islands (land within 9 blocks) can sink:")
         for r in ok:
+            how = ("its land only, its neighbours kept (its water joins theirs)" if r.get("fill") == "footprint"
+                   else f"re-banded: {bands(r['bands'])}")
             print(f"  {r['land_u2']:8.1f} u2  up to y {r['max_y']:5.2f}  blocks {' '.join(map(str, r['blocks']))}  "
-                  f"re-banded: {bands(r['bands'])}{'  (and its beach water)' if r['shore_tris'] else ''}\n"
+                  f"{how}{'  (and its beach water)' if r['shore_tris'] else ''}\n"
                   f"      py -m ff9mapkit world-sink --mod-folder <F> --at {r['at'][0]} {r['at'][1]}")
         for r in rows:
             if not r["ok"]:
                 print(f"  refused {r['land_u2']:8.1f} u2 at ({r['at'][0]}, {r['at'][1]}): {r['why']}")
+        seen = set()
+        clusters = [r for r in rows if r.get("cluster") and r["cluster"]["ok"]]
+        if clusters:
+            print("with --cluster (the island and every island its water joins, sunk together):")
+        for r in clusters:
+            key = tuple(sorted(tuple(b) for b in r["cluster"]["blocks"])), len(r["cluster"]["members"])
+            if key in seen:
+                continue
+            seen.add(key)
+            print(f"  {len(r['cluster']['members'])} islands over blocks "
+                  f"{' '.join(str(tuple(b)) for b in r['cluster']['blocks'])}\n"
+                  f"      py -m ff9mapkit world-sink --mod-folder <F> --at {r['at'][0]} {r['at'][1]} --cluster")
         return 0
     if args.at is None or not args.mod_folder:
         print("world-sink needs --mod-folder F and --at WX WZ (a point on the island), or --list", file=sys.stderr)
@@ -4930,15 +4944,26 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
     try:
         s = TR.sink(args.mod_folder, at, disc=args.disc, game=args.game, dry_run=args.dry_run,
                     skip_mirror=args.skip_mirror, fresh=args.fresh, allow_overwrite=args.allow_overwrite,
-                    allow_entrances=args.allow_entrances, replay=replay)
+                    allow_entrances=args.allow_entrances, replay=replay, cluster=args.cluster)
     except (ValueError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"SINK, disc {args.disc}: the island at ({at[0]}, {at[1]}) -- {s['land_tris']} land tris, {s['land_u2']} u2, "
           f"up to y {s['max_y']}, over block(s) {' '.join(str(tuple(b)) for b in s['blocks'])}")
-    print(f"  {s['tiles']} 4u tiles re-tiled as open water -- {bands(s['bands'])} tiles ({s['fill_tris']} tris, area "
-          f"{s['fill_area']}), {s['sea_replaced']} coastal water tris replaced, {s['edge_welds']} edge weld(s), "
-          f"{s['keel_to_open']} near-shore tris turned open water")
+    if s.get("members"):
+        print(f"  a cluster of {len(s['members'])} islands, sunk together: "
+              + ", ".join(f"({q[0]}, {q[1]})" for q in s["members"]))
+    if s.get("fill") == "footprint":
+        print("  its coastal water runs on into its neighbours': the island alone goes, and every water tri round it "
+              "and every neighbour stays")
+        print(f"  its footprint over {s['tiles']} 4u cells becomes water -- {s['cells_whole']} whole cells re-tiled "
+              f"({bands(s['bands'])}), {s['cells_partial']} part-cells carrying on the water beside them "
+              f"({s['fill_tris']} tris); {s['split_tris']} kept water tris split where a 4u line crosses the old "
+              f"coast; {s['keel_to_open']} near-shore tris turned open water")
+    else:
+        print(f"  {s['tiles']} 4u tiles re-tiled as open water -- {bands(s['bands'])} tiles ({s['fill_tris']} tris, "
+              f"area {s['fill_area']}), {s['sea_replaced']} coastal water tris replaced, {s['edge_welds']} edge "
+              f"weld(s), {s['keel_to_open']} near-shore tris turned open water")
     if s["shore_tris"]:
         print(f"  {s['shore_tris']} tris of the island's own beach water (sea1/sea2) go with it")
     if s["entrance_tris"]:
@@ -4957,7 +4982,7 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
             return 0                       # the disc-1 dry run that asked says what this one means
         print("dry run: gates CLEAN -- re-run without --dry-run to deploy")
         _preview_disc4(args, [tuple(int(v) for v in b.split(",")) for b in s["per_block"]], _cmd_world_sink, "sink",
-                       "this island")
+                       "its own ground there")
         return 0
     print("deployed:")
     for q in s["deployed"]:
@@ -10058,8 +10083,11 @@ def build_parser() -> argparse.ArgumentParser:
                               "Shimmering Island: its land, its own beach water and the coastal water round it become "
                               "whole stock tiles of the water it stands in -- deep sea, mid water, or both with the "
                               "transition band carried across where it stood -- and its near-shore band open water (a "
-                              "boat can sail there). No building on it, no beach water shared with another coast, "
-                              "within 9 blocks. Replayed on disc 4. --list finds them.")
+                              "boat can sail there). Where its water joins a neighbour's (an island cluster), the "
+                              "island alone goes and its footprint becomes water, the water round it and every "
+                              "neighbour kept, as disc 4 kept Shimmering's islets; --cluster sinks them all instead. "
+                              "No building on it, no beach water shared with another coast, within 9 blocks. Replayed "
+                              "on disc 4. --list finds them.")
     wsk.add_argument("--mod-folder", default=None, help="the mod folder to deploy into")
     wsk.add_argument("--at", type=float, nargs=2, metavar=("WX", "WZ"), default=None,
                      help="a point on the island's land (world x z)")
@@ -10072,6 +10100,10 @@ def build_parser() -> argparse.ArgumentParser:
     wsk.add_argument("--skip-mirror", action="store_true", help="don't mirror or replay the edit on disc 4")
     _add_fresh_args(wsk, "sink")
     wsk.add_argument("--allow-entrances", action="store_true", help=_ALLOW_ENTRANCES_HELP)
+    wsk.add_argument("--cluster", action="store_true",
+                     help="sink the island together with every island its coastal or beach water joins (an island "
+                          "cluster, within 9 blocks), re-tiled as one; without it, a joined island sinks alone and "
+                          "its neighbours stay")
     wsk.set_defaults(func=_cmd_world_sink)
 
     wms = sub.add_parser("world-morphs",

@@ -831,6 +831,55 @@ island: that is the replay working on disc 4's own bytes, as designed.
 3. **The replay carries it to disc 4**, including ground disc 4 adds; with the files a non-mirrored deploy writes,
    disc 4 keeps both islands.
 
+## Round 12 (2026-10-09, owner's go: "do the island clusters next"): islands whose water joins their neighbours', 60/60 on the first launch
+
+Run `.harness-runs/20261009-175442-r12-clusters`: one launch, 8 world loads, 145 s, 0 exceptions. One scratch folder,
+first in FolderNames; ini backed up (`backups/Memoria.ini.pre-r12-lab.20261009-175436`) and restored byte-exact
+(`0b5a4985…`), the lab removed. Build and predictions: `r12_build.py`; scenario: `r12_session.py`; the lane:
+`../land2sea/NOTES.md` section 6.
+
+### 27. `world-sink` on island clusters: one island alone with its neighbours kept, or a cluster together
+
+Three sites, one folder:
+- **A**, Shimmering Island's main island, (6,4)-(7,5), `--at 441.992 -311.975 --allow-entrances`. Its coastal sea runs
+  on into its seven islets', so it sinks ALONE by its footprint: 86 whole cells re-tiled as open sea, 74 part-cells
+  carrying on the water beside them, 47 kept water tris split at the old coast, 100 near-shore tris turned open water.
+  Its 135 entrance tris go with it (lab only). Disc 4 removed this island itself: the replay finds no land there,
+  refuses, and disc 4 keeps its own ground.
+- **C**, the (8,16) pair, `--at 545.379 -1070.376 --cluster`: two islands whose water joins, sunk together (65 tiles,
+  mid water and transition tiles), replayed on disc 4.
+- **W**, round 11's shelf-edge island again (`--at 278.667 -1006.732`), now with the split weld: 4 kept coastal tris
+  split at re-tiled tile corners. Its fill is byte-identical to round 11's.
+
+FULL = all three (16 Disc1 files, 8 Disc4: C and W); OLD = the same with `--skip-mirror`. Read points: A1-A3 on
+Shimmering's main island, K1 K2 on two of its islets (they must not move), C1 C2 on the pair, W1 W2 on W.
+
+| stage | lab | world | A1 / A2 / A3 | K1 / K2 | C1 / C2 | W1 / W2 | boat | lab files bound |
+|---|---|---|---|---|---|---|---|---|
+| d1_stock | - | 9011 | 10.492 / 1.184 / 2.813 | 9.219 / 8.836 | 2.734 / 2.734 | 3.965 / 3.574 | | 0 |
+| d1_sink | FULL | 9011 | **−1.367 / −1.363 / −1.367** | 9.219 / 8.836 | **−0.586 / −0.586** | **−0.586 / −0.586** | | 16 (Disc1) |
+| boatA_stock | - | 9003 | | | | | stalls at x 460.0 at the main island (sim 459.98) | 0 |
+| boatA_sink | FULL | 9003 | | | | | **sails to x 493.8**, past where it stood (473.5) | 16 |
+| boatC_stock | - | 9003 | | | | | stalls at x 525.0 at the pair (sim 524.99) | 0 |
+| boatC_sink | FULL | 9003 | | | | | **sails to x 561.7**, past it (542.5) | 16 |
+| d4_old | OLD | 9008 | −1.367 (disc 4's own sea) | 9.219 / 8.836 | 2.734 / 2.734 | 3.887 / 3.574 | | 0 |
+| d4_sink | FULL | 9008 | −1.367 (disc 4's own sea) | 9.219 / 8.836 | **−0.586 / −0.586** | **−0.586 / −0.586** | | 8 (Disc4) |
+
+A2 lies in new water within 2u of an islet, so it carries the keel class (56); its walk sink is the same as open
+sea's. It read −1.36328, 1/256 above the registered −1.36719, inside the ±0.15 tolerance. Every other reading is the
+registered one to the last bit.
+
+The frames: `shots/r12-sheet.png` and `shots/r12-boats.png`. Sunk on disc 1, Shimmering looks as disc 4 has it: the
+main island gone, the islets standing where they stood, continuous water between them. The pair is gone on both discs
+with no seam; W looks as it did in round 11.
+
+**Verdict.**
+1. **One island of a cluster sinks alone, its neighbours kept.** Shimmering's main island became open sea on disc 1
+   and both islets read their stock heights to the last bit: the same outcome disc 4 shows for the same island.
+2. **A cluster sinks together** with `--cluster`, replayed on disc 4.
+3. **A boat sails where they stood.**
+4. **The split weld changes nothing a party or a boat can see:** round 11's island reads as it did.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.

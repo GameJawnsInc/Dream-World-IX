@@ -80,7 +80,7 @@ def main():
     a = [float(v) for v in sys.argv[1:]]
     for k in range(0, len(a), 2):
         at = (a[k], a[k + 1])
-        plan, rep = TR.sink_plan(at)
+        plan, rep = TR.sink_auto_plan(at)
         blocks = sorted({tuple(b) for b in rep["blocks"]} | set(plan))
         near = sorted({(b[0] + dx, b[1] + dy) for b in blocks for dx in (-1, 0, 1) for dy in (-1, 0, 1)
                        if (b[0] + dx, b[1] + dy) in real})
