@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-terrain --form 2` and `world-deploy --form 2`: edit a switchable cell's alternate ground
+- On the 26 cells that switch with a story place, a reshape edited only form 1, the ground shown until the place
+  switches; in game that edit vanished the moment the place switched (terrain study round 5). No verb could write
+  the form-2 ground, `Terrain2`, though the kit's own warning told authors to.
+- `--form 2` reshapes that alternate ground: it reads the cell's deployed `Terrain2` (else stock form 2) and writes
+  `Terrain2`. Run the same edit with and without `--form 2` to make it in both forms. The seam pins follow the form:
+  the shared water and the form-2 Object hold it, the form-1 Object does not, and every cell outside the place is held
+  at its border, so the edit cannot tear while the place has switched.
+- It edits one place at a time (two places switch independently, so an edit across them would tear when only one had
+  switched), on disc 1 or 4. It is never copied to disc 4, whose form-2 ground differs from disc 1's on 5 of 20 cells:
+  for Mognet Central and Chocobo's Paradise, which switch on disc 4 too, the edit is re-run on disc 4's own form 2;
+  for the disc-1 places nothing is done there, and the receipt says so.
+- `world-deploy --form 2` runs `world-terrain`'s reshape (so its one-way-wall gate applies) and refuses `--lift`,
+  `--spike` and the faithful copy. `world-deploy --lod` other than `0_1` is now refused: the engine reads overrides
+  only under `0_1`, and `0_2` (where stock keeps form 2) looked like the way to edit form 2.
+- Black Mage Village, `--flatten --height 26 --radius 12 --form 2`: byte-equal to the `Terrain2` rounds 1 and 5
+  walked in game.
+- New: `terrain.reshape(form=)`, `terrain.form2_part`, `terrain.form2_partners`. The defect-19 warning now says to
+  re-run the edit with `--form 2`.
+
 ### Fixed — `world-transplant` no longer refuses a disc-4 carry of (18,4) for near-miss pairs stock already has
 - The weld audit refused any two vertices closer than 0.05u, on the claim that stock has none. Disc 4's (18,4)
   Terrain+Sea3 has 3 (disc 1 and every other disc-4 block have 0), so a disc-4 carry of it failed on unmodified
@@ -27,8 +47,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - New: `world/forms.py` (`PLACE_CELLS`, `DEFAULT_CONDITION`, `part_form`, `form_hits`, `mod_folder_hits`).
   `environment.FORM_PLACES` now comes from it.
 - Proven in game (terrain study round 5): a `world-deploy` edit on Black Mage Village's cell vanished when its place
-  switched, and a `Terrain2` beside it kept the edit. No `world-*` verb writes a `Terrain2` yet; the library does
-  (`mesh.deploy_override(bm, part="Terrain2")`).
+  switched, and a `Terrain2` beside it kept the edit. `--form 2` (above) now writes one.
 
 ### Fixed — `world-environment`'s conditions replace lower mod folders' instead of OR-ing with them
 - The engine reads every stacked `Environment.txt` from the lowest-priority folder to the highest, and conditions for

@@ -309,10 +309,19 @@ the Water Shrine cell (3,9)) are form-1 parts, and `Terrain2`, `Object2` and the
 and river parts render in both (`WMWorld.LoadBlock`). The s34 override key is the part's name, so a kit `Terrain`
 edit there replaces form 1 only: when the place switches, the stock `Terrain2` comes back and the edit vanishes. A
 `Block[x][y] Terrain2.ff9mesh` override replaces form 2 (walked in game: terrain study in-game round 1, story terrain
-with no DLL). Every world writer now warns when it writes a form-1 part of such a cell with no form-2 override beside
-it (the post-step every writer runs, `discmirror.auto_mirror`), and `world-forms --mod-folder F` or `--stack` checks
-deployed overrides (exit 1 on one). A disc-1 place's cells on disc 4, and a Path D namespace's cells (switched only
-in `CloneStockWorld` mode), are reported as dormant.
+with no DLL; round 5 saw a form-1 edit vanish on the switch and a Terrain2 keep it). Every world writer now warns
+when it writes a form-1 part of such a cell with no form-2 override beside it (the post-step every writer runs,
+`discmirror.auto_mirror`), and `world-forms --mod-folder F` or `--stack` checks deployed overrides (exit 1 on one).
+A disc-1 place's cells on disc 4, and a Path D namespace's cells (switched only in `CloneStockWorld` mode), are
+reported as dormant.
+
+**Editing form 2: `--form 2` (`world-terrain`, `world-deploy`).** It reshapes the place's alternate ground: the
+deployed `Terrain2`, else stock form 2 (`0_2`), written back as `Terrain2`. Run the same edit with and without it to
+make it in both forms. Its pins follow the form (the shared water and `Object2` hold it, the form-1 `Object` does
+not), and every cell outside the place is held at its border. One place per edit; disc 1 or 4. Disc 4 is never
+copied to (its form 2 differs from disc 1's on 5 of 20 cells): Mognet Central and Chocobo's Paradise, which switch
+there too, get the edit re-run on disc 4's own form 2; the disc-1 places are left alone there. The Black Mage Village
+flatten round 1 built by hand is exactly `world-terrain --at 1440 -928 --radius 12 --flatten --height 26 --form 2`.
 
 ## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**

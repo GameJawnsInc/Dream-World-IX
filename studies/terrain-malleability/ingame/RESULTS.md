@@ -528,7 +528,7 @@ result.
    loads.
 
 Gap this round exposed: no `world-*` verb writes a `Terrain2`, so the warning's advice ("write a Terrain2 override
-too") can be followed only from the library (`mesh.deploy_override(bm, part="Terrain2")`, as `forms_build.py` does).
+too") can be followed only from the library (`mesh.deploy_override(bm, part="Terrain2")`, as `forms_build.py` does). **Closed the same day:** `world-terrain`/`world-deploy --form 2`; the BMV flatten above is `world-terrain --at 1440 -928 --radius 12 --flatten --height 26 --form 2`, byte for byte.
 
 ## Not run
 

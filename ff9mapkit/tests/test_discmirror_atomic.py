@@ -230,7 +230,7 @@ def test_world_deploy_replays_itself_on_disc4(monkeypatch):
     ns = argparse.Namespace(block=None, cluster=None, disc=1, lod="0_1", mod_folder="MOD", hill=2.0, crater=0.0,
                             flatten=False, height=None, radius=8.0, center=[1030.0, -910.0], falloff="smooth",
                             no_normals=True, allow_entrances=False, spike=0.0, lift=0.0, skip_mirror=False,
-                            game=None, fresh=False, allow_overwrite=False, allow_tear=False)
+                            game=None, fresh=False, allow_overwrite=False, allow_tear=False, form=1)
     from types import SimpleNamespace
     from ff9mapkit.world import entrance as EN, mesh as M
     monkeypatch.setattr(X, "list_blocks", lambda **k: [(16, 14)])
