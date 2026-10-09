@@ -197,7 +197,9 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
     1. ``skip_mirror=True`` (CLI ``--skip-mirror``) opts out explicitly -- logs one line, does nothing.
        ``skip_mirror=DEFERRED`` is the same no-op for an inner writer whose orchestrator runs the one pass
        itself; its line says so instead of blaming a ``--skip-mirror`` nobody passed. ``skip_mirror=REPLAY`` is the
-       silent no-op for the writer call a ``replay`` re-runs on the destination disc.
+       silent no-op for the writer call a ``replay`` re-runs on the destination disc. Before ``--skip-mirror`` is
+       honoured, THE FORM CHECK (:mod:`~ff9mapkit.world.forms`, terrain study defect 19) logs every written
+       override that replaces one form of a switchable cell.
     2. Every entry of ``written`` that is not a real, existing ``str``/``Path`` under a ``WorldMap/Disc{n}``
        tree (``n != dst_disc``) is dropped. A ``MagicMock`` (a hermetic test that mocked the deploy calls
        out) fails the ``isinstance`` check -- if NOTHING survives (a dry run, a mocked writer, or a writer
@@ -225,6 +227,12 @@ def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc
         return None
     if skip_mirror == REPLAY:
         return None
+    # THE FORM CHECK (terrain study defect 19): this is the one post-step every writer runs, so it is where an edit
+    # that lands on one form of a switchable cell is named -- mirrored or not
+    from . import forms as FM
+    written = list(written)
+    for line in FM.note_lines(FM.form_hits(written)):
+        log(line)
     if skip_mirror:
         log(f"disc-{dst_disc} mirror: skipped (--skip-mirror)")
         return None

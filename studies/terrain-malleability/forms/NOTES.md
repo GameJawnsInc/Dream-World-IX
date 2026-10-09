@@ -162,7 +162,8 @@ place condition flips, the stock form-2 mesh returns and the edit vanishes (rend
 disc-1/4 overrides sit on a switchable cell; 1 Path D (tag 9) override does, (14,12) Terrain (`live_override_overlap.py`):
 safe in default BLANK mode (IsSwitchable=false, WorldDiscSpike.cs:194-198 [s71/s75]); in CLONE mode the cell copies
 IsSwitchable=true (:187-193) and Cleyra's SC>=4990 condition would swap it to stock Terrain2 (hypothesis). No kit
-lint knows the switchable set.
+lint knows the switchable set. **Fixed after the study (defect 19):** `world/forms.py` holds the set; every writer
+warns, and `world-forms` checks a mod folder or the whole stack.
 
 **F15 law -- a non-switchable cell cannot be made switchable from data.** `SetForm` checks the SCENE WMBlock's flag
 (WMBlock.cs:99), and `LoadBlock` registers form-2 components only from `prefab.TerrainForm2/ObjectForm2` (WMWorld.cs:597-600).

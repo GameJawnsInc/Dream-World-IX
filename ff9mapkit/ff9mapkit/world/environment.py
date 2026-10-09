@@ -29,6 +29,8 @@ light zones are lists and always add. Memoria's shipped header says ``Clean``; t
 """
 from __future__ import annotations
 
+from .forms import PLACE_CELLS
+
 # The engine mod path for the file (relative to a mod folder root): DataResources.World, PureDataDirectory="Data/".
 ENVIRONMENT_REL_PATH = "StreamingAssets/Data/World/Environment.txt"
 
@@ -52,10 +54,9 @@ WORLD_EFFECTS = {
     "Unknown7", "Unknown8", "WaterShrine", "WindShrine", "Unknown11",
 }
 # The only places the engine ever asks about (``ff9.w_worldChangeBlockSet``, ff9.cs:9153-9208, and two effects in
-# ``WorldConfiguration.UseWorldEffect``): the 9 with an alternate block form, over 26 cells. A ``Place`` line for any
-# other WorldPlace name parses and does nothing (terrain study defect 20).
-FORM_PLACES = ("SouthGate_Gate", "Alexandria", "FireShrine", "Lindblum", "Cleyra", "BlackMageVillage", "WaterShrine",
-               "MognetCentral", "ChocoboParadise")
+# ``WorldConfiguration.UseWorldEffect``): the 9 with an alternate block form, over 26 cells (``forms.PLACE_CELLS``). A
+# ``Place`` line for any other WorldPlace name parses and does nothing (terrain study defect 20).
+FORM_PLACES = tuple(PLACE_CELLS)
 STACK_MODES = ("replace", "combine")
 _TOKEN_RE = r"^(Place|Effect|Mist|Disc4|Rain|Light|Title)\s+(.*)$"      # WorldConfiguration.cs:370
 _ARG_RE = r"\s*(\[[^\]]*\]|[^\]][^\s]*)"                                 # :373

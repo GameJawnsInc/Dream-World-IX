@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the world writers warn when an edit lands on one form of a switchable cell; new `world-forms`
+- 26 overworld cells swap block form when one of 9 story places switches (Alexandria destroyed, Cleyra gone, the
+  Water Shrine opened ...). There `Terrain` and `Object` are form-1 parts, so a kit edit of one vanishes, render and
+  walk, the moment the place switches and the stock `Terrain2`/`Object2` comes back. No kit check knew the set.
+- Every world writer now names such an edit in its post-step (it runs under `--skip-mirror` too), unless a form-2
+  override (`Terrain2`, `Object2`) already sits beside it. A disc-1 place's cells on disc 4 and Path D cells are
+  quiet: they do not switch by default.
+- `world-forms` lists the 26 cells with each place's default condition; `--mod-folder F` or `--stack` checks deployed
+  overrides and exits 1 on an uncovered one. On today's live install it finds none on discs 1 and 4, and one dormant
+  Path D cell.
+- New: `world/forms.py` (`PLACE_CELLS`, `DEFAULT_CONDITION`, `part_form`, `form_hits`, `mod_folder_hits`).
+  `environment.FORM_PLACES` now comes from it.
+
 ### Fixed — `world-environment`'s conditions replace lower mod folders' instead of OR-ing with them
 - The engine reads every stacked `Environment.txt` from the lowest-priority folder to the highest, and conditions for
   one key accumulate. A kit `Place Cleyra` line in a folder that stacks over another that also sets Cleyra ORed with

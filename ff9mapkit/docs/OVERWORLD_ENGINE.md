@@ -301,6 +301,19 @@ add. On write the verb names each stacked line for the same keys (replaced below
 shipped `Environment.txt` header tells modders to write `Clean`, but the parser reads only `Clear`: a `Clean` line
 does nothing, and the verb flags one in any stacked folder.
 
+**What a place switches: 26 cells, two block forms (terrain study defect 19).** Each of the 9 places swaps a fixed
+set of cells to their form-2 meshes once per world load (`ff9.w_worldChangeBlockSet`, ff9.cs:9153-9208; `world-forms`
+lists the cells and the default conditions). Seven are gated on disc 1; Mognet Central and Chocobo's Paradise switch
+on a story flag on every disc. On those cells `Terrain`, `Object`, `VolcanoCrater1`, `VolcanoLava1` (and `Sea3-5` at
+the Water Shrine cell (3,9)) are form-1 parts, and `Terrain2`, `Object2` and the other `*2` parts are form 2; water
+and river parts render in both (`WMWorld.LoadBlock`). The s34 override key is the part's name, so a kit `Terrain`
+edit there replaces form 1 only: when the place switches, the stock `Terrain2` comes back and the edit vanishes. A
+`Block[x][y] Terrain2.ff9mesh` override replaces form 2 (walked in game: terrain study in-game round 1, story terrain
+with no DLL). Every world writer now warns when it writes a form-1 part of such a cell with no form-2 override beside
+it (the post-step every writer runs, `discmirror.auto_mirror`), and `world-forms --mod-folder F` or `--stack` checks
+deployed overrides (exit 1 on one). A disc-1 place's cells on disc 4, and a Path D namespace's cells (switched only
+in `CloneStockWorld` mode), are reported as dormant.
+
 ## Debug-menu overworld teleport — the `SmoothFrameUpdater_World` reverter
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own
