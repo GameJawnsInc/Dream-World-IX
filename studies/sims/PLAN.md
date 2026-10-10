@@ -76,8 +76,8 @@ One mechanism per playtest. Verdicts are the owner's; the gate suite is not an o
 | 0 | probes + `adjust`/`drift` | `adjust`, `[[behavior.drift]]` | ★ DONE offline |
 | 1 | THE FIRST MEAL — one Sim (VIV), one need, one stove, one directive menu, HUD | none (wiring) | **★ MECHANISM PROVEN in-game by the harness (27/27)**; feel = owner — does the number move and does the Sim go? |
 | 2 | five needs, ~6 objects, priority-branch autonomy, the day clock, speed control | none (+1 kit refusal) | **★ MECHANISM PROVEN in-game by the harness (20/20)**; speed control NOT built; feel = owner — alive when you stop directing it? |
-| 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | **NOT smarter → DROP (per this rule) — owner to confirm.** Lane built + in-game proven (23/23), held UNMERGED on branch `claude/sims-rung3-pick` |
-| 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `[TBLE]` lane, gauge `source` | is failing funny? |
+| 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | NOT smarter for the Sims (priority list kept); the lane is in-game proven (23/23) and **KEPT in the kit** (owner: "if it is useful, keep it") |
+| 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `hold_ground` `anim`/`freeze` (posed holds) | **★ MECHANISM PROVEN in-game (13/13)**; words/gauge NOT built (HUD [TEXT=] is refused now); feel = owner — is failing funny? |
 | 5 | the visitor (GRN), relationships, conversations, the falling-out battle | none | does the social loop read? |
 | 6 | job, skills, gil, the moogle shop / buy mode | none | a reason to play a second day? |
 | 7 | productize — a `[household]` block (the `[siege]` pattern, LAST) | the block | — |
@@ -233,9 +233,44 @@ she started on her own (bedtime aside) was the need the pick named; every rung-2
   one decay rate with per-need capacities), or letting an urgent need INTERRUPT a long task -- both rung-4
   failure-state work, not a new lane.
 
+## Rung 4 — ★ MECHANISM PROVEN IN-GAME (harness, 13/13); feel verdict = owner
+
+**New kit surface: the posed hold** -- `do = { hold_ground = true, anim = "<gesture>", freeze = true|false }`.
+While selected the body installs the clip as the unit's stand AND walk animation (field-animation law 4),
+optionally freezes it at its last frame (law 5), and plays it; on deselect it CLEARS the animation flags
+first (the engine keeps `animFlag` on the actor -- a leftover freeze would freeze the idle), restores the
+NPC's own stand/walk clips (resolved by the build's one resolver, `blockmodel.resolve_block_model`), and
+plays the stand so she gets up at once. A plain `hold_ground` compiles exactly as before. Gestures resolve
+same-form (the own-clip law). 3 tests; dropping the flag reset turns the pose test red.
+
+**Bench 30433 "MANOR4"** (`sims_bench2.py --variant rung4`, the rung-2 priority list + rung 4):
+- use poses -- `dine_1` at the pot, `sleeping` at the tent, `laugh` at the puppet (thirst/hygiene stand);
+- **FAINT**: a need at 0 drops her where she stands in a frozen `hiza_1`; down, the need creeps +1/11 ticks
+  to 25, then she gets up and her urge takes her to fix it;
+- **the all-nighter**, a tent directive ("Bilba, stay up all night!"): wakes her, bars sleep, drains energy
+  -1/6 ticks -- failure on demand (the tuned household never fails on its own: 3 undirected days, low 29);
+- **MOOD** = the floor of the five needs' average, HUD slot 7; idle emotes on a 2.5 s beat -- `yawn` when
+  energy <= 55, `laugh` when fun >= 80.
+
+**Live (`rung4_fail.py`, first run 13/13):** MOOD matched the average on 166 of 166 samples; all four poses
+fired and were shot; the all-nighter landed, energy 74 -> 0, she fainted at (-61,-868) and did not move
+(0u spread over 51 samples) while energy crept 1 -> 24, rose at 25, and WALKED herself 690u to bed -- the
+restore works (no frozen kneel carried into the walk); fainting cleared the all-nighter. Zero exceptions.
+
+**Frames, read by the agent** (`.harness-runs/*-rung4_fail/shots`): `3-asleep-at-the-tent` is unmistakable
+-- flat on her back before the tent; `2-laugh-at-the-puppet` a distinct arm-out stance; `6-fainted` reads as
+a crouched kneel, not a fall; `4-eating-at-the-pot` is hard to tell from standing at this camera distance.
+
+Open for the owner's feel verdict ("is failing funny?"):
+- the faint is a KNEEL (`hiza_1`); for an all-nighter, collapsing flat in the `sleeping` pose may be funnier
+  (Vivi's rig also owns `hiza_2/3`, `tired_loop`, `wakeup_sad*`, `sad`);
+- `dine_1` barely reads; `sit_ground_1_*` or `dine_sleep_*` are candidates;
+- not exercised live: the wake rule (she was not in bed when the all-nighter was ordered);
+- the readout upgrade (`[TBLE]` words, a gauge) is not built -- HUD `[TEXT=]` is now refused at build.
+
 ## Bench
 
-**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2, 30432 = rung 3 pick) (30426-30499 is the free band; 30400-30425 is the standing
+**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2, 30432 = rung 3 pick, 30433 = rung 4) (30426-30499 is the free band; 30400-30425 is the standing
 behavior/minigame family; do NOT take 30600+ — WINSTYLE/lock/multiwindow live
 there even when absent from the live DictionaryPatch). Re-verify the live file
 before minting. Bench generator: `studies/sims/sims_bench.py` (pure product

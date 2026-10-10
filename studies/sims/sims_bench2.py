@@ -88,7 +88,17 @@ RATES = {
 # THE URGE TIER, two ways (rung 3's A/B). "priority": one urge row per need in a fixed order -- the first
 # need at/under the line wins. "pick": a [[behavior.pick]] publishes the index of the LOWEST need every pass,
 # and only that need's urge row can fire -- serve whatever is most urgent.
-VARIANTS = {"priority": (30431, "MANOR2", "rung2"), "pick": (30432, "MANOR3", "rung3")}
+VARIANTS = {"priority": (30431, "MANOR2", "rung2"), "pick": (30432, "MANOR3", "rung3"),
+            "rung4": (30433, "MANOR4", "rung4")}
+# RUNG 4 -- failure, mood, emote (the priority urge tier: rung 3's verdict). Poses are `hold_ground` + `anim`
+# (the kit's posed hold, gestures of Vivi's OWN rig); a need at 0 FAINTS her where she stands.
+POSE = {"hunger": "dine_1", "energy": "sleeping", "fun": "laugh"}     # use-tier poses (thirst/hygiene stand)
+FAINT_POSE = "hiza_1"               # the collapse, frozen at its last frame
+REVIVE_AT = 25                      # lying there, the failed need creeps back to this, then she gets up
+FAINT_REGEN = 10                    # +1 every N ticks while down (~8 s on the floor)
+NOSLEEP_EVERY = 5                   # "stay up all night": energy -1 every N ticks, and no bed
+TIRED_AT, MERRY_AT = 55, 80         # idle emotes on the beat: yawn when tired, laugh when fun is high
+BEAT = 75                           # the idle-emote alternator (2.5 s on, 2.5 s off)
 VARIANT, RATESET = "priority", "tuned"
 DECAY_EVERY, USE, URGE_AT = RATES["tuned"]["decay"], RATES["tuned"]["use"], RATES["tuned"]["urge"]
 NIGHT_SLEEP_AT = 70                 # ...but at night energy this low already sends her to bed
@@ -105,6 +115,17 @@ PROMPT = {"hunger": "The soup pot.", "thirst": "A cup of water.", "energy": "The
           "hygiene": "The wash barrel.", "fun": "The puppet."}
 
 
+NOSLEEP_DRIFT = """
+[[behavior.drift]]                  # rung 4: an all-nighter drains her fast
+table = "need"
+index = {e}
+by = -1
+clamp = [0, 100]
+every = {every}
+flag = "nosleep"
+"""
+BEAT_ALT = f', {{ name = "beat", frames = {BEAT} }}'
+MOOD_TEXT = "  MOOD [NUMB=7]"          # rung 4: the average of the five needs, slot 7
 URG_TEXT = "  URG [NUMB=7]"           # the pick bench shows its pick: slot 7, the last free gMesValue
 PICK_ROW = """[[behavior.pick]]                   # rung 3: the index of the LOWEST need, every pass
 name = "most_urgent"
@@ -112,6 +133,12 @@ table = "need"
 into = "urgent"
 mode = "min"
 """
+
+
+def _mood_expr() -> str:
+    """MOOD = the average of the five needs (B_LMAX/B_LMIN are party selectors, not min/max -- the trap)."""
+    cells = [_vec(NEED_TABLE_ID, i) for i in range(len(NAMES))]
+    return '"expr:' + cells[0] + "".join(f" {c} B_PLUS" for c in cells[1:]) + f' const({len(NAMES)}) B_DIV"'
 
 
 def _vec(table_id: int, i: int) -> str:
@@ -176,8 +203,8 @@ pos = [{spot[0]}, {spot[1]}]
     out.append(f"""# ---------------------------------------------------------------- the behavior
 [behavior]
 warmup = 30
-public_flags = [{", ".join(f'"t_{n}"' for n in NAMES)}]
-alternators = [{{ name = "night", frames = {12 * HOUR} }}]
+public_flags = [{", ".join(f'"t_{n}"' for n in NAMES)}{', "nosleep"' if VARIANT == "rung4" else ""}]
+alternators = [{{ name = "night", frames = {12 * HOUR} }}{BEAT_ALT if VARIANT == "rung4" else ""}]
 {'counters = ["urgent"]' if VARIANT == "pick" else ""}
 
 [[behavior.table]]
@@ -214,15 +241,15 @@ by = -1
 clamp = [0, 100]
 every = {NIGHT_TIRE_EVERY}
 flag = "night"
-
+{NOSLEEP_DRIFT.format(e=e, every=NOSLEEP_EVERY) if VARIANT == "rung4" else ""}
 [[behavior.hud]]                    # ONE strip: gMesValue[8] is global, a second strip overwrites this one's slots
 window = 6
-text = "[MPOS=10,48]HUN [NUMB=0] THR [NUMB=1] NRG [NUMB=2] HYG [NUMB=3] FUN [NUMB=4]\\nDAY [NUMB=5]  [NUMB=6]:00{URG_TEXT if VARIANT == "pick" else ""}"
+text = "[MPOS=10,48]HUN [NUMB=0] THR [NUMB=1] NRG [NUMB=2] HYG [NUMB=3] FUN [NUMB=4]\\nDAY [NUMB=5]  [NUMB=6]:00{URG_TEXT if VARIANT == "pick" else MOOD_TEXT if VARIANT == "rung4" else ""}"
 values = [{", ".join(f'"expr:{_vec(NEED_TABLE_ID, i)}"' for i in range(len(NAMES)))},
           "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_DIV const(1) B_PLUS",
           "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_REM",
-          {'"urgent"' if VARIANT == "pick" else ""}]
-digits = [3, 3, 3, 3, 3, 2, 2{", 1" if VARIANT == "pick" else ""}]
+          {'"urgent"' if VARIANT == "pick" else _mood_expr() if VARIANT == "rung4" else ""}]
+digits = [3, 3, 3, 3, 3, 2, 2{", 1" if VARIANT == "pick" else ", 3" if VARIANT == "rung4" else ""}]
 # (no "(day)/(night)" word: a [TEXT=] in a HUD strip is resolved ONCE at window open -- the engine's constant-tag
 #  pass runs before the variable snapshot -- so it freezes at the open pass's sentinel row and renders "")
 
@@ -230,6 +257,8 @@ digits = [3, 3, 3, 3, 3, 2, 2{", 1" if VARIANT == "pick" else ""}]
 npc = "bilba"
 speed = 25
 """)
+    if VARIANT == "rung4":
+        out.append(_rung4_failure_tiers())
     # ---- tier 1: finish
     for i, n in enumerate(NAMES):
         out.append(f"""  [[behavior.unit.branch]]           # finish: {n} is met -> the task retires
@@ -240,9 +269,11 @@ speed = 25
     # ---- tier 2: use
     for i, n in enumerate(NAMES):
         by, every = USE[n]
+        posed = VARIANT == "rung4" and n in POSE
+        do = (f'{{ hold_ground = true, anim = "{POSE[n]}" }}' if posed else f'{{ hold = "{n}_spot" }}')
         out.append(f"""  [[behavior.unit.branch]]           # use: at the {n} object, the meter climbs
   when = [{{ flag = "t_{n}" }}, {{ near_point = ["{n}_spot", 160] }}]
-  do = {{ hold = "{n}_spot" }}
+  do = {do}
   adjust = {{ table = "need", index = {i}, by = {by}, clamp = [0, 100], every = {every} }}
 """)
     # ---- tier 3: go
@@ -253,7 +284,7 @@ speed = 25
 """)
     # ---- tier 4: urges (only reached when no task is flagged), most pressing first
     out.append(f"""  [[behavior.unit.branch]]           # urge: night, and tired enough to turn in
-  when = [{{ flag = "night" }}, {{ table_le = ["need", {e}, {NIGHT_SLEEP_AT}] }}]
+  when = [{{ flag = "night" }}, {{ table_le = ["need", {e}, {NIGHT_SLEEP_AT}] }}{NO_ALLNIGHTER if VARIANT == "rung4" else ""}]
   do = {{ walk_to = "energy_spot", speed = 40 }}
   raise_flags = ["t_energy"]
 """)
@@ -261,13 +292,59 @@ speed = 25
         i = NAMES.index(n)
         gate = (f'{{ counter_eq = ["urgent", {i}] }}, ' if VARIANT == "pick" else "")
         out.append(f"""  [[behavior.unit.branch]]           # urge: {n} has run low{' -- and is the MOST urgent' if gate else ''}
-  when = [{gate}{{ table_le = ["need", {i}, {URGE_AT}] }}]
+  when = [{gate}{{ table_le = ["need", {i}, {URGE_AT}] }}{NO_ALLNIGHTER if VARIANT == "rung4" and n == "energy" else ""}]
   do = {{ walk_to = "{n}_spot", speed = 40 }}
   raise_flags = ["t_{n}"]
+""")
+    if VARIANT == "rung4":
+        out.append(f"""  [[behavior.unit.branch]]           # idle emote: tired -> a yawn on the beat
+  when = [{{ flag = "beat" }}, {{ table_le = ["need", {e}, {TIRED_AT}] }}]
+  do = {{ hold_ground = true, anim = "yawn" }}
+
+  [[behavior.unit.branch]]           # idle emote: merry -> a laugh on the beat
+  when = [{{ flag = "beat" }}, {{ table_ge = ["need", {NAMES.index("fun")}, {MERRY_AT}] }}]
+  do = {{ hold_ground = true, anim = "laugh" }}
 """)
     out.append("""  # idle: amble round home
   [[behavior.unit.branch]]
   do = { wander = "home", radius = 200, every = 120, speed = 25 }
+""")
+    return "\n".join(out)
+
+
+NO_ALLNIGHTER = ', { not_flag = "nosleep" }'
+ALLNIGHTER_ROW = """
+[[choice.options]]
+text = "Bilba, stay up all night!"
+set_flag = [{f}, 1]
+requires_flag_clear = {f}"""
+
+
+def _rung4_failure_tiers() -> str:
+    """Above everything: the all-nighter wakes her, and a need at 0 FAINTS her. Per need, in order:
+    revive (down, and the need has crept back to REVIVE_AT -> get up) / down (the frozen collapse, the need
+    creeping back) / fall (the need hit 0 -> raise the fainted flag; an energy faint ends the all-nighter)."""
+    out = ["""  [[behavior.unit.branch]]           # the all-nighter: up out of bed, now
+  when = [{ flag = "nosleep" }, { flag = "t_energy" }]
+  do = { hold_ground = true }
+  clear_flags = ["t_energy"]
+"""]
+    for i, n in enumerate(NAMES):
+        extra = '\n  clear_flags = ["nosleep"]' if n == "energy" else ""
+        out.append(f"""  [[behavior.unit.branch]]           # FAINT {n}: back on her feet
+  when = [{{ flag = "f_{n}" }}, {{ table_ge = ["need", {i}, {REVIVE_AT}] }}]
+  do = {{ hold_ground = true }}
+  clear_flags = ["f_{n}"]
+
+  [[behavior.unit.branch]]           # FAINT {n}: down, frozen, the need creeping back
+  when = [{{ flag = "f_{n}" }}]
+  do = {{ hold_ground = true, anim = "{FAINT_POSE}", freeze = true }}
+  adjust = {{ table = "need", index = {i}, by = 1, clamp = [0, 100], every = {FAINT_REGEN} }}
+
+  [[behavior.unit.branch]]           # FAINT {n}: the need hit 0 -- she drops where she stands
+  when = [{{ table_le = ["need", {i}, 0] }}]
+  do = {{ hold_ground = true }}
+  raise_flags = ["f_{n}"]{extra}
 """)
     return "\n".join(out)
 
@@ -287,7 +364,7 @@ prompt = "{PROMPT[name]}"
 [[choice.options]]
 text = "Bilba, {VERB[name]}."
 set_flag = [{flags[name]}, 1]
-requires_flag_clear = {flags[name]}
+requires_flag_clear = {flags[name]}{ALLNIGHTER_ROW.format(f=flags["nosleep"]) if VARIANT == "rung4" and name == "energy" else ""}
 [[choice.options]]
 text = "Never mind."
 """)
@@ -304,7 +381,10 @@ def _fb(raw: dict):
 def flag_indices() -> dict:
     import tomllib
     fb = _fb(tomllib.loads(_field_toml()))
-    return {n: fb.bb.flag(f"t_{n}") for n in NAMES}
+    out = {n: fb.bb.flag(f"t_{n}") for n in NAMES}
+    if VARIANT == "rung4":
+        out["nosleep"] = fb.bb.flag("nosleep")
+    return out
 
 
 def gen(quiet: bool = False) -> Path:
