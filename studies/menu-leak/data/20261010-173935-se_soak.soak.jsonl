@@ -1,0 +1,14 @@
+{"t": 0.0, "private_mb": 828.7, "ws_mb": 736.4}
+{"t": 10.0, "private_mb": 836.6, "ws_mb": 744.0}
+{"t": 20.0, "private_mb": 842.2, "ws_mb": 751.6}
+{"t": 30.0, "private_mb": 854.1, "ws_mb": 758.6}
+{"t": 40.0, "private_mb": 859.6, "ws_mb": 766.3}
+{"t": 50.0, "private_mb": 864.6, "ws_mb": 773.2}
+{"t": 60.0, "private_mb": 876.5, "ws_mb": 780.1}
+{"t": 70.0, "private_mb": 881.9, "ws_mb": 787.8}
+{"t": 80.0, "private_mb": 886.9, "ws_mb": 794.7}
+{"t": 90.0, "private_mb": 892.1, "ws_mb": 801.6}
+{"t": 100.0, "private_mb": 904.4, "ws_mb": 809.3}
+{"t": 110.0, "private_mb": 909.3, "ws_mb": 816.2}
+{"t": 120.0, "private_mb": 914.9, "ws_mb": 823.8}
+{"summary": {"seconds": 120.0, "delta_mb": 86.2, "mb_per_s": 0.718}}
