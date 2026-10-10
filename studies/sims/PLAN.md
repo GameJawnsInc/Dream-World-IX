@@ -79,7 +79,7 @@ One mechanism per playtest. Verdicts are the owner's; the gate suite is not an o
 | 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | NOT smarter for the Sims (priority list kept); the lane is in-game proven (23/23) and **KEPT in the kit** (owner: "if it is useful, keep it") |
 | 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `hold_ground` `anim`/`freeze` (posed holds) | **★ MECHANISM PROVEN in-game (13/13)**; words/gauge NOT built (HUD [TEXT=] is refused now); feel = owner — is failing funny? |
 | 5 | the visitor (GRN), relationships, conversations, the falling-out battle | none (+1 kit fix: the HUD after a battle) | **★ MECHANISM PROVEN in-game (20/21; the 1 = an intermittent engine NRE, spun off)**; feel = owner — does the social loop read? |
-| 6 | job, skills, gil, the moogle shop / buy mode | none | a reason to play a second day? |
+| 6 | job, skills, gil, the moogle shop / buy mode | none | **★ MECHANISM PROVEN in-game (20/20)**; buy mode is a priced pool, not the native shop UI (no item minting without a DLL); feel = owner — a reason to play a second day? |
 | 7 | productize — a `[household]` block (the `[siege]` pattern, LAST) | the block | — |
 
 Standing rung-1 notes:
@@ -307,9 +307,44 @@ Findings:
 Open for the owner: does the social loop READ (chat vs quarrel vs sulk); is a Goblin the right "falling-out";
 Garnet only visits in the sense of living there -- an arrival/departure through a door is not built.
 
+## Rung 6 — ★ MECHANISM PROVEN IN-GAME (harness, 20/20); feel verdict = owner
+
+**Bench 30435 "MANOR6"** (`sims_bench2.py --variant rung6` = rung 4's household + an economy; no visitor). No new
+compiler surface -- every piece is an existing lane:
+- **The job** -- sorting Mognet mail at the desk (the `letter` prop). By day, rested (energy >= 50) and not yet
+  worked today, she goes on her own (or on the steward's order); a shift is 60 progress units (+1 / 11 ticks,
+  ~22 s) and costs fun. It ends by raising a PAYDAY flag sized by her skill (`pay_lo` 60 gil below skill 50,
+  `pay_hi` 150 at/over it); bedtime clears `worked` -- tomorrow is a new workday.
+- **Payday** -- the household ledger is a zone `[[choice]]`: a "Collect Bilba's wages" row per wage, each
+  `requires_flag` its payday flag, `gil = +N` (REAL gil) and `set_flag = [flag, 0]`. Uncashed wages do not stack.
+- **Skill** -- a PERSISTENT table (`persist = true`, id 6430001): studying at the desk (ordered at the ledger)
+  raises it +1 / 16 ticks for a 40-unit session (~+27), at a cost in fun. It survives the field, the day, the save.
+- **Buy mode** -- a priced `[[behavior.pool]]` with the SELECT-anywhere button (the war-council lane): the parked
+  "moogle catalogue" row `requires_flag` the pool's live `hireable` flag (gil >= 50 and not sold out), and the
+  toy airship (`GEO_ACC_F0_TSM`, a pooled `[[npc]]` posed on its own clip) materialises where the steward stands
+  -- placement by standing. Sent to play, she goes to the toy (+3 fun / 7 ticks) instead of the puppet (+2 / 11).
+- HUD (one strip, all 8 slots): five needs, SKILL, the hour, GIL (the live purse).
+
+**Live (`rung6_job.py`, 20/20, zero exceptions):** she went to work unprompted at 06:00 and sat the shift at the
+desk (48 samples); it ended with the 60-gil flag, `worked` set, fun 59 -> 32. The ledger offered only the 60-gil
+row; cashing it took the purse 500 -> 560 and the row vanished. Ordered to study: SKILL 0 -> 27, the session ended
+itself. SELECT anywhere opened the catalogue; the toy appeared at the steward's feet for 50 real gil (560 -> 510).
+Sent to play, she went to the toy (8 samples there, 0 at the puppet) and fun filled. A re-entry -- the second
+day -- re-seeded the needs to their seeds while SKILL (27) and GIL (510) carried over.
+
+Findings and open questions for the owner:
+- **Not the native FF9 shop UI.** A real shop sells real ITEMS; the kit cannot mint a net-new item id without a
+  DLL, and renaming a stock item (`[[item_text]]`) is game-wide on the shared install. The priced pool gives real
+  gil, an honest affordability gate and placement. Owner call: is that buy mode, or is a renamed stock item worth it?
+- **A bought toy lives for the visit.** Pools re-fill on entry, so the toy is gone tomorrow while the gil is spent.
+  Making furniture persist (an owned flag + a placed-position record re-spawned on entry) is the next step if the
+  economy is to carry across days the way skill now does.
+- The desk is a tiny letter prop -- work reads weakly at this camera; the toy spawns ON the steward (step away).
+- Payday is collected by the steward, not paid automatically -- a deliberate Sims-mailbox beat; say if not.
+
 ## Bench
 
-**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2, 30432 = rung 3 pick, 30433 = rung 4, 30434 = rung 5) (30426-30499 is the free band; 30400-30425 is the standing
+**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2, 30432 = rung 3 pick, 30433 = rung 4, 30434 = rung 5, 30435 = rung 6) (30426-30499 is the free band; 30400-30425 is the standing
 behavior/minigame family; do NOT take 30600+ — WINSTYLE/lock/multiwindow live
 there even when absent from the live DictionaryPatch). Re-verify the live file
 before minting. Bench generator: `studies/sims/sims_bench.py` (pure product

@@ -93,8 +93,9 @@ RATES = {
 # need at/under the line wins. "pick": a [[behavior.pick]] publishes the index of the LOWEST need every pass,
 # and only that need's urge row can fire -- serve whatever is most urgent.
 VARIANTS = {"priority": (30431, "MANOR2", "rung2"), "pick": (30432, "MANOR3", "rung3"),
-            "rung4": (30433, "MANOR4", "rung4"), "rung5": (30434, "MANOR5", "rung5")}
-R4V = ("rung4", "rung5")            # the variants that carry rung 4's failure/mood/emote layer
+            "rung4": (30433, "MANOR4", "rung4"), "rung5": (30434, "MANOR5", "rung5"),
+            "rung6": (30435, "MANOR6", "rung6")}
+R4V = ("rung4", "rung5", "rung6")   # the variants that carry rung 4's failure/mood/emote layer
 # RUNG 4 -- failure, mood, emote (the priority urge tier: rung 3's verdict). Poses are `hold_ground` + `anim`
 # (the kit's posed hold, gestures of Vivi's OWN rig); a need at 0 FAINTS her where she stands.
 POSE = {"hunger": "dine_1", "energy": "sleeping", "fun": "laugh"}     # use-tier poses (thirst/hygiene stand)
@@ -120,6 +121,27 @@ BATTLE_SCENE = 67                   # BSC_EF_R007: a lone Goblin a New Game part
 CHAT_GOOD = ((2, 8), (1, 20))       # (social by/every, rel by/every)
 CHAT_BAD = ((-1, 20), (-1, 6))      # a quarrel DRAINS social (run 1: it filled it, and ended itself at 95)
 MAKEUP = (3, 8)                     # rel +3 every 8 while sorry
+# RUNG 6 -- a job, a skill, gil, buy mode (rung 4's household; no visitor). Bilba sorts Mognet mail at the desk
+# for a SHIFT (by day, once rested -- or on order); a finished shift raises a PAYDAY flag whose size follows her
+# SKILL, and the steward cashes it at the household ledger (real gil, a [[choice]] row). Skill rises by STUDYING
+# at the same desk and is a PERSISTENT table -- it survives into the next day (the reason to play a second day).
+# Buy mode = a priced POOL: press SELECT anywhere, buy the toy airship, and it appears where the steward stands.
+DESK = (300, -1150)                 # the Mognet desk (the letter prop)
+DESK_SPOT = (80, -1150)             # where she sits to work / study (west of the desk)
+LEDGER_ZONE = (200, -1520, 500, -1330)   # the steward's ledger menu, south of the desk, on the front lane
+SKILL_TABLE_ID = 6430001            # PERSISTENT (6000000..6999999, this bench's own)
+JOB_TABLE_ID = 1003                 # [0] shift progress, [1] study progress (field-session)
+SHIFT_LEN, STUDY_LEN = 60, 40       # progress units (+1 every 10 ticks at the desk)
+SKILLED_AT = 50                     # skill at/over this earns the higher wage
+WAGE_LO, WAGE_HI = 60, 150
+STUDY_GAIN = (1, 15)                # skill +1 every 15 ticks while studying
+WORK_FUN, STUDY_FUN = (-1, 40), (-1, 25)   # work and study both cost fun
+WORK_READY_AT = 50                  # she goes to work on her own only with energy at/over this
+TOY_PRICE = 50
+TOY_MODEL, TOY_POSE = "GEO_ACC_F0_TSM", 1105   # the Tantalus toy airship (prop_archetypes "ship_model")
+TOY_REQUEST = 8890                  # the buy pool's explicit GLOB request bit (outside the blackboard band)
+TOY_FUN = (3, 6)                    # playing with the toy: fun +3 every 6 (the puppet: +2 every 10)
+PARKED = [[9000, 9000], [9200, 9000], [9200, 8800], [9000, 8800]]   # the buy menu's parked zone (never walked)
 VARIANT, RATESET = "priority", "tuned"
 DECAY_EVERY, USE, URGE_AT = RATES["tuned"]["decay"], RATES["tuned"]["use"], RATES["tuned"]["urge"]
 NIGHT_SLEEP_AT = 70                 # ...but at night energy this low already sends her to bed
@@ -156,6 +178,41 @@ mode = "min"
 """
 
 
+RUNG6_SET = f"""
+[[prop]]
+prop = "letter"
+pos = [{DESK[0]}, {DESK[1]}]
+
+[[marker]]
+name = "desk_spot"
+pos = [{DESK_SPOT[0]}, {DESK_SPOT[1]}]
+
+[[npc]]
+name = "toy"
+model = "{TOY_MODEL}"
+anims = {{ stand = {TOY_POSE}, walk = {TOY_POSE}, run = {TOY_POSE}, left = {TOY_POSE}, right = {TOY_POSE} }}
+pos = [-1050, -1780]                 # dormant placeholder: a pooled unit appears where it is BOUGHT
+"""
+
+JOB_TABLES = f"""
+[[behavior.table]]
+name = "skill"                      # [0] = Bilba's mail-sorting skill, 0..100 -- PERSISTENT: survives the day
+values = [0]
+id = {SKILL_TABLE_ID}
+persist = true
+
+[[behavior.table]]
+name = "job"                        # [0] = shift progress, [1] = study progress
+values = [0, 0]
+id = {JOB_TABLE_ID}
+
+[[behavior.pool]]                   # BUY MODE: the toy airship, at the steward's feet, for real gil
+name = "toys"
+price = {TOY_PRICE}
+button = true
+request_flag = {TOY_REQUEST}
+"""
+
 GARNET_NPC = f"""
 [[npc]]
 name = "garnet"
@@ -188,6 +245,19 @@ def _cranky() -> list:
 
 
 def _hud_block() -> str:
+    if VARIANT == "rung6":
+        lab = {"hunger": "HUN", "thirst": "THR", "energy": "NRG", "hygiene": "HYG", "fun": "FUN"}
+        need_txt = " ".join(f"{lab[n]} [NUMB={i}]" for i, n in enumerate(NAMES))
+        vals = ", ".join(f'"expr:{_vec(NEED_TABLE_ID, i)}"' for i in range(len(NAMES)))
+        return f"""[[behavior.hud]]                    # ONE strip: 5 needs, the hour, SKILL, GIL -- all 8 gMesValue slots
+window = 6
+text = "[MPOS=10,48]{need_txt}\\nSKILL [NUMB=6]  [NUMB=5]:00  GIL [NUMB=7]"
+values = [{vals},
+          "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_REM",
+          "expr:const4({SKILL_TABLE_ID}) const(0) B_VECTOR",
+          "gil"]
+digits = [3, 3, 3, 3, 3, 2, 3, 5]
+"""
     if VARIANT == "rung5":
         lab = {"hunger": "HUN", "thirst": "THR", "energy": "NRG", "hygiene": "HYG", "fun": "FUN", "social": "SOC"}
         need_txt = " ".join(f"{lab[n]} [NUMB={i}]" for i, n in enumerate(NAMES))
@@ -220,6 +290,76 @@ def _rung5_fallout() -> str:
   when = [{{ flag = "sorry" }}]
   do = {{ hold_ground = true, anim = "sad" }}
   adjust = {{ table = "rel", index = 0, by = {MAKEUP[0]}, clamp = [0, 100], every = {MAKEUP[1]} }}
+"""
+
+
+def _rung6_job_tiers() -> str:
+    """Work and study: finish -> use -> go, as one block below the failure tiers and above the needs' finish
+    tier -- a NEED's urge still wins when it fires first (the urge tier runs only with no task flagged), but a
+    task in progress is finished before a new need is served. A shift ends by raising the payday flag its skill
+    earns; the progress cell resets (a -1000 adjust clamped at 0)."""
+    e = NAMES.index("energy")
+    f = NAMES.index("fun")
+    reset0 = '{ table = "job", index = 0, by = -1000, clamp = [0, 1000] }'
+    reset1 = '{ table = "job", index = 1, by = -1000, clamp = [0, 1000] }'
+    return f"""  [[behavior.unit.branch]]           # WORK done, skilled: the higher wage
+  when = [{{ flag = "t_work" }}, {{ table_ge = ["job", 0, {SHIFT_LEN}] }}, {{ table_ge = ["skill", 0, {SKILLED_AT}] }}]
+  do = {{ hold_ground = true }}
+  clear_flags = ["t_work"]
+  raise_flags = ["worked", "pay_hi"]
+  adjust = {reset0}
+
+  [[behavior.unit.branch]]           # WORK done: the starting wage
+  when = [{{ flag = "t_work" }}, {{ table_ge = ["job", 0, {SHIFT_LEN}] }}]
+  do = {{ hold_ground = true }}
+  clear_flags = ["t_work"]
+  raise_flags = ["worked", "pay_lo"]
+  adjust = {reset0}
+
+  [[behavior.unit.branch]]           # STUDY done
+  when = [{{ flag = "t_study" }}, {{ table_ge = ["job", 1, {STUDY_LEN}] }}]
+  do = {{ hold_ground = true }}
+  clear_flags = ["t_study"]
+  adjust = {reset1}
+
+  [[behavior.unit.branch]]           # at the desk: sorting the mail (costs fun)
+  when = [{{ flag = "t_work" }}, {{ near_point = ["desk_spot", 160] }}]
+  do = {{ hold = "desk_spot" }}
+  adjust = [{{ table = "job", index = 0, by = 1, clamp = [0, 1000], every = 10 }},
+            {{ table = "need", index = {f}, by = {WORK_FUN[0]}, clamp = [0, 100], every = {WORK_FUN[1]} }}]
+
+  [[behavior.unit.branch]]           # at the desk: studying (skill climbs, fun drains)
+  when = [{{ flag = "t_study" }}, {{ near_point = ["desk_spot", 160] }}]
+  do = {{ hold = "desk_spot" }}
+  adjust = [{{ table = "job", index = 1, by = 1, clamp = [0, 1000], every = 10 }},
+            {{ table = "skill", index = 0, by = {STUDY_GAIN[0]}, clamp = [0, 100], every = {STUDY_GAIN[1]} }},
+            {{ table = "need", index = {f}, by = {STUDY_FUN[0]}, clamp = [0, 100], every = {STUDY_FUN[1]} }}]
+
+  [[behavior.unit.branch]]           # off to work
+  when = [{{ flag = "t_work" }}]
+  do = {{ walk_to = "desk_spot", speed = 40 }}
+
+  [[behavior.unit.branch]]           # off to study
+  when = [{{ flag = "t_study" }}]
+  do = {{ walk_to = "desk_spot", speed = 40 }}
+"""
+
+
+def _rung6_work_urge() -> str:
+    e = NAMES.index("energy")
+    return f"""  [[behavior.unit.branch]]           # a WORKDAY: by day, rested, not yet worked today -> to the desk
+  when = [{{ not_flag = "night" }}, {{ not_flag = "worked" }}, {{ table_ge = ["need", {e}, {WORK_READY_AT}] }}]
+  do = {{ walk_to = "desk_spot", speed = 40 }}
+  raise_flags = ["t_work"]
+"""
+
+
+def _rung6_toy_use() -> str:
+    f = NAMES.index("fun")
+    return f"""  [[behavior.unit.branch]]           # use: FUN with the toy airship (bought) -- faster than the puppet
+  when = [{{ flag = "t_fun" }}, {{ active = "toy" }}, {{ near = ["toy", 240] }}]
+  do = {{ hold_ground = true, anim = "laugh" }}
+  adjust = {{ table = "need", index = {f}, by = {TOY_FUN[0]}, clamp = [0, 100], every = {TOY_FUN[1]} }}
 """
 
 
@@ -347,7 +487,7 @@ dialogue = "...The soup is still worried. So am I, a little."
 [[marker]]
 name = "home"
 pos = [{HOME[0]}, {HOME[1]}]
-{GARNET_NPC if VARIANT == "rung5" else ""}
+{GARNET_NPC if VARIANT == "rung5" else ""}{RUNG6_SET if VARIANT == "rung6" else ""}
 """]
     for name, prop, obj, spot, _zone in NEEDS:
         out.append(f"""[[prop]]
@@ -363,7 +503,7 @@ pos = [{spot[0]}, {spot[1]}]
     out.append(f"""# ---------------------------------------------------------------- the behavior
 [behavior]
 warmup = 30
-public_flags = [{", ".join(f'"t_{n}"' for n in NAMES)}{', "nosleep"' if VARIANT in R4V else ""}]
+public_flags = [{", ".join(f'"t_{n}"' for n in NAMES)}{', "nosleep"' if VARIANT in R4V else ""}{', "t_work", "t_study", "pay_lo", "pay_hi"' if VARIANT == "rung6" else ""}]
 alternators = [{{ name = "night", frames = {12 * HOUR} }}{BEAT_ALT if VARIANT in R4V else ""}]
 {'counters = ["urgent"]' if VARIANT == "pick" else ""}
 
@@ -375,7 +515,7 @@ id = {NEED_TABLE_ID}
 [[behavior.table]]
 name = "clock"                      # [0] = hours since entry (the day starts at {START_HOUR:02d}:00)
 values = [0]
-id = {CLOCK_TABLE_ID}{REL_TABLE if VARIANT == "rung5" else ""}
+id = {CLOCK_TABLE_ID}{REL_TABLE if VARIANT == "rung5" else ""}{JOB_TABLES if VARIANT == "rung6" else ""}
 
 {PICK_ROW if VARIANT == "pick" else ""}
 [[behavior.drift]]                  # THE CLOCK
@@ -416,6 +556,8 @@ speed = 25
         out.append(_rung4_failure_tiers())
     if VARIANT == "rung5":
         out.append(_rung5_quarrels())
+    if VARIANT == "rung6":
+        out.append(_rung6_job_tiers())
     # ---- tier 1: finish
     for i, n in enumerate(NAMES):
         out.append(f"""  [[behavior.unit.branch]]           # finish: {n} is met -> the task retires
@@ -428,6 +570,8 @@ speed = 25
         if n == "social":
             out.append(_rung5_chat_use())
             continue
+        if n == "fun" and VARIANT == "rung6":
+            out.append(_rung6_toy_use())
         by, every = USE[n]
         posed = VARIANT in R4V and n in POSE
         do = (f'{{ hold_ground = true, anim = "{POSE[n]}" }}' if posed else f'{{ hold = "{n}_spot" }}')
@@ -438,6 +582,11 @@ speed = 25
 """)
     # ---- tier 3: go
     for n in NAMES:
+        if n == "fun" and VARIANT == "rung6":
+            out.append("""  [[behavior.unit.branch]]           # go: to the toy airship, if she owns one
+  when = [{ flag = "t_fun" }, { active = "toy" }]
+  do = { chase = "toy", standoff = 160, speed = 40 }
+""")
         go = ('{ chase = "garnet", standoff = 220, speed = 40 }' if n == "social"
               else '{ walk_to = "' + n + '_spot", speed = 40 }')
         out.append(f"""  [[behavior.unit.branch]]           # go: a {n} task is waiting
@@ -448,7 +597,7 @@ speed = 25
     out.append(f"""  [[behavior.unit.branch]]           # urge: night, and tired enough to turn in
   when = [{{ flag = "night" }}, {{ table_le = ["need", {e}, {NIGHT_SLEEP_AT}] }}{NO_ALLNIGHTER if VARIANT in R4V else ""}]
   do = {{ walk_to = "energy_spot", speed = 40 }}
-  raise_flags = ["t_energy"]
+  raise_flags = ["t_energy"]{NEW_DAY if VARIANT == "rung6" else ""}
 """)
     for n in ("hunger", "thirst", "energy", "hygiene", "fun") + (("social",) if "social" in NAMES else ()):
         i = NAMES.index(n)
@@ -458,6 +607,8 @@ speed = 25
   do = {('{ chase = "garnet", standoff = 220, speed = 40 }' if n == "social" else '{ walk_to = "' + n + '_spot", speed = 40 }')}
   raise_flags = ["t_{n}"]
 """)
+    if VARIANT == "rung6":
+        out.append(_rung6_work_urge())
     if VARIANT in R4V:
         out.append(f"""  [[behavior.unit.branch]]           # idle emote: tired -> a yawn on the beat
   when = [{{ flag = "beat" }}, {{ table_le = ["need", {e}, {TIRED_AT}] }}]
@@ -473,10 +624,21 @@ speed = 25
 """)
     if VARIANT == "rung5":
         out.append(_garnet_unit())
+    if VARIANT == "rung6":
+        out.append("""
+[[behavior.unit]]
+npc = "toy"
+pooled = true
+pool = "toys"
+
+  [[behavior.unit.branch]]
+  do = { hold_post = true }          # it stays where the steward bought it
+""")
     return "\n".join(out)
 
 
 NO_ALLNIGHTER = ', { not_flag = "nosleep" }'
+NEW_DAY = '\n  clear_flags = ["worked"]            # bedtime: tomorrow is a new workday'
 ALLNIGHTER_ROW = """
 [[choice.options]]
 text = "Bilba, stay up all night!"
@@ -532,6 +694,45 @@ requires_flag_clear = {flags[name]}{ALLNIGHTER_ROW.format(f=flags["nosleep"]) if
 [[choice.options]]
 text = "Never mind."
 """)
+    if VARIANT == "rung6":
+        x0, z0, x1, z1 = LEDGER_ZONE
+        out.append(f"""[[choice]]
+zone = [[{x0}, {z0}], [{x1}, {z0}], [{x1}, {z1}], [{x0}, {z1}]]
+bubble = true
+instant = true
+prompt = "The Mognet desk and the household ledger."
+[[choice.options]]
+text = "Collect Bilba's wages ({WAGE_HI} gil)."
+gil = {WAGE_HI}
+set_flag = [{flags["pay_hi"]}, 0]
+requires_flag = {flags["pay_hi"]}
+[[choice.options]]
+text = "Collect Bilba's wages ({WAGE_LO} gil)."
+gil = {WAGE_LO}
+set_flag = [{flags["pay_lo"]}, 0]
+requires_flag = {flags["pay_lo"]}
+[[choice.options]]
+text = "Bilba, go to work."
+set_flag = [{flags["t_work"]}, 1]
+requires_flag_clear = {flags["t_work"]}
+[[choice.options]]
+text = "Bilba, study."
+set_flag = [{flags["t_study"]}, 1]
+requires_flag_clear = {flags["t_study"]}
+[[choice.options]]
+text = "Never mind."
+
+[[choice]]
+zone = {PARKED}
+instant = true
+prompt = "The moogle catalogue."
+[[choice.options]]
+text = "A toy airship ({TOY_PRICE} gil)."
+set_flag = [{TOY_REQUEST}, 1]
+requires_flag = {flags["toys_hireable"]}
+[[choice.options]]
+text = "Not now."
+""")
     if VARIANT == "rung5":
         x0, z0, x1, z1 = PARLOR_ZONE
         out.append(f"""[[choice]]
@@ -551,7 +752,7 @@ text = "Never mind."
 
 def _fb(raw: dict):
     """The deterministic-allocation double: same construction path as the build."""
-    return BT.build(raw, npc_slots={"bilba": 2, "garnet": 3},
+    return BT.build(raw, npc_slots={"bilba": 2, "garnet": 3, "toy": 3},
                     npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", [])},
                     behavior_txids={("hud", 0): 0})
 
@@ -562,6 +763,10 @@ def flag_indices() -> dict:
     out = {n: fb.bb.flag(f"t_{n}") for n in NAMES}
     if VARIANT in R4V:
         out["nosleep"] = fb.bb.flag("nosleep")
+    if VARIANT == "rung6":
+        for k in ("t_work", "t_study", "pay_lo", "pay_hi"):
+            out[k] = fb.bb.flag(k)
+        out["toys_hireable"] = fb.bb.flag("pool.toys.hireable")
     return out
 
 
@@ -574,7 +779,9 @@ def gen(quiet: bool = False) -> Path:
 
     import tomllib
     raw = tomllib.loads(_field_toml())
-    problems = BT.validate(raw)
+    # pass 1 has no [[choice]]s yet (their flag indices come from this pass), so a pool's "who sets my request
+    # flag" check cannot be satisfied here -- the FINAL validate below, with the choices, still enforces it
+    problems = [q for q in BT.validate(raw) if "no zone [[choice]] sets flag" not in q]
     if problems:
         raise SystemExit("behavior validate:\n  " + "\n  ".join(problems))
     flags = flag_indices()
