@@ -41,6 +41,19 @@ FIELD_NAME = "MANOR2"
 BENCH = HERE / "bench"
 BENCH_TOML = BENCH / "rung2.field.toml"
 REPORT = BENCH / "rung2.report.txt"
+
+
+def configure(variant: str = "priority", rates: str = "tuned") -> None:
+    """Select the bench: the urge tier ("priority" = rung 2 at 30431, "pick" = rung 3 at 30432) and the rate set
+    ("tuned" | "first"). Everything else -- layout, objects, clock, directives -- is shared, so an A/B differs in
+    the urge tier alone. A non-tuned rate set writes its own toml and is for the offline stepper only."""
+    global VARIANT, RATESET, FIELD_ID, FIELD_NAME, BENCH_TOML, REPORT, DECAY_EVERY, USE, URGE_AT
+    VARIANT, RATESET = variant, rates
+    FIELD_ID, FIELD_NAME, stem = VARIANTS[variant]
+    if rates != "tuned":
+        stem += f"-{rates}"
+    BENCH_TOML, REPORT = BENCH / f"{stem}.field.toml", BENCH / f"{stem}.report.txt"
+    DECAY_EVERY, USE, URGE_AT = RATES[rates]["decay"], RATES[rates]["use"], RATES[rates]["urge"]
 SIEGE_ART = REPO / "ff9mapkit" / "examples" / "siege" / "art"
 
 # ---------------------------------------------------------------- the layout (probe it: field_layout_probe.py)
@@ -61,11 +74,33 @@ NEEDS = [
 ]
 NAMES = [n[0] for n in NEEDS]
 SEED = {"hunger": 80, "thirst": 70, "energy": 75, "hygiene": 85, "fun": 60}
-DECAY_EVERY = {"hunger": 45, "thirst": 40, "energy": 55, "hygiene": 60, "fun": 45}   # ticks per -1
-# (first tuning: fun 30 / thirst 35 / sleep +1 per 10 -- left alone 3 days, FUN HIT 0 and hunger 9: fun is last
-# in urge order, decays fastest, and drained during the long naps. The priority list starving its last row.)
-USE = {"hunger": (2, 8), "thirst": (3, 8), "energy": (1, 6), "hygiene": (2, 8), "fun": (2, 10)}  # (by, every)
-URGE_AT = 40                        # a need at or below this raises its task (when no task is running)
+# Two rate sets. "first" was rung 2's first tuning: left alone 3 days, FUN HIT 0 and hunger 9 under the
+# priority list (fun is the last urge row, decays fastest, and drained during the long naps). "tuned" is the
+# fair rung-2 baseline. Rung 3 A/Bs the urge tier (priority list vs `pick`) on BOTH.
+RATES = {
+    "tuned": {"decay": {"hunger": 45, "thirst": 40, "energy": 55, "hygiene": 60, "fun": 45},   # ticks per -1
+              "use": {"hunger": (2, 8), "thirst": (3, 8), "energy": (1, 6), "hygiene": (2, 8), "fun": (2, 10)},
+              "urge": 40},
+    "first": {"decay": {"hunger": 40, "thirst": 35, "energy": 55, "hygiene": 60, "fun": 30},
+              "use": {"hunger": (2, 8), "thirst": (3, 8), "energy": (1, 10), "hygiene": (2, 8), "fun": (2, 10)},
+              "urge": 35},
+}
+# THE URGE TIER, two ways (rung 3's A/B). "priority": one urge row per need in a fixed order -- the first
+# need at/under the line wins. "pick": a [[behavior.pick]] publishes the index of the LOWEST need every pass,
+# and only that need's urge row can fire -- serve whatever is most urgent.
+VARIANTS = {"priority": (30431, "MANOR2", "rung2"), "pick": (30432, "MANOR3", "rung3"),
+            "rung4": (30433, "MANOR4", "rung4")}
+# RUNG 4 -- failure, mood, emote (the priority urge tier: rung 3's verdict). Poses are `hold_ground` + `anim`
+# (the kit's posed hold, gestures of Vivi's OWN rig); a need at 0 FAINTS her where she stands.
+POSE = {"hunger": "dine_1", "energy": "sleeping", "fun": "laugh"}     # use-tier poses (thirst/hygiene stand)
+FAINT_POSE = "hiza_1"               # the collapse, frozen at its last frame
+REVIVE_AT = 25                      # lying there, the failed need creeps back to this, then she gets up
+FAINT_REGEN = 10                    # +1 every N ticks while down (~8 s on the floor)
+NOSLEEP_EVERY = 5                   # "stay up all night": energy -1 every N ticks, and no bed
+TIRED_AT, MERRY_AT = 55, 80         # idle emotes on the beat: yawn when tired, laugh when fun is high
+BEAT = 75                           # the idle-emote alternator (2.5 s on, 2.5 s off)
+VARIANT, RATESET = "priority", "tuned"
+DECAY_EVERY, USE, URGE_AT = RATES["tuned"]["decay"], RATES["tuned"]["use"], RATES["tuned"]["urge"]
 NIGHT_SLEEP_AT = 70                 # ...but at night energy this low already sends her to bed
 FULL_AT = 95
 NIGHT_TIRE_EVERY = 40               # an extra -1 energy every N ticks, night only
@@ -80,12 +115,38 @@ PROMPT = {"hunger": "The soup pot.", "thirst": "A cup of water.", "energy": "The
           "hygiene": "The wash barrel.", "fun": "The puppet."}
 
 
+NOSLEEP_DRIFT = """
+[[behavior.drift]]                  # rung 4: an all-nighter drains her fast
+table = "need"
+index = {e}
+by = -1
+clamp = [0, 100]
+every = {every}
+flag = "nosleep"
+"""
+BEAT_ALT = f', {{ name = "beat", frames = {BEAT} }}'
+MOOD_TEXT = "  MOOD [NUMB=7]"          # rung 4: the average of the five needs, slot 7
+URG_TEXT = "  URG [NUMB=7]"           # the pick bench shows its pick: slot 7, the last free gMesValue
+PICK_ROW = """[[behavior.pick]]                   # rung 3: the index of the LOWEST need, every pass
+name = "most_urgent"
+table = "need"
+into = "urgent"
+mode = "min"
+"""
+
+
+def _mood_expr() -> str:
+    """MOOD = the average of the five needs (B_LMAX/B_LMIN are party selectors, not min/max -- the trap)."""
+    cells = [_vec(NEED_TABLE_ID, i) for i in range(len(NAMES))]
+    return '"expr:' + cells[0] + "".join(f" {c} B_PLUS" for c in cells[1:]) + f' const({len(NAMES)}) B_DIV"'
+
+
 def _vec(table_id: int, i: int) -> str:
     return f"const({table_id}) const({i}) B_VECTOR"
 
 
 def _field_toml() -> str:
-    out = [f"""# THE HOUSEHOLD DAY -- sims-arc rung 2 bench (generated by studies/sims/sims_bench2.py)
+    out = [f"""# THE HOUSEHOLD DAY -- sims-arc bench, urge tier "{VARIANT}", rates "{RATESET}" (generated by studies/sims/sims_bench2.py)
 # Five needs, five objects, priority-branch autonomy, the day clock. Novel field, stock Memoria.
 
 [field]
@@ -142,8 +203,9 @@ pos = [{spot[0]}, {spot[1]}]
     out.append(f"""# ---------------------------------------------------------------- the behavior
 [behavior]
 warmup = 30
-public_flags = [{", ".join(f'"t_{n}"' for n in NAMES)}]
-alternators = [{{ name = "night", frames = {12 * HOUR} }}]
+public_flags = [{", ".join(f'"t_{n}"' for n in NAMES)}{', "nosleep"' if VARIANT == "rung4" else ""}]
+alternators = [{{ name = "night", frames = {12 * HOUR} }}{BEAT_ALT if VARIANT == "rung4" else ""}]
+{'counters = ["urgent"]' if VARIANT == "pick" else ""}
 
 [[behavior.table]]
 name = "need"                       # {", ".join(f"{i}={n}" for i, n in enumerate(NAMES))} (0..100, 100 = met)
@@ -155,6 +217,7 @@ name = "clock"                      # [0] = hours since entry (the day starts at
 values = [0]
 id = {CLOCK_TABLE_ID}
 
+{PICK_ROW if VARIANT == "pick" else ""}
 [[behavior.drift]]                  # THE CLOCK
 table = "clock"
 index = 0
@@ -178,15 +241,15 @@ by = -1
 clamp = [0, 100]
 every = {NIGHT_TIRE_EVERY}
 flag = "night"
-
+{NOSLEEP_DRIFT.format(e=e, every=NOSLEEP_EVERY) if VARIANT == "rung4" else ""}
 [[behavior.hud]]                    # ONE strip: gMesValue[8] is global, a second strip overwrites this one's slots
 window = 6
-text = "[MPOS=10,48]HUN [NUMB=0] THR [NUMB=1] NRG [NUMB=2] HYG [NUMB=3] FUN [NUMB=4]\\nDAY [NUMB=5]  [NUMB=6]:00"
+text = "[MPOS=10,48]HUN [NUMB=0] THR [NUMB=1] NRG [NUMB=2] HYG [NUMB=3] FUN [NUMB=4]\\nDAY [NUMB=5]  [NUMB=6]:00{URG_TEXT if VARIANT == "pick" else MOOD_TEXT if VARIANT == "rung4" else ""}"
 values = [{", ".join(f'"expr:{_vec(NEED_TABLE_ID, i)}"' for i in range(len(NAMES)))},
           "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_DIV const(1) B_PLUS",
           "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_REM",
-          ]
-digits = [3, 3, 3, 3, 3, 2, 2]
+          {'"urgent"' if VARIANT == "pick" else _mood_expr() if VARIANT == "rung4" else ""}]
+digits = [3, 3, 3, 3, 3, 2, 2{", 1" if VARIANT == "pick" else ", 3" if VARIANT == "rung4" else ""}]
 # (no "(day)/(night)" word: a [TEXT=] in a HUD strip is resolved ONCE at window open -- the engine's constant-tag
 #  pass runs before the variable snapshot -- so it freezes at the open pass's sentinel row and renders "")
 
@@ -194,6 +257,8 @@ digits = [3, 3, 3, 3, 3, 2, 2]
 npc = "bilba"
 speed = 25
 """)
+    if VARIANT == "rung4":
+        out.append(_rung4_failure_tiers())
     # ---- tier 1: finish
     for i, n in enumerate(NAMES):
         out.append(f"""  [[behavior.unit.branch]]           # finish: {n} is met -> the task retires
@@ -204,9 +269,11 @@ speed = 25
     # ---- tier 2: use
     for i, n in enumerate(NAMES):
         by, every = USE[n]
+        posed = VARIANT == "rung4" and n in POSE
+        do = (f'{{ hold_ground = true, anim = "{POSE[n]}" }}' if posed else f'{{ hold = "{n}_spot" }}')
         out.append(f"""  [[behavior.unit.branch]]           # use: at the {n} object, the meter climbs
   when = [{{ flag = "t_{n}" }}, {{ near_point = ["{n}_spot", 160] }}]
-  do = {{ hold = "{n}_spot" }}
+  do = {do}
   adjust = {{ table = "need", index = {i}, by = {by}, clamp = [0, 100], every = {every} }}
 """)
     # ---- tier 3: go
@@ -217,19 +284,67 @@ speed = 25
 """)
     # ---- tier 4: urges (only reached when no task is flagged), most pressing first
     out.append(f"""  [[behavior.unit.branch]]           # urge: night, and tired enough to turn in
-  when = [{{ flag = "night" }}, {{ table_le = ["need", {e}, {NIGHT_SLEEP_AT}] }}]
+  when = [{{ flag = "night" }}, {{ table_le = ["need", {e}, {NIGHT_SLEEP_AT}] }}{NO_ALLNIGHTER if VARIANT == "rung4" else ""}]
   do = {{ walk_to = "energy_spot", speed = 40 }}
   raise_flags = ["t_energy"]
 """)
     for n in ("hunger", "thirst", "energy", "hygiene", "fun"):
-        out.append(f"""  [[behavior.unit.branch]]           # urge: {n} has run low
-  when = [{{ table_le = ["need", {NAMES.index(n)}, {URGE_AT}] }}]
+        i = NAMES.index(n)
+        gate = (f'{{ counter_eq = ["urgent", {i}] }}, ' if VARIANT == "pick" else "")
+        out.append(f"""  [[behavior.unit.branch]]           # urge: {n} has run low{' -- and is the MOST urgent' if gate else ''}
+  when = [{gate}{{ table_le = ["need", {i}, {URGE_AT}] }}{NO_ALLNIGHTER if VARIANT == "rung4" and n == "energy" else ""}]
   do = {{ walk_to = "{n}_spot", speed = 40 }}
   raise_flags = ["t_{n}"]
+""")
+    if VARIANT == "rung4":
+        out.append(f"""  [[behavior.unit.branch]]           # idle emote: tired -> a yawn on the beat
+  when = [{{ flag = "beat" }}, {{ table_le = ["need", {e}, {TIRED_AT}] }}]
+  do = {{ hold_ground = true, anim = "yawn" }}
+
+  [[behavior.unit.branch]]           # idle emote: merry -> a laugh on the beat
+  when = [{{ flag = "beat" }}, {{ table_ge = ["need", {NAMES.index("fun")}, {MERRY_AT}] }}]
+  do = {{ hold_ground = true, anim = "laugh" }}
 """)
     out.append("""  # idle: amble round home
   [[behavior.unit.branch]]
   do = { wander = "home", radius = 200, every = 120, speed = 25 }
+""")
+    return "\n".join(out)
+
+
+NO_ALLNIGHTER = ', { not_flag = "nosleep" }'
+ALLNIGHTER_ROW = """
+[[choice.options]]
+text = "Bilba, stay up all night!"
+set_flag = [{f}, 1]
+requires_flag_clear = {f}"""
+
+
+def _rung4_failure_tiers() -> str:
+    """Above everything: the all-nighter wakes her, and a need at 0 FAINTS her. Per need, in order:
+    revive (down, and the need has crept back to REVIVE_AT -> get up) / down (the frozen collapse, the need
+    creeping back) / fall (the need hit 0 -> raise the fainted flag; an energy faint ends the all-nighter)."""
+    out = ["""  [[behavior.unit.branch]]           # the all-nighter: up out of bed, now
+  when = [{ flag = "nosleep" }, { flag = "t_energy" }]
+  do = { hold_ground = true }
+  clear_flags = ["t_energy"]
+"""]
+    for i, n in enumerate(NAMES):
+        extra = '\n  clear_flags = ["nosleep"]' if n == "energy" else ""
+        out.append(f"""  [[behavior.unit.branch]]           # FAINT {n}: back on her feet
+  when = [{{ flag = "f_{n}" }}, {{ table_ge = ["need", {i}, {REVIVE_AT}] }}]
+  do = {{ hold_ground = true }}
+  clear_flags = ["f_{n}"]
+
+  [[behavior.unit.branch]]           # FAINT {n}: down, frozen, the need creeping back
+  when = [{{ flag = "f_{n}" }}]
+  do = {{ hold_ground = true, anim = "{FAINT_POSE}", freeze = true }}
+  adjust = {{ table = "need", index = {i}, by = 1, clamp = [0, 100], every = {FAINT_REGEN} }}
+
+  [[behavior.unit.branch]]           # FAINT {n}: the need hit 0 -- she drops where she stands
+  when = [{{ table_le = ["need", {i}, 0] }}]
+  do = {{ hold_ground = true }}
+  raise_flags = ["f_{n}"]{extra}
 """)
     return "\n".join(out)
 
@@ -249,7 +364,7 @@ prompt = "{PROMPT[name]}"
 [[choice.options]]
 text = "Bilba, {VERB[name]}."
 set_flag = [{flags[name]}, 1]
-requires_flag_clear = {flags[name]}
+requires_flag_clear = {flags[name]}{ALLNIGHTER_ROW.format(f=flags["nosleep"]) if VARIANT == "rung4" and name == "energy" else ""}
 [[choice.options]]
 text = "Never mind."
 """)
@@ -266,10 +381,13 @@ def _fb(raw: dict):
 def flag_indices() -> dict:
     import tomllib
     fb = _fb(tomllib.loads(_field_toml()))
-    return {n: fb.bb.flag(f"t_{n}") for n in NAMES}
+    out = {n: fb.bb.flag(f"t_{n}") for n in NAMES}
+    if VARIANT == "rung4":
+        out["nosleep"] = fb.bb.flag("nosleep")
+    return out
 
 
-def gen() -> Path:
+def gen(quiet: bool = False) -> Path:
     BENCH.mkdir(parents=True, exist_ok=True)
     art = BENCH / "art"
     art.mkdir(exist_ok=True)
@@ -291,23 +409,26 @@ def gen() -> Path:
     REPORT.write_text(cb.report + "\n(dry-run placeholders; the build binds the real "
                       "slots/txids)\n", encoding="utf-8")
     BENCH_TOML.write_text(text, encoding="utf-8")
+    if quiet:
+        return BENCH_TOML
     print(f"wrote {BENCH_TOML}")
     print("  task flags: " + ", ".join(f"{n}={flags[n]}" for n in NAMES) + f"; report -> {REPORT}")
     return BENCH_TOML
 
 
-def sim(ticks: int = 3 * 24 * HOUR) -> None:
-    """THE UNDIRECTED DAYS, offline: nobody orders anything for three in-game days. Asserted: every need is
-    served at least once by her own urge, nothing ever bottoms out, she is never idle with a need below the
-    urge line for long, and she sleeps at night."""
+def measure(ticks: int = 3 * 24 * HOUR) -> dict:
+    """THE UNDIRECTED DAYS, offline: nobody orders anything for ``ticks`` (default three in-game days). The
+    stepper is an instrument, not proof (straight-line walks, no collision). Returns per-need task counts and
+    lows, sleeps begun by night/day, and MISERY: the summed shortfall under the urge line, tick by tick --
+    a starved need scores large where a fair rotation scores small."""
     import tomllib
     from ff9mapkit.workspace import behaviorsim as SIM
-    if not BENCH_TOML.exists():
-        gen()
+    gen(quiet=True)
     raw = tomllib.loads(BENCH_TOML.read_text(encoding="utf-8"))
     s = SIM.Sim(raw)
     served = {n: 0 for n in NAMES}
     low = {n: 100 for n in NAMES}
+    misery = {n: 0 for n in NAMES}
     night_sleep = day_sleep = 0
     prev = {n: 0 for n in NAMES}
     for t in range(1, ticks + 1):
@@ -316,6 +437,7 @@ def sim(ticks: int = 3 * 24 * HOUR) -> None:
         fl = st["flags"]
         for i, n in enumerate(NAMES):
             low[n] = min(low[n], need[i])
+            misery[n] += max(0, URGE_AT - need[i])
             on = 1 if fl.get(f"t_{n}") else 0
             if on and not prev[n]:
                 served[n] += 1
@@ -325,15 +447,38 @@ def sim(ticks: int = 3 * 24 * HOUR) -> None:
                     else:
                         day_sleep += 1
             prev[n] = on
-    print("SIM (3 undirected days): tasks started " + ", ".join(f"{n} {served[n]}" for n in NAMES))
-    print("  lowest " + ", ".join(f"{n} {low[n]}" for n in NAMES)
-          + f"; sleeps begun at night {night_sleep}, by day {day_sleep}")
-    for n in s.notes:
+    return {"served": served, "low": low, "misery": misery, "night_sleep": night_sleep,
+            "day_sleep": day_sleep, "notes": list(s.notes)}
+
+
+def sim() -> None:
+    m = measure()
+    print(f"SIM [{VARIANT}/{RATESET}] (3 undirected days): tasks started "
+          + ", ".join(f"{n} {m['served'][n]}" for n in NAMES))
+    print("  lowest " + ", ".join(f"{n} {m['low'][n]}" for n in NAMES)
+          + f"; sleeps begun at night {m['night_sleep']}, by day {m['day_sleep']}")
+    print(f"  misery (shortfall under {URGE_AT}, summed per tick) "
+          + ", ".join(f"{n} {m['misery'][n]}" for n in NAMES) + f"; total {sum(m['misery'].values())}")
+    for n in m["notes"]:
         print(f"  note: {n}")
-    assert all(served[n] >= 1 for n in NAMES), f"a need was never served: {served}"
-    assert all(low[n] > 0 for n in NAMES), f"a need bottomed out: {low}"
-    assert night_sleep >= 2, f"she never turned in at night ({night_sleep})"
+    assert all(m["served"][n] >= 1 for n in NAMES), f"a need was never served: {m['served']}"
+    assert all(m["low"][n] > 0 for n in NAMES), f"a need bottomed out: {m['low']}"
+    assert m["night_sleep"] >= 2, f"she never turned in at night ({m['night_sleep']})"
     print("SIM OK")
+
+
+def ab() -> None:
+    """RUNG 3's OFFLINE A/B: the urge tier as a priority list vs as a pick, on both rate sets."""
+    print(f"{'rates':6} {'tier':9} {'lowest need':>12} {'misery':>8}  per need (low / misery)")
+    for rates in ("first", "tuned"):
+        for variant in ("priority", "pick"):
+            configure(variant, rates)
+            m = measure()
+            worst = min(m["low"], key=m["low"].get)
+            print(f"{rates:6} {variant:9} {worst + ' ' + str(m['low'][worst]):>12} "
+                  f"{sum(m['misery'].values()):>8}  "
+                  + "  ".join(f"{n[:3]} {m['low'][n]}/{m['misery'][n]}" for n in NAMES)
+                  + f"  sleeps n{m['night_sleep']}/d{m['day_sleep']}")
 
 
 def deploy() -> None:
@@ -343,18 +488,24 @@ def deploy() -> None:
     if r.returncode != 0:
         raise SystemExit("deploy_field failed")
     print(f"""
-RUNG 2 (first deploy of {FIELD_ID} = RELAUNCH, then ~ -> Warp -> {FIELD_ID}):
+{FIELD_NAME} [{VARIANT}] (first deploy of {FIELD_ID} = RELAUNCH, then ~ -> Warp -> {FIELD_ID}):
   Leave her alone for a few in-game days -- does she look after herself, and sleep at night?
   Then order her about at the objects: orders queue behind what she is doing.
-  Harness: py tools/play.py studies/sims/rung2_day.py
+  Harness: py tools/play.py studies/sims/{"rung2_day" if VARIANT == "priority" else "rung3_pick"}.py
   Revert: py tools/scroll_out/revert_deploy_{FIELD_ID}.py""")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["gen", "sim", "deploy"])
-    cmd = ap.parse_args().cmd
-    {"gen": gen, "sim": sim, "deploy": deploy}[cmd]()
+    ap.add_argument("cmd", choices=["gen", "sim", "deploy", "ab"])
+    ap.add_argument("--variant", choices=sorted(VARIANTS), default="priority",
+                    help="the urge tier: priority (rung 2, 30431) or pick (rung 3, 30432)")
+    ap.add_argument("--rates", choices=sorted(RATES), default="tuned")
+    a = ap.parse_args()
+    if a.cmd == "deploy" and a.rates != "tuned":
+        raise SystemExit("deploy ships the tuned rates only (the 'first' set is an offline A/B arm)")
+    configure(a.variant, a.rates)
+    {"gen": gen, "sim": sim, "deploy": deploy, "ab": ab}[a.cmd]()
 
 
 if __name__ == "__main__":

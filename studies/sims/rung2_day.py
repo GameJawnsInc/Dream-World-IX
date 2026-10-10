@@ -71,6 +71,15 @@ def _clock(st) -> tuple | None:
     return None
 
 
+def _urg(st) -> int | None:
+    """The pick bench's URG slot (rung 3): the index its [[behavior.pick]] published. None elsewhere."""
+    for t in st.texts:
+        m = re.search(r"URG\s+(\d+)", t)
+        if m and int(m.group(1)) != 9:                   # the 1-digit width sentinel
+            return int(m.group(1))
+    return None
+
+
 def _obj(st, uid):
     for o in st.objects or ():
         if o.get("uid") == uid:
@@ -86,7 +95,8 @@ def _sample(g, uid, tag: str) -> dict:
     st = g.state
     o = _obj(st, uid)
     row = {"t": round(time.monotonic() - T0, 2), "tag": tag, "frame": st.frame, "needs": _needs(st),
-           "clock": _clock(st), "tasks": [n for n in NAMES if st.flag(FLAG[n])], "night": st.flag(FLAG["night"]),
+           "clock": _clock(st), "urg": _urg(st),
+           "tasks": [n for n in NAMES if st.flag(FLAG[n])], "night": st.flag(FLAG["night"]),
            "bx": o and round(o["x"]), "bz": o and round(o["z"]),
            "px": st.player_x and round(st.player_x), "pz": st.player_z and round(st.player_z),
            "choice": bool(st.choice)}

@@ -116,7 +116,7 @@ ACTION_VERBS = {
     "swing_at": ("damage", "interval", "anim", "hit_sfx"),
     "engage": ("radius", "contact", "damage", "interval", "speed", "nearest",
                "anim", "hit_sfx"),
-    "hold_ground": (),
+    "hold_ground": ("anim", "freeze"),
     "die": ("anim", "linger"),
     "battle": (),
     "award": ("item", "count"),
@@ -144,11 +144,12 @@ CLASS_FORBIDDEN_VERBS = {"award", "add_shop_item", "remove_shop_item",
                          "add_shop_synth", "remove_shop_synth"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
               "counters", "table", "schedule", "scan", "group", "hud", "byte_band",
-              "brains", "drift", "stream"}
+              "brains", "drift", "stream", "pick"}
 POOL_KEYS = {"name", "price", "button", "request_flag", "item"}
 TABLE_KEYS = {"name", "values", "id", "persist"}
 STREAM_KEYS = {"name", "seed", "persist", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
+PICK_KEYS = {"name", "table", "into", "mode"}
 SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags", "group",
              "alive_only"}
 GROUP_KEYS = {"name", "units"}
@@ -336,6 +337,7 @@ def draining_once_warnings(raw: dict) -> list:
     if not b:
         return []
     scan_fed = {str(s.get("count")) for s in (b.get("scan") or []) if s.get("count")}
+    scan_fed |= {str(p.get("into")) for p in (b.get("pick") or []) if p.get("into")}
     cleared = {str(n) for u in (b.get("unit") or [])
                for br in (u.get("branch") or [])
                for n in (br.get("clear_flags") or [])}
@@ -1280,7 +1282,7 @@ def _branch_adjusts(fb: B.FieldBehavior, br: dict, ctx: str) -> tuple:
 
 
 def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_txid,
-                  ctx: str, routed_points=None, model=None):
+                  ctx: str, routed_points=None, model=None, rest=None):
     verb = _one_verb(d, ACTION_VERBS, ctx)
     v = d[verb]
     spd = d.get("speed")
@@ -1332,7 +1334,18 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         if v is not True:
             raise BehaviorTomlError(f"{ctx}: hold_ground takes `true` (stand and "
                                     f"idle while the branch holds — the pin)")
-        return B.HoldGround()
+        if d.get("anim") is None:
+            if d.get("freeze") is not None:
+                raise BehaviorTomlError(f"{ctx}: freeze needs an anim (it freezes the pose's last frame)")
+            return B.HoldGround()
+        if d.get("freeze") is not None and not isinstance(d.get("freeze"), bool):
+            raise BehaviorTomlError(f"{ctx}: freeze takes true/false")
+        if rest is None:
+            raise BehaviorTomlError(f"{ctx}: hold_ground anim needs the unit's own stand/walk clips to "
+                                    f"restore on deselect, and this npc resolves none (give the [[npc]] "
+                                    f"explicit anims)")
+        return B.HoldGround(anim=resolve_gesture(d["anim"], model, ctx), freeze=bool(d.get("freeze", False)),
+                            rest=rest)
     if verb == "die":
         # die = true, or die = "kills" (bump that counter once — the body runs
         # exactly once, the entry terminates); + THE DEATH BEAT (anim, linger)
@@ -1494,6 +1507,12 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                 flags=(str(s["flags"]) if s.get("flags") else None),
                 group=(str(s["group"]) if s.get("group") else None),
                 alive_only=bool(s.get("alive_only", False)))
+    for pi, pk in enumerate(b.get("pick", []) or []):
+        try:
+            fb.pick(str(pk.get("name", "")), str(pk.get("table", "")), str(pk.get("into", "")),
+                    mode=str(pk.get("mode", "min")))
+        except B.BehaviorError as e:
+            raise BehaviorTomlError(f"[[behavior.pick]] #{pi}: {e}")
     for hi, h in hud_lines(raw):
         fb.hud(str(h.get("text", "")),
                [hud_value(v) for v in h.get("values", []) or []],
@@ -1514,6 +1533,19 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                          if n.get("name") == m), None) for m in members]
         umodel = mmodels[0] if len(set(mmodels)) == 1 else None
         mixed_models = len(set(mmodels)) > 1
+        # the clips a POSE restores on deselect: the NPC's own stand/walk, by the build's one resolver
+        # (blockmodel.resolve_block_model -- explicit anims win, else the Info Hub join), never a guess
+        urest = None
+        if not mixed_models:
+            row0 = next((n for n in raw.get("npc", []) or [] if n.get("name") == members[0]), None)
+            if row0 is not None:
+                try:
+                    from .. import blockmodel as _bm
+                    _an = _bm.resolve_block_model(row0).anims or {}
+                    if _an.get("stand") is not None and _an.get("walk") is not None:
+                        urest = (int(_an["stand"]), int(_an["walk"]))
+                except Exception:                # an unresolvable model: anim poses refuse below
+                    urest = None
         branches = []
         for bi, br in enumerate(u.get("branch", []) or []):
             ctx = f"[[behavior.unit]] {_row_label(u)!r} branch #{bi}"
@@ -1585,7 +1617,7 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                    txid=behavior_txids.get((ui, bi)),
                                    npc_txid=npc_txid, ctx=ctx,
                                    routed_points=(rp["points"] if rp else None),
-                                   model=umodel)
+                                   model=umodel, rest=urest)
             do_node = B.Do(action, raise_flags=tuple(br.get("raise_flags", []) or []),
                            clear_flags=tuple(br.get("clear_flags", []) or []),
                            adjust=_branch_adjusts(fb, br, ctx),
@@ -2017,6 +2049,59 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 tn_new += [f"scan.{nm}.px", f"scan.{nm}.pz"]
             for tn2 in tn_new:
                 declared_tables.setdefault(tn2, roster_len)
+    # picks (sims rung 3): argmin/argmax of a table into a counter, every pass
+    pick_names = set()
+    # every other writer of a counter: a pick overwrites its counter each pass, so it must own it
+    other_writers: dict = {}
+    for row in b.get("scan", []) or []:
+        if row.get("count"):
+            other_writers.setdefault(str(row["count"]), "a [[behavior.scan]] count")
+    for c in (r.get("counter") for r in schedule_rows(raw)):
+        if c:
+            other_writers.setdefault(str(c), "the [[behavior.schedule]] clock")
+    for row in b.get("drift", []) or []:
+        if isinstance(row, dict) and row.get("counter"):
+            other_writers.setdefault(str(row["counter"]), "a [[behavior.drift]] row")
+    for u in b.get("unit", []) or []:
+        for br in u.get("branch", []) or []:
+            adj = br.get("adjust")
+            for a_row in (adj if isinstance(adj, list) else [adj] if isinstance(adj, dict) else []):
+                if isinstance(a_row, dict) and a_row.get("counter"):
+                    other_writers.setdefault(str(a_row["counter"]), "a branch `adjust`")
+            rl = br.get("roll")
+            if isinstance(rl, dict) and rl.get("counter"):
+                other_writers.setdefault(str(rl["counter"]), "a `roll`")
+    pick_into: set = set()
+    for pi, row in enumerate(b.get("pick", []) or []):
+        ctx = f"[[behavior.pick]] #{pi}"
+        if not isinstance(row, dict):
+            problems.append(f"{ctx}: must be a table")
+            continue
+        extra = set(row) - PICK_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        nm = str(row.get("name", ""))
+        if not _re2.fullmatch(r"[a-z][a-z0-9_]*", nm):
+            problems.append(f"{ctx}: needs `name = ` ([a-z][a-z0-9_]*)")
+        elif nm in pick_names:
+            problems.append(f"{ctx}: duplicate pick {nm!r}")
+        pick_names.add(nm)
+        tn = row.get("table")
+        if str(tn) not in declared_tables:
+            problems.append(f"{ctx}: table {tn!r} is not a declared table")
+        elif not 1 <= int(declared_tables[str(tn)] or 0) <= B.TABLE_MAX_LEN:
+            problems.append(f"{ctx}: table {tn!r} needs 1..{B.TABLE_MAX_LEN} cells")
+        into = row.get("into")
+        if str(into) not in declared_counters:
+            problems.append(f"{ctx}: into {into!r} is not a declared counter (counters = [...])")
+        elif str(into) in other_writers:
+            problems.append(f"{ctx}: counter {into!r} is also written by {other_writers[str(into)]} -- a pick "
+                            f"overwrites its counter every pass, so give it a counter of its own")
+        elif str(into) in pick_into:
+            problems.append(f"{ctx}: counter {into!r} is already another pick's `into`")
+        pick_into.add(str(into))
+        if row.get("mode", "min") not in ("min", "max"):
+            problems.append(f"{ctx}: mode must be \"min\" (the lowest cell's index) or \"max\"")
     # hud strips (the live-counter substrate)
     hud_windows = set()
     for hi, row in enumerate(b.get("hud", []) or []):

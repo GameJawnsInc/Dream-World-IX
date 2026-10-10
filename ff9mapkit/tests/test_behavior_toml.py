@@ -865,6 +865,169 @@ def test_scan_toml_negatives():
                                                        "values": [1]}]))))
 
 
+
+PICK_RAW = {
+    "npc": [{"name": "sim", "pos": [0, 0], "dialogue": "..."}],
+    "behavior": {
+        "counters": ["urgent"],
+        "table": [{"name": "need", "values": [50, 20, 70, 20]}],
+        "pick": [{"name": "most", "table": "need", "into": "urgent"}],
+        "unit": [{"npc": "sim", "branch": [
+            {"when": [{"counter_eq": ["urgent", 1]}], "do": {"hold": [300, 0]}},
+            {"do": {"hold": [0, 0]}}]}],
+    },
+}
+
+
+def _pick_build(raw):
+    return BT.build(raw, npc_slots={"sim": 2})
+
+
+def test_pick_toml_surface():
+    """THE PICK LANE (sims rung 3): argmin of a table into a counter every pass."""
+    assert BT.validate(PICK_RAW) == []
+    fb = _pick_build(PICK_RAW)
+    cb = fb.compile()
+    _verify_all(cb)                                   # the backward loop's jumps land on instructions
+    (pk,) = fb._picks
+    assert (pk.name, pk.table, pk.into, pk.mode, pk.n) == ("most", "need", "urgent", "min", 4)
+    assert pk.best_tid not in (pk.tid, fb._ctr_tid)   # the best cell is its own table
+    assert "pick.most.best" in fb.tables              # ...seeded at Main_Init like every table
+    assert "pick most: argmin of 'need' (4 cell(s)" in cb.report
+    assert _pick_build(PICK_RAW).compile().stable_hash() == cb.stable_hash()
+
+
+def test_pick_mode_flips_only_the_compare():
+    """min and max compile to the same loop but for the compare opcode -- and a pick changes the ticker
+    (a lane that compiled to nothing would pass the surface test)."""
+    import copy
+    from ff9mapkit.eb import exprasm
+    rmax = copy.deepcopy(PICK_RAW)
+    rmax["behavior"]["pick"][0]["mode"] = "max"
+    rnone = copy.deepcopy(PICK_RAW)
+    del rnone["behavior"]["pick"]
+    lo, hi = _pick_build(PICK_RAW).compile(), _pick_build(rmax).compile()
+    none = _pick_build(rnone).compile()
+    assert len(lo.ticker_body) == len(hi.ticker_body) > len(none.ticker_body)
+    diff = [i for i, (a, b) in enumerate(zip(lo.ticker_body, hi.ticker_body)) if a != b]
+    lt, gt = exprasm.assemble("B_LT B_EXPR_END")[0], exprasm.assemble("B_GT B_EXPR_END")[0]
+    assert len(diff) == 1 and (lo.ticker_body[diff[0]], hi.ticker_body[diff[0]]) == (lt, gt)
+
+
+def test_pick_one_cell_table_has_no_loop():
+    import copy
+    r1 = copy.deepcopy(PICK_RAW)
+    r1["behavior"]["table"][0]["values"] = [9]
+    r1["behavior"]["unit"][0]["branch"][0]["when"] = [{"counter_eq": ["urgent", 0]}]
+    rnone = copy.deepcopy(r1)
+    del rnone["behavior"]["pick"]
+    one, none = _pick_build(r1).compile(), _pick_build(rnone).compile()
+    _verify_all(one)
+    jumps = lambda body: sum(1 for ins in D.iter_code(body, 0, len(body)) if ins.op in (0x01, 0x02, 0x03))
+    assert jumps(one.ticker_body) == jumps(none.ticker_body)
+
+
+def test_pick_stepper_ties_keep_the_lower_index():
+    """The offline stepper models the compiled strict compare: cells 1 and 3 tie at 20 -> index 1."""
+    import copy
+    from ff9mapkit.workspace import behaviorsim as SIM
+    assert SIM.Sim(copy.deepcopy(PICK_RAW)).at(2)["counters"]["urgent"] == 1
+    rmax = copy.deepcopy(PICK_RAW)
+    rmax["behavior"]["pick"][0]["mode"] = "max"
+    assert SIM.Sim(rmax).at(2)["counters"]["urgent"] == 2
+
+
+def test_pick_toml_negatives():
+    import copy
+
+    def mut(fn):
+        r = copy.deepcopy(PICK_RAW)
+        fn(r["behavior"])
+        return BT.validate(r)
+
+    assert any("is not a declared table" in p for p in mut(lambda b: b["pick"][0].update(table="nope")))
+    assert any("is not a declared counter" in p for p in mut(lambda b: b["pick"][0].update(into="nope")))
+    assert any("mode must be" in p for p in mut(lambda b: b["pick"][0].update(mode="argmin")))
+    assert any("needs `name" in p for p in mut(lambda b: b["pick"][0].update(name="Bad")))
+    assert any("unknown key" in p for p in mut(lambda b: b["pick"][0].update(weights=[1])))
+    assert any("duplicate pick" in p for p in mut(lambda b: b["pick"].append(dict(b["pick"][0]))))
+    assert any("already another pick's" in p for p in
+               mut(lambda b: b["pick"].append(dict(b["pick"][0], name="other"))))
+    assert any("also written by a [[behavior.drift]]" in p for p in
+               mut(lambda b: b.__setitem__("drift", [{"counter": "urgent", "by": 1, "clamp": [0, 3],
+                                                     "every": 30}])))
+    assert any("also written by a branch `adjust`" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][0].__setitem__(
+                   "adjust", {"counter": "urgent", "by": 1, "clamp": [0, 3]})))
+
+
+
+POSE_RAW = {
+    "npc": [{"name": "bilba", "model": "GEO_MAIN_F0_VIV", "pos": [0, 0], "dialogue": "..."}],
+    "behavior": {
+        "public_flags": ["nap", "faint"],
+        "unit": [{"npc": "bilba", "branch": [
+            {"when": [{"flag": "faint"}], "do": {"hold_ground": True, "anim": "hiza_1", "freeze": True}},
+            {"when": [{"flag": "nap"}], "do": {"hold_ground": True, "anim": "sleeping"}},
+            {"do": {"hold": [0, 0]}}]}],
+    },
+}
+
+
+def _pose_bodies(raw):
+    cb = BT.build(raw, npc_slots={"bilba": 2}).compile()
+    _verify_all(cb)
+    return cb, [body for funcs in cb.action_funcs.values() for _t, body in funcs]
+
+
+def test_hold_ground_pose_installs_and_restores():
+    """THE POSE (sims rung 4): the clip goes in as stand AND walk (law 4), flags set (freeze -> law 5),
+    played; on deselect the flags clear FIRST (animFlag survives the clip), the NPC's own stand/walk come
+    back -- the clips the build itself installs -- and the stand plays so she gets up at once."""
+    from ff9mapkit import catalog, blockmodel
+    from ff9mapkit.eb import opcodes as O
+    assert BT.validate(POSE_RAW) == []
+    g = catalog.own_form_gestures("GEO_MAIN_F0_VIV")
+    rest = blockmodel.resolve_block_model(POSE_RAW["npc"][0]).anims
+    st, wk = rest["stand"], rest["walk"]
+    _cb, bodies = _pose_bodies(POSE_RAW)
+    blob = b"".join(bodies)
+    for clip, mode in ((g["hiza_1"], 1), (g["sleeping"], 0)):
+        pose = (O.encode(0x33, clip) + O.encode(0x34, clip) + O.encode(0x3F, mode, 0) + O.encode(0x40, clip))
+        assert pose in blob, (clip, mode)
+    undo = O.encode(0x3F, 0, 0) + O.encode(0x33, st) + O.encode(0x34, wk) + O.encode(0x40, st)
+    assert sum(b.count(undo) for b in bodies) == 2           # each pose undoes itself on the way out
+
+
+def test_hold_ground_without_anim_is_unchanged():
+    """A plain pin compiles exactly as before the pose existed (no setter, no restore)."""
+    import copy
+    from ff9mapkit.eb import opcodes as O
+    r = copy.deepcopy(POSE_RAW)
+    for br in r["behavior"]["unit"][0]["branch"][:2]:
+        br["do"] = {"hold_ground": True}
+    _cb, bodies = _pose_bodies(r)
+    blob = b"".join(bodies)
+    ops = {ins.op for b in bodies for ins in D.iter_code(b, 0, len(b))}
+    assert not ops & {0x33, 0x34, 0x3F, 0x40}, sorted(hex(o) for o in ops & {0x33, 0x34, 0x3F, 0x40})
+
+
+def test_hold_ground_pose_refusals():
+    import copy
+
+    def build(fn):
+        r = copy.deepcopy(POSE_RAW)
+        fn(r["behavior"]["unit"][0]["branch"][1]["do"])
+        return BT.build(r, npc_slots={"bilba": 2})
+
+    with pytest.raises(BT.BehaviorTomlError, match="owns no gesture"):
+        build(lambda d: d.update(anim="attack_cid_1"))      # the own-clip law
+    with pytest.raises(BT.BehaviorTomlError, match="freeze needs an anim"):
+        build(lambda d: (d.pop("anim"), d.update(freeze=True)))
+    with pytest.raises(BT.BehaviorTomlError, match="freeze takes true/false"):
+        build(lambda d: d.update(freeze="yes"))
+
+
 GROUP_RAW = {
     "npc": [
         {"name": "a0", "pos": [0, 0], "dialogue": "..."},

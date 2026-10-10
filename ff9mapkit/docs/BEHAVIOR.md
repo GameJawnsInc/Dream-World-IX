@@ -319,6 +319,22 @@ bug*.
 Laws 3–5 are why the death beat emits `stand → walk → flags(1,0) → anim → wait`, in that
 order. A strike clip needs only the fire-and-forget half (it *should* return to idle).
 
+#### Posed holds — `hold_ground` + `anim`
+
+```toml
+do = { hold_ground = true, anim = "sleeping" }             # asleep while the branch holds
+do = { hold_ground = true, anim = "hiza_1", freeze = true } # collapsed, last frame held
+```
+
+A pose is a STATE the unit leaves, unlike a death. While the branch is selected the body
+installs the clip as stand **and** walk (law 4), sets `freeze` as freeze-at-end (law 5), and
+plays it; when the branch deselects it **clears the animation flags first** (the engine keeps
+`animFlag` on the actor after a clip ends — a leftover freeze would freeze the idle), puts back
+the NPC's own stand/walk clips (the ones the build installs, via `blockmodel.resolve_block_model`),
+and plays the stand so the unit gets up at once. The gesture resolves against the unit's own
+model (the own-clip law); an `[[npc]]` with no `model` (a `preset`) takes a raw clip id. In-game
+proven by `studies/sims/` rung 4 (asleep at the tent, the frozen faint, a normal walk afterwards).
+
 > **THE OWN-CLIP LAW, enforced at the call site:** `anim` takes a **gesture name** resolved
 > against *that unit's own model*, and a name the model doesn't own is a lint ERROR listing
 > what it does own. This matters because **field rigs are not battle rigs**: a field monster
@@ -949,6 +965,45 @@ still standing in the box keeps counting — scan rosters that stay alive, or
 use the group form with `alive_only`). This is the first stone of the v2 vector substrate
 (`studies/behavior-trees/PLAN.md`, THE THREE WALLS); the group loop below
 builds on it.
+
+## Picks — argmin / argmax over a table
+
+Branch conditions compare a cell with a CONSTANT (`table_le = ["need", 2, 40]`); none compares one
+cell against another, so "go and do whatever is most urgent" could only be written as a fixed
+priority list. A pick computes it:
+
+```toml
+[behavior]
+counters = ["urgent"]
+
+[[behavior.table]]
+name = "need"
+values = [80, 70, 75, 85, 60]        # hunger, thirst, energy, hygiene, fun
+
+[[behavior.pick]]
+name = "most_urgent"
+table = "need"
+into = "urgent"                      # = the index of the LOWEST need, every pass
+mode = "min"                         # or "max"
+
+  [[behavior.unit.branch]]           # one urge row per need, gated on the pick
+  when = [{ counter_eq = ["urgent", 4] }, { table_le = ["need", 4, 40] }]
+  do = { walk_to = "toybox" }
+```
+
+- **Every pass**, after the drifts and scans and before any tree, a bounded loop seeds its best from
+  cell 0 and walks cells 1..n-1 by a live index byte (the scan's computed-index read), keeping the
+  best value in a private one-cell table so the full ±10^6 cell range compares exactly.
+- **Ties keep the lower index** (a strict compare) — table order is the tie-break.
+- **`into` belongs to the pick.** It is overwritten every pass, so a counter a scan, the schedule, a
+  drift, an `adjust` or a `roll` also writes is refused. A pick-fed counter rises and falls, so a
+  `counter_ge` on it is a draining condition (the sticky analysis knows).
+- The offline stepper (`behaviorsim`) models the same order and tie-break.
+- Cost (measured): **138 bytes of ticker per pick whatever the table's length** (the loop is a loop,
+  not unrolled) + 26 bytes of Main_Init for the best cell; a 1-cell table compiles no loop (39 bytes).
+
+The A/B that motivated it: `studies/sims/` rung 3 (a household Sim's urges as a priority list vs as
+argmin).
 
 ## Groups and `engage` — the group loop
 

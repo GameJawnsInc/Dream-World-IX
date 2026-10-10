@@ -151,6 +151,7 @@ class Sim:
         self.drifts = [d for d in (b.get("drift") or []) if isinstance(d, dict)
                        and d.get("every")]
         self.scans = list(b.get("scan") or [])
+        self.picks = [pk for pk in (b.get("pick") or []) if isinstance(pk, dict)]
         self.groups = {str(g.get("name")): [str(u) for u in (g.get("units") or [])]
                        for g in (b.get("group") or [])}
         player = (raw.get("player", {}) or {}).get("spawn") or [0, 0]
@@ -331,6 +332,16 @@ class Sim:
                 counters[str(s["count"])] = sum(hits)
             if s.get("flags"):
                 tables[str(s["flags"])] = hits
+
+        # 3b. picks (argmin/argmax of a table into a counter; ties keep the lower index -- the compiled
+        # loop's strict compare), after drifts and scans, before the trees: the same order as the ticker
+        for pk in self.picks:
+            t = tables.get(str(pk.get("table"))) or self.tables0.get(str(pk.get("table"))) or [0]
+            best_i = 0
+            for i in range(1, len(t)):
+                if (t[i] < t[best_i]) if pk.get("mode", "min") == "min" else (t[i] > t[best_i]):
+                    best_i = i
+            counters[str(pk.get("into"))] = best_i
 
         # 4. per unit, roster order: select top-down, act
         player = self.player_at(tick)
