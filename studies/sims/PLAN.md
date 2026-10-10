@@ -97,10 +97,6 @@ Standing rung-1 notes:
   **F9 first** (the turbo latch) before suspecting the mod.
 - Layout: `tools/field_layout_probe.py` PNGs BEFORE any coordinate; ≥192u actor
   spacing; `route = "auto"` on marches; run `behavior lint` on the bench.
-- ⚠ Rung 4's `[TBLE]`-words readout CANNOT ride the HUD strip: `[TEXT=]` is a constant tag
-  (substituted once at window open, never re-rendered), so rung 2's `[TEXT=507,7]` daypart
-  rendered blank all run. `hud()`/lint now REFUSE it. Words need a re-issued window (flicker),
-  a `[[choice]]` page, or numbers (`[NUMB=]`) — decide at rung 4.
 - Furniture placement position is OUT OF SCOPE (needs a cursor + live walkmesh
   rebuild); bought objects appear at designated slots.
 
@@ -192,8 +188,9 @@ Findings:
   BEHAVIOR.md HUD section says one strip per field.
 - ⚠ **`[TEXT=]` in a HUD strip is FROZEN at window open** (engine: `TextParser.Parse` substitutes constant
   tags before the `VariableText` snapshot every [NUMB] refresh restores). The "(day)/(night)" word rendered
-  "" all run. The kit lints/clamps it as a live lane -- spun off as a separate task; rung 4's "[TBLE]
-  words" readout is its consumer. Rung 2 reads night off the hour instead.
+  "" all run. KIT DEFECT FIXED: `hud()` and `behaviortoml.validate` now REFUSE `[TEXT=]` in a strip (they
+  used to clamp it as a live lane). Rung 2 reads night off the hour instead; rung 4's "[TBLE] words"
+  readout cannot ride the strip -- it needs a re-issued window (flicker), a `[[choice]]` page, or numbers.
 - The steward's `walk_to` presses the LARGER axis first: one call from the spawn to the pot cut up past the
   cask inside its collision ring and never arrived. The scenario walks one-axis legs on probe-clear lanes.
 - **Speed control is NOT built** (a field-level rate switch would need flag-gated duplicates of every drift
