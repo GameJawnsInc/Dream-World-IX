@@ -1,0 +1,38 @@
+# SEBENCH -- the menu-leak control that isolates SOUND: an NPC's behavior plays SE 103 (the menu cursor
+# blip) every time an alternator re-selects its branch -- no window, no UI cursor, no input.
+# If FF9's private memory climbs here at the per-cursor-move rate, the choice-menu leak is the SE path.
+# Deploy: py tools/deploy_field.py studies/menu-leak/bench/sebench.field.toml --id 30488
+# Soak:   py tools/play.py studies/menu-leak/se_soak.py
+
+[field]
+id = 30488
+name = "SEBENCH"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+[[npc]]
+name = "bell"
+model = "GEO_MAIN_F0_VIV"
+pos = [0, -700]
+dialogue = "Ding."
+
+[behavior]
+alternators = [{ name = "tick", frames = 15 }]
+
+[[behavior.unit]]
+npc = "bell"
+
+  [[behavior.unit.branch]]
+  when = [{ flag = "tick" }]
+  do = { sfx = 103 }
+
+  [[behavior.unit.branch]]
+  do = { hold = [0, -700] }

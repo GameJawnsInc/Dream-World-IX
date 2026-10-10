@@ -1,0 +1,17 @@
+{"t": 1791668244.31, "spot": "cursor", "n": 0, "private_mb": 841.9, "ws_mb": 743.5}
+{"t": 1791668249.48, "spot": "cursor", "n": 10, "private_mb": 852.5, "ws_mb": 751.6}
+{"t": 1791668254.41, "spot": "cursor", "n": 20, "private_mb": 861.5, "ws_mb": 759.4}
+{"t": 1791668259.39, "spot": "cursor", "n": 30, "private_mb": 867.1, "ws_mb": 767.1}
+{"t": 1791668264.4, "spot": "cursor", "n": 40, "private_mb": 879.4, "ws_mb": 774.8}
+{"t": 1791668269.39, "spot": "cursor", "n": 50, "private_mb": 885.0, "ws_mb": 782.5}
+{"t": 1791668274.41, "spot": "cursor", "n": 60, "private_mb": 890.6, "ws_mb": 790.3}
+{"t": 1791668279.96, "spot": "cursor", "n": 60, "private_mb": 891.7, "ws_mb": 791.8}
+{"t": 1791668283.33, "spot": "choice", "n": 0, "private_mb": 891.7, "ws_mb": 791.8}
+{"t": 1791668291.21, "spot": "choice", "n": 10, "private_mb": 909.7, "ws_mb": 804.4}
+{"t": 1791668299.14, "spot": "choice", "n": 20, "private_mb": 927.6, "ws_mb": 819.8}
+{"t": 1791668307.29, "spot": "choice", "n": 30, "private_mb": 938.8, "ws_mb": 835.1}
+{"t": 1791668315.24, "spot": "choice", "n": 40, "private_mb": 956.7, "ws_mb": 850.6}
+{"t": 1791668323.07, "spot": "choice", "n": 50, "private_mb": 974.7, "ws_mb": 866.1}
+{"t": 1791668330.92, "spot": "choice", "n": 60, "private_mb": 985.9, "ws_mb": 881.5}
+{"t": 1791668335.92, "spot": "choice", "n": 60, "private_mb": 985.9, "ws_mb": 881.5}
+{"summary": {"cursor": {"windows": 60, "delta_mb": 49.8, "mb_per_window": 0.81}, "choice": {"windows": 60, "delta_mb": 94.2, "mb_per_window": 1.562}}}

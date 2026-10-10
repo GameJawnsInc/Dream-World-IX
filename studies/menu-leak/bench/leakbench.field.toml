@@ -1,0 +1,77 @@
+# LEAKBENCH -- the choice-menu memory leak, crossed: plain message vs choice, with and without the "!" bubble.
+# Nothing else in the room (no HUD strip, no behavior, no NPCs), so the only thing a soak exercises is the window.
+# Four press spots, one per corner, each marked by a book; the soak walks to one and opens it N times.
+#   west-front  PLAIN            east-front  CHOICE
+#   west-back   PLAIN + bubble   east-back   CHOICE + bubble
+# Deploy: py tools/deploy_field.py studies/menu-leak/bench/leakbench.field.toml --id 30487
+# Soak:   py tools/play.py studies/menu-leak/bench_soak.py
+
+[field]
+id = 30487
+name = "LEAKBENCH"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+[[event]]
+name = "plain"
+zone = [[-950, -1650], [-550, -1650], [-550, -1250], [-950, -1250]]
+trigger = "action"
+message = "A plain window."
+instant = true
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-750, -1180]
+collision = false
+
+[[choice]]
+zone = [[550, -1650], [950, -1650], [950, -1250], [550, -1250]]
+instant = true
+prompt = "A plain choice."
+options = [
+  { text = "Yes." },
+  { text = "Never mind." },
+]
+
+[[prop]]
+prop = "book"
+pos = [750, -1180]
+collision = false
+
+[[event]]
+name = "plain_bubble"
+zone = [[-950, -750], [-550, -750], [-550, -350], [-950, -350]]
+trigger = "action"
+bubble = true
+message = "A plain window with a bubble."
+instant = true
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-750, -280]
+collision = false
+
+[[choice]]
+zone = [[550, -750], [950, -750], [950, -350], [550, -350]]
+bubble = true
+instant = true
+prompt = "A choice with a bubble."
+options = [
+  { text = "Yes." },
+  { text = "Never mind." },
+]
+
+[[prop]]
+prop = "book"
+pos = [750, -280]
+collision = false
