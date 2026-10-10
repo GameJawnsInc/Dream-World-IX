@@ -987,6 +987,20 @@ SCOREBOARD_RAW = {
 }
 
 
+def test_second_hud_strip_refused_one_global_value_array():
+    """THE SHARED-SLOT LAW (sims rung 2, in-game): ``ETb.gMesValue`` is ONE static Int32[8] for the whole
+    engine, and a strip's values[i] always feeds slot i -- so two strips both write slot 0.. and each
+    renders the other's numbers ("HUN 1 THR 8 NRG 1" was the clock strip's day/hour/index). A second
+    strip can never be right; the refusal says merge them into one (a strip may span lines)."""
+    import copy
+    raw = copy.deepcopy(SCOREBOARD_RAW)
+    raw["behavior"]["hud"].append({"window": 7, "values": ["fallen"],
+                                   "text": "[MPOS=10,64]DOWN [NUMB=0]"})
+    probs = BT.validate(raw)
+    assert any("gMesValue" in p and "one strip" in p for p in probs), probs
+    assert BT.validate(SCOREBOARD_RAW) == []          # one strip stays clean
+
+
 def test_scoreboard_toml_surface():
     assert BT.validate(SCOREBOARD_RAW) == []
     slots = {"a0": 2, "a1": 3, "b0": 4, "b1": 5, "crier": 6}

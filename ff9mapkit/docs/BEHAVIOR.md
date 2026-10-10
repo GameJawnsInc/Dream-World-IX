@@ -1036,6 +1036,12 @@ Three engine facts shape the emitted code, each learned from a playtest:
   characters. `6` and `7` are still accepted (existing fields keep building) but
   behave exactly as `5`, and `behavior lint` says so.
 
+**One strip per field.** `[NUMB=i]` reads `ETb.gMesValue[i]`, ONE static `Int32[8]` shared by every
+window in the engine, and a strip's `values[i]` always feeds slot `i` — so two strips would both write
+slot 0.. and each render the other's numbers (in-game, `studies/sims/` rung 2). The build refuses a
+second `[[behavior.hud]]`; put everything in one strip — its text may span lines, up to 8 values.
+(A `[[choice]]` with `values` writes the same slots while its menu is open.)
+
 Authoring notes: place with `[MPOS=x,y]` — the PSX-ish 320×224 UI grid (stock
 pins its save menu at `20,16`), and **the countdown timer owns the top-left
 corner**, so a strip belongs below it (`10,48` clears it) or elsewhere on

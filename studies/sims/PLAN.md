@@ -75,7 +75,7 @@ One mechanism per playtest. Verdicts are the owner's; the gate suite is not an o
 |---|---|---|---|
 | 0 | probes + `adjust`/`drift` | `adjust`, `[[behavior.drift]]` | ★ DONE offline |
 | 1 | THE FIRST MEAL — one Sim (VIV), one need, one stove, one directive menu, HUD | none (wiring) | **★ MECHANISM PROVEN in-game by the harness (27/27)**; feel = owner — does the number move and does the Sim go? |
-| 2 | five needs, ~6 objects, priority-branch autonomy, the day clock, speed control | none | alive when you stop directing it? |
+| 2 | five needs, ~6 objects, priority-branch autonomy, the day clock, speed control | none (+1 kit refusal) | **★ MECHANISM PROVEN in-game by the harness (20/20)**; speed control NOT built; feel = owner — alive when you stop directing it? |
 | 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | visibly smarter? if not, DROP it |
 | 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `[TBLE]` lane, gauge `source` | is failing funny? |
 | 5 | the visitor (GRN), relationships, conversations, the falling-out battle | none | does the social loop read? |
@@ -152,9 +152,56 @@ Findings the run taught (for the owner's feel verdict and for rung 2):
   and `_pick`'s workaround is gone; re-proven live 27/27 (`.harness-runs/20261009-204122-rung1_meal`): all
   three picks requested on the first `Dialog.Choice` read, the window closing two frames later.
 
+## Rung 2 — ★ MECHANISM PROVEN IN-GAME (harness, 20/20); feel verdict = owner
+
+`sims_bench2.py` (`gen`/`sim`/`deploy`) → **30431 "MANOR2"**; harness scenario `rung2_day.py`
+(`py tools/play.py studies/sims/rung2_day.py`, ~3 min). No new compiler surface.
+- **Five needs** in one table (hunger/thirst/energy/hygiene/fun, id 1000), one drift row each, plus a
+  `night`-gated extra energy drain. **Five objects** (pot, cup, tent, cask, the Garnet puppet) with
+  Bilba's use-spot on one side and the steward's zone menu on the other flank (no reply page).
+- **Autonomy = four tiers over one task flag per need**, in branch order: *finish* (flag + need >= 95
+  → clear) · *use* (flag + at the spot → hold + adjust) · *go* (flag → walk) · *urge* (no task, need
+  <= 40 → raise its flag; at night energy <= 70 already sends her to bed). A directive raises the same
+  flag an urge does, so **orders queue for free**: she finishes the object she is at, then walks to the
+  next flagged need in table order.
+- **The day clock**: an hours cell (+1 / 150 ticks = 5 s; a day is 2 min, starting 06:00) on a one-strip
+  HUD `HUN THR NRG / HYG FUN / DAY n hh:00`; a 12-hour alternator is `night`.
+
+**Live (run 3 of the scenario, after two instrument fixes):** left alone for one in-game day
+she started 8 tasks across all five needs (fun 12:00, thirst 14:00, energy 18:00, hunger 20:00, hygiene
+00:00, energy 01:00, thirst 06:00, fun 07:00), every one reached its object, filled and retired; lowest
+needs 31-42, nothing near 0; never idle > 0.5 s with a need under the urge line; she turned in at 18:00
+and again at 01:00. Clock 0.194 h/s; the alternator agrees with the HUD hour (3/285 samples off, each a
+flip edge -- it leads the hour by a fraction). Queue: hunger then energy ordered back to back, the second
+menu hid its row while pending, both completed, never at the tent with the meal pending.
+
+Findings:
+- **The offline sim caught the priority list's failure mode before the game did.** The first tuning
+  (fun -1/30, thirst -1/35, sleep +1/10) let FUN HIT 0 in 3 undirected days: fun is the last urge row,
+  decays fastest, and drains through long naps. Retuned (fun/45, thirst/40, sleep +1/6, urge at 40) for
+  a fair rung-2 baseline. That starvation is exactly the question rung 3's `pick` (argmax) answers --
+  A/B it against these rates AND against the first tuning.
+- ⚠ **KIT DEFECT FIXED: two `[[behavior.hud]]` strips overwrite each other.** `ETb.gMesValue` is ONE
+  static `Int32[8]` (EventEngine.Initialize.cs:30) and `values[i]` always feeds slot `i`; the needs strip
+  rendered the clock strip's day/hour/index (`HUN 1 THR 8 NRG 1`). The validator only refused two strips
+  on one WINDOW. Now refused at build (`behaviortoml.validate`, test `test_second_hud_strip_refused_...`);
+  BEHAVIOR.md HUD section says one strip per field.
+- ⚠ **`[TEXT=]` in a HUD strip is FROZEN at window open** (engine: `TextParser.Parse` substitutes constant
+  tags before the `VariableText` snapshot every [NUMB] refresh restores). The "(day)/(night)" word rendered
+  "" all run. The kit lints/clamps it as a live lane -- spun off as a separate task; rung 4's "[TBLE]
+  words" readout is its consumer. Rung 2 reads night off the hour instead.
+- The steward's `walk_to` presses the LARGER axis first: one call from the spawn to the pot cut up past the
+  cask inside its collision ring and never arrived. The scenario walks one-axis legs on probe-clear lanes.
+- **Speed control is NOT built** (a field-level rate switch would need flag-gated duplicates of every drift
+  AND adjust row, and adjust has no flag gate; Memoria's own turbo key speeds the whole game). Owner call:
+  is the engine turbo enough, or does the household want its own 1x/2x/3x?
+- Feel notes for the owner (frames `1-boot`, `3-asleep`): the cask renders huge and the cup/puppet tiny;
+  the back row (tent, puppet) sits at the top edge of the opening view until the steward walks north;
+  "asleep" is the standing pose (the sleep clip is rung 4's emote work); the steward is still Zidane.
+
 ## Bench
 
-**Ids 30430-30435** (30426-30499 is the free band; 30400-30425 is the standing
+**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2) (30426-30499 is the free band; 30400-30425 is the standing
 behavior/minigame family; do NOT take 30600+ — WINSTYLE/lock/multiwindow live
 there even when absent from the live DictionaryPatch). Re-verify the live file
 before minting. Bench generator: `studies/sims/sims_bench.py` (pure product
