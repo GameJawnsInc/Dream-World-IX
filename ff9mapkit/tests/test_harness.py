@@ -19857,6 +19857,52 @@ def test_segment_choose_landed_is_not_fooled_by_the_dialog_catch(game):
     assert len(_s11_confirms(fake, mark)) == 2, fake.executed[mark:]
 
 
+def _s11_opening(g, fake, **beat):
+    """Stage 128's choice with a long OPENING (60 frames, 2 s at the fake's 30 fps: group '', no button, ``selected`` the
+    pooled window's ``stale`` cursor, every press dropped) and return once the choice block is published in it."""
+    stale = beat.pop("stale", 0)
+    fake.scene(dict(_S11_CHOICE, **beat), _S11_AFTER, control=False, stale=stale, opening=60)
+    st = published(g, lambda s: s.choice is not None, timeout=8.0)
+    assert st.menu_group == "" and not g._choice_ready(st), (st.menu_group, st.choice)
+    return len(fake.executed)
+
+
+def test_segment_choose_landed_waits_out_the_opening(game):
+    """sims rung 1 (30430, states-FAILED-1.jsonl): choose_landed called on a window still OPENING -- the choice block
+    published, the group '' -- pressed Confirm there, the window dropped it, and the first read after it (still group
+    '') was not ready, so _choice_left called it "left": ``landed`` True, nothing answered, the same menu up for 10+ s.
+    The opening and the close read alike to _choice_ready; only waiting for the group tells them apart. Now nothing is
+    pressed until the window is ready: the Confirm lands after the fake readied it and option 0 is answered. Break:
+    wait only for ``s.choice is not None`` in select/choose_landed (``landed`` True, ``answered`` [])."""
+    fake = FakeGame(game, fps=30)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        mark = _s11_opening(g, fake)
+        took = g.choose_landed(0)
+        assert fake.answered == [0], (fake.answered, took)
+        confirms = [i for i, s in enumerate(fake.executed) if i >= mark and s[:2] == ["press", "confirm"]]
+        assert confirms and fake.readied and confirms[0] >= fake.readied[-1], (confirms, fake.readied)
+    assert (took["landed"], took["confirms"], took["index"]) == (True, 1, 0), took
+
+
+def test_segment_choose_waits_out_the_opening_on_a_stale_cursor(game):
+    """The same hole in :meth:`Session.select`, so in ``choose``: in the opening ``selected`` publishes the pooled
+    window's STALE cursor (here 1, the pick), so select read "already there" and returned, and choose's Confirm fell in
+    the opening and was dropped -- or, landing after the cursor jumped to the default, answered 0. Now select waits for
+    the ready window, steers from the default (one Down) and the Confirm answers the pick. Break: wait only for
+    ``s.choice is not None`` in select (``answered`` [])."""
+    fake = FakeGame(game, fps=30)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30820)
+        mark = _s11_opening(g, fake, stale=1)
+        g.choose(1)
+        published(g, lambda s: s.choice is None, timeout=8.0)
+        assert fake.answered == [1], fake.answered
+    assert [s[1] for s in fake.executed[mark:] if s[0] == "press"] == ["down", "confirm"], fake.executed[mark:]
+
+
 # ---- S10, THE PRE-CHOICE GUARD (research/o5_design.md 1.2, 2.5, 9 A3), on the fake: O5's 126 -> 127 -> the gap -> 128
 # -> its branch page, staged in 30820 at SC 1000 with control off, at the game's own pace (``fps`` 60). 127 holds the
 # marker "let me pass"; 128 asks "Let her pass" / "Examine her face" (the pick, absolute 1) with its cursor on 0; the

@@ -2,8 +2,8 @@
 
 The terrain-malleability matrix had one row with no operator: **remove land**. This lane measured how the stock game
 does it, which islands the same recipe can take, and built `world-sink` (`ff9mapkit/world/transplant.py`
-`sink_plan` / `sink_footprint_plan` / `sink_cluster_plan` / `sink` / `sink_candidates`). In-game proof:
-`../ingame/RESULTS.md` sections 25 (deep water), 26 (shallow water) and 27 (clusters).
+`sink_plan` / `sink_footprint_plan` / `sink_cluster_plan` / `_sink_building` / `sink` / `sink_candidates`). In-game
+proof: `../ingame/RESULTS.md` sections 25 (deep water), 26 (shallow water), 27 (clusters) and 28 (buildings).
 
 ## 1. How disc 4 removed Shimmering Island (`shim_*.py`)
 
@@ -196,8 +196,68 @@ disc 1 by its footprint, its islets read their stock heights to the last bit, an
 Shimmering; the (8,16) pair sank together with `--cluster` on both discs; the Blue Narciss crossed where each stood;
 round 11's island, re-deployed with the split weld, read as before.
 
-## 7. Not done
+## 7. Islands with buildings (`sh_b*.py`)
 
-- **Islands with a building,** and islands whose beach water another coast shares.
+Section 6's census refused 7 islands because an Object welds to the island's ground. **What stands on them**
+(`sh_b1_buildings.py`):
+
+| island | what it is | its building |
+|---|---|---|
+| Daguerreo, (5,15)-(7,16), 8,301 u2 | a sea island | 75 Object tris (8 carry its entrance bits), a waterfall (20 tris), rivers (19) and river joints (8), in a 164 u2 hole in its ground |
+| the lagoon island, (8,17)-(9,18), 1,717 u2 | a sea island (nearest marker: Chocobo's Lagoon, 41u) | 26 Object tris (3 with entrance bits): an arch in the cliff on the lagoon's north shore, standing across the coast, part over land and part over water |
+| the corner island, (0,0), 1,257 u2 | a sea island | 5 Object tris in a 9.5 u2 hole; 5 entrance tris on its ground (dispatch case 50, no field warp) |
+| two rock tops near Esto Gaza, (4,3)-(5,3), 411 and 71 u2 | not islands: no water meets them | a rock Object (128 tris) rings each and stands on the continent too |
+| a plateau by Alexandria, (19,11), 287 u2 | not an island: no water meets it (falls and a river) | a 14-tri Object in a hole |
+| a 1 u2 sliver at Daguerreo's waterfall | not an island | Daguerreo's building |
+
+So 3 of the 7 are islands. The other 4 are land pieces no water touches; the census (`sink_candidates`) now skips any
+land component no water meets, so disc 1 has 49 islands within 9 blocks, not 53.
+
+**Every building plugs a hole** (`sh_b2_plugs.py`), as `forms/object2_census.py` found for every stock building: in the
+sheet of the island's land and the water round it, the building fills a hole whose every vertex is a building vertex.
+Daguerreo's is a 50-vertex ring inside the island (42 + 10 on disc 4, its own building); the corner island's a 7-vertex
+ring; the lagoon island's a 12-vertex notch across the coast, 8 of its edges on land and 4 on water at the waterline.
+Each ear-clips cleanly. Nothing else welds to any of them.
+
+**The sink takes the building with its island** (`transplant._sink_building`):
+- THE BUILDING is every tri of a part that is neither land nor water (Object, Falls, River, RiverJoint, Stream) joined
+  by shared vertices to the island's land or beach water, with everything joined to it in turn. Land it carries goes
+  too (Daguerreo's waterfall carries 2 terrain tris inside the hole). A building that also stands on other land is
+  refused (`SinkJoined`), as the rock tops are.
+- THE PLUGS: each hole of the sheet whose ring is all building vertices, and which has nothing of the sheet inside it,
+  is filled in plan with flat triangles on the ring's own 3D vertices. The footprint sink counts them as footprint, so
+  the fill covers the island's outer coast (Daguerreo: 8,301.2 u2 of land + 163.67 u2 of plug = 8,464.83 u2, the fill
+  exactly). The whole-tile sink re-tiles the building's tiles too.
+- THE DEPLOY: the in-place morph now loads the building's parts and blanks any it empties (a hidden stub, as for
+  Terrain), each under the engine's own name. Two latent defects, found by this lane and fixed with it: the morph loaded
+  only land and water, so a building's drop would have been silently ignored; and it named parts with
+  `str.capitalize`, which writes `Riverjoint` where the engine registers `RiverJoint`, so that override would never
+  have bound.
+- THE ENTRANCE GUARD now reads every walk part the morph loads, not only Terrain and Beach1: Daguerreo's entrance tiles
+  are its Object's (the Object is the engine's first-scanned walk part). Before, dropping them would have passed the
+  guard.
+
+**Checks** (`sh_b3_check.py`, an independent check of the finished mesh, every part a block carries): all three are
+watertight on both discs (0 open edges, 0 T-junctions; the corner island has 3 near misses, welded short edges as in
+section 6), and nothing that is not water is left standing over the new water. The renders show the water running on
+across where each stood. Every plan the kit made before (94: 40 islands, disc 1 and 4, plain and `--cluster`) is
+byte-identical; only the 6 building plans are new.
+
+**What it takes** (`sh_c5_census.py`, re-run): 43 of disc 1's 49 islands, 26 by the whole-tile sink and 17 by the
+footprint sink; all but Shimmering replay on disc 4. `--cluster` sinks 5 clusters (Daguerreo with its neighbour is the
+new one). The 6 refused: 5 share their beach water with another coast, 1 needs a band its block's prefab has no part
+for.
+
+**In game** (`../ingame/RESULTS.md` section 28, 72/72 on the first launch): Daguerreo, the lagoon island and the
+corner island sank with their buildings on both discs. A party where each roof stood reads mid water or open sea to the
+last bit; Daguerreo's neighbours read their stock heights; the Blue Narciss, stopped at each coast on stock, crossed;
+and the frames show no roof, waterfall or river left over the sea.
+
+## 8. Not done
+
+- **Islands whose beach water another coast shares** (5), and the island whose block has no sea5 part (1).
 - **The big map** still draws a sunk island: `world-minimap` paints deployed land, it cannot erase stock land.
-- **Moving an entrance onto the new sea,** as disc 4 did for Shimmering (`--allow-entrances` drops it).
+- **Moving an entrance onto the new sea,** as disc 4 did for Shimmering (`--allow-entrances` drops it). Sinking
+  Daguerreo drops a story location's entrance.
+- **A wall round a whole island** (a building ringing its coast) is refused: its hole is a ring round the island, which
+  the plug fill does not take. No stock island has one.

@@ -27,18 +27,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   water joins instead.
 - The whole-tile sink now splits a kept coastal tri that runs past a re-tiled tile's corner (it left a T-junction
   there on 20 of 25 islands); its fills are otherwise byte-identical.
-- `world-sink --list` scans the map: 40 of disc 1's 53 islands sink (25 re-tiled, 15 by their footprint; 45 to
-  4,813 u²), all but Shimmering replayed on disc 4 (disc 4 removed that one itself), each with its ready-to-run
-  line; with `--cluster`, 4 clusters sink together. The rest are named with the reason (a building on the island,
-  beach water shared with another coast).
+- Islands with a building: the building (its Object, a waterfall, rivers and their joints, joined to the island by
+  shared vertices, with any land it carries) goes with the island, and the hole it plugged in the island's ground --
+  or, for a building across the coast, in the land and the water -- becomes water too. A building that also stands
+  on other land is refused. Daguerreo, a lagoon island with a cliff arch across its coast, and the corner island at
+  (0, 0) sink; an entrance on the building (Daguerreo's is its Object's) needs `--allow-entrances` like one on the
+  ground.
+- `world-sink --list` scans the map: 43 of disc 1's 49 islands sink (26 re-tiled, 17 by their footprint; 38 to
+  8,301 u²), all but Shimmering replayed on disc 4 (disc 4 removed that one itself), each with its ready-to-run
+  line; with `--cluster`, 5 clusters sink together. The rest are named with the reason (beach water shared with
+  another coast, a band the block's prefab has no part for). Land no water meets (a rock top an Object rings, a
+  plateau between falls) is no longer listed as an island.
 - Proven in game: terrain study round 10 (28/28), a 4,813 u² island over five blocks became open sea on both discs
   and the Blue Narciss sailed across where it stood (on stock it stops at the island's coast); round 11 (48/48), a
   lagoon island with a beach and a shelf-edge island sank on both discs, the water re-banded round them, and the
   boat crossed where each stood; round 12 (60/60), Shimmering's main island sank alone on disc 1 with its islets
-  kept, as disc 4 has it, a pair sank together with `--cluster`, and the boat crossed both.
+  kept, as disc 4 has it, a pair sank together with `--cluster`, and the boat crossed both; round 13 (72/72),
+  Daguerreo, the lagoon island and the corner island sank with their buildings on both discs, nothing left over the
+  sea, Daguerreo's neighbours kept, and the boat crossed.
 - `world-transplant --in-place` writes the hidden blanking stub for a part an edit empties (a 0-vert mesh was refused
   mid-deploy), and its frame gate can compare positions across parts and exempt a border shared with another block of
   the same edit (`morph_in_place(frame_shared=..., frame_across_parts=True)`).
+- The in-place morph writes each part under the engine's own name (`RiverJoint`; `str.capitalize` gave `Riverjoint`,
+  which no block registers), and its entrance guard reads every walk part it loads (an Object's entrance tiles too),
+  not only Terrain and Beach1.
 
 ### Fixed — coast morphs on the real map now reach disc 4 (`world-transplant --in-place`)
 - An in-place cliff or beach morph (`--cliff-bump`, `--cliff-bay`, `--beach-reshape`, ...) builds its edit from one

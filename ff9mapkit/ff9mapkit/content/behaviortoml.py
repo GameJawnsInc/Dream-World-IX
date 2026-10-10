@@ -2029,6 +2029,13 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
             problems.append(f"{ctx}: window must be an int 0..7 (Dialog.WindowID)")
         elif w in hud_windows:
             problems.append(f"{ctx}: window {w} already carries a strip")
+        if hi == 1:
+            # THE SHARED-SLOT LAW (studies/sims rung 2, in-game): ETb.gMesValue is ONE static Int32[8] for the
+            # whole engine and values[i] always feeds slot i, so every strip writes slot 0.. and each renders the
+            # other's numbers. A second strip can never be right -- refused, not warned.
+            problems.append(f"{ctx}: a field gets one strip -- the engine has ONE gMesValue[8] shared by every "
+                            f"window, and every strip's values[i] writes slot i, so two strips overwrite each "
+                            f"other's numbers. Merge them into one strip (its text may span lines; up to 8 values)")
         hud_windows.add(w if isinstance(w, int) else -1)
         txt = str(row.get("text", ""))
         if not txt.strip():

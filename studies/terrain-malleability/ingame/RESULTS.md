@@ -880,6 +880,60 @@ with no seam; W looks as it did in round 11.
 3. **A boat sails where they stood.**
 4. **The split weld changes nothing a party or a boat can see:** round 11's island reads as it did.
 
+## Round 13 (2026-10-09, owner's go: "do the islands with buildings next"): islands with a building on them, 72/72 on the first launch
+
+Run `.harness-runs/20261009-184925-r13-buildings`: one launch, 8 world loads, 158 s, 0 exceptions. One scratch folder,
+first in FolderNames; ini backed up (`backups/Memoria.ini.pre-r13-lab.20261009-184920`) and restored byte-exact
+(`0b5a4985…`), the lab removed. Build and predictions: `r13_build.py`; scenario: `r13_session.py`; the lane:
+`../land2sea/NOTES.md` section 7.
+
+### 28. `world-sink` on islands with a building: the building goes with the island
+
+Three sites, one folder, each with `--allow-entrances` (lab only):
+- **D**, Daguerreo, (5,15)-(7,16), `--at 425.098 -1020.0`. Its water joins its neighbours', so it sinks alone by its
+  footprint (469 whole cells, 149 part-cells). Its building goes with it: 75 Object tris, 20 waterfall, 19 river and 8
+  river-joint tris, and the 2 terrain tris the waterfall carries. The 163.67 u2 hole they plugged becomes water too.
+  Its 8 entrance tris are its Object's. Disc 4 has its own Daguerreo (74 Object tris, a different waterfall): replayed.
+- **L**, the lagoon island at (553, -1127), (8,17)-(10,17): the whole-tile sink (224 tiles, mostly mid water), its
+  beach water and its hut with it. The hut stands across the coast in a notch of land and water (26 Object tris,
+  3 entrance tris). Replayed on disc 4.
+- **O**, the corner island at (0, 0): by its footprint (58 whole cells, 60 part-cells), its 5-tri building with it.
+  Disc 4's block is identical: copied.
+
+FULL = all three (54 Disc1 files, 54 Disc4), among them the blanking stubs for every part the buildings emptied:
+Object, Falls, River and RiverJoint. OLD = the same with `--skip-mirror`. Read points: D1-D3 on Daguerreo, DB on its
+building's roof (Object topograph 59, where a party can stand), LB and OB on the other two roofs, L1 L2 and O1 O2 on
+their land, K1 K2 on two of Daguerreo's neighbours (they must not move).
+
+| stage | lab | world | D1 / D2 / D3 / DB | L1 / L2 / LB | O1 / O2 / OB | K1 / K2 | boat | lab files bound |
+|---|---|---|---|---|---|---|---|---|
+| d1_stock | - | 9011 | 31.090 / 30.676 / 29.879 / 28.871 | 6.527 / 2.996 / 4.773 | 12.965 / 1.781 / 7.668 | 6.547 / 3.648 | | 0 |
+| d1_sink | FULL | 9011 | **−0.586 / −1.367 / −0.586 / −0.586** | **−0.586 / −0.586 / −0.586** | **−1.367 / −1.367 / −1.367** | 6.547 / 3.648 | | 54 (Disc1) |
+| boatD_stock | - | 9003 | | | | | stalls at x 346.9 at Daguerreo (sim 346.86) | 0 |
+| boatD_sink | FULL | 9003 | | | | | **sails to x 480.1**, past where it stood (459.5) | 54 |
+| boatL_stock | - | 9003 | | | | | stalls at x 540.0 at the island (sim 539.94) | 0 |
+| boatL_sink | FULL | 9003 | | | | | **sails to x 643.3**, past it (623.5) | 54 |
+| d4_old | OLD | 9008 | as d1_stock | as d1_stock | as d1_stock | 6.547 / 3.648 | | 0 |
+| d4_sink | FULL | 9008 | **as d1_sink** | **as d1_sink** | **as d1_sink** | 6.547 / 3.648 | | 54 (Disc4) |
+
+Every sunk reading is the registered one to the last bit, on both discs: where each building stood, a party stands in
+mid water (−0.586, DB on Daguerreo's old roof at 28.87) or open sea (−1.367, OB). The stock readings on slopes are
+within 0.015 of the registered heights (the teleport lands a few thousandths off the point), inside the ±0.15
+tolerance. Memoria.log binds every one of the lab's 54 files per disc, `RiverJoint` among them: the kit now writes the
+engine's own part name (before this round it would have written `Riverjoint`, a name no block registers).
+
+The frames: `shots/r13-sheet.png` (DB, LB, OB, D1, K1 on both discs, stock and sunk) and `shots/r13-boats.png`. Where
+each island and its building stood the water is continuous: no roof, waterfall or river left over the sea, no hole
+where a building plugged its ground, no seam. LB's stock frame shows what the lagoon island's hut is: an arch in the
+cliff on the lagoon's north shore. On disc 4 the islands carry brown rock slabs disc 1 does not have (disc 4's own
+ground, as in round 11); the replay sinks them with the island, and the neighbours' slabs stay with the neighbours.
+
+**Verdict.**
+1. **An island's building goes with it.** Daguerreo's Object, waterfall and rivers, the lagoon island's arch and the
+   corner island's building are gone on both discs, and the ground under each became water.
+2. **A boat sails where they stood.** On stock both lanes stop at the island; sunk, both cross.
+3. **The neighbours stay**, to the last bit.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
