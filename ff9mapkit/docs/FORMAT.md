@@ -3170,6 +3170,13 @@ fires ONE branch per unit per tick, so decay as branches would compete; as drift
 just ticks. All operands (and every seed of an adjusted table) are fenced to ±10^6: the
 26-bit CalcStack wraps an overflow silently mod 2^26 (a wrong value, never an error), so the fence is hard.
 
+**Pick (`[[behavior.pick]]`):** every ticker pass, write into counter `into =` the INDEX of table
+`table =`'s lowest cell (`mode = "min"`, the default) or highest (`"max"`) — ties keep the lower
+index, so table order breaks them. Runs after drifts and scans, before the trees. Gate branches on
+`counter_eq = [into, i]` ("serve the most urgent need"). `into` is overwritten every pass, so it must
+be a declared counter nothing else writes (no scan, schedule, drift, `adjust` or `roll`). See
+[BEHAVIOR.md § Picks](BEHAVIOR.md#picks--argmin--argmax-over-a-table).
+
 ## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
 
 Re-author the **Chocobo Hot & Cold** minigame's dig **prize pool** and **timer** on a **verbatim fork

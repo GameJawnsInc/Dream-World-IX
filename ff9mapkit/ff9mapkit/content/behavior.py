@@ -1129,6 +1129,23 @@ class ScanSpec:
 
 
 @dataclass
+class PickSpec:
+    """THE PICK LANE (studies/sims rung 3): each ticker pass, a bounded loop over table ``table`` publishes the
+    INDEX of its lowest (``mode="min"``) or highest (``"max"``) cell into counter ``into`` -- argmin/argmax,
+    the comparison of one cell against another that no branch condition can make (conditions compare a cell
+    with a CONSTANT). Ties keep the LOWER index (a strict compare), so table order is the tie-break. Runs
+    after the drifts and scans, before the trees, so a branch reads this pass's pick of this pass's values."""
+    name: str
+    table: str
+    into: str
+    mode: str
+    tid: int = 0
+    n: int = 0
+    li: int = 0
+    best_tid: int = 0
+
+
+@dataclass
 class TableSpec:
     """A named per-field DATA TABLE backed by Memoria's ``gScriptVector`` (the 0xD3
     VECTOR lane — real computed array indexing in ``.eb``, on the protected stock
@@ -1867,6 +1884,7 @@ class FieldBehavior:
         self._counters: dict[str, int] = {}              # name -> cell index
         self._schedules: list[tuple[str, str]] = []      # (counter, table)
         self._scans: list[ScanSpec] = []                 # the vector-loop probes
+        self._picks: list[PickSpec] = []                 # argmin/argmax over a table
         self._groups: dict[str, GroupSpec] = {}          # the engage rosters
         self._member: dict[str, tuple[str, int]] = {}    # unit -> (group, index)
         self._engages: dict[str, Engage] = {}            # unit -> its one Engage
@@ -2547,6 +2565,41 @@ class FieldBehavior:
         self._scans.append(sc)
         return sc
 
+    def pick(self, name: str, table: str, into: str, mode: str = "min"):
+        """THE PICK LANE (sims rung 3): every ticker pass, write into counter ``into`` the index of table
+        ``table``'s lowest (``mode="min"``) or highest (``"max"``) cell -- ties keep the lower index. A tree
+        then gates on ``counter_eq = [into, i]``: "serve whichever need is most urgent" instead of a fixed
+        priority order. The loop seeds its best from cell 0 and walks cells 1..n-1 by a live index byte (the
+        scan's proven computed-index READ), keeping the best value in a private one-cell table so a cell's
+        full +-10^6 range compares exactly. ``into`` is overwritten every pass: nothing else may write it."""
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name or ""):
+            raise BehaviorError(f"pick name {name!r} must be [a-z][a-z0-9_]*")
+        if any(pk.name == name for pk in self._picks):
+            raise BehaviorError(f"pick {name!r} already registered")
+        if mode not in ("min", "max"):
+            raise BehaviorError(f"pick {name!r}: mode must be \"min\" or \"max\", not {mode!r}")
+        if table not in self.tables:
+            raise BehaviorError(f"pick {name!r}: unknown table {table!r}")
+        self._counter_ref(into)                           # existence check
+        fed = {sc.count: f"scan {sc.name!r}" for sc in self._scans}
+        fed.update({pk.into: f"pick {pk.name!r}" for pk in self._picks})
+        fed.update({c: "the wave schedule" for c, _t in self._schedules})
+        if into in fed:
+            raise BehaviorError(f"pick {name!r}: counter {into!r} is already written by {fed[into]} -- a pick "
+                                f"overwrites its counter every pass, so it needs one of its own")
+        tid, values = self.tables[table]
+        n = len(values)
+        if not 1 <= n <= TABLE_MAX_LEN:
+            raise BehaviorError(f"pick {name!r}: table {table!r} has {n} cells (1..{TABLE_MAX_LEN})")
+        bname = f"pick.{name}.best"
+        if bname in self.tables:
+            raise BehaviorError(f"pick {name!r}: table name {bname!r} is taken")
+        pk = PickSpec(name, table, into, mode, tid=tid, n=n, li=self.bb.byte(f"pick.{name}.i"),
+                      best_tid=self._alloc_tid())
+        self.tables[bname] = (pk.best_tid, (0,))          # seeded at Main_Init like every table
+        self._picks.append(pk)
+        return pk
+
     def _hud_ref(self, src: str, *, label: str = HUD_VALUE_LABEL) -> str:
         """Resolve a hud VALUE SOURCE to an RPN fragment: a counter name, the
         live ``gil`` / ``timer`` sysvars, ``hp:<unit>`` (a unit's hit points —
@@ -2828,7 +2881,7 @@ class FieldBehavior:
             for f in do.clear_flags:
                 clearers[f] = clearers.get(f, 0) + 1
         alternators = {n for n, *_ in self._alternators}
-        scan_counts = {sc.count for sc in self._scans}
+        scan_counts = {sc.count for sc in self._scans} | {pk.into for pk in self._picks}
         sched = {c for c, _t in self._schedules}
         drawn: set = set()
         self.stream_sites = {}
@@ -3761,6 +3814,28 @@ class FieldBehavior:
                              (JMP_IF, f"scn_{sc.name}_top"),
                              _stmt(f"{self._counter_ref(sc.count)} "
                                    f"Global.Byte[{sc.acc}] B_LET")])
+        # THE PICK LOOPS (sims rung 3): argmin/argmax by a live index byte. Seed best = cell 0, index 0;
+        # walk cells 1..n-1; a STRICT compare keeps the lower index on a tie. The jump stays inside the
+        # bounded loop (n is a compile-time constant), so it always terminates.
+        for pk in self._picks:
+            cd_blocks.append(label(f"__seg pick {pk.name}"))
+            cell = f"{_cnum(pk.tid)} Global.Byte[{pk.li}] B_VECTOR"
+            best = f"{_cnum(pk.best_tid)} {_cnum(0)} B_VECTOR"
+            into = self._counter_ref(pk.into)
+            cd_blocks += [_stmt(f"{best} {_cnum(pk.tid)} {_cnum(0)} B_VECTOR B_LET"),
+                          _stmt(f"{into} const(0) B_LET")]
+            if pk.n > 1:
+                op = "B_LT" if pk.mode == "min" else "B_GT"
+                cd_blocks += [_set_byte(pk.li, 1),
+                              label(f"pk_{pk.name}_top"),
+                              _stmt(f"{cell} {best} {op}"),
+                              (JMP_IFNOT, f"pk_{pk.name}_next"),
+                              _stmt(f"{best} {cell} B_LET"),
+                              _stmt(f"{into} Global.Byte[{pk.li}] B_LET"),
+                              label(f"pk_{pk.name}_next"),
+                              _stmt(f"Global.Byte[{pk.li}] Global.Byte[{pk.li}] const(1) B_PLUS B_LET"),
+                              _stmt(f"Global.Byte[{pk.li}] const({pk.n}) B_LT"),
+                              (JMP_IF, f"pk_{pk.name}_top")]
         # ITEM SNAPSHOTS first — every have_item cond reads its item's count as it
         # stood BEFORE any pool consumed this pass (the perception law for
         # inventory; the ARMOURY round-2 skew: activation ran first and ate one
@@ -4018,6 +4093,9 @@ class FieldBehavior:
                 tl.append(f"  scan {sc.name}: {len(sc.units)} unit(s) -> counter "
                           f"'{sc.count}' (acc byte {sc.acc}, loop byte {sc.li}); "
                           f"{box}; {src}{extra}")
+            for pk in self._picks:
+                tl.append(f"  pick {pk.name}: arg{pk.mode} of '{pk.table}' ({pk.n} cell(s), id {pk.tid}) -> "
+                          f"counter '{pk.into}' (loop byte {pk.li}, best cell id {pk.best_tid}); ties -> lower index")
             for g in self._groups.values():
                 tl.append(f"  group {g.name}: [{', '.join(g.units)}] — tables "
                           f"px={g.px_tid} pz={g.pz_tid} act={g.act_tid} "

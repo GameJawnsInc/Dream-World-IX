@@ -144,11 +144,12 @@ CLASS_FORBIDDEN_VERBS = {"award", "add_shop_item", "remove_shop_item",
                          "add_shop_synth", "remove_shop_synth"}
 FIELD_KEYS = {"warmup", "tick", "alternators", "public_flags", "unit", "pool", "timer",
               "counters", "table", "schedule", "scan", "group", "hud", "byte_band",
-              "brains", "drift", "stream"}
+              "brains", "drift", "stream", "pick"}
 POOL_KEYS = {"name", "price", "button", "request_flag", "item"}
 TABLE_KEYS = {"name", "values", "id", "persist"}
 STREAM_KEYS = {"name", "seed", "persist", "id"}
 SCHEDULE_KEYS = {"counter", "table"}
+PICK_KEYS = {"name", "table", "into", "mode"}
 SCAN_KEYS = {"name", "units", "point", "radius", "count", "flags", "group",
              "alive_only"}
 GROUP_KEYS = {"name", "units"}
@@ -336,6 +337,7 @@ def draining_once_warnings(raw: dict) -> list:
     if not b:
         return []
     scan_fed = {str(s.get("count")) for s in (b.get("scan") or []) if s.get("count")}
+    scan_fed |= {str(p.get("into")) for p in (b.get("pick") or []) if p.get("into")}
     cleared = {str(n) for u in (b.get("unit") or [])
                for br in (u.get("branch") or [])
                for n in (br.get("clear_flags") or [])}
@@ -1494,6 +1496,12 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                 flags=(str(s["flags"]) if s.get("flags") else None),
                 group=(str(s["group"]) if s.get("group") else None),
                 alive_only=bool(s.get("alive_only", False)))
+    for pi, pk in enumerate(b.get("pick", []) or []):
+        try:
+            fb.pick(str(pk.get("name", "")), str(pk.get("table", "")), str(pk.get("into", "")),
+                    mode=str(pk.get("mode", "min")))
+        except B.BehaviorError as e:
+            raise BehaviorTomlError(f"[[behavior.pick]] #{pi}: {e}")
     for hi, h in hud_lines(raw):
         fb.hud(str(h.get("text", "")),
                [hud_value(v) for v in h.get("values", []) or []],
@@ -2017,6 +2025,59 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                 tn_new += [f"scan.{nm}.px", f"scan.{nm}.pz"]
             for tn2 in tn_new:
                 declared_tables.setdefault(tn2, roster_len)
+    # picks (sims rung 3): argmin/argmax of a table into a counter, every pass
+    pick_names = set()
+    # every other writer of a counter: a pick overwrites its counter each pass, so it must own it
+    other_writers: dict = {}
+    for row in b.get("scan", []) or []:
+        if row.get("count"):
+            other_writers.setdefault(str(row["count"]), "a [[behavior.scan]] count")
+    for c in (r.get("counter") for r in schedule_rows(raw)):
+        if c:
+            other_writers.setdefault(str(c), "the [[behavior.schedule]] clock")
+    for row in b.get("drift", []) or []:
+        if isinstance(row, dict) and row.get("counter"):
+            other_writers.setdefault(str(row["counter"]), "a [[behavior.drift]] row")
+    for u in b.get("unit", []) or []:
+        for br in u.get("branch", []) or []:
+            adj = br.get("adjust")
+            for a_row in (adj if isinstance(adj, list) else [adj] if isinstance(adj, dict) else []):
+                if isinstance(a_row, dict) and a_row.get("counter"):
+                    other_writers.setdefault(str(a_row["counter"]), "a branch `adjust`")
+            rl = br.get("roll")
+            if isinstance(rl, dict) and rl.get("counter"):
+                other_writers.setdefault(str(rl["counter"]), "a `roll`")
+    pick_into: set = set()
+    for pi, row in enumerate(b.get("pick", []) or []):
+        ctx = f"[[behavior.pick]] #{pi}"
+        if not isinstance(row, dict):
+            problems.append(f"{ctx}: must be a table")
+            continue
+        extra = set(row) - PICK_KEYS
+        if extra:
+            problems.append(f"{ctx}: unknown key(s) {sorted(extra)}")
+        nm = str(row.get("name", ""))
+        if not _re2.fullmatch(r"[a-z][a-z0-9_]*", nm):
+            problems.append(f"{ctx}: needs `name = ` ([a-z][a-z0-9_]*)")
+        elif nm in pick_names:
+            problems.append(f"{ctx}: duplicate pick {nm!r}")
+        pick_names.add(nm)
+        tn = row.get("table")
+        if str(tn) not in declared_tables:
+            problems.append(f"{ctx}: table {tn!r} is not a declared table")
+        elif not 1 <= int(declared_tables[str(tn)] or 0) <= B.TABLE_MAX_LEN:
+            problems.append(f"{ctx}: table {tn!r} needs 1..{B.TABLE_MAX_LEN} cells")
+        into = row.get("into")
+        if str(into) not in declared_counters:
+            problems.append(f"{ctx}: into {into!r} is not a declared counter (counters = [...])")
+        elif str(into) in other_writers:
+            problems.append(f"{ctx}: counter {into!r} is also written by {other_writers[str(into)]} -- a pick "
+                            f"overwrites its counter every pass, so give it a counter of its own")
+        elif str(into) in pick_into:
+            problems.append(f"{ctx}: counter {into!r} is already another pick's `into`")
+        pick_into.add(str(into))
+        if row.get("mode", "min") not in ("min", "max"):
+            problems.append(f"{ctx}: mode must be \"min\" (the lowest cell's index) or \"max\"")
     # hud strips (the live-counter substrate)
     hud_windows = set()
     for hi, row in enumerate(b.get("hud", []) or []):

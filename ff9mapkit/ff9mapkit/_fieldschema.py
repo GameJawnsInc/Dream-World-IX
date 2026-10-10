@@ -12,7 +12,7 @@ pipeline completed). See ff9mapkit/fieldschema.py; regenerate with
 VOCAB = {
     '': ('_siege_conflict', '_siege_error', 'ability_feature', 'ability_gem', 'armor', 'ate', 'battle_action', 'battle_attack', 'battle_bgm', 'battle_enemy', 'battle_patch', 'behavior', 'camera', 'camera_zone', 'carry_text', 'character', 'character_param', 'chest', 'chocobo', 'choice', 'command_set', 'coop', 'cutscene', 'deathrules', 'dialogue', 'difficulty', 'encounter', 'equip_bonus', 'equipment', 'event', 'ferry', 'field', 'flag', 'folklore', 'gateway', 'gateway_carry', 'gauge', 'item', 'item_effect', 'item_text', 'jump', 'ladder', 'layers', 'learn', 'leveling', 'logic_add', 'logic_edit', 'lowhp', 'magic_sword_set', 'marker', 'mint', 'music', 'npc', 'numeric_input', 'object', 'on_entry', 'party', 'photo', 'platform', 'playable', 'player', 'player_func', 'prop', 'qte', 'rebalance', 'save_moogle', 'savepoint', 'scene', 'shop', 'siege', 'sps', 'sps_edit', 'start_inventory', 'startup', 'status', 'status_set', 'summon', 'synthesis', 'synthesis_edit', 'text_table', 'verbatim_eb', 'walkmesh', 'weapon'),
     'armor': ('m_def', 'm_eva', 'name', 'p_def', 'p_eva'),
-    'behavior': ('alternators', 'brains', 'byte_band', 'counters', 'drift', 'group', 'hud', 'pool', 'public_flags', 'scan', 'schedule', 'stream', 'table', 'tick', 'timer', 'unit', 'warmup'),
+    'behavior': ('alternators', 'brains', 'byte_band', 'counters', 'drift', 'group', 'hud', 'pick', 'pool', 'public_flags', 'scan', 'schedule', 'stream', 'table', 'tick', 'timer', 'unit', 'warmup'),
     'behavior.alternators': ('frames', 'name'),
     'behavior.drift': ('by', 'clamp', 'counter', 'every', 'flag', 'index', 'table'),
     'behavior.group': ('name', 'units'),

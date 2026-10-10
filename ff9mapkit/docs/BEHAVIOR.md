@@ -950,6 +950,45 @@ use the group form with `alive_only`). This is the first stone of the v2 vector 
 (`studies/behavior-trees/PLAN.md`, THE THREE WALLS); the group loop below
 builds on it.
 
+## Picks — argmin / argmax over a table
+
+Branch conditions compare a cell with a CONSTANT (`table_le = ["need", 2, 40]`); none compares one
+cell against another, so "go and do whatever is most urgent" could only be written as a fixed
+priority list. A pick computes it:
+
+```toml
+[behavior]
+counters = ["urgent"]
+
+[[behavior.table]]
+name = "need"
+values = [80, 70, 75, 85, 60]        # hunger, thirst, energy, hygiene, fun
+
+[[behavior.pick]]
+name = "most_urgent"
+table = "need"
+into = "urgent"                      # = the index of the LOWEST need, every pass
+mode = "min"                         # or "max"
+
+  [[behavior.unit.branch]]           # one urge row per need, gated on the pick
+  when = [{ counter_eq = ["urgent", 4] }, { table_le = ["need", 4, 40] }]
+  do = { walk_to = "toybox" }
+```
+
+- **Every pass**, after the drifts and scans and before any tree, a bounded loop seeds its best from
+  cell 0 and walks cells 1..n-1 by a live index byte (the scan's computed-index read), keeping the
+  best value in a private one-cell table so the full ±10^6 cell range compares exactly.
+- **Ties keep the lower index** (a strict compare) — table order is the tie-break.
+- **`into` belongs to the pick.** It is overwritten every pass, so a counter a scan, the schedule, a
+  drift, an `adjust` or a `roll` also writes is refused. A pick-fed counter rises and falls, so a
+  `counter_ge` on it is a draining condition (the sticky analysis knows).
+- The offline stepper (`behaviorsim`) models the same order and tie-break.
+- Cost (measured): **138 bytes of ticker per pick whatever the table's length** (the loop is a loop,
+  not unrolled) + 26 bytes of Main_Init for the best cell; a 1-cell table compiles no loop (39 bytes).
+
+The A/B that motivated it: `studies/sims/` rung 3 (a household Sim's urges as a priority list vs as
+argmin).
+
 ## Groups and `engage` — the group loop
 
 ```toml

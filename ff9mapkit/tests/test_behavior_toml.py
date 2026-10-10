@@ -865,6 +865,102 @@ def test_scan_toml_negatives():
                                                        "values": [1]}]))))
 
 
+
+PICK_RAW = {
+    "npc": [{"name": "sim", "pos": [0, 0], "dialogue": "..."}],
+    "behavior": {
+        "counters": ["urgent"],
+        "table": [{"name": "need", "values": [50, 20, 70, 20]}],
+        "pick": [{"name": "most", "table": "need", "into": "urgent"}],
+        "unit": [{"npc": "sim", "branch": [
+            {"when": [{"counter_eq": ["urgent", 1]}], "do": {"hold": [300, 0]}},
+            {"do": {"hold": [0, 0]}}]}],
+    },
+}
+
+
+def _pick_build(raw):
+    return BT.build(raw, npc_slots={"sim": 2})
+
+
+def test_pick_toml_surface():
+    """THE PICK LANE (sims rung 3): argmin of a table into a counter every pass."""
+    assert BT.validate(PICK_RAW) == []
+    fb = _pick_build(PICK_RAW)
+    cb = fb.compile()
+    _verify_all(cb)                                   # the backward loop's jumps land on instructions
+    (pk,) = fb._picks
+    assert (pk.name, pk.table, pk.into, pk.mode, pk.n) == ("most", "need", "urgent", "min", 4)
+    assert pk.best_tid not in (pk.tid, fb._ctr_tid)   # the best cell is its own table
+    assert "pick.most.best" in fb.tables              # ...seeded at Main_Init like every table
+    assert "pick most: argmin of 'need' (4 cell(s)" in cb.report
+    assert _pick_build(PICK_RAW).compile().stable_hash() == cb.stable_hash()
+
+
+def test_pick_mode_flips_only_the_compare():
+    """min and max compile to the same loop but for the compare opcode -- and a pick changes the ticker
+    (a lane that compiled to nothing would pass the surface test)."""
+    import copy
+    from ff9mapkit.eb import exprasm
+    rmax = copy.deepcopy(PICK_RAW)
+    rmax["behavior"]["pick"][0]["mode"] = "max"
+    rnone = copy.deepcopy(PICK_RAW)
+    del rnone["behavior"]["pick"]
+    lo, hi = _pick_build(PICK_RAW).compile(), _pick_build(rmax).compile()
+    none = _pick_build(rnone).compile()
+    assert len(lo.ticker_body) == len(hi.ticker_body) > len(none.ticker_body)
+    diff = [i for i, (a, b) in enumerate(zip(lo.ticker_body, hi.ticker_body)) if a != b]
+    lt, gt = exprasm.assemble("B_LT B_EXPR_END")[0], exprasm.assemble("B_GT B_EXPR_END")[0]
+    assert len(diff) == 1 and (lo.ticker_body[diff[0]], hi.ticker_body[diff[0]]) == (lt, gt)
+
+
+def test_pick_one_cell_table_has_no_loop():
+    import copy
+    r1 = copy.deepcopy(PICK_RAW)
+    r1["behavior"]["table"][0]["values"] = [9]
+    r1["behavior"]["unit"][0]["branch"][0]["when"] = [{"counter_eq": ["urgent", 0]}]
+    rnone = copy.deepcopy(r1)
+    del rnone["behavior"]["pick"]
+    one, none = _pick_build(r1).compile(), _pick_build(rnone).compile()
+    _verify_all(one)
+    jumps = lambda body: sum(1 for ins in D.iter_code(body, 0, len(body)) if ins.op in (0x01, 0x02, 0x03))
+    assert jumps(one.ticker_body) == jumps(none.ticker_body)
+
+
+def test_pick_stepper_ties_keep_the_lower_index():
+    """The offline stepper models the compiled strict compare: cells 1 and 3 tie at 20 -> index 1."""
+    import copy
+    from ff9mapkit.workspace import behaviorsim as SIM
+    assert SIM.Sim(copy.deepcopy(PICK_RAW)).at(2)["counters"]["urgent"] == 1
+    rmax = copy.deepcopy(PICK_RAW)
+    rmax["behavior"]["pick"][0]["mode"] = "max"
+    assert SIM.Sim(rmax).at(2)["counters"]["urgent"] == 2
+
+
+def test_pick_toml_negatives():
+    import copy
+
+    def mut(fn):
+        r = copy.deepcopy(PICK_RAW)
+        fn(r["behavior"])
+        return BT.validate(r)
+
+    assert any("is not a declared table" in p for p in mut(lambda b: b["pick"][0].update(table="nope")))
+    assert any("is not a declared counter" in p for p in mut(lambda b: b["pick"][0].update(into="nope")))
+    assert any("mode must be" in p for p in mut(lambda b: b["pick"][0].update(mode="argmin")))
+    assert any("needs `name" in p for p in mut(lambda b: b["pick"][0].update(name="Bad")))
+    assert any("unknown key" in p for p in mut(lambda b: b["pick"][0].update(weights=[1])))
+    assert any("duplicate pick" in p for p in mut(lambda b: b["pick"].append(dict(b["pick"][0]))))
+    assert any("already another pick's" in p for p in
+               mut(lambda b: b["pick"].append(dict(b["pick"][0], name="other"))))
+    assert any("also written by a [[behavior.drift]]" in p for p in
+               mut(lambda b: b.__setitem__("drift", [{"counter": "urgent", "by": 1, "clamp": [0, 3],
+                                                     "every": 30}])))
+    assert any("also written by a branch `adjust`" in p for p in
+               mut(lambda b: b["unit"][0]["branch"][0].__setitem__(
+                   "adjust", {"counter": "urgent", "by": 1, "clamp": [0, 3]})))
+
+
 GROUP_RAW = {
     "npc": [
         {"name": "a0", "pos": [0, 0], "dialogue": "..."},
