@@ -1108,6 +1108,12 @@ slot 0.. and each render the other's numbers (in-game, `studies/sims/` rung 2). 
 second `[[behavior.hud]]`; put everything in one strip — its text may span lines, up to 8 values.
 (A `[[choice]]` with `values` writes the same slots while its menu is open.)
 
+**The strip comes back on its own.** The window opens once, and three things close it without the
+script noticing: a battle, the main menu, and any script `Menu()` (a save point). The menu and `Menu()`
+close it while the field is paused. The build seats a small watcher entry that waits on the strip's
+window and re-arms it the moment it closes, so the strip re-opens on the next tick after any of the
+three (in-game, `studies/sims/` rung 5 and feel test 1).
+
 Authoring notes: place with `[MPOS=x,y]` — the PSX-ish 320×224 UI grid (stock
 pins its save menu at `20,16`), and **the countdown timer owns the top-left
 corner**, so a strip belongs below it (`10,48` clears it) or elsewhere on

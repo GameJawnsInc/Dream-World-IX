@@ -319,7 +319,7 @@ compiler surface -- every piece is an existing lane:
   `requires_flag` its payday flag, `gil = +N` (REAL gil) and `set_flag = [flag, 0]`. Uncashed wages do not stack.
 - **Skill** -- a PERSISTENT table (`persist = true`, id 6430001): studying at the desk (ordered at the ledger)
   raises it +1 / 16 ticks for a 40-unit session (~+27), at a cost in fun. It survives the field, the day, the save.
-- **Buy mode** -- a priced `[[behavior.pool]]` with the SELECT-anywhere button (the war-council lane): the parked
+- **Buy mode** -- a priced `[[behavior.pool]]` with the SELECT-anywhere button (the war-council lane): the (then parked)
   "moogle catalogue" row `requires_flag` the pool's live `hireable` flag (gil >= 50 and not sold out), and the
   toy airship (`GEO_ACC_F0_TSM`, a pooled `[[npc]]` posed on its own clip) materialises where the steward stands
   -- placement by standing. Sent to play, she goes to the toy (+3 fun / 7 ticks) instead of the puppet (+2 / 11).
@@ -339,8 +339,37 @@ Findings and open questions for the owner:
 - **A bought toy lives for the visit.** Pools re-fill on entry, so the toy is gone tomorrow while the gil is spent.
   Making furniture persist (an owned flag + a placed-position record re-spawned on entry) is the next step if the
   economy is to carry across days the way skill now does.
-- The desk is a tiny letter prop -- work reads weakly at this camera; the toy spawns ON the steward (step away).
+- The desk was a tiny letter prop (now the shelf, feel test 1); the toy spawns ON the steward (step away).
 - Payday is collected by the steward, not paid automatically -- a deliberate Sims-mailbox beat; say if not.
+
+## Feel test 1 (owner) -- three findings, all fixed and re-proven live
+
+The owner played the benches before rung 7 and reported:
+1. **"Couldn't find the shop"** -- buy mode was SELECT-only, with nothing on screen saying so.
+2. **"Opening the menu got rid of the hunger/thirst/etc overlay"** -- a KIT bug, every `[[behavior.hud]]` field.
+3. **"The interact areas don't line up well with their objects"** -- each zone sat on the object's steward-side
+   flank (to keep the steward off Bilba's use spot), so it floated over empty floor.
+
+Fixes:
+1. A **moogle catalogue** you can see: the save-point moogle + book (`prop = "save_point"`) at (-500, -1650), and
+   the pool's ONE catalogue `[[choice]]` now lives on it instead of parked off-mesh -- the SELECT poller still
+   `RunScriptSync`s it by slot, so it opens both ways (the kit refuses a second menu setting the buy flag). The
+   HUD's second line ends `SELECT: shop`.
+2. **The HUD watcher** (kit, `CompiledBehavior.hud_watch`): the main menu (`FieldHUD.OnKeyMenu ->
+   UIManager.HideAllHUD`) and a script `Menu()` (`EventService.StartMenu`, a save point) CloseAll the field's
+   dialogs while the event engine is PAUSED, so the strip's open-once `shown` latch stayed set forever. A seated
+   entry blocks in `WaitWindow` on the strip's window and clears the latch when it goes; the ticker re-opens it.
+   It also covers the battle return, so rung 5's tag-10 latch clear was REMOVED -- it raced the watcher (the
+   reinit cleared, the ticker re-opened, the woken watcher cleared again: a double open, and rung 5's first
+   post-battle sample read the 999 width sentinels).
+3. **Zones centred on their objects** (`_around`: +-260 x, +-240 z; the tent +-320 x) -- clear of the ~192u
+   object-collision jam, so the steward can press from any side. The ledger is ON the desk, and the desk is now
+   the `shelf` (Dali's production shelf), not the tiny letter.
+
+Live (`feel1_check.py`, 10/10, zero exceptions): the strip was gone in the menu and back after it, TWICE (the
+watcher re-arms); each object's own menu opened standing at it; walking up to the moogle opened the catalogue.
+Re-runs on the rebuilt benches: rung 6 20/20 (SELECT-anywhere still opens the moved catalogue), rung 4 13/13,
+rung 5 **21/21** (the HUD readable on the first post-battle sample, with the watcher alone).
 
 ## Bench
 

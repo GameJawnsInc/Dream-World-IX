@@ -132,8 +132,8 @@ def _open_menu(g, tries: int = 3):
 # The steward's stand point in each zone, and the clear rows between them. walk_to presses the LARGER axis
 # first, so one call from the spawn to the pot cut straight up past the cask (inside its collision ring) and
 # never arrived (run 1). Every leg below moves ONE axis along a lane the probe shows clear of every object.
-STAND = {"hunger": (850, -250), "energy": (-500, -170), "fun": (330, -160),
-         "thirst": (-970, -1410), "hygiene": (960, -1355)}
+STAND = {"hunger": (820, -250), "energy": (-580, -170), "fun": (300, -160),
+         "thirst": (-950, -1310), "hygiene": (950, -1260)}     # inside the object-centred zones
 BACK_ROW, FRONT_ROW = -880, -1400
 
 

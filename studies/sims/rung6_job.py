@@ -30,7 +30,7 @@ B.configure("rung6")                                     # BEFORE rung2_day read
 import rung2_day as R                                    # noqa: E402
 
 NAMES = B.NAMES
-R.STAND["ledger"] = ((B.LEDGER_ZONE[0] + B.LEDGER_ZONE[2]) // 2, (B.LEDGER_ZONE[1] + B.LEDGER_ZONE[3]) // 2)
+R.STAND["ledger"] = (B.DESK[0], B.LEDGER_ZONE[1] + 30)      # the desk's front edge, inside its zone
 R.ZONE["ledger"] = B.LEDGER_ZONE
 BUY_SPOT = (-450, -1250)                                 # where the steward stands to buy (open floor)
 
