@@ -68,12 +68,19 @@ HOME = (-200, -700)                 # her idle anchor (wander box radius 200)
 PLAYER_SPAWN = (0, -1700)           # the steward, front-center, clear of every zone band
 
 #        need       prop          object        her use-spot   steward zone (x0, z0, x1, z1)
+def _around(obj, hw=260, hd=240):
+    """A press zone CENTRED on its object (owner feel test: zones on the steward-side flank floated in empty
+    floor and did not read as the object's). 260/240 clears the ~192u object-collision jam so the steward
+    can stand inside it from any side."""
+    return (obj[0] - hw, obj[1] - hd, obj[0] + hw, obj[1] + hd)
+
+
 NEEDS = [
-    ("hunger",  "pot",         (600, -250),  (600, -520),   (730, -420, 960, -60)),
-    ("thirst",  "cup",         (-950, -1100), (-720, -1100), (-1120, -1520, -820, -1300)),
-    ("energy",  "tent",        (-850, -150), (-850, -500),  (-620, -380, -380, 40)),
-    ("hygiene", "cask",        (950, -1050), (720, -1050),  (800, -1460, 1120, -1250)),
-    ("fun",     "dagger_doll", (100, -150),  (100, -420),   (230, -360, 430, 40)),
+    ("hunger",  "pot",         (600, -250),  (600, -520),   _around((600, -250))),
+    ("thirst",  "cup",         (-950, -1100), (-720, -1100), _around((-950, -1100))),
+    ("energy",  "tent",        (-850, -150), (-850, -500),  _around((-850, -150), hw=320)),
+    ("hygiene", "cask",        (950, -1050), (720, -1050),  _around((950, -1050))),
+    ("fun",     "dagger_doll", (100, -150),  (100, -420),   _around((100, -150))),
 ]
 BASE_NAMES = [n[0] for n in NEEDS]
 NAMES = list(BASE_NAMES)            # rung 5 appends "social" (configure)
@@ -126,9 +133,9 @@ MAKEUP = (3, 8)                     # rel +3 every 8 while sorry
 # SKILL, and the steward cashes it at the household ledger (real gil, a [[choice]] row). Skill rises by STUDYING
 # at the same desk and is a PERSISTENT table -- it survives into the next day (the reason to play a second day).
 # Buy mode = a priced POOL: press SELECT anywhere, buy the toy airship, and it appears where the steward stands.
-DESK = (300, -1150)                 # the Mognet desk (the letter prop)
+DESK = (300, -1150)                 # the Mognet desk (the mail shelf)
 DESK_SPOT = (80, -1150)             # where she sits to work / study (west of the desk)
-LEDGER_ZONE = (200, -1520, 500, -1330)   # the steward's ledger menu, south of the desk, on the front lane
+LEDGER_ZONE = _around(DESK)        # the steward's ledger menu, ON the desk
 SKILL_TABLE_ID = 6430001            # PERSISTENT (6000000..6999999, this bench's own)
 JOB_TABLE_ID = 1003                 # [0] shift progress, [1] study progress (field-session)
 SHIFT_LEN, STUDY_LEN = 60, 40       # progress units (+1 every 10 ticks at the desk)
@@ -141,7 +148,7 @@ TOY_PRICE = 50
 TOY_MODEL, TOY_POSE = "GEO_ACC_F0_TSM", 1105   # the Tantalus toy airship (prop_archetypes "ship_model")
 TOY_REQUEST = 8890                  # the buy pool's explicit GLOB request bit (outside the blackboard band)
 TOY_FUN = (3, 6)                    # playing with the toy: fun +3 every 6 (the puppet: +2 every 10)
-PARKED = [[9000, 9000], [9200, 9000], [9200, 8800], [9000, 8800]]   # the buy menu's parked zone (never walked)
+CATALOGUE = (-500, -1650)           # the moogle catalogue: a VISIBLE place to shop (SELECT still works anywhere)
 VARIANT, RATESET = "priority", "tuned"
 DECAY_EVERY, USE, URGE_AT = RATES["tuned"]["decay"], RATES["tuned"]["use"], RATES["tuned"]["urge"]
 NIGHT_SLEEP_AT = 70                 # ...but at night energy this low already sends her to bed
@@ -180,8 +187,12 @@ mode = "min"
 
 RUNG6_SET = f"""
 [[prop]]
-prop = "letter"
+prop = "shelf"
 pos = [{DESK[0]}, {DESK[1]}]
+
+[[prop]]
+prop = "save_point"                 # the moogle + its book: the catalogue, somewhere you can SEE
+pos = [{CATALOGUE[0]}, {CATALOGUE[1]}]
 
 [[marker]]
 name = "desk_spot"
@@ -251,7 +262,7 @@ def _hud_block() -> str:
         vals = ", ".join(f'"expr:{_vec(NEED_TABLE_ID, i)}"' for i in range(len(NAMES)))
         return f"""[[behavior.hud]]                    # ONE strip: 5 needs, the hour, SKILL, GIL -- all 8 gMesValue slots
 window = 6
-text = "[MPOS=10,48]{need_txt}\\nSKILL [NUMB=6]  [NUMB=5]:00  GIL [NUMB=7]"
+text = "[MPOS=10,48]{need_txt}\\nSKILL [NUMB=6]  [NUMB=5]:00  GIL [NUMB=7]  SELECT: shop"
 values = [{vals},
           "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_REM",
           "expr:const4({SKILL_TABLE_ID}) const(0) B_VECTOR",
@@ -721,11 +732,13 @@ set_flag = [{flags["t_study"]}, 1]
 requires_flag_clear = {flags["t_study"]}
 [[choice.options]]
 text = "Never mind."
-
-[[choice]]
-zone = {PARKED}
+""")
+        x0, z0, x1, z1 = _around(CATALOGUE)
+        out.append(f"""[[choice]]
+zone = [[{x0}, {z0}], [{x1}, {z0}], [{x1}, {z1}], [{x0}, {z1}]]
+bubble = true
 instant = true
-prompt = "The moogle catalogue."
+prompt = "The moogle catalogue. (SELECT opens it anywhere.)"
 [[choice.options]]
 text = "A toy airship ({TOY_PRICE} gil)."
 set_flag = [{TOY_REQUEST}, 1]

@@ -1668,10 +1668,15 @@ class CompiledBehavior:
     sizes: dict | None = None        # the byte histogram (see size_report)
     brain_bodies: dict = _dc_field(default_factory=dict)  # brains mode: unit -> Seq body
     brain_locs: dict = _dc_field(default_factory=dict)    # owner -> instance bytes (varn)
-    # THE AFTER-BATTLE HUD LAW (sims rung 5, in-game): a battle destroys the field's windows, and the
-    # after-battle return runs Main_Reinit, not Main_Init -- so a HUD strip's `shown` latch (cleared only by
-    # Main_Init) stayed set and the strip never came back. install() prepends this to entry-0 tag-10.
-    reinit: bytes = b""
+    # THE HUD WATCHER (sims rung 5 + the owner's first feel test, in-game): a HUD strip's window opens ONCE
+    # (the `shown` latch), and three things close it behind the script's back -- a battle (its return runs
+    # Main_Reinit, not Main_Init), the main menu (FieldHUD.OnKeyMenu -> UIManager.HideAllHUD) and any script
+    # Menu() (EventService.StartMenu: a save point) -- the last two while the event engine is PAUSED, so no
+    # script sees the close. This seated entry blocks in WaitWindow on the strip's window (resumed when
+    # ETb.MesWinActive goes false) and clears the latch; the ticker re-opens the strip on its next pass. It
+    # covers the battle return too: rung 5's earlier entry-0 tag-10 latch clear raced it (the reinit cleared,
+    # the ticker re-opened, the woken watcher cleared again: a double open) and was removed. install() seats it.
+    hud_watch: bytes = b""
 
     def size_report(self) -> str:
         """THE BYTE HISTOGRAM — where the compiled bytes go, unit by unit, against
@@ -3990,7 +3995,7 @@ class FieldBehavior:
             shown = self.bb.flag(f"hud{hi}.shown")
             if shown not in self._reset_flags:            # ~ Reload re-opens it
                 self._reset_flags.append(shown)
-            hud_shown.append(shown)                       # ...and so does a battle return (CompiledBehavior.reinit)
+            hud_shown.append(shown)                       # ...and the watcher re-opens it (CompiledBehavior.hud_watch)
             cd_blocks.append(label(f"__seg hud {hi}"))
             # THE OPEN PASS (once): feed each slot its max-width SENTINEL so
             # AutomaticSize bakes a strip wide enough for the widest value that
@@ -4177,8 +4182,27 @@ class FieldBehavior:
                    "main_init": len(main_init)},
             brain_bodies=brain_bodies,
             brain_locs={o: self._inst_next.get(o, 0) for o in brain_bodies},
-            reinit=asm([_set_flag(f, 0) for f in hud_shown]) if hud_shown else b"",
+            hud_watch=self._hud_watch_body(hud_shown),
         )
+
+    def _hud_watch_body(self, hud_shown: list) -> bytes:
+        """The HUD WATCHER (CompiledBehavior.hud_watch): per strip, once its `shown` latch is set (the ticker
+        sets it in the same slice as the WindowAsync, and AttachDialog lists the window synchronously), block
+        in WaitWindow until that window is gone -- the menu's CloseAll, a script Menu(), a battle -- then clear
+        the latch. Its own seated entry, so the block never stalls the ticker. The ONLY clearer besides
+        Main_Init: a second one races it into a double open (see CompiledBehavior.hud_watch)."""
+        if not hud_shown:
+            return b""
+        blocks: list = [label("top")]
+        for hi, (h, shown) in enumerate(zip(self._huds, hud_shown)):
+            blocks += [
+                _stmt(f"Global.Bit[{shown}]"), (JMP_IFNOT, f"next_{hi}"),
+                opcodes.wait_window(h.window),
+                _set_flag(shown, 0),
+                label(f"next_{hi}"),
+            ]
+        blocks += [opcodes.wait(1), (JMP, "top"), opcodes.RETURN]
+        return asm(blocks)
 
     # ---------------- tree → ticker blocks
     def _inst_ref(self, owner: str, key: str, kind: str = "byte") -> str:
@@ -4815,11 +4839,12 @@ class FieldBehavior:
                       + self._poller_body(ps.button, int(cslot)))
             out, pslot = _object.seat_entry(out, pentry)
             out = eb_edit.activate_block(out, opcodes.init_code(pslot, 0))
+        if cb.hud_watch:
+            # the HUD watcher (CompiledBehavior.hud_watch): re-opens a strip the menu / a Menu() closed
+            wentry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + cb.hud_watch
+            out, wslot = _object.seat_entry(out, wentry)
+            out = eb_edit.activate_block(out, opcodes.init_code(wslot, 0))
         out = eb_edit.insert_in_function(out, 0, 0, 0, cb.main_init)
-        if cb.reinit and EbScript.from_bytes(out).entry(0).func_by_tag(10) is not None:
-            # a battle return re-opens the HUD strips (CompiledBehavior.reinit); a field with no after-battle
-            # handler has no battle return to survive, and stays byte-identical
-            out = eb_edit.insert_in_function(out, 0, 10, 0, cb.reinit)
         if cb.brain_bodies:
             occupied = {e.index for e in EbScript.from_bytes(out).entries if e.size > 0}
             check_64_stride(occupied, self.units.values())

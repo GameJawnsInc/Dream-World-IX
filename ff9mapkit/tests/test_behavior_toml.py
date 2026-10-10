@@ -362,10 +362,12 @@ def test_battle_installs_reinit_in_built_eb(tmp_path):
     assert again == plain
 
 
-def test_battle_return_reopens_the_hud(tmp_path):
-    """THE AFTER-BATTLE HUD LAW (sims rung 5, in-game): a battle destroys the field's windows and the return
-    runs Main_Reinit, not Main_Init -- the strip's `shown` latch (cleared only by Main_Init) stayed set and the
-    HUD never came back. The install prepends the latch clear to entry-0 tag-10."""
+def test_hud_watcher_reopens_the_strip(tmp_path):
+    """THE HUD WATCHER (sims rung 5 + feel test 1, in-game): a battle, the main menu and any script Menu() close
+    the strip's window behind the script's back (the last two while the field is paused), so the `shown` latch
+    stayed set and the HUD was gone for good. A seated watcher entry blocks in WaitWindow on the strip's window
+    and clears the latch -- the ONLY clearer besides Main_Init: rung 5's Main_Reinit clear raced it into a
+    double open, so the after-battle handler is left untouched."""
     import tomllib
     from ff9mapkit import build as BLD
     from ff9mapkit.eb.model import EbScript
@@ -374,31 +376,35 @@ def test_battle_return_reopens_the_hud(tmp_path):
         "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
         '\n[[npc]]\nname = "gate"\npreset = "vivi"\npos = [0, -300]\ndialogue = "Hold!"\n'
         '\n[behavior]\nwarmup = 30\ncounters = ["n"]\n'
-        '\n[[behavior.unit]]\nnpc = "gate"\nhp = 3\n'
-        "\n[[behavior.unit.branch]]\n"
-        'when = [{ hp_le = 0 }]\ndo = { battle = 35 }\n'
+        '\n[[behavior.unit]]\nnpc = "gate"\n'
         "\n[[behavior.unit.branch]]\n"
         "do = { hold = [0, -300] }\n"
     )
-    hud = '\n[[behavior.hud]]\nwindow = 6\ntext = "[MPOS=10,48]N [NUMB=0]"\nvalues = ["n"]\n'
+    hud = '\n[[behavior.hud]]\nwindow = 5\ntext = "[MPOS=10,48]N [NUMB=0]"\nvalues = ["n"]\n'
+    cb = BT.build(tomllib.loads(base + hud), npc_slots={"gate": 2},
+                  behavior_txids={("hud", 0): 600}).compile()
+    ops = [(i.op, tuple(i.args)) for i in D.iter_code(cb.hud_watch, 0, len(cb.hud_watch))]
+    # it waits on the STRIP'S window, then clears the latch (the same instruction Main_Init's reset runs)
+    assert (0x54, (5,)) in ops, ops
+    clear = [i for i in D.iter_code(cb.hud_watch, 0, len(cb.hud_watch)) if i.op not in (0x54, 0x22)]
+    assert clear and any(cb.hud_watch[i.off:i.off + i.length] in cb.main_init for i in clear)
+    # no strip -> no watcher
+    assert BT.build(tomllib.loads(base), npc_slots={"gate": 2}).compile().hud_watch == b""
+    # the installed field seats exactly one more entry than the strip-less build, carrying the watcher
     f = tmp_path / "bhw.field.toml"
-    def tag(text, t, txids):
+    def entries(text, txids):
         f.write_text(text, encoding="utf-8")
-        plain = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501}, behavior_txids=txids)
-        fn = EbScript.from_bytes(plain).entry(0).func_by_tag(t)
-        return plain[fn.abs_start:fn.abs_end]
-
-    with_hud = tag(base + hud, 10, {("hud", 0): 600})
-    without = tag(base, 10, {})
-    # exactly ONE instruction prepended to an otherwise identical Main_Reinit...
-    assert with_hud.endswith(without) and len(with_hud) > len(without)
-    first = next(D.iter_code(with_hud, 0, len(with_hud)))
-    clear = with_hud[:first.end]
-    assert len(clear) == len(with_hud) - len(without), with_hud[:24].hex()
-    # ...and it is the strip's latch clear: the same instruction Main_Init's reset runs (~ Reload re-opens it)
-    assert clear in tag(base + hud, 0, {("hud", 0): 600})
-    # no strip -> no clear: the compiled reinit is empty
-    assert BT.build(tomllib.loads(base), npc_slots={"gate": 2}).compile().reinit == b""
+        eb = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501}, behavior_txids=txids)
+        return eb, {e.index for e in EbScript.from_bytes(eb).entries if e.size > 0}
+    eb_hud, with_hud = entries(base + hud, {("hud", 0): 600})
+    eb_bare, without = entries(base, {})
+    assert len(with_hud) == len(without) + 1
+    assert cb.hud_watch in eb_hud
+    # ...and no second clearer: the after-battle Main_Reinit is byte-identical with or without the strip
+    def tag10(eb):
+        fn = EbScript.from_bytes(eb).entry(0).func_by_tag(10)
+        return None if fn is None else eb[fn.abs_start:fn.abs_end]
+    assert tag10(eb_hud) == tag10(eb_bare)
 
 
 def test_fires_battle_raw_scan_matches_the_compile():
