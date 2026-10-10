@@ -717,10 +717,11 @@ def test_the_footprint_sink_takes_a_loose_piece_over_the_island_with_it(world):
 
 def test_the_footprint_sink_refusals(world):
     at = _diamond(world)
-    world.add(B, "object", [[V(344, 0, -363, LAND), V(344, 1, -362, LAND), V(345, 1, -362, LAND)]])
-    with pytest.raises(ValueError, match="a building stands on the island"):
+    # a river over the island, joined to nothing (not its building): it would stand over the new water
+    world.add(B, "river", [[V(343, 1, -361, LAND), V(345, 1, -361, LAND), V(344, 1, -359, LAND)]])
+    with pytest.raises(ValueError, match="does not cover the island's footprint exactly once"):
         TR.sink_footprint_plan(at)
-    world.parts.pop((B, "object"))
+    world.parts.pop((B, "river"))
     gone = next(t for t in world.parts[(B, "sea4")] if {(v[0][0], v[0][2]) for v in t} ==
                 {(340.0, -364.0), (344.0, -363.0), (341.0, -360.0)})
     world.parts[(B, "sea4")].remove(gone)
@@ -852,8 +853,7 @@ def test_cli_cluster_flag_and_the_footprint_report(world, monkeypatch, capsys):
 
 def test_real_shimmering_sinks_alone_its_islets_kept_and_as_a_cluster():
     """Shimmering Island (disc 4 removes it itself and keeps its seven islets): its coastal sea runs on into its
-    islets', so it sinks alone by its footprint, exact; --cluster sinks it with the two islets its water joins. The
-    (0,0) island carries a building and is refused."""
+    islets', so it sinks alone by its footprint, exact; --cluster sinks it with the two islets its water joins."""
     _need_install()
     _plan, rep = TR.sink_auto_plan((441.992, -311.975))
     assert rep["fill"] == "footprint" and rep["land_tris"] == 489 and rep["miss"] == rep["overlap"] == 0
@@ -862,5 +862,201 @@ def test_real_shimmering_sinks_alone_its_islets_kept_and_as_a_cluster():
                                                                                              (7, 5)]
     _plan, rep = TR.sink_cluster_plan((441.992, -311.975))
     assert len(rep["members"]) == 3
-    with pytest.raises(ValueError, match="a building stands on the island"):
-        TR.sink_auto_plan((9.909, -22.582))
+
+
+def _hut(world, carried=False, entrance=False, joint=False):
+    """The diamond with a hole in its top -- the square (343..345, -361..-359) at y 1 -- plugged by a BUILDING: four
+    Object tris from the hole's edges up to a roof at (344, 3, -360) (every stock building plugs a hole in its ground).
+    ``carried``: a terrain tri inside the hole joined only to the building (Daguerreo's waterfall carries two);
+    ``entrance``: one roof tri carries entrance bits (Daguerreo's entrance tiles are its Object's); ``joint``: a river
+    joint joined to the roof. Returns a point on its land."""
+    _diamond(world)
+    S_, E_, N_, W_ = (V(344, 0, -363, LAND), V(347, 0, -360, LAND), V(344, 0, -357, LAND), V(341, 0, -360, LAND))
+    SE, NE, NW, SW = H = (V(345, 1, -361, LAND), V(345, 1, -359, LAND), V(343, 1, -359, LAND), V(343, 1, -361, LAND))
+    world.parts[(B, "terrain")] = [[S_, SE, SW], [S_, E_, SE], [E_, NE, SE], [E_, N_, NE], [N_, NW, NE],
+                                   [N_, W_, NW], [W_, SW, NW], [W_, S_, SW]]
+    roof = [[H[k], H[(k + 1) % 4], V(344, 3, -360, LAND)] for k in range(4)]
+    if entrance:
+        ev = X.encode_id(event=1, topograph=52, area=14)
+        roof[0] = [V(*v[0], ev) for v in roof[0]]
+    world.add(B, "object", roof)
+    if carried:
+        world.add(B, "terrain", [[V(344, 3, -360, LAND), V(344.5, 2, -360, LAND), V(344, 2, -359.5, LAND)]])
+    if joint:
+        world.add(B, "riverjoint", [[V(344, 3, -360, LAND), V(344, 3, -361, LAND), V(345, 3, -360, LAND)]])
+    return (342.0, -360.0)
+
+
+def test_a_building_goes_with_its_island_and_the_hole_it_plugs_becomes_water(world):
+    """THE BUILDING (islands with buildings): an Object joined to the island goes with it, and the hole it plugged in
+    the island's ground is footprint too -- the fill covers the whole diamond, watertight. The whole-tile sink drops
+    it with the island's tiles, and the deploy's morph loads the Object (else its drop would be silently lost)."""
+    at = _hut(world)
+    plan, rep = TR.sink_footprint_plan(at)
+    assert rep["building"] == {"object": 4} and rep["plug_tris"] == 2 and rep["plug_u2"] == 4.0
+    assert rep["footprint_u2"] == rep["fill_u2"] == 18.0 and rep["miss"] == rep["overlap"] == 0
+    assert {tw.part: tw.expected for tw in plan[B] if isinstance(tw, TR.DropTris)} == {"terrain": 8, "object": 4}
+    assert _open_edges(world, plan) == [] and _t_junctions(world, plan) == []
+    plan, rep = TR.sink_plan(at)
+    drops = {tw.part: tw.expected for tw in plan[B] if isinstance(tw, TR.DropTris)}
+    assert drops["object"] == 4 and drops["terrain"] == 8 and rep["tiles"] == 4 and rep["building"] == {"object": 4}
+    s = TR.sink("MOD", at, dry_run=True)
+    assert s["clean"] and any(g["gate"] == "drop[object]" and g["applied"] == 4
+                              for g in s["per_block"]["5,5"]["gates"])
+
+
+def test_a_building_across_the_coast_plugs_land_and_water_alike(world):
+    """The lagoon island at (553, -1127): its building stands across the coast, in a notch of the land and of the water
+    conforming to it. Here the diamond's east corner (345.5,-361.5) (347,-360) (345.5,-358.5) is cut from both and a
+    hut stands on it: the notch is a plug, its water edges become coast at the waterline, and the fill covers the
+    whole diamond, watertight."""
+    at = _diamond(world)
+    w, top = KEEL, V(344, 2.5, -360, LAND)
+    S_, E_, N_, W_ = (V(344, 0, -363, LAND), V(347, 0, -360, LAND), V(344, 0, -357, LAND), V(341, 0, -360, LAND))
+    E1, E2 = V(345.5, 0, -361.5, LAND), V(345.5, 0, -358.5, LAND)
+    world.parts[(B, "terrain")] = [[S_, E1, top], [E1, E2, top], [E2, N_, top], [N_, W_, top], [W_, S_, top]]
+
+    def pts(t):
+        return {(v[0][0], v[0][2]) for v in t}
+    sea = world.parts[(B, "sea4")]
+    se = next(t for t in sea if pts(t) == {(348.0, -364.0), (347.0, -360.0), (344.0, -363.0)})
+    ne = next(t for t in sea if pts(t) == {(348.0, -356.0), (344.0, -357.0), (347.0, -360.0)})
+    sea.remove(se)
+    sea.remove(ne)
+    S1, S2, Dw, Ew, Nw = (V(348, 0, -364, w), V(348, 0, -356, w), V(344, 0, -363, w), V(347, 0, -360, w),
+                          V(344, 0, -357, w))
+    e1, e2 = V(345.5, 0, -361.5, w), V(345.5, 0, -358.5, w)
+    world.add(B, "sea4", [neg(S1, Ew, e1), neg(S1, e1, Dw), neg(S2, Nw, e2), neg(S2, e2, Ew)])
+    A = V(346, 1.5, -360, LAND)
+    world.add(B, "object", [[E1, E_, A], [E_, E2, A], [E2, E1, A]])
+    plan, rep = TR.sink_footprint_plan(at)
+    assert rep["building"] == {"object": 3} and rep["plug_tris"] == 1 and rep["plug_u2"] == 2.25
+    assert rep["footprint_u2"] == rep["fill_u2"] == 18.0 and rep["miss"] == rep["overlap"] == 0
+    assert _open_edges(world, plan) == [] and _t_junctions(world, plan) == []
+
+
+def test_a_building_carries_the_land_it_holds_and_refuses_other_land(world):
+    """Land joined only to the building, inside the hole it plugs, goes with it (Daguerreo's waterfall carries 2
+    terrain tris); a building that also stands on another island refuses (SinkJoined: --cluster can take that one)."""
+    at = _hut(world, carried=True)
+    _plan, rep = TR.sink_footprint_plan(at)
+    assert rep["building"] == {"object": 4, "terrain": 1} and rep["land_tris"] == 9
+    assert rep["footprint_u2"] == rep["fill_u2"] == 18.0
+    plan, rep = TR.sink_plan(at)
+    assert rep["land_tris"] == 9 and {tw.part: tw.expected for tw in plan[B] if isinstance(tw, TR.DropTris)}[
+        "terrain"] == 9
+    world.parts.clear()
+    at = _hut(world)
+    world.add(B, "terrain", pyramid(88, -86, 2))
+    world.add(B, "object", [[V(344, 3, -360, LAND), V(352, 0, -344, LAND), V(350, 1, -350, LAND)]])
+    with pytest.raises(TR.SinkJoined, match="building also stands on other land"):
+        TR.sink_plan(at)
+    with pytest.raises(ValueError, match="building also stands on other land"):
+        TR.sink_footprint_plan(at)
+
+
+def test_a_building_s_entrance_needs_allow_entrances_and_a_river_joint_deploys_by_its_engine_name(world, monkeypatch):
+    """THE ENTRANCE GUARD reads the building's tiles too (Daguerreo's entrance tiles are its Object's, the engine's
+    first-scanned walk part): dropped, they refuse unless allow_entrances. Every part deploys under the engine's own
+    name: RiverJoint, which str.capitalize turns into a name no block registers."""
+    at = _hut(world, entrance=True, joint=True)
+    s = TR.sink("MOD", at, dry_run=True)
+    gate = next(g for g in s["per_block"]["5,5"]["gates"] if g["gate"] == "entrance")
+    assert not s["clean"] and gate["blocks"][0]["tiles_dropped"] == 1 and s["entrance_tris"] == 1
+    assert s["building"] == {"object": 4, "riverjoint": 1}
+    from pathlib import Path
+    from ff9mapkit.world import mesh as M
+    written = []
+    monkeypatch.setattr(M, "deploy_override", lambda bm, **k: written.append((bm.name, k["part"])) or Path(bm.name))
+    monkeypatch.setattr(DM, "auto_mirror", lambda w, **k: None)
+    s = TR.sink("MOD", at, allow_entrances=True)
+    assert s["clean"] and ("Block[5][5] RiverJoint", "RiverJoint") in written
+    assert ("Block[5][5] Object", "Object") in written
+
+
+def test_the_census_skips_land_no_water_meets(world):
+    """sink_candidates lists islands: a land piece no water touches (a rock top an Object rings, a plateau between
+    falls and a river: four on disc 1) is not one."""
+    _diamond(world)
+    world.add((7, 5), "terrain", pyramid(115, -91, 1))
+    rows = TR.sink_candidates()
+    assert len(rows) == 1 and math.dist(rows[0]["at"], (344.0, -360.0)) < 4
+
+
+def test_cli_prints_the_building_and_its_entrance(world, monkeypatch, capsys):
+    monkeypatch.setattr(TR, "sink", lambda mod, at, **k: {
+        "land_tris": 1450, "land_u2": 8302.1, "max_y": 31.4, "blocks": [[5, 15]], "tiles": 618, "fill_tris": 1248,
+        "fill_area": 0, "sea_replaced": 0, "edge_welds": 0, "keel_to_open": 241, "entrance_tris": 8,
+        "bands": {"sea3": 209, "sea5": 52, "sea4": 208}, "shore_tris": 0, "fill": "footprint", "cells_whole": 469,
+        "cells_partial": 149, "split_tris": 42, "joined": "the coastal sea round the island runs on into another "
+        "coast's (test)", "building": {"falls": 20, "object": 75}, "plug_tris": 48, "plug_u2": 163.67,
+        "per_block": {}, "clean": True, "deployed": []})
+    args = cli.build_parser().parse_args(["world-sink", "--mod-folder", "MOD", "--at", "425", "-1020",
+                                          "--allow-entrances"])
+    assert cli._cmd_world_sink(args) == 0
+    out = capsys.readouterr().out
+    assert "its building goes with it: 20 falls, 75 object tris; the hole(s) it plugged (163.67 u2) become water" in out
+    assert "8 entrance tris on the island and its building: dropped (--allow-entrances)" in out
+    assert "the whole-tile sink cannot take it (the coastal sea round the island runs on" in out
+
+
+def test_real_islands_with_buildings_sink_with_them():
+    """Daguerreo: its Object, waterfall, rivers and river joints (and the 2 terrain tris its falls carry) go with it, by
+    its footprint, and the hole they plugged is water too (fill = its outer coast, 8,464.83 u2); its entrance tiles are
+    its Object's, dropped only with allow_entrances. The lagoon island at (553, -1127) sinks by whole tiles with the hut
+    across its coast; the corner island at (0, 0) by its footprint. A rock top near Esto Gaza that an Object rings
+    refuses: the rock stands on the continent too."""
+    _need_install()
+    s = TR.sink("FF9CustomMap_test_nonexistent", (425.098, -1020.0), dry_run=True, allow_entrances=True)
+    assert s["clean"] and s["fill"] == "footprint" and s["entrance_tris"] == 8
+    assert s["building"] == {"falls": 20, "object": 75, "river": 19, "riverjoint": 8, "terrain": 2}
+    assert s["plug_u2"] == 163.67 and s["fill_u2"] == s["footprint_u2"] == 8464.83
+    gate = next(g for g in s["per_block"]["5,16"]["gates"] if g["gate"] == "entrance")
+    assert gate["blocks"][0]["tiles_dropped"] == 8 and gate["allowed"]
+    _plan, rep = TR.sink_auto_plan((553.065, -1127.103))
+    assert rep["fill"] == "tiles" and rep["building"] == {"object": 26} and rep["shore_tris"] == 54
+    _plan, rep = TR.sink_auto_plan((9.909, -22.582))
+    assert rep["fill"] == "footprint" and rep["building"] == {"object": 5} and rep["fill_u2"] == 1266.75
+    with pytest.raises(ValueError, match="also stands on other land"):
+        TR.sink_auto_plan((325.897, -238.419))
+
+
+def test_a_building_plugging_water_outside_the_island_s_tiles_pulls_its_tiles_in(world):
+    """The whole-tile sink re-tiles the BUILDING's tiles too: here a hut on the island's east coast stands in a notch
+    of the water in tile column 87, which the island never reaches. Its tiles join the region, so the water cut round
+    it is re-tiled with them -- or the notch would stay a hole in the sea."""
+    notch = {(87, -91), (87, -90)}
+    world.sea(B, skip=ISLE | notch)
+    sq = [V(340, 0, -364, LAND), V(348, 0, -364, LAND), V(348, 0, -356, LAND), V(340, 0, -356, LAND)]
+    c, n1, n2 = V(344, 3, -360, LAND), V(348, 0, -361, LAND), V(348, 0, -359, LAND)
+    world.add(B, "terrain", [[sq[0], sq[1], c], [sq[1], n1, c], [n1, n2, c], [n2, sq[2], c], [sq[2], sq[3], c],
+                             [sq[3], sq[0], c]])
+    x = V(350, 0, -360, SEA)
+
+    def w(x_, z_):
+        return V(x_, 0, z_, SEA)
+    world.add(B, "sea4", [neg(w(348, -364), w(352, -364), w(352, -360)), neg(w(348, -364), w(352, -360), x),
+                          neg(w(348, -364), x, w(348, -361)), neg(x, w(352, -360), w(352, -356)),
+                          neg(x, w(352, -356), w(348, -356)), neg(x, w(348, -356), w(348, -359))])
+    A = V(349, 1.5, -360, LAND)
+    world.add(B, "object", [[n1, V(350, 0, -360, LAND), A], [V(350, 0, -360, LAND), n2, A], [n2, n1, A]])
+    plan, rep = TR.sink_plan((342.0, -360.0))
+    assert rep["building"] == {"object": 3} and rep["tiles"] == 6 and rep["miss"] == rep["overlap"] == 0
+    assert _open_edges(world, plan) == [] and _t_junctions(world, plan) == []
+
+
+def test_a_building_ringing_the_whole_coast_is_not_read_as_a_plug(world):
+    """A wall all round an island (an Object welded to the land's whole outline and to the water's): the land's outline
+    and the water's inner ring are both rings of building vertices, but neither is a hole -- each has the island
+    inside it. No plug is read from them: the island's coast meets no water, and the sink says so."""
+    _diamond(world)
+    top = V(344, 2.5, -360, LAND)
+    D = [V(344, 0, -363, LAND), V(347, 0, -360, LAND), V(344, 0, -357, LAND), V(341, 0, -360, LAND)]
+    I = [V(344, 0, -362, LAND), V(346, 0, -360, LAND), V(344, 0, -358, LAND), V(342, 0, -360, LAND)]
+    world.parts[(B, "terrain")] = [[I[k], I[(k + 1) % 4], top] for k in range(4)]
+    R = [V((d[0][0] + i[0][0]) / 2, 1.5, (d[0][2] + i[0][2]) / 2, LAND) for d, i in zip(D, I)]   # the wall's top
+    world.add(B, "object", [t for k in range(4) for t in (
+        [D[k], D[(k + 1) % 4], R[(k + 1) % 4]], [D[k], R[(k + 1) % 4], R[k]],
+        [R[k], R[(k + 1) % 4], I[(k + 1) % 4]], [R[k], I[(k + 1) % 4], I[k]])])
+    with pytest.raises(ValueError, match="meet no water"):
+        TR.sink_footprint_plan((344.0, -360.0))

@@ -4903,16 +4903,22 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
 
     def bands(b):
         return ", ".join(f"{p} {n}" for p, n in b.items() if n) or "none"
+
+    def building(b):
+        return ", ".join(f"{n} {p}" for p, n in b.items())
     if args.list:
         print(f"scanning disc {args.disc} for islands a sink takes (a few minutes)...")
         rows = TR.sink_candidates(disc=args.disc, game=args.game)
         ok = [r for r in rows if r["ok"]]
-        print(f"{len(ok)} of {len(rows)} islands (land within 9 blocks) can sink:")
+        print(f"{len(ok)} of {len(rows)} islands (land within 9 blocks that water meets) can sink:")
         for r in ok:
             how = ("its land only, its neighbours kept (its water joins theirs)" if r.get("fill") == "footprint"
                    else f"re-banded: {bands(r['bands'])}")
             print(f"  {r['land_u2']:8.1f} u2  up to y {r['max_y']:5.2f}  blocks {' '.join(map(str, r['blocks']))}  "
-                  f"{how}{'  (and its beach water)' if r['shore_tris'] else ''}\n"
+                  f"{how}{'  (and its beach water)' if r['shore_tris'] else ''}"
+                  + (f"  (and its building: {building(r['building'])} tris)" if r.get("building") else "")
+                  + (f"  !! {r['entrance_tris']} entrance tris: needs --allow-entrances" if r.get("entrance_tris")
+                     else "") + "\n"
                   f"      py -m ff9mapkit world-sink --mod-folder <F> --at {r['at'][0]} {r['at'][1]}")
         for r in rows:
             if not r["ok"]:
@@ -4954,8 +4960,8 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
         print(f"  a cluster of {len(s['members'])} islands, sunk together: "
               + ", ".join(f"({q[0]}, {q[1]})" for q in s["members"]))
     if s.get("fill") == "footprint":
-        print("  its coastal water runs on into its neighbours': the island alone goes, and every water tri round it "
-              "and every neighbour stays")
+        print(f"  the whole-tile sink cannot take it ({s.get('joined') or 'its water runs on past its coast'}): the "
+              f"island alone goes, and every water tri round it and every neighbour stays")
         print(f"  its footprint over {s['tiles']} 4u cells becomes water -- {s['cells_whole']} whole cells re-tiled "
               f"({bands(s['bands'])}), {s['cells_partial']} part-cells carrying on the water beside them "
               f"({s['fill_tris']} tris); {s['split_tris']} kept water tris split where a 4u line crosses the old "
@@ -4966,8 +4972,11 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
               f"weld(s), {s['keel_to_open']} near-shore tris turned open water")
     if s["shore_tris"]:
         print(f"  {s['shore_tris']} tris of the island's own beach water (sea1/sea2) go with it")
+    if s.get("building"):
+        print(f"  its building goes with it: {building(s['building'])} tris"
+              + (f"; the hole(s) it plugged ({s['plug_u2']} u2) become water too" if s.get("plug_tris") else ""))
     if s["entrance_tris"]:
-        print(f"  !! {s['entrance_tris']} entrance tris on the island"
+        print(f"  !! {s['entrance_tris']} entrance tris on the island" + (" and its building" if s.get("building") else "")
               + (": dropped (--allow-entrances), so that entrance never fires again" if args.allow_entrances else ""))
     for b, r in sorted(s["per_block"].items()):
         print(f"  block ({b}):")
@@ -10086,8 +10095,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "boat can sail there). Where its water joins a neighbour's (an island cluster), the "
                               "island alone goes and its footprint becomes water, the water round it and every "
                               "neighbour kept, as disc 4 kept Shimmering's islets; --cluster sinks them all instead. "
-                              "No building on it, no beach water shared with another coast, within 9 blocks. Replayed "
-                              "on disc 4. --list finds them.")
+                              "Its building (Object, waterfall, river) goes with it and the hole it plugged becomes "
+                              "water; its entrance needs --allow-entrances. No beach water shared with another coast, "
+                              "within 9 blocks. Replayed on disc 4. --list finds them.")
     wsk.add_argument("--mod-folder", default=None, help="the mod folder to deploy into")
     wsk.add_argument("--at", type=float, nargs=2, metavar=("WX", "WZ"), default=None,
                      help="a point on the island's land (world x z)")
