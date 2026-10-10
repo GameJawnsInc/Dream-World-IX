@@ -362,6 +362,45 @@ def test_battle_installs_reinit_in_built_eb(tmp_path):
     assert again == plain
 
 
+def test_battle_return_reopens_the_hud(tmp_path):
+    """THE AFTER-BATTLE HUD LAW (sims rung 5, in-game): a battle destroys the field's windows and the return
+    runs Main_Reinit, not Main_Init -- the strip's `shown` latch (cleared only by Main_Init) stayed set and the
+    HUD never came back. The install prepends the latch clear to entry-0 tag-10."""
+    import tomllib
+    from ff9mapkit import build as BLD
+    from ff9mapkit.eb.model import EbScript
+    base = (
+        '[field]\nid = 30002\nname = "BHW"\narea = 11\n'
+        "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+        '\n[[npc]]\nname = "gate"\npreset = "vivi"\npos = [0, -300]\ndialogue = "Hold!"\n'
+        '\n[behavior]\nwarmup = 30\ncounters = ["n"]\n'
+        '\n[[behavior.unit]]\nnpc = "gate"\nhp = 3\n'
+        "\n[[behavior.unit.branch]]\n"
+        'when = [{ hp_le = 0 }]\ndo = { battle = 35 }\n'
+        "\n[[behavior.unit.branch]]\n"
+        "do = { hold = [0, -300] }\n"
+    )
+    hud = '\n[[behavior.hud]]\nwindow = 6\ntext = "[MPOS=10,48]N [NUMB=0]"\nvalues = ["n"]\n'
+    f = tmp_path / "bhw.field.toml"
+    def tag(text, t, txids):
+        f.write_text(text, encoding="utf-8")
+        plain = BLD.build_script(BLD.FieldProject.load(f), "us", {501: 501}, behavior_txids=txids)
+        fn = EbScript.from_bytes(plain).entry(0).func_by_tag(t)
+        return plain[fn.abs_start:fn.abs_end]
+
+    with_hud = tag(base + hud, 10, {("hud", 0): 600})
+    without = tag(base, 10, {})
+    # exactly ONE instruction prepended to an otherwise identical Main_Reinit...
+    assert with_hud.endswith(without) and len(with_hud) > len(without)
+    first = next(D.iter_code(with_hud, 0, len(with_hud)))
+    clear = with_hud[:first.end]
+    assert len(clear) == len(with_hud) - len(without), with_hud[:24].hex()
+    # ...and it is the strip's latch clear: the same instruction Main_Init's reset runs (~ Reload re-opens it)
+    assert clear in tag(base + hud, 0, {("hud", 0): 600})
+    # no strip -> no clear: the compiled reinit is empty
+    assert BT.build(tomllib.loads(base), npc_slots={"gate": 2}).compile().reinit == b""
+
+
 def test_fires_battle_raw_scan_matches_the_compile():
     """behaviortoml.fires_battle -- the RAW twin of FieldBehavior.has_battle_actions, which the build
     decides the after-battle handler from (the behavior compiles later) and the [deathrules] coverage
