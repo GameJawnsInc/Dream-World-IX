@@ -334,12 +334,14 @@ def test_the_floor_hud_source_refuses_non_units(value, msg):
     assert any("not a [[behavior.unit]] npc or 'player'" in p for p in BT.validate(r))
 
 
-def test_a_floor_source_is_refused_in_a_TEXT_slot_and_warns_when_too_narrow():
+def test_a_floor_source_cannot_reach_a_TEXT_slot_and_warns_when_too_narrow():
+    # a HUD strip refuses [TEXT=] outright (a constant tag never re-renders), which also closes the
+    # old floor-specific hole: the row-index clamp would have shown UNKNOWN (-1) as floor 0
     r = raw()
     r["behavior"]["hud"][0]["text"] = "[MPOS=8,8]P [TEXT=1,0] G [NUMB=1] H [NUMB=2]"
-    with pytest.raises(B.BehaviorError, match=r"turn UNKNOWN \(-1\) into row 0"):
+    with pytest.raises(B.BehaviorError, match=r"strip never updates"):
         BT.dry_compile(r, floors=FLOORS)
-    assert any("turn UNKNOWN (-1) into row 0" in p for p in BT.validate(r))
+    assert any("strip never updates" in p for p in BT.validate(r))
     r2 = raw()
     r2["behavior"]["hud"][0]["digits"] = [1, 2, 2]
     assert any("can show -1" in w for w in BT.hud_digits_warnings(r2))

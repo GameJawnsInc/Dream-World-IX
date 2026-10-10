@@ -2099,32 +2099,16 @@ def validate(raw: dict, *, verbatim: bool = False) -> list:
                     problems.append(f"{ctx}: value {v!r} is not a counter, "
                                     f"'gil', 'timer', 'hp:<unit>', 'item:<item>', "
                                     f"'stream:<name>', 'floor:<unit|player>', or 'expr:<RPN tokens>'")
-            try:
-                _tslots = B.hud_text_table_slots(txt)
-            except B.BehaviorError:
-                _tslots = set()              # an unresolvable [TEXT=] slot: reported by the check below
-            for _ts in sorted(_tslots):
-                if _ts < len(vals) and str(vals[_ts]).startswith("floor:"):
-                    problems.append(f"{ctx}: {B.hud_floor_text_refusal(_ts, str(vals[_ts]))}")
             for mnum in _re2.finditer(r"\[NUMB=(\d+)", txt):
                 if int(mnum.group(1)) >= len(vals):
                     problems.append(f"{ctx}: [NUMB={mnum.group(1)}] has no value "
                                     f"(only {len(vals)} given)")
-            # [TEXT=…] reads gMesValue[slot] as a table ROW INDEX and ETb.GetStringFromTable
-            # (ETb.cs:270-284) has no lower bound. The CLAMP is no longer an author duty — the
-            # emitter wraps the row (behavior.hud_row_index_clamp) — so what lint still owes is
-            # parity on the two things that remain authoring errors: a slot with no value, and a
-            # slot parameter whose value is not statically knowable (which would leave the
-            # emitter unable to promise the clamp).
-            try:
-                tslots = sorted(B.hud_text_table_slots(txt))
-            except Exception as e:
-                problems.append(f"{ctx}: {e}")
-                tslots = []
-            for tslot in tslots:
-                if tslot >= len(vals):
-                    problems.append(f"{ctx}: [TEXT=…,{tslot}] has no value "
-                                    f"(only {len(vals)} given)")
+            # [TEXT=…] is a CONSTANT tag — substituted once when the strip opens (with the width
+            # sentinels), never re-rendered — so a HUD word can never update. Parity with hud():
+            # the same refusal text, refused here so `lint` / Check say so before a playtest does.
+            _trefusal = B.hud_text_tag_refusal(txt)
+            if _trefusal:
+                problems.append(f"{ctx}: {_trefusal}")
     # a behavior unit may not also be a cutscene cast actor (the conductor drives
     # actors at the same REQ level the dispatch bodies use)
     from . import cutscene as _cutscene
