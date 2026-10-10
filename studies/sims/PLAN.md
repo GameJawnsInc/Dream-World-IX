@@ -145,11 +145,12 @@ Findings the run taught (for the owner's feel verdict and for rung 2):
 - **The steward is still Zidane** (the design's moogle steward is not wired yet) -- a rung-2 dressing item.
 - The camera scrolls east with the steward; standing at the pot zone's east side puts him in front of the
   pot on screen. Place the pot zone so the steward stands beside, not in front of, the stove.
-- ⚠ **HARNESS DEFECT (not the bench): `choose_landed` credits a Confirm pressed while the choice window is
-  still OPENING** (menu group `''`, not yet `Dialog.Choice`): the game drops it, and the first read fails
-  `_choice_ready`, which it scores as "left" = landed. Proven in run 3's ring (menu up 2128 at group '',
-  Confirm ~2130, group `Dialog.Choice` from 2136 with the flag still clear). `rung1_meal.py` waits for the
-  group before picking; the driver fix is spun off separately.
+- **HARNESS DEFECT, FIXED (not the bench): `choose_landed` credited a Confirm pressed while the choice window
+  was still OPENING** (menu group `''`, not yet `Dialog.Choice`): the game dropped it, and the first read failed
+  `_choice_ready`, which it scored as "left" = landed (run 3's ring: menu up 2128 at group '', Confirm ~2130,
+  `Dialog.Choice` from 2136 with the flag still clear). `select`/`choose_landed` now wait on `_choice_ready`
+  and `_pick`'s workaround is gone; re-proven live 27/27 (`.harness-runs/20261009-204122-rung1_meal`): all
+  three picks requested on the first `Dialog.Choice` read, the window closing two frames later.
 
 ## Bench
 
