@@ -7296,9 +7296,15 @@ class Session:
         the engine's own `SelectChoice` rather than counting keypresses: a cursor that wraps, starts
         somewhere unexpected, or refuses to move cannot then silently pick the wrong option, which
         for a story scenario is the difference between testing a branch and testing the other one.
+
+        ⚠ Waits for the window to be READY (:meth:`_choice_ready`), not merely published: in its opening the
+        choice block is up with the group '' and ``selected`` the POOLED window's stale cursor, a press moves
+        nothing, and on readiness the cursor jumps to the script's default. Steering then returned "already
+        there" on the stale cursor, and the caller's Confirm -- dropped in the opening, or landing after the
+        jump -- answered nothing or the default (sims rung 1, 30430: choose_landed read the dropped Confirm as
+        landed).
         """
-        st = self.wait_for(lambda s: s.choice is not None, timeout=timeout,
-                           what="a choice dialogue to be ready")
+        st = self.wait_for(self._choice_ready, timeout=timeout, what="a choice dialogue to be ready")
         count = int(st.choice.get("count", 0))
         if not 0 <= index < count:
             raise HarnessError(f"choice index {index} out of range (the dialogue offers {count})")
@@ -7345,8 +7351,13 @@ class Session:
         whether the Confirm landed). A ready window that does not take a Confirm is real: one in the frame between the
         group's activation and ``isChoiceReady`` commits SelectChoice and hides nothing (Dialog.cs:161-164, :787-789),
         and a prompt still TYPING takes the first Confirm as "finish the text" (:803-807) -- either way the second
-        Confirm answers, where a blind :meth:`choose` read the first as the answer."""
-        st = self.wait_for(lambda s: s.choice is not None, timeout=timeout, what="a choice dialogue to be ready")
+        Confirm answers, where a blind :meth:`choose` read the first as the answer.
+
+        ⚠ Nothing is pressed before the window is READY (:meth:`_choice_ready`, as :meth:`select` waits): an OPENING
+        window (choice block up, group '') drops a Confirm, and the first read after it -- still group '' -- is not
+        ready, so it read as "left": landed, with nothing answered (sims rung 1, 30430). The opening and the close are
+        one state to _choice_ready; only waiting for the group tells them apart."""
+        st = self.wait_for(self._choice_ready, timeout=timeout, what="a choice dialogue to be ready")
         ch = dict(st.choice)
         names = self.options(timeout=timeout)
         active = ch.get("active")
