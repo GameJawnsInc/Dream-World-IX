@@ -1,0 +1,45 @@
+# THE FIDGET AFTER A BATTLE -- the repro bench for studies/after-battle-clips/PLAN.md.
+# A plain novel field: the player, one NPC, an [encounter] (so the build installs the after-battle
+# Main_Reinit). The harness fires the battle itself; the player then stands still until the engine's
+# idle timer plays the player's inactive clip (SetInactiveAnimation -- Zidane's arms-crossed fidget).
+# Deploy: py tools/deploy_field.py studies/after-battle-clips/fidget.field.toml --id 30470
+
+[field]
+id = 30470
+name = "FIDGET"
+area = 11
+title = "fidget bench"
+
+[camera]
+entry_settle = "auto"
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -1200]
+
+[[npc]]
+name = "vivi"
+model = "GEO_MAIN_F0_VIV"
+pos = [-500, -700]
+dialogue = "...Is it over?"
+
+[encounter]
+scene = 67                 # Evil Forest / Trail: a lone Goblin a New Game party can beat
+freq = 0                   # never random -- the harness starts the battle
+battle_music = 0

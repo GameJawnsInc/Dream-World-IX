@@ -105,6 +105,8 @@ for _dl in _lost:   # belt-and-suspenders: a foreign line this revert shouldn't 
 shutil.rmtree(live.fieldmap_dir({fbg!r}), ignore_errors=True)
 mc=live.mapconfig_path({evt_name!r})
 if mc.exists(): mc.unlink()
+ea=live.eventanimation_path({evt_name!r})
+if ea.exists(): ea.unlink()
 for L in LANGS:
     p=live.eb_path(L,{eb_stem!r})
     if p.exists(): p.unlink()

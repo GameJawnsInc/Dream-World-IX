@@ -247,6 +247,10 @@ mc_src = tl.mapconfig_path(f"EVT_{name}")              # native fork: the 3D-mod
 if mc_src.exists():
     live.mapconfig_path(f"EVT_{name}").parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(mc_src, live.mapconfig_path(f"EVT_{name}"))
+ea_src = tl.eventanimation_path(f"EVT_{name}")         # the clip list a battle return re-adds (ff9mapkit.eventanim)
+if ea_src.exists():
+    live.eventanimation_path(f"EVT_{name}").parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ea_src, live.eventanimation_path(f"EVT_{name}"))
 # The languages whose .mes this deploy WRITES -- the text-block guard below reads this, not the textid: a
 # field that ships no .mes (an --editable fork without --carry-text) only READS its block.
 mes_written = []
