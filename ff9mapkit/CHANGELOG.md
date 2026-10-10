@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — clips lost on a battle return (a frame-smoother exception burst)
+- Every field build now ships the field's EventAnimation clip list (`EVT_<name>.txt`, the file every stock field
+  has). A battle return rebuilds every model and puts back only that list plus the five locomotion slots. Without
+  the list, the player's idle fidget (`SetInactiveAnimation`) was gone, and the first time the idle timer played it
+  Memoria's `SmoothFrameUpdater_Field.RegisterState` threw a NullReferenceException every frame until the clip
+  ended. The list is derived from the field's own compiled script and only names clips the engine can load. The
+  repro bench: `studies/after-battle-clips/` (260 exceptions without the list, 0 with it, across 3 runs).
+
 ### Added — sink an island into open water (`world-sink`)
 - `world-sink --mod-folder F --at WX WZ` turns a whole real island into open water, in place, the way disc 4
   removes Shimmering Island: the island's land goes, every 4u tile it touched (with the coast-conforming water round

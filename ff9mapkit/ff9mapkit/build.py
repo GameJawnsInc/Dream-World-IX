@@ -75,6 +75,7 @@ from . import blockmodel as _blockmodel          # THE model/anims precedence, s
 from . import prop_archetypes as _prop_archetypes
 from ._held_poses import HELD_POSES                  # (carrier_model, prop_model) -> (bone, held_pose)
 from . import catalog as _catalog
+from . import eventanim as _eventanim
 from . import flags as _flags
 from . import items as _items
 from . import itemstats as _itemstats
@@ -10246,6 +10247,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         warnings.append(f"[[coop]] on {project.name} was NOT applied -- co-op gates are synthesize-path "
                         "only for now (a verbatim fork keeps the donor's whole script). Author the gate "
                         "on a non-verbatim field, or ask for the verbatim seating rung.")
+    _shipped_ebs = []
     for lang in langs:
         if verbatim_by_lang:
             comp = verbatim_by_lang[lang]
@@ -10282,6 +10284,15 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                 suffix = _textcarry.carried_mes_body(carry_plan, lang)
         layout.eb_path(lang, f"EVT_{project.name}.eb.bytes").write_bytes(eb)
         mes_parts[lang] = (base, inplace, suffix)
+        _shipped_ebs.append(eb)
+    # the field's EventAnimation clip list (eventanim): a battle return rebuilds every model and re-adds only
+    # this list + the five locomotion slots -- without it the player's inactive fidget (and any other clip
+    # outside the slots) is gone, and the first frame it plays throws in Memoria's frame smoother.
+    _evanim = _eventanim.event_animation_text(_shipped_ebs)
+    if _evanim is not None:
+        _ea = layout.eventanimation_path(f"EVT_{project.name}")
+        _ea.parent.mkdir(parents=True, exist_ok=True)
+        _ea.write_text(_evanim, encoding="utf-8", newline="\n")      # no BOM: the parser tests StartsWith
 
     bg_mapid = borrow_bg if borrow_bg else project.name
     dict_line = f"FieldScene {project.id} {project.area} {bg_mapid} {project.name} {project.text_block}"

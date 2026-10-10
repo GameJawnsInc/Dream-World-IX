@@ -418,6 +418,13 @@ class ModLayout:
         return (self.root / "StreamingAssets" / "assets" / "resources" / "commonasset"
                 / "mapconfigdata" / f"{evt_name}.bytes")
 
+    def eventanimation_path(self, evt_name: str) -> Path:
+        """``<root>/.../commonasset/eventengine/eventanimation/<evt_name>.txt.bytes`` -- the field's clip list,
+        loaded at field setup by the SAME event name as the ``.eb`` (``AnimationFactory.LoadAnimationUseInEvent``)
+        and re-added to every model the field (re)creates -- see :mod:`ff9mapkit.eventanim`. Not per-language."""
+        return (self.root / "StreamingAssets" / "assets" / "resources" / "commonasset"
+                / "eventengine" / "eventanimation" / f"{evt_name}.txt.bytes")
+
     def ability_name_mes(self, lang: str) -> Path:
         """``<root>/FF9_Data/embeddedasset/text/<lang>/ability/aa_name.mes`` -- the ACTIVE-ability NAME overlay
         (the sibling of :meth:`command_name_mes`; the engine reads ``EmbeddedAsset/Text/<Symbol>/Ability/aa_name.mes``
