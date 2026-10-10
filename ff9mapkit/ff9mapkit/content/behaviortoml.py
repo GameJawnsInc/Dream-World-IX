@@ -116,7 +116,7 @@ ACTION_VERBS = {
     "swing_at": ("damage", "interval", "anim", "hit_sfx"),
     "engage": ("radius", "contact", "damage", "interval", "speed", "nearest",
                "anim", "hit_sfx"),
-    "hold_ground": (),
+    "hold_ground": ("anim", "freeze"),
     "die": ("anim", "linger"),
     "battle": (),
     "award": ("item", "count"),
@@ -1282,7 +1282,7 @@ def _branch_adjusts(fb: B.FieldBehavior, br: dict, ctx: str) -> tuple:
 
 
 def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_txid,
-                  ctx: str, routed_points=None, model=None):
+                  ctx: str, routed_points=None, model=None, rest=None):
     verb = _one_verb(d, ACTION_VERBS, ctx)
     v = d[verb]
     spd = d.get("speed")
@@ -1334,7 +1334,18 @@ def _build_action(fb: B.FieldBehavior, d: dict, *, positions, mpaths, txid, npc_
         if v is not True:
             raise BehaviorTomlError(f"{ctx}: hold_ground takes `true` (stand and "
                                     f"idle while the branch holds — the pin)")
-        return B.HoldGround()
+        if d.get("anim") is None:
+            if d.get("freeze") is not None:
+                raise BehaviorTomlError(f"{ctx}: freeze needs an anim (it freezes the pose's last frame)")
+            return B.HoldGround()
+        if d.get("freeze") is not None and not isinstance(d.get("freeze"), bool):
+            raise BehaviorTomlError(f"{ctx}: freeze takes true/false")
+        if rest is None:
+            raise BehaviorTomlError(f"{ctx}: hold_ground anim needs the unit's own stand/walk clips to "
+                                    f"restore on deselect, and this npc resolves none (give the [[npc]] "
+                                    f"explicit anims)")
+        return B.HoldGround(anim=resolve_gesture(d["anim"], model, ctx), freeze=bool(d.get("freeze", False)),
+                            rest=rest)
     if verb == "die":
         # die = true, or die = "kills" (bump that counter once — the body runs
         # exactly once, the entry terminates); + THE DEATH BEAT (anim, linger)
@@ -1522,6 +1533,19 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                          if n.get("name") == m), None) for m in members]
         umodel = mmodels[0] if len(set(mmodels)) == 1 else None
         mixed_models = len(set(mmodels)) > 1
+        # the clips a POSE restores on deselect: the NPC's own stand/walk, by the build's one resolver
+        # (blockmodel.resolve_block_model -- explicit anims win, else the Info Hub join), never a guess
+        urest = None
+        if not mixed_models:
+            row0 = next((n for n in raw.get("npc", []) or [] if n.get("name") == members[0]), None)
+            if row0 is not None:
+                try:
+                    from .. import blockmodel as _bm
+                    _an = _bm.resolve_block_model(row0).anims or {}
+                    if _an.get("stand") is not None and _an.get("walk") is not None:
+                        urest = (int(_an["stand"]), int(_an["walk"]))
+                except Exception:                # an unresolvable model: anim poses refuse below
+                    urest = None
         branches = []
         for bi, br in enumerate(u.get("branch", []) or []):
             ctx = f"[[behavior.unit]] {_row_label(u)!r} branch #{bi}"
@@ -1593,7 +1617,7 @@ def build(raw: dict, *, npc_slots: dict, npc_txids_by_name: dict | None = None,
                                    txid=behavior_txids.get((ui, bi)),
                                    npc_txid=npc_txid, ctx=ctx,
                                    routed_points=(rp["points"] if rp else None),
-                                   model=umodel)
+                                   model=umodel, rest=urest)
             do_node = B.Do(action, raise_flags=tuple(br.get("raise_flags", []) or []),
                            clear_flags=tuple(br.get("clear_flags", []) or []),
                            adjust=_branch_adjusts(fb, br, ctx),

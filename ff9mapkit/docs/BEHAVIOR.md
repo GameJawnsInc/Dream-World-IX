@@ -319,6 +319,22 @@ bug*.
 Laws 3–5 are why the death beat emits `stand → walk → flags(1,0) → anim → wait`, in that
 order. A strike clip needs only the fire-and-forget half (it *should* return to idle).
 
+#### Posed holds — `hold_ground` + `anim`
+
+```toml
+do = { hold_ground = true, anim = "sleeping" }             # asleep while the branch holds
+do = { hold_ground = true, anim = "hiza_1", freeze = true } # collapsed, last frame held
+```
+
+A pose is a STATE the unit leaves, unlike a death. While the branch is selected the body
+installs the clip as stand **and** walk (law 4), sets `freeze` as freeze-at-end (law 5), and
+plays it; when the branch deselects it **clears the animation flags first** (the engine keeps
+`animFlag` on the actor after a clip ends — a leftover freeze would freeze the idle), puts back
+the NPC's own stand/walk clips (the ones the build installs, via `blockmodel.resolve_block_model`),
+and plays the stand so the unit gets up at once. The gesture resolves against the unit's own
+model (the own-clip law); an `[[npc]]` with no `model` (a `preset`) takes a raw clip id. In-game
+proven by `studies/sims/` rung 4 (asleep at the tent, the frozen faint, a normal walk afterwards).
+
 > **THE OWN-CLIP LAW, enforced at the call site:** `anim` takes a **gesture name** resolved
 > against *that unit's own model*, and a name the model doesn't own is a lint ERROR listing
 > what it does own. This matters because **field rigs are not battle rigs**: a field monster

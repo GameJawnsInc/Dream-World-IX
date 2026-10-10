@@ -961,6 +961,73 @@ def test_pick_toml_negatives():
                    "adjust", {"counter": "urgent", "by": 1, "clamp": [0, 3]})))
 
 
+
+POSE_RAW = {
+    "npc": [{"name": "bilba", "model": "GEO_MAIN_F0_VIV", "pos": [0, 0], "dialogue": "..."}],
+    "behavior": {
+        "public_flags": ["nap", "faint"],
+        "unit": [{"npc": "bilba", "branch": [
+            {"when": [{"flag": "faint"}], "do": {"hold_ground": True, "anim": "hiza_1", "freeze": True}},
+            {"when": [{"flag": "nap"}], "do": {"hold_ground": True, "anim": "sleeping"}},
+            {"do": {"hold": [0, 0]}}]}],
+    },
+}
+
+
+def _pose_bodies(raw):
+    cb = BT.build(raw, npc_slots={"bilba": 2}).compile()
+    _verify_all(cb)
+    return cb, [body for funcs in cb.action_funcs.values() for _t, body in funcs]
+
+
+def test_hold_ground_pose_installs_and_restores():
+    """THE POSE (sims rung 4): the clip goes in as stand AND walk (law 4), flags set (freeze -> law 5),
+    played; on deselect the flags clear FIRST (animFlag survives the clip), the NPC's own stand/walk come
+    back -- the clips the build itself installs -- and the stand plays so she gets up at once."""
+    from ff9mapkit import catalog, blockmodel
+    from ff9mapkit.eb import opcodes as O
+    assert BT.validate(POSE_RAW) == []
+    g = catalog.own_form_gestures("GEO_MAIN_F0_VIV")
+    rest = blockmodel.resolve_block_model(POSE_RAW["npc"][0]).anims
+    st, wk = rest["stand"], rest["walk"]
+    _cb, bodies = _pose_bodies(POSE_RAW)
+    blob = b"".join(bodies)
+    for clip, mode in ((g["hiza_1"], 1), (g["sleeping"], 0)):
+        pose = (O.encode(0x33, clip) + O.encode(0x34, clip) + O.encode(0x3F, mode, 0) + O.encode(0x40, clip))
+        assert pose in blob, (clip, mode)
+    undo = O.encode(0x3F, 0, 0) + O.encode(0x33, st) + O.encode(0x34, wk) + O.encode(0x40, st)
+    assert sum(b.count(undo) for b in bodies) == 2           # each pose undoes itself on the way out
+
+
+def test_hold_ground_without_anim_is_unchanged():
+    """A plain pin compiles exactly as before the pose existed (no setter, no restore)."""
+    import copy
+    from ff9mapkit.eb import opcodes as O
+    r = copy.deepcopy(POSE_RAW)
+    for br in r["behavior"]["unit"][0]["branch"][:2]:
+        br["do"] = {"hold_ground": True}
+    _cb, bodies = _pose_bodies(r)
+    blob = b"".join(bodies)
+    ops = {ins.op for b in bodies for ins in D.iter_code(b, 0, len(b))}
+    assert not ops & {0x33, 0x34, 0x3F, 0x40}, sorted(hex(o) for o in ops & {0x33, 0x34, 0x3F, 0x40})
+
+
+def test_hold_ground_pose_refusals():
+    import copy
+
+    def build(fn):
+        r = copy.deepcopy(POSE_RAW)
+        fn(r["behavior"]["unit"][0]["branch"][1]["do"])
+        return BT.build(r, npc_slots={"bilba": 2})
+
+    with pytest.raises(BT.BehaviorTomlError, match="owns no gesture"):
+        build(lambda d: d.update(anim="attack_cid_1"))      # the own-clip law
+    with pytest.raises(BT.BehaviorTomlError, match="freeze needs an anim"):
+        build(lambda d: (d.pop("anim"), d.update(freeze=True)))
+    with pytest.raises(BT.BehaviorTomlError, match="freeze takes true/false"):
+        build(lambda d: d.update(freeze="yes"))
+
+
 GROUP_RAW = {
     "npc": [
         {"name": "a0", "pos": [0, 0], "dialogue": "..."},

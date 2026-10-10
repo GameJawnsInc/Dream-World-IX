@@ -538,7 +538,30 @@ class HoldGround(Action):
     just idles while selected — THE PIN. A marcher gated on
     ``any_near(interceptors)`` stops mid-route while engaged instead of jogging
     away from its attackers (the condor round-1 feedback), and resumes its march
-    at the current waypoint when the branch deselects."""
+    at the current waypoint when the branch deselects.
+
+    THE POSE (``anim``, sims rung 4): hold a clip while selected -- sleeping at the tent, eating at the pot,
+    collapsed on the floor. The body installs the clip as the object's stand AND walk animation (field-
+    animation law 4: whatever the engine drives next drives the pose), with ``freeze`` = freeze at end (law 5:
+    a collapse holds its last frame instead of replaying), then plays it. A pose is a STATE the unit leaves,
+    unlike a death, so on deselect the body restores ``rest`` = the NPC's own (stand, walk) clips -- after
+    clearing the animation flags, which the engine keeps on the actor (``animFlag`` survives the clip; a
+    leftover freeze would freeze the idle) -- and plays the stand clip so she stands up at once."""
+    anim: int | None = None
+    freeze: bool = False
+    rest: tuple | None = None
+
+    def __post_init__(self):
+        if self.anim is None:
+            if self.freeze or self.rest is not None:
+                raise BehaviorError("HoldGround freeze/rest need an anim")
+            return
+        if not 0 <= int(self.anim) <= 0xFFFF:
+            raise BehaviorError("HoldGround anim must be 0..65535")
+        if (not isinstance(self.rest, tuple) or len(self.rest) != 2
+                or not all(isinstance(v, int) and 0 <= v <= 0xFFFF for v in self.rest)):
+            raise BehaviorError("HoldGround anim needs rest = (stand, walk) clip ids -- the pose must be "
+                                "undone when the branch deselects")
 
 
 @dataclass
@@ -4964,7 +4987,22 @@ class FieldBehavior:
                 opcodes.RETURN,
             ])
         if isinstance(a, HoldGround):
-            return asm(head + tail)                       # pure pin: idle while selected
+            if a.anim is None:
+                return asm(head + tail)                   # pure pin: idle while selected
+            # THE POSE: install (laws 4+5), hold while selected, then UNDO -- flags first (the engine keeps
+            # animFlag on the actor), the NPC's own stand/walk clips back, and its stand played now.
+            pose = [opcodes.encode(OP_SET_STAND_ANIM, int(a.anim)),
+                    opcodes.encode(OP_SET_WALK_ANIM, int(a.anim)),
+                    opcodes.encode(OP_SET_ANIM_FLAGS, ANIM_HOLD if a.freeze else 0, 0),
+                    opcodes.encode(OP_RUN_ANIMATION, int(a.anim))]
+            stand, walk = a.rest
+            undo = [opcodes.encode(OP_SET_ANIM_FLAGS, 0, 0),
+                    opcodes.encode(OP_SET_STAND_ANIM, stand),
+                    opcodes.encode(OP_SET_WALK_ANIM, walk),
+                    opcodes.encode(OP_RUN_ANIMATION, stand)]
+            return asm([head[0]] + pose + head[1:]
+                       + [label("wait"), opcodes.wait(1), (JMP, "loop"),
+                          label("out")] + undo + [set_run(0), opcodes.RETURN])
         if isinstance(a, (Award, ShopStock, ShopSynth)):
             if oneshot_latch is None:                     # unreachable (the map
                 raise BehaviorError(                      # refused it) — belt+braces

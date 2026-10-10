@@ -139,7 +139,7 @@ pos = [-900, -1900]
 [behavior]
 warmup = 30
 public_flags = ["go", "stub_draw"]
-counters = ["stub_ct", "stub_pick"]
+counters = ["stub_ct", "stub_pick", "stub_low"]
 
 # a roll stream + its edge-consumed roll + a seeded wander (do-option vocabulary is harvested from usage)
 [[behavior.stream]]
@@ -153,6 +153,13 @@ frames = 300
 [[behavior.table]]
 name = "stub_need"
 values = [80]
+
+# the pick lane: argmin of a table into a counter (its row keys are only probed when a row exists)
+[[behavior.pick]]
+name = "stub_lowest"
+table = "stub_need"
+into = "stub_low"
+mode = "min"
 
 # the numeric-write lane: a drift row + a branch `adjust` + walk_to (all three were
 # invisible to the harvest until used here -- do-verb vocabulary is usage-derived)
@@ -187,6 +194,7 @@ branch = [
   { when = [ { hp_le = 0 } ], do = { die = true } },
   { when = [ { flag = "go" }, { near_point = ["post", 250] } ], do = { announce_npc = "beast" }, once = "gloat" },
   { when = [ { flag = "go" } ], do = { march = "lane", arrive_r = 200 } },
+  { when = [ { counter_ge = ["stub_low", 1] } ], do = { hold_ground = true, anim = 2380, freeze = true } },   # a raw id: preset NPCs carry no model to resolve a name
   { when = [ { counter_le = ["stub_ct", 3] } ], do = { wander = [500, -1900], radius = 300, every = 90, speed = 30 }, adjust = { counter = "stub_ct", by = 1, clamp = [0, 10] } },
   { do = { wander = [500, -1900], radius = 300, every = 90, speed = 30 } },
 ]
