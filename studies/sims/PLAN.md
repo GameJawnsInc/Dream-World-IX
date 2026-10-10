@@ -78,7 +78,7 @@ One mechanism per playtest. Verdicts are the owner's; the gate suite is not an o
 | 2 | five needs, ~6 objects, priority-branch autonomy, the day clock, speed control | none (+1 kit refusal) | **★ MECHANISM PROVEN in-game by the harness (20/20)**; speed control NOT built; feel = owner — alive when you stop directing it? |
 | 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | NOT smarter for the Sims (priority list kept); the lane is in-game proven (23/23) and **KEPT in the kit** (owner: "if it is useful, keep it") |
 | 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `hold_ground` `anim`/`freeze` (posed holds) | **★ MECHANISM PROVEN in-game (13/13)**; words/gauge NOT built (HUD [TEXT=] is refused now); feel = owner — is failing funny? |
-| 5 | the visitor (GRN), relationships, conversations, the falling-out battle | none | does the social loop read? |
+| 5 | the visitor (GRN), relationships, conversations, the falling-out battle | none (+1 kit fix: the HUD after a battle) | **★ MECHANISM PROVEN in-game (20/21; the 1 = an intermittent engine NRE, spun off)**; feel = owner — does the social loop read? |
 | 6 | job, skills, gil, the moogle shop / buy mode | none | a reason to play a second day? |
 | 7 | productize — a `[household]` block (the `[siege]` pattern, LAST) | the block | — |
 
@@ -268,9 +268,48 @@ Open for the owner's feel verdict ("is failing funny?"):
 - not exercised live: the wake rule (she was not in bed when the all-nighter was ordered);
 - the readout upgrade (`[TBLE]` words, a gauge) is not built -- HUD `[TEXT=]` is now refused at build.
 
+## Rung 5 — ★ MECHANISM PROVEN IN-GAME (harness, 20/21); feel verdict = owner
+
+**Bench 30434 "MANOR5"** (`sims_bench2.py --variant rung5` = rung 4 + the visitor). Garnet (`GEO_MAIN_F0_GRN`)
+lives in the parlour. Bilba gains a sixth need, SOCIAL, filled by chatting with her (`chase` to her, then a posed
+hold beside her), and the pair carry a relationship REL (0..100, 50 = neutral, its own table):
+- **a good chat** (Bilba `laugh`, Garnet `talk_1_1`): social +2/9, REL +1/21;
+- **a QUARREL** when Bilba is CRANKY -- hunger or energy at/under 35, or kept up all night (`angry` vs Garnet's
+  `angry_1_1`): social -1/21, REL -1/7. Quarrels sit ABOVE the finish tier: a full social need does not end a fight;
+- **the falling-out** at REL 10: a REAL battle (`battle = 67`, a lone Goblin), once per visit; it ends the
+  conversation; afterwards Bilba is SORRY (`sad`, held) while REL climbs +3/9 back to 60;
+- Garnet sulks at REL <= 25 (walks to her corner, `sit_g_sad_1`) and tags along after Bilba at REL >= 80;
+- HUD (one strip, all 8 slots): six needs, the hour, REL. A steward menu in the parlour orders a chat.
+
+**Live (`rung5_social.py`, run 4: 20/21):** unprompted, social ran low and she sought Garnet out; Garnet stopped
+and held still (0u) while they talked; REL 51 -> 62; social filled and the chat ended. Kept up all night and
+sent to chat, it was a quarrel: REL 62 -> 12 over 91 samples (run 3 showed the pause while she fainted
+mid-quarrel, then the slide resumed); at 10 the BATTLE fired and the harness won it (1-2 turns); back on the
+field the conversation was over, REL had survived the battle (13: Main_Reinit does not re-seed tables), she stood
+sad and still (0u) while they made up, and sorry ended at 60. Frames: the chat and the quarrel read (facing each
+other; arms up in the quarrel). The 1 failure: 38 NullReferenceExceptions in Memoria's
+`SmoothFrameUpdater_Field.RegisterState` at the end of run 4 (none in run 3, 1 of ~199 archived runs) --
+spun off for a deterministic repro; the leading suspect is a posed hold live across the battle swirl.
+
+Findings:
+- ⚠ **KIT DEFECT FIXED: a HUD strip never came back after a battle.** A battle destroys the field's windows, and
+  the return runs Main_Reinit, not Main_Init -- the strip's `shown` latch (cleared only by Main_Init) stayed set.
+  The behavior install now prepends the latch clears to entry-0 tag-10 (`CompiledBehavior.reinit`); proven live
+  (the strip back, REL readable, after the fight). Test: one instruction prepended to an otherwise identical
+  Main_Reinit, the same one Main_Init's reset runs; red with the install disabled.
+- **A quarrel must not fill the need it is about** (run 1: a cranky chat raised social, which ended the chat at 95
+  before REL fell far). Fights now drain social and outrank "the need is met".
+- **`near` is a Chebyshev BOX**, not a circle: chats held at Chebyshev 309-313 while the straight-line gap read
+  324-428 -- an instrument measuring Euclidean distance saw no chat at all.
+- **Queued orders delay directives** (run 1: a meal ran before the ordered chat) -- the scenario now orders from
+  an idle moment; for a player that is the queue working as designed.
+
+Open for the owner: does the social loop READ (chat vs quarrel vs sulk); is a Goblin the right "falling-out";
+Garnet only visits in the sense of living there -- an arrival/departure through a door is not built.
+
 ## Bench
 
-**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2, 30432 = rung 3 pick, 30433 = rung 4) (30426-30499 is the free band; 30400-30425 is the standing
+**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2, 30432 = rung 3 pick, 30433 = rung 4, 30434 = rung 5) (30426-30499 is the free band; 30400-30425 is the standing
 behavior/minigame family; do NOT take 30600+ — WINSTYLE/lock/multiwindow live
 there even when absent from the live DictionaryPatch). Re-verify the live file
 before minting. Bench generator: `studies/sims/sims_bench.py` (pure product

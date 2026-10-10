@@ -1668,6 +1668,10 @@ class CompiledBehavior:
     sizes: dict | None = None        # the byte histogram (see size_report)
     brain_bodies: dict = _dc_field(default_factory=dict)  # brains mode: unit -> Seq body
     brain_locs: dict = _dc_field(default_factory=dict)    # owner -> instance bytes (varn)
+    # THE AFTER-BATTLE HUD LAW (sims rung 5, in-game): a battle destroys the field's windows, and the
+    # after-battle return runs Main_Reinit, not Main_Init -- so a HUD strip's `shown` latch (cleared only by
+    # Main_Init) stayed set and the strip never came back. install() prepends this to entry-0 tag-10.
+    reinit: bytes = b""
 
     def size_report(self) -> str:
         """THE BYTE HISTOGRAM — where the compiled bytes go, unit by unit, against
@@ -3977,6 +3981,7 @@ class FieldBehavior:
         # is exactly the flicker the first build showed. Dirty-mirror gating
         # stays: it keeps the writes (and the engine's re-parse) off the quiet
         # frames.
+        hud_shown: list = []
         for hi, h in enumerate(self._huds):
             if h.txid is None:
                 raise BehaviorError(
@@ -3985,6 +3990,7 @@ class FieldBehavior:
             shown = self.bb.flag(f"hud{hi}.shown")
             if shown not in self._reset_flags:            # ~ Reload re-opens it
                 self._reset_flags.append(shown)
+            hud_shown.append(shown)                       # ...and so does a battle return (CompiledBehavior.reinit)
             cd_blocks.append(label(f"__seg hud {hi}"))
             # THE OPEN PASS (once): feed each slot its max-width SENTINEL so
             # AutomaticSize bakes a strip wide enough for the widest value that
@@ -4171,6 +4177,7 @@ class FieldBehavior:
                    "main_init": len(main_init)},
             brain_bodies=brain_bodies,
             brain_locs={o: self._inst_next.get(o, 0) for o in brain_bodies},
+            reinit=asm([_set_flag(f, 0) for f in hud_shown]) if hud_shown else b"",
         )
 
     # ---------------- tree → ticker blocks
@@ -4809,6 +4816,10 @@ class FieldBehavior:
             out, pslot = _object.seat_entry(out, pentry)
             out = eb_edit.activate_block(out, opcodes.init_code(pslot, 0))
         out = eb_edit.insert_in_function(out, 0, 0, 0, cb.main_init)
+        if cb.reinit and EbScript.from_bytes(out).entry(0).func_by_tag(10) is not None:
+            # a battle return re-opens the HUD strips (CompiledBehavior.reinit); a field with no after-battle
+            # handler has no battle return to survive, and stays byte-identical
+            out = eb_edit.insert_in_function(out, 0, 10, 0, cb.reinit)
         if cb.brain_bodies:
             occupied = {e.index for e in EbScript.from_bytes(out).entries if e.size > 0}
             check_64_stride(occupied, self.units.values())
