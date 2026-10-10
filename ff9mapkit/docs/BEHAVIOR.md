@@ -1004,7 +1004,7 @@ roster cell for a group member), `"item:<item>"` (the live held count of an
 item, name or id — watch contracts tick down as an item pool converts them), or
 `"stream:<name>"` (a [roll stream](#roll-streams--seeded-randomness-you-can-predict)'s
 raw state, read-only), or `"floor:<who>"` (the player's or a unit's [walkmesh
-floor](#floors--on_floor--same_floor--other_floor), `-1` = unknown; not in a `[TEXT=]` slot).
+floor](#floors--on_floor--same_floor--other_floor), `-1` = unknown).
 Slots are written every pass; the engine itself re-renders only when a number
 actually changed.
 
@@ -1035,6 +1035,17 @@ Three engine facts shape the emitted code, each learned from a playtest:
   `SetTextVariable`'s **u16** value operand, so it saturates at 65535 — five
   characters. `6` and `7` are still accepted (existing fields keep building) but
   behave exactly as `5`, and `behavior lint` says so.
+- **A strip shows numbers, never words — `[TEXT=]` is refused.** `[TEXT=bank,slot]`
+  (a [`[[text_table]]`](FORMAT.md) row) is a *constant* tag: the engine substitutes
+  it once, when the window opens, and snapshots the result; only the *variable*
+  tags (`[NUMB]`, `[ITEM]`) re-render on a value change. Since the strip opens
+  once with the width sentinel in every slot, a `[TEXT=]` word would freeze on an
+  out-of-range row and render blank for the rest of the visit (seen in game:
+  `DAY [NUMB=5] [NUMB=6]:00 [TEXT=…]` showed `DAY 1  8:00 ` while both numbers
+  ticked). Re-issuing the window on each change would make it live, but that is the
+  flicker the open-once rule exists to avoid, so `hud()` and `lint` refuse the tag
+  in any spelling. Show the value with `[NUMB=]`, or put the word on a `[[choice]]`
+  page, which publishes its `values` *before* its window opens.
 
 Authoring notes: place with `[MPOS=x,y]` — the PSX-ish 320×224 UI grid (stock
 pins its save menu at `20,16`), and **the countdown timer owns the top-left

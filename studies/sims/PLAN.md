@@ -97,6 +97,10 @@ Standing rung-1 notes:
   **F9 first** (the turbo latch) before suspecting the mod.
 - Layout: `tools/field_layout_probe.py` PNGs BEFORE any coordinate; ≥192u actor
   spacing; `route = "auto"` on marches; run `behavior lint` on the bench.
+- ⚠ Rung 4's `[TBLE]`-words readout CANNOT ride the HUD strip: `[TEXT=]` is a constant tag
+  (substituted once at window open, never re-rendered), so rung 2's `[TEXT=507,7]` daypart
+  rendered blank all run. `hud()`/lint now REFUSE it. Words need a re-issued window (flicker),
+  a `[[choice]]` page, or numbers (`[NUMB=]`) — decide at rung 4.
 - Furniture placement position is OUT OF SCOPE (needs a cursor + live walkmesh
   rebuild); bought objects appear at designated slots.
 

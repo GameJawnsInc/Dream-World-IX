@@ -869,10 +869,12 @@ PERSIST_CHECK_FLOOR = 1 << 24                          # words sit in [2^24, 2^2
 #       rendered frame. B_LMAX/B_LMIN are NOT clamps (they are party-member argmax/argmin
 #       selectors, EventEngine.OperatorExtract.cs:80-154); the composable idiom is
 #       multiply-by-predicate, `E E const(0) B_GE B_MULT`.
-#       THE AUTHOR DOES NOT WRITE IT AND IS NOT GRADED ON IT. compile() WRAPS the row itself
-#       (:func:`hud_row_index_clamp`), so an unclamped publish is UNREPRESENTABLE rather than
-#       merely rejected. The syntactic tail-match this replaced certified a single-E spelling
-#       as safe — which both defeats the clamp AND underflows the CalcStack.
+#       THE AUTHOR DOES NOT WRITE IT AND IS NOT GRADED ON IT. Every lane that publishes a row
+#       WRAPS it itself (:func:`hud_row_index_clamp` — content.choice, journalfield), so an
+#       unclamped publish is UNREPRESENTABLE rather than merely rejected. The syntactic
+#       tail-match this replaced certified a single-E spelling as safe — which both defeats the
+#       clamp AND underflows the CalcStack. ⚠ The HUD strip itself is NOT such a lane: it
+#       REFUSES [TEXT=] outright (:func:`hud_text_tag_refusal` — a constant tag, frozen at open).
 #   (3) …and, since the encoder never checked it, the stream must actually BALANCE:
 #       :func:`eb.exprsem.analyze` walks it with each operator's true arity.
 HUD_EXPR_PREFIX = "expr:"
@@ -909,12 +911,27 @@ def hud_row_index_clamp(ref: str) -> str:
     return f"{ref} {ref} " + " ".join(HUD_EXPR_CLAMP_TAIL)
 
 
-def hud_floor_text_refusal(slot: int, value: str) -> str:
-    """One text for the compiler and the TOML validate: a ``floor:`` source in a slot a ``[TEXT=]`` tag reads.
-    The row-index clamp (:func:`hud_row_index_clamp`) maps a negative to row 0, so UNKNOWN (-1) would render
-    as floor 0 -- a lie the strip cannot show it is telling."""
-    return (f"hud: slot {slot} ({value!r}) is read by a [TEXT=] tag — the row-index clamp would turn UNKNOWN "
-            f"(-1) into row 0 = floor 0; show floors with [NUMB=]")
+def hud_text_tag_refusal(text: str):
+    """One text for the compiler and the TOML validate: a ``[TEXT=]`` tag (any spelling) in a HUD strip.
+    Returns the refusal, or None when the strip carries no such tag.
+
+    A HUD's ``[TEXT=]`` CAN NEVER UPDATE. ``Text`` is a CONSTANT replace tag
+    (``FFIXTextTag.ConstantTextReplaceTags``): ``TextParser.Parse`` substitutes it in
+    ``DialogBoxSymbols.ParseInitialAndConstantTextTags`` BEFORE it snapshots ``VariableText = ParsedText``
+    (TextParser.cs:66-75), and ``Dialog.UpdateMessageValue`` -> ``ResetBeforeVariableTags`` restores that
+    snapshot, so only the VARIABLE tags (``[NUMB]``, ``[ITEM]``) re-render. The strip opens ONCE, with the
+    width sentinel in every slot, so the word freezes on the sentinel row -- out of range, ``String.Empty``.
+    Proven in game (sims bench 30431): ``DAY [NUMB=5] [NUMB=6]:00 [TEXT=507,7]`` rendered ``DAY 1  8:00 ``
+    for the whole run while every [NUMB] ticked. A ``[[choice]]`` page is unaffected: its values are
+    published BEFORE its window opens (content.choice), which is where a table word belongs."""
+    m = _RE_TEXT_TAG.search(str(text))
+    if m is None:
+        return None
+    return (f"hud: {m.group(0)!r} — a [TEXT=] tag in a [[behavior.hud]] strip never updates. The engine "
+            f"substitutes [TEXT=] ONCE, when the window opens (a constant tag; only [NUMB=]/[ITEM=] "
+            f"re-render live), and the strip opens once with width sentinels in every slot, so the word "
+            f"is frozen on an out-of-range row and renders blank. Show the value with [NUMB=], or put the "
+            f"word on a [[choice]] page (its values are published before the window opens).")
 
 
 def hud_expr_tokens(src: str, *, label: str = HUD_VALUE_LABEL) -> str:
@@ -2639,16 +2656,11 @@ class FieldBehavior:
             if slot >= len(values):
                 raise BehaviorError(f"hud: [NUMB={slot}] has no value "
                                     f"(only {len(values)} given)")
-        # A slot a [TEXT=…] tag reads is a table ROW INDEX with no engine-side lower bound
-        # (ETb.cs:270-284). The CLAMP is not checked here — compile() WRAPS the row itself
-        # (hud_row_index_clamp), so an unclamped publish cannot be expressed. What is still
-        # a real authoring error is naming a slot that has no value at all.
-        for slot in sorted(hud_text_table_slots(text)):
-            if slot >= len(values):
-                raise BehaviorError(f"hud: [TEXT=…,{slot}] has no value "
-                                    f"(only {len(values)} given)")
-            if values[slot].startswith("floor:"):
-                raise BehaviorError(hud_floor_text_refusal(slot, values[slot]))
+        # [TEXT=] is a CONSTANT tag: substituted once when the strip opens (with sentinels), never
+        # re-rendered — so it is refused outright, not clamped (hud_text_tag_refusal says why).
+        refusal = hud_text_tag_refusal(text)
+        if refusal:
+            raise BehaviorError(refusal)
         if not 0 <= int(window) <= 7:
             raise BehaviorError("hud: window must be 0..7 (Dialog.WindowID)")
         if any(h.window == int(window) for h in self._huds):
@@ -3895,15 +3907,9 @@ class FieldBehavior:
             # No dirty mirrors: the ENGINE already re-renders only when a value
             # actually changed (HasMessageValueChanged), a gMesValue write is a
             # bare array store, and a mirror would cap a gil readout at Int16.
-            # THE ROW-INDEX AUTO-WRAP. Any slot a [TEXT=…] tag reads is a table row index
-            # with no engine-side lower bound, so the emitter clamps it here rather than
-            # asking the author to spell the clamp and then grading the spelling. This is
-            # what makes an unclamped publish UNREPRESENTABLE instead of merely refused.
-            clamp_slots = hud_text_table_slots(h.text)
+            # (No row-index clamp here: hud() refuses [TEXT=] outright — hud_text_tag_refusal.)
             for i, v in enumerate(h.values):
                 ref = self._hud_ref(v)
-                if i in clamp_slots:
-                    ref = hud_row_index_clamp(ref)
                 # the EXPRESSION-VALUED SetTextVariable (66 02 <slot> <tokens> 7F) —
                 # named at eb/opcodes.py; the immediate form above caps at Int16, this
                 # one does not (but a COMPUTED value is 26-bit, opcodes.EXPR_VALUE_MAX).
