@@ -2268,7 +2268,7 @@ rows = ["H", "G", "F", "E", "D", "C", "B", "A", "S"]
 ```
 
 ```toml
-# ...and anywhere a line is authored (npc dialogue, an event message, a choice reply, a hud strip):
+# ...and anywhere a line is authored (npc dialogue, an event message, a choice reply):
 reply = """Treasure Hunter rank  [TEXT=th_rank,2]"""
 values = ["expr:...", "expr:...", "expr:<the row index 0..8>"]   # slot 2 = the index
 ```
@@ -2289,9 +2289,16 @@ A numeric bank still works and is left alone (`[TEXT=0,0]` is the Mognet roster 
 that already emitted a raw tag changes.
 
 **Publishing the index.** The slot is an ordinary `gMesValue` slot — fill it from a `[[choice]]`
-option's `values` list or a `[[behavior.hud]]` strip, exactly like a `[NUMB=]` slot. The kit wraps a
-non-negative clamp around any slot a `[TEXT=]` tag reads: the engine bounds the *upper* row but not
-the lower one, and a negative index throws once per rendered frame.
+option's `values` list, exactly like a `[NUMB=]` slot. The kit wraps a non-negative clamp around any
+slot a `[TEXT=]` tag reads: the engine bounds the *upper* row but not the lower one, and a negative
+index throws once per rendered frame.
+
+⚠ **The word is read once, when its window opens.** `[TEXT=]` is a *constant* tag — the engine
+substitutes it at open and never re-renders it (only `[NUMB=]`/`[ITEM=]` update live). That is fine
+for a choice page, whose values are published before it opens, but it means a word can never *tick*:
+a `[[behavior.hud]]` strip (opened once, with placeholder values) would show it blank forever, so the
+kit refuses `[TEXT=]` in a HUD strip — show that value with `[NUMB=]` instead
+([BEHAVIOR.md § HUD strips](BEHAVIOR.md#hud-strips--behaviorhud-the-live-counter-substrate)).
 
 ⚠ Do **not** put `[WDTH=]` on an entry that carries a `[TEXT=]` — the engine's width pass has a
 second, divergent decode of the tag behind that path.

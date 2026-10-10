@@ -8,7 +8,9 @@ WHAT THE ENGINE DOES, end to end (every step transcribed from the open-source Me
   2. ``GetStringFromTable`` bounds the SLOT (``index < 8u``) and the ROW
      (``tableIndex < tableText.Length``) but has **no lower bound** -- a negative ``gMesValue[slot]``
      indexes ``tableText[-n]`` and throws, which is why every emitter that publishes into a
-     ``[TEXT=]`` slot wraps :func:`content.behavior.hud_row_index_clamp` around the expression;
+     ``[TEXT=]`` slot wraps :func:`content.behavior.hud_row_index_clamp` around the expression.
+     ⚠ ``[TEXT=]`` is a CONSTANT tag -- substituted once when its window opens, never re-rendered --
+     so a ``[[behavior.hud]]`` strip REFUSES it (:func:`content.behavior.hud_text_tag_refusal`);
   3. the BANK is a **TXID in this field's own ``.mes``** -- ``FF9TextTool.GetTableText(index)`` looks
      ``index`` up in ``DisplayBatch.fieldText`` and hands the raw entry to
      ``DialogBoxSymbols.ParseTextSplitTags`` (FF9TextTool.cs:650-659);

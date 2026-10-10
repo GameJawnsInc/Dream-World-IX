@@ -15,11 +15,12 @@ every tick and a rule in a docstring is a wish:
     ``eb/exprsem.py``, never by name pattern;
   * the RPN must actually BALANCE -- ``exprasm.assemble`` is a byte encoder and checks no
     arity at all, so until ``exprsem.analyze`` existed a malformed expression shipped;
-  * a value published into a slot a ``[TEXT=...]`` tag reads must be clamped non-negative --
-    ``ETb.GetStringFromTable`` (ETb.cs:270-284) bounds the slot and the UPPER row but has NO
-    lower bound, and a hud row re-parses every RENDERED frame, so a negative is per-frame
-    ``IndexOutOfRangeException`` spam. THE EMITTER WRAPS IT (``hud_row_index_clamp``); the
-    author is not asked to spell the clamp and then graded on the spelling.
+  * a ``[TEXT=...]`` tag (any spelling) is REFUSED in a strip. It is a CONSTANT tag: the engine
+    substitutes it once when the window opens and never re-renders it (only [NUMB]/[ITEM] are
+    variable), and the strip opens once with width sentinels, so the word is frozen on an
+    out-of-range row and renders blank -- proven in game on the sims bench (30431). The
+    ``[TEXT=]`` slot DECODER and the row-index clamp still serve the [[choice]] lane, whose
+    values are published before its window opens (tests/test_choice_values.py).
 
 The compile test at the bottom needs NO templates (verified: ``FieldBehavior.compile()``
 is pure logic) -- it does not skip.
@@ -169,7 +170,7 @@ def test_hud_expr_rejects_an_unbalanced_stream(expr, match):
         B.hud_expr_tokens(expr)
 
 
-# ---------------------------------------------------------------------- the clamp
+# ------------------------------------------- the [TEXT=] decoder (the choice lane's clamp)
 def test_hud_text_table_slots_finds_the_row_indices():
     assert B.hud_text_table_slots("a [TEXT=1,6] b") == {6}
     assert B.hud_text_table_slots("[TEXT=0,2][NUMB=3][TEXT=1,7]") == {2, 7}
@@ -205,41 +206,40 @@ def test_a_slot_parameter_that_is_not_statically_knowable_is_refused(text):
         B.hud_text_table_slots(text)
 
 
-def test_a_TEXT_row_is_AUTO_CLAMPED_by_the_emitter():
-    """FINDING 1, THE FIX. The author writes the bare value; the EMITTER emits
-    ``E E const(0) B_GE B_MULT``. An unclamped publish is not rejected -- it is
-    unrepresentable."""
+# ------------------------------------------------------- [TEXT=] in a strip is REFUSED
+HUD_TEXT_REFUSAL = r"a \[TEXT=\] tag in a \[\[behavior.hud\]\] strip never updates"
+
+
+@pytest.mark.parametrize("text", [
+    "row [NUMB=0] -> [TEXT=1,0]",
+    "DAY [NUMB=0] [TEXT=507,0]",     # the sims-bench shape that rendered blank in game
+    "[NUMB=0] [TEXT]",               # every spelling the decoder accepts...
+    "[NUMB=0] {Text 1,0}",
+    "[NUMB=0] [text=1,0]",
+    "[NUMB=0] [TEXT=1,-2]",          # ...and one it cannot resolve: refused for the HUD reason
+])
+def test_a_TEXT_tag_in_a_hud_strip_is_REFUSED(text):
+    """THE SIMS-BENCH FINDING. [TEXT=] is a CONSTANT tag (FFIXTextTag.ConstantTextReplaceTags),
+    substituted before TextParser snapshots VariableText, so Dialog.UpdateMessageValue never
+    re-renders it; the strip opens once with sentinels, so the word renders blank for the whole
+    visit. Refused at the call site -- not clamped, not documented."""
     fb = _bare()
-    fb.hud("row [NUMB=0] -> [TEXT=1,0]", ["expr:Global.UInt16[0]"], txid=900)
-    body = fb.compile().ticker_body
-    want = exprasm.assemble("Global.UInt16[0] Global.UInt16[0] const(0) B_GE B_MULT B_EXPR_END")
-    assert bytes((0x66, 0x02, 0)) + want in body
+    with pytest.raises(B.BehaviorError, match=HUD_TEXT_REFUSAL):
+        fb.hud(text, ["gil"], txid=900)
 
 
-def test_a_named_source_feeding_a_TEXT_row_is_clamped_too():
-    """The old gate refused every non-``expr:`` source on a [TEXT=] slot ("only an
-    'expr:' source can carry the clamp"). Auto-wrapping makes that restriction pointless:
-    the emitter clamps whatever fragment the source resolves to."""
-    fb = _bare()
-    fb.hud("[NUMB=0] [TEXT=1,0]", ["gil"], txid=900)
-    body = fb.compile().ticker_body
-    want = exprasm.assemble("B_SYSVAR[6] B_SYSVAR[6] const(0) B_GE B_MULT B_EXPR_END")
-    assert bytes((0x66, 0x02, 0)) + want in body
-
-
-def test_a_non_TEXT_slot_is_NOT_clamped():
-    """The wrap is scoped to row-index slots -- a plain ``[NUMB=]`` readout keeps showing
-    negatives (a debt counter, a relative offset), which is the whole point of scoping it."""
+def test_a_hud_strip_publishes_its_values_UNCLAMPED():
+    """No row-index slot can exist in a strip any more, so no slot is wrapped -- a plain
+    ``[NUMB=]`` readout keeps showing negatives (a debt counter, a relative offset)."""
     fb = _bare()
     fb.hud("[NUMB=0]", ["expr:Global.Int24[187]"], txid=900)
     body = fb.compile().ticker_body
     assert bytes((0x66, 0x02, 0)) + exprasm.assemble("Global.Int24[187] B_EXPR_END") in body
 
 
-def test_TEXT_slot_out_of_range_is_refused():
-    fb = _bare()
-    with pytest.raises(B.BehaviorError, match=r"\[TEXT=…,3\] has no value"):
-        fb.hud("[NUMB=0] [TEXT=1,3]", ["expr:Null.SBit[5]"], txid=900)
+def test_hud_text_tag_refusal_is_None_without_a_TEXT_tag():
+    assert B.hud_text_tag_refusal(PROBE_TEXT) is None
+    assert B.hud_text_tag_refusal("[MPOS=8,8]GIL [NUMB=0] [ITEM=1]") is None
 
 
 # ------------------------------------------------------------- the [NUMB=] decoder
@@ -340,19 +340,15 @@ def test_validate_reports_a_bad_expr_source():
     assert any("ASSIGN through the expression" in p for p in problems), problems
 
 
-def test_validate_reports_an_out_of_range_TEXT_slot():
-    """Lint parity with the ``hud()`` gate -- ``ff9mapkit lint`` must catch it too. The
-    CLAMP is no longer lintable (nothing can express an unclamped publish); the slot-arity
-    check still is, and it now sees the SINGLE-PARAMETER spelling."""
+@pytest.mark.parametrize("tag", ["[TEXT=1,0]", "[TEXT=1,7]", "[TEXT=1,-2]", "{Text 1}"])
+def test_validate_REFUSES_a_TEXT_tag_in_a_hud_strip(tag):
+    """Lint parity with the ``hud()`` gate -- ``ff9mapkit lint`` must catch it too, with the
+    same text, and exactly once (no stale slot-arity / unresolvable-slot report beside it)."""
     raw = _probe_toml()
-    raw["behavior"]["hud"][0]["text"] = PROBE_TEXT + " -> [TEXT=1,7]"
-    assert any("[TEXT=…,7] has no value" in p for p in BT.validate(raw)), BT.validate(raw)
-
-
-def test_validate_reports_an_unresolvable_TEXT_slot():
-    raw = _probe_toml()
-    raw["behavior"]["hud"][0]["text"] = PROBE_TEXT + " -> [TEXT=1,-2]"
-    assert any("not statically knowable" in p for p in BT.validate(raw)), BT.validate(raw)
+    raw["behavior"]["hud"][0]["text"] = PROBE_TEXT + " -> " + tag
+    problems = BT.validate(raw)
+    assert len(problems) == 1, problems
+    assert "strip never updates" in problems[0] and tag in problems[0], problems
 
 
 def test_validate_reports_an_unbalanced_expr_source():
