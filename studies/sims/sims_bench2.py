@@ -47,8 +47,11 @@ def configure(variant: str = "priority", rates: str = "tuned") -> None:
     """Select the bench: the urge tier ("priority" = rung 2 at 30431, "pick" = rung 3 at 30432) and the rate set
     ("tuned" | "first"). Everything else -- layout, objects, clock, directives -- is shared, so an A/B differs in
     the urge tier alone. A non-tuned rate set writes its own toml and is for the offline stepper only."""
-    global VARIANT, RATESET, FIELD_ID, FIELD_NAME, BENCH_TOML, REPORT, DECAY_EVERY, USE, URGE_AT
+    global VARIANT, RATESET, FIELD_ID, FIELD_NAME, BENCH_TOML, REPORT, DECAY_EVERY, USE, URGE_AT, NAMES, \
+        NOSLEEP_EVERY
     VARIANT, RATESET = variant, rates
+    NAMES[:] = BASE_NAMES + (["social"] if variant == "rung5" else [])     # in place: importers hold the list
+    NOSLEEP_EVERY = 20 if variant == "rung5" else 5     # rung 5: slow enough to quarrel before the faint
     FIELD_ID, FIELD_NAME, stem = VARIANTS[variant]
     if rates != "tuned":
         stem += f"-{rates}"
@@ -72,16 +75,17 @@ NEEDS = [
     ("hygiene", "cask",        (950, -1050), (720, -1050),  (800, -1460, 1120, -1250)),
     ("fun",     "dagger_doll", (100, -150),  (100, -420),   (230, -360, 430, 40)),
 ]
-NAMES = [n[0] for n in NEEDS]
-SEED = {"hunger": 80, "thirst": 70, "energy": 75, "hygiene": 85, "fun": 60}
+BASE_NAMES = [n[0] for n in NEEDS]
+NAMES = list(BASE_NAMES)            # rung 5 appends "social" (configure)
+SEED = {"hunger": 80, "thirst": 70, "energy": 75, "hygiene": 85, "fun": 60, "social": 60}
 # Two rate sets. "first" was rung 2's first tuning: left alone 3 days, FUN HIT 0 and hunger 9 under the
 # priority list (fun is the last urge row, decays fastest, and drained during the long naps). "tuned" is the
 # fair rung-2 baseline. Rung 3 A/Bs the urge tier (priority list vs `pick`) on BOTH.
 RATES = {
-    "tuned": {"decay": {"hunger": 45, "thirst": 40, "energy": 55, "hygiene": 60, "fun": 45},   # ticks per -1
+    "tuned": {"decay": {"hunger": 45, "thirst": 40, "energy": 55, "hygiene": 60, "fun": 45, "social": 50},
               "use": {"hunger": (2, 8), "thirst": (3, 8), "energy": (1, 6), "hygiene": (2, 8), "fun": (2, 10)},
               "urge": 40},
-    "first": {"decay": {"hunger": 40, "thirst": 35, "energy": 55, "hygiene": 60, "fun": 30},
+    "first": {"decay": {"hunger": 40, "thirst": 35, "energy": 55, "hygiene": 60, "fun": 30, "social": 50},
               "use": {"hunger": (2, 8), "thirst": (3, 8), "energy": (1, 10), "hygiene": (2, 8), "fun": (2, 10)},
               "urge": 35},
 }
@@ -89,7 +93,8 @@ RATES = {
 # need at/under the line wins. "pick": a [[behavior.pick]] publishes the index of the LOWEST need every pass,
 # and only that need's urge row can fire -- serve whatever is most urgent.
 VARIANTS = {"priority": (30431, "MANOR2", "rung2"), "pick": (30432, "MANOR3", "rung3"),
-            "rung4": (30433, "MANOR4", "rung4")}
+            "rung4": (30433, "MANOR4", "rung4"), "rung5": (30434, "MANOR5", "rung5")}
+R4V = ("rung4", "rung5")            # the variants that carry rung 4's failure/mood/emote layer
 # RUNG 4 -- failure, mood, emote (the priority urge tier: rung 3's verdict). Poses are `hold_ground` + `anim`
 # (the kit's posed hold, gestures of Vivi's OWN rig); a need at 0 FAINTS her where she stands.
 POSE = {"hunger": "dine_1", "energy": "sleeping", "fun": "laugh"}     # use-tier poses (thirst/hygiene stand)
@@ -99,6 +104,22 @@ FAINT_REGEN = 10                    # +1 every N ticks while down (~8 s on the f
 NOSLEEP_EVERY = 5                   # "stay up all night": energy -1 every N ticks, and no bed
 TIRED_AT, MERRY_AT = 55, 80         # idle emotes on the beat: yawn when tired, laugh when fun is high
 BEAT = 75                           # the idle-emote alternator (2.5 s on, 2.5 s off)
+# RUNG 5 -- the visitor, the relationship, the falling-out. Garnet lives in the parlour; Bilba's SOCIAL need is
+# filled by chatting with her. A chat moves REL (0..100, 50 = neutral) up -- unless Bilba is CRANKY (hungry or
+# exhausted at/under CRANKY_AT, or kept up all night): then it is a quarrel and REL falls fast. At FALLOUT_AT
+# the falling-out is a REAL battle (once per visit); after it Bilba is sorry until REL is back to SORRY_UNTIL.
+GARNET_MODEL = "GEO_MAIN_F0_GRN"
+PARLOR = (350, -1000)               # Garnet's wander anchor (radius 150)
+SULK_SPOT = (1000, -1650)           # where she goes to sit and sulk
+PARLOR_ZONE = (200, -1480, 500, -1260)   # the steward's menu: front of the parlour, on the front-row lane
+REL_TABLE_ID, REL_SEED = 1002, 50
+CRANKY_AT = 35
+FALLOUT_AT, SORRY_UNTIL = 10, 60
+GLARE_AT, SULK_AT, FRIENDS_AT = 40, 25, 80
+BATTLE_SCENE = 67                   # BSC_EF_R007: a lone Goblin a New Game party can beat
+CHAT_GOOD = ((2, 8), (1, 20))       # (social by/every, rel by/every)
+CHAT_BAD = ((-1, 20), (-1, 6))      # a quarrel DRAINS social (run 1: it filled it, and ended itself at 95)
+MAKEUP = (3, 8)                     # rel +3 every 8 while sorry
 VARIANT, RATESET = "priority", "tuned"
 DECAY_EVERY, USE, URGE_AT = RATES["tuned"]["decay"], RATES["tuned"]["use"], RATES["tuned"]["urge"]
 NIGHT_SLEEP_AT = 70                 # ...but at night energy this low already sends her to bed
@@ -132,6 +153,145 @@ name = "most_urgent"
 table = "need"
 into = "urgent"
 mode = "min"
+"""
+
+
+GARNET_NPC = f"""
+[[npc]]
+name = "garnet"
+model = "{GARNET_MODEL}"
+pos = [{PARLOR[0]}, {PARLOR[1]}]
+dialogue = "Bilba? She is... a good friend. Usually."
+
+[[marker]]
+name = "parlor"
+pos = [{PARLOR[0]}, {PARLOR[1]}]
+
+[[marker]]
+name = "sulk_spot"
+pos = [{SULK_SPOT[0]}, {SULK_SPOT[1]}]
+"""
+
+REL_TABLE = f"""
+[[behavior.table]]
+name = "rel"                        # [0] = Bilba <-> Garnet, 0..100 (50 = neutral)
+values = [{REL_SEED}]
+id = {REL_TABLE_ID}
+"""
+
+
+def _cranky() -> list:
+    """The OR of crankiness as separate `when` lists (conditions AND within a branch, OR across branches)."""
+    return [f'{{ table_le = ["need", {NAMES.index("hunger")}, {CRANKY_AT}] }}',
+            f'{{ table_le = ["need", {NAMES.index("energy")}, {CRANKY_AT}] }}',
+            '{ flag = "nosleep" }']
+
+
+def _hud_block() -> str:
+    if VARIANT == "rung5":
+        lab = {"hunger": "HUN", "thirst": "THR", "energy": "NRG", "hygiene": "HYG", "fun": "FUN", "social": "SOC"}
+        need_txt = " ".join(f"{lab[n]} [NUMB={i}]" for i, n in enumerate(NAMES))
+        vals = ", ".join(f'"expr:{_vec(NEED_TABLE_ID, i)}"' for i in range(len(NAMES)))
+        return f"""[[behavior.hud]]                    # ONE strip: 6 needs, the hour, REL -- all 8 gMesValue slots
+window = 6
+text = "[MPOS=10,48]{need_txt}\\n[NUMB=6]:00  REL [NUMB=7]"
+values = [{vals},
+          "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_REM",
+          "expr:{_vec(REL_TABLE_ID, 0)}"]
+digits = [3, 3, 3, 3, 3, 3, 2, 3]
+"""
+    return None
+
+
+def _rung5_fallout() -> str:
+    """Above the faint tiers: the falling-out (once per visit) and the sorry that follows it."""
+    return f"""  [[behavior.unit.branch]]           # THE FALLING-OUT: rel at rock bottom -> a real battle, once
+  when = [{{ table_le = ["rel", 0, {FALLOUT_AT}] }}, {{ not_flag = "fought" }}]
+  do = {{ battle = {BATTLE_SCENE} }}
+  raise_flags = ["fought", "sorry"]
+  clear_flags = ["t_social"]          # the conversation is OVER
+
+  [[behavior.unit.branch]]           # made up: sorry ends
+  when = [{{ flag = "sorry" }}, {{ table_ge = ["rel", 0, {SORRY_UNTIL}] }}]
+  do = {{ hold_ground = true }}
+  clear_flags = ["sorry"]
+
+  [[behavior.unit.branch]]           # sorry: she stands sad while they make up
+  when = [{{ flag = "sorry" }}]
+  do = {{ hold_ground = true, anim = "sad" }}
+  adjust = {{ table = "rel", index = 0, by = {MAKEUP[0]}, clamp = [0, 100], every = {MAKEUP[1]} }}
+"""
+
+
+def _rung5_quarrels() -> str:
+    """Cranky + chatting = a QUARREL. Above the finish tier: a full social need does not end a fight -- it
+    ends at the falling-out (which clears the task) or when she stops being cranky (the good chat takes over)."""
+    i = NAMES.index("social")
+    (sb, se), (rb, re_) = CHAT_BAD
+    out = []
+    for c in _cranky():
+        out.append(f"""  [[behavior.unit.branch]]           # use: a QUARREL -- she is cranky ({c})
+  when = [{{ flag = "t_social" }}, {{ near = ["garnet", 320] }}, {c}]
+  do = {{ hold_ground = true, anim = "angry" }}
+  adjust = [{{ table = "need", index = {i}, by = {sb}, clamp = [0, 100], every = {se} }},
+            {{ table = "rel", index = 0, by = {rb}, clamp = [0, 100], every = {re_} }}]
+""")
+    return "\n".join(out)
+
+
+def _rung5_chat_use() -> str:
+    i = NAMES.index("social")
+    out = []
+    (sb, se), (rb, re_) = CHAT_GOOD
+    out.append(f"""  [[behavior.unit.branch]]           # use: a good chat
+  when = [{{ flag = "t_social" }}, {{ near = ["garnet", 320] }}]
+  do = {{ hold_ground = true, anim = "laugh" }}
+  adjust = [{{ table = "need", index = {i}, by = {sb}, clamp = [0, 100], every = {se} }},
+            {{ table = "rel", index = 0, by = {rb}, clamp = [0, 100], every = {re_} }}]
+""")
+    return "\n".join(out)
+
+
+def _garnet_unit() -> str:
+    return f"""
+[[behavior.unit]]
+npc = "garnet"
+speed = 25
+
+  [[behavior.unit.branch]]           # Bilba is quarrelling / they are on bad terms: she glares back
+  when = [{{ flag = "t_social" }}, {{ near = ["bilba", 360] }}, {{ table_le = ["rel", 0, {GLARE_AT}] }}]
+  do = {{ hold_ground = true, anim = "angry_1_1" }}
+
+  [[behavior.unit.branch]]           # Bilba came to chat: she stops and talks
+  when = [{{ flag = "t_social" }}, {{ near = ["bilba", 360] }}]
+  do = {{ hold_ground = true, anim = "talk_1_1" }}
+
+  [[behavior.unit.branch]]           # sulking, at her sulk spot: sits on the floor
+  when = [{{ table_le = ["rel", 0, {SULK_AT}] }}, {{ near_point = ["sulk_spot", 140] }}]
+  do = {{ hold_ground = true, anim = "sit_g_sad_1" }}
+
+  [[behavior.unit.branch]]           # sulking: off to her corner
+  when = [{{ table_le = ["rel", 0, {SULK_AT}] }}]
+  do = {{ walk_to = "sulk_spot", speed = 35 }}
+
+  [[behavior.unit.branch]]           # friends: she tags along after Bilba
+  when = [{{ table_ge = ["rel", 0, {FRIENDS_AT}] }}]
+  do = {{ chase = "bilba", standoff = 280, speed = 30 }}
+
+  [[behavior.unit.branch]]
+  do = {{ wander = "parlor", radius = 150, every = 140, speed = 25 }}
+"""
+
+
+def _hud_default() -> str:
+    return f"""[[behavior.hud]]                    # ONE strip: gMesValue[8] is global, a second strip overwrites this one's slots
+window = 6
+text = "[MPOS=10,48]HUN [NUMB=0] THR [NUMB=1] NRG [NUMB=2] HYG [NUMB=3] FUN [NUMB=4]\\nDAY [NUMB=5]  [NUMB=6]:00{URG_TEXT if VARIANT == "pick" else MOOD_TEXT if VARIANT in R4V else ""}"
+values = [{", ".join(f'"expr:{_vec(NEED_TABLE_ID, i)}"' for i in range(len(NAMES)))},
+          "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_DIV const(1) B_PLUS",
+          "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_REM",
+          {'"urgent"' if VARIANT == "pick" else _mood_expr() if VARIANT in R4V else ""}]
+digits = [3, 3, 3, 3, 3, 2, 2{", 1" if VARIANT == "pick" else ", 3" if VARIANT in R4V else ""}]
 """
 
 
@@ -187,7 +347,7 @@ dialogue = "...The soup is still worried. So am I, a little."
 [[marker]]
 name = "home"
 pos = [{HOME[0]}, {HOME[1]}]
-
+{GARNET_NPC if VARIANT == "rung5" else ""}
 """]
     for name, prop, obj, spot, _zone in NEEDS:
         out.append(f"""[[prop]]
@@ -203,8 +363,8 @@ pos = [{spot[0]}, {spot[1]}]
     out.append(f"""# ---------------------------------------------------------------- the behavior
 [behavior]
 warmup = 30
-public_flags = [{", ".join(f'"t_{n}"' for n in NAMES)}{', "nosleep"' if VARIANT == "rung4" else ""}]
-alternators = [{{ name = "night", frames = {12 * HOUR} }}{BEAT_ALT if VARIANT == "rung4" else ""}]
+public_flags = [{", ".join(f'"t_{n}"' for n in NAMES)}{', "nosleep"' if VARIANT in R4V else ""}]
+alternators = [{{ name = "night", frames = {12 * HOUR} }}{BEAT_ALT if VARIANT in R4V else ""}]
 {'counters = ["urgent"]' if VARIANT == "pick" else ""}
 
 [[behavior.table]]
@@ -215,7 +375,7 @@ id = {NEED_TABLE_ID}
 [[behavior.table]]
 name = "clock"                      # [0] = hours since entry (the day starts at {START_HOUR:02d}:00)
 values = [0]
-id = {CLOCK_TABLE_ID}
+id = {CLOCK_TABLE_ID}{REL_TABLE if VARIANT == "rung5" else ""}
 
 {PICK_ROW if VARIANT == "pick" else ""}
 [[behavior.drift]]                  # THE CLOCK
@@ -241,15 +401,8 @@ by = -1
 clamp = [0, 100]
 every = {NIGHT_TIRE_EVERY}
 flag = "night"
-{NOSLEEP_DRIFT.format(e=e, every=NOSLEEP_EVERY) if VARIANT == "rung4" else ""}
-[[behavior.hud]]                    # ONE strip: gMesValue[8] is global, a second strip overwrites this one's slots
-window = 6
-text = "[MPOS=10,48]HUN [NUMB=0] THR [NUMB=1] NRG [NUMB=2] HYG [NUMB=3] FUN [NUMB=4]\\nDAY [NUMB=5]  [NUMB=6]:00{URG_TEXT if VARIANT == "pick" else MOOD_TEXT if VARIANT == "rung4" else ""}"
-values = [{", ".join(f'"expr:{_vec(NEED_TABLE_ID, i)}"' for i in range(len(NAMES)))},
-          "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_DIV const(1) B_PLUS",
-          "expr:{_vec(CLOCK_TABLE_ID, 0)} const({START_HOUR}) B_PLUS const(24) B_REM",
-          {'"urgent"' if VARIANT == "pick" else _mood_expr() if VARIANT == "rung4" else ""}]
-digits = [3, 3, 3, 3, 3, 2, 2{", 1" if VARIANT == "pick" else ", 3" if VARIANT == "rung4" else ""}]
+{NOSLEEP_DRIFT.format(e=e, every=NOSLEEP_EVERY) if VARIANT in R4V else ""}
+{(_hud_block() or _hud_default()).rstrip(chr(10))}
 # (no "(day)/(night)" word: a [TEXT=] in a HUD strip is resolved ONCE at window open -- the engine's constant-tag
 #  pass runs before the variable snapshot -- so it freezes at the open pass's sentinel row and renders "")
 
@@ -257,19 +410,26 @@ digits = [3, 3, 3, 3, 3, 2, 2{", 1" if VARIANT == "pick" else ", 3" if VARIANT =
 npc = "bilba"
 speed = 25
 """)
-    if VARIANT == "rung4":
+    if VARIANT == "rung5":
+        out.append(_rung5_fallout())
+    if VARIANT in R4V:
         out.append(_rung4_failure_tiers())
+    if VARIANT == "rung5":
+        out.append(_rung5_quarrels())
     # ---- tier 1: finish
     for i, n in enumerate(NAMES):
         out.append(f"""  [[behavior.unit.branch]]           # finish: {n} is met -> the task retires
   when = [{{ flag = "t_{n}" }}, {{ table_ge = ["need", {i}, {FULL_AT}] }}]
-  do = {{ hold = "{n}_spot" }}
+  do = {('{ hold_ground = true }' if n == "social" else '{ hold = "' + n + '_spot" }')}
   clear_flags = ["t_{n}"]
 """)
     # ---- tier 2: use
     for i, n in enumerate(NAMES):
+        if n == "social":
+            out.append(_rung5_chat_use())
+            continue
         by, every = USE[n]
-        posed = VARIANT == "rung4" and n in POSE
+        posed = VARIANT in R4V and n in POSE
         do = (f'{{ hold_ground = true, anim = "{POSE[n]}" }}' if posed else f'{{ hold = "{n}_spot" }}')
         out.append(f"""  [[behavior.unit.branch]]           # use: at the {n} object, the meter climbs
   when = [{{ flag = "t_{n}" }}, {{ near_point = ["{n}_spot", 160] }}]
@@ -278,25 +438,27 @@ speed = 25
 """)
     # ---- tier 3: go
     for n in NAMES:
+        go = ('{ chase = "garnet", standoff = 220, speed = 40 }' if n == "social"
+              else '{ walk_to = "' + n + '_spot", speed = 40 }')
         out.append(f"""  [[behavior.unit.branch]]           # go: a {n} task is waiting
   when = [{{ flag = "t_{n}" }}]
-  do = {{ walk_to = "{n}_spot", speed = 40 }}
+  do = {go}
 """)
     # ---- tier 4: urges (only reached when no task is flagged), most pressing first
     out.append(f"""  [[behavior.unit.branch]]           # urge: night, and tired enough to turn in
-  when = [{{ flag = "night" }}, {{ table_le = ["need", {e}, {NIGHT_SLEEP_AT}] }}{NO_ALLNIGHTER if VARIANT == "rung4" else ""}]
+  when = [{{ flag = "night" }}, {{ table_le = ["need", {e}, {NIGHT_SLEEP_AT}] }}{NO_ALLNIGHTER if VARIANT in R4V else ""}]
   do = {{ walk_to = "energy_spot", speed = 40 }}
   raise_flags = ["t_energy"]
 """)
-    for n in ("hunger", "thirst", "energy", "hygiene", "fun"):
+    for n in ("hunger", "thirst", "energy", "hygiene", "fun") + (("social",) if "social" in NAMES else ()):
         i = NAMES.index(n)
         gate = (f'{{ counter_eq = ["urgent", {i}] }}, ' if VARIANT == "pick" else "")
         out.append(f"""  [[behavior.unit.branch]]           # urge: {n} has run low{' -- and is the MOST urgent' if gate else ''}
-  when = [{gate}{{ table_le = ["need", {i}, {URGE_AT}] }}{NO_ALLNIGHTER if VARIANT == "rung4" and n == "energy" else ""}]
-  do = {{ walk_to = "{n}_spot", speed = 40 }}
+  when = [{gate}{{ table_le = ["need", {i}, {URGE_AT}] }}{NO_ALLNIGHTER if VARIANT in R4V and n == "energy" else ""}]
+  do = {('{ chase = "garnet", standoff = 220, speed = 40 }' if n == "social" else '{ walk_to = "' + n + '_spot", speed = 40 }')}
   raise_flags = ["t_{n}"]
 """)
-    if VARIANT == "rung4":
+    if VARIANT in R4V:
         out.append(f"""  [[behavior.unit.branch]]           # idle emote: tired -> a yawn on the beat
   when = [{{ flag = "beat" }}, {{ table_le = ["need", {e}, {TIRED_AT}] }}]
   do = {{ hold_ground = true, anim = "yawn" }}
@@ -309,6 +471,8 @@ speed = 25
   [[behavior.unit.branch]]
   do = { wander = "home", radius = 200, every = 120, speed = 25 }
 """)
+    if VARIANT == "rung5":
+        out.append(_garnet_unit())
     return "\n".join(out)
 
 
@@ -364,7 +528,21 @@ prompt = "{PROMPT[name]}"
 [[choice.options]]
 text = "Bilba, {VERB[name]}."
 set_flag = [{flags[name]}, 1]
-requires_flag_clear = {flags[name]}{ALLNIGHTER_ROW.format(f=flags["nosleep"]) if VARIANT == "rung4" and name == "energy" else ""}
+requires_flag_clear = {flags[name]}{ALLNIGHTER_ROW.format(f=flags["nosleep"]) if VARIANT in R4V and name == "energy" else ""}
+[[choice.options]]
+text = "Never mind."
+""")
+    if VARIANT == "rung5":
+        x0, z0, x1, z1 = PARLOR_ZONE
+        out.append(f"""[[choice]]
+zone = [[{x0}, {z0}], [{x1}, {z0}], [{x1}, {z1}], [{x0}, {z1}]]
+bubble = true
+instant = true
+prompt = "Garnet is reading in the parlour."
+[[choice.options]]
+text = "Bilba, go chat with Garnet."
+set_flag = [{flags["social"]}, 1]
+requires_flag_clear = {flags["social"]}
 [[choice.options]]
 text = "Never mind."
 """)
@@ -373,7 +551,7 @@ text = "Never mind."
 
 def _fb(raw: dict):
     """The deterministic-allocation double: same construction path as the build."""
-    return BT.build(raw, npc_slots={"bilba": 2},
+    return BT.build(raw, npc_slots={"bilba": 2, "garnet": 3},
                     npc_txids_by_name={n.get("name"): 0 for n in raw.get("npc", [])},
                     behavior_txids={("hud", 0): 0})
 
@@ -382,7 +560,7 @@ def flag_indices() -> dict:
     import tomllib
     fb = _fb(tomllib.loads(_field_toml()))
     out = {n: fb.bb.flag(f"t_{n}") for n in NAMES}
-    if VARIANT == "rung4":
+    if VARIANT in R4V:
         out["nosleep"] = fb.bb.flag("nosleep")
     return out
 
