@@ -76,7 +76,7 @@ One mechanism per playtest. Verdicts are the owner's; the gate suite is not an o
 | 0 | probes + `adjust`/`drift` | `adjust`, `[[behavior.drift]]` | ★ DONE offline |
 | 1 | THE FIRST MEAL — one Sim (VIV), one need, one stove, one directive menu, HUD | none (wiring) | **★ MECHANISM PROVEN in-game by the harness (27/27)**; feel = owner — does the number move and does the Sim go? |
 | 2 | five needs, ~6 objects, priority-branch autonomy, the day clock, speed control | none (+1 kit refusal) | **★ MECHANISM PROVEN in-game by the harness (20/20)**; speed control NOT built; feel = owner — alive when you stop directing it? |
-| 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | visibly smarter? if not, DROP it |
+| 3 | `pick` — argmax autonomy; A/B vs rung 2 | `pick` | **NOT smarter → DROP (per this rule) — owner to confirm.** Lane built + in-game proven (23/23), held UNMERGED on branch `claude/sims-rung3-pick` |
 | 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `[TBLE]` lane, gauge `source` | is failing funny? |
 | 5 | the visitor (GRN), relationships, conversations, the falling-out battle | none | does the social loop read? |
 | 6 | job, skills, gil, the moogle shop / buy mode | none | a reason to play a second day? |
@@ -200,9 +200,42 @@ Findings:
   the back row (tent, puppet) sits at the top edge of the opening view until the steward walks north;
   "asleep" is the standing pose (the sleep clip is rung 4's emote work); the steward is still Zidane.
 
+## Rung 3 — `pick` built and proven in-game (23/23); the A/B says NOT smarter → DROP (owner to confirm)
+
+**The lane** (`[[behavior.pick]]`, branch `claude/sims-rung3-pick`, NOT merged): every ticker pass, after the
+drifts and scans, a bounded loop publishes the INDEX of a table's lowest (`mode="min"`) or highest cell into
+a counter; ties keep the lower index. Branches gate on `counter_eq`. 138 bytes of ticker per pick whatever the
+length + 26 of Main_Init; validate refuses a counter anything else writes; the stepper models it; schema
+regenerated; 5 tests (two mutations of the emission each turned one red). Docs: BEHAVIOR.md § Picks, FORMAT.md.
+
+**In-game** (`rung3_pick.py` on bench 30432 = rung 2 with the urge tier gated on `counter_eq = ["urgent", i]`
+and the pick shown in HUD slot 7): URG named the lowest displayed need in **314 of 314** samples; every task
+she started on her own (bedtime aside) was the need the pick named; every rung-2 check passed against it.
+
+**The A/B (`py studies/sims/sims_bench2.py ab`, 3 undirected days in the stepper):**
+
+| rates | urge tier | lowest need | misery (shortfall under the line, summed per tick) |
+|---|---|---|---|
+| first (overloaded) | priority | fun 0 | 93,761 |
+| first (overloaded) | pick | hunger 6 | 103,601 |
+| tuned | priority | hunger 29 | 6,565 |
+| tuned | pick | hunger 29 | 6,565 (identical) |
+
+- **Tuned: identical, tick for tick** -- two needs are never both under the line at a decision point. The live
+  run confirms it: the same eight starts at the same hours as rung 2's.
+- **Overloaded: pick only moves the shortage around.** It rescues fun (0 → 6) and costs hunger (9 → 6) and
+  ~10% more total misery. The first tuning's real defect was CAPACITY (needs decay faster than one Sim can
+  serve them, worst during long naps), not the ORDER she serves them in.
+- **Verdict by this rung's own rule: not visibly smarter → DROP** from the Sims design; rung 4+ keep the
+  priority list. The open question for the owner is only whether the KIT keeps `pick` as a general
+  primitive (argmin over a table is what no branch condition can say) or the branch is abandoned.
+- If urgency ever matters again, the measured lever is not argmin of raw values but time-to-empty (needs on
+  one decay rate with per-need capacities), or letting an urgent need INTERRUPT a long task -- both rung-4
+  failure-state work, not a new lane.
+
 ## Bench
 
-**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2) (30426-30499 is the free band; 30400-30425 is the standing
+**Ids 30430-30435** (30430 = rung 1, 30431 = rung 2, 30432 = rung 3 pick) (30426-30499 is the free band; 30400-30425 is the standing
 behavior/minigame family; do NOT take 30600+ — WINSTYLE/lock/multiwindow live
 there even when absent from the live DictionaryPatch). Re-verify the live file
 before minting. Bench generator: `studies/sims/sims_bench.py` (pure product
