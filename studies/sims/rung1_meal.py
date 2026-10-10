@@ -94,14 +94,9 @@ def _open_menu(g, *, tries: int = 3):
 
 def _pick(g, row: str) -> bool:
     """Answer the menu with ``row`` and VERIFY the game took it. A blind choose() lost the second order in
-    run 1: the first Confirm into a freshly opened window is often dropped (the harness's O4 law)."""
-    # ...and choose_landed itself can be fooled the same way: a Confirm pressed while the window is still
-    # OPENING (menu group '' -- not yet 'Dialog.Choice') is dropped, and its first read (group '', choice up)
-    # fails _choice_ready, which it scores as "left" = landed. Proven in run 3 (frames 2128-2136). So wait
-    # for the window to be READY before picking; the cook pick is then re-proven by the flag it sets.
-    st = g.wait_for(lambda s: s.choice is not None and s.menu_group == g.CHOICE_GROUP, timeout=5.0,
-                    what="the pot menu to be ready (group Dialog.Choice)")
-    print(f"[sims] pick {row!r}: at frame {st.frame} menu_group={st.menu_group!r}")
+    run 1: the first Confirm into a freshly opened window is often dropped (the harness's O4 law).
+    choose_landed waits for the READY window itself (group Dialog.Choice) -- run 3 caught it scoring a Confirm
+    dropped in the OPENING as landed (frames 2128-2136); the cook pick is still re-proven by the flag it sets."""
     got = g.choose_landed(g.option_index(row))
     print(f"[sims] pick {row!r}: {got.get('landed')} after {got.get('confirms')} confirm(s) {got.get('why') or ''}")
     return bool(got.get("landed"))
