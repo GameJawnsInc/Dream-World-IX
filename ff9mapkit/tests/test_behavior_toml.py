@@ -1040,8 +1040,11 @@ def test_hold_ground_pose_installs_and_restores():
     for clip, mode in ((g["hiza_1"], 1), (g["sleeping"], 0)):
         pose = (O.encode(0x33, clip) + O.encode(0x34, clip) + O.encode(0x3F, mode, 0) + O.encode(0x40, clip))
         assert pose in blob, (clip, mode)
-    undo = O.encode(0x3F, 0, 0) + O.encode(0x33, st) + O.encode(0x34, wk) + O.encode(0x40, st)
+    undo = O.encode(0x3F, 0, 0) + O.encode(0x33, st) + O.encode(0x34, wk)
     assert sum(b.count(undo) for b in bodies) == 2           # each pose undoes itself on the way out
+    # NO RunAnimation after it: it sets afExec, and a moving actor only takes its walk clip while afExec is
+    # clear -- the unit would glide off the pose on the stand clip
+    assert sum(b.count(undo + O.encode(0x40, st)) for b in bodies) == 0
 
 
 def test_hold_ground_without_anim_is_unchanged():

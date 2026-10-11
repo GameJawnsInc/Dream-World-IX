@@ -331,7 +331,7 @@ installs the clip as stand **and** walk (law 4), sets `freeze` as freeze-at-end 
 plays it; when the branch deselects it **clears the animation flags first** (the engine keeps
 `animFlag` on the actor after a clip ends — a leftover freeze would freeze the idle), puts back
 the NPC's own stand/walk clips (the ones the build installs, via `blockmodel.resolve_block_model`),
-and plays the stand so the unit gets up at once. The gesture resolves against the unit's own
+and leaves the engine to pick idle or walk (a `RunAnimation(stand)` would set `afExec`, and a walker only takes its walk clip while that is clear). The gesture resolves against the unit's own
 model (the own-clip law); an `[[npc]]` with no `model` (a `preset`) takes a raw clip id. In-game
 proven by `studies/sims/` rung 4 (asleep at the tent, the frozen faint, a normal walk afterwards).
 

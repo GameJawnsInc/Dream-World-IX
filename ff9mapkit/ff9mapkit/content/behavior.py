@@ -546,7 +546,8 @@ class HoldGround(Action):
     a collapse holds its last frame instead of replaying), then plays it. A pose is a STATE the unit leaves,
     unlike a death, so on deselect the body restores ``rest`` = the NPC's own (stand, walk) clips -- after
     clearing the animation flags, which the engine keeps on the actor (``animFlag`` survives the clip; a
-    leftover freeze would freeze the idle) -- and plays the stand clip so she stands up at once."""
+    leftover freeze would freeze the idle). It does NOT replay the stand clip: that sets afExec, and a moving
+    actor only takes its walk clip while afExec is clear (she would glide); cleared flags let the engine choose."""
     anim: int | None = None
     freeze: bool = False
     rest: tuple | None = None
@@ -5032,10 +5033,13 @@ class FieldBehavior:
                     opcodes.encode(OP_SET_ANIM_FLAGS, ANIM_HOLD if a.freeze else 0, 0),
                     opcodes.encode(OP_RUN_ANIMATION, int(a.anim))]
             stand, walk = a.rest
+            # NO RunAnimation(stand) here: it sets afExec, and ProcessEvents only swaps a MOVING actor to its walk
+            # clip while afExec is clear -- so a unit that walks off right after a pose GLIDES on the stand clip
+            # until it ends. SetAnimationFlags(0,0) zeroes animFlag outright; the engine puts her on idle (still)
+            # or walk (moving) by itself the next frame.
             undo = [opcodes.encode(OP_SET_ANIM_FLAGS, 0, 0),
                     opcodes.encode(OP_SET_STAND_ANIM, stand),
-                    opcodes.encode(OP_SET_WALK_ANIM, walk),
-                    opcodes.encode(OP_RUN_ANIMATION, stand)]
+                    opcodes.encode(OP_SET_WALK_ANIM, walk)]
             return asm([head[0]] + pose + head[1:]
                        + [label("wait"), opcodes.wait(1), (JMP, "loop"),
                           label("out")] + undo + [set_run(0), opcodes.RETURN])
