@@ -371,6 +371,13 @@ watcher re-arms); each object's own menu opened standing at it; walking up to th
 Re-runs on the rebuilt benches: rung 6 20/20 (SELECT-anywhere still opens the moved catalogue), rung 4 13/13,
 rung 5 **21/21** (the HUD readable on the first post-battle sample, with the watcher alone).
 
+**Feel test 2 -- THE GLIDE (owner: "after eating, Bilba glides instead of walking").** The pose undo ended in
+`RunAnimation(stand)`, which sets `afExec`; `EventEngine.ProcessEvents` swaps a MOVING actor to its walk clip only while
+`afExec` is clear, so she slid on the stand clip until it ended. Fixed (495dabaa): the undo is `SetAnimationFlags(0,0)` +
+the NPC's own stand/walk, no clip played -- the engine picks idle/walk itself next frame. The harness cannot see the clip,
+so `glide_check.py` only proves the walk happens (451u over 10 frames after a laugh release) and shoots the frames;
+the owner saw the walk after the doll use. Unproven by eye: the eat and sleep releases.
+
 ## Bench
 
 **Ids 30430-30435** (30430 = rung 1, 30431 = rung 2, 30432 = rung 3 pick, 30433 = rung 4, 30434 = rung 5, 30435 = rung 6) (30426-30499 is the free band; 30400-30425 is the standing
