@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[household]`, the sims life sim as one block
+- A bare `[household]` builds a whole household: a Sim with five needs (hunger, thirst, energy, hygiene, fun)
+  that drift on a day clock, a prop and a press-Confirm order menu per need (orders queue), priority autonomy,
+  posed use clips, fainting at a need of 0, mood and idle emotes, one HUD strip. `[household.job]` adds a
+  workday, real gil at a household ledger and a persistent skill; `[household.shop]` adds buy mode. Every number
+  defaults to the value the Manor arc tuned in game and can be overridden. The desugared output is frozen as
+  parity tests against the two proven benches (30433, 30435). Example: `examples/household/`; reference:
+  `docs/FORMAT.md` § `[household]`.
+
+### Fixed — a Sim glided instead of walking after a posed hold
+- A `hold_ground` + `anim` pose ended by replaying the unit's stand clip. That sets the engine's one-shot flag,
+  and a moving actor only switches to its walk clip while that flag is clear, so the unit slid on the stand
+  clip until it ended. The undo now only clears the animation flags and restores the unit's own stand/walk;
+  the engine picks idle or walk itself.
+
 ### Fixed — clips lost on a battle return (a frame-smoother exception burst)
 - Every field build now ships the field's EventAnimation clip list (`EVT_<name>.txt`, the file every stock field
   has). A battle return rebuilds every model and puts back only that list plus the five locomotion slots. Without

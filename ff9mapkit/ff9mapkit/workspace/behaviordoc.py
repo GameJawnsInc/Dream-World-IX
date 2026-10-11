@@ -1635,12 +1635,13 @@ class BehaviorDoc(QWidget):
         (read-only). Sets the edit affordances to match; False = nothing renderable."""
         self._view, self._readonly = self._raw, False
         if not behaviorscan.has_behavior(self._raw):
-            view = behaviorscan.siege_view(self._raw)
-            if view is None:
+            gen = behaviorscan.generated_view(self._raw)
+            if gen is None:
                 return False
-            self._view, self._readonly = view, True
-        why_off = ("This [siege] field's behavior is GENERATED, so the tab renders it "
-                   "read-only. Edit the [siege] block in the Editor form — or delete it "
+            (self._view, self._owner), self._readonly = gen, True
+        owner = getattr(self, "_owner", "siege") if self._readonly else "siege"
+        why_off = (f"This [{owner}] field's behavior is GENERATED, so the tab renders it "
+                   f"read-only. Edit the [{owner}] block in the Editor form — or delete it "
                    "there (or Ctrl+Z a fresh stamp) to author [behavior] by hand.")
         for b in (self.add_unit_btn, self.archetype_btn, self.add_branch_btn,
                   self.remove_unit_btn, self.edit_btn):
@@ -1666,8 +1667,8 @@ class BehaviorDoc(QWidget):
             self._selected_unit = names[0] if names else None
         self.head_title.setText(self._member or "Behavior")
         self.head_sum.setText(behaviorscan.summary(raw) + (
-            "  ·  generated from [siege] — read-only (edit the [siege] block in the "
-            "Editor form)" if self._readonly else ""))
+            f"  ·  generated from [{getattr(self, '_owner', 'siege')}] — read-only (edit the "
+            f"[{getattr(self, '_owner', 'siege')}] block in the Editor form)" if self._readonly else ""))
         self._fill_cast(cast)
         if refit:
             self._fit_rail()                       # the rail asks for its own longest row

@@ -46,6 +46,7 @@ from .content import gauge as _gauge
 from .content import numinput as _numinput
 from .content import qte as _qte
 from .content import siege as _siege
+from .content import household as _household
 from .content import texttable as _texttable
 from .content import object as _object
 from .content import onentry as _onentry
@@ -332,6 +333,9 @@ class FieldProject:
         # [siege] -> [behavior]/[[npc]]/[[choice]] (content.siege) -- after ferries so a
         # siege field may still carry one, before anything reads the behavior table.
         _siege.desugar(raw)
+        # [household] -> [behavior]/[[npc]]/[[prop]]/[[marker]]/[[choice]] (content.household): the sims
+        # life sim; owns the behavior table exactly as [siege] does.
+        _household.desugar(raw)
         return cls(raw, p.parent, toml_path=p)
 
     # convenience accessors
@@ -2630,6 +2634,9 @@ def validate(project: FieldProject) -> list[str]:
         if "verbatim_eb" in project.raw:
             problems.append("[siege] is not supported on a verbatim fork -- it synthesizes "
                             "the field's whole behavior layer")
+    # [household] (content.household): validated against the surface the author WROTE; the desugared
+    # blocks get the full downstream validation for free.
+    problems += _household.problems(project.raw)
     # dialogue choices: talk to an NPC -> pick an option -> branch. v1 attaches to an NPC by name.
     # THE FERRY LANE -- validated against the surface the author WROTE ([[ferry]]), before the desugared
     # [[choice]] rules below see the generated rows. See _desugar_ferries for the shape + why the decline

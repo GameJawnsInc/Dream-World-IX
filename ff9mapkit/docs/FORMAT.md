@@ -2436,6 +2436,80 @@ scratch benches. Verbatim forks: not yet supported.
 
 ---
 
+## `[household]` (optional)
+
+A whole **life sim in one block** -- the Manor game shape (the sims arc, rungs 1-6, proven in-game on benches
+30430-30435), productized. One Sim lives in your room with five **needs** (hunger, thirst, energy, hygiene, fun)
+that drift down on a day clock and a prop for each. Left alone she looks after herself: she serves the most
+pressing need, turns in at night and sleeps, yawns when tired and laughs when merry. You are the **steward**:
+stand at an object, press Confirm at its "!" bubble and order her ("Bilba, eat something."). **Orders queue** --
+a directive raises the same flag an urge does, so she finishes the object she is at, then walks to the next. A
+need at 0 makes her **faint** (a frozen collapse; the need creeps back, she gets up) -- never die.
+
+A bare `[household]` is the whole needs-and-moods household. Add `[household.job]` for a workday (she sorts mail
+at the desk; a shift pays real gil, cashed at the household ledger; studying raises a **persistent** skill that
+survives the save and the day) and `[household.shop]` for buy mode (SELECT anywhere, or walk up to the moogle:
+buy a toy that appears where you stand and fills her fun faster than the puppet).
+
+A complete, buildable example ships at [`examples/household/`](../examples/household).
+
+```toml
+[household]
+sim = "bilba"                       # the npc's name (default "bilba"); `label` is how menu rows address her
+model = "GEO_MAIN_F0_VIV"           # any model with the gestures the poses use (dine_1, sleeping, laugh, yawn, hiza_1)
+home = [-200, -700]                 # her idle anchor (she ambles within 200u of it)
+# --- the clock + thresholds (every key optional; the tuned Manor values are the defaults) ---
+hour_ticks = 150                    # ticks per in-game hour: a day is 2 minutes at 150
+start_hour = 6                      # the clock reads 06:00 at entry; night = 18:00-06:00
+urge_at = 40                        # a need at/under this raises its task on its own
+full_at = 95                        # ...and a task ends when the need reaches this (must be > urge_at)
+night_sleep_at = 70                 # at night, energy this low already sends her to bed
+faint_pose = "hiza_1"               # the frozen collapse; revive_at = 25, faint_regen = 10 (+1 per N ticks)
+tired_at = 55                       # idle emotes on a `beat`: a yawn at/under this energy
+merry_at = 80                       # ...and a laugh at/over this fun
+
+[household.need.hunger]             # any of the five; every key optional
+prop = "pot"                        # the object, by prop name (the Info Hub's prop catalogue)
+pos = [600, -250]                   # where it stands; the steward's press zone is CENTRED on it
+spot = [600, -520]                  # where SHE stands to use it
+seed = 80                           # the need's starting value, 0..100 (100 = met)
+decay = 45                          # ticks per -1
+use = [2, 8]                        # while she is at it the meter climbs [by, every]
+pose = "dine_1"                     # a gesture NAME on her own model; omit to stand at the spot
+verb = "eat something"              # the menu row reads "<label>, <verb>."
+prompt = "The soup pot."            # the menu's headline
+
+[household.job]                     # optional: the workday + economy (the HUD strip becomes needs/SKILL/hour/GIL)
+skill_table = 6430001               # PERSISTENT save identity, 6000000..6999999 (default 6000000 + the field id)
+desk = [300, -1150]                 # the prop (default "shelf") the ledger menu sits ON
+desk_spot = [80, -1150]             # where she sits to work / study
+shift_len = 60                      # progress units per shift (+1 per 10 ticks); study_len = 40
+wage_lo = 60                        # paid below skilled_at (50); wage_hi = 150 at/over it
+study_gain = [1, 15]                # skill +1 every 15 ticks while studying; work_fun / study_fun cost fun
+work_ready_at = 50                  # she goes to work on her own by day with energy at/over this
+
+[household.shop]                    # optional (needs [household.job]): buy mode
+name = "toy"                        # the pooled npc ("<name>s" is its pool); `label` reads in the catalogue
+model = "GEO_ACC_F0_TSM"            # a preset prop: `pose` is a raw clip id (1105)
+price = 50                          # real gil
+catalogue = [-500, -1650]           # a VISIBLE place to shop (the moogle); SELECT opens it anywhere
+fun = [3, 6]                        # playing with it: fun +3 every 6 ticks
+request_flag = 14960                # the spawn-request GLOB bit (default the kit's request lane)
+```
+
+**What it generates:** the sim `[[npc]]`, a prop and a use-spot `[[marker]]` per need, the `[behavior]` block (need
+table, day clock, drifts, the ONE HUD strip, the sim's tiered tree: all-nighter wake / faint / job / finish / use /
+go / urge / emote / amble home, and the shop pool) and one `[[choice]]` menu per object plus the ledger and the
+catalogue. `[household]` **owns** the field's `[behavior]` (a field cannot carry both, nor a `[siege]`) and is
+refused on a verbatim fork. The Workspace's Behavior tab renders the generated tree read-only.
+
+**Honest limits.** The defaults place objects for the Manor room (x +-1220, z 257..-1931, FRONT = -z); in another
+room give every `pos`/`spot` yourself and run `tools/field_layout_probe.py` first (actors jam under ~192u). The
+five needs are fixed in name and order. There is one Sim; the visitor / relationship / falling-out layer (sims
+rung 5) is not in the block. Buy mode is a priced pool, not the native shop UI (net-new items need an engine
+patch), and pooled purchases do not persist across field entries. Needs are re-seeded at entry (`~ Reload` = a
+fresh day); only the job skill persists. First deploy of a new id needs a RELAUNCH.
+
 ## `[siege]` (optional)
 
 A whole **tower-defense minigame in one block** — the fort-condor game shape (proven across

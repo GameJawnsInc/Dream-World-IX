@@ -80,7 +80,7 @@ One mechanism per playtest. Verdicts are the owner's; the gate suite is not an o
 | 4 | failure states, mood, emote; readout upgrade (`[TBLE]` words / gauge bridge) | `hold_ground` `anim`/`freeze` (posed holds) | **★ MECHANISM PROVEN in-game (13/13)**; words/gauge NOT built (HUD [TEXT=] is refused now); feel = owner — is failing funny? |
 | 5 | the visitor (GRN), relationships, conversations, the falling-out battle | none (+1 kit fix: the HUD after a battle) | **★ MECHANISM PROVEN in-game (20/21; the 1 = an intermittent engine NRE, spun off)**; feel = owner — does the social loop read? |
 | 6 | job, skills, gil, the moogle shop / buy mode | none | **★ MECHANISM PROVEN in-game (20/20)**; buy mode is a priced pool, not the native shop UI (no item minting without a DLL); feel = owner — a reason to play a second day? |
-| 7 | productize — a `[household]` block (the `[siege]` pattern, LAST) | the block | — |
+| 7 | productize — a `[household]` block (the `[siege]` pattern, LAST) | the block | **★ BUILT** (rungs 1-6 parity; the visitor layer is NOT in it); parity vs the 30433/30435 benches + a live smoke of the shipped example; feel = owner |
 
 Standing rung-1 notes:
 - Needs = counters/tables (vector cells): re-seeded at entry, so `~ Reload` = a fresh
@@ -377,6 +377,21 @@ rung 5 **21/21** (the HUD readable on the first post-battle sample, with the wat
 the NPC's own stand/walk, no clip played -- the engine picks idle/walk itself next frame. The harness cannot see the clip,
 so `glide_check.py` only proves the walk happens (451u over 10 frames after a laugh release) and shoots the frames;
 the owner saw the walk after the doll use. Unproven by eye: the eat and sleep releases.
+
+## Rung 7 — ★ BUILT: the `[household]` block
+
+`content/household.py` (a `[siege]`-pattern desugarer): a bare `[household]` = the rung-4 household; `[household.job]`
+adds the workday/gil/persistent skill (the strip becomes needs/SKILL/hour/GIL); `[household.shop]` adds buy mode.
+Every key defaults to the tuned Manor value; `[household.need.<name>]` overrides each of the five needs. Scope
+(owner's call): rungs 1-6 parity, presets + overrides; NOT the visitor/REL/falling-out layer (rung 5), NOT the pick tier.
+- **Parity, frozen:** `tests/fixtures/household_rung{4,6}.field.toml` are `sims_bench2.py`'s output; the desugared
+  npc/prop/marker/behavior/choice equal them exactly (a mutated default turns both red). A regression harness, not an oracle.
+- **Live:** `household_smoke.py` 7/7 on the SHIPPED example (`examples/household`, deployed at scratch 30436 through
+  `deploy_field --id`): strip renders, needs drift, the pot menu offers its row, the ledger and the catalogue open.
+  Weak by design -- it does not re-run the rung scenarios against the new build.
+- **Wiring:** `build.py` (desugar after `[siege]`; `validate` reports the written surface), `_fieldschema.py` regenerated,
+  the Behavior tab renders a household field read-only (`behaviorscan.generated_view`), `docs/FORMAT.md` § `[household]`.
+- **Open:** the five needs are fixed in name/order; defaults assume the Manor room; one Sim.
 
 ## Bench
 

@@ -926,6 +926,31 @@ def siege_view(raw: dict):
     return view if BT.table(view) else None
 
 
+def household_view(raw: dict):
+    """A [household] field's GENERATED behavior, for READ-ONLY rendering (the :func:`siege_view` twin): the
+    desugared copy the build runs, or None when the field has no [household] / carries a hand [behavior]."""
+    if raw.get("household") is None or BT.table(raw):
+        return None
+    import copy as _copy
+    from ..content import household as _household
+    view = _copy.deepcopy(raw)
+    try:
+        _household.desugar(view)
+    except Exception:                  # noqa: BLE001 -- malformed [household]: validate's job
+        return None
+    return view if BT.table(view) else None
+
+
+def generated_view(raw: dict):
+    """``(view, block)`` for a field whose behavior a declarative block GENERATES -- ``"siege"`` or
+    ``"household"`` -- else None. The tab renders the view read-only and names the block that owns it."""
+    for name, fn in (("siege", siege_view), ("household", household_view)):
+        view = fn(raw)
+        if view is not None:
+            return view, name
+    return None
+
+
 def _mint_beat_marker(raw: dict, npc_name: str, pos) -> str:
     """A closed 4-point diamond beat around the post (220u legs — clear of the ~192u
     actor-jam spacing), name-deduped. Rung C's drag handles shape it from there."""

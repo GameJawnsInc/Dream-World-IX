@@ -1,0 +1,60 @@
+# HOUSEHOLD -- a living sim from ONE `[household]` block.
+#
+#   ff9mapkit lint  examples/household/household.field.toml
+#   ff9mapkit build examples/household/household.field.toml --out dist --mod-name Household
+#
+# Bilba lives in this room. She has five needs (hunger, thirst, energy, hygiene, fun) that drift down on their
+# own, and a prop for each. Leave her alone: she looks after herself, turns in at night, and sleeps. Or order
+# her about -- stand at an object, press Confirm at the "!" bubble and pick the row. Orders QUEUE behind what
+# she is doing. A need at 0 makes her FAINT (never die): she lies there while it creeps back, then gets up.
+#
+# `[household.job]` adds a workday: she sorts mail at the desk (a shift pays real gil, cashed at the ledger on
+# the desk) and studies to raise a skill that survives the save. `[household.shop]` adds buy mode: SELECT
+# anywhere (or walk up to the moogle) and buy a toy that appears where you stand.
+#
+# Everything below the `[household]` line is generated for you -- the need table, the day clock, the drift
+# rates, the HUD strip, her whole behavior tree and the steward's menus. Every number defaults to the value
+# the Manor arc tuned in-game (studies/sims/PLAN.md); override any of them under `[household]`,
+# `[household.need.<name>]`, `[household.job]` and `[household.shop]`. See docs/FORMAT.md § [household].
+#
+# The defaults place the objects for THIS room (x +-1220, z 257..-1931). In another room give each need's
+# `pos` and `spot` yourself and probe the layout first (tools/field_layout_probe.py).
+#
+# The field is an ordinary NOVEL field and runs on STOCK Memoria -- no donor, no engine patches. Getting INTO
+# it in-game is yours: warp with the debug menu (~) after a relaunch.
+
+[field]
+id = 4811
+name = "MANOR"             # -> FBG_N11_MANOR + EVT_MANOR.eb
+area = 11
+title = "the manor"
+
+[camera]
+entry_settle = "auto"
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -1700]             # the steward: front-centre, clear of every zone
+
+[household]
+sim = "bilba"
+model = "GEO_MAIN_F0_VIV"
+
+[household.job]
+[household.shop]

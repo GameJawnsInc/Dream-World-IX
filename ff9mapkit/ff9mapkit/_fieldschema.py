@@ -10,7 +10,7 @@ pipeline completed). See ff9mapkit/fieldschema.py; regenerate with
 # generated-from: examples by _regen_fieldschema.py
 
 VOCAB = {
-    '': ('_siege_conflict', '_siege_error', 'ability_feature', 'ability_gem', 'armor', 'ate', 'battle_action', 'battle_attack', 'battle_bgm', 'battle_enemy', 'battle_patch', 'behavior', 'camera', 'camera_zone', 'carry_text', 'character', 'character_param', 'chest', 'chocobo', 'choice', 'command_set', 'coop', 'cutscene', 'deathrules', 'dialogue', 'difficulty', 'encounter', 'equip_bonus', 'equipment', 'event', 'ferry', 'field', 'flag', 'folklore', 'gateway', 'gateway_carry', 'gauge', 'item', 'item_effect', 'item_text', 'jump', 'ladder', 'layers', 'learn', 'leveling', 'logic_add', 'logic_edit', 'lowhp', 'magic_sword_set', 'marker', 'mint', 'music', 'npc', 'numeric_input', 'object', 'on_entry', 'party', 'photo', 'platform', 'playable', 'player', 'player_func', 'prop', 'qte', 'rebalance', 'save_moogle', 'savepoint', 'scene', 'shop', 'siege', 'sps', 'sps_edit', 'start_inventory', 'startup', 'status', 'status_set', 'summon', 'synthesis', 'synthesis_edit', 'text_table', 'verbatim_eb', 'walkmesh', 'weapon'),
+    '': ('_household_conflict', '_household_error', '_siege_conflict', '_siege_error', 'ability_feature', 'ability_gem', 'armor', 'ate', 'battle_action', 'battle_attack', 'battle_bgm', 'battle_enemy', 'battle_patch', 'behavior', 'camera', 'camera_zone', 'carry_text', 'character', 'character_param', 'chest', 'chocobo', 'choice', 'command_set', 'coop', 'cutscene', 'deathrules', 'dialogue', 'difficulty', 'encounter', 'equip_bonus', 'equipment', 'event', 'ferry', 'field', 'flag', 'folklore', 'gateway', 'gateway_carry', 'gauge', 'household', 'item', 'item_effect', 'item_text', 'jump', 'ladder', 'layers', 'learn', 'leveling', 'logic_add', 'logic_edit', 'lowhp', 'magic_sword_set', 'marker', 'mint', 'music', 'npc', 'numeric_input', 'object', 'on_entry', 'party', 'photo', 'platform', 'playable', 'player', 'player_func', 'prop', 'qte', 'rebalance', 'save_moogle', 'savepoint', 'scene', 'shop', 'siege', 'sps', 'sps_edit', 'start_inventory', 'startup', 'status', 'status_set', 'summon', 'synthesis', 'synthesis_edit', 'text_table', 'verbatim_eb', 'walkmesh', 'weapon'),
     'armor': ('m_def', 'm_eva', 'name', 'p_def', 'p_eva'),
     'behavior': ('alternators', 'brains', 'byte_band', 'counters', 'drift', 'group', 'hud', 'pick', 'pool', 'public_flags', 'scan', 'schedule', 'stream', 'table', 'tick', 'timer', 'unit', 'warmup'),
     'behavior.alternators': ('frames', 'name'),
@@ -47,6 +47,9 @@ VOCAB = {
     'field': ('area', 'area_title_overlays', 'atlas', 'atlas_tile_size', 'bgs', 'borrow_bg', 'borrow_field', 'hide_area_title', 'id', 'location', 'mapconfig', 'name', 'outpost', 'register_text_block', 'source_field', 'text_block', 'title', 'walkmesh_tri_toggles'),
     'flag': ('index', 'name'),
     'gateway': ('arrive', 'arrive_face', 'ate', 'ate_mode', 'ate_title', 'entrance', 'flag', 'name', 'options', 'region_key', 'requires_flag', 'requires_flag_clear', 'set_flag', 'set_flags', 'set_scenario', 'steps', 'to', 'zone'),
+    'household': ('beat', 'dialogue', 'faint_pose', 'faint_regen', 'full_at', 'home', 'hour_ticks', 'job', 'label', 'merry_at', 'model', 'need', 'night_sleep_at', 'night_tire_every', 'nosleep_every', 'revive_at', 'shop', 'sim', 'speed', 'start_hour', 'tired_at', 'urge_at', 'warmup'),
+    'household.job': ('desk', 'desk_prompt', 'desk_spot', 'prop', 'shift_len', 'skill_table', 'skilled_at', 'study_fun', 'study_gain', 'study_len', 'wage_hi', 'wage_lo', 'work_fun', 'work_ready_at'),
+    'household.shop': ('catalogue', 'fun', 'label', 'model', 'name', 'park', 'pose', 'price', 'prompt', 'request_flag'),
     'item': ('equippable_by', 'name', 'price', 'sell', 'teaches'),
     'item_effect': ('element', 'for_dead', 'name', 'power', 'rate', 'status'),
     'item_text': ('description', 'display_name', 'name'),
@@ -119,6 +122,9 @@ ENFORCED = frozenset({
     'field',
     'flag',
     'gateway',
+    'household',
+    'household.job',
+    'household.shop',
     'item',
     'item_effect',
     'item_text',
