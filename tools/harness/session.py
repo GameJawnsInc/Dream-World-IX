@@ -8267,26 +8267,62 @@ class Session:
     # -- co-op (netsync) benches ------------------------------------------------------------
     #: The protocol that turned the ~ menu's IMGUI bench buttons into verbs.
     NETSYNC_PROTOCOL = 5
+    #: The agent's sub-verbs, in its own order -- the list its "unknown sub-verb" refusal prints
+    #: (HarnessAgent `case "netsync"`, s96). Pinned to the patch stack by test_harness_netsync.py.
+    NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
+                        "advance", "choice", "unmatched", "talk")
+    #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
+    #: "authority", s96). An F3 engine answers them "unknown sub-verb" only AFTER the step is spent.
+    NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag")
 
     def netsync(self, sub: str, *args, timeout: float = 20.0) -> State:
         """Drive the co-op client's solo benches -- the ~ menu's IMGUI buttons, as verbs.
 
         ``selftest 1|0`` forces the selftest role for THIS process (Memoria.ini untouched; released
-        on disarm, fault and ``reset``), ``bench 1|0`` is the F1 field-gate lever, ``l1 1|0`` the
-        host-event flag the L2 lockstep engages under, ``advance`` / ``choice <index>`` inject one
-        host frame against the frontmost open window, and ``unmatched`` a frame no window can match
-        (the DialogWaitMs timeout proof). Returns a fresh state so the caller can read ``netsync``
+        on disarm, fault and ``reset``), ``bench 1|0`` is the F1 field-gate lever, ``talk <uid>``
+        replays a host's press-fired talk (F3.1), and ``advance`` / ``choice <index>`` inject one
+        host frame against the frontmost open window, ``unmatched`` a frame no window can match.
+
+        THE DIALOGUE CONTRACT DECIDES WHAT THE INJECTIONS MEAN -- check
+        :attr:`State.dialogue_authority`. On an F3 lockstep engine ``l1 1|0`` is the host-event flag
+        the lockstep engages under and an injection needs it; ``unmatched`` is the DialogWaitMs
+        timeout proof. On an F3.2 engine (s96) an injection feeds the guest's INBOX and needs the
+        bench lock, ``lock 1|0``; ``hostscene 0|1`` (alias ``l1``) is the simulated host scene the
+        orphan rule and the chip read; ``stale 1|0`` reads the link dead (the lock holds LinkGraceMs,
+        then lets go); ``unlock`` is the ~ menu panic unlock (this field, until the next field load);
+        ``click`` / ``drag <dy>`` are the mouse/touchpad seams (stock seams, no role gate --
+        ``|dy| > 50`` moves a choice). Returns a fresh state so the caller can read ``netsync``
         straight after.
 
-        Refuses on an engine that predates the verbs: an older agent answers ``unknown op`` only
-        AFTER the step is sent, which is a worse message and a wasted step.
+        Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
+        verbs (``unknown op``), a sub-verb the agent does not have, and an F3.2 sub-verb on an engine
+        without the contract (``unknown sub-verb``) -- worse messages and wasted steps. Every gate
+        the agent itself applies (the role, the bench lever, the lock, an open window) stays the
+        agent's: its refusal comes back as a :class:`StepRefused` carrying the engine's reason.
         """
         if self.engine_protocol is not None and self.engine_protocol < self.NETSYNC_PROTOCOL:
             raise HarnessError(
                 f"netsync: the deployed engine speaks protocol {self.engine_protocol}; the co-op "
                 f"bench verbs need protocol {self.NETSYNC_PROTOCOL} (s83 rev 5). Rebuild the DLL."
             )
-        self.send("netsync " + " ".join([str(sub), *(str(a) for a in args)]), timeout=timeout)
+        sub = str(sub).strip().lower()
+        if sub not in self.NETSYNC_SUBVERBS:
+            raise HarnessError(f"netsync: unknown sub-verb {sub!r} ({'|'.join(self.NETSYNC_SUBVERBS)})")
+        if sub in self.NETSYNC_AUTHORITY_SUBVERBS:
+            st = self.state
+            authority = st.dialogue_authority
+            if not authority:
+                if st.netsync is None:
+                    have = "publishes no `netsync` block"
+                elif authority is False:
+                    have = "speaks the F3 lockstep (no `netsync.dialogue` = \"authority\")"
+                else:
+                    have = f"speaks a dialogue contract this driver does not know " \
+                           f"(`netsync.dialogue` = {st.netsync.get('dialogue')!r})"
+                raise HarnessError(
+                    f"netsync {sub}: the deployed engine {have}; `{sub}` is an F3.2 host-authoritative "
+                    f"dialogue verb (memoria-patch s96). Rebuild the DLL, or update the driver.")
+        self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
         return self.state
 
     # -- the story-write trace (memoria-patch s88) ---------------------------------------------

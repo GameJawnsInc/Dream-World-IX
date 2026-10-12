@@ -1257,7 +1257,7 @@ index e69de29..5c32122 100644
 +    }
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index 8b12b49..392dd25 100644
+index 8b12b49..4c9acb8 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 @@ -179,35 +179,49 @@ namespace Memoria.Netsync
@@ -2437,7 +2437,7 @@ index 8b12b49..392dd25 100644
          // F3.2: ms since the guest last ACCEPTED a relayed talk start (-1 = none yet) -- C2's RelayOwnMs claim.
          public static Int32 HarnessTalkRelayAcceptAgeMs
          {
-@@ -2700,25 +2830,30 @@ namespace Memoria.Netsync
+@@ -2700,25 +2830,31 @@ namespace Memoria.Netsync
                  return Environment.TickCount - i._relayAcceptTick;   // wrap-safe: two real ticks
              }
          }
@@ -2447,8 +2447,9 @@ index 8b12b49..392dd25 100644
 -        public static Boolean HarnessDialogWaitArmed { get { NetSyncClient i = _instance; return i != null && i._dialogWaitArmed; } }
 -        public static Int32 HarnessDialogWaitMs { get { return DialogWaitMs; } }
 -        public static Int32 HarnessDialogWaitElapsedMs
-+        // [ff9mapkit netsync F3.2] C2 observables (harness protocol rev 6: these REPLACE l1_pinned, l1_forced_control,
-+        // align_*, applied_seq, wait_* and pending -- the one-slot holder and the L1 pin are gone). Main thread.
++        // [ff9mapkit netsync F3.2] C2 observables (harness protocol stays 5: these are ADDED beside l1_pinned,
++        // l1_forced_control, align_*, applied_seq, wait_* and pending, which the agent now pins to "nothing" -- the
++        // one-slot holder and the L1 pin are gone). Main thread.
 +        public static Boolean HarnessLockEngaged { get { NetSyncClient i = _instance; return i != null && _enabled && i._lockEngaged; } }
 +        public static Boolean HarnessFieldUnlocked { get { NetSyncClient i = _instance; return i != null && i._unlockField >= 0; } }
 +        public static Int32 HarnessDialogInboxCount { get { NetSyncClient i = _instance; return i == null ? 0 : i._dlg.InboxCount; } }
@@ -2481,7 +2482,7 @@ index 8b12b49..392dd25 100644
          public static Boolean HarnessInjectDialog(Int32 winnum, Int32 textId, Int32 kind, Int32 choiceIndex, out String why)
          {
              why = null;
-@@ -2729,8 +2864,8 @@ namespace Memoria.Netsync
+@@ -2729,8 +2865,8 @@ namespace Memoria.Netsync
                  why = "netsync: role is '" + _role + "' -- the dialog bench needs the selftest role";
              else if (!NetSyncField.BenchGates)
                  why = "netsync: the field-gate bench is OFF (netsync bench 1)";
@@ -2492,7 +2493,7 @@ index 8b12b49..392dd25 100644
              if (why != null)
                  return false;
              i.DebugInjectDialogAdvanceImpl(winnum, textId, kind, choiceIndex);
-@@ -2905,10 +3040,10 @@ namespace Memoria.Netsync
+@@ -2905,10 +3041,10 @@ namespace Memoria.Netsync
                      return;
                  }
                  // [ff9mapkit netsync F3.2] the HOST's scene (the bench's simulated flag on the selftest arm), read
@@ -2507,7 +2508,7 @@ index 8b12b49..392dd25 100644
                  Boolean hostScene = benchArm ? DebugHostEventFlag != 0 : HostEventFlagFromWire();
                  if (hostScene)
                  {
-@@ -3078,18 +3213,10 @@ namespace Memoria.Netsync
+@@ -3078,18 +3214,10 @@ namespace Memoria.Netsync
          private void OnGUI()
          {
              NetSyncBattle.DrawGUI();   // the battle spectate/assist panel (independent of the status overlay)
@@ -2528,7 +2529,7 @@ index 8b12b49..392dd25 100644
              GUIContent content = new GUIContent(_ovlText);
              Vector2 size = _ovlStyle.CalcSize(content);
              const Single pad = 10f;
-@@ -3098,6 +3225,36 @@ namespace Memoria.Netsync
+@@ -3098,6 +3226,36 @@ namespace Memoria.Netsync
              GUI.Label(new Rect(box.x + pad, box.y + pad * 0.7f, size.x, size.y), content, _ovlStyle);
          }
  
@@ -2849,7 +2850,7 @@ index 68312c8..90b45a0 100644
          {
              keyCommand = Control.None;
 diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-index 43ca841..4dbdca3 100644
+index 43ca841..9e9771f 100644
 --- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
 @@ -44,6 +44,17 @@ namespace Memoria.Harness
@@ -2976,7 +2977,7 @@ index 43ca841..4dbdca3 100644
 -        // client every value sits at its "nothing" sentinel -- a missing subsystem is one null
 -        // section, never a missing document (the same law as every other section here).
 +        // The co-op client's observables -- above all the dialogue lock, since the solo benches assert on
-+        // it. [ff9mapkit netsync F3.2] rev 6 (C2, host-authoritative dialogue): the bench levers (`l1` = the
++        // it. [ff9mapkit netsync F3.2] C2 (host-authoritative dialogue, additive under 5): the bench levers (`l1` = the
 +        // simulated host scene, `lock`, `stale`), whether THE LOCK is engaged (`lock_engaged`) and this field
 +        // panic-`unlocked`, whether the guest's own dialogue keys/clicks are swallowed right now (`suppress`),
 +        // every tracked line (`windows[]`: win, text, field, cls = locked|orphaned|local, the Dialog state,

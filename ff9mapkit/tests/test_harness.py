@@ -9281,8 +9281,13 @@ def test_state_maps_the_netsync_block_and_tells_absent_from_off():
 def test_netsync_verbs_carry_the_engines_refusal(game):
     """The bench verbs are gated (selftest role, the field-gate lever, the L1 flag) and every
     refusal must reach the scenario with the engine's own reason, attached to THIS step -- a bench
-    that acked a refused injection would report lockstep green having injected nothing."""
+    that acked a refused injection would report lockstep green having injected nothing.
+
+    The F3 LOCKSTEP engine (s84/s85, `netsync_dialogue` None): its injections need the L1 flag and
+    land in the one-slot holder. The F3.2 contract's gates (the bench lock, the inbox) are pinned in
+    test_harness_netsync.py."""
     fake = FakeGame(game)
+    fake.netsync_dialogue = None
     with session(game, fake) as g:
         boot(g)
         g.warp(30810)
@@ -9346,8 +9351,8 @@ def test_netsync_talk_is_gated_like_the_other_benches(game):
         with pytest.raises(HarnessError, match="outside 0..65535"):
             g.netsync("talk", 70000)
         g.netsync("talk", 3)
-        st = published(g, lambda s: s.netsync is not None and s.netsync.get("last_talk_uid") == 3)
-        assert st.netsync["last_talk_uid"] == 3
+        # the stand-in's own receipt, NOT a published key: no engine's AppendNetsync carries a last talk uid
+        assert fake.last_talk_uid == 3 and "last_talk_uid" not in g.state.netsync
 
 
 # --------------------------------------------------------------------------- the story-write trace (s88)

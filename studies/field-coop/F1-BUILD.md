@@ -584,7 +584,7 @@ Supersedes the snap and the pin described above (F2 L1, the F3 bench's L1 line, 
 - **THE L1 LAW:** L1 never moves or freezes the guest. `ServiceEventCoLocate` only logs
   `host in a dialogue scene (nonce N) -- staying in place` once per host nonce; `ReleaseL1`, the
   `SetUserControl(false)` pin and its restore are deleted (`HarnessL1Pinned`/`HarnessL1ForcedControl`
-  read constant false until harness rev 6). A relayed talk still freezes the guest through its own
+  read constant false; s96 kept the harness at protocol 5 and keeps them published, pinned false). A relayed talk still freezes the guest through its own
   copy's `DisableMove`. The selftest L1 bench lost its snap and pin the same way ("Host scene (simulated)").
 - **Talk relay, no snap:** `ApplyTalkStart` returns 1 started / 0 defer / -1 declined. It DEFERS (nonce
   unmarked, one log line per nonce) while there is no controlled actor, the guest's control is off (the
@@ -604,5 +604,9 @@ Supersedes the snap and the pin described above (F2 L1, the F3 bench's L1 line, 
 - Manual F11/held-L3 teleport is unchanged; `SnapToHost` now has no automatic caller.
 
 **Open:** (captured: `memoria-patches/s95-netsync-no-warp.patch`, gated in its README row);
-prove the rewritten `coop_dialogue_lockstep.py` / `coop_talk_relay.py` checks FAIL on the pre-C1 DLL
-first; deploy; the C1 two-machine boxes 1–6.
+calibrate first: run `scenarios/coop_talk_relay.py` (T1-T4) and `scenarios/coop_dialogue_authority.py`
+(C2's A1-A8/A11) on the pre-F3.2 DLL and confirm the documented checks go RED. Both scenarios fall back to
+the old verb spellings on an engine with no `netsync.dialogue` key, or when `COOP_CALIBRATE=1` is set. Each
+docstring lists which checks must fail there and which cannot discriminate. Then deploy; the C1 two-machine
+boxes 1–6. `coop_dialogue_lockstep.py` is RETIRED: it encoded the F3 contract (the 8 s hand-back, the L1
+pin), and loading it now refuses with a pointer to `coop_dialogue_authority.py`.

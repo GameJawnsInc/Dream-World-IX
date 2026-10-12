@@ -90,6 +90,20 @@ STICK_THRESHOLD = 0.10
 #: driver has to send all six in a single request -- six separate presses would never overlap, and a
 #: stand-in that accepted them sequentially would let a broken driver pass.
 SOFT_RESET_COMBO = ("l1", "l2", "r1", "r2", "start", "select")
+#: The agent's `netsync` sub-verbs, in its order (its "unknown sub-verb" refusal prints them): the F3.2 engine (s96)
+#: and an F3 lockstep engine (s84/s85, `FakeGame.netsync_dialogue` None). test_harness_netsync.py pins the first to
+#: the patch stack.
+NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
+                    "advance", "choice", "unmatched", "talk")
+NETSYNC_SUBVERBS_F3 = ("selftest", "bench", "l1", "advance", "choice", "unmatched", "talk")
+#: What an F3.2 engine publishes in place of the F3 lockstep keys: the contract tag, and every F3 key PINNED to its
+#: "nothing" value (HarnessAgent.AppendNetsync, s96 -- protocol stays 5, the block is additive).
+NETSYNC_F3_PINNED = {"dialogue": "authority", "l1_pinned": False, "l1_forced_control": False, "align_win": -1,
+                     "align_text": -1, "applied_seq": -1, "wait_armed": False, "wait_ms": -1, "wait_limit_ms": -1,
+                     "pending": None}
+#: The guest's dialogue keys the F3.2 lock swallows (UIKeyTrigger's dialogue path; the arrows: the cursor lock), by
+#: every name `_menu_step` answers to.
+GUEST_DIALOG_KEYS = ("confirm", "ok", "cancel", "back", "b", "up", "down")
 #: The UI states the ENGINE's soft-reset combo fires in: it is held through ``UIKeyTrigger.GetKey``, which answers
 #: false outside these four (UIKeyTrigger.cs:94; research/o3_design.md 0.2 #9). `FakeGame.soft_reset_ui` defaults to
 #: the narrower pair every test before H9 was written against; a test that models the engine passes this.
@@ -417,15 +431,38 @@ class FakeGame:
         self.shots_taken = 0
         #: The co-op client's observables, at the engine's "nothing" sentinels. The stand-in models
         #: the GATES and the state block -- what each `netsync` verb refuses, what it publishes
-        #: afterwards, and that `reset`/disarm release the override -- not the lockstep itself.
+        #: afterwards, and that `reset`/disarm release the override -- and, under the F3.2 contract,
+        #: THE LOCK on its one dialogue window (:class:`_GuestDialog`). Not the wire.
+        #: `netsync_dialogue` is the dialogue contract this stand-in's engine speaks: "authority" (s96,
+        #: F3.2 host-authoritative dialogue -- the agent's current source) or None, an F3 lockstep engine
+        #: (s84/s85): no `dialogue` tag, the one-slot holder and its timeout, no F3.2 sub-verb.
+        self.netsync_dialogue: str | None = "authority"
         self.netsync: dict = {
             "enabled": False, "role": "host", "instance": False, "selftest": False, "forced": False,
             "bench": False, "l1": False, "l1_pinned": False, "l1_forced_control": False,
             "suppress": False, "align_win": -1, "align_text": -1, "applied_seq": -1,
             "wait_armed": False, "wait_ms": -1, "wait_limit_ms": 8000, "pending": None,
+            "lock": False, "stale": False,          # F3.2 bench levers (published only under "authority")
         }
         self._lockstep_seq = 0
         self._wait_since_frame = 0
+        #: The uid the last accepted `netsync talk` replayed -- the stand-in's own receipt for a test. NOT published:
+        #: no engine's AppendNetsync carries it, so a state read of it would pass only here.
+        self.last_talk_uid: int | None = None
+        self._guest = _GuestDialog()
+        #: The open window as the F3.2 guest keys it against the host's events: its ``Id`` (winnum) and
+        #: ``TextId``, and FlagButtonInh (a script-polled ``[NFOC]`` line: never suppressed, never driven, handed
+        #: back by the orphan rule). One window at a time -- the stand-in's dialogue is one window.
+        self.dialog_id = 0
+        self.dialog_text_id = 0
+        self.dialog_inh = False
+        #: Memoria.ini ``[Control] DisableMouseForMenus``: ``netsync click`` is refused under it.
+        self.disable_mouse_for_menus = False
+        self._dialog_gen = 0                       # bumped by every say()/offer(): a NEW window (dialogs are pooled)
+        #: The open window's page as the engine publishes it (windows[].page = Dialog.CurrentPage): 1 on the first
+        #: visible page -- PrepareNextPage post-increments (`PageParsers[this.currentPage++]`, Dialog.cs:1550) the
+        #: moment the Phrase is set -- and +1 per page turn. 0 only with no window.
+        self._dialog_page = 0
         #: The story-write trace (s88), modelled as its CONTRACT: the `storytrace` verb's gates, the
         #: state block, and proto-1 rows -- the `arm`/`off` epochs, the harness's own pokes as `harness`
         #: rows, and a script store a test drives through :meth:`script_store`. Not the engine's
@@ -1076,6 +1113,7 @@ class FakeGame:
                 self._step_machine("agent_last")
                 self._step_battle()
                 self._service_turn()        # s90: end, or cut, an in-place turn
+                self._step_netsync()        # s96: the F3.2 guest's dialogue lock (bench only)
                 self._publish()
                 self._step_machine("agent_first")
         except OSError as err:
@@ -1266,6 +1304,7 @@ class FakeGame:
             # changes, so the trace's residue net sees them in the OLD field (`_warp_writes`); -1 writes nothing
             self._warp_writes(num(1, -1), num(2, -1))
             self.field_id = num(0, -1)
+            self._guest.field_load()                    # s96: every field load re-arms the panic unlock (a reload too)
             self.ui_state = "FieldHUD"
             self.control = self.warp_arrive_control     # H9: False -- control zeroed at the field start, not given
             if self._movie is not None:
@@ -2150,6 +2189,7 @@ class FakeGame:
         self._walkout = None                       # H16: the field changes under the walk-out
         self.field_id = dest
         self._visit += 1
+        self._guest.field_load()                   # s96: a gateway's load re-arms the panic unlock (to the same field too)
         self.player = [float(arrive[0]), 0.0, float(arrive[1])]
         if self._arrive_face is not None:          # the firing region's ``arrive_face`` (see `regions`)
             self._face_deg = float(self._arrive_face)
@@ -2459,6 +2499,8 @@ class FakeGame:
                 self._close_battle_cursor()
 
     def _menu_step(self, button: str) -> None:
+        if button in GUEST_DIALOG_KEYS and self._guest_suppress():
+            return      # s96: UIKeyTrigger swallows a following guest's dialogue keys under the lock (and the cursor holds)
         if self.ui_state == "Tutorial":
             if button in ("confirm", "ok"):
                 self._tutorial = False
@@ -2950,6 +2992,7 @@ class FakeGame:
         # the engine leaves it for InitialBattle. That is the stale value the next battle inherits.
         self.commands_enabled = False
         self.ui_state = "FieldHUD"
+        self._guest.field_load()               # s96: the battle's return LOADS the field -- the panic unlock re-arms
 
     def _step_battle_exit(self) -> None:
         """A `battle_exit` end, phase by phase, in the engine's order (research/o3_design.md 0.2 #8): the FADE runs
@@ -2975,6 +3018,7 @@ class FakeGame:
         else:
             self._bexit = None
             self.ui_state = "FieldHUD"
+            self._guest.field_load()               # s96: the exit field's load re-arms the panic unlock
             self.control = bool(ex.get("arrive_control", False))
             self._visit += 1                       # a fresh load: a new visit's actor
             self._in_trigger.clear()
@@ -3119,10 +3163,28 @@ class FakeGame:
 
     # -- co-op (netsync) benches ---------------------------------------------------------------
     def _netsync(self, args: list[str]) -> None:
-        """The agent's `netsync` verb: the same gates, the same refusal texts, the same state."""
+        """The agent's `netsync` verb: the same gates, the same refusal texts, the same state -- for the contract
+        :attr:`netsync_dialogue` names (HarnessAgent `case "netsync"`; s96 for "authority", s84/s85 for None)."""
         sub = args[0].lower() if args else ""
         ns = self.netsync
+        authority = self.netsync_dialogue == "authority"
         flag = (args[1] if len(args) > 1 else "1") != "0"
+
+        def arg(i: int, default: int) -> int:             # the agent's Arg(s, i, default): Int32.TryParse, else default
+            try:
+                v = int(args[i])
+            except (IndexError, ValueError):
+                return default
+            return v if -2 ** 31 <= v < 2 ** 31 else default   # an Int32 overflow fails TryParse too
+
+        def out_of_range(param: str, message: str) -> RuntimeError:
+            # the agent's `throw new ArgumentOutOfRangeException(param, message)`: under the game's Mono its Message is
+            # message + NewLine + "Parameter name: " + param (Windows: CRLF) -- NOT "<param>: <message>"
+            return RuntimeError(f"{message}\r\nParameter name: {param}")
+
+        if sub not in (NETSYNC_SUBVERBS if authority else NETSYNC_SUBVERBS_F3):
+            known = "|".join(NETSYNC_SUBVERBS if authority else NETSYNC_SUBVERBS_F3)
+            raise RuntimeError(f"netsync: unknown sub-verb '{sub}' ({known})")
         if sub == "selftest":
             if flag:
                 if ns["enabled"] and ns["role"] != "selftest":
@@ -3131,22 +3193,73 @@ class FakeGame:
                 ns.update(enabled=True, role="selftest", instance=True, selftest=True, forced=True)
             else:
                 self._release_netsync()
-        elif sub in ("bench", "l1"):
+        elif sub in ("bench", "l1", "hostscene", "lock", "stale"):
             if not ns["selftest"]:
                 raise RuntimeError(f"netsync {sub}: needs the selftest role (netsync selftest 1)")
-            ns[sub] = flag
-            if sub == "l1" and not flag:
+            key = "l1" if sub == "hostscene" else sub
+            if key == "l1" and flag and not ns["l1"]:
+                self._guest.scene_nonce = (self._guest.scene_nonce + 1) & 0xFF   # BenchSceneEdge: one per rise
+            ns[key] = flag
+            if sub == "l1" and not flag and not authority:
                 ns["l1_pinned"] = False
                 ns["l1_forced_control"] = False
-        elif sub in ("advance", "choice", "unmatched"):
-            if sub != "unmatched" and not (self.texts or self.choice is not None):
+        elif sub == "unlock":
+            # the ~ menu panic unlock (HarnessReleaseDialogLock): THIS field, until the next field load
+            if not ns["instance"]:
+                raise RuntimeError("netsync unlock: no co-op client in this process")
+            if not (ns["selftest"] and ns["bench"]):
+                raise RuntimeError("netsync unlock: needs a live followed session (or the selftest field-gate bench)")
+            self._guest.unlock_field = self.field_id
+        elif sub in ("click", "drag"):
+            # the mouse/touchpad seams (DialogManager.OnClick / OnDrag): stock seams, so no role gate
+            if not self._dialog_open():
                 raise RuntimeError(f"netsync {sub}: no dialogue window is open")
+            if sub == "click":
+                if self.disable_mouse_for_menus:
+                    raise RuntimeError("netsync click: [Control] DisableMouseForMenus is on -- a click never "
+                                       "reaches the dialogue")
+                if self._guest_suppress() or self.choice is not None:
+                    return          # swallowed under the lock; a choice window takes no click (GetChoiceDialog)
+                if not self._beats and self.texts and not self.dialog_inh:
+                    # DialogManager.OnClick -> OnKeyConfirm: a plain say() window PAGES (Dialog.OnKeyConfirm -> Hide ->
+                    # the next sub-page, or the close); an [NFOC] one ignores it (ignoreInputFlag)
+                    self.texts = self.texts[1:]
+                    self.raw_texts = self.raw_texts[1:] if self.raw_texts else []
+                    self._dialog_page += 1
+                    return
+                self._menu_step("confirm")          # the window's own OnKeyConfirm, as a real click lands
+            else:
+                dy = arg(1, 0)
+                if dy == 0:
+                    raise out_of_range("netsync drag", "needs a non-zero <dy> (|dy| > 50 moves a choice)")
+                if self.choice is None or self._guest_suppress():
+                    return          # no choice to move, or a locked one (IsGuestLockedChoice)
+                if dy < -50:
+                    self._menu_step("down")         # MoveCurrentChoice(1)
+                elif dy > 50:
+                    self._menu_step("up")
+        elif sub in ("advance", "choice", "unmatched"):
+            if sub == "unmatched":
+                win, text = 15, 0xFFFF              # a key no real window can have
+            elif not self._dialog_open():
+                raise RuntimeError(f"netsync {sub}: no dialogue window is open")
+            else:
+                win, text = self.dialog_id, self.dialog_text_id
+            idx = arg(1, -1) if sub == "choice" else 0xFF
+            if sub == "choice" and idx < 0:
+                raise out_of_range("netsync choice", "needs a choice index")
             if not ns["instance"]:
                 raise RuntimeError("netsync: no co-op client in this process (netsync selftest 1 first)")
             if not ns["selftest"]:
                 raise RuntimeError(f"netsync: role is '{ns['role']}' -- the dialog bench needs the selftest role")
             if not ns["bench"]:
                 raise RuntimeError("netsync: the field-gate bench is OFF (netsync bench 1)")
+            if authority:
+                if not ns["lock"]:
+                    raise RuntimeError("netsync: the bench dialogue lock is OFF (netsync lock 1) -- host events "
+                                       "feed the locked inbox")
+                self._guest.ingest(self.field_id, win, text, 1 if sub == "choice" else 0, idx, self._guest_now())
+                return
             if not ns["l1"]:
                 raise RuntimeError("netsync: the L1 host-event flag is OFF (netsync l1 1) -- L2 engages only under L1")
             seq = self._lockstep_seq
@@ -3158,9 +3271,6 @@ class FakeGame:
                 self._wait_since_frame = self.frame
                 return
             if sub == "choice":
-                idx = int(args[1]) if len(args) > 1 else -1
-                if idx < 0:
-                    raise RuntimeError("netsync choice: needs a choice index")
                 self.choice = None
                 self.menu_entries = []
             # MATCHED: the engine drives the window's own OnKeyConfirm -- one page turns, the frame
@@ -3170,41 +3280,228 @@ class FakeGame:
                 self.raw_texts = self.raw_texts[1:] if self.raw_texts else []
             ns.update(applied_seq=seq, pending=None, suppress=False, align_win=-1, align_text=-1)
         elif sub == "talk":
-            # F3.1: the guest-side replay of a host's press-fired talk, by object uid (solo bench).
+            # F3.1: the guest-side replay of a host's press-fired talk, by object uid (solo bench). The agent's order:
+            # a missing / negative / unparsable uid first (Arg -> -1), then HarnessInjectTalk's gates, then the range
+            uid = arg(1, -1)
+            if uid < 0:
+                raise out_of_range("netsync talk", "needs an object uid")
             if not ns["instance"]:
                 raise RuntimeError("netsync talk: no co-op client in this process (netsync selftest 1 first)")
             if not ns["selftest"]:
                 raise RuntimeError(f"netsync talk: role is '{ns['role']}' -- the bench needs the selftest role")
             if not ns["bench"]:
                 raise RuntimeError("netsync talk: the field-gate bench is OFF (netsync bench 1)")
-            uid = int(args[1]) if len(args) > 1 else -1
-            if not 0 <= uid <= 0xFFFF:
+            if uid > 0xFFFF:
                 raise RuntimeError(f"netsync talk: uid {uid} is outside 0..65535")
-            ns["last_talk_uid"] = uid
-        else:
-            raise RuntimeError(f"netsync: unknown sub-verb '{sub}' (selftest|bench|l1|advance|choice|unmatched|talk)")
+            self.last_talk_uid = uid            # the stand-in's own receipt -- NO engine publishes it
 
     def _release_netsync(self) -> None:
+        """HarnessSelfTest(false), on `selftest 0`, `reset`, disarm and fault: the override and every bench lever
+        go, and the guest forgets its lock, inbox and panic unlock (``orphan_closes`` is the process's telemetry and
+        stays). A session the harness did not force is left alone."""
         ns = self.netsync
         if not ns["forced"]:
-            return                      # a session the harness did not force is left alone
+            return
         ns.update(enabled=False, role="selftest", instance=True, selftest=False, forced=False,
                   bench=False, l1=False, l1_pinned=False, l1_forced_control=False, suppress=False,
                   align_win=-1, align_text=-1, applied_seq=-1, wait_armed=False, wait_ms=-1,
-                  pending=None)
+                  pending=None, lock=False, stale=False)
+        self._guest.release()
 
     def _netsync_doc(self) -> dict:
         ns = self.netsync
+        if self.netsync_dialogue == "authority":
+            g = self._guest
+            doc = {k: ns[k] for k in ("enabled", "role", "instance", "selftest", "forced", "bench", "l1", "lock",
+                                      "stale")}
+            doc.update(lock_engaged=g.engaged, unlocked=g.unlock_field >= 0, suppress=self._guest_suppress())
+            doc.update(NETSYNC_F3_PINNED)
+            doc.update(windows=self._guest_windows(), inbox=g.inbox_doc(self._guest_now()),
+                       host_settled_ms=g.settled_ms, orphan_closes=g.orphan_closes, chip=g.chip)
+            return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
             if ns["wait_ms"] > ns["wait_limit_ms"]:
                 ns.update(pending=None, wait_armed=False, wait_ms=-1)
-        return dict(ns, pending=None if ns["pending"] is None else dict(ns["pending"]))
+        doc = {k: v for k, v in ns.items() if k not in ("lock", "stale")}
+        return dict(doc, pending=None if ns["pending"] is None else dict(ns["pending"]))
+
+    # -- s96: the F3.2 guest's dialogue lock, on the stand-in's one window ---------------------------------------
+    def _dialog_open(self) -> bool:
+        return bool(self.texts) or self.choice is not None
+
+    def _dialog_ready(self) -> bool:
+        """The window takes a confirm that answers it: complete, and a scene choice READY and done typing
+        (IsChoiceReady). A plain window is complete the frame it opens -- the stand-in has no typewriter."""
+        if self._beats and self.choice is not None:
+            return self._beat_phase == "ready" and self.frame >= self._typing_until
+        return True
+
+    def _guest_now(self) -> int:
+        """The guest's clock, ms on the VIRTUAL clock (the engine reads Environment.TickCount deltas)."""
+        return int(self.rt * 1000)
+
+    def _guest_on_field(self) -> bool:
+        return self.field_id > 0 and not self.battle_active and self.ui_state not in (
+            "Title", "WorldHUD", "BattleHUD", "BattleResult")
+
+    def _guest_suppress(self) -> bool:
+        """SuppressLocalDialogInput: the lock is engaged and a lockable, non-``inh`` line is open that is not Local --
+        an UNTRACKED line counts as locked, so one opened this frame is covered before the next tick sees it."""
+        g = self._guest
+        if self.netsync_dialogue != "authority" or not g.engaged or not self._dialog_open() or self.dialog_inh:
+            return False
+        w = g.win
+        return not (w is not None and w["gen"] == self._dialog_gen and w["cls"] == "local")
+
+    def _guest_windows(self) -> list[dict]:
+        w = self._guest.win
+        if w is None:
+            return []
+        field, win, text = w["key"]
+        return [{"win": win, "text": text, "field": field, "cls": w["cls"],
+                 "state": "CompleteAnimation" if self._dialog_ready() else "TextAnimation",
+                 "page": w["page"], "inh": self.dialog_inh}]
+
+    def _guest_track(self, now: int) -> None:
+        """Track: the open window joins LOCKED (lock from open) unless it is the one already tracked; a page turn
+        re-arms its read clock; a closed window is forgotten."""
+        g = self._guest
+        if not self._dialog_open():
+            g.win = None
+        elif g.win is None or g.win["gen"] != self._dialog_gen:
+            g.win = {"gen": self._dialog_gen, "key": (self.field_id, self.dialog_id, self.dialog_text_id),
+                     "cls": "locked", "page": self._dialog_page, "complete_ms": now, "orphan_ms": now}
+        elif g.win["page"] != self._dialog_page:
+            g.win.update(page=self._dialog_page, complete_ms=now)
+
+    def _host_confirm(self, index: int | None = None) -> bool:
+        """A HOST-driven confirm (NetSyncDialog.HostConfirm): what the window's own OnKeyConfirm does, past the
+        guest's suppression. ``index`` is set on a choice first -- out of range, the window's default (never the
+        guest's cursor). True when the window ADVANCED (a page turned, the window closed, a choice answered)."""
+        if self._beats:
+            beat = self._beats[0]
+            if isinstance(beat, str):
+                self._beats.pop(0)
+                self._next_beat()
+                return True
+            if self.choice is None or not self._dialog_ready():
+                return False
+            if index is not None:
+                active = self.choice.get("active") or list(range(int(self.choice.get("count", 0))))
+                self._choice_cursor(index if index in active else int(beat.get("default", 0)))
+            answered = len(self.answered)
+            self._scene_press("confirm")
+            return len(self.answered) > answered
+        if self.choice is not None:
+            self.choice = None
+            self.menu_entries = []
+            return True
+        if self.texts:
+            self.texts = self.texts[1:]
+            self.raw_texts = self.raw_texts[1:] if self.raw_texts else []
+            self._dialog_page += 1
+            return True
+        return False
+
+    def _step_netsync(self) -> None:
+        """The guest's dialogue tick (ServiceDialogAuthority + NetSyncDialog.GuestTick) on the selftest BENCH: the
+        session is the bench lock (`lock 1`, with `bench 1`), and `stale 1` reads the link dead -- the lock holds
+        LinkGraceMs, then lets go. THE LOCK = session && on a field && this field not panic-unlocked; the window open
+        when the session rises stays Local; every later one opens locked. Host events (the injections) apply per
+        window key after MinShowMs; nothing local pages a locked line; only host state releases it -- an event, the
+        orphan rule (`hostscene 0`: the host settled OrphanGraceMs, then one page per AutoReadMs), the link dead,
+        the session ending, or `unlock`. F3 engines (`netsync_dialogue` None) have no tick here."""
+        if self.netsync_dialogue != "authority":
+            return
+        ns, g = self.netsync, self._guest
+        now = self._guest_now()
+        if self.field_id != g.field_seen:                 # RearmDialogLockAtFieldLoad (a same-field warp: the verb)
+            g.field_seen = self.field_id
+            g.unlock_field = -1
+        base = ns["selftest"] and ns["bench"] and ns["lock"]
+        live = not ns["stale"]
+        if base and live:
+            g.live_ms, g.live_armed = now, True
+        elif g.live_armed and (not base or now - g.live_ms >= g.LINK_GRACE_MS):
+            g.live_armed = False                          # spent: the grace runs once
+        if not (base and (live or g.live_armed)):
+            g.session_prev = False
+            g.forget()                                    # drain-and-discard: every line is local
+            return
+        on_field = self._guest_on_field()
+        unlocked_here = on_field and g.unlock_field == self.field_id
+        engaged = on_field and not unlocked_here
+        if not g.session_prev and engaged and self._dialog_open():
+            self._guest_track(now)                        # the session rose: what is already open predates it
+            g.win["cls"] = "local"
+        g.engaged, g.session_prev, g.live = engaged, True, live
+        if unlocked_here:
+            g.inbox.clear()                               # lock off on this field: the host's taps are discarded
+        g.purge(self.field_id, now, self.dialog_inh)
+        if not engaged:
+            g.win, g.settled_since, g.settled_ms = None, None, -1
+            g.chip = g.CHIP_HOST_SCENE if ns["l1"] and on_field else None
+            return
+        self._guest_track(now)
+        w = g.win
+        if w is not None and w["cls"] != "local":         # apply: the earliest event for this window's key
+            e = g.earliest(w["key"])
+            if e is not None:
+                if w["cls"] == "orphaned":
+                    w["cls"] = "locked"                   # a late host event: back under the host
+                # held, not tried, until it can apply: never onto an inh line (it ages out), never before MinShowMs,
+                # never onto a choice that is not READY (DLG-7)
+                if not self.dialog_inh and self._dialog_ready() and now - w["complete_ms"] >= g.MIN_SHOW_MS:
+                    if self._host_confirm(e["index"] if e["kind"] == 1 else None):
+                        g.inbox.remove(e)
+                        self._guest_track(now)
+                    else:
+                        e["tried"] = True                 # kept, retried; it ages out at PendingTtlMs
+        # the orphan rule -- on the bench the host is co-located, and settled = its scene is down
+        if not ns["l1"]:
+            if g.settled_since is None:
+                g.settled_since = now
+        else:
+            g.settled_since = None
+        g.settled_ms = -1 if g.settled_since is None else now - g.settled_since
+        settled_long = g.settled_ms >= g.ORPHAN_GRACE_MS
+        w = g.win
+        if w is not None and w["cls"] != "local":
+            pending = g.earliest(w["key"]) is not None
+            if w["cls"] == "locked":
+                if settled_long and not pending:
+                    if self.dialog_inh:
+                        w["cls"] = "local"                # a script-polled line: handed back
+                    else:
+                        w.update(cls="orphaned", orphan_ms=now)
+            elif pending or not settled_long:
+                w["cls"] = "locked"                       # the host is busy again, or a late event
+            elif self.dialog_inh:
+                w["cls"] = "local"
+            elif self._dialog_ready() and now - max(w["orphan_ms"], w["complete_ms"]) >= g.AUTO_READ_MS:
+                # reading pace: confirm it as the host would -- a choice takes its CANCEL row, else its default
+                # (NetSyncDialog.OrphanChoice(d.CancelChoice, d.DefaultChoice)); the cancel row is the beat's, as
+                # SetupChoose builds it (:func:`choice_cancel`)
+                closes = self.choice is not None or bool(self._beats) or len(self.texts) <= 1
+                pick = None
+                if self._beats and self.choice is not None:
+                    cancel = choice_cancel(self._beats[0])
+                    pick = cancel if cancel >= 0 else int(self._beats[0].get("default", 0))
+                if self._host_confirm(pick):
+                    if closes:
+                        g.orphan_closes += 1
+                    self._guest_track(now)
+                else:
+                    w["orphan_ms"] = now                  # one attempt per AutoReadMs, never per tick
+        g.chip = g.chip_for(self.dialog_inh, ns["l1"] and on_field)
 
     def say(self, *pages: str, raw: str | None = None) -> None:
         """Put a dialogue box on screen. ``raw`` models the untagged SOURCE the engine also carries."""
         self.texts = list(pages)
         self.raw_texts = [raw] if raw else list(pages)
+        self._dialog_gen += 1                             # s96: a NEW window, whatever it says
+        self._dialog_page = 1                             # CurrentPage on its first visible page (see __init__)
 
     def offer(self, options: list[str], *, header: str = "What now?",
               active: list[int] | None = None) -> None:
@@ -3216,6 +3513,8 @@ class FakeGame:
         if active is not None:
             self.choice["active"] = list(active)
         self.menu["label"] = options[0] if options else None
+        self._dialog_gen += 1
+        self._dialog_page = 1
 
     def scene(self, *beats, stale: int = 0, opening: int = 6, closing: int = 6, control: bool = True) -> None:
         """Play a scripted scene with control withheld, beat by beat; control comes back after the last -- unless
@@ -3223,7 +3522,8 @@ class FakeGame:
         script moves on with control still off (H9; the default is as it always was). A
         beat is a page (a str) that Confirm turns, or a CHOICE (a dict: ``options``; ``default``, the script's
         defaultChoice -- the ABSOLUTE index its cursor starts on; optionally ``header``, and ``disabled``, the
-        absolute indexes the script's mask leaves out; ``typing``, frames its prompt types on once the window
+        absolute indexes the script's mask leaves out; ``cancel``, its CancelChoice when a tag names one (default: the
+        last row, as SetupChoose builds it -- :func:`choice_cancel`); ``typing``, frames its prompt types on once the window
         is ready) that Confirm answers at the cursor, into :attr:`answered`, or the NAMING screen (a dict
         ``{"naming": char}``: ui_state "NameSetting", no dialog; two Confirms keep the default name, into
         :attr:`named`), or a MOVIE (H9: a dict ``{"movie": frames, "skip": {"header", "options"[, "default"]}}``): no
@@ -3432,6 +3732,139 @@ class FakeGame:
         self.menu_index = 0
         self.menu = {"selected": "Button0", "hovered": None,
                      "label": entries[0] if entries else None, "group": group}
+
+
+# ======================================================================== s96: the F3.2 guest's dialogue lock
+def choice_cancel(beat: dict) -> int:
+    """A scene() choice beat's CANCEL row (absolute index), as DialogBoxSymbols.SetupChoose builds Dialog.CancelChoice:
+    the beat's ``cancel`` when it names one (a [PCHC]/[PCHM] tag's second parameter -- -1 = none), else the LAST row
+    (``choiceExactCount - 1``, the untagged menu's rule); then, with any row disabled, a cancel row that is disabled or
+    not active becomes the highest ACTIVE row (``ActiveIndexes.Max()``), else it is clamped to the last row. -1 left
+    standing means "no cancel": the orphan rule then takes the default (NetSyncDialog.OrphanChoice)."""
+    count = len(beat["options"])
+    disabled = set(int(i) for i in beat.get("disabled", ()))
+    active = [i for i in range(count) if i not in disabled]
+    cancel = int(beat.get("cancel", count - 1))
+    if disabled:
+        if cancel in disabled or cancel not in active:
+            cancel = max(active) if active else -1
+    else:
+        cancel = min(cancel, count - 1)
+    return cancel
+
+
+class _GuestDialog:
+    """The F3.2 guest's dialogue authority (s96: NetSyncClient.ServiceDialogAuthority + NetSyncDialog), cut down to the
+    stand-in's ONE dialogue window and driven by :meth:`FakeGame._step_netsync`: THE LOCK, the inbox, the orphan rule
+    and the chip -- the gates and the outcomes a driver asserts on, at the engine's tunings, on the fake's virtual
+    clock. NOT modelled: the wire (a bench inject IS the inbox, as on the engine), a second window, the typewriter (a
+    page is complete when it opens, so MinShowMs runs from the open or the page turn), the pause menu, the relay-accept
+    purge and its RelayOwnMs claim, the settle clock's talk-live and host-elsewhere legs, and the `talk` relay itself
+    (`netsync talk` opens nothing here: no relay-opened line, no TalkRelayTtlMs defer). An orphaned scene() choice
+    closes on its CANCEL row, else its default (:func:`choice_cancel`); an offer() menu has no rows to pick from and
+    simply closes."""
+
+    LINK_GRACE_MS = 3000        # NetSyncDialog.LinkGraceMs: the lock outlives a dead-reading session this long
+    MIN_SHOW_MS = 350           # a host event never pages a line shown for less
+    PENDING_TTL_MS = 20000      # an event its window is not waiting on ages out after this
+    ORPHAN_GRACE_MS = 2000      # the host must read settled this long before an orphan
+    AUTO_READ_MS = 2000         # an orphaned page stays up this long before its auto-confirm
+    INBOX_CAP = 64
+    HEADS_MAX = 8               # HarnessAgent publishes at most this many inbox heads
+    CHIP_HICCUP = "Co-op: link hiccup -- holding this conversation for the host"
+    CHIP_CLOSING = "Co-op: this line isn't on the host's screen -- closing it"
+    CHIP_FOLLOWING = "Co-op: following the host's conversation"
+    CHIP_HOST_SCENE = "Co-op: the host is in a scene"
+
+    def __init__(self) -> None:
+        self.inbox: list[dict] = []
+        self.orphan_closes = 0      # the process's telemetry: a release does not reset it (the engine's _dlg outlives it)
+        self.unlock_field = -1      # the field `unlock` released (-1 = none); the next field load re-arms it
+        self.field_seen = None
+        self.live_armed = False     # LinkGraceMs runs from live_ms while armed (the tick-baseline law)
+        self.live_ms = 0
+        self.session_prev = False   # the session half of the lock on the previous tick (its rising edge marks Local)
+        self.seq = 0                # the bench's own host seq (u8, as _dialogSeq)
+        self.scene_nonce = 0        # bumps on each simulated host-scene rise (the events' `scene` stamp)
+        self.forget()
+
+    def forget(self) -> None:
+        """The session is off (ResetAll): inbox, window, clocks and chip -- every line is local."""
+        self.inbox.clear()
+        self.win: dict | None = None
+        self.settled_since: int | None = None
+        self.settled_ms = -1
+        self.engaged = False
+        self.live = True
+        self.chip: str | None = None
+
+    def release(self) -> None:
+        """HarnessSelfTest(false): the session's state goes, the panic unlock with it -- and the bench's host seq
+        (ApplyConfigChange -> ResetIntentAndL1State -> ResetDialogLockstepState sets _dialogSeq = 0), so the first
+        event after a release carries seq 0 again."""
+        self.forget()
+        self.unlock_field = -1
+        self.session_prev = False
+        self.live_armed = False
+        self.seq = 0
+
+    def field_load(self) -> None:
+        """RearmDialogLockAtFieldLoad: ApplyStoryBeforeEvents runs it on EVERY field scene load (HonoluluFieldMain) --
+        a warp, a gateway, a reload of the same field, and the field's reload after a battle -- so the panic unlock
+        ends there. (A field-id change is also caught by :meth:`FakeGame._step_netsync`; this covers the same-field
+        loads it cannot see.)"""
+        self.unlock_field = -1
+
+    def ingest(self, field: int, win: int, text: int, kind: int, index: int, now: int) -> None:
+        """A bench injection, as DebugInjectDialogAdvanceImpl feeds it: one host event into the seq-ordered inbox."""
+        seq, self.seq = self.seq, (self.seq + 1) & 0xFF
+        self.inbox.append({"field": field, "win": win, "text": text, "kind": kind, "index": index & 0xFF,
+                           "seq": seq, "scene": self.scene_nonce, "seen": now, "tried": False})
+        if len(self.inbox) > self.INBOX_CAP:
+            self.inbox.pop(0)                 # oldest dropped
+
+    def earliest(self, key: tuple) -> dict | None:
+        return next((e for e in self.inbox if (e["field"], e["win"], e["text"]) == key), None)
+
+    def purge(self, field: int, now: int, inh: bool) -> None:
+        """Drop an event for another field, and one that aged out unless the open, driven window is still on its
+        way to applying it (untried, its key, not Local, not ``inh``)."""
+        w = self.win
+
+        def awaited(e: dict) -> bool:
+            return (not e["tried"] and w is not None and w["cls"] != "local" and not inh
+                    and w["key"] == (e["field"], e["win"], e["text"]))
+
+        self.inbox[:] = [e for e in self.inbox if e["field"] == field
+                         and (now - e["seen"] < self.PENDING_TTL_MS or awaited(e))]
+
+    def inbox_doc(self, now: int) -> dict:
+        heads, keys = [], set()
+        for e in self.inbox:
+            key = (e["field"], e["win"], e["text"])
+            if key in keys:
+                continue
+            keys.add(key)
+            heads.append({"field": e["field"], "win": e["win"], "text": e["text"], "kind": e["kind"],
+                          "index": e["index"], "seq": e["seq"], "scene": e["scene"], "age_ms": now - e["seen"],
+                          "tried": e["tried"]})
+            if len(heads) >= self.HEADS_MAX:
+                break
+        return {"count": len(self.inbox), "heads": heads}
+
+    def chip_for(self, inh: bool, host_scene_here: bool) -> str | None:
+        """The chip (NetSyncDialog.UpdateChip): a hiccup while the link reads dead over a held line, else the line's
+        own state, else the host's scene."""
+        w = self.win
+        locked = w is not None and w["cls"] == "locked" and not inh   # a script-polled strip is no conversation
+        orphaned = w is not None and w["cls"] == "orphaned"
+        if not self.live and (locked or orphaned):
+            return self.CHIP_HICCUP
+        if orphaned:
+            return self.CHIP_CLOSING
+        if locked:
+            return self.CHIP_FOLLOWING
+        return self.CHIP_HOST_SCENE if host_scene_here else None
 
 
 # ======================================================================== H10-H12: the machine beats (O4)
