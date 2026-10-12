@@ -627,8 +627,13 @@ def _a1_lock_from_open(g, lv, c):
     g.check(len(applied) == injects and injects > 0 and _count(fresh, "did not advance") == 0,
             "A1: one 'advanced/closed (host seq N)' line per host event, never a retry",
             f"{len(applied)} apply line(s) for {injects} inject(s): {applied!r}")
-    g.check(not _wins(after) and not _ns(after).get("suppress") and (_ns(after).get("inbox") or {}).get("count") == 0,
-            "A1: after the close nothing is tracked, nothing suppressed, nothing left in the inbox", repr(_ns(after))[:300])
+    # A close runs Hide -> CloseAnimation -> Reset (Idle) -> AfterHidden, and only AfterHidden takes the window out
+    # of ActiveDialogList -- so for a frame or two the tracker still lists an Idle line (suppress is already
+    # down). Give that one tracker tick to land; a line still listed a second later is a real leak.
+    settled = _poll(g, lambda s: not _wins(s), 1.0, "the closed line to leave the tracker") or g.state
+    g.check(not _wins(settled) and not _ns(settled).get("suppress") and (_ns(settled).get("inbox") or {}).get("count") == 0,
+            "A1: after the close nothing is tracked, nothing suppressed, nothing left in the inbox",
+            f"windows={_wins(settled)!r} suppress={_ns(settled).get('suppress')} inbox={_ns(settled).get('inbox')!r}")
 
 
 def _a1v_vanilla(g, lv, c):

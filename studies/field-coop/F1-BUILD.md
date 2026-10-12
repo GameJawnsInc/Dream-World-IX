@@ -576,7 +576,7 @@ predated the `coop` verb (its older py launcher also rejected the `pythonw` sheb
 **Still OPEN:** the two-machine run with the relay in place — box 0 of the package README (the host
 tap and the section on the wire), then the F3 boxes 1–9.
 
-## F3.2 C1 (S-WARP) — BUILT in the shared clone, compile-clean; CAPTURED as s95; NOT deployed, NOT in-game proven
+## ★ F3.2 C1 (S-WARP) — captured as s95; DEPLOYED 2026-10-12, solo-proven 28/28 (two-machine pending)
 
 Supersedes the snap and the pin described above (F2 L1, the F3 bench's L1 line, F3.1's relay). Design:
 `F3.2-DESIGN.md` § warp_changes (W1–W7); wire stays v13.
@@ -603,10 +603,43 @@ Supersedes the snap and the pin described above (F2 L1, the F3 bench's L1 line, 
   high read (the C1 flag falls in every window gap); C2's sticky scene flag closes the rest.
 - Manual F11/held-L3 teleport is unchanged; `SnapToHost` now has no automatic caller.
 
-**Open:** (captured: `memoria-patches/s95-netsync-no-warp.patch`, gated in its README row);
-calibrate first: run `scenarios/coop_talk_relay.py` (T1-T4) and `scenarios/coop_dialogue_authority.py`
-(C2's A1-A8/A11) on the pre-F3.2 DLL and confirm the documented checks go RED. Both scenarios fall back to
-the old verb spellings on an engine with no `netsync.dialogue` key, or when `COOP_CALIBRATE=1` is set. Each
-docstring lists which checks must fail there and which cannot discriminate. Then deploy; the C1 two-machine
-boxes 1–6. `coop_dialogue_lockstep.py` is RETIRED: it encoded the F3 contract (the 8 s hand-back, the L1
-pin), and loading it now refuses with a pointer to `coop_dialogue_authority.py`.
+`coop_dialogue_lockstep.py` is RETIRED: it encoded the F3 contract (the 8 s hand-back, the L1 pin), and
+loading it now refuses with a pointer to `coop_dialogue_authority.py`.
+
+## ★ F3.2 C2 (S-SYNC core) — captured as s96; DEPLOYED 2026-10-12, solo-proven 82/82 (two-machine pending)
+
+Design: `F3.2-DESIGN.md` § sync_changes (S1–S8); wire stays v13, harness protocol stays 5 (additive
+`netsync` block, `dialogue`="authority"; a bump would have made every other session's rev-5 driver refuse
+the deployed engine). New `Memoria/Netsync/NetSyncDialog.cs`.
+
+**THE LOCK LAWS:** a following guest's ETb line is locked from the frame it opens (untracked = locked; lines
+open when the session rises stay local) at every input seam — UIKeyTrigger keys/pad/turbo,
+`DialogManager.OnClick`/`OnDrag`/`OnItemSelect`, the VoicePlayer auto-dismiss. Host events apply per window
+key (field, win, textId) in host order, consumed only if the window really advanced. NOTHING is drained while
+the lock is on and there is no local-advance timeout. A locked line is released only by host state: the
+orphan rule (the host settled 2 s with nothing claiming the key → auto-close 2 s after complete, Cancel else
+Default; a FlagButtonInh line is handed back), the link dead `LinkGraceMs` 3 s, session end, or the ~ menu
+panic unlock (this field, until the next load). The host's scene flag is sticky (one nonce per scene, falls
+500 ms after control returns). Also: Select masked in free walk (MISC-08), PARTYMENU gated for a spectator
+(MISC-07), `SameFieldKickTick` defers while a lockable line is open (CLB-5).
+
+**Deploy:** `build_memoria.py --label pre-s95-s96-coop-f32`, live `Assembly-CSharp.dll` `48ea805f51648676…`
+(both arches sha-verified), pre-build backup `20261012-010918`.
+
+**Calibration (pre-F3.2 DLL, 2026-10-12):** `coop_talk_relay.py` 19/28 — RED on exactly T1/T2b (snapped
+250 units, control pinned) and T3a/T3b (no deferral: busy-time starts burned). `coop_dialogue_authority.py`
+30/78 — the behavioural reds: the guest's own Confirm closed an un-driven line (A1), arrows moved the locked
+cursor (A2), `timed out -- local advance restored` after 8 s and the mash closed the menu in 0.9 s (A3).
+
+**Solo proof (s95+s96 DLL):** talk relay **28/28 twice** (moved 0.0, control kept, one `deferred` line then
+the window inside the 4 s TTL). Authority **82/82** (`.harness-runs/20261012-011353`): the line held through a
+10 s Confirm/turbo/click mash; Down×2 + drag left SelectChoice on 0; the orphan turned 2.06 s after the host
+scene fell and auto-closed on the Close row (14); a dead link held the lock to 2.95 s and released at 3.01 s;
+the panic unlock freed local Confirm and a reload re-armed it. One harness-side fix on the way: a close leaves
+an `Idle` window in `ActiveDialogList` until `AfterHidden` (1–2 frames), so the A1 post-close check now waits
+one tracker tick (81/82 → 82/82; the engine had already dropped `suppress`).
+
+**Open:** the two-machine run (laptop package `Desktop\FF9Coop-laptop-update-20261012`, its README boxes
+1–11). Known C2 gaps, for C3 (wire v14): script-polled windows (save moogle, shops, [NFOC]/"press Confirm"
+beats) stay guest-driven; a type-7 frame dropped by the relay is not re-sent (that line falls to the orphan
+rule). DIO-1 (the guest's field cold-starts after every host battle and relocates it) is the next "warp".
