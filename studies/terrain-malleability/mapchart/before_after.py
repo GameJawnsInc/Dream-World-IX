@@ -3,9 +3,10 @@
 Renders `world-minimap` for MOD_FOLDER without writing anything (`navimap.render_world_maps`), prints each site's
 report (shift, overlap, pixels repainted, or why it was skipped) and writes, per site, the active chart's crop beside
 the render's (3x, nearest) to out/<folder>_<chart>_<n>.png. The study's lab: six islands sunk with `world-sink` into a
-folder NOT in FolderNames (the game never loads it): (679.033, -386.717) deep water; (553.065, -1127.103) the lagoon
-island; (9.909, -22.582) the corner island; (1325.281, -227.083) and (425.098, -1020.0) (Daguerreo) by footprint;
-(1446.75, -862.643) small, on the Mist chart too.
+scratch folder kept out of FolderNames: (679.033, -386.717) deep water; (553.065, -1127.103) the lagoon island;
+(9.909, -22.582) the corner island; (1325.281, -227.083) and (425.098, -1020.0) (Daguerreo) by footprint;
+(1446.75, -862.643) small, on the Mist chart too. The lab now lives in round 14's run dir, out of the install (the
+Memoria launcher activates any mod-shaped folder it finds there: NOTES section 6); copy it in only to re-run this.
 Run (from C:\\gd\\Dream-World-IX):  py studies/terrain-malleability/mapchart/before_after.py FF9CustomMap-wmlab
 """
 import sys

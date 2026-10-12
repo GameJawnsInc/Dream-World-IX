@@ -1,6 +1,7 @@
 # The map erase: land a folder removed comes off the painted world map
 
-Status: **built, offline-proven** (2026-10-12). In game: pending (one relaunch, the map opened on the two charts).
+Status: **built and PROVEN IN GAME** (2026-10-12, terrain study round 14, `../ingame/RESULTS.md` section 29: 14/14,
+both charts; scenario `ingame_session.py`).
 Kit: `ff9mapkit/world/maperase.py`, wired into `world-minimap` (`navimap.render_world_maps`).
 Tests: `ff9mapkit/tests/test_world_maperase.py` (hermetic: a synthetic chart painted off its geometry).
 
@@ -61,8 +62,9 @@ The paint pass (unchanged otherwise) now draws only land the folder ADDS on a re
 
 ## 4. Results
 
-**The lab** (`before_after.py FF9CustomMap-wmlab`; six islands sunk with `world-sink` into a folder not in
-FolderNames, so the game never loads it; the base chart is the live `FF9CustomMap-world` composite):
+**The lab** (`before_after.py FF9CustomMap-wmlab`; six islands sunk with `world-sink` into a scratch folder
+kept out of FolderNames -- until the Memoria launcher activated it, see section 6; the base chart is the live
+`FF9CustomMap-world` composite):
 
 | island | chart offset found (drift predicts), px | overlap before -> after | repainted | as halo |
 |---|---|---|---|---|
@@ -100,9 +102,20 @@ centre. On the Mist chart, light rims blended into the halo first left faint arc
 the TRACE rule now: a halo-coloured pixel within 3px of what goes and over 20 off the local halo (the halo's own
 mottle: p90 11.6, p99 22.7). About 4 s a site (most of it the chart's colour fields).
 
-## 6. Not done
+## 6. In game (round 14)
 
-- **In game**: one relaunch with the lab folder (or a real sink) stacked above `FF9CustomMap-world`, then the map
-  opened on a disc-1 save past scenario 5990 (all-world) and one below it (Mist).
+`ingame_session.py`, one launch (78 s, 0 exceptions): the lab first in FolderNames, the map opened at scenario 0
+(world 9011, the Mist chart) and 9500 (world 9003, the all-world chart), then again with the lab's PNGs parked so the
+next folder down served the charts. Every sunk island is gone from the lab frames and drawn in the base frames, and
+base vs lab differ only at the five sites (and the HUD's animated pointer and markers). Full record:
+`../ingame/RESULTS.md` section 29.
+
+**THE LAUNCHER ACTIVATES A NEW FOLDER.** The lab sat outside FolderNames for hours, then the Memoria launcher found
+it on its next run (it writes a `ModDescription.xml` into anything that looks like a mod and activates every newly
+found mod into FolderNames and Priorities), and a 19:02 launch ran with its six sunk islands live. A lab belongs
+outside the install between sessions; this one now lives in the run dir.
+
+## 7. Not done
+
 - New land is still drawn flat (islet fill + rim), with no halo or shadow, and only on the all-world chart.
 - A synthetic namespace (Path D, `--target-disc 9`) is never erased.

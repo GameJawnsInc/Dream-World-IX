@@ -14,6 +14,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - The disc-1 Mist map (`world_map_full_mistcontinent.png`, shown before the story reaches the rest of the world)
   gets the same erase as its own override; its frame is registered against the stock land (1.300 x 1.3075 px/u).
 - The CLI prints each site: pixels repainted, how far the chart sat from the geometry, or why it was skipped.
+- Proven in game: five islands sunk with `world-sink` were gone from both maps after a relaunch, and drawn again
+  with the composite taken away.
 
 ### Fixed — `world-minimap` painted over a real cell's own land, and stray dots
 - On a real cell the folder edited in place, only the land the folder ADDED is drawn; before, the cell's whole
