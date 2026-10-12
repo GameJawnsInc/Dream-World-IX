@@ -650,7 +650,7 @@ closes, zero own-script/timer closes, zero `local advance restored`, zero deferr
 beats) stay guest-driven; a type-7 frame dropped by the relay is not re-sent (that line falls to the orphan
 rule). DIO-1 (the guest's field cold-starts after every host battle and relocates it) is the next "warp".
 
-## ★ F3.3 — warm battle return (s97) + wire v14 dialogue ring (s98) + script-key relay (s99); DEPLOYED 2026-10-12, solo-proven (two-machine pending)
+## ★★ F3.3 — warm battle return (s97) + wire v14 dialogue ring (s98) + script-key relay (s99); DEPLOYED 2026-10-12, TWO-MACHINE PROVEN
 
 **s97 (DIO-1).** The diorama (the guest's local replay of the host's battle) used to return through a
 cold `Main_Init` -- the guest was thrown to the arrival point and its MAP state reset after every host
@@ -687,7 +687,12 @@ authority 147/147 twice, talk relay 28/28. Two harness-side fixes on the way: a 
 `control` on for a frame before Main_Init has placed the player (`player.x/z` None), so the scenario's
 free-standing test now requires a placed player.
 
-**Open:** two-machine boxes 1-9 (package `Desktop\FF9Coop-laptop-update-20261012b`, ⚠ WIRE v14 both
-machines). Not done: DIO-2 (a scripted Battle() on a mirrored guest runs its post-battle lines inline,
+**★★ TWO-MACHINE PROVEN 2026-10-12 (evening)** (owner: everything working except the shop box, not run;
+guest log `laptop-Memoria.log` in the package folder): the Dali inn save moogle (field 351, uid 8) followed
+the host's relayed presses -- `key relay: host seq N ... served to uid 8's poll`, incl. a cursor-6 pick, and
+the moogle's Menu() declined on the guest; a host battle on field 250 booted the diorama `WARM return primed
+-- field 250, player at (884, -1105)` and came back `RETURN (warm) ... through Main_Reinit` with the field
+song resumed; 30801's menu choice 3 + follow-up page closed by host seqs; the session's end released the lock
+after 3 s of dead link and the guest reloaded its own autosave. **Open:** the shop box (not run). Not done: DIO-2 (a scripted Battle() on a mirrored guest runs its post-battle lines inline,
 ahead of the host); the warm return reads `GetBattleResult` 0 where the host reads its real result (9
 stock Main_Reinit branch on it).
