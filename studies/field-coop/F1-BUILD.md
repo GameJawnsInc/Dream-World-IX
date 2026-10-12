@@ -576,7 +576,7 @@ predated the `coop` verb (its older py launcher also rejected the `pythonw` sheb
 **Still OPEN:** the two-machine run with the relay in place — box 0 of the package README (the host
 tap and the section on the wire), then the F3 boxes 1–9.
 
-## ★ F3.2 C1 (S-WARP) — captured as s95; DEPLOYED 2026-10-12, solo-proven 28/28 (two-machine pending)
+## ★★ F3.2 C1 (S-WARP) — captured as s95; DEPLOYED 2026-10-12, solo-proven 28/28, TWO-MACHINE PROVEN
 
 Supersedes the snap and the pin described above (F2 L1, the F3 bench's L1 line, F3.1's relay). Design:
 `F3.2-DESIGN.md` § warp_changes (W1–W7); wire stays v13.
@@ -606,7 +606,7 @@ Supersedes the snap and the pin described above (F2 L1, the F3 bench's L1 line, 
 `coop_dialogue_lockstep.py` is RETIRED: it encoded the F3 contract (the 8 s hand-back, the L1 pin), and
 loading it now refuses with a pointer to `coop_dialogue_authority.py`.
 
-## ★ F3.2 C2 (S-SYNC core) — captured as s96; DEPLOYED 2026-10-12, solo-proven 82/82 (two-machine pending)
+## ★★ F3.2 C2 (S-SYNC core) — captured as s96; DEPLOYED 2026-10-12, solo-proven 82/82, TWO-MACHINE PROVEN
 
 Design: `F3.2-DESIGN.md` § sync_changes (S1–S8); wire stays v13, harness protocol stays 5 (additive
 `netsync` block, `dialogue`="authority"; a bump would have made every other session's rev-5 driver refuse
@@ -639,7 +639,13 @@ the panic unlock freed local Confirm and a reload re-armed it. One harness-side 
 an `Idle` window in `ActiveDialogList` until `AfterHidden` (1–2 frames), so the A1 post-close check now waits
 one tracker tick (81/82 → 82/82; the engine had already dropped `suppress`).
 
-**Open:** the two-machine run (laptop package `Desktop\FF9Coop-laptop-update-20261012`, its README boxes
-1–11). Known C2 gaps, for C3 (wire v14): script-polled windows (save moogle, shops, [NFOC]/"press Confirm"
+**★★ TWO-MACHINE PROVEN 2026-10-12** (desktop host + laptop guest over the relay, Dali 350; owner verdict "works
+as advertised"; guest log archived as `laptop-Memoria.log` in the package folder): 4 relayed talks (obj 4, 15, 8,
+8), each logging `host in a dialogue scene (nonce N) -- staying in place` and NO snap; 9 lines, every one
+`opened locked` and every one `closed (host seq 0..8)` in order, one host confirm per page -- zero orphan
+closes, zero own-script/timer closes, zero `local advance restored`, zero deferrals. The host tap
+(`EmitDialogAdvanceIfHost`) and the type-7 FIFO are now exercised on a real link.
+
+**Open:** the rest of the package README boxes (choice on 30801, mash, blip, host-kill, panic unlock, feel). Known C2 gaps, for C3 (wire v14): script-polled windows (save moogle, shops, [NFOC]/"press Confirm"
 beats) stay guest-driven; a type-7 frame dropped by the relay is not re-sent (that line falls to the orphan
 rule). DIO-1 (the guest's field cold-starts after every host battle and relocates it) is the next "warp".
