@@ -22,9 +22,12 @@ What is asserted, and why each is an OUTCOME rather than an ack:
   B5  UNMATCHED -- a frame no window can match is HELD with the timeout armed, the guest's own Confirm
       keeps working while it is held (S3: a held-unmatched frame never suppresses), and the hold
       releases at DialogWaitMs (8000 ms) with the one "timed out -- local advance restored" line.
-  L1  the host-event flag pins control only once the scene ENDS (pin-only-if-the-guest-still-had-
-      control), and releases it when the flag falls.
-  RESET -- the forced selftest, the bench lever and the L1 pin are all released by `reset`, so a
+  L1  (F3.2 -- THE L1 LAW: L1 never moves or freezes the guest) the simulated host-event flag
+      neither snaps the player onto the mirror nor pins control: when the scene ends with the flag
+      still ON, control comes back and the player stands exactly where it stood. The old contract
+      (pin-only-once-the-scene-ends) was TALK-3's root cause -- the pin zeroed the usercontrol every
+      relayed talk's `ifnot(IsMovementEnabled) return` prologue reads.
+  RESET -- the forced selftest, the bench lever and the L1 flag are all released by `reset`, so a
       leaked run cannot hand the next scenario -- or the next player -- a ghost or a frozen character.
 
 ⚠ WHICH WINDOWS MAY BE INJECTED INTO. A frame is only ever applied to a window the HOST confirmed
@@ -205,10 +208,10 @@ def run(g, field: int = FIELD):
     if opened is None:
         return
     mark = len(_log_lines(g))
+    here = g.state                       # F3.2: the L1 flag must not move the player off this spot
     st = _engage(g)
     g.check(st.netsync["l1"] and not st.netsync["l1_forced_control"],
-            "L1 ON with a window open did NOT take control (the script already holds it -- "
-            "pin-only-if-the-guest-still-had-control)", repr(st.netsync))
+            "L1 ON with a window open did NOT take control (F3.2: L1 never pins)", repr(st.netsync))
     g.shot("lockstep-01-west-engaged")
     pages, injects = _inject_until_closed(g, opened.text)
     after = g.state
@@ -228,15 +231,26 @@ def run(g, field: int = FIELD):
             f"{_count(fresh, 'dialog lockstep: advanced win')} lines for {injects} injects")
     g.check(_count(fresh, "codec round-trip FAILED") == 0 and _count(fresh, "dialog bench failed") == 0,
             "no codec or bench failure was logged", "")
-    # The scene ended with L1 still ON: NOW the pin takes control (the guest had it back).
-    st = g.wait_for(lambda s: s.netsync["l1_forced_control"], timeout=5.0,
-                    what="the L1 pin to take control once the scene ended")
-    g.check(st.netsync["l1_pinned"] and not st.control,
-            "L1 pins control once the scene ends (the co-located guest waits for the host)", repr(st.netsync))
+    # F3.2: the scene ended with L1 still ON -- control comes back (no pin) and the player has not
+    # moved (no snap onto the mirror). Pre-F3.2 the pin took control here and this wait timed out.
+    st = g.wait_for(lambda s: s.control, timeout=5.0,
+                    what="control back once the scene ended, with the L1 flag still ON")
+    g.wait_frames(30)                    # give a (deleted) pin the frames it used to need to bite
+    st = g.state
+    moved = (((st.player_x or 0.0) - (here.player_x or 0.0)) ** 2
+             + ((st.player_z or 0.0) - (here.player_z or 0.0)) ** 2) ** 0.5
+    g.check(st.control and st.netsync["l1"] and not st.netsync["l1_pinned"]
+            and not st.netsync["l1_forced_control"],
+            "L1 ON after the scene ended does NOT pin control (THE L1 LAW)", repr(st.netsync))
+    g.check(here.player_x is not None and moved < 1.0,
+            "the L1 flag did not move the player (no snap onto the mirror)", f"moved {moved:.1f} units")
+    fresh = _new_log(g, mark)
+    g.check(_count(fresh, "snapped") == 0 and _count(fresh, "staying in place") == 1,
+            "the bench logged the simulated scene once and never a snap",
+            "; ".join(ln for ln in fresh if "scene" in ln or "snap" in ln)[:300])
     _disengage(g)
-    st = g.wait_for(lambda s: s.control, timeout=5.0, what="control to return when the L1 flag falls")
-    g.check(st.control and not st.netsync["l1_pinned"] and not st.netsync["l1_forced_control"],
-            "L1 OFF releases the pin and hands control back", repr(st.netsync))
+    st = g.wait_for(lambda s: s.control, timeout=5.0, what="control still on when the L1 flag falls")
+    g.check(st.control and not st.netsync["l1"], "L1 OFF leaves control alone", repr(st.netsync))
     g.wait_frames(20)
 
     # ---- B2: a CHOICE, forced to a named index --------------------------------------------------
@@ -342,15 +356,17 @@ def run(g, field: int = FIELD):
 
     # ---- RESET releases everything the verbs did --------------------------------------------------
     g.netsync("bench", 1)
-    g.netsync("l1", 1)
-    st = g.wait_for(lambda s: s.netsync["l1_forced_control"], timeout=5.0,
-                    what="the L1 pin to hold control before the reset")
+    st = g.netsync("l1", 1)
+    g.wait_frames(30)
+    st = g.state
+    g.check(st.netsync["l1"] and st.control and not st.netsync["l1_forced_control"],
+            "free walk with the L1 flag ON keeps control (F3.2: no pin to leak)", repr(st.netsync))
     g.send("reset")
     st = g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0,
                     what="`reset` to release the forced selftest")
     g.check(not st.netsync["enabled"] and not st.netsync["bench"] and not st.netsync["l1"]
             and not st.netsync["l1_pinned"],
-            "`reset` released the selftest override, the bench lever and the L1 pin", repr(st.netsync))
-    st = g.wait_for(lambda s: s.control, timeout=5.0, what="control back after the reset released the pin")
+            "`reset` released the selftest override, the bench lever and the L1 flag", repr(st.netsync))
+    st = g.wait_for(lambda s: s.control, timeout=5.0, what="control on after the reset")
     g.check(st.control, "the character is not left frozen by a released run", repr(st.netsync))
     g.shot("lockstep-09-released")

@@ -359,7 +359,8 @@ build — results below.
    false-positives on gateway walks). Guest snaps via the proven `SnapToHost` + pins
    (`SetUserControl(false)` ONLY if the guest still HAD control — its own re-staged cutscene keeps
    its own), releases on flag-fall / field-leave / session-drop / pending-warp. Explicitly NOT
-   choice/pacing sync — that stays the ratified F3/L2 round.
+   choice/pacing sync — that stays the ratified F3/L2 round. *(Snap and pin removed by F3.2 C1 — see
+   the last section: L1 never moves or freezes the guest.)*
 3. **THE R2 SAME-DOOR INTERLOCK — DEFERRED** to an F2.1 polish (orchestrator decision):
    `RedirectGuestFieldJump` is untouched; F1's proven bounce-then-follow stands.
 4. **Selftest benches** shipped in the ~ Go tab: an intent injector (fabricates a section through the
@@ -507,7 +508,8 @@ an OUTCOME, never an ack:
   frame; the hold releases after **8.1 s** (DialogWaitMs 8000) with exactly one
   `timed out -- local advance restored` line; clock disarmed, local input restored.
 - **L1:** with a window open, L1 ON does NOT take control (pin-only-if-the-guest-still-had-control);
-  once the scene ends the pin takes it; L1 OFF releases it.
+  once the scene ends the pin takes it; L1 OFF releases it. *(F3.2 C1 deletes the pin; the rewritten
+  check asserts no pin and no move.)*
 
 **Two findings, neither an engine defect:**
 1. **`[NFOC]`/`[TIME]` windows must never be injected into.** They set `Dialog.ignoreInputFlag`, so
@@ -558,7 +560,8 @@ challenges deliberately excluded), pushed out-of-band like the intent and riding
 (a late joiner must not replay a stale start). GUEST: `ServiceTalkFollow`, ahead of the L1 pin in the
 client tick — same field, fresh nonce, FieldHUD → `SnapToHost`, become the listener,
 `Request(obj, 1, 3)` on its own copy. Host-driven by construction, so it never touches the spectator
-gate; defers (nonce unmarked) off-field / mid-menu / mid-battle. Wire v12→v13.
+gate; defers (nonce unmarked) off-field / mid-menu / mid-battle. Wire v12→v13. *(Snap, pin and 2 s TTL
+superseded by F3.2 C1 — see the last section.)*
 
 **Solo proof** (`scenarios/coop_talk_relay.py`, 10/10, `.harness-runs/20260904-182300`): a local talk
 published the NPC's uid as `player.listener` (3); from 270 units away `netsync talk 3` opened the SAME
@@ -572,3 +575,34 @@ predated the `coop` verb (its older py launcher also rejected the `pythonw` sheb
 
 **Still OPEN:** the two-machine run with the relay in place — box 0 of the package README (the host
 tap and the section on the wire), then the F3 boxes 1–9.
+
+## F3.2 C1 (S-WARP) — BUILT in the shared clone, compile-clean; CAPTURED as s95; NOT deployed, NOT in-game proven
+
+Supersedes the snap and the pin described above (F2 L1, the F3 bench's L1 line, F3.1's relay). Design:
+`F3.2-DESIGN.md` § warp_changes (W1–W7); wire stays v13.
+
+- **THE L1 LAW:** L1 never moves or freezes the guest. `ServiceEventCoLocate` only logs
+  `host in a dialogue scene (nonce N) -- staying in place` once per host nonce; `ReleaseL1`, the
+  `SetUserControl(false)` pin and its restore are deleted (`HarnessL1Pinned`/`HarnessL1ForcedControl`
+  read constant false until harness rev 6). A relayed talk still freezes the guest through its own
+  copy's `DisableMove`. The selftest L1 bench lost its snap and pin the same way ("Host scene (simulated)").
+- **Talk relay, no snap:** `ApplyTalkStart` returns 1 started / 0 defer / -1 declined. It DEFERS (nonce
+  unmarked, one log line per nonce) while there is no controlled actor, the guest's control is off (the
+  handler's `ifnot(IsMovementEnabled) return` would bail — TALK-3), or the object is still running on the
+  guest's copy; `listener` is set only for NPC starts (cid 4). `TalkRelayTtlMs` 2000 → 4000. A deferred
+  start that leaves the lane logs `expired before my copy was free`. C1 has no catch-up, so a start still
+  unapplied after the host's scene for it has risen and fallen is RETIRED (`dropped -- the host already
+  played it through`), never opened late with nobody driving it; a start first seen after its scene
+  already ended (a late arrival, TALK-7) still rides the TTL until C2/C3.
+- **Quad (press-region) starts** are armed, not stamped: relayed only when an ETb line rises after the
+  press, inside `QuadPromoteMs` 3000, before the handler has moved the player (more than 100 units with
+  control off). Otherwise one host line `quad start uid N on field F not relayed (<why>)` — `its handler
+  moved the player first` for a ladder/jump, `no window` for a timeout or a windowless control cycle,
+  `left the field`, or superseded. Residual: an unrelated line rising before the handler's first move.
+- **Auto-teleport** (opt-in) is also busy while the host's scene flag is up and for 5 s after its last
+  high read (the C1 flag falls in every window gap); C2's sticky scene flag closes the rest.
+- Manual F11/held-L3 teleport is unchanged; `SnapToHost` now has no automatic caller.
+
+**Open:** (captured: `memoria-patches/s95-netsync-no-warp.patch`, gated in its README row);
+prove the rewritten `coop_dialogue_lockstep.py` / `coop_talk_relay.py` checks FAIL on the pre-C1 DLL
+first; deploy; the C1 two-machine boxes 1–6.

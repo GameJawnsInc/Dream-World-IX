@@ -1,0 +1,884 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index f6ce959..8b12b49 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -172,20 +172,25 @@ namespace Memoria.Netsync
+         private Byte _intentNonce;                       // host: bumps per emit (wraps 255->0; guest dedups on inequality)
+         private Boolean _intentActive;                   // host: a transition intent is currently live on the wire
+         private Int32 _lastIntentNonce = -1;             // guest: the last intent nonce acted on (or declined)
+-        // F2 DIALOGUE L1 CO-LOCATION (SectionEvent): the host flags a blocking dialogue event (section 5);
+-        // a co-located guest snaps to the host once and holds control so both watch from the same start.
++        // F2 DIALOGUE L1 CO-LOCATION (SectionEvent): the host flags a blocking dialogue event (section 5).
++        // [ff9mapkit netsync F3.2] THE L1 LAW: L1 never moves or freezes the guest. The old snap-to-host +
++        // SetUserControl(false) pin is GONE -- the snap could never start the guest's copy of a tread
++        // scene (the tag-2 tread test only runs WITH control, EventEngine.ProcessEvents.cs:186-187), so
++        // it only teleported once per window, and the pin zeroed the script-visible usercontrol that
++        // every relayed talk's `ifnot(IsMovementEnabled) return` prologue reads (TALK-3). A co-located
++        // guest now only logs the scene edge; a relayed talk freezes it through its own copy's DisableMove.
+         private Byte _hostEventFlag;                     // host: 1 = in a blocking dialogue event (rides 7 Hz)
+-        private Byte _hostEventNonce;                    // host: bumps on the rising edge (guest teleports on a new nonce)
+-        private Int32 _lastEventNonce = -1;              // guest: the last host-event nonce teleported for
+-        private Boolean _l1Pinned;                       // guest: currently co-located + holding on a host event
+-        private Boolean _l1WeForcedControl;              // guest: WE took control off (restore only what we took -- R8)
+-        // SELFTEST L1 BENCH lever (the ~ debug menu, IsSelfTestRole only): 1 = simulate the host being in a
+-        // dialogue event so the mirror ghost becomes the co-locate target. Default 0 (vanilla selftest).
++        private Byte _hostEventNonce;                    // host: bumps on the rising edge (one guest log line per nonce)
++        private Int32 _lastEventNonce = -1;              // guest: the last host-event nonce logged
++        // SELFTEST L1 BENCH lever (the ~ debug menu, IsSelfTestRole only): 1 = simulate "the host is in a
++        // scene" (arms the L2 bench and the auto-teleport busy gate; no snap, no freeze). Default 0.
+         public static Byte DebugHostEventFlag;
++        private Boolean _benchSceneLogged;               // [ff9mapkit netsync F3.2] selftest: the simulated scene's edge is logged once
+ 
+         // F3 DIALOGUE L2 (wire v12): full confirm/choice LOCKSTEP of a co-located guest's copy of the host's
+-        // blocking scene. Builds ON L1 (S1a) -- L1 makes the guest's own copy EXIST and start from the host's
+-        // point; L2 makes it ADVANCE and BRANCH on the host's confirms. HOST side: Dialog.OnKeyConfirm taps
++        // blocking scene. Engages on the same host-event flag L1 reads (S1a); the talk relay (F3.1) makes the
++        // guest's own copy EXIST (F3.2: from wherever the guest stands -- no snap); L2 makes it ADVANCE and
++        // BRANCH on the host's confirms. HOST side: Dialog.OnKeyConfirm taps
+         // each confirm-driven advance -> EmitDialogAdvanceIfHost pushes one TypeDialog frame (S4a per-page,
+         // S5 !IsClosedByScript). GUEST side: ServiceDialogLockstep drives the frontmost matching Dialog by
+         // winnum+textId (never the DialogManager fan-out -- ~19% of fields hold two live windows).
+@@ -207,21 +212,53 @@ namespace Memoria.Netsync
+         // F3.1 TALK RELAY (wire v13, state-lane section 6). A press-fired tag-3 start -- an NPC talk, a
+         // chest, a save moogle, a shop, through EITHER EventCollision funnel -- was invisible to L1: the
+         // host's "in a dialogue" flag rises only once a window is VISIBLE, and a following guest can never
+-        // START one itself (the F1 spectator gate returns before Request; the L1 pin holds its control).
+-        // So the guest's copy of a talk never opened -- no facing, no window -- and every F3 frame for it
+-        // sat unmatched until the 8 s timeout (the 2026-09-04 Dali two-machine run). HOST: at the exact
+-        // Request accept, EmitTalkStartIfHost pushes [field u16][uid u16][nonce u8] out-of-band (the intent
+-        // precedent) and lets it ride the state lane for TalkRelayTtlMs (a late joiner must not replay a
+-        // stale start). GUEST: ServiceTalkFollow -- co-located on THAT field, fresh nonce, FieldHUD -> snap to
+-        // the host, become the object's listener, ee.Request(obj, 1, 3) on its own copy. Host-driven by
+-        // construction, so it never touches the spectator gate. Tag 8 (a card challenge) is NOT relayed.
++        // START one itself (the F1 spectator gate returns before Request). So the guest's copy of a talk
++        // never opened -- no facing, no window -- and every F3 frame for it sat unmatched until the 8 s
++        // timeout (the 2026-09-04 Dali two-machine run). HOST: at the exact Request accept,
++        // EmitTalkStartIfHost pushes [field u16][uid u16][nonce u8] out-of-band (the intent precedent) and
++        // lets it ride the state lane for TalkRelayTtlMs (a late joiner must not replay a stale start).
++        // GUEST: ServiceTalkFollow -- co-located on THAT field, fresh nonce, FieldHUD -> become the NPC's
++        // listener, ee.Request(obj, 1, 3) on its own copy. Host-driven by construction, so it never touches
++        // the spectator gate. Tag 8 (a card challenge) is NOT relayed.
++        // [ff9mapkit netsync F3.2] NO SNAP: Request has no position test (EventEngine.cs:339-349), so the
++        // guest's copy starts from wherever the guest stands. The start DEFERS (nonce left unmarked, the
++        // host TTL bounds it) while my copy can't take it -- no controlled actor yet, my control is off
++        // (the handler's `ifnot(IsMovementEnabled) return` prologue would bail), or the object is still
++        // running (Request needs level < p.level). A press-region (quad) start is relayed only once the
++        // host's handler opens a window before moving the player (ServiceQuadPromotion), so a ladder/jump
++        // is not replayed. A start the host has already played through is retired, never opened late (C1).
+         private Int32 _talkField = -1;                   // HOST: the field of the last relayed start
+         private Int32 _talkUid = -1;                     // HOST: the object uid (-1 = nothing to ride)
+         private Byte _talkNonce;                         // HOST: bumps per start; the guest dedups on it
+         private Int32 _talkSince = Environment.TickCount - 100000;   // HOST: emit tick (tick-baseline law: pre-expired)
+-        private const Int32 TalkRelayTtlMs = 2000;       // the section rides the lane this long after a start
+-        private Int32 _lastTalkNonce = -1;               // GUEST: the last nonce acted on
++        private const Int32 TalkRelayTtlMs = 4000;       // F3.2: 2000 -> 4000 (the guest defers more often now)
++        private Int32 _lastTalkNonce = -1;               // GUEST: the last nonce acted on (accepted or declined)
+         private Byte[] _talkPending;                     // SELFTEST bench: a fabricated section body
++        private Int32 _talkPendingSince = Environment.TickCount;   // F3.2 SELFTEST bench: inject tick (read only while _talkPending != null)
++        private Int32 _talkDeferNonce = -1;              // F3.2 GUEST: the nonce currently deferred (-1 = none); its defer + expiry log once
++        private Boolean _relayAcceptArmed;               // F3.2 GUEST: TRUE once _relayAcceptTick holds a real tick (tick-baseline law)
++        private Int32 _relayAcceptTick;                  // F3.2 GUEST: tick of the last ACCEPTED relayed start (C2's RelayOwnMs claim)
++        // [ff9mapkit netsync F3.2] GUEST: the host scene an unconsumed start led to (HostSceneRanFor). Baseline =
++        // the host-event section the tick the nonce is first seen; the event nonce bumps on every rise.
++        private Int32 _talkWatchNonce = -1;              // the unconsumed talk nonce being watched (-1 = none)
++        private Byte _talkWatchEvNonce0;                 // the host-event nonce at first sight (read only while watched)
++        private Boolean _talkWatchUpOwned;               // the flag up at first sight is this start's own scene (a promoted quad)
++        // F3.2 HOST: a quad (press-region) start waits here until the host's handler opens a window.
++        private const Int32 QuadPromoteMs = 3000;        // a quad press with no window inside this is a ladder/jump: not relayed
++        private Boolean _quadArmed;                      // HOST: a quad start is awaiting its window
++        private Int32 _quadUid = -1;
++        private Int32 _quadField = -1;
++        private Int32 _quadSince;                        // read only while _quadArmed (tick-baseline law)
++        private Boolean _quadSawCtrlOff;                 // the handler took control at least once since the press
++        private readonly Dialog[] _quadPreOpen = new Dialog[8];   // ETb windows already open AT the press (a persistent
++        private readonly Int32[] _quadPreText = new Int32[8];     // [NFOC] HUD strip must not promote a ladder)
++        private Int32 _quadPreOpenN;
++        // [ff9mapkit netsync F3.2] the player moved past this (walkmesh units) with control OFF since the press = the
++        // handler moved it (a ladder, a jump, a walk-to): never relayed, whatever window rises later. Playtest seed
++        // (a running player covers 60/tick, so up to one tick of its own drift before DisableMove stays under it).
++        private const Single QuadMovedDist = 100f;
++        private Boolean _quadHasMoveBase;                // TRUE once _quadMoveBase holds a position
++        private Vector3 _quadMoveBase;                   // the player at the press, then at each control-ON sample after it
+ 
+         // The redirect decision for a spectator guest's MAPJUMP (called from the opcode handler
+         // with SpectatorField already true). Returns true when dest was rewritten to a same-field
+@@ -270,6 +307,9 @@ namespace Memoria.Netsync
+         private const Int32 AutoTpCooldownMs = 10000;      // post-fire cooldown
+         private const Single AutoTpGrowthMargin = 100f;    // the "gap keeps GROWING" test for the steering override
+         private Int32 _autoTpLastFireTick = Environment.TickCount - 100000;  // pre-expired = ready (tick-baseline law)
++        private const Int32 AutoTpHostSceneGraceMs = 5000; // [ff9mapkit netsync F3.2] busy this long past the host's last scene read
++        private Boolean _autoTpHostSceneArmed;             // F3.2: guards _autoTpHostSceneTick (tick-baseline law)
++        private Int32 _autoTpHostSceneTick;                // F3.2: the last tick the host's scene flag read high
+         private Boolean _autoTpSeparated;                  // guards _autoTpSeparatedSince/_autoTpArmSep (never read un-armed)
+         private Int32 _autoTpSeparatedSince = Environment.TickCount;
+         private Single _autoTpArmSep;                      // sep when the dwell armed (the growth baseline)
+@@ -948,31 +988,16 @@ namespace Memoria.Netsync
+                             ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
+                         ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
+                     }
+-                    // F2 L1 BENCH (selftest): DebugHostEventFlag simulates the host being in a blocking
+-                    // dialogue event, with the mirror ghost (player + SelfTestOffset) as the co-locate
+-                    // target. Toggle on -> snap to the mirror + freeze; toggle off -> release control.
+-                    // Reuses the client-path pin fields (roles are mutually exclusive at runtime).
+-                    if (DebugHostEventFlag != 0)
++                    // F2 L1 BENCH (selftest): DebugHostEventFlag simulates "the host is in a scene".
++                    // [ff9mapkit netsync F3.2] bench parity with the live L1: NO snap to the mirror and
++                    // NO control pin (the live path lost both) -- the flag only arms the L2 bench and the
++                    // auto-teleport busy gate. Its edges log once, like the live path's per-nonce line.
++                    if ((DebugHostEventFlag != 0) != _benchSceneLogged)
+                     {
+-                        if (!_l1Pinned)
+-                        {
+-                            if (SnapToHost(ee, stMirror))
+-                                Log.Message("[NetSync] L1 co-locate: snapped to host event (field " + fld + ")");
+-                            _l1Pinned = true;
+-                        }
+-                        if (ee.GetUserControl())
+-                        {
+-                            ee.SetUserControl(false);
+-                            _l1WeForcedControl = true;
+-                        }
+-                    }
+-                    else if (_l1Pinned)
+-                    {
+-                        if (_l1WeForcedControl && _followWarpPending < 0)
+-                            ee.SetUserControl(true);
+-                        _l1WeForcedControl = false;
+-                        _l1Pinned = false;
+-                        Log.Message("[NetSync] L1 released (event ended)");
++                        _benchSceneLogged = DebugHostEventFlag != 0;
++                        Log.Message(_benchSceneLogged
++                            ? "[NetSync] host in a dialogue scene (simulated, field " + fld + ") -- staying in place"
++                            : "[NetSync] host scene (simulated) ended");
+                     }
+                     // F3 L2 bench: service the dialogue lockstep each frame (the injected frame's apply +
+                     // hold-timeout + suppress-release run here; the engage gate reads the L1 bench flag).
+@@ -1030,6 +1055,7 @@ namespace Memoria.Netsync
+                     if (_intentActive && fld == _intentField && onField)
+                         _intentActive = false;
+                     UpdateHostEventFlag(ee);
++                    ServiceQuadPromotion(ee, fld, onField);   // [ff9mapkit netsync F3.2] relay a quad start once its window opens
+                 }
+ 
+                 // HOST: publish my authoritative story state (~7 Hz); a FOLLOWING guest applies it at its
+@@ -1068,8 +1094,8 @@ namespace Memoria.Netsync
+                 RemoteState rs = _socket.GetRemote();                    // apply the peer
+                 LastHostField = rs.Valid ? rs.Field : -1;                // F1: the gateway redirect's follow allowance
+                 ServiceIntentFollow(rs, fld, onField);                   // F2: parallel intent fast-path (ahead of the serial debounce)
+-                ServiceTalkFollow(rs, fld, onField);                     // F3.1: replay the host's tag-3 start on my copy (ahead of the L1 pin)
+-                ServiceEventCoLocate(rs, fld, onField);                  // F2 L1: co-locate on the host's dialogue event
++                ServiceTalkFollow(rs, fld, onField);                     // F3.1: replay the host's tag-3 start on my copy (no snap, F3.2)
++                ServiceEventCoLocate(rs, fld, onField);                  // F2 L1: log the host's dialogue-scene edge (F3.2: never moves/freezes)
+                 ServiceDialogLockstep(rs, fld, onField);                 // F3 L2: advance/branch the co-located scene in lockstep (needs L1)
+                 FollowHostTick(rs, fld, onField);                        // visitor mode: chase the peer's field
+                 if (local != null && rs.Valid && rs.Field == fld)
+@@ -1586,10 +1612,8 @@ namespace Memoria.Netsync
+ 
+         // ===== F2 TRANSITION-INTENT LANE + DIALOGUE L1 (wire v11) ====================================
+ 
+-        // Session-boundary reset for every F2 static (host + guest sides). If we forced the guest's
+-        // control off for an L1 pin and no warp is mid-fade, hand control back so the guest is never
+-        // left frozen by a reconfigure; a mirroring guest's exit ramp would also restore it via the
+-        // autoload, but a non-mirroring reset must not depend on that.
++        // Session-boundary reset for every F2 static (host + guest sides). [ff9mapkit netsync F3.2] L1
++        // no longer seizes the guest's control, so there is no "hand control back" path left to miss.
+         private void ResetIntentAndL1State()
+         {
+             _intentActive = false;
+@@ -1599,14 +1623,14 @@ namespace Memoria.Netsync
+             _talkUid = -1;
+             _lastTalkNonce = -1;
+             _talkPending = null;
++            _talkDeferNonce = -1;            // F3.2: a deferred start dies with the session
++            _talkWatchNonce = -1;            // F3.2: ...and its host-scene watch
++            _relayAcceptArmed = false;
++            _autoTpHostSceneArmed = false;   // F3.2: the auto-teleport's host-scene grace too
++            DropQuadStart(null);             // F3.2: an armed quad start too (silent)
++            _benchSceneLogged = false;
+             _hostEventFlag = 0;
+             _hostEventNonce = 0;
+-            if (_l1WeForcedControl && _followWarpPending < 0)
+-            {
+-                try { PersistenSingleton<EventEngine>.Instance.SetUserControl(true); } catch { }
+-            }
+-            _l1Pinned = false;
+-            _l1WeForcedControl = false;
+             _lastIntentNonce = -1;
+             _lastEventNonce = -1;
+             ResetDialogLockstepState();     // F3: the L2 lockstep state dies with the session too
+@@ -1733,11 +1757,12 @@ namespace Memoria.Netsync
+         }
+ 
+         // GUEST dialogue L1: when the host flags a blocking dialogue event and I'm co-located on the same
+-        // field, snap to the host once (the proven SnapToHost primitive) and HOLD my control so we both
+-        // watch the scene from the same start point. Same-field only (a cross-field host event is the
+-        // follow lane's job first). Release when the flag clears / I leave the field / a follow-warp takes
+-        // over / the session drops. R8: force-freeze ONLY while I still have my own control (my own trigger
+-        // didn't fire); restore ONLY what we took.
++        // field, log the scene edge ONCE per host nonce -- and nothing else. [ff9mapkit netsync F3.2] THE
++        // L1 LAW: L1 never moves or freezes the guest. The snap-to-host and the SetUserControl(false) pin
++        // (and ReleaseL1, which only undid the pin) are deleted: the snap could never start my copy of a
++        // tread scene (the tread test needs control) and the pin defeated every relayed talk (TALK-3). A
++        // relayed talk still freezes me -- through its own copy's DisableMove/EnableMove. Kept in its
++        // Update slot so the scene stays visible in the guest's log.
+         private void ServiceEventCoLocate(RemoteState rs, Int32 myField, Boolean onField)
+         {
+             if (_role != "client")
+@@ -1745,7 +1770,6 @@ namespace Memoria.Netsync
+             try
+             {
+                 Byte flag = 0, nonce = 0;
+-                Boolean have = false;
+                 if (_socket != null)
+                 {
+                     Byte[] state = _socket.GetRemoteState();
+@@ -1754,33 +1778,13 @@ namespace Memoria.Netsync
+                     {
+                         flag = body[0];
+                         nonce = body[1];
+-                        have = true;
+                     }
+                 }
+                 Boolean coLocated = onField && rs.Valid && rs.Field == myField;
+-                if (!have || flag == 0 || !coLocated || _followWarpPending >= 0 || !IsLiveFollowedSession)
+-                {
+-                    if (_l1Pinned || _l1WeForcedControl)   // either flag alone must still release (blip-desync guard)
+-                        ReleaseL1();
+-                    return;
+-                }
+-                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+-                if (nonce != _lastEventNonce)     // rising edge: teleport once onto the host, then pin
++                if (flag != 0 && coLocated && nonce != _lastEventNonce)
+                 {
+                     _lastEventNonce = nonce;
+-                    if (ee != null && SnapToHost(ee, rs.Pos))
+-                        Log.Message("[NetSync] L1 co-locate: snapped to host event (field " + myField + ")");
+-                    _l1Pinned = true;
+-                }
+-                // hold: only take control if I still have it (my own cutscene, if any, keeps its own).
+-                // _l1Pinned rides along: after a mid-pin link blip released the pin, the SAME nonce
+-                // re-holds here without a rising edge -- the flags must stay coupled or the release
+-                // gate never fires again and control sticks off (the review's Finding 1).
+-                if (ee != null && ee.GetUserControl())
+-                {
+-                    ee.SetUserControl(false);
+-                    _l1WeForcedControl = true;
+-                    _l1Pinned = true;
++                    Log.Message("[NetSync] host in a dialogue scene (nonce " + nonce + ") -- staying in place");
+                 }
+             }
+             catch (Exception err)
+@@ -1789,27 +1793,6 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // Release an L1 pin: hand control back ONLY if WE took it (R8) AND no follow-warp is mid-fade --
+-        // a pending warp (e.g. the host's scene ended and it walked to a gateway, firing an intent the
+-        // same tick) OWNS control now and the destination load re-arms it; restoring here would un-freeze
+-        // the guest during the black fade. Same guard as ResetIntentAndL1State. Then clear the pin.
+-        private void ReleaseL1()
+-        {
+-            if (_l1WeForcedControl && _followWarpPending < 0)
+-            {
+-                try
+-                {
+-                    EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+-                    if (ee != null)
+-                        ee.SetUserControl(true);
+-                }
+-                catch { }
+-            }
+-            _l1WeForcedControl = false;
+-            _l1Pinned = false;
+-            Log.Message("[NetSync] L1 released (event ended)");
+-        }
+-
+         // SELFTEST BENCH (the ~ debug menu, gated IsSelfTestRole + NetSyncField.BenchGates): fabricate a
+         // SectionIntent for `dest`, prove it round-trips through the REAL codec (AppendSection ->
+         // TryReadSection), then run the SAME StartFollowWarp fast-path the live guest path uses. No socket
+@@ -1901,7 +1884,7 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // GUEST pump (Update, right after ServiceEventCoLocate -- L1 is L2's prerequisite). Drives the
++        // GUEST pump (Update, right after ServiceEventCoLocate -- L1's host-event flag is L2's engage gate). Drives the
+         // frontmost host-matched window on the host's cadence; outside a live L1 the lane is drained and
+         // the guest's dialogue is 100% local (S2). The engage gate IS the primary softlock escape: any
+         // conjunct going false (link stale, host flag fell, field left, follow-warp pending) disengages
+@@ -2194,24 +2177,29 @@ namespace Memoria.Netsync
+         // HOST tap (EventCollision.CheckNPCInput / CheckQuadInput, at the Request accept): stamp the start,
+         // push the state frame out-of-band so it leaves at the press, not the next 7 Hz tick. Role-gated
+         // first, never throws -- vanilla and a guest are untouched.
+-        internal static void EmitTalkStartIfHost(Int32 uid)
++        // [ff9mapkit netsync F3.2] isQuad = the CheckQuadInput (press-region) funnel: NOT stamped at the
++        // press. A stock ladder/jump is a quad whose handler moves the player by script (test2_100
++        // Region11 -> RunScriptSync onto Zidane_11's SetupJump/Jump), so replaying it would move the
++        // guest. It is armed instead and relayed only if a window rises within QuadPromoteMs before the
++        // player has moved (chests, shops, save moogles) -- ServiceQuadPromotion, host Update.
++        internal static void EmitTalkStartIfHost(Int32 uid, Boolean isQuad)
+         {
+             try
+             {
+                 NetSyncClient i = _instance;
+-                if (_role != "host" || i == null || i._socket == null)
++                if (!_enabled || _role != "host" || i == null || i._socket == null)
+                     return;
+                 Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
+                 if (fld <= 0 || uid < 0 || uid > 0xFFFF)
+                     return;
+-                i._talkField = fld;
+-                i._talkUid = uid;
+-                i._talkNonce = (Byte)(i._talkNonce + 1);
+-                i._talkSince = Environment.TickCount;
+-                Byte[] frame = i.BuildStateFrame();
+-                if (frame != null)
+-                    i._socket.SetLocalState(frame);
+-                Log.Message("[NetSync] talk relay: host started obj " + uid + " on field " + fld + " (nonce " + i._talkNonce + ")");
++                if (isQuad)
++                {
++                    i.ArmQuadStart(uid, fld);
++                    return;
++                }
++                if (i._quadArmed)
++                    i.DropQuadStart("superseded by a talk");   // the section carries ONE start: the NPC's wins
++                i.StampTalk(uid, fld);
+             }
+             catch (Exception err)
+             {
+@@ -2219,30 +2207,231 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // The stamp itself (extracted, F3.2): record the start, bump the nonce, push the state frame out-of-band.
++        private void StampTalk(Int32 uid, Int32 fld)
++        {
++            _talkField = fld;
++            _talkUid = uid;
++            _talkNonce = (Byte)(_talkNonce + 1);
++            _talkSince = Environment.TickCount;
++            Byte[] frame = BuildStateFrame();
++            if (frame != null && _socket != null)
++                _socket.SetLocalState(frame);
++            Log.Message("[NetSync] talk relay: host started obj " + uid + " on field " + fld + " (nonce " + _talkNonce + ")");
++        }
++
++        // [ff9mapkit netsync F3.2] HOST: arm a quad start. Snapshots the ETb windows ALREADY open at the press
++        // (a persistent [NFOC] HUD strip must not promote a ladder) -- only a window that RISES after the
++        // press relays it. Runs at the Request accept, before the handler's first instruction.
++        private void ArmQuadStart(Int32 uid, Int32 fld)
++        {
++            if (_quadArmed)
++                DropQuadStart("superseded by another press");
++            _quadPreOpenN = 0;
++            DialogManager dm = DialogsOrNull();
++            if (dm != null && dm.ActiveDialogList != null)
++            {
++                System.Collections.Generic.List<Dialog> list = dm.ActiveDialogList;
++                for (Int32 k = 0; k < list.Count && _quadPreOpenN < _quadPreOpen.Length; k++)
++                {
++                    Dialog d = list[k];
++                    if (IsEtbLine(d))
++                    {
++                        _quadPreOpen[_quadPreOpenN] = d;
++                        _quadPreText[_quadPreOpenN] = d.TextId;
++                        _quadPreOpenN++;
++                    }
++                }
++            }
++            _quadHasMoveBase = false;                    // where the player stood at the press (QuadPlayerMovedByScript's baseline)
++            try
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                Actor pc = ee != null ? ee.GetControlChar() as Actor : null;
++                if (pc != null && pc.fieldMapActor != null)
++                {
++                    _quadMoveBase = pc.fieldMapActor.transform.localPosition;
++                    _quadHasMoveBase = true;
++                }
++            }
++            catch { _quadHasMoveBase = false; }          // unreadable: the first readable sample becomes the baseline
++            _quadUid = uid;
++            _quadField = fld;
++            _quadSince = Environment.TickCount;          // tick-baseline law: real tick, read only while armed
++            _quadSawCtrlOff = false;
++            _quadArmed = true;
++        }
++
++        // Forget an armed quad start; `why` != null logs the one "not relayed" line (null = a silent reset).
++        private void DropQuadStart(String why)
++        {
++            if (_quadArmed && why != null)
++                Log.Message("[NetSync] talk relay: quad start uid " + _quadUid + " on field " + _quadField + " not relayed (" + why + ")");
++            _quadArmed = false;
++            for (Int32 k = 0; k < _quadPreOpen.Length; k++)
++                _quadPreOpen[k] = null;
++            _quadPreOpenN = 0;
++        }
++
++        // [ff9mapkit netsync F3.2] HOST Update (next to UpdateHostEventFlag): promote an armed quad start to a
++        // relayed one the moment its handler's window rises -- a promoted start is stamped when the window
++        // becomes visible, and the host cannot confirm a window it has not yet seen, so no L2 frame is lost.
++        // Dropped (one log line) when: I left the field / QuadPromoteMs passed with no window / the handler
++        // took control and handed it back with no window (a ladder or jump finished) / the handler moved the
++        // player (QuadMovedDist with control off) before any window rose. The move rule runs FIRST: a window is
++        // not tied to the quad's own handler (an ambient line mid-climb, or the scene a climb leads into, would
++        // otherwise promote the ladder and its replay would move the guest). Residual: an unrelated line rising
++        // in the beat before the handler's first move (a turn, a jump wind-up) still promotes -- see
++        // F3.2-DESIGN.md risks.
++        private void ServiceQuadPromotion(EventEngine ee, Int32 fld, Boolean onField)
++        {
++            if (!_quadArmed)
++                return;
++            try
++            {
++                if (!onField || fld != _quadField)
++                {
++                    DropQuadStart("left the field");
++                    return;
++                }
++                if (Environment.TickCount - _quadSince > QuadPromoteMs)
++                {
++                    DropQuadStart("no window");
++                    return;
++                }
++                if (QuadPlayerMovedByScript(ee))
++                {
++                    DropQuadStart("its handler moved the player first");   // a ladder/jump/walk-to: a replay would move the guest
++                    return;
++                }
++                if (QuadWindowRose())
++                {
++                    Int32 uid = _quadUid;
++                    DropQuadStart(null);
++                    StampTalk(uid, fld);                 // a window rose: relay (chests / shops / save points)
++                    return;
++                }
++                if (ee == null)
++                    return;
++                if (!ee.GetUserControl())
++                    _quadSawCtrlOff = true;
++                else if (_quadSawCtrlOff)
++                    DropQuadStart("no window");          // windowless ladder/jump finished
++            }
++            catch (Exception err)
++            {
++                DropQuadStart(null);
++                Log.Error(err, "[NetSync] quad promotion failed");
++            }
++        }
++
++        // [ff9mapkit netsync F3.2] TRUE once, with control OFF, the host's controlled actor stands more than
++        // QuadMovedDist from its baseline. The baseline follows the player while control is ON (its own walking
++        // is not a scripted move), so it freezes at the last sample before the handler's DisableMove -- a
++        // same-tick DisableMove + MoveInstant still counts. A chest/shop/save handler never moves the player
++        // before its window; a ladder or jump always does (test2_100 Region11 -> Zidane_11's SetupJump/Jump).
++        // A handler that moves the player WITHOUT taking control is not seen (the window/timeout rules remain).
++        private Boolean QuadPlayerMovedByScript(EventEngine ee)
++        {
++            if (ee == null)
++                return false;
++            Actor pc = ee.GetControlChar() as Actor;
++            if (pc == null || pc.fieldMapActor == null)
++                return false;
++            Vector3 now = pc.fieldMapActor.transform.localPosition;
++            if (ee.GetUserControl() || !_quadHasMoveBase)
++            {
++                _quadMoveBase = now;
++                _quadHasMoveBase = true;
++                return false;
++            }
++            return Vector3.Distance(now, _quadMoveBase) > QuadMovedDist;
++        }
++
++        // True when an ETb line is open that was NOT already open (same Dialog + same TextId) at the press.
++        // Allocation-free scan of the live list (C2's NetSyncDialog.AnyEtbLine(includeInh: true), inlined).
++        private Boolean QuadWindowRose()
++        {
++            DialogManager dm = DialogsOrNull();
++            if (dm == null || dm.ActiveDialogList == null)
++                return false;
++            System.Collections.Generic.List<Dialog> list = dm.ActiveDialogList;
++            for (Int32 k = 0; k < list.Count; k++)
++            {
++                Dialog d = list[k];
++                if (!IsEtbLine(d))
++                    continue;
++                Boolean preexisting = false;
++                for (Int32 p = 0; p < _quadPreOpenN; p++)
++                    if (ReferenceEquals(_quadPreOpen[p], d) && _quadPreText[p] == d.TextId)
++                    {
++                        preexisting = true;
++                        break;
++                    }
++                if (!preexisting)
++                    return true;
++            }
++            return false;
++        }
++
++        // An ETb field line (FlagButtonInh windows included): UI dialogs carry Id 9 + IsETbDialog=false
++        // (DialogManager.cs:83/:89) and TextId -1 -- never a script's window (DLG-8).
++        private static Boolean IsEtbLine(Dialog d)
++        {
++            return d != null && d.IsETbDialog && d.Id != DialogManager.UIDialogId && d.TextId >= 0;
++        }
++
++        private static DialogManager DialogsOrNull()
++        {
++            try
++            {
++                UIManager ui = PersistenSingleton<UIManager>.Instance;
++                return ui != null ? ui.Dialogs : null;
++            }
++            catch { return null; }
++        }
++
+         // GUEST tick (and the selftest bench): apply a fresh relayed start on MY copy of the same field.
+         // DEFERS (does not mark the nonce seen) while I am on another field, mid-menu or mid-battle -- the
+         // follow-warp is bringing me there, and the host's TTL retires a start I arrive too late for.
++        // [ff9mapkit netsync F3.2] ...and while my copy can't take it yet (ApplyTalkStart returns 0): the
++        // nonce is consumed ONLY on accept or decline, one line logs the defer and one the expiry.
+         private void ServiceTalkFollow(RemoteState rs, Int32 myField, Boolean onField)
+         {
+             Byte[] body = null;
++            Byte[] state = null;
+             Boolean bench = false;
+             if (_role == "client")
+             {
+                 if (_socket == null || !_followHost || _followWarpPending >= 0)
+                     return;
+-                Byte[] state = _socket.GetRemoteState();
++                state = _socket.GetRemoteState();
+                 if (state == null || !NetSyncState.TryReadSection(state, NetSyncState.SectionTalk, out body) || body == null || body.Length < 5)
+-                    return;
++                    body = null;                         // absent: only the expiry check below runs
+             }
+-            else if (IsSelfTestRole && NetSyncField.BenchGates && _talkPending != null)
++            else if (IsSelfTestRole && NetSyncField.BenchGates)
+             {
+-                body = _talkPending;
+                 bench = true;
++                // F3.2 bench parity with the host TTL: a fabricated start the bench couldn't apply in time expires.
++                if (_talkPending != null && Environment.TickCount - _talkPendingSince >= TalkRelayTtlMs)
++                    _talkPending = null;
++                body = _talkPending;
+             }
+             else
+                 return;
+             try
+             {
++                // F3.2: a start I deferred has left the lane (host TTL) or been replaced by a newer one.
++                if (_talkDeferNonce >= 0 && (body == null || body[4] != _talkDeferNonce))
++                {
++                    Log.Message("[NetSync] talk relay: start " + _talkDeferNonce + " expired before my copy was free");
++                    _talkDeferNonce = -1;
++                }
++                if (body == null)
++                {
++                    _talkWatchNonce = -1;                // F3.2: nothing on the lane -> nothing to watch
++                    return;
++                }
+                 Int32 fld = body[0] | (body[1] << 8);
+                 Int32 uid = body[2] | (body[3] << 8);
+                 Int32 nonce = body[4];
+@@ -2251,6 +2440,18 @@ namespace Memoria.Netsync
+                     if (bench) _talkPending = null;
+                     return;
+                 }
++                // [ff9mapkit netsync F3.2] C1 has no catch-up (C2 retains the host's frames per window): a start
++                // still unapplied after the host has played its scene through would open on my copy with nobody
++                // driving it -- L2 disengaged and drained at the flag fall -- so its pages and choice would be
++                // mine (a late back-to-back talk, a pause-menu defer). Retire it instead of opening it late.
++                if (!bench && HostSceneRanFor(state, nonce, uid, onField && fld == myField))
++                {
++                    Log.Message("[NetSync] talk relay: start " + nonce + " (obj " + uid + ") dropped -- the host already played it through (its scene rose and fell)");
++                    _lastTalkNonce = nonce;
++                    _talkDeferNonce = -1;
++                    _talkWatchNonce = -1;
++                    return;
++                }
+                 if (!onField || fld != myField)
+                 {
+                     if (bench) _talkPending = null;      // a bench frame for another field is just wrong -- drop it
+@@ -2264,9 +2465,25 @@ namespace Memoria.Netsync
+                 EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+                 if (ee == null)
+                     return;
++                String deferWhy;
++                Int32 r = ApplyTalkStart(ee, uid, out deferWhy);   // 1 started, 0 defer, -1 declined
++                if (r == 0)
++                {
++                    // nonce stays UNMARKED (the host TTL bounds it; bench: _talkPending kept) -- log once per nonce
++                    if (_talkDeferNonce != nonce)
++                        Log.Message("[NetSync] talk relay: start " + nonce + " (obj " + uid + ") deferred -- " + deferWhy);
++                    _talkDeferNonce = nonce;
++                    return;
++                }
+                 _lastTalkNonce = nonce;
++                _talkDeferNonce = -1;
++                _talkWatchNonce = -1;                    // consumed: a later nonce (even this value after a wrap) re-baselines
+                 if (bench) _talkPending = null;
+-                ApplyTalkStart(ee, uid, bench ? (Vector3?)null : rs.Pos);
++                if (r > 0)
++                {
++                    _relayAcceptTick = Environment.TickCount;   // tick-baseline law: armed bool + delta
++                    _relayAcceptArmed = true;
++                }
+             }
+             catch (Exception err)
+             {
+@@ -2274,34 +2491,84 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // The replay itself: the SAME three steps CheckNPCInput performs after its distance/angle checks --
+-        // listener, Request(obj, 1, 3) -- on my own copy of the object. Snaps to the host first on a live
+-        // link so the camera and the NPC's facing match the host's screen.
+-        private void ApplyTalkStart(EventEngine ee, Int32 uid, Vector3? snapTo)
++        // [ff9mapkit netsync F3.2] GUEST: TRUE once a host scene has RISEN since `nonce` was first seen and has
++        // since FALLEN. The first call per nonce only records the baseline. The host bumps its event nonce on
++        // every rise, so "fell, under a different event nonce" proves a rise even across ticks this never
++        // sampled (a follow-warp); a flag already up at first sight may be the PREVIOUS scene, so its own fall
++        // (same event nonce) does not count. Conservative: a start first seen after its scene already ended (a
++        // late arrival, TALK-7) still rides the host TTL -- that is the C2/C3 catch-up's case.
++        // One exception: a promoted QUAD start is stamped once its window has ALREADY risen (ServiceQuadPromotion),
++        // so for a quad (cid 3 on my copy of the start's field) a flag up at first sight IS its scene.
++        private Boolean HostSceneRanFor(Byte[] state, Int32 nonce, Int32 uid, Boolean onStartField)
+         {
++            Boolean flag = false;
++            Byte evNonce = 0;
++            Byte[] ev;
++            if (state != null && NetSyncState.TryReadSection(state, NetSyncState.SectionEvent, out ev) && ev != null && ev.Length >= 2)
++            {
++                flag = ev[0] != 0;
++                evNonce = ev[1];
++            }
++            if (_talkWatchNonce != nonce)
++            {
++                _talkWatchNonce = nonce;
++                _talkWatchEvNonce0 = evNonce;
++                _talkWatchUpOwned = false;
++                if (flag && onStartField)
++                {
++                    EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                    Obj o = ee != null ? ee.FindObjByUID(uid) : null;
++                    _talkWatchUpOwned = o != null && o.cid == 3;   // Quad.cs: cid 3 (an NPC start is stamped at the press)
++                }
++                return false;
++            }
++            return !flag && (evNonce != _talkWatchEvNonce0 || _talkWatchUpOwned);
++        }
++
++        // The replay itself: the SAME steps CheckNPCInput performs after its distance/angle checks --
++        // listener, Request(obj, 1, 3) -- on my own copy of the object. [ff9mapkit netsync F3.2] NO SNAP:
++        // Request has no position test, so the talk starts wherever I stand (the bench always opened it
++        // from ~270 units). Returns 1 = started, 0 = DEFER (retry next tick; nonce left unmarked), -1 =
++        // declined (no such object / no tag-3 handler; nonce consumed). `deferWhy` names a 0.
++        private Int32 ApplyTalkStart(EventEngine ee, Int32 uid, out String deferWhy)
++        {
++            deferWhy = null;
+             Obj obj = ee.FindObjByUID(uid);
+             if (obj == null)
+             {
+                 Log.Message("[NetSync] talk relay: no object with uid " + uid + " on this field -- ignored");
+-                return;
++                return -1;
+             }
+             Actor actor = ee.GetControlChar() as Actor;
+             if (actor == null)
+             {
+-                Log.Message("[NetSync] talk relay: no controlled actor -- ignored");
+-                return;
++                deferWhy = "no controlled actor yet";        // player not spawned this frame: retry
++                return 0;
++            }
++            if (!ee.GetUserControl())
++            {
++                deferWhy = "my copy of a talk/scene still holds control";   // the handler's `ifnot(IsMovementEnabled) return` would bail
++                return 0;
++            }
++            if (obj.level <= 1)
++            {
++                deferWhy = "the object is still running on my copy";        // Request needs `level < p.level` (EventEngine.cs:342)
++                return 0;
+             }
+-            if (snapTo.HasValue && SnapToHost(ee, snapTo.Value))
+-                Log.Message("[NetSync] talk relay: snapped to the host first");
+-            actor.listener = obj.uid;
++            if (obj.cid == 4)
++                actor.listener = obj.uid;                    // CheckNPCInput parity (EventCollision.cs:116); CheckQuadInput never sets it (TALK-5)
+             if (ee.Request(obj, 1, 3, false))
++            {
+                 Log.Message("[NetSync] talk relay: started obj " + uid + " (tag 3) on my copy of field " + FF9StateSystem.Common.FF9.fldMapNo);
+-            else
+-                Log.Message("[NetSync] talk relay: Request refused for obj " + uid + " (busy, or no tag-3 handler) -- ignored");
++                return 1;
++            }
++            Log.Message("[NetSync] talk relay: Request refused for obj " + uid + " (no tag-3 handler) -- ignored");
++            return -1;
+         }
+ 
+         // SELFTEST bench / harness `netsync talk <uid>`: fabricate the section through the REAL codec and
+-        // hand it to the same apply path (no snap -- there is no host position).
++        // hand it to the same apply path (no snap -- F3.2: the live path has none either). It defers and
++        // expires exactly as a live start does (TalkRelayTtlMs from the inject stands in for the host TTL).
+         public static Boolean HarnessInjectTalk(Int32 uid, out String why)
+         {
+             why = null;
+@@ -2329,6 +2596,7 @@ namespace Memoria.Netsync
+                     return false;
+                 }
+                 i._talkPending = body;
++                i._talkPendingSince = Environment.TickCount;   // [ff9mapkit netsync F3.2] the bench's TTL clock (host TTL parity)
+                 Log.Message("[NetSync] talk bench: fabricated SectionTalk obj " + uid + " field " + fld + " nonce " + nonce + " -- applying");
+                 return true;
+             }
+@@ -2351,7 +2619,7 @@ namespace Memoria.Netsync
+         // TargetField 0) and creates the DontDestroyOnLoad object exactly as Ensure() would. Nothing is
+         // written to disk. The mtime-gated reload never re-reads an UNCHANGED ini, so the override holds
+         // until HarnessSelfTest(false) -- the agent calls that on disarm, fault and `reset`, so a run
+-        // that died hard cannot leave the ghost, a bench gate or an L1 pin behind. A live host/client
++        // that died hard cannot leave the ghost, a bench gate or the L1 flag behind. A live host/client
+         // session is REFUSED (never override a real pairing), and a genuine ini edit mid-run takes
+         // precedence over the override (a human touched the config; ApplyConfigChange runs as usual).
+         private static Boolean _harnessSelfTest;         // TRUE while the harness override is in force
+@@ -2417,8 +2685,21 @@ namespace Memoria.Netsync
+         public static String HarnessRole { get { return _role; } }
+         public static Boolean HarnessSelfTestForced { get { return _harnessSelfTest; } }
+         public static Boolean HarnessHasInstance { get { return _instance != null; } }
+-        public static Boolean HarnessL1Pinned { get { NetSyncClient i = _instance; return i != null && i._l1Pinned; } }
+-        public static Boolean HarnessL1ForcedControl { get { NetSyncClient i = _instance; return i != null && i._l1WeForcedControl; } }
++        // [ff9mapkit netsync F3.2] the L1 pin is deleted (THE L1 LAW: never moves or freezes the guest) --
++        // these stay as constant false so harness protocol rev 5 keeps its shape until rev 6 removes them.
++        public static Boolean HarnessL1Pinned { get { return false; } }
++        public static Boolean HarnessL1ForcedControl { get { return false; } }
++        // F3.2: ms since the guest last ACCEPTED a relayed talk start (-1 = none yet) -- C2's RelayOwnMs claim.
++        public static Int32 HarnessTalkRelayAcceptAgeMs
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                if (i == null || !i._relayAcceptArmed)
++                    return -1;
++                return Environment.TickCount - i._relayAcceptTick;   // wrap-safe: two real ticks
++            }
++        }
+         public static Byte[] HarnessPendingDialogFrame { get { NetSyncClient i = _instance; return i == null ? null : i._dialogPending; } }
+         public static Int64 HarnessDialogAlignKey { get { NetSyncClient i = _instance; return i == null ? -1 : i._dialogAlignKey; } }
+         public static Int32 HarnessDialogLastAppliedSeq { get { NetSyncClient i = _instance; return i == null ? -1 : i._dialogLastAppliedSeq; } }
+@@ -2571,6 +2852,9 @@ namespace Memoria.Netsync
+         // SetPosition's OWN verdict (verify find): false = the target was off this walkmesh and the
+         // engine dumped the player at the default spawn instead -- callers must not report success.
+         // No logging here: the manual and auto callers own their distinct latched lines.
++        // [ff9mapkit netsync F3.2] MANUAL TELEPORT ONLY (TeleportToHostImpl, F11/held L3 -- user-initiated).
++        // Its three automatic callers (L1 co-locate, the talk relay, the selftest L1 bench) are deleted;
++        // the opt-in auto recovery uses SnapToHostAuto. Do not add an automatic caller back.
+         private Boolean SnapToHost(EventEngine ee, Vector3 target)
+         {
+             FieldMapActorController pc = ee.fieldmap != null ? ee.fieldmap.playerController : null;
+@@ -2620,6 +2904,19 @@ namespace Memoria.Netsync
+                     _autoTpSeparated = false;
+                     return;
+                 }
++                // [ff9mapkit netsync F3.2] the HOST's scene (the bench's simulated flag on the selftest arm), read
++                // ahead of the distance gate so a guest who walks off mid-scene is covered too. The C1 flag stands
++                // only while a host line is VISIBLE -- it falls in every window gap (a scripted walk, a pan, a
++                // Wait) -- so hold AutoTpHostSceneGraceMs past its last high read: with the 4.5 s dwell a
++                // windowless beat must outlast ~9.5 s before a fire. C2's sticky scene flag closes the rest.
++                Boolean hostScene = benchArm ? DebugHostEventFlag != 0 : HostEventFlagFromWire();
++                if (hostScene)
++                {
++                    _autoTpHostSceneTick = Environment.TickCount;
++                    _autoTpHostSceneArmed = true;
++                }
++                else if (_autoTpHostSceneArmed && Environment.TickCount - _autoTpHostSceneTick >= AutoTpHostSceneGraceMs)
++                    _autoTpHostSceneArmed = false;
+                 EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+                 Vector3 gp = local.fieldMapActor.transform.localPosition;
+                 Single sep = Vector3.Distance(hostPos, gp);
+@@ -2629,8 +2926,10 @@ namespace Memoria.Netsync
+                     _autoTpHoldLogged = false;
+                     return;
+                 }
+-                // busy: dialogue/menu/event/transition -- never yank the player mid-anything
+-                Boolean busy = !ee.GetUserControl();
++                // busy: dialogue/menu/event/transition -- never yank the player mid-anything.
++                // [ff9mapkit netsync F3.2] ...nor while the HOST is mid-scene (or just was, the grace above):
++                // with the L1 pin gone the guest keeps control through host-only scenes.
++                Boolean busy = !ee.GetUserControl() || hostScene || _autoTpHostSceneArmed;
+                 if (!busy)
+                 {
+                     UIManager ui = PersistenSingleton<UIManager>.Instance;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+index dd76b53..cdb8553 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+@@ -84,8 +84,9 @@ namespace Memoria.Netsync
+     //                              debounce-chasing the position lane -- the serial FollowHostTick stays
+     //                              the floor if the intent is lost); section 5 = HOST EVENT FLAG
+     //                              [flag u8][nonce u8] (flag 1 = the host is in a blocking dialogue event
+-    //                              -> a co-located guest snaps to the host and holds so both watch the
+-    //                              scene from the same start point -- dialogue L1 co-location).)
++    //                              -> dialogue L1 co-location. [ff9mapkit netsync F3.2] a co-located
++    //                              guest only logs the scene edge: L1 never moves or freezes the guest
++    //                              -- no snap, no control pin -- and the flag gates the F3 lockstep.)
+     //     type 6 = battle action  (B3.5 HOST->GUEST: one ~46 B frame per applied CalcResult -- figures,
+     //                              flinch bit, raw post-application HP/MP for target+caster, and a seq
+     //                              horizon that gates stale type-1 samples. FIFO like type 2 (multi-
+diff --git a/Assembly-CSharp/Global/Event/EventCollision.cs b/Assembly-CSharp/Global/Event/EventCollision.cs
+index 0dcca3b..6b43b30 100644
+--- a/Assembly-CSharp/Global/Event/EventCollision.cs
++++ b/Assembly-CSharp/Global/Event/EventCollision.cs
+@@ -84,7 +84,7 @@ public class EventCollision
+                 }
+                 if (instance.Request(obj, 1, 3, false))
+                 {
+-                    Memoria.Netsync.NetSyncClient.EmitTalkStartIfHost((Int32)obj.uid);   // [ff9mapkit netsync F3.1] talk relay (chest / moogle / shop starts too)
++                    Memoria.Netsync.NetSyncClient.EmitTalkStartIfHost((Int32)obj.uid, true);   // [ff9mapkit netsync F3.1] talk relay (chest / moogle / shop starts too); [ff9mapkit netsync F3.2] isQuad: relayed only once its window opens before the player moves (a ladder/jump is not replayed)
+                     EventCollision.ClearPathFinding(po);
+                     return true;
+                 }
+@@ -125,7 +125,7 @@ public class EventCollision
+                     }
+                     if (instance.Request(obj, 1, 3, false))
+                     {
+-                        Memoria.Netsync.NetSyncClient.EmitTalkStartIfHost((Int32)obj.uid);   // [ff9mapkit netsync F3.1] talk relay: a co-located guest replays this start
++                        Memoria.Netsync.NetSyncClient.EmitTalkStartIfHost((Int32)obj.uid, false);   // [ff9mapkit netsync F3.1] talk relay: a co-located guest replays this start ([ff9mapkit netsync F3.2] NPC: stamped at the press)
+                         EventCollision.ClearPathFinding(po);
+                         return true;
+                     }
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+index 505a7db..e1adad0 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -872,12 +872,13 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             GUILayout.Label("Fabricates a SectionIntent for the field above and runs the guest fast-path (fade+warp).", _hint);
+ 
+             // [ff9mapkit netsync F2] the DIALOGUE L1 bench: flip DebugHostEventFlag to simulate the host in
+-            // a blocking dialogue event; the selftest mirror ghost becomes the co-locate target (snap+freeze).
++            // a blocking dialogue event. [ff9mapkit netsync F3.2] no snap and no freeze any more (the live
++            // L1 lost both) -- the flag only says "the host is in a scene" (it arms the L2 bench below).
+             Section("Dialogue L1 bench (selftest)");
+             Boolean l1On = Memoria.Netsync.NetSyncClient.DebugHostEventFlag != 0;
+-            if (GUILayout.Button(l1On ? "Host-event flag: ON (co-locate)" : "Toggle host-event flag", l1On ? _tabOn : _button))
++            if (GUILayout.Button(l1On ? "Host scene (simulated): ON" : "Host scene (simulated)", l1On ? _tabOn : _button))
+                 Memoria.Netsync.NetSyncClient.DebugHostEventFlag = (Byte)(l1On ? 0 : 1);
+-            GUILayout.Label("Simulates the host in a dialogue scene: snaps to the mirror + freezes; toggle off to release.", _hint);
++            GUILayout.Label("Simulates the host in a dialogue scene. You stay in place and keep control.", _hint);
+ 
+             // [ff9mapkit netsync F3] the DIALOGUE L2 bench: fabricate a TypeDialog advance/choice frame for
+             // the FRONTMOST open window and run the SAME apply path the live guest uses (codec proof + force).
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index d341e50..43ca841 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -1015,7 +1015,8 @@ namespace Memoria.Harness
+ 
+         // Undo anything the `netsync` verbs did to THIS process. Runs on disarm, fault and `reset`:
+         // the selftest override is process-local, so a leaked run must not leave a ghost beside the
+-        // next player, a bench gate swallowing their chest, or an L1 pin holding their control. A
++        // next player, a bench gate swallowing their chest, or a simulated host scene (the L1 flag --
++        // [ff9mapkit netsync F3.2] it no longer pins control, but it still arms the L2 bench). A
+         // session the harness did NOT force (a human's own ini-configured selftest) is left alone.
+         private static void ReleaseNetsyncOverride()
+         {
