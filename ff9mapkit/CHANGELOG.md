@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the world map loses the land you sink (`world-minimap` erase)
+- `world-minimap` now takes land a folder REMOVED off the in-game map: an island `world-sink` sank, or a coast an
+  in-place cut pulled back, is repainted as the sea round it, open parchment where the new water is deep, the
+  green shallow-water halo where the chart round it draws one. The chart is hand-painted and its coasts sit up to
+  ~19px off the true geometry, so each island is found on the painted art (the geometry slid to its best overlap),
+  and only what the chart draws of it goes. A site the chart does not draw is skipped and named.
+- The disc-1 Mist map (`world_map_full_mistcontinent.png`, shown before the story reaches the rest of the world)
+  gets the same erase as its own override; its frame is registered against the stock land (1.300 x 1.3075 px/u).
+- The CLI prints each site: pixels repainted, how far the chart sat from the geometry, or why it was skipped.
+
+### Fixed — `world-minimap` painted over a real cell's own land, and stray dots
+- On a real cell the folder edited in place, only the land the folder ADDED is drawn; before, the cell's whole
+  terrain was repainted flat in the islet colour over the painted art.
+- A hidden or divert-arm stub (a zero-area triangle) no longer paints a land-coloured dot in open sea (one sat
+  in the middle of block (11, 19) on the live overworld's map).
+
 ### Added — `[household]`, the sims life sim as one block
 - A bare `[household]` builds a whole household: a Sim with five needs (hunger, thirst, energy, hygiene, fun)
   that drift on a day clock, a prop and a press-Confirm order menu per need (orders queue), priority autonomy,
