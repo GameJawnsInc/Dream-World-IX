@@ -1,0 +1,2186 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
+index cf887f5..e776392 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
+@@ -30,6 +30,19 @@ namespace Memoria.Netsync
+     // HostStallMs on a fresh lane), follows the host's CURSOR (the open set), and catches a lost page turn up
+     // through the CLOSES bit. KEY events (kind 2, the script button-poll relay) are carried by the codec and
+     // IGNORED by this guest -- the key relay (R5) is the next stage.
++    // [ff9mapkit netsync F3.3] R5 THE SCRIPT-KEY RELAY (built): a KEY is the host's control-off script button poll
++    // that HIT (B_KEYON/B_KEY -- an [NFOC]/[TIME] page, a polled choice, the save moogle's IsButton, a "press Confirm"
++    // beat), keyed by the READING object's uid. The guest merges it into a seq-ordered KEY list; the ORDERING GUARD
++    // releases it into the store only once no earlier host window event (ADV/CHO) is still pending for a window that
++    // is open, driven and not input-inhibited here (KeyGuardMs at most); its host CURSOR is applied at release (before
++    // the poll reads GetChoose); and it is SERVED to the matching reader's polls for exactly one key tick
++    // (TakeKey, called from NetSyncField.FilterScriptButtons). Unserved KEYs expire (field, KeyIdleMs once both sides
++    // are idle, KeyTtlMs at most, an epoch change). The lock half lives in KeyHold: while it holds, a locked guest's
++    // control-off polls read the host's presses only. A KEY never becomes a Dialog confirm -- memory LAW :1369.
++    // [ff9mapkit netsync F3.3] C3KEYS (the R5 review): a press that carries a cursor is served only once GetChoose reads
++    // it (the CURSOR WAIT); one reader's cursor presses bind in order (the BINDING ORDER); a pause holds the KEY clocks;
++    // a host-driven polled choice swallows the guest's own Confirm/Cancel (AnyLockedLine); a re-risen session's Local
++    // lines own their polls until the host presses on that field.
+     internal sealed class NetSyncDialog
+     {
+         // ---- tuning (owner decision 9 -- every value is a playtest seed, not a law) ----------------------
+@@ -48,7 +61,20 @@ namespace Memoria.Netsync
+         internal const Byte KindAdv = 0;               // a confirm page-turn or close (incl. the host's VA dismiss)
+         internal const Byte KindCho = 1;               // a choice-committing confirm
+         internal const Byte KindKey = 2;               // [ff9mapkit netsync F3.3] a host script button-poll hit (control off) --
+-                                                       // in the codec now, IGNORED by this guest (the key relay, R5, is next)
++                                                       // R5: served to the guest's matching reader (the key store below)
++        // [ff9mapkit netsync F3.3] R5 tuning (owner decision 9 seeds, like the rest)
++        internal const Int32 KeyGuardMs = 2000;        // a KEY waits at most this long behind an earlier host window event
++        internal const Int32 KeyIdleMs = 1500;         // both sides idle this long (and the KEY this old): it expires unserved
++        internal const Int32 KeyTtlMs = 20000;         // an unserved KEY expires after this, whatever
++        private const Int32 KeyCap = 32;               // the KEY list (pending + stored) -- drop-oldest past it
++        // [ff9mapkit netsync F3.3] C3KEYS-SEM-1: ApplyKeyCursor's verdicts besides a cursor (>= 0 = THAT cursor is on the
++        // window the poll will read). TakeKey serves a cursor-carrying press only once GetChoose reads the host's cursor.
++        internal const Int32 CurNone = -1;             // the KEY carries no cursor: nothing to wait for
++        internal const Int32 CurWait = -2;             // its choice window here is still opening / printing: wait for it
++        internal const Int32 CurNotReady = -3;         // up but not choice-ready under the dialog's cursor, or not this KEY's turn
++        internal const Int32 CurNoWindow = -4;         // no choice window for it here (yet)
++        internal const Int32 CurOutOfRange = -5;       // its window is ready, the host cursor out of range there: its own choice stays
++        internal const Int32 CurOwn = -6;              // the frontmost choice here is the guest's own (Local): its own cursor stays
+ 
+         internal const Byte ClsLocked = 0, ClsOrphaned = 1, ClsLocal = 2;
+ 
+@@ -121,6 +147,30 @@ namespace Memoria.Netsync
+             public Byte X;                 // CHO: ClosesBit -- otherwise 0
+         }
+ 
++        // [ff9mapkit netsync F3.3] R5: one relayed host script-key press on the guest. Pending until the ordering guard
++        // releases it (Released), then STORED until its reader's poll takes it (Active for exactly one key tick).
++        internal sealed class KeyEvt
++        {
++            public Int32 Seq;              // the ring's u16 seq (orders it against the window events in the inbox)
++            public Byte Scene;             // the host's scene nonce at emit (logs)
++            public Int32 Fld, Uid;         // the field + the READING object's uid (gExec.uid on the host)
++            public Int32 Compact;          // the bits as on the wire (logs / telemetry)
++            public UInt32 Bits;            // ...expanded to EventInput bits (HostOwnedKeys only)
++            public Byte Cursor;            // the host's ready-choice cursor at the press, or NoCursor
++            public Int32 FirstSeen;        // ingest tick (a real tick; read by delta only)
++            public Boolean Released;       // passed the ordering guard (or gave up on it)
++            public Boolean GuardArmed;     // guards GuardSince (tick-baseline law)
++            public Int32 GuardSince;       // the tick the guard first held it (paused time re-arms it)
++            public Boolean Active;         // served this key tick -- every read by its reader in the tick sees it
++            public Int32 ActiveTick;       // the NetSyncField.KeyTick it was served on (read only while Active)
++            public Dialog CursorOn;        // the window the release put the host cursor on (the serve's hedge re-applies to IT only)
++            public Int32 CursorId, CursorText;
++            public Boolean CursorLogged;   // one "cursor out of range" line per KEY
++            // [ff9mapkit netsync F3.3] C3KEYS-SEM-1 the cursor wait: a poll wanted this press before its cursor could land
++            public Boolean DeferArmed;     // guards DeferSince (tick-baseline law)
++            public Int32 DeferSince;       // the first deferred read (re-armed while its window prints, paused or disengaged)
++        }
++
+         // A parsed section 7 (the guest's latest view of the host).
+         internal sealed class HostView
+         {
+@@ -148,6 +198,7 @@ namespace Memoria.Netsync
+             public Boolean ClosedByUs;
+             public Boolean Seen;           // mark-and-sweep against the live list
+             public Boolean RetryLogged;    // orphan auto-confirm: one "did not advance" line
++            public Boolean Inh;            // [ff9mapkit netsync F3.3] R5: FlagButtonInh at the last Track (the KEY guard reads it)
+         }
+ 
+         // A Local mark. The array is COPY-ON-WRITE: built whole on the main thread and published by one
+@@ -185,7 +236,7 @@ namespace Memoria.Netsync
+         private Boolean _baselined;            // _lastSeen holds this session's merge baseline
+         private UInt16 _lastSeen;              // the newest ring seq merged (or skipped as history)
+         private Int32 _gaps;                   // ring gaps detected this lane (telemetry; each logged once)
+-        private Int32 _keyIgnored;             // KEY events seen and ignored (telemetry -- the key relay is R5)
++        private Int32 _keyIgnored;             // KEY events seen and ignored (telemetry -- [ff9mapkit netsync F3.3] R5: no relayable bits)
+         private Boolean _keyLogged;            // one "KEY ignored" line per session
+         private Boolean _refuseLogged;         // one "section 7 refused" line per bad streak
+         private Boolean _hbHave;               // R6: _hb / _hbSince hold a real sample (tick-baseline law)
+@@ -193,6 +244,26 @@ namespace Memoria.Netsync
+         private Int32 _hbSince;                // the tick the heartbeat last MOVED
+         private Boolean _stalled;              // R6: the host's heartbeat sat still HostStallMs on a fresh lane
+         private Int32 _mirrorCursor = -1;      // R4: the host cursor the cursor lock enforced last tick (-1 = none; telemetry)
++        // [ff9mapkit netsync F3.3] R5 -- THE KEY STORE (main thread only: the guest tick and EBin's polls both run there).
++        // Seq order; the ordering guard releases a prefix of it, the polls consume released entries per reader.
++        private readonly List<KeyEvt> _keys = new List<KeyEvt>(8);
++        private Boolean _keyHoldBase;          // the script-key lock's host half this tick: engaged && (host busy || host holds input)
++        private Boolean _keyIdleArmed;         // guards _keyIdleSince (tick-baseline law)
++        private Int32 _keyIdleSince;           // both sides idle since (the KeyIdleMs expiry)
++        private Boolean _keyCapLogged;         // one "KEY list hit its cap" line per overflow episode
++        private Int32 _keyServed;              // KEYs served to a poll this lane (telemetry)
++        private Int32 _keyExpired;             // KEYs dropped unserved this lane (telemetry)
++        private Int32 _keyGaveUp;              // KEYs the ordering guard -- or the cursor wait (C3KEYS-SEM-1) -- gave up on (telemetry)
++        // [ff9mapkit netsync F3.3] C3KEYS-3: the KEY clocks stop while paused (a real tick, read only while armed)
++        private Boolean _keyClockArmed;
++        private Int32 _keyClockLast;
++        // [ff9mapkit netsync F3.3] C3KEYS-4: the field whose LOCAL lines (open when the session rose) still own their script
++        // polls -- the key lock's host half stays off there until the host presses on it, a host-driven line opens on it,
++        // or no Local line is left (-1 = none). Without it a re-risen session masked the guest's own polled line.
++        private Int32 _ownPollsField = -1;
++        // SelfTest stand-ins for the engine reads a quiet (synthetic) guest never makes: ApplyKeyCursor's verdict and GetChoose
++        private Int32 _stubCursor = CurNone;
++        private Int32 _stubChoose = -1;
+ 
+         internal String Chip { get { return _chip; } }
+         internal Int32 OrphanCloses { get { return _orphanCloses; } }
+@@ -210,6 +281,10 @@ namespace Memoria.Netsync
+         internal Int32 HostFlags { get { return _viewValid ? _view.Flags : -1; } }
+         internal Int32 KeyIgnored { get { return _keyIgnored; } }
+         internal Int32 MirrorCursor { get { return _mirrorCursor; } }
++        // [ff9mapkit netsync F3.3] R5 observables
++        internal Int32 KeyServed { get { return _keyServed; } }
++        internal Int32 KeyExpired { get { return _keyExpired; } }
++        internal Int32 KeyGaveUp { get { return _keyGaveUp; } }
+ 
+         // ---- helpers ------------------------------------------------------------------------------------
+ 
+@@ -271,15 +346,27 @@ namespace Memoria.Netsync
+         // TRUE while a lockable, non-Local, non-FlagButtonInh window is open -- the S4 SuppressLocalDialogInput
+         // body. FlagButtonInh is excluded: confirm is a no-op on it (Dialog.cs:789), and excluding it keeps a
+         // persistent [NFOC] HUD strip from swallowing Pause. Main thread (UIKeyTrigger / DialogManager.OnClick).
++        // [ff9mapkit netsync F3.3] C3KEYS-2 / SEM-2: ...EXCEPT a polled CHOICE while the script-key lock holds (KeyHold):
++        // its branch is the host's relayed press + cursor, and the guest's own Confirm/Cancel would still reach
++        // Dialog.OnKeyConfirm/OnKeyCancel -- Cancel rewrites the SelectChoice its GetChoose reads (even mid-open), and a
++        // voiced Confirm commits early and destroys the other options before the host's cursor can land. A HUD strip has
++        // no choices, so it still never swallows Pause; the hold dropping hands the keys back with the cursor.
+         internal Boolean AnyLockedLine()
+         {
+             List<Dialog> list = LiveList();
+             if (list == null)
+                 return false;
++            Int32 hold = -1;                   // KeyHold, read once and only if a polled line asks
+             for (Int32 k = 0; k < list.Count; k++)
+             {
+                 Dialog d = list[k];
+-                if (IsLockable(d) && !d.FlagButtonInh && !IsLocal(d))
++                if (!IsLockable(d) || IsLocal(d))
++                    continue;
++                if (!d.FlagButtonInh)
++                    return true;
++                if (hold < 0)
++                    hold = KeyHold(FF9StateSystem.Common.FF9.fldMapNo) ? 1 : 0;
++                if (hold == 1 && d.HasChoices)
+                     return true;
+             }
+             return false;
+@@ -342,6 +429,12 @@ namespace Memoria.Netsync
+             _mirrorCursor = -1;
+             _capLogged = false;
+             _chip = null;
++            _keys.Clear();                     // [ff9mapkit netsync F3.3] R5: the key store dies with the session (allocation-free)
++            _keyHoldBase = false;
++            _keyIdleArmed = false;
++            _keyCapLogged = false;
++            _keyClockArmed = false;            // C3KEYS-3
++            _ownPollsField = -1;               // C3KEYS-4
+         }
+ 
+         // [ff9mapkit netsync F3.3] the TRANSPORT ended (a reconfigure / teardown -- NetSyncClient.ResetDialogLockstepState):
+@@ -357,6 +450,9 @@ namespace Memoria.Netsync
+             _refuseLogged = false;
+             _gaps = 0;
+             _keyIgnored = 0;
++            _keyServed = 0;                    // [ff9mapkit netsync F3.3] R5 lane counters
++            _keyExpired = 0;
++            _keyGaveUp = 0;
+         }
+ 
+         // The ~ menu panic unlock holds on THIS field (S5 step 1, "lock off: clear the inbox"): the host's events for
+@@ -367,6 +463,8 @@ namespace Memoria.Netsync
+         {
+             _inbox.Clear();
+             _capLogged = false;
++            _keys.Clear();                     // [ff9mapkit netsync F3.3] R5: the host's relayed presses for it too (lock off = local polls)
++            _keyCapLogged = false;
+         }
+ 
+         // The lock is off while the session holds and the guest is OFF-field (a load/battle): the windows are gone,
+@@ -378,9 +476,18 @@ namespace Memoria.Netsync
+             if (_local.Length > 0)
+                 _local = NoMarks;
+             _settle.Reset();
++            _ownPollsField = -1;               // [ff9mapkit netsync F3.3] C3KEYS-4: its Local lines are gone with it
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                _keys[k].CursorOn = null;      // C3KEYS-1: a forgotten window holds no KEY's cursor (it re-lands on the next one)
++                _keys[k].CursorLogged = false;
++            }
+         }
+ 
+         // The session part of the lock ROSE this tick: every window already open predates it -> Local.
++        // [ff9mapkit netsync F3.3] C3KEYS-4: ...and so do their script polls: the key lock's host half stays off on this field
++        // (_ownPollsField) until the host presses here (the press the outage hid was baselined away with the ring), a
++        // host-driven line opens here, or no Local line is left -- a KEY merged after the rise still holds the lock (KeyHold).
+         internal void MarkOpenLocal(Int32 myField)
+         {
+             List<Dialog> list = LiveList();
+@@ -402,7 +509,11 @@ namespace Memoria.Netsync
+                 }
+             RebuildMarks();
+             if (n > 0)
+-                Log.Message("[NetSync] dialogue lock engaged -- " + n + " window(s) already open stay local (they predate it)");
++            {
++                _ownPollsField = myField;
++                Log.Message("[NetSync] dialogue lock engaged -- " + n + " window(s) already open stay local (they predate it; their script polls "
++                            + "stay the guest's own until the host presses here)");
++            }
+         }
+ 
+         // ---- [ff9mapkit netsync F3.3] C3: the u16 seq, the host ring, the section-7 codec ----------------------
+@@ -703,6 +814,8 @@ namespace Memoria.Netsync
+             _epoch = _view.Epoch;
+             _inbox.Clear();
+             _capLogged = false;
++            _keys.Clear();                     // [ff9mapkit netsync F3.3] R5: the old host's relayed presses go with its inbox
++            _keyCapLogged = false;
+             if (_baselined)
+             {
+                 _lastSeen = _view.HeadSeq;     // history never replays: this view IS the baseline
+@@ -757,6 +870,8 @@ namespace Memoria.Netsync
+         // predates the lock -- the C2 "taps queued before the session" rule). `discard` (a panic-unlocked field)
+         // skips the events without queueing them. A GAP (events the ring no longer holds) logs once; its lines fall
+         // to the orphan rule. KEY events are ignored (counted, one line per session) -- the key relay is R5.
++        // [ff9mapkit netsync F3.3] R5: KEY events now join the KEY list (IngestRing) in the same seq walk, so the ordering
++        // guard can compare them against the window events merged beside them; `discard` skips them too.
+         internal void Merge(Int32 now, Boolean discard)
+         {
+             if (!_viewValid || _mergedStamp == _viewStamp)
+@@ -798,17 +913,13 @@ namespace Memoria.Netsync
+         }
+ 
+         // One ring event into the seq-ordered inbox (ADV / CHO); KEY and unknown kinds are not queued.
++        // [ff9mapkit netsync F3.3] R5: a KEY goes to the KEY list instead (pending its ordering guard); one with no
++        // host-owned bits is refused (counted in key_ignored, one line per session).
+         private void IngestRing(ref RingEvt r, Int32 now)
+         {
+             if (r.Kind == KindKey)
+             {
+-                _keyIgnored++;
+-                if (!_keyLogged && !_quiet)
+-                {
+-                    _keyLogged = true;
+-                    Log.Message("[NetSync] dialogue: host seq " + r.Seq + " is a script button-poll KEY (uid " + r.A + " bits " + r.B
+-                                + ") -- ignored (this build relays confirms only; the key relay is the next stage)");
+-                }
++                IngestKey(ref r, now);
+                 return;
+             }
+             if (r.Kind != KindAdv && r.Kind != KindCho)
+@@ -899,6 +1010,19 @@ namespace Memoria.Netsync
+                     Log.Message("[NetSync] dialogue: host seq " + e.Raw + " (win " + e.Win + " text " + e.Text
+                                 + ") dropped -- from an earlier host scene (a new talk was relayed)");
+             }
++            // [ff9mapkit netsync F3.3] R5: an UNSERVED key press from an earlier host scene is stale too -- the same reader
++            // (an NPC talked to twice) must not have the old talk's press answer the new talk's first poll.
++            for (Int32 k = _keys.Count - 1; k >= 0; k--)
++            {
++                KeyEvt e = _keys[k];
++                if (e.Active || !SceneBefore(e.Scene, talkScene))
++                    continue;
++                _keys.RemoveAt(k);
++                _keyExpired++;
++                if (!_quiet)
++                    Log.Message("[NetSync] key relay: host seq " + e.Seq + " (uid " + e.Uid + " bits " + e.Compact
++                                + ") dropped -- from an earlier host scene (a new talk was relayed)");
++            }
+         }
+ 
+         // TRUE when an event stamped `scene` predates the scene `current` (u8 nonces, wrap-aware: within 128 scenes,
+@@ -988,37 +1112,68 @@ namespace Memoria.Netsync
+             public Boolean HostHere;       // F3.3: the host stands on MY field -- its open set (section 7) is about my windows
+             public Boolean HostMenu;       // F3.3 R7: section 7 b4 on a field (the chip's "in a menu" variant)
+             public Boolean HostBattle;     // F3.3 R7: section 7 b5 (the chip's "in a battle" variant)
++            public Boolean HostHoldsInput; // [ff9mapkit netsync F3.3] R5: the host stands on MY field with its control OFF (section 7 b1 clear)
++            public Boolean GuestControl;   // [ff9mapkit netsync F3.3] R5: my own user control (the KEY idle expiry)
+             public Int32 Now;
+         }
+ 
+         internal void GuestTick(ref GuestView v)
+         {
++            Boolean paused = false;            // [ff9mapkit netsync F3.3] C3KEYS-3: read first -- the KEY clocks below need it
++            try
++            {
++                UIManager ui = PersistenSingleton<UIManager>.Instance;
++                paused = ui == null || ui.IsPause;
++            }
++            catch { paused = true; }
+             Purge(ref v);
++            HoldKeyClocks(paused, v.Engaged, v.Now);   // C3KEYS-3 / SEM-1: a pause stops the KEY TTL and the cursor wait
++            PurgeKeys(ref v, paused);          // [ff9mapkit netsync F3.3] R5: field / TTL / idle / spent
+             if (!v.Engaged)
+             {
+                 ForgetWindows();
+                 _mirrorCursor = -1;
++                _keyHoldBase = false;          // [ff9mapkit netsync F3.3] R5: no lock, no masked poll (the KEYs wait, purged as above)
+                 _chip = v.HostSceneUp && v.HostHere ? ChipHostScene : null;
+                 return;
+             }
+             List<Dialog> list = LiveList();
+             Track(list, ref v);
+-            Boolean paused = false;
+-            try
+-            {
+-                UIManager ui = PersistenSingleton<UIManager>.Instance;
+-                paused = ui == null || ui.IsPause;
+-            }
+-            catch { paused = true; }
++            if (_ownPollsField >= 0 && _ownPollsField != v.MyField)
++                _ownPollsField = -1;           // C3KEYS-4: the latch is per field
+             if (!paused)
+-            {
+                 ApplyEvents(list, ref v);      // step 5 -- stock DialogManager.cs:337 parity: nothing is driven while paused
++            ReleaseKeys(list, paused, ref v);  // [ff9mapkit netsync F3.3] R5: AFTER the window events this tick applied (the guard)
++            if (!paused)
++            {
++                LandKeyCursors(list);          // [ff9mapkit netsync F3.3] R5: a released KEY's cursor, the first tick its choice is ready
+                 CursorLock(list, ref v);       // step 6 (the pause menu owns the cursor while paused)
+             }
+             Orphans(list, paused, ref v);      // step 7
++            // [ff9mapkit netsync F3.3] R5 the script-key lock's host half: the host is busy (not settled for OrphanGraceMs)
++            // or it stands here with its control off (a windowless "press Confirm" beat raises no scene). A KEY waiting
++            // for my field holds it too (KeyHold) -- so a poll unmasks only once the host is idle AND nothing is pending.
++            // C3KEYS-4: never on a field whose Local lines still own their polls (KeyHostHalf).
++            _keyHoldBase = KeyHostHalf(_settle.Long, v.HostHoldsInput, _ownPollsField == v.MyField);
+             UpdateChip(ref v);                 // step 8
+         }
+ 
++        // [ff9mapkit netsync F3.3] the script-key lock's host half, PURE (SelfTest scripts it): the host busy or holding input
++        // on my field -- unless this field's Local lines still own their polls (C3KEYS-4: a re-risen session).
++        internal static Boolean KeyHostHalf(Boolean settledLong, Boolean hostHoldsInput, Boolean ownPolls)
++        {
++            return (!settledLong || hostHoldsInput) && !ownPolls;
++        }
++
++        // [ff9mapkit netsync F3.3] C3KEYS-4, PURE: "the host is idle" for one window's orphan step. A script-polled
++        // (FlagButtonInh) line is handed back only on the SAME idle the script-key lock reads -- settled AND not holding
++        // input on my field -- else its "handed back" was a lie: the key lock still masked its poll, for a host that never
++        // taps a KEY for a line it does not have. Every other line keeps the plain settle clock (C2).
++        internal static Boolean OrphanSettled(Boolean settledLong, Boolean inh, Boolean hostHoldsInput)
++        {
++            return settledLong && !(inh && hostHoldsInput);
++        }
++
+         private static Win NewWin(Dialog d, Int32 field)
+         {
+             Win w = new Win();
+@@ -1062,9 +1217,14 @@ namespace Memoria.Netsync
+                             w.Cls = ClsLocal;
+                         _wins.Add(w);
+                         if (w.Cls == ClsLocked)
++                        {
+                             Log.Message("[NetSync] dialogue lock: win " + w.Id + " text " + w.TextId + " opened locked (the host drives it)");
++                            if (w.Field == _ownPollsField)
++                                _ownPollsField = -1;   // [ff9mapkit netsync F3.3] C3KEYS-4: a host-driven line here -- polls follow the host again
++                        }
+                     }
+                     w.Seen = true;
++                    w.Inh = d.FlagButtonInh;   // [ff9mapkit netsync F3.3] R5: the KEY ordering guard skips input-inhibited lines
+                     Int32 page = d.CurrentPage;
+                     if (page != w.Page)
+                     {
+@@ -1083,12 +1243,17 @@ namespace Memoria.Netsync
+                         w.CompleteArmed = false;
+                 }
+             Boolean marksDirty = false;
++            Boolean anyLocal = false;
+             for (Int32 k = _wins.Count - 1; k >= 0; k--)
+             {
+                 Win w = _wins[k];
+                 if (w.Seen)
++                {
++                    anyLocal |= w.Cls == ClsLocal;
+                     continue;
++                }
+                 _wins.RemoveAt(k);
++                UnbindKeyCursors(w);           // [ff9mapkit netsync F3.3] C3KEYS-1: a KEY pinned to it may land again
+                 if (w.Cls == ClsLocal)
+                     marksDirty = true;
+                 else if (!w.ClosedByUs)
+@@ -1096,6 +1261,23 @@ namespace Memoria.Netsync
+             }
+             if (marksDirty)
+                 RebuildMarks();
++            if (!anyLocal && _ownPollsField >= 0)
++                _ownPollsField = -1;           // C3KEYS-4: no Local line left to own a poll
++        }
++
++        // [ff9mapkit netsync F3.3] C3KEYS-1: a departed window holds no unserved KEY's cursor -- otherwise a press pinned to a
++        // window that closed without it could never land, and (the binding order) would block its reader's later presses.
++        private void UnbindKeyCursors(Win w)
++        {
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt e = _keys[k];
++                if (!e.Active && ReferenceEquals(e.CursorOn, w.D) && e.CursorId == w.Id && e.CursorText == w.TextId)
++                {
++                    e.CursorOn = null;
++                    e.CursorLogged = false;
++                }
++            }
+         }
+ 
+         private static Boolean Advanced(List<Dialog> list, Dialog d, Int32 id, Int32 textId, Int32 page, Boolean choice)
+@@ -1217,6 +1399,10 @@ namespace Memoria.Netsync
+         // its voice (VoicePlayer.closeDialogOnFinish, set only by Dialog.OnKeyConfirm's voiced-choice commit). It stays
+         // CompleteAnimation + IsChoiceReady, and its other buttons are destroyed only at end of frame, so a host cursor
+         // from a REOPENED same-key window would re-select it -> OnOptionChange -> it closes reporting the wrong choice.
++        // [ff9mapkit netsync F3.3] R5: a FlagButtonInh (script-polled) choice joins the lock WHILE THE SCRIPT-KEY LOCK
++        // HOLDS (KeyHold, last tick's host half): its confirm is then the host's relayed press, which carries the host's
++        // cursor -- so the guest's arrows must not move it either (IsGuestLockedChoice gates them the same way). When
++        // the hold drops (the host idle, nothing pending), the poll is local again and so is its cursor.
+         private void CursorLock(List<Dialog> list, ref GuestView v)
+         {
+             _mirrorCursor = -1;
+@@ -1228,13 +1414,23 @@ namespace Memoria.Netsync
+                 if (w.Cls == ClsLocal || w.ClosedByUs || VoicePlayer.closeDialogOnFinish)
+                     continue;
+                 Dialog d = w.D;
+-                if (d.FlagButtonInh)
++                if (d.FlagButtonInh && !KeyHold(w.Field))
+                     continue;
+                 if (!InList(list, d) || d.Id != w.Id || d.TextId != w.TextId)
+                     continue;
+                 if (d.CurrentState != Dialog.State.CompleteAnimation || !d.IsChoiceReady)
+                     continue;
+                 Int32 expected = d.SelectChoice;
++                // [ff9mapkit netsync F3.3] R5: a relayed press not yet served holds this window to the cursor of the PRESS
++                // (the host's highlight may already have moved on) -- ahead of the live mirror below.
++                Int32 keyCursor = PendingKeyCursor(d);
++                if (keyCursor >= 0)
++                {
++                    if (!d.IsCurrentChoice(keyCursor))
++                        HostSetChoice(d, keyCursor);
++                    _mirrorCursor = keyCursor;
++                    continue;
++                }
+                 Byte hostCursor;
+                 if (v.HostHere && HostHasOpen(w.Id, w.TextId, out hostCursor) && hostCursor != NoCursor)
+                 {
+@@ -1285,7 +1481,9 @@ namespace Memoria.Netsync
+                 Boolean choice = d.HasChoices;
+                 Boolean ready = !paused && d.CurrentState == Dialog.State.CompleteAnimation && w.CompleteArmed
+                              && (!choice || (d.IsChoiceReady && DialogOwnsCursor()));   // never under another UI's cursor
+-                Int32 act = OrphanStep(w.Cls, _settle.Long, eventPending, v.RelayOwned, d.FlagButtonInh, ready,
++                // [ff9mapkit netsync F3.3] C3KEYS-4: a polled line is handed back only on the key lock's own idle
++                Boolean settled = OrphanSettled(_settle.Long, d.FlagButtonInh, v.HostHoldsInput);
++                Int32 act = OrphanStep(w.Cls, settled, eventPending, v.RelayOwned, d.FlagButtonInh, ready,
+                                        w.CompleteSince, w.OrphanSince, v.Now);
+                 if (act == OrphNone)
+                     continue;
+@@ -1410,6 +1608,478 @@ namespace Memoria.Netsync
+                 _chip = null;
+         }
+ 
++        // ---- [ff9mapkit netsync F3.3] R5: the script-key relay, guest half -----------------------------------------
++
++        // A merged KEY (Merge -> IngestRing): pending its ordering guard. Bits outside HostOwnedKeys never reach the
++        // guest's poll (ExpandKeys drops them), so a KEY with none is refused here.
++        private void IngestKey(ref RingEvt r, Int32 now)
++        {
++            UInt32 bits = NetSyncField.ExpandKeys(r.B);
++            if (bits == 0)
++            {
++                _keyIgnored++;
++                if (!_keyLogged && !_quiet)
++                {
++                    _keyLogged = true;
++                    Log.Message("[NetSync] key relay: host seq " + r.Seq + " (uid " + r.A + ") carries no host-owned button (bits " + r.B + ") -- ignored");
++                }
++                return;
++            }
++            KeyEvt k = new KeyEvt();
++            k.Seq = r.Seq;
++            k.Scene = r.Scene;
++            k.Fld = r.Fld;
++            k.Uid = r.A;
++            k.Compact = r.B;
++            k.Bits = bits;
++            k.Cursor = r.C;
++            k.FirstSeen = now;
++            _keys.Add(k);                      // arrival order IS seq order (the merge walks the ring oldest first)
++            if (!_quiet)
++                Log.Message("[NetSync] key relay: host seq " + k.Seq + " queued (field " + k.Fld + " uid " + k.Uid + " bits " + k.Compact
++                            + (k.Cursor != NoCursor ? " cursor " + k.Cursor : "") + ")");
++            if (k.Fld == _ownPollsField)
++            {
++                _ownPollsField = -1;           // [ff9mapkit netsync F3.3] C3KEYS-4: the host pressed here -- polls follow the host again
++                if (!_quiet)
++                    Log.Message("[NetSync] key relay: a host press for field " + k.Fld + " arrived -- the script polls there follow the host again");
++            }
++            if (_keys.Count > KeyCap)
++            {
++                KeyEvt old = _keys[0];
++                _keys.RemoveAt(0);
++                _keyExpired++;
++                if (!_keyCapLogged && !_quiet)
++                {
++                    _keyCapLogged = true;
++                    Log.Message("[NetSync] key relay: the KEY list hit its cap (" + KeyCap + ") -- oldest dropped (host seq " + old.Seq + ", uid " + old.Uid + ")");
++                }
++            }
++            else if (_keys.Count <= KeyCap / 2)
++                _keyCapLogged = false;
++        }
++
++        // Every tick, engaged or not: drop SPENT entries (served on an earlier key tick), entries for a field I am not on
++        // (nor warping to, nor the host's), entries older than KeyTtlMs, and -- once BOTH sides have been idle for
++        // KeyIdleMs (host: scene down, not holding input here; guest: control on, no locked line) -- entries at least
++        // that old. A KEY for a poll this copy never makes therefore expires (divergence D), never wedges anything.
++        // [ff9mapkit netsync F3.3] C3KEYS-5: nor idle while a relayed start for my field is still on the lane (TalkLiveHere --
++        // a TALK-7 late start keeps its ADVs for PendingTtlMs, and must keep the KEYs its polled lines will read); C3KEYS-3:
++        // nor while paused (nothing is served under a pause -- its TTL is held by HoldKeyClocks).
++        private void PurgeKeys(ref GuestView v, Boolean paused)
++        {
++            Boolean idle = !paused && !v.HostSceneUp && !v.HostHoldsInput && !v.TalkLiveHere && v.GuestControl && !AnyLockedWin();
++            if (idle)
++            {
++                if (!_keyIdleArmed)
++                {
++                    _keyIdleArmed = true;
++                    _keyIdleSince = v.Now;     // tick-baseline law: a real tick, read only while armed
++                }
++            }
++            else
++                _keyIdleArmed = false;
++            if (_keys.Count == 0)
++                return;
++            Boolean idleLong = _keyIdleArmed && v.Now - _keyIdleSince >= KeyIdleMs;
++            Int32 tick = NetSyncField.KeyTick;
++            for (Int32 k = _keys.Count - 1; k >= 0; k--)
++            {
++                KeyEvt e = _keys[k];
++                String why = null;
++                if (e.Active)
++                {
++                    if (e.ActiveTick != tick)
++                    {
++                        _keys.RemoveAt(k);     // served (counted at the serve) -- its key tick is over
++                        continue;
++                    }
++                }
++                else if (e.Fld != v.MyField && e.Fld != v.WarpField && e.Fld != v.HostField)
++                    why = "dropped -- it is for field " + e.Fld;
++                else if (v.Now - e.FirstSeen >= KeyTtlMs)
++                    why = "expired -- no poll by uid " + e.Uid + " took it in " + (KeyTtlMs / 1000) + " s";
++                else if (idleLong && v.Now - e.FirstSeen >= KeyIdleMs)
++                    why = "expired -- both sides idle, no poll by uid " + e.Uid + " took it";
++                if (why == null)
++                    continue;
++                _keys.RemoveAt(k);
++                _keyExpired++;
++                if (!_quiet)
++                    Log.Message("[NetSync] key relay: host seq " + e.Seq + " (uid " + e.Uid + " bits " + e.Compact + ") " + why);
++            }
++        }
++
++        // [ff9mapkit netsync F3.3] C3KEYS-3 / SEM-1, every tick before PurgeKeys: the KEY clocks stand still while nothing can
++        // be served. PAUSED (the guest's own pause menu: no release, no serve), each KEY's TTL is pushed forward by the
++        // paused time -- a guest paused past KeyTtlMs mid-scene otherwise lost the host's presses its masked polls were
++        // waiting for, then answered them with its own input (the inbox's events survive the same pause by
++        // AwaitedByOpenWindow; a KEY has no window to be awaited by). Paused OR disengaged (a load / battle: no masked
++        // poll runs), the cursor wait re-arms. Deliberately no "its reader still polls" exemption: a released KEY that
++        // overlaps the poll is served at once, so the exemption would only ever keep a NON-matching KEY alive -- and a KEY
++        // waiting for my field holds the lock that masks that very poll (KeyHold): a wedge, not a grace.
++        private void HoldKeyClocks(Boolean paused, Boolean engaged, Int32 now)
++        {
++            Int32 dt = _keyClockArmed ? now - _keyClockLast : 0;
++            _keyClockArmed = true;
++            _keyClockLast = now;               // tick-baseline law: a real tick, read only while armed
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt e = _keys[k];
++                if (paused && dt > 0)
++                    e.FirstSeen = unchecked(e.FirstSeen + dt);
++                if ((paused || !engaged) && e.DeferArmed)
++                    e.DeferSince = now;
++            }
++        }
++
++        // A tracked line still under the host (locked or orphaned, not input-inhibited) -- the guest is not idle.
++        private Boolean AnyLockedWin()
++        {
++            for (Int32 k = 0; k < _wins.Count; k++)
++                if (_wins[k].Cls != ClsLocal && !_wins[k].Inh)
++                    return true;
++            return false;
++        }
++
++        // THE ORDERING GUARD (design B, R5): walk the pending KEYs in seq order and release each into the store only when
++        // no EARLIER host window event (ADV/CHO) is still pending for a window that is open here, driven (not Local) and
++        // not input-inhibited -- the host's poll ran after that confirm, so mine must too (a "press Confirm" right after
++        // a line must not be eaten by the line's own page). It gives up after KeyGuardMs with one line (the window
++        // event never applied: divergence). Order is kept: the walk stops at the first KEY it holds. Paused: nothing
++        // is applied, so nothing is released and the guard clocks restart. The host CURSOR is applied at release.
++        private void ReleaseKeys(List<Dialog> list, Boolean paused, ref GuestView v)
++        {
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt e = _keys[k];
++                if (e.Released)
++                    continue;
++                if (paused)
++                {
++                    if (e.GuardArmed)
++                        e.GuardSince = v.Now;
++                    return;
++                }
++                DlgEvent blocker = EarlierWindowEvent(e);
++                if (blocker != null)
++                {
++                    if (!e.GuardArmed)
++                    {
++                        e.GuardArmed = true;
++                        e.GuardSince = v.Now;  // tick-baseline law: armed bool + delta
++                        return;
++                    }
++                    if (v.Now - e.GuardSince < KeyGuardMs)
++                        return;
++                    _keyGaveUp++;
++                    if (!_quiet)
++                        Log.Message("[NetSync] key relay: host seq " + e.Seq + " (uid " + e.Uid + ") waited " + (KeyGuardMs / 1000)
++                                    + " s behind host seq " + blocker.Raw + " (win " + blocker.Win + " text " + blocker.Text
++                                    + ", never applied here) -- released anyway");
++                }
++                e.Released = true;
++                Boolean changed;
++                Int32 applied = ApplyKeyCursor(list, e, out changed);
++                if (!_quiet)
++                    Log.Message("[NetSync] key relay: host seq " + e.Seq + " released for uid " + e.Uid + " (bits " + e.Compact + ")"
++                                + (applied >= 0 ? ", cursor " + applied + " applied" : e.Cursor != NoCursor ? ", cursor " + e.Cursor + " " + CursorWhy(applied) : ""));
++            }
++        }
++
++        // [ff9mapkit netsync F3.3] one log phrase per ApplyKeyCursor verdict below zero (the release / wait lines)
++        private static String CursorWhy(Int32 r)
++        {
++            switch (r)
++            {
++                case CurWait: return "held (its choice window is still opening here)";
++                case CurNotReady: return "held (no choice-ready window for it yet, or an earlier press of this reader binds first)";
++                case CurNoWindow: return "held (no choice window for it here yet)";
++                case CurOutOfRange: return "out of range here (the window's own choice stays)";
++                case CurOwn: return "not applied (the choice open here is the guest's own)";
++                default: return "not applied";
++            }
++        }
++
++        // Every unpaused tick: a released, unserved KEY whose cursor found no ready choice at its release lands it the
++        // first tick one is ready -- a tick BEFORE the poll can read GetChoose, in the usual case (TakeKey covers the rest).
++        // [ff9mapkit netsync F3.3] C3KEYS-1 / SEM-3: only the OLDEST unserved cursor-carrying KEY of each reader lands
++        // (CursorTurn, inside ApplyKeyCursor) -- a burst released together no longer pins every press to one window.
++        private void LandKeyCursors(List<Dialog> list)
++        {
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt e = _keys[k];
++                if (!e.Released || e.Active || e.Cursor == NoCursor || !ReferenceEquals(e.CursorOn, null))
++                    continue;
++                Boolean changed;
++                if (ApplyKeyCursor(list, e, out changed) >= 0 && !_quiet)
++                    Log.Message("[NetSync] key relay: host seq " + e.Seq + " cursor " + e.Cursor + " landed on win " + e.CursorId + " text " + e.CursorText);
++            }
++        }
++
++        // The cursor a released, unserved KEY holds THIS window to (the oldest such KEY), or -1. The cursor lock enforces
++        // it ahead of the host's live open-set cursor: the poll the KEY answers must read the cursor of the PRESS, even if
++        // the host's highlight has moved on since (a menu that stays open after a pick).
++        private Int32 PendingKeyCursor(Dialog d)
++        {
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt e = _keys[k];
++                if (e.Released && !e.Active && e.Cursor != NoCursor && ReferenceEquals(e.CursorOn, d)
++                    && d.Id == e.CursorId && d.TextId == e.CursorText)
++                    return e.Cursor;
++            }
++            return -1;
++        }
++
++        // The earliest inbox event BEFORE this KEY whose window is open here, driven and not input-inhibited -- or null.
++        // Pure over the tracker (Win.Inh is sampled at Track), so SelfTest scripts it.
++        private DlgEvent EarlierWindowEvent(KeyEvt key)
++        {
++            for (Int32 k = 0; k < _inbox.Count; k++)
++            {
++                DlgEvent e = _inbox[k];
++                if (!SeqAfter((UInt16)key.Seq, (UInt16)e.Seq))
++                    continue;
++                for (Int32 j = 0; j < _wins.Count; j++)
++                {
++                    Win w = _wins[j];
++                    if (w.Cls != ClsLocal && !w.Inh && w.Field == e.Fld && w.Id == e.Win && w.TextId == e.Text)
++                        return e;
++                }
++            }
++            return null;
++        }
++
++        // The host's cursor onto my frontmost driven, ready choice window (input-inhibited ones included -- a polled
++        // choice is exactly where it matters): GetChoose reads DialogManager.SelectChoice, which TrySetCurrentChoice
++        // writes, so applying it BEFORE the poll makes the poll's branch the host's whatever the operand order of
++        // `GetChoose()==k && B_KEYON`. Only under the dialog's own button group. The first window it lands on is
++        // remembered: a later re-apply (the serve's hedge) touches THAT window only -- never a different choice that
++        // opened since. Returns the cursor applied (`changed` = the selection had to MOVE to it), or -1.
++        // [ff9mapkit netsync F3.3] C3KEYS-SEM-1 / SEM-3 / C3KEYS-1 -- the verdict is now TELLING (TakeKey waits on it), and
++        // the binding is ordered:
++        //   * only the oldest unserved cursor-carrying KEY of its reader binds (CursorTurn) -- else CurNotReady;
++        //   * the FRONTMOST live choice window decides (one closing -- StartHide/CloseAnimation/Idle -- is never a KEY's;
++        //     nor one our apply committed): the guest's own (Local) -> CurOwn; still opening / printing, or untracked
++        //     (opened this very frame) -> CurWait; up but not choice-ready, or another UI's cursor -> CurNotReady;
++        //   * an unpinned KEY skips a window another unserved KEY holds, and one its own host event (ADV/CHO) drives;
++        //   * nothing for it -> CurNoWindow (pinned: CurNotReady -- Track unbinds a pin whose window departed).
++        // A quiet (SelfTest) guest returns its stub after the turn test -- no engine object is touched.
++        private Int32 ApplyKeyCursor(List<Dialog> list, KeyEvt e, out Boolean changed)
++        {
++            changed = false;
++            if (e.Cursor == NoCursor)
++                return CurNone;
++            if (!CursorTurn(e))
++                return CurNotReady;
++            if (_quiet)
++                return _stubCursor;
++            Boolean pinned = !ReferenceEquals(e.CursorOn, null);
++            if (list == null)
++                return pinned ? CurNotReady : CurNoWindow;
++            for (Int32 k = list.Count - 1; k >= 0; k--)
++            {
++                Dialog d = list[k];
++                if (!IsLockable(d))
++                    continue;
++                if (pinned && (!ReferenceEquals(d, e.CursorOn) || d.Id != e.CursorId || d.TextId != e.CursorText))
++                    continue;
++                Dialog.State st = d.CurrentState;
++                if (st == Dialog.State.StartHide || st == Dialog.State.CloseAnimation || st == Dialog.State.Idle)
++                    continue;                  // closing: never the window a press is for
++                Win w = FindWin(d);
++                if (w != null && w.ClosedByUs)
++                    continue;
++                if (!d.HasChoices)
++                    continue;
++                if (w != null ? w.Cls == ClsLocal : IsLocal(d))
++                    return CurOwn;             // the guest's own choice: its own cursor (DLG-10 does not reach a Local line)
++                if (!pinned && (HeldByOtherKey(d, e) || (w != null && HasEventFor(w))))
++                    continue;
++                if (w == null || st != Dialog.State.CompleteAnimation)
++                    return CurWait;            // opening / printing: InitializeChoice will still set its default -- wait
++                if (!d.IsChoiceReady || !DialogOwnsCursor())
++                    return CurNotReady;
++                Boolean already = d.IsCurrentChoice(e.Cursor) && DialogManager.SelectChoice == e.Cursor;   // GetChoose reads the static
++                if (already || HostSetChoice(d, e.Cursor))
++                {
++                    changed = !already;
++                    e.CursorOn = d;
++                    e.CursorId = d.Id;
++                    e.CursorText = d.TextId;
++                    return e.Cursor;
++                }
++                if (!e.CursorLogged)
++                {
++                    e.CursorLogged = true;
++                    Log.Message("[NetSync] key relay: host cursor " + e.Cursor + " is out of range on win " + d.Id + " text " + d.TextId
++                                + " -- its own choice (" + d.SelectChoice + ") stays");
++                }
++                return CurOutOfRange;
++            }
++            return pinned ? CurNotReady : CurNoWindow;
++        }
++
++        // [ff9mapkit netsync F3.3] C3KEYS-1 / SEM-3 THE BINDING ORDER: of one reader's cursor-carrying KEYs still in the list
++        // (served this tick included), only the OLDEST may put its cursor on a window. Two presses for successive polled
++        // choices released together (a pause, a guard hold, a ring catch-up, a late start) both used to land on the first
++        // ready window -- the second then never reached its own and was served with that window's default. Pure.
++        private Boolean CursorTurn(KeyEvt e)
++        {
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt o = _keys[k];
++                if (ReferenceEquals(o, e))
++                    return true;
++                if (o.Uid == e.Uid && o.Fld == e.Fld && o.Cursor != NoCursor)
++                    return false;
++            }
++            return true;
++        }
++
++        // C3KEYS-1: another unserved KEY already holds this window's cursor.
++        private Boolean HeldByOtherKey(Dialog d, KeyEvt e)
++        {
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt o = _keys[k];
++                if (!ReferenceEquals(o, e) && !o.Active && ReferenceEquals(o.CursorOn, d) && o.CursorId == d.Id && o.CursorText == d.TextId)
++                    return true;
++            }
++            return false;
++        }
++
++        // [ff9mapkit netsync F3.3] C3KEYS-SEM-1 THE CURSOR WAIT (TakeKey, after the hedge): may this press be served on this
++        // read? A press that carries the host's cursor is never served before that cursor is what the poll's GetChoose
++        // reads -- else `CloseWindow; switch(GetDialogChoice)` commits a stale selection (the save moogle's Save where the
++        // host picked Tent). Applied, no cursor, out of range, or the guest's own window: serve. Its window still
++        // opening / printing (CurWait): wait, the clock re-armed -- the window progresses by itself (KeyTtlMs backstops
++        // it). No window for it (CurNoWindow) but GetChoose ALREADY reads the host's cursor (a CHO applied it first): serve.
++        // Otherwise wait at most KeyGuardMs from the first deferred read (HoldKeyClocks re-arms it while paused or
++        // disengaged), then serve with one line. Never consumed by a wait.
++        private Boolean KeyCursorSettled(KeyEvt e, Int32 applied, Int32 now)
++        {
++            if (applied >= 0 || applied == CurNone || applied == CurOutOfRange || applied == CurOwn)
++                return true;
++            if (applied == CurNoWindow && ChooseNow() == e.Cursor)
++                return true;
++            if (!e.DeferArmed || applied == CurWait)
++            {
++                if (!e.DeferArmed && !_quiet)
++                    Log.Message("[NetSync] key relay: host seq " + e.Seq + " (uid " + e.Uid + ") waits for its cursor " + e.Cursor
++                                + " -- " + CursorWhy(applied) + "; its press is served once GetChoose reads it");
++                e.DeferArmed = true;
++                e.DeferSince = now;            // tick-baseline law: armed bool + delta
++                return false;
++            }
++            if (now - e.DeferSince < KeyGuardMs)
++                return false;
++            _keyGaveUp++;
++            if (!_quiet)
++                Log.Message("[NetSync] key relay: host seq " + e.Seq + " (uid " + e.Uid + ") waited " + (KeyGuardMs / 1000) + " s for its cursor "
++                            + e.Cursor + " (" + CursorWhy(applied) + ") -- served without it");
++            return true;
++        }
++
++        // What the poll's GetChoose reads right now (ETb.GetChoose: the static DialogManager.SelectChoice) -- a quiet guest's stub.
++        private Int32 ChooseNow()
++        {
++            return _quiet ? _stubChoose : DialogManager.SelectChoice;
++        }
++
++        // THE SERVE (NetSyncField.FilterScriptButtons, a locked guest's control-off poll -- main thread, inside the event
++        // engine): the relayed press for THIS reader, served per reader per key tick (design C's model, A's first-overlap
++        // scan). Fast path: nothing stored = 0. An entry already active this tick answers every read by its reader in
++        // the tick (the SAME press -- `cond_a && key || cond_b && key` all see it); otherwise the first released entry
++        // for (my field, this reader) that overlaps the poll's mask activates (its cursor re-applied as a hedge). Spent
++        // entries (an earlier tick) are dropped first. Returns EventInput bits (0 = no host press for this read).
++        // THE CURSOR-FIRST RULE: if the hedge had to MOVE the selection, this read may be too late for it -- B_ANDAND
++        // short-circuits, so a `GetChoose()==k && B_KEYON` branch may have read GetChoose before this poll -- so the
++        // press is NOT served on this read: a later read (another branch this tick, or the next poll) sees the host's
++        // cursor first, then the press. Never consumed by a deferral.
++        // [ff9mapkit netsync F3.3] C3KEYS-SEM-1: ...and a press whose cursor could not land at all is not served either --
++        // THE CURSOR WAIT (KeyCursorSettled). `now` is a real tick (the wait's clock).
++        internal UInt32 TakeKey(Int32 uid, UInt32 mask, Int32 fld, Int32 tick, Int32 now)
++        {
++            if (_keys.Count == 0 || uid < 0)
++                return 0;
++            for (Int32 k = _keys.Count - 1; k >= 0; k--)
++                if (_keys[k].Active && _keys[k].ActiveTick != tick)
++                    _keys.RemoveAt(k);
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt e = _keys[k];
++                if (e.Active && e.Uid == uid && e.Fld == fld)
++                    return e.Bits;
++            }
++            for (Int32 k = 0; k < _keys.Count; k++)
++            {
++                KeyEvt e = _keys[k];
++                if (!e.Released || e.Active || e.Uid != uid || e.Fld != fld || (e.Bits & mask) == 0)
++                    continue;
++                Boolean changed;
++                Int32 applied = ApplyKeyCursor(_quiet ? null : LiveList(), e, out changed);   // the hedge: a choice ready since the release
++                if (changed)
++                {
++                    Log.Message("[NetSync] key relay: host seq " + e.Seq + " moved uid " + uid + "'s choice to the host's cursor " + applied
++                                + " -- its press is served on a later read (cursor first)");
++                    return 0;
++                }
++                if (!KeyCursorSettled(e, applied, now))
++                    return 0;                  // C3KEYS-SEM-1: its cursor first -- order kept (no later KEY overtakes it)
++                e.Active = true;
++                e.ActiveTick = tick;
++                _keyServed++;
++                if (!_quiet)
++                    Log.Message("[NetSync] key relay: host seq " + e.Seq + " served to uid " + uid + "'s poll (bits " + e.Compact
++                                + (applied >= 0 ? ", cursor " + applied : "") + ", key tick " + tick + ")");
++                return e.Bits;
++            }
++            return 0;
++        }
++
++        // The script-key lock for a poll on field `fld` (the caller checked the guest's control is OFF and the lock is
++        // engaged): the host half this tick, or any KEY -- pending or stored -- still waiting for my field.
++        internal Boolean KeyHold(Int32 fld)
++        {
++            if (_keyHoldBase)
++                return true;
++            for (Int32 k = 0; k < _keys.Count; k++)
++                if (_keys[k].Fld == fld)
++                    return true;
++            return false;
++        }
++
++        internal Boolean KeyHoldBase { get { return _keyHoldBase; } }
++        internal Int32 KeyCount { get { return _keys.Count; } }
++
++        internal struct KeyView
++        {
++            public Int32 Seq, Field, Uid, Bits, Cursor, AgeMs;
++            public String State;           // pending | stored | active
++        }
++
++        internal List<KeyView> SnapshotKeys(Int32 now, Int32 max)
++        {
++            List<KeyView> r = new List<KeyView>(Math.Min(_keys.Count, max));
++            for (Int32 k = 0; k < _keys.Count && r.Count < max; k++)
++            {
++                KeyEvt e = _keys[k];
++                KeyView x = new KeyView();
++                x.Seq = e.Seq;
++                x.Field = e.Fld;
++                x.Uid = e.Uid;
++                x.Bits = e.Compact;
++                x.Cursor = e.Cursor == NoCursor ? -1 : e.Cursor;
++                x.AgeMs = now - e.FirstSeen;
++                x.State = e.Active ? "active" : e.Released ? "stored" : "pending";
++                r.Add(x);
++            }
++            return r;
++        }
++
+         // ---- telemetry (HarnessAgent, main thread) ---------------------------------------------------------
+ 
+         internal struct WindowView
+@@ -1652,7 +2322,7 @@ namespace Memoria.Netsync
+             String fail = null;
+             try
+             {
+-                fail = HostSceneScript() ?? SettleScript() ?? OrphanScript() ?? InboxScript() ?? RingScript();
++                fail = HostSceneScript() ?? SettleScript() ?? OrphanScript() ?? InboxScript() ?? RingScript() ?? KeyScript();
+             }
+             catch (Exception err)
+             {
+@@ -1665,8 +2335,13 @@ namespace Memoria.Netsync
+                            + AutoReadMs + " ms after the later of complete/orphaned (Cancel else Default), late event or busy host re-locks;"
+                            + " inbox: per-key FIFO/cap " + InboxCap + ", relay-accept purge = earlier scenes only;"
+                            + " section 7: round trip, seq wrap 65535->1, gap>" + RingCap + " once, truncated refused, re-send once,"
+-                           + " KEY ignored, epoch reset w/o replay (also on a rising session, and on a same-epoch head regression),"
+-                           + " stall " + HostStallMs + " ms";
++                           + " KEY queued once, epoch reset w/o replay (also on a rising session, and on a same-epoch head regression),"
++                           + " stall " + HostStallMs + " ms;"
++                           + " key relay: compact bits, guard holds behind an earlier open driven line only (gives up " + KeyGuardMs
++                           + " ms, paused re-arms), one press per reader per key tick, expiry field/" + (KeyTtlMs / 1000) + " s/idle "
++                           + KeyIdleMs + " ms (not while paused or a relayed start is due), TTL held by a pause, cursor wait (opening"
++                           + " waits, else " + KeyGuardMs + " ms; GetChoose already right = serve), one cursor binder per reader,"
++                           + " a re-risen field owns its polls until the host presses";
+             return fail == null;
+         }
+ 
+@@ -1936,6 +2611,7 @@ namespace Memoria.Netsync
+ 
+             // 3. the guest merge: a session baselines first (history predates it), each event lands ONCE however often
+             //    the slot is re-sent, KEY is ignored, a truncated frame is refused and merges nothing
++            //    [ff9mapkit netsync F3.3] R5: ...KEY joins the key list ONCE (pending its guard), never the inbox
+             HostRing h = new HostRing();
+             h.Reset(500);
+             h.Append(KindAdv, 1, 350, 3, 40, 1, 0);                                // history: before the guest's session
+@@ -1959,8 +2635,9 @@ namespace Memoria.Netsync
+             if (g._inbox.Count != 2 || g._inbox[0].Raw != 2 || g._inbox[0].Closes || g._inbox[0].Page != 1
+                 || g._inbox[1].Raw != 3 || g._inbox[1].Kind != KindCho || g._inbox[1].C != 2 || !g._inbox[1].Closes)
+                 return "ring: a re-sent frame did not apply each event exactly once (" + g._inbox.Count + " queued)";
+-            if (g.KeyIgnored != 1 || g.LastSeen != 4 || g.Gaps != 0)
+-                return "ring: KEY was not ignored or the baseline did not advance past it";
++            if (g._keys.Count != 1 || g._keys[0].Seq != 4 || g._keys[0].Uid != 12 || g._keys[0].Bits != EventInput.Confirm
++                || g._keys[0].Cursor != NoCursor || g._keys[0].Released || g.KeyIgnored != 0 || g.LastSeen != 4 || g.Gaps != 0)
++                return "ring: KEY was not queued exactly once (pending its guard) or the baseline did not advance past it";
+             Byte[] cutFrame = new Byte[f1.Length - 3];
+             Array.Copy(f1, cutFrame, cutFrame.Length);
+             if (g.Observe(cutFrame, T0) != ObsRefused || g.ViewValid)
+@@ -1998,13 +2675,20 @@ namespace Memoria.Netsync
+             g2.Merge(T0, false);
+             if (g2.Gaps != 1 || g2._inbox.Count != 4 + RingCap)
+                 return "ring: the frame after a gap was not contiguous";
++            w3.Append(KindKey, 1, 350, 12, 0x0040, NoCursor, 0);                   // [ff9mapkit netsync F3.3] R5: a KEY the old host relayed
++            g2.Observe(w3.BuildSection(5, 0, 1, 350, null, 0), T0);
++            g2.Merge(T0, false);
++            if (g2._keys.Count != 1)
++                return "ring: a contiguous KEY did not join the key list";
+ 
+             // 6. an epoch change (a host relaunch): the inbox clears and nothing before the new head replays
++            //    ([ff9mapkit netsync F3.3] R5: the key store clears with it)
+             w3.Reset(601);
+             w3.Append(KindAdv, 1, 350, 3, 40, 1, 0);                               // the relaunched host emitted before we looked
+             w3.Append(KindAdv, 1, 350, 3, 40, 1, 0);
+-            if (g2.Observe(w3.BuildSection(1, 0, 1, 350, null, 0), T0) != ObsEpochChanged || g2._inbox.Count != 0 || g2.LastSeen != 2)
+-                return "ring: the epoch change did not reset the inbox to the new head";
++            if (g2.Observe(w3.BuildSection(1, 0, 1, 350, null, 0), T0) != ObsEpochChanged || g2._inbox.Count != 0 || g2.LastSeen != 2
++                || g2._keys.Count != 0)
++                return "ring: the epoch change did not reset the inbox (and the key store) to the new head";
+             g2.Merge(T0, false);
+             if (g2._inbox.Count != 0)
+                 return "ring: the epoch change replayed history";
+@@ -2078,5 +2762,327 @@ namespace Memoria.Netsync
+                 return "ring: a moving heartbeat did not re-arm";
+             return null;
+         }
++
++        // [ff9mapkit netsync F3.3] R5: the guest key store, pure -- the compact codec, the ORDERING GUARD (held only by an
++        // EARLIER event for a line open here, driven and not input-inhibited; gives up after KeyGuardMs across the tick
++        // wrap; a pause re-arms it), the per-reader per-key-tick SERVE (wrong mask / reader / field get nothing; every
++        // read in the tick sees the one press; the next press waits for the next tick), the hold, and the PURGES
++        // (field, KeyTtlMs, KeyIdleMs once both sides are idle -- not while the host holds input). Its Win entries carry
++        // no Dialog (the guard reads Win.Inh, sampled at Track) and a quiet guest never touches the engine (no cursor).
++        // [ff9mapkit netsync F3.3] C3KEYS fixes, same rules: the idle purge waits out a relayed start and a pause (5), a
++        // pause holds the TTL (6), the CURSOR WAIT -- ApplyKeyCursor's verdict and GetChoose stubbed on the quiet guest
++        // (_stubCursor/_stubChoose) -- with its bound, its pause re-arm and its no-window shortcut (7), the BINDING ORDER
++        // (8), and the one-idle host half / hand-back plus the re-risen field's own polls (9). Not scripted (it needs a
++        // live Dialog): Track unbinding a departed window's KEY cursor -- the harness's job.
++        private static String KeyScript()
++        {
++            // 1. compact <-> expand: every host-owned button round-trips, one bit each; anything else never travels
++            UInt32 owned = NetSyncField.HostOwnedKeys;
++            if (NetSyncField.ExpandKeys(NetSyncField.CompactKeys(owned)) != owned || NetSyncField.CompactKeys(EventInput.Confirm) != 0x40
++                || NetSyncField.CompactKeys(EventInput.Up | EventInput.Down | EventInput.Left | EventInput.Right | EventInput.L1
++                                            | EventInput.R1 | EventInput.Start) != 0
++                || NetSyncField.ExpandKeys(0xFC00) != 0)
++                return "key: the compact bits do not round-trip (or carry a non-host-owned button)";
++            for (Int32 b = 0; b < 10; b++)
++            {
++                UInt32 one = NetSyncField.ExpandKeys(1 << b);
++                if (one == 0 || (one & (one - 1)) != 0 || (one & owned) != one || NetSyncField.CompactKeys(one) != (1 << b))
++                    return "key: compact bit " + b + " does not map to exactly one host-owned button";
++            }
++
++            // 2. the ordering guard: (class, inh, open here, event seq, key seq) -> held?
++            if (!KeyGuardHolds(ClsLocked, false, true, 10, 11))
++                return "key: released ahead of an earlier host event for an open, driven line";
++            if (!KeyGuardHolds(ClsOrphaned, false, true, 10, 11))
++                return "key: released ahead of an earlier host event for an orphaned (still driven) line";
++            if (!KeyGuardHolds(ClsLocked, false, true, 65535, 1))
++                return "key: the guard is not wrap-aware (65535 is before 1)";
++            if (KeyGuardHolds(ClsLocked, true, true, 10, 11))
++                return "key: held behind an input-inhibited line's event (LAW :1369 -- that event never applies)";
++            if (KeyGuardHolds(ClsLocal, false, true, 10, 11))
++                return "key: held behind a Local line's event (nothing drives it)";
++            if (KeyGuardHolds(ClsLocked, false, false, 10, 11))
++                return "key: held behind an event for a line not open here";
++            if (KeyGuardHolds(ClsLocked, false, true, 12, 11))
++                return "key: held behind a LATER host event";
++
++            // 3. the guard gives up after KeyGuardMs (across the Int32 tick wrap); a pause re-arms it
++            Int32 t0 = Int32.MaxValue - 1000;
++            NetSyncDialog g = GuardBench();
++            GuestView v = new GuestView();
++            v.Now = t0;
++            g.ReleaseKeys(null, false, ref v);
++            v.Now = unchecked(t0 + 1500);
++            g.ReleaseKeys(null, true, ref v);                                     // paused: the clock restarts here
++            v.Now = unchecked(t0 + KeyGuardMs);
++            g.ReleaseKeys(null, false, ref v);
++            if (g._keys[0].Released)
++                return "key: the guard counted paused time";
++            v.Now = unchecked(t0 + 1500 + KeyGuardMs - 1);
++            g.ReleaseKeys(null, false, ref v);
++            if (g._keys[0].Released || g.KeyGaveUp != 0)
++                return "key: the guard gave up before KeyGuardMs";
++            v.Now = unchecked(t0 + 1500 + KeyGuardMs);
++            g.ReleaseKeys(null, false, ref v);
++            if (!g._keys[0].Released || g.KeyGaveUp != 1)
++                return "key: the guard did not give up after KeyGuardMs (across the tick wrap)";
++
++            // 4. the serve: per reader, per key tick, first overlap; held entries are never served
++            NetSyncDialog s = new NetSyncDialog();
++            s._quiet = true;
++            RingEvt r = Evt(20, KindKey, 1, 350, 12, 0x40, NoCursor, 0);
++            s.IngestRing(ref r, t0);
++            if (s.TakeKey(12, EventInput.Confirm, 350, 100, t0) != 0)
++                return "key: a KEY was served before its guard released it";
++            r = Evt(21, KindKey, 1, 350, 12, 0x40, NoCursor, 0);
++            s.IngestRing(ref r, t0);
++            r = Evt(22, KindKey, 1, 350, 14, 0x20, 2, 0);
++            s.IngestRing(ref r, t0);
++            v.Now = t0;
++            s.ReleaseKeys(null, false, ref v);
++            if (!s._keys[0].Released || !s._keys[1].Released || !s._keys[2].Released)
++                return "key: unguarded KEYs were not released";
++            if (!s.KeyHold(350) || s.KeyHold(351))
++                return "key: the hold does not follow the KEYs waiting for my field";
++            if (s.TakeKey(12, EventInput.Cancel, 350, 100, t0) != 0)
++                return "key: served to a poll its bits do not overlap";
++            if (s.TakeKey(13, EventInput.Confirm, 350, 100, t0) != 0)
++                return "key: served to another reader";
++            if (s.TakeKey(12, EventInput.Confirm, 351, 100, t0) != 0)
++                return "key: served on another field";
++            if (s.TakeKey(12, EventInput.Confirm, 350, 100, t0) != EventInput.Confirm)
++                return "key: the reader's overlapping poll was not served";
++            if (s.TakeKey(12, EventInput.Cancel, 350, 100, t0) != EventInput.Confirm || s.KeyServed != 1)
++                return "key: a second read in the same key tick did not see the SAME press (or took a second one)";
++            if (s.TakeKey(12, EventInput.Confirm, 350, 101, t0) != EventInput.Confirm || s.KeyServed != 2 || s._keys.Count != 2)
++                return "key: the next key tick did not drop the spent press and serve the next one";
++            if (s.TakeKey(12, EventInput.Confirm, 350, 102, t0) != 0 || s._keys.Count != 1)
++                return "key: a reader was served more presses than the host made";
++            if (s.TakeKey(14, EventInput.Confirm | EventInput.Cancel, 350, 102, t0) != EventInput.Cancel)
++                return "key: the second reader's press was not served";
++
++            // 5. the purges: another field, KeyTtlMs, and KeyIdleMs once both sides are idle (never while the host holds input)
++            NetSyncDialog p = new NetSyncDialog();
++            p._quiet = true;
++            r = Evt(30, KindKey, 1, 350, 12, 0x40, NoCursor, 0);
++            p.IngestRing(ref r, t0);
++            r = Evt(31, KindKey, 1, 351, 12, 0x40, NoCursor, 0);
++            p.IngestRing(ref r, t0);
++            GuestView pv = new GuestView();
++            pv.MyField = 350;
++            pv.WarpField = -1;
++            pv.HostField = -1;
++            pv.HostSceneUp = true;
++            pv.Now = t0;
++            p.PurgeKeys(ref pv, false);
++            if (p._keys.Count != 1 || p._keys[0].Fld != 350)
++                return "key: a KEY for another field was not dropped";
++            pv.Now = unchecked(t0 + KeyTtlMs - 1);
++            p.PurgeKeys(ref pv, false);
++            if (p._keys.Count != 1)
++                return "key: expired before KeyTtlMs";
++            pv.Now = unchecked(t0 + KeyTtlMs);
++            p.PurgeKeys(ref pv, false);
++            if (p._keys.Count != 0 || p.KeyExpired != 2)
++                return "key: not expired after KeyTtlMs (across the tick wrap)";
++            Int32 t1 = unchecked(t0 + 30000);
++            r = Evt(32, KindKey, 1, 350, 12, 0x40, NoCursor, 0);
++            p.IngestRing(ref r, t1);
++            pv.HostSceneUp = false;
++            pv.HostHoldsInput = true;                                             // a windowless host beat: not idle
++            pv.GuestControl = true;
++            pv.Now = t1;
++            p.PurgeKeys(ref pv, false);
++            pv.Now = unchecked(t1 + KeyIdleMs + 100);
++            p.PurgeKeys(ref pv, false);
++            if (p._keys.Count != 1)
++                return "key: expired as idle while the host holds input on my field";
++            pv.HostHoldsInput = false;
++            pv.TalkLiveHere = true;                                               // C3KEYS-5: a relayed start for my field on its way
++            p.PurgeKeys(ref pv, false);
++            pv.Now = unchecked(pv.Now + KeyIdleMs + 100);
++            p.PurgeKeys(ref pv, false);
++            if (p._keys.Count != 1)
++                return "key: expired as idle while a relayed start for my field is still on the lane (TALK-7)";
++            pv.TalkLiveHere = false;
++            p.PurgeKeys(ref pv, true);                                            // C3KEYS-3: paused -- never idle
++            pv.Now = unchecked(pv.Now + KeyIdleMs + 100);
++            p.PurgeKeys(ref pv, true);
++            if (p._keys.Count != 1)
++                return "key: expired as idle while paused";
++            Int32 t2 = pv.Now;
++            p.PurgeKeys(ref pv, false);                                           // both idle from t2
++            pv.Now = unchecked(t2 + KeyIdleMs - 1);
++            p.PurgeKeys(ref pv, false);
++            if (p._keys.Count != 1)
++                return "key: expired before both sides were idle for KeyIdleMs";
++            pv.Now = unchecked(t2 + KeyIdleMs);
++            p.PurgeKeys(ref pv, false);
++            if (p._keys.Count != 0 || p.KeyHold(350))
++                return "key: not expired after both sides were idle for KeyIdleMs (or the hold outlived it)";
++
++            // 6. [ff9mapkit netsync F3.3] C3KEYS-3: a pause holds the TTL (pushed forward by the paused time, across the wrap)
++            NetSyncDialog f = new NetSyncDialog();
++            f._quiet = true;
++            r = Evt(60, KindKey, 1, 350, 12, 0x40, NoCursor, 0);
++            f.IngestRing(ref r, t0);
++            GuestView fv = new GuestView();
++            fv.MyField = 350;
++            fv.WarpField = -1;
++            fv.HostField = -1;
++            fv.HostSceneUp = true;
++            f.HoldKeyClocks(false, true, t0);
++            f.HoldKeyClocks(true, true, unchecked(t0 + KeyTtlMs));                 // paused for a whole KeyTtlMs
++            fv.Now = unchecked(t0 + KeyTtlMs);
++            f.PurgeKeys(ref fv, true);
++            if (f._keys.Count != 1)
++                return "key: a pause ran the KEY TTL out";
++            f.HoldKeyClocks(false, true, unchecked(t0 + KeyTtlMs + 10));          // unpaused: the clock runs again
++            fv.Now = unchecked(t0 + 2 * KeyTtlMs - 1);
++            f.PurgeKeys(ref fv, false);
++            if (f._keys.Count != 1)
++                return "key: the TTL was not pushed forward by the paused time";
++            fv.Now = unchecked(t0 + 2 * KeyTtlMs);
++            f.PurgeKeys(ref fv, false);
++            if (f._keys.Count != 0)
++                return "key: the TTL did not run again after the pause";
++
++            // 7. C3KEYS-SEM-1 THE CURSOR WAIT: a press carrying the host's cursor is never served before GetChoose reads it
++            NetSyncDialog c = CursorBench(3);                                     // uid 12, Confirm, cursor 3 -- released
++            c._stubCursor = CurWait;                                              // its window still opening here
++            if (c.TakeKey(12, EventInput.Confirm, 350, 200, t0) != 0 || c._keys.Count != 1 || c._keys[0].Active)
++                return "key: a press with a cursor was served while its choice window was still opening";
++            if (c.TakeKey(12, EventInput.Confirm, 350, 201, unchecked(t0 + 3 * KeyGuardMs)) != 0)
++                return "key: the cursor wait gave up while its window was still opening (it must wait for it)";
++            Int32 tw = unchecked(t0 + 3 * KeyGuardMs);                            // the last opening read re-armed the clock here
++            c._stubCursor = CurNotReady;
++            if (c.TakeKey(12, EventInput.Confirm, 350, 202, unchecked(tw + KeyGuardMs - 1)) != 0 || c.KeyGaveUp != 0)
++                return "key: the cursor wait gave up before KeyGuardMs";
++            c.HoldKeyClocks(true, true, unchecked(tw + 1500));                    // paused: the wait restarts here
++            if (c.TakeKey(12, EventInput.Confirm, 350, 203, unchecked(tw + KeyGuardMs)) != 0)
++                return "key: the cursor wait counted paused time";
++            if (c.TakeKey(12, EventInput.Confirm, 350, 204, unchecked(tw + 1500 + KeyGuardMs)) != EventInput.Confirm || c.KeyGaveUp != 1 || c.KeyServed != 1)
++                return "key: the cursor wait did not give up after KeyGuardMs (served without its cursor)";
++            if (!CursorServes(3, -1) || !CursorServes(CurOutOfRange, -1) || !CursorServes(CurOwn, -1))
++                return "key: a press whose cursor is on its window (or out of range there, or the window is the guest's own) was not served at once";
++            if (CursorServes(CurWait, 3) || CursorServes(CurNotReady, 3))
++                return "key: a press was served while its window still initializes its choice (GetChoose would still move)";
++            if (!CursorServesNoWindow(3) || CursorServesNoWindow(0))
++                return "key: with no choice window for it, a press was not served exactly when GetChoose already reads its cursor";
++
++            // 8. C3KEYS-1 / SEM-3 THE BINDING ORDER: one reader's later cursor press binds only after its earlier is served
++            NetSyncDialog o = new NetSyncDialog();
++            o._quiet = true;
++            r = Evt(50, KindKey, 1, 350, 12, 0x40, 0, 0);                         // uid 12 Confirm, cursor 0 (the menu)
++            o.IngestRing(ref r, t0);
++            r = Evt(51, KindKey, 1, 350, 12, 0x20, 1, 0);                         // uid 12 Cancel, cursor 1 (the next polled choice)
++            o.IngestRing(ref r, t0);
++            r = Evt(52, KindKey, 1, 350, 14, 0x40, 2, 0);                         // another reader's cursor press
++            o.IngestRing(ref r, t0);
++            GuestView ov = new GuestView();
++            ov.Now = t0;
++            o.ReleaseKeys(null, false, ref ov);
++            if (!o.CursorTurn(o._keys[0]) || o.CursorTurn(o._keys[1]) || !o.CursorTurn(o._keys[2]))
++                return "key: a reader's later cursor press may bind before its earlier one is served (or another reader waits behind it)";
++            o._stubCursor = 0;                                                    // every turn-holder lands its cursor
++            if (o.TakeKey(12, EventInput.Cancel, 350, 300, t0) != 0)
++                return "key: a reader's later cursor press was served while its earlier one is unserved";
++            if (o.TakeKey(12, EventInput.Confirm, 350, 300, t0) != EventInput.Confirm)
++                return "key: the reader's first cursor press was not served";
++            if (o.CursorTurn(o._keys[1]))
++                return "key: the later cursor press bound in the key tick its earlier one was served";
++            if (o.TakeKey(12, EventInput.Cancel, 350, 301, t0) != EventInput.Cancel || o._keys.Count != 2)
++                return "key: the later cursor press was not served once its turn came (the next key tick)";
++
++            // 9. C3KEYS-4: the key lock's host half, and the polled-line hand-back, read ONE idle; a re-risen session's
++            //    Local lines own their polls until the host presses on that field
++            if (!KeyHostHalf(false, false, false) || !KeyHostHalf(true, true, false) || KeyHostHalf(true, false, false)
++                || KeyHostHalf(false, true, true))
++                return "key: the host half is not (busy || holds input) && !own polls";
++            if (OrphanSettled(true, true, true) || !OrphanSettled(true, true, false) || !OrphanSettled(true, false, true)
++                || OrphanSettled(false, true, false))
++                return "key: a polled line is handed back while the host holds input on my field (the key lock still masks it)";
++            NetSyncDialog q = new NetSyncDialog();
++            q._quiet = true;
++            q._ownPollsField = 350;
++            r = Evt(70, KindKey, 1, 351, 12, 0x40, NoCursor, 0);
++            q.IngestRing(ref r, t0);
++            if (q._ownPollsField != 350)
++                return "key: a host press for ANOTHER field handed this field's polls back to the host";
++            r = Evt(71, KindKey, 1, 350, 12, 0x40, NoCursor, 0);
++            q.IngestRing(ref r, t0);
++            if (q._ownPollsField != -1)
++                return "key: a host press for the field did not hand its polls back to the host";
++            return null;
++        }
++
++        // [ff9mapkit netsync F3.3] C3KEYS-SEM-1 bench: one released KEY (field 350, uid 12, Confirm, `cursor`) on a quiet guest.
++        private static NetSyncDialog CursorBench(Int32 cursor)
++        {
++            NetSyncDialog c = new NetSyncDialog();
++            c._quiet = true;
++            RingEvt r = Evt(40, KindKey, 1, 350, 12, 0x40, (Byte)cursor, 0);
++            c.IngestRing(ref r, 0);
++            GuestView v = new GuestView();
++            c.ReleaseKeys(null, false, ref v);
++            return c;
++        }
++
++        // Is a cursor-3 press served on its FIRST read when the cursor verdict is `stub` and GetChoose reads `choose`?
++        private static Boolean CursorServes(Int32 stub, Int32 choose)
++        {
++            NetSyncDialog c = CursorBench(3);
++            c._stubCursor = stub;
++            c._stubChoose = choose;
++            return c.TakeKey(12, EventInput.Confirm, 350, 1, 0) == EventInput.Confirm;
++        }
++
++        // ...with no choice window for it here (CurNoWindow), GetChoose reading `choose`.
++        private static Boolean CursorServesNoWindow(Int32 choose)
++        {
++            return CursorServes(CurNoWindow, choose);
++        }
++
++        // One locked line (field 350, win 3, text 40) open here and an ADV for it at `eventSeq`, then a KEY at `keySeq`
++        // (uid 12, Confirm): after one guard pass, is the KEY still held?
++        private static Boolean KeyGuardHolds(Byte cls, Boolean inh, Boolean open, UInt16 eventSeq, UInt16 keySeq)
++        {
++            NetSyncDialog g = new NetSyncDialog();
++            g._quiet = true;
++            if (open)
++            {
++                Win w = new Win();
++                w.Field = 350;
++                w.Id = 3;
++                w.TextId = 40;
++                w.Cls = cls;
++                w.Inh = inh;
++                g._wins.Add(w);
++            }
++            RingEvt r = Evt(eventSeq, KindAdv, 1, 350, 3, 40, 1, 0);
++            g.IngestRing(ref r, 0);
++            r = Evt(keySeq, KindKey, 1, 350, 12, 0x40, NoCursor, 0);
++            g.IngestRing(ref r, 0);
++            GuestView v = new GuestView();
++            g.ReleaseKeys(null, false, ref v);
++            return g._keys.Count == 1 && !g._keys[0].Released;
++        }
++
++        private static NetSyncDialog GuardBench()
++        {
++            NetSyncDialog g = new NetSyncDialog();
++            g._quiet = true;
++            Win w = new Win();
++            w.Field = 350;
++            w.Id = 3;
++            w.TextId = 40;
++            w.Cls = ClsLocked;
++            g._wins.Add(w);
++            RingEvt r = Evt(10, KindAdv, 1, 350, 3, 40, 1, 0);
++            g.IngestRing(ref r, 0);
++            r = Evt(11, KindKey, 1, 350, 12, 0x40, NoCursor, 0);
++            g.IngestRing(ref r, 0);
++            return g;
++        }
+     }
+ }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+index 89cbb0a..6195288 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+@@ -77,24 +77,124 @@ namespace Memoria.Netsync
+         // a release completes gestures, it cannot initiate one.
+         // [ff9mapkit netsync F3.2] MISC-08: Select joins the free-walk mask -- Select (1u) is the ATE accept
+         // bit (content/ate.py), so a following guest could open its OWN ATE menu mid-session.
+-        public static UInt32 FilterScriptButtons(UInt32 keys)
++        // [ff9mapkit netsync F3.3] R5 THE SCRIPT-KEY RELAY (F3.2-DESIGN.md "sync_changes" C3 R5; DLG-6/MISC-03): the
++        // control-OFF pass above is retired for a LOCKED guest. EBin now hands the poll's own MASK and its READER (gExec,
++        // the executing object -- a STARTSEQ's own Seq object, never gCur) along with the keys, and:
++        //   * host / vanilla (not a spectator): keys UNCHANGED, plus the host tap (NetSyncClient.TapScriptKeyIfHost --
++        //     a static gate false on vanilla) that relays a control-off poll's hit as a KEY ring event;
++        //   * guest, control ON: the free-walk mask, exactly as before (a KEY is never served to a control-on read);
++        //   * guest, control OFF, script-key lock on (NetSyncClient.ScriptKeyLockActive): the host-owned DECISION bits
++        //     (HostOwnedKeys -- directions stay the guest's own) are masked, and the host's relayed press for THIS
++        //     reader is OR'd in instead (NetSyncClient.TakeRelayedScriptKey) -- the host's real press IS the frame, so
++        //     an [NFOC]/[TIME] page, a polled choice or a "press Confirm" beat follows the host and no confirm is ever
++        //     fabricated for an input-inhibited window (memory LAW :1369);
++        //   * guest, control OFF, lock off (settled host, no relayed key pending, or the bench's tap-record lane): the
++        //     keys pass (the stock cutscene-wait rule) -- and the tap-record bench taps here, playing the host.
++        // B_KEYOFF (release) stays unmasked: a release completes a gesture, it cannot initiate one.
++        public static UInt32 FilterScriptButtons(UInt32 keys, UInt32 readMask, Obj reader, Boolean held)
+         {
+             try
+             {
+                 if (!SpectatorField)
++                {
++                    NetSyncClient.TapScriptKeyIfHost(keys, readMask, reader, held);   // [ff9mapkit netsync F3.3] R5: keys unchanged
+                     return keys;
++                }
+                 EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+-                if (ee == null || !ee.GetUserControl())
++                if (ee == null)
+                     return keys;
+-                if ((keys & (EventInput.Confirm | EventInput.Special)) != 0)
+-                    DeclineOnce("script button-poll (pickup/loot)");
+-                if ((keys & EventInput.Select) != 0)
+-                    DeclineOnce("script button-poll (ATE menu)");
+-                return keys & ~(EventInput.Confirm | EventInput.Special | EventInput.Select);
++                if (ee.GetUserControl())
++                {
++                    if ((keys & (EventInput.Confirm | EventInput.Special)) != 0)
++                        DeclineOnce("script button-poll (pickup/loot)");
++                    if ((keys & EventInput.Select) != 0)
++                        DeclineOnce("script button-poll (ATE menu)");
++                    return keys & ~(EventInput.Confirm | EventInput.Special | EventInput.Select);
++                }
++                if (NetSyncClient.ScriptKeyLockActive)
++                {
++                    // [ff9mapkit netsync F3.3] R5: the host drives this poll. One line per reader per field when the
++                    // guest's OWN press would have satisfied it (the log names the polling uid -- R-B2); the reader is
++                    // published every masked read (telemetry `key_reader`), allocation-free.
++                    // C3KEYS-VP-1: the per-reader latch is tested BEFORE any string is built (LogMaskedPollOnce) -- a
++                    // held Confirm satisfies a B_KEY wait on every key tick, so formatting first allocated per tick here.
++                    Int32 uid = reader != null ? reader.uid : -1;
++                    LastMaskedReader = uid;
++                    if ((keys & readMask & HostOwnedKeys) != 0)
++                        LogMaskedPollOnce(uid);
++                    return (keys & ~HostOwnedKeys) | NetSyncClient.TakeRelayedScriptKey(reader, readMask);
++                }
++                NetSyncClient.TapScriptKeyIfHost(keys, readMask, reader, held);   // [ff9mapkit netsync F3.3] the tap-record bench only
++                return keys;
+             }
+             catch { return keys; }
+         }
+ 
++        // [ff9mapkit netsync F3.3] R5 -- the key relay's shared pieces.
++        // KEY TICK: bumped by EventEngine.ServiceEvents right after ETb.ProcessKeyEvents (one per script key tick --
++        // the tick whose KeyOn edges every B_KEYON in it reads). A counter only the co-op relay reads: inert on vanilla.
++        // A relayed press is served to every read by its reader within ONE key tick (TakeRelayedScriptKey).
++        public static Int32 KeyTick;
++        // The last reader uid whose host-owned bits a locked guest masked (-1 = none yet) -- telemetry `key_reader`.
++        public static Int32 LastMaskedReader = -1;
++
++        // [ff9mapkit netsync F3.3] C3KEYS-VP-1: the masked-poll line, latched per (field, reader uid) with no allocation
++        // on the latched path -- Obj.uid is a Byte, so four 64-bit words cover every reader; a new field clears them (the
++        // DeclineOnce contract: one line per gate per FIELD). The line itself keeps DeclineOnce's wording (R-B2 greps it).
++        private static readonly UInt64[] _maskedPollLogged = new UInt64[4];
++        private static Int32 _maskedPollField = -1;
++
++        private static void LogMaskedPollOnce(Int32 uid)
++        {
++            try
++            {
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                if (fld != _maskedPollField)
++                {
++                    _maskedPollField = fld;
++                    _maskedPollLogged[0] = _maskedPollLogged[1] = _maskedPollLogged[2] = _maskedPollLogged[3] = 0;
++                }
++                Int32 u = uid & 0xFF;          // a null reader (-1) shares slot 255: still one line per field
++                UInt64 bit = 1UL << (u & 63);
++                if ((_maskedPollLogged[u >> 6] & bit) != 0)
++                    return;
++                _maskedPollLogged[u >> 6] |= bit;
++                Log.Message("[NetSync] script button-poll by uid " + uid + " (the host drives this scene) suppressed (following guest) on field " + fld);
++            }
++            catch { }
++        }
++
++        // THE HOST-OWNED KEYS (EventInput.cs physical + logical decision buttons): a locked guest's control-off script
++        // polls take these from the host only. Directions, the shoulders/triggers and Start stay the guest's own.
++        public const UInt32 HostOwnedKeys = EventInput.Select | EventInput.Triangle | EventInput.Circle | EventInput.Cross
++            | EventInput.Square | EventInput.Cancel | EventInput.Confirm | EventInput.MenuControl | EventInput.Special | EventInput.Menu;
++
++        // The KEY event's compact bits (wire_details: b0 Select b1 Triangle b2 Circle b3 Cross b4 Square b5 Cancel
++        // b6 Confirm b7 MenuControl b8 Special b9 Menu), in that order. Anything outside HostOwnedKeys is dropped.
++        private static readonly UInt32[] CompactOrder =
++        {
++            EventInput.Select, EventInput.Triangle, EventInput.Circle, EventInput.Cross, EventInput.Square,
++            EventInput.Cancel, EventInput.Confirm, EventInput.MenuControl, EventInput.Special, EventInput.Menu
++        };
++
++        public static UInt16 CompactKeys(UInt32 keys)
++        {
++            Int32 c = 0;
++            for (Int32 k = 0; k < CompactOrder.Length; k++)
++                if ((keys & CompactOrder[k]) != 0)
++                    c |= 1 << k;
++            return (UInt16)c;
++        }
++
++        public static UInt32 ExpandKeys(Int32 compact)
++        {
++            UInt32 keys = 0;
++            for (Int32 k = 0; k < CompactOrder.Length; k++)
++                if ((compact & (1 << k)) != 0)
++                    keys |= CompactOrder[k];
++            return keys;
++        }
++
+         // TELEPORT-TO-HOST hotkey: F11 tap OR held L3 (~0.7s). Evaluated every UIKeyTrigger.Update
+         // pass -- the L3 hold accumulator only advances while this is called each frame, so the
+         // call itself must be unconditional at the intercept (the FieldHUD/session checks live
+diff --git a/Assembly-CSharp/Global/EBin.cs b/Assembly-CSharp/Global/EBin.cs
+index 3aa94ae..deedb32 100644
+--- a/Assembly-CSharp/Global/EBin.cs
++++ b/Assembly-CSharp/Global/EBin.cs
+@@ -1096,7 +1096,13 @@ public class EBin
+                 VoicePlayer.scriptRequestedButtonPress = true;
+                 // [ff9mapkit netsync F1] a spectator guest's free-walk Confirm/Special never reaches
+                 // a script poll (stock loot/chest bodies); control-off reads pass (cutscene waits).
+-                _v0 = (Mathf.Abs(EvaluateValueExpression() & Memoria.Netsync.NetSyncField.FilterScriptButtons(ETb.KeyOn(Localization.CurrentSymbol == "JP"))) <= 0) ? 0 : 1;
++                // [ff9mapkit netsync F3.3] R5 the script-key relay: HOISTED so the filter also sees the poll's MASK and
++                // its READER (gExec = the executing object; gCur is not, for a STARTSEQ). Same left-first order (the mask
++                // expression is read before the keys, as C# evaluated the old one-liner) and the same Int32 & UInt32 ->
++                // Mathf.Abs type chain, so a vanilla read behaves byte-identically (the filter returns the keys unchanged).
++                Int32 keyMask = EvaluateValueExpression();
++                UInt32 keys = Memoria.Netsync.NetSyncField.FilterScriptButtons(ETb.KeyOn(Localization.CurrentSymbol == "JP"), unchecked((UInt32)keyMask), _eventEngine.gExec, false);
++                _v0 = (Mathf.Abs(keyMask & keys) <= 0) ? 0 : 1;
+                 expr_Push_v0_Int24();
+                 break;
+             }
+@@ -1124,7 +1130,10 @@ public class EBin
+             {
+                 // [ff9mapkit netsync F1] same spectator mask as B_KEYON -- the held-state variant
+                 // (loot idioms use either; the mask covers both, B_KEYOFF stays vanilla).
+-                _v0 = (Mathf.Abs(EvaluateValueExpression() & Memoria.Netsync.NetSyncField.FilterScriptButtons(ETb.GetInputs(Localization.CurrentSymbol == "JP"))) <= 0) ? 0 : 1;
++                // [ff9mapkit netsync F3.3] R5: the same hoist (held = true: the host relays only a held read's PRESS tick).
++                Int32 keyMask = EvaluateValueExpression();
++                UInt32 keys = Memoria.Netsync.NetSyncField.FilterScriptButtons(ETb.GetInputs(Localization.CurrentSymbol == "JP"), unchecked((UInt32)keyMask), _eventEngine.gExec, true);
++                _v0 = (Mathf.Abs(keyMask & keys) <= 0) ? 0 : 1;
+                 expr_Push_v0_Int24();
+                 break;
+             }
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+index 6900a8a..682a5a3 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+@@ -117,6 +117,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+         if (!this._noEvents)
+         {
+             ETb.ProcessKeyEvents();
++            Memoria.Netsync.NetSyncField.KeyTick++;   // [ff9mapkit netsync F3.3] R5: the script key tick (an inert counter -- only the co-op key relay reads it)
+             this.CheckSleep();
+             returnCode = this.ProcessEvents();
+             EIcon.ProcessFIcon();
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 9011632..b709987 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -246,6 +246,35 @@ namespace Memoria.Netsync
+         public static Boolean DebugHostFrozen;           // F3.3 bench: the bench host's heartbeat stops (a hung host -- R6)
+         public static Boolean DebugHostMenu;             // F3.3 bench: section 7 b4 (the host is in a menu -- R7)
+         public static Boolean DebugHostBattle;           // F3.3 bench: section 7 b5, b3 off (the host is in a battle -- R7)
++        // [ff9mapkit netsync F3.3] R5 HOST KEY TAP: one KEY per (key tick, reader) -- the reader uids already tapped on
++        // _keyTapTick, as a 256-bit set (Obj.uid is a Byte). Main thread (EBin).
++        private Boolean _keyTapArmed;                    // guards _keyTapTick (it holds a real key tick)
++        private Int32 _keyTapTick;
++        private readonly UInt64[] _keyTapUids = new UInt64[4];
++        private Int32 _keyTaps;                          // KEY taps this process made (host ring or the bench tape) -- telemetry
++        // [ff9mapkit netsync F3.3] R9 TAP-RECORD / REPLAY (harness `netsync tap-record 1|0`, `netsync replay [paced]`): the
++        // ONLY solo exercise of the REAL host taps (EmitDialogAdvanceIfHost / EmitDialogCloseIfHost / TapScriptKeyIfHost).
++        // Under selftest role + field-gate bench + DebugTapRecord with the bench lock OFF (this copy plays the host, real
++        // presses), the taps bypass their role gate on that path only and record into the TAPE; `replay` (bench lock ON)
++        // feeds the tape into the bench host's ring -- at the recorded pace, or all at once -- so the guest half drives
++        // the same talk from the host's own events. The VA close records off the main thread: the tape has its own lock.
++        public static Boolean DebugTapRecord;
++        private const Int32 TapeCap = 256;
++        private struct TapRec
++        {
++            public Byte Kind;
++            public Int32 Fld, A, B;
++            public Byte C, X;
++            public Int32 Tick;                           // record tick (a real tick; read by delta only)
++        }
++        private readonly System.Object _tapeLock = new System.Object();
++        private readonly System.Collections.Generic.List<TapRec> _tape = new System.Collections.Generic.List<TapRec>(32);
++        private Boolean _tapeFullLogged;
++        private readonly System.Collections.Generic.List<TapRec> _replay = new System.Collections.Generic.List<TapRec>(32);
++        private Int32 _replayNext;                       // the next _replay entry to feed (== Count: idle)
++        private Boolean _replayPaced;
++        private Int32 _replayStart;                      // replay start tick (read only while a replay runs)
++        private Int32 _replayBase;                       // the first replayed record's own tick (the pace's origin)
+ 
+         // F3.1 TALK RELAY (wire v13, state-lane section 6). A press-fired tag-3 start -- an NPC talk, a
+         // chest, a save moogle, a shop, through EITHER EventCollision funnel -- was invisible to L1: the
+@@ -596,6 +625,8 @@ namespace Memoria.Netsync
+         // scene flag or co-location, so a flapping or lost flag can never unlock anything. FlagButtonInh is
+         // excluded (confirm is a no-op on it, and a persistent [NFOC] HUD strip must not swallow Pause). Cheap
+         // static gates first: on a vanilla install _instance is null, and a disabled client fails on _enabled.
++        // [ff9mapkit netsync F3.3] C3KEYS-2: ...except a polled CHOICE while the script-key lock holds -- its branch is the
++        // host's relayed press + cursor, so the guest's own Confirm/Cancel must not reach it (NetSyncDialog.AnyLockedLine).
+         public static Boolean SuppressLocalDialogInput
+         {
+             get
+@@ -628,9 +659,57 @@ namespace Memoria.Netsync
+         // FlagButtonInh (script-polled) ones. In C2 a polled window's confirm/cancel stay the guest's own (design D,
+         // the KEY relay is C3), so freezing only its cursor would let the guest's poll commit nothing but the
+         // default -- the cursor lock (NetSyncDialog.CursorLock) skips them for the same reason. Main thread.
++        // [ff9mapkit netsync F3.3] R5: ...UNLESS the script-key lock holds -- then the polled choice's confirm IS the host's
++        // relayed press (it carries the host's cursor), so the guest's arrows/hover/drag are held off it too, exactly as
++        // the cursor lock now holds it. The hold dropping hands both back together.
+         public static Boolean IsGuestLockedChoice(Dialog d)
+         {
+-            return IsGuestLockedDialog(d) && !d.FlagButtonInh;
++            if (!IsGuestLockedDialog(d))
++                return false;
++            if (!d.FlagButtonInh)
++                return true;
++            try
++            {
++                NetSyncClient i = _instance;
++                return !ReferenceEquals(i, null) && i._dlg.KeyHold(FF9StateSystem.Common.FF9.fldMapNo);
++            }
++            catch { return false; }
++        }
++
++        // [ff9mapkit netsync F3.3] R5 THE SCRIPT-KEY LOCK (NetSyncField.FilterScriptButtons, a guest's control-OFF script
++        // poll -- the caller already checked the control): the dialogue lock is engaged AND the host is busy (not settled
++        // for OrphanGraceMs, or standing here with its control off) or a relayed KEY for my field is still waiting. While
++        // it holds, the poll's host-owned bits come from the host only. Cheap static gates first: false on vanilla
++        // (_instance null) and on a disabled client. Main thread (the event engine).
++        public static Boolean ScriptKeyLockActive
++        {
++            get
++            {
++                try
++                {
++                    NetSyncClient i = _instance;
++                    return !ReferenceEquals(i, null) && _enabled && i._lockEngaged && i._dlg.KeyHold(FF9StateSystem.Common.FF9.fldMapNo);
++                }
++                catch { return false; }
++            }
++        }
++
++        // [ff9mapkit netsync F3.3] R5: the host's relayed press for THIS reader's control-off poll (EventInput bits; 0 =
++        // none), served once per reader per key tick -- NetSyncDialog.TakeKey. Main thread (the event engine); never throws.
++        public static UInt32 TakeRelayedScriptKey(Obj reader, UInt32 readMask)
++        {
++            try
++            {
++                NetSyncClient i = _instance;
++                if (ReferenceEquals(i, null) || reader == null)
++                    return 0;
++                return i._dlg.TakeKey(reader.uid, readMask, FF9StateSystem.Common.FF9.fldMapNo, NetSyncField.KeyTick, Environment.TickCount);
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] key relay serve failed");
++                return 0;
++            }
+         }
+ 
+         // HOT-RELOAD: re-read [Netsync] whenever Memoria.ini CHANGES (mtime-gated -- one file stat; the
+@@ -2102,15 +2181,26 @@ namespace Memoria.Netsync
+         // the VA thread) and marks the state frame dirty; the next host Update rebuilds + pushes it on the main thread.
+         // Type 7 is retired here (SendDialog stays compiled -- the lane is untouched). The CLOSES bit is Hide()'s own test
+         // (Dialog.cs:621), read BEFORE the caller's Hide -- the guest uses it to catch up a lost page turn (R4).
++        // [ff9mapkit netsync F3.3] R5: an input-inhibited ([NFOC]/[TIME]) window is REFUSED here, explicitly -- memory LAW
++        // :1369 at the call site, not only by the caller's placement (Dialog.OnKeyConfirm's VA-choice branch taps before
++        // its ignoreInputFlag test). Such a line advances by its SCRIPT's poll, and the host's real press for that poll
++        // travels as a KEY (TapScriptKeyIfHost) -- so the guest never receives a confirm-advance for one.
++        // R9: under the tap-record bench (TapRecording) the role gate is bypassed on THIS path only and the event goes
++        // to the tape instead of a ring.
+         private static void EmitDialogTap(Dialog d, Boolean voiceClose)
+         {
+             try
+             {
+                 NetSyncClient i = _instance;         // managed null test: this may be the VA thread
+-                if (!_enabled || _role != "host" || ReferenceEquals(i, null) || i._socket == null)
+-                    return;                          // gate FIRST -> zero side effects on a guest/vanilla install
++                if (!_enabled || ReferenceEquals(i, null))
++                    return;                          // gate FIRST -> zero side effects on a vanilla install
++                Boolean rec = TapRecording;          // [ff9mapkit netsync F3.3] R9: the bench plays the host
++                if (!rec && (_role != "host" || i._socket == null))
++                    return;                          // ...and on a guest
+                 if (!NetSyncDialog.IsLockable(d) || d.IsClosedByScript)
+                     return;                          // DLG-8 / S5: a scripted close self-syncs on both machines
++                if (d.FlagButtonInh)
++                    return;                          // [ff9mapkit netsync F3.3] LAW :1369: never a confirm-advance for an input-inhibited line
+                 if (!_tapFieldMode)
+                     return;                          // gMode 1 only (no battle/world-map text)
+                 Boolean hasChoices = !voiceClose && d.HasChoices;   // the VA dismiss never runs on a choice window
+@@ -2123,6 +2213,16 @@ namespace Memoria.Netsync
+                 Byte kind = hasChoices ? NetSyncDialog.KindCho : NetSyncDialog.KindAdv;
+                 Byte choiceIndex = (Byte)(hasChoices ? (d.SelectChoice & 0xFF) : 0xFF);  // committed at Dialog.cs:770
+                 Byte closeBit = closes ? NetSyncDialog.ClosesBit : (Byte)0;
++                if (rec)
++                {
++                    // [ff9mapkit netsync F3.3] R9: onto the tape (no ring, no frame) -- `netsync replay` feeds it to the bench host
++                    Int32 n = hasChoices
++                        ? i.RecordTap(kind, fld, winnum, textId, choiceIndex, closeBit)
++                        : i.RecordTap(kind, fld, winnum, textId, (Byte)((page & 0x7F) | closeBit), 0);
++                    Log.Message("[NetSync] dialog tap" + (voiceClose ? " (voice close)" : "") + " RECORDED: win " + winnum + " text " + textId
++                                + " kind " + kind + " idx " + choiceIndex + " page " + page + (closes ? " closes" : "") + " (tape #" + n + ")");
++                    return;
++                }
+                 UInt16 seq = hasChoices
+                     ? i._hostRing.Append(kind, scene, fld, winnum, textId, choiceIndex, closeBit)
+                     : i._hostRing.Append(kind, scene, fld, winnum, textId, (Byte)((page & 0x7F) | closeBit), 0);
+@@ -2136,6 +2236,155 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync F3.3] R5 THE HOST KEY TAP (NetSyncField.FilterScriptButtons, every B_KEYON/B_KEY read on a
++        // non-spectator -- so its FIRST test is the cheap static gate a vanilla install fails on). A host's script poll
++        // that HIT with its control OFF -- an [NFOC]/[TIME] page's `while(!IsButton(Confirm))`, the save moogle's IsButton
++        // + GetDialogChoice, a "press Confirm" beat, a polled choice -- appends a KEY ring event: the reading object's uid
++        // (gExec), the host-owned bits the poll hit (compact), and the host's ready-choice cursor (or NoCursor). Gates:
++        //   * host role with a socket (or the R9 tap-record bench), field mode (gMode 1), user control OFF -- a free-walk
++        //     loot/dig poll (control on) is never relayed (the guest's own free-walk mask owns that);
++        //   * a non-zero hit = keys & readMask & HostOwnedKeys;
++        //   * a HELD read (B_KEY) relays only its PRESS tick (the hit must be in this tick's KeyOn), so a held key does not
++        //     flood the ring;
++        //   * one KEY per (key tick, reader): every further read by that reader in the tick is the same press on the guest.
++        // Main thread (the event engine); appends + marks the frame dirty (the next host Update pushes it). Never throws.
++        internal static void TapScriptKeyIfHost(UInt32 keys, UInt32 readMask, Obj reader, Boolean held)
++        {
++            if (!_enabled)
++                return;                              // vanilla / disabled: one static read on the hot path
++            try
++            {
++                NetSyncClient i = _instance;
++                if (ReferenceEquals(i, null))
++                    return;
++                Boolean rec = TapRecording;
++                if (!rec && (_role != "host" || i._socket == null))
++                    return;
++                UInt32 hit = keys & readMask & NetSyncField.HostOwnedKeys;
++                if (hit == 0 || reader == null)
++                    return;
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee == null || ee.gMode != 1 || ee.GetUserControl())
++                    return;                          // control-off reads only
++                if (held && (ETb.KeyOn(Memoria.Assets.Localization.CurrentSymbol == "JP") & hit) == 0)
++                    return;                          // a held read: its press tick only
++                Int32 tick = NetSyncField.KeyTick;
++                Int32 uid = reader.uid;
++                if (!i._keyTapArmed || i._keyTapTick != tick)
++                {
++                    i._keyTapArmed = true;
++                    i._keyTapTick = tick;
++                    i._keyTapUids[0] = i._keyTapUids[1] = i._keyTapUids[2] = i._keyTapUids[3] = 0;
++                }
++                UInt64 bit = 1UL << (uid & 63);
++                Int32 slot = (uid >> 6) & 3;
++                if ((i._keyTapUids[slot] & bit) != 0)
++                    return;                          // this reader already tapped this key tick
++                i._keyTapUids[slot] |= bit;
++                Byte cursor = HostChoiceCursor();
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                UInt16 bits = NetSyncField.CompactKeys(hit);
++                i._keyTaps++;
++                if (rec)
++                {
++                    Int32 n = i.RecordTap(NetSyncDialog.KindKey, fld, uid, bits, cursor, 0);
++                    Log.Message("[NetSync] key tap RECORDED: uid " + uid + " bits " + bits + (cursor != NetSyncDialog.NoCursor ? " cursor " + cursor : "")
++                                + (held ? " (held read)" : "") + " (tape #" + n + ")");
++                    return;
++                }
++                UInt16 seq = i._hostRing.Append(NetSyncDialog.KindKey, i._hostScene.Nonce, fld, uid, bits, cursor, 0);
++                i._dlgDirty = true;
++                Log.Message("[NetSync] key tap: uid " + uid + " bits " + bits + (cursor != NetSyncDialog.NoCursor ? " cursor " + cursor : "")
++                            + (held ? " (held read)" : "") + " seq " + seq);
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] key tap failed");
++            }
++        }
++
++        // [ff9mapkit netsync F3.3] R5: the host's frontmost READY choice (any lockable ETb window, input-inhibited ones
++        // included -- a polled choice is exactly where it matters): its SelectChoice, else NoCursor. Main thread.
++        // [ff9mapkit netsync F3.3] C3KEYS-SEM-2: ...the frontmost lockable choice window in ANY live state (opening, printing
++        // or ready -- not one already closing), and the value is what this poll's branch will READ: GetChoose = the static
++        // DialogManager.SelectChoice (ETb.GetChoose). A press during the open/print tween has already set it -- Dialog
++        // .OnKeyConfirm -> defaultChoice, OnKeyCancel -> cancelChoice, Memoria's fast-input fix for script-closed windows
++        // (the save moogle backed out of with a quick Cancel) -- so a ready-only read sent no cursor for exactly the press
++        // that committed one. The guest lands it once its own window is ready (NetSyncDialog's cursor wait). No choice
++        // window open = NoCursor (a "press Confirm" beat carries none).
++        private static Byte HostChoiceCursor()
++        {
++            System.Collections.Generic.List<Dialog> list = NetSyncDialog.LiveList();
++            if (list == null)
++                return NetSyncDialog.NoCursor;
++            for (Int32 k = list.Count - 1; k >= 0; k--)
++            {
++                Dialog d = list[k];
++                if (!NetSyncDialog.IsLockable(d))
++                    continue;
++                Dialog.State st = d.CurrentState;
++                if (st == Dialog.State.StartHide || st == Dialog.State.CloseAnimation || st == Dialog.State.Idle || !d.HasChoices)
++                    continue;
++                Int32 sel = DialogManager.SelectChoice;
++                return sel >= 0 && sel < NetSyncDialog.NoCursor ? (Byte)sel : NetSyncDialog.NoCursor;
++            }
++            return NetSyncDialog.NoCursor;
++        }
++
++        // [ff9mapkit netsync F3.3] R9: is THIS process recording its own host taps? Selftest role + the field-gate bench +
++        // the tap-record lever, with the bench lock OFF (lock on = the replay/guest half: its applied events must never
++        // record themselves). Plain static reads -- the VA close asks off the main thread.
++        internal static Boolean TapRecording
++        {
++            get { return DebugTapRecord && IsSelfTestRole && NetSyncField.BenchGates && !DebugDialogLock; }
++        }
++
++        // R9: one host event onto the tape (any thread). Returns its 1-based index, or 0 when the tape is full (logged once).
++        private Int32 RecordTap(Byte kind, Int32 fld, Int32 a, Int32 b, Byte c, Byte x)
++        {
++            lock (_tapeLock)
++            {
++                if (_tape.Count >= TapeCap)
++                {
++                    if (!_tapeFullLogged)
++                    {
++                        _tapeFullLogged = true;
++                        Log.Message("[NetSync] tap-record: the tape is full (" + TapeCap + " events) -- further taps are not recorded");
++                    }
++                    return 0;
++                }
++                TapRec t = new TapRec();
++                t.Kind = kind;
++                t.Fld = fld;
++                t.A = a;
++                t.B = b;
++                t.C = c;
++                t.X = x;
++                t.Tick = Environment.TickCount;
++                _tape.Add(t);
++                return _tape.Count;
++            }
++        }
++
++        // R9: feed the due replay entries into the bench host's ring (BenchHostTick, main thread). Paced = each at its
++        // recorded offset from the first one; else all at once. Stamped with the bench scene NOW (the relay-accept purge
++        // keys on it) and the recorded field.
++        private void ServiceReplay(Int32 now)
++        {
++            while (_replayNext < _replay.Count)
++            {
++                TapRec t = _replay[_replayNext];
++                if (_replayPaced && now - _replayStart < t.Tick - _replayBase)
++                    return;
++                UInt16 seq = _benchRing.Append(t.Kind, _benchSceneNonce, t.Fld, t.A, t.B, t.C, t.X);
++                _replayNext++;
++                Log.Message("[NetSync] replay: tape #" + _replayNext + " -> bench host seq " + seq + " (kind " + t.Kind
++                            + (t.Kind == NetSyncDialog.KindKey ? " uid " + t.A + " bits " + t.B : " win " + t.A + " text " + t.B) + ")");
++                if (_replayNext == _replay.Count)
++                    Log.Message("[NetSync] replay: done (" + _replay.Count + " event(s))");
++            }
++        }
++
+         // [ff9mapkit netsync F3.3] a fresh random host epoch (1..65535, never `avoid` -- the previous one). Guid bytes, not a
+         // TickCount-seeded Random: two Randoms built in the same tick share a seed.
+         internal static UInt16 NewEpoch(UInt16 avoid)
+@@ -2309,6 +2558,16 @@ namespace Memoria.Netsync
+                     v.HostOffField = !bench && rs.Valid && rs.Field == 0 && !NetSyncBattle.PeerBattleLive;
+                 v.HostMenu = hv != null && hostOnFieldBit && !hostBattleBit && (hf & NetSyncDialog.HfMenu) != 0;
+                 v.HostBattle = hostBattleBit;
++                // [ff9mapkit netsync F3.3] R5: the key relay's two idle reads -- the host stands HERE with its control off
++                // (section 7 b1 clear: a windowless "press Confirm" beat raises no scene, so the settle clock alone would
++                // call it idle), and my own control (an unserved KEY expires only once both sides are idle).
++                v.HostHoldsInput = v.HostHere && hv != null && (hf & NetSyncDialog.HfControl) == 0;
++                try
++                {
++                    EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                    v.GuestControl = ee != null && ee.GetUserControl();
++                }
++                catch { v.GuestControl = false; }
+                 Int32 acceptAge = now - _relayAcceptTick;
+                 v.RelayOwned = _relayAcceptArmed && acceptAge >= 0 && acceptAge < NetSyncDialog.RelayOwnMs;
+                 v.Now = now;
+@@ -2381,6 +2640,7 @@ namespace Memoria.Netsync
+                 _benchRing.Reset(NewEpoch(0));   // first use (epochs are never 0)
+             if (DebugHostFrozen && _benchState != null)
+                 return;
++            ServiceReplay(Environment.TickCount);   // [ff9mapkit netsync F3.3] R9: a running `netsync replay` feeds the ring (a hung host feeds nothing)
+             _benchHeartbeat = (UInt16)(_benchHeartbeat + 1);
+             Byte f = DebugHostEventFlag != 0 ? NetSyncDialog.HfScene : NetSyncDialog.HfControl;
+             for (Int32 k = 0; k < _benchOpenN; k++)
+@@ -2489,6 +2749,14 @@ namespace Memoria.Netsync
+             _benchRing.Reset(NewEpoch(_benchRing.Epoch, _benchRing.PrevEpoch));
+             _benchOpenN = 0;
+             _benchState = null;
++            _keyTapArmed = false;                // [ff9mapkit netsync F3.3] R5/R9: the host key-tap dedup, the tape and a running replay
++            lock (_tapeLock)
++            {
++                _tape.Clear();
++                _tapeFullLogged = false;
++            }
++            _replay.Clear();
++            _replayNext = 0;
+         }
+ 
+         // [ff9mapkit netsync F3.2] S7: the ~ menu panic unlock ("Co-op: release dialogue lock (this field)", shown
+@@ -2539,9 +2807,27 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] dialog bench: needs Role=selftest + the field-gate bench ON + the dialogue lock (bench) ON");
+                 return;
+             }
++            String inh = InhibitedRefusal(winnum, textId);
++            if (inh != null)
++            {
++                Log.Message("[NetSync] dialog bench: " + inh);
++                return;
++            }
+             i.DebugInjectDialogAdvanceImpl(winnum, textId, kind, choiceIndex);
+         }
+ 
++        // [ff9mapkit netsync F3.3] R5 -- memory LAW :1369 on the bench too: the bench host stands in for a real host, and a
++        // real host never emits a confirm-advance for an input-inhibited ([NFOC]/[TIME]) window (EmitDialogTap refuses it),
++        // so no bench verb may fabricate one either. Its script's poll is driven by a KEY instead. Null = allowed.
++        private static String InhibitedRefusal(Int32 winnum, Int32 textId)
++        {
++            Dialog d = FindLiveDialog(winnum, textId);
++            if (d == null || !d.FlagButtonInh)
++                return null;
++            return "win " + winnum + " text " + textId + " is input-inhibited ([NFOC]/[TIME]) -- no host ever emits a confirm for it "
++                   + "(LAW :1369); drive its script's poll with `netsync host key <uid> <bits>` (the polling uid is `key_reader`)";
++        }
++
+         private void DebugInjectDialogAdvanceImpl(Int32 winnum, Int32 textId, Int32 kind, Int32 choiceIndex)
+         {
+             try
+@@ -2621,7 +2907,9 @@ namespace Memoria.Netsync
+         //   shut                                           the host's open set empties
+         //   adv [closes 0|1]                               an ADV for the frontmost window (closes = its own test unless forced)
+         //   choice <i>                                     a CHO committing <i> on the frontmost window
+-        //   key <uid> <bits> [cursor]                      a KEY event (the codec's kind 2) -- IGNORED by this guest (R5 is next)
++        //   key <uid> <bits> [cursor]                      a KEY event (the codec's kind 2; bits = the compact b0 Select ..
++        //                                                  b6 Confirm .. b9 Menu) -- [ff9mapkit netsync F3.3] R5: served
++        //                                                  to reader <uid>'s next control-off poll it overlaps
+         //   gap <n>                                        n events emitted and LOST (the ring retains none of them)
+         //   epoch                                          a host relaunch: a new epoch, an empty ring, no windows
+         //   freeze [1|0]                                   the heartbeat stops / restarts (a hung host, R6)
+@@ -2730,6 +3018,12 @@ namespace Memoria.Netsync
+                         why = "netsync host " + op + ": no dialogue window is open";
+                         return false;
+                     }
++                    String inh = InhibitedRefusal(fw, ft);   // [ff9mapkit netsync F3.3] R5: LAW :1369
++                    if (inh != null)
++                    {
++                        why = "netsync host " + op + ": " + inh;
++                        return false;
++                    }
+                     Boolean closes;
+                     Int32 page;
+                     UInt16 seq = BenchAppend(fld, fw, ft, cho ? NetSyncDialog.KindCho : NetSyncDialog.KindAdv, cho ? a1 : 0xFF,
+@@ -2747,7 +3041,8 @@ namespace Memoria.Netsync
+                     }
+                     UInt16 seq = _benchRing.Append(NetSyncDialog.KindKey, _benchSceneNonce, fld, a1, a2,
+                                                    argc >= 3 ? (Byte)a3 : NetSyncDialog.NoCursor, 0);
+-                    Log.Message("[NetSync] bench host: KEY seq " + seq + " (uid " + a1 + " bits " + a2 + ") -- this build's guest ignores KEY (the key relay is next)");
++                    Log.Message("[NetSync] bench host: KEY seq " + seq + " (uid " + a1 + " bits " + a2 + (argc >= 3 ? " cursor " + a3 : "")
++                                + ") -- delivered through section 7 to uid " + a1 + "'s next control-off poll");
+                     return true;
+                 }
+                 case "gap":
+@@ -3275,6 +3570,7 @@ namespace Memoria.Netsync
+                 DebugHostFrozen = false;                              // [ff9mapkit netsync F3.3] and the bench host's
+                 DebugHostMenu = false;
+                 DebugHostBattle = false;
++                DebugTapRecord = false;                               // [ff9mapkit netsync F3.3] R9 (the tape clears with the reconfigure below)
+                 _enabled = false;
+                 NetSyncBattle.Enabled = false;
+                 NetSyncVisitor.Enabled = false;
+@@ -3346,6 +3642,110 @@ namespace Memoria.Netsync
+             NetSyncClient i = _instance;
+             return i == null ? new System.Collections.Generic.List<NetSyncDialog.OpenWin>() : i._dlg.SnapshotHostOpen();
+         }
++        // [ff9mapkit netsync F3.3] R5/R9 observables (still ADDED under protocol 5): the script-key lock on this field (its
++        // host half or a KEY waiting -- whatever the guest's control), the KEY list (pending its guard / stored / active
++        // this key tick), the serve/expiry/guard-give-up counters, the KEY taps this process made, and the tap-record
++        // bench (lever, tape length, replay entries still to feed).
++        public static Boolean HarnessKeyHold
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                try { return i != null && _enabled && i._lockEngaged && i._dlg.KeyHold(FF9StateSystem.Common.FF9.fldMapNo); }
++                catch { return false; }
++            }
++        }
++        public static Int32 HarnessKeyServed { get { NetSyncClient i = _instance; return i == null ? 0 : i._dlg.KeyServed; } }
++        public static Int32 HarnessKeyExpired { get { NetSyncClient i = _instance; return i == null ? 0 : i._dlg.KeyExpired; } }
++        public static Int32 HarnessKeyGaveUp { get { NetSyncClient i = _instance; return i == null ? 0 : i._dlg.KeyGaveUp; } }
++        public static Int32 HarnessKeyTaps { get { NetSyncClient i = _instance; return i == null ? 0 : i._keyTaps; } }
++        public static Int32 HarnessTapeCount
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                if (i == null)
++                    return 0;
++                lock (i._tapeLock)
++                    return i._tape.Count;
++            }
++        }
++        public static Int32 HarnessReplayLeft { get { NetSyncClient i = _instance; return i == null ? 0 : i._replay.Count - i._replayNext; } }
++        internal static System.Collections.Generic.List<NetSyncDialog.KeyView> HarnessKeys(Int32 max)
++        {
++            NetSyncClient i = _instance;
++            return i == null ? new System.Collections.Generic.List<NetSyncDialog.KeyView>() : i._dlg.SnapshotKeys(Environment.TickCount, max);
++        }
++
++        // [ff9mapkit netsync F3.3] R9: the harness `netsync tap-record 1|0`. ON clears the tape and starts recording THIS
++        // process's real host taps (dialog confirms, voice closes, control-off script-key hits) -- they record only while
++        // the bench lock is OFF (TapRecording). OFF stops; the tape is kept for `netsync replay`. Selftest role + bench.
++        public static Boolean HarnessTapRecord(Boolean on, out String why)
++        {
++            why = null;
++            NetSyncClient i = _instance;
++            if (i == null)
++                why = "netsync tap-record: no co-op client in this process (netsync selftest 1 first)";
++            else if (!IsSelfTestRole)
++                why = "netsync tap-record: role is '" + _role + "' -- the tap bench needs the selftest role";
++            else if (!NetSyncField.BenchGates)
++                why = "netsync tap-record: the field-gate bench is OFF (netsync bench 1)";
++            if (why != null)
++                return false;
++            if (on)
++            {
++                lock (i._tapeLock)
++                {
++                    i._tape.Clear();
++                    i._tapeFullLogged = false;
++                }
++                i._keyTapArmed = false;
++            }
++            DebugTapRecord = on;
++            Log.Message("[NetSync] tap-record " + (on ? "ON -- this copy's real host taps record onto a fresh tape"
++                                                        + (DebugDialogLock ? " (paused while the bench lock is ON)" : "")
++                                                   : "OFF (" + HarnessTapeCount + " event(s) on the tape)") + " (harness)");
++            return true;
++        }
++
++        // [ff9mapkit netsync F3.3] R9: the harness `netsync replay [[paced] 1|0]` -- feed the tape into the bench HOST's ring
++        // (the guest half reads it through section 7, exactly as a real host's taps). Paced (default) = at the recorded
++        // intervals from now; 0 = all at once. Needs the bench lock ON (the bench host's lane) and a non-empty tape;
++        // recording stops (it never records while the lock is on anyway). A replay already running is restarted.
++        public static Boolean HarnessReplay(Boolean paced, out String why)
++        {
++            why = null;
++            NetSyncClient i = _instance;
++            if (i == null)
++                why = "netsync replay: no co-op client in this process (netsync selftest 1 first)";
++            else if (!IsSelfTestRole)
++                why = "netsync replay: role is '" + _role + "' -- the replay bench needs the selftest role";
++            else if (!NetSyncField.BenchGates)
++                why = "netsync replay: the field-gate bench is OFF (netsync bench 1)";
++            else if (!DebugDialogLock)
++                why = "netsync replay: the bench dialogue lock is OFF (netsync lock 1) -- the replay feeds the bench host's lane";
++            if (why != null)
++                return false;
++            i._replay.Clear();
++            lock (i._tapeLock)
++                i._replay.AddRange(i._tape);
++            if (i._replay.Count == 0)
++            {
++                why = "netsync replay: the tape is empty (netsync tap-record 1, play the scene with the lock OFF, then tap-record 0)";
++                return false;
++            }
++            if (DebugTapRecord)
++            {
++                DebugTapRecord = false;
++                Log.Message("[NetSync] tap-record OFF (a replay started)");
++            }
++            i._replayNext = 0;
++            i._replayPaced = paced;
++            i._replayStart = Environment.TickCount;      // tick-baseline law: read only while the replay runs
++            i._replayBase = i._replay[0].Tick;
++            Log.Message("[NetSync] replay: " + i._replay.Count + " taped event(s) into the bench host's ring, " + (paced ? "at the recorded pace" : "all at once"));
++            return true;
++        }
+ 
+         // Bench injection WITH a reason on refusal. The menu button logs and returns void, which is
+         // right for a human reading the log; the harness must throw so the driver blames this step
+@@ -3365,6 +3765,12 @@ namespace Memoria.Netsync
+                 why = "netsync: the field-gate bench is OFF (netsync bench 1)";
+             else if (!DebugDialogLock)
+                 why = "netsync: the bench dialogue lock is OFF (netsync lock 1) -- host events feed the locked inbox";
++            else
++            {
++                String inh = InhibitedRefusal(winnum, textId);   // [ff9mapkit netsync F3.3] R5: LAW :1369
++                if (inh != null)
++                    why = "netsync: " + inh;
++            }
+             if (why != null)
+                 return false;
+             i.DebugInjectDialogAdvanceImpl(winnum, textId, kind, choiceIndex);
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 94c9b5a..9734ea5 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -63,6 +63,10 @@ namespace Memoria.Harness
+         // `cursor`/`key_ignored` (the guest's view of section 7) and `host_frozen`/`host_menu`/`host_battle` (the bench
+         // host's levers), plus the verb `netsync host <op>` (the bench host). A driver checks for `wire` first -- absent =
+         // a pre-C3 engine (type-7 delivery).
++        // [ff9mapkit netsync F3.3] R5 (the script-key relay), also additive under 5: `netsync.key_tick`/`key_hold`/
++        // `key_reader`/`keys[]`/`key_served`/`key_expired`/`key_gaveup`/`key_taps`/`tap_record`/`tape`/`replay_left`,
++        // the verbs `netsync tap-record 1|0` and `netsync replay [[paced] 1|0]`, and `netsync host key` is now SERVED (not
++        // ignored). A driver checks for `key_hold` -- absent = an engine whose guest ignores KEY.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1114,6 +1118,28 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync host refused");
+                             break;
+                         }
++                        case "tap-record":
++                            // [ff9mapkit netsync F3.3] R9: record THIS copy's real host taps (dialog confirms, voice closes,
++                            // control-off script-key hits) onto a fresh tape -- they record only while the bench lock is OFF.
++                            // Selftest role + bench. Additive -- protocol stays 5.
++                            if (!Memoria.Netsync.NetSyncClient.HarnessTapRecord(Arg(s, 1, 1) != 0, out why))
++                                throw new InvalidOperationException(why ?? "netsync tap-record refused");
++                            break;
++                        case "replay":
++                        {
++                            // [ff9mapkit netsync F3.3] R9: feed the tape into the bench host's ring (`replay 0` = all at once,
++                            // default = at the recorded pace). Selftest role + bench + the bench lock. Additive.
++                            // C3KEYS-6: `replay`, `replay 1|0` and `replay paced 1|0` are one verb (the documented `[paced 1|0]`
++                            // form names its token); anything else is REFUSED -- an unparsed token used to fall back to paced.
++                            Int32 ri = s.Args.Length > 1 && String.Equals(s.Args[1], "paced", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
++                            Int32 paced = s.Args.Length > ri ? Arg(s, ri, Int32.MinValue) : 1;
++                            if ((paced != 0 && paced != 1) || s.Args.Length > ri + 1)
++                                throw new ArgumentOutOfRangeException("netsync replay", "expected `netsync replay [[paced] 1|0]`, got '"
++                                                                      + String.Join(" ", s.Args, 1, s.Args.Length - 1) + "'");
++                            if (!Memoria.Netsync.NetSyncClient.HarnessReplay(paced != 0, out why))
++                                throw new InvalidOperationException(why ?? "netsync replay refused");
++                            break;
++                        }
+                         case "dioleave":
+                         {
+                             // [ff9mapkit netsync F3.3] DIO-1: the ~ menu's "Leave diorama" -- request-only, teardown on arrival;
+@@ -1128,7 +1154,7 @@ namespace Memoria.Harness
+                             break;
+                         }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay)");
+                     }
+                     Block(2);
+                     break;
+@@ -2454,7 +2480,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -2479,7 +2505,7 @@ namespace Memoria.Harness
+         // detected (each logged once), `heartbeat` / `host_stalled` = the hung-host detector (R6), `host_flags` = section
+         // 7's flags byte (b0 scene, b1 control, b2 input line, b3 on field, b4 menu, b5 battle), `host_open[]` = the
+         // host's open windows (cursor -1 = not a ready choice), `cursor` = the host cursor the mirror enforced last tick
+-        // (-1 = none), `key_ignored` = KEY events this guest ignored (the key relay is the next stage), and
++        // (-1 = none), `key_ignored` = KEY events this guest ignored ([ff9mapkit netsync F3.3] R5: no host-owned bits), and
+         // `host_frozen` / `host_menu` / `host_battle` = the bench host's levers. -1 = absent. The catch line in
+         // AppendNetsync carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendRing(StringBuilder sb)
+@@ -2512,7 +2538,50 @@ namespace Memoria.Harness
+             Num(sb, "key_ignored", Memoria.Netsync.NetSyncClient.HarnessKeyIgnored); sb.Append(",");
+             Bool(sb, "host_frozen", Memoria.Netsync.NetSyncClient.DebugHostFrozen); sb.Append(",");
+             Bool(sb, "host_menu", Memoria.Netsync.NetSyncClient.DebugHostMenu); sb.Append(",");
+-            Bool(sb, "host_battle", Memoria.Netsync.NetSyncClient.DebugHostBattle);
++            Bool(sb, "host_battle", Memoria.Netsync.NetSyncClient.DebugHostBattle); sb.Append(",");
++            AppendKeys(sb);
++        }
++
++        // [ff9mapkit netsync F3.3] R5 -- the script-key relay's keys, additive under protocol 5 (an engine without them
++        // publishes no `key_hold`: read absence as "this guest ignores KEY", never as "no key pending"). `key_tick` = the
++        // event engine's script key tick (one per ServiceEvents), `key_hold` = the script-key lock on this field (its host
++        // half or a KEY waiting -- whatever the guest's control; the poll itself also needs control OFF), `key_reader` =
++        // the last reader uid whose host-owned bits a locked guest masked (-1 = none), `keys[]` = the KEY list (seq, field,
++        // uid, compact bits, cursor -1 = none, age_ms, state pending|stored|active), `key_served`/`key_expired`/
++        // `key_gaveup` = served to a poll / dropped unserved / released past the ordering guard's limit, `key_taps` = KEY
++        // taps this process made (a host's ring, or the tape), and the R9 tap-record bench: `tap_record` (the lever),
++        // `tape` (events recorded) and `replay_left` (taped events a running `replay` has yet to feed). The catch line
++        // in AppendNetsync carries the same keys at their sentinels, inside its SECOND literal.
++        private static void AppendKeys(StringBuilder sb)
++        {
++            Num(sb, "key_tick", Memoria.Netsync.NetSyncField.KeyTick); sb.Append(",");
++            Bool(sb, "key_hold", Memoria.Netsync.NetSyncClient.HarnessKeyHold); sb.Append(",");
++            Num(sb, "key_reader", Memoria.Netsync.NetSyncField.LastMaskedReader); sb.Append(",");
++            sb.Append("\"keys\":[");
++            List<Memoria.Netsync.NetSyncDialog.KeyView> keys = Memoria.Netsync.NetSyncClient.HarnessKeys(8);
++            for (Int32 k = 0; k < keys.Count; k++)
++            {
++                Memoria.Netsync.NetSyncDialog.KeyView e = keys[k];
++                if (k > 0)
++                    sb.Append(",");
++                sb.Append("{");
++                Num(sb, "seq", e.Seq); sb.Append(",");
++                Num(sb, "field", e.Field); sb.Append(",");
++                Num(sb, "uid", e.Uid); sb.Append(",");
++                Num(sb, "bits", e.Bits); sb.Append(",");
++                Num(sb, "cursor", e.Cursor); sb.Append(",");
++                Num(sb, "age_ms", e.AgeMs); sb.Append(",");
++                Str(sb, "state", e.State);
++                sb.Append("}");
++            }
++            sb.Append("],");
++            Num(sb, "key_served", Memoria.Netsync.NetSyncClient.HarnessKeyServed); sb.Append(",");
++            Num(sb, "key_expired", Memoria.Netsync.NetSyncClient.HarnessKeyExpired); sb.Append(",");
++            Num(sb, "key_gaveup", Memoria.Netsync.NetSyncClient.HarnessKeyGaveUp); sb.Append(",");
++            Num(sb, "key_taps", Memoria.Netsync.NetSyncClient.HarnessKeyTaps); sb.Append(",");
++            Bool(sb, "tap_record", Memoria.Netsync.NetSyncClient.DebugTapRecord); sb.Append(",");
++            Num(sb, "tape", Memoria.Netsync.NetSyncClient.HarnessTapeCount); sb.Append(",");
++            Num(sb, "replay_left", Memoria.Netsync.NetSyncClient.HarnessReplayLeft);
+         }
+ 
+         private static void AppendDiorama(StringBuilder sb)

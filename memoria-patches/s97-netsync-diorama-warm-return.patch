@@ -1,0 +1,863 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 0e0d85f..314f0fe 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -283,6 +283,10 @@ namespace Memoria.Netsync
+                 Array.Clear(_gateSeq, 0, _gateSeq.Length);
+                 BootedWireNonce = -1;                // the watcher re-stamps it on a WIRE boot only
+                 _actionErrLogged = false;
++                _returnPending = false;              // [ff9mapkit netsync F3.3] a fresh boot invalidates any old return intent
++                _returnExpectWarm = false;
++                _bootSongSuspended = false;          // [ff9mapkit netsync F3.3] DIO-1: this boot's own audio suspends, for UndoWarm
++                _bootResidentSuspended = false;
+ 
+                 FF9StateSystem.Battle.isDebug = true;
+                 FF9StateSystem.Battle.battleMapIndex = battleMapIndex;              // Int32
+@@ -299,6 +303,10 @@ namespace Memoria.Netsync
+                             + " start=" + startType + (isRandomEncounter ? " rand" : ""));
+                 BootTick = Environment.TickCount;   // B3.6: the SwirlScene watchdog's baseline (fence 2)
+                 _leaveTick = Environment.TickCount - 3600000;   // a fresh boot invalidates any old leave intent
++                // [ff9mapkit netsync F3.3] DIO-1: the stock battle entry's FIELD half, done here because isDebug
++                // skips the battle half -- warm only when free-standing, else the old cold path (one line, why).
++                // After every refusal above and nothing but the Replace below, so no refusal can strand it.
++                PrimeWarmReturn();
+                 if (UseSwirl)
+                 {
+                     // B3.6 -- boot THROUGH the swirl (encounter swish + the wire song via BattleSwirl).
+@@ -307,12 +315,43 @@ namespace Memoria.Netsync
+                     // the host is audibly silent, so the guest STOPS its field BGM (s54 -- not suspend;
+                     // see below); on a real song id it SUSPENDS; on unknown skip everything (pure B3.1
+                     // behavior, fail-safe -- the swirl then computes locally).
+-                    if (_wireSongId >= 0)
++                    // [ff9mapkit netsync F3.3] DIO-1: ...unless the return is WARM. Main_Reinit replays no music in 366
++                    // of the 385 stock fields that have one (only Main_Init does), so a warm return gets its field song
++                    // back ONLY through the suspend slot HonoluluFieldMain restores -- the stock battle's own
++                    // mechanism. A warm-primed boot therefore SUSPENDS on every lane: host-silent included (the STOP
++                    // would leave the resumed field silent), and unknown/manual too, through the stock block verbatim
++                    // (HonoluluFieldMain's nextMode 2: suspend only when the LOCAL battle song BattleSwirl is about to
++                    // compute differs). Cold boots keep the s54 STOP and the B3.1 skip unchanged.
++                    if (_wireSongId >= 0 || _warmPrimed)
+                     {
+                         try
+                         {
+                             Int32 cur = FF9Snd.GetCurrentMusicId();
+-                            if (_wireSongId == 0xFFFE)
++                            if (_wireSongId < 0)
++                            {
++                                // [ff9mapkit netsync F3.3] warm + unknown/manual song: the stock pre-swirl suspend.
++                                Int32 btlMusicId = FF9SndMetaData.GetMusicForBattle(FF9SndMetaData.BtlBgmMapperForFieldMap,
++                                    Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo),
++                                    FF9StateSystem.Field.FF9Field.loc.map.nextMapNo);
++                                if (cur != -1 && btlMusicId != -1 && btlMusicId != cur)
++                                {
++                                    FF9Snd.ff9fldsnd_song_suspend(cur);
++                                    _bootSongSuspended = true;
++                                }
++                            }
++                            else if (_wireSongId == 0xFFFE && _warmPrimed)
++                            {
++                                // [ff9mapkit netsync F3.3] warm + host silent: SUSPEND, not STOP. The swirl's own STOPCURRENT
++                                // then finds nothing current, the battle renders silent, and the warm return restores the
++                                // paused instance (no second instance is ever started -- the s54 re-stack cannot form).
++                                if (cur != -1)
++                                {
++                                    FF9Snd.ff9fldsnd_song_suspend(cur);
++                                    _bootSongSuspended = true;
++                                    Log.Message("[NetSync] diorama pre-swirl: host silent + warm return -> field BGM SUSPENDED (the return resumes it)");
++                                }
++                            }
++                            else if (_wireSongId == 0xFFFE)
+                             {
+                                 // s54: host audibly silent -> STOP the field BGM, never SUSPEND it.
+                                 // A suspend leaves a suspend-slot entry that the guest's OWN field
+@@ -329,10 +368,14 @@ namespace Memoria.Netsync
+                                 }
+                             }
+                             else if (cur != -1 && _wireSongId != cur)      // -1 guard: suspend(-1) is garbage
++                            {
+                                 FF9Snd.ff9fldsnd_song_suspend(cur);
++                                _bootSongSuspended = true;                  // [ff9mapkit netsync F3.3]
++                            }
+                             // SuspendResidentSounds, inlined verbatim (HonoluluFieldMain.cs:337-349)
+                             AllSoundDispatchPlayer soundDispatchPlayer = SoundLib.GetAllSoundDispatchPlayer();
+                             FF9Snd.ff9fieldSoundSuspendAllResidentSndEffect();
++                            _bootResidentSuspended = true;                  // [ff9mapkit netsync F3.3]
+                             AllSoundDispatchPlayer.PlayingSfx[] residentSoundSlot = soundDispatchPlayer.GetResidentSndEffectSlot();
+                             Int32 baseVolume1 = residentSoundSlot[0]?.SndEffectVol ?? 0;
+                             Int32 baseVolume2 = residentSoundSlot[1]?.SndEffectVol ?? 0;
+@@ -352,6 +395,16 @@ namespace Memoria.Netsync
+                 }
+                 else
+                     SceneDirector.Replace(DioramaScene, SceneTransition.FadeOutToBlack_FadeIn, true);
++                // [ff9mapkit netsync F3.3] DIO-1: both transitions set IsFading synchronously before their first
++                // yield (_Swirl / _Fade), so a Replace that did not start reads !IsFading right here. Never leave
++                // a primed copy -- or the MovePC freeze the backup set -- on a field we are not leaving. (Booted
++                // stays as it was: fence 1 still owns the dropped-boot mop-up and the watcher's retry.)
++                if (_warmPrimed)
++                {
++                    SceneDirector sdAfter = PersistenSingleton<SceneDirector>.Instance;
++                    if (sdAfter != null && !sdAfter.IsFading)
++                        UndoWarm("the boot's scene Replace did not start");
++                }
+             }
+             catch (Exception ex)
+             {
+@@ -360,6 +413,7 @@ namespace Memoria.Netsync
+                 // call -- it is exact, not stale. (The old discard-comment reasoning predates the
+                 // battle-field stamps joining the bracket.)
+                 Log.Error("[NetSync] diorama boot failed: " + ex);
++                UndoWarm("the boot failed");                // [ff9mapkit netsync F3.3] DIO-1: no copy survives a failed boot
+                 _booted = false;
+                 _armed = false;
+                 Restore();
+@@ -399,6 +453,13 @@ namespace Memoria.Netsync
+                 }
+                 PersistenSingleton<FF9StateSystem>.Instance.mode = _returnMode;
+                 _leaveTick = Environment.TickCount;   // intent recorded at the INITIATOR, not inferred later
++                // [ff9mapkit netsync F3.3] DIO-1: the next FIELD StartEvents is this diorama's return. The primed
++                // copy names the boot field; a return that lands anywhere else must not carry it (THE STALE-COPY
++                // LAW -- BeforeFieldEvents re-checks at the load itself).
++                Int32 returnField = FF9StateSystem.Common.FF9.fldMapNo;
++                if (_warmPrimed && (returnField != _warmField || _returnMode != 1))
++                    UndoWarm("the return goes to field " + returnField + " (mode " + _returnMode + "), not boot field " + _warmField);
++                _returnPending = true;
+                 Log.Message("[NetSync] diorama LEAVE requested -> FieldMap (mode " + _returnMode + ")");
+                 SceneDirector.Replace("FieldMap", SceneTransition.FadeOutToBlack, true);
+             }
+@@ -426,6 +487,12 @@ namespace Memoria.Netsync
+             Array.Clear(_gateSeq, 0, _gateSeq.Length);
+             BootedWireNonce = -1;
+             _wireSongId = -1;                           // B3.6: the wire song dies with the boot
++            // [ff9mapkit netsync F3.3] DIO-1: the boot field still ALIVE at teardown = the boot never left it
++            // (fence 1's dropped-Replace mop-up) -- the primed copy and the MovePC freeze must die with the
++            // boot. A destroyed boot field is the normal teardown (OnDestroy runs BEFORE the return's
++            // StartEvents): the copy stays pending for it. Unity's == -- a destroyed FieldMap reads null.
++            if (_warmPrimed && _warmFieldMap != null)
++                UndoWarm("the boot never left field " + _warmField);
+             Disarm();
+             Log.Message("[NetSync] diorama torn down -- state restored, isDebug cleared");
+         }
+@@ -448,10 +515,395 @@ namespace Memoria.Netsync
+             // FIELD-LOAD-SCOPED (ParseSections has one production caller, in ff9InitStateFieldMap), so an
+             // unconditional Clear here would wipe a real host's mirror on every diorama exit and only
+             // self-heal by scene-order accident. [ff9mapkit netsync diorama]
+-            if (NetSyncClient.IsSelfTestRole)
++            // [ff9mapkit netsync F3.3] DIO-6: ...or wherever the BENCH armed it, whatever the role reads NOW. A
++            // role dropped mid-diorama (HarnessSelfTest(false) on a harness fault/disarm, an ini edit) used to
++            // skip this Clear and leave the impostor party answering partychk/PARTY_MEMBER on a machine with
++            // co-op off -- and the warm return runs Main_Reinit straight into those reads.
++            if (NetSyncClient.IsSelfTestRole || NetSyncParty.BenchMirrorArmed)
+                 NetSyncParty.Clear();
+         }
+ 
++        // ---------------------------------------------------------------------------------------
++        // [ff9mapkit netsync F3.3] DIO-1 -- THE WARM RETURN. The owner's spec: "the guest must not warp."
++        //
++        // A stock battle saves the field in TWO halves and restores it on the way back. The FIELD side
++        // runs BackupPosObjData (HonoluluFieldMain's ServiceEvents case 3: every actor's live position into
++        // posField, and isBattleBackupPos freezes MovePC); the BATTLE's own StartEvents (gMode 2) then
++        // copies sEventContext0 into sEventContext1. The field's next StartEvents finds
++        // sEventContext1.inited==1 on the same lastmap, restores the context and requests entry-0 tag 10
++        // (Main_Reinit): actors come back where they stood. The diorama did NEITHER half -- isDebug skips
++        // the battle StartEvents (HonoluluBattleMain.InitBattleScene), and every field load zeroes
++        // sEventContext1.inited (updateModelsToBeAdded) -- so EVERY return cold-started through Main_Init:
++        // MAP vars zeroed, the guest relocated to the arrival point, NPC/object state reset, while the
++        // host came back in place.
++        //
++        // THE FIX does the stock field half ourselves, right before the boot's Replace -- BackupPosObjData
++        // THEN sEventContext1.copy(sEventContext0) (the copy must carry the backed-up posField) -- ONLY when
++        // the guest is FREE-STANDING, the state a random encounter leaves a field in: field mode, a started
++        // context for THIS field (the copy's lastmap is the field the Leave returns to), the stock slot free,
++        // control on, FieldHUD, NO dialogue window at all, a controlled actor. Anything else keeps the old
++        // cold path and logs why (resuming a thread parked in a WindowSync whose window died with the scene
++        // is stock-unproven -- strict on purpose).
++        //
++        // ...AND ONLY WHERE A RANDOM BATTLE COULD HAVE LEFT IT: the field must also be one stock itself
++        // reinit-returns into, because the reinit branch suspends every object (EnterBattleEnd) and ONLY a
++        // Main_Reinit that runs and returns at level 0 un-suspends them (ExitBattleEnd). So: (a) entry 0
++        // HAS a tag-10 Main_Reinit -- 432 of 817 stock field scripts and every kit field without battles do
++        // not, and a reinit there freezes every NPC, region and gateway for good; (b) entry 0 is idle above
++        // level 0 -- Request's own `level < p.level` gate, so it also refuses mid-Main_Init and, with (c) no
++        // object still suspended, mid-Main_Reinit of the PREVIOUS return (a copy of an open bracket restores
++        // an open bracket that never closes); (d) random encounters are ARMED (ENCRATE > 0) -- all 176 stock
++        // random-encounter fields have a Main_Reinit written for that return, while the other 209 Main_Reinits
++        // continue ONE scripted fight or minigame (Evil Forest/Nest 257's re-enters itself through Field()).
++        // Under isDebug nothing between boot and return re-runs
++        // StartEvents, so the copy is the snapshot a stock battle would have taken a frame later; and it is
++        // DEEP (Obj.copy -- new objects, go = null), so nothing that touches sEventContext0 during the
++        // diorama can reach it.
++        //
++        // THE STALE-COPY LAW: a primed copy is consumed by THIS diorama's own return to its boot field, or
++        // it is cleared -- sEventContext1.inited = 0 on every path that could strand it: Boot's catch, a
++        // boot Replace that never started (Boot's post-check), ForceDisarm while the boot field is still
++        // alive (fence 1's dropped-boot mop-up), a Leave toward another field, and any field load that is
++        // not our return (BeforeFieldEvents, the pre-StartEvents seam), and a NEW boot while an older copy is
++        // still unconsumed (PrimeWarmReturn). Every undo on a field we never left also un-freezes its MovePC
++        // and resumes the audio this boot suspended. A save load / New Game is safe by construction
++        // (InitEvents rebuilds both contexts).
++        //
++        // THE MUSIC: a warm boot suspends the field song on every lane (Boot's pre-swirl block) and the warm
++        // return stops whatever battle song is still current (BeforeFieldEvents -- the stock battle's own
++        // ff9ShutdownStateBattleResult, which a diorama never reaches), so HonoluluFieldMain's restore resumes
++        // the field song exactly as after a stock battle. Main_Reinit itself replays none in 366 of 385.
++        //
++        // OBSERVABLES: one line per boot (WARM primed | COLD + why) and one per return, the latter reported
++        // by EventEngine.StartEvents ITSELF (NoteFieldEventsStart, from inside each branch, with Request's own
++        // result) -- authoritative, not a replica of the reinit test. A reinit branch whose Main_Reinit was
++        // NOT called reports "reinit-missing", never "warm" (a frozen field cannot pass on position alone).
++        // `BattleReturnInFlight` is the live bracket test (the exit ramp's settle reads it too). The same facts
++        // ride the harness `netsync.diorama` block.
++        // Known residue: Main_Reinit reads GetBattleResult = 0 (INITIAL, the diorama's own InitBattle) where
++        // the host reads its real result; 9 of 385 stock Main_Reinit read it, all as a defeat (== 3 / != 3)
++        // test, so 0 takes the not-defeated branch the host normally takes.
++        // ---------------------------------------------------------------------------------------
++        private static Boolean _warmPrimed;        // OUR copy sits in the stock slot, unconsumed
++        private static FieldMap _warmFieldMap;     // the boot field's FieldMap (Unity-alive = the boot never left it)
++        private static Int32 _warmField = -1;      // the fldMapNo the copy's lastmap names
++        private static Boolean _returnPending;     // a Leave issued its Replace: the next field StartEvents is the return
++        private static Boolean _returnExpectWarm;  // that load reached StartEvents with OUR copy in the slot
++        private static String _warmDiscardWhy;     // why this boot's primed copy was discarded (the cold return line names it)
++        private static Boolean _bootSongSuspended;     // this boot's pre-swirl block suspended the field song
++        private static Boolean _bootResidentSuspended; // ...and the resident sound effects
++
++        // The observables (F6 log + harness `netsync.diorama`; process-lifetime, never reset by a boot).
++        internal static String LastBootMode;       // "warm" | "cold" | null (no boot yet)
++        internal static String LastBootWhy;        // the cold reason; null when warm
++        internal static Int32 LastBootField = -1;
++        internal static Single LastBootX = Single.NaN;   // the controlled actor at a WARM boot -- PosObj.pos, the
++        internal static Single LastBootZ = Single.NaN;   // harness's own `player.x/z` source, so the two compare
++        // "warm" (StartEvents restored + Main_Reinit CALLED) | "reinit-missing" (the reinit branch ran but Request
++        // made no Main_Reinit call -- every other object stays suspended) | "cold" (Main_Init) | null
++        internal static String LastReturnMode;
++        internal static Int32 LastReturnField = -1;
++        internal static Int32 ReturnCount;
++        internal static Boolean WarmPrimed => _warmPrimed;
++
++        /// <summary>
++        /// PURE -- may this boot prime the warm return? Null = yes; else the cold reason (one human line).
++        /// The free-standing test, ordered cheapest-first. SelfTest scripts it (each disqualifier alone).
++        /// [ff9mapkit netsync F3.3] hasReinit/encratio/mainLevel/resuming = the reinit-capable rows: the field
++        /// is one a stock random battle reinit-returns into, and entry 0 can take Request(main, 0, 10) NOW.
++        /// </summary>
++        internal static String WarmVerdict(Int32 sysMode, Int32 gMode, Boolean fieldScene, Int32 fld,
++                                           Int32 ctx0Inited, Int32 ctx0Lastmap, Int32 ctx1Inited,
++                                           Boolean hasReinit, Int32 encratio, Int32 mainLevel, Boolean resuming,
++                                           Boolean control, Boolean fieldHud, Boolean dialogs, Boolean player)
++        {
++            if (sysMode != 1 || gMode != 1 || !fieldScene)
++                return "not on a field (mode " + sysMode + ", gMode " + gMode + ")";
++            if (fld <= 0 || ctx0Inited != 1 || ctx0Lastmap != (fld & 0xFFFF))
++                return "the event context is not field " + fld + "'s";
++            if (ctx1Inited != 0)
++                return "the engine's own battle-return slot is in use";
++            if (!hasReinit)
++                return "field " + fld + " has no Main_Reinit (entry-0 tag 10) -- a reinit return would leave every object suspended";
++            if (encratio <= 0)
++                return "no random encounters are armed here -- its Main_Reinit (if any) answers a scripted fight, not a random one";
++            if (mainLevel <= 0)
++                return "the field's entry script is still running at level 0 (Main_Init/Main_Reinit) -- Main_Reinit could not be requested";
++            if (resuming)
++                return "the field is still resuming from a battle (objects suspended)";
++            if (!control)
++                return "player control is off (a scene holds it)";
++            if (!fieldHud)
++                return "a menu or transition is up";
++            if (dialogs)
++                return "a dialogue window is open";
++            if (!player)
++                return "no controlled actor";
++            return null;
++        }
++
++        /// <summary>PURE -- is this field load the diorama's own return to the boot field?</summary>
++        internal static Boolean ReturnIsOurs(Boolean returnPending, Int32 warmField, Int32 fld, Int32 sysMode)
++        {
++            return returnPending && fld == warmField && sysMode == 1;
++        }
++
++        /// <summary>
++        /// [ff9mapkit netsync F3.3] DIO-1 -- is a battle-return bracket OPEN on the live event context? The reinit
++        /// branch's own signature, read structurally: entry 0 RUNNING a level-0 call (Main_Reinit -- Main_Init
++        /// runs in stateInit, so a cold start never matches) or any other object still in stateSuspend
++        /// (EnterBattleEnd's mark, cleared only by ExitBattleEnd). False on any read failure. A short list walk:
++        /// callers read it at a boot, from the exit ramp's settle, and from the harness state document.
++        /// </summary>
++        internal static Boolean BattleReturnInFlight(EventEngine ee)
++        {
++            try
++            {
++                if (ee == null)
++                    return false;
++                for (ObjList l = ee.GetActiveObjList(); l != null; l = l.next)
++                {
++                    Obj o = l.obj;
++                    if (o == null)
++                        continue;
++                    if (o.uid == 0)
++                    {
++                        if (o.state == EventEngine.stateRunning && o.level == 0)
++                            return true;
++                    }
++                    else if (o.state == EventEngine.stateSuspend)
++                        return true;
++                }
++            }
++            catch { }
++            return false;
++        }
++
++        /// <summary>[ff9mapkit netsync F3.3] harness `netsync.diorama.resuming`: a battle-return bracket is open on the
++        /// LIVE field (a warm return whose Main_Reinit has not closed it yet -- or never will).</summary>
++        internal static Boolean HarnessFieldResuming
++        {
++            get
++            {
++                try
++                {
++                    EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                    return ee != null && ee.gMode == 1 && ee.fieldmap != null && BattleReturnInFlight(ee);
++                }
++                catch { return false; }
++            }
++        }
++
++        private static void PrimeWarmReturn()
++        {
++            // [ff9mapkit netsync F3.3] THE STALE-COPY LAW at the boot itself: an older diorama's primed copy whose
++            // return never reached StartEvents (this boot landed in that return's pre-init frame) is CLEARED from
++            // the slot, never orphaned in it with its bookkeeping wiped.
++            UndoWarm("superseded by a new boot before its return reached StartEvents");
++            _warmPrimed = false;
++            _warmFieldMap = null;
++            _warmField = -1;
++            _warmDiscardWhy = null;
++            LastBootX = Single.NaN;
++            LastBootZ = Single.NaN;
++            String why;
++            try
++            {
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                LastBootField = fld;
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee == null || !ee.IsEventContextValid() || ee.sEventContext0 == null || ee.sEventContext1 == null)
++                    why = "no live event context";
++                else
++                {
++                    UIManager ui = PersistenSingleton<UIManager>.Instance;
++                    PosObj me = ee.GetControlChar();
++                    // [ff9mapkit netsync F3.3] the reinit-capable inputs, read exactly as Request(main, 0, 10) will:
++                    // GetIP(sid, 10, ebData) != nil and `0 < main.level`.
++                    Obj main = ee.FindObjByUID(0);
++                    Boolean hasReinit = main != null && main.ebData != null && ee.GetIP(main.sid, 10, main.ebData) != ee.nil;
++                    why = WarmVerdict(PersistenSingleton<FF9StateSystem>.Instance.mode, ee.gMode,
++                                      ee.fieldmap != null && Application.loadedLevelName == "FieldMap",
++                                      fld, ee.sEventContext0.inited, ee.sEventContext0.lastmap, ee.sEventContext1.inited,
++                                      hasReinit, ee.sEventContext0.encratio, main != null ? main.level : -1,
++                                      BattleReturnInFlight(ee),
++                                      ee.GetUserControl(),
++                                      ui != null && ui.State == UIManager.UIState.FieldHUD,
++                                      ui == null || ui.Dialogs == null || ui.Dialogs.Visible,   // unreadable = busy
++                                      me != null && me.pos != null && me.pos.Length > 2);
++                    if (why == null)
++                    {
++                        _warmFieldMap = ee.fieldmap;            // BEFORE the backup: the map whose MovePC it freezes
++                        _warmField = fld;
++                        _warmPrimed = true;                     // from here on, every failure undoes
++                        ee.BackupPosObjData();                  // stock half 1 (HonoluluFieldMain's case 3)
++                        ee.sEventContext1.copy(ee.sEventContext0);   // stock half 2 (the battle StartEvents' copy)
++                        LastBootX = me.pos[0];
++                        LastBootZ = me.pos[2];
++                    }
++                }
++            }
++            catch (Exception ex)
++            {
++                why = "the backup threw " + ex.GetType().Name;
++                UndoWarm(null);                                 // quiet: the cold line below names it
++            }
++            LastBootMode = why == null ? "warm" : "cold";
++            LastBootWhy = why;
++            if (why == null)
++                Log.Message("[NetSync] diorama boot: WARM return primed -- field " + _warmField + ", player at "
++                            + BootPosText() + "; the return resumes it through Main_Reinit, in place");
++            else
++                Log.Message("[NetSync] diorama boot: COLD return (" + why + ") -- the return re-enters field "
++                            + LastBootField + " through Main_Init");
++        }
++
++        // THE STALE-COPY LAW's one undo. Idempotent; never throws. why == null = quiet (the caller logs).
++        private static void UndoWarm(String why)
++        {
++            if (!_warmPrimed)
++                return;
++            _warmPrimed = false;
++            try
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee != null && ee.sEventContext1 != null)
++                    ee.sEventContext1.inited = 0;           // no later reload can restore it
++            }
++            catch { }
++            Boolean stillOnBootField = false;
++            try
++            {
++                stillOnBootField = _warmFieldMap != null;   // Unity-alive: we never left it
++                if (stillOnBootField)
++                    _warmFieldMap.isBattleBackupPos = false;   // un-freeze MovePC
++            }
++            catch { }
++            if (stillOnBootField)
++                ResumeBootAudio();                          // [ff9mapkit netsync F3.3] ...and the audio this boot suspended
++            _warmFieldMap = null;
++            if (why != null)
++            {
++                _warmDiscardWhy = "warm copy discarded: " + why;
++                Log.Message("[NetSync] diorama warm return DISCARDED (" + why + ") -- no later load can restore it");
++            }
++        }
++
++        // [ff9mapkit netsync F3.3] THE BATTLE HALF OF THE MUSIC, which a diorama never reaches (stock:
++        // battle.ff9ShutdownStateBattleResult stops the battle song before the field returns). Stops a current
++        // song that is NOT the suspended field song, so the restore that follows resumes the field song alone.
++        // No suspended song = the field song played through (same id) or nothing was saved: touch nothing.
++        private static void StopBattleSongOverSuspendedField()
++        {
++            try
++            {
++                AllSoundDispatchPlayer player = SoundLib.GetAllSoundDispatchPlayer();
++                Int32 suspended = player.GetSuspendSongID();
++                Int32 cur = player.GetCurrentMusicId();
++                if (suspended != -1 && cur != -1 && cur != suspended)
++                {
++                    player.FF9SOUND_SONG_STOPCURRENT();
++                    Log.Message("[NetSync] diorama return: battle song " + cur + " stopped -- the field song " + suspended + " resumes from its suspend slot");
++                }
++            }
++            catch { }
++        }
++
++        // [ff9mapkit netsync F3.3] UndoWarm on a field we never left: the boot never happened, so give back the audio
++        // its pre-swirl block suspended (song first, after any battle song the swirl may have started).
++        private static void ResumeBootAudio()
++        {
++            try
++            {
++                if (_bootSongSuspended)
++                {
++                    StopBattleSongOverSuspendedField();
++                    AllSoundDispatchPlayer player = SoundLib.GetAllSoundDispatchPlayer();
++                    if (player.GetSuspendSongID() != -1)
++                        player.FF9SOUND_SONG_RESTORE();
++                }
++                if (_bootResidentSuspended)
++                    FF9Snd.ff9fieldSoundRestoreAllResidentSndEffect();
++            }
++            catch { }
++            _bootSongSuspended = false;
++            _bootResidentSuspended = false;
++        }
++
++        private static String BootPosText()
++        {
++            return "(" + LastBootX.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + ", "
++                   + LastBootZ.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + ")";
++        }
++
++        /// <summary>
++        /// [ff9mapkit netsync F3.3] DIO-1 -- the pre-StartEvents seam: NetSyncClient.ApplyStoryBeforeEvents,
++        /// which HonoluluFieldMain calls on EVERY field load right before StartEvents (vanilla too -- one
++        /// Boolean read unless a diorama copy or return is in flight). Enforces THE STALE-COPY LAW at the
++        /// load itself: our copy reaches the reinit test only on this diorama's own return to its boot field.
++        /// </summary>
++        internal static void BeforeFieldEvents()
++        {
++            if (!_warmPrimed && !_returnPending)
++                return;
++            try
++            {
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                Int32 mode = PersistenSingleton<FF9StateSystem>.Instance.mode;
++                if (_warmPrimed && !ReturnIsOurs(_returnPending, _warmField, fld, mode))
++                    UndoWarm(_returnPending
++                        ? "the return landed on field " + fld + " (mode " + mode + "), not boot field " + _warmField
++                        : "field " + fld + " loaded before the diorama returned");
++                else if (_warmPrimed)
++                    StopBattleSongOverSuspendedField();     // [ff9mapkit netsync F3.3] our warm return: Main_Reinit replays no song
++                _returnExpectWarm = _warmPrimed;
++                _warmPrimed = false;                        // this load's StartEvents consumes it (or it was just cleared)
++                _warmFieldMap = null;
++            }
++            catch { }
++        }
++
++        /// <summary>
++        /// [ff9mapkit netsync F3.3] DIO-1 -- EventEngine.StartEvents reports WHICH branch it took, from inside
++        /// each branch: reinit = sEventContext1 restored + Main_Reinit requested; else Main_Init. Authoritative
++        /// (no replica of the test). Runs once per scene load; a static no-op unless a diorama return is in
++        /// flight, which vanilla never arms. Never throws into the engine.
++        /// [ff9mapkit netsync F3.3] reinitCalled = Request(main, 0, 10)'s own result: false inside the reinit
++        /// branch means no Main_Reinit was called (no tag 10 / entry 0 busy at level 0), so nothing will ever run
++        /// ExitBattleEnd -- reported as "reinit-missing", never as a warm success.
++        /// </summary>
++        internal static void NoteFieldEventsStart(Int32 gMode, Boolean reinit, Boolean reinitCalled)
++        {
++            if (!_returnPending || gMode != 1)
++                return;
++            _returnPending = false;
++            try
++            {
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                ReturnCount++;
++                LastReturnMode = !reinit ? "cold" : reinitCalled ? "warm" : "reinit-missing";
++                LastReturnField = fld;
++                if (reinit && !reinitCalled)
++                    Log.Error("[NetSync] diorama RETURN (reinit-missing) -> field " + fld + " took the reinit branch but NO "
++                              + "Main_Reinit was called (no entry-0 tag 10, or entry 0 busy at level 0) -- every object stays "
++                              + "suspended; warp off this field to recover");
++                else if (reinit && _returnExpectWarm)
++                    Log.Message("[NetSync] diorama RETURN (warm) -> field " + fld + " resumed through Main_Reinit: "
++                                + "every actor restores where it stood at boot (player at " + BootPosText() + ")");
++                else if (reinit)
++                    Log.Warning("[NetSync] diorama RETURN (warm) -> field " + fld + " resumed through Main_Reinit from a "
++                                + "battle-return copy this diorama did NOT prime (the engine's own slot)");
++                else if (_returnExpectWarm)
++                    Log.Warning("[NetSync] diorama RETURN (cold) -> field " + fld + " ran Main_Init although a warm copy "
++                                + "was primed -- the engine's reinit test refused it");
++                else
++                    Log.Message("[NetSync] diorama RETURN (cold) -> field " + fld + " re-entered through Main_Init ("
++                                + (LastBootWhy ?? _warmDiscardWhy ?? "no warm copy") + ")");
++            }
++            catch { }
++            _returnExpectWarm = false;
++        }
++
+         // ---------------------------------------------------------------------------------------
+         // THE PARTY BRACKET (rung 2.5) -- the net that must exist BEFORE B3.2's apply writes anything.
+         //
+@@ -1515,12 +1967,35 @@ namespace Memoria.Netsync
+                                && (realBefore.saExtended != null ? realBefore.saExtended.Count : -1) == probeSaCount;
+                 }
+ 
++                // (4) [ff9mapkit netsync F3.3] DIO-1 -- THE WARM GATE IS FALSIFIABLE: the free-standing row primes,
++                //     and EACH disqualifier alone falls back to cold. THE RETURN TEST claims only our own return
++                //     to the boot field, in field mode. Pure: no engine state is read or written.
++                //     [ff9mapkit netsync F3.3] columns: mode gMode fieldScene fld ctx0Inited ctx0Lastmap ctx1Inited |
++                //     hasReinit encratio mainLevel resuming | control fieldHud dialogs player.
++                Boolean warmFree = WarmVerdict(1, 1, true, 100, 1, 100, 0, true, 32, 7, false, true, true, false, true) == null;
++                Boolean warmRefuses = WarmVerdict(1, 1, true, 100, 1, 100, 0, true, 32, 7, false, false, true, false, true) != null   // control off
++                                      && WarmVerdict(1, 1, true, 100, 1, 100, 0, true, 32, 7, false, true, true, true, true) != null     // a dialogue open
++                                      && WarmVerdict(1, 1, true, 100, 1, 100, 1, true, 32, 7, false, true, true, false, true) != null    // stock slot busy
++                                      && WarmVerdict(1, 1, true, 100, 1, 101, 0, true, 32, 7, false, true, true, false, true) != null    // another field's context
++                                      && WarmVerdict(1, 1, true, 100, 0, 100, 0, true, 32, 7, false, true, true, false, true) != null    // context not started
++                                      && WarmVerdict(1, 1, true, 100, 1, 100, 0, true, 32, 7, false, true, false, false, true) != null   // not FieldHUD
++                                      && WarmVerdict(1, 1, true, 100, 1, 100, 0, true, 32, 7, false, true, true, false, false) != null   // no controlled actor
++                                      && WarmVerdict(3, 3, false, 100, 3, 100, 0, true, 32, 7, false, true, true, false, true) != null   // the world map
++                                      && WarmVerdict(1, 1, true, 100, 1, 100, 0, false, 32, 7, false, true, true, false, true) != null   // no Main_Reinit (tag 10)
++                                      && WarmVerdict(1, 1, true, 100, 1, 100, 0, true, 0, 7, false, true, true, false, true) != null     // no random encounters armed
++                                      && WarmVerdict(1, 1, true, 100, 1, 100, 0, true, 32, 0, false, true, true, false, true) != null    // entry 0 busy at level 0
++                                      && WarmVerdict(1, 1, true, 100, 1, 100, 0, true, 32, 7, true, true, true, false, true) != null;    // a battle return still open
++                Boolean returnOk = ReturnIsOurs(true, 100, 100, 1) && !ReturnIsOurs(false, 100, 100, 1)
++                                   && !ReturnIsOurs(true, 100, 101, 1) && !ReturnIsOurs(true, 100, 100, 3);
++                Boolean warmOk = warmFree && warmRefuses && returnOk;
++
+                 Boolean predicateOk = offInRealBattle && offInSwirl && onInDiorama && offWhenDisarmed;
+-                detail = String.Format("predicate[realBattle={0} swirl={1} diorama={2} disarmed={3}] bracket[gil={4} battleNo={5} catKills={6} modelKills={7} btlFields={8}] party[refs={9} untouched={10}]",
++                detail = String.Format("predicate[realBattle={0} swirl={1} diorama={2} disarmed={3}] bracket[gil={4} battleNo={5} catKills={6} modelKills={7} btlFields={8}] party[refs={9} untouched={10}] warm[gate={11} return={12}]",
+                     offInRealBattle ? "off" : "ON!", offInSwirl ? "off" : "ON!", onInDiorama ? "on" : "OFF!", offWhenDisarmed ? "off" : "ON!",
+                     gilOk ? "ok" : "LOST", bnoOk ? "ok" : "LOST", catOk ? "ok" : "LOST", modelOk ? "ok" : "LOST", btlFieldsOk ? "ok" : "LOST",
+-                    !haveProbe ? "skip" : (refsOk ? "ok" : "LOST"), !haveProbe ? "skip" : (probesOk ? "ok" : "DIRTY"));
+-                return predicateOk && gilOk && bnoOk && catOk && modelOk && btlFieldsOk && (!haveProbe || (refsOk && probesOk));
++                    !haveProbe ? "skip" : (refsOk ? "ok" : "LOST"), !haveProbe ? "skip" : (probesOk ? "ok" : "DIRTY"),
++                    warmFree && warmRefuses ? "ok" : (warmFree ? "LEAKY" : "SHUT"), returnOk ? "ok" : "WRONG");
++                return predicateOk && gilOk && bnoOk && catOk && modelOk && btlFieldsOk && (!haveProbe || (refsOk && probesOk)) && warmOk;
+             }
+             catch (Exception ex)
+             {
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+index 9317cdb..6900a8a 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+@@ -666,11 +666,13 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+         if (this.gMode == 1 && this.sEventContext1.inited == 1 && this.sEventContext1.lastmap == this._ff9.fldMapNo || this.gMode == 3 && this.sEventContext1.inited == 3 && this.sEventContext1.lastmap == this._ff9.wldMapNo || this._ff9Sys.prevMode == 9 && this.sEventContext1.inited != 0)
+         {
+             this.sEventContext0.copy(this.sEventContext1);
+-            this.Request(this.FindObjByUID(0), 0, 10, false);
++            Boolean reinitCalled = this.Request(this.FindObjByUID(0), 0, 10, false); // [ff9mapkit netsync F3.3] kept: false = no Main_Reinit call, nothing will un-suspend the field
+             this.EnterBattleEnd();
++            Memoria.Netsync.NetSyncDiorama.NoteFieldEventsStart(this.gMode, true, reinitCalled); // a co-op diorama return resumed in place (Main_Reinit) -- a static no-op unless one is in flight [ff9mapkit netsync F3.3]
+         }
+         else
+         {
++            Memoria.Netsync.NetSyncDiorama.NoteFieldEventsStart(this.gMode, false, false); // ...or re-entered cold (Main_Init) [ff9mapkit netsync F3.3]
+             if (this.gMode != 2 && this.gMode != 4)
+             {
+                 Int32 scCounterSvr = this.eBin.getVarManually(EBin.SC_COUNTER_SVR);
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 4c9acb8..1e3354b 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -442,6 +442,8 @@ namespace Memoria.Netsync
+         // No-op unless enabled + following + linked; selftest has no socket, so it never mirrors.
+         public static void ApplyStoryBeforeEvents()
+         {
++            NetSyncDiorama.BeforeFieldEvents();   // [ff9mapkit netsync F3.3] DIO-1: a primed warm copy reaches StartEvents's
++                                                  // reinit test only on the diorama's own return (one Boolean read otherwise)
+             OwnSaveReloadInFlight = false;   // F1: any field load ends the ramp's async window -- the
+                                              // autoload's own load runs through here, and a load that
+                                              // beat it to the boundary makes the flag moot either way
+@@ -919,13 +921,18 @@ namespace Memoria.Netsync
+                     // (gMode 3) has no FieldHUD to wait for and was never the crash seam -- keep its
+                     // old immediate fire. Bounded below so a FIELD that never returns control can't
+                     // wedge the ramp forever.
++                    // [ff9mapkit netsync F3.3] DIO-1: control alone no longer means "settled" -- a WARM diorama
++                    // return restores usercontrol=1 from its copy INSIDE StartEvents, on the very first frame,
++                    // while Main_Reinit still runs and every object is suspended. Also wait for that bracket
++                    // to close (a cold load never opens one, so its timing is unchanged).
+                     if (safeToLoad)
+                     {
+                         settled = e2.gMode == 3;
+                         if (!settled)
+                         {
+                             UIManager ui = PersistenSingleton<UIManager>.Instance;
+-                            settled = e2.GetUserControl() && ui != null && ui.State == UIManager.UIState.FieldHUD;
++                            settled = e2.GetUserControl() && ui != null && ui.State == UIManager.UIState.FieldHUD
++                                      && !NetSyncDiorama.BattleReturnInFlight(e2);
+                         }
+                     }
+                 }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs
+index 69b875a..12108cd 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs
+@@ -79,9 +79,14 @@ namespace Memoria.Netsync
+         /// </summary>
+         internal static Func<Int32, PLAYER> SlotSource = i => FF9StateSystem.Common.FF9.party.member[i];
+ 
++        /// <summary>[ff9mapkit netsync F3.3] DIO-6 -- the B3.2 BENCH armed the current mirror (SelfTestMirror), so
++        /// the diorama teardown owns clearing it whatever the role reads at teardown. Cleared with the mirror.</summary>
++        internal static Boolean BenchMirrorArmed;
++
+         public static void Clear()
+         {
+             MirrorActive = false;
++            BenchMirrorArmed = false;                    // [ff9mapkit netsync F3.3] DIO-6
+             for (Int32 i = 0; i < 4; i++)
+                 Slots[i] = default(Slot);
+             _keyItems.Clear();
+@@ -452,6 +457,7 @@ namespace Memoria.Netsync
+                 SlotSource = i => i == 0 ? bench : ff9.party.member[i];
+                 Byte[] frame = SerializeSections();          // the REAL encoder
+                 SlotSource = realSource;
++                BenchMirrorArmed = true;                     // [ff9mapkit netsync F3.3] DIO-6: BEFORE the parse -- it may arm and then fail
+                 if (frame == null || !ParseSections(frame))  // the REAL decoder -> Slots + MirrorActive
+                 {
+                     detail = "codec round-trip failed";
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 9e9771f..f713928 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -55,6 +55,9 @@ namespace Memoria.Harness
+         // `windows[]`, `inbox`, `host_settled_ms`, `orphan_closes`, `chip`, and the verbs `lock`/`hostscene`
+         // (alias `l1`)/`stale`/`unlock`/`click`/`drag`; `advance`/`choice`/`unmatched` now feed the guest's
+         // inbox (they need `lock 1`). A driver checks `dialogue` before asserting on the new keys.
++        // [ff9mapkit netsync F3.3] DIO-1, also additive under 5: `netsync.diorama` (the warm/cold battle-return
++        // observables) and the verbs `dioboot`/`dioleave` (the ~ menu's diorama Boot/Leave). A driver checks for the
++        // `diorama` key -- absent = an engine without the warm return -- before using either.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -318,6 +321,8 @@ namespace Memoria.Harness
+             try
+             {
+                 PollArm();
++                if (_dioramaByHarness)
++                    ServiceHarnessDiorama();    // [ff9mapkit netsync F3.3] armed or not: a deferred release must finish
+                 if (!Active)
+                     return;
+                 // RETRY THE SANDBOX until it takes. The arm transition can land before
+@@ -967,6 +972,10 @@ namespace Memoria.Harness
+                         case "selftest":
+                             if (!Memoria.Netsync.NetSyncClient.HarnessSelfTest(Arg(s, 1, 1) != 0, out why))
+                                 throw new InvalidOperationException(why ?? "netsync selftest refused");
++                            // [ff9mapkit netsync F3.3] an explicit role call supersedes a release still waiting on an
++                            // earlier diorama's teardown (it must not yank the role from this run later); the
++                            // diorama itself stays ours, so the next release still Leaves it.
++                            _dioramaReleasePending = false;
+                             break;
+                         case "bench":
+                             if (!Memoria.Netsync.NetSyncClient.IsSelfTestRole)
+@@ -1061,8 +1070,45 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync talk refused");
+                             break;
+                         }
++                        case "dioboot":
++                        {
++                            // [ff9mapkit netsync F3.3] DIO-1: the ~ menu's diorama "Boot" button (IMGUI -- no injected input
++                            // reaches it), so the warm-return proof runs unattended: `dioboot <scene> [pattern]` from a
++                            // free-standing field -> `netsync.diorama.boot` reads warm|cold. Selftest role only (the
++                            // sanctioned bench; a live guest's dioramas belong to the watcher). Additive -- protocol stays 5.
++                            if (!Memoria.Netsync.NetSyncClient.IsSelfTestRole)
++                                throw new InvalidOperationException("netsync dioboot: needs the selftest role (netsync selftest 1)");
++                            if (Memoria.Netsync.NetSyncDiorama.Booted)
++                                throw new InvalidOperationException("netsync dioboot: a diorama is already booted");
++                            // ...a LIVE field: the watcher's own onField gate (fieldmap set), so a dioboot can never land in
++                            // a return's pre-init frame, where the old map is destroyed and the next init has not run.
++                            if (!Try(() => PersistenSingleton<EventEngine>.Instance.gMode == 1 && SceneDirector.IsFieldScene()
++                                           && PersistenSingleton<EventEngine>.Instance.fieldmap != null, false))
++                                throw new InvalidOperationException("netsync dioboot: boots from a live field only (the ~ menu offers it nowhere else)");
++                            Int32 dioScene = Arg(s, 1, -1);
++                            if (dioScene < 0 || !Try(() => FF9StateSystem.Battle.mapName.ContainsKey(dioScene), false))
++                                throw new ArgumentOutOfRangeException("netsync dioboot", "needs a battle scene id registered on this install");
++                            Memoria.Netsync.NetSyncDiorama.Boot(dioScene, Arg(s, 2, 0));
++                            if (!Memoria.Netsync.NetSyncDiorama.Booted)
++                                throw new InvalidOperationException("netsync dioboot: refused (Memoria.log names why: [NetSync] diorama boot REFUSED)");
++                            _dioramaByHarness = true;
++                            break;
++                        }
++                        case "dioleave":
++                        {
++                            // [ff9mapkit netsync F3.3] DIO-1: the ~ menu's "Leave diorama" -- request-only, teardown on arrival;
++                            // `netsync.diorama.returns` bumps when the field's StartEvents reports its branch.
++                            if (!Memoria.Netsync.NetSyncDiorama.Booted)
++                                throw new InvalidOperationException("netsync dioleave: no diorama is booted");
++                            Memoria.Netsync.NetSyncDiorama.Leave();
++                            if (!Memoria.Netsync.NetSyncDiorama.LeaveRequestedRecently)
++                                throw new InvalidOperationException("netsync dioleave: deferred -- a scene fade is in flight; retry");
++                            // _dioramaByHarness STAYS set until the teardown lands (ServiceHarnessDiorama clears it once
++                            // Booted reads false): a Leave the swirl overwrites must still be retried by a later release.
++                            break;
++                        }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave)");
+                     }
+                     Block(2);
+                     break;
+@@ -1079,8 +1125,37 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync F3.2] a bench dialogue lock swallowing their Confirm (HarnessSelfTest(false)
+         // clears the lock + link-dead levers too). A session the harness did NOT force (a human's own
+         // ini-configured selftest) is left alone.
++        private static Boolean _dioramaByHarness;   // [ff9mapkit netsync F3.3] `netsync dioboot` booted the live diorama
++        // [ff9mapkit netsync F3.3] a release found the harness diorama still up: the role release waits for its teardown
++        private static Boolean _dioramaReleasePending;
++        private static Int32 _dioramaRetryTick = Environment.TickCount - 3600000;   // TICK-BASELINE LAW: a real tick, never 0
+         private static void ReleaseNetsyncOverride()
+         {
++            try
++            {
++                // [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness booted is a leak too -- request its exit
++                // (teardown lands on arrival). A human's own ~ menu diorama is left alone.
++                // Leave is REQUEST-ONLY (deferred mid-fade; overwritten by the swirl's own Replace in SwirlScene's
++                // idle window), and releasing the role here would switch off the watcher fences that could still
++                // end it -- stranding a BattleMapDebug nobody owns. So the role stays until Booted reads false:
++                // ServiceHarnessDiorama retries the Leave each second and releases the role on the teardown.
++                if (_dioramaByHarness && Memoria.Netsync.NetSyncDiorama.Booted)
++                {
++                    if (!Memoria.Netsync.NetSyncDiorama.LeaveRequestedRecently)   // a `dioleave` already in flight is not re-issued
++                        Memoria.Netsync.NetSyncDiorama.Leave();
++                    _dioramaRetryTick = Environment.TickCount;
++                    if (!_dioramaReleasePending)
++                        Memoria.Prime.Log.Message("[ff9mk harness] release: the harness diorama is still up -- the selftest role is held until it tears down");
++                    _dioramaReleasePending = true;
++                    return;
++                }
++                _dioramaByHarness = false;
++                _dioramaReleasePending = false;
++            }
++            catch (Exception err)
++            {
++                Memoria.Prime.Log.Message("[ff9mk harness] diorama release failed: " + err.Message);
++            }
+             try
+             {
+                 String why;
+@@ -1092,6 +1167,40 @@ namespace Memoria.Harness
+             }
+         }
+ 
++        // [ff9mapkit netsync F3.3] DIO-1 -- per frame, armed or not (one Boolean read unless the harness booted a
++        // diorama). Forgets the diorama once its teardown lands (so a human's later ~ diorama is never taken for
++        // ours), finishes a deferred release, and until then re-requests the Leave once a second (Leave itself
++        // defers mid-fade; LeaveRequestedRecently keeps an in-flight one from being re-issued). Never throws.
++        private static void ServiceHarnessDiorama()
++        {
++            try
++            {
++                if (!Memoria.Netsync.NetSyncDiorama.Booted)
++                {
++                    _dioramaByHarness = false;
++                    if (_dioramaReleasePending)
++                    {
++                        _dioramaReleasePending = false;
++                        String why;
++                        Memoria.Netsync.NetSyncClient.HarnessSelfTest(false, out why);
++                        Memoria.Prime.Log.Message("[ff9mk harness] the harness diorama tore down -- the deferred selftest release ran");
++                    }
++                    return;
++                }
++                if (_dioramaReleasePending && Environment.TickCount - _dioramaRetryTick >= 1000
++                    && !Memoria.Netsync.NetSyncDiorama.LeaveRequestedRecently)
++                {
++                    _dioramaRetryTick = Environment.TickCount;
++                    Memoria.Netsync.NetSyncDiorama.Leave();
++                }
++            }
++            catch (Exception err)
++            {
++                _dioramaReleasePending = false;             // one line, not one per frame
++                Memoria.Prime.Log.Message("[ff9mk harness] diorama release service failed: " + err.Message);
++            }
++        }
++
+         /// <summary>Close the game the way the game closes itself.</summary>
+         /// <remarks>
+         /// ⚠ `Application.Quit()` DOES NOT QUIT THIS GAME. `UIKeyTrigger.OnApplicationQuit` calls
+@@ -2319,16 +2428,46 @@ namespace Memoria.Harness
+                 sb.Append("]},");
+                 Num(sb, "host_settled_ms", Memoria.Netsync.NetSyncClient.HarnessHostSettledMs); sb.Append(",");
+                 Num(sb, "orphan_closes", Memoria.Netsync.NetSyncClient.HarnessOrphanCloses); sb.Append(",");
+-                Str(sb, "chip", Memoria.Netsync.NetSyncClient.HarnessDialogChip);
++                Str(sb, "chip", Memoria.Netsync.NetSyncClient.HarnessDialogChip); sb.Append(",");
++                AppendDiorama(sb);
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+         }
+ 
++        // [ff9mapkit netsync F3.3] DIO-1 -- `netsync.diorama`, additive under protocol 5 (an engine without it publishes
++        // no key: read absence as "cannot", never as "cold"). `boot` = the last boot's return decision (warm = the
++        // stock battle-return slot was primed; `boot_why` = the cold reason), `boot_x`/`boot_z` = the controlled
++        // actor at a WARM boot (PosObj.pos -- the same source as `player.x/z`), `primed` = our copy still sits in
++        // the slot, `returns` counts diorama returns this process and `last_return` is the branch the return's
++        // StartEvents REPORTED (warm = Main_Reinit called, cold = Main_Init, reinit-missing = the reinit branch ran
++        // with NO Main_Reinit call -- a frozen field). `returns` bumps at StartEvents, before the actors are placed:
++        // compare positions only once `player.control` is back. `resuming` = a battle-return bracket is open on the
++        // live field right now (Main_Reinit still running / objects suspended) -- a warm proof asserts it false
++        // once control is back, so a frozen field cannot pass on position alone. AppendNetsync's catch line
++        // carries the same keys at their sentinels, inside its SECOND literal (test_harness_netsync.py reads that
++        // line as exactly two literals around NetsyncF3Retired).
++        private static void AppendDiorama(StringBuilder sb)
++        {
++            sb.Append("\"diorama\":{");
++            Bool(sb, "booted", Memoria.Netsync.NetSyncDiorama.Booted); sb.Append(",");
++            Str(sb, "boot", Memoria.Netsync.NetSyncDiorama.LastBootMode); sb.Append(",");
++            Str(sb, "boot_why", Memoria.Netsync.NetSyncDiorama.LastBootWhy); sb.Append(",");
++            Num(sb, "boot_field", Memoria.Netsync.NetSyncDiorama.LastBootField); sb.Append(",");
++            Num(sb, "boot_x", Memoria.Netsync.NetSyncDiorama.LastBootX); sb.Append(",");
++            Num(sb, "boot_z", Memoria.Netsync.NetSyncDiorama.LastBootZ); sb.Append(",");
++            Bool(sb, "primed", Memoria.Netsync.NetSyncDiorama.WarmPrimed); sb.Append(",");
++            Num(sb, "returns", Memoria.Netsync.NetSyncDiorama.ReturnCount); sb.Append(",");
++            Str(sb, "last_return", Memoria.Netsync.NetSyncDiorama.LastReturnMode); sb.Append(",");
++            Num(sb, "last_return_field", Memoria.Netsync.NetSyncDiorama.LastReturnField); sb.Append(",");
++            Bool(sb, "resuming", Memoria.Netsync.NetSyncDiorama.HarnessFieldResuming);
++            sb.Append("}");
++        }
++
+         // The F3 lockstep keys a rev-5 driver may still read, pinned to "nothing" (see ProtocolVersion), plus
+         // the contract tag that tells a new driver the F3.2 keys are live.
+         private const String NetsyncF3Retired = "\"dialogue\":\"authority\",\"l1_pinned\":false,\"l1_forced_control\":false,"
