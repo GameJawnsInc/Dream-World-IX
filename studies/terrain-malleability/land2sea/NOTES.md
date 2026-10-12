@@ -256,7 +256,9 @@ and the frames show no roof, waterfall or river left over the sea.
 ## 8. Not done
 
 - **Islands whose beach water another coast shares** (5), and the island whose block has no sea5 part (1).
-- **The big map** still draws a sunk island: `world-minimap` paints deployed land, it cannot erase stock land.
+- ~~**The big map** still draws a sunk island~~ **DONE 2026-10-12:** `world-minimap` erases land a folder removed,
+  on the all-world chart and the disc-1 Mist chart (`ff9mapkit/world/maperase.py`; the design and its census:
+  `../mapchart/NOTES.md`).
 - **Moving an entrance onto the new sea,** as disc 4 did for Shimmering (`--allow-entrances` drops it). Sinking
   Daguerreo drops a story location's entrance.
 - **A wall round a whole island** (a building ringing its coast) is refused: its hole is a ring round the island, which

@@ -194,10 +194,23 @@ FolderNames-stacked — Moguri ships its own HD copy, so the override must sit A
 BOTH `FolderNames` AND `Priorities`, same order, or the launcher's Play click reverts the move).
 `ff9mapkit world-minimap --mod-folder <mod>` DRAWS the folder's deployed overworld land onto the active map:
 the engine's own projection (`w_naviGetPos`: the mapped world is exactly **1536×1280 units**) onto the image's
-structurally-detected art rect (letterbox bars + the drawn frame line), land colours sampled from how the map
-draws real islets, a darker rim. Data-derived end to end (the 49 live navipos town anchors verify the
-registration); the disc-1 "mistcontinent" map is a crop that excludes the SW pocket and is left alone.
+registered art rect (the stock land mask correlated against the chart's land pixels), land colours sampled from
+how the map draws real islets, a darker rim. Data-derived end to end (the 49 live navipos town anchors verify the
+registration). Only land the folder ADDS is drawn; a real cell's own stock land keeps its painted look.
 RELAUNCH to apply. The custom continent appears on the map — markers on it still need the DLL seam below.
+
+**The erase (★ built 2026-10-12).** Land the folder REMOVED from a real cell (`world-sink`, an in-place coast cut)
+comes off the chart, repainted as the sea round it (`world/maperase.py`). The chart is hand-painted: its shapes
+differ from the geometry, and the painted world DRIFTS off the registered frame linearly (~4% short down, ~0.9% narrow
+across: right in the middle, up to ~24px off at the top and bottom edges; `WORLD_MAP_DRIFT`, fitted over 46
+islands to ~1.3px rms). So each removed island is found on the ART — the stock geometry slid up to 20px round its
+predicted drift to best overlap the drawn features (IoU) — and only what the chart draws of it goes: its
+land, rim, shadow, and any halo whose water turned deep. The repaint is parchment where the new water is deep, else
+what the kept chart beside it draws (the green halo or parchment), with the parchment's own grain. A site the chart
+does not draw (the corner island at (0, 0), under the frame) is skipped and reported. The disc-1 **Mist chart**
+(`world_map_full_mistcontinent.png`, shown below scenario 5990 — a separately painted close-up of the Mist
+continent, registered at 1.300 × 1.3075 px/u) gets the same erase as its own override, never touching its corner
+emblem. The CLI prints each site: pixels repainted, how far the chart sat from the geometry, or why it skipped.
 
 **Authoring seams (no-DLL vs. rebuild):**
 | Capability | Seam | DLL? | Diff |
@@ -975,8 +988,8 @@ gets the hidden blanking stub. Disc 4 is replayed on its own ground where it dif
 takes (land no water meets is not an island). Refused: beach water another coast shares, a block whose prefab lacks a
 band the tiles need. An entrance on the island or its building goes with it only with `--allow-entrances` (sinking
 Daguerreo drops a story location's entrance). A party standing where the island was stands in
-the water at its class's walk sink (0.586u under the surface on mid water, 1.367u on deep). The big map still draws
-the island: `world-minimap` paints deployed land and cannot erase stock land.
+the water at its class's walk sink (0.586u under the surface on mid water, 1.367u on deep). The big map draws the
+island until `world-minimap` runs: it takes the island off both charts (below).
 
 ### `world-forest` + `world-hill` — interior topography on a deployed island
 

@@ -20,6 +20,8 @@ pause-map dot in that locId range without an engine table edit.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 NAVI_BIT_BASE = 736          # gEventGlobal bit for marker locId 0 (byte 92 << 3); marker N -> bit 736+N
 NAVI_LOCATION_COUNT = 64     # w_naviLocationPos is navipos[2, 64]
 
@@ -234,13 +236,16 @@ def deploy_marker_renames(cfg_list, *, mod_folder: str, game=None, langs=None) -
 # is exactly 1536x1280 units -> normalized (sx, syTop); the world sits on the
 # REGISTERED art sub-rect (WORLD_MAP_ART_FRAME below -- FFT-registered against the
 # true stock terrain geometry; the navipos marker fit vx ~ wx*240/1536 independently
-# confirms the extents). The disc-1 "mistcontinent" map is a crop that excludes the
-# SW pocket, so only the all-world map is composited.
+# confirms the extents). The disc-1 "mistcontinent" map (shown below scenario 5990) is
+# a separately painted close-up of the Mist continent that excludes the SW pocket: new
+# land is drawn on the all-world map only, but land a folder REMOVED is erased from
+# both (world/maperase.py).
 
 #: the engine's mapped world extents (w_naviGetPos, map 1)
 WORLD_MAP_EXTENT = (1536.0, 1280.0)
 
 MAP_SPRITE_REL = "FF9_Data/EmbeddedAsset/ui/sprites/world_map_full_all.png"
+MIST_SPRITE_REL = "FF9_Data/EmbeddedAsset/ui/sprites/world_map_full_mistcontinent.png"
 
 
 def _land_anchors():
@@ -273,11 +278,11 @@ def _ocean_probes():
 from .frames import wrap_world_xz as _wrap_world     # the ONE fold (audit rec 12); was local
 
 
-def _load_active_world_map(mod_folder=None, *, game=None):
-    """The ACTIVE all-world map image + its source: the highest-priority loose PNG
-    across the stacked FolderNames (skipping ``mod_folder``'s own override -- the
-    compositor must not composite over its own prior output), else the stock
-    ``sharedassets2.assets`` texture."""
+def _load_active_world_map(mod_folder=None, *, game=None, sprite_rel: str = MAP_SPRITE_REL):
+    """The ACTIVE map image (``sprite_rel``: the all-world map by default) + its source:
+    the highest-priority loose PNG across the stacked FolderNames (skipping
+    ``mod_folder``'s own override -- the compositor must not composite over its own
+    prior output), else the stock ``sharedassets2.assets`` texture."""
     import re as _re
     from PIL import Image
     from .. import config
@@ -292,20 +297,21 @@ def _load_active_world_map(mod_folder=None, *, game=None):
     for f in folders:
         if mod_folder and f == mod_folder:
             continue
-        p = gp / f / MAP_SPRITE_REL
+        p = gp / f / sprite_rel
         if not p.is_file():
-            p2 = gp / f / MAP_SPRITE_REL.replace("ui/sprites", "UI/Sprites")
+            p2 = gp / f / sprite_rel.replace("ui/sprites", "UI/Sprites")
             p = p2 if p2.is_file() else p
         if p.is_file():
             return Image.open(p).convert("RGB"), str(p)
     import UnityPy
+    name = sprite_rel.rsplit("/", 1)[-1][:-len(".png")]
     env = UnityPy.load(str(gp / "x64/FF9_Data/sharedassets2.assets"))
     for obj in env.objects:
         if obj.type.name == "Texture2D":
             d = obj.read()
-            if str(getattr(d, "m_Name", "")) == "world_map_full_all":
+            if str(getattr(d, "m_Name", "")) == name:
                 return d.image.convert("RGB"), "sharedassets2.assets"
-    raise ValueError("world_map_full_all not found in any mod folder or sharedassets2")
+    raise ValueError(f"{name} not found in any mod folder or sharedassets2")
 
 
 # Where the painted world sits inside the map PNG, as FRACTIONS of the image:
@@ -321,11 +327,74 @@ def _load_active_world_map(mod_folder=None, *, game=None):
 WORLD_MAP_ART_FRAME = (51 / 1273.0, 42 / 1080.0, 1168 / 1273.0, 1002 / 1080.0)
 
 
-def _world_art_rect(im):
+def _world_art_rect(im, frame=WORLD_MAP_ART_FRAME):
     """The registered world art rect ``(x0, y0, x1, y1)``, scaled to ``im``."""
-    fx, fy, fw, fh = WORLD_MAP_ART_FRAME
+    fx, fy, fw, fh = frame
     return (fx * im.width, fy * im.height,
             (fx + fw) * im.width, (fy + fh) * im.height)
+
+
+# The disc-1 MIST chart, same form (the world's 1536x1280 onto X = fx*W + u*fw*W, Y = fy*H + t*fh*H): a close-up,
+# so the world rect overhangs the image. REGISTERED 2026-10-12 like the all-world frame -- the stock land mask
+# rescaled and correlated against the chart's land pixels over a sweep of x and y scales, the optimum interior to
+# both (Dice 0.91-0.93 by land mask; the outline hugs the painted coast): 1.300 px/u across, 1.3075 down, world (0, 0) at
+# (-778, -586). It shows world x ~598..1578, z ~-448..-1274.
+MIST_MAP_ART_FRAME = (-778 / 1273.0, -586 / 1080.0, 1.300 * 1536 / 1273.0, 1.3075 * 1280 / 1080.0)
+# THE CHART'S DRIFT (2026-10-12, studies/terrain-malleability/mapchart census): the all-world chart is not its
+# registered frame scaled. The local offsets of 46 islands, each found on the art, fit a plane to ~1.3px rms: the
+# painted world is ~4% short down and ~0.9% narrow across, so a coast near the top or bottom edge is painted up to
+# ~24px from where WORLD_MAP_ART_FRAME puts it (the middle agrees). (dx/W, dy/H) = a + b*(x/W) + c*(y/H) per axis.
+# The map erase starts its search there; new land is still drawn on the frame. The Mist frame was registered with
+# its two scales apart and needs none (16 islands, all within 7px).
+WORLD_MAP_DRIFT = ((-0.87 / 1273.0, -0.0089, 0.0002 * 1080 / 1273.0),
+                   (19.22 / 1080.0, -0.0014 * 1273 / 1080.0, -0.0401))
+
+
+def _drift(im, coeffs):
+    """``coeffs`` (a :data:`WORLD_MAP_DRIFT`-form plane) as ``(x, y) -> (dx, dy)`` in ``im``'s pixels."""
+    (ax, bx, cx), (ay, by, cy) = coeffs
+    W, H = im.width, im.height
+    return lambda x, y: (W * (ax + bx * x / W + cx * y / H), H * (ay + by * x / W + cy * y / H))
+
+
+# Both charts share one drawn frame: the painted art lies inside it (the all-world art rect pulled in 8px). The
+# erase never touches the frame, or the Mist chart's corner emblem.
+CHART_INSIDE = (59 / 1273.0, 50 / 1080.0, 1211 / 1273.0, 1036 / 1080.0)
+MIST_EMBLEM = (0.0, 880 / 1080.0, 245 / 1273.0, 1.0)
+
+
+def _chart_inside(im, exclude=()):
+    """The pixels inside the chart's drawn frame, minus ``exclude`` boxes (image fractions ``(x0, y0, x1, y1)``)."""
+    import numpy as np
+    m = np.zeros((im.height, im.width), bool)
+    for i, (fx0, fy0, fx1, fy1) in enumerate((CHART_INSIDE,) + tuple(exclude)):
+        box = (slice(int(round(fy0 * im.height)), int(round(fy1 * im.height))),
+               slice(int(round(fx0 * im.width)), int(round(fx1 * im.width))))
+        m[box] = i == 0
+    return m
+
+
+def _erase_chart(im, mod_folder, *, disc, lod, game, frame, exclude=(), drift=None):
+    """Run the map erase (:mod:`.maperase`) over chart ``im`` registered by ``frame``: ``(image, stock, edited,
+    reports)``. ``stock`` is the chart's per-pixel stock class map (DEEP/SHALLOW/LAND) round the edited cells."""
+    import numpy as np
+    from PIL import Image
+    from . import maperase as ME
+    x0, y0, x1, y1 = _world_art_rect(im, frame)
+    ext_x, ext_z = WORLD_MAP_EXTENT
+
+    def to_px(wx, wz):                       # world_tris are absolute (x in [0, 1536]): no fold
+        return x0 + (wx / ext_x) * (x1 - x0), y0 + ((-wz) / ext_z) * (y1 - y0)
+    stock, effective, edited = ME.class_rasters(mod_folder, disc=disc, to_px=to_px, size=im.size, lod=lod,
+                                                game=game)
+    if not edited:
+        return im, stock, edited, []
+    A = np.asarray(im, dtype=float).copy()
+    reports = ME.erase_removed(A, stock, effective, inside=_chart_inside(im, exclude),
+                               drift=_drift(im, drift) if drift else None)
+    if any(r.get("erased_px") for r in reports):
+        im = Image.fromarray(np.clip(np.rint(A), 0, 255).astype(np.uint8))
+    return im, stock, edited, reports
 
 
 def _islet_anchors():
@@ -339,8 +408,23 @@ def _islet_anchors():
 def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=None,
                         dry_run: bool = False, verbose: bool = True,
                         target_disc: int | None = None) -> dict:
+    """:func:`render_world_maps`, then write the folder's chart override(s) (none on a dry run)."""
+    summary, im, mim = render_world_maps(mod_folder, disc=disc, lod=lod, game=game, verbose=verbose,
+                                         target_disc=target_disc)
+    summary["dry_run"] = dry_run
+    if not dry_run:
+        for img, out in ((im, summary["out"]), (mim, (summary["mist"] or {}).get("out"))):
+            if img is not None and out:
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                img.save(out)
+    return summary
+
+
+def render_world_maps(mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=None, verbose: bool = True,
+                      target_disc: int | None = None) -> tuple:
     """Draw the mod folder's deployed overworld LAND onto the all-world map image
-    and ship it as the folder's own ``world_map_full_all.png`` override.
+    (shipped by :func:`composite_world_map` as the folder's own ``world_map_full_all.png``
+    override). Returns ``(summary, all-world image, Mist image or None)``.
 
     Reads every ``Block[x][y] Terrain.ff9mesh`` under the folder's WorldMap tree,
     projects the terrain triangles through the engine's own map projection
@@ -348,12 +432,19 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
     (fill = the median land colour at the real-town anchors; rim = that colour
     darkened). Data-derived end to end -- no hand art. RELAUNCH to see it.
 
+    THE ERASE (disc 1 and 4): land the folder REMOVED from a real cell (``world-sink``, an
+    in-place coast cut) is taken off the chart first, repainted as the sea round it
+    (:mod:`.maperase`), on the all-world chart and, on disc 1, the Mist chart too (its own
+    ``world_map_full_mistcontinent.png`` override, written when it erases something or the
+    folder already has one). A real cell's own stock land is never repainted flat: only the
+    land a folder ADDS is drawn. A site the chart does not draw is skipped and reported.
+
     THE READ/WRITE DISC SPLIT. ``target_disc`` moves the deployed-tree SCAN to that namespace
     (a synthetic world's land lives only there; scanning Disc1 would draw the real disc-1
     islands on a map the caller believes describes a synthetic world). ⚠ The produced sprite
     override is per MOD FOLDER, not per disc -- one ``world_map_full_all.png`` serves every
     world the folder hosts, so compositing a synthetic namespace OVERWRITES the sprite a
-    disc-1 composite produced (last writer wins)."""
+    disc-1 composite produced (last writer wins). A synthetic namespace is never erased."""
     import re as _re
     from PIL import ImageDraw
     from .. import config
@@ -385,6 +476,13 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
     blocks = sorted(root.rglob("Block[[]*[]] Terrain.ff9mesh"))
     if not blocks:
         raise ValueError(f"{mod_folder} has no deployed Disc{rtarget} WorldMap Terrain overrides to draw")
+    stock, edited, erased = None, set(), []
+    if rtarget in (1, 4):                    # a real disc: take off the land the folder removed
+        from .maperase import LAND, dilate
+        im, stock, edited, erased = _erase_chart(im, mod_folder, disc=rtarget, lod=lod, game=game,
+                                                 frame=WORLD_MAP_ART_FRAME, drift=WORLD_MAP_DRIFT)
+        edited = set(edited)
+        stock_land = dilate(stock == LAND, 2)   # a kept coast's thin tri centres a half-covered pixel
     draw = ImageDraw.Draw(im)
     n_tris = 0
     polys = []
@@ -394,6 +492,10 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
         bm = M.blockmesh_from_ff9mesh(p, disc=rtarget, x=bx, y=by, lod=lod, part="terrain")
         ox, oz = 64.0 * bx, -64.0 * by
         for tri in bm.tris:
+            a, b, c = (bm.verts[i] for i in tri)
+            area2 = (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2])
+            if max(a[1], b[1], c[1]) < -40.0 or abs(area2) <= 1e-6:
+                continue                     # a hidden stub / divert-arm stub: not land (it drew a stray dot)
             # the block ORIGIN is already a wrapped label (<=1472), so wx = ox + local stays in
             # [0,1536] and needs NO further fold -- to_px's per-vertex _wrap_world would fold a
             # vert at exactly x=1536 to 0 and smear a seam block's polygon across the whole
@@ -401,6 +503,10 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
             # at the chart edges, which is exactly how the engine's own minimap unrolls a torus.
             pts = [(x0 + ((bm.verts[i][0] + ox) / ext_x) * (x1 - x0),
                     y0 + ((-(bm.verts[i][2] + oz)) / ext_z) * (y1 - y0)) for i in tri]
+            if (bx, by) in edited:           # a real cell: draw only the land the folder ADDED
+                cx, cy = (int(sum(q[0] for q in pts) / 3), int(sum(q[1] for q in pts) / 3))
+                if 0 <= cx < W and 0 <= cy < H and stock_land[cy, cx]:
+                    continue
             polys.append(pts)
             n_tris += 1
     for pts in polys:                       # rim pass: a 1px outline under the fills
@@ -409,8 +515,15 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
         draw.polygon(pts, fill=fill)
     out = gp / mod_folder / MAP_SPRITE_REL
     summary = {"source": src, "blocks": len(blocks), "tris": n_tris, "fill": fill,
-               "art_rect": [x0, y0, x1, y1], "out": str(out), "dry_run": dry_run}
-    if not dry_run:
-        out.parent.mkdir(parents=True, exist_ok=True)
-        im.save(out)
-    return summary
+               "art_rect": [x0, y0, x1, y1], "out": str(out), "erased": erased, "mist": None}
+    mim = None
+    if rtarget == 1 and edited:              # the Mist chart (disc 1 below scenario 5990): erase only
+        mist_out = gp / mod_folder / MIST_SPRITE_REL
+        mim, msrc = _load_active_world_map(mod_folder, game=game, sprite_rel=MIST_SPRITE_REL)
+        mim, _s, _e, merased = _erase_chart(mim, mod_folder, disc=1, lod=lod, game=game, frame=MIST_MAP_ART_FRAME,
+                                            exclude=(MIST_EMBLEM,))
+        if any(r.get("erased_px") for r in merased) or mist_out.is_file():
+            summary["mist"] = {"source": msrc, "out": str(mist_out), "erased": merased}
+        else:
+            mim = None
+    return summary, im, mim

@@ -4998,7 +4998,7 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
         print("  " + q)
     _world_apply_note(needs="the CUSTOM engine (s34)", extra="revert = delete the deployed files.")
     print("  !! A save standing on the island loads onto open water: move such saves off it first. The big map still "
-          "draws the island (world-minimap paints deployed land; it cannot erase stock land).")
+          f"draws the island until `world-minimap --mod-folder {args.mod_folder}` takes it off (and relaunch).")
     return 0
 
 
@@ -6110,8 +6110,23 @@ def _cmd_world_minimap(args: argparse.Namespace) -> int:
     print(f"{head}: {s['blocks']} deployed block(s), {s['tris']} land tris drawn "
           f"(fill {s['fill']}, art rect {tuple(s['art_rect'])})")
     print(f"  base: {s['source']}")
+    charts = [("all-world", s["erased"])] + ([("Mist", s["mist"]["erased"])] if s["mist"] else [])
+    for chart, sites in charts:
+        for r in sites:
+            x0, y0, x1, y1 = r["window"]
+            where = f"{chart} chart px ({x0},{y0})-({x1},{y1})"
+            if r.get("skipped"):
+                print(f"  erase: {where}: {r['removed_px']} px of removed land SKIPPED -- {r['skipped']} "
+                      f"(best overlap {r['iou']})")
+            else:
+                drift = f", its drift predicts {r['expected']}" if "expected" in r else ""
+                print(f"  erase: {where}: {r['erased_px']} px repainted ({r.get('to_halo_px', 0)} as halo, "
+                      f"{r.get('halo_to_sea_px', 0)} halo to open sea); the chart sits {r['shift']} px off the "
+                      f"geometry here{drift} (overlap {r['iou_unshifted']} -> {r['iou']})")
     if not s["dry_run"]:
         print(f"  -> {s['out']}")
+        if s["mist"]:
+            print(f"  -> {s['mist']['out']}  (the Mist chart: disc 1 below scenario 5990)")
         print("  RELAUNCH to apply; the override must sit ABOVE any folder shipping its own "
               "map PNG (MoguriMain) in Memoria.ini FolderNames AND Priorities (edit BOTH, same "
               "order, game+launcher closed -- the launcher rewrites FolderNames from Priorities).")
@@ -10616,9 +10631,12 @@ def build_parser() -> argparse.ArgumentParser:
     wmm = sub.add_parser("world-minimap",
                          help="draw a mod folder's deployed overworld LAND onto the in-game all-world map "
                               "image (the mod-overridable world_map_full_all.png) -- the custom continent "
-                              "appears on the map. Data-derived: the engine's own 1536x1280 projection onto "
-                              "the image's detected art rect, colours sampled from how the map draws real "
-                              "islets. No DLL; relaunch to apply. NOTE: the override must sit ABOVE any "
+                              "appears on the map -- and take off the land it REMOVED (world-sink, an in-place "
+                              "coast cut), repainted as the sea round it, on the Mist map too. Data-derived: "
+                              "the engine's own 1536x1280 projection onto the image's registered art rect, "
+                              "colours sampled from how the map draws real islets; the erase finds each island "
+                              "on the painted chart itself (it sits up to ~15px off the geometry). No DLL; "
+                              "relaunch to apply. NOTE: the override must sit ABOVE any "
                               "folder shipping its own map PNG (e.g. MoguriMain) in Memoria.ini FolderNames "
                               "AND Priorities (edit BOTH, same order -- the launcher rewrites FolderNames "
                               "from Priorities at every Play click).")
