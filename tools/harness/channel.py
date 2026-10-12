@@ -56,6 +56,19 @@ from pathlib import Path
 #:      (Additive, same version: ``player.listener`` and the ``netsync talk <uid>`` sub-verb --
 #:      the F3.1 talk-relay bench; s88's ``storytrace`` and s89's ``objects``; s90's ``player.yaw`` /
 #:      ``player.face``, the ``turn`` verb and its ``turn_end`` event -- :attr:`State.facing_status`.)
+#:      (Additive, same version: s96, the F3.2 host-authoritative dialogue. ``netsync.dialogue`` =
+#:      ``"authority"`` names the contract -- absent = the F3 lockstep. NOT a bump on purpose: a bump
+#:      makes every other session's rev-5 driver refuse the engine, and only the co-op scenarios read
+#:      ``netsync``. The F3 keys stay, PINNED to "nothing": ``l1_pinned``/``l1_forced_control``/
+#:      ``wait_armed`` false, ``align_win``/``align_text``/``applied_seq``/``wait_ms``/``wait_limit_ms``
+#:      -1, ``pending`` null; ``suppress`` keeps its meaning but rises from the frame a line OPENS
+#:      under the lock. New keys: the bench levers ``lock``/``stale``, ``lock_engaged``, ``unlocked``
+#:      (the ~ menu panic unlock, until the next field load), ``windows[]`` {win, text, field, cls =
+#:      locked|orphaned|local, state, page, inh}, ``inbox`` {count, heads[]}, ``host_settled_ms`` (-1 =
+#:      not settled), ``orphan_closes``, ``chip`` (null = none). New sub-verbs ``lock 1|0``,
+#:      ``hostscene 0|1`` (alias ``l1``), ``stale 1|0``, ``unlock``, ``click``, ``drag <dy>``;
+#:      ``advance``/``choice``/``unmatched`` now feed the guest's inbox and need ``lock 1``. A driver
+#:      checks :attr:`State.dialogue_authority` before asserting on a new key.)
 PROTOCOL = 5
 
 #: The agent polls the arm file every 30 FRAMES (HarnessAgent.PollArm). A delete+create inside one
@@ -609,21 +622,122 @@ class State:
 
         ``None`` rather than ``{}`` on purpose: "the engine does not publish this" and "co-op is
         off" are different facts, and a scenario asserting on lockstep state must be able to tell
-        them apart instead of reading an absent section as a disengaged client.
+        them apart instead of reading an absent section as a disengaged client. Which dialogue
+        contract the keys describe -- the F3 lockstep or the F3.2 authority -- is
+        :attr:`dialogue_authority`.
         """
         return self.raw.get("netsync")
 
     @property
     def lockstep_pending(self) -> dict | None:
-        """The dialogue frame HELD in the guest's one-slot holder (field/win/text/kind/index/seq)."""
+        """The dialogue frame HELD in the guest's one-slot holder (field/win/text/kind/index/seq).
+
+        F3 lockstep only: an F3.2 engine (:attr:`dialogue_authority`) has no holder and pins ``pending``
+        to null, so this is None there whatever the guest is doing -- read :attr:`dialogue_inbox_count`."""
         ns = self.netsync
         return None if ns is None else ns.get("pending")
 
     @property
     def lockstep_suppressed(self) -> bool:
-        """Whether the guest's own Confirm/Cancel are being swallowed by the lockstep right now."""
+        """Whether the guest's own Confirm/Cancel are being swallowed by the lockstep right now.
+
+        ⚠ False on an engine with no ``netsync`` block too -- the F3 reading. :attr:`dialogue_suppressed`
+        tells "cannot" (None) from "not swallowing" (False)."""
         ns = self.netsync
         return bool(ns.get("suppress", False)) if ns else False
+
+    # F3.2 (s96): host-authoritative dialogue. Every accessor below reads an ABSENT key -- or no block -- as
+    # None, "this engine cannot", never as "nothing there": a guest assertion that read an F3 engine's missing
+    # `lock_engaged` as False would be green against the wrong DLL. Check :attr:`dialogue_authority` first.
+    def _ns_key(self, key: str, kind):
+        ns = self.netsync
+        if not isinstance(ns, dict) or key not in ns:
+            return None
+        v = ns[key]
+        # bool is an int subclass: an int reader must never take True for 1, nor a bool reader 1 for True
+        if kind is int and (isinstance(v, bool) or not isinstance(v, int)):
+            return None
+        if kind is not int and not isinstance(v, kind):
+            return None
+        return v
+
+    @property
+    def dialogue_authority(self) -> bool | None:
+        """Whether the engine speaks the F3.2 host-authoritative dialogue contract (``netsync.dialogue`` ==
+        ``"authority"``, s96). False: the block is there without the tag -- the F3 lockstep engine, whose
+        guest is driven by the one-slot holder (:attr:`lockstep_pending`). None: no ``netsync`` block at all
+        (an engine below protocol 5), or a tag this driver does not know -- a contract it cannot read."""
+        ns = self.netsync
+        if not isinstance(ns, dict):
+            return None
+        tag = ns.get("dialogue")
+        if tag is None:
+            return False
+        return True if tag == "authority" else None
+
+    @property
+    def dialogue_lock_engaged(self) -> bool | None:
+        """THE LOCK (s96): a following guest's lines are the host's to drive -- session (or the bench lock)
+        && on a field && this field not panic-unlocked. None on an engine without it."""
+        return self._ns_key("lock_engaged", bool)
+
+    @property
+    def dialogue_unlocked(self) -> bool | None:
+        """The ~ menu panic unlock (``netsync unlock``) is in force -- until the next field load."""
+        return self._ns_key("unlocked", bool)
+
+    @property
+    def dialogue_suppressed(self) -> bool | None:
+        """The guest's own dialogue keys / clicks are swallowed right now (``suppress``): under the lock, from
+        the frame a lockable, non-``inh`` line OPENS. Unlike :attr:`lockstep_suppressed`, None on an engine
+        that publishes no ``suppress``."""
+        return self._ns_key("suppress", bool)
+
+    @property
+    def dialogue_windows(self) -> list[dict] | None:
+        """Every line the guest tracks (s96 ``windows[]``): ``win``, ``text``, ``field``, ``cls`` (locked /
+        orphaned / local), ``state`` (the Dialog state), ``page``, ``inh`` (FlagButtonInh: a script-polled
+        line, never suppressed). ``[]`` = none tracked; None = an engine without the tracker."""
+        wins = self._ns_key("windows", list)
+        return None if wins is None else [dict(w) for w in wins if isinstance(w, dict)]
+
+    @property
+    def dialogue_inbox(self) -> dict | None:
+        """The host events waiting on the guest (s96 ``inbox``): ``count`` and ``heads`` -- the earliest event
+        of each window key (field/win/text/kind/index/seq/scene/age_ms/tried), at most 8."""
+        inbox = self._ns_key("inbox", dict)
+        if inbox is None:
+            return None
+        return dict(inbox, heads=[dict(h) for h in inbox.get("heads") or [] if isinstance(h, dict)])
+
+    @property
+    def dialogue_inbox_count(self) -> int | None:
+        """How many host events wait in the guest's inbox. None on an engine without the inbox."""
+        inbox = self._ns_key("inbox", dict)
+        v = None if inbox is None else inbox.get("count")
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+    @property
+    def dialogue_host_settled_ms(self) -> int | None:
+        """How long the host has read SETTLED (scene down, no relayed start, co-located or provably away), in
+        ms; -1 = not settled. The orphan rule acts once this passes OrphanGraceMs. None = cannot."""
+        return self._ns_key("host_settled_ms", int)
+
+    @property
+    def dialogue_orphan_closes(self) -> int | None:
+        """Lines the orphan rule auto-closed this session (a line the host provably lacks, closed at reading
+        pace) -- monotonic, so assert on a DELTA. None on an engine without the rule."""
+        return self._ns_key("orphan_closes", int)
+
+    @property
+    def dialogue_chip(self) -> str | None:
+        """The co-op chip's text. ``""`` when the engine draws none right now (it publishes null), None when it
+        cannot draw one at all -- the absent key and the empty chip must not read alike."""
+        ns = self.netsync
+        if not isinstance(ns, dict) or "chip" not in ns:
+            return None
+        v = ns["chip"]
+        return "" if v is None else str(v)
 
     # -- what is highlighted ----------------------------------------------------------------
     @property

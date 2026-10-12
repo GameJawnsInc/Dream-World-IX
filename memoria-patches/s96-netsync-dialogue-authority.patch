@@ -1,0 +1,3098 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
+new file mode 100644
+index e69de29..5c32122 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
+@@ -0,0 +1,1252 @@
++using System;
++using System.Collections.Generic;
++using Memoria.Prime;
++
++namespace Memoria.Netsync
++{
++    // [ff9mapkit netsync F3.2] C2 S-SYNC core -- HOST-AUTHORITATIVE DIALOGUE on a following guest
++    // (studies/field-coop/F3.2-DESIGN.md "sync_changes", S1-S8). NetSyncClient owns ONE instance (_dlg) and
++    // only FEEDS it: the wire reads, the session predicate and the relay-accept edge stay there (they need its
++    // privates); everything about WINDOWS lives here --
++    //   * the window tracker: every lockable ETb window on the guest, keyed by reference + Id + TextId
++    //     (dialogs are pooled), classed Locked (the host drives it), Orphaned (the host provably lacks it:
++    //     auto-closed at reading pace) or Local (handed back, or it predates the lock);
++    //   * the event inbox: the host's type-7 taps normalized to DlgEvent, seq-ordered, capped at 64, applied
++    //     per window KEY (fld, win, text) in host order -- an event for a window the guest never opens blocks
++    //     nothing (DLG-2/WIRE-4), and nothing is ever drained while the session holds (DLG-3);
++    //   * the orphan rule, the chip text, the helpers, and a pure SelfTest of the two state machines.
++    // THE LOCK LAW: a lockable window is locked from the frame it opens (an UNTRACKED window counts as locked)
++    // and is released ONLY by host state -- a host event, the orphan rule (the host settled and idle), the
++    // link dead for LinkGraceMs, the session ending, or the deliberate ~ menu unlock. Never by a guest-side
++    // timeout and never by guest input. Main thread only, except IsLocal (copy-on-write, see _local).
++    internal sealed class NetSyncDialog
++    {
++        // ---- tuning (owner decision 9 -- every value is a playtest seed, not a law) ----------------------
++        internal const Int32 SceneFallMs = 500;        // HOST: control back this long ends the sticky scene
++        internal const Int32 LinkGraceMs = 3000;       // GUEST: the lock outlives a dead-reading session this long
++        internal const Int32 MinShowMs = 350;          // a host event never pages a line shown for less (catch-up)
++        internal const Int32 PendingTtlMs = 20000;     // an event its window is not waiting on ages out after this
++        internal const Int32 OrphanGraceMs = 2000;     // the host must read settled this long before an orphan
++        internal const Int32 AutoReadMs = 2000;        // an orphaned page stays up this long before its auto-confirm
++        internal const Int32 HostElsewhereMs = 5000;   // host on another field (no intent here) this long = settled
++        internal const Int32 OffFieldMaxMs = 20000;    // host off-field (no live battle) this long = settled
++        internal const Int32 RelayOwnMs = 3000;        // a just-accepted relayed start claims every locked window
++        private const Int32 InboxCap = 64;
++
++        internal const Byte KindAdv = 0;               // a confirm page-turn or close (incl. the host's VA dismiss)
++        internal const Byte KindCho = 1;               // a choice-committing confirm
++
++        internal const Byte ClsLocked = 0, ClsOrphaned = 1, ClsLocal = 2;
++
++        // The chip (S5 step 8), drawn by NetSyncClient.OnGUI and published to the harness. No emoji.
++        internal const String ChipHiccup = "Co-op: link hiccup -- holding this conversation for the host";
++        internal const String ChipClosing = "Co-op: this line isn't on the host's screen -- closing it";
++        internal const String ChipFollowing = "Co-op: following the host's conversation";
++        internal const String ChipHostScene = "Co-op: the host is in a scene";
++
++        // One host event, normalized at ingest. Seq orders + dedups; Raw is the host's own u8 seq -- the value
++        // its "dialog tap" log line prints, so every guest close can be matched to the host press by grep.
++        internal sealed class DlgEvent
++        {
++            public Int32 Seq;
++            public Byte Raw;
++            public Byte Kind;
++            public Int32 Scene;            // the host's section-5 scene nonce at ingest (-1 = none on the lane)
++            public Int32 Fld, Win, Text, C;
++            public Int32 FirstSeen;        // ingest tick (a real tick; read by delta only)
++            public Boolean Tried;          // applied at least once without advancing its window
++            public Boolean TriedLogged;
++            public Boolean FallbackLogged;
++        }
++
++        private sealed class Win
++        {
++            public Dialog D;
++            public Int32 Field, Id, TextId;
++            public Byte Cls;
++            public Int32 Page;             // CurrentPage at the last sample (a page turn re-arms the read clock)
++            public Boolean CompleteArmed;  // guards CompleteSince (tick-baseline law)
++            public Int32 CompleteSince;
++            public Int32 OrphanSince;      // read only while Cls == ClsOrphaned
++            // OUR apply (a host event / the orphan rule) was the confirm that CLOSED it, so its departure is ours. Set
++            // only by a closing confirm that advanced -- a host page turn does not, so a later close by the window's
++            // own script/timer (or a leaked input) is still logged as such (the box-16 / A1 close audit).
++            public Boolean ClosedByUs;
++            public Boolean Seen;           // mark-and-sweep against the live list
++            public Boolean RetryLogged;    // orphan auto-confirm: one "did not advance" line
++        }
++
++        // A Local mark. The array is COPY-ON-WRITE: built whole on the main thread and published by one
++        // volatile reference swap, never mutated after -- so VoicePlayer's off-thread IsGuestLockedDialog read
++        // always sees a complete array (S4, the threading risk).
++        private sealed class Mark
++        {
++            public readonly Dialog D;
++            public readonly Int32 Id, TextId;
++            public Mark(Dialog d, Int32 id, Int32 textId) { D = d; Id = id; TextId = textId; }
++        }
++
++        private static readonly Mark[] NoMarks = new Mark[0];
++        private readonly List<DlgEvent> _inbox = new List<DlgEvent>(16);
++        private readonly List<Win> _wins = new List<Win>(4);
++        private volatile Mark[] _local = NoMarks;
++        private readonly SettleClock _settle = new SettleClock();
++        private Boolean _haveSeq;              // the seq unwrap's baseline is set
++        private Byte _lastRaw;
++        private Int32 _lastSeq;
++        private Boolean _capLogged;            // one "inbox hit its cap" line per overflow episode
++        private Int32 _orphanCloses;           // windows the orphan rule closed this session (telemetry)
++        private String _chip;
++        private Boolean _quiet;                // SelfTest's synthetic ingest: no per-event log lines
++
++        internal String Chip { get { return _chip; } }
++        internal Int32 OrphanCloses { get { return _orphanCloses; } }
++        internal Int32 HostSettledMs { get { return _settle.SettledMs; } }
++        internal Int32 InboxCount { get { return _inbox.Count; } }
++
++        // ---- helpers ------------------------------------------------------------------------------------
++
++        // An ETb field line: UI dialogs carry Id 9 + IsETbDialog=false (DialogManager.cs:83/:89) and TextId -1 --
++        // never a script's window (DLG-8). A MANAGED null test on purpose: VoicePlayer calls this off the main
++        // thread, where Unity's overloaded == may not run (dialogs are pooled, never destroyed).
++        internal static Boolean IsLockable(Dialog d)
++        {
++            return !ReferenceEquals(d, null) && d.IsETbDialog && d.Id != DialogManager.UIDialogId && d.TextId >= 0;
++        }
++
++        // Any ETb line open (includeInh = count FlagButtonInh windows too). Allocation-free scan of the live
++        // list (no ToList). Main thread only.
++        internal static Boolean AnyEtbLine(Boolean includeInh)
++        {
++            List<Dialog> list = LiveList();
++            if (list == null)
++                return false;
++            for (Int32 k = 0; k < list.Count; k++)
++            {
++                Dialog d = list[k];
++                if (IsLockable(d) && (includeInh || !d.FlagButtonInh))
++                    return true;
++            }
++            return false;
++        }
++
++        internal static List<Dialog> LiveList()
++        {
++            try
++            {
++                UIManager ui = PersistenSingleton<UIManager>.Instance;
++                DialogManager dm = ui != null ? ui.Dialogs : null;
++                return dm != null ? dm.ActiveDialogList : null;
++            }
++            catch { return null; }
++        }
++
++        private static Boolean InList(List<Dialog> list, Dialog d)
++        {
++            if (list == null)
++                return false;
++            for (Int32 k = 0; k < list.Count; k++)
++                if (ReferenceEquals(list[k], d))
++                    return true;
++            return false;
++        }
++
++        // Off-thread safe (see Mark): one volatile read, then a scan of an immutable array.
++        internal Boolean IsLocal(Dialog d)
++        {
++            Mark[] m = _local;
++            for (Int32 k = 0; k < m.Length; k++)
++                if (ReferenceEquals(m[k].D, d) && m[k].Id == d.Id && m[k].TextId == d.TextId)
++                    return true;
++            return false;
++        }
++
++        // TRUE while a lockable, non-Local, non-FlagButtonInh window is open -- the S4 SuppressLocalDialogInput
++        // body. FlagButtonInh is excluded: confirm is a no-op on it (Dialog.cs:789), and excluding it keeps a
++        // persistent [NFOC] HUD strip from swallowing Pause. Main thread (UIKeyTrigger / DialogManager.OnClick).
++        internal Boolean AnyLockedLine()
++        {
++            List<Dialog> list = LiveList();
++            if (list == null)
++                return false;
++            for (Int32 k = 0; k < list.Count; k++)
++            {
++                Dialog d = list[k];
++                if (IsLockable(d) && !d.FlagButtonInh && !IsLocal(d))
++                    return true;
++            }
++            return false;
++        }
++
++        private void RebuildMarks()
++        {
++            Int32 n = 0;
++            for (Int32 k = 0; k < _wins.Count; k++)
++                if (_wins[k].Cls == ClsLocal)
++                    n++;
++            Mark[] m = new Mark[n];
++            n = 0;
++            for (Int32 k = 0; k < _wins.Count; k++)
++                if (_wins[k].Cls == ClsLocal)
++                    m[n++] = new Mark(_wins[k].D, _wins[k].Id, _wins[k].TextId);
++            _local = m;                        // the one publish (volatile swap)
++        }
++
++        // Host-driven calls run under NetSyncClient.HostApplying so the DialogManager.OnItemSelect gate lets the
++        // engine's own re-select through (TrySetCurrentChoice -> ActiveButton -> Notify OnItemSelect).
++        private static void HostConfirm(Dialog d)
++        {
++            NetSyncClient.HostApplying = true;
++            try { d.OnKeyConfirm(d.gameObject); }
++            finally { NetSyncClient.HostApplying = false; }
++        }
++
++        private static Boolean HostSetChoice(Dialog d, Int32 c)
++        {
++            NetSyncClient.HostApplying = true;
++            try { return d.TrySetCurrentChoice(c); }
++            finally { NetSyncClient.HostApplying = false; }
++        }
++
++        // A choice is only ever written -- and a choice window only ever confirmed -- while the DIALOG's own button
++        // group is the active one: TrySetCurrentChoice writes ButtonGroupState.ActiveButton for whatever group is
++        // active (it would corrupt a menu's cursor), and Dialog.OnKeyConfirm commits IndexOf(ActiveButton).
++        private static Boolean DialogOwnsCursor()
++        {
++            return ButtonGroupState.ActiveGroup == Dialog.DialogGroupButton;
++        }
++
++        // ---- session edges --------------------------------------------------------------------------------
++
++        // The session ended (or never was): forget EVERYTHING -- inbox, windows, marks, clocks, the seq baseline.
++        internal void ResetAll()
++        {
++            _inbox.Clear();
++            _wins.Clear();
++            if (_local.Length > 0)
++                _local = NoMarks;              // allocation-free: this runs every frame on a host / plain selftest
++            _settle.Reset();
++            _haveSeq = false;
++            _capLogged = false;
++            _chip = null;
++        }
++
++        // The ~ menu panic unlock holds on THIS field (S5 step 1, "lock off: clear the inbox"): the host's events for
++        // it would otherwise sit for PendingTtlMs and page a re-opened line once a reload re-arms the lock. The seq
++        // baseline goes too -- the caller discards the FIFO unread, so the next ingest must re-baseline (a stale
++        // _lastRaw could read a fresh frame as a double-deliver after exactly 256 discarded).
++        internal void ClearInbox()
++        {
++            _inbox.Clear();
++            _haveSeq = false;
++            _capLogged = false;
++        }
++
++        // The lock is off while the session holds and the guest is OFF-field (a load/battle): the windows are gone,
++        // so forget them -- the inbox is KEPT (purged by field + TTL), so a guest that loads into the host's field
++        // behind it still catches up (TALK-7). (A panic-unlocked field clears the inbox instead: ClearInbox.)
++        internal void ForgetWindows()
++        {
++            _wins.Clear();
++            if (_local.Length > 0)
++                _local = NoMarks;
++            _settle.Reset();
++        }
++
++        // The session part of the lock ROSE this tick: every window already open predates it -> Local.
++        internal void MarkOpenLocal(Int32 myField)
++        {
++            List<Dialog> list = LiveList();
++            Int32 n = 0;
++            if (list != null)
++                for (Int32 k = 0; k < list.Count; k++)
++                {
++                    Dialog d = list[k];
++                    if (!IsLockable(d))
++                        continue;
++                    Win w = FindWin(d);
++                    if (w == null)
++                    {
++                        w = NewWin(d, myField);
++                        _wins.Add(w);
++                    }
++                    w.Cls = ClsLocal;
++                    n++;
++                }
++            RebuildMarks();
++            if (n > 0)
++                Log.Message("[NetSync] dialogue lock engaged -- " + n + " window(s) already open stay local (they predate it)");
++        }
++
++        // ---- ingest + purge ---------------------------------------------------------------------------------
++
++        // Normalize one type-7 payload ([fld u16][win u8][text u16][kind u8][idx u8][seq u8], the NetSyncSocket
++        // type table) into the seq-ordered inbox. The u8 seq is unwrapped by forward delta -- the FIFO is
++        // reliable and in order on a live link -- and a repeat of the last seq is a transport double-deliver.
++        internal void Ingest(Byte[] f, Int32 scene, Int32 now)
++        {
++            if (f == null || f.Length < 8)
++                return;
++            Byte raw = f[7];
++            Int32 seq;
++            if (!_haveSeq)
++            {
++                seq = raw;
++                _haveSeq = true;
++            }
++            else
++            {
++                Int32 delta = (raw - _lastRaw) & 0xFF;
++                if (delta == 0)
++                    return;                    // double-deliver
++                seq = _lastSeq + delta;
++            }
++            _lastRaw = raw;
++            _lastSeq = seq;
++            DlgEvent e = new DlgEvent();
++            e.Seq = seq;
++            e.Raw = raw;
++            e.Kind = f[5];
++            e.Scene = scene;
++            e.Fld = f[0] | (f[1] << 8);
++            e.Win = f[2];
++            e.Text = f[3] | (f[4] << 8);
++            e.C = f[6];
++            e.FirstSeen = now;
++            if (e.Kind != KindAdv && e.Kind != KindCho)
++            {
++                Log.Message("[NetSync] dialogue: host seq " + raw + " has unknown kind " + e.Kind + " -- ignored");
++                return;
++            }
++            _inbox.Add(e);                     // arrival order IS seq order (monotonic unwrap)
++            if (!_quiet)
++                Log.Message("[NetSync] dialogue: host seq " + raw + " queued (field " + e.Fld + " win " + e.Win + " text " + e.Text
++                            + " kind " + e.Kind + (e.Kind == KindCho ? " choice " + e.C : "") + ")");
++            if (_inbox.Count > InboxCap)
++            {
++                DlgEvent old = _inbox[0];
++                _inbox.RemoveAt(0);
++                if (!_capLogged && !_quiet)
++                {
++                    _capLogged = true;
++                    Log.Message("[NetSync] dialogue inbox hit its cap (" + InboxCap + ") -- oldest dropped (host seq " + old.Raw
++                                + ", win " + old.Win + " text " + old.Text + ")");
++                }
++            }
++            else if (_inbox.Count <= InboxCap / 2)
++                _capLogged = false;
++        }
++
++        // At a relay ACCEPT (ServiceTalkFollow): drop every event left over from an EARLIER host scene whose window
++        // is not open -- the guard against the 14.2% duplicate-key reopens catching a stale page. `talkScene` is the
++        // ACCEPTED start's own scene (the section-5 nonce in the first state frame that carried it), NOT the host's
++        // scene right now: a deferred start can be accepted after the host's next scene rose, and comparing against
++        // that would drop the very events the late start catches up from (TALK-7). Only EARLIER scenes are dropped
++        // (divergence E) -- a later scene's events are current, never leftovers.
++        internal void PurgeAtRelayAccept(Int32 talkScene)
++        {
++            for (Int32 k = _inbox.Count - 1; k >= 0; k--)
++            {
++                DlgEvent e = _inbox[k];
++                if (!SceneBefore(e.Scene, talkScene) || KeyOpen(e))
++                    continue;
++                _inbox.RemoveAt(k);
++                if (!_quiet)
++                    Log.Message("[NetSync] dialogue: host seq " + e.Raw + " (win " + e.Win + " text " + e.Text
++                                + ") dropped -- from an earlier host scene (a new talk was relayed)");
++            }
++        }
++
++        // TRUE when an event stamped `scene` predates the scene `current` (u8 nonces, wrap-aware: within 128 scenes,
++        // far beyond the PendingTtlMs window). An event stamped -1 (no section 5 on the lane at ingest) counts as
++        // earlier; a `current` of -1 (unknown) makes nothing earlier.
++        internal static Boolean SceneBefore(Int32 scene, Int32 current)
++        {
++            if (current < 0)
++                return false;
++            if (scene < 0)
++                return true;
++            Int32 d = (current - scene) & 0xFF;
++            return d != 0 && d < 128;
++        }
++
++        private void Purge(ref GuestView v)
++        {
++            for (Int32 k = _inbox.Count - 1; k >= 0; k--)
++            {
++                DlgEvent e = _inbox[k];
++                String why = null;
++                if (e.Fld != v.MyField && e.Fld != v.WarpField && e.Fld != v.HostField)
++                    why = "dropped -- it is for field " + e.Fld;
++                else if (v.Now - e.FirstSeen >= PendingTtlMs && !AwaitedByOpenWindow(e))
++                    why = e.Tried ? "aged out -- it never advanced its window" : "aged out -- no matching window opened";
++                if (why == null)
++                    continue;
++                _inbox.RemoveAt(k);
++                Log.Message("[NetSync] dialogue: host seq " + e.Raw + " (win " + e.Win + " text " + e.Text + ") " + why);
++            }
++        }
++
++        private Boolean KeyOpen(DlgEvent e)
++        {
++            for (Int32 k = 0; k < _wins.Count; k++)
++            {
++                Win w = _wins[k];
++                if (w.Field == e.Fld && w.Id == e.Win && w.TextId == e.Text)
++                    return true;
++            }
++            return false;
++        }
++
++        // The TTL exemption: an untried event whose OPEN, driven, non-FlagButtonInh window is still on its way
++        // to applying it (printing, MinShowMs, a pause, IsChoiceReady). A FlagButtonInh window's event ages out
++        // (memory LAW :1369 -- a frame is never fabricated for, or forced onto, an input-inhibited line), and one
++        // that was tried without advancing ages out too, so no event can claim a window forever.
++        private Boolean AwaitedByOpenWindow(DlgEvent e)
++        {
++            if (e.Tried)
++                return false;
++            for (Int32 k = 0; k < _wins.Count; k++)
++            {
++                Win w = _wins[k];
++                if (w.Cls != ClsLocal && w.Field == e.Fld && w.Id == e.Win && w.TextId == e.Text && !w.D.FlagButtonInh)
++                    return true;
++            }
++            return false;
++        }
++
++        private DlgEvent EarliestFor(Win w)
++        {
++            for (Int32 k = 0; k < _inbox.Count; k++)
++            {
++                DlgEvent e = _inbox[k];
++                if (e.Fld == w.Field && e.Win == w.Id && e.Text == w.TextId)
++                    return e;
++            }
++            return null;
++        }
++
++        // ---- the guest tick (S5 steps 3-8; NetSyncClient did 1-2) ---------------------------------------------
++
++        internal struct GuestView
++        {
++            public Boolean Engaged;        // the lock this tick (NetSyncClient._lockEngaged)
++            public Boolean Live;           // the session reads live right now (false = inside LinkGraceMs)
++            public Int32 MyField;
++            public Int32 WarpField;        // a follow-warp in flight (-1 = none)
++            public Int32 HostField;        // the host's field when its lane is valid (-1 = unknown)
++            public Boolean HostSceneUp;    // section 5: the host's sticky scene
++            public Boolean TalkLiveHere;   // section 6: a relayed start for MY field is on the lane
++            public Boolean CoLocated;
++            public Boolean HostElsewhere;  // on another real field and no SectionIntent points here
++            public Boolean HostOffField;   // field 0 and no live host battle
++            public Boolean RelayOwned;     // a relayed start was accepted < RelayOwnMs ago
++            public Int32 Now;
++        }
++
++        internal void GuestTick(ref GuestView v)
++        {
++            Purge(ref v);
++            if (!v.Engaged)
++            {
++                ForgetWindows();
++                _chip = v.HostSceneUp && v.CoLocated ? ChipHostScene : null;
++                return;
++            }
++            List<Dialog> list = LiveList();
++            Track(list, ref v);
++            Boolean paused = false;
++            try
++            {
++                UIManager ui = PersistenSingleton<UIManager>.Instance;
++                paused = ui == null || ui.IsPause;
++            }
++            catch { paused = true; }
++            if (!paused)
++            {
++                ApplyEvents(list, ref v);      // step 5 -- stock DialogManager.cs:337 parity: nothing is driven while paused
++                CursorLock(list);              // step 6 (the pause menu owns the cursor while paused)
++            }
++            Orphans(list, paused, ref v);      // step 7
++            UpdateChip(ref v);                 // step 8
++        }
++
++        private static Win NewWin(Dialog d, Int32 field)
++        {
++            Win w = new Win();
++            w.D = d;
++            w.Field = field;
++            w.Id = d.Id;
++            w.TextId = d.TextId;
++            w.Page = d.CurrentPage;
++            w.Cls = ClsLocked;
++            return w;
++        }
++
++        private Win FindWin(Dialog d)
++        {
++            for (Int32 k = 0; k < _wins.Count; k++)
++            {
++                Win w = _wins[k];
++                if (ReferenceEquals(w.D, d) && w.Id == d.Id && w.TextId == d.TextId)
++                    return w;
++            }
++            return null;
++        }
++
++        // Step 4: register each new lockable window (Locked unless already marked Local), keep the read clock,
++        // drop departed ones -- attributing a close we did NOT apply to the window's own script/timer.
++        private void Track(List<Dialog> list, ref GuestView v)
++        {
++            for (Int32 k = 0; k < _wins.Count; k++)
++                _wins[k].Seen = false;
++            if (list != null)
++                for (Int32 k = 0; k < list.Count; k++)
++                {
++                    Dialog d = list[k];
++                    if (!IsLockable(d))
++                        continue;
++                    Win w = FindWin(d);
++                    if (w == null)
++                    {
++                        w = NewWin(d, v.MyField);
++                        if (IsLocal(d))
++                            w.Cls = ClsLocal;
++                        _wins.Add(w);
++                        if (w.Cls == ClsLocked)
++                            Log.Message("[NetSync] dialogue lock: win " + w.Id + " text " + w.TextId + " opened locked (the host drives it)");
++                    }
++                    w.Seen = true;
++                    Int32 page = d.CurrentPage;
++                    if (page != w.Page)
++                    {
++                        w.Page = page;
++                        w.CompleteArmed = false;
++                    }
++                    if (d.CurrentState == Dialog.State.CompleteAnimation)
++                    {
++                        if (!w.CompleteArmed)
++                        {
++                            w.CompleteArmed = true;
++                            w.CompleteSince = v.Now;
++                        }
++                    }
++                    else
++                        w.CompleteArmed = false;
++                }
++            Boolean marksDirty = false;
++            for (Int32 k = _wins.Count - 1; k >= 0; k--)
++            {
++                Win w = _wins[k];
++                if (w.Seen)
++                    continue;
++                _wins.RemoveAt(k);
++                if (w.Cls == ClsLocal)
++                    marksDirty = true;
++                else if (!w.ClosedByUs)
++                    Log.Message("[NetSync] dialogue: win " + w.Id + " text " + w.TextId + " closed by its own script/timer");
++            }
++            if (marksDirty)
++                RebuildMarks();
++        }
++
++        private static Boolean Advanced(List<Dialog> list, Dialog d, Int32 id, Int32 textId, Int32 page, Boolean choice)
++        {
++            return !InList(list, d) || d.Id != id || d.TextId != textId
++                || d.CurrentState != Dialog.State.CompleteAnimation || d.CurrentPage != page
++                || (choice && VoicePlayer.closeDialogOnFinish);   // a voiced choice closes later via VoicePlayer's own OnKeyConfirm(null)
++        }
++
++        // Step 5: at most one event per window per tick, per KEY in host order.
++        private void ApplyEvents(List<Dialog> list, ref GuestView v)
++        {
++            for (Int32 k = 0; k < _wins.Count; k++)
++            {
++                Win w = _wins[k];
++                if (w.Cls == ClsLocal)
++                    continue;
++                Dialog d = w.D;
++                if (!InList(list, d) || d.Id != w.Id || d.TextId != w.TextId)
++                    continue;                  // left since Track (a confirm on another window can't do that, but be exact)
++                DlgEvent e = EarliestFor(w);
++                if (e == null)
++                    continue;
++                if (w.Cls == ClsOrphaned)
++                {
++                    w.Cls = ClsLocked;
++                    Log.Message("[NetSync] dialogue: late host event for win " + w.Id + " text " + w.TextId + " (host seq " + e.Raw + ") -- back under the host");
++                }
++                if (d.FlagButtonInh)
++                    continue;                  // memory LAW :1369: never forced onto an input-inhibited line -- the event ages out
++                Dialog.State st = d.CurrentState;
++                if (st == Dialog.State.TextAnimation)
++                {
++                    HostConfirm(d);            // fast-forward the typewriter (Dialog.cs:803-806) and HOLD the event
++                    continue;
++                }
++                if (st != Dialog.State.CompleteAnimation || !w.CompleteArmed || v.Now - w.CompleteSince < MinShowMs)
++                    continue;                  // opening / just completed: catch-up readability
++                Boolean choice = d.HasChoices;
++                if (choice && (!d.IsChoiceReady || !DialogOwnsCursor()))
++                    continue;                  // DLG-7 (Dialog.cs:163-164); and never under another UI's cursor
++                Int32 picked = -1;
++                if (choice)
++                {
++                    Int32 want = e.Kind == KindCho ? e.C : d.SelectChoice;
++                    if (HostSetChoice(d, want))
++                        picked = want;
++                    else
++                    {
++                        HostSetChoice(d, d.DefaultChoice);   // DLG-10: never the guest's cursor
++                        picked = d.DefaultChoice;
++                        if (!e.FallbackLogged)
++                        {
++                            e.FallbackLogged = true;
++                            Log.Message("[NetSync] dialogue: host choice " + want + " is out of range on win " + w.Id + " text " + w.TextId
++                                        + " -- its default (" + d.DefaultChoice + ") instead");
++                        }
++                    }
++                }
++                Boolean closes = !(d.SubPage.Count > d.CurrentPage);   // Hide()'s own test (Dialog.cs:621), read BEFORE it
++                Int32 page = d.CurrentPage;
++                HostConfirm(d);
++                if (Advanced(list, d, w.Id, w.TextId, page, choice))
++                {
++                    _inbox.Remove(e);
++                    if (closes)
++                        w.ClosedByUs = true;       // its departure is the host's close (a voiced choice departs later, still ours)
++                    Log.Message("[NetSync] dialogue: win " + w.Id + " text " + w.TextId + (closes ? " closed" : " advanced") + " (host seq " + e.Raw
++                                + (picked >= 0 ? ", choice " + picked : "") + ")");
++                }
++                else
++                {
++                    e.Tried = true;            // kept: retried every tick; it ages out from the TTL (AwaitedByOpenWindow)
++                    if (!e.TriedLogged)
++                    {
++                        e.TriedLogged = true;
++                        Log.Message("[NetSync] dialogue: host seq " + e.Raw + " did not advance win " + w.Id + " text " + w.TextId + " -- kept, retrying");
++                    }
++                }
++            }
++        }
++
++        // Step 6: the guest's arrows / hover / drag never move a locked choice (OnItemSelect is gated, so
++        // SelectChoice holds) -- re-assert the highlight onto the window's own SelectChoice. (C3: the host's cursor.)
++        // FlagButtonInh (script-polled) windows are SKIPPED, like the OnDrag/OnItemSelect gates
++        // (NetSyncClient.IsGuestLockedChoice): in C2 their confirm/cancel stay the guest's own (design D -- the KEY
++        // relay is C3), so freezing only the cursor would let the guest's poll commit nothing but the default.
++        // C2 GAP, documented: a NON-Inh choice that a script POLLS (IsButton + GetDialogChoice) keeps the frozen
++        // cursor while the raw poll still reads the guest's confirm, so it commits the default unless the host's
++        // CHO lands first -- until C3 carries the host cursor and press.
++        private void CursorLock(List<Dialog> list)
++        {
++            if (!DialogOwnsCursor())
++                return;
++            for (Int32 k = 0; k < _wins.Count; k++)
++            {
++                Win w = _wins[k];
++                if (w.Cls == ClsLocal)
++                    continue;
++                Dialog d = w.D;
++                if (d.FlagButtonInh)
++                    continue;
++                if (!InList(list, d) || d.Id != w.Id || d.TextId != w.TextId)
++                    continue;
++                if (d.CurrentState != Dialog.State.CompleteAnimation || !d.IsChoiceReady)
++                    continue;
++                Int32 expected = d.SelectChoice;
++                if (!d.IsCurrentChoice(expected))
++                    HostSetChoice(d, expected);
++            }
++        }
++
++        private Boolean HasEventFor(Win w)
++        {
++            return EarliestFor(w) != null;
++        }
++
++        // Step 7: release a window ONLY when the host provably lacks it. HostSettled = the sticky scene is down,
++        // no relayed start for this field is live, and the host is co-located (now) / elsewhere with no intent
++        // here (HostElsewhereMs) / off-field with no live battle (OffFieldMaxMs); settledLong = that, held for
++        // OrphanGraceMs. Then an UNCLAIMED locked window (no inbox event for its key, no relay accepted in the
++        // last RelayOwnMs) is handed back if script-polled (FlagButtonInh) or orphaned -- and an orphan is
++        // auto-confirmed page by page at reading pace, choice = Cancel else Default (owner decision 2).
++        private void Orphans(List<Dialog> list, Boolean paused, ref GuestView v)
++        {
++            _settle.Step(!v.HostSceneUp, v.TalkLiveHere, v.CoLocated, v.HostElsewhere, v.HostOffField, v.Now);
++            Boolean marksDirty = false;
++            for (Int32 k = 0; k < _wins.Count; k++)
++            {
++                Win w = _wins[k];
++                if (w.Cls == ClsLocal)
++                    continue;
++                Dialog d = w.D;
++                if (!InList(list, d) || d.Id != w.Id || d.TextId != w.TextId)
++                    continue;
++                Boolean eventPending = HasEventFor(w);
++                Boolean choice = d.HasChoices;
++                Boolean ready = !paused && d.CurrentState == Dialog.State.CompleteAnimation && w.CompleteArmed
++                             && (!choice || (d.IsChoiceReady && DialogOwnsCursor()));   // never under another UI's cursor
++                Int32 act = OrphanStep(w.Cls, _settle.Long, eventPending, v.RelayOwned, d.FlagButtonInh, ready,
++                                       w.CompleteSince, w.OrphanSince, v.Now);
++                if (act == OrphNone)
++                    continue;
++                if (act == OrphToLocal)
++                {
++                    w.Cls = ClsLocal;
++                    marksDirty = true;
++                    Log.Message("[NetSync] dialogue: win " + w.Id + " text " + w.TextId + " handed back: script-polled line, host idle");
++                    continue;
++                }
++                if (act == OrphToOrphaned)
++                {
++                    w.Cls = ClsOrphaned;
++                    w.OrphanSince = v.Now;
++                    w.RetryLogged = false;
++                    Log.Message("[NetSync] dialogue orphan: win " + w.Id + " text " + w.TextId + " is not on the host's screen (host idle "
++                                + (_settle.SettledMs / 1000) + "s) -- closing it at reading pace");
++                    continue;
++                }
++                if (act == OrphToLocked)
++                {
++                    w.Cls = ClsLocked;         // never auto-close mid-scene, nor over a host event (ApplyEvents drives it)
++                    Log.Message("[NetSync] dialogue orphan: win " + w.Id + " text " + w.TextId
++                                + (eventPending ? " held -- a late host event arrived" : " held -- the host is busy again"));
++                    continue;
++                }
++                // OrphConfirm: the page has been up AutoReadMs -- confirm it as the host would, choice = Cancel else Default
++                Int32 pick = -1;
++                if (choice)
++                {
++                    pick = OrphanChoice(d.CancelChoice, d.DefaultChoice);
++                    if (!HostSetChoice(d, pick))
++                    {
++                        pick = d.DefaultChoice;
++                        HostSetChoice(d, pick);
++                    }
++                }
++                Boolean closes = !(d.SubPage.Count > d.CurrentPage);   // Hide()'s own test (Dialog.cs:621), read BEFORE it
++                Int32 page = d.CurrentPage;
++                HostConfirm(d);
++                if (Advanced(list, d, w.Id, w.TextId, page, choice))
++                {
++                    if (closes)
++                    {
++                        w.ClosedByUs = true;
++                        _orphanCloses++;
++                        Log.Message("[NetSync] dialogue orphan: win " + w.Id + " text " + w.TextId + " auto-closed (host idle "
++                                    + (_settle.SettledMs / 1000) + "s, choice " + pick + ")");
++                    }
++                }
++                else
++                {
++                    w.OrphanSince = v.Now;     // re-arm the read clock: one attempt per AutoReadMs, never a per-tick confirm
++                    if (!w.RetryLogged)
++                    {
++                        w.RetryLogged = true;
++                        Log.Message("[NetSync] dialogue orphan: win " + w.Id + " text " + w.TextId + " did not take the auto-confirm -- retrying");
++                    }
++                }
++            }
++            if (marksDirty)
++                RebuildMarks();
++        }
++
++        // The per-window orphan decision (S5 step 7) as a PURE step, so SelfTest scripts it (A11) -- Orphans() only
++        // reads the engine and acts on the verdict. Inputs: the window's class; settledLong (the host settled for
++        // OrphanGraceMs); eventPending (an inbox event for its key) and relayOwned (a relayed start accepted under
++        // RelayOwnMs ago) -- the two claims; inh (FlagButtonInh: script-polled); ready (not paused, the page complete
++        // with its read clock armed, and a choice IsChoiceReady under the dialog's own cursor); the two read-clock
++        // ticks and now (wrap-safe deltas only). One action per tick.
++        internal const Int32 OrphNone = 0, OrphToOrphaned = 1, OrphToLocal = 2, OrphToLocked = 3, OrphConfirm = 4;
++
++        internal static Int32 OrphanStep(Byte cls, Boolean settledLong, Boolean eventPending, Boolean relayOwned, Boolean inh,
++                                         Boolean ready, Int32 completeSince, Int32 orphanSince, Int32 now)
++        {
++            if (cls == ClsLocked)
++            {
++                if (!settledLong || eventPending || relayOwned)
++                    return OrphNone;           // the host is busy, or the window is claimed: it stays the host's
++                return inh ? OrphToLocal : OrphToOrphaned;
++            }
++            if (cls != ClsOrphaned)
++                return OrphNone;               // Local is never touched
++            if (eventPending || !settledLong)
++                return OrphToLocked;           // a late host event (ApplyEvents flips it first when not paused), or the host busy again
++            if (inh)
++                return OrphToLocal;
++            if (!ready)
++                return OrphNone;
++            // reading pace: AutoReadMs from the LATER of "this page completed" and "orphaned" (wrap-safe compare) --
++            // a failed confirm re-arms orphanSince, so a retry is one attempt per AutoReadMs, never per tick
++            Int32 since = (orphanSince - completeSince) > 0 ? orphanSince : completeSince;
++            return now - since >= AutoReadMs ? OrphConfirm : OrphNone;
++        }
++
++        // The orphan's auto-close choice (owner decision 2): the window's Cancel choice, else its Default.
++        internal static Int32 OrphanChoice(Int32 cancelChoice, Int32 defaultChoice)
++        {
++            return cancelChoice >= 0 ? cancelChoice : defaultChoice;
++        }
++
++        private void UpdateChip(ref GuestView v)
++        {
++            Boolean locked = false, orphaned = false;
++            for (Int32 k = 0; k < _wins.Count; k++)
++            {
++                Win w = _wins[k];
++                if (w.Cls == ClsOrphaned)
++                    orphaned = true;
++                else if (w.Cls == ClsLocked && !w.D.FlagButtonInh)
++                    locked = true;             // a script-polled strip is not "a conversation"
++            }
++            if (!v.Live && (locked || orphaned))
++                _chip = ChipHiccup;
++            else if (orphaned)
++                _chip = ChipClosing;
++            else if (locked)
++                _chip = ChipFollowing;
++            else if (v.HostSceneUp && v.CoLocated)
++                _chip = ChipHostScene;
++            else
++                _chip = null;
++        }
++
++        // ---- telemetry (HarnessAgent, main thread) ---------------------------------------------------------
++
++        internal struct WindowView
++        {
++            public Int32 Field, Win, Text, Page;
++            public String Cls, State;
++            public Boolean Inh;
++        }
++
++        internal struct EventView
++        {
++            public Int32 Field, Win, Text, Kind, Index, Seq, Scene, AgeMs;
++            public Boolean Tried;
++        }
++
++        internal static String ClsName(Byte cls)
++        {
++            return cls == ClsLocked ? "locked" : cls == ClsOrphaned ? "orphaned" : "local";
++        }
++
++        internal List<WindowView> SnapshotWindows()
++        {
++            List<WindowView> r = new List<WindowView>(_wins.Count);
++            for (Int32 k = 0; k < _wins.Count; k++)
++            {
++                Win w = _wins[k];
++                WindowView x = new WindowView();
++                x.Field = w.Field;
++                x.Win = w.Id;
++                x.Text = w.TextId;
++                x.Page = w.Page;
++                x.Cls = ClsName(w.Cls);
++                x.State = w.D.CurrentState.ToString();
++                x.Inh = w.D.FlagButtonInh;
++                r.Add(x);
++            }
++            return r;
++        }
++
++        // The HEAD (earliest) event of each key -- what each window would apply next -- at most `max`.
++        internal List<EventView> SnapshotHeads(Int32 now, Int32 max)
++        {
++            List<EventView> r = new List<EventView>();
++            for (Int32 k = 0; k < _inbox.Count && r.Count < max; k++)
++            {
++                DlgEvent e = _inbox[k];
++                Boolean head = true;
++                for (Int32 p = 0; p < k; p++)
++                {
++                    DlgEvent q = _inbox[p];
++                    if (q.Fld == e.Fld && q.Win == e.Win && q.Text == e.Text)
++                    {
++                        head = false;
++                        break;
++                    }
++                }
++                if (!head)
++                    continue;
++                EventView x = new EventView();
++                x.Field = e.Fld;
++                x.Win = e.Win;
++                x.Text = e.Text;
++                x.Kind = e.Kind;
++                x.Index = e.C;
++                x.Seq = e.Raw;
++                x.Scene = e.Scene;
++                x.AgeMs = now - e.FirstSeen;
++                x.Tried = e.Tried;
++                r.Add(x);
++            }
++            return r;
++        }
++
++        // ---- the two state machines (pure: driven by NetSyncClient with engine reads, by SelfTest with scripts) --
++
++        // HOST (S2): the STICKY scene flag. The old flag (!control && a dialog visible) dropped in every gap between
++        // windows -- a window leaves the list in AfterHidden and the waiting script resumes only on a later pass
++        // (EBin.cs:144-156) -- bumping the nonce per window. Sticky: RISE when a line opens with control off; HOLD
++        // through gaps, walks, script menus and off-field (a scripted Battle() continues through Main_Reinit); FALL
++        // only on control back for SceneFallMs, a field change, or the world map. One nonce per scene; StartAt forces
++        // a new one (each relayed talk gets its own scene from the press). Rule from design A: a rule keyed on
++        // windows CLOSING would never fall on a field with a persistent [NFOC] HUD strip.
++        internal sealed class HostSceneMachine
++        {
++            public Boolean Active;
++            public Byte Nonce;
++            public Int32 Field = -1;
++            private Boolean _quietArmed;
++            private Int32 _quietSince;
++
++            // 0 = no edge, 1 = rose, 2 = fell; `why` names the edge.
++            public Int32 Step(Boolean onField, Int32 fld, Boolean ctl, Boolean worldMap, Boolean anyLine, Int32 now, out String why)
++            {
++                why = null;
++                if (!Active)
++                {
++                    if (onField && !ctl && anyLine)
++                    {
++                        Rise(fld);
++                        why = "a line opened with control off";
++                        return 1;
++                    }
++                    return 0;
++                }
++                if (onField && fld != Field)
++                {
++                    Fall();
++                    why = "field change";
++                    return 2;
++                }
++                if (worldMap)
++                {
++                    Fall();
++                    why = "world map";
++                    return 2;
++                }
++                if (onField && ctl)
++                {
++                    if (!_quietArmed)
++                    {
++                        _quietArmed = true;
++                        _quietSince = now;     // tick-baseline law: a real tick, read only while armed
++                    }
++                    else if (now - _quietSince >= SceneFallMs)
++                    {
++                        Fall();
++                        why = "control back";
++                        return 2;
++                    }
++                    return 0;
++                }
++                _quietArmed = false;           // control still off (gaps, walks, script menus) or off-field (battle): HOLD
++                return 0;
++            }
++
++            // A relayed talk / promoted quad: a scene of its own from the press. TRUE when an active scene fell first.
++            public Boolean StartAt(Int32 fld)
++            {
++                Boolean fell = Active;
++                if (Active)
++                    Fall();
++                Rise(fld);
++                return fell;
++            }
++
++            public void Reset()
++            {
++                Active = false;
++                Nonce = 0;
++                Field = -1;
++                _quietArmed = false;
++            }
++
++            private void Rise(Int32 fld)
++            {
++                Active = true;
++                Nonce = (Byte)(Nonce + 1);
++                Field = fld;
++                _quietArmed = false;
++            }
++
++            private void Fall()
++            {
++                Active = false;
++                _quietArmed = false;
++            }
++        }
++
++        // GUEST (S5 step 7): HostSettled and its OrphanGraceMs hold. Every leg is an armed bool + delta.
++        internal sealed class SettleClock
++        {
++            private Boolean _elseArmed, _offArmed, _setArmed;
++            private Int32 _elseSince, _offSince, _setSince;
++            public Boolean Settled;
++            public Boolean Long;
++            public Int32 SettledMs = -1;
++
++            public void Step(Boolean sceneDown, Boolean talkLive, Boolean coLocated, Boolean elsewhere, Boolean offField, Int32 now)
++            {
++                if (elsewhere)
++                {
++                    if (!_elseArmed)
++                    {
++                        _elseArmed = true;
++                        _elseSince = now;
++                    }
++                }
++                else
++                    _elseArmed = false;
++                if (offField)
++                {
++                    if (!_offArmed)
++                    {
++                        _offArmed = true;
++                        _offSince = now;
++                    }
++                }
++                else
++                    _offArmed = false;
++                Boolean where = coLocated
++                             || (_elseArmed && now - _elseSince >= HostElsewhereMs)
++                             || (_offArmed && now - _offSince >= OffFieldMaxMs);
++                Settled = sceneDown && !talkLive && where;
++                if (Settled)
++                {
++                    if (!_setArmed)
++                    {
++                        _setArmed = true;
++                        _setSince = now;
++                    }
++                    SettledMs = now - _setSince;
++                }
++                else
++                {
++                    _setArmed = false;
++                    SettledMs = -1;
++                }
++                Long = Settled && SettledMs >= OrphanGraceMs;
++            }
++
++            public void Reset()
++            {
++                _elseArmed = _offArmed = _setArmed = false;
++                Settled = Long = false;
++                SettledMs = -1;
++            }
++        }
++
++        // ---- SelfTest (S1; logged by NetSyncClient's selftest proof block) -----------------------------------
++        // PURE: scripted (onField, field, control, line) and (scene, talk, where) sequences against the two state
++        // machines, the per-window orphan step (OrphanStep, with the Int32 tick wrap), plus the inbox's seq unwrap /
++        // dedup / per-key FIFO / cap. Touches no engine object, so it proves the logic solo at selftest start; the
++        // in-game behaviour (Orphans() acting on a live Dialog) is the harness's job (A1-A12).
++        internal static Boolean SelfTest(out String detail)
++        {
++            String fail = null;
++            try
++            {
++                fail = HostSceneScript() ?? SettleScript() ?? OrphanScript() ?? InboxScript();
++            }
++            catch (Exception err)
++            {
++                fail = "threw " + err.GetType().Name + ": " + err.Message;
++            }
++            detail = fail ?? "host scene: one nonce across gaps, holds through control-off and battle, falls "
++                           + SceneFallMs + " ms after control returns, a new press forces a new nonce; guest orphan clock: "
++                           + OrphanGraceMs + " ms grace, elsewhere " + HostElsewhereMs + " ms, off-field " + OffFieldMaxMs
++                           + " ms, battle never; orphan step: claims hold, polled lines hand back, auto-close "
++                           + AutoReadMs + " ms after the later of complete/orphaned (Cancel else Default), late event or busy host re-locks;"
++                           + " inbox: seq unwrap/dedup/per-key FIFO/cap " + InboxCap + ", relay-accept purge = earlier scenes only";
++            return fail == null;
++        }
++
++        private static String HostSceneScript()
++        {
++            HostSceneMachine m = new HostSceneMachine();
++            String why;
++            const Int32 F = 100, T0 = 1000000;   // an arbitrary base tick: the machine reads deltas only
++            if (m.Step(true, F, true, false, false, T0, out why) != 0 || m.Active)
++                return "host: rose with control on and no line";
++            if (m.Step(true, F, true, false, true, T0 + 10, out why) != 0)
++                return "host: rose on an ambient line with control on";
++            if (m.Step(true, F, false, false, true, T0 + 20, out why) != 1 || m.Nonce != 1)
++                return "host: did not rise on a line with control off";
++            if (m.Step(true, F, false, false, false, T0 + 200, out why) != 0 || !m.Active)
++                return "host: fell in a window gap";
++            if (m.Step(true, F, true, false, false, T0 + 300, out why) != 0 || m.Step(true, F, true, false, false, T0 + 700, out why) != 0)
++                return "host: fell before SceneFallMs of control";
++            if (m.Step(true, F, false, false, true, T0 + 750, out why) != 0 || m.Nonce != 1)
++                return "host: a control-off blip after a quiet start bumped the nonce";
++            if (m.Step(true, F, true, false, false, T0 + 800, out why) != 0 || m.Step(true, F, true, false, false, T0 + 1200, out why) != 0)
++                return "host: the quiet clock did not restart after control went off again";
++            if (m.Step(false, 0, false, false, false, T0 + 1250, out why) != 0 || m.Step(false, 0, false, false, false, T0 + 60000, out why) != 0 || !m.Active)
++                return "host: did not hold through off-field (battle)";
++            if (m.Step(true, F, true, false, false, T0 + 60010, out why) != 0 || m.Step(true, F, true, false, false, T0 + 60510, out why) != 2 || m.Active)
++                return "host: did not fall " + SceneFallMs + " ms after control returned";
++            m.StartAt(F);
++            if (!m.Active || m.Nonce != 2)
++                return "host: StartAt did not open a fresh scene";
++            if (!m.StartAt(F) || m.Nonce != 3)
++                return "host: StartAt on an active scene did not force a new nonce";
++            if (m.Step(true, F + 1, false, false, true, T0 + 70000, out why) != 2)
++                return "host: a field change did not end the scene";
++            m.Step(true, F + 1, false, false, true, T0 + 70010, out why);
++            if (!m.Active || m.Nonce != 4 || m.Step(false, 0, false, true, false, T0 + 70020, out why) != 2)
++                return "host: the world map did not end the scene";
++            return null;
++        }
++
++        private static String SettleScript()
++        {
++            SettleClock c = new SettleClock();
++            const Int32 T0 = 2000000;
++            c.Step(true, false, true, false, false, T0);
++            if (!c.Settled || c.Long)
++                return "guest: co-located idle host did not read settled (or read long at once)";
++            c.Step(true, false, true, false, false, T0 + OrphanGraceMs - 1);
++            if (c.Long)
++                return "guest: settledLong before OrphanGraceMs";
++            c.Step(true, false, true, false, false, T0 + OrphanGraceMs);
++            if (!c.Long)
++                return "guest: not settledLong after OrphanGraceMs";
++            c.Step(false, false, true, false, false, T0 + OrphanGraceMs + 10);
++            if (c.Settled || c.Long)
++                return "guest: a host scene did not unsettle";
++            c.Step(true, true, true, false, false, T0 + OrphanGraceMs + 20);
++            if (c.Settled)
++                return "guest: a live relayed start did not unsettle";
++            c.Reset();
++            c.Step(true, false, false, true, false, T0);
++            c.Step(true, false, false, true, false, T0 + HostElsewhereMs - 1);
++            if (c.Settled)
++                return "guest: elsewhere settled before HostElsewhereMs";
++            c.Step(true, false, false, true, false, T0 + HostElsewhereMs);
++            c.Step(true, false, false, true, false, T0 + HostElsewhereMs + OrphanGraceMs);
++            if (!c.Long)
++                return "guest: elsewhere never reached settledLong";
++            c.Reset();
++            c.Step(true, false, false, false, false, T0);
++            c.Step(true, false, false, false, false, T0 + 100000);
++            if (c.Settled)
++                return "guest: settled with the host in battle / unknown";
++            c.Step(true, false, false, false, true, T0 + 100010);
++            c.Step(true, false, false, false, true, T0 + 100010 + OffFieldMaxMs - 1);
++            if (c.Settled)
++                return "guest: off-field settled before OffFieldMaxMs";
++            c.Step(true, false, false, false, true, T0 + 100010 + OffFieldMaxMs);
++            c.Step(true, false, false, false, true, T0 + 100010 + OffFieldMaxMs + OrphanGraceMs);
++            if (!c.Long)
++                return "guest: off-field never reached settledLong";
++            return null;
++        }
++
++        // The per-window orphan step (S5 step 7): (cls, settledLong, eventPending, relayOwned, inh, ready, completeSince,
++        // orphanSince, now) -> the one action. The ticks run across the Int32 wrap: the clock is deltas only.
++        private static String OrphanScript()
++        {
++            Int32 t0 = Int32.MaxValue - 1500;  // the reading clock straddles the Int32 tick wrap below
++            Int32 c = t0, o = t0;
++            // LOCKED: held while the host is busy or the window is claimed; then orphaned, or handed back if script-polled
++            if (OrphanStep(ClsLocked, false, false, false, false, true, c, o, t0) != OrphNone)
++                return "orphan: a locked line was released while the host was busy";
++            if (OrphanStep(ClsLocked, true, true, false, false, true, c, o, t0) != OrphNone)
++                return "orphan: a line with a host event pending was orphaned";
++            if (OrphanStep(ClsLocked, true, false, true, false, true, c, o, t0) != OrphNone)
++                return "orphan: a line inside RelayOwnMs was orphaned";
++            if (OrphanStep(ClsLocked, true, false, false, false, true, c, o, t0) != OrphToOrphaned)
++                return "orphan: an unclaimed line with the host settled was not orphaned";
++            if (OrphanStep(ClsLocked, true, false, false, true, true, c, o, t0) != OrphToLocal)
++                return "orphan: a script-polled line was not handed back";
++            if (OrphanStep(ClsLocal, true, false, false, false, true, c, o, t0) != OrphNone)
++                return "orphan: a local line was touched";
++            // ORPHANED, page complete long before the orphan: the reading clock runs from the orphan (the chip shows)
++            o = unchecked(t0 + 1000);
++            if (OrphanStep(ClsOrphaned, true, false, false, false, true, c, o, unchecked(o + AutoReadMs - 1)) != OrphNone)
++                return "orphan: auto-closed before AutoReadMs after the orphan";
++            if (OrphanStep(ClsOrphaned, true, false, false, false, true, c, o, unchecked(o + AutoReadMs)) != OrphConfirm)
++                return "orphan: not auto-closed AutoReadMs after the orphan (across the tick wrap)";
++            // ...a page that completed AFTER the orphan gets its own read time
++            c = unchecked(o + 5000);
++            if (OrphanStep(ClsOrphaned, true, false, false, false, true, c, o, unchecked(c + AutoReadMs - 1)) != OrphNone)
++                return "orphan: a fresh page was auto-confirmed before AutoReadMs";
++            if (OrphanStep(ClsOrphaned, true, false, false, false, true, c, o, unchecked(c + AutoReadMs)) != OrphConfirm)
++                return "orphan: a fresh page was not auto-confirmed after AutoReadMs";
++            if (OrphanStep(ClsOrphaned, true, false, false, false, false, c, o, unchecked(c + 100000)) != OrphNone)
++                return "orphan: auto-confirmed a page that is not ready (printing, paused, or a choice not ready)";
++            // ...a confirm that did not take re-arms orphanSince at the attempt: one attempt per AutoReadMs
++            o = unchecked(c + AutoReadMs);
++            if (OrphanStep(ClsOrphaned, true, false, false, false, true, c, o, unchecked(o + AutoReadMs - 1)) != OrphNone)
++                return "orphan: retried the auto-confirm before AutoReadMs";
++            if (OrphanStep(ClsOrphaned, true, false, false, false, true, c, o, unchecked(o + AutoReadMs)) != OrphConfirm)
++                return "orphan: did not retry the auto-confirm after AutoReadMs";
++            // ...back under the host on a late event or a busy host; a script-polled orphan is handed back
++            if (OrphanStep(ClsOrphaned, true, true, false, false, true, c, o, unchecked(o + AutoReadMs)) != OrphToLocked)
++                return "orphan: a late host event did not put the line back under the host";
++            if (OrphanStep(ClsOrphaned, false, false, false, false, true, c, o, unchecked(o + AutoReadMs)) != OrphToLocked)
++                return "orphan: the host busy again did not hold the line";
++            if (OrphanStep(ClsOrphaned, true, false, false, true, true, c, o, unchecked(o + AutoReadMs)) != OrphToLocal)
++                return "orphan: a script-polled orphan was not handed back";
++            // the auto-close choice: Cancel, else Default
++            if (OrphanChoice(2, 0) != 2 || OrphanChoice(-1, 1) != 1)
++                return "orphan: the auto-close choice is not Cancel-else-Default";
++            return null;
++        }
++
++        private static String InboxScript()
++        {
++            NetSyncDialog d = new NetSyncDialog();
++            const Int32 T0 = 3000000;
++            Byte[] seqs = { 254, 255, 255, 0, 1 };
++            for (Int32 k = 0; k < seqs.Length; k++)
++                d.IngestQuiet(Frame(5, 3, 40 + (k % 2), 0, 0, seqs[k]), 1, T0);
++            if (d._inbox.Count != 4)
++                return "inbox: the repeated seq was not dropped (" + d._inbox.Count + " queued)";
++            for (Int32 k = 1; k < d._inbox.Count; k++)
++                if (d._inbox[k].Seq <= d._inbox[k - 1].Seq)
++                    return "inbox: the u8 wrap did not unwrap monotonically";
++            Win w = new Win();
++            w.Field = 5;
++            w.Id = 3;
++            w.TextId = 41;
++            DlgEvent head = d.EarliestFor(w);
++            if (head == null || head.Raw != 255)
++                return "inbox: the per-key FIFO head is not the earliest event of that key";
++            for (Int32 k = 0; k < InboxCap + 8; k++)
++                d.IngestQuiet(Frame(5, 3, 40, 0, 0, (Byte)(2 + k)), 1, T0);
++            if (d._inbox.Count != InboxCap)
++                return "inbox: the cap did not hold (" + d._inbox.Count + ")";
++            // the relay-accept purge drops only EARLIER scenes: the accepted talk's own scene and later ones stay
++            if (!SceneBefore(3, 5) || SceneBefore(5, 5) || SceneBefore(6, 5) || !SceneBefore(255, 1) || SceneBefore(1, 255)
++                || !SceneBefore(-1, 5) || SceneBefore(3, -1))
++                return "inbox: the scene order is not wrap-aware";
++            NetSyncDialog p = new NetSyncDialog();
++            p._quiet = true;
++            p.Ingest(Frame(5, 3, 40, 0, 0, 10), 4, T0);
++            p.Ingest(Frame(5, 3, 40, 0, 0, 11), 5, T0);
++            p.Ingest(Frame(5, 3, 40, 0, 0, 12), 6, T0);
++            p.Ingest(Frame(5, 3, 40, 0, 0, 13), -1, T0);
++            p.PurgeAtRelayAccept(5);
++            if (p._inbox.Count != 2 || p._inbox[0].Scene != 5 || p._inbox[1].Scene != 6)
++                return "inbox: the relay-accept purge did not keep exactly the talk's scene and later (" + p._inbox.Count + " kept)";
++            return null;
++        }
++
++        private static Byte[] Frame(Int32 fld, Int32 win, Int32 text, Byte kind, Byte idx, Byte seq)
++        {
++            return new Byte[] { (Byte)(fld & 0xFF), (Byte)((fld >> 8) & 0xFF), (Byte)win, (Byte)(text & 0xFF), (Byte)((text >> 8) & 0xFF), kind, idx, seq };
++        }
++
++        // Ingest without the per-event log lines (SelfTest only -- it pushes ~75 synthetic frames).
++        private void IngestQuiet(Byte[] f, Int32 scene, Int32 now)
++        {
++            _quiet = true;
++            try { Ingest(f, scene, now); }
++            finally { _quiet = false; }
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 8b12b49..4c9acb8 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -179,35 +179,49 @@ namespace Memoria.Netsync
+         // it only teleported once per window, and the pin zeroed the script-visible usercontrol that
+         // every relayed talk's `ifnot(IsMovementEnabled) return` prologue reads (TALK-3). A co-located
+         // guest now only logs the scene edge; a relayed talk freezes it through its own copy's DisableMove.
+-        private Byte _hostEventFlag;                     // host: 1 = in a blocking dialogue event (rides 7 Hz)
+-        private Byte _hostEventNonce;                    // host: bumps on the rising edge (one guest log line per nonce)
++        // [ff9mapkit netsync F3.2] C2: the flag is the STICKY host scene (UpdateHostScene) -- one nonce per scene,
++        // both edges pushed out-of-band; the [flag][nonce] shape is unchanged (wire v13).
++        private Byte _hostEventFlag;                     // host: 1 = in a scene (sticky; mirrors _hostScene.Active)
++        private Byte _hostEventNonce;                    // host: one per scene (mirrors _hostScene.Nonce; one guest log line per nonce)
+         private Int32 _lastEventNonce = -1;              // guest: the last host-event nonce logged
+-        // SELFTEST L1 BENCH lever (the ~ debug menu, IsSelfTestRole only): 1 = simulate "the host is in a
+-        // scene" (arms the L2 bench and the auto-teleport busy gate; no snap, no freeze). Default 0.
++        // SELFTEST L1 BENCH lever (the ~ debug menu / harness `netsync hostscene`, IsSelfTestRole only): 1 = simulate
++        // "the host is in a scene" -- the bench's section 5 for the orphan rule, the chip and the auto-teleport busy
++        // gate (no snap, no freeze; the LOCK itself is DebugDialogLock). Default 0.
+         public static Byte DebugHostEventFlag;
+         private Boolean _benchSceneLogged;               // [ff9mapkit netsync F3.2] selftest: the simulated scene's edge is logged once
+ 
+         // F3 DIALOGUE L2 (wire v12): full confirm/choice LOCKSTEP of a co-located guest's copy of the host's
+-        // blocking scene. Engages on the same host-event flag L1 reads (S1a); the talk relay (F3.1) makes the
+-        // guest's own copy EXIST (F3.2: from wherever the guest stands -- no snap); L2 makes it ADVANCE and
+-        // BRANCH on the host's confirms. HOST side: Dialog.OnKeyConfirm taps
+-        // each confirm-driven advance -> EmitDialogAdvanceIfHost pushes one TypeDialog frame (S4a per-page,
+-        // S5 !IsClosedByScript). GUEST side: ServiceDialogLockstep drives the frontmost matching Dialog by
+-        // winnum+textId (never the DialogManager fan-out -- ~19% of fields hold two live windows).
+-        // THE LOAD-BEARING SOFTLOCK-ESCAPE INVARIANT: a guest window under lockstep ALWAYS has two escapes --
+-        // the per-window DialogWaitMs timeout on a HELD-unmatched frame AND the IsLiveFollowedSession
+-        // staleness (~2 s) / host-event-flag fall that drops the engage gate. SuppressLocalDialogInput is
+-        // never left true beyond ~2 s of any failure (link death, host quit, alignment mismatch, field leave).
+-        private static Byte _dialogSeq;                  // HOST: monotonic per-emit seq (wraps 255->0; guest dedups)
+-        private Byte[] _dialogPending;                   // GUEST: one-slot peek holder over the dequeue-only _inDialog
+-        private Boolean _dialogSuppressActive;           // GUEST: the UIKeyTrigger predicate (SuppressLocalDialogInput)
+-        private Int64 _dialogAlignKey = -1;              // GUEST: the frontmost window under lockstep (fld,winnum,textId packed); -1 = none
+-        private Int32 _dialogLastAppliedSeq = -1;        // GUEST: dedup within _dialogAlignKey (reset when the key changes)
+-        private Boolean _dialogWaitArmed;                // GUEST: TRUE once _dialogWaitSince holds a real tick (wrap-safe arming; tick-baseline law)
+-        private Int32 _dialogWaitSince;                  // GUEST: hold-timeout clock start (read only while _dialogWaitArmed)
+-        private Boolean _dialogTimeoutLogged;            // GUEST: one "timed out" line per held frame, never per-frame spam
+-        private Boolean _dialogRangeLogged;              // GUEST: one "out of range" line per applied choice frame
+-        private const Int32 DialogWaitMs = 8000;         // per-window hold-timeout (playtest-tunable; the load-bearing escape)
++        // blocking scene. The talk relay (F3.1) makes the guest's own copy EXIST (F3.2: from wherever the guest
++        // stands -- no snap); L2 makes it ADVANCE and BRANCH on the host's confirms. HOST side: Dialog.OnKeyConfirm
++        // taps each confirm-driven advance -> EmitDialogAdvanceIfHost pushes one TypeDialog frame (S4a per-page,
++        // S5 !IsClosedByScript). GUEST side: per window KEY (fld, winnum, textId) -- never the DialogManager
++        // fan-out (~19% of fields hold two live windows).
++        // [ff9mapkit netsync F3.2] C2 S-SYNC core REPLACES the old guest half (the one-slot holder, the 8 s
++        // "local advance restored" timeout, the drain on every flag-0 sample): THE LOCK LAW -- every lockable
++        // ETb window on a following guest is LOCKED from the frame it opens, at every input seam, and released
++        // only by host state (a host event / the orphan rule / the link dead for LinkGraceMs / the session
++        // ending / the ~ menu unlock). The window tracker, the inbox and the orphan rule live in NetSyncDialog
++        // (_dlg); this class owns the wire, the lock predicate and the host's sticky scene flag.
++        private static Byte _dialogSeq;                  // HOST: monotonic per-emit seq (wraps 255->0; guest dedups) -- bumped under _tapLock
++        private static readonly System.Object _tapLock = new System.Object();   // F3.2: the VA close path taps OFF the main thread (VoicePlayer.cs:84-108, :234)
++        private static volatile Boolean _tapFieldMode;   // F3.2 HOST: ee.gMode == 1, cached each Update -- the off-thread tap must not touch PersistenSingleton
++        private readonly NetSyncDialog _dlg = new NetSyncDialog();   // F3.2 GUEST: tracker + inbox + orphan rule (S1)
++        private volatile Boolean _lockEngaged;           // F3.2 GUEST: THE LOCK (S4), recomputed each Update; volatile = readable off-thread
++        private Boolean _lockSessionPrev;                // F3.2 GUEST: the session half of the lock on the previous tick (its rising edge marks Local)
++        private Boolean _liveArmed;                      // F3.2 GUEST: TRUE once _lastLiveTick holds a real tick (tick-baseline law)
++        private Int32 _lastLiveTick;                     // F3.2 GUEST: the last tick the session read live (LinkGraceMs runs from here)
++        private Int32 _unlockField = -1;                 // F3.2 GUEST: the field the ~ menu panic unlock released (-1 = none; clears at a field load)
++        // F3.2: TRUE only inside a host-driven call (NetSyncDialog's apply / cursor lock) -- the DialogManager.OnItemSelect
++        // gate lets the engine's own re-select through. Main thread only; always false on vanilla.
++        public static Boolean HostApplying { get; internal set; }
++        // F3.2 SELFTEST BENCH levers (the ~ debug menu + the harness `netsync lock|stale` verbs, IsSelfTestRole only):
++        // the bench lock stands in for a live followed session; "link dead" stands in for a stale lane (LinkGraceMs applies).
++        public static Boolean DebugDialogLock;
++        public static Boolean DebugLinkDead;
++        private Byte _benchSceneNonce;                   // F3.2 bench: bumps on each simulated scene rise (the events' Scene stamp)
++        // F3.2 HOST (S2): the sticky scene behind section 5 -- see NetSyncDialog.HostSceneMachine.
++        private readonly NetSyncDialog.HostSceneMachine _hostScene = new NetSyncDialog.HostSceneMachine();
++        private Boolean _dlgDirty;                       // F3.2 HOST: a scene edge awaits its out-of-band push (main thread)
+ 
+         // F3.1 TALK RELAY (wire v13, state-lane section 6). A press-fired tag-3 start -- an NPC talk, a
+         // chest, a save moogle, a shop, through EITHER EventCollision funnel -- was invisible to L1: the
+@@ -226,7 +240,9 @@ namespace Memoria.Netsync
+         // (the handler's `ifnot(IsMovementEnabled) return` prologue would bail), or the object is still
+         // running (Request needs level < p.level). A press-region (quad) start is relayed only once the
+         // host's handler opens a window before moving the player (ServiceQuadPromotion), so a ladder/jump
+-        // is not replayed. A start the host has already played through is retired, never opened late (C1).
++        // is not replayed. [ff9mapkit netsync F3.2] C2: a start that opens late (deferred, or the guest arrived
++        // behind) is locked from its first window and caught up from the host's retained events, page by page
++        // (TALK-7) -- C1's "retire a start the host already played through" stopgap is gone with the drain.
+         private Int32 _talkField = -1;                   // HOST: the field of the last relayed start
+         private Int32 _talkUid = -1;                     // HOST: the object uid (-1 = nothing to ride)
+         private Byte _talkNonce;                         // HOST: bumps per start; the guest dedups on it
+@@ -236,13 +252,14 @@ namespace Memoria.Netsync
+         private Byte[] _talkPending;                     // SELFTEST bench: a fabricated section body
+         private Int32 _talkPendingSince = Environment.TickCount;   // F3.2 SELFTEST bench: inject tick (read only while _talkPending != null)
+         private Int32 _talkDeferNonce = -1;              // F3.2 GUEST: the nonce currently deferred (-1 = none); its defer + expiry log once
++        // [ff9mapkit netsync F3.2] GUEST: the scene each relayed start BELONGS to -- the section-5 nonce in the FIRST state
++        // frame that carried its talk section (the host's StampTalk raises that scene before building the frame). The
++        // relay-accept purge keys on it, not on the host's scene at accept time: a deferred start can be accepted
++        // after the host's NEXT scene rose (C2-BRK-1). NoteTalkScene records it every tick the lane is read.
++        private Int32 _talkSceneTalk = -1;               // the talk nonce _talkSceneNonce belongs to (-1 = none)
++        private Int32 _talkSceneNonce = -1;              // its scene nonce (-1 = no section 5 in that frame)
+         private Boolean _relayAcceptArmed;               // F3.2 GUEST: TRUE once _relayAcceptTick holds a real tick (tick-baseline law)
+         private Int32 _relayAcceptTick;                  // F3.2 GUEST: tick of the last ACCEPTED relayed start (C2's RelayOwnMs claim)
+-        // [ff9mapkit netsync F3.2] GUEST: the host scene an unconsumed start led to (HostSceneRanFor). Baseline =
+-        // the host-event section the tick the nonce is first seen; the event nonce bumps on every rise.
+-        private Int32 _talkWatchNonce = -1;              // the unconsumed talk nonce being watched (-1 = none)
+-        private Byte _talkWatchEvNonce0;                 // the host-event nonce at first sight (read only while watched)
+-        private Boolean _talkWatchUpOwned;               // the flag up at first sight is this start's own scene (a promoted quad)
+         // F3.2 HOST: a quad (press-region) start waits here until the host's handler opens a window.
+         private const Int32 QuadPromoteMs = 3000;        // a quad press with no window inside this is a ladder/jump: not relayed
+         private Boolean _quadArmed;                      // HOST: a quad start is awaiting its window
+@@ -429,7 +446,20 @@ namespace Memoria.Netsync
+                                              // autoload's own load runs through here, and a load that
+                                              // beat it to the boundary makes the flag moot either way
+             if (_instance != null)
++            {
++                _instance.RearmDialogLockAtFieldLoad();   // [ff9mapkit netsync F3.2] the ~ menu unlock lasts until the next field load
+                 _instance.ApplyStoryImpl();
++            }
++        }
++
++        // [ff9mapkit netsync F3.2] S7: the panic unlock is per FIELD LOAD -- a reload of the same field re-locks too
++        // (this hook runs on every load, before the field's Main_Init can open a window).
++        private void RearmDialogLockAtFieldLoad()
++        {
++            if (_unlockField < 0)
++                return;
++            _unlockField = -1;
++            Log.Message("[NetSync] dialogue lock re-armed (field load)");
+         }
+ 
+         private void ApplyStoryImpl()
+@@ -532,21 +562,51 @@ namespace Memoria.Netsync
+             get { return _enabled && _role == "selftest"; }
+         }
+ 
+-        // F3 dialogue L2: the guest SUPPRESS predicate read by UIKeyTrigger on the dialogue-input path.
+-        // True ONLY while a host frame has matched the frontmost open window (S3 engage-on-first-match)
+-        // and that window's lockstep is still live -- so the guest's own Confirm/Cancel are swallowed and
+-        // the host's frames drive the window instead. ONE cheap static read: on a vanilla install _instance
+-        // is null (co-op never bootstrapped) -> false, zero behaviour change. Flips false the instant the
+-        // window closes/times-out, the host flag falls, the lane goes stale, or the field is left.
++        // F3 dialogue L2: the guest SUPPRESS predicate read by UIKeyTrigger on the dialogue-input path (and,
++        // F3.2, by DialogManager.OnClick -- the mouse/touchpad advance that bypassed it, DLG-5).
++        // [ff9mapkit netsync F3.2] S4: TRUE while the lock is engaged and any lockable, non-FlagButtonInh window
++        // is open that is not marked Local -- an UNTRACKED window counts as locked, so a line that opened earlier
++        // this frame (before NetSyncClient.Update) is covered from its first frame. No conjunct reads the host's
++        // scene flag or co-location, so a flapping or lost flag can never unlock anything. FlagButtonInh is
++        // excluded (confirm is a no-op on it, and a persistent [NFOC] HUD strip must not swallow Pause). Cheap
++        // static gates first: on a vanilla install _instance is null, and a disabled client fails on _enabled.
+         public static Boolean SuppressLocalDialogInput
+         {
+             get
+             {
+-                try { NetSyncClient i = _instance; return i != null && i._dialogSuppressActive; }
++                try
++                {
++                    NetSyncClient i = _instance;
++                    return i != null && _enabled && i._lockEngaged && i._dlg.AnyLockedLine();
++                }
+                 catch { return false; }
+             }
+         }
+ 
++        // [ff9mapkit netsync F3.2] S4: is THIS window locked on the guest? (the per-dialog seams: VoicePlayer's
++        // auto-dismiss, and -- minus FlagButtonInh, via IsGuestLockedChoice -- DialogManager OnDrag/OnItemSelect).
++        // FlagButtonInh windows count here -- the VA path's scripted-Confirm injection is exactly their seam.
++        // OFF-THREAD SAFE (VoicePlayer's fallback thread): only statics, a volatile bool, plain Dialog fields and
++        // NetSyncDialog's copy-on-write Local marks.
++        public static Boolean IsGuestLockedDialog(Dialog d)
++        {
++            try
++            {
++                NetSyncClient i = _instance;   // managed null test: Unity's overloaded == is main-thread only
++                return !ReferenceEquals(i, null) && _enabled && i._lockEngaged && NetSyncDialog.IsLockable(d) && !i._dlg.IsLocal(d);
++            }
++            catch { return false; }
++        }
++
++        // [ff9mapkit netsync F3.2] the CHOICE seams (DialogManager OnDrag/OnItemSelect): a locked window minus the
++        // FlagButtonInh (script-polled) ones. In C2 a polled window's confirm/cancel stay the guest's own (design D,
++        // the KEY relay is C3), so freezing only its cursor would let the guest's poll commit nothing but the
++        // default -- the cursor lock (NetSyncDialog.CursorLock) skips them for the same reason. Main thread.
++        public static Boolean IsGuestLockedChoice(Dialog d)
++        {
++            return IsGuestLockedDialog(d) && !d.FlagButtonInh;
++        }
++
+         // HOT-RELOAD: re-read [Netsync] whenever Memoria.ini CHANGES (mtime-gated -- one file stat; the
+         // parsed values are signature-compared so our own session-code persist never counts as an edit).
+         // Returns the change KIND on a reload (never on the first load): 0 = no effective change,
+@@ -917,6 +977,7 @@ namespace Memoria.Netsync
+             catch { fld = -1; }
+             Boolean onField = fld > 0 && ee != null && ee.gMode == 1 && ee.fieldmap != null;
+             Boolean inScope = onField && (_targetField <= 0 || fld == _targetField);
++            _tapFieldMode = ee != null && ee.gMode == 1;   // [ff9mapkit netsync F3.2] S3: the host tap's gMode gate, readable off-thread
+ 
+             try
+             {
+@@ -945,6 +1006,10 @@ namespace Memoria.Netsync
+                     // The battle lane loops back through the full codec here -- entering a battle with
+                     // GuestSlots set turns this into the solo proof of B0+B1 (see NetSyncBattle).
+                     NetSyncBattle.SelfTestPump(ee);
++                    // [ff9mapkit netsync F3.2] the dialogue-lock bench runs FIRST, on every selftest tick -- off-field
++                    // too, so a bench lock can never go stale across a battle or a load (the early returns below).
++                    BenchSceneEdge(fld);
++                    ServiceDialogAuthority(new RemoteState { Valid = false }, fld, onField);
+                     if (!inScope)
+                     {
+                         DespawnGhost();
+@@ -969,6 +1034,10 @@ namespace Memoria.Netsync
+                         Boolean dioOk = NetSyncDiorama.SelfTest(out dioDetail);
+                         Log.Message("[NetSync] diorama containment selftest: "
+                                     + (dioOk ? "OK (" + dioDetail + ")" : "FAIL (" + dioDetail + ")"));
++                        String dlgDetail;                // [ff9mapkit netsync F3.2] S1: the host-scene + guest-orphan state machines (A11)
++                        Boolean dlgOk = NetSyncDialog.SelfTest(out dlgDetail);
++                        Log.Message("[NetSync] dialogue authority selftest: "
++                                    + (dlgOk ? "OK (" + dlgDetail + ")" : "FAIL (" + dlgDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+@@ -988,21 +1057,9 @@ namespace Memoria.Netsync
+                             ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
+                         ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
+                     }
+-                    // F2 L1 BENCH (selftest): DebugHostEventFlag simulates "the host is in a scene".
+-                    // [ff9mapkit netsync F3.2] bench parity with the live L1: NO snap to the mirror and
+-                    // NO control pin (the live path lost both) -- the flag only arms the L2 bench and the
+-                    // auto-teleport busy gate. Its edges log once, like the live path's per-nonce line.
+-                    if ((DebugHostEventFlag != 0) != _benchSceneLogged)
+-                    {
+-                        _benchSceneLogged = DebugHostEventFlag != 0;
+-                        Log.Message(_benchSceneLogged
+-                            ? "[NetSync] host in a dialogue scene (simulated, field " + fld + ") -- staying in place"
+-                            : "[NetSync] host scene (simulated) ended");
+-                    }
+-                    // F3 L2 bench: service the dialogue lockstep each frame (the injected frame's apply +
+-                    // hold-timeout + suppress-release run here; the engage gate reads the L1 bench flag).
++                    // F2 L1 BENCH (selftest): DebugHostEventFlag simulates "the host is in a scene" -- its edges
++                    // log in BenchSceneEdge (top of this branch). F3.2: the dialogue lock bench ran there too.
+                     ServiceTalkFollow(new RemoteState { Valid = false }, fld, true);     // F3.1 bench: apply a fabricated talk start
+-                    ServiceDialogLockstep(new RemoteState { Valid = false }, fld, true);
+                     LastHostField = -1;                       // no wire in selftest -- the gateway redirect always bounces
+                     AutoTeleportTick(me, stMirror, true);     // F1 bench arm (self-gates on BenchGates inside)
+                     return;
+@@ -1054,7 +1111,7 @@ namespace Memoria.Netsync
+                 {
+                     if (_intentActive && fld == _intentField && onField)
+                         _intentActive = false;
+-                    UpdateHostEventFlag(ee);
++                    UpdateHostScene(ee, fld, onField);        // [ff9mapkit netsync F3.2] S2: the STICKY scene (replaces UpdateHostEventFlag)
+                     ServiceQuadPromotion(ee, fld, onField);   // [ff9mapkit netsync F3.2] relay a quad start once its window opens
+                 }
+ 
+@@ -1096,7 +1153,7 @@ namespace Memoria.Netsync
+                 ServiceIntentFollow(rs, fld, onField);                   // F2: parallel intent fast-path (ahead of the serial debounce)
+                 ServiceTalkFollow(rs, fld, onField);                     // F3.1: replay the host's tag-3 start on my copy (no snap, F3.2)
+                 ServiceEventCoLocate(rs, fld, onField);                  // F2 L1: log the host's dialogue-scene edge (F3.2: never moves/freezes)
+-                ServiceDialogLockstep(rs, fld, onField);                 // F3 L2: advance/branch the co-located scene in lockstep (needs L1)
++                ServiceDialogAuthority(rs, fld, onField);                // F3.2 C2: lock every line from open; the host's events drive it
+                 FollowHostTick(rs, fld, onField);                        // visitor mode: chase the peer's field
+                 if (local != null && rs.Valid && rs.Field == fld)
+                 {
+@@ -1567,8 +1624,13 @@ namespace Memoria.Netsync
+                 return;                    // mid-battle/menu/transition -- retry while co-located
+             try
+             {
+-                if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
+-                    return;                // a dialog/menu is up -- the reload can wait a frame
++                // a menu is up -- or (F3.2, CLB-5) a conversation: UIState has no dialogue member, so FieldHUD alone let
++                // a link-up reload destroy a locked line mid-conversation. The reload can wait for an input-taking ETb
++                // line only: NOT Dialogs.Visible, which also counts a persistent [NFOC]/[TIME=-1] HUD strip and UI
++                // dialogs -- on such a field the kick would never fire and the story mirror would never arm there.
++                UIManager ui = PersistenSingleton<UIManager>.Instance;
++                if (ui.State != UIManager.UIState.FieldHUD || NetSyncDialog.AnyEtbLine(false))
++                    return;
+                 if (_socket == null || _socket.GetRemoteState() == null)
+                     return;                // no host snapshot on the wire yet (~150ms publish cadence)
+                 _sameFieldKickDone = true;
+@@ -1624,11 +1686,13 @@ namespace Memoria.Netsync
+             _lastTalkNonce = -1;
+             _talkPending = null;
+             _talkDeferNonce = -1;            // F3.2: a deferred start dies with the session
+-            _talkWatchNonce = -1;            // F3.2: ...and its host-scene watch
++            _talkSceneTalk = -1;             // F3.2 C2: and the scene each start belonged to
++            _talkSceneNonce = -1;
+             _relayAcceptArmed = false;
+             _autoTpHostSceneArmed = false;   // F3.2: the auto-teleport's host-scene grace too
+             DropQuadStart(null);             // F3.2: an armed quad start too (silent)
+             _benchSceneLogged = false;
++            _hostScene.Reset();              // F3.2 C2: the sticky scene (and its nonce) dies with the session
+             _hostEventFlag = 0;
+             _hostEventNonce = 0;
+             _lastIntentNonce = -1;
+@@ -1684,30 +1748,68 @@ namespace Memoria.Netsync
+             return all;
+         }
+ 
+-        // HOST: track whether I'm in a BLOCKING dialogue event (dialogue L1). !GetUserControl() alone is
+-        // INSUFFICIENT -- a gateway walk's MOVQ also zeroes user control -- so corroborate with a live
+-        // dialogue window (UIManager.Dialogs.Visible, the access pattern used by AutoTeleportTick). The
+-        // flag rides the regular 7 Hz SectionEvent; log ONLY on the rising/falling edge (never per frame).
+-        private void UpdateHostEventFlag(EventEngine ee)
++        // HOST: track whether I'm in a BLOCKING scene (dialogue L1). !GetUserControl() alone is INSUFFICIENT --
++        // a gateway walk's MOVQ also zeroes user control -- so the RISE needs an ETb line on screen too.
++        // [ff9mapkit netsync F3.2] S2: replaces UpdateHostEventFlag. The old flag (!control && Dialogs.Visible)
++        // dropped in EVERY gap between windows (AfterHidden takes a window off the list; the waiting script
++        // resumes only on a later pass, EBin.cs:144-156), bumping the nonce per window and, on the guest, draining
++        // the lockstep at every gap (DLG-1/3/4). The scene is now STICKY -- NetSyncDialog.HostSceneMachine: it
++        // holds through gaps, walks, script menus and battle (a scripted Battle() continues through Main_Reinit),
++        // and falls only on control back for SceneFallMs / a field change / the world map. One nonce per scene;
++        // both edges leave at once (out-of-band push), not on the next 7 Hz tick. UI dialogs never count (DLG-8).
++        private void UpdateHostScene(EventEngine ee, Int32 fld, Boolean onField)
+         {
+-            Boolean inEvent = false;
+             try
+             {
+-                UIManager ui = PersistenSingleton<UIManager>.Instance;
+-                inEvent = ee != null && !ee.GetUserControl()
+-                       && ui != null && ui.Dialogs != null && ui.Dialogs.Visible;
++                Boolean ctl = ee == null || ee.GetUserControl();
++                Boolean worldMap = ee != null && ee.gMode == 3;
++                Boolean anyLine = !_hostScene.Active && onField && !ctl && NetSyncDialog.AnyEtbLine(true);   // read only when it can matter
++                String why;
++                Int32 edge = _hostScene.Step(onField, fld, ctl, worldMap, anyLine, Environment.TickCount, out why);
++                if (edge == 1)
++                    Log.Message("[NetSync] host scene: rose (nonce " + _hostScene.Nonce + ", field " + fld + ") -- " + why);
++                else if (edge == 2)
++                    Log.Message("[NetSync] host scene: ended (nonce " + _hostScene.Nonce + ") -- " + why);
++                if (edge != 0)
++                    _dlgDirty = true;
++                _hostEventFlag = (Byte)(_hostScene.Active ? 1 : 0);   // SectionEvent keeps its [flag][nonce] shape
++                _hostEventNonce = _hostScene.Nonce;
++                if (_dlgDirty)
++                {
++                    _dlgDirty = false;
++                    PushStateNow();
++                }
+             }
+-            catch { inEvent = false; }
+-            if (inEvent && _hostEventFlag == 0)
++            catch (Exception err)
+             {
+-                _hostEventFlag = 1;
+-                _hostEventNonce = (Byte)(_hostEventNonce + 1);
+-                Log.Message("[NetSync] host event: entered a dialogue scene (nonce " + _hostEventNonce + ")");
++                Log.Error(err, "[NetSync] host scene tick failed");
+             }
+-            else if (!inEvent && _hostEventFlag == 1)
++        }
++
++        // [ff9mapkit netsync F3.2] S2: a relayed talk (the NPC press) or a promoted quad starts a scene of its OWN
++        // from the press -- an active one ends first -- so each relayed start carries a fresh nonce: the guest's
++        // relay-accept purge (NetSyncDialog.PurgeAtRelayAccept) keys on it. The caller pushes the frame.
++        private void StartSceneAt(Int32 fld)
++        {
++            Byte old = _hostScene.Nonce;
++            if (_hostScene.StartAt(fld))
++                Log.Message("[NetSync] host scene: ended (nonce " + old + ") -- a new talk started");
++            Log.Message("[NetSync] host scene: rose (nonce " + _hostScene.Nonce + ", field " + fld + ") -- a talk started");
++            _hostEventFlag = 1;
++            _hostEventNonce = _hostScene.Nonce;
++        }
++
++        // [ff9mapkit netsync F3.2] the out-of-band state push (the EmitFieldIntentIfHost / StampTalk precedent):
++        // the latest slot is re-sent every 33 ms write tick, so one push is enough. MAIN THREAD ONLY.
++        private void PushStateNow()
++        {
++            if (_socket == null)
++                return;
++            Byte[] f = BuildStateFrame();
++            if (f != null)
+             {
+-                _hostEventFlag = 0;
+-                Log.Message("[NetSync] host event: scene ended");
++                _socket.SetLocalState(f);
++                _storyTick = Environment.TickCount;   // the 7 Hz publish need not repeat it this tick
+             }
+         }
+ 
+@@ -1843,40 +1945,55 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // ===== F3 DIALOGUE L2 -- full confirm/choice lockstep (wire v12) ==============================
++        // ===== F3 DIALOGUE L2 -- full confirm/choice lockstep (wire v12; F3.2 C2: host-authoritative) ========
+ 
+         // HOST tap (called from Dialog.OnKeyConfirm's two confirm-driven Hide() sites): push ONE TypeDialog
+-        // frame per confirm-that-advances so the co-located guest advances its own copy in lockstep. Self-
+-        // gates on host role + a connected socket; S5 skips a scripted close (both mirrored scripts close
+-        // independently). Reads Id/TextId/SelectChoice BEFORE the caller's Hide()->Reset() zeroes them.
+-        // Cheap (fires on discrete confirms, not per frame) and NEVER throws into the dialogue path.
++        // frame per confirm-that-advances so a following guest advances its own copy in lockstep. S5 skips a
++        // scripted close (both mirrored scripts close independently). Reads Id/TextId/SelectChoice BEFORE the
++        // caller's Hide()->Reset() zeroes them. Cheap (fires on discrete confirms, not per frame) and NEVER
++        // throws into the dialogue path.
++        // [ff9mapkit netsync F3.2] S3 gates: _enabled first (a disabled host keeps _instance); ETb field lines only
++        // (DLG-8: a UI dialog has Id 9 / TextId -1 and is never a script's window); field mode only; NO IsConnected
++        // gate (DLG-9: the out-queue survives a reconnect -- ClearRemote clears only incoming, NetSyncSocket.cs:
++        // 434-448 -- so a confirm inside a link blip still reaches the guest). The VA close path calls this OFF the
++        // main thread (VoicePlayer.cs:84-108, :234, :273): the seq bump is locked, and the gMode read is a flag
++        // Update caches (_tapFieldMode) -- PersistenSingleton's Unity null test is main-thread only.
+         internal static void EmitDialogAdvanceIfHost(Dialog d)
++        {
++            EmitDialogTap(d, false);
++        }
++
++        // [ff9mapkit netsync F3.2] S3/S6: the host's VOICE-paced dismiss (VoicePlayer.AfterSoundFinished_Dismiss,
++        // called BEFORE ForceClose -> Hide -> Reset zeroes TextId) is an advance too -- an 8-byte kind-0 frame
++        // under the same gates. Without it a guest's locked line would wait for a confirm the host never pressed.
++        internal static void EmitDialogCloseIfHost(Dialog d)
++        {
++            EmitDialogTap(d, true);
++        }
++
++        private static void EmitDialogTap(Dialog d, Boolean voiceClose)
+         {
+             try
+             {
+-                NetSyncClient i = _instance;
+-                if (_role != "host" || i == null || i._socket == null || !i._socket.IsConnected)
++                NetSyncClient i = _instance;         // managed null test: this may be the VA thread
++                if (!_enabled || _role != "host" || ReferenceEquals(i, null) || i._socket == null)
+                     return;                          // gate FIRST -> zero side effects on a guest/vanilla install
+-                if (d == null || d.IsClosedByScript) // S5: a scripted close self-syncs on both machines
+-                    return;
+-                Boolean hasChoices = d.HasChoices;
++                if (!NetSyncDialog.IsLockable(d) || d.IsClosedByScript)
++                    return;                          // DLG-8 / S5: a scripted close self-syncs on both machines
++                if (!_tapFieldMode)
++                    return;                          // gMode 1 only (no battle/world-map text)
++                Boolean hasChoices = !voiceClose && d.HasChoices;   // the VA dismiss never runs on a choice window
+                 Int32 winnum = d.Id;
+                 Int32 textId = d.TextId;
+                 Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
+                 Byte kind = (Byte)(hasChoices ? 1 : 0);
+-                Byte choiceIndex = (Byte)(hasChoices ? (d.SelectChoice & 0xFF) : 0xFF);  // committed at :770 above
+-                Byte seq = _dialogSeq++;
+-                Byte[] payload = new Byte[8];
+-                payload[0] = (Byte)(fld & 0xFF);
+-                payload[1] = (Byte)((fld >> 8) & 0xFF);
+-                payload[2] = (Byte)(winnum & 0xFF);
+-                payload[3] = (Byte)(textId & 0xFF);
+-                payload[4] = (Byte)((textId >> 8) & 0xFF);
+-                payload[5] = kind;
+-                payload[6] = choiceIndex;
+-                payload[7] = seq;
+-                i._socket.SendDialog(payload);       // the transport wraps it in a TypeDialog frame (type-6 precedent)
+-                Log.Message("[NetSync] dialog tap: win " + winnum + " text " + textId + " kind " + kind + " idx " + choiceIndex + " seq " + seq);
++                Byte choiceIndex = (Byte)(hasChoices ? (d.SelectChoice & 0xFF) : 0xFF);  // committed at Dialog.cs:770
++                Byte seq;
++                lock (_tapLock)
++                    seq = _dialogSeq++;
++                i._socket.SendDialog(DialogPayload(fld, winnum, textId, kind, choiceIndex, seq));   // TypeDialog (type-6 precedent)
++                Log.Message("[NetSync] dialog tap" + (voiceClose ? " (voice close)" : "") + ": win " + winnum + " text " + textId
++                            + " kind " + kind + " idx " + choiceIndex + " seq " + seq);
+             }
+             catch (Exception err)
+             {
+@@ -1884,47 +2001,168 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // GUEST pump (Update, right after ServiceEventCoLocate -- L1's host-event flag is L2's engage gate). Drives the
+-        // frontmost host-matched window on the host's cadence; outside a live L1 the lane is drained and
+-        // the guest's dialogue is 100% local (S2). The engage gate IS the primary softlock escape: any
+-        // conjunct going false (link stale, host flag fell, field left, follow-warp pending) disengages
+-        // and releases suppress within ~2 s. Same shape for the selftest bench (the L1 toggle stands in).
+-        private void ServiceDialogLockstep(RemoteState rs, Int32 myField, Boolean onField)
++        // The type-7 body: [fldMapNo u16 LE][winnum u8][textId u16 LE][kind u8][choiceIndex u8][seq u8].
++        private static Byte[] DialogPayload(Int32 fld, Int32 winnum, Int32 textId, Byte kind, Byte choiceIndex, Byte seq)
++        {
++            Byte[] payload = new Byte[8];
++            payload[0] = (Byte)(fld & 0xFF);
++            payload[1] = (Byte)((fld >> 8) & 0xFF);
++            payload[2] = (Byte)(winnum & 0xFF);
++            payload[3] = (Byte)(textId & 0xFF);
++            payload[4] = (Byte)((textId >> 8) & 0xFF);
++            payload[5] = kind;
++            payload[6] = choiceIndex;
++            payload[7] = seq;
++            return payload;
++        }
++
++        // GUEST pump (Update, right after ServiceEventCoLocate; the selftest bench runs it at the top of its branch).
++        // [ff9mapkit netsync F3.2] S4/S5: replaces ServiceDialogLockstep.
++        //   1. LIVENESS + THE LOCK. The session half: client = enabled + FollowHost + no exit ramp + the link live,
++        //      or within LinkGraceMs of the last live tick (a stall holds the line instead of releasing at the 2 s
++        //      lane staleness -- ~5 s after the last host frame, aligned with the exit-ramp debounce); bench = the
++        //      selftest bench gates + DebugDialogLock, with DebugLinkDead standing in for a stale lane. THE LOCK =
++        //      session && onField && this field not panic-unlocked. No conjunct reads the host's scene flag or
++        //      co-location, so a flapping or lost flag can never unlock or drain anything (DLG-1/3, TALK-6, WIRE-2).
++        //      On the RISING edge of the session half the windows already open stay Local and the host taps already
++        //      queued are discarded (both predate the lock); a lock that returns with the session steady (a field
++        //      load, a battle return) locks what it finds.
++        //   2. INGEST the type-7 FIFO into the seq-ordered inbox on every tick the session holds -- on field or
++        //      off, so a guest that loads into the host's field behind it still has the host's events (TALK-7) --
++        //      except on a panic-unlocked field, where the FIFO and the inbox are discarded (lock off, S5 step 1).
++        //   3-8. purge / track / apply / cursor lock / orphan / chip: NetSyncDialog.GuestTick.
++        //   Session off: drain-and-discard and forget everything. RETIRED: the one-slot holder, DialogWaitMs and
++        //   its "local advance restored" hand-back, and the drain on every flag-0 sample.
++        private void ServiceDialogAuthority(RemoteState rs, Int32 myField, Boolean onField)
+         {
+             try
+             {
+-                Boolean engaged;
++                Int32 now = Environment.TickCount;
++                Boolean bench = false, sessionBase, live;
+                 if (_role == "client")
+                 {
+-                    // S1a: engage ONLY under a live L1 -- host event flag set + co-located + session fresh
+-                    // + no follow-warp mid-fade. The host-event flag is read FRESH each tick (never cached
+-                    // across the reset), exactly as ServiceEventCoLocate reads it.
+-                    engaged = IsLiveFollowedSession && onField && rs.Valid && rs.Field == myField
+-                              && _followWarpPending < 0 && HostEventFlagFromWire();
++                    sessionBase = _enabled && _followHost && !_exitRampPending;
++                    live = IsLiveFollowedSession;
+                 }
+                 else if (IsSelfTestRole && NetSyncField.BenchGates)
+                 {
+-                    engaged = DebugHostEventFlag != 0;   // bench: the L1 toggle simulates the host event flag
++                    bench = true;
++                    sessionBase = DebugDialogLock;
++                    live = !DebugLinkDead;
+                 }
+                 else
+                 {
+-                    engaged = false;
++                    sessionBase = false;             // a host (or a plain selftest) never locks its own lines
++                    live = false;
+                 }
+-
+-                if (!engaged)
++                if (sessionBase && live)
++                {
++                    _lastLiveTick = now;             // tick-baseline law: armed bool + delta
++                    _liveArmed = true;
++                }
++                else if (_liveArmed && (!sessionBase || now - _lastLiveTick >= NetSyncDialog.LinkGraceMs))
+                 {
+-                    DisengageDialogLockstep();
++                    _liveArmed = false;              // spent: disarmed, so no uptime wrap can ever re-arm the grace
++                    if (sessionBase)
++                        Log.Message("[NetSync] dialogue lock released -- the link has read dead for " + (NetSyncDialog.LinkGraceMs / 1000) + " s");
++                }
++                Boolean session = sessionBase && (live || _liveArmed);
++                if (!session)
++                {
++                    if (_lockSessionPrev)
++                        Log.Message("[NetSync] dialogue lock: session off -- every line is local");
++                    _lockEngaged = false;
++                    _lockSessionPrev = false;
++                    DrainRemoteDialog();             // drain-and-discard (nothing to drive)
++                    _dlg.ResetAll();
+                     return;
+                 }
+-                ServiceDialogApply(myField);
++                Boolean unlockedHere = onField && _unlockField == myField;   // the ~ menu panic unlock, this field
++                Boolean engaged = onField && !unlockedHere;
++                if (!_lockSessionPrev)
++                {
++                    Log.Message("[NetSync] dialogue lock: session on" + (bench ? " (bench)" : "") + " -- lines open from now are the host's to drive");
++                    // The host taps already queued PREDATE the session, like the windows already open: a TCP host that
++                    // played before this guest linked (its out-queue survives without a peer, DLG-9) delivers up to 32
++                    // stale confirms in its first flush -- ingested now they would get a fresh PendingTtlMs and page a
++                    // re-opened line with the host's OLD confirms. A blip inside LinkGraceMs never re-raises the session,
++                    // so a short blip's queue still survives (C2-SPEC-04/R3).
++                    Int32 stale = DrainRemoteDialog();
++                    if (stale > 0)
++                        Log.Message("[NetSync] dialogue lock: " + stale + " host tap(s) queued before the session discarded (they predate it)");
++                    if (engaged)
++                        _dlg.MarkOpenLocal(myField);  // the session rose this tick: what is already open predates it
++                }
++                _lockEngaged = engaged;              // the one publish (volatile)
++                _lockSessionPrev = true;
++
++                // 2. ingest -- each event stamped with the host's section-5 scene nonce at arrival
++                Byte[] state = bench || _socket == null ? null : _socket.GetRemoteState();
++                Boolean sceneUp;
++                Int32 sceneNonce;
++                if (bench)
++                {
++                    sceneUp = DebugHostEventFlag != 0;
++                    sceneNonce = _benchSceneNonce;
++                }
++                else
++                {
++                    ReadHostScene(state, out sceneUp, out sceneNonce);
++                    NoteTalkScene(state);            // also during a follow-warp fade, where ServiceTalkFollow returns early
++                }
++                if (unlockedHere)
++                {
++                    // The panic unlock is "lock off" for THIS field (S5 step 1): discard the host's taps AND the inbox --
++                    // kept, they would page a line re-opened once a reload re-arms the lock (C2-SPEC-05). Off-field (a
++                    // load / battle) the inbox is still kept: that is the TALK-7 catch-up.
++                    DrainRemoteDialog();
++                    _dlg.ClearInbox();
++                }
++                else if (_socket != null)
++                {
++                    Byte[] f;
++                    while ((f = _socket.NextRemoteDialog()) != null)
++                        _dlg.Ingest(f, sceneNonce, now);
++                }
++
++                // 3-8 -- the host-settled inputs (S5 step 7) read here, where the wire lives
++                NetSyncDialog.GuestView v = new NetSyncDialog.GuestView();
++                v.Engaged = engaged;
++                v.Live = live;
++                v.MyField = myField;
++                v.WarpField = _followWarpPending;
++                v.HostField = !bench && rs.Valid ? rs.Field : -1;
++                v.HostSceneUp = sceneUp;
++                v.TalkLiveHere = bench ? (_talkPending != null && (_talkPending[0] | (_talkPending[1] << 8)) == myField)
++                                       : SectionFieldIs(state, NetSyncState.SectionTalk, 5, myField);
++                v.CoLocated = bench ? onField : (onField && rs.Valid && rs.Field == myField);
++                v.HostElsewhere = !bench && rs.Valid && rs.Field > 0 && rs.Field != 65535 && rs.Field != myField
++                                  && !SectionFieldIs(state, NetSyncState.SectionIntent, 3, myField);
++                v.HostOffField = !bench && rs.Valid && rs.Field == 0 && !NetSyncBattle.PeerBattleLive;
++                Int32 acceptAge = now - _relayAcceptTick;
++                v.RelayOwned = _relayAcceptArmed && acceptAge >= 0 && acceptAge < NetSyncDialog.RelayOwnMs;
++                v.Now = now;
++                _dlg.GuestTick(ref v);
+             }
+             catch (Exception err)
+             {
+-                Log.Error(err, "[NetSync] dialogue L2 tick failed");
++                _lockEngaged = false;                // FAIL OPEN: a broken tick must never leave the guest's lines wedged
++                Log.Error(err, "[NetSync] dialogue authority tick failed");
+             }
+         }
+ 
++        // [ff9mapkit netsync F3.2] drain the type-7 FIFO unread; returns how many host taps were discarded.
++        private Int32 DrainRemoteDialog()
++        {
++            Int32 n = 0;
++            if (_socket != null)
++                while (_socket.NextRemoteDialog() != null)
++                    n++;
++            return n;
++        }
++
+         // Read the host's blocking-event flag off the FRESH state lane (null/stale -> false, ~2 s staleness).
++        // F3.2: no longer an engage gate -- a helper (AutoTeleportTick's busy test).
+         private Boolean HostEventFlagFromWire()
+         {
+             if (_socket == null)
+@@ -1936,194 +2174,113 @@ namespace Memoria.Netsync
+             return false;
+         }
+ 
+-        // Not engaged: discard any queued frames and release ALL per-window lockstep state (suppress off).
+-        // Called every non-engaged tick -- so a disengaged/left/stale window regains local input at once.
+-        private void DisengageDialogLockstep()
++        // [ff9mapkit netsync F3.2] section 5 of a state payload: the sticky scene flag + its nonce (-1 = absent).
++        private static void ReadHostScene(Byte[] state, out Boolean up, out Int32 nonce)
+         {
+-            if (_socket != null)
+-                while (_socket.NextRemoteDialog() != null) { }   // drain-and-discard (nothing to apply)
+-            _dialogPending = null;
+-            _dialogSuppressActive = false;
+-            _dialogAlignKey = -1;
+-            _dialogLastAppliedSeq = -1;
+-            _dialogWaitArmed = false;
+-            _dialogTimeoutLogged = false;
+-            _dialogRangeLogged = false;
+-        }
+-
+-        // The §8.2 apply state machine over the one-slot peek holder (_dialogPending). Peek-until-match is
+-        // load-bearing (the (fld,winnum,textId) triple is not an instance id -- it reopens corpus-wide), so
+-        // a frame is applied strictly in host-emission order against the CURRENTLY-open window, never matched
+-        // by scanning history. Shared by the live guest pump and the selftest bench.
+-        private void ServiceDialogApply(Int32 myField)
+-        {
+-            // peek-via-hold: pull the next frame only when the slot is free (the queue has no peek)
+-            if (_dialogPending == null && _socket != null)
+-                _dialogPending = _socket.NextRemoteDialog();
+-
+-            if (_dialogPending == null)
+-            {
+-                // No queued frame. HOLD suppress only while the last-matched window is still open (lockstep
+-                // wait for the host's next confirm); release the instant it closes. A dead host is caught by
+-                // the engage gate (staleness / flag fall), so an open matched window needs no timeout here.
+-                if (_dialogAlignKey >= 0 && IsAlignKeyWindowOpen(_dialogAlignKey))
+-                    _dialogSuppressActive = true;
+-                else
+-                {
+-                    _dialogSuppressActive = false;
+-                    _dialogAlignKey = -1;
+-                    _dialogLastAppliedSeq = -1;
+-                }
+-                return;
+-            }
+-
+-            if (_dialogPending.Length < 8)
++            up = false;
++            nonce = -1;
++            Byte[] body;
++            if (state != null && NetSyncState.TryReadSection(state, NetSyncState.SectionEvent, out body) && body != null && body.Length >= 2)
+             {
+-                _dialogPending = null;               // malformed -- drop, try the next
+-                return;
++                up = body[0] != 0;
++                nonce = body[1];
+             }
+-            Int32 fld = _dialogPending[0] | (_dialogPending[1] << 8);
+-            Int32 winnum = _dialogPending[2];
+-            Int32 textId = _dialogPending[3] | (_dialogPending[4] << 8);
+-            Byte kind = _dialogPending[5];
+-            Int32 choiceIndex = _dialogPending[6];
+-            Byte seq = _dialogPending[7];
++        }
+ 
+-            if (fld != myField)
+-            {
+-                _dialogPending = null;               // stale/cross-field frame -- discard, try the next
++        // [ff9mapkit netsync F3.2] GUEST: remember the scene a relayed start belongs to -- the section-5 nonce in the
++        // FIRST state frame whose talk section carries a new nonce (section 5 and 6 ride one snapshot, and the host
++        // raises the talk's scene before building that frame). Called from ServiceTalkFollow and the dialogue pump,
++        // so a follow-warp fade (where ServiceTalkFollow returns early) still sees it. A frame WITHOUT the section
++        // forgets the record (the host TTL retired the start), so a u8 talk nonce reused later is re-recorded; a null
++        // frame (no lane) keeps it.
++        private void NoteTalkScene(Byte[] state)
++        {
++            if (state == null)
+                 return;
+-            }
+-
+-            Int64 alignKey = DialogAlignKey(fld, winnum, textId);
+-            Dialog d = ResolveOpenDialog(winnum, textId);
+-
+-            if (d != null)
+-            {
+-                // MATCHED: engage-on-first-match (S3). A new alignKey resets the per-key dedup + logs.
+-                if (alignKey != _dialogAlignKey)
+-                {
+-                    _dialogAlignKey = alignKey;
+-                    _dialogLastAppliedSeq = -1;
+-                    _dialogRangeLogged = false;
+-                }
+-                _dialogSuppressActive = true;
+-                _dialogWaitArmed = false;            // matched -> the hold clock is irrelevant
+-                _dialogTimeoutLogged = false;
+-
+-                if (seq == _dialogLastAppliedSeq)    // dedup within this window (transport double-deliver)
+-                {
+-                    _dialogPending = null;
+-                    return;
+-                }
+-                if (d.CurrentState != Dialog.State.CompleteAnimation)
+-                {
+-                    // still opening/printing: fast-forward the guest's typewriter (a no-op while opening)
+-                    // and HOLD the frame -- next tick the window is CompleteAnimation and the SAME frame
+-                    // applies (B6: one clean advance, never two page-skips).
+-                    d.OnKeyConfirm(d.gameObject);
+-                    return;
+-                }
+-                // CompleteAnimation: force the host's choice (bounds-checked) then drive the confirm.
+-                if (kind == 1)
+-                {
+-                    if (d.TrySetCurrentChoice(choiceIndex))
+-                        Log.Message("[NetSync] dialog lockstep: choice win " + winnum + " -> index " + choiceIndex);
+-                    else if (!_dialogRangeLogged)
+-                    {
+-                        _dialogRangeLogged = true;
+-                        Log.Message("[NetSync] dialog choice index " + choiceIndex + " out of range on field " + fld + " win " + winnum + " -- local default");
+-                    }
+-                }
+-                d.OnKeyConfirm(d.gameObject);        // :770 re-reads ActiveButton=host index -> :772-773 Hide (page-turn/close)
+-                _dialogLastAppliedSeq = seq;
+-                _dialogPending = null;               // consumed
+-                Log.Message("[NetSync] dialog lockstep: advanced win " + winnum + " (text " + textId + ")");
+-            }
+-            else
++            Byte[] body;
++            if (!NetSyncState.TryReadSection(state, NetSyncState.SectionTalk, out body) || body == null || body.Length < 5)
+             {
+-                // NO matching open window yet (my copy hasn't opened / a different textId). HOLD + arm the
+-                // timeout -- the load-bearing softlock escape for a lost/never-arriving frame. Do NOT set
+-                // suppress: S3 keeps a window the host never drove fully local even transiently.
+-                if (!_dialogWaitArmed)
+-                {
+-                    _dialogWaitArmed = true;
+-                    _dialogWaitSince = Environment.TickCount;   // tick-baseline law: real tick, armed by the bool
+-                }
+-                else if (Environment.TickCount - _dialogWaitSince > DialogWaitMs)
+-                {
+-                    if (!_dialogTimeoutLogged)
+-                    {
+-                        _dialogTimeoutLogged = true;
+-                        Log.Message("[NetSync] dialog frame for win " + winnum + "/text " + textId + " timed out -- local advance restored");
+-                    }
+-                    _dialogPending = null;           // discard the frame
+-                    _dialogSuppressActive = false;   // disengage this alignKey -> local input restored
+-                    _dialogAlignKey = -1;
+-                    _dialogLastAppliedSeq = -1;
+-                    _dialogWaitArmed = false;
+-                }
+-                // else: keep _dialogPending held; leave suppress at its prior state
++                _talkSceneTalk = -1;
++                return;
+             }
++            if (body[4] == _talkSceneTalk)
++                return;
++            Boolean up;
++            Int32 nonce;
++            ReadHostScene(state, out up, out nonce);
++            _talkSceneTalk = body[4];
++            _talkSceneNonce = nonce;
+         }
+ 
+-        // winnum-scoped resolve (RATIFIED): the specific open Dialog matching BOTH winnum AND textId --
+-        // ~19% of fields hold two live windows at once. Read-only scan (returns before any OnKeyConfirm).
+-        private static Dialog ResolveOpenDialog(Int32 winnum, Int32 textId)
++        // [ff9mapkit netsync F3.2] TRUE when `section` (4 = intent, 6 = talk; both open with [field u16 LE]) is on
++        // the lane, at least `minLen` long, and names `field`.
++        private static Boolean SectionFieldIs(Byte[] state, Byte section, Int32 minLen, Int32 field)
+         {
+-            DialogManager dm = null;
+-            try
+-            {
+-                UIManager ui = PersistenSingleton<UIManager>.Instance;
+-                dm = ui != null ? ui.Dialogs : null;
+-            }
+-            catch { dm = null; }
+-            if (dm == null || dm.ActiveDialogList == null)
+-                return null;
+-            foreach (Dialog dialog in dm.ActiveDialogList)
+-                if (dialog != null && dialog.Id == winnum && dialog.TextId == textId)
+-                    return dialog;
+-            return null;
++            Byte[] body;
++            return state != null && NetSyncState.TryReadSection(state, section, out body) && body != null
++                && body.Length >= minLen && (body[0] | (body[1] << 8)) == field;
+         }
+ 
+-        private Boolean IsAlignKeyWindowOpen(Int64 alignKey)
++        // Session-boundary reset for the L2 statics + the F3.2 lock (called from ResetIntentAndL1State, which
++        // OnDestroy + the redial/reconfigure path both run). _dialogSeq resets so a fresh session starts its
++        // dedup counter at 0.
++        private void ResetDialogLockstepState()
+         {
+-            Int32 winnum = (Int32)((alignKey >> 24) & 0xFF);
+-            Int32 textId = (Int32)(alignKey & 0xFFFF);
+-            return ResolveOpenDialog(winnum, textId) != null;
++            _lockEngaged = false;
++            _lockSessionPrev = false;
++            _liveArmed = false;
++            _unlockField = -1;
++            _dlgDirty = false;
++            HostApplying = false;
++            _dlg.ResetAll();
++            lock (_tapLock)
++                _dialogSeq = 0;
+         }
+ 
+-        private static Int64 DialogAlignKey(Int32 fld, Int32 winnum, Int32 textId)
++        // [ff9mapkit netsync F3.2] S7: the ~ menu panic unlock ("Co-op: release dialogue lock (this field)", shown
++        // only in a live followed session) and the harness `netsync unlock`: the lock is off on THIS field until the
++        // next field load (RearmDialogLockAtFieldLoad). The deliberate escape for a hung edge case -- owner decision 5.
++        public static void ReleaseDialogLockForField()
+         {
+-            return ((Int64)(fld & 0xFFFF) << 32) | ((Int64)(winnum & 0xFF) << 24) | (Int64)(textId & 0xFFFF);
++            String why;
++            if (!HarnessReleaseDialogLock(out why))
++                Log.Message("[NetSync] dialogue unlock: " + why);
+         }
+ 
+-        // Session-boundary reset for the L2 statics + per-window state (called from ResetIntentAndL1State,
+-        // which OnDestroy + the redial/reconfigure path both run). _dialogSeq resets so a fresh session
+-        // starts its dedup counter at 0.
+-        private void ResetDialogLockstepState()
++        public static Boolean HarnessReleaseDialogLock(out String why)
+         {
+-            _dialogPending = null;
+-            _dialogSuppressActive = false;
+-            _dialogAlignKey = -1;
+-            _dialogLastAppliedSeq = -1;
+-            _dialogWaitArmed = false;
+-            _dialogWaitSince = 0;
+-            _dialogTimeoutLogged = false;
+-            _dialogRangeLogged = false;
+-            _dialogSeq = 0;
++            why = null;
++            NetSyncClient i = _instance;
++            if (i == null)
++                why = "no co-op client in this process";
++            else if (!(IsLiveFollowedSession || (IsSelfTestRole && NetSyncField.BenchGates)))
++                why = "needs a live followed session (or the selftest field-gate bench)";
++            if (why != null)
++                return false;
++            try
++            {
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                i._unlockField = fld;
++                Log.Message("[NetSync] dialogue lock released on field " + fld + " (manual unlock) -- local input until the next field load");
++                return true;
++            }
++            catch (Exception err)
++            {
++                why = err.Message;
++                return false;
++            }
+         }
+ 
+-        // SELFTEST BENCH (the ~ debug menu, gated IsSelfTestRole + BenchGates + the L1 toggle): fabricate a
++        // SELFTEST BENCH (the ~ debug menu, gated IsSelfTestRole + BenchGates + the bench lock): fabricate a
+         // TypeDialog frame for `winnum`/`textId`, prove it round-trips the REAL codec (BuildFrame ->
+-        // TryParseHeader), then push it into the SAME ServiceDialogApply path against the selftest field's
+-        // own open window. No socket needed -- the codec IS the wire, exercised solo (B1-B6).
++        // TryParseHeader), then feed it to the SAME inbox the live FIFO feeds (F3.2) -- it applies to the
++        // selftest field's own open window by key, exactly as a host event would. No socket needed.
+         public static void DebugInjectDialogAdvance(Int32 winnum, Int32 textId, Int32 kind, Int32 choiceIndex)
+         {
+             NetSyncClient i = _instance;
+-            if (i == null || !(IsSelfTestRole && NetSyncField.BenchGates) || DebugHostEventFlag == 0)
++            if (i == null || !(IsSelfTestRole && NetSyncField.BenchGates) || !DebugDialogLock)
+             {
+-                Log.Message("[NetSync] dialog bench: needs Role=selftest + the field-gate bench ON + the host-event (L1) flag ON");
++                Log.Message("[NetSync] dialog bench: needs Role=selftest + the field-gate bench ON + the dialogue lock (bench) ON");
+                 return;
+             }
+             i.DebugInjectDialogAdvanceImpl(winnum, textId, kind, choiceIndex);
+@@ -2134,16 +2291,10 @@ namespace Memoria.Netsync
+             try
+             {
+                 Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
+-                Byte seq = _dialogSeq++;
+-                Byte[] payload = new Byte[8];
+-                payload[0] = (Byte)(fld & 0xFF);
+-                payload[1] = (Byte)((fld >> 8) & 0xFF);
+-                payload[2] = (Byte)(winnum & 0xFF);
+-                payload[3] = (Byte)(textId & 0xFF);
+-                payload[4] = (Byte)((textId >> 8) & 0xFF);
+-                payload[5] = (Byte)(kind & 0xFF);
+-                payload[6] = (Byte)(choiceIndex & 0xFF);
+-                payload[7] = seq;
++                Byte seq;
++                lock (_tapLock)
++                    seq = _dialogSeq++;
++                Byte[] payload = DialogPayload(fld, winnum, textId, (Byte)(kind & 0xFF), (Byte)(choiceIndex & 0xFF), seq);
+                 // round-trip the REAL frame codec, exactly as a peer would receive it
+                 Byte[] frame = NetSyncWire.BuildFrame(NetSyncWire.TypeDialog, payload);
+                 Byte type;
+@@ -2155,11 +2306,8 @@ namespace Memoria.Netsync
+                 }
+                 Byte[] body = new Byte[len];
+                 Array.Copy(frame, NetSyncWire.HeaderSize, body, 0, len);
+-                Log.Message("[NetSync] dialog bench: fabricated TypeDialog win " + winnum + " text " + textId + " kind " + kind + " idx " + choiceIndex + " seq " + seq + " -- applying");
+-                // push into the SAME apply path (the one-slot peek holder); the ongoing selftest
+-                // ServiceDialogLockstep re-checks a held frame each frame (so B5's timeout is provable solo).
+-                _dialogPending = body;
+-                ServiceDialogApply(fld);
++                Log.Message("[NetSync] dialog bench: fabricated TypeDialog win " + winnum + " text " + textId + " kind " + kind + " idx " + choiceIndex + " seq " + seq + " -- into the inbox");
++                _dlg.Ingest(body, _benchSceneNonce, Environment.TickCount);   // the next bench tick applies it by key
+             }
+             catch (Exception err)
+             {
+@@ -2167,6 +2315,20 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync F3.2] selftest: log the simulated host scene's edges once, and bump the bench scene
++        // nonce on each rise (the Scene stamp of injected events -- the relay-accept purge keys on it).
++        private void BenchSceneEdge(Int32 fld)
++        {
++            if ((DebugHostEventFlag != 0) == _benchSceneLogged)
++                return;
++            _benchSceneLogged = DebugHostEventFlag != 0;
++            if (_benchSceneLogged)
++                _benchSceneNonce = (Byte)(_benchSceneNonce + 1);
++            Log.Message(_benchSceneLogged
++                ? "[NetSync] host in a dialogue scene (simulated, field " + fld + ") -- staying in place"
++                : "[NetSync] host scene (simulated) ended");
++        }
++
+         // ===== F3.1 TALK RELAY =============================================================================
+ 
+         private static Byte[] TalkSectionBody(Int32 fld, Int32 uid, Byte nonce)
+@@ -2208,15 +2370,21 @@ namespace Memoria.Netsync
+         }
+ 
+         // The stamp itself (extracted, F3.2): record the start, bump the nonce, push the state frame out-of-band.
++        // [ff9mapkit netsync F3.2] C2 S2: the start opens a host scene of its own (StartSceneAt) BEFORE the frame is
++        // built, so the talk section and its fresh scene nonce leave in the same push.
+         private void StampTalk(Int32 uid, Int32 fld)
+         {
+             _talkField = fld;
+             _talkUid = uid;
+             _talkNonce = (Byte)(_talkNonce + 1);
+             _talkSince = Environment.TickCount;
++            StartSceneAt(fld);
+             Byte[] frame = BuildStateFrame();
+             if (frame != null && _socket != null)
++            {
+                 _socket.SetLocalState(frame);
++                _storyTick = Environment.TickCount;
++            }
+             Log.Message("[NetSync] talk relay: host started obj " + uid + " on field " + fld + " (nonce " + _talkNonce + ")");
+         }
+ 
+@@ -2235,7 +2403,7 @@ namespace Memoria.Netsync
+                 for (Int32 k = 0; k < list.Count && _quadPreOpenN < _quadPreOpen.Length; k++)
+                 {
+                     Dialog d = list[k];
+-                    if (IsEtbLine(d))
++                    if (NetSyncDialog.IsLockable(d))
+                     {
+                         _quadPreOpen[_quadPreOpenN] = d;
+                         _quadPreText[_quadPreOpenN] = d.TextId;
+@@ -2273,7 +2441,7 @@ namespace Memoria.Netsync
+             _quadPreOpenN = 0;
+         }
+ 
+-        // [ff9mapkit netsync F3.2] HOST Update (next to UpdateHostEventFlag): promote an armed quad start to a
++        // [ff9mapkit netsync F3.2] HOST Update (right after UpdateHostScene): promote an armed quad start to a
+         // relayed one the moment its handler's window rises -- a promoted start is stamped when the window
+         // becomes visible, and the host cannot confirm a window it has not yet seen, so no L2 frame is lost.
+         // Dropped (one log line) when: I left the field / QuadPromoteMs passed with no window / the handler
+@@ -2349,7 +2517,7 @@ namespace Memoria.Netsync
+         }
+ 
+         // True when an ETb line is open that was NOT already open (same Dialog + same TextId) at the press.
+-        // Allocation-free scan of the live list (C2's NetSyncDialog.AnyEtbLine(includeInh: true), inlined).
++        // Allocation-free scan of the live list (NetSyncDialog.AnyEtbLine(includeInh: true) minus the pre-open set).
+         private Boolean QuadWindowRose()
+         {
+             DialogManager dm = DialogsOrNull();
+@@ -2359,7 +2527,7 @@ namespace Memoria.Netsync
+             for (Int32 k = 0; k < list.Count; k++)
+             {
+                 Dialog d = list[k];
+-                if (!IsEtbLine(d))
++                if (!NetSyncDialog.IsLockable(d))   // an ETb field line, FlagButtonInh windows included (DLG-8)
+                     continue;
+                 Boolean preexisting = false;
+                 for (Int32 p = 0; p < _quadPreOpenN; p++)
+@@ -2374,13 +2542,6 @@ namespace Memoria.Netsync
+             return false;
+         }
+ 
+-        // An ETb field line (FlagButtonInh windows included): UI dialogs carry Id 9 + IsETbDialog=false
+-        // (DialogManager.cs:83/:89) and TextId -1 -- never a script's window (DLG-8).
+-        private static Boolean IsEtbLine(Dialog d)
+-        {
+-            return d != null && d.IsETbDialog && d.Id != DialogManager.UIDialogId && d.TextId >= 0;
+-        }
+-
+         private static DialogManager DialogsOrNull()
+         {
+             try
+@@ -2406,6 +2567,7 @@ namespace Memoria.Netsync
+                 if (_socket == null || !_followHost || _followWarpPending >= 0)
+                     return;
+                 state = _socket.GetRemoteState();
++                NoteTalkScene(state);                    // F3.2 C2: the scene this start belongs to (the accept purge keys on it)
+                 if (state == null || !NetSyncState.TryReadSection(state, NetSyncState.SectionTalk, out body) || body == null || body.Length < 5)
+                     body = null;                         // absent: only the expiry check below runs
+             }
+@@ -2428,10 +2590,7 @@ namespace Memoria.Netsync
+                     _talkDeferNonce = -1;
+                 }
+                 if (body == null)
+-                {
+-                    _talkWatchNonce = -1;                // F3.2: nothing on the lane -> nothing to watch
+                     return;
+-                }
+                 Int32 fld = body[0] | (body[1] << 8);
+                 Int32 uid = body[2] | (body[3] << 8);
+                 Int32 nonce = body[4];
+@@ -2440,18 +2599,10 @@ namespace Memoria.Netsync
+                     if (bench) _talkPending = null;
+                     return;
+                 }
+-                // [ff9mapkit netsync F3.2] C1 has no catch-up (C2 retains the host's frames per window): a start
+-                // still unapplied after the host has played its scene through would open on my copy with nobody
+-                // driving it -- L2 disengaged and drained at the flag fall -- so its pages and choice would be
+-                // mine (a late back-to-back talk, a pause-menu defer). Retire it instead of opening it late.
+-                if (!bench && HostSceneRanFor(state, nonce, uid, onField && fld == myField))
+-                {
+-                    Log.Message("[NetSync] talk relay: start " + nonce + " (obj " + uid + ") dropped -- the host already played it through (its scene rose and fell)");
+-                    _lastTalkNonce = nonce;
+-                    _talkDeferNonce = -1;
+-                    _talkWatchNonce = -1;
+-                    return;
+-                }
++                // [ff9mapkit netsync F3.2] C2: a start that opens AFTER the host played its scene through is no
++                // longer retired (C1's stopgap: nothing drove a late window then). Its windows are locked from open
++                // and the host's events for their keys are retained (not drained), so it catches up page by page
++                // (TALK-7) -- or, with nothing retained, falls to the orphan rule.
+                 if (!onField || fld != myField)
+                 {
+                     if (bench) _talkPending = null;      // a bench frame for another field is just wrong -- drop it
+@@ -2477,12 +2628,27 @@ namespace Memoria.Netsync
+                 }
+                 _lastTalkNonce = nonce;
+                 _talkDeferNonce = -1;
+-                _talkWatchNonce = -1;                    // consumed: a later nonce (even this value after a wrap) re-baselines
+                 if (bench) _talkPending = null;
+                 if (r > 0)
+                 {
+                     _relayAcceptTick = Environment.TickCount;   // tick-baseline law: armed bool + delta
+                     _relayAcceptArmed = true;
++                    // [ff9mapkit netsync F3.2] S5 step 3: at the accept, events from an EARLIER host scene whose window
++                    // is not open are stale (the 14.2% duplicate-key reopens). The host stamped this start with a scene
++                    // of its own (StartSceneAt) in the frame that first carried it -- NoteTalkScene kept that nonce. Not
++                    // the section-5 nonce NOW: a deferred start can be accepted after the host's next scene rose, and
++                    // purging against that would drop this talk's own events (C2-BRK-1). Unseen (never recorded): the
++                    // nonce now, the old reading.
++                    Boolean up;
++                    Int32 sceneNonce;
++                    if (bench)
++                        sceneNonce = _benchSceneNonce;
++                    else if (_talkSceneTalk == nonce)
++                        sceneNonce = _talkSceneNonce;
++                    else
++                        ReadHostScene(state, out up, out sceneNonce);
++                    if (sceneNonce >= 0)
++                        _dlg.PurgeAtRelayAccept(sceneNonce);
+                 }
+             }
+             catch (Exception err)
+@@ -2491,40 +2657,6 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // [ff9mapkit netsync F3.2] GUEST: TRUE once a host scene has RISEN since `nonce` was first seen and has
+-        // since FALLEN. The first call per nonce only records the baseline. The host bumps its event nonce on
+-        // every rise, so "fell, under a different event nonce" proves a rise even across ticks this never
+-        // sampled (a follow-warp); a flag already up at first sight may be the PREVIOUS scene, so its own fall
+-        // (same event nonce) does not count. Conservative: a start first seen after its scene already ended (a
+-        // late arrival, TALK-7) still rides the host TTL -- that is the C2/C3 catch-up's case.
+-        // One exception: a promoted QUAD start is stamped once its window has ALREADY risen (ServiceQuadPromotion),
+-        // so for a quad (cid 3 on my copy of the start's field) a flag up at first sight IS its scene.
+-        private Boolean HostSceneRanFor(Byte[] state, Int32 nonce, Int32 uid, Boolean onStartField)
+-        {
+-            Boolean flag = false;
+-            Byte evNonce = 0;
+-            Byte[] ev;
+-            if (state != null && NetSyncState.TryReadSection(state, NetSyncState.SectionEvent, out ev) && ev != null && ev.Length >= 2)
+-            {
+-                flag = ev[0] != 0;
+-                evNonce = ev[1];
+-            }
+-            if (_talkWatchNonce != nonce)
+-            {
+-                _talkWatchNonce = nonce;
+-                _talkWatchEvNonce0 = evNonce;
+-                _talkWatchUpOwned = false;
+-                if (flag && onStartField)
+-                {
+-                    EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+-                    Obj o = ee != null ? ee.FindObjByUID(uid) : null;
+-                    _talkWatchUpOwned = o != null && o.cid == 3;   // Quad.cs: cid 3 (an NPC start is stamped at the press)
+-                }
+-                return false;
+-            }
+-            return !flag && (evNonce != _talkWatchEvNonce0 || _talkWatchUpOwned);
+-        }
+-
+         // The replay itself: the SAME steps CheckNPCInput performs after its distance/angle checks --
+         // listener, Request(obj, 1, 3) -- on my own copy of the object. [ff9mapkit netsync F3.2] NO SNAP:
+         // Request has no position test, so the talk starts wherever I stand (the bench always opened it
+@@ -2663,6 +2795,8 @@ namespace Memoria.Netsync
+                     return true;                                      // a human's ini edit already replaced the override
+                 NetSyncField.BenchGates = false;                      // the levers belong to the override's lifetime
+                 DebugHostEventFlag = 0;
++                DebugDialogLock = false;                              // [ff9mapkit netsync F3.2] the C2 bench levers too
++                DebugLinkDead = false;
+                 _enabled = false;
+                 NetSyncBattle.Enabled = false;
+                 NetSyncVisitor.Enabled = false;
+@@ -2685,10 +2819,6 @@ namespace Memoria.Netsync
+         public static String HarnessRole { get { return _role; } }
+         public static Boolean HarnessSelfTestForced { get { return _harnessSelfTest; } }
+         public static Boolean HarnessHasInstance { get { return _instance != null; } }
+-        // [ff9mapkit netsync F3.2] the L1 pin is deleted (THE L1 LAW: never moves or freezes the guest) --
+-        // these stay as constant false so harness protocol rev 5 keeps its shape until rev 6 removes them.
+-        public static Boolean HarnessL1Pinned { get { return false; } }
+-        public static Boolean HarnessL1ForcedControl { get { return false; } }
+         // F3.2: ms since the guest last ACCEPTED a relayed talk start (-1 = none yet) -- C2's RelayOwnMs claim.
+         public static Int32 HarnessTalkRelayAcceptAgeMs
+         {
+@@ -2700,25 +2830,31 @@ namespace Memoria.Netsync
+                 return Environment.TickCount - i._relayAcceptTick;   // wrap-safe: two real ticks
+             }
+         }
+-        public static Byte[] HarnessPendingDialogFrame { get { NetSyncClient i = _instance; return i == null ? null : i._dialogPending; } }
+-        public static Int64 HarnessDialogAlignKey { get { NetSyncClient i = _instance; return i == null ? -1 : i._dialogAlignKey; } }
+-        public static Int32 HarnessDialogLastAppliedSeq { get { NetSyncClient i = _instance; return i == null ? -1 : i._dialogLastAppliedSeq; } }
+-        public static Boolean HarnessDialogWaitArmed { get { NetSyncClient i = _instance; return i != null && i._dialogWaitArmed; } }
+-        public static Int32 HarnessDialogWaitMs { get { return DialogWaitMs; } }
+-        public static Int32 HarnessDialogWaitElapsedMs
++        // [ff9mapkit netsync F3.2] C2 observables (harness protocol stays 5: these are ADDED beside l1_pinned,
++        // l1_forced_control, align_*, applied_seq, wait_* and pending, which the agent now pins to "nothing" -- the
++        // one-slot holder and the L1 pin are gone). Main thread.
++        public static Boolean HarnessLockEngaged { get { NetSyncClient i = _instance; return i != null && _enabled && i._lockEngaged; } }
++        public static Boolean HarnessFieldUnlocked { get { NetSyncClient i = _instance; return i != null && i._unlockField >= 0; } }
++        public static Int32 HarnessDialogInboxCount { get { NetSyncClient i = _instance; return i == null ? 0 : i._dlg.InboxCount; } }
++        public static Int32 HarnessHostSettledMs { get { NetSyncClient i = _instance; return i == null ? -1 : i._dlg.HostSettledMs; } }
++        public static Int32 HarnessOrphanCloses { get { NetSyncClient i = _instance; return i == null ? 0 : i._dlg.OrphanCloses; } }
++        public static String HarnessDialogChip { get { NetSyncClient i = _instance; return i == null ? null : i._dlg.Chip; } }
++        internal static System.Collections.Generic.List<NetSyncDialog.WindowView> HarnessDialogWindows()
+         {
+-            get
+-            {
+-                NetSyncClient i = _instance;
+-                if (i == null || !i._dialogWaitArmed)
+-                    return -1;
+-                return Environment.TickCount - i._dialogWaitSince;   // wrap-safe: two real ticks
+-            }
++            NetSyncClient i = _instance;
++            return i == null ? new System.Collections.Generic.List<NetSyncDialog.WindowView>() : i._dlg.SnapshotWindows();
++        }
++        internal static System.Collections.Generic.List<NetSyncDialog.EventView> HarnessDialogInboxHeads(Int32 max)
++        {
++            NetSyncClient i = _instance;
++            return i == null ? new System.Collections.Generic.List<NetSyncDialog.EventView>() : i._dlg.SnapshotHeads(Environment.TickCount, max);
+         }
+ 
+         // Bench injection WITH a reason on refusal. The menu button logs and returns void, which is
+         // right for a human reading the log; the harness must throw so the driver blames this step
+         // and quotes why. Same gates, same Impl, same fabricated frame through the real codec.
++        // [ff9mapkit netsync F3.2] the frame now feeds the inbox, so it needs the bench LOCK (lock off = the inbox
++        // is discarded every tick), not the L1 host-scene flag.
+         public static Boolean HarnessInjectDialog(Int32 winnum, Int32 textId, Int32 kind, Int32 choiceIndex, out String why)
+         {
+             why = null;
+@@ -2729,8 +2865,8 @@ namespace Memoria.Netsync
+                 why = "netsync: role is '" + _role + "' -- the dialog bench needs the selftest role";
+             else if (!NetSyncField.BenchGates)
+                 why = "netsync: the field-gate bench is OFF (netsync bench 1)";
+-            else if (DebugHostEventFlag == 0)
+-                why = "netsync: the L1 host-event flag is OFF (netsync l1 1) -- L2 engages only under L1";
++            else if (!DebugDialogLock)
++                why = "netsync: the bench dialogue lock is OFF (netsync lock 1) -- host events feed the locked inbox";
+             if (why != null)
+                 return false;
+             i.DebugInjectDialogAdvanceImpl(winnum, textId, kind, choiceIndex);
+@@ -2905,10 +3041,10 @@ namespace Memoria.Netsync
+                     return;
+                 }
+                 // [ff9mapkit netsync F3.2] the HOST's scene (the bench's simulated flag on the selftest arm), read
+-                // ahead of the distance gate so a guest who walks off mid-scene is covered too. The C1 flag stands
+-                // only while a host line is VISIBLE -- it falls in every window gap (a scripted walk, a pan, a
+-                // Wait) -- so hold AutoTpHostSceneGraceMs past its last high read: with the 4.5 s dwell a
+-                // windowless beat must outlast ~9.5 s before a fire. C2's sticky scene flag closes the rest.
++                // ahead of the distance gate so a guest who walks off mid-scene is covered too. C2: the flag is the
++                // STICKY scene -- it holds through window gaps, walks, pans and Waits until the host has had control
++                // back for SceneFallMs -- and AutoTpHostSceneGraceMs (C1's patch for the per-window flag) still holds
++                // the busy test past its fall, so the scene's own walk-off beat never fires a recovery either.
+                 Boolean hostScene = benchArm ? DebugHostEventFlag != 0 : HostEventFlagFromWire();
+                 if (hostScene)
+                 {
+@@ -3078,18 +3214,10 @@ namespace Memoria.Netsync
+         private void OnGUI()
+         {
+             NetSyncBattle.DrawGUI();   // the battle spectate/assist panel (independent of the status overlay)
++            DrawDialogChip();          // [ff9mapkit netsync F3.2] S5 step 8: the dialogue-lock chip (independent too)
+             if (_ovlText == null)
+                 return;
+-            if (_ovlStyle == null)
+-            {
+-                _ovlBg = new Texture2D(1, 1, TextureFormat.ARGB32, false);
+-                _ovlBg.SetPixel(0, 0, new Color(0.05f, 0.06f, 0.10f, 0.82f));
+-                _ovlBg.Apply();
+-                _ovlStyle = new GUIStyle(GUI.skin.label);
+-                _ovlStyle.fontSize = Mathf.Max(13, Screen.height / 60);
+-                _ovlStyle.richText = false;
+-                _ovlStyle.normal.textColor = new Color(0.92f, 0.94f, 0.98f, 1f);
+-            }
++            EnsureOverlayStyle();
+             GUIContent content = new GUIContent(_ovlText);
+             Vector2 size = _ovlStyle.CalcSize(content);
+             const Single pad = 10f;
+@@ -3098,6 +3226,36 @@ namespace Memoria.Netsync
+             GUI.Label(new Rect(box.x + pad, box.y + pad * 0.7f, size.x, size.y), content, _ovlStyle);
+         }
+ 
++        private static void EnsureOverlayStyle()
++        {
++            if (_ovlStyle != null)
++                return;
++            _ovlBg = new Texture2D(1, 1, TextureFormat.ARGB32, false);
++            _ovlBg.SetPixel(0, 0, new Color(0.05f, 0.06f, 0.10f, 0.82f));
++            _ovlBg.Apply();
++            _ovlStyle = new GUIStyle(GUI.skin.label);
++            _ovlStyle.fontSize = Mathf.Max(13, Screen.height / 60);
++            _ovlStyle.richText = false;
++            _ovlStyle.normal.textColor = new Color(0.92f, 0.94f, 0.98f, 1f);
++        }
++
++        // [ff9mapkit netsync F3.2] S5 step 8: the dialogue-lock chip, top-centre (the status overlay owns the top-right
++        // and is off while paired). Text only, no emoji; null = nothing drawn. The selftest bench draws it too -- it
++        // only exists while the bench lock is on, and the harness reads the same string from telemetry.
++        private void DrawDialogChip()
++        {
++            String chip = _enabled ? _dlg.Chip : null;
++            if (chip == null)
++                return;
++            EnsureOverlayStyle();
++            GUIContent content = new GUIContent(chip);
++            Vector2 size = _ovlStyle.CalcSize(content);
++            const Single pad = 8f;
++            Rect box = new Rect((Screen.width - size.x) / 2f - pad, 12f, size.x + pad * 2f, size.y + pad * 1.2f);
++            GUI.DrawTexture(box, _ovlBg);
++            GUI.Label(new Rect(box.x + pad, box.y + pad * 0.6f, size.x, size.y), content, _ovlStyle);
++        }
++
+         // Spawn (or RE-DRESS) the ghost as the given GEO model, using AddPlayer's proven model setup
+         // (CreateModel + AddAnim + the field-character shader), but without the controller/FieldMapActor
+         // (see class comment). The peer's model id resolves through FF9BattleDB.GEO exactly like the
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+index cdb8553..d7e1159 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+@@ -86,7 +86,10 @@ namespace Memoria.Netsync
+     //                              [flag u8][nonce u8] (flag 1 = the host is in a blocking dialogue event
+     //                              -> dialogue L1 co-location. [ff9mapkit netsync F3.2] a co-located
+     //                              guest only logs the scene edge: L1 never moves or freezes the guest
+-    //                              -- no snap, no control pin -- and the flag gates the F3 lockstep.)
++    //                              -- no snap, no control pin. C2 (same bytes, new meaning): the flag is
++    //                              the host's STICKY scene, one nonce per scene, both edges pushed out-of-
++    //                              band; it feeds the guest's orphan rule and chip -- it no longer gates
++    //                              the dialogue lock, which arms from window open.)
+     //     type 6 = battle action  (B3.5 HOST->GUEST: one ~46 B frame per applied CalcResult -- figures,
+     //                              flinch bit, raw post-application HP/MP for target+caster, and a seq
+     //                              horizon that gates stale type-1 samples. FIFO like type 2 (multi-
+@@ -101,7 +104,10 @@ namespace Memoria.Netsync
+     //                              The guest drives its OWN co-located copy of the host's blocking scene
+     //                              in lockstep (F3 dialogue L2). Its OWN queue -- like type 6, so a host-
+     //                              authored dialogue frame can never be mis-parsed as a guest command.
+-    //                              See Dialog.OnKeyConfirm's tap + NetSyncClient.ServiceDialogLockstep.)
++    //                              See Dialog.OnKeyConfirm's tap + NetSyncDialog (the guest's inbox).
++    //                              [ff9mapkit netsync F3.2] C2 (same bytes): ETb field lines only, taps
++    //                              leave even while !IsConnected (the out-queue survives a reconnect), and
++    //                              the host's voice-paced close emits a kind-0 frame too.)
+     //     v12 and older peers are REJECTED by the version byte -> mixed engine versions silently don't
+     //     sync (fail-safe; update both machines together when the wire changes). ---
+     public static class NetSyncWire
+@@ -235,8 +241,9 @@ namespace Memoria.Netsync
+                                                      // frames per flush; dropped frames self-heal via the
+                                                      // type-1 absolutes, losing only figures)
+         private const Int32 MaxQueuedDialog = 32;    // F3 dialogue-queue cap (drop-oldest; dialogue never bursts
+-                                                     // like battle actions -- 32 is generous. A lost frame is
+-                                                     // covered by the guest's per-window DialogWaitMs timeout.)
++                                                     // like battle actions -- 32 is generous. [ff9mapkit netsync
++                                                     // F3.2] a lost frame strands its line until the guest's
++                                                     // orphan rule (the C2 FIFO residual; C3's ring heals it).)
+         private Boolean _actionDropLogged;      // once per link: cap-sizing telemetry, never per-frame spam
+         private Boolean _dialogDropLogged;      // F3: once per link, never per-frame spam
+ 
+@@ -287,7 +294,7 @@ namespace Memoria.Netsync
+                 _outDialog.Enqueue(frame);
+             }
+             if (dropped)
+-                Log.Message("[NetSync] dialogue queue hit its cap (" + MaxQueuedDialog + ") -- oldest dropped; the guest's DialogWaitMs timeout covers a lost advance");
++                Log.Message("[NetSync] dialogue queue hit its cap (" + MaxQueuedDialog + ") -- oldest dropped; the guest's orphan rule covers a lost advance");
+         }
+ 
+         // --- write thread: everything due this tick (queued commands first, then the state slots) ---
+@@ -443,8 +450,9 @@ namespace Memoria.Netsync
+                 _inState = null;
+                 _inCommands.Clear();
+                 _inActions.Clear();
+-                _inDialog.Clear();       // F3: a dropped link discards pending advances -> the guest's
+-                                         // per-window timeout un-freezes it + the serial state mirror re-syncs
++                _inDialog.Clear();       // F3: a dropped link discards pending advances -> [ff9mapkit netsync F3.2]
++                                         // the guest's orphan rule (or the LinkGraceMs release) frees the line;
++                                         // the serial state mirror re-syncs
+             }
+         }
+     }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+index daa7e76..89cbb0a 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+@@ -75,6 +75,8 @@ namespace Memoria.Netsync
+         // scene. The control state is the discriminator: control ON = free-walk poll idiom (mask),
+         // control OFF = a scene owns input (pass). B_KEYOFF (release) is deliberately unmasked --
+         // a release completes gestures, it cannot initiate one.
++        // [ff9mapkit netsync F3.2] MISC-08: Select joins the free-walk mask -- Select (1u) is the ATE accept
++        // bit (content/ate.py), so a following guest could open its OWN ATE menu mid-session.
+         public static UInt32 FilterScriptButtons(UInt32 keys)
+         {
+             try
+@@ -86,7 +88,9 @@ namespace Memoria.Netsync
+                     return keys;
+                 if ((keys & (EventInput.Confirm | EventInput.Special)) != 0)
+                     DeclineOnce("script button-poll (pickup/loot)");
+-                return keys & ~(EventInput.Confirm | EventInput.Special);
++                if ((keys & EventInput.Select) != 0)
++                    DeclineOnce("script button-poll (ATE menu)");
++                return keys & ~(EventInput.Confirm | EventInput.Special | EventInput.Select);
+             }
+             catch { return keys; }
+         }
+diff --git a/Assembly-CSharp/Global/Dialog/Dialog.cs b/Assembly-CSharp/Global/Dialog/Dialog.cs
+index 5c0db05..8f5d2aa 100644
+--- a/Assembly-CSharp/Global/Dialog/Dialog.cs
++++ b/Assembly-CSharp/Global/Dialog/Dialog.cs
+@@ -190,7 +190,7 @@ public class Dialog : MonoBehaviour
+     // SetCurrentChoice indexes choiceList UNGUARDED, so a divergent host index (a different chooseMask
+     // built a shorter choiceList on the guest) would throw. This checks range + non-null first and
+     // returns whether the host's index was in range; false = leave the guest's LOCAL default untouched.
+-    // Called only by NetSyncClient.ServiceDialogLockstep -- zero behaviour change on every other path.
++    // Called only by the co-op guest (Memoria.Netsync.NetSyncDialog) -- zero behaviour change on every other path.
+     public Boolean TrySetCurrentChoice(Int32 choice)
+     {
+         if (this.choiceList == null || choice < 0 || choice >= this.choiceList.Count || this.choiceList[choice] == null)
+@@ -199,6 +199,11 @@ public class Dialog : MonoBehaviour
+         return true;
+     }
+ 
++    // [ff9mapkit netsync F3.2] Is `c` both the committed choice AND the highlighted button? The co-op guest's cursor
++    // lock re-asserts a locked window's choice when its arrows/hover moved only the highlight (DLG-10). A pure read;
++    // called only by Memoria.Netsync.NetSyncDialog.
++    public Boolean IsCurrentChoice(Int32 c) => this.choiceList != null && c >= 0 && c < this.choiceList.Count && this.choiceList[c] != null && this.selectedChoice == c && ButtonGroupState.ActiveButton == this.choiceList[c];
++
+     public void MoveCurrentChoice(Int32 delta)
+     {
+         Int32 selectChoice = this.SelectChoice;
+diff --git a/Assembly-CSharp/Global/Dialog/DialogManager.cs b/Assembly-CSharp/Global/Dialog/DialogManager.cs
+index eb91439..7ce2889 100644
+--- a/Assembly-CSharp/Global/Dialog/DialogManager.cs
++++ b/Assembly-CSharp/Global/Dialog/DialogManager.cs
+@@ -311,6 +311,8 @@ public class DialogManager : Singleton<DialogManager>
+     {
+         if (this.isHudActive || Configuration.Control.DisableMouseForMenus)
+             return;
++        if (Memoria.Netsync.NetSyncClient.SuppressLocalDialogInput)
++            return; // [ff9mapkit netsync F3.2] a co-op guest's mouse/touchpad tap never advances a host-driven line (DLG-5) -- this also covers EventInput.RecieveDialogConfirm below. False on vanilla.
+         if (this.GetChoiceDialog() == null)
+         {
+             this.OnKeyConfirm(base.gameObject);
+@@ -323,6 +325,8 @@ public class DialogManager : Singleton<DialogManager>
+         if (PersistenSingleton<UIManager>.Instance.IsPause)
+             return;
+         Dialog choiceDialog = this.GetChoiceDialog();
++        if (choiceDialog != null && Memoria.Netsync.NetSyncClient.IsGuestLockedChoice(choiceDialog))
++            return; // [ff9mapkit netsync F3.2] a co-op guest's drag never moves a host-driven choice (DLG-10). False on vanilla.
+         if (choiceDialog != null)
+         {
+             if (delta.y < -50f)
+@@ -353,6 +357,8 @@ public class DialogManager : Singleton<DialogManager>
+         if (PersistenSingleton<UIManager>.Instance.IsPause)
+             return;
+         Dialog choiceDialog = this.GetChoiceDialog();
++        if (choiceDialog != null && Memoria.Netsync.NetSyncClient.IsGuestLockedChoice(choiceDialog) && !Memoria.Netsync.NetSyncClient.HostApplying)
++            return; // [ff9mapkit netsync F3.2] a co-op guest's arrows/hover can't change a host-driven SelectChoice (DLG-10); its cursor lock snaps the highlight back. False on vanilla.
+         if (choiceDialog != null)
+             choiceDialog.OnItemSelect(go);
+     }
+diff --git a/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs b/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs
+index 8a63d50..63643ea 100644
+--- a/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs
++++ b/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs
+@@ -254,8 +254,13 @@ public class VoicePlayer : SoundPlayer
+             Thread.Sleep(1000 / Configuration.Graphics.FieldTPS);
+         if (!dialog.gameObject.activeInHierarchy || dialog.CurrentState != Dialog.State.CompleteAnimation)
+             return;
++        if (Memoria.Netsync.NetSyncClient.IsGuestLockedDialog(dialog)) // [ff9mapkit netsync F3.2] a co-op guest: the HOST's close drives a locked line -- both branches below (ForceClose + the scripted Confirm injection). Off-thread safe; false on vanilla.
++            return;
+         if (!dialog.FlagButtonInh) // This dialog can be closed normally
++        {
++            Memoria.Netsync.NetSyncClient.EmitDialogCloseIfHost(dialog); // [ff9mapkit netsync F3.2] a co-op host: a voice-paced close is an advance -- tapped BEFORE ForceClose -> Hide -> Reset zeroes TextId. No-op on vanilla.
+             dialog.ForceClose();
++        }
+         else if (VoicePlayer.scriptRequestedButtonPress) // It looks like this dialog is closed by the script on a key press
+         {
+             ETb.sKey &= ~EventInput.GetKeyMaskFromControl(Control.Confirm);
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
+index b2245a8..8ab0522 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
+@@ -2350,6 +2350,14 @@ public partial class EventEngine
+                     if (p.info.party != 0)
+                         selectList.Add(p.info.slot_no);
+                 Int32 fixedMembers = this.getv2(); // arg2: list of locked characters
++                // [ff9mapkit netsync F3.2] MISC-07: the talk relay now reaches a moogle's Party(4,1) on a FOLLOWING guest,
++                // which opened a guest-paced party UI. Same shape as the MENU gate above: BOTH getv calls are consumed
++                // first (gArgUsed trap), then return 0 continues the script inline. SpectatorField is false on vanilla.
++                if (Memoria.Netsync.NetSyncField.SpectatorField)
++                {
++                    Memoria.Netsync.NetSyncField.DeclineOnce("party menu");
++                    return 0;
++                }
+                 foreach (PLAYER p in FF9StateSystem.Common.FF9.PlayerList)
+                     if ((fixedMembers & (1 << (Int32)p.info.slot_no)) != 0)
+                         sPartyInfo.fix.Add(p.info.slot_no);
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+index e1adad0..65ff818 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -843,6 +843,19 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+         DrawDiorama();                                          // co-op bench: renders ONLY inside a co-op session
+ 
++        // [ff9mapkit netsync F3.2] S7 -- THE PANIC UNLOCK (owner decision 5). A following guest's lines are locked
++        // from open and released only by host state; this is the deliberate escape for a hung edge case: the lock
++        // is off on THIS field until the next field load. Rendered ONLY in a live followed session (invisible to
++        // ordinary players, hosts and the selftest bench). The ~ toggle runs before UIKeyTrigger's dialog guard
++        // (UIKeyTrigger.cs:171-179), so the menu opens even while a locked line swallows every dialogue key.
++        if (Memoria.Netsync.NetSyncClient.IsLiveFollowedSession)
++        {
++            Section("Co-op dialogue");
++            if (GUILayout.Button("Co-op: release dialogue lock (this field)", _button))
++                Memoria.Netsync.NetSyncClient.ReleaseDialogLockForField();
++            GUILayout.Label("The host drives every line while you follow. If a line is stuck, this hands this field's dialogue back to your own buttons until the next field load.", _hint);
++        }
++
+         // [ff9mapkit netsync F1] the FIELD-GATE BENCH lever: arms every F1 spectator gate
+         // (chest/NPC/gateway/script-menu suppression + auto-teleport) in a Role=selftest session --
+         // the ONLY solo path, since IsLiveFollowedSession needs role=client and IsMirroringStory
+@@ -873,16 +886,39 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+             // [ff9mapkit netsync F2] the DIALOGUE L1 bench: flip DebugHostEventFlag to simulate the host in
+             // a blocking dialogue event. [ff9mapkit netsync F3.2] no snap and no freeze any more (the live
+-            // L1 lost both) -- the flag only says "the host is in a scene" (it arms the L2 bench below).
++            // L1 lost both) -- the flag only says "the host is in a scene" (the bench's section 5: it holds
++            // the orphan rule off and sets the chip). The LOCK itself is the toggle below.
+             Section("Dialogue L1 bench (selftest)");
+             Boolean l1On = Memoria.Netsync.NetSyncClient.DebugHostEventFlag != 0;
+             if (GUILayout.Button(l1On ? "Host scene (simulated): ON" : "Host scene (simulated)", l1On ? _tabOn : _button))
+                 Memoria.Netsync.NetSyncClient.DebugHostEventFlag = (Byte)(l1On ? 0 : 1);
+             GUILayout.Label("Simulates the host in a dialogue scene. You stay in place and keep control.", _hint);
+ 
++            // [ff9mapkit netsync F3.2] S7 bench levers: "Dialogue lock (bench)" stands in for a live followed session
++            // (every line that opens from now is locked; the host's events -- the inject buttons below -- drive it),
++            // and "Link dead (bench)" stands in for a stale lane (the lock holds LinkGraceMs, then lets go).
++            Section("Dialogue lock bench (selftest)");
++            GUILayout.BeginHorizontal();
++            Boolean lockOn = Memoria.Netsync.NetSyncClient.DebugDialogLock;
++            if (GUILayout.Button(lockOn ? "Dialogue lock (bench): ON" : "Dialogue lock (bench)", lockOn ? _tabOn : _button))
++            {
++                Memoria.Netsync.NetSyncClient.DebugDialogLock = !lockOn;
++                Memoria.Prime.Log.Message("[NetSync] dialogue lock bench " + (!lockOn ? "ON" : "OFF"));
++            }
++            Boolean deadOn = Memoria.Netsync.NetSyncClient.DebugLinkDead;
++            if (GUILayout.Button(deadOn ? "Link dead (bench): ON" : "Link dead (bench)", deadOn ? _tabOn : _button))
++            {
++                Memoria.Netsync.NetSyncClient.DebugLinkDead = !deadOn;
++                Memoria.Prime.Log.Message("[NetSync] dialogue link-dead bench " + (!deadOn ? "ON" : "OFF"));
++            }
++            GUILayout.EndHorizontal();
++            if (GUILayout.Button("Release dialogue lock (this field, bench)", _button))
++                Memoria.Netsync.NetSyncClient.ReleaseDialogLockForField();
++            GUILayout.Label("Needs the spectator gates ON. Lines open locked: your Confirm, click, drag and arrows do nothing; only an injected host event (or the orphan rule once the simulated host scene is off) moves them.", _hint);
++
+             // [ff9mapkit netsync F3] the DIALOGUE L2 bench: fabricate a TypeDialog advance/choice frame for
+             // the FRONTMOST open window and run the SAME apply path the live guest uses (codec proof + force).
+-            // Needs the L1 host-event flag ON above (L2 engages only under L1). Open a dialog first, then inject.
++            // [ff9mapkit netsync F3.2] the frame feeds the guest's inbox, so it needs the bench LOCK above.
+             Section("Dialogue L2 bench (selftest)");
+             if (GUILayout.Button("Inject dialog advance (win = frontmost)", _button))
+             {
+@@ -890,8 +926,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+                 if (FrontmostOpenDialog(out fw, out ft))
+                     Memoria.Netsync.NetSyncClient.DebugInjectDialogAdvance(fw, ft, 0, 0xFF);
+                 else
+-                    // no window open -> inject a deliberately-UNMATCHED frame to prove the DialogWaitMs
+-                    // timeout / local-input restore (B5): winnum 15 + textId 0xFFFF never match a real window.
++                    // no window open -> inject a deliberately-UNMATCHED frame (winnum 15 + textId 0xFFFF never
++                    // match a real window): F3.2 -- it blocks nothing and ages out of the inbox (PendingTtlMs).
+                     Memoria.Netsync.NetSyncClient.DebugInjectDialogAdvance(15, 0xFFFF, 0, 0xFF);
+             }
+             GUILayout.BeginHorizontal();
+@@ -906,7 +942,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             }
+             _dialogChoiceText = GUILayout.TextField(_dialogChoiceText, 4, _field, GUILayout.Width(56f));
+             GUILayout.EndHorizontal();
+-            GUILayout.Label("Advances/branches the frontmost open dialog as the host's frame would. Toggle L1 ON, open a window, then inject. No window open + advance = the B5 timeout test.", _hint);
++            GUILayout.Label("Advances/branches the frontmost open dialog as the host's frame would. Turn the dialogue lock ON, open a window, then inject. No window open + advance = an unmatched event (it must block nothing).", _hint);
+         }
+ 
+         Section("Registered fields");
+diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+index 68312c8..90b45a0 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+@@ -822,10 +822,11 @@ public class UIKeyTrigger : MonoBehaviour
+             activeButton = UICamera.selectedObject;
+ 
+         // [ff9mapkit netsync L2] co-op dialogue lockstep: while a host-driven window is engaged, the HOST's
+-        // frames advance/branch this window (NetSyncClient.ServiceDialogLockstep) -- swallow the guest's own
++        // frames advance/branch this window (Memoria.Netsync.NetSyncDialog) -- swallow the guest's own
+         // confirm/cancel so it neither advances the page nor re-selects the choice. ONE cheap static read:
+-        // false on a vanilla install (co-op never bootstrapped) -> zero behaviour change. Releases the instant
+-        // the window closes / times out / the host flag falls / the lane goes stale.
++        // false on a vanilla install (co-op never bootstrapped) -> zero behaviour change. [ff9mapkit netsync
++        // F3.2] C2: true from the frame a line OPENS on a following guest; released only by host state (a host
++        // event, the orphan rule, the link dead ~5 s, the session ending, the ~ menu unlock) -- never by a timeout.
+         if (Memoria.Netsync.NetSyncClient.SuppressLocalDialogInput)
+         {
+             keyCommand = Control.None;
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 43ca841..9e9771f 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -44,6 +44,17 @@ namespace Memoria.Harness
+         // Additive under 5, no bump: `storytrace` (s88), `objects` + `pushout` (s89), `player.yaw` +
+         // `player.face` and the `turn` verb (s90) -- an engine without them publishes no key (and answers
+         // `turn` with "unknown op"), which a driver must read as "cannot", never as "nothing there".
++        // [ff9mapkit netsync F3.2] C2 (host-authoritative dialogue) stays under 5 ON PURPOSE: a bump makes every
++        // other session's rev-5 driver refuse the deployed engine (session.py refuses a NEWER engine), and only
++        // the co-op scenarios read `netsync`. So the block is additive: `dialogue` = "authority" names the new
++        // contract (absent = the F3 lockstep); the F3 keys stay, pinned to their "nothing" values (`l1_pinned`/
++        // `l1_forced_control` false -- the L1 pin is gone; `align_*`/`applied_seq`/`wait_ms`/`wait_limit_ms` -1,
++        // `wait_armed` false, `pending` null -- the one-slot holder and its 8 s timeout are gone). `suppress`
++        // keeps its meaning (the guest's own dialogue keys/clicks are swallowed right now) -- it now rises
++        // from the frame a line OPENS under the lock. ADDED: `lock_engaged`, `lock`, `stale`, `unlocked`,
++        // `windows[]`, `inbox`, `host_settled_ms`, `orphan_closes`, `chip`, and the verbs `lock`/`hostscene`
++        // (alias `l1`)/`stale`/`unlock`/`click`/`drag`; `advance`/`choice`/`unmatched` now feed the guest's
++        // inbox (they need `lock 1`). A driver checks `dialogue` before asserting on the new keys.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -964,10 +975,59 @@ namespace Memoria.Harness
+                             Memoria.Prime.Log.Message("[NetSync] field-gate bench " + (Memoria.Netsync.NetSyncField.BenchGates ? "ON" : "OFF") + " (harness)");
+                             break;
+                         case "l1":
++                        case "hostscene":
++                            // the simulated host scene (the bench's section 5). [ff9mapkit netsync F3.2] `hostscene`
++                            // is the C2 name; `l1` stays as its alias.
+                             if (!Memoria.Netsync.NetSyncClient.IsSelfTestRole)
+-                                throw new InvalidOperationException("netsync l1: needs the selftest role (netsync selftest 1)");
++                                throw new InvalidOperationException("netsync " + sub + ": needs the selftest role (netsync selftest 1)");
+                             Memoria.Netsync.NetSyncClient.DebugHostEventFlag = (Byte)(Arg(s, 1, 1) != 0 ? 1 : 0);
+                             break;
++                        case "lock":
++                            // [ff9mapkit netsync F3.2] the bench dialogue LOCK (stands in for a live followed session)
++                            if (!Memoria.Netsync.NetSyncClient.IsSelfTestRole)
++                                throw new InvalidOperationException("netsync lock: needs the selftest role (netsync selftest 1)");
++                            Memoria.Netsync.NetSyncClient.DebugDialogLock = Arg(s, 1, 1) != 0;
++                            Memoria.Prime.Log.Message("[NetSync] dialogue lock bench " + (Memoria.Netsync.NetSyncClient.DebugDialogLock ? "ON" : "OFF") + " (harness)");
++                            break;
++                        case "stale":
++                            // [ff9mapkit netsync F3.2] the bench "link dead" lever (the lock holds LinkGraceMs, then lets go)
++                            if (!Memoria.Netsync.NetSyncClient.IsSelfTestRole)
++                                throw new InvalidOperationException("netsync stale: needs the selftest role (netsync selftest 1)");
++                            Memoria.Netsync.NetSyncClient.DebugLinkDead = Arg(s, 1, 1) != 0;
++                            Memoria.Prime.Log.Message("[NetSync] dialogue link-dead bench " + (Memoria.Netsync.NetSyncClient.DebugLinkDead ? "ON" : "OFF") + " (harness)");
++                            break;
++                        case "unlock":
++                            // [ff9mapkit netsync F3.2] the ~ menu panic unlock: this field, until the next field load
++                            if (!Memoria.Netsync.NetSyncClient.HarnessReleaseDialogLock(out why))
++                                throw new InvalidOperationException("netsync unlock: " + (why ?? "refused"));
++                            break;
++                        case "click":
++                        case "drag":
++                        {
++                            // [ff9mapkit netsync F3.2] the MOUSE/TOUCHPAD seams, which no injected controller button
++                            // reaches: `click` = NGUI's own OnClick dispatch onto the DialogManager (UICamera.Notify,
++                            // exactly as a real click/tap lands); `drag <dy>` = DialogManager.OnDrag. Stock seams --
++                            // no role gate (A1v / A12 vanilla parity need them with co-op off). Refused with no
++                            // window open: a stray click would inject EventInput.RecieveDialogConfirm into a script.
++                            Int32 fw, ft;
++                            if (!Ff9mkDebugMenu.HarnessFrontmostOpenDialog(out fw, out ft))
++                                throw new InvalidOperationException("netsync " + sub + ": no dialogue window is open");
++                            DialogManager dm = PersistenSingleton<UIManager>.Instance.Dialogs;
++                            if (sub == "click")
++                            {
++                                if (Memoria.Configuration.Control.DisableMouseForMenus)
++                                    throw new InvalidOperationException("netsync click: [Control] DisableMouseForMenus is on -- a click never reaches the dialogue");
++                                UICamera.Notify(dm.gameObject, "OnClick", null);
++                            }
++                            else
++                            {
++                                Int32 dy = Arg(s, 1, 0);
++                                if (dy == 0)
++                                    throw new ArgumentOutOfRangeException("netsync drag", "needs a non-zero <dy> (|dy| > 50 moves a choice)");
++                                dm.OnDrag(new Vector2(0f, dy));
++                            }
++                            break;
++                        }
+                         case "advance":
+                         case "choice":
+                         case "unmatched":
+@@ -976,8 +1036,8 @@ namespace Memoria.Harness
+                             Boolean choice = sub == "choice";
+                             if (sub == "unmatched")
+                             {
+-                                // B5: a frame no real window can match (winnum 15 + textId 0xFFFF)
+-                                // -- proves the DialogWaitMs hold RELEASES local input, never wedges it.
++                                // a frame no real window can match (winnum 15 + textId 0xFFFF). [ff9mapkit netsync F3.2]
++                                // C2: it must block NOTHING and never hand a locked line back -- it ages out of the inbox.
+                                 fw = 15; ft = 0xFFFF;
+                             }
+                             else if (!Ff9mkDebugMenu.HarnessFrontmostOpenDialog(out fw, out ft))
+@@ -1002,7 +1062,7 @@ namespace Memoria.Harness
+                             break;
+                         }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|advance|choice|unmatched|talk)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk)");
+                     }
+                     Block(2);
+                     break;
+@@ -1015,9 +1075,10 @@ namespace Memoria.Harness
+ 
+         // Undo anything the `netsync` verbs did to THIS process. Runs on disarm, fault and `reset`:
+         // the selftest override is process-local, so a leaked run must not leave a ghost beside the
+-        // next player, a bench gate swallowing their chest, or a simulated host scene (the L1 flag --
+-        // [ff9mapkit netsync F3.2] it no longer pins control, but it still arms the L2 bench). A
+-        // session the harness did NOT force (a human's own ini-configured selftest) is left alone.
++        // next player, a bench gate swallowing their chest, a simulated host scene (the L1 flag), or
++        // [ff9mapkit netsync F3.2] a bench dialogue lock swallowing their Confirm (HarnessSelfTest(false)
++        // clears the lock + link-dead levers too). A session the harness did NOT force (a human's own
++        // ini-configured selftest) is left alone.
+         private static void ReleaseNetsyncOverride()
+         {
+             try
+@@ -2188,15 +2249,19 @@ namespace Memoria.Harness
+             outer.Append("\"flags\":{").Append(sb).Append("}");
+         }
+ 
+-        // The co-op client's observables -- above all the F3 dialogue-lockstep state machine, since
+-        // the solo benches assert on it: which window is under lockstep (`align_*`), whether a
+-        // fabricated frame is HELD waiting for a matching window (`pending` + `wait_*` against the
+-        // DialogWaitMs escape), and whether the guest's own Confirm is suppressed right now. With no
+-        // client every value sits at its "nothing" sentinel -- a missing subsystem is one null
+-        // section, never a missing document (the same law as every other section here).
++        // The co-op client's observables -- above all the dialogue lock, since the solo benches assert on
++        // it. [ff9mapkit netsync F3.2] C2 (host-authoritative dialogue, additive under 5): the bench levers (`l1` = the
++        // simulated host scene, `lock`, `stale`), whether THE LOCK is engaged (`lock_engaged`) and this field
++        // panic-`unlocked`, whether the guest's own dialogue keys/clicks are swallowed right now (`suppress`),
++        // every tracked line (`windows[]`: win, text, field, cls = locked|orphaned|local, the Dialog state,
++        // page, inh = FlagButtonInh), the host events waiting per window key (`inbox`: count + the head of
++        // each key), how long the host has read settled (`host_settled_ms`, -1 = not settled), the orphan
++        // rule's closes this session (`orphan_closes`) and the chip text (`chip`, null = none). With no
++        // client every value sits at its "nothing" sentinel -- a missing subsystem is one null section,
++        // never a missing document (the same law as every other section here).
+         private static void AppendNetsync(StringBuilder outer)
+         {
+-            StringBuilder sb = new StringBuilder(320);
++            StringBuilder sb = new StringBuilder(512);
+             try
+             {
+                 Bool(sb, "enabled", Memoria.Netsync.NetSyncClient.HarnessEnabled); sb.Append(",");
+@@ -2206,39 +2271,69 @@ namespace Memoria.Harness
+                 Bool(sb, "forced", Memoria.Netsync.NetSyncClient.HarnessSelfTestForced); sb.Append(",");
+                 Bool(sb, "bench", Memoria.Netsync.NetSyncField.BenchGates); sb.Append(",");
+                 Bool(sb, "l1", Memoria.Netsync.NetSyncClient.DebugHostEventFlag != 0); sb.Append(",");
+-                Bool(sb, "l1_pinned", Memoria.Netsync.NetSyncClient.HarnessL1Pinned); sb.Append(",");
+-                Bool(sb, "l1_forced_control", Memoria.Netsync.NetSyncClient.HarnessL1ForcedControl); sb.Append(",");
++                Bool(sb, "lock", Memoria.Netsync.NetSyncClient.DebugDialogLock); sb.Append(",");
++                Bool(sb, "stale", Memoria.Netsync.NetSyncClient.DebugLinkDead); sb.Append(",");
++                Bool(sb, "lock_engaged", Memoria.Netsync.NetSyncClient.HarnessLockEngaged); sb.Append(",");
++                Bool(sb, "unlocked", Memoria.Netsync.NetSyncClient.HarnessFieldUnlocked); sb.Append(",");
+                 Bool(sb, "suppress", Memoria.Netsync.NetSyncClient.SuppressLocalDialogInput); sb.Append(",");
+-                Int64 key = Memoria.Netsync.NetSyncClient.HarnessDialogAlignKey;
+-                Num(sb, "align_win", key < 0 ? -1L : (key >> 24) & 0xFF); sb.Append(",");
+-                Num(sb, "align_text", key < 0 ? -1L : key & 0xFFFF); sb.Append(",");
+-                Num(sb, "applied_seq", Memoria.Netsync.NetSyncClient.HarnessDialogLastAppliedSeq); sb.Append(",");
+-                Bool(sb, "wait_armed", Memoria.Netsync.NetSyncClient.HarnessDialogWaitArmed); sb.Append(",");
+-                Num(sb, "wait_ms", Memoria.Netsync.NetSyncClient.HarnessDialogWaitElapsedMs); sb.Append(",");
+-                Num(sb, "wait_limit_ms", Memoria.Netsync.NetSyncClient.HarnessDialogWaitMs); sb.Append(",");
+-                Byte[] p = Memoria.Netsync.NetSyncClient.HarnessPendingDialogFrame;
+-                if (p == null || p.Length < 8)
+-                    sb.Append("\"pending\":null");
+-                else
++                sb.Append(NetsyncF3Retired).Append(",");
++                sb.Append("\"windows\":[");
++                List<Memoria.Netsync.NetSyncDialog.WindowView> wins = Memoria.Netsync.NetSyncClient.HarnessDialogWindows();
++                for (Int32 k = 0; k < wins.Count; k++)
++                {
++                    Memoria.Netsync.NetSyncDialog.WindowView w = wins[k];
++                    if (k > 0)
++                        sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "win", w.Win); sb.Append(",");
++                    Num(sb, "text", w.Text); sb.Append(",");
++                    Num(sb, "field", w.Field); sb.Append(",");
++                    Str(sb, "cls", w.Cls); sb.Append(",");
++                    Str(sb, "state", w.State); sb.Append(",");
++                    Num(sb, "page", w.Page); sb.Append(",");
++                    Bool(sb, "inh", w.Inh);
++                    sb.Append("}");
++                }
++                sb.Append("],");
++                sb.Append("\"inbox\":{");
++                Num(sb, "count", Memoria.Netsync.NetSyncClient.HarnessDialogInboxCount); sb.Append(",");
++                sb.Append("\"heads\":[");
++                List<Memoria.Netsync.NetSyncDialog.EventView> heads = Memoria.Netsync.NetSyncClient.HarnessDialogInboxHeads(8);
++                for (Int32 k = 0; k < heads.Count; k++)
+                 {
+-                    sb.Append("\"pending\":{");
+-                    Num(sb, "field", p[0] | (p[1] << 8)); sb.Append(",");
+-                    Num(sb, "win", p[2]); sb.Append(",");
+-                    Num(sb, "text", p[3] | (p[4] << 8)); sb.Append(",");
+-                    Num(sb, "kind", p[5]); sb.Append(",");
+-                    Num(sb, "index", p[6]); sb.Append(",");
+-                    Num(sb, "seq", p[7]);
++                    Memoria.Netsync.NetSyncDialog.EventView e = heads[k];
++                    if (k > 0)
++                        sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "field", e.Field); sb.Append(",");
++                    Num(sb, "win", e.Win); sb.Append(",");
++                    Num(sb, "text", e.Text); sb.Append(",");
++                    Num(sb, "kind", e.Kind); sb.Append(",");
++                    Num(sb, "index", e.Index); sb.Append(",");
++                    Num(sb, "seq", e.Seq); sb.Append(",");
++                    Num(sb, "scene", e.Scene); sb.Append(",");
++                    Num(sb, "age_ms", e.AgeMs); sb.Append(",");
++                    Bool(sb, "tried", e.Tried);
+                     sb.Append("}");
+                 }
++                sb.Append("]},");
++                Num(sb, "host_settled_ms", Memoria.Netsync.NetSyncClient.HarnessHostSettledMs); sb.Append(",");
++                Num(sb, "orphan_closes", Memoria.Netsync.NetSyncClient.HarnessOrphanCloses); sb.Append(",");
++                Str(sb, "chip", Memoria.Netsync.NetSyncClient.HarnessDialogChip);
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"l1_pinned\":false,\"l1_forced_control\":false,\"suppress\":false,\"align_win\":-1,\"align_text\":-1,\"applied_seq\":-1,\"wait_armed\":false,\"wait_ms\":-1,\"wait_limit_ms\":-1,\"pending\":null}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+         }
+ 
++        // The F3 lockstep keys a rev-5 driver may still read, pinned to "nothing" (see ProtocolVersion), plus
++        // the contract tag that tells a new driver the F3.2 keys are live.
++        private const String NetsyncF3Retired = "\"dialogue\":\"authority\",\"l1_pinned\":false,\"l1_forced_control\":false,"
++            + "\"align_win\":-1,\"align_text\":-1,\"applied_seq\":-1,\"wait_armed\":false,\"wait_ms\":-1,\"wait_limit_ms\":-1,\"pending\":null";
++
+         // The story-write trace (s88) as a CAPABILITY: an engine without it publishes no block, so a
+         // driver asking for a trace fails visibly instead of reading an empty story.jsonl as "no script
+         // wrote anything". Additive -- the protocol `v` stays 5. `error` is why the tracer turned itself
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index bc5bc15..2d6e0d6 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1395,6 +1395,7 @@
+     <Compile Include="Memoria\Netsync\NetSyncParty.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncDiorama.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncField.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncDialog.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />

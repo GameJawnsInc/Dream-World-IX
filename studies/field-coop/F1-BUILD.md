@@ -359,7 +359,8 @@ build — results below.
    false-positives on gateway walks). Guest snaps via the proven `SnapToHost` + pins
    (`SetUserControl(false)` ONLY if the guest still HAD control — its own re-staged cutscene keeps
    its own), releases on flag-fall / field-leave / session-drop / pending-warp. Explicitly NOT
-   choice/pacing sync — that stays the ratified F3/L2 round.
+   choice/pacing sync — that stays the ratified F3/L2 round. *(Snap and pin removed by F3.2 C1 — see
+   the last section: L1 never moves or freezes the guest.)*
 3. **THE R2 SAME-DOOR INTERLOCK — DEFERRED** to an F2.1 polish (orchestrator decision):
    `RedirectGuestFieldJump` is untouched; F1's proven bounce-then-follow stands.
 4. **Selftest benches** shipped in the ~ Go tab: an intent injector (fabricates a section through the
@@ -507,7 +508,8 @@ an OUTCOME, never an ack:
   frame; the hold releases after **8.1 s** (DialogWaitMs 8000) with exactly one
   `timed out -- local advance restored` line; clock disarmed, local input restored.
 - **L1:** with a window open, L1 ON does NOT take control (pin-only-if-the-guest-still-had-control);
-  once the scene ends the pin takes it; L1 OFF releases it.
+  once the scene ends the pin takes it; L1 OFF releases it. *(F3.2 C1 deletes the pin; the rewritten
+  check asserts no pin and no move.)*
 
 **Two findings, neither an engine defect:**
 1. **`[NFOC]`/`[TIME]` windows must never be injected into.** They set `Dialog.ignoreInputFlag`, so
@@ -558,7 +560,8 @@ challenges deliberately excluded), pushed out-of-band like the intent and riding
 (a late joiner must not replay a stale start). GUEST: `ServiceTalkFollow`, ahead of the L1 pin in the
 client tick — same field, fresh nonce, FieldHUD → `SnapToHost`, become the listener,
 `Request(obj, 1, 3)` on its own copy. Host-driven by construction, so it never touches the spectator
-gate; defers (nonce unmarked) off-field / mid-menu / mid-battle. Wire v12→v13.
+gate; defers (nonce unmarked) off-field / mid-menu / mid-battle. Wire v12→v13. *(Snap, pin and 2 s TTL
+superseded by F3.2 C1 — see the last section.)*
 
 **Solo proof** (`scenarios/coop_talk_relay.py`, 10/10, `.harness-runs/20260904-182300`): a local talk
 published the NPC's uid as `player.listener` (3); from 270 units away `netsync talk 3` opened the SAME
@@ -572,3 +575,71 @@ predated the `coop` verb (its older py launcher also rejected the `pythonw` sheb
 
 **Still OPEN:** the two-machine run with the relay in place — box 0 of the package README (the host
 tap and the section on the wire), then the F3 boxes 1–9.
+
+## ★ F3.2 C1 (S-WARP) — captured as s95; DEPLOYED 2026-10-12, solo-proven 28/28 (two-machine pending)
+
+Supersedes the snap and the pin described above (F2 L1, the F3 bench's L1 line, F3.1's relay). Design:
+`F3.2-DESIGN.md` § warp_changes (W1–W7); wire stays v13.
+
+- **THE L1 LAW:** L1 never moves or freezes the guest. `ServiceEventCoLocate` only logs
+  `host in a dialogue scene (nonce N) -- staying in place` once per host nonce; `ReleaseL1`, the
+  `SetUserControl(false)` pin and its restore are deleted (`HarnessL1Pinned`/`HarnessL1ForcedControl`
+  read constant false; s96 kept the harness at protocol 5 and keeps them published, pinned false). A relayed talk still freezes the guest through its own
+  copy's `DisableMove`. The selftest L1 bench lost its snap and pin the same way ("Host scene (simulated)").
+- **Talk relay, no snap:** `ApplyTalkStart` returns 1 started / 0 defer / -1 declined. It DEFERS (nonce
+  unmarked, one log line per nonce) while there is no controlled actor, the guest's control is off (the
+  handler's `ifnot(IsMovementEnabled) return` would bail — TALK-3), or the object is still running on the
+  guest's copy; `listener` is set only for NPC starts (cid 4). `TalkRelayTtlMs` 2000 → 4000. A deferred
+  start that leaves the lane logs `expired before my copy was free`. C1 has no catch-up, so a start still
+  unapplied after the host's scene for it has risen and fallen is RETIRED (`dropped -- the host already
+  played it through`), never opened late with nobody driving it; a start first seen after its scene
+  already ended (a late arrival, TALK-7) still rides the TTL until C2/C3.
+- **Quad (press-region) starts** are armed, not stamped: relayed only when an ETb line rises after the
+  press, inside `QuadPromoteMs` 3000, before the handler has moved the player (more than 100 units with
+  control off). Otherwise one host line `quad start uid N on field F not relayed (<why>)` — `its handler
+  moved the player first` for a ladder/jump, `no window` for a timeout or a windowless control cycle,
+  `left the field`, or superseded. Residual: an unrelated line rising before the handler's first move.
+- **Auto-teleport** (opt-in) is also busy while the host's scene flag is up and for 5 s after its last
+  high read (the C1 flag falls in every window gap); C2's sticky scene flag closes the rest.
+- Manual F11/held-L3 teleport is unchanged; `SnapToHost` now has no automatic caller.
+
+`coop_dialogue_lockstep.py` is RETIRED: it encoded the F3 contract (the 8 s hand-back, the L1 pin), and
+loading it now refuses with a pointer to `coop_dialogue_authority.py`.
+
+## ★ F3.2 C2 (S-SYNC core) — captured as s96; DEPLOYED 2026-10-12, solo-proven 82/82 (two-machine pending)
+
+Design: `F3.2-DESIGN.md` § sync_changes (S1–S8); wire stays v13, harness protocol stays 5 (additive
+`netsync` block, `dialogue`="authority"; a bump would have made every other session's rev-5 driver refuse
+the deployed engine). New `Memoria/Netsync/NetSyncDialog.cs`.
+
+**THE LOCK LAWS:** a following guest's ETb line is locked from the frame it opens (untracked = locked; lines
+open when the session rises stay local) at every input seam — UIKeyTrigger keys/pad/turbo,
+`DialogManager.OnClick`/`OnDrag`/`OnItemSelect`, the VoicePlayer auto-dismiss. Host events apply per window
+key (field, win, textId) in host order, consumed only if the window really advanced. NOTHING is drained while
+the lock is on and there is no local-advance timeout. A locked line is released only by host state: the
+orphan rule (the host settled 2 s with nothing claiming the key → auto-close 2 s after complete, Cancel else
+Default; a FlagButtonInh line is handed back), the link dead `LinkGraceMs` 3 s, session end, or the ~ menu
+panic unlock (this field, until the next load). The host's scene flag is sticky (one nonce per scene, falls
+500 ms after control returns). Also: Select masked in free walk (MISC-08), PARTYMENU gated for a spectator
+(MISC-07), `SameFieldKickTick` defers while a lockable line is open (CLB-5).
+
+**Deploy:** `build_memoria.py --label pre-s95-s96-coop-f32`, live `Assembly-CSharp.dll` `48ea805f51648676…`
+(both arches sha-verified), pre-build backup `20261012-010918`.
+
+**Calibration (pre-F3.2 DLL, 2026-10-12):** `coop_talk_relay.py` 19/28 — RED on exactly T1/T2b (snapped
+250 units, control pinned) and T3a/T3b (no deferral: busy-time starts burned). `coop_dialogue_authority.py`
+30/78 — the behavioural reds: the guest's own Confirm closed an un-driven line (A1), arrows moved the locked
+cursor (A2), `timed out -- local advance restored` after 8 s and the mash closed the menu in 0.9 s (A3).
+
+**Solo proof (s95+s96 DLL):** talk relay **28/28 twice** (moved 0.0, control kept, one `deferred` line then
+the window inside the 4 s TTL). Authority **82/82** (`.harness-runs/20261012-011353`): the line held through a
+10 s Confirm/turbo/click mash; Down×2 + drag left SelectChoice on 0; the orphan turned 2.06 s after the host
+scene fell and auto-closed on the Close row (14); a dead link held the lock to 2.95 s and released at 3.01 s;
+the panic unlock freed local Confirm and a reload re-armed it. One harness-side fix on the way: a close leaves
+an `Idle` window in `ActiveDialogList` until `AfterHidden` (1–2 frames), so the A1 post-close check now waits
+one tracker tick (81/82 → 82/82; the engine had already dropped `suppress`).
+
+**Open:** the two-machine run (laptop package `Desktop\FF9Coop-laptop-update-20261012`, its README boxes
+1–11). Known C2 gaps, for C3 (wire v14): script-polled windows (save moogle, shops, [NFOC]/"press Confirm"
+beats) stay guest-driven; a type-7 frame dropped by the relay is not re-sent (that line falls to the orphan
+rule). DIO-1 (the guest's field cold-starts after every host battle and relocates it) is the next "warp".

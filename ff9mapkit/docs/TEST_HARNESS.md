@@ -347,7 +347,12 @@ WARNING: **a still-typewriting window eats the first Confirm as a fast-forward**
 next. Press the way a player presses -- repeatedly, checking the state between presses -- rather than
 once. (The injected path never sees this: its apply fast-forwards, holds the frame, and re-applies.)
 
-`scenarios/coop_dialogue_lockstep.py` is the F3 acceptance test: 40 checks, every one an outcome.
+`scenarios/coop_dialogue_authority.py` is the F3.2 acceptance test (host-authoritative dialogue, s96):
+lock from open, per-key apply, the orphan rule, and every release path, with the old F3 procedure kept as a
+calibration mode (`COOP_CALIBRATE=1`, automatic on an engine with no `netsync.dialogue` key). It
+supersedes `scenarios/coop_dialogue_lockstep.py`, the F3 test (40/40 on 2026-09-04), which is retired and
+refuses to load: its 8 s "local advance restored" hand-back and its L1 pin are exactly what F3.2 deleted.
+`scenarios/coop_talk_relay.py` covers F3.2 C1, the relay with no snap and no pin.
 
 ## Walking, and why every measurement settles first
 
