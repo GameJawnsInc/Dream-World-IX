@@ -199,7 +199,7 @@ how the map draws real islets, a darker rim. Data-derived end to end (the 49 liv
 registration). Only land the folder ADDS is drawn; a real cell's own stock land keeps its painted look.
 RELAUNCH to apply. The custom continent appears on the map — markers on it still need the DLL seam below.
 
-**The erase (★ built 2026-10-12).** Land the folder REMOVED from a real cell (`world-sink`, an in-place coast cut)
+**The erase (★ built + in-game proven 2026-10-12).** Land the folder REMOVED from a real cell (`world-sink`, an in-place coast cut)
 comes off the chart, repainted as the sea round it (`world/maperase.py`). The chart is hand-painted: its shapes
 differ from the geometry, and the painted world DRIFTS off the registered frame linearly (~4% short down, ~0.9% narrow
 across: right in the middle, up to ~24px off at the top and bottom edges; `WORLD_MAP_DRIFT`, fitted over 46

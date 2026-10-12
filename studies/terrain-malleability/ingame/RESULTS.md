@@ -934,12 +934,52 @@ ground, as in round 11); the replay sinks them with the island, and the neighbou
 2. **A boat sails where they stood.** On stock both lanes stop at the island; sunk, both cross.
 3. **The neighbours stay**, to the last bit.
 
+## Round 14 (2026-10-12, owner's go: "go ahead with the in-game check"): the map erase, 14/14, both charts
+
+Run `.harness-runs/20261012-195245-mapchart-erase` (in the epic-nightingale worktree): one launch, 4 world loads, 78 s,
+0 exceptions. One scratch folder, `FF9CustomMap-wmlab`, first in FolderNames and Priorities for the run; ini backed up
+(`backups/Memoria.ini.20261012-194927.mapchart`); its two lines returned to the session-start order after (every other
+line byte-equal to the backup); the lab moved out of the install into the run dir. Scenario:
+`../mapchart/ingame_session.py`; the lane: `../mapchart/NOTES.md`.
+
+### 29. `world-minimap` takes sunk islands off the in-game map
+
+The lab held six islands sunk with `world-sink` (Disc1 only) and `world-minimap`'s two chart overrides: the all-world
+chart (on the live `FF9CustomMap-world` composite) with five islands erased and the corner island skipped (the chart
+does not draw it), and the Mist chart with the small east island erased. Byte 100 = 1 (the minimap up), so the first
+Select opens the full map. The engine picks the chart at every world entry (`WorldHUD.InitialHUD`), so the lab's PNGs
+were parked in the run dir halfway (the next folder down serves the chart: the "base" frames).
+
+| stage | scenario / world | chart | served by | the five sites (all-world) / the east island (Mist) |
+|---|---|---|---|---|
+| mist_lab | 0 / 9011 | Mist | the lab | **the east island gone** |
+| all_lab | 9500 / 9003 | all-world | the lab | **all five gone**: the 4,813 u2 island, the NE island, the east island, Daguerreo, the lagoon island |
+| all_base | 9500 / 9003 | all-world | FF9CustomMap-world | all five drawn |
+| mist_base | 0 / 9011 | Mist | MoguriMain | the east island drawn |
+
+The frames (`shots/*-select1.png`; zoomed pairs `cmp_*.png`): where each island stood the sea continues, open
+parchment for the deep-water island and the east island, the green halo band for the lagoon island, the NE island and
+Daguerreo. Base vs lab, every differing pixel of the all-world frames lies at the five sites (1,276 / 326 / 46 / 2,364
+/ 611 px at the game's 0.65 scale) but the animated glove pointer; on the Mist frames, at the east island (144) but the
+location-marker dots the engine drew in the last stage only and a HUD widget off the chart.
+
+**Verdict.** The game shows the composited charts: an island sunk with `world-sink` comes off the in-game map, on the
+all-world chart and on the disc-1 Mist chart, after `world-minimap` and a relaunch.
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
+
+- **A SCRATCH FOLDER IN THE INSTALL IS ACTIVATED BY THE NEXT LAUNCHER RUN, in or out of FolderNames (round 14).** The
+  Memoria launcher's `CheckForValidModFolder` writes a `ModDescription.xml` into any folder that looks like a mod, and
+  `UpdateModListInstalled` ACTIVATES every newly found one ("Activate newly installed mod",
+  `Memoria.Launcher/MainWindow_ModManager.cs:1132-1150`) into FolderNames and Priorities. The round-14 lab was written
+  hours before its session; at 19:01 someone opened the launcher, it got a description file and a place in both lists
+  (below FF9CustomMap-world), and the 19:02 launch ran with its six sunk islands live. Build a lab OUTSIDE the install
+  (or into a run dir) and copy it in only for the session; never leave one in the game folder between sessions.
 
 - A party standing on water sinks too: its published y is the surface minus the walk sink of the tile's topograph
   (`w_movementSinkArray` row 1 minus 100, /256, `ff9.cs:19` and `:5636-5667`): 53 0.195, 54 0.586 (round 11), 55
