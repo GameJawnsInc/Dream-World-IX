@@ -205,8 +205,10 @@ def _poll(g, predicate, timeout: float, what: str):
 
 
 def _free(s) -> bool:
-    """Free-standing as the harness can see it: on a field, control on, no window, not mid-fade."""
-    return s.on_field and s.control and not s.dialog_open and not s.fading
+    """Free-standing as the harness can see it: on a field, a placed player, control on, no window, not mid-fade.
+    (A cold return reads control on for a frame BEFORE Main_Init has placed the player -- player.x/z still None.)"""
+    return (s.on_field and s.control and not s.dialog_open and not s.fading
+            and s.player_x is not None and s.player_z is not None)
 
 
 def _in_diorama(s) -> bool:
@@ -529,7 +531,9 @@ def _leg_gate(g, field: int) -> None:
         _unreached(g, GATE_CHECKS[1:], why)
         _back_to_field(g, GATE_FIELD)
         return
-    st = g.state
+    # Like W6: the player is only published again once Main_Init has placed him and control is back -- read the
+    # position then, never on the return's first frame (it reads None there).
+    st = _poll(g, _free, 6.0, f"control back on {GATE_FIELD} after the cold return") or g.state
     d = _dio(st)
     fresh = _new(g, mark)
     p1 = _xz(st)
