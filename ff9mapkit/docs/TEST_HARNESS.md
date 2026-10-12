@@ -354,6 +354,30 @@ supersedes `scenarios/coop_dialogue_lockstep.py`, the F3 test (40/40 on 2026-09-
 refuses to load: its 8 s "local advance restored" hand-back and its L1 pin are exactly what F3.2 deleted.
 `scenarios/coop_talk_relay.py` covers F3.2 C1, the relay with no snap and no pin.
 
+F3.3 adds three capabilities on top of the F3.2 contract, each additive under protocol 5 and each told
+by its own published key, never by a tag (`netsync.dialogue` stays `"authority"`). The driver refuses a
+verb whose capability the deployed engine lacks before it spends the step, naming the patch:
+
+```python
+g.netsync("dioboot", 4)       # s97: boot a battle diorama from a live field (selftest role) ...
+g.netsync("dioleave")         # ... and request its return: state.diorama_boot / diorama_last_return = warm|cold
+g.netsync("host", "adv", 1)   # s98: the bench HOST -- open|shut|adv|choice|key|gap|epoch|freeze|menu|battle,
+                              #      delivered through state section 7 (bench + lock on)
+g.netsync("host", "key", 12, 64)    # s99: a relayed script-key press (compact b6 = Confirm) for reader uid 12
+g.netsync("tap-record", 1)    # s99: record this copy's real taps (lock OFF) ... then lock 1 + replay
+g.netsync("replay", 0)        # ... feed the tape into the bench host's ring (default paced)
+```
+
+The capabilities read `State.diorama_warm_return` (s97, the `netsync.diorama` block),
+`State.dialogue_ring` (s98, `wire` >= 14) and `State.script_key_relay` (s99, `key_hold`); every key has a
+typed accessor (`dialogue_epoch`, `dialogue_head_seq`, `dialogue_last_seen`, `dialogue_gaps`,
+`dialogue_host_stalled`, `dialogue_host_flag_set`, `dialogue_cursor`, `script_key_hold`,
+`script_key_reader`, `script_keys`, `bench_tape`, `diorama_boot_xz`, ...) that reads None when the engine
+cannot publish it. On s98+ the C2 verbs (`advance`/`choice`/`unmatched`) ride the same ring, so an inbox
+head's `seq` is the ring's u16 seq: it skips 0, and a release restarts it at 1 under a new epoch. On s99
+the bench REFUSES an `advance`/`choice`/`host adv` aimed at an input-inhibited window (LAW :1369) --
+drive its script's poll with `host key <uid> <bits>`, the polling uid being `script_key_reader`.
+
 ## Walking, and why every measurement settles first
 
 `walk_to(x, z)` steers on the published position rather than counting frames, and it calibrates

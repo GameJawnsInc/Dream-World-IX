@@ -1,0 +1,2380 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
+index 5c32122..cf887f5 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
+@@ -11,7 +11,7 @@ namespace Memoria.Netsync
+     //   * the window tracker: every lockable ETb window on the guest, keyed by reference + Id + TextId
+     //     (dialogs are pooled), classed Locked (the host drives it), Orphaned (the host provably lacks it:
+     //     auto-closed at reading pace) or Local (handed back, or it predates the lock);
+-    //   * the event inbox: the host's type-7 taps normalized to DlgEvent, seq-ordered, capped at 64, applied
++    //   * the event inbox: the host's taps (F3.3: section-7 ring events) normalized to DlgEvent, seq-ordered, capped at 64, applied
+     //     per window KEY (fld, win, text) in host order -- an event for a window the guest never opens blocks
+     //     nothing (DLG-2/WIRE-4), and nothing is ever drained while the session holds (DLG-3);
+     //   * the orphan rule, the chip text, the helpers, and a pure SelfTest of the two state machines.
+@@ -19,6 +19,17 @@ namespace Memoria.Netsync
+     // and is released ONLY by host state -- a host event, the orphan rule (the host settled and idle), the
+     // link dead for LinkGraceMs, the session ending, or the deliberate ~ menu unlock. Never by a guest-side
+     // timeout and never by guest input. Main thread only, except IsLocal (copy-on-write, see _local).
++    // [ff9mapkit netsync F3.3] C3 DELIVERY (wire v14, F3.2-DESIGN.md "sync_changes" R1-R4/R6/R7 + "wire_details"):
++    // the type-7 FIFO is RETIRED as the delivery channel. The host's taps append to a 32-event RING (HostRing,
++    // u16 seq skipping 0, locked -- the VA close taps off the main thread) that rides state section 7 with an
++    // EPOCH (per host transport/session), a HEARTBEAT (host Update counter), host FLAGS and its OPEN windows.
++    // The section rides the latest-state slot, re-sent every write tick and pushed on every change, so a frame a
++    // bridge/relay redial drops heals on the next tick (WIRE-1). The guest MERGES every event after its last-seen
++    // seq into the inbox (a repeat is a no-op), logs a GAP once (those lines fall to the orphan rule), resets on
++    // an epoch change (a host relaunch: no history replays), releases the lock on a HUNG host (heartbeat frozen
++    // HostStallMs on a fresh lane), follows the host's CURSOR (the open set), and catches a lost page turn up
++    // through the CLOSES bit. KEY events (kind 2, the script button-poll relay) are carried by the codec and
++    // IGNORED by this guest -- the key relay (R5) is the next stage.
+     internal sealed class NetSyncDialog
+     {
+         // ---- tuning (owner decision 9 -- every value is a playtest seed, not a law) ----------------------
+@@ -31,32 +42,95 @@ namespace Memoria.Netsync
+         internal const Int32 HostElsewhereMs = 5000;   // host on another field (no intent here) this long = settled
+         internal const Int32 OffFieldMaxMs = 20000;    // host off-field (no live battle) this long = settled
+         internal const Int32 RelayOwnMs = 3000;        // a just-accepted relayed start claims every locked window
++        internal const Int32 HostStallMs = 10000;      // [ff9mapkit netsync F3.3] R6: a heartbeat frozen this long on a fresh lane = a hung host
+         private const Int32 InboxCap = 64;
+ 
+         internal const Byte KindAdv = 0;               // a confirm page-turn or close (incl. the host's VA dismiss)
+         internal const Byte KindCho = 1;               // a choice-committing confirm
++        internal const Byte KindKey = 2;               // [ff9mapkit netsync F3.3] a host script button-poll hit (control off) --
++                                                       // in the codec now, IGNORED by this guest (the key relay, R5, is next)
+ 
+         internal const Byte ClsLocked = 0, ClsOrphaned = 1, ClsLocal = 2;
+ 
++        // [ff9mapkit netsync F3.3] R1 -- THE SECTION-7 CODEC (NetSyncState.SectionDialog; the byte table is in the
++        // NetSyncSocket type table and F3.2-DESIGN.md "wire_details"). All multi-byte fields u16 LE.
++        internal const Byte SectionFmt = 1;            // [0] fmt: anything else is refused
++        internal const Int32 HeaderLen = 12;           // fmt, epoch, heartbeat, flags, sceneNonce, sceneField, headSeq, openN
++        internal const Int32 OpenLen = 6;              // [win][textId u16][cursor][page][wflags]
++        internal const Int32 EventLen = 12;            // [seq u16][kind][scene][fld u16][win|uid][textId|bits u16][c][x][0]
++        internal const Int32 OpenCap = 4;              // the host's open set (more windows ride as the first four)
++        internal const Int32 RingCap = 32;             // the ring: it only has to span two received state frames
++        // [5] host flags
++        internal const Byte HfScene = 0x01;            // b0 the host's sticky scene is up (section 5's flag, same snapshot)
++        internal const Byte HfControl = 0x02;          // b1 the host has user control
++        internal const Byte HfLine = 0x04;             // b2 the host has a non-[NFOC] (input-taking) ETb line open
++        internal const Byte HfOnField = 0x08;          // b3 the host stands on a live field (gMode 1)
++        internal const Byte HfMenu = 0x10;             // b4 the host's UI is not FieldHUD (a menu / shop / pause)
++        internal const Byte HfBattle = 0x20;           // b5 the host is in battle (gMode 2)
++        // an open window's wflags
++        internal const Byte WfChoice = 0x01, WfComplete = 0x02, WfInh = 0x04;
++        internal const Byte NoCursor = 0xFF;           // an open window's cursor: not a ready choice
++        internal const Byte ClosesBit = 0x80;          // ADV: in [9] beside the page; CHO: in [10]
++
+         // The chip (S5 step 8), drawn by NetSyncClient.OnGUI and published to the harness. No emoji.
+         internal const String ChipHiccup = "Co-op: link hiccup -- holding this conversation for the host";
+         internal const String ChipClosing = "Co-op: this line isn't on the host's screen -- closing it";
+         internal const String ChipFollowing = "Co-op: following the host's conversation";
+         internal const String ChipHostScene = "Co-op: the host is in a scene";
+-
+-        // One host event, normalized at ingest. Seq orders + dedups; Raw is the host's own u8 seq -- the value
+-        // its "dialog tap" log line prints, so every guest close can be matched to the host press by grep.
++        // [ff9mapkit netsync F3.3] R7: the "following" chip's variants, from section-7 flags b4/b5
++        internal const String ChipHostMenu = "Co-op: the host is in a menu -- waiting";
++        internal const String ChipHostBattle = "Co-op: the host is in a battle -- this line continues after it";
++
++        // One host event, normalized at ingest. Seq orders + dedups; Raw is the host's own seq -- the value its
++        // "dialog tap" log line prints, so every guest close can be matched to the host press by grep.
++        // [ff9mapkit netsync F3.3] C3: Seq == Raw == the ring's u16 seq (inbox order is arrival order, which the
++        // merge keeps in seq order); Scene is the host's scene nonce AT EMIT (the ring event's own byte).
+         internal sealed class DlgEvent
+         {
+             public Int32 Seq;
+-            public Byte Raw;
++            public Int32 Raw;
+             public Byte Kind;
+-            public Int32 Scene;            // the host's section-5 scene nonce at ingest (-1 = none on the lane)
++            public Int32 Scene;            // the host's scene nonce the event was emitted under (-1 = unknown)
+             public Int32 Fld, Win, Text, C;
++            public Int32 Page;             // F3.3: ADV -- the host's CurrentPage at the confirm (-1 = CHO / unknown)
++            public Boolean Closes;         // F3.3: the confirm CLOSED the host's window (Hide()'s own test, read before it)
+             public Int32 FirstSeen;        // ingest tick (a real tick; read by delta only)
+             public Boolean Tried;          // applied at least once without advancing its window
+             public Boolean TriedLogged;
+             public Boolean FallbackLogged;
++            public Boolean CatchupLogged;  // F3.3 R4: one "paging on to its close" line per event
++        }
++
++        // [ff9mapkit netsync F3.3] one window of the host's open set (section 7), and one parsed ring event.
++        internal struct OpenWin
++        {
++            public Int32 Win, Text;
++            public Byte Cursor;            // SelectChoice while a ready choice, else NoCursor
++            public Byte Page;              // CurrentPage (1 on the first page)
++            public Byte Flags;             // WfChoice | WfComplete | WfInh
++        }
++
++        internal struct RingEvt
++        {
++            public UInt16 Seq;
++            public Byte Kind, Scene;
++            public Int32 Fld;
++            public Int32 A;                // ADV/CHO: winnum -- KEY: the reading object's uid
++            public Int32 B;                // ADV/CHO: textId -- KEY: the compact button bits
++            public Byte C;                 // ADV: page | ClosesBit -- CHO: the committed choice -- KEY: cursor or NoCursor
++            public Byte X;                 // CHO: ClosesBit -- otherwise 0
++        }
++
++        // A parsed section 7 (the guest's latest view of the host).
++        internal sealed class HostView
++        {
++            public UInt16 Epoch, Heartbeat, HeadSeq;
++            public Byte Flags, SceneNonce;
++            public Int32 SceneField;
++            public Int32 OpenN;
++            public readonly OpenWin[] Open = new OpenWin[OpenCap];
++            public Int32 RingN;
++            public readonly RingEvt[] Ring = new RingEvt[RingCap];
+         }
+ 
+         private sealed class Win
+@@ -91,18 +165,51 @@ namespace Memoria.Netsync
+         private readonly List<Win> _wins = new List<Win>(4);
+         private volatile Mark[] _local = NoMarks;
+         private readonly SettleClock _settle = new SettleClock();
+-        private Boolean _haveSeq;              // the seq unwrap's baseline is set
+-        private Byte _lastRaw;
+-        private Int32 _lastSeq;
+         private Boolean _capLogged;            // one "inbox hit its cap" line per overflow episode
+         private Int32 _orphanCloses;           // windows the orphan rule closed this session (telemetry)
+         private String _chip;
+         private Boolean _quiet;                // SelfTest's synthetic ingest: no per-event log lines
+ 
++        // [ff9mapkit netsync F3.3] C3 GUEST -- the latest section 7 and the ring merge. The LANE half (the view, the
++        // epoch, the heartbeat / stall clock) survives a session drop -- a stall must not flap the lock it released,
++        // and an epoch is a property of the host process, not of the lock -- and dies only with the transport
++        // (ResetLane). The SESSION half (the merge baseline) dies with the session (ResetAll), so a session that
++        // rises re-baselines at the host's head: history that predates it never replays.
++        private HostView _view = new HostView();      // the latest accepted section 7 (valid while _viewValid)
++        private HostView _scratch = new HostView();   // parse target, swapped in on success (a refused body never half-lands)
++        private Boolean _viewValid;            // section 7 present on the lane right now (and parsed clean)
++        private Int32 _viewStamp;              // bumps per accepted parse -- the merge skips a view it already merged
++        private Int32 _mergedStamp = -1;
++        private Boolean _epochHave;            // an epoch was ever seen on this lane
++        private UInt16 _epoch;
++        private Boolean _baselined;            // _lastSeen holds this session's merge baseline
++        private UInt16 _lastSeen;              // the newest ring seq merged (or skipped as history)
++        private Int32 _gaps;                   // ring gaps detected this lane (telemetry; each logged once)
++        private Int32 _keyIgnored;             // KEY events seen and ignored (telemetry -- the key relay is R5)
++        private Boolean _keyLogged;            // one "KEY ignored" line per session
++        private Boolean _refuseLogged;         // one "section 7 refused" line per bad streak
++        private Boolean _hbHave;               // R6: _hb / _hbSince hold a real sample (tick-baseline law)
++        private UInt16 _hb;
++        private Int32 _hbSince;                // the tick the heartbeat last MOVED
++        private Boolean _stalled;              // R6: the host's heartbeat sat still HostStallMs on a fresh lane
++        private Int32 _mirrorCursor = -1;      // R4: the host cursor the cursor lock enforced last tick (-1 = none; telemetry)
++
+         internal String Chip { get { return _chip; } }
+         internal Int32 OrphanCloses { get { return _orphanCloses; } }
+         internal Int32 HostSettledMs { get { return _settle.SettledMs; } }
+         internal Int32 InboxCount { get { return _inbox.Count; } }
++        // [ff9mapkit netsync F3.3] C3 observables (telemetry; -1 = absent)
++        internal Boolean HostStalled { get { return _stalled; } }
++        internal Boolean ViewValid { get { return _viewValid; } }
++        internal HostView View { get { return _viewValid ? _view : null; } }
++        internal Int32 EpochSeen { get { return _epochHave ? _epoch : -1; } }
++        internal Int32 HeadSeq { get { return _viewValid ? _view.HeadSeq : -1; } }
++        internal Int32 LastSeen { get { return _baselined ? _lastSeen : -1; } }
++        internal Int32 Gaps { get { return _gaps; } }
++        internal Int32 Heartbeat { get { return _viewValid ? _view.Heartbeat : -1; } }
++        internal Int32 HostFlags { get { return _viewValid ? _view.Flags : -1; } }
++        internal Int32 KeyIgnored { get { return _keyIgnored; } }
++        internal Int32 MirrorCursor { get { return _mirrorCursor; } }
+ 
+         // ---- helpers ------------------------------------------------------------------------------------
+ 
+@@ -219,6 +326,9 @@ namespace Memoria.Netsync
+         // ---- session edges --------------------------------------------------------------------------------
+ 
+         // The session ended (or never was): forget EVERYTHING -- inbox, windows, marks, clocks, the seq baseline.
++        // [ff9mapkit netsync F3.3] ...the ring MERGE baseline too (a session that rises re-baselines at the host's
++        // head), but NOT the lane (view / epoch / heartbeat / stall -- see ResetLane): a stalled host drops the
++        // session, and forgetting the stall here would re-raise it at once.
+         internal void ResetAll()
+         {
+             _inbox.Clear();
+@@ -226,19 +336,36 @@ namespace Memoria.Netsync
+             if (_local.Length > 0)
+                 _local = NoMarks;              // allocation-free: this runs every frame on a host / plain selftest
+             _settle.Reset();
+-            _haveSeq = false;
++            _baselined = false;
++            _mergedStamp = -1;
++            _keyLogged = false;
++            _mirrorCursor = -1;
+             _capLogged = false;
+             _chip = null;
+         }
+ 
++        // [ff9mapkit netsync F3.3] the TRANSPORT ended (a reconfigure / teardown -- NetSyncClient.ResetDialogLockstepState):
++        // the lane half goes too, so the next epoch this guest sees is a FIRST one (its dedup nonces were reset with
++        // the session already).
++        internal void ResetLane()
++        {
++            ResetAll();
++            _viewValid = false;
++            _epochHave = false;
++            _hbHave = false;
++            _stalled = false;
++            _refuseLogged = false;
++            _gaps = 0;
++            _keyIgnored = 0;
++        }
++
+         // The ~ menu panic unlock holds on THIS field (S5 step 1, "lock off: clear the inbox"): the host's events for
+-        // it would otherwise sit for PendingTtlMs and page a re-opened line once a reload re-arms the lock. The seq
+-        // baseline goes too -- the caller discards the FIFO unread, so the next ingest must re-baseline (a stale
+-        // _lastRaw could read a fresh frame as a double-deliver after exactly 256 discarded).
++        // it would otherwise sit for PendingTtlMs and page a re-opened line once a reload re-arms the lock.
++        // [ff9mapkit netsync F3.3] the ring's events for it are skipped, not merged (Merge(discard)), so they cannot
++        // land later either.
+         internal void ClearInbox()
+         {
+             _inbox.Clear();
+-            _haveSeq = false;
+             _capLogged = false;
+         }
+ 
+@@ -278,50 +405,443 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] dialogue lock engaged -- " + n + " window(s) already open stay local (they predate it)");
+         }
+ 
+-        // ---- ingest + purge ---------------------------------------------------------------------------------
++        // ---- [ff9mapkit netsync F3.3] C3: the u16 seq, the host ring, the section-7 codec ----------------------
++
++        // The ring's seq is u16 and SKIPS 0 (0 = "none yet" in headSeq): 65535 -> 1.
++        internal static UInt16 NextSeq(UInt16 s)
++        {
++            return s == UInt16.MaxValue ? (UInt16)1 : (UInt16)(s + 1);
++        }
++
++        // TRUE when `seq` is after `reference` (the design's (Int16)(seq - lastSeen) > 0: within half the space,
++        // far beyond the 32-event ring).
++        internal static Boolean SeqAfter(UInt16 seq, UInt16 reference)
++        {
++            return (Int16)(seq - reference) > 0;
++        }
++
++        // Steps from `from` to `to` along the skip-0 sequence (0 when `to` is not after `from`): 65535 -> 1 is ONE
++        // step, so a wrap never reads as a lost event.
++        internal static Int32 SeqSteps(UInt16 from, UInt16 to)
++        {
++            if (!SeqAfter(to, from))
++                return 0;
++            Int32 d = (UInt16)(to - from);
++            if (from + d > UInt16.MaxValue && from != 0)
++                d--;                           // crossed 65535 -> 1: the 0 it skipped is not a seq
++            return d;
++        }
+ 
+-        // Normalize one type-7 payload ([fld u16][win u8][text u16][kind u8][idx u8][seq u8], the NetSyncSocket
+-        // type table) into the seq-ordered inbox. The u8 seq is unwrapped by forward delta -- the FIFO is
+-        // reliable and in order on a live link -- and a repeat of the last seq is a transport double-deliver.
+-        internal void Ingest(Byte[] f, Int32 scene, Int32 now)
++        // [ff9mapkit netsync F3.3] R2 -- THE HOST RING: the host's confirm events, newest 32, oldest first. Append is
++        // locked and allocation-light because the VA close path taps OFF the main thread (VoicePlayer.cs:84-108, :234,
++        // :273); the tap only appends (the caller marks the state frame dirty) -- the frame itself is rebuilt and
++        // pushed on the main thread only. Events are encoded at append time, so the section builder copies bytes. One
++        // instance per role: NetSyncClient's own (a host) and its bench host (selftest); SelfTest builds its own.
++        internal sealed class HostRing
+         {
+-            if (f == null || f.Length < 8)
++            private readonly System.Object _lock = new System.Object();
++            private readonly Byte[][] _ev = new Byte[RingCap][];
++            private Int32 _first;              // index of the oldest held event
++            private Int32 _count;
++            private UInt16 _seq;               // the newest issued seq (0 = none yet)
++            private UInt16 _epoch;
++            private UInt16 _prevEpoch;         // C3RING-W1: the epoch before this one (a reconfigure draws twice: never A -> B -> A)
++
++            internal UInt16 Epoch { get { lock (_lock) return _epoch; } }
++            internal UInt16 PrevEpoch { get { lock (_lock) return _prevEpoch; } }
++            internal UInt16 HeadSeq { get { lock (_lock) return _seq; } }
++            internal Int32 Count { get { lock (_lock) return _count; } }
++
++            // A new host session: a new epoch, an empty ring, seq from 0 (the guest re-baselines on the epoch change).
++            internal void Reset(UInt16 epoch)
++            {
++                lock (_lock)
++                {
++                    for (Int32 k = 0; k < RingCap; k++)
++                        _ev[k] = null;
++                    _first = 0;
++                    _count = 0;
++                    _seq = 0;
++                    _prevEpoch = _epoch;
++                    _epoch = epoch;
++                }
++            }
++
++            // ANY THREAD. Returns the event's seq.
++            internal UInt16 Append(Byte kind, Byte scene, Int32 fld, Int32 a, Int32 b, Byte c, Byte x)
++            {
++                Byte[] e = new Byte[EventLen];
++                e[2] = kind;
++                e[3] = scene;
++                e[4] = (Byte)(fld & 0xFF);
++                e[5] = (Byte)((fld >> 8) & 0xFF);
++                e[6] = (Byte)(a & 0xFF);
++                e[7] = (Byte)(b & 0xFF);
++                e[8] = (Byte)((b >> 8) & 0xFF);
++                e[9] = c;
++                e[10] = x;
++                lock (_lock)
++                {
++                    _seq = NextSeq(_seq);
++                    e[0] = (Byte)(_seq & 0xFF);
++                    e[1] = (Byte)((_seq >> 8) & 0xFF);
++                    if (_count == RingCap)
++                    {
++                        _ev[_first] = null;
++                        _first = (_first + 1) % RingCap;   // drop-oldest: the guest copies events out the moment it sees them
++                        _count--;
++                    }
++                    _ev[(_first + _count) % RingCap] = e;
++                    _count++;
++                    return _seq;
++                }
++            }
++
++            // The selftest bench's `netsync host gap <n>`: n events emitted and LOST -- the seq moves on, the ring holds
++            // none of them (as if every frame carrying them was dropped before the guest saw one).
++            internal void Lose(Int32 n)
++            {
++                lock (_lock)
++                {
++                    for (Int32 k = 0; k < n; k++)
++                        _seq = NextSeq(_seq);
++                    for (Int32 k = 0; k < RingCap; k++)
++                        _ev[k] = null;
++                    _first = 0;
++                    _count = 0;
++                }
++            }
++
++            // Section 7, built under the ring lock so epoch, headSeq and the ring are ONE consistent snapshot.
++            internal Byte[] BuildSection(UInt16 heartbeat, Byte flags, Byte sceneNonce, Int32 sceneField, OpenWin[] open, Int32 openN)
++            {
++                if (open == null || openN < 0)
++                    openN = 0;
++                if (openN > OpenCap)
++                    openN = OpenCap;
++                lock (_lock)
++                {
++                    Byte[] b = new Byte[HeaderLen + OpenLen * openN + 1 + EventLen * _count];
++                    b[0] = SectionFmt;
++                    W16(b, 1, _epoch);
++                    W16(b, 3, heartbeat);
++                    b[5] = flags;
++                    b[6] = sceneNonce;
++                    W16(b, 7, sceneField < 0 ? 0 : sceneField);
++                    W16(b, 9, _seq);
++                    b[11] = (Byte)openN;
++                    Int32 off = HeaderLen;
++                    for (Int32 k = 0; k < openN; k++)
++                    {
++                        b[off] = (Byte)(open[k].Win & 0xFF);
++                        W16(b, off + 1, open[k].Text);
++                        b[off + 3] = open[k].Cursor;
++                        b[off + 4] = open[k].Page;
++                        b[off + 5] = open[k].Flags;
++                        off += OpenLen;
++                    }
++                    b[off++] = (Byte)_count;
++                    for (Int32 k = 0; k < _count; k++)
++                    {
++                        Array.Copy(_ev[(_first + k) % RingCap], 0, b, off, EventLen);
++                        off += EventLen;
++                    }
++                    return b;
++                }
++            }
++        }
++
++        private static void W16(Byte[] b, Int32 off, Int32 v)
++        {
++            b[off] = (Byte)(v & 0xFF);
++            b[off + 1] = (Byte)((v >> 8) & 0xFF);
++        }
++
++        private static UInt16 R16(Byte[] b, Int32 off)
++        {
++            return (UInt16)(b[off] | (b[off + 1] << 8));
++        }
++
++        // R1 -- parse a section-7 body into `v`. REFUSES (false + why, `v` partly written -- parse into a scratch)
++        // anything truncated or malformed: a body shorter than its own counts promise, fmt != 1, an open set over 4 or
++        // a ring over 32, a seq 0, a ring out of order, or a headSeq that is not the newest ring event. Never throws.
++        internal static Boolean TryParseHostSection(Byte[] b, HostView v, out String why)
++        {
++            why = null;
++            if (b == null || b.Length < HeaderLen)
++            {
++                why = "truncated header (" + (b == null ? 0 : b.Length) + " B)";
++                return false;
++            }
++            if (b[0] != SectionFmt)
++            {
++                why = "unknown format " + b[0];
++                return false;
++            }
++            v.Epoch = R16(b, 1);
++            v.Heartbeat = R16(b, 3);
++            v.Flags = b[5];
++            v.SceneNonce = b[6];
++            v.SceneField = R16(b, 7);
++            v.HeadSeq = R16(b, 9);
++            Int32 openN = b[11];
++            if (openN > OpenCap)
++            {
++                why = "open set of " + openN + " (max " + OpenCap + ")";
++                return false;
++            }
++            Int32 off = HeaderLen;
++            if (b.Length < off + OpenLen * openN + 1)
++            {
++                why = "truncated open set";
++                return false;
++            }
++            for (Int32 k = 0; k < openN; k++)
++            {
++                v.Open[k].Win = b[off];
++                v.Open[k].Text = R16(b, off + 1);
++                v.Open[k].Cursor = b[off + 3];
++                v.Open[k].Page = b[off + 4];
++                v.Open[k].Flags = b[off + 5];
++                off += OpenLen;
++            }
++            Int32 ringN = b[off++];
++            if (ringN > RingCap)
++            {
++                why = "ring of " + ringN + " (max " + RingCap + ")";
++                return false;
++            }
++            if (b.Length < off + EventLen * ringN)
++            {
++                why = "truncated ring (" + ringN + " events promised, " + (b.Length - off) + " B left)";
++                return false;
++            }
++            for (Int32 k = 0; k < ringN; k++)
++            {
++                RingEvt e;
++                e.Seq = R16(b, off);
++                e.Kind = b[off + 2];
++                e.Scene = b[off + 3];
++                e.Fld = R16(b, off + 4);
++                e.A = b[off + 6];
++                e.B = R16(b, off + 7);
++                e.C = b[off + 9];
++                e.X = b[off + 10];
++                if (e.Seq == 0)
++                {
++                    why = "ring event " + k + " has seq 0";
++                    return false;
++                }
++                if (k > 0 && !SeqAfter(e.Seq, v.Ring[k - 1].Seq))
++                {
++                    why = "ring out of order at event " + k;
++                    return false;
++                }
++                v.Ring[k] = e;
++                off += EventLen;
++            }
++            if (ringN > 0 && v.Ring[ringN - 1].Seq != v.HeadSeq)
++            {
++                why = "headSeq " + v.HeadSeq + " is not the newest ring event (" + v.Ring[ringN - 1].Seq + ")";
++                return false;
++            }
++            v.OpenN = openN;
++            v.RingN = ringN;
++            return true;
++        }
++
++        // ---- [ff9mapkit netsync F3.3] C3 GUEST: observe the lane, the stall clock, the merge --------------------
++
++        internal const Int32 ObsNone = 0, ObsFirstEpoch = 1, ObsEpochChanged = 2, ObsRefused = -1, ObsAbsent = -2;
++
++        // R3: a NEW state payload's section 7 (body null = no section on the lane: stale or absent). Parses into the
++        // scratch view and swaps it in only on success. On an epoch CHANGE (a host relaunch or a host session reset)
++        // the inbox is cleared and the merge baseline moves to the new head -- history never replays; the caller
++        // (NetSyncClient) resets its dedup nonces on ObsEpochChanged (WIRE-6/CLB-4). The FIRST epoch a lane sees
++        // resets nothing (the guest's nonces are already fresh). The key store (R5) clears here too, once it exists.
++        // [ff9mapkit netsync F3.3] C3RING-W1: the SAME epoch with the ring head gone BACKWARDS is a new host session as
++        // well -- a 16-bit epoch collision (a relaunched host drawing its predecessor's epoch) restarts the seq under
++        // the old epoch, and the merge would otherwise skip every new event up to the old head as "already merged",
++        // with no log. A live ring never moves its head backwards (Append only steps it; Reset always draws a new epoch).
++        // C3RING-SPEC-1: the baseline moves only on a guest ALREADY baselined -- one whose session rises on this very
++        // tick (a hung host relaunched: the new epoch clears the stall) baselines on THIS frame in its first Merge.
++        internal Int32 Observe(Byte[] body, Int32 now)
++        {
++            if (body == null)
++            {
++                _viewValid = false;
++                return ObsAbsent;
++            }
++            String why;
++            if (!TryParseHostSection(body, _scratch, out why))
++            {
++                _viewValid = false;
++                if (!_refuseLogged && !_quiet)
++                {
++                    _refuseLogged = true;
++                    Log.Message("[NetSync] dialogue ring: host section 7 REFUSED (" + why + ") -- ignored until a clean one arrives");
++                }
++                return ObsRefused;
++            }
++            _refuseLogged = false;
++            UInt16 prevHead = _view.HeadSeq;   // the last ACCEPTED view's head (a refused / absent body never swaps in)
++            HostView t = _view;
++            _view = _scratch;
++            _scratch = t;
++            _viewValid = true;
++            _viewStamp++;
++            if (!_epochHave)
++            {
++                _epochHave = true;
++                _epoch = _view.Epoch;
++                return ObsFirstEpoch;
++            }
++            Boolean backwards = _view.Epoch == _epoch && SeqAfter(prevHead, _view.HeadSeq);   // C3RING-W1
++            if (_view.Epoch == _epoch && !backwards)
++                return ObsNone;
++            UInt16 old = _epoch;
++            _epoch = _view.Epoch;
++            _inbox.Clear();
++            _capLogged = false;
++            if (_baselined)
++            {
++                _lastSeen = _view.HeadSeq;     // history never replays: this view IS the baseline
++                _mergedStamp = _viewStamp;
++            }                                  // (not baselined: the session's first Merge baselines on this frame -- C3RING-SPEC-1)
++            _hbHave = false;                   // a new host process: its heartbeat restarts
++            _stalled = false;
++            if (!_quiet)
++            {
++                if (backwards)
++                    Log.Message("[NetSync] dialogue ring: host seq went BACKWARDS (" + prevHead + " -> " + _view.HeadSeq + ") under epoch " + _epoch
++                                + " -- a new host session reusing the epoch; inbox cleared, baseline at host seq " + _view.HeadSeq + " (nothing before it replays)");
++                else
++                    Log.Message("[NetSync] dialogue ring: host epoch " + old + " -> " + _epoch + " (the host restarted its session) -- inbox cleared, "
++                                + "baseline at host seq " + _view.HeadSeq + " (nothing before it replays)");
++            }
++            return ObsEpochChanged;
++        }
++
++        // R6, every tick: the heartbeat must MOVE. Unchanged for HostStallMs while the section is on a fresh lane =
++        // a hung host whose writer thread keeps re-sending its last slot (NetSyncSocket.cs WriteLoop) -- the caller
++        // drops the lock. It re-arms the moment the heartbeat moves. An ABSENT section freezes the clock where it
++        // is (the link-dead rule owns a stale lane); the same stale heartbeat coming back stays stalled.
++        internal void StallStep(Int32 now)
++        {
++            if (!_viewValid)
+                 return;
+-            Byte raw = f[7];
+-            Int32 seq;
+-            if (!_haveSeq)
++            if (!_hbHave || _view.Heartbeat != _hb)
+             {
+-                seq = raw;
+-                _haveSeq = true;
++                _hb = _view.Heartbeat;
++                _hbSince = now;                // tick-baseline law: a real tick, read only while _hbHave
++                _hbHave = true;
++                if (_stalled)
++                {
++                    _stalled = false;
++                    if (!_quiet)
++                        Log.Message("[NetSync] dialogue: the host's heartbeat moved again -- the lock re-arms (lines open now stay local)");
++                }
++                return;
+             }
+-            else
++            if (!_stalled && now - _hbSince >= HostStallMs)
+             {
+-                Int32 delta = (raw - _lastRaw) & 0xFF;
+-                if (delta == 0)
+-                    return;                    // double-deliver
+-                seq = _lastSeq + delta;
++                _stalled = true;
++                if (!_quiet)
++                    Log.Message("[NetSync] dialogue: the host looks HUNG -- its heartbeat (" + _hb + ") has not moved for "
++                                + (HostStallMs / 1000) + " s on a live lane -- dialogue lock released");
+             }
+-            _lastRaw = raw;
+-            _lastSeq = seq;
+-            DlgEvent e = new DlgEvent();
+-            e.Seq = seq;
+-            e.Raw = raw;
+-            e.Kind = f[5];
+-            e.Scene = scene;
+-            e.Fld = f[0] | (f[1] << 8);
+-            e.Win = f[2];
+-            e.Text = f[3] | (f[4] << 8);
+-            e.C = f[6];
+-            e.FirstSeen = now;
+-            if (e.Kind != KindAdv && e.Kind != KindCho)
++        }
++
++        // R3: copy the view's ring events after _lastSeen into the inbox (seq order; a repeat is a no-op, so the
++        // ~30 Hz re-send of one slot applies each event ONCE). A session's first merge only BASELINES (its history
++        // predates the lock -- the C2 "taps queued before the session" rule). `discard` (a panic-unlocked field)
++        // skips the events without queueing them. A GAP (events the ring no longer holds) logs once; its lines fall
++        // to the orphan rule. KEY events are ignored (counted, one line per session) -- the key relay is R5.
++        internal void Merge(Int32 now, Boolean discard)
++        {
++            if (!_viewValid || _mergedStamp == _viewStamp)
++                return;
++            _mergedStamp = _viewStamp;
++            HostView v = _view;
++            if (!_baselined)
+             {
+-                Log.Message("[NetSync] dialogue: host seq " + raw + " has unknown kind " + e.Kind + " -- ignored");
++                _baselined = true;
++                _lastSeen = v.HeadSeq;
++                if (v.RingN > 0 && !_quiet)
++                    Log.Message("[NetSync] dialogue ring: baselined at host seq " + v.HeadSeq + " -- " + v.RingN
++                                + " retained event(s) predate the session (not replayed)");
+                 return;
+             }
+-            _inbox.Add(e);                     // arrival order IS seq order (monotonic unwrap)
++            if (discard)
++            {
++                if (SeqAfter(v.HeadSeq, _lastSeen))
++                    _lastSeen = v.HeadSeq;
++                return;
++            }
++            Int32 lost = v.RingN > 0 ? SeqSteps(_lastSeen, v.Ring[0].Seq) - 1 : SeqSteps(_lastSeen, v.HeadSeq);
++            if (lost > 0)
++            {
++                _gaps++;
++                if (!_quiet)
++                    Log.Message("[NetSync] dialogue ring: GAP -- " + lost + " host event(s) after seq " + _lastSeen
++                                + " were never seen (the ring holds " + RingCap + "); their lines fall to the orphan rule");
++            }
++            for (Int32 k = 0; k < v.RingN; k++)
++            {
++                if (!SeqAfter(v.Ring[k].Seq, _lastSeen))
++                    continue;                  // already merged (the slot re-sends) -- never applied twice
++                IngestRing(ref v.Ring[k], now);
++                _lastSeen = v.Ring[k].Seq;
++            }
++            if (SeqAfter(v.HeadSeq, _lastSeen))
++                _lastSeen = v.HeadSeq;         // an empty ring past a gap
++        }
++
++        // One ring event into the seq-ordered inbox (ADV / CHO); KEY and unknown kinds are not queued.
++        private void IngestRing(ref RingEvt r, Int32 now)
++        {
++            if (r.Kind == KindKey)
++            {
++                _keyIgnored++;
++                if (!_keyLogged && !_quiet)
++                {
++                    _keyLogged = true;
++                    Log.Message("[NetSync] dialogue: host seq " + r.Seq + " is a script button-poll KEY (uid " + r.A + " bits " + r.B
++                                + ") -- ignored (this build relays confirms only; the key relay is the next stage)");
++                }
++                return;
++            }
++            if (r.Kind != KindAdv && r.Kind != KindCho)
++            {
++                if (!_quiet)
++                    Log.Message("[NetSync] dialogue: host seq " + r.Seq + " has unknown kind " + r.Kind + " -- ignored");
++                return;
++            }
++            DlgEvent e = new DlgEvent();
++            e.Seq = r.Seq;
++            e.Raw = r.Seq;
++            e.Kind = r.Kind;
++            e.Scene = r.Scene;
++            e.Fld = r.Fld;
++            e.Win = r.A;
++            e.Text = r.B;
++            if (r.Kind == KindCho)
++            {
++                e.C = r.C;
++                e.Page = -1;
++                e.Closes = (r.X & ClosesBit) != 0;
++            }
++            else
++            {
++                e.C = NoCursor;
++                e.Page = r.C & 0x7F;
++                e.Closes = (r.C & ClosesBit) != 0;
++            }
++            e.FirstSeen = now;
++            _inbox.Add(e);                     // arrival order IS seq order (the merge walks the ring oldest first)
+             if (!_quiet)
+-                Log.Message("[NetSync] dialogue: host seq " + raw + " queued (field " + e.Fld + " win " + e.Win + " text " + e.Text
+-                            + " kind " + e.Kind + (e.Kind == KindCho ? " choice " + e.C : "") + ")");
++                Log.Message("[NetSync] dialogue: host seq " + e.Raw + " queued (field " + e.Fld + " win " + e.Win + " text " + e.Text
++                            + " kind " + e.Kind + (e.Kind == KindCho ? " choice " + e.C : " page " + e.Page) + (e.Closes ? " closes" : "") + ")");
+             if (_inbox.Count > InboxCap)
+             {
+                 DlgEvent old = _inbox[0];
+@@ -337,6 +857,30 @@ namespace Memoria.Netsync
+                 _capLogged = false;
+         }
+ 
++        // R4: does the host's open set (on MY field -- the caller checks co-location) hold this window key?
++        private Boolean HostHasOpen(Int32 win, Int32 text, out Byte cursor)
++        {
++            cursor = NoCursor;
++            if (!_viewValid)
++                return false;
++            for (Int32 k = 0; k < _view.OpenN; k++)
++                if (_view.Open[k].Win == win && _view.Open[k].Text == text)
++                {
++                    cursor = _view.Open[k].Cursor;
++                    return true;
++                }
++            return false;
++        }
++
++        internal List<OpenWin> SnapshotHostOpen()
++        {
++            List<OpenWin> r = new List<OpenWin>(_viewValid ? _view.OpenN : 0);
++            if (_viewValid)
++                for (Int32 k = 0; k < _view.OpenN; k++)
++                    r.Add(_view.Open[k]);
++            return r;
++        }
++
+         // At a relay ACCEPT (ServiceTalkFollow): drop every event left over from an EARLIER host scene whose window
+         // is not open -- the guard against the 14.2% duplicate-key reopens catching a stale page. `talkScene` is the
+         // ACCEPTED start's own scene (the section-5 nonce in the first state frame that carried it), NOT the host's
+@@ -435,12 +979,15 @@ namespace Memoria.Netsync
+             public Int32 MyField;
+             public Int32 WarpField;        // a follow-warp in flight (-1 = none)
+             public Int32 HostField;        // the host's field when its lane is valid (-1 = unknown)
+-            public Boolean HostSceneUp;    // section 5: the host's sticky scene
++            public Boolean HostSceneUp;    // section 5: the host's sticky scene (F3.3: section 7's b0 when present)
+             public Boolean TalkLiveHere;   // section 6: a relayed start for MY field is on the lane
+-            public Boolean CoLocated;
++            public Boolean CoLocated;      // F3.3 R4: ...AND section 7's b2 is 0 (no input-taking host line open)
+             public Boolean HostElsewhere;  // on another real field and no SectionIntent points here
+-            public Boolean HostOffField;   // field 0 and no live host battle
++            public Boolean HostOffField;   // field 0 and no live host battle (F3.3 R4: section 7's b3/b5 when present)
+             public Boolean RelayOwned;     // a relayed start was accepted < RelayOwnMs ago
++            public Boolean HostHere;       // F3.3: the host stands on MY field -- its open set (section 7) is about my windows
++            public Boolean HostMenu;       // F3.3 R7: section 7 b4 on a field (the chip's "in a menu" variant)
++            public Boolean HostBattle;     // F3.3 R7: section 7 b5 (the chip's "in a battle" variant)
+             public Int32 Now;
+         }
+ 
+@@ -450,7 +997,8 @@ namespace Memoria.Netsync
+             if (!v.Engaged)
+             {
+                 ForgetWindows();
+-                _chip = v.HostSceneUp && v.CoLocated ? ChipHostScene : null;
++                _mirrorCursor = -1;
++                _chip = v.HostSceneUp && v.HostHere ? ChipHostScene : null;
+                 return;
+             }
+             List<Dialog> list = LiveList();
+@@ -465,7 +1013,7 @@ namespace Memoria.Netsync
+             if (!paused)
+             {
+                 ApplyEvents(list, ref v);      // step 5 -- stock DialogManager.cs:337 parity: nothing is driven while paused
+-                CursorLock(list);              // step 6 (the pause menu owns the cursor while paused)
++                CursorLock(list, ref v);       // step 6 (the pause menu owns the cursor while paused)
+             }
+             Orphans(list, paused, ref v);      // step 7
+             UpdateChip(ref v);                 // step 8
+@@ -589,6 +1137,17 @@ namespace Memoria.Netsync
+                 Boolean choice = d.HasChoices;
+                 if (choice && (!d.IsChoiceReady || !DialogOwnsCursor()))
+                     continue;                  // DLG-7 (Dialog.cs:163-164); and never under another UI's cursor
++                Boolean closes = !(d.SubPage.Count > d.CurrentPage);   // Hide()'s own test (Dialog.cs:621), read BEFORE it
++                if (e.Kind == KindAdv && !e.Closes && closes)
++                {
++                    // [ff9mapkit netsync F3.3] R4 FEWER PAGES: the host turned a page this copy does not have (its last
++                    // page is up -- DualLanguageMode's extra [PAGE], DialogManager.cs:127-137). A no-op, consumed; the
++                    // host's closing confirm closes it.
++                    _inbox.Remove(e);
++                    Log.Message("[NetSync] dialogue: host seq " + e.Raw + " turned a page win " + w.Id + " text " + w.TextId
++                                + " does not have here (host page " + e.Page + ", mine " + d.CurrentPage + "/" + d.SubPage.Count + ") -- consumed, no-op");
++                    continue;
++                }
+                 Int32 picked = -1;
+                 if (choice)
+                 {
+@@ -607,11 +1166,23 @@ namespace Memoria.Netsync
+                         }
+                     }
+                 }
+-                Boolean closes = !(d.SubPage.Count > d.CurrentPage);   // Hide()'s own test (Dialog.cs:621), read BEFORE it
+                 Int32 page = d.CurrentPage;
+                 HostConfirm(d);
+                 if (Advanced(list, d, w.Id, w.TextId, page, choice))
+                 {
++                    if (e.Closes && !closes)
++                    {
++                        // [ff9mapkit netsync F3.3] R4 THE CLOSES BIT: the host's confirm CLOSED its window, mine only turned
++                        // a page (a host page turn the ring lost, or an extra page here). KEEP the event: it re-applies once
++                        // the next page completes (MinShowMs), page by page, until it closes this window too.
++                        if (!e.CatchupLogged)
++                        {
++                            e.CatchupLogged = true;
++                            Log.Message("[NetSync] dialogue: host seq " + e.Raw + " closed win " + w.Id + " text " + w.TextId
++                                        + " on the host -- paging on to its close here (page " + page + " of " + d.SubPage.Count + ")");
++                        }
++                        continue;
++                    }
+                     _inbox.Remove(e);
+                     if (closes)
+                         w.ClosedByUs = true;       // its departure is the host's close (a voiced choice departs later, still ours)
+@@ -638,14 +1209,23 @@ namespace Memoria.Netsync
+         // C2 GAP, documented: a NON-Inh choice that a script POLLS (IsButton + GetDialogChoice) keeps the frozen
+         // cursor while the raw poll still reads the guest's confirm, so it commits the default unless the host's
+         // CHO lands first -- until C3 carries the host cursor and press.
+-        private void CursorLock(List<Dialog> list)
++        // [ff9mapkit netsync F3.3] R4 THE CURSOR MIRROR: when the host stands on my field and its open set (section 7)
++        // holds this window's key with a ready-choice cursor, THAT is the expected cursor -- the guest's highlight
++        // follows the host's arrows. A host cursor out of range here (a different chooseMask) keeps the window's own
++        // SelectChoice (DLG-10: never the guest's input). Still skipped: FlagButtonInh windows (the key relay is R5).
++        // C3RING-1: NEVER a window already COMMITTED -- one our apply closed (ClosedByUs), or a voiced choice waiting on
++        // its voice (VoicePlayer.closeDialogOnFinish, set only by Dialog.OnKeyConfirm's voiced-choice commit). It stays
++        // CompleteAnimation + IsChoiceReady, and its other buttons are destroyed only at end of frame, so a host cursor
++        // from a REOPENED same-key window would re-select it -> OnOptionChange -> it closes reporting the wrong choice.
++        private void CursorLock(List<Dialog> list, ref GuestView v)
+         {
++            _mirrorCursor = -1;
+             if (!DialogOwnsCursor())
+                 return;
+             for (Int32 k = 0; k < _wins.Count; k++)
+             {
+                 Win w = _wins[k];
+-                if (w.Cls == ClsLocal)
++                if (w.Cls == ClsLocal || w.ClosedByUs || VoicePlayer.closeDialogOnFinish)
+                     continue;
+                 Dialog d = w.D;
+                 if (d.FlagButtonInh)
+@@ -655,6 +1235,21 @@ namespace Memoria.Netsync
+                 if (d.CurrentState != Dialog.State.CompleteAnimation || !d.IsChoiceReady)
+                     continue;
+                 Int32 expected = d.SelectChoice;
++                Byte hostCursor;
++                if (v.HostHere && HostHasOpen(w.Id, w.TextId, out hostCursor) && hostCursor != NoCursor)
++                {
++                    if (d.IsCurrentChoice(hostCursor))
++                    {
++                        _mirrorCursor = hostCursor;
++                        continue;
++                    }
++                    if (HostSetChoice(d, hostCursor))
++                    {
++                        _mirrorCursor = hostCursor;
++                        continue;
++                    }
++                    // out of range on this copy: hold the window's own choice (below)
++                }
+                 if (!d.IsCurrentChoice(expected))
+                     HostSetChoice(d, expected);
+             }
+@@ -669,7 +1264,8 @@ namespace Memoria.Netsync
+         // no relayed start for this field is live, and the host is co-located (now) / elsewhere with no intent
+         // here (HostElsewhereMs) / off-field with no live battle (OffFieldMaxMs); settledLong = that, held for
+         // OrphanGraceMs. Then an UNCLAIMED locked window (no inbox event for its key, no relay accepted in the
+-        // last RelayOwnMs) is handed back if script-polled (FlagButtonInh) or orphaned -- and an orphan is
++        // last RelayOwnMs -- [ff9mapkit netsync F3.3] R4: nor the co-located host's open set holding its key) is
++        // handed back if script-polled (FlagButtonInh) or orphaned -- and an orphan is
+         // auto-confirmed page by page at reading pace, choice = Cancel else Default (owner decision 2).
+         private void Orphans(List<Dialog> list, Boolean paused, ref GuestView v)
+         {
+@@ -683,7 +1279,9 @@ namespace Memoria.Netsync
+                 Dialog d = w.D;
+                 if (!InList(list, d) || d.Id != w.Id || d.TextId != w.TextId)
+                     continue;
+-                Boolean eventPending = HasEventFor(w);
++                Byte unusedCursor;
++                Boolean hostHasIt = v.HostHere && HostHasOpen(w.Id, w.TextId, out unusedCursor);   // [ff9mapkit netsync F3.3] R4: a claim too
++                Boolean eventPending = HasEventFor(w) || hostHasIt;
+                 Boolean choice = d.HasChoices;
+                 Boolean ready = !paused && d.CurrentState == Dialog.State.CompleteAnimation && w.CompleteArmed
+                              && (!choice || (d.IsChoiceReady && DialogOwnsCursor()));   // never under another UI's cursor
+@@ -711,7 +1309,7 @@ namespace Memoria.Netsync
+                 {
+                     w.Cls = ClsLocked;         // never auto-close mid-scene, nor over a host event (ApplyEvents drives it)
+                     Log.Message("[NetSync] dialogue orphan: win " + w.Id + " text " + w.TextId
+-                                + (eventPending ? " held -- a late host event arrived" : " held -- the host is busy again"));
++                                + (hostHasIt ? " held -- the host has it open" : eventPending ? " held -- a late host event arrived" : " held -- the host is busy again"));
+                     continue;
+                 }
+                 // OrphConfirm: the page has been up AutoReadMs -- confirm it as the host would, choice = Cancel else Default
+@@ -805,8 +1403,8 @@ namespace Memoria.Netsync
+             else if (orphaned)
+                 _chip = ChipClosing;
+             else if (locked)
+-                _chip = ChipFollowing;
+-            else if (v.HostSceneUp && v.CoLocated)
++                _chip = v.HostBattle ? ChipHostBattle : v.HostMenu ? ChipHostMenu : ChipFollowing;   // [ff9mapkit netsync F3.3] R7
++            else if (v.HostSceneUp && v.HostHere)
+                 _chip = ChipHostScene;
+             else
+                 _chip = null;
+@@ -1042,15 +1640,19 @@ namespace Memoria.Netsync
+ 
+         // ---- SelfTest (S1; logged by NetSyncClient's selftest proof block) -----------------------------------
+         // PURE: scripted (onField, field, control, line) and (scene, talk, where) sequences against the two state
+-        // machines, the per-window orphan step (OrphanStep, with the Int32 tick wrap), plus the inbox's seq unwrap /
+-        // dedup / per-key FIFO / cap. Touches no engine object, so it proves the logic solo at selftest start; the
+-        // in-game behaviour (Orphans() acting on a live Dialog) is the harness's job (A1-A12).
++        // machines, the per-window orphan step (OrphanStep, with the Int32 tick wrap), plus the inbox's per-key FIFO /
++        // cap / relay-accept purge. [ff9mapkit netsync F3.3] ...and the C3 section-7 codec end to end (RingScript): a
++        // HostRing -> BuildSection -> TryParseHostSection round trip, the u16 seq wrap 65535 -> 1, a gap > 32 detected
++        // ONCE, every truncated body refused, a re-sent frame applied once, KEY ignored, an epoch change resetting the
++        // inbox without replaying history (also on the tick a session rises, and on a same-epoch head regression --
++        // C3RING-SPEC-1 / W1), and the heartbeat stall clock. Touches no engine object, so it proves the
++        // logic solo at selftest start; the in-game behaviour (Orphans() acting on a live Dialog) is the harness's job.
+         internal static Boolean SelfTest(out String detail)
+         {
+             String fail = null;
+             try
+             {
+-                fail = HostSceneScript() ?? SettleScript() ?? OrphanScript() ?? InboxScript();
++                fail = HostSceneScript() ?? SettleScript() ?? OrphanScript() ?? InboxScript() ?? RingScript();
+             }
+             catch (Exception err)
+             {
+@@ -1061,7 +1663,10 @@ namespace Memoria.Netsync
+                            + OrphanGraceMs + " ms grace, elsewhere " + HostElsewhereMs + " ms, off-field " + OffFieldMaxMs
+                            + " ms, battle never; orphan step: claims hold, polled lines hand back, auto-close "
+                            + AutoReadMs + " ms after the later of complete/orphaned (Cancel else Default), late event or busy host re-locks;"
+-                           + " inbox: seq unwrap/dedup/per-key FIFO/cap " + InboxCap + ", relay-accept purge = earlier scenes only";
++                           + " inbox: per-key FIFO/cap " + InboxCap + ", relay-accept purge = earlier scenes only;"
++                           + " section 7: round trip, seq wrap 65535->1, gap>" + RingCap + " once, truncated refused, re-send once,"
++                           + " KEY ignored, epoch reset w/o replay (also on a rising session, and on a same-epoch head regression),"
++                           + " stall " + HostStallMs + " ms";
+             return fail == null;
+         }
+ 
+@@ -1197,27 +1802,32 @@ namespace Memoria.Netsync
+             return null;
+         }
+ 
++        // The inbox itself: per-key FIFO head, the cap, the relay-accept purge (F3.2). [ff9mapkit netsync F3.3] events
++        // are pushed as ring events (IngestRing) -- the C2 type-7 ingest and its u8 unwrap are retired.
+         private static String InboxScript()
+         {
+             NetSyncDialog d = new NetSyncDialog();
++            d._quiet = true;
+             const Int32 T0 = 3000000;
+-            Byte[] seqs = { 254, 255, 255, 0, 1 };
+-            for (Int32 k = 0; k < seqs.Length; k++)
+-                d.IngestQuiet(Frame(5, 3, 40 + (k % 2), 0, 0, seqs[k]), 1, T0);
++            for (Int32 k = 0; k < 4; k++)
++            {
++                RingEvt r = Evt((UInt16)(10 + k), KindAdv, 1, 5, 3, 40 + (k % 2), 1, 0);
++                d.IngestRing(ref r, T0);
++            }
+             if (d._inbox.Count != 4)
+-                return "inbox: the repeated seq was not dropped (" + d._inbox.Count + " queued)";
+-            for (Int32 k = 1; k < d._inbox.Count; k++)
+-                if (d._inbox[k].Seq <= d._inbox[k - 1].Seq)
+-                    return "inbox: the u8 wrap did not unwrap monotonically";
++                return "inbox: " + d._inbox.Count + " of 4 events queued";
+             Win w = new Win();
+             w.Field = 5;
+             w.Id = 3;
+             w.TextId = 41;
+             DlgEvent head = d.EarliestFor(w);
+-            if (head == null || head.Raw != 255)
++            if (head == null || head.Raw != 11)
+                 return "inbox: the per-key FIFO head is not the earliest event of that key";
+             for (Int32 k = 0; k < InboxCap + 8; k++)
+-                d.IngestQuiet(Frame(5, 3, 40, 0, 0, (Byte)(2 + k)), 1, T0);
++            {
++                RingEvt r = Evt((UInt16)(20 + k), KindAdv, 1, 5, 3, 40, 1, 0);
++                d.IngestRing(ref r, T0);
++            }
+             if (d._inbox.Count != InboxCap)
+                 return "inbox: the cap did not hold (" + d._inbox.Count + ")";
+             // the relay-accept purge drops only EARLIER scenes: the accepted talk's own scene and later ones stay
+@@ -1226,27 +1836,247 @@ namespace Memoria.Netsync
+                 return "inbox: the scene order is not wrap-aware";
+             NetSyncDialog p = new NetSyncDialog();
+             p._quiet = true;
+-            p.Ingest(Frame(5, 3, 40, 0, 0, 10), 4, T0);
+-            p.Ingest(Frame(5, 3, 40, 0, 0, 11), 5, T0);
+-            p.Ingest(Frame(5, 3, 40, 0, 0, 12), 6, T0);
+-            p.Ingest(Frame(5, 3, 40, 0, 0, 13), -1, T0);
++            Byte[] scenes = { 4, 5, 6, 3 };
++            for (Int32 k = 0; k < scenes.Length; k++)
++            {
++                RingEvt r = Evt((UInt16)(30 + k), KindAdv, scenes[k], 5, 3, 40, 1, 0);
++                p.IngestRing(ref r, T0);
++            }
+             p.PurgeAtRelayAccept(5);
+             if (p._inbox.Count != 2 || p._inbox[0].Scene != 5 || p._inbox[1].Scene != 6)
+                 return "inbox: the relay-accept purge did not keep exactly the talk's scene and later (" + p._inbox.Count + " kept)";
+             return null;
+         }
+ 
+-        private static Byte[] Frame(Int32 fld, Int32 win, Int32 text, Byte kind, Byte idx, Byte seq)
++        private static RingEvt Evt(UInt16 seq, Byte kind, Byte scene, Int32 fld, Int32 a, Int32 b, Byte c, Byte x)
+         {
+-            return new Byte[] { (Byte)(fld & 0xFF), (Byte)((fld >> 8) & 0xFF), (Byte)win, (Byte)(text & 0xFF), (Byte)((text >> 8) & 0xFF), kind, idx, seq };
++            RingEvt r;
++            r.Seq = seq;
++            r.Kind = kind;
++            r.Scene = scene;
++            r.Fld = fld;
++            r.A = a;
++            r.B = b;
++            r.C = c;
++            r.X = x;
++            return r;
+         }
+ 
+-        // Ingest without the per-event log lines (SelfTest only -- it pushes ~75 synthetic frames).
+-        private void IngestQuiet(Byte[] f, Int32 scene, Int32 now)
++        // [ff9mapkit netsync F3.3] R-B0: the section-7 codec and the guest merge, end to end through the REAL builder
++        // (HostRing.BuildSection), the REAL state framing (NetSyncState.AppendSection / TryReadSection) and the REAL
++        // parser + merge. Each guest is a quiet NetSyncDialog of its own -- nothing here touches the engine.
++        private static String RingScript()
+         {
+-            _quiet = true;
+-            try { Ingest(f, scene, now); }
+-            finally { _quiet = false; }
++            const Int32 T0 = 4000000;
++            String why;
++            if (NextSeq(65535) != 1 || NextSeq(1) != 2 || SeqSteps(65535, 1) != 1 || SeqSteps(65534, 1) != 2 || SeqSteps(0, 1) != 1
++                || SeqSteps(5, 5) != 0 || SeqSteps(6, 5) != 0 || !SeqAfter(1, 65535) || SeqAfter(65535, 1))
++                return "ring: the u16 seq does not skip 0 across the wrap";
++
++            // 1. round trip: header, an open set of two, ADV + CHO + KEY
++            HostRing ring = new HostRing();
++            ring.Reset(0x1234);
++            OpenWin[] open = new OpenWin[OpenCap];
++            open[0].Win = 3; open[0].Text = 0x0102; open[0].Cursor = 2; open[0].Page = 1; open[0].Flags = (Byte)(WfChoice | WfComplete);
++            open[1].Win = 4; open[1].Text = 77; open[1].Cursor = NoCursor; open[1].Page = 3; open[1].Flags = WfInh;
++            ring.Append(KindAdv, 9, 350, 3, 0x0102, 2, 0);                         // page 2, not closing
++            ring.Append(KindCho, 9, 350, 3, 0x0102, 1, ClosesBit);                 // choice 1, closing
++            ring.Append(KindKey, 9, 350, 12, 0x0040, NoCursor, 0);                 // uid 12, Confirm
++            Byte[] body = ring.BuildSection(0xBEEF, (Byte)(HfScene | HfLine | HfOnField), 9, 350, open, 2);
++            Byte[] back;
++            if (!NetSyncState.TryReadSection(NetSyncState.AppendSection(null, NetSyncState.SectionDialog, body), NetSyncState.SectionDialog, out back)
++                || back == null || back.Length != body.Length)
++                return "ring: the state framing did not carry section 7";
++            HostView v = new HostView();
++            if (!TryParseHostSection(back, v, out why))
++                return "ring: a clean section 7 was refused (" + why + ")";
++            if (v.Epoch != 0x1234 || v.Heartbeat != 0xBEEF || v.Flags != (HfScene | HfLine | HfOnField) || v.SceneNonce != 9
++                || v.SceneField != 350 || v.HeadSeq != 3 || v.OpenN != 2 || v.RingN != 3)
++                return "ring: the section-7 header did not round-trip";
++            if (v.Open[0].Win != 3 || v.Open[0].Text != 0x0102 || v.Open[0].Cursor != 2 || v.Open[0].Page != 1
++                || v.Open[0].Flags != (WfChoice | WfComplete) || v.Open[1].Win != 4 || v.Open[1].Text != 77
++                || v.Open[1].Cursor != NoCursor || v.Open[1].Page != 3 || v.Open[1].Flags != WfInh)
++                return "ring: the open set did not round-trip";
++            if (v.Ring[0].Seq != 1 || v.Ring[0].Kind != KindAdv || v.Ring[0].Scene != 9 || v.Ring[0].Fld != 350 || v.Ring[0].A != 3
++                || v.Ring[0].B != 0x0102 || v.Ring[0].C != 2 || v.Ring[0].X != 0
++                || v.Ring[1].Seq != 2 || v.Ring[1].Kind != KindCho || v.Ring[1].C != 1 || v.Ring[1].X != ClosesBit
++                || v.Ring[2].Seq != 3 || v.Ring[2].Kind != KindKey || v.Ring[2].A != 12 || v.Ring[2].B != 0x0040 || v.Ring[2].C != NoCursor)
++                return "ring: the events did not round-trip";
++
++            // 2. every truncated body is refused, and so is each malformation
++            for (Int32 n = 0; n < back.Length; n++)
++            {
++                Byte[] cut = new Byte[n];
++                Array.Copy(back, cut, n);
++                if (TryParseHostSection(cut, new HostView(), out why))
++                    return "ring: a body truncated to " + n + " of " + back.Length + " B was accepted";
++            }
++            Byte[] bad = (Byte[])back.Clone();
++            bad[0] = 2;
++            if (TryParseHostSection(bad, new HostView(), out why))
++                return "ring: an unknown format was accepted";
++            bad = (Byte[])back.Clone();
++            bad[11] = OpenCap + 1;
++            if (TryParseHostSection(bad, new HostView(), out why))
++                return "ring: an open set over " + OpenCap + " was accepted";
++            Int32 ringNAt = HeaderLen + OpenLen * 2;
++            bad = (Byte[])back.Clone();
++            bad[ringNAt] = RingCap + 1;
++            if (TryParseHostSection(bad, new HostView(), out why))
++                return "ring: a ring over " + RingCap + " was accepted";
++            bad = (Byte[])back.Clone();
++            bad[ringNAt + 1] = 0;
++            bad[ringNAt + 2] = 0;
++            if (TryParseHostSection(bad, new HostView(), out why))
++                return "ring: a seq-0 event was accepted";
++            bad = (Byte[])back.Clone();
++            bad[9] = 7;
++            if (TryParseHostSection(bad, new HostView(), out why))
++                return "ring: a headSeq that is not the newest event was accepted";
++
++            // 3. the guest merge: a session baselines first (history predates it), each event lands ONCE however often
++            //    the slot is re-sent, KEY is ignored, a truncated frame is refused and merges nothing
++            HostRing h = new HostRing();
++            h.Reset(500);
++            h.Append(KindAdv, 1, 350, 3, 40, 1, 0);                                // history: before the guest's session
++            NetSyncDialog g = new NetSyncDialog();
++            g._quiet = true;
++            if (g.Observe(h.BuildSection(1, 0, 1, 350, null, 0), T0) != ObsFirstEpoch)
++                return "ring: the first epoch was not reported as first";
++            g.Merge(T0, false);
++            if (g._inbox.Count != 0 || g.LastSeen != 1)
++                return "ring: the session's first merge replayed history (" + g._inbox.Count + " queued, last seen " + g.LastSeen + ")";
++            h.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            h.Append(KindCho, 1, 350, 3, 41, 2, ClosesBit);
++            h.Append(KindKey, 1, 350, 12, 0x0040, NoCursor, 0);
++            Byte[] f1 = h.BuildSection(2, 0, 1, 350, null, 0);
++            for (Int32 k = 0; k < 3; k++)                                          // the 30 Hz re-send: a fresh array each time
++            {
++                if (g.Observe((Byte[])f1.Clone(), T0) != ObsNone)
++                    return "ring: a same-epoch frame was reported as an epoch change";
++                g.Merge(T0, false);
++            }
++            if (g._inbox.Count != 2 || g._inbox[0].Raw != 2 || g._inbox[0].Closes || g._inbox[0].Page != 1
++                || g._inbox[1].Raw != 3 || g._inbox[1].Kind != KindCho || g._inbox[1].C != 2 || !g._inbox[1].Closes)
++                return "ring: a re-sent frame did not apply each event exactly once (" + g._inbox.Count + " queued)";
++            if (g.KeyIgnored != 1 || g.LastSeen != 4 || g.Gaps != 0)
++                return "ring: KEY was not ignored or the baseline did not advance past it";
++            Byte[] cutFrame = new Byte[f1.Length - 3];
++            Array.Copy(f1, cutFrame, cutFrame.Length);
++            if (g.Observe(cutFrame, T0) != ObsRefused || g.ViewValid)
++                return "ring: a truncated frame was not refused on the guest";
++
++            // 4. the u16 wrap 65535 -> 1 is contiguous: no gap, seq order kept
++            HostRing w3 = new HostRing();
++            w3.Reset(600);
++            w3.Lose(65533);                                                        // the host's seq is at 65533, nothing retained
++            NetSyncDialog g2 = new NetSyncDialog();
++            g2._quiet = true;
++            g2.Observe(w3.BuildSection(1, 0, 1, 350, null, 0), T0);
++            g2.Merge(T0, false);
++            for (Int32 k = 0; k < 3; k++)
++                w3.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            g2.Observe(w3.BuildSection(2, 0, 1, 350, null, 0), T0);
++            g2.Merge(T0, false);
++            if (g2._inbox.Count != 3 || g2._inbox[0].Raw != 65534 || g2._inbox[1].Raw != 65535 || g2._inbox[2].Raw != 1
++                || g2.Gaps != 0 || g2.LastSeen != 1)
++                return "ring: the seq wrap 65535 -> 1 was not merged in order without a gap";
++
++            // 5. a gap beyond the ring (40 events, 32 retained) is detected ONCE -- not again on a re-send, nor on the
++            //    next contiguous frame
++            for (Int32 k = 0; k < 40; k++)
++                w3.Append(KindAdv, 1, 350, 15, 0xFFFF, 1, 0);
++            Byte[] f2 = w3.BuildSection(3, 0, 1, 350, null, 0);
++            g2.Observe(f2, T0);
++            g2.Merge(T0, false);
++            g2.Observe((Byte[])f2.Clone(), T0);
++            g2.Merge(T0, false);
++            if (g2.Gaps != 1 || g2._inbox.Count != 3 + RingCap)
++                return "ring: a gap of 40 was not detected exactly once (" + g2.Gaps + " gaps, " + g2._inbox.Count + " queued)";
++            w3.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            g2.Observe(w3.BuildSection(4, 0, 1, 350, null, 0), T0);
++            g2.Merge(T0, false);
++            if (g2.Gaps != 1 || g2._inbox.Count != 4 + RingCap)
++                return "ring: the frame after a gap was not contiguous";
++
++            // 6. an epoch change (a host relaunch): the inbox clears and nothing before the new head replays
++            w3.Reset(601);
++            w3.Append(KindAdv, 1, 350, 3, 40, 1, 0);                               // the relaunched host emitted before we looked
++            w3.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            if (g2.Observe(w3.BuildSection(1, 0, 1, 350, null, 0), T0) != ObsEpochChanged || g2._inbox.Count != 0 || g2.LastSeen != 2)
++                return "ring: the epoch change did not reset the inbox to the new head";
++            g2.Merge(T0, false);
++            if (g2._inbox.Count != 0)
++                return "ring: the epoch change replayed history";
++            w3.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            g2.Observe(w3.BuildSection(2, 0, 1, 350, null, 0), T0);
++            g2.Merge(T0, false);
++            if (g2._inbox.Count != 1 || g2._inbox[0].Raw != 3)
++                return "ring: the new epoch's first live event did not land";
++
++            // 6b. C3RING-SPEC-1: an epoch change on the tick a session RISES (the guest not yet baselined -- a hung host
++            //     relaunched: the new epoch clears the stall and the session rises at once) baselines on THAT frame, so
++            //     the next live event lands instead of reading as history
++            HostRing w4 = new HostRing();
++            w4.Reset(700);
++            w4.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            NetSyncDialog g3 = new NetSyncDialog();
++            g3._quiet = true;
++            g3.Observe(w4.BuildSection(1, 0, 1, 350, null, 0), T0);                // first epoch; the session is off
++            g3.ResetAll();                                                         // ...which runs every session-off tick
++            w4.Reset(701);
++            w4.Append(KindAdv, 1, 350, 3, 40, 1, 0);                               // the relaunched host emitted before we looked
++            w4.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            if (g3.Observe(w4.BuildSection(1, 0, 1, 350, null, 0), T0) != ObsEpochChanged)
++                return "ring: an epoch change on a guest not yet baselined was not reported";
++            g3.Merge(T0, false);                                                   // the session rose on this same tick
++            if (g3.LastSeen != 2 || g3._inbox.Count != 0)
++                return "ring: an epoch change on the session's rising tick did not baseline on that frame (last seen " + g3.LastSeen + ")";
++            w4.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            g3.Observe(w4.BuildSection(2, 0, 1, 350, null, 0), T0);
++            g3.Merge(T0, false);
++            if (g3._inbox.Count != 1 || g3._inbox[0].Raw != 3)
++                return "ring: the first live event after an epoch change on the session's rising tick was dropped";
++
++            // 6c. C3RING-W1: the SAME epoch with the ring head gone backwards (a 16-bit epoch collision) is a new host
++            //     session too -- the inbox resets at the new head and the new session's events land, instead of being
++            //     skipped as "already merged" up to the old head
++            HostRing w5 = new HostRing();
++            w5.Reset(800);
++            for (Int32 k = 0; k < 10; k++)
++                w5.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            NetSyncDialog g4 = new NetSyncDialog();
++            g4._quiet = true;
++            g4.Observe(w5.BuildSection(1, 0, 1, 350, null, 0), T0);
++            g4.Merge(T0, false);                                                   // baselined at 10
++            w5.Reset(800);                                                         // the collision: same epoch, seq restarts
++            w5.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            if (g4.Observe(w5.BuildSection(1, 0, 1, 350, null, 0), T0) != ObsEpochChanged || g4.LastSeen != 1 || g4._inbox.Count != 0)
++                return "ring: a same-epoch ring restart (head 10 -> 1) was not read as a new host session";
++            g4.Merge(T0, false);
++            w5.Append(KindAdv, 1, 350, 3, 40, 1, 0);
++            g4.Observe(w5.BuildSection(2, 0, 1, 350, null, 0), T0);
++            g4.Merge(T0, false);
++            if (g4._inbox.Count != 1 || g4._inbox[0].Raw != 2 || g4.Gaps != 0)
++                return "ring: the first live event after a same-epoch ring restart did not land";
++
++            // 7. the stall clock (across the Int32 tick wrap): a heartbeat still for HostStallMs stalls, a move re-arms
++            Int32 t = Int32.MaxValue - 4000;
++            Byte[] hb7 = w3.BuildSection(7, 0, 1, 350, null, 0);
++            g2.Observe(hb7, t);
++            g2.StallStep(t);
++            g2.Observe((Byte[])hb7.Clone(), unchecked(t + HostStallMs - 1));
++            g2.StallStep(unchecked(t + HostStallMs - 1));
++            if (g2.HostStalled)
++                return "ring: stalled before HostStallMs";
++            g2.StallStep(unchecked(t + HostStallMs));
++            if (!g2.HostStalled)
++                return "ring: a heartbeat still for HostStallMs did not stall";
++            g2.Observe(w3.BuildSection(8, 0, 1, 350, null, 0), unchecked(t + HostStallMs + 10));
++            g2.StallStep(unchecked(t + HostStallMs + 10));
++            if (g2.HostStalled)
++                return "ring: a moving heartbeat did not re-arm";
++            return null;
+         }
+     }
+ }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 1e3354b..9011632 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -202,8 +202,14 @@ namespace Memoria.Netsync
+         // only by host state (a host event / the orphan rule / the link dead for LinkGraceMs / the session
+         // ending / the ~ menu unlock). The window tracker, the inbox and the orphan rule live in NetSyncDialog
+         // (_dlg); this class owns the wire, the lock predicate and the host's sticky scene flag.
+-        private static Byte _dialogSeq;                  // HOST: monotonic per-emit seq (wraps 255->0; guest dedups) -- bumped under _tapLock
+-        private static readonly System.Object _tapLock = new System.Object();   // F3.2: the VA close path taps OFF the main thread (VoicePlayer.cs:84-108, :234)
++        // [ff9mapkit netsync F3.3] C3 (wire v14): the u8 _dialogSeq + _tapLock are gone -- the host's taps append to the
++        // section-7 RING (its own lock; u16 seq skipping 0), and the state frame carries it (BuildStateFrame).
++        private readonly NetSyncDialog.HostRing _hostRing = new NetSyncDialog.HostRing();   // F3.3 HOST: the confirm ring (any thread appends)
++        private UInt16 _hostHeartbeat;                   // F3.3 HOST: bumps every host Update -- the guest's hung-host detector (R6)
++        private readonly NetSyncDialog.OpenWin[] _hostOpen = new NetSyncDialog.OpenWin[NetSyncDialog.OpenCap];   // F3.3 HOST: my open windows
++        private Int32 _hostOpenN;
++        private Boolean _hostLineOpen;                   // F3.3 HOST: an input-taking (non-[NFOC]) ETb line is open (section 7 b2)
++        private Boolean _hostOnField;                    // F3.3 HOST: the last Update stood on a live field (section 7 b3)
+         private static volatile Boolean _tapFieldMode;   // F3.2 HOST: ee.gMode == 1, cached each Update -- the off-thread tap must not touch PersistenSingleton
+         private readonly NetSyncDialog _dlg = new NetSyncDialog();   // F3.2 GUEST: tracker + inbox + orphan rule (S1)
+         private volatile Boolean _lockEngaged;           // F3.2 GUEST: THE LOCK (S4), recomputed each Update; volatile = readable off-thread
+@@ -221,7 +227,25 @@ namespace Memoria.Netsync
+         private Byte _benchSceneNonce;                   // F3.2 bench: bumps on each simulated scene rise (the events' Scene stamp)
+         // F3.2 HOST (S2): the sticky scene behind section 5 -- see NetSyncDialog.HostSceneMachine.
+         private readonly NetSyncDialog.HostSceneMachine _hostScene = new NetSyncDialog.HostSceneMachine();
+-        private Boolean _dlgDirty;                       // F3.2 HOST: a scene edge awaits its out-of-band push (main thread)
++        // F3.2 HOST: a scene edge awaits its out-of-band push. [ff9mapkit netsync F3.3] volatile: a ring tap (possibly the
++        // VA thread) sets it too; the push itself (BuildStateFrame) only ever runs on the main thread (host Update).
++        private volatile Boolean _dlgDirty;
++        // [ff9mapkit netsync F3.3] C3 GUEST: the last state payload whose section 7 was read (Accept stores every received
++        // frame as the slot, so a new reference IS a new frame -- an unchanged one is skipped, R3).
++        private Byte[] _dlgLastState;
++        private Boolean _type7Logged;                    // F3.3: one "type-7 frame ignored" line per session (v14 hosts send none)
++        // [ff9mapkit netsync F3.3] R9 THE BENCH HOST (selftest role + field-gate bench + bench lock; harness `netsync host ...`):
++        // a section-7 model built through the REAL codec into _benchState every bench tick -- the guest half reads it
++        // instead of the socket, so every C3 guest path (ring delivery, re-sends, gaps, epochs, a hung host, the cursor
++        // mirror, the closes bit, the host flags) runs solo.
++        private readonly NetSyncDialog.HostRing _benchRing = new NetSyncDialog.HostRing();
++        private readonly NetSyncDialog.OpenWin[] _benchOpen = new NetSyncDialog.OpenWin[NetSyncDialog.OpenCap];
++        private Int32 _benchOpenN;
++        private UInt16 _benchHeartbeat;
++        private Byte[] _benchState;                      // the bench "host's" state payload (section 7 only); null = no bench host
++        public static Boolean DebugHostFrozen;           // F3.3 bench: the bench host's heartbeat stops (a hung host -- R6)
++        public static Boolean DebugHostMenu;             // F3.3 bench: section 7 b4 (the host is in a menu -- R7)
++        public static Boolean DebugHostBattle;           // F3.3 bench: section 7 b5, b3 off (the host is in a battle -- R7)
+ 
+         // F3.1 TALK RELAY (wire v13, state-lane section 6). A press-fired tag-3 start -- an NPC talk, a
+         // chest, a save moogle, a shop, through EITHER EventCollision funnel -- was invisible to L1: the
+@@ -1090,6 +1114,9 @@ namespace Memoria.Netsync
+                     else
+                         _socket = new NetSyncSocket(_role == "host", _peer, _port);
+                     _socket.Start();
++                    // [ff9mapkit netsync F3.3] R2: a host transport start is a new host SESSION -- a fresh random epoch and an
++                    // empty ring (a relaunched host must never have its first nonces read as already-seen, WIRE-6/CLB-4)
++                    _hostRing.Reset(NewEpoch(_hostRing.Epoch, _hostRing.PrevEpoch));   // C3RING-W1: never A -> B -> A
+                 }
+ 
+                 // Broadcast my TRUE location every frame -- including "not on a walkable field" (field 0)
+@@ -1157,10 +1184,12 @@ namespace Memoria.Netsync
+ 
+                 RemoteState rs = _socket.GetRemote();                    // apply the peer
+                 LastHostField = rs.Valid ? rs.Field : -1;                // F1: the gateway redirect's follow allowance
++                if (_role == "client")
++                    ObserveHostDialog(_socket.GetRemoteState(), Environment.TickCount);   // [ff9mapkit netsync F3.3] section 7 FIRST: an epoch change resets the dedup nonces below
+                 ServiceIntentFollow(rs, fld, onField);                   // F2: parallel intent fast-path (ahead of the serial debounce)
+                 ServiceTalkFollow(rs, fld, onField);                     // F3.1: replay the host's tag-3 start on my copy (no snap, F3.2)
+                 ServiceEventCoLocate(rs, fld, onField);                  // F2 L1: log the host's dialogue-scene edge (F3.2: never moves/freezes)
+-                ServiceDialogAuthority(rs, fld, onField);                // F3.2 C2: lock every line from open; the host's events drive it
++                ServiceDialogAuthority(rs, fld, onField);                // F3.2 C2: lock every line from open; the host's events drive it (F3.3: from the section-7 ring)
+                 FollowHostTick(rs, fld, onField);                        // visitor mode: chase the peer's field
+                 if (local != null && rs.Valid && rs.Field == fld)
+                 {
+@@ -1752,9 +1781,92 @@ namespace Memoria.Netsync
+                 new Byte[] { _hostEventFlag, _hostEventNonce });
+             if (_talkUid >= 0 && Environment.TickCount - _talkSince < TalkRelayTtlMs)
+                 all = NetSyncState.AppendSection(all, NetSyncState.SectionTalk, TalkSectionBody(_talkField, _talkUid, _talkNonce));
++            // [ff9mapkit netsync F3.3] R2: the dialogue section rides EVERY host frame (the ring is the delivery channel;
++            // the slot's 33 ms re-send is what makes it loss-proof). Sections 5 and 7 leave in ONE snapshot, so the scene
++            // flag can never overtake or drain an event. MAIN THREAD (every caller of BuildStateFrame is).
++            if (_role == "host")
++                all = NetSyncState.AppendSection(all, NetSyncState.SectionDialog,
++                    _hostRing.BuildSection(_hostHeartbeat, HostDialogFlags(), _hostScene.Nonce, _hostScene.Field, _hostOpen, _hostOpenN));
+             return all;
+         }
+ 
++        // [ff9mapkit netsync F3.3] section 7's flags byte (F3.2-DESIGN.md wire_details): b0 scene, b1 control, b2 an
++        // input-taking line open, b3 on a live field, b4 a UI other than FieldHUD (a menu / shop / pause), b5 battle.
++        private Byte HostDialogFlags()
++        {
++            Byte f = 0;
++            if (_hostScene.Active)
++                f |= NetSyncDialog.HfScene;
++            if (_hostLineOpen)
++                f |= NetSyncDialog.HfLine;
++            if (_hostOnField)
++                f |= NetSyncDialog.HfOnField;
++            try
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee == null || ee.GetUserControl())
++                    f |= NetSyncDialog.HfControl;
++                if (ee != null && ee.gMode == 2)
++                    f |= NetSyncDialog.HfBattle;
++                UIManager ui = PersistenSingleton<UIManager>.Instance;
++                if (ui != null && ui.State != UIManager.UIState.FieldHUD)
++                    f |= NetSyncDialog.HfMenu;
++            }
++            catch { }
++            return f;
++        }
++
++        // [ff9mapkit netsync F3.3] R2 HOST, every Update: my open ETb windows (the first OpenCap; b2 counts all) -- the
++        // guest's cursor mirror and its "claimed" test read them. A change in any field (a window opens/closes, a page
++        // turns, the text completes, the cursor moves) marks the frame dirty -> pushed out-of-band this Update.
++        // HasChoices is read only on a COMPLETE window (its parse has run by then; the cursor means nothing before).
++        private void ScanHostOpenSet(Boolean onField)
++        {
++            Int32 n = 0;
++            Boolean line = false;
++            Boolean changed = false;
++            if (onField)
++            {
++                System.Collections.Generic.List<Dialog> list = NetSyncDialog.LiveList();
++                if (list != null)
++                    for (Int32 k = 0; k < list.Count; k++)
++                    {
++                        Dialog d = list[k];
++                        if (!NetSyncDialog.IsLockable(d))
++                            continue;
++                        if (!d.FlagButtonInh)
++                            line = true;
++                        if (n >= NetSyncDialog.OpenCap)
++                            continue;
++                        Boolean complete = d.CurrentState == Dialog.State.CompleteAnimation;
++                        Boolean choice = complete && d.HasChoices;
++                        Int32 sel = d.SelectChoice;
++                        Byte cursor = choice && d.IsChoiceReady && sel >= 0 && sel < NetSyncDialog.NoCursor ? (Byte)sel : NetSyncDialog.NoCursor;
++                        Int32 pg = d.CurrentPage;
++                        Byte page = (Byte)(pg < 0 ? 0 : pg > 255 ? 255 : pg);
++                        Byte wf = (Byte)((choice ? NetSyncDialog.WfChoice : 0) | (complete ? NetSyncDialog.WfComplete : 0)
++                                         | (d.FlagButtonInh ? NetSyncDialog.WfInh : 0));
++                        NetSyncDialog.OpenWin o = _hostOpen[n];
++                        if (n >= _hostOpenN || o.Win != d.Id || o.Text != d.TextId || o.Cursor != cursor || o.Page != page || o.Flags != wf)
++                            changed = true;
++                        o.Win = d.Id;
++                        o.Text = d.TextId;
++                        o.Cursor = cursor;
++                        o.Page = page;
++                        o.Flags = wf;
++                        _hostOpen[n] = o;
++                        n++;
++                    }
++            }
++            if (n != _hostOpenN || line != _hostLineOpen || onField != _hostOnField)
++                changed = true;
++            _hostOpenN = n;
++            _hostLineOpen = line;
++            _hostOnField = onField;
++            if (changed)
++                _dlgDirty = true;
++        }
++
+         // HOST: track whether I'm in a BLOCKING scene (dialogue L1). !GetUserControl() alone is INSUFFICIENT --
+         // a gateway walk's MOVQ also zeroes user control -- so the RISE needs an ETb line on screen too.
+         // [ff9mapkit netsync F3.2] S2: replaces UpdateHostEventFlag. The old flag (!control && Dialogs.Visible)
+@@ -1781,6 +1893,11 @@ namespace Memoria.Netsync
+                     _dlgDirty = true;
+                 _hostEventFlag = (Byte)(_hostScene.Active ? 1 : 0);   // SectionEvent keeps its [flag][nonce] shape
+                 _hostEventNonce = _hostScene.Nonce;
++                // [ff9mapkit netsync F3.3] R2/R6: the heartbeat (this Update ran -- the guest releases on a frozen one) and
++                // the open set (a change marks the frame dirty). A ring tap marked it dirty too (any thread); the push
++                // below is the ONLY place the dirty frame is rebuilt -- on the main thread.
++                _hostHeartbeat = (UInt16)(_hostHeartbeat + 1);
++                ScanHostOpenSet(onField);
+                 if (_dlgDirty)
+                 {
+                     _dlgDirty = false;
+@@ -1954,16 +2071,18 @@ namespace Memoria.Netsync
+ 
+         // ===== F3 DIALOGUE L2 -- full confirm/choice lockstep (wire v12; F3.2 C2: host-authoritative) ========
+ 
+-        // HOST tap (called from Dialog.OnKeyConfirm's two confirm-driven Hide() sites): push ONE TypeDialog
+-        // frame per confirm-that-advances so a following guest advances its own copy in lockstep. S5 skips a
++        // HOST tap (called from Dialog.OnKeyConfirm's two confirm-driven Hide() sites): record ONE event per
++        // confirm-that-advances so a following guest advances its own copy in lockstep. S5 skips a
+         // scripted close (both mirrored scripts close independently). Reads Id/TextId/SelectChoice BEFORE the
+         // caller's Hide()->Reset() zeroes them. Cheap (fires on discrete confirms, not per frame) and NEVER
+         // throws into the dialogue path.
++        // [ff9mapkit netsync F3.3] C3 (wire v14): the event is APPENDED to the section-7 ring (12 B, u16 seq) and the
++        // state frame marked dirty -- no TypeDialog frame is sent any more (see EmitDialogTap).
+         // [ff9mapkit netsync F3.2] S3 gates: _enabled first (a disabled host keeps _instance); ETb field lines only
+         // (DLG-8: a UI dialog has Id 9 / TextId -1 and is never a script's window); field mode only; NO IsConnected
+-        // gate (DLG-9: the out-queue survives a reconnect -- ClearRemote clears only incoming, NetSyncSocket.cs:
+-        // 434-448 -- so a confirm inside a link blip still reaches the guest). The VA close path calls this OFF the
+-        // main thread (VoicePlayer.cs:84-108, :234, :273): the seq bump is locked, and the gMode read is a flag
++        // gate (DLG-9; F3.3: the ring rides the latest-state slot, re-sent every write tick, so a confirm inside a link blip
++        // still reaches the guest when the link returns). The VA close path calls this OFF the main thread
++        // (VoicePlayer.cs:84-108, :234, :273): the ring append is locked (HostRing), and the gMode read is a flag
+         // Update caches (_tapFieldMode) -- PersistenSingleton's Unity null test is main-thread only.
+         internal static void EmitDialogAdvanceIfHost(Dialog d)
+         {
+@@ -1971,13 +2090,18 @@ namespace Memoria.Netsync
+         }
+ 
+         // [ff9mapkit netsync F3.2] S3/S6: the host's VOICE-paced dismiss (VoicePlayer.AfterSoundFinished_Dismiss,
+-        // called BEFORE ForceClose -> Hide -> Reset zeroes TextId) is an advance too -- an 8-byte kind-0 frame
+-        // under the same gates. Without it a guest's locked line would wait for a confirm the host never pressed.
++        // called BEFORE ForceClose -> Hide -> Reset zeroes TextId) is an advance too -- a kind-0 (ADV) event
++        // under the same gates ([ff9mapkit netsync F3.3] a 12-byte ring event). Without it a
++        // guest's locked line would wait for a confirm the host never pressed.
+         internal static void EmitDialogCloseIfHost(Dialog d)
+         {
+             EmitDialogTap(d, true);
+         }
+ 
++        // [ff9mapkit netsync F3.3] R2: the tap APPENDS to the section-7 ring (u16 seq, under the ring's lock -- this may be
++        // the VA thread) and marks the state frame dirty; the next host Update rebuilds + pushes it on the main thread.
++        // Type 7 is retired here (SendDialog stays compiled -- the lane is untouched). The CLOSES bit is Hide()'s own test
++        // (Dialog.cs:621), read BEFORE the caller's Hide -- the guest uses it to catch up a lost page turn (R4).
+         private static void EmitDialogTap(Dialog d, Boolean voiceClose)
+         {
+             try
+@@ -1992,15 +2116,19 @@ namespace Memoria.Netsync
+                 Boolean hasChoices = !voiceClose && d.HasChoices;   // the VA dismiss never runs on a choice window
+                 Int32 winnum = d.Id;
+                 Int32 textId = d.TextId;
++                Int32 page = d.CurrentPage;
++                Boolean closes = !(d.SubPage.Count > page);       // Hide()'s own test, read BEFORE it
+                 Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
+-                Byte kind = (Byte)(hasChoices ? 1 : 0);
++                Byte scene = i._hostScene.Nonce;                  // the scene this event belongs to (the relay-accept purge keys on it)
++                Byte kind = hasChoices ? NetSyncDialog.KindCho : NetSyncDialog.KindAdv;
+                 Byte choiceIndex = (Byte)(hasChoices ? (d.SelectChoice & 0xFF) : 0xFF);  // committed at Dialog.cs:770
+-                Byte seq;
+-                lock (_tapLock)
+-                    seq = _dialogSeq++;
+-                i._socket.SendDialog(DialogPayload(fld, winnum, textId, kind, choiceIndex, seq));   // TypeDialog (type-6 precedent)
++                Byte closeBit = closes ? NetSyncDialog.ClosesBit : (Byte)0;
++                UInt16 seq = hasChoices
++                    ? i._hostRing.Append(kind, scene, fld, winnum, textId, choiceIndex, closeBit)
++                    : i._hostRing.Append(kind, scene, fld, winnum, textId, (Byte)((page & 0x7F) | closeBit), 0);
++                i._dlgDirty = true;
+                 Log.Message("[NetSync] dialog tap" + (voiceClose ? " (voice close)" : "") + ": win " + winnum + " text " + textId
+-                            + " kind " + kind + " idx " + choiceIndex + " seq " + seq);
++                            + " kind " + kind + " idx " + choiceIndex + " page " + page + (closes ? " closes" : "") + " seq " + seq);
+             }
+             catch (Exception err)
+             {
+@@ -2008,19 +2136,32 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // The type-7 body: [fldMapNo u16 LE][winnum u8][textId u16 LE][kind u8][choiceIndex u8][seq u8].
+-        private static Byte[] DialogPayload(Int32 fld, Int32 winnum, Int32 textId, Byte kind, Byte choiceIndex, Byte seq)
++        // [ff9mapkit netsync F3.3] a fresh random host epoch (1..65535, never `avoid` -- the previous one). Guid bytes, not a
++        // TickCount-seeded Random: two Randoms built in the same tick share a seed.
++        internal static UInt16 NewEpoch(UInt16 avoid)
+         {
+-            Byte[] payload = new Byte[8];
+-            payload[0] = (Byte)(fld & 0xFF);
+-            payload[1] = (Byte)((fld >> 8) & 0xFF);
+-            payload[2] = (Byte)(winnum & 0xFF);
+-            payload[3] = (Byte)(textId & 0xFF);
+-            payload[4] = (Byte)((textId >> 8) & 0xFF);
+-            payload[5] = kind;
+-            payload[6] = choiceIndex;
+-            payload[7] = seq;
+-            return payload;
++            return NewEpoch(avoid, avoid);
++        }
++
++        // [ff9mapkit netsync F3.3] C3RING-W1: ...never `avoid2` either -- the ring's PREVIOUS epoch. A host reconfigure draws
++        // twice in a row (ResetDialogLockstepState, then the socket start), and avoiding only the last draw would let
++        // A -> B -> A hand the guest its old epoch with a restarted seq. (A different PROCESS can still collide, 1 in
++        // 65534 -- the guest's same-epoch head-regression check, NetSyncDialog.Observe, owns that case.)
++        internal static UInt16 NewEpoch(UInt16 avoid, UInt16 avoid2)
++        {
++            for (Int32 tries = 0; ; tries++)
++            {
++                Byte[] g = Guid.NewGuid().ToByteArray();
++                UInt16 e = (UInt16)(g[0] | (g[1] << 8));
++                if (e != 0 && e != avoid && e != avoid2)
++                    return e;
++                if (tries > 16)
++                {
++                    for (UInt16 f = 1; ; f++)
++                        if (f != avoid && f != avoid2)
++                            return f;      // 1, 2 or 3: two avoided values cannot exclude all three
++                }
++            }
+         }
+ 
+         // GUEST pump (Update, right after ServiceEventCoLocate; the selftest bench runs it at the top of its branch).
+@@ -2034,10 +2175,17 @@ namespace Memoria.Netsync
+         //      On the RISING edge of the session half the windows already open stay Local and the host taps already
+         //      queued are discarded (both predate the lock); a lock that returns with the session steady (a field
+         //      load, a battle return) locks what it finds.
+-        //   2. INGEST the type-7 FIFO into the seq-ordered inbox on every tick the session holds -- on field or
+-        //      off, so a guest that loads into the host's field behind it still has the host's events (TALK-7) --
+-        //      except on a panic-unlocked field, where the FIFO and the inbox are discarded (lock off, S5 step 1).
+-        //   3-8. purge / track / apply / cursor lock / orphan / chip: NetSyncDialog.GuestTick.
++        //      [ff9mapkit netsync F3.3] R6: the session half also needs a LIVE host -- a heartbeat frozen HostStallMs on
++        //      a fresh lane (NetSyncDialog.StallStep) drops it; a heartbeat that moves again re-raises it, and the
++        //      rising edge keeps what is open then Local.
++        //   2. [ff9mapkit netsync F3.3] R3 INGEST: the host's events come from state section 7's RING (read once per new
++        //      payload by ObserveHostDialog -- ahead of the talk/intent consumers for a live guest, here for the bench),
++        //      merged into the seq-ordered inbox on every tick the session holds -- on field or off, so a guest that
++        //      loads into the host's field behind it still has the host's events (TALK-7). The session's first merge
++        //      only baselines (what the ring already holds predates the lock); a panic-unlocked field skips the ring's
++        //      events and clears the inbox (lock off, S5 step 1). Type 7 is drained and IGNORED (v14 hosts send none).
++        //   3-8. purge / track / apply / cursor lock / orphan / chip: NetSyncDialog.GuestTick -- with the host's flags,
++        //      open set and per-event scene from section 7 (R4/R7).
+         //   Session off: drain-and-discard and forget everything. RETIRED: the one-slot holder, DialogWaitMs and
+         //   its "local advance restored" hand-back, and the drain on every flag-0 sample.
+         private void ServiceDialogAuthority(RemoteState rs, Int32 myField, Boolean onField)
+@@ -2048,13 +2196,15 @@ namespace Memoria.Netsync
+                 Boolean bench = false, sessionBase, live;
+                 if (_role == "client")
+                 {
+-                    sessionBase = _enabled && _followHost && !_exitRampPending;
++                    sessionBase = _enabled && _followHost && !_exitRampPending && !_dlg.HostStalled;
+                     live = IsLiveFollowedSession;
+                 }
+                 else if (IsSelfTestRole && NetSyncField.BenchGates)
+                 {
+                     bench = true;
+-                    sessionBase = DebugDialogLock;
++                    BenchHostTick(myField);          // [ff9mapkit netsync F3.3] the bench HOST: section 7 through the real codec
++                    ObserveHostDialog(DebugLinkDead ? null : _benchState, now);   // a dead link = no lane (the ring keeps filling)
++                    sessionBase = DebugDialogLock && !_dlg.HostStalled;
+                     live = !DebugLinkDead;
+                 }
+                 else
+@@ -2080,6 +2230,7 @@ namespace Memoria.Netsync
+                         Log.Message("[NetSync] dialogue lock: session off -- every line is local");
+                     _lockEngaged = false;
+                     _lockSessionPrev = false;
++                    _type7Logged = false;
+                     DrainRemoteDialog();             // drain-and-discard (nothing to drive)
+                     _dlg.ResetAll();
+                     return;
+@@ -2088,51 +2239,53 @@ namespace Memoria.Netsync
+                 Boolean engaged = onField && !unlockedHere;
+                 if (!_lockSessionPrev)
+                 {
++                    // [ff9mapkit netsync F3.3] the ring's retained events predate the session too: the first merge below
++                    // baselines at the host's head instead of queueing them (NetSyncDialog.Merge).
+                     Log.Message("[NetSync] dialogue lock: session on" + (bench ? " (bench)" : "") + " -- lines open from now are the host's to drive");
+-                    // The host taps already queued PREDATE the session, like the windows already open: a TCP host that
+-                    // played before this guest linked (its out-queue survives without a peer, DLG-9) delivers up to 32
+-                    // stale confirms in its first flush -- ingested now they would get a fresh PendingTtlMs and page a
+-                    // re-opened line with the host's OLD confirms. A blip inside LinkGraceMs never re-raises the session,
+-                    // so a short blip's queue still survives (C2-SPEC-04/R3).
+-                    Int32 stale = DrainRemoteDialog();
+-                    if (stale > 0)
+-                        Log.Message("[NetSync] dialogue lock: " + stale + " host tap(s) queued before the session discarded (they predate it)");
+                     if (engaged)
+                         _dlg.MarkOpenLocal(myField);  // the session rose this tick: what is already open predates it
+                 }
+                 _lockEngaged = engaged;              // the one publish (volatile)
+                 _lockSessionPrev = true;
+ 
+-                // 2. ingest -- each event stamped with the host's section-5 scene nonce at arrival
+-                Byte[] state = bench || _socket == null ? null : _socket.GetRemoteState();
+-                Boolean sceneUp;
+-                Int32 sceneNonce;
+-                if (bench)
++                // 2. ingest -- [ff9mapkit netsync F3.3] the section-7 ring (type 7 is drained and ignored)
++                Int32 ignored = DrainRemoteDialog();
++                if (ignored > 0 && !_type7Logged)
+                 {
+-                    sceneUp = DebugHostEventFlag != 0;
+-                    sceneNonce = _benchSceneNonce;
++                    _type7Logged = true;
++                    Log.Message("[NetSync] dialogue: " + ignored + " type-7 frame(s) ignored -- wire v14 delivers the host's confirms in state section 7");
+                 }
+-                else
+-                {
+-                    ReadHostScene(state, out sceneUp, out sceneNonce);
++                Byte[] state = bench ? (DebugLinkDead ? null : _benchState) : _dlgLastState;   // F3.3: the payload section 7 was read from this tick
++                if (!bench)
+                     NoteTalkScene(state);            // also during a follow-warp fade, where ServiceTalkFollow returns early
+-                }
+                 if (unlockedHere)
+                 {
+-                    // The panic unlock is "lock off" for THIS field (S5 step 1): discard the host's taps AND the inbox --
+-                    // kept, they would page a line re-opened once a reload re-arms the lock (C2-SPEC-05). Off-field (a
+-                    // load / battle) the inbox is still kept: that is the TALK-7 catch-up.
+-                    DrainRemoteDialog();
++                    // The panic unlock is "lock off" for THIS field (S5 step 1): the ring's events are skipped and the inbox
++                    // cleared -- kept, they would page a line re-opened once a reload re-arms the lock (C2-SPEC-05). Off-field
++                    // (a load / battle) the inbox is still kept: that is the TALK-7 catch-up.
++                    _dlg.Merge(now, true);
+                     _dlg.ClearInbox();
+                 }
+-                else if (_socket != null)
++                else
++                    _dlg.Merge(now, false);
++
++                // 3-8 -- the host-settled inputs (S5 step 7) read here, where the wire lives. [ff9mapkit netsync F3.3] R4:
++                // section 7 (when on the lane) refines them -- co-located also needs no input-taking host line open (b2),
++                // off-field reads b3/b5 -- and its scene bit is the scene (sections 5 and 7 ride one snapshot).
++                NetSyncDialog.HostView hv = _dlg.View;
++                Byte hf = hv != null ? hv.Flags : (Byte)0;
++                Boolean sceneUp;
++                if (hv != null)
++                    sceneUp = (hf & NetSyncDialog.HfScene) != 0;
++                else if (bench)
++                    sceneUp = DebugHostEventFlag != 0;
++                else
+                 {
+-                    Byte[] f;
+-                    while ((f = _socket.NextRemoteDialog()) != null)
+-                        _dlg.Ingest(f, sceneNonce, now);
++                    Int32 unusedNonce;
++                    ReadHostScene(state, out sceneUp, out unusedNonce);
+                 }
+-
+-                // 3-8 -- the host-settled inputs (S5 step 7) read here, where the wire lives
++                Boolean hostOnFieldBit = hv == null || (hf & NetSyncDialog.HfOnField) != 0;
++                Boolean hostBattleBit = hv != null && (hf & NetSyncDialog.HfBattle) != 0;
+                 NetSyncDialog.GuestView v = new NetSyncDialog.GuestView();
+                 v.Engaged = engaged;
+                 v.Live = live;
+@@ -2142,10 +2295,20 @@ namespace Memoria.Netsync
+                 v.HostSceneUp = sceneUp;
+                 v.TalkLiveHere = bench ? (_talkPending != null && (_talkPending[0] | (_talkPending[1] << 8)) == myField)
+                                        : SectionFieldIs(state, NetSyncState.SectionTalk, 5, myField);
+-                v.CoLocated = bench ? onField : (onField && rs.Valid && rs.Field == myField);
++                v.HostHere = bench ? (onField && hostOnFieldBit) : (onField && rs.Valid && rs.Field == myField);
++                v.CoLocated = v.HostHere && (hv == null || (hf & NetSyncDialog.HfLine) == 0);
+                 v.HostElsewhere = !bench && rs.Valid && rs.Field > 0 && rs.Field != 65535 && rs.Field != myField
+                                   && !SectionFieldIs(state, NetSyncState.SectionIntent, 3, myField);
+-                v.HostOffField = !bench && rs.Valid && rs.Field == 0 && !NetSyncBattle.PeerBattleLive;
++                // [ff9mapkit netsync F3.3] C3RING-SPEC-2: b3 says "on a field", but a host the position lane cannot place
++                // (field 0 -- a targeted host off its TargetField, or no control actor) is neither here nor elsewhere, so
++                // without the C2 rs.Field == 0 rule as an alternative it would never settle and its lines never orphan.
++                if (hv != null)
++                    v.HostOffField = (bench || rs.Valid) && (!hostOnFieldBit || (!bench && rs.Field == 0)) && !hostBattleBit
++                                     && (bench || !NetSyncBattle.PeerBattleLive);
++                else
++                    v.HostOffField = !bench && rs.Valid && rs.Field == 0 && !NetSyncBattle.PeerBattleLive;
++                v.HostMenu = hv != null && hostOnFieldBit && !hostBattleBit && (hf & NetSyncDialog.HfMenu) != 0;
++                v.HostBattle = hostBattleBit;
+                 Int32 acceptAge = now - _relayAcceptTick;
+                 v.RelayOwned = _relayAcceptArmed && acceptAge >= 0 && acceptAge < NetSyncDialog.RelayOwnMs;
+                 v.Now = now;
+@@ -2158,6 +2321,81 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync F3.3] R3/R6 GUEST (and the bench): read section 7 off a state payload ONCE per new payload
++        // (Accept stores every received frame as the slot, so a new reference IS a new frame; an unchanged reference
++        // is skipped -- the merge is idempotent anyway), then step the hung-host clock. For a live guest this runs in
++        // Update AHEAD of ServiceIntentFollow / ServiceTalkFollow / ServiceEventCoLocate / the diorama watcher, so a host
++        // epoch change resets their dedup nonces before the first post-relaunch start is judged (WIRE-6/CLB-4).
++        private void ObserveHostDialog(Byte[] state, Int32 now)
++        {
++            try
++            {
++                if (state == null || !ReferenceEquals(state, _dlgLastState))
++                {
++                    _dlgLastState = state;
++                    Byte[] body;
++                    if (state == null || !NetSyncState.TryReadSection(state, NetSyncState.SectionDialog, out body))
++                        body = null;
++                    if (_dlg.Observe(body, now) == NetSyncDialog.ObsEpochChanged)
++                        ResetGuestDedupForEpoch();
++                }
++                _dlg.StallStep(now);
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] dialogue section-7 read failed");
++            }
++        }
++
++        // [ff9mapkit netsync F3.3] R3: a host EPOCH change = a relaunched host (or a host session reset): its talk, intent,
++        // scene and battle nonces restart from 0, so every guest dedup value would read its first new start as already
++        // seen (WIRE-6/CLB-4: the first talk after a host restart never opened). The FIRST epoch a lane sees resets
++        // nothing -- these are fresh then anyway. NetSyncDialog.Observe already cleared the inbox at the new head.
++        private void ResetGuestDedupForEpoch()
++        {
++            _lastTalkNonce = -1;
++            _lastIntentNonce = -1;
++            _lastEventNonce = -1;
++            _dioramaSkipNonce = -1;
++            _dioramaSeenNonce = -1;
++            _talkDeferNonce = -1;            // a deferred start of the old host is gone with it
++            _talkSceneTalk = -1;             // ...and the scene record keyed on its (restarting) talk nonce
++            _talkSceneNonce = -1;
++            Log.Message("[NetSync] host epoch changed -- talk/intent/event/diorama dedup reset (the host's first new start is not 'already seen')");
++        }
++
++        // [ff9mapkit netsync F3.3] R9 THE BENCH HOST, each bench tick while the bench lock is on: build section 7 from the
++        // bench ring + open set + levers through the REAL builder (HostRing.BuildSection) and frame it through the REAL
++        // section framing (NetSyncState.AppendSection), into _benchState -- what the guest half reads instead of the
++        // socket. The heartbeat bumps per build (a host Update); `host freeze` stops rebuilding, so the slot "re-sends"
++        // its last frame exactly as a hung host's writer thread does. Flags: b0 the simulated scene (b1 = its opposite),
++        // b2 = an open non-Inh bench window, b3 on a field unless `host battle`, b4 `host menu` (or battle), b5 `host battle`.
++        private void BenchHostTick(Int32 fld)
++        {
++            if (!DebugDialogLock)
++            {
++                _benchState = null;              // no bench session: no bench host on the "lane"
++                return;
++            }
++            if (_benchRing.Epoch == 0)
++                _benchRing.Reset(NewEpoch(0));   // first use (epochs are never 0)
++            if (DebugHostFrozen && _benchState != null)
++                return;
++            _benchHeartbeat = (UInt16)(_benchHeartbeat + 1);
++            Byte f = DebugHostEventFlag != 0 ? NetSyncDialog.HfScene : NetSyncDialog.HfControl;
++            for (Int32 k = 0; k < _benchOpenN; k++)
++                if ((_benchOpen[k].Flags & NetSyncDialog.WfInh) == 0)
++                    f |= NetSyncDialog.HfLine;
++            if (DebugHostBattle)
++                f |= (Byte)(NetSyncDialog.HfBattle | NetSyncDialog.HfMenu);
++            else
++                f |= NetSyncDialog.HfOnField;
++            if (DebugHostMenu)
++                f |= NetSyncDialog.HfMenu;
++            _benchState = NetSyncState.AppendSection(null, NetSyncState.SectionDialog,
++                _benchRing.BuildSection(_benchHeartbeat, f, _benchSceneNonce, fld, _benchOpen, _benchOpenN));
++        }
++
+         // [ff9mapkit netsync F3.2] drain the type-7 FIFO unread; returns how many host taps were discarded.
+         private Int32 DrainRemoteDialog()
+         {
+@@ -2229,8 +2467,10 @@ namespace Memoria.Netsync
+         }
+ 
+         // Session-boundary reset for the L2 statics + the F3.2 lock (called from ResetIntentAndL1State, which
+-        // OnDestroy + the redial/reconfigure path both run). _dialogSeq resets so a fresh session starts its
+-        // dedup counter at 0.
++        // OnDestroy + the redial/reconfigure path both run).
++        // [ff9mapkit netsync F3.3] R2: a NEW host session -- a fresh random epoch and an empty ring (the u8 _dialogSeq is
++        // gone; the ring's seq restarts with the epoch, which tells the guest to re-baseline), the guest's lane half
++        // (view, epoch, heartbeat, stall), and the bench host.
+         private void ResetDialogLockstepState()
+         {
+             _lockEngaged = false;
+@@ -2239,9 +2479,16 @@ namespace Memoria.Netsync
+             _unlockField = -1;
+             _dlgDirty = false;
+             HostApplying = false;
+-            _dlg.ResetAll();
+-            lock (_tapLock)
+-                _dialogSeq = 0;
++            _dlg.ResetLane();
++            _dlgLastState = null;
++            _type7Logged = false;
++            _hostRing.Reset(NewEpoch(_hostRing.Epoch, _hostRing.PrevEpoch));
++            _hostOpenN = 0;
++            _hostLineOpen = false;
++            _hostOnField = false;
++            _benchRing.Reset(NewEpoch(_benchRing.Epoch, _benchRing.PrevEpoch));
++            _benchOpenN = 0;
++            _benchState = null;
+         }
+ 
+         // [ff9mapkit netsync F3.2] S7: the ~ menu panic unlock ("Co-op: release dialogue lock (this field)", shown
+@@ -2278,10 +2525,12 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // SELFTEST BENCH (the ~ debug menu, gated IsSelfTestRole + BenchGates + the bench lock): fabricate a
+-        // TypeDialog frame for `winnum`/`textId`, prove it round-trips the REAL codec (BuildFrame ->
+-        // TryParseHeader), then feed it to the SAME inbox the live FIFO feeds (F3.2) -- it applies to the
+-        // selftest field's own open window by key, exactly as a host event would. No socket needed.
++        // SELFTEST BENCH (the ~ debug menu, gated IsSelfTestRole + BenchGates + the bench lock): a host event for
++        // `winnum`/`textId` that applies to the selftest field's own open window by key, exactly as a host event would.
++        // No socket needed. [ff9mapkit netsync F3.3] C3: the event goes into the bench HOST's ring and reaches the guest
++        // half through section 7 -- the REAL builder, framing, parser and merge -- on the next bench tick (the C2 type-7
++        // fabrication is retired with the lane). kind 0 = ADV (page + closes read off this copy's own window, as the
++        // host's tap reads its own; no such window, e.g. `unmatched`, = page 0, closing), kind 1 = CHO.
+         public static void DebugInjectDialogAdvance(Int32 winnum, Int32 textId, Int32 kind, Int32 choiceIndex)
+         {
+             NetSyncClient i = _instance;
+@@ -2298,23 +2547,13 @@ namespace Memoria.Netsync
+             try
+             {
+                 Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
+-                Byte seq;
+-                lock (_tapLock)
+-                    seq = _dialogSeq++;
+-                Byte[] payload = DialogPayload(fld, winnum, textId, (Byte)(kind & 0xFF), (Byte)(choiceIndex & 0xFF), seq);
+-                // round-trip the REAL frame codec, exactly as a peer would receive it
+-                Byte[] frame = NetSyncWire.BuildFrame(NetSyncWire.TypeDialog, payload);
+-                Byte type;
+-                Int32 len;
+-                if (!NetSyncWire.TryParseHeader(frame, out type, out len) || type != NetSyncWire.TypeDialog || len != 8)
+-                {
+-                    Log.Message("[NetSync] dialog bench: codec round-trip FAILED");
+-                    return;
+-                }
+-                Byte[] body = new Byte[len];
+-                Array.Copy(frame, NetSyncWire.HeaderSize, body, 0, len);
+-                Log.Message("[NetSync] dialog bench: fabricated TypeDialog win " + winnum + " text " + textId + " kind " + kind + " idx " + choiceIndex + " seq " + seq + " -- into the inbox");
+-                _dlg.Ingest(body, _benchSceneNonce, Environment.TickCount);   // the next bench tick applies it by key
++                Boolean closes;
++                Int32 page;
++                Byte k = kind == 1 ? NetSyncDialog.KindCho : NetSyncDialog.KindAdv;
++                UInt16 seq = BenchAppend(fld, winnum, textId, k, choiceIndex, -1, out closes, out page);
++                Log.Message("[NetSync] dialog bench: host seq " + seq + " (win " + winnum + " text " + textId + " kind " + k
++                            + (k == NetSyncDialog.KindCho ? " choice " + choiceIndex : " page " + page) + (closes ? " closes" : "")
++                            + ") into the bench host's ring -- delivered through section 7");
+             }
+             catch (Exception err)
+             {
+@@ -2322,6 +2561,226 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync F3.3] one ADV/CHO into the bench ring, stamped with the bench scene. `closesOverride` -1 = the
++        // window's own Hide() test (as the host's tap reads it), 0/1 = forced (R4's closes-bit catch-up bench).
++        private UInt16 BenchAppend(Int32 fld, Int32 winnum, Int32 textId, Byte kind, Int32 choiceIndex, Int32 closesOverride,
++                                   out Boolean closes, out Int32 page)
++        {
++            Dialog d = FindLiveDialog(winnum, textId);
++            page = d != null ? d.CurrentPage : 0;
++            closes = closesOverride >= 0 ? closesOverride != 0 : (d == null || !(d.SubPage.Count > d.CurrentPage));
++            if (_benchRing.Epoch == 0)
++                _benchRing.Reset(NewEpoch(0));
++            Byte closeBit = closes ? NetSyncDialog.ClosesBit : (Byte)0;
++            if (kind == NetSyncDialog.KindCho)
++                return _benchRing.Append(NetSyncDialog.KindCho, _benchSceneNonce, fld, winnum, textId, (Byte)(choiceIndex & 0xFF), closeBit);
++            return _benchRing.Append(NetSyncDialog.KindAdv, _benchSceneNonce, fld, winnum, textId, (Byte)((page & 0x7F) | closeBit), 0);
++        }
++
++        // The open lockable window with this key (the frontmost on a duplicate), or null.
++        private static Dialog FindLiveDialog(Int32 winnum, Int32 textId)
++        {
++            System.Collections.Generic.List<Dialog> list = NetSyncDialog.LiveList();
++            if (list == null)
++                return null;
++            for (Int32 k = list.Count - 1; k >= 0; k--)
++            {
++                Dialog d = list[k];
++                if (NetSyncDialog.IsLockable(d) && d.Id == winnum && d.TextId == textId)
++                    return d;
++            }
++            return null;
++        }
++
++        // The frontmost open lockable window's key.
++        private static Boolean FrontmostLockable(out Int32 winnum, out Int32 textId)
++        {
++            winnum = -1;
++            textId = -1;
++            System.Collections.Generic.List<Dialog> list = NetSyncDialog.LiveList();
++            if (list == null)
++                return false;
++            for (Int32 k = list.Count - 1; k >= 0; k--)
++            {
++                Dialog d = list[k];
++                if (NetSyncDialog.IsLockable(d))
++                {
++                    winnum = d.Id;
++                    textId = d.TextId;
++                    return true;
++                }
++            }
++            return false;
++        }
++
++        // [ff9mapkit netsync F3.3] R9: the harness `netsync host <op> [args]` -- the bench HOST's levers, each reaching the
++        // guest half only through section 7 (BenchHostTick builds it every bench tick). Selftest role + field-gate bench +
++        // the bench lock (the bench host lives on the locked lane). `argc` = the ints after <op>, a1-a3 their values.
++        //   open [<cursor>] | open <win> <text> [cursor]   the host has this window open (frontmost by default) -- the
++        //                                                  cursor mirror (R4) + the open-set claim; an Inh window keeps b2 0
++        //   shut                                           the host's open set empties
++        //   adv [closes 0|1]                               an ADV for the frontmost window (closes = its own test unless forced)
++        //   choice <i>                                     a CHO committing <i> on the frontmost window
++        //   key <uid> <bits> [cursor]                      a KEY event (the codec's kind 2) -- IGNORED by this guest (R5 is next)
++        //   gap <n>                                        n events emitted and LOST (the ring retains none of them)
++        //   epoch                                          a host relaunch: a new epoch, an empty ring, no windows
++        //   freeze [1|0]                                   the heartbeat stops / restarts (a hung host, R6)
++        //   menu [1|0] / battle [1|0]                      section 7 b4 / b5 (the chip's variants, R7)
++        public static Boolean HarnessBenchHost(String op, Int32 argc, Int32 a1, Int32 a2, Int32 a3, out String why)
++        {
++            why = null;
++            NetSyncClient i = _instance;
++            if (i == null)
++                why = "netsync host: no co-op client in this process (netsync selftest 1 first)";
++            else if (!IsSelfTestRole)
++                why = "netsync host: role is '" + _role + "' -- the bench host needs the selftest role";
++            else if (!NetSyncField.BenchGates)
++                why = "netsync host: the field-gate bench is OFF (netsync bench 1)";
++            else if (!DebugDialogLock)
++                why = "netsync host: the bench dialogue lock is OFF (netsync lock 1) -- the bench host rides the locked lane";
++            if (why != null)
++                return false;
++            try
++            {
++                return i.BenchHostOp(op ?? "", argc, a1, a2, a3, out why);
++            }
++            catch (Exception err)
++            {
++                why = "netsync host " + op + ": " + err.Message;
++                return false;
++            }
++        }
++
++        private Boolean BenchHostOp(String op, Int32 argc, Int32 a1, Int32 a2, Int32 a3, out String why)
++        {
++            why = null;
++            Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++            if (_benchRing.Epoch == 0)
++                _benchRing.Reset(NewEpoch(0));
++            Int32 fw, ft;
++            switch (op)
++            {
++                case "open":
++                {
++                    Int32 cursor = -1;
++                    if (argc >= 2)
++                    {
++                        fw = a1;
++                        ft = a2;
++                        if (argc >= 3)
++                            cursor = a3;
++                    }
++                    else
++                    {
++                        if (!FrontmostLockable(out fw, out ft))
++                        {
++                            why = "netsync host open: no dialogue window is open (or name one: open <win> <text> [cursor])";
++                            return false;
++                        }
++                        if (argc == 1)
++                            cursor = a1;
++                    }
++                    if (fw < 0 || fw > 255 || ft < 0 || ft > 0xFFFF || cursor >= NetSyncDialog.NoCursor)
++                    {
++                        why = "netsync host open: win 0..255, text 0..65535, cursor 0..254 (or none)";
++                        return false;
++                    }
++                    Dialog d = FindLiveDialog(fw, ft);
++                    NetSyncDialog.OpenWin o = new NetSyncDialog.OpenWin();
++                    o.Win = fw;
++                    o.Text = ft;
++                    o.Cursor = cursor < 0 ? NetSyncDialog.NoCursor : (Byte)cursor;
++                    Int32 pg = d != null ? d.CurrentPage : 1;
++                    o.Page = (Byte)(pg < 0 ? 0 : pg > 255 ? 255 : pg);
++                    o.Flags = (Byte)((cursor >= 0 ? NetSyncDialog.WfChoice : 0) | NetSyncDialog.WfComplete
++                                     | (d != null && d.FlagButtonInh ? NetSyncDialog.WfInh : 0));
++                    Int32 at = -1;
++                    for (Int32 k = 0; k < _benchOpenN; k++)
++                        if (_benchOpen[k].Win == fw && _benchOpen[k].Text == ft)
++                            at = k;
++                    if (at < 0)
++                    {
++                        if (_benchOpenN >= NetSyncDialog.OpenCap)
++                        {
++                            why = "netsync host open: the bench host already has " + NetSyncDialog.OpenCap + " windows open (netsync host shut)";
++                            return false;
++                        }
++                        at = _benchOpenN++;
++                    }
++                    _benchOpen[at] = o;
++                    Log.Message("[NetSync] bench host: win " + fw + " text " + ft + " open" + (cursor >= 0 ? " (cursor " + cursor + ")" : "")
++                                + ((o.Flags & NetSyncDialog.WfInh) != 0 ? " [NFOC]" : "") + " -- section 7's open set");
++                    return true;
++                }
++                case "shut":
++                    _benchOpenN = 0;
++                    Log.Message("[NetSync] bench host: open set cleared");
++                    return true;
++                case "adv":
++                case "choice":
++                {
++                    Boolean cho = op == "choice";
++                    if (cho && (argc < 1 || a1 < 0 || a1 > 254))
++                    {
++                        why = "netsync host choice: needs a choice index 0..254";
++                        return false;
++                    }
++                    if (!FrontmostLockable(out fw, out ft))
++                    {
++                        why = "netsync host " + op + ": no dialogue window is open";
++                        return false;
++                    }
++                    Boolean closes;
++                    Int32 page;
++                    UInt16 seq = BenchAppend(fld, fw, ft, cho ? NetSyncDialog.KindCho : NetSyncDialog.KindAdv, cho ? a1 : 0xFF,
++                                             !cho && argc >= 1 ? (a1 != 0 ? 1 : 0) : -1, out closes, out page);
++                    Log.Message("[NetSync] bench host: " + (cho ? "CHO" : "ADV") + " seq " + seq + " (win " + fw + " text " + ft
++                                + (cho ? " choice " + a1 : " page " + page) + (closes ? " closes" : "") + ") -- delivered through section 7");
++                    return true;
++                }
++                case "key":
++                {
++                    if (argc < 2 || a1 < 0 || a1 > 255 || a2 < 0 || a2 > 0xFFFF || (argc >= 3 && (a3 < 0 || a3 > 255)))
++                    {
++                        why = "netsync host key: needs <uid 0..255> <bits 0..65535> [cursor 0..255]";
++                        return false;
++                    }
++                    UInt16 seq = _benchRing.Append(NetSyncDialog.KindKey, _benchSceneNonce, fld, a1, a2,
++                                                   argc >= 3 ? (Byte)a3 : NetSyncDialog.NoCursor, 0);
++                    Log.Message("[NetSync] bench host: KEY seq " + seq + " (uid " + a1 + " bits " + a2 + ") -- this build's guest ignores KEY (the key relay is next)");
++                    return true;
++                }
++                case "gap":
++                    if (argc < 1 || a1 < 1 || a1 > 30000)
++                    {
++                        why = "netsync host gap: needs <n> 1..30000";
++                        return false;
++                    }
++                    _benchRing.Lose(a1);
++                    Log.Message("[NetSync] bench host: " + a1 + " event(s) lost (seq now " + _benchRing.HeadSeq + ", the ring retains none)");
++                    return true;
++                case "epoch":
++                    _benchRing.Reset(NewEpoch(_benchRing.Epoch, _benchRing.PrevEpoch));
++                    _benchOpenN = 0;
++                    Log.Message("[NetSync] bench host: new epoch " + _benchRing.Epoch + " (a host relaunch: ring empty, seq restarts, no windows)");
++                    return true;
++                case "freeze":
++                    DebugHostFrozen = argc < 1 || a1 != 0;
++                    Log.Message("[NetSync] bench host: heartbeat " + (DebugHostFrozen ? "FROZEN (a hung host)" : "running"));
++                    return true;
++                case "menu":
++                    DebugHostMenu = argc < 1 || a1 != 0;
++                    Log.Message("[NetSync] bench host: in a menu " + (DebugHostMenu ? "ON" : "OFF"));
++                    return true;
++                case "battle":
++                    DebugHostBattle = argc < 1 || a1 != 0;
++                    Log.Message("[NetSync] bench host: in a battle " + (DebugHostBattle ? "ON" : "OFF"));
++                    return true;
++            }
++            why = "netsync host: unknown op '" + op + "' (open|shut|adv|choice|key|gap|epoch|freeze|menu|battle)";
++            return false;
++        }
++
+         // [ff9mapkit netsync F3.2] selftest: log the simulated host scene's edges once, and bump the bench scene
+         // nonce on each rise (the Scene stamp of injected events -- the relay-accept purge keys on it).
+         private void BenchSceneEdge(Int32 fld)
+@@ -2573,7 +3032,10 @@ namespace Memoria.Netsync
+             {
+                 if (_socket == null || !_followHost || _followWarpPending >= 0)
+                     return;
+-                state = _socket.GetRemoteState();
++                // [ff9mapkit netsync F3.3] the SAME payload ObserveHostDialog judged the host epoch on this tick (not a fresh
++                // read): a frame from a relaunched host landing between the two reads could otherwise have its talk accepted
++                // here and then, once the next tick saw the new epoch and reset _lastTalkNonce, replayed.
++                state = _dlgLastState;
+                 NoteTalkScene(state);                    // F3.2 C2: the scene this start belongs to (the accept purge keys on it)
+                 if (state == null || !NetSyncState.TryReadSection(state, NetSyncState.SectionTalk, out body) || body == null || body.Length < 5)
+                     body = null;                         // absent: only the expiry check below runs
+@@ -2640,6 +3102,12 @@ namespace Memoria.Netsync
+                 {
+                     _relayAcceptTick = Environment.TickCount;   // tick-baseline law: armed bool + delta
+                     _relayAcceptArmed = true;
++                    // [ff9mapkit netsync F3.3] R8 (DIO-4 partial, a separable hunk): refresh the party/bag read wraps from the
++                    // SAME state frame that carried this start -- pure reads, so safe mid-field -- before my copy's handler
++                    // runs (Request only queued it). The wraps otherwise answer from my last field load, so the same visit's
++                    // Tent/Chocograph branch diverged from the host's (test2_110.txt:546-556). Live + mirroring only.
++                    if (!bench && state != null && IsMirroringStory)
++                        NetSyncParty.ParseSections(state);
+                     // [ff9mapkit netsync F3.2] S5 step 3: at the accept, events from an EARLIER host scene whose window
+                     // is not open are stale (the 14.2% duplicate-key reopens). The host stamped this start with a scene
+                     // of its own (StartSceneAt) in the frame that first carried it -- NoteTalkScene kept that nonce. Not
+@@ -2804,6 +3272,9 @@ namespace Memoria.Netsync
+                 DebugHostEventFlag = 0;
+                 DebugDialogLock = false;                              // [ff9mapkit netsync F3.2] the C2 bench levers too
+                 DebugLinkDead = false;
++                DebugHostFrozen = false;                              // [ff9mapkit netsync F3.3] and the bench host's
++                DebugHostMenu = false;
++                DebugHostBattle = false;
+                 _enabled = false;
+                 NetSyncBattle.Enabled = false;
+                 NetSyncVisitor.Enabled = false;
+@@ -2856,12 +3327,32 @@ namespace Memoria.Netsync
+             NetSyncClient i = _instance;
+             return i == null ? new System.Collections.Generic.List<NetSyncDialog.EventView>() : i._dlg.SnapshotHeads(Environment.TickCount, max);
+         }
++        // [ff9mapkit netsync F3.3] C3 observables (still ADDED under protocol 5): the wire version this engine speaks, and
++        // the guest's view of section 7 -- the host epoch, its head seq, the merge baseline, the gaps seen, the heartbeat,
++        // whether the host reads hung, its flags byte and open set, the cursor the mirror enforced last tick, and the KEY
++        // events ignored. -1 = absent (no section on the lane / not baselined / no client).
++        public static Int32 HarnessWire { get { return NetSyncWire.Version; } }
++        public static Int32 HarnessHostEpoch { get { NetSyncClient i = _instance; return i == null ? -1 : i._dlg.EpochSeen; } }
++        public static Int32 HarnessHeadSeq { get { NetSyncClient i = _instance; return i == null ? -1 : i._dlg.HeadSeq; } }
++        public static Int32 HarnessLastSeen { get { NetSyncClient i = _instance; return i == null ? -1 : i._dlg.LastSeen; } }
++        public static Int32 HarnessRingGaps { get { NetSyncClient i = _instance; return i == null ? 0 : i._dlg.Gaps; } }
++        public static Int32 HarnessHostHeartbeat { get { NetSyncClient i = _instance; return i == null ? -1 : i._dlg.Heartbeat; } }
++        public static Boolean HarnessHostStalled { get { NetSyncClient i = _instance; return i != null && i._dlg.HostStalled; } }
++        public static Int32 HarnessHostFlags { get { NetSyncClient i = _instance; return i == null ? -1 : i._dlg.HostFlags; } }
++        public static Int32 HarnessMirrorCursor { get { NetSyncClient i = _instance; return i == null ? -1 : i._dlg.MirrorCursor; } }
++        public static Int32 HarnessKeyIgnored { get { NetSyncClient i = _instance; return i == null ? 0 : i._dlg.KeyIgnored; } }
++        internal static System.Collections.Generic.List<NetSyncDialog.OpenWin> HarnessHostOpen()
++        {
++            NetSyncClient i = _instance;
++            return i == null ? new System.Collections.Generic.List<NetSyncDialog.OpenWin>() : i._dlg.SnapshotHostOpen();
++        }
+ 
+         // Bench injection WITH a reason on refusal. The menu button logs and returns void, which is
+         // right for a human reading the log; the harness must throw so the driver blames this step
+         // and quotes why. Same gates, same Impl, same fabricated frame through the real codec.
+         // [ff9mapkit netsync F3.2] the frame now feeds the inbox, so it needs the bench LOCK (lock off = the inbox
+-        // is discarded every tick), not the L1 host-scene flag.
++        // is discarded every tick), not the L1 host-scene flag. [ff9mapkit netsync F3.3] it rides the bench host's
++        // ring through section 7 now (DebugInjectDialogAdvanceImpl) -- same verbs, same refusals.
+         public static Boolean HarnessInjectDialog(Int32 winnum, Int32 textId, Int32 kind, Int32 choiceIndex, out String why)
+         {
+             why = null;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+index d7e1159..e7a19ca 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+@@ -50,13 +50,14 @@ namespace Memoria.Netsync
+         void SendAction(Byte[] payload);
+         Byte[] NextRemoteAction();             // dequeue the next pending action payload, or null
+         // FIFO DIALOGUE lane (F3 dialogue L2 host->guest confirm/choice frames: one per confirm-driven
+-        // window advance -- FIFO like actions so a burst of closing windows never collapses):
++        // window advance -- FIFO like actions so a burst of closing windows never collapses).
++        // [ff9mapkit netsync F3.3] v14: retired (the host's taps ride state section 7); kept compiled:
+         void SendDialog(Byte[] payload);
+         Byte[] NextRemoteDialog();             // dequeue the next pending dialogue-advance payload, or null
+         Boolean IsConnected { get; }           // transport link up (peer may still be absent -- see GetRemote)
+     }
+ 
+-    // --- wire format v13: every message is one FRAME  [magic 0xF9][version 13][type u8][len u16 LE][payload]
++    // --- wire format v14: every message is one FRAME  [magic 0xF9][version 14][type u8][len u16 LE][payload]
+     //     type 0 = position state (37 B payload: field u16, anim u16, model u16, meshVis u16, loco u8,
+     //                              pos 3f, rot 4f -- loco = the sender-classified rig-neutral locomotion)
+     //     type 1 = battle state   (variable; see NetSyncBattle -- latest-slot semantics. v8 adds the
+@@ -89,7 +90,18 @@ namespace Memoria.Netsync
+     //                              -- no snap, no control pin. C2 (same bytes, new meaning): the flag is
+     //                              the host's STICKY scene, one nonce per scene, both edges pushed out-of-
+     //                              band; it feeds the guest's orphan rule and chip -- it no longer gates
+-    //                              the dialogue lock, which arms from window open.)
++    //                              the dialogue lock, which arms from window open. v13: section 6 = the
++    //                              TALK RELAY [field u16 LE][uid u16 LE][nonce u8]. [ff9mapkit netsync
++    //                              F3.3] v14: section 7 = the host's DIALOGUE section -- [fmt u8 = 1]
++    //                              [epoch u16][heartbeat u16][flags u8][sceneNonce u8][sceneField u16]
++    //                              [headSeq u16][openN u8 <= 4] openN x [win u8][textId u16][cursor u8]
++    //                              [page u8][wflags u8], then [ringN u8 <= 32] ringN x 12 B events
++    //                              [seq u16][kind u8: 0 ADV, 1 CHO, 2 KEY][scene u8][fld u16][win|uid u8]
++    //                              [textId|bits u16][page|0x80 close, or choice / cursor u8][CHO 0x80
++    //                              close u8][0], oldest first; all LE. THE DELIVERY CHANNEL for the
++    //                              host's confirms: this slot is re-sent every write tick and pushed on
++    //                              every change, so a frame dropped by a bridge/relay redial heals on the
++    //                              next tick (WIRE-1). See NetSyncDialog (the codec, the ring, the merge).)
+     //     type 6 = battle action  (B3.5 HOST->GUEST: one ~46 B frame per applied CalcResult -- figures,
+     //                              flinch bit, raw post-application HP/MP for target+caster, and a seq
+     //                              horizon that gates stale type-1 samples. FIFO like type 2 (multi-
+@@ -107,13 +119,21 @@ namespace Memoria.Netsync
+     //                              See Dialog.OnKeyConfirm's tap + NetSyncDialog (the guest's inbox).
+     //                              [ff9mapkit netsync F3.2] C2 (same bytes): ETb field lines only, taps
+     //                              leave even while !IsConnected (the out-queue survives a reconnect), and
+-    //                              the host's voice-paced close emits a kind-0 frame too.)
+-    //     v12 and older peers are REJECTED by the version byte -> mixed engine versions silently don't
++    //                              the host's voice-paced close emits a kind-0 frame too.
++    //                              [ff9mapkit netsync F3.3] RETIRED at v14: the host no longer sends it
++    //                              (its taps ride the type-5 section-7 ring) and the guest drains and
++    //                              ignores it. The lane, its queues and SendDialog stay compiled -- no
++    //                              transport refactor.)
++    //     v13 and older peers are REJECTED by the version byte -> mixed engine versions silently don't
+     //     sync (fail-safe; update both machines together when the wire changes). ---
+     public static class NetSyncWire
+     {
+         public const Byte Magic = 0xF9;
+-        public const Byte Version = 13;  // v13 = the TALK-RELAY section (6): a host's press-fired tag-3 start
++        public const Byte Version = 14;  // v14 = [ff9mapkit netsync F3.3] the type-5 DIALOGUE section (7): the
++                                         //       host's confirms ride a 32-event ring in the latest slot (loss-
++                                         //       proof: re-sent every tick) with an epoch, a heartbeat, host flags
++                                         //       and its open windows (the cursor mirror); type 7 retired (C3)
++                                         // v13 = the TALK-RELAY section (6): a host's press-fired tag-3 start
+                                          //       replayed on the co-located guest (F3.1, 2026-09-04)
+                                          // v12 = the type-7 DIALOGUE ADVANCE lane (F3 dialogue L2: full
+                                          //       confirm/choice lockstep of a co-located guest's scene)
+@@ -133,7 +153,7 @@ namespace Memoria.Netsync
+         public const Byte TypeRoster = 4;
+         public const Byte TypeState = 5;
+         public const Byte TypeAction = 6;
+-        public const Byte TypeDialog = 7;   // F3: HOST->GUEST dialogue advance (FIFO, its own queue)
++        public const Byte TypeDialog = 7;   // F3: HOST->GUEST dialogue advance (FIFO, its own queue) -- F3.3: retired, kept compiled
+ 
+         public static Byte[] BuildFrame(Byte type, Byte[] payload)
+         {
+@@ -243,7 +263,8 @@ namespace Memoria.Netsync
+         private const Int32 MaxQueuedDialog = 32;    // F3 dialogue-queue cap (drop-oldest; dialogue never bursts
+                                                      // like battle actions -- 32 is generous. [ff9mapkit netsync
+                                                      // F3.2] a lost frame strands its line until the guest's
+-                                                     // orphan rule (the C2 FIFO residual; C3's ring heals it).)
++                                                     // orphan rule (the C2 FIFO residual; C3's ring heals it).
++                                                     // [ff9mapkit netsync F3.3] v14: no longer fed by the host.)
+         private Boolean _actionDropLogged;      // once per link: cap-sizing telemetry, never per-frame spam
+         private Boolean _dialogDropLogged;      // F3: once per link, never per-frame spam
+ 
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+index b093cb2..0182245 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+@@ -16,6 +16,8 @@ namespace Memoria.Netsync
+     //     section 0 = gEventGlobal snapshot (2048 B)            -- RUNG 1 (this file)
+     //     sections 1-3 = party / key items / bag (NetSyncParty) -- RUNG 2 (the party mirror; the
+     //                    party section doubles as the diorama's actor-spawn input)
++    //     sections 4-6 = transition intent / host scene / talk relay (F2, F3.1 -- NetSyncClient)
++    //     section 7    = [ff9mapkit netsync F3.3] the host's dialogue ring + open windows (NetSyncDialog)
+     //
+     // Bytes 2032-2041 are MASKED out of both the snapshot and the apply: those are the netsync coop cells
+     // (2032-2039, NetSyncClient.WriteCoopCells) + reserved + the choice-mask scratch (2040). Copying the
+@@ -36,6 +38,10 @@ namespace Memoria.Netsync
+         public const Byte SectionEvent = 5;     // F2 [flag u8][nonce u8]           -- host in a blocking dialogue event
+         public const Byte SectionTalk = 6;      // F3.1 [field u16 LE][uid u16 LE][nonce u8] -- host STARTED a tag-3
+                                                 //      interaction (NPC talk / chest / moogle); the guest replays it
++        public const Byte SectionDialog = 7;    // [ff9mapkit netsync F3.3] C3 (wire v14): the host's DIALOGUE section --
++                                                //      epoch, heartbeat, flags, its open windows and a 32-event ring
++                                                //      (NetSyncDialog.HostRing.BuildSection / TryParseHostSection). Rides
++                                                //      this latest slot, re-sent every write tick, so a lost frame heals.
+         private const Int32 StoryLen = 2048;    // FF9StateSystem.EventState.gEventGlobal is Byte[2048]
+         private const Int32 MaskLo = 2032;      // coop cells 2032-2039 + reserved 2033/2038-2039 + scratch 2040
+         private const Int32 MaskHi = 2041;      // ... never carried; the guest keeps its own
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index f713928..94c9b5a 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -58,6 +58,11 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync F3.3] DIO-1, also additive under 5: `netsync.diorama` (the warm/cold battle-return
+         // observables) and the verbs `dioboot`/`dioleave` (the ~ menu's diorama Boot/Leave). A driver checks for the
+         // `diorama` key -- absent = an engine without the warm return -- before using either.
++        // [ff9mapkit netsync F3.3] C3 (wire v14, the section-7 dialogue ring), also additive under 5: `netsync.wire` (the
++        // co-op wire version), `epoch`/`head_seq`/`last_seen`/`gaps`/`heartbeat`/`host_stalled`/`host_flags`/`host_open[]`/
++        // `cursor`/`key_ignored` (the guest's view of section 7) and `host_frozen`/`host_menu`/`host_battle` (the bench
++        // host's levers), plus the verb `netsync host <op>` (the bench host). A driver checks for `wire` first -- absent =
++        // a pre-C3 engine (type-7 delivery).
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1094,6 +1099,21 @@ namespace Memoria.Harness
+                             _dioramaByHarness = true;
+                             break;
+                         }
++                        case "host":
++                        {
++                            // [ff9mapkit netsync F3.3] C3 R9: the bench HOST -- `host <op> [n ...]` drives a section-7 model the
++                            // guest half reads instead of the socket, built through the REAL codec every bench tick (ops:
++                            // open|shut|adv|choice|key|gap|epoch|freeze|menu|battle -- NetSyncClient.HarnessBenchHost). Selftest
++                            // role + bench + the bench lock. Additive -- protocol stays 5.
++                            String hop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
++                            Int32 hargc = s.Args.Length > 2 ? s.Args.Length - 2 : 0;
++                            for (Int32 k = 2; k < s.Args.Length; k++)
++                                if (Arg(s, k, Int32.MinValue) == Int32.MinValue)
++                                    throw new ArgumentOutOfRangeException("netsync host", "argument '" + s.Args[k] + "' is not an integer");
++                            if (!Memoria.Netsync.NetSyncClient.HarnessBenchHost(hop, hargc, Arg(s, 2, -1), Arg(s, 3, -1), Arg(s, 4, -1), out why))
++                                throw new InvalidOperationException(why ?? "netsync host refused");
++                            break;
++                        }
+                         case "dioleave":
+                         {
+                             // [ff9mapkit netsync F3.3] DIO-1: the ~ menu's "Leave diorama" -- request-only, teardown on arrival;
+@@ -1108,7 +1128,7 @@ namespace Memoria.Harness
+                             break;
+                         }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host)");
+                     }
+                     Block(2);
+                     break;
+@@ -2429,11 +2449,12 @@ namespace Memoria.Harness
+                 Num(sb, "host_settled_ms", Memoria.Netsync.NetSyncClient.HarnessHostSettledMs); sb.Append(",");
+                 Num(sb, "orphan_closes", Memoria.Netsync.NetSyncClient.HarnessOrphanCloses); sb.Append(",");
+                 Str(sb, "chip", Memoria.Netsync.NetSyncClient.HarnessDialogChip); sb.Append(",");
++                AppendRing(sb); sb.Append(",");
+                 AppendDiorama(sb);
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -2451,6 +2472,49 @@ namespace Memoria.Harness
+         // once control is back, so a frozen field cannot pass on position alone. AppendNetsync's catch line
+         // carries the same keys at their sentinels, inside its SECOND literal (test_harness_netsync.py reads that
+         // line as exactly two literals around NetsyncF3Retired).
++        // [ff9mapkit netsync F3.3] C3 -- the section-7 keys, additive under protocol 5 (an engine without them publishes no
++        // `wire`: read absence as "a pre-C3 engine", never as "nothing there"). `wire` = this engine's co-op wire version
++        // (14 = the dialogue ring); `epoch` = the host epoch the guest last saw, `head_seq` = the newest event in the
++        // host's ring, `last_seen` = the guest's merge baseline (-1 = not baselined: no session), `gaps` = ring gaps
++        // detected (each logged once), `heartbeat` / `host_stalled` = the hung-host detector (R6), `host_flags` = section
++        // 7's flags byte (b0 scene, b1 control, b2 input line, b3 on field, b4 menu, b5 battle), `host_open[]` = the
++        // host's open windows (cursor -1 = not a ready choice), `cursor` = the host cursor the mirror enforced last tick
++        // (-1 = none), `key_ignored` = KEY events this guest ignored (the key relay is the next stage), and
++        // `host_frozen` / `host_menu` / `host_battle` = the bench host's levers. -1 = absent. The catch line in
++        // AppendNetsync carries the same keys at their sentinels, inside its SECOND literal.
++        private static void AppendRing(StringBuilder sb)
++        {
++            Num(sb, "wire", Memoria.Netsync.NetSyncClient.HarnessWire); sb.Append(",");
++            Num(sb, "epoch", Memoria.Netsync.NetSyncClient.HarnessHostEpoch); sb.Append(",");
++            Num(sb, "head_seq", Memoria.Netsync.NetSyncClient.HarnessHeadSeq); sb.Append(",");
++            Num(sb, "last_seen", Memoria.Netsync.NetSyncClient.HarnessLastSeen); sb.Append(",");
++            Num(sb, "gaps", Memoria.Netsync.NetSyncClient.HarnessRingGaps); sb.Append(",");
++            Num(sb, "heartbeat", Memoria.Netsync.NetSyncClient.HarnessHostHeartbeat); sb.Append(",");
++            Bool(sb, "host_stalled", Memoria.Netsync.NetSyncClient.HarnessHostStalled); sb.Append(",");
++            Num(sb, "host_flags", Memoria.Netsync.NetSyncClient.HarnessHostFlags); sb.Append(",");
++            sb.Append("\"host_open\":[");
++            List<Memoria.Netsync.NetSyncDialog.OpenWin> open = Memoria.Netsync.NetSyncClient.HarnessHostOpen();
++            for (Int32 k = 0; k < open.Count; k++)
++            {
++                Memoria.Netsync.NetSyncDialog.OpenWin o = open[k];
++                if (k > 0)
++                    sb.Append(",");
++                sb.Append("{");
++                Num(sb, "win", o.Win); sb.Append(",");
++                Num(sb, "text", o.Text); sb.Append(",");
++                Num(sb, "cursor", o.Cursor == Memoria.Netsync.NetSyncDialog.NoCursor ? -1 : o.Cursor); sb.Append(",");
++                Num(sb, "page", o.Page); sb.Append(",");
++                Num(sb, "flags", o.Flags);
++                sb.Append("}");
++            }
++            sb.Append("],");
++            Num(sb, "cursor", Memoria.Netsync.NetSyncClient.HarnessMirrorCursor); sb.Append(",");
++            Num(sb, "key_ignored", Memoria.Netsync.NetSyncClient.HarnessKeyIgnored); sb.Append(",");
++            Bool(sb, "host_frozen", Memoria.Netsync.NetSyncClient.DebugHostFrozen); sb.Append(",");
++            Bool(sb, "host_menu", Memoria.Netsync.NetSyncClient.DebugHostMenu); sb.Append(",");
++            Bool(sb, "host_battle", Memoria.Netsync.NetSyncClient.DebugHostBattle);
++        }
++
+         private static void AppendDiorama(StringBuilder sb)
+         {
+             sb.Append("\"diorama\":{");
