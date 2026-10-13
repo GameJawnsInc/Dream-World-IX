@@ -1075,6 +1075,26 @@ feels fine."** The uvclass prediction (x1.1 faithful, x1.25 showing on some char
 direction, as X1's was: x1.25 reads like the verbatim carry, and x1.5 is the edge, kept. `world-forest --spread`
 keeps its 1.5 ceiling.
 
+## Round 18 (2026-10-13, owner's go: "take another item, your choice"): more forest shapes, `world-forest --donor`, 66/66; the owner passes them
+
+One launch, `.harness-runs/20261013-084313-forest-donors`, the same setup as round 17 (ini backed up to
+`backups/Memoria.ini.<stamp>.forest-donors` and restored byte-exact; the lab moved into the run dir). The lab is
+round 17's r58 island, carved five ways at one centre, (1380, -92), each with one census-qualified canopy
+(`../forestdonors/census.py`), verbatim: A `--donor 15,15` (the control), B `3,12` long, C `19,8` round, D `18,15`
+small, E `13,15` the grove. Scenario: `../forestdonors/lab_session.py`; predictions: `lab_prep.py`.
+
+### 33. Four more forest shapes
+
+Every registered prediction held, per stage: all 9 canopy points at the built surface minus the canopy sink
+(45/45), all 12 grass points round the canopy at the built height (60/60), and all three walks on, across and off
+the canopy onto grass, never stalled, never below y 3.19 (15/15). The grove (E), whose seated walls are the
+tallest (2.05) and whose offline worst step is the highest (2.10-2.19), walked like the rest. Pinholes 0-2 a frame.
+This launch walked at about half round 17's distance per burst (16-17 bursts across A's canopy against 7-8): the
+harness's frame rate, not the ground; the stall rule does not care.
+
+The owner judged labelled panels (`donors_panel_*.png`; the shapes differ, so no shuffle). **Verdict: "they read
+well to me."** The four new donors are qualified in `ff9mapkit/world/data/donors.toml`.
+
 ## Not run
 
 - The boat "none" phase (see section 9).

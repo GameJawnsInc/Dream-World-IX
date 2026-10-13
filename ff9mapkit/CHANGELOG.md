@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-forest --donor`: four more forest shapes
+- `world-forest --donor BX,BY` now carries the largest forest touching that block whose edge meets only grass,
+  collected whole across block borders. A census of all 44 disc-1 forests qualifies five (one outline, grass and
+  an edge wall all round, level, no building): the July (15,15) plus a long one (`3,12`), a round one (`19,8`), a
+  small one (`18,15`) and a grove (`13,15`). `world-donors --class canopy` lists them.
+- A forest that meets rock or other ground is refused with a message: carried alone it would leave an open,
+  unwalled edge.
+- Offline, 40/40 carves (five donors, ×1.0 and ×1.5, four angles); in game, all five walk on, across and off
+  with every height as built (66/66), and the owner passed the look. The default carry is unchanged byte for byte.
+
 ### Added — `world-forest --spread` / `--rot`: a carried forest wider and at any angle
 - `world-forest --spread S` (1.0–1.5) scales the carried canopy S times wider in plan, and `--rot DEG` turns it to
   any angle (clockwise seen from above, as `world-mountain --rot`), both about its centre; its heights, texture and
