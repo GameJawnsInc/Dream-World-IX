@@ -153,6 +153,14 @@ ENSEMBLE_PARTS = ("Object", "Falls", "River", "RiverJoint")
 kk3 = lambda p: (round(p[0], 3), round(p[1], 3), round(p[2], 3))  # noqa: E731
 
 
+def _weld_point(key, exact: dict):
+    """THE EXACT-WELD LAW's one seam: the float a zip's hole-ring KEY is emitted as -- the kept grass's own
+    position, bit for bit (a key is rounded to 1e-3; emitted as-is it sat up to 5e-4u off the grass it welds to,
+    a pinhole on screen). The July identity net swaps this for the key itself to reproduce the in-game-approved
+    July bytes, which carried that defect."""
+    return exact[key]
+
+
 # ---- the island soup ----------------------------------------------------------------------
 def soup_from_blocks(blocks: dict) -> dict:
     """Build the WORLD-frame island soup from ``{(bx, by): BlockMesh}`` (freshly built or
@@ -638,7 +646,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
         if tidx not in drop:
             for i in tri:
                 h_float.setdefault(kk3(gpos[i]), tuple(gpos[i]))
-    hole_ord = [h_float[p] for p in hole]
+    hole_ord = [_weld_point(p, h_float) for p in hole]
     rim_ord = list(crim)
     if signed_area(hole_ord) * signed_area(rim_ord) < 0:
         rim_ord.reverse()
@@ -2390,7 +2398,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
 
     i0, j0 = min(((i, j) for i in range(len(hole_ord)) for j in range(len(rim_base))),
                  key=lambda ij: d2(hole_ord[ij[0]], rimw(rim_base[ij[1]])))
-    H = [h_float[p] for p in hole_ord[i0:] + hole_ord[:i0]]      # exact floats, not the ring's keys
+    H = [_weld_point(p, h_float) for p in hole_ord[i0:] + hole_ord[:i0]]   # exact floats, not the ring's keys
     R = rim_base[j0:] + rim_base[:j0]
     NH, NR = len(H), len(R)
     Rw = [rimw(p) for p in R]

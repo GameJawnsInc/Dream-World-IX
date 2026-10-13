@@ -992,7 +992,9 @@ UAHO_PRISTINE_SHA = "e74eb4ecc6ffa82309eb30b8699d77928751cf63e19e20ea7ccfc92bd9c
 UAHO_JULY_SHA = "ad2da91874dd4c3665c187d22bb81d6c1152139dbdf3f31135ce386da85f877c"
 #: today's default carve = July + R5b THE LAWN-LINE SNAP (3 uv.v) + R5c THE FRINGE-SEAM
 #: UNIFY (8 uv.v), studies/overworld-topography/west-seam-continent/UAHO-*-BENCH.md
-UAHO_CARVE_SHA = "886573685d79b2455130bfdea9fa9196f9e76ea8760784e92d09316a3239a998"
+#: + THE EXACT-WELD LAW (terrain round 16): the zip's grass corners on the kept grass's own
+#: floats, not the hole ring's rounded keys (87 pos.y <= 5e-4u, their re-smoothed normals)
+UAHO_CARVE_SHA = "f9f16a2d4e803ecfb7773769d5ae0e3850ca8d095001e77bc839b4bf903ed41b"
 
 ISLAND_E_BLOCKS = [(4, 17), (5, 17), (4, 18), (5, 18), (6, 18)]
 ISLAND_E_FOREST = (312, -1140)          # recovered from the July deploy's canopy (topo 37)
@@ -1075,6 +1077,12 @@ def _uaho_carve(path, out):
     return res, M.write_ff9mesh(res["changed"][(2, 19)], out)
 
 
+def _july_welds(mp):
+    """Emit the zip's grass corners as the hole ring's rounded keys, as the July carve did (THE EXACT-WELD LAW's
+    seam): only this reproduces the in-game-approved July bytes."""
+    mp.setattr(IN, "_weld_point", lambda key, exact: key)
+
+
 def _uaho_r5_off(mp):
     """Switch R5b + R5c off: carve_mountain then runs its July path."""
     mp.setattr(IN, "_lawn_line_snap", lambda np_, *, rock_topos, log=print: (np_, {"entries": 0}))
@@ -1096,10 +1104,42 @@ def test_carve_mountain_reproduces_the_july_uaho_bench(tmp_path, monkeypatch):
         "the carve's input is no longer the July bench, so the carve cannot be judged")
     with monkeypatch.context() as mp:
         _uaho_r5_off(mp)
+        _july_welds(mp)
         res, got = _uaho_carve(pris, tmp_path / "july.ff9mesh")
     assert (res["center"], res["rot"]) == ((162, -1246), 0)
     assert res["report"]["patched_holes"] == 1
     assert _sha(got) == UAHO_JULY_SHA, "carve_mountain no longer reproduces the July Uaho bench"
+
+
+@needs_game
+def test_carve_mountain_exact_weld_is_the_only_change_since_july(tmp_path, monkeypatch):
+    """THE EXACT-WELD LAW (terrain round 16: the owner saw 1-pixel seams round a carried foot) against the July
+    anchor: the July bytes emitted the zip's grass corners as the hole ring's rounded KEYS, so some welds held two
+    floats; today's carve holds one float per weld, and differs from July ONLY there -- the same tris, UVs and
+    tangents, positions moved in y alone by < 5e-4u, normals re-smoothed by < 1e-4."""
+    pris = _uaho_mint(tmp_path, monkeypatch, pristine=True)[(2, 19)]
+    with monkeypatch.context() as mp:
+        _uaho_r5_off(mp)
+        _july_welds(mp)
+        _, july = _uaho_carve(pris, tmp_path / "july.ff9mesh")
+    with monkeypatch.context() as mp:
+        _uaho_r5_off(mp)
+        _, now = _uaho_carve(pris, tmp_path / "now.ff9mesh")
+    a, b = _read19(july), _read19(now)
+    assert a.tris == b.tris
+    for ch in (CH_UV, CH_TAN):
+        assert np.array_equal(np.asarray(a.chan_arrays[ch], np.float32), np.asarray(b.chan_arrays[ch], np.float32))
+    pa, pb = (np.asarray(m.chan_arrays[CH_POS], np.float32) for m in (a, b))
+    assert np.array_equal(pa[:, [0, 2]], pb[:, [0, 2]]) and 0 < np.abs(pa[:, 1] - pb[:, 1]).max() < 5e-4
+    na, nb = (np.asarray(m.chan_arrays[CH_NRM], np.float32) for m in (a, b))
+    assert np.abs(na - nb).max() < 1e-4
+
+    def split_welds(m):
+        floats = defaultdict(set)
+        for q in m.chan_arrays[CH_POS]:
+            floats[IN.kk3(q)].add(tuple(q))
+        return sum(1 for v in floats.values() if len(v) > 1)
+    assert split_welds(a) > 0 and split_welds(b) == 0
 
 
 @needs_game
