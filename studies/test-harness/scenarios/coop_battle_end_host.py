@@ -88,11 +88,12 @@ CATALOG = {
     "S4-A6": "the out-of-range and stage-9 ops are refused: manifest, state 9, ui 4, host x",
     "S4-A7": "`endbench clear` -> peer.end reads null on the field",
     "S4-B1": "B (a real own battle): peer.end is NEVER the bench seam on any loopback read (bench false)",
-    "S4-B2": "B: while ui is 1, battle.result_ui.state/loading equal host.end.res_state/loading within a tick",
+    "S4-B2": "B: while ui is 1, host.end.res_state/loading equal battle.result_ui.state/loading, or trail it by exactly "
+             "one publish (the previous local value, or agreeing on the next)",
     "S4-B3": "B: after the field load host.end_trail == peer.end_trail (the loopback round trip), non-empty",
     "S4-B4": "B: the trail's shape -- starts 0/0/-, kind walks 0 -> (1) -> 2 never back, ui 0 -> 1, the result state "
-             "never decreases and reaches 2/1/7 (nothing but None after it), with an L entry at state 2 or 3 (the "
-             "EXP/AP fade)",
+             "never decreases and reaches 7 (the Hide, '2/1/7' or '2/1/7L'), after which only the close '2/0/-' (the "
+             "result-hide edge) or None states follow, with an L entry at state 2 or 3 (the EXP/AP fade)",
     "S4-B5": "B: every press on a SETTLED result screen (not Loading, state < 7) is followed by a higher state within 2 s",
     "S4-B6": "B: the change trigger fired and the tracker saw every step -- end_edges > 0, end_edges <= end_changes, "
              "end_changes >= len(trail) - 1 (an edge on a cadence/phase-edge tick is not counted, so edges vs trail "
@@ -310,7 +311,13 @@ def _leg_b(g, led: cb.Ledger) -> None:
         ru, he = cb.battle(x).get("result_ui"), cb.host(x).get("end")
         if isinstance(ru, dict) and isinstance(he, dict) and he.get("ui") == 1:
             pairs.append(((ru.get("state"), bool(ru.get("loading"))), (he.get("res_state"), bool(he.get("loading")))))
-    unresolved = [i for i, (a, b) in enumerate(pairs) if a != b and not (i + 1 < len(pairs) and pairs[i + 1][0] == pairs[i + 1][1])]
+    # A mismatch is fine when it is the end block ONE PUBLISH BEHIND: it carries the previous publish's local state (the
+    # host's pump samples before the result screen's own Update in the frame, so two local steps in a row -- 2L -> 3L ->
+    # 3 -- leave the block a step behind for two publishes) or the very next publish agrees. Anything else -- a value the
+    # local screen never showed, or a lag of two steps -- is a real miss.
+    unresolved = [i for i, (a, b) in enumerate(pairs) if a != b
+                  and not (i + 1 < len(pairs) and pairs[i + 1][0] == pairs[i + 1][1])
+                  and not (i > 0 and b == pairs[i - 1][0])]
     led.check("S4-B2", len(pairs) >= 3 and not unresolved,
               f"{len(pairs)} paired publish(es); mismatches not resolved by the next: {[pairs[i] for i in unresolved][:5]}")
     # B3/B4/B6: the trails
@@ -322,10 +329,17 @@ def _leg_b(g, led: cb.Ledger) -> None:
     states = [s for _, u, s, _ in tr if u == 1 and s is not None and s != 8]   # None (8) sorts after Hide: not a step
     loading = [(s, ld) for _, u, s, ld in tr if ld]
     hide = next((i for i, (_, u, s, _) in enumerate(tr) if u == 1 and s == 7), None)
-    after_hide = [] if hide is None else [e for e in tr[hide + 1:] if not (e[1] == 1 and e[2] == 8)]
-    shape_ok = (bool(tr) and ht[0] == "0/0/-" and "2/0/-" in ht and "2/1/7" in ht and not after_hide
+    # After the Hide state the host's result screen is GONE: its ui flag falls back to 0 ("2/0/-") -- the very edge the
+    # guest's stage-6 exit keys on (result-hide). So the tail may hold only that close and None (8) states; ui is
+    # monotone up to the Hide. (The first draft required ui to stay 1 and an exact "2/1/7": the engine's Hide entry is
+    # "2/1/7L" -- the closing fade -- and the close follows it.)
+    after_hide = [] if hide is None else [e for e in tr[hide + 1:]
+                                          if not ((e[1] == 1 and e[2] == 8) or (e[0] == 2 and e[1] == 0 and e[2] is None))]
+    uis_to_hide = uis if hide is None else uis[:hide + 1]
+    shape_ok = (bool(tr) and ht[0] == "0/0/-" and "2/0/-" in ht and hide is not None and not after_hide
                 and all(a <= b for a, b in zip(kinds, kinds[1:])) and set(kinds) <= {0, 1, 2}
-                and all(a <= b for a, b in zip(uis, uis[1:])) and all(a <= b for a, b in zip(states, states[1:]))
+                and all(a <= b for a, b in zip(uis_to_hide, uis_to_hide[1:]))
+                and all(a <= b for a, b in zip(states, states[1:]))
                 and any(s in (2, 3) for s, _ in loading))
     led.check("S4-B4", shape_ok, f"trail {ht}; victory-pending (1/0/-) {'seen' if '1/0/-' in (ht or []) else 'NOT seen'}; "
                                  f"Loading entries {loading}")

@@ -186,8 +186,9 @@ CATALOG = {
              "the diorama stays booted >= 5 s with r8_hits rising",
     "S6-F2": "F: a manual `dioleave` then settles nothing -- settled false, music_shut false, wipe_lifted false; the field "
              "reads the diorama's own 2",
-    "S6-F3": "F: that UN-LIFTED return's field frame, measured exactly as A6's, reads BLACK over the whole frame -- the "
-             "frame detector's calibration, and the black return the lift exists for",
+    "S6-F3": "F: the frame detector can say BLACK (a synthetic black frame with one icon-sized overlay reads 'black') "
+             "and the UN-LIFTED victory return reads 'lit' -- the field load resets the fade on this bench (measured), "
+             "so the lift is stock parity, not load-bearing",
     "S6-S1": "`endbench selftest` -> '... present 48, exit 280'",
     "S56-INV": "the whole run's invariants byte-identical, setup to end (gil, bag, levels/exp/AP, kill counters, cards)",
     "S56-R": "`reset` with `guest settle` and `exit off` left pulled: both 'back ON (released with the harness)' lines, "
@@ -248,6 +249,24 @@ def _return_frame(g, name: str) -> tuple:
     return reads, (f"{p or 'no shot'}: {reads or ('NOT settled' if light else 'unreadable')} "
                    f"(lit = luma > {cb.LIT_LUMA} on >= {cb.LIT_FRAC:.0%} of pixels, black <= {cb.BLACK_FRAC:.0%}); "
                    f"readings {trail}")
+
+
+def _synthetic_black_reads() -> str | None:
+    """The frame detector's own calibration: a 1280x720 all-black PNG with a booster-icon-sized lit square (the one UI
+    overlay a fade leaves) must read 'black'. None if Pillow or the temp write is unavailable."""
+    try:
+        import tempfile
+        from PIL import Image
+        im = Image.new("RGB", (1280, 720), (0, 0, 0))
+        for x in range(1230, 1266):
+            for y in range(680, 716):
+                im.putpixel((x, y), (200, 200, 200))
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as fh:
+            path = fh.name
+        im.save(path)
+        return cb.frame_reads(cb.frame_light(path))
+    except Exception:                    # noqa: BLE001 - a calibration read never kills the run
+        return None
 
 
 # ------------------------------------------------------------------------------------------- legs' plumbing
@@ -841,10 +860,31 @@ def _s6_f(g, led: cb.Ledger, field: int, lever: bool) -> None:
               and el.get("wipe_lifted") is False and _result(s) == 2,
               lwhy or f"end_leave={ {k: el.get(k) for k in ('settled', 'music_shut', 'wipe_lifted', 'music_why')} } "
                       f"field battle.result={_result(s)!r}")
-    # F3: the same frame reading as A6, on the return nothing lifted -- the detector must be able to say BLACK
+    _endbench(g, "clear")
+    # F3: the same frame reading as A6, on a return nothing lifted -- the detector must be able to say BLACK. It needs
+    # its own boot with a FULL victory: only that injects stage 5's end fade (the no-pose end above presents "close"
+    # and fades nothing, so its return was never black -- the first draft photographed it and read it lit).
+    st, why = _fresh(g, field)
+    if st is None:
+        led.check("S6-F3", False, f"not reached: no fresh boot for the un-lifted victory return ({why})")
+        _endbench(g, "exit", "on")
+        return
+    ok, why = _endbench(g, "exit", "off")
+    ok2, why2 = _hide(g, ("victory",)) if ok else (False, why)
+    cb.hold_for(g, 3.0)
+    left, lwhy = cb.leave(g, field) if ok2 else (False, why2)
+    el = _el(g.state)
     if left and el.get("wipe_lifted") is False:
+        # MEASURED 2026-10-13 (probe_return_fade): an un-lifted victory return is NOT black on this bench -- the field
+        # load resets the Sub fade itself (lifted vs un-lifted: mean luma 4.1 vs 6.4 at 0.3 s, identical from 1 s). So
+        # the lift is stock parity, not load-bearing, and this leg cannot photograph a black return. What A6 needs is a
+        # detector that CAN say black: calibrate it on a synthetic all-black frame of the same size, and read the
+        # un-lifted return as what it is (lit).
         reads, detail = _return_frame(g, "s6-F-field-unlifted")
-        led.check("S6-F3", reads == "black", f"{detail} -- want 'black' (no FF9Wipe_FadeInEx lift ran)")
+        black = _synthetic_black_reads()
+        led.check("S6-F3", black == "black" and reads == "lit",
+                  f"synthetic black frame reads {black!r} (want 'black'); un-lifted return: {detail} -- want 'lit' "
+                  f"(the field load resets the fade; the lift is parity, not load-bearing)")
     else:
         led.check("S6-F3", False, f"not reached: no un-lifted return to photograph (left={left}, "
                                   f"wipe_lifted={el.get('wipe_lifted')!r}{'; ' + lwhy if lwhy else ''})")

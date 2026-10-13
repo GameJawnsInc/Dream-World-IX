@@ -85,8 +85,8 @@ CATALOG = {
              "'guest_owned=0x0 (inside the diorama)'",
     "S2-C1": "CALIBRATION lever: `netsync containment 0` -> menu.containment_off true",
     "S2-C2": "...G2 off: `bctl 00 00` -> guest_owned == 1 within 2.5 s",
-    "S2-C3": "...R9 off: the same battlecmd really queues (units[0].cmd_busy bit 0 EVER set) and the local swing plays "
-             "(the target's hp_raw drops)",
+    "S2-C3": "...R9 off: the same battlecmd really queues AND RUNS locally (units[0].cmd_busy bit 0 set, then consumed "
+             "by the diorama's own CommandEngine; hp_raw is mirrored, so it is not the witness)",
     "S2-C4": "...and R9 never saw it: r9_refused / r9_total unchanged, no new R9 line",
     "S2-C5": "`netsync containment 1` -> containment_off false, with no release line (the lever, not a release)",
     "S2-D1": "`dioleave`: 'diorama torn down -- state restored, isDebug cleared; r9_refused=N' with N this boot's count",
@@ -257,11 +257,22 @@ def _boot_legs(g, led: cb.Ledger, field: int) -> None:
         foe = next((u for u in cb.units(st) if int(u.get("id", -1)) == uid), None)
         hp1 = None if foe is None else foe.get("hp_raw")
         okb, whyb = cb.try_send(g, step)
-        ever = []
-        samples, hit = cb.watch(g, lambda s: (_hp(s, uid) is not None and hp1 is not None and _hp(s, uid) < hp1),
-                                SWING_S, on_sample=lambda s: ever.append(1) if (_busy(s) or 0) & 1 else None)
-        led.check("S2-C3", okb and bool(ever) and hit is not None,
-                  whyb or f"cmd_busy bit 0 ever set: {bool(ever)}; target hp_raw {hp1!r} -> {_hp(g.state, uid)!r}")
+        # The proof the local enqueue RAN is the slot's own command queue: cmd[0] set (busy), then CONSUMED (busy falls
+        # again) by the guest diorama's ungated CommandEngine. The target's hp_raw cannot witness it: the diorama's
+        # units are reconciled to the (bench) host's numbers every sample, so a local hit is overwritten before any
+        # publish -- the first draft required an HP drop and read red on a swing that had run.
+        ever, cleared = [], []
+
+        def _note(s):
+            if (_busy(s) or 0) & 1:
+                ever.append(1)
+            elif ever:
+                cleared.append(1)
+
+        samples, hit = cb.watch(g, lambda s: bool(ever) and bool(cleared), SWING_S, on_sample=_note)
+        led.check("S2-C3", okb and bool(ever) and bool(cleared),
+                  whyb or f"cmd_busy bit 0 set: {bool(ever)}, then consumed: {bool(cleared)}; "
+                          f"target hp_raw {hp1!r} -> {_hp(g.state, uid)!r} (mirrored -- not the witness)")
         st = g.state
         lines = cb.new(g, at)
         led.check("S2-C4", cb.bmenu(st).get("r9_refused") == r9 and cb.bmenu(st).get("r9_total") == t9

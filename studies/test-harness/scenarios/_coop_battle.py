@@ -635,7 +635,9 @@ def wait_panel(g, panel: str, timeout: float = 4.0):
 LIT_LUMA = 24
 #: ...a frame reads "lit" when at least LIT_FRAC of ALL its pixels are lit, "black" when at most BLACK_FRAC are (room for
 #: the small UI overlays), "dim" in between -- neither verdict, so a lit check and a black check both go red on it.
-LIT_FRAC, BLACK_FRAC = 0.10, 0.02
+#: Calibrated on the ARTLESS bench field 30602 (black background; only actors and props draw): its lit return reads
+#: ~3.5% lit pixels, so a 10% bar called it "dim". A fade-covered frame keeps only the booster icon (~0.2%).
+LIT_FRAC, BLACK_FRAC = 0.01, 0.005
 #: FF9Wipe_FadeInEx(256) -- the stock result-hide tail the stage-6 return lift runs -- ramps over 256 SceneDirector
 #: ServiceFade steps, and the field calls ServiceFade once per FIELD LOGIC tick (HonoluluFieldMain, 30 Hz), not once
 #: per render frame: so the ramp is waited out on the wall clock, never in harness `wait` frames (~31 or ~60 a second).

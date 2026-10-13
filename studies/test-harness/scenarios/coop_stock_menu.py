@@ -296,8 +296,19 @@ def _shot(g, ctx: _Ctx, key: str, name: str) -> None:
 def _target_mask(st) -> tuple:
     """The bit of the unit under the target cursor (by its drawn name), and that name."""
     name = cb.cursor_label(st)
-    hits = [u for u in cb.units(st) if cb.strip_tags(u.get("name") or u.get("name_raw") or "") == name]
-    return (int(hits[0]["id"]) if len(hits) == 1 else None), name
+    hits = [u for u in cb.units(st) if name and cb.strip_tags(u.get("name") or u.get("name_raw") or "") == name]
+    if len(hits) == 1:
+        return int(hits[0]["id"]), name
+    # A PARTY row's label is a name TOKEN ([FRYA], [ZDNE], ...) that strip_tags empties -- read its NGUI button
+    # instead: "Character k" is party slot k-1, whose target bit is 1 << (k-1) (players hold bits 0-3).
+    button = str(st.battle_cursor.get("button") or "")
+    if cb.cursor_group(st) == "Battle.Target" and button.startswith("Character "):
+        try:
+            k = int(button.split()[1])
+        except ValueError:
+            return None, name
+        return (1 << (k - 1) if 1 <= k <= 4 else None), name or button
+    return None, name
 
 
 def _commit_target(g) -> tuple:
