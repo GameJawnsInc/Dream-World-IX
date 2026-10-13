@@ -744,7 +744,51 @@ def test_carve_mountain_rock_height_gate_still_catches_an_undeclared_stretch(mon
         _carve_pyramid(tmp_path, rock_height=1.5)
 
 
-def test_cli_world_mountain_passes_rock_height_and_reports_it(monkeypatch, capsys):
+def test_carve_mountain_zip_welds_bit_for_bit_to_the_kept_grass(monkeypatch, tmp_path):
+    """THE EXACT-WELD LAW (round 16: the owner saw 1-pixel seams round the foot). The zip's grass side was built
+    from the hole ring's kk3 KEYS (rounded to 1e-3), so on ground whose heights are not round it sat up to 5e-4u
+    off the kept grass -- one weld, two floats, a pinhole on screen, invisible to every key-based gate. On a bench
+    at y 3.21371 every position the carve emits must be ONE float triple, however many entries share it."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    res = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _mountain_bench(y=3.21371)}), center=(26.0, -26.0),
+                            alcove=None, game=tmp_path, log=lambda *a: None)
+    floats = defaultdict(set)
+    for p in res["changed"][(0, 0)].chan_arrays[CH_POS]:
+        floats[IN.kk3(p)].add(tuple(p))
+    split = {k: v for k, v in floats.items() if len(v) > 1}
+    assert not split, f"{len(split)} welds hold two floats, e.g. {next(iter(split.items()))}"
+    assert res["report"]["zip_tris"] > 0
+
+
+def test_carve_mountain_rot_deg_turns_the_massif_to_any_angle(monkeypatch, tmp_path):
+    """--rot: the pyramid turned 45 deg about its centre -- its base corners now on the axes, the apex (on the axis)
+    unmoved, rigid (drift 0), UVs carried; 0 deg is byte-identical to the default exact carry, and a quarter angle
+    takes the exact quarter-turn swap the scan uses."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    rigid = _carve_pyramid(tmp_path)
+    zero = _carve_pyramid(tmp_path, rot_deg=0)
+    assert (M.write_ff9mesh(rigid["changed"][(0, 0)], tmp_path / "a.ff9mesh").read_bytes()
+            == M.write_ff9mesh(zero["changed"][(0, 0)], tmp_path / "b.ff9mesh").read_bytes())
+    res = _carve_pyramid(tmp_path, rot_deg=45)
+    r = res["report"]
+    assert r["rot_deg"] == pytest.approx(45.0) and r["rock_rigid"] < 1e-6
+    assert r["peak_y"] == pytest.approx(3.2 + 4.0, abs=1e-6)
+    bm = res["changed"][(0, 0)]
+    pos, tan = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN]
+    base = {(round(p[0], 3), round(p[2], 3)) for p, t4 in zip(pos, tan) if t4[0] == MASSIF and p[1] < 3.2 + 1e-6}
+    h = 4.0 * math.sqrt(2.0)                                  # a corner at half-diagonal, now on an axis
+    assert base == {(round(26.0 + dx, 3), round(-26.0 + dz, 3)) for dx, dz in ((h, 0), (-h, 0), (0, h), (0, -h))}
+    uv_rock = sorted(tuple(u) for u, t4 in zip(bm.chan_arrays[CH_UV], tan) if t4[0] == MASSIF)
+    uv_rigid = sorted(tuple(u) for u, t4 in zip(rigid["changed"][(0, 0)].chan_arrays[CH_UV],
+                                                 rigid["changed"][(0, 0)].chan_arrays[CH_TAN]) if t4[0] == MASSIF)
+    assert uv_rock == uv_rigid
+    q = _carve_pyramid(tmp_path, rot_deg=450)                 # 450 = 90: the int swap, not cos/sin
+    assert q["rot"] == 1 and isinstance(q["rot"], int) and q["report"]["rot_deg"] == 90
+    with pytest.raises(ValueError, match="finite angle"):
+        _carve_pyramid(tmp_path, rot_deg=float("nan"))
+
+
+def test_cli_world_mountain_passes_rock_height_and_rot(monkeypatch, capsys):
     from ff9mapkit import cli
     seen = {}
 
@@ -759,11 +803,12 @@ def test_cli_world_mountain_passes_rock_height_and_reports_it(monkeypatch, capsy
     monkeypatch.setattr(IN, "carve_mountain", fake_carve)
     monkeypatch.setattr(IN, "census_gate", lambda *a, **k: None)
     args = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0",
-                                          "--rock-height", "1.5", "--dry-run"])
+                                          "--rock-height", "1.5", "--rot", "30", "--dry-run"])
     assert cli._cmd_world_mountain(args) == 0
-    assert seen["rock_height"] == 1.5
+    assert seen["rock_height"] == 1.5 and seen["rot_deg"] == 30.0
     assert "rock height x1.5: 1 rock positions stretched about 4 pinned" in capsys.readouterr().out
-    assert cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0"]).rock_height == 1.0
+    dflt = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0"])
+    assert dflt.rock_height == 1.0 and dflt.rot is None
 
 
 def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):
@@ -867,6 +912,19 @@ def test_carve_forest_fallback_ring_wears_the_assign_mains_policy(monkeypatch, t
     assert bm.chan_arrays == bm2.chan_arrays and bm.tris == bm2.tris
 
 
+def test_carve_forest_zip_welds_bit_for_bit_to_the_kept_grass(monkeypatch, tmp_path):
+    """THE EXACT-WELD LAW in the forest carve (the same zip pattern as the mountain's): on ground whose heights
+    are not round, every emitted position must be one float triple."""
+    _patch_donor(monkeypatch, _canopy_donor())
+    res = IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid(y=3.21371)}), center=(26.0, -26.0),
+                          donor=(15, 15), game=tmp_path, log=lambda *a: None)
+    floats = defaultdict(set)
+    for p in res["changed"][(0, 0)].chan_arrays[CH_POS]:
+        floats[IN.kk3(p)].add(tuple(p))
+    split = {k: v for k, v in floats.items() if len(v) > 1}
+    assert not split, f"{len(split)} welds hold two floats, e.g. {next(iter(split.items()))}"
+
+
 # ---- the deployed-block loader ---------------------------------------------------------------
 
 def test_read_deployed_blocks_semantics(tmp_path):
@@ -934,7 +992,9 @@ UAHO_PRISTINE_SHA = "e74eb4ecc6ffa82309eb30b8699d77928751cf63e19e20ea7ccfc92bd9c
 UAHO_JULY_SHA = "ad2da91874dd4c3665c187d22bb81d6c1152139dbdf3f31135ce386da85f877c"
 #: today's default carve = July + R5b THE LAWN-LINE SNAP (3 uv.v) + R5c THE FRINGE-SEAM
 #: UNIFY (8 uv.v), studies/overworld-topography/west-seam-continent/UAHO-*-BENCH.md
-UAHO_CARVE_SHA = "886573685d79b2455130bfdea9fa9196f9e76ea8760784e92d09316a3239a998"
+#: + THE EXACT-WELD LAW (terrain round 16): the zip's grass corners on the kept grass's own
+#: floats, not the hole ring's rounded keys (87 pos.y <= 5e-4u, their re-smoothed normals)
+UAHO_CARVE_SHA = "f9f16a2d4e803ecfb7773769d5ae0e3850ca8d095001e77bc839b4bf903ed41b"
 
 ISLAND_E_BLOCKS = [(4, 17), (5, 17), (4, 18), (5, 18), (6, 18)]
 ISLAND_E_FOREST = (312, -1140)          # recovered from the July deploy's canopy (topo 37)
@@ -1017,6 +1077,12 @@ def _uaho_carve(path, out):
     return res, M.write_ff9mesh(res["changed"][(2, 19)], out)
 
 
+def _july_welds(mp):
+    """Emit the zip's grass corners as the hole ring's rounded keys, as the July carve did (THE EXACT-WELD LAW's
+    seam): only this reproduces the in-game-approved July bytes."""
+    mp.setattr(IN, "_weld_point", lambda key, exact: key)
+
+
 def _uaho_r5_off(mp):
     """Switch R5b + R5c off: carve_mountain then runs its July path."""
     mp.setattr(IN, "_lawn_line_snap", lambda np_, *, rock_topos, log=print: (np_, {"entries": 0}))
@@ -1038,10 +1104,42 @@ def test_carve_mountain_reproduces_the_july_uaho_bench(tmp_path, monkeypatch):
         "the carve's input is no longer the July bench, so the carve cannot be judged")
     with monkeypatch.context() as mp:
         _uaho_r5_off(mp)
+        _july_welds(mp)
         res, got = _uaho_carve(pris, tmp_path / "july.ff9mesh")
     assert (res["center"], res["rot"]) == ((162, -1246), 0)
     assert res["report"]["patched_holes"] == 1
     assert _sha(got) == UAHO_JULY_SHA, "carve_mountain no longer reproduces the July Uaho bench"
+
+
+@needs_game
+def test_carve_mountain_exact_weld_is_the_only_change_since_july(tmp_path, monkeypatch):
+    """THE EXACT-WELD LAW (terrain round 16: the owner saw 1-pixel seams round a carried foot) against the July
+    anchor: the July bytes emitted the zip's grass corners as the hole ring's rounded KEYS, so some welds held two
+    floats; today's carve holds one float per weld, and differs from July ONLY there -- the same tris, UVs and
+    tangents, positions moved in y alone by < 5e-4u, normals re-smoothed by < 1e-4."""
+    pris = _uaho_mint(tmp_path, monkeypatch, pristine=True)[(2, 19)]
+    with monkeypatch.context() as mp:
+        _uaho_r5_off(mp)
+        _july_welds(mp)
+        _, july = _uaho_carve(pris, tmp_path / "july.ff9mesh")
+    with monkeypatch.context() as mp:
+        _uaho_r5_off(mp)
+        _, now = _uaho_carve(pris, tmp_path / "now.ff9mesh")
+    a, b = _read19(july), _read19(now)
+    assert a.tris == b.tris
+    for ch in (CH_UV, CH_TAN):
+        assert np.array_equal(np.asarray(a.chan_arrays[ch], np.float32), np.asarray(b.chan_arrays[ch], np.float32))
+    pa, pb = (np.asarray(m.chan_arrays[CH_POS], np.float32) for m in (a, b))
+    assert np.array_equal(pa[:, [0, 2]], pb[:, [0, 2]]) and 0 < np.abs(pa[:, 1] - pb[:, 1]).max() < 5e-4
+    na, nb = (np.asarray(m.chan_arrays[CH_NRM], np.float32) for m in (a, b))
+    assert np.abs(na - nb).max() < 1e-4
+
+    def split_welds(m):
+        floats = defaultdict(set)
+        for q in m.chan_arrays[CH_POS]:
+            floats[IN.kk3(q)].add(tuple(q))
+        return sum(1 for v in floats.values() if len(v) > 1)
+    assert split_welds(a) > 0 and split_welds(b) == 0
 
 
 @needs_game

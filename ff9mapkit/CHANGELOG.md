@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-mountain --rot`: a carried mountain at any angle
+- `world-mountain --rot DEG` turns the carried massif about its centre to any angle (clockwise seen from above):
+  exact with `--center`, the only angle `--near` tries. The rock's texture turns with it unchanged; the grass stays
+  on its grid and the seam round the foot is built fresh and gated as before. Quarter angles produce exactly the
+  bytes they did before.
+- Offline, Uaho, the crag and comp20 carve cleanly at every 15° (rigid and with `--rock-height 1.5`). In game, the
+  Uaho carry at 0°, 45° and 30° (×1.5) passed every height, foot and walk check, and the owner's look.
+
+### Fixed — hairline seams round a carried mountain's or forest's foot
+- `world-mountain` and `world-forest` built the grass side of the seam round the foot from rounded vertex keys, so
+  about 30 points per carve sat up to 0.0005u off the grass beside them: invisible to every gate, single-pixel
+  holes on screen. The seam now takes the grass's exact positions. Present since the first carve; seen in game.
+
+### Fixed — `world-island` names the probe that refused a mint
+- A "NOT CLEAN" refusal printed every gate as clean when the failure was a placement probe (left out as too long);
+  it now names the failing probes, e.g. a ground-query miss in one block.
+
 ### Added — `world-mountain --rock-height`: carry a mountain taller
 - `world-mountain --rock-height S` (1.0–2.0) stretches the carried rock S times taller about its rim, its
   texture carried. The rim, the welds to any floor or ledge and the aperture plugs stay where they are, so the

@@ -1007,11 +1007,54 @@ The owner judges from blind panels (A-D, seeded order, key in the first run dir'
 
 What it licenses: a smooth pure-Y height scale of carried rock about its pinned rim, up to x2.0 (texture stretch p50 1.55, max 2.1), on Uaho's rock at the default overworld camera (~26u, two sides, no fog). What it does not: the v1/v2 blend conform's smear stays refuted (an uneven, rim-driven per-vertex pull, not a height scale), so `MTN_ROCK_RIGID` keeps guarding any deformation a builder does not declare. Untested: other donors (the crag, the horseshoe), close camera angles, the alcove.
 
+## Round 16 (2026-10-13, owner's go: "yes, start on the any-angle rotation"): `world-mountain --rot`, 37/37; the owner passes it
+
+Three runs, each one launch with a scratch folder `FF9CustomMap-lab` first in FolderNames (ini backed up to
+`backups/Memoria.ini.<stamp>.rot-mountain*` and restored byte-exact after each, sha256 `efaebbf4…`; each lab moved
+into its run dir). The lab is one scratch island on open ocean no live folder touches, blocks (20,0)-(21,1)
+(`world-island --center 1340.5,-70.5 --radius 31 --lobes 1 --patches 0 --seed 42`), carved three ways with the
+Uaho massif: A `--rot 0` (the control), B `--rot 45`, C `--rot 30 --rock-height 1.5`. Each stage swaps the lab's
+four Terrain files and re-enters the disc-1 world through bench 6603. Scenario: `../rockstretch/rot_session.py`;
+predictions: `rot_prep.py`.
+
+| run | build | mist | checks |
+|---|---|---|---|
+| `.harness-runs/20261012-233522-rot-mountain` | as merged | on | 31/33 (two instrument misses, below) |
+| `.harness-runs/20261012-234257-rot-mountain-2` | as merged | off | 37/37 |
+| `.harness-runs/20261012-235716-rot-mountain-3` | the exact-weld fix | off | 37/37 |
+
+### 31. A carried mountain at any angle, and the foot's hairline seams
+
+Per stage, all three runs agree: the summit reads the variant's own peak (A 11.762, B 11.719, C 15.621 against
+11.764 / 11.722 / 15.616 built), the 12 points 2u outside the rock foot all read the built ground (36/36 per run),
+and a walk straight at the massif from west and east ends blocked at the foot on the built grass (within 0.004 of
+its height, rock within 1.5u), never dipping toward the sea.
+
+**The owner, watching run 2: "a small seam in the grass ... some 1-pixel seams as well."** The meshes have no open
+edge or T-junction (`rot_cracks.py`, calibrated by injecting both). But about 30 welds per carve held two FLOATS
+up to 5e-4u apart: the zip's grass side was built from the hole ring's kk3 KEYS (rounded to 1e-3), its rock side
+from exact positions. Every gate keys on kk3, so none could see it; on screen it is a pinhole ring round the foot.
+A (0 deg) had it too: the defect predates `--rot` (the July bench carried it), and `carve_forest` has the same
+pattern. Fixed in both (THE EXACT-WELD LAW); 0 split welds in every rebuilt variant. Counted in the same nine
+stills, sky-coloured pinholes in the grass fell 31 -> 14; the rest sit at identical screen spots in both runs, and
+X1's verbatim stock Uaho block shows 7-15 a frame (the stock "seam slits" open item, section 8.1).
+
+**Verdict (owner, watching run 3 live): "passed my visual check."**
+
 ## Not run
 
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
+
+- **A TELEPORT TARGET MUST SIT INSIDE ITS TRIANGLE, NOT ON AN EDGE (round 16).** Off the 4u lattice LINES is not
+  enough: a point on a grass cell's DIAGONAL is on a shared edge, and the one-shot cast there missed both tris in
+  one variant: the player hung at y 0, invisible, unable to move (run 1, C/north). Keep every target >= 0.08
+  barycentric inside its tri (`rot_prep.castable`).
+- **A walk's progress along a bearing overstates on a slanted foot (round 16):** the player slides along it and
+  keeps gaining progress. Judge where he stops (ground, height, distance to the obstacle), not how far he got.
+- **Disc 1 at scenario 0 has mist over the open sea too (round 16).** Texture stills need it off: put
+  `world-environment`'s `mist = false` Environment.txt in the lab (re-read at every world load).
 
 - **FACE ON OPEN GROUND FIRST (round 15).** `world_face` learns the bumper's turn rate from its first correction and keeps
   it on the session. At a viewpoint ~14u from a massif that correction read +0.07 deg twice (the "up" probe slid along
