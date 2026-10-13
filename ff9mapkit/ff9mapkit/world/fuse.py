@@ -383,6 +383,10 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks)
         else:                                                # mountain
             extra = {"ground": row["ground"]} if "ground" in row else {}
+            from .donors import home_ground_note
+            note = home_ground_note(_parse_block_rect(row["donor"]), row.get("ground", "grass"))
+            if note:
+                print(note)
             res = IN.carve_mountain(soup, donor=_parse_block_rect(row["donor"]),
                                     disc=disc, game=game, **loc, **extra)
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,

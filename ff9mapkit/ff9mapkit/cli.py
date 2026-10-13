@@ -5574,6 +5574,10 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     try:
         (wx, wz), exact = _parse_world_point(args)
         donor_blocks = _parse_block_rect(args.donor)
+        from .world.donors import home_ground_note
+        note = home_ground_note(donor_blocks, args.ground)
+        if note:
+            print(note)
         blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
                                          disc=args.disc, game=args.game,
                                          target_disc=args.target_disc)

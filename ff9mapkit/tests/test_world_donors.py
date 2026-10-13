@@ -114,6 +114,40 @@ def test_catalog_rows_are_well_formed():
         from ff9mapkit.world.mesh import block_in_grid
         for (bx, by) in cli._parse_block_rect(r["blocks"]):
             assert block_in_grid(bx, by), r
+        # every massif names the ground it stands on at home, a family the kit can mint
+        if r["class"] == "massif":
+            from ff9mapkit.world.grassland import GROUNDS
+            assert r.get("home_ground") in GROUNDS, r
+
+
+# ---- THE HOME-GROUND WARNING (terrain study, mountaindonors/) -------------------------------------------------------
+
+def test_home_ground_note_names_the_home():
+    from ff9mapkit.world.donors import home_ground_note, spec_blocks
+    crag = sorted(spec_blocks("10,5-6"))
+    assert home_ground_note(crag, "desert") is None                       # its own ground: silent
+    note = home_ground_note(crag, "grass")
+    assert note and "crag" in note and "--ground desert" in note
+    assert home_ground_note(list(reversed(crag)), "grass") == note       # a rect is a set: any order
+    assert home_ground_note([(0, 0)], "grass") is None                    # Uaho at home
+    assert "uaho" in home_ground_note([(0, 0)], "desert")
+    assert home_ground_note([(19, 3)], "desert") is None                  # the desert peak at home
+    assert home_ground_note([(10, 5)], "grass") is None                   # half the crag's rect: not a catalogued donor
+    assert home_ground_note([(15, 15)], "desert") is None                 # a canopy row is not a massif
+
+
+def test_world_mountain_prints_the_home_ground_warning(monkeypatch, capsys):
+    """The call-site warning prints before any geometry. Delete it in _cmd_world_mountain and this goes red."""
+    from ff9mapkit.world import interior as IN
+    monkeypatch.setattr(IN, "read_deployed_blocks",
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError("stub -- stops before any geometry")))
+    for ground, warned in (("grass", True), ("desert", False)):
+        args = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "X", "--near", "100,-100",
+                                              "--donor", "10,5-6", "--ground", ground])
+        assert args.func(args) == 2
+        out = capsys.readouterr()
+        assert "stub" in out.err
+        assert ("WARNING home ground" in out.out) is warned, (ground, out.out)
 
 
 def test_world_donors_verb_prints_the_table(capsys):
