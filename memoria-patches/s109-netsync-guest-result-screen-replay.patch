@@ -1,0 +1,2590 @@
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+index b3f595e..eecb904 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+@@ -710,6 +710,28 @@ public partial class BattleHUD : UIScene
+         Hide(() => PersistenSingleton<UIManager>.Instance.ChangeUIState(UIManager.UIState.BattleResult));
+     }
+ 
++    // [ff9mapkit netsync B5] stage 10 -- THE GUEST'S RESULT-SCREEN REPLAY ENTRY (studies/battle-coop/B4-B5-DESIGN.md 5.6):
++    // GoToBattleResult minus every reward-side line -- no ClearBattleBonus, no 'BattleEnd' support-ability trigger (it writes
++    // battle.btl_bonus), no escape_gil -- and it never sets IsOver (that opens the reward layer). Called only by
++    // NetSyncDiorama's replay arm tick inside a booted battle diorama; the HUD's own one-shot (_oneTime, re-armed by every
++    // BattleHUD.Show) keeps it once per diorama. The UI-state change runs only while the arm is still wanted: a leave or a
++    // teardown during the HUD's hide fade drops it, so no result screen opens on a diorama that is going away. False = the
++    // one-shot was already spent (nothing happened).
++    public Boolean NetGoToBattleResultReplay()
++    {
++        if (!_oneTime)
++            return false;
++        _oneTime = false;
++        FPSManager.SetTargetFPS(Configuration.Graphics.MenuFPS);
++        FPSManager.SetMainLoopSpeed(Configuration.Graphics.MenuTPS);
++        Hide(() =>
++        {
++            if (Memoria.Netsync.NetSyncDiorama.ReplayStillWanted())
++                PersistenSingleton<UIManager>.Instance.ChangeUIState(UIManager.UIState.BattleResult);
++        });
++        return true;
++    }
++
+     public void GoToGameOver()
+     {
+         if (!_oneTime)
+diff --git a/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs b/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
+index df3b912..1f66f23 100644
+--- a/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
++++ b/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
+@@ -21,6 +21,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+         SceneDirector.FF9Wipe_FadeInEx(12);
+         PersistenSingleton<UIManager>.Instance.SetGameCameraEnable(false);
+         this.isTimerDisplay = TimerUI.GetDisplay();
++        if (this.NetBeginReplay())   // [ff9mapkit netsync B5] stage 10 seam a: inside a battle diorama -- the write-nothing replay (InitialNormal only)
++            return;
+         if (FF9StateSystem.Common.FF9.btl_result == FF9StateGlobal.BTL_RESULT_ESCAPE)
+         {
+             if (battle.btl_bonus.escape_gil)
+@@ -43,8 +45,11 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+ 
+     public override void Hide(UIScene.SceneVoidDelegate afterFinished = null)
+     {
++        Boolean netReplay = this._netReplay;   // [ff9mapkit netsync B5] stage 10: decided at THIS hide, not when the fade ends
+         UIScene.SceneVoidDelegate afterHidz = delegate
+         {
++            if (this.NetReplayHidden(netReplay))   // [ff9mapkit netsync B5] stage 10 seam b: the replay's own hide tail (no prevMode, no Replace)
++                return;
+             SceneDirector.FF9Wipe_FadeInEx(256);
+             battle.ff9ShutdownStateBattleResult();
+             this.ItemListPanel.SetActive(false);
+@@ -76,43 +81,70 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+     {
+         if (base.OnKeyConfirm(go))
+         {
+-            switch (this.currentState)
++            // [ff9mapkit netsync B5] stage 10 seam c: a replay's own Confirm (key, pad, mouse) is inert -- the host steps it
++            // (NetFollow -> StepConfirm); the guest's quit prompt still gets the guest's press (base routed it above)
++            if (this.NetSwallowLocalConfirm())
++                return true;
++            this.StepConfirm();
++        }
++        return true;
++    }
++
++    // [ff9mapkit netsync B5] stage 10: OnKeyConfirm's state machine, moved verbatim -- the one writer of every ResultState
++    // step; the replay's chase driver (BattleResultUI.Net.cs NetFollow) calls it directly, never through OnKeyConfirm, so a
++    // host step can never answer the guest's quit prompt.
++    private void StepConfirm()
++    {
++        switch (this.currentState)
++        {
++            case BattleResultUI.ResultState.Start:
++                FF9Sfx.FF9SFX_PlayLoop(105);
++                this.currentState = BattleResultUI.ResultState.EXPAndAPTick;
++                break;
++            case BattleResultUI.ResultState.EXPAndAPTick:
+             {
+-                case BattleResultUI.ResultState.Start:
+-                    FF9Sfx.FF9SFX_PlayLoop(105);
+-                    this.currentState = BattleResultUI.ResultState.EXPAndAPTick;
+-                    break;
+-                case BattleResultUI.ResultState.EXPAndAPTick:
++                FF9Sfx.FF9SFX_StopLoop(105);
++                this.currentState = BattleResultUI.ResultState.EndEXPAndAP;
++                for (Int32 i = 0; i < this.expValue.Length; i++)
+                 {
+-                    FF9Sfx.FF9SFX_StopLoop(105);
+-                    this.currentState = BattleResultUI.ResultState.EndEXPAndAP;
+-                    for (Int32 i = 0; i < this.expValue.Length; i++)
+-                    {
+-                        BattleEndValue endValue = this.expValue[i];
+-                        endValue.step = endValue.value;
+-                    }
+-                    this.UpdateExp();
+-                    for (Int32 i = 0; i < this.apValue.Length; i++)
+-                    {
+-                        BattleEndValue endValue = this.apValue[i];
+-                        endValue.step = endValue.value;
+-                    }
+-                    this.UpdateAp();
+-                    this.DisplayEXPAndAPInfo();
+-                    this.DisplayCharacterInfo();
+-                    this.ApplyTweenAndFade();
+-                    break;
++                    BattleEndValue endValue = this.expValue[i];
++                    endValue.step = endValue.value;
+                 }
+-                case BattleResultUI.ResultState.EndEXPAndAP:
+-                    this.ApplyTweenAndFade();
+-                    break;
+-                case BattleResultUI.ResultState.StartGilAndItem:
+-                    if (!this.UpdateItem())
+-                    {
+-                        this.ItemOverflowPanelTween.TweenIn(null);
+-                        this.currentState = BattleResultUI.ResultState.ItemFullDialog;
+-                    }
+-                    else if (this.gilValue.value == 0u)
++                this.UpdateExp();
++                for (Int32 i = 0; i < this.apValue.Length; i++)
++                {
++                    BattleEndValue endValue = this.apValue[i];
++                    endValue.step = endValue.value;
++                }
++                this.UpdateAp();
++                this.DisplayEXPAndAPInfo();
++                this.DisplayCharacterInfo();
++                this.ApplyTweenAndFade();
++                break;
++            }
++            case BattleResultUI.ResultState.EndEXPAndAP:
++                this.ApplyTweenAndFade();
++                break;
++            case BattleResultUI.ResultState.StartGilAndItem:
++                if (!this.UpdateItem())
++                {
++                    this.ItemOverflowPanelTween.TweenIn(null);
++                    this.currentState = BattleResultUI.ResultState.ItemFullDialog;
++                }
++                else if (this.gilValue.value == 0u)
++                {
++                    this.currentState = BattleResultUI.ResultState.End;
++                }
++                else
++                {
++                    FF9Sfx.FF9SFX_PlayLoop(109);
++                    this.currentState = BattleResultUI.ResultState.GilTick;
++                }
++                break;
++            case BattleResultUI.ResultState.ItemFullDialog:
++                this.ItemOverflowPanelTween.TweenOut(delegate
++                {
++                    if (this.gilValue.value == 0u)
+                     {
+                         this.currentState = BattleResultUI.ResultState.End;
+                     }
+@@ -121,35 +153,20 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+                         FF9Sfx.FF9SFX_PlayLoop(109);
+                         this.currentState = BattleResultUI.ResultState.GilTick;
+                     }
+-                    break;
+-                case BattleResultUI.ResultState.ItemFullDialog:
+-                    this.ItemOverflowPanelTween.TweenOut(delegate
+-                    {
+-                        if (this.gilValue.value == 0u)
+-                        {
+-                            this.currentState = BattleResultUI.ResultState.End;
+-                        }
+-                        else
+-                        {
+-                            FF9Sfx.FF9SFX_PlayLoop(109);
+-                            this.currentState = BattleResultUI.ResultState.GilTick;
+-                        }
+-                    });
+-                    break;
+-                case BattleResultUI.ResultState.GilTick:
+-                    this.currentState = BattleResultUI.ResultState.End;
+-                    this.gilValue.step = this.gilValue.value;
+-                    FF9Sfx.FF9SFX_StopLoop(109);
+-                    this.UpdateGil();
+-                    this.DisplayGilAndItemInfo();
+-                    break;
+-                case BattleResultUI.ResultState.End:
+-                    this.currentState = BattleResultUI.ResultState.Hide;
+-                    this.Hide(null);
+-                    break;
+-            }
++                });
++                break;
++            case BattleResultUI.ResultState.GilTick:
++                this.currentState = BattleResultUI.ResultState.End;
++                this.gilValue.step = this.gilValue.value;
++                FF9Sfx.FF9SFX_StopLoop(109);
++                this.UpdateGil();
++                this.DisplayGilAndItemInfo();
++                break;
++            case BattleResultUI.ResultState.End:
++                this.currentState = BattleResultUI.ResultState.Hide;
++                this.Hide(null);
++                break;
+         }
+-        return true;
+     }
+ 
+     public override void OnKeyQuit()
+@@ -172,7 +189,7 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+         this.EXPAndAPPhrasePanel.SetActive(false);
+         this.GilAndItemPhrasePanel.SetActive(true);
+         this.receiveGilLabel.rawText = Localization.GetWithDefault("GilSymbol").Replace("%", (this.gilValue.value - this.gilValue.current).ToString());
+-        this.currentGilLabel.rawText = Localization.GetWithDefault("GilSymbol").Replace("%", Mathf.Min(FF9StateSystem.Common.FF9.party.gil, 9999999f).ToString());
++        this.currentGilLabel.rawText = Localization.GetWithDefault("GilSymbol").Replace("%", Mathf.Min(this.NetPartyGil, 9999999f).ToString());   // [ff9mapkit netsync B5] stage 10 seam k
+         FF9UIDataTool.DisplayTextLocalize(this.infoLabelGameObject, "BattleResultInfoGilItem");
+         if (this.itemList.Count > 0)
+         {
+@@ -201,6 +218,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+ 
+     private void DisplayCharacterInfo()
+     {
++        if (this.NetDisplayCharacterInfo())   // [ff9mapkit netsync B5] stage 10 seam e: valid rows only, level/exp/status from the shadows
++            return;
+         for (Int32 i = 0; i < 4; i++)
+         {
+             PLAYER player = FF9StateSystem.Common.FF9.party.member[i];
+@@ -247,6 +266,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+ 
+     private void DisplayLevelup(Int32 index)
+     {
++        if (this.NetDisplayLevelup(index))   // [ff9mapkit netsync B5] stage 10 seam g: the shadow level + the animation, never GrowLevel
++            return;
+         PLAYER player = FF9StateSystem.Common.FF9.party.member[index];
+         ff9play.FF9Play_GrowLevel(player, player.level + 1);
+         this.totalLevelUp[index]++;
+@@ -324,6 +345,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+ 
+     private Boolean IsEnableDraw(PLAYER play, Int32 id)
+     {
++        if (this._netReplay)   // [ff9mapkit netsync B5] stage 10 seam f: the host's draw flag (its manifest row), never the guest's bonus
++            return this.NetRowDraw(id);
+         return this.IsEnable(play) && (battle.btl_bonus.member_flag & 1 << id) != 0;
+     }
+ 
+@@ -404,6 +427,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+ 
+     private void InitialInfo()
+     {
++        if (this.NetFillReplay())   // [ff9mapkit netsync B5] stage 10 seam d: the model from the HOST's manifest (the stock step math)
++            return;
+         this.AnalyzeBonusItem();
+         PLAYER[] party = FF9StateSystem.Common.FF9.party.member;
+         HashSet<SupportingAbilityFeature> triggeredSA = new HashSet<SupportingAbilityFeature>();
+@@ -438,21 +463,7 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+                 {
+                     BattleEndValue battleEndValue = new BattleEndValue();
+                     battleEndValue.value = individualBonus.exp;
+-                    if (battleEndValue.value < (UInt64)EXPMinTick)
+-                    {
+-                        battleEndValue.step = 1u;
+-                    }
+-                    else if (battleEndValue.value < (UInt64)(EXPMinTick * EXPDefaultAdd))
+-                    {
+-                        battleEndValue.step = (UInt32)((battleEndValue.value + (UInt64)EXPMinTick - 1UL) / (UInt64)EXPMinTick);
+-                    }
+-                    else
+-                    {
+-                        battleEndValue.step = (UInt32)BattleResultUI.EXPDefaultAdd;
+-                        UInt32 expTick = battleEndValue.value / battleEndValue.step;
+-                        if (expTick > BattleResultUI.EXPTickMax)
+-                            battleEndValue.step = (UInt32)((battleEndValue.value + (UInt64)BattleResultUI.EXPTickMax - 1UL) / (UInt64)BattleResultUI.EXPTickMax);
+-                    }
++                    battleEndValue.step = BattleResultUI.ExpTickStep(battleEndValue.value);   // [ff9mapkit netsync B5] stage 10: extracted (shared with the replay)
+                     battleEndValue.current = 0u;
+                     this.expValue[i] = battleEndValue;
+                 }
+@@ -467,16 +478,35 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+             }
+         }
+         this.gilValue.value = (UInt32)this.defaultGil;
+-        if (this.gilValue.value < (UInt64)BattleResultUI.GilCountTick)
+-            this.gilValue.step = 1u;
+-        else if ((UInt64)this.gilValue.value < (UInt64)(BattleResultUI.GilCountTick * BattleResultUI.GilDefaultAdd))
+-            this.gilValue.step = (UInt32)((this.gilValue.value + (UInt64)BattleResultUI.GilCountTick - 1UL) / (UInt64)BattleResultUI.GilCountTick);
+-        else
+-            this.gilValue.step = (UInt32)BattleResultUI.GilDefaultAdd;
++        this.gilValue.step = BattleResultUI.GilTickStep(this.gilValue.value);   // [ff9mapkit netsync B5] stage 10: extracted (shared with the replay)
+         this.gilValue.current = 0u;
+         this.PostProcessItems();
+     }
+ 
++    // [ff9mapkit netsync B5] stage 10: InitialInfo's two tick-step formulas, extracted verbatim so the guest's replay
++    // (BattleResultUI.Net.cs NetFillReplay) ticks the HOST's exp and gil at exactly the stock pace.
++    private static UInt32 ExpTickStep(UInt32 value)
++    {
++        if (value < (UInt64)EXPMinTick)
++            return 1u;
++        if (value < (UInt64)(EXPMinTick * EXPDefaultAdd))
++            return (UInt32)((value + (UInt64)EXPMinTick - 1UL) / (UInt64)EXPMinTick);
++        UInt32 step = (UInt32)BattleResultUI.EXPDefaultAdd;
++        UInt32 expTick = value / step;
++        if (expTick > BattleResultUI.EXPTickMax)
++            step = (UInt32)((value + (UInt64)BattleResultUI.EXPTickMax - 1UL) / (UInt64)BattleResultUI.EXPTickMax);
++        return step;
++    }
++
++    private static UInt32 GilTickStep(UInt32 value)
++    {
++        if (value < (UInt64)BattleResultUI.GilCountTick)
++            return 1u;
++        if ((UInt64)value < (UInt64)(BattleResultUI.GilCountTick * BattleResultUI.GilDefaultAdd))
++            return (UInt32)((value + (UInt64)BattleResultUI.GilCountTick - 1UL) / (UInt64)BattleResultUI.GilCountTick);
++        return (UInt32)BattleResultUI.GilDefaultAdd;
++    }
++
+     public void ShutdownBattleResultUI()
+     {
+         base.StartCoroutine(this.InitialNone_delay());
+@@ -538,6 +568,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+ 
+     private void UpdateExp()
+     {
++        if (this.NetUpdateExp())   // [ff9mapkit netsync B5] stage 10 seam h: the same math on the shadows (capped, then forced, to levelAfter)
++            return;
+         this.expEndTick = true;
+         for (Int32 i = 0; i < 4; i++)
+         {
+@@ -596,6 +628,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+ 
+     private void AddAp(Int32 id, UInt32 ap)
+     {
++        if (this.NetAddAp(id, ap))   // [ff9mapkit netsync B5] stage 10 seam i: apValue only; the host's scheduled learns fire, pa[] untouched
++            return;
+         PLAYER player = FF9StateSystem.Common.FF9.party.member[id];
+         if (ap == 0u || player == null || !ff9abil.FF9Abil_HasAp(player))
+             return;
+@@ -640,7 +674,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+         this.isAbilityLearnSoundPlayed = true;
+         this.abilityLearned[id].Add(abilId);
+         this.NetHostNoteLearned(id, abilId);   // [ff9mapkit netsync B5] stage 9: the harness's learn receipt (host-only)
+-        BattleAchievement.UpdateAbilitiesAchievement(abilId, true);
++        if (!this.NetReplayLearned(id, abilId))   // [ff9mapkit netsync B5] stage 10 seam j: a replay records the learn, never the achievement
++            BattleAchievement.UpdateAbilitiesAchievement(abilId, true);
+     }
+ 
+     private void DisplayApWin()
+@@ -694,12 +729,12 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+             {
+                 keepUpdate = false;
+                 this.gilValue.current += gilAdd;
+-                if (9999999u < FF9StateSystem.Common.FF9.party.gil + gilAdd)
++                if (9999999u < this.NetPartyGil + gilAdd)   // [ff9mapkit netsync B5] stage 10 seam k: party.gil, shadowed in a replay
+                 {
+-                    gilAdd = 9999999u - FF9StateSystem.Common.FF9.party.gil;
++                    gilAdd = 9999999u - this.NetPartyGil;
+                     this.gilValue.current = this.gilValue.value;
+                 }
+-                FF9StateSystem.Common.FF9.party.gil += gilAdd;
++                this.NetPartyGil += gilAdd;
+             }
+         }
+         if (keepUpdate)
+@@ -711,6 +746,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+ 
+     private Boolean UpdateItem()
+     {
++        if (this._netReplay)   // [ff9mapkit netsync B5] stage 10 seam l: no FF9Item_Add, no MiniGame_SetCard -- the HOST's overflow answers
++            return this.NetUpdateItem();
+         Boolean gainedItem = false;
+         for (Int32 i = 0; i < this.itemList.Count; i++)
+         {
+@@ -759,6 +796,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+         {
+             this.isLevelUpSoundPlayed = false;
+             this.isAbilityLearnSoundPlayed = false;
++            if (this._netReplay)   // [ff9mapkit netsync B5] stage 10 seam m: the chase driver steps the replay when the HOST's state steps
++                this.NetFollow();
+             BattleResultUI.ResultState resultState = this.currentState;
+             if (resultState == BattleResultUI.ResultState.GilTick)
+             {
+diff --git a/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs b/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs
+index 3771beb..8abdf73 100644
+--- a/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs
++++ b/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs
+@@ -1,7 +1,11 @@
+ using System;
+ using System.Collections.Generic;
++using UnityEngine;
++using Assets.Scripts.Common;
++using Assets.Sources.Scripts.UI.Common;
+ using FF9;
+ using Memoria.Data;
++using Memoria.Prime;
+ 
+ // [ff9mapkit netsync B5] stage 4 -- the co-op half of the stock result screen (studies/battle-coop/B4-B5-DESIGN.md
+ // sections 5.2 and 5.6). This stage adds ONLY read accessors: the host's end block (Memoria.Netsync.NetSyncEnd) ships
+@@ -19,6 +23,29 @@ using Memoria.Data;
+ // Every tap is HOST-ONLY (NetSyncEnd.HostTapWanted: netsync on, an own battle being streamed, not a diorama) and never
+ // throws into the screen: vanilla and solo return at the gate's first test, and the screen's behaviour never changes.
+ // Plus NetDescribe (harness `battle.result_ui`): the labels as drawn and the model behind them, read-only.
++//
++// [ff9mapkit netsync B5] stage 10 -- THE GUEST'S WRITE-NOTHING REPLAY (design 5.6, 5.7). Inside a booted battle diorama the
++// stock screen IS the replay: Show (seam a) decides it at every show -- `_netReplay` = NetSyncDiorama.Active (the positive
++// containment predicate; a Booted flag stranded outside the live diorama gets the stock screen -- fixer S10-R2), so no result
++// screen inside a diorama can ever reach a reward writer, armed or not -- and takes the arm NetSyncDiorama's arm tick left
++// (the HOST's manifest, its valid rows). From there the stock pages run on the HOST's numbers through shadows:
++//   a Show         InitialNormal only (never InitialEvent); no arm = an INERT screen (nothing shown, nothing written)
++//   b Hide tail    FadeInEx(256) + the song shutdown under the settle's rule (NetSyncDiorama.ReplayHideTailSong: the host's
++//                  b4 keeps the song -- fixer S10-R1) + panels/timer, then NoteReplayHideTail (the stage-6 settle skips both
++//                  halves); never prevMode, never Replace -- the diorama's own Leave returns the guest
++//   c OnKeyConfirm the guest's own Confirm (key, pad, mouse) is swallowed; the chase calls the extracted StepConfirm
++//   d InitialInfo  the model (exp/AP per row, default exp/AP/gil/card, the items) from the manifest, the stock step math
++//   e DisplayCharacterInfo  valid rows only; level / exp / next from the shadows, the status from the host's row
++//   f IsEnableDraw the host's draw flag;  g DisplayLevelup  the shadow level + the animation, never FF9Play_GrowLevel
++//   h UpdateExp    the stock tick on the shadow exp; the shadow level capped at the host's levelAfter, forced to it at the end
++//   i AddAp        apValue only; the host's scheduled learns fire in their (old, new] window, pa[] untouched
++//   j ApLearned    no ability achievement;  k gil  NetPartyGil (the shadow)
++//   l UpdateItem   no FF9Item_Add, no MiniGame_SetCard: the host's overflow (end-block b2) answers, with its sounds
++//   m Update       NetFollow, the chase driver: StepConfirm when the HOST's result state steps (NetSyncEnd.FollowVerdict)
++// THE WRITE GUARD: NetFingerprint (gil, the bag, every seated / known character's level, exp and pa[], the card count, the
++// ability achievement sets) is taken at the open and re-taken at every step, the close and an abort; a change counts in
++// `writes` and logs an ERROR. Vanilla, solo, the host and the guest's own battles never reach a line of it: `_netReplay` is
++// false outside a booted diorama, and every seam returns at its first test.
+ public partial class BattleResultUI
+ {
+     // The ResultState ordinals, pinned to the engine's own (private) enum: NetSyncEnd's chase table and the wire's
+@@ -221,6 +248,7 @@ public partial class BattleResultUI
+         public Boolean CardShown;
+         public Int64 DefaultExp = -1, DefaultAp = -1, DefaultGil = -1, GilValue = -1, GilCurrent = -1, PartyGil = -1;
+         public Int32 Card = -1;
++        public Boolean Replay, Inert;   // [ff9mapkit netsync B5] stage 10: this show is the guest's write-nothing replay / held inert
+         public readonly List<NetResultRow> Rows = new List<NetResultRow>(4);
+         public readonly List<NetResultItem> Items = new List<NetResultItem>(6);
+     }
+@@ -295,6 +323,709 @@ public partial class BattleResultUI
+             }
+         }
+         catch (Exception) { }
++        try { v.Replay = this._netReplay; v.Inert = this._netInert; } catch (Exception) { }   // [ff9mapkit netsync B5] stage 10
++        return v;
++    }
++
++    // ==================================================================================== [ff9mapkit netsync B5] stage 10 -- the replay
++    private Boolean _netReplay;              // THIS show is the guest's write-nothing replay (decided at every Show: Active)
++    private Boolean _netInert;               // a diorama result screen with no armed replay: nothing shown, nothing written
++    private Boolean _netAborted;             // a leave / teardown / fault ended it: nothing steps (the settle owns the hide tail)
++    private Boolean _netHidden;              // its own hide tail ran (seam b)
++    private Boolean _netFaulted;             // the open or the chase threw (logged once): the replay holds, writing nothing
++    private Memoria.Netsync.NetSyncEnd.Manifest _netManifest;
++    private readonly Memoria.Netsync.NetSyncEnd.ManifestRow[] _netRows = new Memoria.Netsync.NetSyncEnd.ManifestRow[4];   // valid rows (null = not drawn)
++    private readonly Int32[] _netLevel = new Int32[4];      // the shadow level per RAW slot (starts at the host's levelBefore)
++    private readonly UInt32[] _netExp = new UInt32[4];      // the shadow exp (starts at the host's expBefore)
++    private UInt32 _netGil;                                  // the shadow party gil (starts at the host's gilBefore)
++    private Boolean _netHostOverflow;                        // the host's sticky end-block b2, seen at least once
++    private Int32 _netHostState = -1;                        // the host's ResultState the chase last read (-1 = none)
++    private Boolean _netHostLoading;
++    private Int32 _netFollow = -1;                           // the last NetSyncEnd.FollowVerdict (-1 = never asked)
++    private Int32 _netLastStepState = -1;                    // the local state the last injected step left
++    private Int32 _netLastStepTick = Environment.TickCount;  // TICK-BASELINE LAW: a real tick, compared only after a step set it
++    private Int32 _netOpenTick = Environment.TickCount;
++    private Int32 _netSteps;                                 // StepConfirm calls the chase injected
++    private Int32 _netLocalConfirms;                         // the guest's own Confirm presses swallowed (seam c)
++    private Int32 _netLocalSteps;                            // ...stepped instead under the `endbench replay local` lever
++    private Boolean _netOverflowShown;                       // seam l answered "the host overflowed" (the ItemFullDialog opens)
++    private readonly List<String> _netTrail = new List<String>(16);    // "L>H" per injected step, e.g. "0>1", "2>2L"
++    private readonly List<Int32[]> _netLearned = new List<Int32[]>(8);  // {slot, abilId, apAt} as the replay's ApLearned fired
++    private readonly List<Int32> _netDue = new List<Int32>(8);          // NetAddAp's learns-due scratch (fixer S10-REG-2)
++    private UInt64 _netFpOpen, _netFpLast;                   // THE WRITE GUARD: the fingerprint at the open / the last check
++    private Int32 _netWrites;                                // fingerprint changes seen while the replay ran (0 = nothing written)
++    private Boolean _netAbortEnforced;
++
++    /// <summary>The screen this show is a replay (harness `battle.result_ui.replay`).</summary>
++    public Boolean NetIsReplay
++    {
++        get { return this._netReplay; }
++    }
++
++    // Seam a (Show, after the timer read): inside the live diorama (Active) EVERY result screen is a write-nothing replay. Takes the
++    // arm (NetSyncDiorama.TakeReplayArm) and builds the pages from the host's manifest; no arm = an inert screen. False =
++    // not a diorama (the stock screen, untouched). Never throws into Show.
++    private Boolean NetBeginReplay()
++    {
++        // [fixer S10-R2] keyed on the POSITIVE containment predicate (Active: armed + booted + the live scene is BattleMapDebug),
++        // not Booted alone -- a Booted flag stranded on a live field (a dropped boot Replace) must never turn a REAL battle's
++        // result screen into an inert one the player cannot leave; it fails toward the stock screen
++        Boolean active, booted;
++        try { active = Memoria.Netsync.NetSyncDiorama.Active; booted = Memoria.Netsync.NetSyncDiorama.Booted; }
++        catch (Exception) { active = false; booted = false; }
++        this._netReplay = active;
++        if (!active)
++        {
++            if (booted)
++                Log.Warning("[NetSync] result replay: a result screen opened with the diorama flag set OUTSIDE the live diorama (scene not "
++                            + "BattleMapDebug) -- the STOCK result screen runs");
++            return false;
++        }
++        this.NetResetReplay();
++        Memoria.Netsync.NetSyncEnd.Manifest m = null;
++        Int32 mask = 0;
++        Byte flags = 0;
++        Boolean armed = false;
++        try { armed = Memoria.Netsync.NetSyncDiorama.TakeReplayArm(out m, out mask, out flags); }
++        catch (Exception) { armed = false; }
++        if (!armed || m == null)
++        {
++            this._netInert = true;
++            this._netAborted = true;
++            this.currentState = BattleResultUI.ResultState.Hide;   // no tick, no step: StepConfirm has no Hide case
++            try { this.AllPanel.SetActive(false); } catch (Exception) { }
++            Log.Warning("[NetSync] result replay: a result screen opened inside the battle diorama with NO armed replay -- held INERT "
++                        + "(nothing shown, nothing written); the guest leaves with the host as before");
++            return true;
++        }
++        try
++        {
++            this._netManifest = m;
++            for (Int32 i = 0; i < 4; i++)
++            {
++                Memoria.Netsync.NetSyncEnd.ManifestRow r = (mask & (1 << i)) != 0 ? m.Rows[i] : null;
++                this._netRows[i] = r;
++                this._netLevel[i] = r != null ? r.LevelBefore : 0;
++                this._netExp[i] = r != null ? r.ExpBefore : 0u;
++            }
++            this._netGil = m.GilBefore;
++            this._netHostOverflow = (flags & Memoria.Netsync.NetSyncEnd.FlagItemOverflow) != 0;
++            this._netOpenTick = Environment.TickCount;
++            this._netFpOpen = NetFingerprint(null);
++            this._netFpLast = this._netFpOpen;
++            this.InitialNormal();      // seam d builds the model from the manifest; every other line is the stock show
++            Log.Message("[NetSync] result replay: OPENED the stock result screen write-nothing on the host's manifest (" + m + "; valid rows 0x"
++                        + mask.ToString("X1") + ") at state " + this.NetStateRaw + " -- it steps when the HOST's result state steps; the "
++                        + "guest's own Confirm is inert, its Quit and Pause stay local (fingerprint 0x" + this._netFpOpen.ToString("X16") + ")");
++        }
++        catch (Exception ex)
++        {
++            this.NetFault("the open faulted: " + ex.GetType().Name + ": " + ex.Message);
++        }
++        return true;
++    }
++
++    private void NetResetReplay()
++    {
++        this._netInert = false;
++        this._netAborted = false;
++        this._netHidden = false;
++        this._netFaulted = false;
++        this._netManifest = null;
++        for (Int32 i = 0; i < 4; i++)
++        {
++            this._netRows[i] = null;
++            this._netLevel[i] = 0;
++            this._netExp[i] = 0u;
++        }
++        this._netGil = 0u;
++        this._netHostOverflow = false;
++        this._netHostState = -1;
++        this._netHostLoading = false;
++        this._netFollow = -1;
++        this._netLastStepState = -1;
++        this._netLastStepTick = Environment.TickCount;
++        this._netSteps = 0;
++        this._netLocalConfirms = 0;
++        this._netLocalSteps = 0;
++        this._netOverflowShown = false;
++        this._netTrail.Clear();
++        this._netLearned.Clear();
++        this._netFpOpen = 0UL;
++        this._netFpLast = 0UL;
++        this._netWrites = 0;
++        this._netAbortEnforced = false;
++    }
++
++    // A fault in the open or the chase: the replay stops stepping (inert from here: nothing written either way), the diorama
++    // stops waiting for its Hide, and the guest leaves with the host. Logged once.
++    private void NetFault(String why)
++    {
++        if (this._netFaulted)
++            return;
++        this._netFaulted = true;
++        this._netAborted = true;
++        try
++        {
++            FF9Sfx.FF9SFX_StopLoop(105);
++            FF9Sfx.FF9SFX_StopLoop(109);
++            this.currentState = BattleResultUI.ResultState.Hide;
++            Memoria.Netsync.NetSyncDiorama.NoteReplayAborted("the replay faulted (" + why + ")");
++            Log.Error("[NetSync] result replay FAULTED -- " + why + "; it holds inert (writes nothing) and the guest leaves with the host");
++        }
++        catch (Exception) { }
++    }
++
++    // Seam b (the Hide's after-hide tail; `wasReplay` read when Hide was CALLED): the stock tail minus prevMode and Replace --
++    // the diorama's own Leave returns the guest. A replay a leave already aborted leaves the song shutdown and the fade lift
++    // to the stage-6 settle (each runs once per return). True = handled (the stock tail must not run).
++    private Boolean NetReplayHidden(Boolean wasReplay)
++    {
++        if (!wasReplay)
++            return false;
++        try
++        {
++            Boolean ownTail = !this._netAborted;
++            Boolean songShut = false;
++            String songWhy = null;
++            if (ownTail)
++            {
++                SceneDirector.FF9Wipe_FadeInEx(256);
++                // [fixer S10-R1] the song half under the settle's rule (the host's end-block b4 first): the stock
++                // ff9ShutdownStateBattleResult alone reads only this diorama's btl_flag and would cut a field song the host keeps
++                songShut = Memoria.Netsync.NetSyncDiorama.ReplayHideTailSong(out songWhy);
++                Memoria.Netsync.NetSyncDiorama.NoteReplayHideTail();   // the stage-6 settle now skips its song shutdown and fade lift
++            }
++            this.ItemListPanel.SetActive(false);
++            if (this.isTimerDisplay && TimerUI.Enable)
++                TimerUI.SetDisplay(true);
++            this._netHidden = true;
++            this.NetCheckWrites("the hide");
++            Log.Message("[NetSync] result replay: CLOSED (" + (ownTail ? "its own hide tail: FadeInEx(256) + " + (songShut ? "the song shutdown" : "the song KEPT -- " + songWhy)
++                                                                         + "; the diorama's Leave returns the guest"
++                                                                      : "after an abort: the stage-6 settle owns the song and the fade")
++                        + ") -- steps " + this._netSteps + ", trail [" + String.Join(" ", this._netTrail.ToArray()) + "], local confirms swallowed "
++                        + this._netLocalConfirms + ", writes " + this._netWrites);
++        }
++        catch (Exception) { }
++        return true;
++    }
++
++    // Seam c: the guest's own Confirm on a replay. True = swallow it (the default: the host steps the screen). The `endbench
++    // replay local` lever lets it through (seam c's red; every writer stays closed). Counted; logged once per replay.
++    private Boolean NetSwallowLocalConfirm()
++    {
++        if (!this._netReplay)
++            return false;
++        try
++        {
++            if (!this._netAborted && Memoria.Netsync.NetSyncEnd.ReplayMode == Memoria.Netsync.NetSyncEnd.ReplayModeLocal)
++            {
++                this._netLocalSteps++;
++                if (this._netLocalSteps == 1)
++                    Log.Message("[NetSync] result replay: CALIBRATION (`endbench replay local`) -- the guest's own Confirm steps the replay");
++                return false;
++            }
++            this._netLocalConfirms++;
++            if (this._netLocalConfirms == 1)
++                Log.Message("[NetSync] result replay: the guest's own Confirm is inert on the host's reward screen (the host steps it; "
++                            + "logged once per replay, local_confirms counts)");
++        }
++        catch (Exception) { }
++        return true;
++    }
++
++    // Seam d (InitialInfo's head): the model from the HOST's manifest -- the valid rows' needExp/needAp, their exp/AP gains
++    // at the stock tick pace (ExpTickStep; AP steps 1), default exp/AP/gil/card and the items -- instead of the guest's
++    // bonus, support abilities and bag. True = handled.
++    private Boolean NetFillReplay()
++    {
++        if (!this._netReplay)
++            return false;
++        Memoria.Netsync.NetSyncEnd.Manifest m = this._netManifest;
++        this.itemList.Clear();
++        this.remainPlayerCounter = 0;
++        if (m == null)
++            return true;
++        for (Int32 i = 0; i < 4; i++)
++        {
++            Memoria.Netsync.NetSyncEnd.ManifestRow r = this._netRows[i];
++            this.isNeedExp[i] = r != null && r.NeedExp;
++            this.isNeedAp[i] = r != null && r.NeedAp;
++            if (this.isNeedExp[i])
++            {
++                this.remainPlayerCounter++;
++                BattleEndValue e = new BattleEndValue();
++                e.value = r.ExpGain;
++                e.step = BattleResultUI.ExpTickStep(e.value);
++                e.current = 0u;
++                this.expValue[i] = e;
++            }
++            if (this.isNeedAp[i])
++            {
++                BattleEndValue a = new BattleEndValue();
++                a.value = r.ApGain;
++                a.step = 1u;
++                a.current = 0u;
++                this.apValue[i] = a;
++            }
++        }
++        this.defaultExp = m.DefaultExp;
++        this.defaultAp = m.DefaultAp;
++        this.defaultGil = (Int32)Math.Min(m.GilGain, (UInt32)Int32.MaxValue);
++        this.defaultCard = (TetraMasterCardId)m.Card;
++        for (Int32 k = 0; k < m.Items.Count && this.itemList.Count < BattleResultUI.ItemMax; k++)
++        {
++            RegularItem id = (RegularItem)m.Items[k].Id;
++            if (m.Items[k].Count == 0)
++                continue;
++            if (!ff9item._FF9Item_Data.ContainsKey(id))   // an id this install's item table lacks would throw in DisplayItem
++            {
++                Log.Message("[NetSync] result replay: the host's item " + m.Items[k].Id + " x" + m.Items[k].Count
++                            + " is not in this install's item table -- not drawn");
++                continue;
++            }
++            this.itemList.Add(new FF9ITEM(id, m.Items[k].Count));
++        }
++        this.gilValue.value = m.GilGain;
++        this.gilValue.step = BattleResultUI.GilTickStep(this.gilValue.value);
++        this.gilValue.current = 0u;
++        return true;
++    }
++
++    // Seam e: the stock row loop on the shadows -- only rows the manifest validated (a seated member whose slot_no is the
++    // row's charId); level / exp / next from the shadow, the statuses from the host's row, the dim from its draw flag.
++    private Boolean NetDisplayCharacterInfo()
++    {
++        if (!this._netReplay)
++            return false;
++        for (Int32 i = 0; i < 4 && i < this.characterBRInfoHudList.Count; i++)
++        {
++            PLAYER player = FF9StateSystem.Common.FF9.party.member[i];
++            Memoria.Netsync.NetSyncEnd.ManifestRow r = this._netRows[i];
++            if (player == null || r == null)
++                continue;
++            Int32 level = this._netLevel[i];
++            UInt64 exp = this._netExp[i];
++            UInt64 nextLvl = level >= ff9level.LEVEL_COUNT ? exp : ff9level.CharacterLevelUps[level].ExperienceToLevel;
++            BattleResultUI.CharacterBattleResultInfoHUD infoHUD = this.characterBRInfoHudList[i];
++            infoHUD.Content.SetActive(true);
++            infoHUD.NameLabel.SetText(player.NameTag);
++            infoHUD.LevelLabel.rawText = level.ToString();
++            infoHUD.ExpLabel.rawText = exp.ToString();
++            infoHUD.NextLvLabel.rawText = (nextLvl > exp ? nextLvl - exp : 0UL).ToString();
++            FF9UIDataTool.DisplayCharacterAvatar(player, new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 0f), infoHUD.AvatarSprite, false);
++            foreach (UISprite statusSprite in infoHUD.StatusesSpriteList)
++                statusSprite.alpha = 0f;
++            Int32 spriteSlot = 0;
++            foreach (BattleStatusId statusId in ((BattleStatus)r.Status).ToStatusList())
++            {
++                if (spriteSlot >= infoHUD.StatusesSpriteList.Length)
++                    break;
++                if (!BattleHUD.DebuffIconNames.TryGetValue(statusId, out String spriteName))
++                    continue;
++                infoHUD.StatusesSpriteList[spriteSlot].alpha = 1f;
++                infoHUD.StatusesSpriteList[spriteSlot].spriteName = spriteName;
++                spriteSlot++;
++            }
++            if (!this.IsEnableDraw(player, i))
++            {
++                this.isRecieveExpList.Add(false);
++                infoHUD.DimSprite.gameObject.SetActive(true);
++                infoHUD.AvatarSprite.alpha = 0.5f;
++            }
++            else
++            {
++                this.isRecieveExpList.Add(true);
++                infoHUD.DimSprite.gameObject.SetActive(false);
++                infoHUD.AvatarSprite.alpha = 1f;
++            }
++        }
++        return true;
++    }
++
++    // Seam f: the host's draw flag for a valid row (no row = dim).
++    private Boolean NetRowDraw(Int32 id)
++    {
++        return id >= 0 && id < 4 && this._netRows[id] != null && this._netRows[id].Draw;
++    }
++
++    // Seam g: one LEVEL UP on the shadow -- the stock counter and animation, never FF9Play_GrowLevel.
++    private Boolean NetDisplayLevelup(Int32 index)
++    {
++        if (!this._netReplay)
++            return false;
++        if (index < 0 || index >= 4)
++            return true;
++        this._netLevel[index]++;
++        this.totalLevelUp[index]++;
++        this.ShowLevelUpAnimation(index);
++        return true;
++    }
++
++    // Seam h: UpdateExp's tick on the shadow exp (the stock gain, cap and end-of-tick tests), the shadow level following it
++    // through the guest's table but CAPPED at the host's levelAfter (NetSyncEnd.ReplayLevel) and FORCED to it once the row's
++    // exp is all in -- the final level is the host's even when the installs' tables differ.
++    private Boolean NetUpdateExp()
++    {
++        if (!this._netReplay)
++            return false;
++        this.expEndTick = true;
++        Func<Int32, UInt32> threshold = lv => ff9level.CharacterLevelUps[lv].ExperienceToLevel;
++        for (Int32 i = 0; i < 4; i++)
++        {
++            Memoria.Netsync.NetSyncEnd.ManifestRow r = this._netRows[i];
++            BattleEndValue v = this.expValue[i];
++            if (!this.isNeedExp[i] || r == null || v == null)
++                continue;
++            UInt32 tickGain = (v.current + v.step > v.value) ? (v.value - v.current) : v.step;
++            if (v.current < v.value)
++            {
++                this.expEndTick = false;
++                if (tickGain != 0u && Memoria.Netsync.NetSyncEnd.ExpCap > this._netExp[i])
++                {
++                    v.current += tickGain;
++                    UInt64 exp = (UInt64)this._netExp[i] + tickGain;
++                    this._netExp[i] = exp >= Memoria.Netsync.NetSyncEnd.ExpCap ? Memoria.Netsync.NetSyncEnd.ExpCap : (UInt32)exp;
++                    Int32 target = Memoria.Netsync.NetSyncEnd.ReplayLevel(this._netLevel[i], this._netExp[i], r.LevelAfter, ff9level.LEVEL_COUNT, threshold);
++                    while (this._netLevel[i] < target)
++                        this.DisplayLevelup(i);
++                }
++            }
++            if (v.current >= v.value)
++                while (this._netLevel[i] < r.LevelAfter && this._netLevel[i] < Byte.MaxValue)
++                    this.DisplayLevelup(i);
++        }
++        return true;
++    }
++
++    // Seam i: AddAp on a replay -- apValue.current advances; every scheduled learn whose apAt falls in (old, new] fires
++    // through the stock ApLearned (the popup, the sound); pa[] is never touched.
++    private Boolean NetAddAp(Int32 id, UInt32 ap)
++    {
++        if (!this._netReplay)
++            return false;
++        Memoria.Netsync.NetSyncEnd.ManifestRow r = id >= 0 && id < 4 ? this._netRows[id] : null;
++        BattleEndValue v = id >= 0 && id < this.apValue.Length ? this.apValue[id] : null;
++        if (ap == 0u || r == null || v == null)
++            return true;
++        UInt32 old = v.current;
++        v.current += ap;
++        List<Int32> due = this._netDue;          // [fixer S10-REG-2] reused: AddAp runs per row per frame through the AP tick
++        due.Clear();
++        Memoria.Netsync.NetSyncEnd.LearnsDue(r, old, v.current, due);
++        for (Int32 k = 0; k < due.Count; k++)
++            this.ApLearned(id, due[k]);
++        return true;
++    }
++
++    // Seam j: ApLearned on a replay records the learn (`replay.screen.learned`) and skips the ability achievement. True =
++    // a replay (the caller skips BattleAchievement.UpdateAbilitiesAchievement).
++    private Boolean NetReplayLearned(Int32 id, Int32 abilId)
++    {
++        if (!this._netReplay)
++            return false;
++        try
++        {
++            if (this._netLearned.Count < 32)
++            {
++                BattleEndValue v = id >= 0 && id < this.apValue.Length ? this.apValue[id] : null;
++                this._netLearned.Add(new Int32[] { id, abilId, v != null ? (Int32)Math.Min(v.current, (UInt32)Int32.MaxValue) : -1 });
++            }
++        }
++        catch (Exception) { }
++        return true;
++    }
++
++    // Seam k: party.gil as the result screen reads and writes it -- the shadow on a replay.
++    private UInt32 NetPartyGil
++    {
++        get { return this._netReplay ? this._netGil : FF9StateSystem.Common.FF9.party.gil; }
++        set
++        {
++            if (this._netReplay)
++                this._netGil = value;
++            else
++                FF9StateSystem.Common.FF9.party.gil = value;
++        }
++    }
++
++    // Seam l: UpdateItem on a replay -- nothing added to the bag, no card collected. The HOST's overflow (its sticky end-block
++    // b2, or its screen on the ItemFullDialog) answers, with the stock sounds; true = everything fit.
++    private Boolean NetUpdateItem()
++    {
++        Int32 host;
++        Boolean hostLoading;
++        Byte flags;
++        if (Memoria.Netsync.NetSyncDiorama.ReplayHostState(out host, out hostLoading, out flags))
++        {
++            this._netHostState = host;
++            if ((flags & Memoria.Netsync.NetSyncEnd.FlagItemOverflow) != 0)
++                this._netHostOverflow = true;
++        }
++        Boolean overflow = this._netHostOverflow || Memoria.Netsync.NetSyncEnd.ReplayOverflow(flags, this._netHostState);
++        if (overflow)
++        {
++            FF9Sfx.FF9SFX_Play(1046);
++            if (this.itemList.Count != 0 || this.defaultCard != TetraMasterCardId.NONE)
++                FF9Sfx.FF9SFX_Play(108);
++            this._netOverflowShown = true;
++        }
++        Log.Message("[NetSync] result replay: items -- the host " + (overflow ? "OVERFLOWED (the ItemFullDialog opens)" : "fit everything")
++                    + "; nothing added to the guest's bag, no card collected");
++        return !overflow;
++    }
++
++    // Seam m: THE CHASE DRIVER (design 5.6 NetFollow), every Update while the result screen is the UI state. Reads the host's
++    // result state (NetSyncDiorama.ReplayHostState: this diorama's end block, or Hide once the host's exit latched) and asks
++    // NetSyncEnd.FollowVerdict; on Step it calls StepConfirm -- the stock state machine, never OnKeyConfirm, so the guest's
++    // quit prompt is never answered. An aborted replay is held at Hide with its tick loops stopped.
++    private void NetFollow()
++    {
++        if (!this._netReplay)
++            return;
++        try
++        {
++            if (this._netAborted)
++            {
++                if (!this._netAbortEnforced || this.currentState != BattleResultUI.ResultState.Hide)
++                {
++                    this._netAbortEnforced = true;
++                    FF9Sfx.FF9SFX_StopLoop(105);
++                    FF9Sfx.FF9SFX_StopLoop(109);
++                    this.currentState = BattleResultUI.ResultState.Hide;   // a late TweenOut callback must not restart a tick
++                }
++                this._netFollow = Memoria.Netsync.NetSyncEnd.FollowAborted;
++                return;
++            }
++            Int32 host;
++            Boolean hostLoading;
++            Byte flags;
++            Boolean have = Memoria.Netsync.NetSyncDiorama.ReplayHostState(out host, out hostLoading, out flags);
++            if (have)
++            {
++                this._netHostState = host;
++                this._netHostLoading = hostLoading;
++                if ((flags & Memoria.Netsync.NetSyncEnd.FlagItemOverflow) != 0)
++                    this._netHostOverflow = true;
++            }
++            UIManager ui = PersistenSingleton<UIManager>.Instance;
++            Boolean screenUp = ui != null && ui.State == UIManager.UIState.BattleResult;
++            Boolean quitUp = ui == null || ui.QuitScene == null || ui.QuitScene.isShowQuitUI;
++            Int32 local = (Int32)this.currentState;
++            Int32 now = Environment.TickCount;
++            Int32 v = Memoria.Netsync.NetSyncEnd.FollowVerdict(false, screenUp, quitUp, this.Loading, local, have ? host : -1, hostLoading,
++                                                                this._netLastStepState, now - this._netLastStepTick);
++            this._netFollow = v;
++            if (v != Memoria.Netsync.NetSyncEnd.FollowStep)
++                return;
++            this._netLastStepState = local;
++            this._netLastStepTick = now;
++            this._netSteps++;
++            if (this._netTrail.Count < 24)
++                this._netTrail.Add(local + ">" + host + (hostLoading ? "L" : ""));
++            this.StepConfirm();
++            Log.Message("[NetSync] result replay: step " + this._netSteps + " -- local state " + local + " -> " + this.NetStateRaw
++                        + " (the host reads " + host + (hostLoading ? ", Loading" : "") + ")");
++            this.NetCheckWrites("step " + this._netSteps);
++        }
++        catch (Exception ex)
++        {
++            this.NetFault("the chase faulted: " + ex.GetType().Name + ": " + ex.Message);
++        }
++    }
++
++    /// <summary>NetSyncDiorama.AbortReplay (a Leave, the end-leave past its wait, the teardown): stop stepping, stop the tick
++    /// loops (105 EXP/AP, 109 gil), hold the screen at Hide. The song and the fade belong to the stage-6 settle now. Never
++    /// throws.</summary>
++    internal void NetAbortReplay(String why)
++    {
++        if (!this._netReplay || this._netAborted)
++            return;
++        this._netAborted = true;
++        try
++        {
++            FF9Sfx.FF9SFX_StopLoop(105);
++            FF9Sfx.FF9SFX_StopLoop(109);
++            this._netAbortEnforced = true;
++            if (this.currentState != BattleResultUI.ResultState.Hide)
++                this.currentState = BattleResultUI.ResultState.Hide;
++            this.NetCheckWrites("the abort");
++            Log.Message("[NetSync] result replay: ABORTED -- " + why + " (local state held at Hide, tick loops 105/109 stopped; steps "
++                        + this._netSteps + ", writes " + this._netWrites + ")");
++        }
++        catch (Exception) { }
++    }
++
++    // THE WRITE GUARD: re-take the fingerprint and compare it with the last one; a change while the replay runs is a reward
++    // write that escaped a seam -- counted, logged as an ERROR (with the components), never acted on.
++    private void NetCheckWrites(String at)
++    {
++        try
++        {
++            NetFp parts = new NetFp();
++            UInt64 fp = NetFingerprint(parts);
++            if (fp == this._netFpLast)
++                return;
++            this._netWrites++;
++            this._netFpLast = fp;
++            Log.Error("[NetSync] result replay: WRITE DETECTED at " + at + " -- the guest's save/party/bag fingerprint moved 0x"
++                      + this._netFpOpen.ToString("X16") + " -> 0x" + fp.ToString("X16") + " (" + parts + "); writes=" + this._netWrites);
++        }
++        catch (Exception) { }
++    }
++
++    /// <summary>The fingerprint's components (harness `netsync.battle.end.replay.fp`).</summary>
++    public sealed class NetFp
++    {
++        public UInt64 Hash;
++        public Int64 Gil = -1;
++        public Int32 Items, Cards = -1, Abilities = -1, Passive = -1, Players;
++        public Int64 ItemSum, LevelSum, ExpSum, PaSum;
++
++        public override String ToString()
++        {
++            return "gil " + Gil + ", items " + Items + " (sum " + ItemSum + "), players " + Players + " (levels " + LevelSum + ", exp " + ExpSum
++                   + ", pa " + PaSum + "), cards " + Cards + ", abilities " + Abilities + "/" + Passive;
++        }
++    }
++
++    /// <summary>
++    /// THE WRITE GUARD's instrument: FNV-1a 64 (NetSyncEnd.FpMix) over every value the stock result screen can write -- gil;
++    /// the bag (each slot with a count, in order); each seated member's slot, level, exp and pa[]; every character in the
++    /// player dictionary (sorted) the same way; the card collection's size; the ability achievement sets' sizes. Read-only;
++    /// `parts` (optional) receives the components. Never throws (a fault folds a sentinel in).
++    /// </summary>
++    public static UInt64 NetFingerprint(NetFp parts)
++    {
++        UInt64 h = Memoria.Netsync.NetSyncEnd.FpSeed;
++        NetFp p = parts ?? new NetFp();
++        try
++        {
++            FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
++            p.Gil = ff9.party.gil;
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, ff9.party.gil);
++            foreach (FF9ITEM it in ff9.item)
++            {
++                if (it == null || it.count == 0)
++                    continue;
++                h = Memoria.Netsync.NetSyncEnd.FpMix(h, ((UInt64)(UInt32)(Int32)it.id << 8) | it.count);
++                p.Items++;
++                p.ItemSum += it.count;
++            }
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, (UInt64)p.Items);
++            for (Int32 i = 0; i < 4 && i < ff9.party.member.Length; i++)
++                h = NetFpPlayer(h, ff9.party.member[i], null);
++            List<CharacterId> ids = new List<CharacterId>(ff9.player.Keys);
++            ids.Sort();
++            foreach (CharacterId id in ids)
++            {
++                h = Memoria.Netsync.NetSyncEnd.FpMix(h, (UInt64)(Int64)(Int32)id);
++                h = NetFpPlayer(h, ff9.player[id], p);
++            }
++        }
++        catch (Exception)
++        {
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, 0xDEADUL);
++        }
++        try
++        {
++            p.Cards = QuadMistDatabase.MiniGame_GetAllCardCount();
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, (UInt64)(Int64)p.Cards);
++        }
++        catch (Exception)
++        {
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, 0xC4DUL);
++        }
++        try
++        {
++            p.Abilities = FF9StateSystem.Achievement.abilities.Count;
++            p.Passive = FF9StateSystem.Achievement.passiveAbilities.Count;
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, (UInt64)(Int64)p.Abilities);
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, (UInt64)(Int64)p.Passive);
++        }
++        catch (Exception)
++        {
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, 0xAC4UL);
++        }
++        p.Hash = h;
++        return h;
++    }
++
++    private static UInt64 NetFpPlayer(UInt64 h, PLAYER pl, NetFp p)
++    {
++        if (pl == null)
++            return Memoria.Netsync.NetSyncEnd.FpMix(h, 0xFFFFUL);
++        h = Memoria.Netsync.NetSyncEnd.FpMix(h, (UInt64)(Int64)(Int32)pl.info.slot_no);
++        h = Memoria.Netsync.NetSyncEnd.FpMix(h, pl.level);
++        h = Memoria.Netsync.NetSyncEnd.FpMix(h, pl.exp);
++        Int32 n = pl.pa != null ? pl.pa.Length : -1;
++        h = Memoria.Netsync.NetSyncEnd.FpMix(h, (UInt64)(Int64)n);
++        Int64 paSum = 0;
++        for (Int32 k = 0; k < n; k++)
++        {
++            h = Memoria.Netsync.NetSyncEnd.FpMix(h, (UInt64)(Int64)pl.pa[k]);
++            paSum += pl.pa[k];
++        }
++        if (p != null)
++        {
++            p.Players++;
++            p.LevelSum += pl.level;
++            p.ExpSum += pl.exp;
++            p.PaSum += paSum;
++        }
++        return h;
++    }
++
++    /// <summary>The screen's replay receipts (harness `netsync.battle.end.replay.screen`). Read-only.</summary>
++    public sealed class NetReplayView
++    {
++        public Boolean Replay, Inert, Aborted, Hidden, Faulted, HostOverflow, OverflowShown, HostLoading;
++        public Int32 State = -1, HostState = -1, Follow = -1, Steps, LocalConfirms, LocalSteps, Writes, OpenMs = -1;
++        public Int64 Gil = -1;
++        public UInt64 FpOpen;
++        public readonly List<String> Trail = new List<String>(16);
++        public readonly List<Int32[]> Learned = new List<Int32[]>(8);
++        public readonly Int32[] Levels = { -1, -1, -1, -1 };
++        public readonly Int64[] Exps = { -1, -1, -1, -1 };
++        public readonly Int32[] Chars = { -1, -1, -1, -1 };      // the valid rows' charIds (-1 = not drawn)
++    }
++
++    public NetReplayView NetReplayDescribe()
++    {
++        NetReplayView v = new NetReplayView();
++        try
++        {
++            v.Replay = this._netReplay;
++            v.Inert = this._netInert;
++            v.Aborted = this._netAborted;
++            v.Hidden = this._netHidden;
++            v.Faulted = this._netFaulted;
++            v.HostOverflow = this._netHostOverflow;
++            v.OverflowShown = this._netOverflowShown;
++            v.HostLoading = this._netHostLoading;
++            v.State = this.NetStateRaw;
++            v.HostState = this._netHostState;
++            v.Follow = this._netFollow;
++            v.Steps = this._netSteps;
++            v.LocalConfirms = this._netLocalConfirms;
++            v.LocalSteps = this._netLocalSteps;
++            v.Writes = this._netWrites;
++            v.OpenMs = this._netReplay && !this._netInert ? Environment.TickCount - this._netOpenTick : -1;
++            v.Gil = this._netReplay ? this._netGil : -1;
++            v.FpOpen = this._netFpOpen;
++            v.Trail.AddRange(this._netTrail);
++            v.Learned.AddRange(this._netLearned);
++            for (Int32 i = 0; i < 4; i++)
++            {
++                if (this._netRows[i] == null)
++                    continue;
++                v.Levels[i] = this._netLevel[i];
++                v.Exps[i] = this._netExp[i];
++                v.Chars[i] = this._netRows[i].CharId;
++            }
++        }
++        catch (Exception) { }
+         return v;
+     }
+ }
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index dff3957..cee2d00 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -117,6 +117,12 @@ namespace Memoria.Harness
+         // items and the model (see AppendResultUi), and the selftest verb `netsync endbench manifest 0|1|2|3|none` (fabricate
+         // through the real codec) + the lever `netsync endbench manifest host on|off` join. A driver checks for
+         // `netsync.battle.host.manifest_captures` -- absent = an engine whose end block carries no manifest.
++        // [ff9mapkit netsync B5] stage 10 (the guest's write-nothing result-screen replay), also additive under 5:
++        // `netsync.battle.end` gains `replay` (the arm / exit wait / abort, the screen's receipts and the WRITE GUARD's live
++        // fingerprint -- see AppendReplay), `battle.result_ui` gains `replay`, the selftest lever `netsync endbench replay
++        // on|off|local` and the quit-guard op `netsync endbench quit on|off` join, and NetSyncEnd.SelfTest gains its `replay`
++        // section. A driver checks for
++        // `netsync.battle.end.replay` -- absent = an engine whose guest holds black through the host's reward screen.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1370,6 +1376,15 @@ namespace Memoria.Harness
+                             //   MANIFEST (1 = two-marker from the seated party, 2 = escape with gil, 3 = foreign charIds) and
+                             //   re-fabricates -- read it back at `netsync.battle.peer.end.manifest`; `endbench manifest host
+                             //   on|off` is the stage's lever (off = the host's end block ships no manifest / overflow bit).
++                            // [ff9mapkit netsync B5] stage 10: inside a selftest diorama whose victory was presented, `endbench
++                            //   manifest 1` + `ui 1` + `state 0` (after the first R8 hit) OPENS the stock result screen as the
++                            //   write-nothing replay; each later `state <n> [loading]` steps it (read `netsync.battle.end.replay`
++                            //   and `battle.result_ui`); `endbench replay on|off|local` is the stage's lever (off = no replay
++                            //   arms; local = the guest's own Confirm steps it too -- seam c's red); `endbench quit on|off`
++                            //   opens / hides the guest's OWN quit prompt through the stock quit command (the quit-guard leg:
++                            //   a host step must never answer it) -- close it with `press cancel`, NEVER Confirm (Yes quits).
++                            //   `endbench fieldsong 0|1` (fixer S10-R1) sets flags b4 (the host keeps its field song): the
++                            //   replay's own hide tail then keeps the song too (`end_leave.music_why`).
+                             String eop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             Int32 earg = -1;
+                             Boolean eloading = false;
+@@ -1382,6 +1397,7 @@ namespace Memoria.Harness
+                                 case "state":
+                                 case "overflow":
+                                 case "afterevent":
++                                case "fieldsong":               // [ff9mapkit netsync B5] stage 10 (fixer S10-R1): flags b4
+                                     earg = Arg(s, 2, -1);
+                                     if (earg < 0)
+                                         throw new ArgumentOutOfRangeException("netsync endbench " + eop, "needs a non-negative integer argument");
+@@ -1403,6 +1419,8 @@ namespace Memoria.Harness
+                                 case "host":
+                                 case "guest":                   // [ff9mapkit netsync B5] stage 5
+                                 case "exit":                    // [ff9mapkit netsync B5] stage 6
++                                case "replay":                  // [ff9mapkit netsync B5] stage 10
++                                case "quit":                    // [ff9mapkit netsync B5] stage 10
+                                     emode = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
+                                     break;
+                                 case "manifest":                // [ff9mapkit netsync B5] stage 9
+@@ -2902,7 +2920,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[]},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[]},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3222,7 +3240,188 @@ namespace Memoria.Harness
+             Num(sb, "count", Memoria.Netsync.NetSyncEnd.HarnessLateDeclined); sb.Append(",");
+             Num(sb, "nonce", Memoria.Netsync.NetSyncEnd.HarnessLateDeclinedNonce); sb.Append(",");
+             Str(sb, "why", Memoria.Netsync.NetSyncEnd.HarnessLateDeclinedWhy);
+-            sb.Append("}}");
++            sb.Append("},");
++            AppendReplay(sb);                                                                           // [ff9mapkit netsync B5] stage 10
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync B5] stage 10: `netsync.battle.end.replay` -- the guest's write-nothing RESULT-SCREEN REPLAY
++        // (NetSyncDiorama's arm / exit wait / abort + BattleResultUI.Net.cs's screen; studies/battle-coop/B4-B5-DESIGN.md
++        // 5.6). Per diorama boot: reset by each boot, kept after the teardown until the next one (the `screen` receipts until
++        // the next result screen shows).
++        //   `mode` (the selftest lever: on | off | local), `armed` (armed this boot), `pending` (armed, the screen's Show not
++        //   run yet), `opened` (the Show took the arm), `live` (pending, or on screen and neither closed nor aborted -- the
++        //   end-leave waits for it), `closed` (its own hide tail ran), `aborted` + `abort_why` (a leave / the teardown / a
++        //   fault ended it first), `refused` (no manifest row matched a seated member: a black hold, then the exit), `verdict`
++        //   (the last NetSyncEnd.ArmVerdict: 0 go, 1 lever, 2 not injected, 3 no R8 yet, 4 the host already left, 5 the host
++        //   not on its result screen, 6 its screen at Hide/None, 7 AfterEvent, 8 no manifest, 9 the HUD not up, 10 no valid
++        //   row; -1 = never asked this boot) + `why`, `row_mask` / `seated_mask` (valid rows / seated slots at the arm),
++        //   `manifest_rows`, `host_state_at_arm`, `bench` (armed off the endbench seam), `arm_ms` (injection -> arm),
++        //   `open_ms` (arm -> Show), `close_ms` (arm -> its hide tail), `exit_waited` + `exit_wait_ms` (the end-leave waited
++        //   for it; latch -> the wait's end, -1 = never / still waiting), `screen` (see AppendReplayScreen) and `fp` (the
++        //   WRITE GUARD's fingerprint, read LIVE at this tick -- see AppendReplayFp).
++        private static void AppendReplay(StringBuilder sb)
++        {
++            sb.Append("\"replay\":{");
++            Str(sb, "mode", Memoria.Netsync.NetSyncEnd.HarnessReplayMode); sb.Append(",");
++            Bool(sb, "armed", Memoria.Netsync.NetSyncDiorama.HarnessReplayArmed); sb.Append(",");
++            Bool(sb, "pending", Memoria.Netsync.NetSyncDiorama.HarnessReplayPending); sb.Append(",");
++            Bool(sb, "opened", Memoria.Netsync.NetSyncDiorama.HarnessReplayOpened); sb.Append(",");
++            Bool(sb, "live", Memoria.Netsync.NetSyncDiorama.HarnessReplayLive); sb.Append(",");
++            Bool(sb, "closed", Memoria.Netsync.NetSyncDiorama.HarnessReplayClosed); sb.Append(",");
++            Bool(sb, "aborted", Memoria.Netsync.NetSyncDiorama.HarnessReplayAborted); sb.Append(",");
++            Str(sb, "abort_why", Memoria.Netsync.NetSyncDiorama.HarnessReplayAbortWhy); sb.Append(",");
++            Bool(sb, "refused", Memoria.Netsync.NetSyncDiorama.HarnessReplayRefused); sb.Append(",");
++            Num(sb, "verdict", Memoria.Netsync.NetSyncDiorama.HarnessReplayVerdict); sb.Append(",");
++            Str(sb, "why", Memoria.Netsync.NetSyncDiorama.HarnessReplayWhy); sb.Append(",");
++            Num(sb, "row_mask", Memoria.Netsync.NetSyncDiorama.HarnessReplayRowMask); sb.Append(",");
++            Num(sb, "seated_mask", Memoria.Netsync.NetSyncDiorama.HarnessReplaySeatedMask); sb.Append(",");
++            Num(sb, "manifest_rows", Memoria.Netsync.NetSyncDiorama.HarnessReplayManifestRows); sb.Append(",");
++            Num(sb, "host_state_at_arm", Memoria.Netsync.NetSyncDiorama.HarnessReplayHostStateAtArm); sb.Append(",");
++            Bool(sb, "bench", Memoria.Netsync.NetSyncDiorama.HarnessReplayBench); sb.Append(",");
++            Num(sb, "arm_ms", Memoria.Netsync.NetSyncDiorama.HarnessReplayArmMs); sb.Append(",");
++            Num(sb, "open_ms", Memoria.Netsync.NetSyncDiorama.HarnessReplayOpenMs); sb.Append(",");
++            Num(sb, "close_ms", Memoria.Netsync.NetSyncDiorama.HarnessReplayCloseMs); sb.Append(",");
++            Bool(sb, "exit_waited", Memoria.Netsync.NetSyncDiorama.HarnessReplayExitWaited); sb.Append(",");
++            Num(sb, "exit_wait_ms", Memoria.Netsync.NetSyncDiorama.HarnessReplayExitWaitMs); sb.Append(",");
++            AppendReplayScreen(sb); sb.Append(",");
++            AppendReplayFp(sb);
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync B5] stage 10: `netsync.battle.end.replay.screen` -- the result screen's own replay receipts
++        // (BattleResultUI.NetReplayDescribe; null = no result screen object). `replay` (its last show was a replay), `inert` (a
++        // diorama result screen with no arm: nothing shown, nothing written), `state` (the local ResultState, 0 Start .. 6 End,
++        // 7 Hide, 8 None), `host_state` / `host_loading` (what the chase last read: the host's state, Hide once its exit
++        // latched; -1 = none yet), `follow` (the last NetSyncEnd.FollowVerdict: 0 step, 1 aborted, 2 not the UI state -- the
++        // guest's pause, 3 the guest's quit prompt, 4 the local screen Loading, 5 no host state, 6 in step, 7 rate-limited;
++        // -1 = never) + `follow_why`, `steps` (StepConfirm calls the chase injected -- the ONLY stepper unless the `local`
++        // lever is on), `trail` ["L>H" per injected step, H suffixed `L` while the host was Loading], `local_confirms` (the
++        // guest's own Confirm presses swallowed -- key, pad or mouse), `local_steps` (stepped instead under the `local` lever),
++        // `rows` [{slot, char, level, exp}] (the valid rows' shadows; a row the manifest did not validate is absent), `gil`
++        // (the shadow party gil; -1 = not a replay), `learned` [{slot, abil, ap}] (the replay's ApLearned in fire order),
++        // `host_overflow` (the host's sticky b2 seen) / `overflow_shown` (seam l opened the ItemFullDialog), `hidden` (its own
++        // hide tail ran), `aborted`, `faulted`, `open_ms` (ms since this replay opened; -1 = not a replay), `writes` (WRITE
++        // GUARD: fingerprint changes seen while it ran -- 0 = nothing written) and `fp_open` (the fingerprint at the open, hex).
++        private static void AppendReplayScreen(StringBuilder outer)
++        {
++            BattleResultUI r = null;
++            try
++            {
++                UIManager m = PersistenSingleton<UIManager>.Instance;
++                r = m != null ? m.BattleResultScene : null;
++            }
++            catch (Exception)
++            {
++                r = null;
++            }
++            StringBuilder sb = new StringBuilder(384);
++            try
++            {
++                if (r == null)
++                    throw new InvalidOperationException("no result screen");
++                BattleResultUI.NetReplayView v = r.NetReplayDescribe();
++                sb.Append("\"screen\":{");
++                Bool(sb, "replay", v.Replay); sb.Append(",");
++                Bool(sb, "inert", v.Inert); sb.Append(",");
++                Num(sb, "state", v.State); sb.Append(",");
++                Num(sb, "host_state", v.HostState); sb.Append(",");
++                Bool(sb, "host_loading", v.HostLoading); sb.Append(",");
++                Num(sb, "follow", v.Follow); sb.Append(",");
++                Str(sb, "follow_why", v.Follow < 0 ? null : Memoria.Netsync.NetSyncEnd.FollowWhy(v.Follow)); sb.Append(",");
++                Num(sb, "steps", v.Steps); sb.Append(",");
++                sb.Append("\"trail\":[");
++                for (Int32 i = 0; i < v.Trail.Count; i++)
++                {
++                    if (i > 0)
++                        sb.Append(",");
++                    sb.Append(Quote(v.Trail[i]));
++                }
++                sb.Append("],");
++                Num(sb, "local_confirms", v.LocalConfirms); sb.Append(",");
++                Num(sb, "local_steps", v.LocalSteps); sb.Append(",");
++                sb.Append("\"rows\":[");
++                Boolean first = true;
++                for (Int32 i = 0; i < 4; i++)
++                {
++                    if (v.Chars[i] < 0)
++                        continue;
++                    if (!first)
++                        sb.Append(",");
++                    first = false;
++                    sb.Append("{");
++                    Num(sb, "slot", i); sb.Append(",");
++                    Num(sb, "char", v.Chars[i]); sb.Append(",");
++                    Num(sb, "level", v.Levels[i]); sb.Append(",");
++                    Num(sb, "exp", v.Exps[i]);
++                    sb.Append("}");
++                }
++                sb.Append("],");
++                Num(sb, "gil", v.Gil); sb.Append(",");
++                sb.Append("\"learned\":[");
++                for (Int32 i = 0; i < v.Learned.Count; i++)
++                {
++                    Int32[] l = v.Learned[i];
++                    if (i > 0)
++                        sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "slot", l[0]); sb.Append(",");
++                    Num(sb, "abil", l[1]); sb.Append(",");
++                    Num(sb, "ap", l[2]);
++                    sb.Append("}");
++                }
++                sb.Append("],");
++                Bool(sb, "host_overflow", v.HostOverflow); sb.Append(",");
++                Bool(sb, "overflow_shown", v.OverflowShown); sb.Append(",");
++                Bool(sb, "hidden", v.Hidden); sb.Append(",");
++                Bool(sb, "aborted", v.Aborted); sb.Append(",");
++                Bool(sb, "faulted", v.Faulted); sb.Append(",");
++                Num(sb, "open_ms", v.OpenMs); sb.Append(",");
++                Num(sb, "writes", v.Writes); sb.Append(",");
++                Str(sb, "fp_open", "0x" + v.FpOpen.ToString("X16", CultureInfo.InvariantCulture));
++                sb.Append("}");
++            }
++            catch (Exception)
++            {
++                outer.Append("\"screen\":null");
++                return;
++            }
++            outer.Append(sb);
++        }
++
++        // [ff9mapkit netsync B5] stage 10: `netsync.battle.end.replay.fp` -- THE WRITE GUARD's instrument read LIVE at this tick
++        // (BattleResultUI.NetFingerprint: FNV-1a 64 over every value the stock result screen can write): `hash` (hex), `gil`,
++        // `items` / `item_sum` (bag slots with a count / their total), `players` / `level_sum` / `exp_sum` / `pa_sum` (the
++        // player dictionary), `cards` (the card collection's size), `abilities` / `passive` (the ability achievement sets).
++        // The stage-10 bench reads it on the field before `dioboot`, at every replay page and after the return: identical =
++        // nothing written (the diorama's teardown Restore re-sets gil, so the IN-replay reads are the ones that cannot be masked).
++        private static void AppendReplayFp(StringBuilder outer)
++        {
++            StringBuilder sb = new StringBuilder(256);
++            try
++            {
++                BattleResultUI.NetFp p = new BattleResultUI.NetFp();
++                BattleResultUI.NetFingerprint(p);
++                sb.Append("\"fp\":{");
++                Str(sb, "hash", "0x" + p.Hash.ToString("X16", CultureInfo.InvariantCulture)); sb.Append(",");
++                Num(sb, "gil", p.Gil); sb.Append(",");
++                Num(sb, "items", p.Items); sb.Append(",");
++                Num(sb, "item_sum", p.ItemSum); sb.Append(",");
++                Num(sb, "players", p.Players); sb.Append(",");
++                Num(sb, "level_sum", p.LevelSum); sb.Append(",");
++                Num(sb, "exp_sum", p.ExpSum); sb.Append(",");
++                Num(sb, "pa_sum", p.PaSum); sb.Append(",");
++                Num(sb, "cards", p.Cards); sb.Append(",");
++                Num(sb, "abilities", p.Abilities); sb.Append(",");
++                Num(sb, "passive", p.Passive);
++                sb.Append("}");
++            }
++            catch (Exception)
++            {
++                outer.Append("\"fp\":null");
++                return;
++            }
++            outer.Append(sb);
+         }
+ 
+         // [ff9mapkit netsync B5] stage 6: `netsync.battle.end.end_leave` -- the guest's exit WITH the host (NetSyncDiorama.ExitTick
+@@ -3273,6 +3472,9 @@ namespace Memoria.Harness
+         // `netsync.battle.host.manifest` (or the loopback's `peer.end.manifest`) against these: at state 0 the rows' level /
+         // exp / next / dim and the exp + ap labels, at state 3 (StartGilAndItem) the gil labels, items and card; `model` at
+         // any state. -1 = unreadable.
++        // [ff9mapkit netsync B5] stage 10 adds `replay` (this show is the guest's write-nothing replay: its labels and model
++        // carry the HOST's manifest, `model.party_gil` stays the guest's own -- the shadow is `netsync.battle.end.replay.
++        // screen.gil`).
+         private static void AppendResultUi(StringBuilder sb)
+         {
+             BattleResultUI r = null;
+@@ -3297,7 +3499,8 @@ namespace Memoria.Harness
+             sb.Append("\"result_ui\":{");
+             Num(sb, "state", Try(() => r.NetStateRaw, -1)); sb.Append(",");
+             Bool(sb, "loading", Try(() => r.Loading, false)); sb.Append(",");
+-            Bool(sb, "paused", paused);
++            Bool(sb, "paused", paused); sb.Append(",");
++            Bool(sb, "replay", Try(() => r.NetIsReplay, false));   // [ff9mapkit netsync B5] stage 10: this show is the guest's write-nothing replay
+             AppendResultDescribe(sb, r);       // [ff9mapkit netsync B5] stage 9 (each key prefixed with its comma; nothing on a fault)
+             sb.Append("}");
+         }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index b782c22..a0b6c75 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1608,7 +1608,10 @@ namespace Memoria.Netsync
+                     // B3.6 verify fix: never steal a leave already in flight -- a lane blip during the
+                     // USER's own F6-leave fade used to re-classify their opt-out as a watcher-leave
+                     // (skip never stamped -> yanked straight back in once). Teardown is coming; wait.
+-                    if (!midSwirl && !NetSyncDiorama.LeaveRequestedRecently)
++                    // [ff9mapkit netsync B5] stage 10 (fixer S10-B2): nor cut the end-leave's wait for the result-screen
++                    // replay short (design 5.4 step 1) -- the host's lane goes stale ~2 s after its Hide, inside that 5 s
++                    // window; the wait is self-bounding and the end-leave then leaves itself.
++                    if (!midSwirl && !NetSyncDiorama.LeaveRequestedRecently && !NetSyncDiorama.WatcherLeaveWaitsForReplay())
+                     {
+                         _dioramaActionTick = Environment.TickCount;
+                         _dioramaWatcherLeft = true;      // B3.6: OUR leave -- not a user opt-out (companion fix)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 10a5ce2..78b0715 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -575,6 +575,10 @@ namespace Memoria.Netsync
+                     Log.Message("[NetSync] diorama leave deferred: a fade is in flight; press Leave again.");
+                     return;   // stay armed + booted: the retry button survives, suppression stays on
+                 }
++                // [ff9mapkit netsync B5] stage 10 (design 5.4 step 2): a result-screen replay still up ends here -- its tick
++                // loops stop and it holds; the settle below then owns the song shutdown (and the teardown the fade lift).
++                AbortReplay(via == "end-leave" ? "the host left its battle and the replay did not reach Hide within "
++                                                 + NetSyncEnd.ReplayExitWaitMs + " ms" : "a leave of the diorama");
+                 // [ff9mapkit netsync B5] stage 6: leaving a FINISHED fight settles the return the way the stock result screen's
+                 // hide does (the battle song shut down now; the btl_result stamp and the lifted end fade land at the teardown,
+                 // where no battle frame can undo them). Once per boot; a no-op mid-fight or on a vanilla machine.
+@@ -628,6 +632,7 @@ namespace Memoria.Netsync
+             // runs under isDebug: a diorama turn-based Menu press must not hand the guest's next real battle a forced turn.
+             NetSyncBattle.StockMenuCloseAll("the diorama tore down");
+             BattleHUD.ForceNextTurn = false;
++            AbortReplay("the diorama tore down");       // [ff9mapkit netsync B5] stage 10: a replay still up (or pending) ends with it
+             Disarm();
+             // [ff9mapkit netsync B5] stage 6 -- the return's settle, now that no battle frame can run: the host's btl_result
+             // stamped (Leave decided it provisionally, re-decided here from the host's latest block; btl_result is RAM-only and
+@@ -2008,6 +2013,7 @@ namespace Memoria.Netsync
+             _endLogged.Clear();
+             _achLogged = false;
+             ResetExit();                         // [ff9mapkit netsync B5] stage 6: the exit and its return settle, per boot too
++            ResetReplay();                       // [ff9mapkit netsync B5] stage 10: the result-screen replay, per boot too
+         }
+ 
+         // A guest role: a two-machine client, or the sanctioned selftest bench. (A host never boots a diorama -- MayBoot --
+@@ -2054,6 +2060,7 @@ namespace Memoria.Netsync
+                         _w1Since = Environment.TickCount;
+                     }
+                     EndWatchdogs(b);
++                    ReplayArmTick(ours, e);              // [ff9mapkit netsync B5] stage 10: the result-screen replay, once per boot
+                     return;                              // once per boot: nothing re-injects
+                 }
+                 if (leaving)
+@@ -2396,7 +2403,9 @@ namespace Memoria.Netsync
+         //     it), so the teardown re-decides it from the host's LATEST terminal block of this boot (EndTick keeps reading it
+         //     through the leave fade). A leave before the host writes its result still carries nothing (the F3.3 residue).
+         //   STAGE 10 HAND-OFF -- the hide tail (the song shutdown + FadeInEx(256)) runs ONCE per return: the replay's own Hide
+-        //     tail (seam b, NetReplayHidden) must call NoteReplayHideTail(), which makes the settle skip both halves.
++        //     tail (seam b, NetReplayHidden) must call NoteReplayHideTail(), which makes the settle skip both halves. Its song
++        //     half goes through ReplayHideTailSong -- the SAME rule as the settle (NetSyncEnd.SongVerdict: the host's b4 first;
++        //     fixer S10-R1), so a replay never cuts a field song the host keeps.
+         //   THE LEVER -- `endbench exit off` (selftest only): the trigger still latches (end_leave.trigger), but no end-leave
+         //     and no settle: the pre-stage guest, which holds until `dioleave` / the stale-lane leave.
+         // The late-join decline (a watcher boot into an already-finished fight) lives in NetSyncClient.DioramaTick.
+@@ -2426,6 +2435,7 @@ namespace Memoria.Netsync
+         private static Boolean _wipeLifted;               // the teardown lifted this boot's injected end fade
+         private static Boolean _settleNoGameOver;         // the diorama scene's NoGameOver at the settle (unreadable = false: a DEFEAT is not carried)
+         private static Boolean _replayHideTail;           // stage 10's replay ran the stock hide tail itself (NoteReplayHideTail)
++        private static String _replayMusicWhy;            // [fixer S10-R1] that tail's song decision (ReplayHideTailSong), for music_why
+         private static Boolean _exitErrLogged;            // one fault line per boot
+ 
+         // Every Boot (through ResetEndPresentation): the exit, its settle and its receipts start clean (readable after the
+@@ -2454,6 +2464,7 @@ namespace Memoria.Netsync
+             _wipeLifted = false;
+             _settleNoGameOver = false;
+             _replayHideTail = false;
++            _replayMusicWhy = null;
+             _exitErrLogged = false;
+         }
+ 
+@@ -2493,6 +2504,29 @@ namespace Memoria.Netsync
+                                     : "CALIBRATION: `endbench exit off` holds the pre-stage guest here (no end-leave, no settle)"));
+                 }
+                 Int32 now = Environment.TickCount;
++                // [ff9mapkit netsync B5] stage 10 -- design 5.4 steps 1-2: a replay armed or on screen gets up to
++                // ReplayExitWaitMs to chase the host's Hide and run its OWN hide tail (the stock song shutdown + fade lift, then
++                // NoteReplayHideTail); past the window the Leave aborts it (LeaveFrom -> AbortReplay) and the settle does both.
++                if (mode == NetSyncEnd.ExitModeOn && !LeaveRequestedRecently)
++                {
++                    if (NetSyncEnd.ExitWaitsForReplay(_exitTrigger, ReplayLive, now - _exitLatchTick))
++                    {
++                        if (!_replayExitWaiting)
++                        {
++                            _replayExitWaiting = true;
++                            Log.Message("[NetSync] diorama END: the host left its battle with the result-screen replay still up -- the "
++                                        + "end-leave waits up to " + NetSyncEnd.ReplayExitWaitMs + " ms for it to reach Hide (its own hide tail)");
++                        }
++                        _exitWhy = ReplayExitWaitWhy;
++                        return true;
++                    }
++                    if (_replayExitWaiting && _replayExitWaitMs < 0)
++                    {
++                        _replayExitWaitMs = now - _exitLatchTick;
++                        Log.Message("[NetSync] diorama END: the end-leave's wait for the replay ended after " + _replayExitWaitMs + " ms -- "
++                                    + (_replayClosed ? "the replay closed through its own hide tail" : "the replay did NOT reach Hide: the Leave aborts it"));
++                    }
++                }
+                 Boolean fading;
+                 try
+                 {
+@@ -2583,16 +2617,20 @@ namespace Memoria.Netsync
+                 catch { _settleNoGameOver = false; }
+                 _stampHost = e.Result;
+                 _stampPending = NetSyncEnd.StampFor(e.Result, _settleNoGameOver);   // provisional: the teardown re-decides it
++                // [fixer S10-R1] ONE song rule (NetSyncEnd.SongVerdict: the host's b4 first, then this diorama's own flag) for
++                // this settle and the replay's own hide tail, which records its decision for the receipt (ReplayHideTailSong)
+                 if (_replayHideTail)
+-                    _musicWhy = "the replay's own hide tail already shut the songs (stage 10): nothing shut down twice";
+-                else if ((e.Flags & NetSyncEnd.FlagFieldSong) != 0)
+-                    _musicWhy = "the host keeps its field song (BTL_CONTI_FLD_SONG): nothing shut down";
+-                else if ((FF9StateSystem.Common.FF9.btl_flag & battle.BTL_CONTI_FLD_SONG) != 0)
+-                    _musicWhy = "this diorama keeps its field song (BTL_CONTI_FLD_SONG): nothing shut down";
++                    _musicWhy = _replayMusicWhy ?? "the replay's own hide tail already shut the songs (stage 10): nothing shut down twice";
+                 else
+                 {
+-                    battle.ff9ShutdownStateBattleResult();       // the stock result screen's hide: fade + stop the current song
+-                    _musicShut = true;
++                    Int32 sv = NetSyncEnd.SongVerdict(e.Flags, (FF9StateSystem.Common.FF9.btl_flag & battle.BTL_CONTI_FLD_SONG) != 0);
++                    if (sv == NetSyncEnd.SongShut)
++                    {
++                        battle.ff9ShutdownStateBattleResult();   // the stock result screen's hide: fade + stop the current song
++                        _musicShut = true;
++                    }
++                    else
++                        _musicWhy = NetSyncEnd.SongWhy(sv);
+                 }
+                 Log.Message("[NetSync] diorama END: leaving a finished fight (" + _settleVia + "; the host's " + NetSyncEnd.KindName(e.Kind)
+                             + ", result " + e.Result + ", ui " + e.Ui + ") -- "
+@@ -2670,7 +2708,81 @@ namespace Memoria.Netsync
+         internal static void NoteReplayHideTail()
+         {
+             if (_booted)
++            {
+                 _replayHideTail = true;
++                // [ff9mapkit netsync B5] stage 10: the replay CLOSED through its own tail -- the end-leave stops waiting for it
++                if (_replayOpened && !_replayClosed)
++                {
++                    _replayClosed = true;
++                    _replayCloseMs = Environment.TickCount - _replayArmTick;
++                }
++            }
++        }
++
++        /// <summary>
++        /// [ff9mapkit netsync B5] stage 10 (fixer S10-R1): the SONG half of the replay's own hide tail (BattleResultUI seam b),
++        /// under the settle's rule (NetSyncEnd.SongVerdict): the host's latest end block of this boot (else the one the replay
++        /// armed on) says b4, or this diorama's own btl_flag keeps the song -> nothing shut down; else the stock
++        /// battle.ff9ShutdownStateBattleResult. The stock call alone tests only the guest's local flag, which a diorama never
++        /// sets, so it would cut a field song the host keeps. Records the decision for the settle's music_why (the settle then
++        /// skips its own song half -- NoteReplayHideTail). True = the song was shut down. Never throws.
++        /// </summary>
++        internal static Boolean ReplayHideTailSong(out String why)
++        {
++            Int32 v;
++            try
++            {
++                Byte hostFlags = _exitSeen ? _exitLast.Flags : _replayFlags;
++                v = NetSyncEnd.SongVerdict(hostFlags, (FF9StateSystem.Common.FF9.btl_flag & battle.BTL_CONTI_FLD_SONG) != 0);
++            }
++            catch
++            {
++                v = NetSyncEnd.SongShut;                         // unreadable = the stock hide (what the screen did before)
++            }
++            if (v == NetSyncEnd.SongShut)
++            {
++                try { battle.ff9ShutdownStateBattleResult(); }
++                catch { }
++                why = "the replay's own hide tail already shut the songs (stage 10): nothing shut down twice";
++            }
++            else
++            {
++                why = NetSyncEnd.SongWhy(v) + " -- the replay's own hide tail kept it too (stage 10)";
++            }
++            if (_booted)
++                _replayMusicWhy = why;
++            return v == NetSyncEnd.SongShut;
++        }
++
++        /// <summary>
++        /// [ff9mapkit netsync B5] stage 10 (fixer S10-B2): the end-leave is waiting (design 5.4 step 1) for the result-screen
++        /// replay to reach Hide -- NetSyncClient's watcher defers its stale-lane Leave while this holds, so the host's lane
++        /// going stale ~2 s after its Hide cannot cut the 5 s wait short (and mislabel the exit as a user-style leave). Also
++        /// holds for the one frame between the replay's own hide tail and the ExitTick that records the wait's end (the
++        /// watcher runs first in the frame), so that exit stays the end-leave's. SELF-BOUNDING: false from ReplayExitWaitMs
++        /// after the latch whether or not ExitTick runs; the end-leave's own cap then aborts the replay. Logged once per boot.
++        /// Never throws.
++        /// </summary>
++        internal static Boolean WatcherLeaveWaitsForReplay()
++        {
++            try
++            {
++                if (!_booted || NetSyncEnd.GuestExitMode != NetSyncEnd.ExitModeOn)
++                    return false;
++                Boolean live = ReplayLive || (_replayExitWaiting && _replayExitWaitMs < 0);
++                if (!NetSyncEnd.ExitWaitsForReplay(_exitTrigger, live, Environment.TickCount - _exitLatchTick))
++                    return false;
++                _replayWatcherDefers++;
++                if (_replayWatcherDefers == 1)
++                    Log.Message("[NetSync] diorama: the watcher's stale-lane leave waits -- the end-leave is giving the result-screen "
++                                + "replay up to " + NetSyncEnd.ReplayExitWaitMs + " ms after the host's Hide to close through its own "
++                                + "hide tail (logged once per boot)");
++                return true;
++            }
++            catch
++            {
++                return false;
++            }
+         }
+ 
+         // ---- harness reads (`netsync.battle.end.end_leave`; main thread, never throw) ----
+@@ -2694,6 +2806,336 @@ namespace Memoria.Netsync
+         public static String HarnessMusicWhy { get { return _musicWhy; } }
+         public static Boolean HarnessWipeLifted { get { return _wipeLifted; } }
+ 
++        // ---------------------------------------------------------------------------------------
++        // [ff9mapkit netsync B5] stage 10 -- THE GUEST'S RESULT-SCREEN REPLAY, the engine half (studies/battle-coop/
++        // B4-B5-DESIGN.md 5.6 + 5.4 steps 1-2; section 7, stage 10). Before this stage a victorious guest held black at R8 from
++        // its own fade until the host's Hide (stage 6's exit). Now, once per boot:
++        //   THE ARM (ReplayArmTick, from EndTick after an injected end) -- NetSyncEnd.ArmVerdict: the lever; an injected end
++        //     and at least one R8 refusal (the guest's own fade is done -- an earlier replay would sit under it); the host not
++        //     yet out of its battle; the host on its result screen (ui 1) in a state 0..6, not AfterEvent; the host's manifest
++        //     for this battle (NetSyncEnd.TryGetPeerManifest: the bench seam first, else the latch); the guest's HUD up; and at
++        //     least one VALID row (a seated member whose info.slot_no is the row's charId -- none = REFUSED, sticky per boot: a
++        //     black hold, then the exit). Then BattleHUD.NetGoToBattleResultReplay: the stock HUD hide and the UI-state change
++        //     to BattleResult, whose Show takes the arm (TakeReplayArm) and opens the stock screen WRITE-NOTHING on the host's
++        //     numbers (BattleResultUI.Net.cs). A leave or teardown during the HUD's hide fade drops the arm (ReplayStillWanted).
++        //   THE FOLLOW -- the screen's own chase driver reads the host's state through ReplayHostState: this boot's end block
++        //     (the bench seam's, or BootedWireNonce's) while the host is on its screen, and Hide once the host's exit latched
++        //     (the lane may move on to the field a sample later; the latch is the truth).
++        //   THE EXIT (ExitTick): a result-hide waits up to NetSyncEnd.ReplayExitWaitMs for the replay to reach Hide and run its
++        //     own hide tail (NoteReplayHideTail -> CLOSED; the stage-6 settle then skips the song shutdown and the fade lift).
++        //     The watcher's stale-lane leave waits for that window too (WatcherLeaveWaitsForReplay -- fixer S10-B2).
++        //   THE ABORT (AbortReplay -- every Leave past its fade check, and ForceDisarm): a replay still up stops stepping, its
++        //     tick loops (105 EXP/AP, 109 gil) stop, and the settle owns the song and the fade. Nothing is ever written: every
++        //     reward writer is closed at its call site, and the write guard (BattleResultUI.NetFingerprint) counts any escape.
++        // Vanilla, solo and the host's own battle never reach any of it: every entry point needs a booted diorama.
++        // ---------------------------------------------------------------------------------------
++        private static Boolean _replayArmed;              // the replay armed this boot (once per boot)
++        private static Boolean _replayPending;            // ...and the stock screen's Show has not taken the arm yet
++        private static Boolean _replayOpened;             // BattleResultUI.Show took the arm: the replay is (was) on screen
++        private static Boolean _replayClosed;             // its own hide tail ran (NoteReplayHideTail)
++        private static Boolean _replayAborted;            // a leave / the teardown / a fault ended it first
++        private static String _replayAbortWhy;
++        private static Boolean _replayRefused;            // sticky per boot: no manifest row matched a seated member
++        private static Int32 _replayVerdict = -1;         // the last NetSyncEnd.ArmVerdict this boot (-1 = never asked)
++        private static Int32 _replayLoggedMask;           // the verdicts already logged this boot (one line per reason)
++        private static NetSyncEnd.Manifest _replayManifest;
++        private static Int32 _replayRowMask;              // the valid rows at the arm (bit per RAW party slot)
++        private static Int32 _replaySeatedMask;           // the seated slots at the arm
++        private static Byte _replayFlags;                 // the host's end-block flags at the arm
++        private static Int32 _replayHostStateAtArm = -1;
++        private static Boolean _replayBench;              // armed off the selftest bench seam
++        // TICK-BASELINE LAW: a real tick, read only after an arm set it.
++        private static Int32 _replayArmTick = Environment.TickCount;
++        private static Int32 _replayArmMs = -1;           // the injection -> the arm (ms)
++        private static Int32 _replayOpenMs = -1;          // the arm -> the screen's Show (ms)
++        private static Int32 _replayCloseMs = -1;         // the arm -> its own hide tail (ms)
++        private static Boolean _replayExitWaiting;        // the end-leave waited for it this boot
++        private static Int32 _replayExitWaitMs = -1;      // the exit latch -> the end of that wait (ms; -1 = never waited / still waiting)
++        private static Int32 _replayWatcherDefers;        // [fixer S10-B2] frames the watcher's stale-lane leave waited for that wait
++        private static readonly Int32[] _seatedBuf = new Int32[4];   // [fixer S10-REG-2] SeatedSlots' buffer (main thread; no per-frame alloc)
++        private static Boolean _replayErrLogged;
++        private const String ReplayExitWaitWhy = "waiting for the result-screen replay to reach Hide (its own hide tail; up to 5 s)";
++
++        // Every Boot (through ResetEndPresentation): the replay and its receipts start clean (readable after the teardown).
++        private static void ResetReplay()
++        {
++            _replayArmed = false;
++            _replayPending = false;
++            _replayOpened = false;
++            _replayClosed = false;
++            _replayAborted = false;
++            _replayAbortWhy = null;
++            _replayRefused = false;
++            _replayVerdict = -1;
++            _replayLoggedMask = 0;
++            _replayManifest = null;
++            _replayRowMask = 0;
++            _replaySeatedMask = 0;
++            _replayFlags = 0;
++            _replayHostStateAtArm = -1;
++            _replayBench = false;
++            _replayArmTick = Environment.TickCount;
++            _replayArmMs = -1;
++            _replayOpenMs = -1;
++            _replayCloseMs = -1;
++            _replayExitWaiting = false;
++            _replayExitWaitMs = -1;
++            _replayWatcherDefers = 0;
++            _replayErrLogged = false;
++        }
++
++        // Armed and not yet shown, or on screen and neither closed nor aborted: the end-leave waits for it.
++        private static Boolean ReplayLive
++        {
++            get { return _replayPending || (_replayOpened && !_replayClosed && !_replayAborted); }
++        }
++
++        // EndTick, every frame after an injected end (the lane's block is `ours` or not): arm the replay once the verdict says
++        // go. The manifest lookup and the seat walk run only once every raw condition already holds. Never throws.
++        private static void ReplayArmTick(Boolean ours, NetSyncBattle.PeerEnd e)
++        {
++            if (_replayArmed || _replayRefused || _replayAborted)
++                return;
++            try
++            {
++                Int32 mode = NetSyncEnd.ReplayMode;
++                // leaving = the host's exit latched, or any leave already in flight (a ~ press, the watcher, `dioleave`): a
++                // replay opened under the leave's fade would only flash and be aborted at the teardown
++                Boolean exitLatched = _exitTrigger != NetSyncEnd.TriggerNone || LeaveRequestedRecently || _settled;
++                Byte ui = ours ? e.Ui : (Byte)0xFF;
++                Int32 hostState = ours ? e.State : -1;
++                Byte flags = ours ? e.Flags : (Byte)0;
++                Int32 v = NetSyncEnd.ArmVerdict(mode, _endInjected, _r8Hits, exitLatched, ui, hostState, flags, true, true, 0x0F);
++                NetSyncEnd.Manifest m = null;
++                Int32 mask = 0, seatedMask = 0;
++                if (v == NetSyncEnd.ArmGo)
++                {
++                    Boolean haveManifest = NetSyncEnd.TryGetPeerManifest(e.Nonce, out m) && m != null;
++                    UIManager uim = PersistenSingleton<UIManager>.Instance;
++                    Boolean hudUp = uim != null && uim.State == UIManager.UIState.BattleHUD && uim.QuitScene != null && !uim.QuitScene.isShowQuitUI
++                                    && UIManager.Battle != null;
++                    // [fixer S10-REG-2] the seat walk only once the manifest and the HUD hold (a verdict 8/9 wait can last the
++                    // host's whole reward read), into a static buffer: no per-frame allocation in the black hold
++                    mask = haveManifest && hudUp ? NetSyncEnd.ValidRowMask(m, SeatedSlots(out seatedMask)) : 0;
++                    v = NetSyncEnd.ArmVerdict(mode, _endInjected, _r8Hits, exitLatched, ui, hostState, flags, haveManifest, hudUp, mask);
++                }
++                _replayVerdict = v;
++                if (v != NetSyncEnd.ArmGo)
++                {
++                    if (v == NetSyncEnd.ArmNoValidRow)
++                    {
++                        _replayRefused = true;
++                        Log.Message("[NetSync] diorama REPLAY REFUSED -- the host's manifest (" + m + ") has no row whose charId matches the "
++                                    + "seated member in its slot (seated slots 0x" + seatedMask.ToString("X1") + "): no result screen, a black "
++                                    + "hold, then the exit with the host");
++                        return;
++                    }
++                    if ((_replayLoggedMask & (1 << v)) == 0)
++                    {
++                        _replayLoggedMask |= 1 << v;
++                        Log.Message("[NetSync] diorama replay-wait: the result-screen replay waits -- " + NetSyncEnd.ArmWhy(v)
++                                    + " (logged once per boot per reason)");
++                    }
++                    return;
++                }
++                _replayArmed = true;
++                _replayPending = true;
++                _replayManifest = m;
++                _replayRowMask = mask;
++                _replaySeatedMask = seatedMask;
++                _replayFlags = flags;
++                _replayHostStateAtArm = hostState;
++                _replayBench = e.Bench;
++                _replayArmTick = Environment.TickCount;
++                _replayArmMs = _replayArmTick - _endInjectTick;
++                BattleHUD hud = UIManager.Battle;
++                Boolean went = hud != null && hud.NetGoToBattleResultReplay();
++                if (!went)
++                {
++                    _replayPending = false;
++                    _replayAborted = true;
++                    _replayAbortWhy = hud == null ? "no battle HUD to hand over from" : "the battle HUD's one-shot result transition was already spent";
++                    Log.Warning("[NetSync] diorama REPLAY not opened -- " + _replayAbortWhy + " (a black hold, then the exit with the host)");
++                    return;
++                }
++                Log.Message("[NetSync] diorama REPLAY ARMED -- the host's result screen (state " + hostState + ", " + (e.Bench ? "BENCH end" : "nonce " + e.Nonce)
++                            + ") with its manifest (" + m + "; valid rows 0x" + mask.ToString("X1") + " of seated 0x" + seatedMask.ToString("X1")
++                            + "), " + _replayArmMs + " ms after the injection (R8 " + _r8Hits + ") -- the stock HUD hides and the stock result "
++                            + "screen opens WRITE-NOTHING on the host's numbers");
++            }
++            catch (Exception ex)
++            {
++                _replayAborted = true;
++                _replayPending = false;
++                _replayAbortWhy = "the arm tick faulted: " + ex.GetType().Name;
++                if (!_replayErrLogged)
++                {
++                    _replayErrLogged = true;
++                    try { Log.Error("[NetSync] diorama REPLAY arm faulted (logged once per boot; the guest holds black and leaves with the host): " + ex); }
++                    catch { }
++                }
++            }
++        }
++
++        // The seated party's slot_no per RAW slot (-1 = an empty seat), and the seated mask. Fills the shared static buffer
++        // (main thread only; read before the next call).
++        private static Int32[] SeatedSlots(out Int32 seatedMask)
++        {
++            seatedMask = 0;
++            Int32[] s = _seatedBuf;
++            for (Int32 i = 0; i < s.Length; i++)
++                s[i] = -1;
++            PLAYER[] member = FF9StateSystem.Common.FF9.party.member;
++            for (Int32 i = 0; i < 4 && i < member.Length; i++)
++            {
++                if (member[i] == null)
++                    continue;
++                s[i] = (Int32)member[i].info.slot_no;
++                seatedMask |= 1 << i;
++            }
++            return s;
++        }
++
++        /// <summary>BattleHUD.NetGoToBattleResultReplay's hide callback: open the result screen only while the arm is still
++        /// pending on a live diorama (a leave or the teardown during the HUD's hide fade dropped it). Never throws.</summary>
++        internal static Boolean ReplayStillWanted()
++        {
++            try
++            {
++                if (_replayPending && _booted && Active)
++                    return true;
++                if (_replayArmed)
++                    Log.Message("[NetSync] diorama replay: the battle HUD's hide finished after the replay was dropped ("
++                                + (_replayAbortWhy ?? (_booted ? "no longer pending" : "the diorama tore down")) + ") -- no result screen opens");
++            }
++            catch { }
++            return false;
++        }
++
++        /// <summary>BattleResultUI.Show (seam a), inside a booted diorama: take the pending arm -- the host's manifest, the valid
++        /// rows, the host's end-block flags. False = none pending (the screen then holds INERT). Never throws.</summary>
++        internal static Boolean TakeReplayArm(out NetSyncEnd.Manifest m, out Int32 rowMask, out Byte flags)
++        {
++            m = null;
++            rowMask = 0;
++            flags = 0;
++            try
++            {
++                if (!_replayPending || !_booted || _replayManifest == null)
++                    return false;
++                _replayPending = false;
++                _replayOpened = true;
++                _replayOpenMs = Environment.TickCount - _replayArmTick;
++                m = _replayManifest;
++                rowMask = _replayRowMask;
++                flags = _replayFlags;
++                return true;
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        /// <summary>
++        /// The chase driver's read (BattleResultUI.Net.cs NetFollow, and seam l's overflow): the host's result state for THIS
++        /// boot -- Hide once the host's exit latched as a result-hide (the lane may already have moved on to the field); else
++        /// this boot's end block (the bench seam's, or BootedWireNonce's) while it says ui 1. `flags` = that block's flags
++        /// (the sticky overflow b2). False = no host state this tick (a stale lane, another battle, the host off its screen).
++        /// Never throws.
++        /// </summary>
++        internal static Boolean ReplayHostState(out Int32 state, out Boolean loading, out Byte flags)
++        {
++            state = -1;
++            loading = false;
++            flags = 0;
++            try
++            {
++                if (!_booted)
++                    return false;
++                if (_exitTrigger == NetSyncEnd.TriggerResultHide)
++                {
++                    state = NetSyncEnd.ResHide;
++                    flags = _exitLast.Flags;
++                    return true;
++                }
++                NetSyncBattle.PeerEnd e;
++                if (!NetSyncBattle.TryGetPeerEnd(out e) || !(e.Bench || e.Nonce == BootedWireNonce))
++                    return false;
++                flags = e.Flags;
++                if (e.Ui != NetSyncEnd.UiResult || e.State < 0)
++                    return false;
++                state = e.State;
++                loading = e.Loading;
++                return true;
++            }
++            catch
++            {
++                state = -1;
++                return false;
++            }
++        }
++
++        /// <summary>BattleResultUI's NetFault: an open replay that threw holds inert -- the end-leave stops waiting for it.</summary>
++        internal static void NoteReplayAborted(String why)
++        {
++            if (_replayOpened && !_replayClosed && !_replayAborted)
++            {
++                _replayAborted = true;
++                _replayAbortWhy = why;
++            }
++        }
++
++        /// <summary>Every Leave past its fade check (LeaveFrom) and the teardown (ForceDisarm): a replay still pending is
++        /// dropped; one still on screen stops stepping, its tick loops stop, and it holds (the stage-6 settle owns the song
++        /// shutdown and the fade lift). A no-op when no replay is live. Never throws.</summary>
++        private static void AbortReplay(String why)
++        {
++            try
++            {
++                if (_replayPending)
++                {
++                    _replayPending = false;
++                    _replayAborted = true;
++                    _replayAbortWhy = why + " (before the result screen opened)";
++                    Log.Message("[NetSync] diorama REPLAY dropped -- " + _replayAbortWhy);
++                    return;
++                }
++                if (!_replayOpened || _replayClosed || _replayAborted)
++                    return;
++                _replayAborted = true;
++                _replayAbortWhy = why;
++                UIManager uim = PersistenSingleton<UIManager>.Instance;
++                BattleResultUI r = uim != null ? uim.BattleResultScene : null;
++                if (r != null)
++                    r.NetAbortReplay(why);
++                Log.Message("[NetSync] diorama REPLAY aborted -- " + why + " (the settle owns the song shutdown and the fade lift)");
++            }
++            catch { }
++        }
++
++        // ---- harness reads (`netsync.battle.end.replay`; main thread, never throw) ----
++        public static Boolean HarnessReplayArmed { get { return _replayArmed; } }
++        public static Boolean HarnessReplayPending { get { return _replayPending; } }
++        public static Boolean HarnessReplayOpened { get { return _replayOpened; } }
++        public static Boolean HarnessReplayLive { get { return ReplayLive; } }
++        public static Boolean HarnessReplayClosed { get { return _replayClosed; } }
++        public static Boolean HarnessReplayAborted { get { return _replayAborted; } }
++        public static String HarnessReplayAbortWhy { get { return _replayAbortWhy; } }
++        public static Boolean HarnessReplayRefused { get { return _replayRefused; } }
++        public static Int32 HarnessReplayVerdict { get { return _replayVerdict; } }
++        public static String HarnessReplayWhy { get { return _replayVerdict < 0 ? null : NetSyncEnd.ArmWhy(_replayVerdict); } }
++        public static Int32 HarnessReplayRowMask { get { return _replayRowMask; } }
++        public static Int32 HarnessReplaySeatedMask { get { return _replaySeatedMask; } }
++        public static Int32 HarnessReplayManifestRows { get { return _replayManifest != null ? _replayManifest.RowCount : 0; } }
++        public static Int32 HarnessReplayHostStateAtArm { get { return _replayHostStateAtArm; } }
++        public static Boolean HarnessReplayBench { get { return _replayBench; } }
++        public static Int32 HarnessReplayArmMs { get { return _replayArmMs; } }
++        public static Int32 HarnessReplayOpenMs { get { return _replayOpenMs; } }
++        public static Int32 HarnessReplayCloseMs { get { return _replayCloseMs; } }
++        public static Boolean HarnessReplayExitWaited { get { return _replayExitWaiting; } }
++        public static Int32 HarnessReplayExitWaitMs { get { return _replayExitWaitMs; } }
++
+         // ---------------------------------------------------------------------------------------
+         // THE B3.5 FIGURE BENCH (the F6 "Figure bench" button, diorama only). Pops ONE hand-built
+         // 1234-damage figure over the first live enemy (or btl_data[4]) through the EXACT Btl2dReq
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+index 9c2ac8f..13f4b59 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+@@ -75,6 +75,18 @@ namespace Memoria.Netsync
+     // battle being streamed and no diorama (a guest's result-screen replay never captures). Nothing reads it to act yet --
+     // stage 10's replay is its first consumer. Selftest bench: `endbench manifest 0|1|2|3` (fabricate a TWO-MARKER manifest
+     // from the seated party through the REAL codec + ParseView) and the calibration lever `endbench manifest host on|off`.
++    //
++    // [ff9mapkit netsync B5] stage 10 -- THE GUEST'S RESULT-SCREEN REPLAY (design 5.6, 5.7; section 7, stage 10). Once the
++    // guest's own victory presentation is done (the first R8 hit) and the host is on its result screen with a manifest, the
++    // guest opens the STOCK BattleResultUI in a WRITE-NOTHING replay: the host's numbers (exp/AP/gil/items/card, level-ups,
++    // learned abilities) on the guest's screen, every reward writer closed at its call site (BattleResultUI seams a-m), the
++    // screen stepped only when the HOST's result state steps (ChaseStep through FollowVerdict -- state, not presses: design
++    // 5.7), the guest's own Confirm/pad/mouse inert while its Quit and Pause stay local. THIS file holds the stage's PURE half
++    // -- ArmVerdict, ValidRowMask, FollowVerdict, ExitWaitsForReplay, ReplayOverflow, ReplayLevel, LearnsDue and the
++    // fingerprint mix (FpMix), all pinned by SelfTest's `replay` section -- and the selftest-only calibration lever `endbench
++    // replay on|off|local` (ReplayMode). The engine half (the arm tick, the exit's wait for the replay's Hide, the abort)
++    // lives in NetSyncDiorama; the screen half (the shadows, the seams, the chase driver, the write guard) in
++    // BattleResultUI.Net.cs; the replay's entry in BattleHUD.NetGoToBattleResultReplay.
+     public static class NetSyncEnd
+     {
+         // ---- the trailer (design 6.2) ----
+@@ -950,6 +962,260 @@ namespace Memoria.Netsync
+             return dropped;
+         }
+ 
++        // ==================================================================================== the guest replay (stage 10)
++        // [ff9mapkit netsync B5] stage 10 -- the PURE half of the guest's result-screen replay (design 5.6). The engine half
++        // (NetSyncDiorama's arm tick and exit wait; BattleResultUI.Net.cs's NetFollow, shadows and seams) asks these functions
++        // every question about WHEN the replay opens, WHEN it steps, HOW LONG the exit waits for it and WHAT the shadows show,
++        // so SelfTest's `replay` section can falsify each of them offline. None of them reads or writes engine state.
++        public const Int32 ReplayStepMs = 1500;     // one injected step per local state per 1.5 s (a double TweenOut / fade)
++        public const Int32 ReplayExitWaitMs = 5000; // the end-leave waits this long for an open replay to reach Hide (design 5.4 step 1)
++
++        // ArmVerdict's answers: Go = arm now; every other value is why not (ArmWhy names it). Ordered as the checks run.
++        public const Int32 ArmGo = 0;
++        public const Int32 ArmHeldByLever = 1;      // `endbench replay off`: the pre-stage guest (a black hold, then the exit)
++        public const Int32 ArmNotInjected = 2;      // this boot presented no victory/close (a held kind, or nothing yet)
++        public const Int32 ArmNoR8 = 3;             // the guest's own presentation is not done (no R8 hit: its fade is still up)
++        public const Int32 ArmExitLatched = 4;      // the guest is leaving: the host's exit latched, or a leave is already in flight
++        public const Int32 ArmNotOnScreen = 5;      // the host is not on its result screen (ui != 1)
++        public const Int32 ArmHostState = 6;        // the host's screen reads Hide / None (AfterEvent, InitialNone) / nothing
++        public const Int32 ArmAfterEvent = 7;       // flags b0: the host runs its post-battle script, not the reward pages
++        public const Int32 ArmNoManifest = 8;       // no manifest for this battle (a pre-stage-9 host, a bad one, the host lever)
++        public const Int32 ArmHudNotUp = 9;         // the guest's UI state is not BattleHUD (paused, a quit prompt, a tutorial)
++        public const Int32 ArmNoValidRow = 10;      // no manifest row matches a seated member: REFUSED (sticky per boot)
++
++        /// <summary>
++        /// May the guest arm its result-screen replay NOW (design 5.6's arming conditions)? In order: the lever; this boot
++        /// injected an end and R8 has refused at least once (the guest's own fade is done -- design 10 risk 6: an early replay
++        /// would sit under the victory fade); the guest is not leaving (the host's exit has not latched, no leave is in
++        /// flight); the host is on its result screen (ui 1) in a state 0..6 (Hide, None and "no screen" never arm); not
++        /// AfterEvent; a manifest for this battle; the guest's HUD is the UI state; at least one valid row. Pure; never throws.
++        /// </summary>
++        public static Int32 ArmVerdict(Int32 replayMode, Boolean injected, Int32 r8Hits, Boolean exitLatched, Byte ui, Int32 hostState,
++                                       Byte flags, Boolean haveManifest, Boolean hudUp, Int32 validRowMask)
++        {
++            if (replayMode == ReplayModeOff)
++                return ArmHeldByLever;
++            if (!injected)
++                return ArmNotInjected;
++            if (r8Hits <= 0)
++                return ArmNoR8;
++            if (exitLatched)
++                return ArmExitLatched;
++            if (ui != UiResult)
++                return ArmNotOnScreen;
++            if (hostState < ResStart || hostState >= ResHide)
++                return ArmHostState;
++            if ((flags & FlagAfterEvent) != 0)
++                return ArmAfterEvent;
++            if (!haveManifest)
++                return ArmNoManifest;
++            if (!hudUp)
++                return ArmHudNotUp;
++            if ((validRowMask & 0x0F) == 0)
++                return ArmNoValidRow;
++            return ArmGo;
++        }
++
++        public static String ArmWhy(Int32 verdict)
++        {
++            switch (verdict)
++            {
++                case ArmGo: return null;
++                case ArmHeldByLever: return "the calibration lever `endbench replay off` holds the pre-stage guest (no replay: a black hold, then the exit)";
++                case ArmNotInjected: return "this diorama presented no victory/close (a held defeat/escape, or no end yet)";
++                case ArmNoR8: return "the guest's own victory presentation is not done yet (no R8 hit: its fade is still running)";
++                case ArmExitLatched: return "the guest is leaving (the host left its battle, or a leave is already in flight)";
++                case ArmNotOnScreen: return "the host is not on its result screen (ui != 1)";
++                case ArmHostState: return "the host's result screen reads Hide / None / nothing (no reward pages to follow)";
++                case ArmAfterEvent: return "the host runs an AfterEvent battle (its post-battle script, no reward pages)";
++                case ArmNoManifest: return "no result manifest for this battle (a pre-stage-9 host, a manifest that did not decode, or the host lever)";
++                case ArmHudNotUp: return "the guest's battle HUD is not the UI state (paused, a quit prompt or a tutorial is up)";
++                case ArmNoValidRow: return "REFUSED: no manifest row matches a seated party member (charId vs info.slot_no) -- a black hold, then the exit";
++                default: return "arm verdict " + verdict;
++            }
++        }
++
++        /// <summary>The manifest rows the guest may show (design 5.6: `member[i] != null &amp;&amp; member[i].info.slot_no ==
++        /// row.charId`), as a bit per RAW party slot. seated[i] = the seated member's slot_no, -1 = an empty seat. Pure.</summary>
++        public static Int32 ValidRowMask(Manifest m, Int32[] seated)
++        {
++            if (m == null || seated == null)
++                return 0;
++            Int32 mask = 0;
++            for (Int32 i = 0; i < ManifestMaxRows && i < seated.Length; i++)
++                if (m.Rows[i] != null && seated[i] >= 0 && seated[i] == m.Rows[i].CharId)
++                    mask |= 1 << i;
++            return mask;
++        }
++
++        // FollowVerdict's answers: Step = inject one stock Confirm step (StepConfirm) now; every other value is why not.
++        public const Int32 FollowStep = 0;
++        public const Int32 FollowAborted = 1;       // the replay was aborted (a leave): nothing steps again
++        public const Int32 FollowNotUp = 2;         // the result screen is not the UI state (the guest paused -- its own, local)
++        public const Int32 FollowQuit = 3;          // the guest's quit prompt is up: a host step must never answer it (UIScene)
++        public const Int32 FollowLoading = 4;       // the local screen is Loading (its show / fade ping-pong / hide in flight)
++        public const Int32 FollowNoHost = 5;        // no host result state this tick (a stale lane, another battle, ui != 1)
++        public const Int32 FollowInStep = 6;        // ChaseStep says no: the host is not ahead of the local state
++        public const Int32 FollowRateLimited = 7;   // this local state already stepped less than ReplayStepMs ago
++
++        /// <summary>
++        /// THE CHASE DRIVER's per-frame question (design 5.6 NetFollow): step the replay now? Waits while aborted, while the
++        /// screen is not the UI state (the guest's own pause), while the guest's quit prompt is up (design 10 risk 5: a step is
++        /// never a Confirm the prompt could take), while the local screen is Loading, and while there is no host state; then
++        /// ChaseStep decides (never on None, never at a natural EndEXPAndAP), and one step per local state per ReplayStepMs
++        /// (a TweenOut or fade that has not changed the state yet is never stepped twice). Pure; never throws.
++        /// </summary>
++        public static Int32 FollowVerdict(Boolean aborted, Boolean screenUp, Boolean quitUp, Boolean localLoading, Int32 local, Int32 host,
++                                          Boolean hostLoading, Int32 lastStepState, Int32 sinceStepMs)
++        {
++            if (aborted)
++                return FollowAborted;
++            if (!screenUp)
++                return FollowNotUp;
++            if (quitUp)
++                return FollowQuit;
++            if (localLoading)
++                return FollowLoading;
++            if (host < ResStart || host > ResNone)
++                return FollowNoHost;
++            if (!ChaseStep(local, host, hostLoading))
++                return FollowInStep;
++            if (local == lastStepState && sinceStepMs >= 0 && sinceStepMs < ReplayStepMs)
++                return FollowRateLimited;
++            return FollowStep;
++        }
++
++        public static String FollowWhy(Int32 verdict)
++        {
++            switch (verdict)
++            {
++                case FollowStep: return null;
++                case FollowAborted: return "aborted (a leave ended the replay)";
++                case FollowNotUp: return "the result screen is not the UI state (the guest's own pause)";
++                case FollowQuit: return "the guest's quit prompt is up (never answered by a host step)";
++                case FollowLoading: return "the local screen is Loading (a show / fade / hide in flight)";
++                case FollowNoHost: return "no host result state this tick (a stale lane, another battle, or the host off its screen)";
++                case FollowInStep: return "in step: the host is not ahead";
++                case FollowRateLimited: return "this local state stepped less than " + ReplayStepMs + " ms ago";
++                default: return "follow verdict " + verdict;
++            }
++        }
++
++        /// <summary>Design 5.4 step 1: does the end-leave wait for the replay? Only a result-hide exit (the host's last Confirm)
++        /// with a replay armed or on screen, for up to ReplayExitWaitMs after the latch -- the chase then reaches Hide and runs
++        /// the replay's own hide tail; past the window the replay is aborted and the guest leaves anyway. Game Over and the
++        /// title never wait. Pure.</summary>
++        public static Boolean ExitWaitsForReplay(Int32 trigger, Boolean replayLive, Int32 sinceLatchMs)
++        {
++            return trigger == TriggerResultHide && replayLive && sinceLatchMs >= 0 && sinceLatchMs < ReplayExitWaitMs;
++        }
++
++        // [ff9mapkit netsync B5] stage 10 (fixer S10-R1): THE RETURN'S SONG RULE -- the song half of the stock result screen's
++        // hide (battle.ff9ShutdownStateBattleResult), decided ONCE for both guest paths that run it: the stage-6 settle
++        // (NetSyncDiorama.SettleForReturn) and the replay's own hide tail (BattleResultUI seam b). The stock call tests only the
++        // LOCAL btl_flag, which in a diorama never holds the host's script-set BTL_CONTI_FLD_SONG (InitBattle zeroes it and
++        // isDebug never runs the battle's event script), so the host's end-block b4 is asked FIRST.
++        public const Int32 SongShut = 0;            // shut the battle song down (the stock hide)
++        public const Int32 SongHostKeeps = 1;       // flags b4: the host keeps its field song -- nothing shut down
++        public const Int32 SongLocalKeeps = 2;      // this diorama's own btl_flag keeps it -- nothing shut down
++
++        /// <summary>The return's song rule: the host's end-block b4 first, then the guest's own BTL_CONTI_FLD_SONG; only
++        /// SongShut runs the stock shutdown. Pure.</summary>
++        public static Int32 SongVerdict(Byte hostFlags, Boolean localKeeps)
++        {
++            if ((hostFlags & FlagFieldSong) != 0)
++                return SongHostKeeps;
++            if (localKeeps)
++                return SongLocalKeeps;
++            return SongShut;
++        }
++
++        public static String SongWhy(Int32 verdict)
++        {
++            switch (verdict)
++            {
++                case SongShut: return null;
++                case SongHostKeeps: return "the host keeps its field song (BTL_CONTI_FLD_SONG): nothing shut down";
++                case SongLocalKeeps: return "this diorama keeps its field song (BTL_CONTI_FLD_SONG): nothing shut down";
++                default: return "song verdict " + verdict;
++            }
++        }
++
++        /// <summary>Seam l: the replay's UpdateItem answers the HOST's overflow, never the guest's bag -- the sticky end-block
++        /// flag b2 (the host's UpdateItem tap), or the host's screen sitting on the ItemFullDialog itself (that state is only
++        /// ever entered on an overflow, so it stands in when the bit is absent). Pure.</summary>
++        public static Boolean ReplayOverflow(Byte flags, Int32 hostState)
++        {
++            return (flags & FlagItemOverflow) != 0 || hostState == ResItemFull;
++        }
++
++        /// <summary>Seam h: the replay's shadow level after its shadow exp moved -- UpdateExp's level-up loop (`threshold(L) &lt;=
++        /// exp`, the guest's own table), CAPPED at the host's levelAfter: the replay never shows a level the host did not reach.
++        /// The completion then FORCES levelAfter (design 10 risk 18: install tables may differ -- the final level is the
++        /// host's, the timing is display only). Pure; a throwing threshold propagates.</summary>
++        public static Int32 ReplayLevel(Int32 level, UInt64 exp, Int32 levelAfter, Int32 levelCount, Func<Int32, UInt32> threshold)
++        {
++            Int32 lv = level;
++            while (lv < levelAfter && lv < levelCount && threshold(lv) <= exp)
++                lv++;
++            return lv;
++        }
++
++        /// <summary>Seam i: the scheduled learns an AddAp call from `oldAp` to `newAp` fires -- every learn with apAt in (old,
++        /// new], in the row's (AddAp's) order. A whole-remainder step (a Confirm during the tick pages) fires every learn left,
++        /// exactly as the host's own AddAp does. Pure.</summary>
++        public static Int32 LearnsDue(ManifestRow row, UInt32 oldAp, UInt32 newAp, List<Int32> into)
++        {
++            if (row == null || newAp <= oldAp)
++                return 0;
++            Int32 n = 0;
++            for (Int32 k = 0; k < row.Learns.Count; k++)
++            {
++                UInt32 at = row.Learns[k].ApAt;
++                if (at > oldAp && at <= newAp)
++                {
++                    if (into != null)
++                        into.Add(row.Learns[k].AbilId);
++                    n++;
++                }
++            }
++            return n;
++        }
++
++        // THE WRITE GUARD's instrument (BattleResultUI.Net.cs NetFingerprint): FNV-1a 64 over every value the stock result
++        // screen can write -- gil, the bag, each seated / known character's level, exp and pa[], the card collection's size and
++        // the ability achievement sets. FpMix folds one value in, byte by byte; SelfTest pins its sensitivity.
++        public const UInt64 FpSeed = 14695981039346656037UL;
++        private const UInt64 FpPrime = 1099511628211UL;
++
++        public static UInt64 FpMix(UInt64 h, UInt64 v)
++        {
++            for (Int32 i = 0; i < 8; i++)
++            {
++                h ^= (v >> (8 * i)) & 0xFFUL;
++                h *= FpPrime;
++            }
++            return h;
++        }
++
++        // SELFTEST CALIBRATION LEVER (harness `netsync endbench replay on|off|local`; cleared by every harness release): off =
++        // the pre-stage guest -- the replay never arms (the guest holds black at R8 and leaves on the host's Hide; `replay.why`
++        // names the lever); local = the replay opens and follows the host as usual, but the guest's OWN Confirm steps it too
++        // (seam c's lock released -- the red that proves the lock is load-bearing; every reward writer stays closed, so it
++        // still writes nothing). Read only through ReplayMode, which also needs the selftest role: a lever stranded across an
++        // ini edit can never touch a real guest.
++        public const Int32 ReplayModeOn = 0, ReplayModeOff = 1, ReplayModeLocal = 2;
++        private static Int32 _benchReplayMode = ReplayModeOn;
++        public static Int32 ReplayMode
++        {
++            get { return _benchReplayMode != ReplayModeOn && NetSyncClient.IsSelfTestRole ? _benchReplayMode : ReplayModeOn; }
++        }
++
++        private static String ReplayModeName(Int32 mode)
++        {
++            return mode == ReplayModeOff ? "off" : mode == ReplayModeLocal ? "local" : "on";
++        }
++
+         // ==================================================================================== the codec
+         /// <summary>One fmt-1 record: header + the 8-byte end block (+ manifest bytes, which set flags b1). Pure.</summary>
+         public static Byte[] EncodeTrailer(EndBlock b, Byte[] manifest)
+@@ -1730,8 +1996,9 @@ namespace Memoria.Netsync
+         /// `netsync endbench &lt;op&gt;` (selftest role only):
+         ///   victory | pending | nopose | other &lt;res&gt; | defeat | escape | event | fight
+         ///                       set the template's raw (phase, seq, result); kind comes out of ClassifyEnd
+-        ///   ui &lt;0-3&gt; | state &lt;0-8&gt; [loading] | overflow 0|1 | afterevent 0|1
+-        ///                       set that field (resState rides only while ui == 1, as on a host)
++        ///   ui &lt;0-3&gt; | state &lt;0-8&gt; [loading] | overflow 0|1 | afterevent 0|1 | fieldsong 0|1
++        ///                       set that field (resState rides only while ui == 1, as on a host; fieldsong = flags b4, the
++        ///                       host's BTL_CONTI_FLD_SONG -- [ff9mapkit netsync B5] stage 10, fixer S10-R1)
+         ///   each of the above re-FABRICATES: encode -> a type-1 frame -> the REAL ParseView -> the parsed block is served
+         ///   as the BENCH end (TryGetPeerEnd, Bench = true; its wire seq advances per fabricate). A round trip that does not
+         ///   reproduce every field FAILS the verb. The next own battle's rising edge disarms it (DisarmStaleBenchEnd).
+@@ -1747,6 +2014,10 @@ namespace Memoria.Netsync
+         ///                        ops: 0 none; 1 the TWO-MARKER manifest built from the SEATED party (BenchManifest); 2 escape
+         ///                        with gil (flags b3, gil only); 3 preset 1 with FOREIGN charIds (no seated member matches)
+         ///   manifest host on|off [ff9mapkit netsync B5] stage 9's calibration lever (mode = on|off; see ManifestMode)
++        ///   replay on|off|local  [ff9mapkit netsync B5] stage 10's calibration lever (see ReplayMode): off = the pre-stage
++        ///                        guest (no replay arms); local = the guest's own Confirm steps the replay too (seam c's red)
++        ///   quit on|off          [ff9mapkit netsync B5] stage 10's quit-guard bench: the guest's own quit prompt, opened
++        ///                        through the stock quit command / hidden (BenchQuitPrompt). Never press Confirm on it.
+         /// </summary>
+         public static Boolean HarnessEndBench(String op, Int32 arg, Boolean loading, Byte[] frame, String mode, out String why)
+         {
+@@ -1808,12 +2079,13 @@ namespace Memoria.Netsync
+                         break;
+                     case "overflow":
+                     case "afterevent":
++                    case "fieldsong":                   // [ff9mapkit netsync B5] stage 10 (fixer S10-R1): flags b4
+                         if (arg != 0 && arg != 1)
+                         {
+                             why = "netsync endbench " + op + ": needs 0|1";
+                             return false;
+                         }
+-                        Byte bit = op == "overflow" ? FlagItemOverflow : FlagAfterEvent;
++                        Byte bit = op == "overflow" ? FlagItemOverflow : op == "fieldsong" ? FlagFieldSong : FlagAfterEvent;
+                         _bFlags = (Byte)(arg != 0 ? _bFlags | bit : _bFlags & ~bit);
+                         break;
+                     case "cmd":
+@@ -1866,6 +2138,25 @@ namespace Memoria.Netsync
+                         Log.Message("[NetSync] harness: end exit guest " + ExitModeName(x).ToUpperInvariant() + (x == ExitModeOn ? ""
+                                     : " -- CALIBRATION: the pre-stage guest (the host's exit still latches, but no end-leave and no return settle: the diorama holds until `dioleave` / the stale-lane leave)"));
+                         return true;
++                    case "replay":
++                        // [ff9mapkit netsync B5] stage 10: the result-screen replay's calibration lever (see ReplayMode)
++                        Int32 rp = mode == "on" ? ReplayModeOn : mode == "off" ? ReplayModeOff : mode == "local" ? ReplayModeLocal : -1;
++                        if (rp < 0)
++                        {
++                            why = "netsync endbench replay: needs on|off|local";
++                            return false;
++                        }
++                        _benchReplayMode = rp;
++                        Log.Message("[NetSync] harness: result-screen replay guest " + ReplayModeName(rp).ToUpperInvariant() + (rp == ReplayModeOn ? ""
++                                    : rp == ReplayModeOff ? " -- CALIBRATION: the pre-stage guest (the replay never arms: a black hold at R8, then the exit on the host's Hide)"
++                                    : " -- CALIBRATION: the replay's local-Confirm lock released (the guest's own Confirm steps it too; every reward writer stays closed)"));
++                        return true;
++                    case "quit":
++                        // [ff9mapkit netsync B5] stage 10: the QUIT-GUARD bench (design 8.2) -- the guest's OWN quit prompt, opened
++                        // through the stock quit command (UIKeyTrigger.OnQuitCommandDetected -> the scene's OnKeyQuit, the
++                        // Alt+F4 path), so a bench can prove a host step never answers it; `off` hides it (`press cancel` is the
++                        // stock close). NEVER press Confirm while it is up: its Yes quits the game.
++                        return BenchQuitPrompt(mode, out why);
+                     case "selftest":
+                         String detail;
+                         Boolean ok = SelfTest(out detail);
+@@ -1920,7 +2211,7 @@ namespace Memoria.Netsync
+                         break;
+                     default:
+                         why = "netsync endbench: unknown op '" + op + "' (victory|pending|nopose|other|defeat|escape|event|fight|ui|state|"
+-                              + "overflow|afterevent|manifest|cmd|host|guest|exit|selftest|clear)";
++                              + "overflow|afterevent|fieldsong|manifest|cmd|host|guest|exit|replay|quit|selftest|clear)";
+                         return false;
+                 }
+                 return Fabricate(op, out why);
+@@ -1932,6 +2223,48 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync B5] stage 10 -- `endbench quit on|off` (selftest role; HarnessEndBench's gate): open the guest's
++        // own quit prompt through the stock quit command, exactly as Alt+F4 does (UIKeyTrigger.OnQuitCommandDetected -> the
++        // current scene's OnKeyQuit -> QuitScene.Show), or hide it (QuitUI.Hide, the prompt's own No/Cancel path). A prompt
++        // this bench opened is hidden again on every harness release. Main thread; a throw lands in the verb's catch.
++        private static Boolean _benchQuitOpened;
++
++        private static Boolean BenchQuitPrompt(String mode, out String why)
++        {
++            why = null;
++            UIManager uim = PersistenSingleton<UIManager>.Instance;
++            if (uim == null || uim.QuitScene == null)
++            {
++                why = "netsync endbench quit: no quit scene";
++                return false;
++            }
++            if (mode == "on")
++            {
++                if (!uim.QuitScene.isShowQuitUI && UIManager.Input != null)
++                    UIManager.Input.OnQuitCommandDetected();
++                if (!uim.QuitScene.isShowQuitUI)
++                {
++                    why = "netsync endbench quit on: the quit prompt did not open (the UI is Loading, or the current scene refuses "
++                          + "Quit -- BattleResultUI refuses it at Hide and while Loading)";
++                    return false;
++                }
++                _benchQuitOpened = true;
++                Log.Message("[NetSync] harness: endbench quit ON -- the guest's own quit prompt is up (state " + uim.State + "); "
++                            + "close it with `press cancel` or `endbench quit off`, NEVER Confirm (its Yes quits the game)");
++                return true;
++            }
++            if (mode == "off")
++            {
++                Boolean was = uim.QuitScene.isShowQuitUI;
++                uim.QuitScene.Hide();
++                _benchQuitOpened = false;
++                Log.Message("[NetSync] harness: endbench quit OFF -- " + (was ? "the quit prompt hidden" : "no quit prompt was up"));
++                return true;
++            }
++            why = "netsync endbench quit: needs on|off";
++            return false;
++        }
++
+         private static void SetRaw(Byte phase, Byte seq, Byte result)
+         {
+             _bPhase = phase;
+@@ -2216,6 +2549,23 @@ namespace Memoria.Netsync
+                 if (_benchManifestMode != ManifestShipOn)  // [ff9mapkit netsync B5] stage 9
+                     Log.Message("[NetSync] harness: result manifest host back ON (released with the harness)");
+                 _benchManifestMode = ManifestShipOn;
++                if (_benchReplayMode != ReplayModeOn)      // [ff9mapkit netsync B5] stage 10
++                    Log.Message("[NetSync] harness: result-screen replay guest back ON (released with the harness)");
++                _benchReplayMode = ReplayModeOn;
++                if (_benchQuitOpened)                      // [ff9mapkit netsync B5] stage 10: a quit prompt the bench opened goes
++                {
++                    _benchQuitOpened = false;
++                    try
++                    {
++                        UIManager uim = PersistenSingleton<UIManager>.Instance;
++                        if (uim != null && uim.QuitScene != null && uim.QuitScene.isShowQuitUI)
++                        {
++                            uim.QuitScene.Hide();
++                            Log.Message("[NetSync] harness: the bench's quit prompt hidden (released with the harness)");
++                        }
++                    }
++                    catch { }
++                }
+                 if (_benchArmed || _cmdArmed)
+                     Log.Message("[NetSync] harness: endbench released (bench end / command one-shot disarmed)");
+                 ClearBench();
+@@ -2255,6 +2605,7 @@ namespace Memoria.Netsync
+         public static Int32 HarnessPeerManifestRx { get { return _peerManifestRx; } }
+         public static Int32 HarnessBenchManifestPreset { get { return _bManifest != null ? _bManifestPreset : 0; } }
+         public static String HarnessBenchManifestNote { get { return _bManifestNote; } }
++        public static String HarnessReplayMode { get { return ReplayModeName(ReplayMode); } }   // [ff9mapkit netsync B5] stage 10
+ 
+         // ==================================================================================== SelfTest
+         /// <summary>
+@@ -2275,11 +2626,13 @@ namespace Memoria.Netsync
+         /// ExitVerdict (each disqualifier alone, then the order: never double-issue a leave, 1 Hz, a fade defers).
+         /// [ff9mapkit netsync B5] stage 9 adds `manifest` (SelfTestManifest): the manifest codec through the REAL ParseView,
+         /// its every internal truncation and malformation, the caps, LevelAfter and LearnSchedule.
++        /// [ff9mapkit netsync B5] stage 10 adds `replay` (SelfTestReplay): ArmVerdict, ValidRowMask, FollowVerdict (incl. its
++        /// whole ChaseStep sweep), ExitWaitsForReplay, ReplayOverflow, ReplayLevel, LearnsDue and the fingerprint's FpMix.
+         /// </summary>
+         public static Boolean SelfTest(out String detail)
+         {
+             List<String> fails = new List<String>();
+-            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0, mfst = 0;
++            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0, mfst = 0, rply = 0;
+             Boolean wasQuiet = _quiet;
+             try
+             {
+@@ -2488,6 +2841,9 @@ namespace Memoria.Netsync
+ 
+                 // ---- [ff9mapkit netsync B5] stage 9: the result manifest ----
+                 SelfTestManifest(fails, ref mfst);
++
++                // ---- [ff9mapkit netsync B5] stage 10: the result-screen replay ----
++                SelfTestReplay(fails, ref rply);
+             }
+             catch (Exception ex)
+             {
+@@ -2498,7 +2854,7 @@ namespace Memoria.Netsync
+                 _quiet = wasQuiet;
+             }
+             String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec + ", present " + present + ", exit " + exit
+-                            + ", manifest " + mfst;
++                            + ", manifest " + mfst + ", replay " + rply;
+             if (fails.Count == 0)
+             {
+                 detail = counts;
+@@ -2676,6 +3032,141 @@ namespace Memoria.Netsync
+             Expect(fails, ref n, pa[0] == 0 && pa[1] == 0 && pa[2] == 0, "PIN the schedule never writes the pa[] it is given");
+         }
+ 
++        // [ff9mapkit netsync B5] stage 10 -- the replay's offline-provable half (SelfTest's `replay` section). Pins: the replay
++        // never arms before the guest's own fade is done (no R8) nor after the host left; Hide / None never arm; a manifest
++        // matching no seated member is refused; the chase never answers the guest's quit prompt and never steps a Loading
++        // screen; one step per local state per ReplayStepMs, but a NEW local state may step at once; the exit waits only for a
++        // result-hide with a live replay and never past ReplayExitWaitMs; the shadow level never passes the host's levelAfter;
++        // a learn fires exactly once across contiguous AddAp windows; the fingerprint sees every single-bit change.
++        private static void SelfTestReplay(List<String> fails, ref Int32 n)
++        {
++            // ---- ArmVerdict: the go case, each disqualifier alone, then the order ----
++            Byte ok = FlagManifest;
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResStart, ok, true, true, 0x01) == ArmGo, "arm go");
++            Expect(fails, ref n, ArmVerdict(ReplayModeLocal, true, 1, false, UiResult, ResStart, ok, true, true, 0x01) == ArmGo, "arm under the local lever");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOff, true, 1, false, UiResult, ResStart, ok, true, true, 0x01) == ArmHeldByLever, "the off lever holds");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, false, 1, false, UiResult, ResStart, ok, true, true, 0x01) == ArmNotInjected, "no injection, no replay");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 0, false, UiResult, ResStart, ok, true, true, 0x01) == ArmNoR8, "PIN no-replay-before-the-first-R8 (the guest's fade)");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, true, UiResult, ResStart, ok, true, true, 0x01) == ArmExitLatched, "PIN no-replay-after-the-host-left");
++            for (Byte ui = 0; ui <= 4; ui++)
++                if (ui != UiResult)
++                    Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, ui, ResStart, ok, true, true, 0x01) == ArmNotOnScreen, "ui " + ui + " never arms");
++            for (Int32 st = -1; st <= ResNone + 1; st++)
++            {
++                Int32 want = st >= ResStart && st < ResHide ? ArmGo : ArmHostState;
++                Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, st, ok, true, true, 0x01) == want, "host state " + st + (want == ArmGo ? " arms" : " never arms"));
++            }
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResHide, ok, true, true, 0x01) == ArmHostState
++                                 && ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResNone, ok, true, true, 0x01) == ArmHostState, "PIN Hide and None never arm");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResStart, (Byte)(ok | FlagAfterEvent), true, true, 0x01) == ArmAfterEvent, "AfterEvent never arms");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResStart, ok, false, true, 0x01) == ArmNoManifest, "no manifest, no replay");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResStart, ok, true, false, 0x01) == ArmHudNotUp, "a paused HUD waits");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResStart, ok, true, true, 0) == ArmNoValidRow
++                                 && ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResStart, ok, true, true, 0x30) == ArmNoValidRow, "PIN no-valid-row-is-refused");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOff, false, 0, true, 0, -1, FlagAfterEvent, false, false, 0) == ArmHeldByLever
++                                 && ArmVerdict(ReplayModeOn, false, 0, true, 0, -1, FlagAfterEvent, false, false, 0) == ArmNotInjected
++                                 && ArmVerdict(ReplayModeOn, true, 0, true, 0, -1, 0, false, false, 0) == ArmNoR8
++                                 && ArmVerdict(ReplayModeOn, true, 1, true, 0, -1, 0, false, false, 0) == ArmExitLatched, "arm verdict order");
++            for (Int32 v = ArmGo; v <= ArmNoValidRow; v++)
++                Expect(fails, ref n, (ArmWhy(v) == null) == (v == ArmGo), "arm why " + v);
++
++            // ---- ValidRowMask ----
++            Manifest vm = new Manifest();
++            vm.Rows[0] = new ManifestRow { CharId = 0 };
++            vm.Rows[1] = new ManifestRow { CharId = 7 };
++            vm.Rows[3] = new ManifestRow { CharId = 2 };
++            Expect(fails, ref n, ValidRowMask(vm, new Int32[] { 0, 7, 5, 2 }) == 0x0B, "valid rows: every match");
++            Expect(fails, ref n, ValidRowMask(vm, new Int32[] { 0, 1, 7, -1 }) == 0x01, "PIN the charId must match the SAME raw slot");
++            Expect(fails, ref n, ValidRowMask(vm, new Int32[] { -1, -1, -1, -1 }) == 0, "empty seats never match");
++            Expect(fails, ref n, ValidRowMask(null, new Int32[] { 0, 7, 5, 2 }) == 0 && ValidRowMask(vm, null) == 0 && ValidRowMask(vm, new Int32[] { 0 }) == 0x01,
++                   "valid rows: null / short inputs");
++
++            // ---- FollowVerdict: the sweep against ChaseStep, then each disqualifier and the rate limit ----
++            Int32 sweep = 0;
++            for (Int32 l = ResStart; l <= ResNone; l++)
++                for (Int32 h = -1; h <= ResNone + 1; h++)
++                    for (Int32 ld = 0; ld < 2; ld++)
++                    {
++                        Int32 got = FollowVerdict(false, true, false, false, l, h, ld != 0, -1, Int32.MaxValue);
++                        Int32 want = h < ResStart || h > ResNone ? FollowNoHost : ChaseStep(l, h, ld != 0) ? FollowStep : FollowInStep;
++                        if (got != want && sweep++ < 3)
++                            fails.Add("follow L" + l + " H" + h + (ld != 0 ? "L" : "") + " -> " + got + " != " + want);
++                    }
++            n++;
++            Expect(fails, ref n, FollowVerdict(false, true, false, false, ResStart, ResExpTick, false, -1, 0) == FollowStep, "follow steps");
++            Expect(fails, ref n, FollowVerdict(true, true, false, false, ResStart, ResExpTick, false, -1, 0) == FollowAborted, "an aborted replay never steps");
++            Expect(fails, ref n, FollowVerdict(false, false, false, false, ResStart, ResExpTick, false, -1, 0) == FollowNotUp, "the guest's own pause holds the replay");
++            Expect(fails, ref n, FollowVerdict(false, true, true, false, ResStart, ResExpTick, false, -1, 0) == FollowQuit, "PIN the quit prompt is never answered by a host step");
++            Expect(fails, ref n, FollowVerdict(false, true, false, true, ResEndExp, ResStartGil, false, -1, 0) == FollowLoading, "PIN a Loading screen is never stepped");
++            Expect(fails, ref n, FollowVerdict(false, true, false, false, ResStart, ResNone, false, -1, 0) == FollowInStep, "PIN None is never chased");
++            Expect(fails, ref n, FollowVerdict(false, true, false, false, ResExpTick, ResEndExp, false, -1, 0) == FollowInStep, "PIN the natural EndEXPAndAP is not stepped to");
++            Expect(fails, ref n, FollowVerdict(false, true, false, false, ResItemFull, ResGilTick, false, ResItemFull, ReplayStepMs - 1) == FollowRateLimited,
++                   "PIN one step per local state per ReplayStepMs (a TweenOut in flight)");
++            Expect(fails, ref n, FollowVerdict(false, true, false, false, ResItemFull, ResGilTick, false, ResItemFull, ReplayStepMs) == FollowStep, "the rate limit lapses");
++            Expect(fails, ref n, FollowVerdict(false, true, false, false, ResExpTick, ResGilTick, false, ResStart, 0) == FollowStep,
++                   "PIN a new local state steps at once (the chase fast-forwards)");
++            Expect(fails, ref n, FollowVerdict(true, false, true, true, ResStart, -1, false, ResStart, 0) == FollowAborted
++                                 && FollowVerdict(false, false, true, true, ResStart, -1, false, ResStart, 0) == FollowNotUp
++                                 && FollowVerdict(false, true, true, true, ResStart, -1, false, ResStart, 0) == FollowQuit
++                                 && FollowVerdict(false, true, false, true, ResStart, -1, false, ResStart, 0) == FollowLoading, "follow verdict order");
++            for (Int32 v = FollowStep; v <= FollowRateLimited; v++)
++                Expect(fails, ref n, (FollowWhy(v) == null) == (v == FollowStep), "follow why " + v);
++
++            // ---- ExitWaitsForReplay ----
++            Expect(fails, ref n, ExitWaitsForReplay(TriggerResultHide, true, 0) && ExitWaitsForReplay(TriggerResultHide, true, ReplayExitWaitMs - 1), "the exit waits for a live replay");
++            Expect(fails, ref n, !ExitWaitsForReplay(TriggerResultHide, true, ReplayExitWaitMs), "PIN the exit never waits past ReplayExitWaitMs");
++            Expect(fails, ref n, !ExitWaitsForReplay(TriggerResultHide, false, 0), "no replay, no wait");
++            Expect(fails, ref n, !ExitWaitsForReplay(TriggerGameOver, true, 0) && !ExitWaitsForReplay(TriggerTitle, true, 0) && !ExitWaitsForReplay(TriggerNone, true, 0),
++                   "PIN Game Over / the title never wait");
++
++            // ---- SongVerdict (fixer S10-R1): one song rule for the settle AND the replay's own hide tail ----
++            Expect(fails, ref n, SongVerdict(0, false) == SongShut, "no field song kept: the stock shutdown runs");
++            Expect(fails, ref n, SongVerdict(FlagFieldSong, false) == SongHostKeeps, "PIN the host's b4 keeps the song (the guest's own flag is clear in a diorama)");
++            Expect(fails, ref n, SongVerdict(FlagFieldSong, true) == SongHostKeeps && SongVerdict(0, true) == SongLocalKeeps, "the host's b4 is asked first, then the local flag");
++            Expect(fails, ref n, SongVerdict((Byte)(FlagManifest | FlagEscapeGil | FlagAfterEvent | FlagItemOverflow), false) == SongShut, "PIN only b4 keeps the song");
++            Expect(fails, ref n, SongWhy(SongShut) == null && SongWhy(SongHostKeeps) != null && SongWhy(SongLocalKeeps) != null
++                                 && SongWhy(SongHostKeeps).StartsWith("the host keeps its field song"), "song why (the stage-6 receipt strings)");
++
++            // ---- ReplayOverflow ----
++            Expect(fails, ref n, ReplayOverflow(FlagItemOverflow, ResStartGil) && ReplayOverflow(0, ResItemFull) && !ReplayOverflow(0, ResGilTick)
++                                 && !ReplayOverflow((Byte)(FlagManifest | FlagEscapeGil | FlagAfterEvent | FlagFieldSong), ResEnd), "the replay's overflow is the host's");
++
++            // ---- ReplayLevel on the synthetic table threshold(L) = 100 * L ----
++            Func<Int32, UInt32> t100 = lv => (UInt32)(100 * lv);
++            Expect(fails, ref n, ReplayLevel(1, 99, 3, 99, t100) == 1, "one exp short: the shadow level stands");
++            Expect(fails, ref n, ReplayLevel(1, 100, 3, 99, t100) == 2 && ReplayLevel(1, 250, 3, 99, t100) == 3, "the shadow level follows the shadow exp");
++            Expect(fails, ref n, ReplayLevel(1, 100000, 3, 99, t100) == 3, "PIN the shadow level never passes the host's levelAfter");
++            Expect(fails, ref n, ReplayLevel(1, 100000, 60, 50, t100) == 50, "LEVEL_COUNT bounds it too");
++            Expect(fails, ref n, ReplayLevel(5, 100000, 5, 99, t100) == 5 && ReplayLevel(5, 100000, 4, 99, t100) == 5, "no level-up past (or below) the start");
++
++            // ---- LearnsDue: windows (old, new] ----
++            ManifestRow lr = new ManifestRow();
++            lr.Learns.Add(new ManifestLearn { AbilId = 31, ApAt = 3 });
++            lr.Learns.Add(new ManifestLearn { AbilId = 32, ApAt = 3 });
++            lr.Learns.Add(new ManifestLearn { AbilId = 33, ApAt = 5 });
++            List<Int32> due = new List<Int32>();
++            Expect(fails, ref n, LearnsDue(lr, 0, 2, due) == 0 && due.Count == 0, "no learn before its apAt");
++            Expect(fails, ref n, LearnsDue(lr, 2, 3, due) == 2 && due.Count == 2 && due[0] == 31 && due[1] == 32, "PIN same-apAt learns fire in the row's order");
++            due.Clear();
++            Expect(fails, ref n, LearnsDue(lr, 3, 3, due) == 0 && LearnsDue(lr, 3, 2, due) == 0 && due.Count == 0, "an empty window fires nothing");
++            Expect(fails, ref n, LearnsDue(lr, 0, 5, due) == 3 && due.Count == 3 && due[2] == 33, "a whole-remainder step fires every learn left");
++            Int32 fired = 0;
++            for (UInt32 ap = 0; ap < 8; ap++)
++                fired += LearnsDue(lr, ap, ap + 1, null);
++            Expect(fails, ref n, fired == 3, "PIN each learn fires exactly once across 1-AP steps");
++            Expect(fails, ref n, LearnsDue(null, 0, 9, null) == 0, "no row, no learn");
++
++            // ---- FpMix: every single-bit change of a value moves the hash; order matters ----
++            UInt64 base0 = FpMix(FpMix(FpSeed, 1234567UL), 0x0102030405060708UL);
++            Int32 blind = 0;
++            for (Int32 bit = 0; bit < 64; bit++)
++                if (FpMix(FpMix(FpSeed, 1234567UL), 0x0102030405060708UL ^ (1UL << bit)) == base0)
++                    blind++;
++            Expect(fails, ref n, blind == 0, "PIN the fingerprint sees every single-bit change (" + blind + " blind)");
++            Expect(fails, ref n, FpMix(FpMix(FpSeed, 7UL), 9UL) != FpMix(FpMix(FpSeed, 9UL), 7UL), "PIN the fingerprint is order-sensitive (a moved bag slot)");
++            Expect(fails, ref n, FpMix(FpSeed, 0UL) != FpSeed && FpMix(FpMix(FpSeed, 0UL), 0UL) != FpMix(FpSeed, 0UL), "PIN zeros still count (an emptied slot)");
++        }
++
+         // One manifest codec case through the REAL ParseView: the view stands with its units; the block equals `wantBlock`
+         // with `wantLen` manifest bytes; the manifest equals `wantM`, or (wantBad) is null with a reason. Returns the block.
+         private static EndBlock ManifestCase(List<String> fails, ref Int32 n, String what, Byte[] payload, Int32 wantUnits, EndBlock wantBlock,

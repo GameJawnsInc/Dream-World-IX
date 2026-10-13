@@ -8270,17 +8270,18 @@ class Session:
     #: The agent's sub-verbs, in its own order -- the list its "unknown sub-verb" refusal prints
     #: (HarnessAgent `case "netsync"`, s96; [ff9mapkit netsync F3.3] + s97 `dioboot`/`dioleave`, s98 `host`,
     #: s99 `tap-record`/`replay`; [ff9mapkit netsync B4] + s100 `guestslots`/`bcmd`/`hostgates`, s101
-    #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`). Pinned to the patch stack by
-    #: test_harness_netsync.py.
+    #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`; [ff9mapkit netsync B4] s106 INSERTS
+    #: `bbench` before `endbench`). Pinned to the patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
-                        "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "endbench")
+                        "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
+                        "endbench")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
-                                  "bctl", "bmenu", "endbench")
+                                  "bctl", "bmenu", "bbench", "endbench")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8307,23 +8308,56 @@ class Session:
         "bctl": ("coop_containment", "netsync.battle.menu.r9_refused", "s101",
                  "the B4 guest containment-backstop bench (R9 + G2)"),
         "bmenu": ("coop_stock_menu", "netsync.battle.menu.captures", "s102", "the B4 guest stock-menu bench"),
+        "bbench": ("coop_menu_content", "netsync.battle.menu.content_hits", "s106",
+                   "the B4 roster-fed menu-content bench"),
         "endbench": ("coop_end_trailer", "netsync.battle.host.end_trail", "s103", "the B5 end-block bench"),
     }
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
+    #: [ff9mapkit netsync B4] `bbench <op>`, in the engine's order -- the list its "unknown op" refusal prints
+    #: (NetSyncBattle.HarnessStockBench: s106 `roster|content`, + the s107 bench feed). An s106 engine prints
+    #: :attr:`NETSYNC_BBENCH_S106_LIST` instead.
+    NETSYNC_BBENCH_OPS = ("roster", "content", "start", "stop", "ready", "caps", "mode", "freeze", "unmap", "knob")
+    NETSYNC_BBENCH_S106_LIST = "roster|content; stage 8 adds start|ready|caps|mode|unmap|stop"
+    #: [ff9mapkit netsync B4] The `bbench` ops a LATER patch added (s107's bench feed), told by their own key.
+    NETSYNC_BBENCH_OP_CAPS = {op: ("coop_ready_mirror", "netsync.battle.menu.stock_owns", "s107",
+                                   "the B4 ready-mirror bench feed")
+                              for op in ("start", "stop", "ready", "caps", "mode", "freeze", "unmap", "knob")}
     #: [ff9mapkit netsync B5] `endbench <op>`, in the engine's order -- the list its "unknown op" refusal prints
-    #: (NetSyncEnd.HarnessEndBench: s103, + `guest` s104, + `exit` s105). `manifest` is not listed there but is an op the
-    #: engine knows -- and refuses ("the result manifest is stage 9") -- so the driver sends it.
+    #: (NetSyncEnd.HarnessEndBench: s103, + `guest` s104, + `exit` s105, + `manifest` s108, + `fieldsong` / `replay` /
+    #: `quit` s109).
     NETSYNC_ENDBENCH_OPS = ("victory", "pending", "nopose", "other", "defeat", "escape", "event", "fight", "ui", "state",
-                            "overflow", "afterevent", "cmd", "host", "guest", "exit", "selftest", "clear")
-    NETSYNC_ENDBENCH_UNLISTED = ("manifest",)
+                            "overflow", "afterevent", "fieldsong", "manifest", "cmd", "host", "guest", "exit", "replay",
+                            "quit", "selftest", "clear")
+    #: Ops an engine knows without listing them (s103-s107 knew `manifest` and refused it; s108 lists it): none now.
+    NETSYNC_ENDBENCH_UNLISTED = ()
     #: [ff9mapkit netsync B5] The `endbench` ops a LATER patch added, told by their own key (as the sub-verbs are).
     NETSYNC_ENDBENCH_OP_CAPS = {
         "guest": ("coop_presentation", "netsync.battle.end.r8_hits", "s104",
                   "the B5 guest-presentation calibration lever"),
         "exit": ("coop_exit_with_host", "netsync.battle.end.end_leave", "s105",
                  "the B5 guest-exit calibration lever"),
+        "manifest": ("coop_result_manifest", "netsync.battle.host.manifest_captures", "s108",
+                     "the B5 result-manifest bench (presets 0-3 and the `manifest host on|off` lever)"),
+        "fieldsong": ("coop_result_replay", "netsync.battle.end.replay", "s109",
+                      "the B5 replay bench's host field-song flag (b4)"),
+        "replay": ("coop_result_replay", "netsync.battle.end.replay", "s109",
+                   "the B5 result-screen replay calibration lever"),
+        "quit": ("coop_result_replay", "netsync.battle.end.replay", "s109", "the B5 replay quit-guard bench"),
+    }
+    #: What an older engine answers a later `endbench` op with, when it is not "unknown op" (s103-s107 knew `manifest`).
+    NETSYNC_ENDBENCH_OLD_ANSWERS = {
+        "manifest": "netsync endbench manifest: the result manifest is stage 9 -- this engine ships the end block only",
+    }
+    #: [ff9mapkit netsync B4] s110's two NAMED ops inside `netsync bench` (no new sub-verb): `bench lapse <ms>|hold|end`
+    #: (the selftest guest STALL) and `bench handback 1|0` (the stage's lever). ⚠ An engine before s110 parses either as
+    #: `bench 1` -- the FIELD-GATE bench ON -- so the driver sends them only when `netsync.battle.host.handback` is there.
+    NETSYNC_BENCH_OPS = {
+        "lapse": ("coop_slot_handback", "netsync.battle.host.handback", "s110",
+                  "the B4 guest-slot hand-back bench (the selftest guest stall)"),
+        "handback": ("coop_slot_handback", "netsync.battle.host.handback", "s110",
+                     "the B4 guest-slot hand-back calibration lever"),
     }
 
     def netsync(self, sub: str, *args, timeout: float = 20.0) -> State:
@@ -8371,15 +8405,29 @@ class Session:
         on|off|settle`` (s104) and ``exit on|off`` (s105), runs ``selftest`` or ``clear``s. Every lever
         is released on disarm, fault and ``reset``.
 
+        s106-s110 (B4/B5 stages 7-11): ``bbench roster <hex> | roster auto <L> [dbl] [grey] [mp=<n>]
+        [count=<n>] | roster clear | content on|off|<mask>`` arms the stage-7 menu roster and its
+        content lever (s106; :func:`harness.battlewire.encode_roster` composes a raw roster);
+        ``bbench start <mask> | stop | ready <mask> | caps <bits> | mode accept|refuse|freeze | freeze
+        1|0 | unmap <w>|none | knob 0|1|ini`` drive the stage-8 bench feed (s107); ``endbench manifest
+        0|none|1|2|3 | manifest host on|off`` (s108), ``endbench fieldsong 0|1 | replay
+        on|off|local | quit on|off`` (s109 -- NEVER press Confirm on the quit prompt: its Yes quits);
+        ``bench lapse <ms>|hold|end`` and ``bench handback 1|0`` (s110, two NAMED ops of the F1
+        ``bench`` verb).
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
-        capability (``unknown sub-verb`` again), and a bench-host / ``bmenu`` / ``endbench`` op the
-        engine does not have (``unknown op``; an ``endbench guest``/``exit`` on an engine before
-        s104/s105 included) -- worse messages and wasted steps. Every gate the agent itself applies (the
-        role, the bench lever, the lock, an open window, a live diorama, an argument's range or hex)
-        stays the agent's: its refusal comes back as a :class:`StepRefused` carrying the engine's
-        reason.
+        capability (``unknown sub-verb`` again), and a bench-host / ``bmenu`` / ``bbench`` /
+        ``endbench`` op the engine does not have (``unknown op``; an ``endbench guest``/``exit`` on an
+        engine before s104/s105, a ``bbench`` feed op before s107, an ``endbench manifest`` before
+        s108 -- which an s103-s107 engine refuses as "stage 9" -- and ``fieldsong``/``replay``/``quit``
+        before s109 included) -- worse messages and wasted steps. And ``bench lapse``/``bench
+        handback`` on an engine without ``netsync.battle.host.handback`` (s110): there the agent reads
+        either as ``bench 1`` and turns the FIELD-GATE bench ON -- a silent wrong action, never sent.
+        Every gate the agent itself applies (the role, the bench lever, the lock, an open window, a
+        live diorama, an argument's range or hex) stays the agent's: its refusal comes back as a
+        :class:`StepRefused` carrying the engine's reason.
         """
         if self.engine_protocol is not None and self.engine_protocol < self.NETSYNC_PROTOCOL:
             raise HarnessError(
@@ -8429,6 +8477,18 @@ class Session:
             op = str(args[0]).strip().lower() if args else ""
             if op not in self.NETSYNC_BMENU_OPS:
                 raise HarnessError(f"netsync bmenu: unknown op '{op}' ({'|'.join(self.NETSYNC_BMENU_OPS)})")
+        elif sub == "bbench":
+            # [ff9mapkit netsync B4] HarnessStockBench lowercases the op and refuses one it lacks -- in its words; the s107
+            # feed ops are told by their own key (an s106 engine answers "unknown op" with ITS shorter list)
+            op = str(args[0]).strip().lower() if args else ""
+            if op not in self.NETSYNC_BBENCH_OPS:
+                raise HarnessError(f"netsync bbench: unknown op '{op}' ({'|'.join(self.NETSYNC_BBENCH_OPS)})")
+            cap = self.NETSYNC_BBENCH_OP_CAPS.get(op)
+            if cap is not None and not getattr(st, cap[0]):
+                raise HarnessError(
+                    f"netsync bbench {op}: the deployed engine publishes no `{cap[1]}` -- `bbench {op}` is {cap[3]} "
+                    f"(memoria-patch {cap[2]}); it would answer \"netsync bbench: unknown op '{op}' "
+                    f"({self.NETSYNC_BBENCH_S106_LIST})\" only after the step. Rebuild the DLL, or update the driver.")
         elif sub == "endbench":
             # [ff9mapkit netsync B5] the same for HarnessEndBench; a later patch's op is told by its own key
             op = str(args[0]).strip().lower() if args else ""
@@ -8436,10 +8496,23 @@ class Session:
                 raise HarnessError(f"netsync endbench: unknown op '{op}' ({'|'.join(self.NETSYNC_ENDBENCH_OPS)})")
             cap = self.NETSYNC_ENDBENCH_OP_CAPS.get(op)
             if cap is not None and not getattr(st, cap[0]):
+                answer = self.NETSYNC_ENDBENCH_OLD_ANSWERS.get(op, f"netsync endbench: unknown op '{op}'")
                 raise HarnessError(
                     f"netsync endbench {op}: the deployed engine publishes no `{cap[1]}` -- `endbench {op}` is {cap[3]} "
-                    f"(memoria-patch {cap[2]}); it would answer \"netsync endbench: unknown op '{op}'\" only after the "
-                    f"step. Rebuild the DLL, or update the driver.")
+                    f"(memoria-patch {cap[2]}); it would answer \"{answer}\" only after the step. Rebuild the DLL, or "
+                    f"update the driver.")
+        elif sub == "bench" and args and str(args[0]).strip().lower() in self.NETSYNC_BENCH_OPS:
+            # [ff9mapkit netsync B4] s110: a named op of the F1 `bench` verb -- probe its key FIRST: an older agent's
+            # Arg() fallback reads `bench lapse` / `bench handback` as `bench 1` (the field-gate bench ON), so the step
+            # would not fail, it would do the wrong thing
+            op = str(args[0]).strip().lower()
+            cap = self.NETSYNC_BENCH_OPS[op]
+            st = self.state
+            if not getattr(st, cap[0]):
+                raise HarnessError(
+                    f"netsync bench {op}: the deployed engine publishes no `{cap[1]}` -- `bench {op}` is {cap[3]} "
+                    f"(memoria-patch {cap[2]}); an engine before it reads `bench {op}` as `bench 1` and turns the "
+                    f"FIELD-GATE bench ON. Not sent. Rebuild the DLL, or update the driver.")
         self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
         return self.state
 

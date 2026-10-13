@@ -1,0 +1,2098 @@
+diff --git a/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs b/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
+index f0cffb8..df3b912 100644
+--- a/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
++++ b/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
+@@ -369,6 +369,7 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+             this.currentState = BattleResultUI.ResultState.Start;
+         else
+             this.currentState = BattleResultUI.ResultState.EndEXPAndAP;
++        this.NetHostCaptureManifest();   // [ff9mapkit netsync B5] stage 9: the host's result manifest (host-only; BattleResultUI.Net.cs)
+     }
+ 
+     private void InitialEvent()
+@@ -638,6 +639,7 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+             FF9Sfx.FF9SFX_Play(1043);
+         this.isAbilityLearnSoundPlayed = true;
+         this.abilityLearned[id].Add(abilId);
++        this.NetHostNoteLearned(id, abilId);   // [ff9mapkit netsync B5] stage 9: the harness's learn receipt (host-only)
+         BattleAchievement.UpdateAbilitiesAchievement(abilId, true);
+     }
+ 
+@@ -722,6 +724,8 @@ public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage
+             QuadMistDatabase.MiniGame_SetCard(this.defaultCard);
+         if (gainedItem && (this.itemList.Count != 0 || this.defaultCard != TetraMasterCardId.NONE))
+             FF9Sfx.FF9SFX_Play(108);
++        if (gainedItem)
++            this.NetHostNoteOverflow();   // [ff9mapkit netsync B5] stage 9: the sticky end-block overflow bit b2 (host-only)
+         return !gainedItem;
+     }
+ 
+diff --git a/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs b/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs
+index 8234585..3771beb 100644
+--- a/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs
++++ b/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs
+@@ -1,10 +1,24 @@
+ using System;
++using System.Collections.Generic;
++using FF9;
++using Memoria.Data;
+ 
+ // [ff9mapkit netsync B5] stage 4 -- the co-op half of the stock result screen (studies/battle-coop/B4-B5-DESIGN.md
+ // sections 5.2 and 5.6). This stage adds ONLY read accessors: the host's end block (Memoria.Netsync.NetSyncEnd) ships
+ // the screen's state machine position and its Loading bit on every type-1 frame, so a guest can follow the host's
+ // reward screen state by state. Nothing here writes, and nothing in BattleResultUI.cs calls it: vanilla, solo and the
+ // host's own result screen are unchanged. Stage 10 grows this file into the guest's write-nothing replay (seams a-m).
++//
++// [ff9mapkit netsync B5] stage 9 -- THE HOST TAPS (design 5.5): three one-line calls in BattleResultUI.cs land here.
++//   InitialNormal's tail -> NetHostCaptureManifest: the screen's own post-support-ability model (isNeedExp/isNeedAp,
++//     expValue/apValue, defaultExp/defaultAp, gilValue, itemList, defaultCard) plus the party, read -- never written --
++//     into a NetSyncEnd.Manifest (levelAfter through NetSyncEnd.LevelAfter, the learn schedule through
++//     NetSyncEnd.LearnSchedule on a CLONE of pa[]); it rides the host's end block from the next sample on.
++//   UpdateItem (an item that did not fit) -> NetHostNoteOverflow: the sticky end-block flag b2.
++//   ApLearned -> NetHostNoteLearned: the learn as the stock screen fired it (the harness's receipt against the schedule).
++// Every tap is HOST-ONLY (NetSyncEnd.HostTapWanted: netsync on, an own battle being streamed, not a diorama) and never
++// throws into the screen: vanilla and solo return at the gate's first test, and the screen's behaviour never changes.
++// Plus NetDescribe (harness `battle.result_ui`): the labels as drawn and the model behind them, read-only.
+ public partial class BattleResultUI
+ {
+     // The ResultState ordinals, pinned to the engine's own (private) enum: NetSyncEnd's chase table and the wire's
+@@ -32,4 +46,255 @@ public partial class BattleResultUI
+     {
+         get { return (this.NetStateRaw & 0x7F) | (this.Loading ? 0x80 : 0); }
+     }
++
++    // ==================================================================== [ff9mapkit netsync B5] stage 9 -- the host taps
++    /// <summary>InitialNormal's tail (after InitialInfo's support-ability triggers, before any UpdateExp/AddAp write): build
++    /// and store the host's result manifest. Host-only; never throws.</summary>
++    private void NetHostCaptureManifest()
++    {
++        try
++        {
++            if (!Memoria.Netsync.NetSyncEnd.HostTapWanted)
++            {
++                Memoria.Netsync.NetSyncEnd.HostSkipManifest("no own battle is being streamed (the type-1 lane is down)");
++                return;
++            }
++            Memoria.Netsync.NetSyncEnd.Manifest m = null;
++            String why = null;
++            try
++            {
++                m = this.NetBuildManifest();
++            }
++            catch (Exception ex)
++            {
++                m = null;
++                why = "the build faulted: " + ex.GetType().Name + ": " + ex.Message;
++            }
++            Memoria.Netsync.NetSyncEnd.HostStoreManifest(m, why);
++        }
++        catch (Exception)
++        {
++            // swallow -- the netsync fail-safe law: the host's own result screen runs on untouched
++        }
++    }
++
++    /// <summary>UpdateItem, when an item did not fit: the sticky overflow bit. Host-only; never throws.</summary>
++    private void NetHostNoteOverflow()
++    {
++        try
++        {
++            Memoria.Netsync.NetSyncEnd.HostNoteItemOverflow();
++        }
++        catch (Exception)
++        {
++        }
++    }
++
++    /// <summary>ApLearned: the learn as the stock screen fired it -- the row, the ability, the row's cumulative AP (its
++    /// apValue.current, already advanced by AddAp). Host-only; never throws.</summary>
++    private void NetHostNoteLearned(Int32 id, Int32 abilId)
++    {
++        try
++        {
++            if (!Memoria.Netsync.NetSyncEnd.HostTapWanted)
++                return;
++            BattleEndValue v = id >= 0 && id < this.apValue.Length ? this.apValue[id] : null;
++            Memoria.Netsync.NetSyncEnd.HostNoteLearned(id, abilId, v != null ? v.current : 0u);
++        }
++        catch (Exception)
++        {
++        }
++    }
++
++    // The manifest, read off the screen's model (InitialNormal has just filled it) and the party. Reads only: pa[] is
++    // CLONED inside LearnSchedule, no PLAYER field is written. A throw lands in NetHostCaptureManifest's catch.
++    private Memoria.Netsync.NetSyncEnd.Manifest NetBuildManifest()
++    {
++        Memoria.Netsync.NetSyncEnd.Manifest m = new Memoria.Netsync.NetSyncEnd.Manifest();
++        PLAYER[] party = FF9StateSystem.Common.FF9.party.member;
++        Func<Int32, UInt32> threshold = lv => ff9level.CharacterLevelUps[lv].ExperienceToLevel;
++        for (Int32 i = 0; i < Memoria.Netsync.NetSyncEnd.ManifestMaxRows && i < party.Length; i++)
++        {
++            PLAYER player = party[i];
++            if (player == null)
++                continue;
++            Memoria.Netsync.NetSyncEnd.ManifestRow r = new Memoria.Netsync.NetSyncEnd.ManifestRow();
++            Int32 cid = (Int32)player.info.slot_no;
++            r.CharId = cid >= 0 && cid < 0xFF ? (Byte)cid : (Byte)0xFF;
++            Boolean needExp = this.isNeedExp[i];
++            Boolean needAp = this.isNeedAp[i];
++            r.RowFlags = (Byte)((needExp ? Memoria.Netsync.NetSyncEnd.RowNeedExp : 0)
++                              | (needAp ? Memoria.Netsync.NetSyncEnd.RowNeedAp : 0)
++                              | (this.IsEnableDraw(player, i) ? Memoria.Netsync.NetSyncEnd.RowDraw : 0));
++            r.LevelBefore = player.level;
++            r.ExpBefore = player.exp;
++            r.ExpGain = needExp && this.expValue[i] != null ? this.expValue[i].value : 0u;
++            r.LevelAfter = Memoria.Netsync.NetSyncEnd.LevelAfter(player.level, player.exp, r.ExpGain, ff9level.LEVEL_COUNT, threshold);
++            UInt32 apGain = needAp && this.apValue[i] != null ? this.apValue[i].value : 0u;
++            r.ApGain = (UInt16)Math.Min(apGain, (UInt32)UInt16.MaxValue);
++            r.Status = (UInt64)player.status;
++            if (apGain > 0u && ff9abil.FF9Abil_HasAp(player))   // AddAp's own early return
++            {
++                Boolean capped;
++                List<Memoria.Netsync.NetSyncEnd.ManifestLearn> learns =
++                    Memoria.Netsync.NetSyncEnd.LearnSchedule(player.pa, NetLearnSlots(player), apGain, out capped);
++                m.Truncated += Memoria.Netsync.NetSyncEnd.CapLearns(learns, r.Learns);
++                m.LearnCapped |= capped;
++            }
++            m.Rows[i] = r;
++        }
++        m.DefaultExp = this.defaultExp;
++        m.DefaultAp = (UInt16)Math.Min(this.defaultAp, (UInt32)UInt16.MaxValue);
++        m.GilGain = this.gilValue.value;
++        m.GilBefore = FF9StateSystem.Common.FF9.party.gil;
++        for (Int32 i = 0; i < this.itemList.Count; i++)
++        {
++            FF9ITEM it = this.itemList[i];
++            if (it == null)
++                continue;
++            if (m.Items.Count >= Memoria.Netsync.NetSyncEnd.ManifestMaxItems)
++            {
++                m.Truncated++;
++                continue;
++            }
++            Memoria.Netsync.NetSyncEnd.ManifestItem mi;
++            mi.Id = (Int32)it.id;
++            mi.Count = it.count;
++            m.Items.Add(mi);
++        }
++        m.Card = (Int32)this.defaultCard;
++        return m;
++    }
++
++    // AddAp's own walk (BattleResultUI.cs AddAp), read-only: every equipped item's every teachable ability, IN THAT LOOP'S
++    // ORDER -- load-bearing: an ability two equipped items teach advances twice per AP step, as stock does.
++    private static List<Memoria.Netsync.NetSyncEnd.LearnSlot> NetLearnSlots(PLAYER player)
++    {
++        List<Memoria.Netsync.NetSyncEnd.LearnSlot> slots = new List<Memoria.Netsync.NetSyncEnd.LearnSlot>();
++        for (Int32 i = 0; i < 5; i++)
++        {
++            if (player.equip[i] == RegularItem.NoItem)
++                continue;
++            FF9ITEM_DATA itemData = ff9item._FF9Item_Data[player.equip[i]];
++            foreach (Int32 abil in itemData.ability)
++            {
++                if (abil == 0)
++                    continue;
++                Int32 abilIndex = ff9abil.FF9Abil_GetIndex(player, abil);
++                if (abilIndex < 0)
++                    continue;
++                Memoria.Netsync.NetSyncEnd.LearnSlot s;
++                s.AbilId = abil;
++                s.Index = abilIndex;
++                s.MaxAp = ff9abil._FF9Abil_PaData[player.PresetId][abilIndex].Ap;
++                slots.Add(s);
++            }
++        }
++        return slots;
++    }
++
++    // ==================================================================== [ff9mapkit netsync B5] stage 9 -- NetDescribe
++    // Harness `battle.result_ui`: what the screen SHOWS (the labels as drawn) and the model behind it, so a bench can hold the
++    // host's manifest against its own live screen. Read-only: no Display*/Update*, nothing written. Each read is guarded.
++    public sealed class NetResultRow
++    {
++        public Int32 Slot;              // RAW party slot
++        public Boolean Shown;           // the row's Content is active
++        public String Name, Level, Exp, Next;   // the labels as drawn (raw NGUI text)
++        public Boolean Dim;             // the row's DimSprite is active (IsEnableDraw false)
++        public Int32 LevelUps;          // totalLevelUp[slot] (level-ups this screen has played)
++        public Int64 ExpValue = -1, ExpCurrent = -1, ApValue = -1, ApCurrent = -1;
++        public Boolean NeedExp, NeedAp;
++    }
++
++    public sealed class NetResultItem
++    {
++        public Int32 Id;                // the model: itemList[i].id
++        public Int32 Count;             // itemList[i].count
++        public Boolean Shown;           // its itemHudList slot is active
++        public String Name, Number;     // that slot's labels as drawn
++    }
++
++    public sealed class NetResultView
++    {
++        public String ExpLabel, ApLabel, GilReceiveLabel, GilCurrentLabel, CardLabel;   // as drawn (null = not readable)
++        public Boolean CardShown;
++        public Int64 DefaultExp = -1, DefaultAp = -1, DefaultGil = -1, GilValue = -1, GilCurrent = -1, PartyGil = -1;
++        public Int32 Card = -1;
++        public readonly List<NetResultRow> Rows = new List<NetResultRow>(4);
++        public readonly List<NetResultItem> Items = new List<NetResultItem>(6);
++    }
++
++    public NetResultView NetDescribe()
++    {
++        NetResultView v = new NetResultView();
++        try { v.ExpLabel = this.expReceiveLabel != null ? this.expReceiveLabel.rawText : null; } catch (Exception) { }
++        try { v.ApLabel = this.apReceiveLabel != null ? this.apReceiveLabel.rawText : null; } catch (Exception) { }
++        try { v.GilReceiveLabel = this.receiveGilLabel != null ? this.receiveGilLabel.rawText : null; } catch (Exception) { }
++        try { v.GilCurrentLabel = this.currentGilLabel != null ? this.currentGilLabel.rawText : null; } catch (Exception) { }
++        try
++        {
++            v.CardShown = this.cardHud != null && this.cardHud.Self != null && this.cardHud.Self.activeSelf;
++            v.CardLabel = v.CardShown && this.cardHud.NameLabel != null ? this.cardHud.NameLabel.rawText : null;
++        }
++        catch (Exception) { }
++        try { v.DefaultExp = this.defaultExp; } catch (Exception) { }
++        try { v.DefaultAp = this.defaultAp; } catch (Exception) { }
++        try { v.DefaultGil = this.defaultGil; } catch (Exception) { }
++        try { v.GilValue = this.gilValue.value; v.GilCurrent = this.gilValue.current; } catch (Exception) { }
++        try { v.PartyGil = FF9StateSystem.Common.FF9.party.gil; } catch (Exception) { }
++        try { v.Card = (Int32)this.defaultCard; } catch (Exception) { }
++        for (Int32 i = 0; i < 4; i++)
++        {
++            try
++            {
++                if (i >= this.characterBRInfoHudList.Count)
++                    break;
++                CharacterBattleResultInfoHUD hud = this.characterBRInfoHudList[i];
++                NetResultRow r = new NetResultRow();
++                r.Slot = i;
++                r.Shown = hud.Content != null && hud.Content.activeSelf;
++                r.Name = hud.NameLabel != null ? hud.NameLabel.rawText : null;
++                r.Level = hud.LevelLabel != null ? hud.LevelLabel.rawText : null;
++                r.Exp = hud.ExpLabel != null ? hud.ExpLabel.rawText : null;
++                r.Next = hud.NextLvLabel != null ? hud.NextLvLabel.rawText : null;
++                r.Dim = hud.DimSprite != null && hud.DimSprite.gameObject.activeSelf;
++                r.LevelUps = this.totalLevelUp != null && i < this.totalLevelUp.Length ? this.totalLevelUp[i] : 0;
++                if (this.expValue[i] != null)
++                {
++                    r.ExpValue = this.expValue[i].value;
++                    r.ExpCurrent = this.expValue[i].current;
++                }
++                if (this.apValue[i] != null)
++                {
++                    r.ApValue = this.apValue[i].value;
++                    r.ApCurrent = this.apValue[i].current;
++                }
++                r.NeedExp = this.isNeedExp[i];
++                r.NeedAp = this.isNeedAp[i];
++                v.Rows.Add(r);
++            }
++            catch (Exception) { }
++        }
++        try
++        {
++            for (Int32 i = 0; i < this.itemList.Count; i++)
++            {
++                FF9ITEM it = this.itemList[i];
++                NetResultItem ri = new NetResultItem();
++                ri.Id = it != null ? (Int32)it.id : -1;
++                ri.Count = it != null ? it.count : 0;
++                if (i < this.itemHudList.Count)
++                {
++                    Assets.Sources.Scripts.UI.Common.ItemListDetailWithIconHUD h = this.itemHudList[i];
++                    ri.Shown = h.Self != null && h.Self.activeSelf;
++                    ri.Name = h.NameLabel != null ? h.NameLabel.rawText : null;
++                    ri.Number = h.NumberLabel != null ? h.NumberLabel.rawText : null;
++                }
++                v.Items.Add(ri);
++            }
++        }
++        catch (Exception) { }
++        return v;
++    }
+ }
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index cb0437a..dff3957 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -109,6 +109,14 @@ namespace Memoria.Harness
+         // type-1 lane built from the diorama's own units through the real ParseView, plus a bench host that answers the
+         // forwarded frames). A driver checks for `netsync.battle.menu.stock_owns` -- absent = an engine whose diorama opens the
+         // stock menu only through the `bmenu open` bench opener.
++        // [ff9mapkit netsync B5] stage 9 (the host result manifest), also additive under 5: `netsync.battle.host` gains
++        // `manifest` (the captured manifest -- see AppendManifest), `manifest_bytes`/`manifest_captures`/`manifest_skipped`/
++        // `manifest_why`/`manifest_mode`/`overflow`/`learned`, `netsync.battle.peer` gains `manifest_bad`/`manifest_bad_why`/
++        // `manifest_nonce`/`manifest_rx`/`bench_manifest`/`bench_manifest_note`, `netsync.battle.peer.end` gains `manifest`/
++        // `manifest_why` (and `rows` now counts the decoded rows), `battle.result_ui` gains the labels as drawn, the rows, the
++        // items and the model (see AppendResultUi), and the selftest verb `netsync endbench manifest 0|1|2|3|none` (fabricate
++        // through the real codec) + the lever `netsync endbench manifest host on|off` join. A driver checks for
++        // `netsync.battle.host.manifest_captures` -- absent = an engine whose end block carries no manifest.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1358,6 +1366,10 @@ namespace Memoria.Harness
+                             // Over) or `ui 3` (the title) makes that diorama LEAVE with the host -- read
+                             // `netsync.battle.end.end_leave` and, on the field, `battle.result` / `netsync.diorama.returns`.
+                             // The bench end stays armed after the leave: `endbench clear` before the next `dioboot`.
++                            // [ff9mapkit netsync B5] stage 9: `endbench manifest 0|none|1|2|3` sets the template's RESULT
++                            //   MANIFEST (1 = two-marker from the seated party, 2 = escape with gil, 3 = foreign charIds) and
++                            //   re-fabricates -- read it back at `netsync.battle.peer.end.manifest`; `endbench manifest host
++                            //   on|off` is the stage's lever (off = the host's end block ships no manifest / overflow bit).
+                             String eop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             Int32 earg = -1;
+                             Boolean eloading = false;
+@@ -1393,6 +1405,27 @@ namespace Memoria.Harness
+                                 case "exit":                    // [ff9mapkit netsync B5] stage 6
+                                     emode = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
+                                     break;
++                                case "manifest":                // [ff9mapkit netsync B5] stage 9
++                                {
++                                    String ma = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
++                                    if (ma == "host")
++                                    {
++                                        if (s.Args.Length != 4)
++                                            throw new ArgumentOutOfRangeException("netsync endbench manifest host", "expected `manifest host on|off`");
++                                        emode = s.Args[3].ToLowerInvariant();
++                                    }
++                                    else if (ma == "none")
++                                    {
++                                        earg = 0;
++                                    }
++                                    else
++                                    {
++                                        earg = Arg(s, 2, -1);
++                                        if (earg < 0 || s.Args.Length > 3)
++                                            throw new ArgumentOutOfRangeException("netsync endbench manifest", "expected `manifest 0|none|1|2|3` or `manifest host on|off`");
++                                    }
++                                    break;
++                                }
+                             }
+                             if (!Memoria.Netsync.NetSyncEnd.HarnessEndBench(eop, earg, eloading, eframe, emode, out why))
+                                 throw new InvalidOperationException(why ?? "netsync endbench refused");
+@@ -2869,7 +2902,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[]},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3036,6 +3069,22 @@ namespace Memoria.Harness
+         //     `content_why`, `mute_held`, `roster`, `bench_roster`.
+         // [ff9mapkit netsync B4] stage 8 adds to `menu` the ready mirror's keys (see AppendStockMirror): `stock_owns`, `why`,
+         //     `knob`, `knob_bench`, `assist_slot`, `stranded`, `pending`, `pending_mask`, `refused`, `sent`, `mirror`, `feed`.
++        // [ff9mapkit netsync B5] stage 9 adds the RESULT MANIFEST (NetSyncEnd; design 5.5):
++        //   host -- `manifest` (the last captured manifest -- see AppendManifest; null = none yet this battle; kept after the
++        //     battle until the next starts), `manifest_bytes` (the captured manifest's ENCODED size while its own battle
++        //     lasts; 0 = nothing captured this battle, or the battle has ended. NOT a shipping signal: under the `manifest
++        //     host off` lever it stays > 0 while nothing ships -- what shipped is `end.manifest_len` / `end.flags & 2`), the
++        //     monotonic per-process `manifest_captures` / `manifest_skipped` (read DELTAS), `manifest_why` (why the last
++        //     InitialNormal captured nothing; null = it did), `manifest_mode` (the selftest lever: on / off), `overflow` (the
++        //     sticky host tap in UpdateItem) and `learned` (each ApLearned the host's screen fired: {slot, abil, ap_at} --
++        //     ap_at = the row's cumulative AP at that moment, equal to `manifest.rows[].learns[].ap_at` on the NATURAL TICK
++        //     PATH only: ONE short Confirm at result state 0 (Start leaves on nothing else), then none until state 2. A
++        //     Confirm during the ticks learns the same set, but every later learn reads ap_at = the row's whole gain);
++        //   peer -- `manifest_bad` / `manifest_bad_why` (flags-b1 bodies that did not decode -- monotonic, read DELTAS),
++        //     `manifest_nonce` (the battle nonce of the manifest the guest STORED off the live/loopback lane; -1 = none),
++        //     `manifest_rx` (distinct manifests stored -- monotonic; the bench seam never stores one, so a bench manifest
++        //     shows only on `peer.end.manifest`), `bench_manifest` (the `endbench manifest` preset in the template; 0 =
++        //     none) and `bench_manifest_note` (a marker that preset could not choose; null = every one).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3057,7 +3106,27 @@ namespace Memoria.Harness
+             Num(sb, "end_edges", Memoria.Netsync.NetSyncEnd.HarnessHostEdges); sb.Append(",");
+             Num(sb, "end_changes", Memoria.Netsync.NetSyncEnd.HarnessHostChanges); sb.Append(",");
+             Str(sb, "end_mode", Memoria.Netsync.NetSyncEnd.HarnessHostMode); sb.Append(",");
+-            Str(sb, "end_cmd", Memoria.Netsync.NetSyncEnd.HarnessCmdStatus);
++            Str(sb, "end_cmd", Memoria.Netsync.NetSyncEnd.HarnessCmdStatus); sb.Append(",");
++            AppendManifest(sb, "manifest", Memoria.Netsync.NetSyncEnd.HarnessHostManifest); sb.Append(",");   // [ff9mapkit netsync B5] stage 9
++            Num(sb, "manifest_bytes", Memoria.Netsync.NetSyncEnd.HarnessHostManifestBytes); sb.Append(",");
++            Num(sb, "manifest_captures", Memoria.Netsync.NetSyncEnd.HarnessManifestCaptures); sb.Append(",");
++            Num(sb, "manifest_skipped", Memoria.Netsync.NetSyncEnd.HarnessManifestSkipped); sb.Append(",");
++            Str(sb, "manifest_why", Memoria.Netsync.NetSyncEnd.HarnessManifestWhy); sb.Append(",");
++            Str(sb, "manifest_mode", Memoria.Netsync.NetSyncEnd.HarnessManifestMode); sb.Append(",");
++            Bool(sb, "overflow", Memoria.Netsync.NetSyncEnd.HarnessHostOverflow); sb.Append(",");
++            sb.Append("\"learned\":[");
++            List<Int32[]> learned = Memoria.Netsync.NetSyncEnd.HarnessHostLearned();
++            for (Int32 i = 0; i < learned.Count; i++)
++            {
++                if (i > 0)
++                    sb.Append(",");
++                sb.Append("{");
++                Num(sb, "slot", learned[i][0]); sb.Append(",");
++                Num(sb, "abil", learned[i][1]); sb.Append(",");
++                Num(sb, "ap_at", learned[i][2]);
++                sb.Append("}");
++            }
++            sb.Append("]");
+             sb.Append("},\"peer\":{");
+             Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
+             Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");
+@@ -3068,7 +3137,13 @@ namespace Memoria.Harness
+             AppendStrList(sb, "end_trail", Memoria.Netsync.NetSyncEnd.HarnessPeerTrail()); sb.Append(",");
+             Num(sb, "trailer_bad", Memoria.Netsync.NetSyncEnd.HarnessTrailerBad); sb.Append(",");
+             Num(sb, "trailer_skipped", Memoria.Netsync.NetSyncEnd.HarnessTrailerSkipped); sb.Append(",");
+-            Str(sb, "trailer_why", Memoria.Netsync.NetSyncEnd.HarnessTrailerBadWhy);
++            Str(sb, "trailer_why", Memoria.Netsync.NetSyncEnd.HarnessTrailerBadWhy); sb.Append(",");
++            Num(sb, "manifest_bad", Memoria.Netsync.NetSyncEnd.HarnessManifestBad); sb.Append(",");     // [ff9mapkit netsync B5] stage 9
++            Str(sb, "manifest_bad_why", Memoria.Netsync.NetSyncEnd.HarnessManifestBadWhy); sb.Append(",");
++            Num(sb, "manifest_nonce", Memoria.Netsync.NetSyncEnd.HarnessPeerManifestNonce); sb.Append(",");
++            Num(sb, "manifest_rx", Memoria.Netsync.NetSyncEnd.HarnessPeerManifestRx); sb.Append(",");
++            Num(sb, "bench_manifest", Memoria.Netsync.NetSyncEnd.HarnessBenchManifestPreset); sb.Append(",");
++            Str(sb, "bench_manifest_note", Memoria.Netsync.NetSyncEnd.HarnessBenchManifestNote);
+             sb.Append("},\"menu\":{");
+             AppendIntList(sb, "roster_slots", Memoria.Netsync.NetSyncBattle.HarnessRosterSlots()); sb.Append(",");
+             Num(sb, "r9_refused", Memoria.Netsync.NetSyncBattle.HarnessR9Refused); sb.Append(",");     // [ff9mapkit netsync B4] stage 2
+@@ -3189,7 +3264,15 @@ namespace Memoria.Harness
+         // through the end block): null unless the UI state is BattleResult (or Pause/Quit over it); else `state` (ResultState
+         // 0 Start .. 6 End, 7 Hide, 8 None), `loading` (a fade ping-pong or a Show/Hide transition in flight) and `paused`.
+         // The bench's cross-check of `netsync.battle.host.end.res_state`, which the netsync pump samples off the same screen.
+-        // Stage 9 adds its label texts, rows, items and card (design 6.4).
++        // [ff9mapkit netsync B5] stage 9 adds (BattleResultUI.NetDescribe; read-only): `labels` {exp, ap, gil_receive,
++        // gil_current, card} -- the label texts AS DRAWN (raw NGUI text; null = not readable / the card slot hidden) --,
++        // `card_shown`, `model` {default_exp, default_ap, default_gil, gil_value, gil_current, party_gil, card} -- the screen's
++        // own numbers behind those labels --, `rows` [{slot, shown, name, level, exp, next, dim, level_ups, exp_value,
++        // exp_current, ap_value, ap_current, need_exp, need_ap}] (the labels as drawn plus the row's model) and `items`
++        // [{id, count, shown, name, number}] (the model's itemList with its drawn slot). The stage-9 bench holds
++        // `netsync.battle.host.manifest` (or the loopback's `peer.end.manifest`) against these: at state 0 the rows' level /
++        // exp / next / dim and the exp + ap labels, at state 3 (StartGilAndItem) the gil labels, items and card; `model` at
++        // any state. -1 = unreadable.
+         private static void AppendResultUi(StringBuilder sb)
+         {
+             BattleResultUI r = null;
+@@ -3215,6 +3298,149 @@ namespace Memoria.Harness
+             Num(sb, "state", Try(() => r.NetStateRaw, -1)); sb.Append(",");
+             Bool(sb, "loading", Try(() => r.Loading, false)); sb.Append(",");
+             Bool(sb, "paused", paused);
++            AppendResultDescribe(sb, r);       // [ff9mapkit netsync B5] stage 9 (each key prefixed with its comma; nothing on a fault)
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync B5] stage 9: the result screen's labels, rows, items and model (see AppendResultUi). Built into its
++        // own buffer, so a fault drops only these keys, never the section.
++        private static void AppendResultDescribe(StringBuilder outer, BattleResultUI r)
++        {
++            StringBuilder sb = new StringBuilder(512);
++            try
++            {
++                BattleResultUI.NetResultView v = r.NetDescribe();
++                sb.Append(",\"labels\":{");
++                Str(sb, "exp", v.ExpLabel); sb.Append(",");
++                Str(sb, "ap", v.ApLabel); sb.Append(",");
++                Str(sb, "gil_receive", v.GilReceiveLabel); sb.Append(",");
++                Str(sb, "gil_current", v.GilCurrentLabel); sb.Append(",");
++                Str(sb, "card", v.CardLabel);
++                sb.Append("},");
++                Bool(sb, "card_shown", v.CardShown); sb.Append(",");
++                sb.Append("\"model\":{");
++                Num(sb, "default_exp", v.DefaultExp); sb.Append(",");
++                Num(sb, "default_ap", v.DefaultAp); sb.Append(",");
++                Num(sb, "default_gil", v.DefaultGil); sb.Append(",");
++                Num(sb, "gil_value", v.GilValue); sb.Append(",");
++                Num(sb, "gil_current", v.GilCurrent); sb.Append(",");
++                Num(sb, "party_gil", v.PartyGil); sb.Append(",");
++                Num(sb, "card", v.Card);
++                sb.Append("},\"rows\":[");
++                for (Int32 i = 0; i < v.Rows.Count; i++)
++                {
++                    BattleResultUI.NetResultRow w = v.Rows[i];
++                    if (i > 0)
++                        sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "slot", w.Slot); sb.Append(",");
++                    Bool(sb, "shown", w.Shown); sb.Append(",");
++                    Str(sb, "name", w.Name); sb.Append(",");
++                    Str(sb, "level", w.Level); sb.Append(",");
++                    Str(sb, "exp", w.Exp); sb.Append(",");
++                    Str(sb, "next", w.Next); sb.Append(",");
++                    Bool(sb, "dim", w.Dim); sb.Append(",");
++                    Num(sb, "level_ups", w.LevelUps); sb.Append(",");
++                    Num(sb, "exp_value", w.ExpValue); sb.Append(",");
++                    Num(sb, "exp_current", w.ExpCurrent); sb.Append(",");
++                    Num(sb, "ap_value", w.ApValue); sb.Append(",");
++                    Num(sb, "ap_current", w.ApCurrent); sb.Append(",");
++                    Bool(sb, "need_exp", w.NeedExp); sb.Append(",");
++                    Bool(sb, "need_ap", w.NeedAp);
++                    sb.Append("}");
++                }
++                sb.Append("],\"items\":[");
++                for (Int32 i = 0; i < v.Items.Count; i++)
++                {
++                    BattleResultUI.NetResultItem it = v.Items[i];
++                    if (i > 0)
++                        sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "id", it.Id); sb.Append(",");
++                    Num(sb, "count", it.Count); sb.Append(",");
++                    Bool(sb, "shown", it.Shown); sb.Append(",");
++                    Str(sb, "name", it.Name); sb.Append(",");
++                    Str(sb, "number", it.Number);
++                    sb.Append("}");
++                }
++                sb.Append("]");
++            }
++            catch (Exception)
++            {
++                return;
++            }
++            outer.Append(sb);
++        }
++
++        // [ff9mapkit netsync B5] stage 9: a RESULT MANIFEST (NetSyncEnd.Manifest; null = none): `row_mask` (bit per RAW party
++        // slot), `rows` [{slot, char (PLAYER.info.slot_no), flags (b0 needExp, b1 needAp, b2 draw), need_exp, need_ap, draw,
++        // lv_before, lv_after, exp_before, exp_gain, ap_gain, status (hex string -- 64 bits), learns [{abil, ap_at}]}],
++        // `default_exp`, `default_ap`, `gil_gain`, `gil_before`, `items` [{id, count}], `card` (255 = none), `learn_count`, and
++        // the host-only notes `truncated` (learns/items the caps dropped) and `learn_capped` (a schedule hit 9999 steps).
++        private static void AppendManifest(StringBuilder sb, String key, Memoria.Netsync.NetSyncEnd.Manifest m)
++        {
++            if (m == null)
++            {
++                sb.Append(Quote(key)).Append(":null");
++                return;
++            }
++            sb.Append(Quote(key)).Append(":{");
++            Num(sb, "row_mask", m.RowMask); sb.Append(",");
++            sb.Append("\"rows\":[");
++            Boolean firstRow = true;
++            for (Int32 i = 0; i < m.Rows.Length; i++)
++            {
++                Memoria.Netsync.NetSyncEnd.ManifestRow r = m.Rows[i];
++                if (r == null)
++                    continue;
++                if (!firstRow)
++                    sb.Append(",");
++                firstRow = false;
++                sb.Append("{");
++                Num(sb, "slot", i); sb.Append(",");
++                Num(sb, "char", r.CharId); sb.Append(",");
++                Num(sb, "flags", r.RowFlags); sb.Append(",");
++                Bool(sb, "need_exp", r.NeedExp); sb.Append(",");
++                Bool(sb, "need_ap", r.NeedAp); sb.Append(",");
++                Bool(sb, "draw", r.Draw); sb.Append(",");
++                Num(sb, "lv_before", r.LevelBefore); sb.Append(",");
++                Num(sb, "lv_after", r.LevelAfter); sb.Append(",");
++                Num(sb, "exp_before", r.ExpBefore); sb.Append(",");
++                Num(sb, "exp_gain", r.ExpGain); sb.Append(",");
++                Num(sb, "ap_gain", r.ApGain); sb.Append(",");
++                Str(sb, "status", "0x" + r.Status.ToString("X16", CultureInfo.InvariantCulture)); sb.Append(",");
++                sb.Append("\"learns\":[");
++                for (Int32 k = 0; k < r.Learns.Count; k++)
++                {
++                    if (k > 0)
++                        sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "abil", r.Learns[k].AbilId); sb.Append(",");
++                    Num(sb, "ap_at", r.Learns[k].ApAt);
++                    sb.Append("}");
++                }
++                sb.Append("]}");
++            }
++            sb.Append("],");
++            Num(sb, "default_exp", m.DefaultExp); sb.Append(",");
++            Num(sb, "default_ap", m.DefaultAp); sb.Append(",");
++            Num(sb, "gil_gain", m.GilGain); sb.Append(",");
++            Num(sb, "gil_before", m.GilBefore); sb.Append(",");
++            sb.Append("\"items\":[");
++            for (Int32 k = 0; k < m.Items.Count; k++)
++            {
++                if (k > 0)
++                    sb.Append(",");
++                sb.Append("{");
++                Num(sb, "id", m.Items[k].Id); sb.Append(",");
++                Num(sb, "count", m.Items[k].Count);
++                sb.Append("}");
++            }
++            sb.Append("],");
++            Num(sb, "card", m.Card); sb.Append(",");
++            Num(sb, "learn_count", m.LearnCount); sb.Append(",");
++            Num(sb, "truncated", m.Truncated); sb.Append(",");
++            Bool(sb, "learn_capped", m.LearnCapped);
+             sb.Append("}");
+         }
+ 
+@@ -3223,7 +3449,7 @@ namespace Memoria.Harness
+         // 4 defeat, 5 escape, 6 other-end, 7 event -- not an end) + `kind_name`, the raw `phase`/`seq`/`result`, `ui` (0
+         // battle/other, 1 BattleResult, 2 GameOver, 3 Title), `res_state` (the result screen's ResultState 0 Start .. 6 End,
+         // 7 Hide, 8 None; -1 = no result screen) + `loading`, `flags` (b0 AfterEvent, b1 manifest, b2 item overflow, b3
+-        // escape_gil, b4 BTL_CONTI_FLD_SONG), `win_pose` (bit per host btl_data slot) and `manifest_len` (0 at this stage).
++        // escape_gil, b4 BTL_CONTI_FLD_SONG), `win_pose` (bit per host btl_data slot) and `manifest_len` (the manifest's bytes while flags b1 ships it; stage 9).
+         private static void AppendEndBlock(StringBuilder sb, Memoria.Netsync.NetSyncEnd.EndBlock e)
+         {
+             if (e == null)
+@@ -3238,8 +3464,11 @@ namespace Memoria.Harness
+ 
+         // [ff9mapkit netsync B5] stage 4: `netsync.battle.peer.end` -- the peer's END BLOCK as NetSyncBattle.TryGetPeerEnd
+         // serves it (the selftest `endbench` seam first, else the LIVE lane's trailer; null = neither): the host.end fields
+-        // plus `rows` (manifest rows, 0 at this stage), `bench` (true = the bench seam, not a wire frame), `nonce` (the
++        // plus `rows` (the decoded manifest's rows; stage 9), `bench` (true = the bench seam, not a wire frame), `nonce` (the
+         // frame's battle nonce) and `wire_seq` (the frame's seq -- advances per host sample / per fabricate).
++        // [ff9mapkit netsync B5] stage 9: `rows` counts the decoded manifest's rows, plus `manifest` (the decoded manifest --
++        // see AppendManifest; null = no flags b1, or a body that did not decode) and `manifest_why` (why it did not; null =
++        // it did, or no b1).
+         private static void AppendPeerEnd(StringBuilder sb)
+         {
+             Memoria.Netsync.NetSyncBattle.PeerEnd e;
+@@ -3254,7 +3483,9 @@ namespace Memoria.Harness
+             Num(sb, "rows", e.Rows); sb.Append(",");
+             Bool(sb, "bench", e.Bench); sb.Append(",");
+             Num(sb, "nonce", e.Nonce); sb.Append(",");
+-            Num(sb, "wire_seq", e.WireSeq);
++            Num(sb, "wire_seq", e.WireSeq); sb.Append(",");
++            AppendManifest(sb, "manifest", e.Manifest); sb.Append(",");   // [ff9mapkit netsync B5] stage 9
++            Str(sb, "manifest_why", e.ManifestWhy);
+             sb.Append("}");
+         }
+ 
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 5bb9ce6..ccf3368 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -34,6 +34,9 @@ namespace Memoria.Netsync
+     // [ff9mapkit netsync B5] stage 4: every own-battle type-1 frame now ends with the END BLOCK trailer (NetSyncEnd: how the
+     // battle is ending + the result screen's state), sampled at once on any end-state change; ParseView reads it in its own
+     // try and TryGetPeerEnd serves it (or the selftest `endbench` seam). The wire stays v14: a pre-B5 peer stops at `count`.
++    //
++    // [ff9mapkit netsync B5] stage 9: the end block's fmt-1 body may carry the host's RESULT MANIFEST (flags b1; NetSyncEnd
++    // encodes, decodes and stores it) -- PeerEnd.Manifest serves it decoded. Same trailer, same frame: still v14.
+     public static partial class NetSyncBattle
+     {
+         // --- config mirror (written by NetSyncClient on every config [re]load; main thread) ---
+@@ -1240,8 +1243,11 @@ namespace Memoria.Netsync
+             public Byte ResState;              // ui == 1: ResultState | 0x80 Loading; else 0xFF
+             public Byte Flags;                 // NetSyncEnd.Flag* (b0 AfterEvent, b1 manifest, b2 overflow, b3 escape_gil, b4 field song)
+             public Byte WinPoseMask;           // bit per host btl_data slot that strikes the win pose
+-            public Int32 ManifestLen;          // stage 9: manifest body bytes carried (skipped at this stage)
+-            public Int32 Rows;                 // stage 9: manifest rows parsed (0 at this stage)
++            public Int32 ManifestLen;          // stage 9: manifest body bytes carried
++            public Int32 Rows;                 // stage 9: manifest rows parsed (0 = no manifest, or a bad one)
++            public NetSyncEnd.Manifest Manifest;   // [ff9mapkit netsync B5] stage 9: the decoded manifest (null = none / bad);
++                                                   // shared, never mutated after the parse
++            public String ManifestWhy;         // stage 9: why a flags-b1 body did not decode (null = it did, or no b1)
+             public Byte Nonce;                 // the frame header's battle nonce (stage 5 gates on == BootedWireNonce)
+             public UInt16 WireSeq;             // the frame's seq: advances per host sample (per fabricate on the bench)
+             public Boolean Bench;              // the selftest bench seam (`netsync endbench`), not a wire frame
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+index 8a21310..9c2ac8f 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+@@ -20,7 +20,7 @@ namespace Memoria.Netsync
+     //     flags     b0 AfterEvent, b1 a manifest follows (stage 9), b2 item overflow (stage 9's sticky host tap),
+     //               b3 escape_gil, b4 BTL_CONTI_FLD_SONG
+     //     winPoseMask  bit per host btl_data slot that strikes the win pose (victory kinds on a WinPose scene; else 0)
+-    //   any bytes of a fmt-1 body past those 8 are the stage-9 manifest (flags b1) or later growth: skipped here.
++    //   any bytes of a fmt-1 body past those 8 are the stage-9 manifest (flags b1: DecodeManifest) or later growth (skipped).
+     //
+     // NO WIRE BUMP (design 6.2): ParseView on a pre-B5 peer reads exactly `count` units and ignores the rest, and this
+     // engine reads the trailer in its OWN try -- a bad trailer nulls only the end block, never the view (a null view would
+@@ -59,6 +59,22 @@ namespace Memoria.Netsync
+     // StampFor, IsTerminal, DeclineLateJoin and ExitVerdict, pinned by SelfTest's `exit` section -- the late-join receipts, and the
+     // selftest-only calibration lever `endbench exit on|off` (GuestExitMode). The engine half (ExitTick, the Leave-time
+     // settle, the teardown stamp) lives in NetSyncDiorama; the late-join call site in NetSyncClient.DioramaTick.
++    //
++    // [ff9mapkit netsync B5] stage 9 -- THE HOST RESULT MANIFEST (design 5.5, 6.2; section 7, stage 9). The guest's replay of
++    // the stock reward screen (stage 10) must show the HOST's numbers and write nothing, so the host ships them: the tail of
++    // BattleResultUI.InitialNormal (after GoToBattleResult's 'BattleEnd' and InitialInfo's 'RewardAll'/'RewardSingle'
++    // support-ability triggers, before any UpdateExp/AddAp write) captures, per RAW party slot, the charId, the
++    // needExp/needAp/drawEnabled flags, levelBefore and levelAfter (LevelAfter: UpdateExp's loop as a pure function of the
++    // final exp), expBefore, expGain, apGain, the status word and the LEARN SCHEDULE (LearnSchedule: AddAp's loop replayed
++    // on a CLONE of pa[] in 1-AP steps, giving (abilId, apAt); capped at 9999 steps), plus defaultExp/defaultAp, the gil
++    // received and held, <= 6 items and the card. The sticky flag b2 (item overflow) is set by a tap in the host's
++    // UpdateItem. The manifest rides the fmt-1 END BLOCK body after its 8 bytes (flags b1), size-guarded (ManifestMaxBytes;
++    // learns <= 8 per row and items <= 6 are capped at capture, logged once); the guest only PARSES it (DecodeManifest, in
++    // the trailer's own try -- a bad manifest nulls only the manifest, never the end block) and STORES it (NotePeer's
++    // latch; PeerEnd.Manifest). Host-only: the capture, the overflow tap and the learn receipt all need netsync on, an own
++    // battle being streamed and no diorama (a guest's result-screen replay never captures). Nothing reads it to act yet --
++    // stage 10's replay is its first consumer. Selftest bench: `endbench manifest 0|1|2|3` (fabricate a TWO-MARKER manifest
++    // from the seated party through the REAL codec + ParseView) and the calibration lever `endbench manifest host on|off`.
+     public static class NetSyncEnd
+     {
+         // ---- the trailer (design 6.2) ----
+@@ -110,6 +126,8 @@ namespace Memoria.Netsync
+         {
+             public Byte Kind, Phase, Seq, Result, Ui, ResState = ResNoScreen, Flags, WinPoseMask;
+             public Int32 ManifestLen;               // fmt-1 body bytes past the block while flags b1 is set (stage 9 parses them)
++            public Manifest Manifest;               // [ff9mapkit netsync B5] stage 9: the decoded manifest (null = none, or bad)
++            public String ManifestWhy;              // stage 9: why a flags-b1 body did not decode (null = it did, or no b1)
+ 
+             public Boolean Loading { get { return ResState != ResNoScreen && (ResState & ResLoadingBit) != 0; } }
+             public Int32 State { get { return ResState == ResNoScreen ? -1 : ResState & 0x7F; } }
+@@ -517,6 +535,421 @@ namespace Memoria.Netsync
+             catch { }
+         }
+ 
++        // ==================================================================================== the result manifest (stage 9)
++        // [ff9mapkit netsync B5] stage 9 -- the manifest's types, its wire layout (design 6.2) and its pure halves. After the
++        // fmt-1 END BLOCK's 8 bytes, while flags b1 is set:
++        //   u8 rowMask                                   bit per RAW party slot 0-3 carrying a row (bits 4-7 must be 0)
++        //   per row, slots ascending: u8 charId, u8 rowFlags (b0 needExp, b1 needAp, b2 drawEnabled), u8 levelBefore,
++        //     u8 levelAfter, u32 expBefore, u32 expGain, u16 apGain, u64 status, u8 learnN (<= 8) x {i32 abilId, u16 apAt}
++        //   u32 defaultExp, u16 defaultAp, u32 gilGain, u32 gilBefore
++        //   u8 itemN (<= 6) x {i32 itemId, u8 count}
++        //   i32 card
++        // Little-endian throughout. Bytes past the card are later growth: skipped. Everything is bounds-checked; a manifest
++        // that does not decode nulls only EndBlock.Manifest (ManifestWhy says why) -- the end block, and the guest's exit on
++        // the host's Hide, stand.
++        public const Int32 ManifestMaxRows = 4;     // RAW party slots 0-3
++        public const Int32 ManifestMaxLearns = 8;   // per row
++        public const Int32 ManifestMaxItems = 6;    // BattleResultUI.ItemMax
++        public const Int32 ManifestRowLen = 23;     // charId flags lvBefore lvAfter expBefore(4) expGain(4) apGain(2) status(8) learnN
++        public const Int32 ManifestLearnLen = 6;    // i32 abilId, u16 apAt
++        public const Int32 ManifestTotalsLen = 14;  // u32 defaultExp, u16 defaultAp, u32 gilGain, u32 gilBefore
++        public const Int32 ManifestItemLen = 5;     // i32 itemId, u8 count
++        public const Int32 ManifestMaxBytes = 1 + ManifestMaxRows * (ManifestRowLen + ManifestMaxLearns * ManifestLearnLen)
++                                              + ManifestTotalsLen + 1 + ManifestMaxItems * ManifestItemLen + 4;   // 334
++        public const Byte RowNeedExp = 1, RowNeedAp = 2, RowDraw = 4;
++        public const Int32 LearnStepCap = 9999;     // the learn schedule's 1-AP steps (design 5.5)
++        public const UInt32 ExpCap = 9999999u;      // UpdateExp's own cap
++        public const Int32 CardNone = (Int32)TetraMasterCardId.NONE;
++
++        public struct ManifestLearn
++        {
++            public Int32 AbilId;                    // the ability id ApLearned receives (the item's `ability` entry)
++            public UInt16 ApAt;                     // the cumulative 1-AP step at which AddAp learns it (1-based)
++        }
++
++        public struct ManifestItem
++        {
++            public Int32 Id;                        // RegularItem
++            public Byte Count;
++        }
++
++        /// <summary>One RAW party slot's row (design 5.5). Public fields: the harness and stage 10's replay read them.</summary>
++        public sealed class ManifestRow
++        {
++            public Byte CharId;                     // PLAYER.info.slot_no (the replay's row-validity key)
++            public Byte RowFlags;                   // RowNeedExp | RowNeedAp | RowDraw
++            public Byte LevelBefore, LevelAfter;
++            public UInt32 ExpBefore, ExpGain;
++            public UInt16 ApGain;
++            public UInt64 Status;                   // PLAYER.status (BattleStatus bits)
++            public readonly List<ManifestLearn> Learns = new List<ManifestLearn>(2);
++
++            public Boolean NeedExp { get { return (RowFlags & RowNeedExp) != 0; } }
++            public Boolean NeedAp { get { return (RowFlags & RowNeedAp) != 0; } }
++            public Boolean Draw { get { return (RowFlags & RowDraw) != 0; } }
++
++            public Boolean SameAs(ManifestRow o)
++            {
++                if (o == null || CharId != o.CharId || RowFlags != o.RowFlags || LevelBefore != o.LevelBefore || LevelAfter != o.LevelAfter
++                    || ExpBefore != o.ExpBefore || ExpGain != o.ExpGain || ApGain != o.ApGain || Status != o.Status || Learns.Count != o.Learns.Count)
++                    return false;
++                for (Int32 i = 0; i < Learns.Count; i++)
++                    if (Learns[i].AbilId != o.Learns[i].AbilId || Learns[i].ApAt != o.Learns[i].ApAt)
++                        return false;
++                return true;
++            }
++        }
++
++        /// <summary>The host's result manifest (design 5.5). Rows are indexed by RAW party slot (null = no row).</summary>
++        public sealed class Manifest
++        {
++            public readonly ManifestRow[] Rows = new ManifestRow[ManifestMaxRows];
++            public UInt32 DefaultExp;
++            public UInt16 DefaultAp;
++            public UInt32 GilGain, GilBefore;
++            public readonly List<ManifestItem> Items = new List<ManifestItem>(ManifestMaxItems);
++            public Int32 Card = CardNone;
++            public Int32 Truncated;                 // HOST ONLY, never on the wire: learns/items the caps dropped at capture
++            public Boolean LearnCapped;             // HOST ONLY: a schedule hit LearnStepCap with abilities still advancing
++
++            public Int32 RowMask
++            {
++                get
++                {
++                    Int32 mask = 0;
++                    for (Int32 i = 0; i < ManifestMaxRows; i++)
++                        if (Rows[i] != null)
++                            mask |= 1 << i;
++                    return mask;
++                }
++            }
++
++            public Int32 RowCount
++            {
++                get
++                {
++                    Int32 n = 0;
++                    for (Int32 i = 0; i < ManifestMaxRows; i++)
++                        if (Rows[i] != null)
++                            n++;
++                    return n;
++                }
++            }
++
++            public Int32 LearnCount
++            {
++                get
++                {
++                    Int32 n = 0;
++                    for (Int32 i = 0; i < ManifestMaxRows; i++)
++                        if (Rows[i] != null)
++                            n += Rows[i].Learns.Count;
++                    return n;
++                }
++            }
++
++            /// <summary>Wire-visible equality (Truncated / LearnCapped are host-side notes, not compared).</summary>
++            public Boolean SameAs(Manifest o)
++            {
++                if (o == null || DefaultExp != o.DefaultExp || DefaultAp != o.DefaultAp || GilGain != o.GilGain || GilBefore != o.GilBefore
++                    || Card != o.Card || Items.Count != o.Items.Count)
++                    return false;
++                for (Int32 i = 0; i < ManifestMaxRows; i++)
++                {
++                    if ((Rows[i] == null) != (o.Rows[i] == null))
++                        return false;
++                    if (Rows[i] != null && !Rows[i].SameAs(o.Rows[i]))
++                        return false;
++                }
++                for (Int32 i = 0; i < Items.Count; i++)
++                    if (Items[i].Id != o.Items[i].Id || Items[i].Count != o.Items[i].Count)
++                        return false;
++                return true;
++            }
++
++            public override String ToString()
++            {
++                String rows = "";
++                for (Int32 i = 0; i < ManifestMaxRows; i++)
++                {
++                    ManifestRow r = Rows[i];
++                    if (r == null)
++                        continue;
++                    rows += (rows.Length > 0 ? " " : "") + "[" + i + ":c" + r.CharId + " lv" + r.LevelBefore + (r.LevelAfter != r.LevelBefore ? "->" + r.LevelAfter : "")
++                            + " +" + r.ExpGain + "xp +" + r.ApGain + "ap" + (r.Learns.Count > 0 ? " learns " + r.Learns.Count : "") + (r.Draw ? "" : " dim") + "]";
++                }
++                return "rows " + RowCount + (rows.Length > 0 ? " " + rows : "") + "; exp " + DefaultExp + ", ap " + DefaultAp + ", gil +" + GilGain
++                       + " (held " + GilBefore + "), items " + Items.Count + ", card " + (Card == CardNone ? "none" : Card.ToString());
++            }
++        }
++
++        /// <summary>The manifest's wire bytes (layout above). Refuses (throws) a manifest past the caps -- the capture and the
++        /// bench builders cap first, so a throw here is a bug the callers' catch turns into "no manifest". Pure.</summary>
++        public static Byte[] EncodeManifest(Manifest m)
++        {
++            if (m == null)
++                throw new ArgumentNullException("m");
++            if (m.Items.Count > ManifestMaxItems)
++                throw new ArgumentOutOfRangeException("m", "a manifest carries at most " + ManifestMaxItems + " items");
++            using (MemoryStream ms = new MemoryStream(ManifestMaxBytes))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                bw.Write((Byte)m.RowMask);
++                for (Int32 i = 0; i < ManifestMaxRows; i++)
++                {
++                    ManifestRow r = m.Rows[i];
++                    if (r == null)
++                        continue;
++                    if (r.Learns.Count > ManifestMaxLearns)
++                        throw new ArgumentOutOfRangeException("m", "a manifest row carries at most " + ManifestMaxLearns + " learns");
++                    bw.Write(r.CharId);
++                    bw.Write(r.RowFlags);
++                    bw.Write(r.LevelBefore);
++                    bw.Write(r.LevelAfter);
++                    bw.Write(r.ExpBefore);
++                    bw.Write(r.ExpGain);
++                    bw.Write(r.ApGain);
++                    bw.Write(r.Status);
++                    bw.Write((Byte)r.Learns.Count);
++                    foreach (ManifestLearn l in r.Learns)
++                    {
++                        bw.Write(l.AbilId);
++                        bw.Write(l.ApAt);
++                    }
++                }
++                bw.Write(m.DefaultExp);
++                bw.Write(m.DefaultAp);
++                bw.Write(m.GilGain);
++                bw.Write(m.GilBefore);
++                bw.Write((Byte)m.Items.Count);
++                foreach (ManifestItem it in m.Items)
++                {
++                    bw.Write(it.Id);
++                    bw.Write(it.Count);
++                }
++                bw.Write(m.Card);
++                bw.Flush();
++                Byte[] bytes = ms.ToArray();
++                if (bytes.Length > ManifestMaxBytes)
++                    throw new ArgumentOutOfRangeException("m", "a manifest cannot exceed " + ManifestMaxBytes + " bytes");
++                return bytes;
++            }
++        }
++
++        /// <summary>
++        /// Decode `len` manifest bytes at `start` (layout above). Null + why on anything the encoder never writes: a row bit
++        /// past slot 3, learnN &gt; 8, itemN &gt; 6, a level that goes DOWN, or any truncation. Bytes past the card are later
++        /// growth and are skipped. Pure and bounds-checked; never throws.
++        /// </summary>
++        public static Manifest DecodeManifest(Byte[] p, Int32 start, Int32 len, out String why)
++        {
++            why = null;
++            try
++            {
++                if (p == null || start < 0 || len < 0 || start + len > p.Length)
++                {
++                    why = "manifest range outside the frame";
++                    return null;
++                }
++                Int32 at = start, end = start + len;
++                if (end - at < 1)
++                {
++                    why = "flags b1 without a manifest body";
++                    return null;
++                }
++                Int32 mask = p[at++];
++                if ((mask & ~0x0F) != 0)
++                {
++                    why = "row mask 0x" + mask.ToString("X2") + " names a slot past 3";
++                    return null;
++                }
++                Manifest m = new Manifest();
++                for (Int32 i = 0; i < ManifestMaxRows; i++)
++                {
++                    if ((mask & (1 << i)) == 0)
++                        continue;
++                    if (end - at < ManifestRowLen)
++                    {
++                        why = "truncated row " + i + " (" + (end - at) + " of " + ManifestRowLen + " byte(s))";
++                        return null;
++                    }
++                    ManifestRow r = new ManifestRow();
++                    r.CharId = p[at];
++                    r.RowFlags = p[at + 1];
++                    r.LevelBefore = p[at + 2];
++                    r.LevelAfter = p[at + 3];
++                    r.ExpBefore = U32(p, at + 4);
++                    r.ExpGain = U32(p, at + 8);
++                    r.ApGain = (UInt16)(p[at + 12] | (p[at + 13] << 8));
++                    r.Status = U32(p, at + 14) | ((UInt64)U32(p, at + 18) << 32);
++                    Int32 learnN = p[at + 22];
++                    at += ManifestRowLen;
++                    if (r.LevelAfter < r.LevelBefore)
++                    {
++                        why = "row " + i + "'s level goes down (" + r.LevelBefore + " -> " + r.LevelAfter + ")";
++                        return null;
++                    }
++                    if (learnN > ManifestMaxLearns)
++                    {
++                        why = "row " + i + " carries " + learnN + " learns (max " + ManifestMaxLearns + ")";
++                        return null;
++                    }
++                    if (end - at < learnN * ManifestLearnLen)
++                    {
++                        why = "truncated learns of row " + i;
++                        return null;
++                    }
++                    for (Int32 k = 0; k < learnN; k++)
++                    {
++                        ManifestLearn l;
++                        l.AbilId = (Int32)U32(p, at);
++                        l.ApAt = (UInt16)(p[at + 4] | (p[at + 5] << 8));
++                        r.Learns.Add(l);
++                        at += ManifestLearnLen;
++                    }
++                    m.Rows[i] = r;
++                }
++                if (end - at < ManifestTotalsLen + 1)
++                {
++                    why = "truncated totals (" + (end - at) + " of " + (ManifestTotalsLen + 1) + " byte(s))";
++                    return null;
++                }
++                m.DefaultExp = U32(p, at);
++                m.DefaultAp = (UInt16)(p[at + 4] | (p[at + 5] << 8));
++                m.GilGain = U32(p, at + 6);
++                m.GilBefore = U32(p, at + 10);
++                at += ManifestTotalsLen;
++                Int32 itemN = p[at++];
++                if (itemN > ManifestMaxItems)
++                {
++                    why = itemN + " items (max " + ManifestMaxItems + ")";
++                    return null;
++                }
++                if (end - at < itemN * ManifestItemLen + 4)
++                {
++                    why = "truncated items / card";
++                    return null;
++                }
++                for (Int32 k = 0; k < itemN; k++)
++                {
++                    ManifestItem it;
++                    it.Id = (Int32)U32(p, at);
++                    it.Count = p[at + 4];
++                    m.Items.Add(it);
++                    at += ManifestItemLen;
++                }
++                m.Card = (Int32)U32(p, at);
++                return m;                             // bytes past the card: later growth, skipped
++            }
++            catch (Exception ex)
++            {
++                why = "manifest decode faulted: " + ex.GetType().Name;
++                return null;
++            }
++        }
++
++        private static UInt32 U32(Byte[] p, Int32 at)
++        {
++            return (UInt32)(p[at] | (p[at + 1] << 8) | (p[at + 2] << 16) | (p[at + 3] << 24));
++        }
++
++        /// <summary>
++        /// levelAfter (design 5.5): BattleResultUI.UpdateExp's level-up loop as a pure function of the FINAL exp -- the tick
++        /// path and the Confirm skip both end at min(exp + gain, 9999999), and the thresholds are monotone, so where the ticks
++        /// stop never changes the level. `threshold(L)` = the exp at which level L becomes L + 1 (CharacterLevelUps[L]);
++        /// `exp == threshold` levels, as the stock `exp &lt;= player.exp` does. No gain, or exp already at the cap (UpdateExp
++        /// adds nothing then): the level stands. Pure; a throwing threshold propagates to the capture's catch.
++        /// </summary>
++        public static Byte LevelAfter(Byte level, UInt32 exp, UInt32 gain, Int32 levelCount, Func<Int32, UInt32> threshold)
++        {
++            if (gain == 0 || exp >= ExpCap)
++                return level;
++            UInt64 final = (UInt64)exp + gain;
++            if (final > ExpCap)
++                final = ExpCap;
++            Int32 lv = level;
++            while (lv < levelCount && lv < Byte.MaxValue && threshold(lv) <= final)
++                lv++;
++            return (Byte)lv;
++        }
++
++        /// <summary>One AddAp occurrence, in that loop's order: an equipped item's teachable ability (AbilId != 0), its index
++        /// into pa[] (FF9Abil_GetIndex; &lt; 0 = not the character's) and its max AP (_FF9Abil_PaData[preset][index].Ap).</summary>
++        public struct LearnSlot
++        {
++            public Int32 AbilId, Index, MaxAp;
++        }
++
++        /// <summary>
++        /// THE LEARN SCHEDULE (design 5.5): BattleResultUI.AddAp's loop replayed on a CLONE of pa[] (never the live array) in
++        /// 1-AP steps -- the tick path's own step (apValue.step = 1) -- giving (abilId, apAt) in learn order. Per step, every
++        /// occurrence in AddAp's order: max &gt; cur advances it; max &lt;= cur + 1 learns it at that step. An ability TWO items
++        /// teach therefore advances twice per step, exactly as stock does. Stops at min(apGain, LearnStepCap) steps, or as
++        /// soon as a step advances nothing (every later step is a no-op); `capped` = the cap cut a schedule still advancing.
++        /// The SET of learns does not depend on the step size: an ability k occurrences teach learns iff max &lt;= pa + k *
++        /// apGain however the gain is split, so a host Confirm DURING the tick pages (stock applies the rest as ONE step)
++        /// learns exactly this schedule's set. Only the MOMENT moves: every learn scheduled past that Confirm fires in the
++        /// one step, in AddAp's occurrence order, and its receipt (HostNoteLearned) reads apAt = the row's whole gain. The
++        /// receipt's apAt equals this schedule's only on the NATURAL TICK PATH: one Confirm at Start (the screen leaves Start
++        /// on nothing else -- OnKeyConfirm is its only Start -> EXPAndAPTick writer), then none until EndEXPAndAP. Pure.
++        /// </summary>
++        public static List<ManifestLearn> LearnSchedule(Int32[] pa, IList<LearnSlot> slots, UInt32 apGain, out Boolean capped)
++        {
++            capped = false;
++            List<ManifestLearn> learns = new List<ManifestLearn>();
++            if (pa == null || slots == null || slots.Count == 0 || apGain == 0)
++                return learns;
++            Int32[] cur = (Int32[])pa.Clone();
++            UInt32 steps = apGain < LearnStepCap ? apGain : LearnStepCap;
++            Boolean moved = false;
++            for (UInt32 step = 1; step <= steps; step++)
++            {
++                moved = false;
++                for (Int32 k = 0; k < slots.Count; k++)
++                {
++                    LearnSlot o = slots[k];
++                    if (o.AbilId == 0 || o.Index < 0 || o.Index >= cur.Length)
++                        continue;
++                    Int32 c = cur[o.Index];
++                    if (o.MaxAp <= c)
++                        continue;
++                    moved = true;
++                    if ((Int64)o.MaxAp <= (Int64)c + 1)
++                    {
++                        cur[o.Index] = o.MaxAp;
++                        ManifestLearn l;
++                        l.AbilId = o.AbilId;
++                        l.ApAt = (UInt16)step;
++                        learns.Add(l);
++                    }
++                    else
++                    {
++                        cur[o.Index] = c + 1;
++                    }
++                }
++                if (!moved)
++                    break;
++            }
++            capped = moved && apGain > LearnStepCap;
++            return learns;
++        }
++
++        // The capture's caps (design 6.2: the encoder caps learnN, itemN and the rows, and logs once if it truncates): the
++        // first ManifestMaxLearns learns (the earliest -- the schedule is in step order) / items survive; the rest count in
++        // Truncated. Pure.
++        internal static Int32 CapLearns(List<ManifestLearn> src, List<ManifestLearn> dst)
++        {
++            Int32 dropped = 0;
++            for (Int32 i = 0; i < src.Count; i++)
++            {
++                if (dst.Count < ManifestMaxLearns)
++                    dst.Add(src[i]);
++                else
++                    dropped++;
++            }
++            return dropped;
++        }
++
+         // ==================================================================================== the codec
+         /// <summary>One fmt-1 record: header + the 8-byte end block (+ manifest bytes, which set flags b1). Pure.</summary>
+         public static Byte[] EncodeTrailer(EndBlock b, Byte[] manifest)
+@@ -599,6 +1032,14 @@ namespace Memoria.Netsync
+                         e.Flags = payload[body + 6];
+                         e.WinPoseMask = payload[body + 7];
+                         e.ManifestLen = (e.Flags & FlagManifest) != 0 ? len - EndBlockLen : 0;
++                        if ((e.Flags & FlagManifest) != 0)
++                        {
++                            // [ff9mapkit netsync B5] stage 9: the manifest, decoded inside the record's own bounds -- a bad
++                            // one nulls only e.Manifest (e.ManifestWhy), never the end block
++                            String mwhy;
++                            e.Manifest = DecodeManifest(payload, body + EndBlockLen, len - EndBlockLen, out mwhy);
++                            e.ManifestWhy = mwhy;
++                        }
+                         found = e;                   // the last fmt-1 record wins (an encoder writes exactly one)
+                     }
+                     else
+@@ -622,6 +1063,8 @@ namespace Memoria.Netsync
+         private static Int32 _trailerBad;           // malformed trailers -- monotonic per process (read deltas)
+         private static Int32 _trailerSkipped;       // unknown-fmt records stepped over -- monotonic per process
+         private static String _trailerBadWhy;
++        private static Int32 _manifestBad;          // [ff9mapkit netsync B5] stage 9: flags-b1 bodies that did not decode -- monotonic
++        private static String _manifestBadWhy;      // per process (read deltas; counted per parse, like _trailerBad)
+         private static readonly List<String> _trailerLogged = new List<String>(4);
+ 
+         internal static EndBlock ReadPeerTrailer(Byte[] payload, Int32 offset)
+@@ -634,6 +1077,20 @@ namespace Memoria.Netsync
+                 if (_quiet)
+                     return e;
+                 _trailerSkipped += skipped;
++                if (e != null && e.ManifestWhy != null)
++                {
++                    // [ff9mapkit netsync B5] stage 9: a flags-b1 body that did not decode -- the block stands, the manifest
++                    // does not (stage 10's replay then holds black and the guest leaves on the host's Hide)
++                    _manifestBad++;
++                    _manifestBadWhy = e.ManifestWhy;
++                    String mkey = "m:" + (e.ManifestWhy.Length > 24 ? e.ManifestWhy.Substring(0, 24) : e.ManifestWhy);
++                    if (!_trailerLogged.Contains(mkey) && _trailerLogged.Count < 16)
++                    {
++                        _trailerLogged.Add(mkey);
++                        Log.Message("[NetSync] battle frame: result manifest ignored -- " + e.ManifestWhy + "; the end block is kept "
++                                    + "(manifest_bad=" + _manifestBad + ", logged once per reason)");
++                    }
++                }
+                 if (why != null)
+                 {
+                     _trailerBad++;
+@@ -741,7 +1198,9 @@ namespace Memoria.Netsync
+         {
+             Byte phase, seq, result, ui, resState;
+             ReadHostRaw(out phase, out seq, out result, out ui, out resState);
+-            return phase | ((Int64)seq << 8) | ((Int64)result << 16) | ((Int64)resState << 24) | ((Int64)ui << 32);
++            return phase | ((Int64)seq << 8) | ((Int64)result << 16) | ((Int64)resState << 24) | ((Int64)ui << 32)
++                   | (_hostManifestBytes != null ? 1L << 40 : 0L)       // [ff9mapkit netsync B5] stage 9: a capture samples
++                   | (_hostOverflow ? 1L << 41 : 0L);                    // at once, and so does the sticky overflow
+         }
+ 
+         /// <summary>The pumps, every own-battle tick (beside TrackCommandPhase): true = the end key changed since the last
+@@ -784,6 +1243,12 @@ namespace Memoria.Netsync
+             _hostLoggedUi = 0xFF;
+             _hostTrail.Clear();
+             _hostTrailKey = -1;
++            _hostInBattle = true;                   // [ff9mapkit netsync B5] stage 9: the manifest state starts clean
++            _hostManifest = null;
++            _hostManifestBytes = null;
++            _hostManifestWhy = null;
++            _hostOverflow = false;
++            _hostLearned.Clear();
+             DisarmStaleBenchEnd();
+         }
+ 
+@@ -793,7 +1258,9 @@ namespace Memoria.Netsync
+         {
+             _lastHostKey = KeyUnset;
+             _lastHost = null;
+-        }
++            _hostInBattle = false;                  // [ff9mapkit netsync B5] stage 9: nothing ships between battles; the last
++            _hostManifestBytes = null;              // manifest, the overflow bit and the learn receipt stay READABLE until
++        }                                           // the next own battle starts
+ 
+         /// <summary>The host end block as it stands now. Never throws (a torn read is a Fighting block).</summary>
+         internal static EndBlock SampleHost()
+@@ -823,6 +1290,20 @@ namespace Memoria.Netsync
+             catch { }
+             if (e.Kind == KVictoryPending || e.Kind == KVictory)
+                 e.WinPoseMask = SampleWinPose();
++            if (ManifestMode == ManifestShipOn && _hostInBattle)
++            {
++                // [ff9mapkit netsync B5] stage 9: the sticky overflow bit and the captured manifest (WriteHostTrailer ships
++                // its bytes; flags b1 + ManifestLen say so on host.end). The `manifest host off` lever ships neither.
++                if (_hostOverflow)
++                    e.Flags |= FlagItemOverflow;
++                Byte[] mb = _hostManifestBytes;
++                if (mb != null)
++                {
++                    e.Flags |= FlagManifest;
++                    e.ManifestLen = mb.Length;
++                    e.Manifest = _hostManifest;
++                }
++            }
+             return e;
+         }
+ 
+@@ -869,7 +1350,7 @@ namespace Memoria.Netsync
+                     return;
+                 }
+                 EndBlock e = SampleHost();
+-                Byte[] t = EncodeTrailer(e, null);
++                Byte[] t = EncodeTrailer(e, (e.Flags & FlagManifest) != 0 ? _hostManifestBytes : null);   // stage 9: + the manifest
+                 bw.Write(t);
+                 _lastHost = e;
+                 NoteHostShipped(e);
+@@ -914,6 +1395,156 @@ namespace Memoria.Netsync
+             trail.Add(e.Kind + "/" + e.Ui + "/" + (e.ResState == ResNoScreen ? "-" : e.State + (e.Loading ? "L" : "")));
+         }
+ 
++        // ==================================================================================== the host manifest (stage 9)
++        // [ff9mapkit netsync B5] stage 9 -- the host's captured manifest and its taps. Main thread; every entry never throws.
++        private static Boolean _hostInBattle;       // between NoteHostBattleStart and NoteHostBattleEnd: an own battle streams
++        private static Manifest _hostManifest;      // the last capture (readable after the battle until the next one starts)
++        private static Byte[] _hostManifestBytes;   // its wire bytes -- null outside the battle it was captured in
++        private static String _hostManifestWhy;     // why the last InitialNormal of this battle captured nothing (null = it did)
++        private static Boolean _hostOverflow;       // sticky: the host's UpdateItem overflowed this battle
++        private static Int32 _manifestCaptures;     // monotonic per process (read deltas)
++        private static Int32 _manifestSkipped;      // InitialNormal tails that captured nothing (fault / no own battle) -- monotonic
++        private static Boolean _manifestTruncLogged;
++        private static Boolean _manifestSkipLogged;
++        private const Int32 LearnedCap = 32;
++        private static readonly List<Int32[]> _hostLearned = new List<Int32[]>(8);   // {row, abilId, apAt} as ApLearned fired
++
++        // SELFTEST CALIBRATION LEVER (harness `netsync endbench manifest host on|off`; cleared by every harness release): off =
++        // the pre-stage host -- the end block ships WITHOUT the manifest (flags b1 clear, no body) and without the overflow
++        // bit b2. The capture, the overflow tap and the learn receipt keep RECORDING (`host.manifest`, `host.overflow`,
++        // `host.learned` stay live -- the lever reverts the stage's path, not its instrument), so `peer.end.manifest == null`
++        // beside a live `host.manifest` is the red the lever earns. Read only through ManifestMode, which also needs the
++        // selftest role: a lever stranded across an ini edit can never strip a real host.
++        public const Int32 ManifestShipOn = 0, ManifestShipOff = 1;
++        private static Int32 _benchManifestMode = ManifestShipOn;
++        public static Int32 ManifestMode
++        {
++            get { return _benchManifestMode != ManifestShipOn && NetSyncClient.IsSelfTestRole ? _benchManifestMode : ManifestShipOn; }
++        }
++
++        private static String ManifestModeName(Int32 mode)
++        {
++            return mode == ManifestShipOff ? "off" : "on";
++        }
++
++        /// <summary>The host taps' gate (BattleResultUI's InitialNormal tail, UpdateItem, ApLearned): netsync on, an own battle
++        /// being streamed, and NOT a diorama -- a guest's result screen (stage 10's replay) never captures. Cheap and
++        /// allocation-free: vanilla returns at the first test. Never throws.</summary>
++        internal static Boolean HostTapWanted
++        {
++            get
++            {
++                try
++                {
++                    return NetSyncBattle.Enabled && _hostInBattle && !NetSyncDiorama.Booted;
++                }
++                catch
++                {
++                    return false;
++                }
++            }
++        }
++
++        /// <summary>BattleResultUI's InitialNormal tail, when HostTapWanted did NOT hold but netsync is on outside a diorama
++        /// (a result screen with no own battle streaming -- unexpected): count it and say why once. Never throws.</summary>
++        internal static void HostSkipManifest(String why)
++        {
++            try
++            {
++                if (!NetSyncBattle.Enabled || NetSyncDiorama.Booted)
++                    return;                             // vanilla, or a guest's diorama: nothing to say
++                _manifestSkipped++;
++                _hostManifestWhy = why;
++                if (_manifestSkipLogged)
++                    return;                             // co-op on with no peer lane: once per process is enough
++                _manifestSkipLogged = true;
++                Log.Message("[NetSync] battle result manifest (host): NOT captured -- " + why + " (skipped=" + _manifestSkipped
++                            + "; logged once per process)");
++            }
++            catch { }
++        }
++
++        /// <summary>BattleResultUI's InitialNormal tail: store the capture (null + why = the build faulted -- the end block
++        /// then ships without b1, and a stage-10 guest holds black and leaves on the host's Hide). Encodes once; the bytes
++        /// ride every sample until the battle ends. Size-guarded: EncodeManifest refuses anything past ManifestMaxBytes.
++        /// Never throws.</summary>
++        internal static void HostStoreManifest(Manifest m, String why)
++        {
++            try
++            {
++                if (!HostTapWanted)
++                    return;
++                Byte[] bytes = null;
++                if (m != null)
++                {
++                    try
++                    {
++                        bytes = EncodeManifest(m);
++                    }
++                    catch (Exception ex)
++                    {
++                        why = "encode refused: " + ex.Message;
++                        m = null;
++                    }
++                }
++                if (m == null)
++                {
++                    _manifestSkipped++;
++                    _hostManifest = null;
++                    _hostManifestBytes = null;
++                    _hostManifestWhy = why ?? "no manifest";
++                    Log.Message("[NetSync] battle result manifest (host): NOT captured -- " + _hostManifestWhy
++                                + "; the end block ships without it (skipped=" + _manifestSkipped + ")");
++                    return;
++                }
++                _hostManifest = m;
++                _hostManifestBytes = bytes;
++                _hostManifestWhy = null;
++                _manifestCaptures++;
++                Log.Message("[NetSync] battle result manifest (host): captured " + m + " -- " + bytes.Length + " B, learns "
++                            + m.LearnCount + (m.LearnCapped ? " (a schedule hit the " + LearnStepCap + "-step cap)" : "")
++                            + "; rides the end block (flags b1) until the battle ends" + (ManifestMode == ManifestShipOff
++                            ? " -- CALIBRATION: `endbench manifest host off` ships nothing" : ""));
++                if (m.Truncated > 0 && !_manifestTruncLogged)
++                {
++                    _manifestTruncLogged = true;
++                    Log.Message("[NetSync] battle result manifest (host): " + m.Truncated + " learn(s)/item(s) past the caps ("
++                                + ManifestMaxLearns + " learns per row, " + ManifestMaxItems + " items) were dropped (logged once per process)");
++                }
++            }
++            catch { }
++        }
++
++        /// <summary>BattleResultUI.UpdateItem on the host, when an item did not fit (the ItemFullDialog path): the sticky
++        /// end-block flag b2 for the rest of this battle. Never throws.</summary>
++        internal static void HostNoteItemOverflow()
++        {
++            try
++            {
++                if (!HostTapWanted || _hostOverflow)
++                    return;
++                _hostOverflow = true;
++                Log.Message("[NetSync] battle result (host): item overflow -- the sticky end-block flag b2 rides every frame until "
++                            + "the battle ends" + (ManifestMode == ManifestShipOff ? " (CALIBRATION: `endbench manifest host off` ships it clear)" : ""));
++            }
++            catch { }
++        }
++
++        /// <summary>BattleResultUI.ApLearned on the host: the learn as the stock screen fired it -- the row, the ability and
++        /// the row's cumulative AP at that moment (apValue.current) -- the harness's receipt to hold the captured schedule
++        /// against (`host.learned`). A Confirm during the tick pages applies the rest as one step: the learned SET still
++        /// equals LearnSchedule's, but every learn past that Confirm reads apAt = the row's whole gain. Never throws.</summary>
++        internal static void HostNoteLearned(Int32 row, Int32 abilId, UInt32 apAt)
++        {
++            try
++            {
++                if (!HostTapWanted || _hostLearned.Count >= LearnedCap)
++                    return;
++                _hostLearned.Add(new Int32[] { row, abilId, (Int32)Math.Min(apAt, (UInt32)Int32.MaxValue) });
++            }
++            catch { }
++        }
++
+         // ==================================================================================== the guest side
+         private static Boolean _peerArmed;
+         private static Byte _peerNonce;
+@@ -936,9 +1567,11 @@ namespace Memoria.Netsync
+                     _peerTrailKey = -1;
+                     _peerLoggedKind = 0xFF;
+                     _peerLoggedUi = 0xFF;
++                    _peerManifest = null;            // [ff9mapkit netsync B5] stage 9: a new battle's manifest starts unheld
+                 }
+                 if (e == null)
+                     return;
++                NotePeerManifest(nonce, e.Manifest);   // [ff9mapkit netsync B5] stage 9: the guest STORES it
+                 AppendTrail(_peerTrail, ref _peerTrailKey, e);
+                 if (e.Kind == _peerLoggedKind && e.Ui == _peerLoggedUi)
+                     return;
+@@ -953,6 +1586,53 @@ namespace Memoria.Netsync
+             catch { }
+         }
+ 
++        // [ff9mapkit netsync B5] stage 9 -- THE GUEST STORES THE MANIFEST: the latest one per battle nonce, latched off every
++        // freshly parsed peer view (a stale lane keeps it; a new nonce drops it). One line per distinct manifest. Nothing
++        // acts on it at this stage: stage 10's replay arms through TryGetPeerManifest, which serves the selftest bench seam
++        // FIRST (as TryGetPeerEnd does) and this latch otherwise. The bench never writes the latch: `peer.manifest_nonce` /
++        // `peer.manifest_rx` stay live-lane receipts, and a bench manifest shows only on `peer.end.manifest`.
++        private static Manifest _peerManifest;
++        private static Int32 _peerManifestNonce = -1;
++        private static Int32 _peerManifestRx;       // distinct manifests latched -- monotonic per process (read deltas)
++
++        private static void NotePeerManifest(Byte nonce, Manifest m)
++        {
++            if (m == null || (_peerManifest != null && _peerManifestNonce == nonce && _peerManifest.SameAs(m)))
++                return;
++            Boolean changed = _peerManifest != null && _peerManifestNonce == nonce;
++            _peerManifest = m;
++            _peerManifestNonce = nonce;
++            _peerManifestRx++;
++            Log.Message("[NetSync] battle result manifest (peer, nonce " + nonce + "): " + (changed ? "CHANGED to " : "held ") + m
++                        + ", learns " + m.LearnCount + " -- stored for the result-screen replay (rx=" + _peerManifestRx + ")");
++        }
++
++        /// <summary>Stage 10's entry: the manifest for battle `nonce` -- pass the Nonce of the PeerEnd being acted on (from
++        /// NetSyncBattle.TryGetPeerEnd). The selftest bench seam answers FIRST, exactly as TryGetPeerEnd serves it: while an
++        /// `endbench` end is armed, its own nonce (BenchNonce) is answered from the bench end ALONE (null when the template
++        /// carries no manifest -- never the live latch). Otherwise the manifest the guest STORED off the live/loopback lane
++        /// for that nonce (kept while the lane is stale). False = none held for it. Main thread; never throws.</summary>
++        internal static Boolean TryGetPeerManifest(Byte nonce, out Manifest m)
++        {
++            m = null;
++            try
++            {
++                NetSyncBattle.PeerEnd bench;
++                if (TryGetBenchEnd(out bench) && bench.Bench && bench.Nonce == nonce)
++                {
++                    m = bench.Manifest;
++                    return m != null;
++                }
++                m = _peerManifestNonce == nonce ? _peerManifest : null;
++                return m != null;
++            }
++            catch
++            {
++                m = null;
++                return false;
++            }
++        }
++
+         internal static NetSyncBattle.PeerEnd ToPeer(EndBlock b, Byte nonce, UInt16 wireSeq, Boolean bench)
+         {
+             NetSyncBattle.PeerEnd p = new NetSyncBattle.PeerEnd();
+@@ -965,7 +1645,9 @@ namespace Memoria.Netsync
+             p.Flags = b.Flags;
+             p.WinPoseMask = b.WinPoseMask;
+             p.ManifestLen = b.ManifestLen;
+-            p.Rows = 0;                             // stage 9 parses the manifest
++            p.Manifest = b.Manifest;                // [ff9mapkit netsync B5] stage 9: the decoded manifest (null = none / bad)
++            p.ManifestWhy = b.ManifestWhy;
++            p.Rows = b.Manifest != null ? b.Manifest.RowCount : 0;
+             p.Nonce = nonce;
+             p.WireSeq = wireSeq;
+             p.Bench = bench;
+@@ -980,6 +1662,9 @@ namespace Memoria.Netsync
+         // the template the bench verbs edit (raw fields: kind is DERIVED through ClassifyEnd at fabricate time)
+         private static Byte _bPhase = FF9StateBattleSystem.PHASE_NORMAL, _bSeq, _bResult, _bUi, _bState, _bFlags;
+         private static Boolean _bLoading;
++        private static Manifest _bManifest;         // [ff9mapkit netsync B5] stage 9: `endbench manifest <preset>` (null = none)
++        private static Int32 _bManifestPreset;      // the preset it came from (0 = none)
++        private static String _bManifestNote;       // a marker the preset could not choose (null = every one)
+         // the victory-edge command one-shot (`endbench cmd [hex]`)
+         private static Boolean _cmdArmed;
+         private static Byte[] _cmdFrame;
+@@ -1058,7 +1743,10 @@ namespace Memoria.Netsync
+         ///                        pre-stage guest -- no end-leave, no return settle (the trigger still latches)
+         ///   selftest             run SelfTest (fails the verb on FAIL)
+         ///   clear                disarm the bench end and the one-shot (the lever stays; a release resets it)
+-        ///   manifest             refused: the result manifest is stage 9
++        ///   manifest &lt;0-3&gt;     [ff9mapkit netsync B5] stage 9: the template's MANIFEST (arg; no mode), kept across later
++        ///                        ops: 0 none; 1 the TWO-MARKER manifest built from the SEATED party (BenchManifest); 2 escape
++        ///                        with gil (flags b3, gil only); 3 preset 1 with FOREIGN charIds (no seated member matches)
++        ///   manifest host on|off [ff9mapkit netsync B5] stage 9's calibration lever (mode = on|off; see ManifestMode)
+         /// </summary>
+         public static Boolean HarnessEndBench(String op, Int32 arg, Boolean loading, Byte[] frame, String mode, out String why)
+         {
+@@ -1191,11 +1879,48 @@ namespace Memoria.Netsync
+                         Log.Message("[NetSync] harness: endbench cleared" + (had ? " (bench end and command one-shot disarmed)" : " (nothing was armed)"));
+                         return true;
+                     case "manifest":
+-                        why = "netsync endbench manifest: the result manifest is stage 9 -- this engine ships the end block only";
+-                        return false;
++                        // [ff9mapkit netsync B5] stage 9 (the harness passes a mode only for `manifest host on|off`)
++                        if (!String.IsNullOrEmpty(mode))
++                        {
++                            Int32 mm = mode == "on" ? ManifestShipOn : mode == "off" ? ManifestShipOff : -1;
++                            if (mm < 0)
++                            {
++                                why = "netsync endbench manifest host: needs on|off";
++                                return false;
++                            }
++                            _benchManifestMode = mm;
++                            Log.Message("[NetSync] harness: result manifest host " + ManifestModeName(mm).ToUpperInvariant() + (mm == ManifestShipOn ? ""
++                                        : " -- CALIBRATION: the pre-stage host (the end block ships no manifest and no overflow bit; the capture still records host.manifest)"));
++                            return true;
++                        }
++                        if (arg < 0 || arg > 3)
++                        {
++                            why = "netsync endbench manifest: needs 0 (none), 1 (two-marker), 2 (escape with gil), 3 (foreign charIds) or `host on|off`";
++                            return false;
++                        }
++                        if (arg == 0)
++                        {
++                            _bManifest = null;
++                            _bManifestNote = null;
++                        }
++                        else
++                        {
++                            String note;
++                            Manifest built = BenchManifest(arg, out note);
++                            if (built == null)
++                            {
++                                why = "netsync endbench manifest " + arg + ": " + (note ?? "could not build the manifest");
++                                return false;
++                            }
++                            _bManifest = built;
++                            _bManifestNote = note;
++                        }
++                        _bManifestPreset = arg;
++                        _bFlags = (Byte)(arg == 2 ? _bFlags | FlagEscapeGil : _bFlags & ~FlagEscapeGil);
++                        break;
+                     default:
+                         why = "netsync endbench: unknown op '" + op + "' (victory|pending|nopose|other|defeat|escape|event|fight|ui|state|"
+-                              + "overflow|afterevent|cmd|host|guest|exit|selftest|clear)";
++                              + "overflow|afterevent|manifest|cmd|host|guest|exit|selftest|clear)";
+                         return false;
+                 }
+                 return Fabricate(op, out why);
+@@ -1228,9 +1953,20 @@ namespace Memoria.Netsync
+             b.ResState = _bUi == UiResult ? (Byte)(_bState | (_bLoading ? ResLoadingBit : 0)) : ResNoScreen;
+             b.Flags = _bFlags;
+             b.WinPoseMask = (Byte)(b.Kind == KVictoryPending || b.Kind == KVictory ? 0x0F : 0);
++            Byte[] mbytes = null;                   // [ff9mapkit netsync B5] stage 9: the template's manifest rides the body
++            if (_bManifest != null)
++            {
++                mbytes = EncodeManifest(_bManifest);
++                b.Flags |= FlagManifest;
++                b.ManifestLen = mbytes.Length;
++            }
++            else
++            {
++                b.Flags = (Byte)(b.Flags & ~FlagManifest);
++            }
+             UInt16 seq = ++_benchSeq;
+             Int32 unitsEnd;
+-            Byte[] payload = NetSyncBattle.BuildEndBenchFrame(seq, BenchNonce, 0, EncodeTrailer(b, null), out unitsEnd);
++            Byte[] payload = NetSyncBattle.BuildEndBenchFrame(seq, BenchNonce, 0, EncodeTrailer(b, mbytes), out unitsEnd);
+             Int32 units;
+             Boolean viewOk;
+             UInt16 parsedSeq;
+@@ -1247,13 +1983,202 @@ namespace Memoria.Netsync
+                       + (got != null ? got.ToString() : "nothing") + " (seq " + parsedSeq + "/" + seq + ", nonce " + parsedNonce + ")";
+                 return false;
+             }
++            // [ff9mapkit netsync B5] stage 9: the manifest must come back whole, or not at all when none was sent
++            if (_bManifest != null ? got.Manifest == null || !got.Manifest.SameAs(_bManifest) || got.ManifestLen != mbytes.Length
++                                   : got.Manifest != null || got.ManifestLen != 0)
++            {
++                why = "netsync endbench " + op + ": the codec mangled the manifest -- sent " + (_bManifest != null ? _bManifest.ToString() : "none")
++                      + ", parsed " + (got.Manifest != null ? got.Manifest.ToString() : "none (" + (got.ManifestWhy ?? "no body") + ")");
++                return false;
++            }
+             _benchEnd = ToPeer(got, parsedNonce, parsedSeq, true);
+             _benchArmed = true;
+             Log.Message("[NetSync] harness: endbench " + op + " -- fabricated " + got + " through the real ParseView ("
+-                        + payload.Length + " B frame, trailer at +" + unitsEnd + ", wire seq " + parsedSeq + "); served as the BENCH end");
++                        + payload.Length + " B frame, trailer at +" + unitsEnd + ", wire seq " + parsedSeq + "); served as the BENCH end"
++                        + (got.Manifest != null ? "; manifest (preset " + _bManifestPreset + ", " + got.ManifestLen + " B) " + got.Manifest
++                           + (_bManifestNote != null ? " -- NOTE: " + _bManifestNote : "") : ""));
+             return true;
+         }
+ 
++        // [ff9mapkit netsync B5] stage 9 -- `endbench manifest 1|2|3`: a manifest built from the SEATED party (a bench seats
++        // the machine's own party, so each row's charId matches a seated member -- stage 10's row-validity key), carrying
++        // the TWO-MARKER law's values, each chosen from the local state so it is ABSENT there:
++        //   gilBefore 1234567 (1234566 if the bag holds exactly that) and gilGain 4321;
++        //   the lowest-id item the bag holds 0 of, x7, and the lowest-id card the collection holds 0 of;
++        //   row 0 (the first seated slot): exactly the exp for TWO level-ups by the real table, Poison added to its status
++        //   word when it lacks it, and ONE learn at apAt 3 -- the first ability of its preset it has not mastered;
++        //   every seated row: needExp|needAp|draw, the same exp gain (stock's defaultExp), apGain 5, and its levelAfter
++        //   through the real LevelAfter.
++        // 2 = escape with gil (flags b3, set by the op): every row with no exp/ap, gil +321 only, no items, no card. 3 = preset
++        // 1 with every charId replaced by one NO seated member has (stage 10's refusal leg). A marker that cannot be chosen is
++        // named in `note` (the manifest still builds). Null = no seated member. Main thread; a throw lands in the verb's catch.
++        private static Manifest BenchManifest(Int32 preset, out String note)
++        {
++            note = null;
++            List<String> notes = new List<String>();
++            PLAYER[] party = FF9StateSystem.Common.FF9.party.member;
++            Int32 first = -1;
++            for (Int32 i = 0; i < ManifestMaxRows && i < party.Length; i++)
++            {
++                if (party[i] != null)
++                {
++                    first = i;
++                    break;
++                }
++            }
++            if (first < 0)
++            {
++                note = "no seated party member to build rows from";
++                return null;
++            }
++            Boolean escape = preset == 2;
++            Func<Int32, UInt32> threshold = lv => ff9level.CharacterLevelUps[lv].ExperienceToLevel;
++            PLAYER p0 = party[first];
++            UInt32 gain = 0;
++            if (!escape)
++            {
++                if (p0.level >= ff9level.LEVEL_COUNT || p0.exp >= ExpCap)
++                {
++                    gain = 1;
++                    notes.Add("row " + first + " is at the level/exp cap (no LEVEL UP)");
++                }
++                else
++                {
++                    Int32 target = Math.Min(p0.level + 1, ff9level.LEVEL_COUNT - 1);   // [L + 1] = the exp for L + 2
++                    UInt32 thr = threshold(target);
++                    gain = thr > p0.exp ? thr - p0.exp : 1u;
++                    if (LevelAfter(p0.level, p0.exp, gain, ff9level.LEVEL_COUNT, threshold) != p0.level + 2)
++                        notes.Add("row " + first + " is near the level cap (fewer than two LEVEL UPs)");
++                }
++            }
++            HashSet<Int32> seated = new HashSet<Int32>();
++            for (Int32 i = 0; i < ManifestMaxRows && i < party.Length; i++)
++                if (party[i] != null)
++                    seated.Add((Int32)party[i].info.slot_no);
++            Int32 foreign = 0;
++            Manifest m = new Manifest();
++            for (Int32 i = 0; i < ManifestMaxRows && i < party.Length; i++)
++            {
++                PLAYER p = party[i];
++                if (p == null)
++                    continue;
++                ManifestRow r = new ManifestRow();
++                Int32 cid = (Int32)p.info.slot_no;
++                if (preset == 3)
++                {
++                    while (foreign < 0xFF && seated.Contains(foreign))
++                        foreign++;
++                    cid = foreign++;
++                }
++                r.CharId = cid >= 0 && cid < 0xFF ? (Byte)cid : (Byte)0xFF;
++                r.RowFlags = RowNeedExp | RowNeedAp | RowDraw;
++                r.LevelBefore = p.level;
++                r.ExpBefore = p.exp;
++                r.ExpGain = escape ? 0u : gain;
++                r.LevelAfter = LevelAfter(p.level, p.exp, r.ExpGain, ff9level.LEVEL_COUNT, threshold);
++                r.ApGain = (UInt16)(escape ? 0 : 5);
++                r.Status = (UInt64)p.status;
++                if (i == first && !escape)
++                {
++                    BattleStatus st = p.status;
++                    if ((st & BattleStatus.Poison) == 0)
++                        r.Status |= (UInt64)BattleStatus.Poison;
++                    else if ((st & BattleStatus.Blind) == 0)
++                        r.Status |= (UInt64)BattleStatus.Blind;
++                    else
++                        notes.Add("row " + first + " already carries Poison and Blind (no status marker)");
++                    Int32 abil = BenchUnlearnedAbility(p);
++                    if (abil != 0)
++                    {
++                        ManifestLearn l;
++                        l.AbilId = abil;
++                        l.ApAt = 3;
++                        r.Learns.Add(l);
++                    }
++                    else
++                    {
++                        notes.Add("row " + first + " has no unmastered ability in its preset (no learn marker)");
++                    }
++                }
++                m.Rows[i] = r;
++            }
++            m.DefaultExp = escape ? 0u : gain;
++            m.DefaultAp = (UInt16)(escape ? 0 : 5);
++            m.GilGain = escape ? 321u : 4321u;
++            m.GilBefore = FF9StateSystem.Common.FF9.party.gil == 1234567u ? 1234566u : 1234567u;
++            if (!escape)
++            {
++                Int32 item = BenchAbsentItem();
++                if (item >= 0)
++                {
++                    ManifestItem it;
++                    it.Id = item;
++                    it.Count = 7;
++                    m.Items.Add(it);
++                }
++                else
++                {
++                    notes.Add("no item the bag holds 0 of (no item marker)");
++                }
++                Int32 card = BenchAbsentCard();
++                if (card >= 0)
++                {
++                    m.Card = card;
++                }
++                else
++                {
++                    m.Card = 0;
++                    notes.Add("no card the collection holds 0 of (card 0)");
++                }
++            }
++            note = notes.Count > 0 ? String.Join("; ", notes.ToArray()) : null;
++            return m;
++        }
++
++        // The learn marker: the first ability of the player's preset it has NOT mastered (pa[i] < its max AP). 0 = none.
++        private static Int32 BenchUnlearnedAbility(PLAYER p)
++        {
++            try
++            {
++                CharacterAbility[] table;
++                if (p.pa == null || !global::FF9.ff9abil._FF9Abil_PaData.TryGetValue(p.PresetId, out table) || table == null)
++                    return 0;
++                for (Int32 i = 0; i < table.Length && i < p.pa.Length; i++)
++                    if (table[i] != null && table[i].Id != 0 && p.pa[i] < table[i].Ap)
++                        return table[i].Id;
++            }
++            catch { }
++            return 0;
++        }
++
++        // The item marker: the lowest-id item the bag holds 0 of (any item: the result screen only draws it). -1 = none.
++        private static Int32 BenchAbsentItem()
++        {
++            try
++            {
++                List<RegularItem> ids = new List<RegularItem>(ff9item._FF9Item_Data.Keys);
++                ids.Sort();
++                foreach (RegularItem id in ids)
++                    if (id != RegularItem.NoItem && (Int32)id >= 0 && ff9item.FF9Item_GetCount(id) == 0)
++                        return (Int32)id;
++            }
++            catch { }
++            return -1;
++        }
++
++        // The card marker: the lowest card id (0-99) the collection holds 0 of. -1 = none.
++        private static Int32 BenchAbsentCard()
++        {
++            try
++            {
++                for (Int32 id = 0; id < 100; id++)
++                    if (QuadMistDatabase.MiniGame_GetCardCount((TetraMasterCardId)id) == 0)
++                        return id;
++            }
++            catch { }
++            return -1;
++        }
++
+         private static void ClearBench()
+         {
+             _benchArmed = false;
+@@ -1265,6 +2190,9 @@ namespace Memoria.Netsync
+             _bState = 0;
+             _bLoading = false;
+             _bFlags = 0;
++            _bManifest = null;                      // [ff9mapkit netsync B5] stage 9
++            _bManifestPreset = 0;
++            _bManifestNote = null;
+             _cmdArmed = false;
+             _cmdFrame = null;
+             _cmdStatus = null;
+@@ -1285,6 +2213,9 @@ namespace Memoria.Netsync
+                 if (_benchExitMode != ExitModeOn)          // [ff9mapkit netsync B5] stage 6
+                     Log.Message("[NetSync] harness: end exit guest back ON (released with the harness)");
+                 _benchExitMode = ExitModeOn;
++                if (_benchManifestMode != ManifestShipOn)  // [ff9mapkit netsync B5] stage 9
++                    Log.Message("[NetSync] harness: result manifest host back ON (released with the harness)");
++                _benchManifestMode = ManifestShipOn;
+                 if (_benchArmed || _cmdArmed)
+                     Log.Message("[NetSync] harness: endbench released (bench end / command one-shot disarmed)");
+                 ClearBench();
+@@ -1309,6 +2240,21 @@ namespace Memoria.Netsync
+         public static Int32 HarnessLateDeclined { get { return _lateDeclined; } }
+         public static Int32 HarnessLateDeclinedNonce { get { return _lateDeclinedNonce; } }
+         public static String HarnessLateDeclinedWhy { get { return _lateDeclinedWhy; } }
++        // [ff9mapkit netsync B5] stage 9
++        public static Manifest HarnessHostManifest { get { return _hostManifest; } }
++        public static Int32 HarnessHostManifestBytes { get { Byte[] b = _hostManifestBytes; return b != null ? b.Length : 0; } }
++        public static Int32 HarnessManifestCaptures { get { return _manifestCaptures; } }
++        public static Int32 HarnessManifestSkipped { get { return _manifestSkipped; } }
++        public static String HarnessManifestWhy { get { return _hostManifestWhy; } }
++        public static String HarnessManifestMode { get { return ManifestModeName(ManifestMode); } }
++        public static Boolean HarnessHostOverflow { get { return _hostOverflow; } }
++        public static List<Int32[]> HarnessHostLearned() { return new List<Int32[]>(_hostLearned); }
++        public static Int32 HarnessManifestBad { get { return _manifestBad; } }
++        public static String HarnessManifestBadWhy { get { return _manifestBadWhy; } }
++        public static Int32 HarnessPeerManifestNonce { get { return _peerManifest != null ? _peerManifestNonce : -1; } }
++        public static Int32 HarnessPeerManifestRx { get { return _peerManifestRx; } }
++        public static Int32 HarnessBenchManifestPreset { get { return _bManifest != null ? _bManifestPreset : 0; } }
++        public static String HarnessBenchManifestNote { get { return _bManifestNote; } }
+ 
+         // ==================================================================================== SelfTest
+         /// <summary>
+@@ -1327,11 +2273,13 @@ namespace Memoria.Netsync
+         /// scenes (pin: a DEFEAT outside a NoGameOver scene is a Game Over in transit, never stamped), IsTerminal / DeclineLateJoin over
+         /// every kind x ui (pins: the bench and another nonce never decline; a live fight and var 32's Event boot) and
+         /// ExitVerdict (each disqualifier alone, then the order: never double-issue a leave, 1 Hz, a fade defers).
++        /// [ff9mapkit netsync B5] stage 9 adds `manifest` (SelfTestManifest): the manifest codec through the REAL ParseView,
++        /// its every internal truncation and malformation, the caps, LevelAfter and LearnSchedule.
+         /// </summary>
+         public static Boolean SelfTest(out String detail)
+         {
+             List<String> fails = new List<String>();
+-            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0;
++            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0, mfst = 0;
+             Boolean wasQuiet = _quiet;
+             try
+             {
+@@ -1537,6 +2485,9 @@ namespace Memoria.Netsync
+                                         && ExitVerdict(ExitModeOn, true, false, true, 0) == ExitRateLimited
+                                         && ExitVerdict(ExitModeOff, false, true, true, 0) == ExitHeldByLever, "exit verdict order");
+                 Expect(fails, ref exit, ExitWhy(ExitGo) == null && ExitWhy(ExitFadeDefer) != null && ExitWhy(ExitHeldByLever) != null, "exit why");
++
++                // ---- [ff9mapkit netsync B5] stage 9: the result manifest ----
++                SelfTestManifest(fails, ref mfst);
+             }
+             catch (Exception ex)
+             {
+@@ -1546,7 +2497,8 @@ namespace Memoria.Netsync
+             {
+                 _quiet = wasQuiet;
+             }
+-            String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec + ", present " + present + ", exit " + exit;
++            String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec + ", present " + present + ", exit " + exit
++                            + ", manifest " + mfst;
+             if (fails.Count == 0)
+             {
+                 detail = counts;
+@@ -1557,6 +2509,233 @@ namespace Memoria.Netsync
+             return false;
+         }
+ 
++        // [ff9mapkit netsync B5] stage 9 -- the manifest's offline-provable half (SelfTest's `manifest` section): the codec
++        // through the REAL ParseView (a full manifest round-trips beside its block and units; sparse rows keep their RAW slot;
++        // EVERY internally truncated body keeps the END BLOCK and drops only the manifest; every frame prefix cut inside it
++        // refuses the block as before; each malformation the encoder never writes; later growth skipped), the encoder's caps,
++        // LevelAfter on a synthetic table and LearnSchedule on synthetic slots. Pins: a bad manifest never nulls the block;
++        // exp == threshold levels; the exp cap bounds the final exp; a shared ability on two items doubles; same-step learns
++        // keep AddAp's order; the 9999-step cap; the schedule never writes the pa[] it is given.
++        private static void SelfTestManifest(List<String> fails, ref Int32 n)
++        {
++            // ---- the codec ----
++            Manifest full = new Manifest();
++            for (Int32 i = 0; i < ManifestMaxRows; i++)
++            {
++                ManifestRow r = new ManifestRow();
++                r.CharId = (Byte)(i * 3 + 1);
++                r.RowFlags = (Byte)(i == 2 ? RowNeedExp : RowNeedExp | RowNeedAp | RowDraw);
++                r.LevelBefore = (Byte)(10 + i);
++                r.LevelAfter = (Byte)(12 + i);
++                r.ExpBefore = 0xFFFFFFF0u - (UInt32)i;
++                r.ExpGain = 0x80000001u + (UInt32)i;
++                r.ApGain = (UInt16)(0xFFFE - i);
++                r.Status = 0x8000000000000001UL | ((UInt64)i << 20);
++                for (Int32 k = 0; k < ManifestMaxLearns; k++)
++                    r.Learns.Add(new ManifestLearn { AbilId = k == 0 ? -7 : 100 + 10 * i + k, ApAt = (UInt16)(k == 7 ? 0xFFFF : k + 1) });
++                full.Rows[i] = r;
++            }
++            full.DefaultExp = 0xFFFFFFFFu;
++            full.DefaultAp = 0xABCD;
++            full.GilGain = 9999999u;
++            full.GilBefore = 0x01020304u;
++            for (Int32 k = 0; k < ManifestMaxItems; k++)
++                full.Items.Add(new ManifestItem { Id = k == 0 ? -1 : 200 + k, Count = (Byte)(k == 5 ? 255 : k + 1) });
++            full.Card = 99;
++            Byte[] fb = EncodeManifest(full);
++            Expect(fails, ref n, fb.Length == ManifestMaxBytes, "PIN a full manifest is exactly ManifestMaxBytes (" + fb.Length + " != " + ManifestMaxBytes + ")");
++
++            EndBlock blk = new EndBlock();
++            blk.Kind = KVictory;
++            blk.Phase = FF9StateBattleSystem.PHASE_VICTORY;
++            blk.Seq = 1;
++            blk.Result = FF9StateGlobal.BTL_RESULT_VICTORY;
++            blk.Ui = UiResult;
++            blk.ResState = (Byte)ResStart;
++            blk.Flags = FlagFieldSong;
++            blk.WinPoseMask = 0x03;
++            EndBlock want = blk.Clone();
++            want.Flags |= FlagManifest;
++            Int32 ue;
++            Byte[] frame = NetSyncBattle.BuildEndBenchFrame(0x2222, 0x33, 2, EncodeTrailer(blk, fb), out ue);
++            ManifestCase(fails, ref n, "full", frame, 2, want, fb.Length, full, false);
++            Expect(fails, ref n, frame.Length - ue == RecordHeaderLen + EndBlockLen + ManifestMaxBytes, "the full trailer is header + block + ManifestMaxBytes");
++
++            Manifest empty = new Manifest();
++            Byte[] eb = EncodeManifest(empty);
++            ManifestCase(fails, ref n, "no rows, no items, no card", NetSyncBattle.BuildEndBenchFrame(1, 1, 0, EncodeTrailer(blk, eb), out ue), 0, want, eb.Length, empty, false);
++
++            Manifest sparse = new Manifest();
++            sparse.Rows[1] = full.Rows[1];
++            sparse.Rows[3] = full.Rows[2];
++            sparse.GilGain = 5;
++            Byte[] spb = EncodeManifest(sparse);
++            EndBlock gotSparse = ManifestCase(fails, ref n, "sparse rows", NetSyncBattle.BuildEndBenchFrame(2, 2, 1, EncodeTrailer(blk, spb), out ue), 1, want, spb.Length, sparse, false);
++            Expect(fails, ref n, gotSparse != null && gotSparse.Manifest != null && gotSparse.Manifest.Rows[0] == null && gotSparse.Manifest.Rows[1] != null
++                                 && gotSparse.Manifest.Rows[2] == null && gotSparse.Manifest.Rows[3] != null && gotSparse.Manifest.RowMask == 0x0A,
++                   "PIN rows keep their RAW party slot (mask 0x0A)");
++
++            // every INTERNAL truncation (the record's len agrees with the body): the block stands, the manifest goes
++            Int32 kept = 0;
++            for (Int32 cut = 1; cut < fb.Length; cut++)
++            {
++                Byte[] f = NetSyncBattle.BuildEndBenchFrame(3, 3, 1, EncodeTrailer(blk, Prefix(fb, cut)), out ue);
++                EndBlock g = ManifestCase(fails, ref n, "manifest body cut at " + cut, f, 1, want, cut, null, true);
++                if (g != null && g.Manifest == null && g.SameAs(want))
++                    kept++;
++            }
++            Expect(fails, ref n, kept == fb.Length - 1, "PIN a bad manifest never nulls the end block (" + kept + "/" + (fb.Length - 1) + ")");
++            // every FRAME prefix cut inside the manifest: the record overruns the frame -- the block goes, the units stay
++            for (Int32 cut = frame.Length - fb.Length; cut < frame.Length; cut++)
++                Codec(fails, ref n, "frame cut inside the manifest at " + cut, Prefix(frame, cut), 2, null, 0);
++
++            // the malformations the encoder never writes
++            Manifest small = new Manifest();
++            ManifestRow sr = new ManifestRow();
++            sr.CharId = 4;
++            sr.RowFlags = RowNeedExp | RowNeedAp | RowDraw;
++            sr.LevelBefore = 7;
++            sr.LevelAfter = 9;
++            sr.ExpGain = 50;
++            sr.ApGain = 3;
++            sr.Learns.Add(new ManifestLearn { AbilId = 12, ApAt = 2 });
++            small.Rows[0] = sr;
++            small.Items.Add(new ManifestItem { Id = 236, Count = 2 });
++            small.Card = 5;
++            Byte[] smb = EncodeManifest(small);
++            ManifestCase(fails, ref n, "small", NetSyncBattle.BuildEndBenchFrame(4, 4, 0, EncodeTrailer(blk, smb), out ue), 0, want, smb.Length, small, false);
++            Byte[] bad = Concat(smb, new Byte[0]);
++            bad[0] = 0x11;                                  // a row bit past slot 3
++            ManifestCase(fails, ref n, "row mask past slot 3", NetSyncBattle.BuildEndBenchFrame(5, 5, 0, EncodeTrailer(blk, bad), out ue), 0, want, bad.Length, null, true);
++            bad = Concat(smb, new Byte[60]);
++            bad[1 + 22] = (Byte)(ManifestMaxLearns + 1);    // learnN 9 (with room for nine learns)
++            ManifestCase(fails, ref n, "learnN past the cap", NetSyncBattle.BuildEndBenchFrame(5, 5, 0, EncodeTrailer(blk, bad), out ue), 0, want, bad.Length, null, true);
++            bad = Concat(smb, new Byte[0]);
++            bad[1 + 3] = 6;                                 // levelAfter 6 < levelBefore 7
++            ManifestCase(fails, ref n, "PIN a level that goes down", NetSyncBattle.BuildEndBenchFrame(5, 5, 0, EncodeTrailer(blk, bad), out ue), 0, want, bad.Length, null, true);
++            bad = Concat(smb, new Byte[10]);
++            bad[1 + ManifestRowLen + ManifestLearnLen + ManifestTotalsLen] = (Byte)(ManifestMaxItems + 1);   // itemN 7
++            ManifestCase(fails, ref n, "itemN past the cap", NetSyncBattle.BuildEndBenchFrame(5, 5, 0, EncodeTrailer(blk, bad), out ue), 0, want, bad.Length, null, true);
++            Byte[] noBody = EncodeTrailer(blk, null);
++            noBody[RecordHeaderLen + 6] |= FlagManifest;    // flags b1 with only the 8-byte block
++            ManifestCase(fails, ref n, "flags b1 without a body", NetSyncBattle.BuildEndBenchFrame(6, 6, 0, noBody, out ue), 0, want, 0, null, true);
++            Byte[] grown = Concat(smb, new Byte[] { 0xEE, 0xEE, 0xEE, 0xEE, 0xEE });
++            ManifestCase(fails, ref n, "later growth past the card skipped", NetSyncBattle.BuildEndBenchFrame(7, 7, 0, EncodeTrailer(blk, grown), out ue), 0, want, grown.Length, small, false);
++
++            // the encoder's caps, and the capture's
++            Manifest tooMany = new Manifest();
++            ManifestRow tr = new ManifestRow();
++            for (Int32 k = 0; k <= ManifestMaxLearns; k++)
++                tr.Learns.Add(new ManifestLearn { AbilId = k + 1, ApAt = 1 });
++            tooMany.Rows[0] = tr;
++            Expect(fails, ref n, EncodeRefused(tooMany), "the encoder refuses a 9th learn");
++            tooMany = new Manifest();
++            for (Int32 k = 0; k <= ManifestMaxItems; k++)
++                tooMany.Items.Add(new ManifestItem { Id = k, Count = 1 });
++            Expect(fails, ref n, EncodeRefused(tooMany), "the encoder refuses a 7th item");
++            List<ManifestLearn> ten = new List<ManifestLearn>();
++            for (Int32 k = 0; k < 10; k++)
++                ten.Add(new ManifestLearn { AbilId = 50 + k, ApAt = (UInt16)(k + 1) });
++            List<ManifestLearn> capped8 = new List<ManifestLearn>();
++            Int32 dropped = CapLearns(ten, capped8);
++            Expect(fails, ref n, dropped == 2 && capped8.Count == ManifestMaxLearns && capped8[0].AbilId == 50 && capped8[7].AbilId == 57,
++                   "the capture keeps the EARLIEST 8 learns");
++
++            // ---- LevelAfter on a synthetic table: threshold(L) = 100 * L (level L becomes L + 1 at exp 100 * L) ----
++            Func<Int32, UInt32> t100 = lv => (UInt32)(100 * lv);
++            Expect(fails, ref n, LevelAfter(1, 0, 0, 99, t100) == 1, "no gain: the level stands");
++            Expect(fails, ref n, LevelAfter(1, 0, 99, 99, t100) == 1, "one exp short: the level stands");
++            Expect(fails, ref n, LevelAfter(1, 0, 100, 99, t100) == 2, "PIN exp == threshold levels (UpdateExp's `<=`)");
++            Expect(fails, ref n, LevelAfter(1, 0, 250, 99, t100) == 3, "two level-ups");
++            Expect(fails, ref n, LevelAfter(1, 50, 150, 99, t100) == 3, "the gain adds to the exp already held");
++            Expect(fails, ref n, LevelAfter(1, 0, UInt32.MaxValue, 99, t100) == 99 && LevelAfter(1, 0, UInt32.MaxValue, 50, t100) == 50,
++                   "a huge gain stops at LEVEL_COUNT");
++            Expect(fails, ref n, LevelAfter(1, 0, UInt32.MaxValue, 99, lv => lv < 3 ? 100u : ExpCap + 1) == 3, "PIN the exp cap (9999999) bounds the final exp");
++            Expect(fails, ref n, LevelAfter(99, 0, 1000, 99, t100) == 99, "at LEVEL_COUNT: the level stands");
++            Expect(fails, ref n, LevelAfter(5, ExpCap, 1000, 99, t100) == 5, "exp already capped: UpdateExp adds nothing");
++            Expect(fails, ref n, LevelAfter(1, 0, 1000, 300, lv => 0u) == 255, "the Byte guard");
++
++            // ---- LearnSchedule on synthetic slots (AddAp's loop on a clone) ----
++            Int32[] pa = { 0, 0, 0 };
++            Boolean cap;
++            ExpectLearns(fails, ref n, "one ability, reached", LearnSchedule(pa, Slots(11, 0, 3), 5, out cap), cap, false, 11, 3);
++            ExpectLearns(fails, ref n, "one ability, not reached", LearnSchedule(pa, Slots(11, 0, 3), 2, out cap), cap, false);
++            ExpectLearns(fails, ref n, "reached exactly at the last step", LearnSchedule(pa, Slots(11, 0, 3), 3, out cap), cap, false, 11, 3);
++            ExpectLearns(fails, ref n, "already mastered", LearnSchedule(new Int32[] { 3, 0, 0 }, Slots(11, 0, 3), 9, out cap), cap, false);
++            ExpectLearns(fails, ref n, "over-mastered never learns", LearnSchedule(new Int32[] { 9, 0, 0 }, Slots(11, 0, 3), 9, out cap), cap, false);
++            ExpectLearns(fails, ref n, "partly trained", LearnSchedule(new Int32[] { 2, 0, 0 }, Slots(11, 0, 5), 9, out cap), cap, false, 11, 3);
++            ExpectLearns(fails, ref n, "PIN a shared ability on two items doubles (AddAp's per-call order)",
++                         LearnSchedule(pa, Slots(11, 0, 5, 11, 0, 5), 10, out cap), cap, false, 11, 3);
++            ExpectLearns(fails, ref n, "learns in step order", LearnSchedule(pa, Slots(22, 1, 4, 11, 0, 2), 10, out cap), cap, false, 11, 2, 22, 4);
++            ExpectLearns(fails, ref n, "PIN same-step learns keep AddAp's order", LearnSchedule(pa, Slots(33, 2, 2, 11, 0, 2), 10, out cap), cap, false, 33, 2, 11, 2);
++            ExpectLearns(fails, ref n, "abil 0 / a foreign index / an index past pa[] are skipped",
++                         LearnSchedule(pa, Slots(0, 0, 2, 44, -1, 2, 55, 9, 2, 11, 0, 2), 10, out cap), cap, false, 11, 2);
++            ExpectLearns(fails, ref n, "no AP, no schedule", LearnSchedule(pa, Slots(11, 0, 1), 0, out cap), cap, false);
++            ExpectLearns(fails, ref n, "PIN the 9999-step cap", LearnSchedule(pa, Slots(11, 0, 20000), 65535, out cap), cap, true);
++            ExpectLearns(fails, ref n, "a finished schedule stops early (no cap)", LearnSchedule(pa, Slots(11, 0, 3), 65535, out cap), cap, false, 11, 3);
++            Expect(fails, ref n, pa[0] == 0 && pa[1] == 0 && pa[2] == 0, "PIN the schedule never writes the pa[] it is given");
++        }
++
++        // One manifest codec case through the REAL ParseView: the view stands with its units; the block equals `wantBlock`
++        // with `wantLen` manifest bytes; the manifest equals `wantM`, or (wantBad) is null with a reason. Returns the block.
++        private static EndBlock ManifestCase(List<String> fails, ref Int32 n, String what, Byte[] payload, Int32 wantUnits, EndBlock wantBlock,
++                                             Int32 wantLen, Manifest wantM, Boolean wantBad)
++        {
++            n++;
++            Int32 units;
++            Boolean viewOk;
++            UInt16 seq;
++            Byte nonce;
++            EndBlock got = NetSyncBattle.ParseEndThroughView(payload, out units, out viewOk, out seq, out nonce);
++            if (!viewOk || units != wantUnits)
++                fails.Add("manifest " + what + ": the view/units did not stand (" + units + "/" + wantUnits + ")");
++            else if (got == null || !got.SameAs(wantBlock) || got.ManifestLen != wantLen)
++                fails.Add("manifest " + what + ": the END BLOCK did not stand (" + (got != null ? got + " len " + got.ManifestLen : "null") + ")");
++            else if (wantBad && (got.Manifest != null || got.ManifestWhy == null))
++                fails.Add("manifest " + what + ": a malformed manifest was accepted");
++            else if (!wantBad && (got.Manifest == null || !got.Manifest.SameAs(wantM) || got.ManifestWhy != null))
++                fails.Add("manifest " + what + ": " + (got.Manifest != null ? got.Manifest.ToString() : "no manifest (" + got.ManifestWhy + ")") + " != " + wantM);
++            return got;
++        }
++
++        private static Boolean EncodeRefused(Manifest m)
++        {
++            try
++            {
++                EncodeManifest(m);
++                return false;
++            }
++            catch (ArgumentException)
++            {
++                return true;
++            }
++        }
++
++        // Slots(abil, index, max, abil, index, max, ...) -> the occurrence list, in that order.
++        private static List<LearnSlot> Slots(params Int32[] t)
++        {
++            List<LearnSlot> l = new List<LearnSlot>();
++            for (Int32 i = 0; i + 2 < t.Length; i += 3)
++                l.Add(new LearnSlot { AbilId = t[i], Index = t[i + 1], MaxAp = t[i + 2] });
++            return l;
++        }
++
++        // want = (abil, apAt) pairs, in order.
++        private static void ExpectLearns(List<String> fails, ref Int32 n, String what, List<ManifestLearn> got, Boolean capped, Boolean wantCapped,
++                                         params Int32[] want)
++        {
++            n++;
++            Boolean ok = got.Count * 2 == want.Length && capped == wantCapped;
++            for (Int32 i = 0; ok && i < got.Count; i++)
++                ok = got[i].AbilId == want[2 * i] && got[i].ApAt == want[2 * i + 1];
++            if (ok)
++                return;
++            String s = "";
++            foreach (ManifestLearn l in got)
++                s += "(" + l.AbilId + "@" + l.ApAt + ")";
++            fails.Add("learn schedule " + what + ": got [" + s + "] capped " + capped);
++        }
++
+         // The design-5.6 table, restated as data for the sweep (the pins above name the cases a mutant would break).
+         private static Boolean ChaseSpec(Int32 l, Int32 h, Boolean loading)
+         {

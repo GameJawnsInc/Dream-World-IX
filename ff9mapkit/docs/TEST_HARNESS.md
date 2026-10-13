@@ -413,6 +413,31 @@ the END BLOCK trailer, ClassifyEnd and the guest's pure decisions -- pinned to t
 Counters marked monotonic (`cmd_refused`, `r9_total`, `captures`, `ach_held`, ...) are per process: assert
 on deltas. `end.r8_hits` is non-decreasing, NOT per frame: assert a rise over seconds, never between polls.
 
+Stages 7-11 (s106-s110) grow the same block -- `menu` (the roster-fed content; the production ready mirror),
+`host` / `peer` (the result manifest), `end.replay` (the guest's write-nothing result-screen replay) and
+`host.handback` -- with `battle.hud.mirrored` and `battle.result_ui`'s labels / rows / model / items /
+`replay`. One new sub-verb, `bbench` (s106 inserts it BEFORE `endbench` in the agent's list), new
+`endbench` ops, and two NAMED ops of the old `bench` verb:
+
+```python
+g.netsync("bbench", "roster", "auto", 0)    # s106: the two-marker roster for local slot 0 (or a raw v1 roster:
+                                            #   BW.encode_roster(...) / BW.hex_bytes); `content <mask>` its lever
+g.netsync("bbench", "start", "0x01"); g.netsync("bbench", "ready", "0x01")   # s107: the bench feed's wire Ready bit
+g.netsync("endbench", "manifest", 1)        # s108: the TWO-MARKER manifest rides the bench end (peer.end.manifest)
+g.netsync("endbench", "ui", 1)              # s109: ...the replay arms once R8 holds; `replay off|local`, `quit on`
+g.netsync("bench", "lapse", "hold")         # s110: the loopback guest STALLS; `bench handback 0` is its lever
+```
+
+The capabilities are `coop_menu_content` (s106), `coop_ready_mirror` (s107), `coop_result_manifest` (s108),
+`coop_result_replay` (s109) and `coop_slot_handback` (s110). The driver refuses a `bbench` feed op before s107
+(quoting s106's own "unknown op" text), `endbench manifest` before s108 (quoting the "stage 9" refusal an
+s103-s107 engine gives), `fieldsong|replay|quit` before s109 -- and NEVER sends `bench lapse` / `bench handback`
+to an engine without `netsync.battle.host.handback`: an older agent reads them as `bench 1` and turns the
+field-gate bench ON. Never press Confirm on the quit prompt `endbench quit on` opens: its Yes quits the game.
+`battlewire` adds the v1 roster codec (ParseRoster / EncodeRoster / RosterSignature), the manifest codec
+(EncodeManifest / DecodeManifest, LevelAfter, LearnSchedule) and the replay's pure decisions (ArmVerdict,
+FollowVerdict, SongVerdict, ...), each evaluated against the engine SelfTest's own rows.
+
 ## Walking, and why every measurement settles first
 
 `walk_to(x, z)` steers on the published position rather than counting frames, and it calibrates

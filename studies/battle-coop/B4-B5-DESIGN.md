@@ -358,7 +358,8 @@ live and never tears the session down (the config-signature teardown law).
 All of these ride one wire bump, coordinated with comms type 8:
 - A v2 command frame carrying CommandDetail(s): double-cast `cmd[3]+cmd[0]`, Mix, Throw, Change, manual
   trance and auto-battle. It also carries a battle nonce and a per-slot turn token.
-- Ack codes on type 1.
+- Ack codes on type 1. These close the stage-11 v14 limit: on v14 the guest cannot tell a G6 Ready drop
+  from an acceptance, so a pick refused after a stall is reported to the guest as accepted.
 - Control v2 with seq (BTL-2, BTL-3).
 - `cmdMenu` passed together with a command-context host validator. Passing `cmdMenu` alone would make
   the validator (`BattleHUD.cs:1361-1363`, context-free) and the executor (`btl_cmd.cs:1191`) disagree.
@@ -1122,6 +1123,10 @@ New scenarios live under `studies/test-harness/scenarios/`.
     - The host's window takes the slot, and the guest's window stays closed (no buzzing).
     - When the guest returns with the host at root, the host's window closes and the guest's opens.
     - Mid-submenu, the host finishes first.
+    - Known v14 limit (fixed in B4.2): suppose the guest picks during an uplink-only stall and the host then
+      finishes its own pick in a submenu. The guest's mirror reads G6's Ready drop as ACCEPTED, but the host
+      refuses the pick. Record what the guest sees; this is not a failure. (At root the pick now lands, because
+      Pump parses control before it drains commands.)
 
 ### Sitting 3 — after stages 12-13
 

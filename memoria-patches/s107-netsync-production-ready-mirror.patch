@@ -1,0 +1,1630 @@
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
+index 89b61dd..96cfb0c 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
+@@ -923,6 +923,7 @@ public partial class BattleHUD : UIScene
+         {
+             SetIdle();
+             _doubleCastCount = 0;   // [ff9mapkit netsync B4] stage 7: a pick closed mid-double-cast never strands its count (SetIdle keeps it)
++            _currentButtonGroup = String.Empty;   // [ff9mapkit netsync B4] stage 8: see NetStockMenuCloseAll
+             any = true;
+         }
+         if (NetDropSlot(playerIndex))
+@@ -957,6 +958,14 @@ public partial class BattleHUD : UIScene
+                 try { ButtonGroupState.DisableAllGroup(true); }
+                 catch (Exception err2) { setIdleFault += "; DisableAllGroup also faulted (" + err2.GetType().Name + ")"; }
+             }
++            // [ff9mapkit netsync B4] stage 8 -- the group a suspended HUD restores is idle now. _currentButtonGroup is the group
++            // OnKeyPause / the Libra tutorial / SetHudVisibility(false) stash and Show / SetHudVisibility(true) put back; the
++            // ready mirror closes a panel UNDER a pause (its gate fails there), and stock SetIdle leaves the stash alone, so a
++            // resume re-activated a hidden CommandGroupButton with CurrentPlayerIndex -1 -- every Confirm then threw in
++            // GetCommandFromCommandIndex(..., -1). Idle restores as idle (String.Empty, the group SetIdle leaves). Outside a
++            // suspension the stash is dead until the next one overwrites it. (The Quit prompt keeps its OWN stash,
++            // QuitUI.previousActiveGroup: the ready mirror never closes under it -- NetSyncBattle.MirrorStandDown.)
++            _currentButtonGroup = String.Empty;
+         }
+         return drained;
+     }
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index fc90b38..cb0437a 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -102,6 +102,13 @@ namespace Memoria.Harness
+         // selftest verb `netsync bbench roster <hex...>|auto <L> [dbl] [grey] [mp=<n>] [count=<n>]|clear` and `netsync bbench
+         // content on|off|<mask>` join. A driver checks for `netsync.battle.menu.content_hits` -- absent = an engine whose
+         // diorama panels draw the stand-in's own content.
++        // [ff9mapkit netsync B4] stage 8 (the production ready mirror + [Netsync] GuestStockMenu), also additive under 5:
++        // `netsync.battle.menu` gains `stock_owns`/`why`/`knob`/`knob_bench`/`assist_slot`/`stranded`/`pending`/`pending_mask`/
++        // `refused`/`sent`/`mirror`/`feed` (see AppendStockMirror), and the selftest verb `netsync bbench start <mask>|stop|
++        // ready <mask>|caps <bits>|mode accept|refuse|freeze|freeze 1|0|unmap <w>|none|knob 0|1|ini` joins (the BENCH FEED: a
++        // type-1 lane built from the diorama's own units through the real ParseView, plus a bench host that answers the
++        // forwarded frames). A driver checks for `netsync.battle.menu.stock_owns` -- absent = an engine whose diorama opens the
++        // stock menu only through the `bmenu open` bench opener.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1278,7 +1285,7 @@ namespace Memoria.Harness
+                         case "bbench":
+                         {
+                             // [ff9mapkit netsync B4] stage 7 -- the roster-fed content bench (NetSyncBattle.HarnessStockBench),
+-                            // selftest role only (stage 8 adds start|ready|caps|mode|unmap|stop to this verb):
++                            // selftest role only (stage 8's bench feed ops are listed after `content` below):
+                             //   `bbench roster <hex...>`  a raw v1 type-4 roster (slots keyed by WIRE index) through the REAL
+                             //       ParseRoster -> the bench menu roster (the verb FAILS if ParseRoster refuses it);
+                             //   `bbench roster auto <L> [dbl] [grey] [mp=<n>] [count=<n>]`  FABRICATE a two-marker roster for
+@@ -1292,6 +1299,21 @@ namespace Memoria.Harness
+                             //       2 grey, 4 ability, 8 bag, 16 count, 32 cast, 64 refresh; off = the pre-stage guest).
+                             // Read back: `battle.hud` (the panels as drawn, `mirrored`), `netsync.battle.menu.mirrored/
+                             // content_hits/roster/bench_roster`. The roster and the lever are released on disarm/fault/reset.
++                            // [ff9mapkit netsync B4] stage 8 -- THE BENCH FEED (the ready mirror's solo proof; a selftest machine
++                            // is not the host of its own diorama, so no type-1 lane exists there without it):
++                            //   `bbench start <mask>`  inside a live `dioboot` diorama: a type-1 frame every 150 ms (and at once on
++                            //       any lever change) from the diorama's OWN units -- players at their WIRE index -- with the
++                            //       guest-slot offer <mask> (wire slots), Ready 0, caps 0x02, a fresh nonce, through the REAL
++                            //       ParseView into the live peer view; the ready mirror and the digit panel run on it, and a
++                            //       BENCH HOST answers every forwarded frame (the selftest stand-in for the socket);
++                            //   `bbench ready <mask>`  the WIRE Ready bits;  `bbench caps <0-255>`  the header flags byte;
++                            //   `bbench mode accept|refuse|freeze`  accept = a frame for a Ready slot drops its bit at once;
++                            //       refuse = the bit stays up; freeze = no more frames (the lane goes stale in 2 s);
++                            //   `bbench freeze 1|0`;  `bbench unmap <w>|none`  the mirror treats wire slot w as unseated;
++                            //   `bbench knob 0|1|ini`  force [Netsync] GuestStockMenu for this process (Memoria.ini untouched);
++                            //   `bbench stop`.  The feed ends with its diorama; feed + knob are released on disarm/fault/reset.
++                            // Read back: `battle.turn` (slot / ready / done), `battle.hud`, `netsync.battle.peer` (the feed's lane),
++                            // `netsync.battle.menu.stock_owns/why/assist_slot/stranded/pending/refused/sent/mirror/feed`.
+                             String bbop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             String[] bbrest = new String[Math.Max(0, s.Args.Length - 2)];
+                             if (bbrest.Length > 0)
+@@ -2847,7 +2869,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3012,6 +3034,8 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync B4] stage 7 adds to `menu` the roster-fed content keys (see AppendStockContent): `mirrored`,
+         //     `roster_src`, `roster_sig`, `roster_gen`, `roster_painted`, `content_off`, `content_hits`, `content_faults`,
+         //     `content_why`, `mute_held`, `roster`, `bench_roster`.
++        // [ff9mapkit netsync B4] stage 8 adds to `menu` the ready mirror's keys (see AppendStockMirror): `stock_owns`, `why`,
++        //     `knob`, `knob_bench`, `assist_slot`, `stranded`, `pending`, `pending_mask`, `refused`, `sent`, `mirror`, `feed`.
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3063,7 +3087,8 @@ namespace Memoria.Harness
+             Num(sb, "side_refused", Memoria.Netsync.NetSyncBattle.HarnessSideRefused); sb.Append(",");
+             Str(sb, "side_why", Memoria.Netsync.NetSyncBattle.HarnessSideRefusedWhy); sb.Append(",");
+             AppendStockCapture(sb); sb.Append(",");
+-            AppendStockContent(sb);                                                                     // [ff9mapkit netsync B4] stage 7
++            AppendStockContent(sb); sb.Append(",");                                                     // [ff9mapkit netsync B4] stage 7
++            AppendStockMirror(sb);                                                                      // [ff9mapkit netsync B4] stage 8
+             sb.Append("},");
+             AppendBattleEnd(sb);                                                                        // [ff9mapkit netsync B5] stage 5
+             sb.Append("}");
+@@ -3370,6 +3395,87 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync B4] stage 8 -- the ready mirror's keys of `netsync.battle.menu` (NetSyncBattle.StockMenu.cs;
++        // studies/battle-coop/B4-B5-DESIGN.md 4.6). Reading them writes nothing.
++        //   `stock_owns` (StockMenuOwns NOW: the knob && a live diorama && (the party mirror || the bench feed) && a live lane
++        //   whose caps carry bit 1 && not faulted -- true = the stock menu, not the digit panel, serves the guest's slots), `why`
++        //   (the first missing ownership condition -- e.g. "host predates the command-phase gates" -- or "waiting: <gate>" while
++        //   it owns the slots but the diorama is not in its steady command phase; null = serving), `knob` (the effective
++        //   GuestStockMenu, 1/0) + `knob_bench` (the selftest override, -1 = the ini), `assist_slot` (the WIRE slot the digit
++        //   panel serves, -1 = none -- with `stock_owns` only a stranded one), `stranded` (WIRE slots, ascending, Ready but with
++        //   no local seat or refused by the stock feeder this turn), `pending` ({slot (local), wire, ms, seqs}: the lowest slot
++        //   whose forwarded command awaits the host's verdict, ms / host samples since the commit; null = none) + `pending_mask`
++        //   (local), `refused` (pending commands the host left Ready >= 2.5 s and >= 3 samples: reopened with a buzzer --
++        //   monotonic per process, read DELTAS), `sent` (forwarded frames handed to a transport: the socket, or the bench host --
++        //   monotonic), `mirror` {`serving` (the last tick served), `open` (LOCAL slots the mirror holds on ReadyQueue), `fed` /
++        //   `accepted` / `obsolete` / `closed` (monotonic per process), `no_roster` (WIRE slots Ready but absent from the menu
++        //   roster: waiting), `faulted` + `fault_why` (latched for the boot)} and `feed` (the selftest bench feed, null = not
++        //   running: `guest_slots` / `ready` (WIRE masks) / `caps` / `mode` (accept | refuse | freeze) / `frozen` / `unmap` (-1 =
++        //   none) / `nonce` / `seq` (the last frame's) / `live` (its lane is fresh) / `menu_open` (the control frame Pump would
++        //   send) / `frames` / `taken` / `accepted` / `refused` / `bad` (per start) / `last` (the last frame the bench host took,
++        //   decoded, with its verdict)).
++        private static void AppendStockMirror(StringBuilder sb)
++        {
++            Bool(sb, "stock_owns", Memoria.Netsync.NetSyncBattle.HarnessStockOwns); sb.Append(",");
++            Str(sb, "why", Memoria.Netsync.NetSyncBattle.HarnessStockWhy); sb.Append(",");
++            Num(sb, "knob", Memoria.Netsync.NetSyncBattle.HarnessKnob); sb.Append(",");
++            Num(sb, "knob_bench", Memoria.Netsync.NetSyncBattle.HarnessKnobBench); sb.Append(",");
++            Num(sb, "assist_slot", Memoria.Netsync.NetSyncBattle.HarnessAssistSlot); sb.Append(",");
++            AppendIntList(sb, "stranded", Memoria.Netsync.NetSyncBattle.HarnessStranded()); sb.Append(",");
++            Int32[] p = Memoria.Netsync.NetSyncBattle.HarnessPending();
++            if (p == null)
++            {
++                sb.Append("\"pending\":null,");
++            }
++            else
++            {
++                sb.Append("\"pending\":{");
++                Num(sb, "slot", p[0]); sb.Append(",");
++                Num(sb, "wire", p[1]); sb.Append(",");
++                Num(sb, "ms", p[2]); sb.Append(",");
++                Num(sb, "seqs", p[3]);
++                sb.Append("},");
++            }
++            Num(sb, "pending_mask", Memoria.Netsync.NetSyncBattle.HarnessPendingMask); sb.Append(",");
++            Num(sb, "refused", Memoria.Netsync.NetSyncBattle.HarnessMirrorRefused); sb.Append(",");
++            Num(sb, "sent", Memoria.Netsync.NetSyncBattle.HarnessStockSent); sb.Append(",");
++            sb.Append("\"mirror\":{");
++            Bool(sb, "serving", Memoria.Netsync.NetSyncBattle.HarnessMirrorServing); sb.Append(",");
++            Num(sb, "open", Memoria.Netsync.NetSyncBattle.HarnessMirrorOpen); sb.Append(",");
++            Num(sb, "fed", Memoria.Netsync.NetSyncBattle.HarnessMirrorFed); sb.Append(",");
++            Num(sb, "accepted", Memoria.Netsync.NetSyncBattle.HarnessMirrorAccepted); sb.Append(",");
++            Num(sb, "obsolete", Memoria.Netsync.NetSyncBattle.HarnessMirrorObsolete); sb.Append(",");
++            Num(sb, "closed", Memoria.Netsync.NetSyncBattle.HarnessMirrorClosed); sb.Append(",");
++            Num(sb, "no_roster", Memoria.Netsync.NetSyncBattle.HarnessMirrorNoRoster); sb.Append(",");
++            Bool(sb, "faulted", Memoria.Netsync.NetSyncBattle.HarnessMirrorFaulted); sb.Append(",");
++            Str(sb, "fault_why", Memoria.Netsync.NetSyncBattle.HarnessMirrorFaultWhy);
++            sb.Append("},");
++            Memoria.Netsync.NetSyncBattle.BenchFeedView f = Memoria.Netsync.NetSyncBattle.HarnessBenchFeed();
++            if (f == null)
++            {
++                sb.Append("\"feed\":null");
++                return;
++            }
++            sb.Append("\"feed\":{");
++            Num(sb, "guest_slots", f.GuestSlots); sb.Append(",");
++            Num(sb, "ready", f.Ready); sb.Append(",");
++            Num(sb, "caps", f.Caps); sb.Append(",");
++            Str(sb, "mode", f.Mode); sb.Append(",");
++            Bool(sb, "frozen", f.Frozen); sb.Append(",");
++            Num(sb, "unmap", f.Unmap); sb.Append(",");
++            Num(sb, "nonce", f.Nonce); sb.Append(",");
++            Num(sb, "seq", f.Seq); sb.Append(",");
++            Bool(sb, "live", f.Live); sb.Append(",");
++            Bool(sb, "menu_open", f.MenuOpen); sb.Append(",");
++            Num(sb, "frames", f.Frames); sb.Append(",");
++            Num(sb, "taken", f.Taken); sb.Append(",");
++            Num(sb, "accepted", f.Accepted); sb.Append(",");
++            Num(sb, "refused", f.Refused); sb.Append(",");
++            Num(sb, "bad", f.Bad); sb.Append(",");
++            Str(sb, "last", f.Last);
++            sb.Append("}");
++        }
++
+         private static void AppendStockCapture(StringBuilder sb)
+         {
+             Memoria.Netsync.NetSyncBattle.StockCaptureView c = Memoria.Netsync.NetSyncBattle.HarnessLastCapture();
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index dafcab6..5bb9ce6 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -366,6 +366,8 @@ namespace Memoria.Netsync
+             _actionDropLogged = false;
+             _actionParseLogged = false;
+             NoteOwnBattleEnd();                    // [ff9mapkit netsync B4] stage 1 (the counters + the lever stay)
++            _assistSlot = -1;                      // [ff9mapkit netsync B4] stage 8: the digit panel serves nothing
++            _assistRoster = null;
+             ResetUi();
+         }
+ 
+@@ -662,16 +664,19 @@ namespace Memoria.Netsync
+                 PeerBattleLive = live;
+                 if (live && !inBattle)                     // both in battle at once -> spectate only, no assist
+                 {
+-                    Int32 mySlot = FirstReadyGuestSlot(_peerView);
+-                    AssistInputActive = mySlot >= 0;
+-                    socket.SetLocalControl(BuildControl(mySlot >= 0));
+-                    Byte[] command = RunAssistUi(_peerView, _peerRoster, mySlot);
++                    // [ff9mapkit netsync B4] stage 8: the control frame is UNCHANGED (menu open = any guest slot ready); the digit
++                    // panel serves only GuestAssistTick's slot (every ready slot unless the stock menu owns them), and the stock
++                    // menu's captured frames follow its own on the type-2 queue (DrainStockOutbox).
++                    socket.SetLocalControl(BuildControl(FirstReadyGuestSlot(_peerView) >= 0));
++                    Byte[] command = GuestAssistTick(_peerView, _peerRoster);
+                     if (command != null)
+                         socket.SendCommand(command);
++                    DrainStockOutbox(socket);
+                 }
+                 else
+                 {
+                     AssistInputActive = false;
++                    _assistSlot = -1;                      // [ff9mapkit netsync B4] stage 8
+                     socket.SetLocalControl(null);
+                     if (!live)
+                     {
+@@ -709,6 +714,7 @@ namespace Memoria.Netsync
+                     _wasInBattle = false;
+                     PeerBattleLive = false;
+                     AssistInputActive = false;
++                    _assistSlot = -1;                      // [ff9mapkit netsync B4] stage 8 (a bench feed re-publishes after this)
+                     return;
+                 }
+                 if (!_wasInBattle)
+@@ -771,11 +777,11 @@ namespace Memoria.Netsync
+                 PeerBattleLive = live;
+                 if (live)
+                 {
+-                    Int32 mySlot = FirstReadyGuestSlot(_peerView);
+-                    _loopMenuOpen = mySlot >= 0;
+-                    AssistInputActive = _loopMenuOpen;
++                    _loopMenuOpen = FirstReadyGuestSlot(_peerView) >= 0;
+                     ParseControl(BuildControl(_loopMenuOpen));   // RemoteMenuOpen through the codec too
+-                    Byte[] command = RunAssistUi(_peerView, _peerRoster, mySlot);
++                    // [ff9mapkit netsync B4] stage 8: the shared digit-panel decision -- an own battle is never a diorama, so the
++                    // stock menu never owns these slots and it serves the first ready slot, exactly as before
++                    Byte[] command = GuestAssistTick(_peerView, _peerRoster);
+                     if (command != null)
+                         _loopCommands.Enqueue(command);
+                     while (_loopCommands.Count > 0)
+@@ -1668,6 +1674,21 @@ namespace Memoria.Netsync
+             return -1;
+         }
+ 
++        // [ff9mapkit netsync B4] stage 8 -- THE GUEST'S DIGIT-PANEL DECISION, shared by Pump's guest branch, the selftest own-battle
++        // loopback and the selftest bench feed (each still builds its control frame itself from FirstReadyGuestSlot -- unchanged).
++        // The digit panel serves only AssistSlot (NetSyncBattle.StockMenu.cs): every ready guest slot, first first, while the stock
++        // menu does not own them -- byte-for-byte the pre-stage panel -- else only a ready slot the ready mirror marked stranded
++        // (design 4.6, G7). AssistInputActive (the UIKeyTrigger digit swallow) and DrawGUI's menu half follow it. Returns the digit
++        // panel's command frame this tick (null = none).
++        private static Byte[] GuestAssistTick(BattleView view, RosterView roster)
++        {
++            Int32 slot = AssistSlot(view);
++            _assistSlot = slot;
++            _assistRoster = roster;
++            AssistInputActive = slot >= 0;
++            return RunAssistUi(view, roster, slot);
++        }
++
+         // ============================================================================ assist input (B1 out)
+         // The digit-menu state machine. All keys are digits (unbound in the field walk layout and
+         // swallowed from the game while the panel is active):
+@@ -2364,6 +2385,15 @@ namespace Memoria.Netsync
+                 }
+ 
+                 Int32 mySlot = FirstReadyGuestSlot(view);   // hoisted: AppendMenu draws over the diorama too
++                RosterView roster = _peerRoster;
++                // [ff9mapkit netsync B4] stage 8: over a LIVE diorama the menu half is drawn only for the digit panel's own slot
++                // (GuestAssistTick: every ready slot unless the stock menu owns them, else only a stranded one) and from the roster
++                // it serves; outside a diorama exactly as before.
++                if (dioramaLive)
++                {
++                    mySlot = _assistSlot;
++                    roster = _assistRoster;
++                }
+                 StringBuilder sb = new StringBuilder(768);
+                 if (!dioramaLive)
+                 {
+@@ -2410,7 +2440,7 @@ namespace Memoria.Netsync
+                     sb.Append('\n');
+                 }
+                 }
+-                AppendMenu(sb, view, mySlot, dioramaLive);   // ALWAYS: the B1 assist UI must draw over the diorama
++                AppendMenu(sb, view, mySlot, dioramaLive, roster);   // ALWAYS: the B1 assist UI must draw over the diorama
+ 
+                 if (sb.Length == 0)
+                     return;                                  // diorama live + nothing to say (GuestSlots=0 pure
+@@ -2430,7 +2460,9 @@ namespace Memoria.Netsync
+         }
+ 
+         // The interactive lower half of the panel: the current menu level for MY ready slot.
+-        private static void AppendMenu(StringBuilder sb, BattleView view, Int32 mySlot, Boolean dioramaLive)
++        // [ff9mapkit netsync B4] stage 8: `roster` = the roster the digit panel serves (DrawGUI passes _peerRoster outside a
++        // diorama, GuestAssistTick's over one -- the same object on a real guest; the bench roster under the selftest feed).
++        private static void AppendMenu(StringBuilder sb, BattleView view, Int32 mySlot, Boolean dioramaLive, RosterView roster)
+         {
+             if (mySlot < 0)
+             {
+@@ -2443,7 +2475,7 @@ namespace Memoria.Netsync
+                 sb.Append("command sent...");
+                 return;
+             }
+-            List<CmdView> cmds = SlotCommands(_peerRoster, mySlot);
++            List<CmdView> cmds = SlotCommands(roster, mySlot);
+             switch (_uiMode)
+             {
+                 case UiRoot:
+@@ -2454,7 +2486,7 @@ namespace Memoria.Netsync
+                         sb.Append("   [3] ").Append(CommandLabel(c1));
+                     if (c2 != null)
+                         sb.Append("   [4] ").Append(CommandLabel(c2));
+-                    if (_peerRoster != null && _peerRoster.Items.Count > 0)
++                    if (roster != null && roster.Items.Count > 0)
+                         sb.Append("   [5] Item");
+                     if (cmds == null)
+                         sb.Append("   (menus loading...)");
+@@ -2478,15 +2510,15 @@ namespace Memoria.Netsync
+                 }
+                 case UiItem:
+                 {
+-                    Int32 total = _peerRoster != null ? _peerRoster.Items.Count : 0;
++                    Int32 total = roster != null ? roster.Items.Count : 0;
+                     sb.Append("Item  (page ").Append(_uiPage + 1).Append('/')
+                       .Append(Math.Max(1, 1 + (total - 1) / PageSize)).Append(")\n");
+                     for (Int32 i = 0; i < PageSize; i++)
+                     {
+                         Int32 idx = _uiPage * PageSize + i;
+-                        if (_peerRoster == null || idx >= _peerRoster.Items.Count)
++                        if (roster == null || idx >= roster.Items.Count)
+                             break;
+-                        ItemView item = _peerRoster.Items[idx];
++                        ItemView item = roster.Items[idx];
+                         sb.Append("  [").Append(i + 1).Append("] ").Append(Pad(ItemLabel(item.Id), 14))
+                           .Append('x').Append(item.Count).Append('\n');
+                     }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+index 7983915..dbecb3a 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+@@ -37,6 +37,8 @@ namespace Memoria.Netsync
+     // purpose: nothing in a production diorama can fill a ReadyQueue yet, and the Pump guest-branch drain belongs with
+     // stage 8's ready mirror (design 6.5). The selftest bench reads every forward back DECODED by the host's own
+     // TryDecodeCommand (`netsync.battle.menu.captured`), with no socket.
++    // [ff9mapkit netsync B4] stage 8: the drain landed -- Pump's guest branch hands every frame to the socket's type-2 queue
++    // (DrainStockOutbox), and under the selftest bench feed (`bbench start`) its bench host takes them (BenchIntake).
+     //
+     // THE MENU-WAKE TRACE (risk 2, redone for this stage). Every way a command panel opens inside a diorama:
+     //   (1) BattleHUD.UpdatePlayer's ready loop -> SwitchPlayer, for a ReadyQueue entry. ReadyQueue's feeders:
+@@ -124,7 +126,7 @@ namespace Memoria.Netsync
+                     {
+                         _stockOutboxDropLogged = true;
+                         Log.Message("[NetSync] stock menu: the outbox hit its cap (" + StockOutboxCap + ") -- oldest frame dropped "
+-                                    + "(stage 3 has no production drain; the selftest bench reads `captured`; logged once per boot)");
++                                    + "(no transport drained it: a bench diorama without `bbench start`, or no live lane; logged once per boot)");
+                     }
+                 }
+                 _stockOutbox.Enqueue(frame);
+@@ -133,6 +135,7 @@ namespace Memoria.Netsync
+                 _stockLastLocal = localSlot;
+                 _stockLastCmd = cmdId;
+                 _stockLastSite = site;
++                NoteMirrorPending(localSlot);             // [ff9mapkit netsync B4] stage 8: the slot awaits the host's verdict
+                 NetCommand c;
+                 TryDecodeCommand(frame, out c);           // the host's own decoder: the log says what the HOST would read
+                 Log.Message("[NetSync] stock menu: captured " + site + " -- local slot " + localSlot + " "
+@@ -330,6 +333,7 @@ namespace Memoria.Netsync
+             try
+             {
+                 StockMenuMuteSettle(true);                // [ff9mapkit netsync B4] stage 7: a held repaint mute never outlives the menu
++                MirrorLetGo();                            // [ff9mapkit netsync B4] stage 8: the ready mirror holds no slot after a close-all
+                 Int32 dropped = _stockOutbox.Count;
+                 _stockOutbox.Clear();
+                 Int32 bench = _benchOpenMask;
+@@ -372,6 +376,7 @@ namespace Memoria.Netsync
+             _sigTaken = false;                            // the menu roster's signature is retaken (the generation keeps counting)
+             _contentLogged.Clear();                       // and the content lines log afresh
+             _contentLogCapNoted = false;
++            NoteMirrorBoot();                             // [ff9mapkit netsync B4] stage 8: the ready mirror starts clean (and a bench feed ends)
+         }
+ 
+         // Every harness release (HarnessReleaseBench): the capture lever back on. The bench-opened slots close with the
+@@ -390,6 +395,11 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] harness: the bench menu roster cleared (released with the harness)");
+             _benchRoster = null;
+             _benchInfo = null;
++            // [ff9mapkit netsync B4] stage 8: the bench feed stops (its lane goes with it) and the knob override reverts to the ini.
++            StopFeed("released with the harness");
++            if (BenchKnob >= 0)
++                Log.Message("[NetSync] harness: the GuestStockMenu override cleared -- the ini's value rules again (released with the harness)");
++            BenchKnob = -1;
+         }
+ 
+         // ======================================================================================= stage 7: roster-fed content
+@@ -498,6 +508,11 @@ namespace Memoria.Netsync
+             source = null;
+             if (_benchRoster != null && NetSyncClient.IsSelfTestRole)
+             {
++                // [ff9mapkit netsync B4] stage 8: under the bench feed the bench roster RIDES the feed's lane, as the host's type-4
++                // roster rides its battle lane: a frozen (stale) feed serves no roster, so `mirrored` empties with the lane.
++                // Without a feed (the stage-7 content bench) it serves exactly as before.
++                if (_feedArmed && !PeerBattleLive)
++                    return null;
+                 source = "bench";
+                 return _benchRoster;
+             }
+@@ -1003,6 +1018,1017 @@ namespace Memoria.Netsync
+             catch { }
+         }
+ 
++        // ======================================================================================= stage 8: the ready mirror
++        // [ff9mapkit netsync B4] stage 8 -- THE PRODUCTION READY MIRROR (studies/battle-coop/B4-B5-DESIGN.md 4.6, section 7 stage 8):
++        // what opens the stock command menu in a REAL two-machine session. Per guest slot the host's Ready bit (type-1 info bit 2,
++        // command-phase gated on a caps-bit-1 host -- stage 1) is mapped WIRE -> LOCAL through the character id
++        // (NetSyncDiorama.LocalIndexForWire, never GetIndex) and fed to the stock ReadyQueue through the stock feeder
++        // (BattleHUD.NetStockMenuOpen: AddPlayerToReady, duplicate-guarded); the HUD's own ready pass opens the real panel. When
++        // the bit falls the slot leaves the queues (BattleHUD.NetStockMenuClose: SetIdle first if its panel is up -- never
++        // RemovePlayerFromAction's power-of-two loop). A commit is captured (stage 3) and forwarded, and the slot waits PENDING:
++        //   the bit falls, or the battle nonce changes, or the host's unit dies -> accepted / obsolete: the slot leaves the queues;
++        //   the bit is still up after >= MirrorRefuseMs AND >= MirrorRefuseSeqs host samples -> refused or lost (no ack lane in
++        //   B4 v1, risk 9): the slot leaves, SFX 102 once, one log line, and it reopens at the root at once.
++        // StockMenuTick runs once per Update (design 6.3): the transport branch after NetSyncDiorama.EndTick, the selftest branch
++        // after SelfTestPump + EndTick -- after EndTick, so an end injected this frame (InjectEnd -> StockMenuCloseAll) is never
++        // re-opened in the same frame.
++        //
++        // OWNERSHIP (StockMenuOwns, design 4.2) = the knob ([Netsync] GuestStockMenu, default 1) && NetSyncDiorama.Active && (the
++        // party mirror || the selftest bench feed) && the host's caps bit 1 && !faulted. The party mirror is required: without it
++        // the diorama seats the guest's OWN party and the wire<->local join means nothing. While the stock menu owns the guest's
++        // slots, the digit panel serves ONLY a STRANDED slot (G7): a ready guest slot with no local seat, or one the stock feeder
++        // refuses (_unconsciousStateList -- a seat-carried NoInput status the host has cured, risk 12) -- stranded for the rest of
++        // that turn. While it does not own them, the digit panel serves every slot exactly as before. The control frame is
++        // UNCHANGED (menu open = any guest slot ready: the host's WAIT gating and GuestWaitMs cap read it as before). Any fault:
++        // the mirror latches `faulted` for the boot, StockMenuCloseAll, one line -- the digit panel returns. Never throws.
++
++        /// <summary>[Netsync] GuestStockMenu -- NetSyncClient's config mirror, a BEHAVIOUR key (in the behaviour signature: an edit
++        /// applies live and never tears the session down). 1 (default) = inside a battle diorama the stock command menu serves
++        /// the guest's slots; 0 = the digit panel serves them (the pre-stage-8 surface).</summary>
++        public static Boolean GuestStockMenu = true;
++        // SELFTEST LEVER (harness `netsync bbench knob 0|1|ini`; released with the harness): -1 = the ini's value; 0/1 = forced.
++        // Read only through StockKnobOn, which also needs the selftest role (a stranded override never reaches production).
++        public static Int32 BenchKnob = -1;
++
++        private static Boolean StockKnobOn
++        {
++            get { return BenchKnob >= 0 && NetSyncClient.IsSelfTestRole ? BenchKnob != 0 : GuestStockMenu; }
++        }
++
++        private const Int32 MirrorRefuseMs = 2500;    // design 4.6: a Ready bit still up this long after a commit = refused/lost...
++        private const Int32 MirrorRefuseSeqs = 3;     // ...AND across this many host samples (a stalled lane is not a refusal)
++        private const Int32 MirrorLogKeysCap = 40;    // the mirror's own once-per-boot log budget
++        private const Int32 MirrorRefuseLogCap = 8;   // refusal lines per boot (each refusal is an event; past this, counted)
++        private static Int32 _mirrorMask;             // LOCAL slots the mirror fed to ReadyQueue and has not removed
++        private static Int32 _pendMask;               // LOCAL slots whose captured command awaits the host's verdict
++        private static readonly Int32[] _pendTick = new Int32[4];
++        private static readonly UInt16[] _pendSeq = new UInt16[4];
++        private static readonly Byte[] _pendNonce = new Byte[4];
++        private static Int32 _strandedMask;           // WIRE slots ready + stranded on the mirror's last tick (the digit panel's)
++        private static Int32 _strandedTurn;           // WIRE slots the stock feeder refused this turn (sticky until the bit falls)
++        private static Int32 _noRosterMask;           // WIRE slots ready but absent from the menu roster on the last tick (waiting)
++        // [ff9mapkit netsync B4] stage 8 (fixer) -- THE ROSTER WAIT IS BOUNDED. A Ready slot the menu roster does not carry waits
++        // (never a stand-in's menu) -- but the control frame still reads "menu open" for it, so the host freezes its gauges and
++        // skips the slot; a roster that never comes (the host's build throws, a guest ParseRoster reject) would park that
++        // character for the whole battle. Past MirrorNoRosterMs of serving ticks the slot is STRANDED for the turn (G7): the
++        // digit panel serves it, [1] Attack / [2] Defend with no roster, exactly the pre-stage-8 fallback.
++        private const Int32 MirrorNoRosterMs = 2500;  // 2.5 x RosterMs: an opening edge ships the roster within frames
++        private static Int32 _noRosterWait;           // WIRE slots whose roster wait is running (cleared on any stand-down)
++        private static readonly Int32[] _noRosterSince = new Int32[4];
++        private static readonly String[] KeyNoRoster = { "noroster 0", "noroster 1", "noroster 2", "noroster 3" };
++        private static readonly String[] KeyNoRosterStrand = { "noroster-strand 0", "noroster-strand 1", "noroster-strand 2", "noroster-strand 3" };
++        private static readonly String[] KeyUnmapped = { "unmapped 0", "unmapped 1", "unmapped 2", "unmapped 3" };
++        private static Boolean _mirrorServing;        // the last tick served: a capture made now goes PENDING
++        private static Boolean _mirrorFaulted;        // latched for the boot: the digit panel serves until the next boot
++        private static String _mirrorFaultWhy;
++        private static Int32 _mirrorNonce = -1;       // the view nonce the sticky stranding belongs to
++        private static Int32 _mirrorFed, _mirrorAccepted, _mirrorObsolete, _mirrorRefused, _mirrorClosed;   // monotonic per process
++        private static Int32 _stockSent;              // outbox frames handed to a transport (the socket, or the bench host) -- monotonic
++        private static readonly List<String> _mirrorLogged = new List<String>(16);
++        private static Boolean _mirrorLogCapNoted;
++        private static Int32 _mirrorRefuseLogs;
++        private static Int32 _assistSlot = -1;        // the WIRE slot the digit panel serves (GuestAssistTick; -1 = none)
++        private static RosterView _assistRoster;      // ...and the roster it serves it from (DrawGUI's menu half)
++
++        private static Boolean MirrorLogFirst(String key)
++        {
++            if (_mirrorLogged.Contains(key))
++                return false;
++            if (_mirrorLogged.Count >= MirrorLogKeysCap)
++            {
++                if (!_mirrorLogCapNoted)
++                {
++                    _mirrorLogCapNoted = true;
++                    Log.Message("[NetSync] stock menu: " + MirrorLogKeysCap + " distinct ready-mirror lines this boot -- further ones are "
++                                + "counted (netsync.battle.menu.mirror), not logged");
++                }
++                return false;
++            }
++            _mirrorLogged.Add(key);
++            return true;
++        }
++
++        // OWNERSHIP (design 4.2) against a peer view (null = no live lane): true = the stock menu, not the digit panel, serves the
++        // guest's slots. why = the first missing condition (null when it owns). Never throws. Reads NetSyncDiorama.Active only
++        // while the knob is on (StockMenuTick reads it once per frame and passes it in below).
++        private static Boolean StockMenuOwns(BattleView view, out String why)
++        {
++            return StockMenuOwns(view, StockKnobOn && NetSyncDiorama.Active, out why);
++        }
++
++        // [ff9mapkit netsync B4] stage 8 (fixer) -- the per-frame reasons are LITERALS (or a string built once per fault), never a
++        // per-frame concat: the mirror runs every frame of a booted diorama it does not serve, and a reason is only ever text
++        // for the once-per-boot log line and the harness.
++        private const String WhyKnobOff = "the knob is off ([Netsync] GuestStockMenu=0)";
++        private const String WhyKnobOffBench = "the knob is off ([Netsync] GuestStockMenu=0, the bench override)";
++        private static String _mirrorFaultReason;     // "the ready mirror faulted this boot (<why>)" -- built once, at the fault
++
++        private static Boolean StockMenuOwns(BattleView view, Boolean dioramaActive, out String why)
++        {
++            why = null;
++            try
++            {
++                if (!StockKnobOn)
++                    why = BenchKnob >= 0 && NetSyncClient.IsSelfTestRole ? WhyKnobOffBench : WhyKnobOff;
++                else if (!dioramaActive)
++                    why = "no live battle diorama";
++                else if (!NetSyncParty.MirrorActive && !BenchFeedArmed)
++                    why = "the party mirror is not active (the diorama seats the guest's own party, so the wire-to-local join means nothing)";
++                else if (view == null)
++                    why = "no live peer battle lane";
++                else if ((view.HostCaps & CapCommandPhaseGated) == 0)
++                    why = "host predates the command-phase gates";
++                else if (_mirrorFaulted)
++                    why = _mirrorFaultReason ?? "the ready mirror faulted this boot";
++            }
++            catch (Exception ex)
++            {
++                why = "the ownership check faulted (" + ex.GetType().Name + ")";
++            }
++            return why == null;
++        }
++
++        // The WIRE slot the digit panel serves (design 4.6 "Digit panel after stage 8"): when the stock menu does not own the
++        // guest's slots, the first ready guest slot -- exactly the pre-stage FirstReadyGuestSlot; when it does, the first ready
++        // guest slot the mirror marked STRANDED. -1 = none. Called by GuestAssistTick (NetSyncBattle.cs) only.
++        private static Int32 AssistSlot(BattleView view)
++        {
++            if (view == null || view.GuestSlots == 0)
++                return -1;
++            Int32 first = -1, firstStranded = -1;
++            for (Int32 i = 0; i < view.Units.Count; i++)
++            {
++                UnitView u = view.Units[i];
++                if (!u.IsPlayer || !u.Ready || !u.Alive || (view.GuestSlots & (1 << u.Index)) == 0)
++                    continue;
++                if (first < 0)
++                    first = u.Index;
++                if (firstStranded < 0 && u.Index < 4 && (_strandedMask & (1 << u.Index)) != 0)
++                    firstStranded = u.Index;
++            }
++            if (first < 0)
++                return -1;                                // nothing ready: no ownership read at all
++            String why;
++            return StockMenuOwns(view, out why) ? firstStranded : first;
++        }
++
++        // [ff9mapkit netsync B4] stage 8 -- the outbox's production drain (Pump's guest branch; design 4.3 / 6.5): every frame the
++        // stock menu forwarded joins the transport's type-2 queue, FIFO, behind the digit panel's own frame, exactly as that one.
++        private static void DrainStockOutbox(INetTransport socket)
++        {
++            while (_stockOutbox.Count > 0)
++            {
++                socket.SendCommand(_stockOutbox.Dequeue());
++                _stockSent++;
++            }
++        }
++
++        // ForwardStockCommand's success path: while the mirror serves, the committing slot now awaits the host's verdict (its Ready
++        // bit falling = accepted). Outside the mirror (the stage-3/7 bench opener) nothing is recorded: the mirror never acts on a
++        // slot it did not serve, so those benches are unchanged.
++        private static void NoteMirrorPending(Int32 localSlot)
++        {
++            if (!_mirrorServing || localSlot < 0 || localSlot > 3)
++                return;
++            BattleView v = LivePeerView();
++            _pendMask |= 1 << localSlot;
++            _pendTick[localSlot] = Environment.TickCount;
++            _pendSeq[localSlot] = v != null ? v.Seq : (UInt16)0;
++            _pendNonce[localSlot] = v != null ? v.Nonce : (Byte)0;
++        }
++
++        // StockMenuCloseAll's first step: the mirror lets go of every slot (the close-all drains the queues itself).
++        private static void MirrorLetGo()
++        {
++            _mirrorMask = 0;
++            _pendMask = 0;
++            _strandedMask = 0;
++            _strandedTurn = 0;
++            _noRosterMask = 0;
++            _noRosterWait = 0;
++            _mirrorServing = false;
++        }
++
++        // Every diorama boot (NoteStockMenuBoot): the mirror's per-boot state starts clean; the process counters keep counting. A
++        // bench feed belongs to the diorama it was started in, so a new boot ends it.
++        private static void NoteMirrorBoot()
++        {
++            MirrorLetGo();
++            _mirrorFaulted = false;
++            _mirrorFaultWhy = null;
++            _mirrorFaultReason = null;
++            _mirrorNonce = -1;
++            _mirrorLogged.Clear();
++            _mirrorLogCapNoted = false;
++            _mirrorRefuseLogs = 0;
++            StopFeed("a new diorama booted");
++        }
++
++        /// <summary>
++        /// THE READY MIRROR'S TICK (design 4.6) -- NetSyncClient.Update, once per frame: the transport branch after
++        /// NetSyncDiorama.EndTick; the selftest branch after SelfTestPump and EndTick (an armed selftest bench feed runs first,
++        /// here: it stands in for Pump's guest branch). The gate is StockMenuOwns plus the diorama's steady command phase (the
++        /// bench opener's own gates: BattleHUD state, PHASE_NORMAL, units final, the menu enabled); a failed gate closes every
++        /// slot the mirror holds (StockMenuCloseAll) and does nothing else -- the stage-3/7 bench opener is never touched by a
++        /// mirror that is not serving. One Boolean read on a vanilla machine; two field reads outside a booted diorama. Never throws.
++        /// </summary>
++        public static void StockMenuTick()
++        {
++            if (!Enabled)
++                return;
++            if (_feedArmed)
++                BenchFeedTick();
++            if (!NetSyncDiorama.Booted && _mirrorMask == 0 && _pendMask == 0)
++            {
++                _strandedMask = 0;
++                _noRosterMask = 0;
++                _mirrorServing = false;
++                return;
++            }
++            try
++            {
++                // ONE NetSyncDiorama.Active read per tick (it reads the scene name), passed down; the reasons are literals and the
++                // gate a code -- a not-serving frame builds no string (the text only for a close-all line and the harness)
++                Boolean active = NetSyncDiorama.Active;
++                BattleView view = LivePeerView();
++                String why;
++                Boolean owns = StockMenuOwns(view, active, out why);
++                BattleHUD hud = null;
++                Int32 gate = owns ? BenchMenuGateCode(active, out hud) : GateOpen;
++                if (!owns || gate != GateOpen)
++                {
++                    MirrorStandDown(why, gate, owns, active);
++                    return;
++                }
++                if (!_mirrorServing)
++                {
++                    _mirrorServing = true;
++                    if (MirrorLogFirst("serving"))
++                        Log.Message("[NetSync] stock menu: the ready mirror is SERVING -- the host's Ready bits open the stock command menu "
++                                    + "for the guest's slots (the digit panel only for a stranded slot; logged once per boot)");
++                }
++                MirrorServe(view, hud);
++            }
++            catch (Exception ex)
++            {
++                MirrorFault(ex);
++            }
++        }
++
++        // The gate failed: close every slot the mirror holds (and only then -- a mirror that holds nothing touches nothing; and
++        // never under the guest's own Quit prompt, which owns the button groups -- the slots stay held until it hides). A
++        // reason is logged once per boot, and only a STANDING one (an ownership reason over a live diorama); a transient
++        // "waiting:" one (the intro, a pause, an injected end) is visible in `netsync.battle.menu.why` only.
++        // why = the ownership reason (owns false); gate = the steady-phase gate's code (owns true). The once-per-boot key is the
++        // reason itself (a literal, or the fault's built-once text -- never equal to a short slot key such as "fed 0").
++        private static void MirrorStandDown(String why, Int32 gate, Boolean owns, Boolean dioramaActive)
++        {
++            Boolean held = _mirrorMask != 0 || _pendMask != 0;
++            _mirrorServing = false;
++            _strandedMask = 0;
++            _noRosterMask = 0;
++            _noRosterWait = 0;                            // a roster wait counts serving ticks only: it restarts after a stand-down
++            if (held && QuitPromptUp())
++            {
++                // [ff9mapkit netsync B4] stage 8 (fixer) -- never under the guest's own Quit prompt (its OnKeyQuit disables the
++                // menu, so the gate fails there): SetIdle's DisableAllGroup would take the prompt's Yes/No (a dead Confirm),
++                // and its Cancel restores QuitUI's stashed CommandGroupButton over a closed panel with CurrentPlayerIndex -1
++                // (every Confirm then throws). The slots stay held; the first tick after the prompt hides reconciles them.
++                if (MirrorLogFirst(KeyQuitDefer))
++                    Log.Message("[NetSync] stock menu: the guest's Quit prompt is up -- the ready mirror holds its slots and settles "
++                                + "them when the prompt hides (logged once per boot)");
++            }
++            else if (held)
++                StockMenuCloseAll("ready mirror: " + (owns ? "waiting: " + BenchMenuGateText(gate) : why));
++            if (!owns && why != null && dioramaActive && MirrorLogFirst(why))
++                Log.Message("[NetSync] stock menu: the ready mirror is not serving -- " + why + "; the digit panel serves the guest's "
++                            + "slots (logged once per boot per reason)");
++        }
++
++        private const String KeyQuitDefer = "quit-prompt defer";
++
++        // The guest's own Quit prompt is showing (QuitUI owns the button groups). Never throws.
++        private static Boolean QuitPromptUp()
++        {
++            try
++            {
++                QuitUI quit = PersistenSingleton<UIManager>.Instance.QuitScene;
++                return quit != null && quit.isShowQuitUI;
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        private static void MirrorFault(Exception ex)
++        {
++            try
++            {
++                Boolean first = !_mirrorFaulted;
++                _mirrorFaulted = true;
++                _mirrorFaultWhy = ex.GetType().Name + ": " + ex.Message;
++                _mirrorFaultReason = "the ready mirror faulted this boot (" + _mirrorFaultWhy + ")";
++                StockMenuCloseAll("ready mirror faulted");
++                if (first)
++                    Log.Message("[NetSync] stock menu: the ready mirror FAULTED (" + _mirrorFaultWhy + ") -- the stock menu closed and the "
++                                + "digit panel serves the guest's slots until the next diorama boot");
++            }
++            catch { }
++        }
++
++        // The menu roster (MenuRoster: the bench roster, else the live peer roster under the party mirror) carries this WIRE slot.
++        private static Boolean MenuRosterHas(Int32 wire)
++        {
++            String src;
++            RosterView r = MenuRoster(out src);
++            List<CmdView> cmds;
++            return r != null && r.Slots.TryGetValue(wire, out cmds) && cmds != null;
++        }
++
++        // One serving tick: per guest wire slot, the Ready bit onto the stock queues (design 4.6).
++        private static void MirrorServe(BattleView view, BattleHUD hud)
++        {
++            Int32 now = Environment.TickCount;
++            if (view.Nonce != _mirrorNonce)
++            {
++                _mirrorNonce = view.Nonce;
++                _strandedTurn = 0;                        // a new battle: every slot tries the stock menu again
++                _noRosterWait = 0;                        // ...and every roster wait restarts
++            }
++            Int32 seen = 0, stranded = 0, noRoster = 0;
++            for (Int32 i = 0; i < view.Units.Count; i++)
++            {
++                UnitView u = view.Units[i];
++                if (!u.IsPlayer || u.Index < 0 || u.Index > 3 || (view.GuestSlots & (1 << u.Index)) == 0)
++                    continue;
++                Int32 w = u.Index, wbit = 1 << w;
++                Boolean up = u.Ready && u.Alive;
++                if (!up)
++                    _strandedTurn &= ~wbit;               // the turn is over: a later Ready tries the stock menu again
++                Int32 L = BenchFeedArmed && _feedUnmap == w ? -1 : NetSyncDiorama.LocalIndexForWire(w);
++                if (L < 0)
++                {
++                    _noRosterWait &= ~wbit;
++                    if (up)
++                    {
++                        stranded |= wbit;                 // no local seat: the digit panel serves it (wire-indexed already)
++                        if (MirrorLogFirst(KeyUnmapped[w]))
++                            Log.Message("[NetSync] stock menu: wire slot " + w + " is Ready but has no local seat in this diorama"
++                                        + (BenchFeedArmed && _feedUnmap == w ? " (the bench `unmap` lever)" : " (its character was not seated)")
++                                        + " -- STRANDED: the digit panel serves it (logged once per boot)");
++                    }
++                    continue;
++                }
++                Int32 lbit = 1 << L;
++                seen |= lbit;
++                Boolean queued = hud.ReadyQueue.Contains(L);
++                Boolean finished = hud.InputFinishList.Contains(L);
++                if ((_pendMask & lbit) != 0)
++                {
++                    Boolean obsolete = view.Nonce != _pendNonce[L] || !u.Alive;
++                    if (obsolete || !u.Ready)
++                    {
++                        _pendMask &= ~lbit;
++                        _mirrorMask &= ~lbit;
++                        hud.NetStockMenuClose(L);
++                        if (obsolete)
++                            _mirrorObsolete++;
++                        else
++                            _mirrorAccepted++;
++                        if (MirrorLogFirst((obsolete ? "obsolete " : "accepted ") + L))
++                            Log.Message("[NetSync] stock menu: local slot " + L + " (wire " + w + ") -- the forwarded command "
++                                        + (obsolete ? "is OBSOLETE (" + (view.Nonce != _pendNonce[L] ? "a new battle nonce" : "the host's unit fell") + ")"
++                                                    : "was ACCEPTED (the host's Ready bit fell after " + (now - _pendTick[L]) + " ms)")
++                                        + "; the slot left the stock queues (logged once per boot per slot)");
++                        continue;
++                    }
++                    Int32 seqs = (UInt16)(view.Seq - _pendSeq[L]);
++                    if (now - _pendTick[L] < MirrorRefuseMs || seqs < MirrorRefuseSeqs)
++                        continue;                         // the host has not answered yet: the slot stays shut
++                    _pendMask &= ~lbit;
++                    _mirrorMask &= ~lbit;
++                    _mirrorRefused++;
++                    hud.NetStockMenuClose(L);
++                    queued = finished = false;
++                    FF9Sfx.FF9SFX_Play(102);
++                    if (_mirrorRefuseLogs < MirrorRefuseLogCap)
++                    {
++                        _mirrorRefuseLogs++;
++                        Log.Message("[NetSync] stock menu: local slot " + L + " (wire " + w + ") -- the host's Ready bit is still up "
++                                    + (now - _pendTick[L]) + " ms and " + seqs + " samples after the forwarded command: REFUSED or lost -- "
++                                    + "buzzer, the slot reopens at the root (refused=" + _mirrorRefused
++                                    + (_mirrorRefuseLogs == MirrorRefuseLogCap ? "; further refusals this boot are counted, not logged" : "") + ")");
++                    }
++                    // falls through: its bit is still up, so the slot reopens below
++                }
++                Boolean want = up;
++                if (up && !MenuRosterHas(w))
++                {
++                    if ((_strandedTurn & wbit) == 0)
++                    {
++                        if ((_noRosterWait & wbit) == 0)
++                        {
++                            _noRosterWait |= wbit;        // the wait starts (serving ticks only: a stand-down restarts it)
++                            _noRosterSince[w] = now;
++                        }
++                        else if (now - _noRosterSince[w] >= MirrorNoRosterMs)
++                        {
++                            _noRosterWait &= ~wbit;
++                            _strandedTurn |= wbit;        // the bounded wait ran out: STRANDED for this turn (G7), below
++                            if (MirrorLogFirst(KeyNoRosterStrand[w]))
++                                Log.Message("[NetSync] stock menu: wire slot " + w + " has been Ready " + (now - _noRosterSince[w])
++                                            + " ms with no host menus in the roster -- STRANDED for this turn: the digit panel serves it "
++                                            + "([1] Attack / [2] Defend; G7; logged once per boot per slot)");
++                        }
++                    }
++                    if ((_strandedTurn & wbit) == 0)
++                    {
++                        want = false;                     // the host's menu content has not arrived: wait (never a stand-in's menu)
++                        noRoster |= wbit;
++                        if (MirrorLogFirst(KeyNoRoster[w]))
++                            Log.Message("[NetSync] stock menu: wire slot " + w + " is Ready but the menu roster does not carry it yet -- "
++                                        + "the stock menu waits for the host's menus, at most " + MirrorNoRosterMs
++                                        + " ms (logged once per boot per slot)");
++                    }
++                    else if (queued || finished)
++                    {
++                        hud.NetStockMenuClose(L);         // its menus left mid-turn: off the stock queues before the digit panel serves it
++                        _mirrorClosed++;
++                        _mirrorMask &= ~lbit;
++                        queued = finished = false;
++                    }
++                }
++                else
++                {
++                    _noRosterWait &= ~wbit;               // Ready fell, or the roster carries it: no wait running
++                }
++                if (!want)
++                {
++                    if (queued || finished)
++                    {
++                        hud.NetStockMenuClose(L);
++                        _mirrorClosed++;
++                        if (MirrorLogFirst("closed " + L))
++                            Log.Message("[NetSync] stock menu: local slot " + L + " (wire " + w + ") closed -- its Ready bit fell "
++                                        + "(or the host's unit fell / its menus are gone) (logged once per boot per slot)");
++                    }
++                    _mirrorMask &= ~lbit;
++                    continue;
++                }
++                if ((_strandedTurn & wbit) != 0)
++                {
++                    stranded |= wbit;                     // the stock feeder refused it earlier this turn: the digit panel's
++                    continue;
++                }
++                if (finished)
++                {
++                    hud.NetStockMenuClose(L);             // committed with no verdict pending (a commit outside the mirror): a clean turn
++                    queued = false;
++                }
++                if (!queued)
++                {
++                    String refusal;
++                    if (hud.NetStockMenuOpen(L, out refusal))
++                    {
++                        _mirrorMask |= lbit;
++                        _mirrorFed++;
++                        _stockTouched = true;             // StockMenuCloseAll's licence to touch the HUD
++                        _autoRefusedMask &= ~lbit;        // a re-feed re-arms a parked auto-battle refusal (stage 3)
++                        if (MirrorLogFirst("fed " + L))
++                            Log.Message("[NetSync] stock menu: wire slot " + w + " Ready -> local slot " + L + " is on the stock ReadyQueue; "
++                                        + "the stock command menu opens for it (logged once per boot per slot)");
++                    }
++                    else
++                    {
++                        _strandedTurn |= wbit;
++                        stranded |= wbit;
++                        if (MirrorLogFirst("stranded " + L))
++                            Log.Message("[NetSync] stock menu: wire slot " + w + " is Ready but local slot " + L + " cannot take the stock "
++                                        + "menu (" + refusal + ") -- STRANDED for this turn: the digit panel serves it (G7; logged once per boot per slot)");
++                    }
++                }
++                else
++                {
++                    _mirrorMask |= lbit;                  // already queued and awaiting input: the mirror owns it from here
++                }
++            }
++            Int32 orphan = (_mirrorMask | _pendMask) & ~seen & 0x0F;
++            for (Int32 L = 0; L < 4 && orphan != 0; L++)
++            {
++                if ((orphan & (1 << L)) == 0)
++                    continue;
++                orphan &= ~(1 << L);
++                _mirrorMask &= ~(1 << L);
++                _pendMask &= ~(1 << L);
++                hud.NetStockMenuClose(L);
++                _mirrorClosed++;
++                if (MirrorLogFirst("orphan " + L))
++                    Log.Message("[NetSync] stock menu: local slot " + L + " closed -- no guest unit of the host's lane maps to it any more "
++                                + "(the offer changed or the unit left; logged once per boot per slot)");
++            }
++            _strandedMask = stranded;
++            _noRosterMask = noRoster;
++        }
++
++        // ---------------------------------------------------------------------------------------- the selftest bench feed
++        // [ff9mapkit netsync B4] stage 8 -- `netsync bbench start|stop|ready|caps|mode|freeze|unmap|knob` (selftest role only).
++        // A selftest machine is NOT the host of its own diorama: `dioboot` boots BattleMapDebug with gMode 1, so SelfTestPump's
++        // loopback never samples it and no type-1 lane exists there. The FEED is that lane: every SampleMs (and at once on any
++        // lever change) it builds a type-1 frame in SampleOwnBattle's v10 layout FROM THE DIORAMA'S LIVE UNITS -- each player at
++        // its WIRE index (NetSyncDiorama.WireIndexForLocal; identity on a bench, which seats the guest's own party), the Ready
++        // bits from `ready`, the header flags byte from `caps`, its own nonce -- and runs it through the REAL ParseView into the
++        // production peer view (_peerView / PeerBattleLive: what LivePeerView serves the mirror, the digit panel and the
++        // harness's `netsync.battle.peer`). It then runs Pump's guest branch on it: the control frame as Pump would build it
++        // (recorded), GuestAssistTick (the production digit-panel decision -- AssistInputActive, `assist_slot`, DrawGUI's menu
++        // half) and, standing in for the socket, the BENCH HOST: every forwarded stock frame and every digit-panel frame is
++        // decoded by the host's own TryDecodeCommand and answered -- `mode accept` clears that wire slot's Ready bit at once (the
++        // host queued it), `mode refuse` leaves it up (the host refused). `freeze` stops the frames: the lane goes stale after
++        // StaleMs, exactly as a dead link. `unmap <w>` makes the mirror treat wire slot w as unseated. `knob` forces the
++        // GuestStockMenu knob. The menu content is the bench roster (`bbench roster ...`), which rides the feed's lane. The feed
++        // ends with its diorama (Booted false or a new boot), `bbench stop`, or the harness release. No trailer is appended: the
++        // feed never presents an end (EndTick reads the `endbench` seam).
++        private static Boolean _feedArmed;
++        private static Boolean _feedPublished;        // the feed wrote the peer view (its end clears it)
++        private static Int32 _feedGuestSlots;         // the offer (view.GuestSlots): WIRE slots
++        private static Int32 _feedReady;              // the WIRE Ready bits
++        private static Int32 _feedCaps = CapCommandPhaseGated;
++        private static Boolean _feedRefuse;           // mode: false = accept, true = refuse
++        private static Boolean _feedFrozen;
++        private static Int32 _feedUnmap = -1;         // a WIRE slot the mirror treats as unseated (-1 = none)
++        private static Byte _feedNonce = 0xB8;        // bumped per start (a restart obsoletes a pending command)
++        private static UInt16 _feedSeq = 0x8000;
++        private static Int32 _feedLastTick = Environment.TickCount - 60000;   // tick-baseline law
++        private static Boolean _feedForce;            // a lever changed: build a frame on the next tick
++        private static Boolean _feedMenuOpen;         // the control frame Pump would send this tick (menu open)
++        private static Int32 _feedFrames, _feedTaken, _feedAcceptedN, _feedRefusedN, _feedBad;   // per start
++        private static String _feedLast;              // the last frame the bench host took, decoded, with its verdict
++
++        private static Boolean BenchFeedArmed
++        {
++            get { return _feedArmed && NetSyncClient.IsSelfTestRole; }
++        }
++
++        private static void BenchFeedTick()
++        {
++            try
++            {
++                if (!NetSyncClient.IsSelfTestRole)
++                {
++                    StopFeed("the selftest role ended");
++                    return;
++                }
++                if (!NetSyncDiorama.Booted)
++                {
++                    StopFeed("its diorama ended");
++                    return;
++                }
++                if (!NetSyncDiorama.Active)
++                    return;                               // a scene transition: nothing published this tick (SelfTestPump cleared it)
++                Int32 now = Environment.TickCount;
++                // 1. the bench HOST's intake: what Pump would have handed the socket (production: DrainStockOutbox)
++                while (_stockOutbox.Count > 0)
++                {
++                    BenchTake(_stockOutbox.Dequeue(), "stock menu");
++                    _stockSent++;
++                }
++                // 2. the type-1 lane, through the REAL ParseView
++                if (!_feedFrozen && (_feedForce || now - _feedLastTick > SampleMs))
++                {
++                    _feedForce = false;
++                    _feedLastTick = now;
++                    BattleView v = ParseView(BuildFeedFrame());
++                    if (v != null)
++                    {
++                        _peerView = v;
++                        _peerViewTick = now;
++                        _feedFrames++;
++                    }
++                    else
++                    {
++                        _feedBad++;
++                    }
++                }
++                // 3. Pump's guest branch on it
++                Boolean live = _peerView != null && now - _peerViewTick < StaleMs;
++                PeerBattleLive = live;
++                _feedPublished = true;
++                if (live)
++                {
++                    _feedMenuOpen = FirstReadyGuestSlot(_peerView) >= 0;   // the control frame, unchanged
++                    Byte[] digit = GuestAssistTick(_peerView, _benchRoster);
++                    if (digit != null)
++                        BenchTake(digit, "digit panel");
++                }
++                else
++                {
++                    _feedMenuOpen = false;
++                    AssistInputActive = false;
++                    _assistSlot = -1;
++                    _assistRoster = null;
++                    ResetUi();
++                }
++            }
++            catch (Exception ex)
++            {
++                StopFeed("faulted -- " + ex.GetType().Name + ": " + ex.Message);
++            }
++        }
++
++        // The feed's type-1 frame: SampleOwnBattle's exact v10 layout (header, unit records, no trailer) from the diorama's units.
++        private static Byte[] BuildFeedFrame()
++        {
++            FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++            using (MemoryStream ms = new MemoryStream(420))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                bw.Write(_feedSeq++);
++                UInt16 mapNo = 0;
++                try { mapNo = (UInt16)FF9StateSystem.Common.FF9.btlMapNo; } catch { }
++                bw.Write(mapNo);
++                bw.Write((Byte)(_feedGuestSlots & 0x0F));
++                Byte patNum = 0;
++                Byte startType = (Byte)battle_start_type_tags.BTL_START_NORMAL_ATTACK;
++                try
++                {
++                    if (b.btl_scene != null)
++                    {
++                        patNum = b.btl_scene.PatNum;
++                        startType = (Byte)b.btl_scene.Info.StartType;
++                    }
++                }
++                catch { }
++                bw.Write(patNum);
++                bw.Write(startType);
++                bw.Write((Byte)_feedCaps);
++                bw.Write(_feedNonce);
++                bw.Write((UInt16)0xFFFF);                  // songId: unknown
++                Int64 countPos = ms.Position;
++                bw.Write((Byte)0);
++                Int32 count = 0;
++                for (Int32 index = 0; index <= 7 && count < 8; index++)
++                {
++                    BTL_DATA d = b.btl_data[index];
++                    if (d == null || d.btl_id != (UInt16)(1 << index))
++                        continue;
++                    Boolean isPlayer = d.bi.player != 0;
++                    Int32 wire = isPlayer ? NetSyncDiorama.WireIndexForLocal(index) : index;
++                    if (wire < 0 || wire > 7)
++                        continue;
++                    BattleUnit unit = new BattleUnit(d);
++                    Boolean alive = d.cur.hp > 0 && (d.stat.cur & BattleStatus.Death) == 0;
++                    Boolean ready = isPlayer && wire < 4 && (_feedReady & (1 << wire)) != 0;
++                    Byte info = 0;
++                    if (isPlayer) info |= 1;
++                    if (alive) info |= 2;
++                    if (ready) info |= 4;
++                    if (unit.InTrance) info |= 8;
++                    bw.Write((Byte)wire);
++                    bw.Write(info);
++                    bw.Write(unit.CurrentHp);
++                    bw.Write(unit.MaximumHp);
++                    bw.Write(unit.CurrentMp);
++                    bw.Write(unit.MaximumMp);
++                    bw.Write((UInt16)Math.Max((Int16)0, unit.CurrentAtb));
++                    bw.Write((UInt16)Math.Max((Int16)1, unit.MaximumAtb));
++                    WriteName(bw, unit);
++                    bw.Write(d.trance);
++                    count++;
++                }
++                Int64 endPos = ms.Position;
++                ms.Position = countPos;
++                bw.Write((Byte)count);
++                ms.Position = endPos;
++                return ms.ToArray();
++            }
++        }
++
++        // The bench HOST takes one type-2 frame (what the socket would carry to a real host) and answers it per `mode`.
++        private static void BenchTake(Byte[] frame, String source)
++        {
++            NetCommand c;
++            String hex = BitConverter.ToString(frame ?? new Byte[0]).Replace('-', ' ');
++            if (!TryDecodeCommand(frame, out c))
++            {
++                _feedBad++;
++                _feedLast = source + " [" + hex + "] malformed";
++                Log.Message("[NetSync] bench feed: the bench host could not decode a " + source + " frame [" + hex + "]");
++                return;
++            }
++            _feedTaken++;
++            String verdict;
++            if (_feedRefuse)
++            {
++                _feedRefusedN++;
++                verdict = "REFUSED (mode refuse) -- its Ready bit stays up";
++            }
++            else if (c.Slot >= 0 && c.Slot < 4 && (_feedReady & (1 << c.Slot)) != 0)
++            {
++                _feedAcceptedN++;
++                _feedReady &= ~(1 << c.Slot);
++                _feedForce = true;
++                verdict = "ACCEPTED -- wire slot " + c.Slot + "'s Ready bit falls";
++            }
++            else
++            {
++                verdict = "dropped -- wire slot " + c.Slot + " was not Ready (a real host's \"not awaiting input\")";
++            }
++            _feedLast = source + " [" + hex + "] slot " + c.Slot + " " + ActionName(c.Action) + " menu " + c.Menu + " id " + c.Id
++                        + " mask 0x" + c.Mask.ToString("X2") + " cursor " + c.Cursor + ": " + verdict;
++            Log.Message("[NetSync] bench feed: the bench host took a " + _feedLast);
++        }
++
++        private static void StartFeed(Int32 guestSlots)
++        {
++            Boolean restart = _feedArmed;
++            _feedArmed = true;
++            _feedGuestSlots = guestSlots & 0x0F;
++            _feedReady = 0;
++            _feedCaps = CapCommandPhaseGated;
++            _feedRefuse = false;
++            _feedFrozen = false;
++            _feedUnmap = -1;
++            _feedNonce++;
++            _feedForce = true;
++            _feedFrames = _feedTaken = _feedAcceptedN = _feedRefusedN = _feedBad = 0;
++            _feedLast = null;
++            Log.Message("[NetSync] harness: bench feed " + (restart ? "RESTARTED" : "STARTED") + " -- a type-1 frame every " + SampleMs
++                        + " ms from the diorama's live units through the REAL ParseView (guest slots 0x" + _feedGuestSlots.ToString("X")
++                        + ", Ready 0x0, caps 0x" + _feedCaps.ToString("X2") + ", nonce " + _feedNonce + ", mode accept); it stands in for "
++                        + "the host's lane and Pump's guest branch (selftest only)");
++        }
++
++        // Never throws. Clears the production peer view only if this feed wrote it (selftest only: no transport lane exists).
++        private static void StopFeed(String why)
++        {
++            try
++            {
++                if (!_feedArmed)
++                    return;
++                _feedArmed = false;
++                _feedFrozen = false;
++                _feedUnmap = -1;
++                if (_feedPublished)
++                {
++                    _feedPublished = false;
++                    _peerView = null;
++                    PeerBattleLive = false;
++                    AssistInputActive = false;
++                    _assistSlot = -1;
++                    _assistRoster = null;
++                    ResetUi();
++                }
++                Log.Message("[NetSync] harness: bench feed stopped (" + why + ") -- the bench lane is gone (frames " + _feedFrames
++                            + ", taken " + _feedTaken + ", accepted " + _feedAcceptedN + ", refused " + _feedRefusedN + ")");
++            }
++            catch { }
++        }
++
++        private static Boolean ParseBenchInt(String a, Int32 max, out Int32 v)
++        {
++            v = -1;
++            if (String.IsNullOrEmpty(a))
++                return false;
++            Boolean ok = a.StartsWith("0x")
++                ? Int32.TryParse(a.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out v)
++                : Int32.TryParse(a, out v);
++            return ok && v >= 0 && v <= max;
++        }
++
++        // `netsync bbench start|stop|ready|caps|mode|freeze|unmap|knob` (HarnessStockBench routes here; selftest role checked there).
++        private static Boolean BenchFeedVerb(String op, String[] args, out String why)
++        {
++            why = null;
++            String a = args.Length > 0 ? args[0].Trim().ToLowerInvariant() : "";
++            Int32 v;
++            switch (op)
++            {
++                case "start":
++                    if (!ParseBenchInt(a, 0x0F, out v) || v == 0)
++                    {
++                        why = "netsync bbench start: needs the host's guest-slot offer, a WIRE slot mask 1-15 (decimal or 0x hex)";
++                        return false;
++                    }
++                    if (!NetSyncDiorama.Active)
++                    {
++                        why = "netsync bbench start: needs a live diorama (netsync dioboot <scene>)";
++                        return false;
++                    }
++                    StartFeed(v);
++                    return true;
++                case "stop":
++                    if (!_feedArmed)
++                        Log.Message("[NetSync] harness: bench feed was not running");
++                    StopFeed("harness `bbench stop`");
++                    return true;
++                case "knob":
++                    if (a == "ini")
++                        BenchKnob = -1;
++                    else if (a == "1" || a == "on")
++                        BenchKnob = 1;
++                    else if (a == "0" || a == "off")
++                        BenchKnob = 0;
++                    else
++                    {
++                        why = "netsync bbench knob: 0|1|ini (force GuestStockMenu off/on for this process, or back to the ini's value)";
++                        return false;
++                    }
++                    Log.Message("[NetSync] harness: GuestStockMenu " + (BenchKnob < 0 ? "back to the ini's value (" + (GuestStockMenu ? "1" : "0") + ")"
++                                : "forced " + BenchKnob + " for this process (Memoria.ini untouched)"));
++                    return true;
++            }
++            if (!_feedArmed)
++            {
++                why = "netsync bbench " + op + ": no bench feed is running (`bbench start <mask>` inside a live diorama first)";
++                return false;
++            }
++            switch (op)
++            {
++                case "ready":
++                    if (!ParseBenchInt(a, 0x0F, out v))
++                    {
++                        why = "netsync bbench ready: needs a WIRE slot mask 0-15 (decimal or 0x hex)";
++                        return false;
++                    }
++                    _feedReady = v;
++                    _feedForce = true;
++                    Log.Message("[NetSync] harness: bench feed Ready bits = 0x" + v.ToString("X") + " (wire slots; the next frame carries them)");
++                    return true;
++                case "caps":
++                    if (!ParseBenchInt(a, 0xFF, out v))
++                    {
++                        why = "netsync bbench caps: needs the header flags byte 0-255 (bit 1 = a command-phase-gated host)";
++                        return false;
++                    }
++                    _feedCaps = v;
++                    _feedForce = true;
++                    Log.Message("[NetSync] harness: bench feed caps = 0x" + v.ToString("X2")
++                                + ((v & CapCommandPhaseGated) == 0 ? " -- a host that predates the command-phase gates" : ""));
++                    return true;
++                case "mode":
++                    if (a == "accept" || a == "refuse")
++                    {
++                        _feedRefuse = a == "refuse";
++                        Log.Message("[NetSync] harness: bench feed mode " + a + " -- the bench host " + (_feedRefuse
++                                    ? "REFUSES every frame (the Ready bit stays up)" : "accepts a frame for a Ready slot (its bit falls at once)"));
++                        return true;
++                    }
++                    if (a == "freeze")
++                    {
++                        _feedFrozen = true;
++                        Log.Message("[NetSync] harness: bench feed FROZEN -- no more frames; the lane goes stale in " + StaleMs + " ms");
++                        return true;
++                    }
++                    why = "netsync bbench mode: accept|refuse|freeze";
++                    return false;
++                case "freeze":
++                    if (a == "1" || a == "on")
++                        _feedFrozen = true;
++                    else if (a == "0" || a == "off")
++                    {
++                        _feedFrozen = false;
++                        _feedForce = true;
++                    }
++                    else
++                    {
++                        why = "netsync bbench freeze: 1|0";
++                        return false;
++                    }
++                    Log.Message("[NetSync] harness: bench feed " + (_feedFrozen ? "FROZEN -- no more frames; the lane goes stale in " + StaleMs + " ms"
++                                : "thawed -- frames resume"));
++                    return true;
++                case "unmap":
++                    if (a == "none" || a == "off" || a == "-1")
++                        _feedUnmap = -1;
++                    else if (ParseBenchInt(a, 3, out v))
++                        _feedUnmap = v;
++                    else
++                    {
++                        why = "netsync bbench unmap: a WIRE slot 0-3, or none";
++                        return false;
++                    }
++                    Log.Message("[NetSync] harness: bench feed unmap = " + (_feedUnmap < 0 ? "none" : "wire slot " + _feedUnmap
++                                + " (the mirror treats it as unseated: stranded when Ready)"));
++                    return true;
++            }
++            why = "netsync bbench: unknown feed op '" + op + "'";
++            return false;
++        }
++
++        // ======================================================================================= harness surface (B4 stage 8)
++        // [ff9mapkit netsync B4] stage 8 -- the ready mirror's keys of `netsync.battle.menu` and the bench feed. Read-only, main
++        // thread, never throw; computed live where the mirror's own tick would lag a frame.
++        public static Boolean HarnessStockOwns
++        {
++            get
++            {
++                try
++                {
++                    String why;
++                    return StockMenuOwns(LivePeerView(), out why);
++                }
++                catch { return false; }
++            }
++        }
++
++        /// <summary>Why the ready mirror is not serving right now: an ownership reason (the digit panel serves), or "waiting: ..."
++        /// (it owns the slots but the diorama is not in its steady command phase -- neither surface serves). Null = serving.</summary>
++        public static String HarnessStockWhy
++        {
++            get
++            {
++                try
++                {
++                    String why;
++                    if (!StockMenuOwns(LivePeerView(), out why))
++                        return why;
++                    BattleHUD hud;
++                    String gate = BenchMenuGate(out hud);
++                    return gate != null ? "waiting: " + gate : null;
++                }
++                catch { return null; }
++            }
++        }
++
++        public static Int32 HarnessKnob { get { return StockKnobOn ? 1 : 0; } }
++        public static Int32 HarnessKnobBench { get { return NetSyncClient.IsSelfTestRole ? BenchKnob : -1; } }
++        public static Int32 HarnessAssistSlot { get { return _assistSlot; } }
++        public static Int32 HarnessPendingMask { get { return _pendMask; } }
++        public static Int32 HarnessMirrorRefused { get { return _mirrorRefused; } }
++        public static Int32 HarnessStockSent { get { return _stockSent; } }
++        public static Boolean HarnessMirrorServing { get { return _mirrorServing; } }
++        public static Int32 HarnessMirrorOpen { get { return _mirrorMask; } }
++        public static Int32 HarnessMirrorFed { get { return _mirrorFed; } }
++        public static Int32 HarnessMirrorAccepted { get { return _mirrorAccepted; } }
++        public static Int32 HarnessMirrorObsolete { get { return _mirrorObsolete; } }
++        public static Int32 HarnessMirrorClosed { get { return _mirrorClosed; } }
++        public static Int32 HarnessMirrorNoRoster { get { return _noRosterMask; } }
++        public static Boolean HarnessMirrorFaulted { get { return _mirrorFaulted; } }
++        public static String HarnessMirrorFaultWhy { get { return _mirrorFaultWhy; } }
++
++        /// <summary>The WIRE slots the digit panel may serve as stranded (ready + no local seat, or refused by the stock feeder
++        /// this turn), ascending; [] = none.</summary>
++        public static List<Int32> HarnessStranded()
++        {
++            List<Int32> slots = new List<Int32>(4);
++            for (Int32 w = 0; w < 4; w++)
++                if ((_strandedMask & (1 << w)) != 0)
++                    slots.Add(w);
++            return slots;
++        }
++
++        /// <summary>The lowest pending LOCAL slot as {slot, wire, ms since the commit, host samples since the commit (-1 = no live
++        /// lane)}; null = none pending.</summary>
++        public static Int32[] HarnessPending()
++        {
++            try
++            {
++                for (Int32 L = 0; L < 4; L++)
++                {
++                    if ((_pendMask & (1 << L)) == 0)
++                        continue;
++                    BattleView v = LivePeerView();
++                    return new[] { L, NetSyncDiorama.WireIndexForLocal(L), Environment.TickCount - _pendTick[L],
++                                   v != null ? (Int32)(UInt16)(v.Seq - _pendSeq[L]) : -1 };
++                }
++            }
++            catch { }
++            return null;
++        }
++
++        /// <summary>The bench feed (`netsync.battle.menu.feed`); null = not running.</summary>
++        public sealed class BenchFeedView
++        {
++            public Int32 GuestSlots, Ready, Caps, Unmap, Nonce, Seq, Frames, Taken, Accepted, Refused, Bad;
++            public String Mode, Last;
++            public Boolean Frozen, MenuOpen, Live;
++        }
++
++        public static BenchFeedView HarnessBenchFeed()
++        {
++            if (!BenchFeedArmed)
++                return null;
++            return new BenchFeedView
++            {
++                GuestSlots = _feedGuestSlots,
++                Ready = _feedReady,
++                Caps = _feedCaps,
++                Unmap = _feedUnmap,
++                Nonce = _feedNonce,
++                Seq = (UInt16)(_feedSeq - 1),
++                Frames = _feedFrames,
++                Taken = _feedTaken,
++                Accepted = _feedAcceptedN,
++                Refused = _feedRefusedN,
++                Bad = _feedBad,
++                Mode = _feedFrozen ? "freeze" : _feedRefuse ? "refuse" : "accept",
++                Last = _feedLast,
++                Frozen = _feedFrozen,
++                MenuOpen = _feedMenuOpen,
++                Live = PeerBattleLive
++            };
++        }
++
+         // ======================================================================================= harness surface (B4 stage 3)
+         // [ff9mapkit netsync B4] stage 3 -- `netsync.battle.menu` keys and the `netsync bmenu` verbs. Read-only reads,
+         // main thread, never throw.
+@@ -1103,26 +2129,63 @@ namespace Memoria.Netsync
+ 
+         // The opener's gates: a LIVE diorama in its steady command phase -- the same conditions the stage-8 ready mirror
+         // will test (design 4.6), so the bench opens nothing production could not.
++        // The bench verbs and the harness read the TEXT (BenchMenuGate); the per-frame ready mirror reads the CODE
++        // (BenchMenuGateCode, no string built) -- one predicate, two renderings. [ff9mapkit netsync B4] stage 8 (fixer).
+         private static String BenchMenuGate(out BattleHUD hud)
++        {
++            return BenchMenuGateText(BenchMenuGateCode(NetSyncDiorama.Active, out hud));
++        }
++
++        private const Int32 GateOpen = 0, GateNoDiorama = 1, GateNoHud = 2, GateUiState = 3, GatePhase = 4, GateUnits = 5, GateMenuOff = 6;
++
++        private static Int32 BenchMenuGateCode(Boolean dioramaActive, out BattleHUD hud)
+         {
+             hud = null;
+-            if (!NetSyncDiorama.Active)
+-                return "needs a live diorama (netsync dioboot <scene>, then wait for battle.turn.enabled)";
++            if (!dioramaActive)
++                return GateNoDiorama;
+             hud = UIManager.Battle;
+             FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
+             if (hud == null || b == null)
+-                return "no battle HUD";
+-            UIManager.UIState state = PersistenSingleton<UIManager>.Instance.State;
+-            if (state != UIManager.UIState.BattleHUD)
+-                return "the UI state is " + state + ", not BattleHUD";
++                return GateNoHud;
++            if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.BattleHUD)
++                return GateUiState;
+             if (b.btl_phase != FF9StateBattleSystem.PHASE_NORMAL)
+-                return "the diorama is in phase " + b.btl_phase + ", not its steady phase (" + FF9StateBattleSystem.PHASE_NORMAL + ")";
++                return GatePhase;
+             const Byte need = ff9btl.LOAD_INITNPC | ff9btl.LOAD_INITCHR;
+             if ((b.btl_load_status & need) != need)
+-                return "the diorama's units are not final yet";
++                return GateUnits;
+             if (!hud.FF9BMenu_IsEnable())
+-                return "the HUD's command menu is not enabled yet (wait for battle.turn.enabled)";
+-            return null;
++                return GateMenuOff;
++            return GateOpen;
++        }
++
++        // A gate code's text, read in the same frame as the code (the UI state and the phase are re-read for the two that name
++        // them). Null = open. Never throws.
++        private static String BenchMenuGateText(Int32 code)
++        {
++            try
++            {
++                switch (code)
++                {
++                    case GateOpen:
++                        return null;
++                    case GateNoDiorama:
++                        return "needs a live diorama (netsync dioboot <scene>, then wait for battle.turn.enabled)";
++                    case GateNoHud:
++                        return "no battle HUD";
++                    case GateUiState:
++                        return "the UI state is " + PersistenSingleton<UIManager>.Instance.State + ", not BattleHUD";
++                    case GatePhase:
++                        return "the diorama is in phase " + FF9StateSystem.Battle.FF9Battle.btl_phase + ", not its steady phase ("
++                               + FF9StateBattleSystem.PHASE_NORMAL + ")";
++                    case GateUnits:
++                        return "the diorama's units are not final yet";
++                    case GateMenuOff:
++                        return "the HUD's command menu is not enabled yet (wait for battle.turn.enabled)";
++                }
++            }
++            catch { }
++            return "the gate is closed (code " + code + ")";
+         }
+ 
+         private static Boolean BenchOpen(Int32 slot, out String why)
+@@ -1280,6 +2343,8 @@ namespace Memoria.Netsync
+         ///   roster clear        back to the live peer roster (none on a bench);
+         ///   content on|off|&lt;mask&gt;  the calibration lever: the hooks left ON (1 command, 2 grey, 4 ability, 8 bag, 16 count,
+         ///                       32 cast, 64 refresh; on = 127; off = 0 = the pre-stage guest's panels).
++        /// [ff9mapkit netsync B4] stage 8 -- the BENCH FEED (see BenchFeedVerb): start &lt;mask&gt; | stop | ready &lt;mask&gt; |
++        /// caps &lt;bits&gt; | mode accept|refuse|freeze | freeze 1|0 | unmap &lt;w&gt;|none | knob 0|1|ini.
+         /// </summary>
+         public static Boolean HarnessStockBench(String op, String[] args, Byte[] hex, out String why)
+         {
+@@ -1297,8 +2362,17 @@ namespace Memoria.Netsync
+                         return BenchRoster(args ?? new String[0], hex, out why);
+                     case "content":
+                         return BenchContent(args ?? new String[0], out why);
++                    case "start":                         // [ff9mapkit netsync B4] stage 8: the bench feed (BenchFeedVerb)
++                    case "stop":
++                    case "ready":
++                    case "caps":
++                    case "mode":
++                    case "freeze":
++                    case "unmap":
++                    case "knob":
++                        return BenchFeedVerb(op, args ?? new String[0], out why);
+                     default:
+-                        why = "netsync bbench: unknown op '" + op + "' (roster|content; stage 8 adds start|ready|caps|mode|unmap|stop)";
++                        why = "netsync bbench: unknown op '" + op + "' (roster|content|start|stop|ready|caps|mode|freeze|unmap|knob)";
+                         return false;
+                 }
+             }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 0839557..b782c22 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -29,6 +29,9 @@ namespace Memoria.Netsync
+     //                                       pending a leash rework). Manual F11/L3 teleport is unaffected.
+     //   (Diorama    = REMOVED s42           the old on/off knob is gone -- always-on for a follower;
+     //                                       a stray line in an old Memoria.ini is silently ignored.)
++    //   GuestStockMenu = 1                  [ff9mapkit netsync B4] stage 8 (guest side): inside the host's battle diorama the
++    //                                       STOCK command menu serves my slots (fed from the host's Ready bits; needs the
++    //                                       party mirror and a stage-1 host). 0 = the digit panel. Applies live.
+     //
+     // THE COOP CELLS (V2 "[[coop]]" authoring, kit-reserved): while Enabled, every frame writes the
+     // peer's presence + walkmesh position into gEventGlobal bytes 2032-2039 (top of the kit's custom
+@@ -67,6 +70,7 @@ namespace Memoria.Netsync
+         // battle on their own party).
+         private static String _cfgTransportSig = "";     // enabled|role|peer|port|relay|code|tls (our own code-persist != a change)
+         private static String _cfgBehaviorSig = "";      // targetField|guestSlots|guestWait|ghostAs|followHost|selfTestOffset|dioramaSwirl
++                                                         // |autoTeleport|guestStockMenu ([ff9mapkit netsync B4] stage 8)
+         private static Boolean _enabled;
+         private static String _role = "selftest";       // selftest | host | client
+         private static String _peer = "127.0.0.1";
+@@ -755,6 +759,10 @@ namespace Memoria.Netsync
+                 Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
+                 Boolean dioramaSwirl = ini.GetSetting("Netsync", "DioramaSwirl", "1").Trim() != "0";   // B3.6: default ON;
+                                                                                                        // 0 = the plain-fade fallback lever
++                // [ff9mapkit netsync B4] stage 8: GuestStockMenu, default ON -- inside a battle diorama the stock command menu serves
++                // the guest's slots (NetSyncBattle.StockMenuTick); 0 = the digit panel. A BEHAVIOUR key (in bsig below): an edit
++                // applies live, the session stays up.
++                Boolean guestStockMenu = ini.GetSetting("Netsync", "GuestStockMenu", "1").Trim() != "0";
+                 // B3.6 -- [Netsync] SelfTestOffset = "dx,dz" (walkmesh units, default "250,0" = exact
+                 // current behavior). Per-component Int32.TryParse: integer digits parse identically in
+                 // every locale (no comma-decimal hazard, no Globalization using).
+@@ -802,7 +810,8 @@ namespace Memoria.Netsync
+                               "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
+                 String bsig = field + "|" + guestSlots + "|" + guestWait + "|" + ghostAs +
+                               "|" + (followHost ? "1" : "0") + "|" + stDx + "," + stDz +
+-                              "|" + (dioramaSwirl ? "1" : "0") + "|" + (autoTeleport ? "1" : "0");
++                              "|" + (dioramaSwirl ? "1" : "0") + "|" + (autoTeleport ? "1" : "0") +
++                              "|" + (guestStockMenu ? "1" : "0");                 // [ff9mapkit netsync B4] stage 8
+                 Boolean first = !_configLoaded;
+                 _configLoaded = true;
+                 Boolean tChanged = tsig != _cfgTransportSig;
+@@ -821,6 +830,7 @@ namespace Memoria.Netsync
+                 NetSyncBattle.GuestWaitMs = guestWait;
+                 NetSyncBattle.SelfTest = _role != "host" && _role != "client";
+                 NetSyncDiorama.UseSwirl = dioramaSwirl;                             // B3.6: the diorama boot-transition lever
++                NetSyncBattle.GuestStockMenu = guestStockMenu;                      // [ff9mapkit netsync B4] stage 8: read per frame
+                 NetSyncVisitor.Enabled = _enabled;                                  // the visitor lane's config mirror
+                 NetSyncVisitor.GhostAs = _ghostAs;
+                 NetSyncVisitor.FollowHost = _followHost;
+@@ -830,6 +840,7 @@ namespace Memoria.Netsync
+                             (_followHost ? " followHost=1" : "") +
+                             (_autoTeleport ? " autoTeleport=1" : "") +
+                             (!dioramaSwirl ? " dioramaSwirl=0" : "") +
++                            (!guestStockMenu ? " guestStockMenu=0" : "") +                 // [ff9mapkit netsync B4] stage 8
+                             (_selfTestDx != 250 || _selfTestDz != 0 ? " selfTestOffset=" + _selfTestDx + "," + _selfTestDz : "") +
+                             (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
+                                                   : " peer=" + _peer + ":" + _port));
+@@ -882,7 +893,8 @@ namespace Memoria.Netsync
+         }
+ 
+         // A BEHAVIOR config edit landed while the game runs (play-style keys only: TargetField,
+-        // GuestSlots, GuestWaitMs, GhostAs, FollowHost, SelfTestOffset, DioramaSwirl): every consumer
++        // GuestSlots, GuestWaitMs, GhostAs, FollowHost, SelfTestOffset, DioramaSwirl, AutoTeleport,
++        // GuestStockMenu -- [ff9mapkit netsync B4] stage 8): every consumer
+         // reads the committed statics per frame (dress/scope/slots pick the new value up on the next
+         // tick), so the transport and the mirrored session stay INTACT -- no teardown, no reconnect
+         // window with SuppressEncounters forced off, no exit ramp on a mere play-style tweak. The two
+@@ -1120,6 +1132,10 @@ namespace Memoria.Netsync
+                     // below (a diorama is never "on a field"), so a selftest bench diorama presents a fabricated `endbench`
+                     // end. One Boolean read outside a booted diorama (design 6.3's selftest order).
+                     NetSyncDiorama.EndTick();
++                    // [ff9mapkit netsync B4] stage 8: the ready mirror (design 6.3: SelfTestPump -> EndTick -> StockMenuTick). LOAD-BEARING
++                    // here: this branch never reaches Pump or ReconcileTick. An armed `bbench start` feed runs first inside it (it
++                    // stands in for Pump's guest branch). Two field reads outside a booted diorama.
++                    NetSyncBattle.StockMenuTick();
+                     // [ff9mapkit netsync F3.2] the dialogue-lock bench runs FIRST, on every selftest tick -- off-field
+                     // too, so a bench lock can never go stale across a battle or a load (the early returns below).
+                     BenchSceneEdge(fld);
+@@ -1363,6 +1379,11 @@ namespace Memoria.Netsync
+                 // per boot). AFTER ReconcileTick on purpose: the sample that carries the end lands its final deaths before
+                 // the phase flips and the reconciler quiesces (design 6.3).
+                 NetSyncDiorama.EndTick();
++
++                // [ff9mapkit netsync B4] stage 8: the ready mirror -- the host's Ready bits open the STOCK command menu on this
++                // diorama (NetSyncBattle.StockMenu.cs). AFTER EndTick on purpose: an end injected this frame has already closed
++                // the menu (InjectEnd -> StockMenuCloseAll) and the mirror's gate (PHASE_NORMAL) keeps it shut.
++                NetSyncBattle.StockMenuTick();
+             }
+             catch (Exception err)
+             {
