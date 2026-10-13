@@ -56,6 +56,7 @@ FOREST_DONOR = (15, 15)          # the clean grass-bounded canopy blob
 FOREST_SPREAD_MAX = 1.5          # --spread ceiling: the canopy's plan stretch, kept in game (terrain study X3:
 #                                  "1.5x is starting to look stretched but still feels fine")
 FOREST_ZIP_NY_FLOOR = 0.5        # a mapped canopy's zip routes round tris steeper than this (~60 deg)
+FOREST_RIM_MIN = 8               # a canopy rim ring this short is still a blob: the (13,15) grove has 11
 CURTAIN_HAIRLINE = 0.05          # a steep curtain corner pair closer than this in plan (donor units) is one
 #                                  corner a hair off (the HAIRLINE CURTAIN, carve_forest)
 CLEAR = 2.5                      # annulus clearance around the carried rim
@@ -255,8 +256,8 @@ def read_deployed_blocks(mod_folder: str, *, near, reach: float, disc: int = 1,
 
 
 # ---- shared geometry helpers ---------------------------------------------------------------
-def chain_ring(edges, what: str):
-    """Chain once-edges into one simple cycle (raises on degeneracy)."""
+def chain_ring(edges, what: str, *, min_len: int = 12):
+    """Chain once-edges into one simple cycle (raises on degeneracy: a repeat, or fewer than ``min_len`` points)."""
     adj = defaultdict(list)
     for a, b in edges:
         adj[a].append(b)
@@ -276,7 +277,7 @@ def chain_ring(edges, what: str):
         if ring[-1] == start:
             ring.pop()
             break
-    if len(ring) != len({*ring}) or len(ring) < 12:
+    if len(ring) != len({*ring}) or len(ring) < min_len:
         raise ValueError(f"{what} ring degenerate")
     return ring
 
@@ -529,6 +530,84 @@ def _forest_plan(dv_w, dnrm, c, *, spread: float, rot_deg):
     return out, nrm
 
 
+def _forest_donor(donor, *, disc: int = 1, game=None):
+    """THE DONOR CANOPY: the largest topo-37 blob with tris in block ``donor`` whose rim meets only grass,
+    gathered whole from the 3x3 blocks round it (a stock blob may cross a block border; forest donor census,
+    studies/terrain-malleability/forestdonors). The named block is read first, so a one-block blob keeps its tris in
+    the block's own order. A rim edge across which lies rock or any other ground refuses: a forest that meets rock
+    (the rock stands on its canopy) carried alone would leave an open, unwalled edge. Returns world-frame
+    ``(verts, uvs, normals, tangents, tris, blob, blob_blocks)``."""
+    import numpy as np
+    from . import mesh as M_
+    bx0, by0 = donor
+    V, UV, NRM, TAN, TRIS, SRC = [], [], [], [], [], []
+    order = [(bx0, by0)] + [(bx0 + dx, by0 + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dx or dy]
+    for bx, by in order:
+        if not M_.block_in_grid(bx, by):
+            continue
+        try:
+            bm = X.read_block(bx, by, disc=disc, game=game)
+        except (ValueError, FileNotFoundError):
+            if (bx, by) == (bx0, by0):
+                raise
+            continue
+        base = len(V)
+        V.extend((float(v[0]) + BLOCK * bx, float(v[1]), float(v[2]) - BLOCK * by) for v in bm.verts)
+        UV.extend(bm.uvs)
+        NRM.extend(bm.normals)
+        TAN.extend(bm.tangents)
+        for t in bm.tris:
+            TRIS.append([base + t[0], base + t[1], base + t[2]])
+            SRC.append((bx, by))
+    topo = [X.decode_id(int(TAN[t[0]][0]))["topograph"] for t in TRIS]
+    edge_tris = defaultdict(list)
+    for t, tri in enumerate(TRIS):
+        k = [kk3(V[i]) for i in tri]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            edge_tris[tuple(sorted((k[a], k[b])))].append(t)
+    adj = defaultdict(set)
+    for ts in edge_tris.values():
+        f = [t for t in ts if topo[t] == 37]
+        for x in f:
+            adj[x].update(y for y in f if y != x)
+    seen, comps = set(), []
+    for t in range(len(TRIS)):
+        if topo[t] != 37 or t in seen or SRC[t] != (bx0, by0):
+            continue
+        comp, st = {t}, [t]
+        while st:
+            u = st.pop()
+            for w in adj[u]:
+                if w not in comp:
+                    comp.add(w)
+                    st.append(w)
+        seen |= comp
+        comps.append(sorted(comp))
+    if not comps:
+        raise ValueError(f"donor block {tuple(donor)} has no topo-37 canopy")
+    refused = []
+    for comp in sorted(comps, key=len, reverse=True):
+        cset, eu = set(comp), Counter()
+        for t in comp:
+            k = [kk3(V[i]) for i in TRIS[t]]
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                eu[tuple(sorted((k[a], k[b])))] += 1
+        meets = Counter()
+        for e, n in eu.items():
+            if n == 1:
+                for t in edge_tris[e]:
+                    if t not in cset and topo[t] != 0:
+                        meets[topo[t]] += 1
+        if meets:
+            refused.append((len(comp), dict(meets)))
+            continue
+        return (np.asarray(V, dtype=np.float64), np.asarray(UV, dtype=np.float64), NRM, TAN, TRIS, comp,
+                sorted({SRC[t] for t in comp}))
+    raise ValueError(f"donor block {tuple(donor)} has no canopy blob bounded by grass alone: "
+                     + "; ".join(f"{n} tris meeting topographs {m} (rim edges)" for n, m in refused)
+                     + " -- a forest that meets rock or other ground cannot be carried alone")
+
+
 def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int = 1,
                  game=None, spread: float = 1.0, rot_deg=None, log=print) -> dict:
     """Carry the donor block's topo-37 canopy blob onto the island at ``center`` (exact
@@ -549,17 +628,9 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
         raise ValueError(f"rot_deg must be a finite angle, got {rot_deg!r}")
 
     # donor blob, verbatim, world frame
-    don = X.read_block(donor[0], donor[1], disc=disc, game=game)
-    dv = np.asarray(don.verts, dtype=np.float64)
-    dv_w = dv + np.array([BLOCK * donor[0], 0.0, -BLOCK * donor[1]])
-    duv = np.asarray(don.uvs, dtype=np.float64)
-    dnrm = don.normals
-    dtan = don.tangents
-    dtris = [list(t) for t in don.tris]
-    dtopo = [X.decode_id(int(dtan[t[0]][0]))["topograph"] for t in dtris]
-    blob = [t for t in range(len(dtris)) if dtopo[t] == 37]
-    if not blob:
-        raise ValueError(f"donor block {donor} has no topo-37 canopy")
+    dv_w, duv, dnrm, dtan, dtris, blob, blob_blocks = _forest_donor(donor, disc=disc, game=game)
+    if blob_blocks != [tuple(donor)]:
+        log(f"donor blob spans blocks {blob_blocks}")
     bpts = np.array([dv_w[i] for t in blob for i in dtris[t]])
     c_local = ((bpts[:, 0].min() + bpts[:, 0].max()) / 2, (bpts[:, 2].min() + bpts[:, 2].max()) / 2)
     planned = spread != 1.0 or (rot_deg is not None and float(rot_deg) % 360.0 != 0.0)
@@ -570,7 +641,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
         tri = dtris[t]
         for a, b in ((0, 1), (1, 2), (2, 0)):
             edge_use[tuple(sorted((kk3(dv_w[tri[a]]), kk3(dv_w[tri[b]]))))] += 1
-    rim = chain_ring([e for e, n in edge_use.items() if n == 1], "donor rim")
+    rim = chain_ring([e for e, n in edge_use.items() if n == 1], "donor rim", min_len=FOREST_RIM_MIN)
     rim_set = set(rim)
     rim_poly_local = [(p[0], p[2]) for p in rim]
     log(f"donor blob: {len(blob)} tris, rim ring {len(rim)} positions")
@@ -649,7 +720,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
                 tri = dtris[t]
                 for a, b in ((0, 1), (1, 2), (2, 0)):
                     edge_use[tuple(sorted((kk3(dv_w[tri[a]]), kk3(dv_w[tri[b]]))))] += 1
-            rim = chain_ring([e for e, k in edge_use.items() if k == 1], "split rim")
+            rim = chain_ring([e for e, k in edge_use.items() if k == 1], "split rim", min_len=FOREST_RIM_MIN)
             rim_set = set(rim)
             rim_poly_local = [(p[0], p[2]) for p in rim]
     if planned:
@@ -819,7 +890,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
             c_float.setdefault(ka, ps[a])
             c_float.setdefault(kb, ps[b])
             c_edge_use[tuple(sorted((ka, kb)))] += 1
-    crim = chain_ring([e for e, n in c_edge_use.items() if n == 1], "carried rim")
+    crim = chain_ring([e for e, n in c_edge_use.items() if n == 1], "carried rim", min_len=FOREST_RIM_MIN)
     rim_nrm = {}
     for t in blob:
         tri = dtris[t]

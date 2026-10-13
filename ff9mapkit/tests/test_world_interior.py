@@ -1088,6 +1088,50 @@ def test_zip_dp_ny_floor_routes_round_a_sliver():
     assert min_ny(plain) < 0.1 and min_ny(floored) > 0.9
 
 
+def _carpet(x0, z0, nx, nz, cell=4.0, topo=FOREST):
+    """``nx`` x ``nz`` flat quad cells of ``topo`` tris from local (x0, z0), +x and -z (the (x, y, z) corner list)."""
+    tris = []
+    for i in range(nx):
+        for j in range(nz):
+            xa, xb = x0 + i * cell, x0 + (i + 1) * cell
+            za, zb = z0 - j * cell, z0 - (j + 1) * cell
+            tris.append((((xa, 0.0, za), (xb, 0.0, za), (xa, 0.0, zb)), topo, 0.5))
+            tris.append((((xb, 0.0, za), (xb, 0.0, zb), (xa, 0.0, zb)), topo, 0.5))
+    return tris
+
+
+def test_forest_donor_gathers_a_blob_across_a_block_border(monkeypatch, tmp_path):
+    """A stock canopy may cross a block border ((3,12)-(3,13), (19,8)-(19,9), ...): the donor reader gathers it whole
+    from the neighbouring block, its border corners welded by position, and the carve carries every tri."""
+    left = _bm(_carpet(52.0, -8.0, 3, 5), name="Block[15][15] Terrain", x=15, y=15)     # x 52..64 in (15,15)
+    right = _bm(_carpet(0.0, -8.0, 2, 5), name="Block[16][15] Terrain", x=16, y=15)     # x 64..72 in (16,15)
+    _patch_donor(monkeypatch, {(15, 15): left, (16, 15): right})
+    V, _uv, _n, _t, tris, blob, blocks = IN._forest_donor((15, 15), game=tmp_path)
+    assert blocks == [(15, 15), (16, 15)] and len(blob) == 50
+    xs = [V[i][0] for t in blob for i in tris[t]]
+    assert min(xs) == 960.0 + 52.0 and max(xs) == 1024.0 + 8.0
+    logs = []
+    res = IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid()}), center=(26.0, -26.0), donor=(15, 15),
+                          game=tmp_path, log=logs.append)
+    assert res["report"]["blob_tris"] == 50
+    assert any("spans blocks [(15, 15), (16, 15)]" in m for m in logs)
+
+
+def test_forest_donor_takes_the_grass_bounded_blob_and_refuses_one_that_meets_rock(monkeypatch, tmp_path):
+    """A block holding a bigger blob that meets rock and a smaller one bounded by grass gives the grass-bounded one
+    ((18,15)'s case in the census); a block whose only blob meets rock refuses -- carried alone, the rock contact
+    would be an open, unwalled edge."""
+    small = _carpet(8.0, -8.0, 2, 2) + _carpet(4.0, -4.0, 1, 1, topo=GRASS)              # 8 canopy tris
+    big = _carpet(30.0, -30.0, 4, 4)                                                       # 32 canopy tris
+    rock = [(((46.0, 0.0, -30.0), (50.0, 0.0, -30.0), (46.0, 0.0, -34.0)), ROCK, 0.5)]   # across big's east rim
+    _patch_donor(monkeypatch, {(15, 15): _bm(small + big + rock, name="Block[15][15] Terrain", x=15, y=15)})
+    _V, _uv, _n, _t, _tris, blob, blocks = IN._forest_donor((15, 15), game=tmp_path)
+    assert len(blob) == 8 and blocks == [(15, 15)]
+    _patch_donor(monkeypatch, {(15, 15): _bm(big + rock, name="Block[15][15] Terrain", x=15, y=15)})
+    with pytest.raises(ValueError, match="cannot be carried alone"):
+        IN._forest_donor((15, 15), game=tmp_path)
+
+
 def test_forest_plan_normals_take_the_inverse_transpose():
     """A plane y = 0.75 x stretched x2 in plan is y = 0.375 x: its normal leans half as far, at unit length."""
     import numpy as np

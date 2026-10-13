@@ -10280,8 +10280,10 @@ def build_parser() -> argparse.ArgumentParser:
     _ftg.add_argument("--near", metavar="WX,WZ",
                       help="scan a ~80u window around this point for the best lawful plain-grass placement")
     wfo.add_argument("--donor", default="15,15", metavar="BX,BY",
-                     help="real block whose topo-37 canopy blob to carry (default 15,15 = the proven "
-                          "grass-bounded donor; a multi-blob or non-simple-rim donor refuses)")
+                     help="real block whose canopy to carry: the largest topo-37 blob touching it whose rim meets "
+                          "only grass, gathered whole across block borders (default 15,15, the July donor; "
+                          "`world-donors --class canopy` lists the census-qualified ones). A blob that meets rock "
+                          "or other ground refuses: carried alone it would leave an open, unwalled edge.")
     wfo.add_argument("--spread", type=float, default=1.0, metavar="S",
                      help="scale the canopy S times wider in plan (1.0-1.5) about its centre, heights, UVs "
                           "and topographs carried: a bigger forest from the same donor, its curtains still "

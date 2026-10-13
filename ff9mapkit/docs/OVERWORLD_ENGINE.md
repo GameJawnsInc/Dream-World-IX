@@ -1006,7 +1006,10 @@ and are the productized island-E studies, proven by a zero-byte-diff identity ru
   canopy in plan and `--rot DEG` turns it to any angle, about its centre, heights/UVs/topographs carried (terrain
   study X3; in-game kept to x1.5). A mapped canopy closes the donor's HAIRLINE CURTAIN (one top corner 0.0195u off
   its base: a strip no down-ray grounds on), splits rim edges longer than the donor's (THE RIM GRAIN), and zips with
-  the mountain's minimal-chord DP given an ny floor of 0.5 (no slivers); the unmapped carry keeps its July bytes.
+  the mountain's minimal-chord DP given an ny floor of 0.5 (no slivers); the unmapped carry keeps its July bytes. `--donor BX,BY` takes
+  the largest topo-37 blob touching that block whose rim meets only grass, gathered across block borders (a 3x3
+  window); five donors qualify by census (`world-donors --class canopy`: 15,15 / 3,12 / 19,8 / 18,15 / 13,15), all
+  in-game proven; a blob that meets rock or other ground refuses.
 * `world-hill --mod-folder M --near WX,WZ [--height 4.2 --radius 18]` raises a raised-cosine grass hill by PURE-Y
   displacement (mains UVs are XZ-linear, so every tile stays lawful) with local normal re-smoothing. Gated by the
   measured grass-language envelope (flank p99 ≤ 28.6°, peak ≤ the lowland band top 8.6), the crack scan, and the
