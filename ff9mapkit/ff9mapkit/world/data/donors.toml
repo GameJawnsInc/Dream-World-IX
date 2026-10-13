@@ -61,6 +61,42 @@ anatomy_study = "ff9mapkit/ff9mapkit/world/grassland.py (the stamp-block census)
 note = "The clean grass-bounded topo-37 canopy blob -- world-forest's default donor (interior.FOREST_DONOR)."
 
 [[donor]]
+name = "forest-long"
+blocks = "3,12-13"
+class = "canopy"
+aperture = "none"
+status = "candidate"
+anatomy_study = "studies/terrain-malleability/forestdonors/census.py"
+note = "85 tris, 17 x 32u, crosses the (3,12)/(3,13) border; grass all round, walled all round. world-forest --donor 3,12."
+
+[[donor]]
+name = "forest-round"
+blocks = "19,8-9"
+class = "canopy"
+aperture = "none"
+status = "candidate"
+anatomy_study = "studies/terrain-malleability/forestdonors/census.py"
+note = "75 tris, 23 x 20u, crosses the (19,8)/(19,9) border; grass all round, walled all round. world-forest --donor 19,8."
+
+[[donor]]
+name = "forest-small"
+blocks = "18,15"
+class = "canopy"
+aperture = "none"
+status = "candidate"
+anatomy_study = "studies/terrain-malleability/forestdonors/census.py"
+note = "59 tris, 19 x 16u; its block also holds part of a bigger blob that meets rock, which the reader skips. world-forest --donor 18,15."
+
+[[donor]]
+name = "forest-grove"
+blocks = "13,15-16"
+class = "canopy"
+aperture = "none"
+status = "candidate"
+anatomy_study = "studies/terrain-malleability/forestdonors/census.py"
+note = "41 tris, 12 x 17u, crosses the (13,15)/(13,16) border; the smallest qualified canopy. world-forest --donor 13,15."
+
+[[donor]]
 name = "beach-island"
 blocks = "7,17"
 class = "coast"
