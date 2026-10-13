@@ -1,0 +1,1723 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index dcef663..c41842f 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -271,6 +271,7 @@
+     <Compile Include="Global\battle\BattleUI.cs" />
+     <Compile Include="Global\battle\Result\BattleResult.cs" />
+     <Compile Include="Global\battle\Result\BattleResultUI.cs" />
++    <Compile Include="Global\battle\Result\BattleResultUI.Net.cs" />
+     <Compile Include="Global\battle_start_type_tags.cs" />
+     <Compile Include="Global\BBGINFO.cs" />
+     <Compile Include="Global\BetterList.cs" />
+@@ -1391,6 +1392,7 @@
+     <Compile Include="Memoria\Netsync\NetSyncRelay.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncBattle.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncBattle.StockMenu.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncEnd.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncVisitor.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncState.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncParty.cs" />
+diff --git a/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs b/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
+index ce2bef8..f0cffb8 100644
+--- a/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
++++ b/Assembly-CSharp/Global/battle/Result/BattleResultUI.cs
+@@ -10,7 +10,7 @@ using Memoria.Assets;
+ using Memoria.Data;
+ using Memoria.Scenes;
+ 
+-public class BattleResultUI : UIScene
++public partial class BattleResultUI : UIScene   // [ff9mapkit netsync B5] stage 4: partial -- BattleResultUI.Net.cs
+ {
+     public override void Show(UIScene.SceneVoidDelegate afterFinished = null)
+     {
+diff --git a/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs b/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs
+new file mode 100644
+index e69de29..8234585 100644
+--- /dev/null
++++ b/Assembly-CSharp/Global/battle/Result/BattleResultUI.Net.cs
+@@ -0,0 +1,35 @@
++using System;
++
++// [ff9mapkit netsync B5] stage 4 -- the co-op half of the stock result screen (studies/battle-coop/B4-B5-DESIGN.md
++// sections 5.2 and 5.6). This stage adds ONLY read accessors: the host's end block (Memoria.Netsync.NetSyncEnd) ships
++// the screen's state machine position and its Loading bit on every type-1 frame, so a guest can follow the host's
++// reward screen state by state. Nothing here writes, and nothing in BattleResultUI.cs calls it: vanilla, solo and the
++// host's own result screen are unchanged. Stage 10 grows this file into the guest's write-nothing replay (seams a-m).
++public partial class BattleResultUI
++{
++    // The ResultState ordinals, pinned to the engine's own (private) enum: NetSyncEnd's chase table and the wire's
++    // resState byte name states by these numbers, so a reordered enum moves them together. None (8) sorts AFTER
++    // Hide (7) -- the chase never steps on it.
++    public const Int32 NetStateStart = (Int32)ResultState.Start;
++    public const Int32 NetStateEXPAndAPTick = (Int32)ResultState.EXPAndAPTick;
++    public const Int32 NetStateEndEXPAndAP = (Int32)ResultState.EndEXPAndAP;
++    public const Int32 NetStateStartGilAndItem = (Int32)ResultState.StartGilAndItem;
++    public const Int32 NetStateItemFullDialog = (Int32)ResultState.ItemFullDialog;
++    public const Int32 NetStateGilTick = (Int32)ResultState.GilTick;
++    public const Int32 NetStateEnd = (Int32)ResultState.End;
++    public const Int32 NetStateHide = (Int32)ResultState.Hide;
++    public const Int32 NetStateNone = (Int32)ResultState.None;
++
++    /// <summary>The screen's current ResultState ordinal (0 Start .. 6 End, 7 Hide, 8 None). Read-only.</summary>
++    public Int32 NetStateRaw
++    {
++        get { return (Int32)this.currentState; }
++    }
++
++    /// <summary>The wire's resState byte: NetStateRaw, bit 7 = Loading (a fade ping-pong or a Show/Hide transition is in
++    /// flight -- the stock screen ignores Confirm then). Read-only.</summary>
++    public Int32 NetStateByte
++    {
++        get { return (this.NetStateRaw & 0x7F) | (this.Loading ? 0x80 : 0); }
++    }
++}
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 6b17b66..4b40938 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -81,6 +81,12 @@ namespace Memoria.Harness
+         // `captures`/`capture_refused`/`capture_why`/`capture_off`/`outbox`/`bench_open`/`side_refused`/`side_why`/
+         // `captured`, and the selftest verb `netsync bmenu open|close <L> | closeall | capture on|off | mainmenu` joins. A
+         // driver checks for `netsync.battle.menu.captures` -- absent = an engine whose diorama never opens the stock menu.
++        // [ff9mapkit netsync B5] stage 4 (the host END BLOCK on the type-1 lane), also additive under 5: `netsync.battle.host`
++        // gains `end`/`end_trail`/`end_edges`/`end_changes`/`end_mode`/`end_cmd`, `netsync.battle.peer` gains `end`/`end_trail`/
++        // `trailer_bad`/`trailer_skipped`/`trailer_why` (see AppendNetsyncBattle), and the selftest verb `netsync endbench
++        // <op>` joins (the bench end block through the real codec, the victory-edge `cmd` one-shot, the `host on|cadence|off`
++        // lever, `selftest`), and `battle.result_ui` (the live result screen's state/loading/paused -- see AppendResultUi).
++        // A driver checks for `netsync.battle.host.end_trail` -- absent = an engine with no end block.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1254,8 +1260,60 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync bmenu refused");
+                             break;
+                         }
++                        case "endbench":
++                        {
++                            // [ff9mapkit netsync B5] stage 4 -- the end-block bench (NetSyncEnd.HarnessEndBench), selftest role only:
++                            //   `endbench victory|pending|nopose|other <res>|defeat|escape|event|fight`  the template's raw
++                            //       (phase, seq, result) -- kind comes out of the real ClassifyEnd;
++                            //   `endbench ui <0-3>` | `state <0-8> [loading]` | `overflow 0|1` | `afterevent 0|1`  one field;
++                            //   each re-FABRICATES: encode -> a type-1 frame -> the REAL ParseView -> served as the BENCH end
++                            //       (`netsync.battle.peer.end`, bench true; the verb FAILS if the round trip mangles a field);
++                            //   `endbench cmd [hex]`  arm the victory-edge one-shot: the frame (default slot 1 Attack at enemy
++                            //       slot 4) goes onto the selftest loopback the first time an own battle SHIPS an end kind;
++                            //   `endbench host on|cadence|off`  the calibration lever (cadence = no change-triggered sample,
++                            //       off = no trailer at all: the pre-stage host);
++                            //   `endbench selftest`  NetSyncEnd.SelfTest (fails the verb on FAIL);  `endbench clear`.
++                            // Released on disarm/fault/reset (the bench end, the one-shot and the lever).
++                            String eop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
++                            Int32 earg = -1;
++                            Boolean eloading = false;
++                            Byte[] eframe = null;
++                            String emode = null;
++                            switch (eop)
++                            {
++                                case "other":
++                                case "ui":
++                                case "state":
++                                case "overflow":
++                                case "afterevent":
++                                    earg = Arg(s, 2, -1);
++                                    if (earg < 0)
++                                        throw new ArgumentOutOfRangeException("netsync endbench " + eop, "needs a non-negative integer argument");
++                                    if (eop == "state" && s.Args.Length > 3)
++                                    {
++                                        if (s.Args.Length > 4 || !String.Equals(s.Args[3], "loading", StringComparison.OrdinalIgnoreCase))
++                                            throw new ArgumentOutOfRangeException("netsync endbench state", "expected `state <0-8> [loading]`");
++                                        eloading = true;
++                                    }
++                                    break;
++                                case "cmd":
++                                    if (s.Args.Length > 2)
++                                    {
++                                        eframe = ArgHex(s, 2);
++                                        if (eframe == null)
++                                            throw new ArgumentOutOfRangeException("netsync endbench cmd", "needs hex bytes, e.g. `netsync endbench cmd 01 01 00 00 00 00 10 00 00`");
++                                    }
++                                    break;
++                                case "host":
++                                    emode = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
++                                    break;
++                            }
++                            if (!Memoria.Netsync.NetSyncEnd.HarnessEndBench(eop, earg, eloading, eframe, emode, out why))
++                                throw new InvalidOperationException(why ?? "netsync endbench refused");
++                            break;
++                        }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|endbench)");
+                     }
+                     Block(2);
+                     break;
+@@ -2273,6 +2331,7 @@ namespace Memoria.Harness
+                 sb.Append("},");
+ 
+                 AppendBattleHud(sb); sb.Append(",");   // [ff9mapkit netsync B4] stage 3
++                AppendResultUi(sb); sb.Append(",");    // [ff9mapkit netsync B5] stage 4
+ 
+                 AppendBattleMenu(sb); sb.Append(",");
+ 
+@@ -2722,7 +2781,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -2871,6 +2930,18 @@ namespace Memoria.Harness
+         //     `capture_off` (the selftest calibration lever `bmenu capture off`), `outbox` (forwarded frames waiting for a
+         //     transport; stage 3 has no production drain), `bench_open` (local slots `bmenu open` queued this boot, bit per
+         //     slot) and `captured` (see AppendStockCapture).
++        // [ff9mapkit netsync B5] stage 4 adds the END BLOCK (NetSyncEnd; studies/battle-coop/B4-B5-DESIGN.md 5.2):
++        //   host -- `end` (the block the last own-battle sample shipped; see AppendEndBlock), `end_trail` (every DISTINCT
++        //     "kind/ui/state" the host shipped this own battle, in order, state "-" = no result screen, an L suffix =
++        //     Loading -- kept after the battle until the next one starts, so one read after the field load sees the whole
++        //     walk), `end_edges` (samples an end-state change FORCED this own battle -- no command-phase edge, the SampleMs
++        //     cadence not due -- counted inside the pumps' sample block: the stage's EFFECT; 0 under `endbench host
++        //     cadence|off`), `end_changes` (the changes the tracker DETECTED this own battle, under every lever: the
++        //     instrument, so `end_changes > 0 && end_edges == 0` is the lever's red), `end_mode` (the selftest lever: on /
++        //     cadence / off) and `end_cmd` (the `endbench cmd` one-shot: null, "armed", "fired <kind>" or "failed: ...");
++        //   peer -- `end` (see AppendPeerEnd: the bench seam or the live trailer), `end_trail` (the same walk as PARSED off the
++        //     lane -- restarted by a new battle nonce, kept after the lane falls), `trailer_bad` / `trailer_skipped`
++        //     (malformed trailers / unknown-fmt records skipped -- monotonic per process, read DELTAS) and `trailer_why`.
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -2886,13 +2957,24 @@ namespace Memoria.Harness
+             Str(sb, "refused_why", Memoria.Netsync.NetSyncBattle.HarnessRefusedWhy); sb.Append(",");
+             Str(sb, "dropped_why", Memoria.Netsync.NetSyncBattle.HarnessDroppedWhy); sb.Append(",");
+             Num(sb, "roster_lag", Memoria.Netsync.NetSyncBattle.HarnessRosterLag); sb.Append(",");
+-            Num(sb, "loop_cmds", Memoria.Netsync.NetSyncBattle.HarnessLoopCommands);
++            Num(sb, "loop_cmds", Memoria.Netsync.NetSyncBattle.HarnessLoopCommands); sb.Append(",");
++            AppendEndBlock(sb, Memoria.Netsync.NetSyncEnd.HarnessHostEnd); sb.Append(",");           // [ff9mapkit netsync B5] stage 4
++            AppendStrList(sb, "end_trail", Memoria.Netsync.NetSyncEnd.HarnessHostTrail()); sb.Append(",");
++            Num(sb, "end_edges", Memoria.Netsync.NetSyncEnd.HarnessHostEdges); sb.Append(",");
++            Num(sb, "end_changes", Memoria.Netsync.NetSyncEnd.HarnessHostChanges); sb.Append(",");
++            Str(sb, "end_mode", Memoria.Netsync.NetSyncEnd.HarnessHostMode); sb.Append(",");
++            Str(sb, "end_cmd", Memoria.Netsync.NetSyncEnd.HarnessCmdStatus);
+             sb.Append("},\"peer\":{");
+             Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
+             Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");
+             Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessPeerNonce); sb.Append(",");
+             Num(sb, "caps", Memoria.Netsync.NetSyncBattle.HarnessPeerCaps); sb.Append(",");
+-            Num(sb, "ready_mask", Memoria.Netsync.NetSyncBattle.HarnessPeerReadyMask);
++            Num(sb, "ready_mask", Memoria.Netsync.NetSyncBattle.HarnessPeerReadyMask); sb.Append(",");
++            AppendPeerEnd(sb); sb.Append(",");                                                          // [ff9mapkit netsync B5] stage 4
++            AppendStrList(sb, "end_trail", Memoria.Netsync.NetSyncEnd.HarnessPeerTrail()); sb.Append(",");
++            Num(sb, "trailer_bad", Memoria.Netsync.NetSyncEnd.HarnessTrailerBad); sb.Append(",");
++            Num(sb, "trailer_skipped", Memoria.Netsync.NetSyncEnd.HarnessTrailerSkipped); sb.Append(",");
++            Str(sb, "trailer_why", Memoria.Netsync.NetSyncEnd.HarnessTrailerBadWhy);
+             sb.Append("},\"menu\":{");
+             AppendIntList(sb, "roster_slots", Memoria.Netsync.NetSyncBattle.HarnessRosterSlots()); sb.Append(",");
+             Num(sb, "r9_refused", Memoria.Netsync.NetSyncBattle.HarnessR9Refused); sb.Append(",");     // [ff9mapkit netsync B4] stage 2
+@@ -2914,6 +2996,106 @@ namespace Memoria.Harness
+             sb.Append("}}");
+         }
+ 
++        // [ff9mapkit netsync B5] stage 4: `battle.result_ui` -- the stock result screen read LIVE at the harness tick (never
++        // through the end block): null unless the UI state is BattleResult (or Pause/Quit over it); else `state` (ResultState
++        // 0 Start .. 6 End, 7 Hide, 8 None), `loading` (a fade ping-pong or a Show/Hide transition in flight) and `paused`.
++        // The bench's cross-check of `netsync.battle.host.end.res_state`, which the netsync pump samples off the same screen.
++        // Stage 9 adds its label texts, rows, items and card (design 6.4).
++        private static void AppendResultUi(StringBuilder sb)
++        {
++            BattleResultUI r = null;
++            Boolean paused = false;
++            try
++            {
++                UIManager m = PersistenSingleton<UIManager>.Instance;
++                UIManager.UIState st = m.State;
++                paused = (st == UIManager.UIState.Pause || st == UIManager.UIState.Quit) && m.PreviousState == UIManager.UIState.BattleResult;
++                if (st == UIManager.UIState.BattleResult || paused)
++                    r = m.BattleResultScene;
++            }
++            catch (Exception)
++            {
++                r = null;
++            }
++            if (r == null)
++            {
++                sb.Append("\"result_ui\":null");
++                return;
++            }
++            sb.Append("\"result_ui\":{");
++            Num(sb, "state", Try(() => r.NetStateRaw, -1)); sb.Append(",");
++            Bool(sb, "loading", Try(() => r.Loading, false)); sb.Append(",");
++            Bool(sb, "paused", paused);
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync B5] stage 4: `netsync.battle.host.end` -- the END BLOCK the last own-battle sample SHIPPED (null =
++        // no own battle, or the `endbench host off` lever): `kind` (0 fighting, 1 victory-pending, 2 victory, 3 victory-no-pose,
++        // 4 defeat, 5 escape, 6 other-end, 7 event -- not an end) + `kind_name`, the raw `phase`/`seq`/`result`, `ui` (0
++        // battle/other, 1 BattleResult, 2 GameOver, 3 Title), `res_state` (the result screen's ResultState 0 Start .. 6 End,
++        // 7 Hide, 8 None; -1 = no result screen) + `loading`, `flags` (b0 AfterEvent, b1 manifest, b2 item overflow, b3
++        // escape_gil, b4 BTL_CONTI_FLD_SONG), `win_pose` (bit per host btl_data slot) and `manifest_len` (0 at this stage).
++        private static void AppendEndBlock(StringBuilder sb, Memoria.Netsync.NetSyncEnd.EndBlock e)
++        {
++            if (e == null)
++            {
++                sb.Append("\"end\":null");
++                return;
++            }
++            sb.Append("\"end\":{");
++            AppendEndFields(sb, e.Kind, e.Phase, e.Seq, e.Result, e.Ui, e.State, e.Loading, e.Flags, e.WinPoseMask, e.ManifestLen);
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync B5] stage 4: `netsync.battle.peer.end` -- the peer's END BLOCK as NetSyncBattle.TryGetPeerEnd
++        // serves it (the selftest `endbench` seam first, else the LIVE lane's trailer; null = neither): the host.end fields
++        // plus `rows` (manifest rows, 0 at this stage), `bench` (true = the bench seam, not a wire frame), `nonce` (the
++        // frame's battle nonce) and `wire_seq` (the frame's seq -- advances per host sample / per fabricate).
++        private static void AppendPeerEnd(StringBuilder sb)
++        {
++            Memoria.Netsync.NetSyncBattle.PeerEnd e;
++            if (!Memoria.Netsync.NetSyncBattle.TryGetPeerEnd(out e))
++            {
++                sb.Append("\"end\":null");
++                return;
++            }
++            sb.Append("\"end\":{");
++            AppendEndFields(sb, e.Kind, e.Phase, e.Seq, e.Result, e.Ui, e.State, e.Loading, e.Flags, e.WinPoseMask, e.ManifestLen);
++            sb.Append(",");
++            Num(sb, "rows", e.Rows); sb.Append(",");
++            Bool(sb, "bench", e.Bench); sb.Append(",");
++            Num(sb, "nonce", e.Nonce); sb.Append(",");
++            Num(sb, "wire_seq", e.WireSeq);
++            sb.Append("}");
++        }
++
++        private static void AppendEndFields(StringBuilder sb, Int32 kind, Int32 phase, Int32 seq, Int32 result, Int32 ui, Int32 state,
++                                            Boolean loading, Int32 flags, Int32 winPose, Int32 manifestLen)
++        {
++            Num(sb, "kind", kind); sb.Append(",");
++            Str(sb, "kind_name", Memoria.Netsync.NetSyncEnd.KindName(kind)); sb.Append(",");
++            Num(sb, "phase", phase); sb.Append(",");
++            Num(sb, "seq", seq); sb.Append(",");
++            Num(sb, "result", result); sb.Append(",");
++            Num(sb, "ui", ui); sb.Append(",");
++            Num(sb, "res_state", state); sb.Append(",");
++            Bool(sb, "loading", loading); sb.Append(",");
++            Num(sb, "flags", flags); sb.Append(",");
++            Num(sb, "win_pose", winPose); sb.Append(",");
++            Num(sb, "manifest_len", manifestLen);
++        }
++
++        private static void AppendStrList(StringBuilder sb, String key, List<String> values)
++        {
++            sb.Append(Quote(key)).Append(":[");
++            for (Int32 i = 0; values != null && i < values.Count; i++)
++            {
++                if (i > 0) sb.Append(",");
++                sb.Append(Quote(values[i]));
++            }
++            sb.Append("]");
++        }
++
+         // [ff9mapkit netsync B4] stage 3: `netsync.battle.menu.captured` -- the last stock commit this diorama boot forwarded,
+         // DECODED by the host's own TryDecodeCommand (wire side: `slot`, `action` 0 Attack / 1 Defend / 2 Ability / 3 Item /
+         // 4 Instant, `menu`, `id`, `mask`, `cursor`), plus the commit it came from (`local_slot`, `cmd` = the stock
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 74cd5a5..bf8096b 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -30,6 +30,10 @@ namespace Memoria.Netsync
+     // [ff9mapkit netsync B4] stage 2: PARTIAL -- the B4 guest stock-menu lane (studies/battle-coop/B4-B5-DESIGN.md
+     // section 4) lands beside this file as NetSyncBattle.StockMenu.cs from stage 3 on (stage 3: the capture, the
+     // outbox, StockMenuCloseAll and the selftest bench opener; this file keeps the shared v1 codec).
++    //
++    // [ff9mapkit netsync B5] stage 4: every own-battle type-1 frame now ends with the END BLOCK trailer (NetSyncEnd: how the
++    // battle is ending + the result screen's state), sampled at once on any end-state change; ParseView reads it in its own
++    // try and TryGetPeerEnd serves it (or the selftest `endbench` seam). The wire stays v14: a pre-B5 peer stops at `count`.
+     public static partial class NetSyncBattle
+     {
+         // --- config mirror (written by NetSyncClient on every config [re]load; main thread) ---
+@@ -201,6 +205,8 @@ namespace Memoria.Netsync
+             public Byte Nonce;             // bumps per battle: same map+pattern back-to-back still re-boots
+             public UInt16 SongId;          // v10: the host's audible song -- 0xFFFF unknown / 0xFFFE silent
+             public readonly List<UnitView> Units = new List<UnitView>();
++            public NetSyncEnd.EndBlock End;   // [ff9mapkit netsync B5] stage 4: the trailer's END BLOCK (null = a pre-B5
++                                              // host, a trailer-less frame, or a malformed trailer -- the units stand)
+         }
+ 
+         private sealed class CmdView
+@@ -395,6 +401,7 @@ namespace Memoria.Netsync
+             _rosterForceTries = 0;
+             _rosterLagFrames = -1;
+             _refuseLogged.Clear();
++            NetSyncEnd.NoteHostBattleStart();      // [ff9mapkit netsync B5] stage 4: the end tracker, block and trail start clean
+         }
+ 
+         // An own battle's falling edge (Pump's else block; SelfTestPump through Reset): the harness's "last
+@@ -405,6 +412,7 @@ namespace Memoria.Netsync
+             _rosterForceTries = 0;
+             _lastSampleFlags = -1;
+             _lastReadyMask = -1;
++            NetSyncEnd.NoteHostBattleEnd();        // [ff9mapkit netsync B5] stage 4: `host.end` reads null between battles
+         }
+ 
+         // One read of the command phase per pump tick (both pumps). An EDGE returns true and the caller samples
+@@ -563,9 +571,13 @@ namespace Memoria.Netsync
+                         NoteOwnBattleStart();      // [ff9mapkit netsync B4] stage 1
+                     }
+                     Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1: an edge samples NOW
++                    Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4: so does an end-state change
+                     Int32 now = Environment.TickCount;
+-                    if (phaseEdge || now - _lastSampleTick > SampleMs)
++                    Boolean cadenceDue = now - _lastSampleTick > SampleMs;
++                    if (phaseEdge || endEdge || cadenceDue)
+                     {
++                        if (!phaseEdge && !cadenceDue)
++                            NetSyncEnd.NoteEdgeSample();       // [ff9mapkit netsync B5] stage 4: a sample ONLY the end change took
+                         _lastSampleTick = now;
+                         socket.SetLocalBattle(SampleOwnBattle());
+                     }
+@@ -639,6 +651,7 @@ namespace Memoria.Netsync
+                     {
+                         _peerView = view;
+                         _peerViewTick = Environment.TickCount;
++                        NetSyncEnd.NotePeer(view.Nonce, view.End);   // [ff9mapkit netsync B5] stage 4: trail + transition log
+                     }
+                 }
+                 Byte[] peerRoster = socket.GetRemoteRoster();
+@@ -707,12 +720,17 @@ namespace Memoria.Netsync
+                 _wasInBattle = true;
+ 
+                 Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1 (as Pump)
++                Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4 (as Pump)
+                 Int32 now = Environment.TickCount;
+-                if (phaseEdge || now - _lastSampleTick > SampleMs)
++                Boolean cadenceDue = now - _lastSampleTick > SampleMs;
++                if (phaseEdge || endEdge || cadenceDue)
+                 {
++                    if (!phaseEdge && !cadenceDue)
++                        NetSyncEnd.NoteEdgeSample();       // [ff9mapkit netsync B5] stage 4 (as Pump)
+                     _lastSampleTick = now;
+                     _loopBattle = SampleOwnBattle();       // the "wire": a byte[] round trip, no socket
+                 }
++                NetSyncEnd.BenchCommandTick();             // [ff9mapkit netsync B5] stage 4: `endbench cmd`, drained below this tick
+                 if (GuestSlots != 0 && (_rosterForceTries > 0 || now - _lastRosterTick > RosterMs))
+                 {
+                     _lastRosterTick = now;
+@@ -744,6 +762,7 @@ namespace Memoria.Netsync
+                     {
+                         _peerView = view;
+                         _peerViewTick = Environment.TickCount;
++                        NetSyncEnd.NotePeer(view.Nonce, view.End);   // [ff9mapkit netsync B5] stage 4 (dedupes per tick)
+                     }
+                 }
+                 if (_loopRoster != null)
+@@ -892,6 +911,8 @@ namespace Memoria.Netsync
+                 ms.Position = countPos;
+                 bw.Write((Byte)count);
+                 ms.Position = endPos;
++                NetSyncEnd.WriteHostTrailer(bw);           // [ff9mapkit netsync B5] stage 4: the END BLOCK trailer (never throws;
++                                                           // a fault ships the frame trailer-less, never half-written)
+                 _lastSampleFlags = flags;                  // [ff9mapkit netsync B4] stage 1: the harness's host view
+                 _lastReadyMask = readyMask;
+                 return ms.ToArray();
+@@ -1144,6 +1165,11 @@ namespace Memoria.Netsync
+                         u.TranceGauge = br.ReadByte();     // v9 append (after the legacy record)
+                         view.Units.Add(u);
+                     }
++                    // [ff9mapkit netsync B5] stage 4: the END BLOCK trailer after the unit records (design 6.2), read in its
++                    // OWN try (ReadPeerTrailer never throws): a bad trailer nulls only view.End, never the view -- a null
++                    // view would stale the lane and pull a guest out of the host's fight early. A pre-B5 reader stops at
++                    // `count` units and never sees these bytes (the wire stays v14).
++                    view.End = NetSyncEnd.ReadPeerTrailer(payload, (Int32)ms.Position);
+                     return view;
+                 }
+             }
+@@ -1198,6 +1224,53 @@ namespace Memoria.Netsync
+             return n;
+         }
+ 
++        // [ff9mapkit netsync B5] stage 4 -- the host's END BLOCK as the guest sees it (NetSyncEnd decodes the type-1 trailer;
++        // see NetSyncEnd for the field meanings). Struct-copied out, like PeerUnit: parse ownership stays with the lane.
++        public struct PeerEnd
++        {
++            public Byte Kind;                  // NetSyncEnd.K* (Fighting .. OtherEnd; 7 Event is NOT an end)
++            public Byte Phase, Seq, Result;    // the host's raw btl_phase / btl_seq / btl_result
++            public Byte Ui;                    // 0 battle/other, 1 BattleResult, 2 GameOver, 3 Title
++            public Byte ResState;              // ui == 1: ResultState | 0x80 Loading; else 0xFF
++            public Byte Flags;                 // NetSyncEnd.Flag* (b0 AfterEvent, b1 manifest, b2 overflow, b3 escape_gil, b4 field song)
++            public Byte WinPoseMask;           // bit per host btl_data slot that strikes the win pose
++            public Int32 ManifestLen;          // stage 9: manifest body bytes carried (skipped at this stage)
++            public Int32 Rows;                 // stage 9: manifest rows parsed (0 at this stage)
++            public Byte Nonce;                 // the frame header's battle nonce (stage 5 gates on == BootedWireNonce)
++            public UInt16 WireSeq;             // the frame's seq: advances per host sample (per fabricate on the bench)
++            public Boolean Bench;              // the selftest bench seam (`netsync endbench`), not a wire frame
++            public Boolean Loading { get { return ResState != NetSyncEnd.ResNoScreen && (ResState & NetSyncEnd.ResLoadingBit) != 0; } }
++            public Int32 State { get { return ResState == NetSyncEnd.ResNoScreen ? -1 : ResState & 0x7F; } }
++        }
++
++        /// <summary>
++        /// [ff9mapkit netsync B5] stage 4: the peer's END BLOCK -- the selftest bench seam first (NetSyncEnd.TryGetBenchEnd:
++        /// selftest role + an armed `endbench`, disarmed by an own battle's rising edge so it never shadows the loopback's
++        /// real block), else the LIVE peer view's trailer (fresh lane only: a stale lane serves
++        /// nothing, exactly like TryGetPeerUnits). False = no end block (no live lane, or a pre-B5 host). Main thread; never
++        /// throws. Nothing acts on it at this stage (stage 5's EndTick is its first consumer).
++        /// </summary>
++        public static Boolean TryGetPeerEnd(out PeerEnd e)
++        {
++            e = default(PeerEnd);
++            try
++            {
++                if (NetSyncEnd.TryGetBenchEnd(out e))
++                    return true;
++                e = default(PeerEnd);
++                BattleView view = LivePeerView();
++                if (view == null || view.End == null)
++                    return false;
++                e = NetSyncEnd.ToPeer(view.End, view.Nonce, view.Seq, false);
++                return true;
++            }
++            catch
++            {
++                e = default(PeerEnd);
++                return false;
++            }
++        }
++
+         // ============================================================================ the ACTION lane (B3.5)
+         // One wire type-6 frame per applied CalcResult on the HOST: the figure payload (target+caster
+         // fig triples, already in FIG_INFO format), the flinch byte, raw POST-application cur values
+@@ -1528,6 +1601,59 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync B5] stage 4 -- the end block's codec harness (NetSyncEnd.SelfTest and `netsync endbench`): a
++        // type-1 frame in SampleOwnBattle's exact layout -- the v10 header (caps bit 1 set, songId unknown), `units`
++        // synthetic unit records, then `trailer` verbatim (null = a trailer-less, pre-B5 frame). unitsEnd = the trailer's
++        // offset. Pure.
++        internal static Byte[] BuildEndBenchFrame(UInt16 seq, Byte nonce, Int32 units, Byte[] trailer, out Int32 unitsEnd)
++        {
++            using (MemoryStream ms = new MemoryStream(64))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                bw.Write(seq);
++                bw.Write((UInt16)0);                       // mapNo
++                bw.Write((Byte)0);                         // guestSlots
++                bw.Write((Byte)0);                         // patNum
++                bw.Write((Byte)battle_start_type_tags.BTL_START_NORMAL_ATTACK);
++                bw.Write(CapCommandPhaseGated);            // flags
++                bw.Write(nonce);
++                bw.Write((UInt16)0xFFFF);                  // songId: unknown
++                bw.Write((Byte)units);
++                for (Int32 i = 0; i < units; i++)
++                {
++                    bw.Write((Byte)i);                     // index
++                    bw.Write((Byte)(i < 4 ? 1 | 2 : 2));   // info: player (slots 0-3) + alive
++                    bw.Write((UInt32)(100 + i));           // hp cur/max, mp cur/max
++                    bw.Write((UInt32)200);
++                    bw.Write((UInt32)(10 + i));
++                    bw.Write((UInt32)20);
++                    bw.Write((UInt16)0);                   // atb cur/max
++                    bw.Write((UInt16)1);
++                    bw.Write((Byte)2);                     // name "B5"
++                    bw.Write((Byte)'B');
++                    bw.Write((Byte)'5');
++                    bw.Write((Byte)0);                     // v9 trance gauge
++                }
++                unitsEnd = (Int32)ms.Position;
++                if (trailer != null)
++                    bw.Write(trailer);
++                return ms.ToArray();
++            }
++        }
++
++        // ...and its decode: the REAL ParseView (the whole frame, trailer included), reporting whether the view stood, its
++        // unit count, seq and nonce, and its end block. Main thread (ParseView's statics); never throws.
++        internal static NetSyncEnd.EndBlock ParseEndThroughView(Byte[] payload, out Int32 units, out Boolean viewOk,
++                                                                out UInt16 seq, out Byte nonce)
++        {
++            BattleView view = ParseView(payload);
++            viewOk = view != null;
++            units = view != null ? view.Units.Count : -1;
++            seq = view != null ? view.Seq : (UInt16)0;
++            nonce = view != null ? view.Nonce : (Byte)0;
++            return view != null ? view.End : null;
++        }
++
+         // The first of MY assigned slots (per the battle owner's offer) that awaits a command.
+         private static Int32 FirstReadyGuestSlot(BattleView view)
+         {
+@@ -2140,6 +2266,7 @@ namespace Memoria.Netsync
+                 _assistTick = Environment.TickCount - 60000;   // "long ago", never MinValue (see the declaration)
+             }
+             HarnessReleaseStockMenu();             // [ff9mapkit netsync B4] stage 3: the capture lever back on
++            NetSyncEnd.HarnessRelease();           // [ff9mapkit netsync B5] stage 4: the end bench, its one-shot and its lever
+         }
+ 
+         // ============================================================================ harness surface (B4 stage 2)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index bc1b857..57a8e1c 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1148,6 +1148,10 @@ namespace Memoria.Netsync
+                         Boolean dlgOk = NetSyncDialog.SelfTest(out dlgDetail);
+                         Log.Message("[NetSync] dialogue authority selftest: "
+                                     + (dlgOk ? "OK (" + dlgDetail + ")" : "FAIL (" + dlgDetail + ")"));
++                        String endDetail;                // [ff9mapkit netsync B5] stage 4: ClassifyEnd + ChaseStep + the end-block codec
++                        Boolean endOk = NetSyncEnd.SelfTest(out endDetail);
++                        Log.Message("[NetSync] battle end-block selftest: "
++                                    + (endOk ? "OK (" + endDetail + ")" : "FAIL (" + endDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+new file mode 100644
+index e69de29..dc1a080 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+@@ -0,0 +1,1146 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using Memoria.Data;
++using Memoria.Prime;
++
++namespace Memoria.Netsync
++{
++    // [ff9mapkit netsync B5] stage 4 -- THE HOST END BLOCK (studies/battle-coop/B4-B5-DESIGN.md sections 5.2 and 6.2;
++    // section 7, stage 4). How the host's battle is ending, and where its result screen stands, ride every type-1 battle
++    // frame as a self-delimiting TRAILER after the unit records:
++    //
++    //   u8 magic = 0xB5, u8 fmt, u16 len (the body length, little-endian)    -- one RECORD; a frame may carry several
++    //   fmt 1 = THE END BLOCK: u8 kind, u8 phase, u8 seq, u8 result, u8 ui, u8 resState, u8 flags, u8 winPoseMask
++    //     kind      0 Fighting, 1 VictoryPending, 2 Victory, 3 VictoryNoPose, 4 Defeat, 5 Escape, 6 OtherEnd,
++    //               7 Event (NOT an end: var 32's MENU_OFF/EVENT parks the host there with result 0)
++    //     phase/seq/result  the raw btl_phase / btl_seq / FF9.btl_result (logs and the harness; kind is derived from them)
++    //     ui        0 battle/other, 1 BattleResult (also while paused over it), 2 GameOver, 3 Title
++    //     resState  ui == 1: the result screen's ResultState 0..8, bit 7 = Loading; else 0xFF
++    //     flags     b0 AfterEvent, b1 a manifest follows (stage 9), b2 item overflow (stage 9's sticky host tap),
++    //               b3 escape_gil, b4 BTL_CONTI_FLD_SONG
++    //     winPoseMask  bit per host btl_data slot that strikes the win pose (victory kinds on a WinPose scene; else 0)
++    //   any bytes of a fmt-1 body past those 8 are the stage-9 manifest (flags b1) or later growth: skipped here.
++    //
++    // NO WIRE BUMP (design 6.2): ParseView on a pre-B5 peer reads exactly `count` units and ignores the rest, and this
++    // engine reads the trailer in its OWN try -- a bad trailer nulls only the end block, never the view (a null view would
++    // stale the lane and pull the guest out early). Unknown fmt -> that record is skipped by its len; truncation -> End =
++    // null, units kept; foreign trailing bytes (no magic) -> End = null.
++    //
++    // CHANGE-TRIGGERED SAMPLING: both pumps compare a cheap per-frame key (phase, seq, result, ui, resState with Loading)
++    // with the last one and sample AT ONCE on a change, so every state the host passes through reaches the wire even when
++    // it lives less than SampleMs (the extra samples consume the shared _seq like any state write). Two receipts:
++    // `end_changes` (the tracker's detections) and `end_edges` (samples a change FORCED, counted inside the pumps' sample
++    // block -- the effect, so a pump that drops the trigger reads 0 there however many changes were detected).
++    //
++    // HOST side: written by NetSyncBattle.SampleOwnBattle (only while the host streams its OWN battle -- co-op off,
++    // vanilla and solo never reach a line of this file). GUEST side: parsed by NetSyncBattle.ParseView and served by
++    // NetSyncBattle.TryGetPeerEnd (stage 5's EndTick consumes it; nothing on the guest acts on it at this stage).
++    //
++    // SELFTEST-ONLY BENCH (`netsync endbench ...`, HarnessEndBench): fabricates an end block, encodes it, wraps it in a
++    // type-1 frame and decodes it through the REAL ParseView -- the bytes -> parse chain a guest runs, minus the socket --
++    // and serves the parsed block through TryGetPeerEnd as a BENCH end (Bench = true). Plus the calibration lever
++    // `endbench host on|cadence|off` and the victory-edge command one-shot `endbench cmd [hex]`.
++    public static class NetSyncEnd
++    {
++        // ---- the trailer (design 6.2) ----
++        public const Byte TrailerMagic = 0xB5;
++        public const Byte FmtEnd = 1;
++        public const Int32 RecordHeaderLen = 4;     // u8 magic, u8 fmt, u16 len
++        public const Int32 EndBlockLen = 8;         // kind phase seq result ui resState flags winPoseMask
++
++        // ---- kind ----
++        public const Byte KFighting = 0;
++        public const Byte KVictoryPending = 1;      // MENU_OFF + a victory seq: the tail has not run yet
++        public const Byte KVictory = 2;             // PHASE_VICTORY: fanfare, poses, victory camera
++        public const Byte KVictoryNoPose = 3;       // PHASE_CLOSE carrying VICTORY / VICTORY_NO_POSE (the fade path)
++        public const Byte KDefeat = 4;
++        public const Byte KEscape = 5;
++        public const Byte KOtherEnd = 6;            // PHASE_CLOSE carrying INTERRUPTION / ENEMY_FLEE / INITIAL
++        public const Byte KEvent = 7;               // a scripted battle event -- NOT an end
++
++        // ---- ui ----
++        public const Byte UiOther = 0;
++        public const Byte UiResult = 1;
++        public const Byte UiGameOver = 2;
++        public const Byte UiTitle = 3;
++
++        // ---- resState ----
++        public const Byte ResNoScreen = 0xFF;       // ui != 1
++        public const Byte ResLoadingBit = 0x80;
++
++        // ---- flags ----
++        public const Byte FlagAfterEvent = 1;
++        public const Byte FlagManifest = 2;         // stage 9: a result manifest follows the 8-byte block
++        public const Byte FlagItemOverflow = 4;     // stage 9: the host's UpdateItem overflowed (sticky)
++        public const Byte FlagEscapeGil = 8;
++        public const Byte FlagFieldSong = 16;       // BTL_CONTI_FLD_SONG
++
++        // ---- the result screen's states, pinned to the engine's own (private) enum through BattleResultUI's partial ----
++        public const Int32 ResStart = BattleResultUI.NetStateStart;
++        public const Int32 ResExpTick = BattleResultUI.NetStateEXPAndAPTick;
++        public const Int32 ResEndExp = BattleResultUI.NetStateEndEXPAndAP;
++        public const Int32 ResStartGil = BattleResultUI.NetStateStartGilAndItem;
++        public const Int32 ResItemFull = BattleResultUI.NetStateItemFullDialog;
++        public const Int32 ResGilTick = BattleResultUI.NetStateGilTick;
++        public const Int32 ResEnd = BattleResultUI.NetStateEnd;
++        public const Int32 ResHide = BattleResultUI.NetStateHide;
++        public const Int32 ResNone = BattleResultUI.NetStateNone;   // sorts AFTER Hide: never chased
++
++        /// <summary>One decoded (or sampled) end block. Public fields: the harness reads them.</summary>
++        public sealed class EndBlock
++        {
++            public Byte Kind, Phase, Seq, Result, Ui, ResState = ResNoScreen, Flags, WinPoseMask;
++            public Int32 ManifestLen;               // fmt-1 body bytes past the block while flags b1 is set (stage 9 parses them)
++
++            public Boolean Loading { get { return ResState != ResNoScreen && (ResState & ResLoadingBit) != 0; } }
++            public Int32 State { get { return ResState == ResNoScreen ? -1 : ResState & 0x7F; } }
++
++            public Boolean SameAs(EndBlock o)
++            {
++                return o != null && Kind == o.Kind && Phase == o.Phase && Seq == o.Seq && Result == o.Result && Ui == o.Ui
++                       && ResState == o.ResState && Flags == o.Flags && WinPoseMask == o.WinPoseMask;
++            }
++
++            public EndBlock Clone()
++            {
++                return (EndBlock)MemberwiseClone();
++            }
++
++            public override String ToString()
++            {
++                return KindName(Kind) + " (phase " + Phase + " seq " + Seq + " result " + Result + "; ui " + Ui + ", res "
++                       + (ResState == ResNoScreen ? "-" : State + (Loading ? "L" : "")) + ", flags 0x" + Flags.ToString("X2")
++                       + ", pose 0x" + WinPoseMask.ToString("X2") + ")";
++            }
++        }
++
++        public static String KindName(Int32 kind)
++        {
++            switch (kind)
++            {
++                case KFighting: return "fighting";
++                case KVictoryPending: return "victory-pending";
++                case KVictory: return "victory";
++                case KVictoryNoPose: return "victory-no-pose";
++                case KDefeat: return "defeat";
++                case KEscape: return "escape";
++                case KOtherEnd: return "other-end";
++                case KEvent: return "event";
++                default: return "kind " + kind;
++            }
++        }
++
++        // ==================================================================================== ClassifyEnd (design 5.2)
++        /// <summary>
++        /// The host's (phase, seq, result) -> kind. Why each branch: var 33 with val != 1 lands in PHASE_CLOSE carrying that
++        /// result (btl_scrp.cs:786-799: a scripted DEFEAT is CLOSE + 3, so CLOSE + DEFEAT/GAMEOVER is Defeat), and var 32
++        /// parks the host in MENU_OFF/EVENT with result 0 (btl_scrp.cs:774-784) -- treating seq 2 as an end would freeze the
++        /// guest, whose reconciler quiesces outside NORMAL. Pure; never throws.
++        /// </summary>
++        public static Byte ClassifyEnd(Byte phase, Byte seq, Byte result)
++        {
++            switch (phase)
++            {
++                case FF9StateBattleSystem.PHASE_MENU_OFF:
++                    if (seq == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY || seq == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY_WITH_ENEMY)
++                        return KVictoryPending;
++                    if (seq == FF9StateBattleSystem.SEQ_MENU_OFF_DEFEAT)
++                        return KDefeat;
++                    if (seq == FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE)
++                        return KEscape;
++                    return KEvent;                  // seq 2 = var 32 / the auto-end transient: NOT an end
++                case FF9StateBattleSystem.PHASE_VICTORY:
++                    return KVictory;
++                case FF9StateBattleSystem.PHASE_DEFEAT:
++                    return KDefeat;
++                case FF9StateBattleSystem.PHASE_CLOSE:
++                    if (result == FF9StateGlobal.BTL_RESULT_VICTORY || result == FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE)
++                        return KVictoryNoPose;
++                    if (result == FF9StateGlobal.BTL_RESULT_ESCAPE)
++                        return KEscape;
++                    if (result == FF9StateGlobal.BTL_RESULT_DEFEAT || result == FF9StateGlobal.BTL_RESULT_GAMEOVER)
++                        return KDefeat;
++                    return KOtherEnd;               // INTERRUPTION, ENEMY_FLEE (and INITIAL)
++                case FF9StateBattleSystem.PHASE_EVENT:
++                    return KEvent;
++                default:
++                    return KFighting;
++            }
++        }
++
++        /// <summary>True for the kinds the guest presents as the end of the fight (everything but Fighting and Event).</summary>
++        public static Boolean IsEndKind(Int32 kind)
++        {
++            return kind >= KVictoryPending && kind <= KOtherEnd;
++        }
++
++        // ==================================================================================== ChaseStep (design 5.6)
++        /// <summary>
++        /// THE RESULT-SCREEN CHASE (the guest replay, stage 10): may a guest whose screen sits in local state L inject one
++        /// stock Confirm step now that the host reads H (with its Loading bit)? The table:
++        ///   Start                         H &gt; Start
++        ///   EXPAndAPTick, EndEXPAndAP     H &gt; EndEXPAndAP, or H == EndEXPAndAP while the host is Loading (its fade)
++        ///   StartGilAndItem               H &gt; StartGilAndItem
++        ///   ItemFullDialog                H &gt; ItemFullDialog
++        ///   GilTick                       H &gt; GilTick
++        ///   End                           H == Hide
++        /// and NEVER when H == None (None (8) sorts after Hide (7): an AfterEvent / no-result host is not "ahead"), nor from
++        /// Hide or None. A host at EndEXPAndAP without Loading is the natural end of the tick pages -- the local ticks end on
++        /// their own (no injected step). Pure; never throws.
++        /// </summary>
++        public static Boolean ChaseStep(Int32 local, Int32 host, Boolean hostLoading)
++        {
++            if (host == ResNone || host < ResStart || host > ResNone)
++                return false;
++            switch (local)
++            {
++                case ResStart:
++                    return host > ResStart;
++                case ResExpTick:
++                case ResEndExp:
++                    return host > ResEndExp || (host == ResEndExp && hostLoading);
++                case ResStartGil:
++                    return host > ResStartGil;
++                case ResItemFull:
++                    return host > ResItemFull;
++                case ResGilTick:
++                    return host > ResGilTick;
++                case ResEnd:
++                    return host == ResHide;
++                default:
++                    return false;                   // Hide, None, or out of range
++            }
++        }
++
++        // ==================================================================================== the codec
++        /// <summary>One fmt-1 record: header + the 8-byte end block (+ manifest bytes, which set flags b1). Pure.</summary>
++        public static Byte[] EncodeTrailer(EndBlock b, Byte[] manifest)
++        {
++            Int32 extra = manifest != null ? manifest.Length : 0;
++            Int32 len = EndBlockLen + extra;
++            if (len > 0xFFFF)
++                throw new ArgumentOutOfRangeException("manifest", "an end-block body cannot exceed 65535 bytes");
++            Byte[] t = new Byte[RecordHeaderLen + len];
++            t[0] = TrailerMagic;
++            t[1] = FmtEnd;
++            t[2] = (Byte)(len & 0xFF);
++            t[3] = (Byte)(len >> 8);
++            t[4] = b.Kind;
++            t[5] = b.Phase;
++            t[6] = b.Seq;
++            t[7] = b.Result;
++            t[8] = b.Ui;
++            t[9] = b.ResState;
++            t[10] = (Byte)(extra > 0 ? b.Flags | FlagManifest : b.Flags & ~FlagManifest);
++            t[11] = b.WinPoseMask;
++            if (extra > 0)
++                Buffer.BlockCopy(manifest, 0, t, RecordHeaderLen + EndBlockLen, extra);
++            return t;
++        }
++
++        /// <summary>
++        /// Read the trailer records from `offset` to the end of `payload`. Returns the fmt-1 END BLOCK, or null: no trailer
++        /// at all (a pre-B5 host: why = null), or a malformed one (why = the reason: truncated, foreign bytes, short body).
++        /// `skipped` counts unknown-fmt records stepped over. Pure and bounds-checked; never throws.
++        /// </summary>
++        public static EndBlock ReadTrailer(Byte[] payload, Int32 offset, out String why, out Int32 skipped)
++        {
++            why = null;
++            skipped = 0;
++            try
++            {
++                if (payload == null || offset < 0 || offset > payload.Length)
++                {
++                    why = "the unit records overran the frame";
++                    return null;
++                }
++                EndBlock found = null;
++                Int32 p = offset;
++                while (p < payload.Length)
++                {
++                    Int32 left = payload.Length - p;
++                    if (left < RecordHeaderLen)
++                    {
++                        why = "truncated record header (" + left + " byte(s))";
++                        return null;
++                    }
++                    if (payload[p] != TrailerMagic)
++                    {
++                        why = "foreign trailing bytes (0x" + payload[p].ToString("X2") + ", not the 0xB5 magic)";
++                        return null;
++                    }
++                    Byte fmt = payload[p + 1];
++                    Int32 len = payload[p + 2] | (payload[p + 3] << 8);
++                    if (len > left - RecordHeaderLen)
++                    {
++                        why = "truncated fmt-" + fmt + " body (" + (left - RecordHeaderLen) + " of " + len + " byte(s))";
++                        return null;
++                    }
++                    Int32 body = p + RecordHeaderLen;
++                    if (fmt == FmtEnd)
++                    {
++                        if (len < EndBlockLen)
++                        {
++                            why = "short end block (" + len + " of " + EndBlockLen + " byte(s))";
++                            return null;
++                        }
++                        EndBlock e = new EndBlock();
++                        e.Kind = payload[body];
++                        e.Phase = payload[body + 1];
++                        e.Seq = payload[body + 2];
++                        e.Result = payload[body + 3];
++                        e.Ui = payload[body + 4];
++                        e.ResState = payload[body + 5];
++                        e.Flags = payload[body + 6];
++                        e.WinPoseMask = payload[body + 7];
++                        e.ManifestLen = (e.Flags & FlagManifest) != 0 ? len - EndBlockLen : 0;
++                        found = e;                   // the last fmt-1 record wins (an encoder writes exactly one)
++                    }
++                    else
++                    {
++                        skipped++;                   // an unknown fmt: skip it by its len
++                    }
++                    p = body + len;
++                }
++                return found;
++            }
++            catch (Exception ex)
++            {
++                why = "trailer read faulted: " + ex.GetType().Name;
++                return null;
++            }
++        }
++
++        // ParseView's own call (NetSyncBattle): the trailer in its OWN try, malformed ones counted and logged once per
++        // reason per process (the type-1 lane runs at 30 Hz). Never throws.
++        private static Boolean _quiet;              // SelfTest's truncation sweep: no count, no log
++        private static Int32 _trailerBad;           // malformed trailers -- monotonic per process (read deltas)
++        private static Int32 _trailerSkipped;       // unknown-fmt records stepped over -- monotonic per process
++        private static String _trailerBadWhy;
++        private static readonly List<String> _trailerLogged = new List<String>(4);
++
++        internal static EndBlock ReadPeerTrailer(Byte[] payload, Int32 offset)
++        {
++            try
++            {
++                String why;
++                Int32 skipped;
++                EndBlock e = ReadTrailer(payload, offset, out why, out skipped);
++                if (_quiet)
++                    return e;
++                _trailerSkipped += skipped;
++                if (why != null)
++                {
++                    _trailerBad++;
++                    _trailerBadWhy = why;
++                    String key = why.Length > 24 ? why.Substring(0, 24) : why;
++                    if (!_trailerLogged.Contains(key) && _trailerLogged.Count < 16)
++                    {
++                        _trailerLogged.Add(key);
++                        Log.Message("[NetSync] battle frame: end-block trailer ignored -- " + why + "; the unit records are kept "
++                                    + "(trailer_bad=" + _trailerBad + ", logged once per reason)");
++                    }
++                }
++                return e;
++            }
++            catch
++            {
++                return null;
++            }
++        }
++
++        // ==================================================================================== the host side
++        // Sampled only from NetSyncBattle.SampleOwnBattle (an own battle being streamed) and the pumps' change tracker.
++        private const Int64 KeyUnset = -1;
++        private static Int64 _lastHostKey = KeyUnset;
++        private static EndBlock _lastHost;          // the block the last own-battle sample shipped (null between battles)
++        // THE STAGE'S RECEIPTS, kept apart so a bench can tell the detector from the effect (S4-2):
++        private static Int32 _hostChanges;          // end-state changes TrackHostEnd DETECTED this own battle (any lever)
++        private static Int32 _hostEdges;            // samples a change FORCED this own battle: taken with no command-phase
++                                                    // edge and the SampleMs cadence NOT due -- counted by the pumps INSIDE
++                                                    // their sample block (NoteEdgeSample), so a pump that stops honouring
++                                                    // the change trigger reads 0 here while _hostChanges still climbs
++        private static Byte _hostLoggedKind = 0xFF;  // the last (kind, ui) the host logged
++        private static Byte _hostLoggedUi = 0xFF;
++        private static readonly List<String> _hostTrail = new List<String>(24);
++        private static Int32 _hostTrailKey = -1;
++        private const Int32 TrailCap = 48;
++
++        // SELFTEST CALIBRATION LEVER (harness `netsync endbench host on|cadence|off`; cleared by every harness release):
++        // cadence = the trailer still ships but no change-triggered sample (the plain SampleMs cadence -- a state shorter
++        // than SampleMs can be missed); off = the pre-stage host (no trailer, no change sample). Under BOTH the tracker
++        // keeps TRACKING (end_changes climbs) and only stops asking the pumps to sample -- the lever reverts the stage's
++        // path, not its instrument (as TrackCommandPhase under `hostgates 0`), so end_edges == 0 under it is a red the
++        // pumps earn. Read only through HostMode, which also needs the selftest role: a lever stranded across an ini
++        // edit can never strip a real host.
++        public const Int32 ModeOn = 0, ModeCadence = 1, ModeOff = 2;
++        private static Int32 _benchHostMode = ModeOn;
++        public static Int32 HostMode
++        {
++            get { return _benchHostMode != ModeOn && NetSyncClient.IsSelfTestRole ? _benchHostMode : ModeOn; }
++        }
++
++        private static String ModeName(Int32 mode)
++        {
++            return mode == ModeCadence ? "cadence" : mode == ModeOff ? "off" : "on";
++        }
++
++        // The raw end state. ui reads the UI state machine: BattleResult (or Pause/Quit over it -- the host is still on its
++        // result screen, and the screen's state does not move while paused), GameOver, Title, else 0. Never throws.
++        private static void ReadHostRaw(out Byte phase, out Byte seq, out Byte result, out Byte ui, out Byte resState)
++        {
++            phase = FF9StateBattleSystem.PHASE_INIT_SYSTEM;
++            seq = 0;
++            result = 0;
++            ui = UiOther;
++            resState = ResNoScreen;
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                if (b != null)
++                {
++                    phase = b.btl_phase;
++                    seq = b.btl_seq;
++                }
++                result = FF9StateSystem.Common.FF9.btl_result;
++            }
++            catch { }
++            try
++            {
++                UIManager m = PersistenSingleton<UIManager>.Instance;
++                if (m == null)
++                    return;
++                UIManager.UIState st = m.State;
++                if ((st == UIManager.UIState.Pause || st == UIManager.UIState.Quit) && m.PreviousState == UIManager.UIState.BattleResult)
++                    st = UIManager.UIState.BattleResult;
++                if (st == UIManager.UIState.BattleResult)
++                {
++                    ui = UiResult;
++                    BattleResultUI r = m.BattleResultScene;
++                    if (r != null)
++                        resState = (Byte)r.NetStateByte;
++                }
++                else if (st == UIManager.UIState.GameOver)
++                {
++                    ui = UiGameOver;
++                }
++                else if (st == UIManager.UIState.Title)
++                {
++                    ui = UiTitle;
++                }
++            }
++            catch { }
++        }
++
++        private static Int64 HostKey()
++        {
++            Byte phase, seq, result, ui, resState;
++            ReadHostRaw(out phase, out seq, out result, out ui, out resState);
++            return phase | ((Int64)seq << 8) | ((Int64)result << 16) | ((Int64)resState << 24) | ((Int64)ui << 32);
++        }
++
++        /// <summary>The pumps, every own-battle tick (beside TrackCommandPhase): true = the end key changed since the last
++        /// tick, so sample NOW. It TRACKS under every lever (a change past the battle's first read counts in end_changes)
++        /// but answers true only while HostMode is on. Never throws.</summary>
++        internal static Boolean TrackHostEnd()
++        {
++            try
++            {
++                Int64 key = HostKey();
++                if (key == _lastHostKey)
++                    return false;
++                if (_lastHostKey != KeyUnset)
++                    _hostChanges++;                 // the battle's first read is an acquisition, not a change
++                _lastHostKey = key;
++                return HostMode == ModeOn;
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        /// <summary>The pumps, INSIDE their sample block, when that sample exists only because TrackHostEnd fired (no
++        /// command-phase edge, the SampleMs cadence not due): the stage's EFFECT, published as `end_edges`.</summary>
++        internal static void NoteEdgeSample()
++        {
++            _hostEdges++;
++        }
++
++        /// <summary>An own battle's rising edge (both pumps): the tracker, the shipped block and the trail start clean. A
++        /// bench end left armed is disarmed here (see TryGetBenchEnd).</summary>
++        internal static void NoteHostBattleStart()
++        {
++            _lastHostKey = KeyUnset;
++            _lastHost = null;
++            _hostChanges = 0;
++            _hostEdges = 0;
++            _hostLoggedKind = 0xFF;
++            _hostLoggedUi = 0xFF;
++            _hostTrail.Clear();
++            _hostTrailKey = -1;
++            DisarmStaleBenchEnd();
++        }
++
++        /// <summary>An own battle's falling edge (Pump's else block; SelfTestPump through Reset): `host.end` reads null
++        /// between battles. The trail and the edge count stay readable until the next own battle.</summary>
++        internal static void NoteHostBattleEnd()
++        {
++            _lastHostKey = KeyUnset;
++            _lastHost = null;
++        }
++
++        /// <summary>The host end block as it stands now. Never throws (a torn read is a Fighting block).</summary>
++        internal static EndBlock SampleHost()
++        {
++            EndBlock e = new EndBlock();
++            Byte phase, seq, result, ui, resState;
++            ReadHostRaw(out phase, out seq, out result, out ui, out resState);
++            e.Phase = phase;
++            e.Seq = seq;
++            e.Result = result;
++            e.Ui = ui;
++            e.ResState = resState;
++            e.Kind = ClassifyEnd(phase, seq, result);
++            try
++            {
++                BONUS bonus = battle.btl_bonus;
++                if (bonus != null)
++                {
++                    if (bonus.Event)
++                        e.Flags |= FlagAfterEvent;
++                    if (bonus.escape_gil)
++                        e.Flags |= FlagEscapeGil;
++                }
++                if ((FF9StateSystem.Common.FF9.btl_flag & battle.BTL_CONTI_FLD_SONG) != 0)
++                    e.Flags |= FlagFieldSong;
++            }
++            catch { }
++            if (e.Kind == KVictoryPending || e.Kind == KVictory)
++                e.WinPoseMask = SampleWinPose();
++            return e;
++        }
++
++        // Bit per host btl_data slot whose player strikes the win pose: the victory tail's own test (battle.cs, the
++        // SEQ_MENU_OFF_VICTORY* case) -- a WinPose scene, a linked player with hp > 0 and none of BattleEndFull. Carried now,
++        // applied by a later round (owner decision 18). The slot is the btl_id's bit (bounded scan, never GetIndex).
++        private static Byte SampleWinPose()
++        {
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                if (b == null || b.btl_scene == null || !b.btl_scene.Info.WinPose || b.btl_list == null)
++                    return 0;
++                Int32 mask = 0;
++                Int32 guard = 0;
++                for (BTL_DATA d = b.btl_list.next; d != null && guard < 16; d = d.next, guard++)
++                {
++                    if (d.bi.player == 0 || d.cur.hp == 0 || btl_stat.CheckStatus(d, BattleStatusConst.BattleEndFull))
++                        continue;
++                    for (Int32 i = 0; i < 8; i++)
++                        if (d.btl_id == (UInt16)(1 << i))
++                            mask |= 1 << i;
++                }
++                return (Byte)mask;
++            }
++            catch
++            {
++                return 0;
++            }
++        }
++
++        /// <summary>
++        /// NetSyncBattle.SampleOwnBattle, after the unit-count backpatch: append this sample's END BLOCK trailer. The record
++        /// is encoded in full BEFORE the single write, so a fault leaves the frame trailer-less (a pre-B5 frame), never
++        /// half-written. The calibration lever `off` writes nothing. Never throws.
++        /// </summary>
++        internal static void WriteHostTrailer(BinaryWriter bw)
++        {
++            try
++            {
++                if (HostMode == ModeOff)
++                {
++                    _lastHost = null;
++                    return;
++                }
++                EndBlock e = SampleHost();
++                Byte[] t = EncodeTrailer(e, null);
++                bw.Write(t);
++                _lastHost = e;
++                NoteHostShipped(e);
++            }
++            catch
++            {
++                // swallow -- the netsync fail-safe law: the frame ships without a trailer
++            }
++        }
++
++        private static void NoteHostShipped(EndBlock e)
++        {
++            AppendTrail(_hostTrail, ref _hostTrailKey, e);
++            if (e.Kind == _hostLoggedKind && e.Ui == _hostLoggedUi)
++                return;
++            Boolean first = _hostLoggedKind == 0xFF;
++            String was = first ? null : KindName(_hostLoggedKind) + " ui " + _hostLoggedUi;
++            _hostLoggedKind = e.Kind;
++            _hostLoggedUi = e.Ui;
++            if (first && e.Kind == KFighting && e.Ui == UiOther)
++                return;                             // the ordinary opening: nothing to say
++            Log.Message("[NetSync] battle end block (host): " + (was != null ? was + " -> " : "") + e
++                        + " -- shipped on the type-1 lane");
++        }
++
++        // One compact trail entry per DISTINCT (kind, ui, resState) in arrival order: "kind/ui/state" with an L suffix while
++        // Loading, "-" for no result screen ("2/1/2L"). Capped (one "..." marks the cap); the harness reads the whole walk
++        // in one read, whatever its poll rate.
++        private static void AppendTrail(List<String> trail, ref Int32 lastKey, EndBlock e)
++        {
++            Int32 key = e.Kind | (e.Ui << 8) | (e.ResState << 16);
++            if (key == lastKey)
++                return;
++            lastKey = key;
++            if (trail.Count > TrailCap)
++                return;
++            if (trail.Count == TrailCap)
++            {
++                trail.Add("...");
++                return;
++            }
++            trail.Add(e.Kind + "/" + e.Ui + "/" + (e.ResState == ResNoScreen ? "-" : e.State + (e.Loading ? "L" : "")));
++        }
++
++        // ==================================================================================== the guest side
++        private static Boolean _peerArmed;
++        private static Byte _peerNonce;
++        private static readonly List<String> _peerTrail = new List<String>(24);
++        private static Int32 _peerTrailKey = -1;
++        private static Byte _peerLoggedKind = 0xFF;
++        private static Byte _peerLoggedUi = 0xFF;
++
++        /// <summary>NetSyncBattle's pumps, on every freshly parsed peer view (seq-advanced on the transport; every tick on
++        /// the selftest loopback): a new battle nonce restarts the trail; a (kind, ui) change logs one line. Never throws.</summary>
++        internal static void NotePeer(Byte nonce, EndBlock e)
++        {
++            try
++            {
++                if (!_peerArmed || nonce != _peerNonce)
++                {
++                    _peerArmed = true;
++                    _peerNonce = nonce;
++                    _peerTrail.Clear();
++                    _peerTrailKey = -1;
++                    _peerLoggedKind = 0xFF;
++                    _peerLoggedUi = 0xFF;
++                }
++                if (e == null)
++                    return;
++                AppendTrail(_peerTrail, ref _peerTrailKey, e);
++                if (e.Kind == _peerLoggedKind && e.Ui == _peerLoggedUi)
++                    return;
++                Boolean first = _peerLoggedKind == 0xFF;
++                String was = first ? null : KindName(_peerLoggedKind) + " ui " + _peerLoggedUi;
++                _peerLoggedKind = e.Kind;
++                _peerLoggedUi = e.Ui;
++                if (first && e.Kind == KFighting && e.Ui == UiOther)
++                    return;
++                Log.Message("[NetSync] battle end block (peer, nonce " + nonce + "): " + (was != null ? was + " -> " : "") + e);
++            }
++            catch { }
++        }
++
++        internal static NetSyncBattle.PeerEnd ToPeer(EndBlock b, Byte nonce, UInt16 wireSeq, Boolean bench)
++        {
++            NetSyncBattle.PeerEnd p = new NetSyncBattle.PeerEnd();
++            p.Kind = b.Kind;
++            p.Phase = b.Phase;
++            p.Seq = b.Seq;
++            p.Result = b.Result;
++            p.Ui = b.Ui;
++            p.ResState = b.ResState;
++            p.Flags = b.Flags;
++            p.WinPoseMask = b.WinPoseMask;
++            p.ManifestLen = b.ManifestLen;
++            p.Rows = 0;                             // stage 9 parses the manifest
++            p.Nonce = nonce;
++            p.WireSeq = wireSeq;
++            p.Bench = bench;
++            return p;
++        }
++
++        // ==================================================================================== the selftest bench
++        private const Byte BenchNonce = 0xB5;       // distinctive: never a real host's first battles
++        private static Boolean _benchArmed;
++        private static NetSyncBattle.PeerEnd _benchEnd;
++        private static UInt16 _benchSeq;
++        // the template the bench verbs edit (raw fields: kind is DERIVED through ClassifyEnd at fabricate time)
++        private static Byte _bPhase = FF9StateBattleSystem.PHASE_NORMAL, _bSeq, _bResult, _bUi, _bState, _bFlags;
++        private static Boolean _bLoading;
++        // the victory-edge command one-shot (`endbench cmd [hex]`)
++        private static Boolean _cmdArmed;
++        private static Byte[] _cmdFrame;
++        private static String _cmdStatus;           // null / "armed" / "fired <kind>" / "failed: ..."
++        private static readonly Byte[] DefaultCmdFrame = { 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00 };
++
++        /// <summary>The bench seam (selftest role only): the last fabricated end block, decoded through the real ParseView.
++        /// False when nothing is armed or the role is not selftest (a bench stranded across an ini edit never serves).
++        /// PULLED FORWARD from stages 5-6 (design 6.5's file table) so stage 4 proves the codec in game through the real
++        /// ParseView; stage 5's EndTick is its first consumer (design 5.3: `e.Bench || e.Nonce == BootedWireNonce`).</summary>
++        internal static Boolean TryGetBenchEnd(out NetSyncBattle.PeerEnd e)
++        {
++            e = _benchEnd;
++            return _benchArmed && NetSyncBattle.Enabled && NetSyncClient.IsSelfTestRole;
++        }
++
++        // An own battle's rising edge (NoteHostBattleStart): the selftest loopback is about to carry the host's REAL end
++        // block, and TryGetPeerEnd serves the bench FIRST, so a fabricated end left armed by an earlier bench would shadow
++        // it in `netsync.battle.peer.end` (S4-1). Only the served end goes: the template, the `cmd` one-shot (armed FOR
++        // this battle's end edge) and the lever stay. A diorama is never an own battle (gMode stays 1, and Pump also
++        // checks !Booted), so a guest bench's fabricated end survives its dioboot. `endbench <op>` mid-battle re-arms it.
++        private static void DisarmStaleBenchEnd()
++        {
++            try
++            {
++                if (!_benchArmed)
++                    return;
++                _benchArmed = false;
++                _benchEnd = default(NetSyncBattle.PeerEnd);
++                Log.Message("[NetSync] harness: endbench end disarmed -- an own battle started, so peer.end now serves the "
++                            + "loopback's real end block (`endbench <op>` re-arms the bench for this battle)");
++            }
++            catch { }
++        }
++
++        /// <summary>SelfTestPump, every own-battle tick after its sample: the armed `endbench cmd` frame goes onto the loopback
++        /// command lane the first time the host's SHIPPED block reads an end kind (VictoryPending .. OtherEnd) -- the
++        /// victory-edge leg of the host-gates bench, timed by the end block instead of a poll. Drained the same tick.</summary>
++        internal static void BenchCommandTick()
++        {
++            if (!_cmdArmed)
++                return;
++            try
++            {
++                EndBlock h = _lastHost;
++                if (h == null || !IsEndKind(h.Kind))
++                    return;
++                _cmdArmed = false;
++                String why;
++                Boolean ok = NetSyncBattle.HarnessQueueCommand(_cmdFrame, out why);
++                _cmdStatus = ok ? "fired " + KindName(h.Kind) : "failed: " + why;
++                Log.Message("[NetSync] harness: endbench cmd -- the host's end edge (" + h + ") "
++                            + (ok ? "queued the frame on the loopback (drained this tick)" : "could NOT queue the frame: " + why));
++            }
++            catch (Exception ex)
++            {
++                _cmdArmed = false;
++                _cmdStatus = "failed: " + ex.GetType().Name;
++            }
++        }
++
++        /// <summary>
++        /// `netsync endbench &lt;op&gt;` (selftest role only):
++        ///   victory | pending | nopose | other &lt;res&gt; | defeat | escape | event | fight
++        ///                       set the template's raw (phase, seq, result); kind comes out of ClassifyEnd
++        ///   ui &lt;0-3&gt; | state &lt;0-8&gt; [loading] | overflow 0|1 | afterevent 0|1
++        ///                       set that field (resState rides only while ui == 1, as on a host)
++        ///   each of the above re-FABRICATES: encode -> a type-1 frame -> the REAL ParseView -> the parsed block is served
++        ///   as the BENCH end (TryGetPeerEnd, Bench = true; its wire seq advances per fabricate). A round trip that does not
++        ///   reproduce every field FAILS the verb. The next own battle's rising edge disarms it (DisarmStaleBenchEnd).
++        ///   cmd [hex]            arm the victory-edge one-shot (default: slot 1 Attack at enemy slot 4)
++        ///   host on|cadence|off  the stage's calibration lever (see HostMode)
++        ///   selftest             run SelfTest (fails the verb on FAIL)
++        ///   clear                disarm the bench end and the one-shot (the lever stays; a release resets it)
++        ///   manifest             refused: the result manifest is stage 9
++        /// </summary>
++        public static Boolean HarnessEndBench(String op, Int32 arg, Boolean loading, Byte[] frame, String mode, out String why)
++        {
++            why = null;
++            if (!NetSyncBattle.Enabled || !NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync endbench: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            try
++            {
++                switch (op)
++                {
++                    case "victory":
++                        SetRaw(FF9StateBattleSystem.PHASE_VICTORY, FF9StateBattleSystem.SEQ_VICTORY_CAMERA_MOVE, FF9StateGlobal.BTL_RESULT_VICTORY);
++                        break;
++                    case "pending":
++                        SetRaw(FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY, FF9StateGlobal.BTL_RESULT_INITIAL);
++                        break;
++                    case "nopose":
++                        SetRaw(FF9StateBattleSystem.PHASE_CLOSE, FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT, FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE);
++                        break;
++                    case "other":
++                        if (arg < 0 || arg > 255)
++                        {
++                            why = "netsync endbench other: needs a btl_result 0-255 (5 interruption, 7 enemy flee, ...)";
++                            return false;
++                        }
++                        SetRaw(FF9StateBattleSystem.PHASE_CLOSE, FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT, (Byte)arg);
++                        break;
++                    case "defeat":
++                        SetRaw(FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_DEFEAT, FF9StateGlobal.BTL_RESULT_INITIAL);
++                        break;
++                    case "escape":
++                        SetRaw(FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE, FF9StateGlobal.BTL_RESULT_INITIAL);
++                        break;
++                    case "event":
++                        SetRaw(FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_EVENT, FF9StateGlobal.BTL_RESULT_INITIAL);
++                        break;
++                    case "fight":
++                        SetRaw(FF9StateBattleSystem.PHASE_NORMAL, 0, FF9StateGlobal.BTL_RESULT_INITIAL);
++                        break;
++                    case "ui":
++                        if (arg < 0 || arg > 3)
++                        {
++                            why = "netsync endbench ui: needs 0 (battle/other), 1 (BattleResult), 2 (GameOver) or 3 (Title)";
++                            return false;
++                        }
++                        _bUi = (Byte)arg;
++                        break;
++                    case "state":
++                        if (arg < ResStart || arg > ResNone)
++                        {
++                            why = "netsync endbench state: needs a ResultState 0-8 (0 Start .. 6 End, 7 Hide, 8 None) [loading]";
++                            return false;
++                        }
++                        _bState = (Byte)arg;
++                        _bLoading = loading;
++                        break;
++                    case "overflow":
++                    case "afterevent":
++                        if (arg != 0 && arg != 1)
++                        {
++                            why = "netsync endbench " + op + ": needs 0|1";
++                            return false;
++                        }
++                        Byte bit = op == "overflow" ? FlagItemOverflow : FlagAfterEvent;
++                        _bFlags = (Byte)(arg != 0 ? _bFlags | bit : _bFlags & ~bit);
++                        break;
++                    case "cmd":
++                        if (frame != null && (frame.Length == 0 || frame.Length > 64))
++                        {
++                            why = "netsync endbench cmd: needs 1..64 bytes of hex (a v1 command frame is 9)";
++                            return false;
++                        }
++                        _cmdFrame = frame ?? DefaultCmdFrame;
++                        _cmdArmed = true;
++                        _cmdStatus = "armed";
++                        Log.Message("[NetSync] harness: endbench cmd ARMED -- frame [" + BitConverter.ToString(_cmdFrame).Replace('-', ' ')
++                                    + "] goes onto the selftest loopback at the host's next end edge (an own battle's first "
++                                    + "end-kind sample)");
++                        return true;
++                    case "host":
++                        Int32 m = mode == "on" ? ModeOn : mode == "cadence" ? ModeCadence : mode == "off" ? ModeOff : -1;
++                        if (m < 0)
++                        {
++                            why = "netsync endbench host: needs on|cadence|off";
++                            return false;
++                        }
++                        _benchHostMode = m;
++                        Log.Message("[NetSync] harness: end-block host " + ModeName(m).ToUpperInvariant() + (m == ModeOn ? ""
++                                    : m == ModeCadence ? " -- CALIBRATION: the trailer ships on the plain SampleMs cadence (no change-triggered sample; the tracker still counts end_changes)"
++                                    : " -- CALIBRATION: the pre-stage host (no end-block trailer, no change-triggered sample; the tracker still counts end_changes)"));
++                        return true;
++                    case "selftest":
++                        String detail;
++                        Boolean ok = SelfTest(out detail);
++                        Log.Message("[NetSync] harness: battle end-block selftest " + (ok ? "OK (" : "FAIL (") + detail + ")");
++                        if (!ok)
++                            why = "netsync endbench selftest: FAIL -- " + detail;
++                        return ok;
++                    case "clear":
++                        Boolean had = _benchArmed || _cmdArmed;
++                        ClearBench();
++                        Log.Message("[NetSync] harness: endbench cleared" + (had ? " (bench end and command one-shot disarmed)" : " (nothing was armed)"));
++                        return true;
++                    case "manifest":
++                        why = "netsync endbench manifest: the result manifest is stage 9 -- this engine ships the end block only";
++                        return false;
++                    default:
++                        why = "netsync endbench: unknown op '" + op + "' (victory|pending|nopose|other|defeat|escape|event|fight|ui|state|"
++                              + "overflow|afterevent|cmd|host|selftest|clear)";
++                        return false;
++                }
++                return Fabricate(op, out why);
++            }
++            catch (Exception ex)
++            {
++                why = "netsync endbench " + op + ": faulted -- " + ex.GetType().Name + ": " + ex.Message;
++                return false;
++            }
++        }
++
++        private static void SetRaw(Byte phase, Byte seq, Byte result)
++        {
++            _bPhase = phase;
++            _bSeq = seq;
++            _bResult = result;
++        }
++
++        // The template -> an EndBlock exactly as a host would ship it -> the codec -> a type-1 frame -> ParseView. The
++        // parsed block, not the template, becomes the bench end: the bench cannot serve what the codec cannot carry.
++        private static Boolean Fabricate(String op, out String why)
++        {
++            why = null;
++            EndBlock b = new EndBlock();
++            b.Phase = _bPhase;
++            b.Seq = _bSeq;
++            b.Result = _bResult;
++            b.Kind = ClassifyEnd(_bPhase, _bSeq, _bResult);
++            b.Ui = _bUi;
++            b.ResState = _bUi == UiResult ? (Byte)(_bState | (_bLoading ? ResLoadingBit : 0)) : ResNoScreen;
++            b.Flags = _bFlags;
++            b.WinPoseMask = (Byte)(b.Kind == KVictoryPending || b.Kind == KVictory ? 0x0F : 0);
++            UInt16 seq = ++_benchSeq;
++            Int32 unitsEnd;
++            Byte[] payload = NetSyncBattle.BuildEndBenchFrame(seq, BenchNonce, 0, EncodeTrailer(b, null), out unitsEnd);
++            Int32 units;
++            Boolean viewOk;
++            UInt16 parsedSeq;
++            Byte parsedNonce;
++            EndBlock got = NetSyncBattle.ParseEndThroughView(payload, out units, out viewOk, out parsedSeq, out parsedNonce);
++            if (!viewOk)
++            {
++                why = "netsync endbench " + op + ": ParseView rejected the fabricated frame";
++                return false;
++            }
++            if (got == null || !got.SameAs(b) || parsedSeq != seq || parsedNonce != BenchNonce)
++            {
++                why = "netsync endbench " + op + ": the codec mangled the block -- sent " + b + ", parsed "
++                      + (got != null ? got.ToString() : "nothing") + " (seq " + parsedSeq + "/" + seq + ", nonce " + parsedNonce + ")";
++                return false;
++            }
++            _benchEnd = ToPeer(got, parsedNonce, parsedSeq, true);
++            _benchArmed = true;
++            Log.Message("[NetSync] harness: endbench " + op + " -- fabricated " + got + " through the real ParseView ("
++                        + payload.Length + " B frame, trailer at +" + unitsEnd + ", wire seq " + parsedSeq + "); served as the BENCH end");
++            return true;
++        }
++
++        private static void ClearBench()
++        {
++            _benchArmed = false;
++            _benchEnd = default(NetSyncBattle.PeerEnd);
++            _bPhase = FF9StateBattleSystem.PHASE_NORMAL;
++            _bSeq = 0;
++            _bResult = 0;
++            _bUi = UiOther;
++            _bState = 0;
++            _bLoading = false;
++            _bFlags = 0;
++            _cmdArmed = false;
++            _cmdFrame = null;
++            _cmdStatus = null;
++        }
++
++        /// <summary>Every harness release (NetSyncBattle.HarnessReleaseBench): the bench end, the template, the one-shot and
++        /// the calibration lever all go back to rest. Never throws.</summary>
++        internal static void HarnessRelease()
++        {
++            try
++            {
++                if (_benchHostMode != ModeOn)
++                    Log.Message("[NetSync] harness: end-block host back ON (released with the harness)");
++                _benchHostMode = ModeOn;
++                if (_benchArmed || _cmdArmed)
++                    Log.Message("[NetSync] harness: endbench released (bench end / command one-shot disarmed)");
++                ClearBench();
++            }
++            catch { }
++        }
++
++        // ==================================================================================== harness reads (B5 stage 4)
++        // Read-only, main thread, never throw.
++        public static EndBlock HarnessHostEnd { get { return _lastHost; } }
++        public static Int32 HarnessHostEdges { get { return _hostEdges; } }
++        public static Int32 HarnessHostChanges { get { return _hostChanges; } }
++        public static String HarnessHostMode { get { return ModeName(HostMode); } }
++        public static String HarnessCmdStatus { get { return _cmdStatus; } }
++        public static Int32 HarnessTrailerBad { get { return _trailerBad; } }
++        public static Int32 HarnessTrailerSkipped { get { return _trailerSkipped; } }
++        public static String HarnessTrailerBadWhy { get { return _trailerBadWhy; } }
++        public static List<String> HarnessHostTrail() { return new List<String>(_hostTrail); }
++        public static List<String> HarnessPeerTrail() { return new List<String>(_peerTrail); }
++
++        // ==================================================================================== SelfTest
++        /// <summary>
++        /// The stage's offline-provable half: ClassifyEnd (incl. the var-32 pin: MENU_OFF/EVENT is NOT an end; CLOSE + DEFEAT
++        /// is Defeat), ChaseStep (the whole 9x9x2 table, incl. the pins: None is never chased; a host at EndEXPAndAP without
++        /// Loading is never stepped to), and the codec through the REAL ParseView (a full frame round-trips with its units;
++        /// EVERY truncated prefix from the end of the units on keeps the units and refuses the block; a trailer-less frame;
++        /// an unknown-fmt record skipped; foreign bytes; a short block; a manifest body skipped by its len). Pure apart from
++        /// ParseView's own statics (the bad-trailer counter is muted for the sweep). Never throws.
++        /// </summary>
++        public static Boolean SelfTest(out String detail)
++        {
++            List<String> fails = new List<String>();
++            Int32 classify = 0, chase = 0, codec = 0;
++            Boolean wasQuiet = _quiet;
++            try
++            {
++                // ---- ClassifyEnd ----
++                Byte[] fighting = { FF9StateBattleSystem.PHASE_INIT_SYSTEM, FF9StateBattleSystem.PHASE_ENTER, FF9StateBattleSystem.PHASE_MENU_ON, FF9StateBattleSystem.PHASE_NORMAL };
++                foreach (Byte ph in fighting)
++                    ExpectKind(fails, ref classify, ph, 0, FF9StateGlobal.BTL_RESULT_VICTORY, KFighting, "phase " + ph);
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY, 0, KVictoryPending, "menu-off victory");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY_WITH_ENEMY, 0, KVictoryPending, "menu-off victory-with-enemy");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_DEFEAT, 0, KDefeat, "menu-off defeat");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE, 0, KEscape, "menu-off escape");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_EVENT, 0, KEvent, "PIN seq-2-is-not-an-end (var 32)");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_EVENT, FF9StateGlobal.BTL_RESULT_VICTORY, KEvent, "PIN seq-2-ignores-result");
++                for (Byte s = 0; s <= 2; s++)
++                    ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_VICTORY, s, FF9StateGlobal.BTL_RESULT_VICTORY, KVictory, "victory seq " + s);
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_DEFEAT, 0, FF9StateGlobal.BTL_RESULT_DEFEAT, KDefeat, "defeat");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_CLOSE, 0, FF9StateGlobal.BTL_RESULT_VICTORY, KVictoryNoPose, "close victory");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_CLOSE, 1, FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE, KVictoryNoPose, "close no-pose");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_CLOSE, 0, FF9StateGlobal.BTL_RESULT_ESCAPE, KEscape, "close escape");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_CLOSE, 0, FF9StateGlobal.BTL_RESULT_DEFEAT, KDefeat, "PIN close+defeat-is-defeat");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_CLOSE, 0, FF9StateGlobal.BTL_RESULT_GAMEOVER, KDefeat, "close gameover");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_CLOSE, 0, FF9StateGlobal.BTL_RESULT_INTERRUPTION, KOtherEnd, "close interruption");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_CLOSE, 0, FF9StateGlobal.BTL_RESULT_ENEMY_FLEE, KOtherEnd, "close enemy-flee");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_CLOSE, 0, FF9StateGlobal.BTL_RESULT_INITIAL, KOtherEnd, "close initial");
++                ExpectKind(fails, ref classify, FF9StateBattleSystem.PHASE_EVENT, 0, 0, KEvent, "event");
++                if (IsEndKind(KFighting) || IsEndKind(KEvent) || !IsEndKind(KVictoryPending) || !IsEndKind(KOtherEnd))
++                    fails.Add("IsEndKind");
++
++                // ---- ChaseStep: the whole table against its specification, then the named pins ----
++                for (Int32 l = ResStart; l <= ResNone; l++)
++                {
++                    for (Int32 h = ResStart; h <= ResNone; h++)
++                    {
++                        for (Int32 ld = 0; ld < 2; ld++)
++                        {
++                            Boolean want = ChaseSpec(l, h, ld != 0);
++                            chase++;
++                            if (ChaseStep(l, h, ld != 0) != want)
++                                fails.Add("chase L" + l + " H" + h + (ld != 0 ? "L" : "") + " != " + want);
++                        }
++                    }
++                }
++                for (Int32 l = ResStart; l <= ResNone; l++)
++                    if (ChaseStep(l, ResNone, false) || ChaseStep(l, ResNone, true))
++                        fails.Add("PIN none-is-never-chased (L" + l + ")");
++                if (ChaseStep(ResEndExp, ResEndExp, false) || ChaseStep(ResExpTick, ResEndExp, false))
++                    fails.Add("PIN no-step-at-natural-EndEXPAndAP");
++                if (!ChaseStep(ResExpTick, ResEndExp, true) || !ChaseStep(ResEndExp, ResEndExp, true))
++                    fails.Add("PIN the-host-fade-steps-the-tick-pages");
++                if (!ChaseStep(ResEnd, ResHide, false) || ChaseStep(ResEnd, ResEnd, false) || ChaseStep(ResHide, ResHide, false))
++                    fails.Add("PIN end-steps-only-to-hide");
++                if (ChaseStep(ResStart, -1, false) || ChaseStep(ResStart, 9, false) || ChaseStep(-1, ResHide, false))
++                    fails.Add("chase out-of-range");
++                Int32 stEnd = ResEnd, stHide = ResHide, stNone = ResNone;   // locals: a constant condition would fold away
++                if (stNone <= stHide || stHide != stEnd + 1)
++                    fails.Add("PIN the engine's ResultState order (None after Hide after End)");
++
++                // ---- the codec, through the REAL ParseView ----
++                _quiet = true;
++                EndBlock m = new EndBlock();
++                m.Kind = KVictoryNoPose; m.Phase = FF9StateBattleSystem.PHASE_CLOSE; m.Seq = 1; m.Result = FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE;
++                m.Ui = UiResult; m.ResState = (Byte)(ResStartGil | ResLoadingBit);
++                m.Flags = (Byte)(FlagAfterEvent | FlagEscapeGil | FlagFieldSong); m.WinPoseMask = 0x0B;
++                Byte[] trailer = EncodeTrailer(m, null);
++                Int32 unitsEnd;
++                Byte[] full = NetSyncBattle.BuildEndBenchFrame(0x1234, 0x5A, 2, trailer, out unitsEnd);
++                Codec(fails, ref codec, "full frame", full, 2, m, 0);
++                for (Int32 cut = unitsEnd; cut < full.Length; cut++)
++                    Codec(fails, ref codec, "prefix " + cut + "/" + full.Length, Prefix(full, cut), 2, null, 0);
++                Byte[] unknown = { TrailerMagic, 0x02, 0x03, 0x00, 0xAA, 0xBB, 0xCC };
++                Codec(fails, ref codec, "unknown fmt skipped", NetSyncBattle.BuildEndBenchFrame(7, 1, 1, Concat(unknown, trailer), out unitsEnd), 1, m, 0);
++                Codec(fails, ref codec, "unknown fmt alone", NetSyncBattle.BuildEndBenchFrame(7, 1, 1, unknown, out unitsEnd), 1, null, 0);
++                Codec(fails, ref codec, "foreign trailing bytes", NetSyncBattle.BuildEndBenchFrame(7, 1, 1, new Byte[] { 0x00, 0x01, 0x02, 0x03, 0x04 }, out unitsEnd), 1, null, 0);
++                Byte[] shortBlock = { TrailerMagic, FmtEnd, 0x05, 0x00, 1, 2, 3, 4, 5 };
++                Codec(fails, ref codec, "short block", NetSyncBattle.BuildEndBenchFrame(7, 1, 1, shortBlock, out unitsEnd), 1, null, 0);
++                Byte[] manifest = new Byte[13];
++                for (Int32 i = 0; i < manifest.Length; i++)
++                    manifest[i] = (Byte)(0xE0 + i);
++                EndBlock mm = m.Clone();
++                mm.Flags |= FlagManifest;
++                Byte[] withManifest = NetSyncBattle.BuildEndBenchFrame(9, 2, 3, EncodeTrailer(m, manifest), out unitsEnd);
++                Codec(fails, ref codec, "manifest skipped by len", withManifest, 3, mm, manifest.Length);
++                for (Int32 cut = unitsEnd; cut < withManifest.Length; cut++)
++                    Codec(fails, ref codec, "manifest prefix " + cut, Prefix(withManifest, cut), 3, null, 0);
++                Byte[] grown = Concat(trailer, new Byte[0]);
++                grown[2] = EndBlockLen + 2;          // a later fmt-1 growth WITHOUT b1: the extra body is skipped
++                Codec(fails, ref codec, "fmt-1 growth skipped", NetSyncBattle.BuildEndBenchFrame(9, 2, 0, Concat(grown, new Byte[] { 0x77, 0x77 }), out unitsEnd), 0, m, 0);
++                Codec(fails, ref codec, "trailer-less frame", NetSyncBattle.BuildEndBenchFrame(3, 3, 4, null, out unitsEnd), 4, null, 0);
++                Codec(fails, ref codec, "trailer-only frame", NetSyncBattle.BuildEndBenchFrame(3, 3, 0, trailer, out unitsEnd), 0, m, 0);
++            }
++            catch (Exception ex)
++            {
++                fails.Add("faulted: " + ex.GetType().Name + ": " + ex.Message);
++            }
++            finally
++            {
++                _quiet = wasQuiet;
++            }
++            String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec;
++            if (fails.Count == 0)
++            {
++                detail = counts;
++                return true;
++            }
++            detail = counts + "; " + fails.Count + " failure(s): " + String.Join("; ", fails.GetRange(0, Math.Min(fails.Count, 6)).ToArray())
++                     + (fails.Count > 6 ? "; ..." : "");
++            return false;
++        }
++
++        // The design-5.6 table, restated as data for the sweep (the pins above name the cases a mutant would break).
++        private static Boolean ChaseSpec(Int32 l, Int32 h, Boolean loading)
++        {
++            if (h == ResNone)
++                return false;
++            if (l == ResStart) return h > ResStart;
++            if (l == ResExpTick || l == ResEndExp) return h > ResEndExp || (h == ResEndExp && loading);
++            if (l == ResStartGil) return h > ResStartGil;
++            if (l == ResItemFull) return h > ResItemFull;
++            if (l == ResGilTick) return h > ResGilTick;
++            if (l == ResEnd) return h == ResHide;
++            return false;
++        }
++
++        private static void ExpectKind(List<String> fails, ref Int32 n, Byte phase, Byte seq, Byte result, Byte want, String what)
++        {
++            n++;
++            Byte got = ClassifyEnd(phase, seq, result);
++            if (got != want)
++                fails.Add("classify " + what + ": " + KindName(got) + " != " + KindName(want));
++        }
++
++        private static void Codec(List<String> fails, ref Int32 n, String what, Byte[] payload, Int32 wantUnits, EndBlock want, Int32 wantManifest)
++        {
++            n++;
++            Int32 units;
++            Boolean viewOk;
++            UInt16 seq;
++            Byte nonce;
++            EndBlock got = NetSyncBattle.ParseEndThroughView(payload, out units, out viewOk, out seq, out nonce);
++            if (!viewOk)
++                fails.Add("codec " + what + ": the view was refused (units must be kept)");
++            else if (units != wantUnits)
++                fails.Add("codec " + what + ": " + units + " unit(s) != " + wantUnits);
++            else if (want == null && got != null)
++                fails.Add("codec " + what + ": a block was accepted (" + got + ")");
++            else if (want != null && (got == null || !got.SameAs(want) || got.ManifestLen != wantManifest))
++                fails.Add("codec " + what + ": " + (got != null ? got + " manifest " + got.ManifestLen : "no block") + " != " + want);
++        }
++
++        private static Byte[] Prefix(Byte[] a, Int32 n)
++        {
++            Byte[] p = new Byte[n];
++            Buffer.BlockCopy(a, 0, p, 0, n);
++            return p;
++        }
++
++        private static Byte[] Concat(Byte[] a, Byte[] b)
++        {
++            Byte[] c = new Byte[a.Length + b.Length];
++            Buffer.BlockCopy(a, 0, c, 0, a.Length);
++            Buffer.BlockCopy(b, 0, c, a.Length, b.Length);
++            return c;
++        }
++    }
++}

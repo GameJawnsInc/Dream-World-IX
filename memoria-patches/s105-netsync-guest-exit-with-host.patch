@@ -1,0 +1,948 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+index 8b4ae4c..8a21310 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+@@ -50,6 +50,15 @@ namespace Memoria.Netsync
+     // two watchdog predicates (W1Due, W2Due), all pinned by SelfTest's `present` section -- and its selftest-only
+     // calibration lever `endbench guest on|off|settle` (GuestMode). The engine half (EndTick, InjectEnd, R8's NoteR8, the
+     // watchdogs' actions, the achievement hold) lives in NetSyncDiorama.
++    //
++    // [ff9mapkit netsync B5] stage 6 -- THE GUEST EXIT WITH THE HOST (design 5.4; section 7, stage 6). The guest leaves its
++    // diorama when the host leaves its battle -- the result screen's Hide, Game Over or the title -- retrying at 1 Hz while
++    // a scene fade defers Leave (design 3.8 item 2); its return carries the host's btl_result (the F3.3 GetBattleResult = 0
++    // residue closes), the battle song / fanfare is shut down the stock way, and a watcher boot into an already-finished
++    // fight is declined (one line per battle). THIS file holds the stage's PURE half -- HostExitTrigger, StampResult,
++    // StampFor, IsTerminal, DeclineLateJoin and ExitVerdict, pinned by SelfTest's `exit` section -- the late-join receipts, and the
++    // selftest-only calibration lever `endbench exit on|off` (GuestExitMode). The engine half (ExitTick, the Leave-time
++    // settle, the teardown stamp) lives in NetSyncDiorama; the late-join call site in NetSyncClient.DioramaTick.
+     public static class NetSyncEnd
+     {
+         // ---- the trailer (design 6.2) ----
+@@ -333,6 +342,181 @@ namespace Memoria.Netsync
+             return mode == GuestOff ? "off" : mode == GuestSettle ? "settle" : "on";
+         }
+ 
++        // ==================================================================================== the guest exit (stage 6)
++        // [ff9mapkit netsync B5] stage 6 -- the PURE half of the guest's exit WITH the host (design 5.4; section 7, stage 6).
++        // Before this stage a guest whose diorama presented the host's end held black at the WAIT seq until the watcher's
++        // stale-lane leave, ~2 s after the host was already back on its field (design 3.6). The engine half
++        // (NetSyncDiorama.ExitTick, the Leave-time settle, the teardown stamp; NetSyncClient's late-join decline) asks these
++        // functions every question about WHEN to leave, WHAT btl_result the return carries and WHETHER a late join boots, so
++        // SelfTest's `exit` section can falsify each of them offline. None of them reads or writes engine state.
++        public const Int32 ExitRetryMs = 1000;      // one end-leave attempt per second (design 3.8 item 2: Leave defers mid-fade)
++
++        // The host's exit, as the end block's (ui, resState) name it. TriggerNone = the host is still in (or ending) its fight.
++        public const Int32 TriggerNone = 0;
++        public const Int32 TriggerResultHide = 1;   // ui 1 + ResultState Hide (the last Confirm, or InitialNone's 0.3 s exit)
++        public const Int32 TriggerGameOver = 2;     // ui 2: the guest leaves to its own field, never the Game Over screen
++        public const Int32 TriggerTitle = 3;        // ui 3: the host's Game Over reached the title (design 10 risk 4)
++
++        /// <summary>
++        /// Has the host left its battle (design 5.4: `(ui == 1 &amp;&amp; (resState &amp; 0x7F) == Hide) || ui == 2 || ui == 3`)?
++        /// Hide counts with or without Loading (the hide transition itself is Loading). None (8) -- an AfterEvent screen, or
++        /// no result screen -- never does: such a host leaves through its post-battle script and the watcher's stale-lane
++        /// leave covers it. Pure; never throws.
++        /// </summary>
++        public static Int32 HostExitTrigger(Byte ui, Byte resState)
++        {
++            if (ui == UiResult)
++                return resState != ResNoScreen && (resState & 0x7F) == ResHide ? TriggerResultHide : TriggerNone;
++            if (ui == UiGameOver)
++                return TriggerGameOver;
++            if (ui == UiTitle)
++                return TriggerTitle;
++            return TriggerNone;
++        }
++
++        public static String TriggerName(Int32 trigger)
++        {
++            switch (trigger)
++            {
++                case TriggerResultHide: return "result-hide";
++                case TriggerGameOver: return "game-over";
++                case TriggerTitle: return "title";
++                default: return null;
++            }
++        }
++
++        /// <summary>
++        /// The btl_result the guest's RETURN carries (design 5.4 step 3, owner decision 15): the host's final result, as the
++        /// host's own field will read it -- VICTORY_NO_POSE folds to VICTORY (stock HonoluluBattleMain.UpdateOverFrame's own
++        /// fold, before the result screen); DEFEAT (a NoGameOver loss), ESCAPE, INTERRUPTION and ENEMY_FLEE carry as they
++        /// are. -1 = stamp nothing: INITIAL (no result yet), GAMEOVER (the guest never takes the Game Over) and any value the
++        /// engine does not define (a garbage byte must never reach a Main_Reinit). Pure.
++        /// </summary>
++        public static Int32 StampResult(Byte hostResult)
++        {
++            switch (hostResult)
++            {
++                case FF9StateGlobal.BTL_RESULT_VICTORY:
++                case FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE:
++                    return FF9StateGlobal.BTL_RESULT_VICTORY;
++                case FF9StateGlobal.BTL_RESULT_DEFEAT:
++                case FF9StateGlobal.BTL_RESULT_ESCAPE:
++                case FF9StateGlobal.BTL_RESULT_INTERRUPTION:
++                case FF9StateGlobal.BTL_RESULT_ENEMY_FLEE:
++                    return hostResult;
++                default:
++                    return -1;
++            }
++        }
++
++        /// <summary>
++        /// StampResult in the fight's own scene: a DEFEAT in a scene WITHOUT NoGameOver is a Game Over in transit --
++        /// btl_sys.ManageBattleEnd rewrites DEFEAT to GAMEOVER whenever !NoGameOver, and it is the only road to IsOver -- so the
++        /// guest never carries it (owner decision 15: every outcome except Game Over). The host's end block shows DEFEAT for
++        /// ~33 frames before that rewrite (battle.cs PHASE_DEFEAT's WAIT), the window a held defeat invites a manual leave
++        /// into. [ff9mapkit netsync B5] stage 6 (fixer S6-1). Pure.
++        /// </summary>
++        public static Int32 StampFor(Byte hostResult, Boolean noGameOver)
++        {
++            if (hostResult == FF9StateGlobal.BTL_RESULT_DEFEAT && !noGameOver)
++                return -1;
++            return StampResult(hostResult);
++        }
++
++        /// <summary>Is the host's fight OVER: an end kind (victory-pending .. other-end), or the host already on its result
++        /// screen, at Game Over or at the title? Event (var 32's non-terminal MENU_OFF) with ui 0 is not. Pure.</summary>
++        public static Boolean IsTerminal(Int32 kind, Int32 ui)
++        {
++            return IsEndKind(kind) || (ui >= UiResult && ui <= UiTitle);
++        }
++
++        /// <summary>LATE JOIN (design 5.4, owner decision 16): may the watcher's boot of the live peer battle `bootNonce` go
++        /// ahead? True = DECLINE it -- the lane's own end block (same nonce, never the selftest bench seam) already says the
++        /// fight is over, so the guest would boot into a finished battle. Pure.</summary>
++        public static Boolean DeclineLateJoin(Int32 kind, Int32 ui, Int32 endNonce, Int32 bootNonce, Boolean bench)
++        {
++            return !bench && endNonce == bootNonce && IsTerminal(kind, ui);
++        }
++
++        // ExitVerdict's answers: Go = call Leave() now; every other value is why not (ExitWhy names it).
++        public const Int32 ExitGo = 0;
++        public const Int32 ExitHeldByLever = 1;     // `endbench exit off`: the pre-stage guest (holds until the stale-lane leave)
++        public const Int32 ExitNotLatched = 2;      // the host has not left its battle
++        public const Int32 ExitInFlight = 3;        // a leave (ours, the user's, the watcher's) is already in flight
++        public const Int32 ExitRateLimited = 4;     // less than ExitRetryMs since the last attempt
++        public const Int32 ExitFadeDefer = 5;       // a scene fade is in flight: Leave would defer (design 3.8 item 2)
++
++        /// <summary>May the end-leave call Leave() NOW? The order is the engine's: the lever, the latch, an in-flight leave
++        /// (never steal or double-issue one), the 1 Hz rate limit, then the fade (checked here so a deferral is counted and
++        /// logged once instead of Leave's own per-call line). Pure.</summary>
++        public static Int32 ExitVerdict(Int32 exitMode, Boolean latched, Boolean leaveInFlight, Boolean fading, Int32 sinceTryMs)
++        {
++            if (exitMode == ExitModeOff)
++                return ExitHeldByLever;
++            if (!latched)
++                return ExitNotLatched;
++            if (leaveInFlight)
++                return ExitInFlight;
++            if (sinceTryMs < ExitRetryMs)
++                return ExitRateLimited;
++            if (fading)
++                return ExitFadeDefer;
++            return ExitGo;
++        }
++
++        public static String ExitWhy(Int32 verdict)
++        {
++            switch (verdict)
++            {
++                case ExitGo: return null;
++                case ExitHeldByLever: return "the calibration lever `endbench exit off` holds the pre-stage guest (no end-leave, no settle)";
++                case ExitNotLatched: return "the host has not left its battle yet";
++                case ExitInFlight: return "a leave is already in flight (its teardown lands on arrival)";
++                case ExitRateLimited: return "rate-limited (one end-leave attempt per second)";
++                case ExitFadeDefer: return "a scene fade is in flight (Leave would defer) -- retrying at 1 Hz";
++                default: return "exit verdict " + verdict;
++            }
++        }
++
++        // SELFTEST CALIBRATION LEVER (harness `netsync endbench exit on|off`; cleared by every harness release): off = the
++        // pre-stage guest -- no end-leave (the diorama holds until the stale-lane leave or a manual `dioleave`), and no
++        // return settle (no btl_result stamp, no ff9ShutdownStateBattleResult, the injected end fade not lifted). The trigger
++        // still LATCHES and `end_leave.why` names the lever (the lever reverts the stage's path, not its instrument). Read
++        // only through GuestExitMode, which also needs the selftest role: a lever stranded across an ini edit can never hold
++        // a real guest.
++        public const Int32 ExitModeOn = 0, ExitModeOff = 1;
++        private static Int32 _benchExitMode = ExitModeOn;
++        public static Int32 GuestExitMode
++        {
++            get { return _benchExitMode != ExitModeOn && NetSyncClient.IsSelfTestRole ? _benchExitMode : ExitModeOn; }
++        }
++
++        private static String ExitModeName(Int32 mode)
++        {
++            return mode == ExitModeOff ? "off" : "on";
++        }
++
++        // The late-join receipts (NetSyncClient.DioramaTick, the watcher's boot path): monotonic per process, read DELTAS. The
++        // decline stamps the watcher's skip nonce, so each declined battle logs exactly once.
++        private static Int32 _lateDeclined;
++        private static Int32 _lateDeclinedNonce = -1;
++        private static String _lateDeclinedWhy;
++
++        /// <summary>NetSyncClient.DioramaTick, when DeclineLateJoin said no: count it and log the one line. Never throws.</summary>
++        internal static void NoteLateJoinDeclined(Int32 nonce, Byte kind, Byte ui, Byte result)
++        {
++            try
++            {
++                _lateDeclined++;
++                _lateDeclinedNonce = nonce;
++                _lateDeclinedWhy = "the host's battle (nonce " + nonce + ") was already over: " + KindName(kind) + ", ui " + ui
++                                   + ", result " + result;
++                Log.Message("[NetSync] diorama late join DECLINED -- " + _lateDeclinedWhy + "; the guest does not boot a "
++                            + "finished fight (the skip nonce is stamped: logged once per battle, declined=" + _lateDeclined + ")");
++            }
++            catch { }
++        }
++
+         // ==================================================================================== the codec
+         /// <summary>One fmt-1 record: header + the 8-byte end block (+ manifest bytes, which set flags b1). Pure.</summary>
+         public static Byte[] EncodeTrailer(EndBlock b, Byte[] manifest)
+@@ -870,6 +1054,8 @@ namespace Memoria.Netsync
+         ///   host on|cadence|off  the stage's calibration lever (see HostMode)
+         ///   guest on|off|settle  [ff9mapkit netsync B5] stage 5's calibration lever (see GuestMode): off = the pre-stage
+         ///                        guest presents nothing; settle = the victory injection writes the per-unit-settle seq
++        ///   exit on|off          [ff9mapkit netsync B5] stage 6's calibration lever (see GuestExitMode): off = the
++        ///                        pre-stage guest -- no end-leave, no return settle (the trigger still latches)
+         ///   selftest             run SelfTest (fails the verb on FAIL)
+         ///   clear                disarm the bench end and the one-shot (the lever stays; a release resets it)
+         ///   manifest             refused: the result manifest is stage 9
+@@ -980,6 +1166,18 @@ namespace Memoria.Netsync
+                                     : g == GuestOff ? " -- CALIBRATION: the pre-stage guest (EndTick reads the end block but injects nothing, hides nothing)"
+                                     : " -- CALIBRATION: a victory injects SEQ_MENU_OFF_VICTORY (the per-unit settle) instead of _WITH_ENEMY -- in a bench diorama that stalls in MENU_OFF until W2"));
+                         return true;
++                    case "exit":
++                        // [ff9mapkit netsync B5] stage 6: the guest exit's calibration lever (see GuestExitMode)
++                        Int32 x = mode == "on" ? ExitModeOn : mode == "off" ? ExitModeOff : -1;
++                        if (x < 0)
++                        {
++                            why = "netsync endbench exit: needs on|off";
++                            return false;
++                        }
++                        _benchExitMode = x;
++                        Log.Message("[NetSync] harness: end exit guest " + ExitModeName(x).ToUpperInvariant() + (x == ExitModeOn ? ""
++                                    : " -- CALIBRATION: the pre-stage guest (the host's exit still latches, but no end-leave and no return settle: the diorama holds until `dioleave` / the stale-lane leave)"));
++                        return true;
+                     case "selftest":
+                         String detail;
+                         Boolean ok = SelfTest(out detail);
+@@ -997,7 +1195,7 @@ namespace Memoria.Netsync
+                         return false;
+                     default:
+                         why = "netsync endbench: unknown op '" + op + "' (victory|pending|nopose|other|defeat|escape|event|fight|ui|state|"
+-                              + "overflow|afterevent|cmd|host|guest|selftest|clear)";
++                              + "overflow|afterevent|cmd|host|guest|exit|selftest|clear)";
+                         return false;
+                 }
+                 return Fabricate(op, out why);
+@@ -1084,6 +1282,9 @@ namespace Memoria.Netsync
+                 if (_benchGuestMode != GuestOn)            // [ff9mapkit netsync B5] stage 5
+                     Log.Message("[NetSync] harness: end presentation guest back ON (released with the harness)");
+                 _benchGuestMode = GuestOn;
++                if (_benchExitMode != ExitModeOn)          // [ff9mapkit netsync B5] stage 6
++                    Log.Message("[NetSync] harness: end exit guest back ON (released with the harness)");
++                _benchExitMode = ExitModeOn;
+                 if (_benchArmed || _cmdArmed)
+                     Log.Message("[NetSync] harness: endbench released (bench end / command one-shot disarmed)");
+                 ClearBench();
+@@ -1104,6 +1305,10 @@ namespace Memoria.Netsync
+         public static List<String> HarnessHostTrail() { return new List<String>(_hostTrail); }
+         public static List<String> HarnessPeerTrail() { return new List<String>(_peerTrail); }
+         public static String HarnessGuestMode { get { return GuestModeName(GuestMode); } }   // [ff9mapkit netsync B5] stage 5
++        public static String HarnessExitMode { get { return ExitModeName(GuestExitMode); } }  // [ff9mapkit netsync B5] stage 6
++        public static Int32 HarnessLateDeclined { get { return _lateDeclined; } }
++        public static Int32 HarnessLateDeclinedNonce { get { return _lateDeclinedNonce; } }
++        public static String HarnessLateDeclinedWhy { get { return _lateDeclinedWhy; } }
+ 
+         // ==================================================================================== SelfTest
+         /// <summary>
+@@ -1116,11 +1321,17 @@ namespace Memoria.Netsync
+         /// [ff9mapkit netsync B5] stage 5 adds `present`: PresentAction over every kind (incl. the pins: Event is never
+         /// presented; defeat/escape HOLD in v1), CloseResult's VICTORY fold, VictorySeq (PIN: the production seq is
+         /// _WITH_ENEMY, the one with no per-unit settle), InjectVerdict (each disqualifier alone) and the W1/W2 boundaries.
++        /// [ff9mapkit netsync B5] stage 6 adds `exit`: HostExitTrigger over the whole (ui, resState) table (pins: Hide exits
++        /// with or without Loading, None never does, Game Over and the title always do, ui 0 never), StampResult over every
++        /// byte (pins: NO_POSE folds to VICTORY; GAMEOVER and INITIAL are never stamped), StampFor over every byte in both
++        /// scenes (pin: a DEFEAT outside a NoGameOver scene is a Game Over in transit, never stamped), IsTerminal / DeclineLateJoin over
++        /// every kind x ui (pins: the bench and another nonce never decline; a live fight and var 32's Event boot) and
++        /// ExitVerdict (each disqualifier alone, then the order: never double-issue a leave, 1 Hz, a fade defers).
+         /// </summary>
+         public static Boolean SelfTest(out String detail)
+         {
+             List<String> fails = new List<String>();
+-            Int32 classify = 0, chase = 0, codec = 0, present = 0;
++            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0;
+             Boolean wasQuiet = _quiet;
+             try
+             {
+@@ -1247,6 +1458,85 @@ namespace Memoria.Netsync
+                 Expect(fails, ref present, W2Due(FF9StateBattleSystem.PHASE_MENU_OFF, W2Ms + 1), "W2 due past its window");
+                 Expect(fails, ref present, !W2Due(FF9StateBattleSystem.PHASE_MENU_OFF, W2Ms), "W2 not due at its window");
+                 Expect(fails, ref present, !W2Due(pv, W2Ms * 10) && !W2Due(FF9StateBattleSystem.PHASE_CLOSE, W2Ms * 10), "W2 only in PHASE_MENU_OFF");
++
++                // ---- [ff9mapkit netsync B5] stage 6: the guest exit's pure decisions ----
++                // HostExitTrigger: the whole (ui 0..4) x (resState 0..8, each with Loading, and 0xFF) table against its spec
++                for (Int32 ui = 0; ui <= 4; ui++)
++                {
++                    for (Int32 rs = 0; rs <= 18; rs++)
++                    {
++                        Byte res = rs == 18 ? ResNoScreen : (Byte)(rs < 9 ? rs : (rs - 9) | ResLoadingBit);
++                        Int32 want = ui == UiResult ? (res != ResNoScreen && (res & 0x7F) == ResHide ? TriggerResultHide : TriggerNone)
++                                   : ui == UiGameOver ? TriggerGameOver : ui == UiTitle ? TriggerTitle : TriggerNone;
++                        Expect(fails, ref exit, HostExitTrigger((Byte)ui, res) == want, "exit trigger ui " + ui + " res 0x" + res.ToString("X2"));
++                    }
++                }
++                Expect(fails, ref exit, HostExitTrigger(UiResult, (Byte)ResHide) == TriggerResultHide
++                                        && HostExitTrigger(UiResult, (Byte)(ResHide | ResLoadingBit)) == TriggerResultHide, "PIN hide-exits-with-or-without-Loading");
++                Expect(fails, ref exit, HostExitTrigger(UiResult, (Byte)ResNone) == TriggerNone
++                                        && HostExitTrigger(UiResult, (Byte)(ResNone | ResLoadingBit)) == TriggerNone, "PIN none-never-exits (AfterEvent / no screen)");
++                Expect(fails, ref exit, HostExitTrigger(UiResult, (Byte)ResEnd) == TriggerNone, "PIN end-is-not-hide (the last page is still up)");
++                Expect(fails, ref exit, HostExitTrigger(UiGameOver, ResNoScreen) == TriggerGameOver && HostExitTrigger(UiTitle, ResNoScreen) == TriggerTitle, "PIN game-over-and-title-exit");
++                Expect(fails, ref exit, HostExitTrigger(UiOther, (Byte)ResHide) == TriggerNone, "PIN ui-0-never-exits (a Hide byte without the screen)");
++                // StampResult: every byte value
++                for (Int32 r = 0; r <= 255; r++)
++                {
++                    Int32 want = r == FF9StateGlobal.BTL_RESULT_VICTORY || r == FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE ? FF9StateGlobal.BTL_RESULT_VICTORY
++                               : r == FF9StateGlobal.BTL_RESULT_DEFEAT || r == FF9StateGlobal.BTL_RESULT_ESCAPE
++                                 || r == FF9StateGlobal.BTL_RESULT_INTERRUPTION || r == FF9StateGlobal.BTL_RESULT_ENEMY_FLEE ? r : -1;
++                    if (StampResult((Byte)r) != want)
++                    {
++                        fails.Add("stamp result " + r + " -> " + StampResult((Byte)r) + " != " + want);
++                        break;
++                    }
++                }
++                exit++;
++                Expect(fails, ref exit, StampResult(FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE) == FF9StateGlobal.BTL_RESULT_VICTORY, "PIN no-pose-folds-to-victory (UpdateOverFrame)");
++                Expect(fails, ref exit, StampResult(FF9StateGlobal.BTL_RESULT_GAMEOVER) == -1, "PIN game-over-is-never-stamped");
++                Expect(fails, ref exit, StampResult(FF9StateGlobal.BTL_RESULT_INITIAL) == -1, "PIN initial-is-never-stamped");
++                Expect(fails, ref exit, StampResult(FF9StateGlobal.BTL_RESULT_DEFEAT) == FF9StateGlobal.BTL_RESULT_DEFEAT, "a NoGameOver defeat carries (owner decision 15)");
++                // StampFor: every byte in both scenes (fixer S6-1) -- a NoGameOver scene is StampResult; a Game Over scene
++                // refuses DEFEAT alone
++                for (Int32 r = 0; r <= 255; r++)
++                {
++                    Int32 inNoGo = StampFor((Byte)r, true), inGo = StampFor((Byte)r, false);
++                    Int32 wantGo = r == FF9StateGlobal.BTL_RESULT_DEFEAT ? -1 : StampResult((Byte)r);
++                    if (inNoGo != StampResult((Byte)r) || inGo != wantGo)
++                    {
++                        fails.Add("stamp-for result " + r + " -> " + inNoGo + "/" + inGo + " != " + StampResult((Byte)r) + "/" + wantGo);
++                        break;
++                    }
++                }
++                exit++;
++                Expect(fails, ref exit, StampFor(FF9StateGlobal.BTL_RESULT_DEFEAT, false) == -1, "PIN a-game-over-scene's-defeat-is-never-stamped (ManageBattleEnd rewrites it)");
++                Expect(fails, ref exit, StampFor(FF9StateGlobal.BTL_RESULT_DEFEAT, true) == FF9StateGlobal.BTL_RESULT_DEFEAT, "PIN a-NoGameOver-scene's-defeat-carries");
++                // IsTerminal / DeclineLateJoin
++                for (Int32 k = KFighting; k <= KEvent; k++)
++                {
++                    for (Int32 ui = 0; ui <= 4; ui++)
++                    {
++                        Boolean term = IsEndKind(k) || (ui >= UiResult && ui <= UiTitle);
++                        Expect(fails, ref exit, IsTerminal(k, ui) == term, "terminal " + KindName(k) + " ui " + ui);
++                        Expect(fails, ref exit, DeclineLateJoin(k, ui, 9, 9, false) == term, "decline " + KindName(k) + " ui " + ui);
++                        Expect(fails, ref exit, !DeclineLateJoin(k, ui, 9, 9, true), "PIN the-bench-never-declines " + KindName(k) + " ui " + ui);
++                        Expect(fails, ref exit, !DeclineLateJoin(k, ui, 8, 9, false), "PIN another-nonce-never-declines " + KindName(k) + " ui " + ui);
++                    }
++                }
++                Expect(fails, ref exit, !DeclineLateJoin(KFighting, UiOther, 9, 9, false), "PIN a-live-fight-boots");
++                Expect(fails, ref exit, !DeclineLateJoin(KEvent, UiOther, 9, 9, false), "PIN event-is-not-over (var 32)");
++                Expect(fails, ref exit, DeclineLateJoin(KVictoryPending, UiOther, 9, 9, false), "PIN victory-pending-declines");
++                Expect(fails, ref exit, DeclineLateJoin(KFighting, UiResult, 9, 9, false), "PIN a-host-on-its-result-screen-declines");
++                // ExitVerdict: each disqualifier alone, then the order
++                Expect(fails, ref exit, ExitVerdict(ExitModeOn, true, false, false, ExitRetryMs) == ExitGo, "exit go");
++                Expect(fails, ref exit, ExitVerdict(ExitModeOff, true, false, false, ExitRetryMs) == ExitHeldByLever, "the exit lever holds");
++                Expect(fails, ref exit, ExitVerdict(ExitModeOn, false, false, false, ExitRetryMs) == ExitNotLatched, "not latched");
++                Expect(fails, ref exit, ExitVerdict(ExitModeOn, true, true, false, ExitRetryMs) == ExitInFlight, "PIN never-double-issue-a-leave");
++                Expect(fails, ref exit, ExitVerdict(ExitModeOn, true, false, false, ExitRetryMs - 1) == ExitRateLimited, "PIN 1 Hz");
++                Expect(fails, ref exit, ExitVerdict(ExitModeOn, true, false, true, ExitRetryMs) == ExitFadeDefer, "PIN a-fade-defers (3.8 item 2)");
++                Expect(fails, ref exit, ExitVerdict(ExitModeOn, true, true, true, 0) == ExitInFlight
++                                        && ExitVerdict(ExitModeOn, true, false, true, 0) == ExitRateLimited
++                                        && ExitVerdict(ExitModeOff, false, true, true, 0) == ExitHeldByLever, "exit verdict order");
++                Expect(fails, ref exit, ExitWhy(ExitGo) == null && ExitWhy(ExitFadeDefer) != null && ExitWhy(ExitHeldByLever) != null, "exit why");
+             }
+             catch (Exception ex)
+             {
+@@ -1256,7 +1546,7 @@ namespace Memoria.Netsync
+             {
+                 _quiet = wasQuiet;
+             }
+-            String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec + ", present " + present;
++            String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec + ", present " + present + ", exit " + exit;
+             if (fails.Count == 0)
+             {
+                 detail = counts;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index e3650fa..10a5ce2 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -557,6 +557,13 @@ namespace Memoria.Netsync
+         /// Replace is dropped, so the user can retry instead of being stranded.
+         /// </summary>
+         public static void Leave()
++        {
++            LeaveFrom(null);
++        }
++
++        // [ff9mapkit netsync B5] stage 6: Leave's body, with the caller named for the return settle ("end-leave" = ExitTick;
++        // null = every other caller -- the ~ menu, the watcher, the harness).
++        private static void LeaveFrom(String via)
+         {
+             if (!_booted)
+                 return;
+@@ -568,6 +575,10 @@ namespace Memoria.Netsync
+                     Log.Message("[NetSync] diorama leave deferred: a fade is in flight; press Leave again.");
+                     return;   // stay armed + booted: the retry button survives, suppression stays on
+                 }
++                // [ff9mapkit netsync B5] stage 6: leaving a FINISHED fight settles the return the way the stock result screen's
++                // hide does (the battle song shut down now; the btl_result stamp and the lifted end fade land at the teardown,
++                // where no battle frame can undo them). Once per boot; a no-op mid-fight or on a vanilla machine.
++                SettleForReturn(via);
+                 PersistenSingleton<FF9StateSystem>.Instance.mode = _returnMode;
+                 _leaveTick = Environment.TickCount;   // intent recorded at the INITIATOR, not inferred later
+                 // [ff9mapkit netsync F3.3] DIO-1: the next FIELD StartEvents is this diorama's return. The primed
+@@ -618,6 +629,11 @@ namespace Memoria.Netsync
+             NetSyncBattle.StockMenuCloseAll("the diorama tore down");
+             BattleHUD.ForceNextTurn = false;
+             Disarm();
++            // [ff9mapkit netsync B5] stage 6 -- the return's settle, now that no battle frame can run: the host's btl_result
++            // stamped (Leave decided it provisionally, re-decided here from the host's latest block; btl_result is RAM-only and
++            // outside the Snapshot bracket, so it reaches the return's
++            // StartEvents / Main_Reinit) and this boot's injected end fade lifted. Never throws.
++            ApplyReturnSettle();
+             // [ff9mapkit netsync B4] stage 2: every teardown line carries this boot's R9 receipt (a guest log's grep-able
+             // "nothing tried to re-simulate" -- 0 in any diorama without a missed capture site).
+             Log.Message("[NetSync] diorama torn down -- state restored, isDebug cleared; r9_refused="
+@@ -710,6 +726,9 @@ namespace Memoria.Netsync
+         // Known residue: Main_Reinit reads GetBattleResult = 0 (INITIAL, the diorama's own InitBattle) where
+         // the host reads its real result; 9 of 385 stock Main_Reinit read it, all as a defeat (== 3 / != 3)
+         // test, so 0 takes the not-defeated branch the host normally takes.
++        // [ff9mapkit netsync B5] stage 6 CLOSES it for a finished fight: a Leave after the host's end block decides the
++        // host's final result (NetSyncEnd.StampResult) and ForceDisarm stamps it before this return's StartEvents. A
++        // mid-fight opt-out and a pre-B5 host (no end block) still return 0.
+         // ---------------------------------------------------------------------------------------
+         private static Boolean _warmPrimed;        // OUR copy sits in the stock slot, unconsumed
+         private static FieldMap _warmFieldMap;     // the boot field's FieldMap (Unity-alive = the boot never left it)
+@@ -1961,7 +1980,7 @@ namespace Memoria.Netsync
+         /// quiet. Keyed on Active too, so a stranded _booted on a field always fails toward drawing the fallback panel.</summary>
+         public static Boolean EndHudOff
+         {
+-            get { return (_endInjected || _endHeld) && Active; }
++            get { return (_endInjected || _endHeld || ExitFollowing) && Active; }   // [ff9mapkit netsync B5] stage 6: + leaving
+         }
+ 
+         // Every Boot: the presentation, its watchdogs and its counters start clean (they stay readable after the teardown).
+@@ -1988,6 +2007,7 @@ namespace Memoria.Netsync
+             _endFaulted = false;
+             _endLogged.Clear();
+             _achLogged = false;
++            ResetExit();                         // [ff9mapkit netsync B5] stage 6: the exit and its return settle, per boot too
+         }
+ 
+         // A guest role: a two-machine client, or the sanctioned selftest bench. (A host never boots a diorama -- MayBoot --
+@@ -2015,6 +2035,15 @@ namespace Memoria.Netsync
+                 NetSyncBattle.PeerEnd e;
+                 Boolean any = NetSyncBattle.TryGetPeerEnd(out e);
+                 Boolean ours = any && (e.Bench || e.Nonce == BootedWireNonce);
++                // [ff9mapkit netsync B5] stage 6 -- the exit with the host comes FIRST (design 5.4): the latest block of THIS
++                // boot is remembered for the Leave-time settle, and once the host has left its battle the guest follows it
++                // out (1 Hz, past fades) whatever it has presented so far.
++                if (ours)
++                {
++                    _exitLast = e;
++                    _exitSeen = true;
++                }
++                Boolean leaving = ExitTick(ours, e);
+                 if (_endInjected || _endHeld)
+                     KeepHudOff();
+                 if (_endInjected)
+@@ -2027,6 +2056,15 @@ namespace Memoria.Netsync
+                     EndWatchdogs(b);
+                     return;                              // once per boot: nothing re-injects
+                 }
++                if (leaving)
++                {
++                    // [ff9mapkit netsync B5] stage 6: the host already left (a late boot, or an injection that kept waiting):
++                    // nothing new is presented -- the guest follows it out.
++                    _endWhy = "the host already left its battle (" + NetSyncEnd.TriggerName(_exitTrigger) + ") -- the guest "
++                              + "follows it out without presenting";
++                    _endWhyKey = 0;
++                    return;
++                }
+                 if (!any)
+                 {
+                     _endWhy = "no peer end block (no live lane, or a host that predates the end block)";
+@@ -2329,6 +2367,333 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // ---------------------------------------------------------------------------------------
++        // [ff9mapkit netsync B5] stage 6 -- THE GUEST'S EXIT WITH THE HOST (studies/battle-coop/B4-B5-DESIGN.md 5.4; section 7,
++        // stage 6). Until this stage a guest that presented the host's end held black at the WAIT seq (R8 refusing) until the
++        // watcher's stale-lane leave -- ~2 s after the host was already back on its field, because the host's type-1 lane stays
++        // live through its whole result screen (design 3.6). Now:
++        //   THE TRIGGER -- this boot's end block (the bench seam's, or BootedWireNonce's) names the host's exit: ui 1 + ResultState
++        //     Hide (its last result Confirm, or InitialNone's 0.3 s exit), ui 2 (Game Over) or ui 3 (the title) --
++        //     NetSyncEnd.HostExitTrigger. It LATCHES once per boot (the lane may go stale a moment later), closes the B4 stock
++        //     menu and stops any further presentation (a late boot that never presented just follows the host out).
++        //   THE END-LEAVE -- Leave() at most once per second (NetSyncEnd.ExitVerdict): never while a leave is already in flight
++        //     (ours, a ~ press, the watcher's: none is stolen or double-issued), never into a scene fade (Leave would only
++        //     defer -- design 3.8 item 2 -- so the deferral is counted and logged ONCE instead of Leave's per-call line). The
++        //     teardown then stamps the watcher's skip nonce through its "leave noted" branch (NetSyncClient), so the same
++        //     fight never re-boots (two-machine only: a selftest boot has no wire nonce -- design 3.8 item 3).
++        //   THE RETURN SETTLE -- any Leave of a FINISHED fight (the end-leave; a ~ press on the black hold; the watcher's
++        //     stale-lane leave after an AfterEvent screen, which never shows Hide), once per boot, does what the stock result
++        //     screen's hide does: battle.ff9ShutdownStateBattleResult() at the Leave, so the fanfare / battle song never bleeds
++        //     onto the field (skipped while the host -- end-block flag b4 -- or the guest keeps its field song,
++        //     BTL_CONTI_FLD_SONG); then at the TEARDOWN, after the last battle frame and before the return's StartEvents, the
++        //     host's btl_result is stamped (NetSyncEnd.StampFor: NO_POSE -> VICTORY, GAMEOVER / INITIAL never, and a DEFEAT
++        //     outside a NoGameOver scene never -- it is a Game Over in transit) and, when this boot INJECTED an end, the end
++        //     fade is lifted the stock way: FF9Wipe_FadeInEx(256), the result screen's own hide tail. The injected
++        //     FF9Wipe_FadeOutEx(32) is a shader subtract that nothing on a field undoes (ServiceFade stops once its frame target
++        //     is passed) [I], so without the lift the return could render black.
++        //     The stamp the Leave decides is PROVISIONAL: a manual leave can land while the host's result is not final yet (a
++        //     held defeat at MENU_OFF reads 0; a Game Over fight reads DEFEAT for ~33 frames before ManageBattleEnd rewrites
++        //     it), so the teardown re-decides it from the host's LATEST terminal block of this boot (EndTick keeps reading it
++        //     through the leave fade). A leave before the host writes its result still carries nothing (the F3.3 residue).
++        //   STAGE 10 HAND-OFF -- the hide tail (the song shutdown + FadeInEx(256)) runs ONCE per return: the replay's own Hide
++        //     tail (seam b, NetReplayHidden) must call NoteReplayHideTail(), which makes the settle skip both halves.
++        //   THE LEVER -- `endbench exit off` (selftest only): the trigger still latches (end_leave.trigger), but no end-leave
++        //     and no settle: the pre-stage guest, which holds until `dioleave` / the stale-lane leave.
++        // The late-join decline (a watcher boot into an already-finished fight) lives in NetSyncClient.DioramaTick.
++        // Vanilla, solo and the host's own battle never reach any of it: every entry point needs a booted diorama.
++        // ---------------------------------------------------------------------------------------
++        private static Boolean _exitSeen;                 // EndTick recorded a block of THIS boot (the bench's or BootedWireNonce's)
++        private static NetSyncBattle.PeerEnd _exitLast;   // ...the latest one: the Leave-time settle reads it
++        private static Int32 _exitTrigger;                // NetSyncEnd.Trigger* latched this boot (TriggerNone = the host has not left)
++        private static String _exitHost;                  // the host's block at the latch, for the lines
++        // TICK-BASELINE LAW: both start from a REAL tick (_exitTryTick an hour back, so the first attempt is never rate-limited);
++        // _exitLatchTick is read only after a latch set it.
++        private static Int32 _exitLatchTick = Environment.TickCount;
++        private static Int32 _exitTryTick = Environment.TickCount - 3600000;
++        private static Int32 _exitTries;                  // Leave() calls the end-leave made this boot
++        private static Int32 _exitDeferred;               // attempts a scene fade deferred this boot (logged once)
++        private static Boolean _exitRequested;            // the end-leave's Leave() issued its Replace
++        private static Int32 _exitRequestMs = -1;         // the latch -> that request (ms)
++        private static String _exitWhy;                   // why the end-leave has not left (yet); null = requested
++        private static Boolean _settled;                  // SettleForReturn ran this boot
++        private static String _settleVia;                 // "end-leave" | "leave" (a ~ press, the watcher, the harness)
++        private static Int32 _stampPending = -1;          // the btl_result the teardown stamps (-1 = none)
++        private static Int32 _stampHost = -1;             // the host's raw result the settle read (-1 = no settle)
++        private static Int32 _stamped = -1;               // what the teardown wrote (-1 = nothing)
++        private static Int32 _stampedWas = -1;            // the guest's own btl_result just before it
++        private static Boolean _musicShut;                // the settle ran battle.ff9ShutdownStateBattleResult
++        private static String _musicWhy;                  // why it did not (a field song kept, the lever); null otherwise
++        private static Boolean _wipeLifted;               // the teardown lifted this boot's injected end fade
++        private static Boolean _settleNoGameOver;         // the diorama scene's NoGameOver at the settle (unreadable = false: a DEFEAT is not carried)
++        private static Boolean _replayHideTail;           // stage 10's replay ran the stock hide tail itself (NoteReplayHideTail)
++        private static Boolean _exitErrLogged;            // one fault line per boot
++
++        // Every Boot (through ResetEndPresentation): the exit, its settle and its receipts start clean (readable after the
++        // teardown until the next boot).
++        private static void ResetExit()
++        {
++            _exitSeen = false;
++            _exitLast = default(NetSyncBattle.PeerEnd);
++            _exitTrigger = NetSyncEnd.TriggerNone;
++            _exitHost = null;
++            _exitLatchTick = Environment.TickCount;
++            _exitTryTick = Environment.TickCount - 3600000;
++            _exitTries = 0;
++            _exitDeferred = 0;
++            _exitRequested = false;
++            _exitRequestMs = -1;
++            _exitWhy = null;
++            _settled = false;
++            _settleVia = null;
++            _stampPending = -1;
++            _stampHost = -1;
++            _stamped = -1;
++            _stampedWas = -1;
++            _musicShut = false;
++            _musicWhy = null;
++            _wipeLifted = false;
++            _settleNoGameOver = false;
++            _replayHideTail = false;
++            _exitErrLogged = false;
++        }
++
++        // The guest is following the host out: the exit latched and the lever is on (EndHudOff reads it too).
++        private static Boolean ExitFollowing
++        {
++            get { return _exitTrigger != NetSyncEnd.TriggerNone && NetSyncEnd.GuestExitMode == NetSyncEnd.ExitModeOn; }
++        }
++
++        // EndTick, every frame of a live booted diorama (a guest role, netsync on), BEFORE the presentation: latch the host's
++        // exit, then try the end-leave. True = the guest is following the host out (present nothing more). Never throws.
++        private static Boolean ExitTick(Boolean ours, NetSyncBattle.PeerEnd e)
++        {
++            try
++            {
++                Int32 mode = NetSyncEnd.GuestExitMode;
++                if (_exitTrigger == NetSyncEnd.TriggerNone)
++                {
++                    Int32 t = ours ? NetSyncEnd.HostExitTrigger(e.Ui, e.ResState) : NetSyncEnd.TriggerNone;
++                    if (t == NetSyncEnd.TriggerNone)
++                    {
++                        _exitWhy = mode == NetSyncEnd.ExitModeOn ? NetSyncEnd.ExitWhy(NetSyncEnd.ExitNotLatched)
++                                                                 : NetSyncEnd.ExitWhy(NetSyncEnd.ExitHeldByLever);
++                        return false;
++                    }
++                    _exitTrigger = t;
++                    _exitLatchTick = Environment.TickCount;
++                    _exitHost = NetSyncEnd.KindName(e.Kind) + " (phase " + e.Phase + " seq " + e.Seq + " result " + e.Result + ", ui "
++                                + e.Ui + ", res " + (e.State < 0 ? "-" : e.State + (e.Loading ? "L" : ""))
++                                + (e.Bench ? ", BENCH end" : ", nonce " + e.Nonce) + ")";
++                    if (mode == NetSyncEnd.ExitModeOn)
++                        NetSyncBattle.StockMenuCloseAll("the host left its battle");   // a no-op unless the B4 lane touched the HUD
++                    Log.Message("[NetSync] diorama END: the host left its battle (" + NetSyncEnd.TriggerName(t) + ": the host's "
++                                + _exitHost + "; presented here: " + (NetSyncEnd.PresentName(_endAction) ?? "nothing") + ") -- "
++                                + (mode == NetSyncEnd.ExitModeOn
++                                    ? "the guest follows it out (the end-leave: Leave at 1 Hz, never into a fade)"
++                                    : "CALIBRATION: `endbench exit off` holds the pre-stage guest here (no end-leave, no settle)"));
++                }
++                Int32 now = Environment.TickCount;
++                Boolean fading;
++                try
++                {
++                    SceneDirector sd = PersistenSingleton<SceneDirector>.Instance;
++                    fading = sd != null && sd.IsFading;
++                }
++                catch
++                {
++                    fading = true;                               // unreadable = assume a fade: never fire a Leave blind
++                }
++                Int32 v = NetSyncEnd.ExitVerdict(mode, true, LeaveRequestedRecently, fading, now - _exitTryTick);
++                switch (v)
++                {
++                    case NetSyncEnd.ExitGo:
++                        break;
++                    case NetSyncEnd.ExitRateLimited:
++                        return true;                             // the last reason stands until the next attempt
++                    case NetSyncEnd.ExitFadeDefer:
++                        _exitTryTick = now;
++                        _exitDeferred++;
++                        _exitWhy = NetSyncEnd.ExitWhy(v);
++                        if (_exitDeferred == 1)
++                            Log.Message("[NetSync] diorama end-leave deferred: a scene fade is in flight -- retrying at 1 Hz "
++                                        + "(logged once per boot; end_leave.deferred counts the tries)");
++                        return true;
++                    case NetSyncEnd.ExitInFlight:
++                        _exitWhy = _exitRequested ? null : NetSyncEnd.ExitWhy(v);
++                        return true;
++                    default:                                     // the lever (the latch is set here)
++                        _exitWhy = NetSyncEnd.ExitWhy(v);
++                        return false;
++                }
++                _exitTryTick = now;
++                _exitTries++;
++                if (_exitTries <= 3 || _exitTries % 10 == 0)
++                    Log.Message("[NetSync] diorama END: end-leave attempt " + _exitTries + ", " + (now - _exitLatchTick) + " ms after "
++                                + "the host's " + NetSyncEnd.TriggerName(_exitTrigger) + " -- Leave() follows");
++                LeaveFrom("end-leave");
++                if (LeaveRequestedRecently)
++                {
++                    _exitRequested = true;
++                    _exitRequestMs = now - _exitLatchTick;
++                    _exitWhy = null;
++                }
++                else
++                {
++                    _exitWhy = "Leave() did not issue its Replace (Memoria.log names why) -- retrying at 1 Hz";
++                }
++                return true;
++            }
++            catch (Exception ex)
++            {
++                _exitWhy = "the exit tick faulted: " + ex.GetType().Name;
++                if (!_exitErrLogged)
++                {
++                    _exitErrLogged = true;
++                    try { Log.Error("[NetSync] diorama end-leave faulted (logged once per boot; the watcher's stale-lane leave still ends the diorama): " + ex); }
++                    catch { }
++                }
++                return false;
++            }
++        }
++
++        // LeaveFrom, after its fade check and before its Replace: once per boot, a Leave of a FINISHED fight (the latest block
++        // of this boot is terminal -- an end kind, or the host on its result screen / Game Over / the title) shuts the battle
++        // song down now and PROVISIONALLY decides the btl_result the teardown stamps (the teardown re-decides it from the host's
++        // latest block, with this scene's NoGameOver read here). A mid-fight opt-out, a manual boot never fed an end block, and
++        // the lever settle nothing. Never throws.
++        private static void SettleForReturn(String via)
++        {
++            if (_settled || !_exitSeen)
++                return;
++            try
++            {
++                NetSyncBattle.PeerEnd e = _exitLast;
++                if (!NetSyncEnd.IsTerminal(e.Kind, e.Ui))
++                    return;
++                if (NetSyncEnd.GuestExitMode != NetSyncEnd.ExitModeOn)
++                {
++                    _musicWhy = "the calibration lever `endbench exit off` (no settle)";
++                    return;
++                }
++                _settled = true;
++                _settleVia = via ?? "leave";
++                // the diorama boots the host's battle scene, so its NoGameOver is the host's: read it while the battle is live
++                // (unreadable = false -- a DEFEAT is then not carried, the pre-stage return)
++                try { _settleNoGameOver = FF9StateSystem.Battle.FF9Battle.btl_scene.Info.NoGameOver; }
++                catch { _settleNoGameOver = false; }
++                _stampHost = e.Result;
++                _stampPending = NetSyncEnd.StampFor(e.Result, _settleNoGameOver);   // provisional: the teardown re-decides it
++                if (_replayHideTail)
++                    _musicWhy = "the replay's own hide tail already shut the songs (stage 10): nothing shut down twice";
++                else if ((e.Flags & NetSyncEnd.FlagFieldSong) != 0)
++                    _musicWhy = "the host keeps its field song (BTL_CONTI_FLD_SONG): nothing shut down";
++                else if ((FF9StateSystem.Common.FF9.btl_flag & battle.BTL_CONTI_FLD_SONG) != 0)
++                    _musicWhy = "this diorama keeps its field song (BTL_CONTI_FLD_SONG): nothing shut down";
++                else
++                {
++                    battle.ff9ShutdownStateBattleResult();       // the stock result screen's hide: fade + stop the current song
++                    _musicShut = true;
++                }
++                Log.Message("[NetSync] diorama END: leaving a finished fight (" + _settleVia + "; the host's " + NetSyncEnd.KindName(e.Kind)
++                            + ", result " + e.Result + ", ui " + e.Ui + ") -- "
++                            + (_musicShut ? "the battle song shut down (ff9ShutdownStateBattleResult)" : _musicWhy)
++                            + "; the teardown stamps " + (_stampPending >= 0 ? "btl_result " + _stampPending
++                                                                             : "no btl_result (the host's " + e.Result + " is not carried"
++                                                                               + (e.Result == FF9StateGlobal.BTL_RESULT_DEFEAT && !_settleNoGameOver
++                                                                                  ? ": a DEFEAT outside a NoGameOver scene is a Game Over in transit)" : ")"))
++                            + " unless the host's latest block says otherwise by then"
++                            + (_endInjected && !_replayHideTail ? ", and lifts the injected end fade" : ""));
++            }
++            catch (Exception ex)
++            {
++                if (!_exitErrLogged)
++                {
++                    _exitErrLogged = true;
++                    try { Log.Error("[NetSync] diorama return settle faulted (logged once per boot): " + ex); }
++                    catch { }
++                }
++            }
++        }
++
++        // ForceDisarm, after Disarm: no battle frame runs any more, and the return's StartEvents has not run yet (OnDestroy
++        // lands first). The btl_result is RE-DECIDED from the host's latest terminal block of this boot (the Leave's decision
++        // was provisional: EndTick kept reading the host through the leave fade) and goes in; this boot's injected end fade is
++        // lifted (any teardown -- an exit ramp or a warp after an injection must not strand a black screen either; the lever
++        // keeps the pre-stage; stage 10's own hide tail lifts it instead). Never throws.
++        private static void ApplyReturnSettle()
++        {
++            try
++            {
++                String done = null;
++                if (_settled && _stamped < 0 && _exitSeen && NetSyncEnd.IsTerminal(_exitLast.Kind, _exitLast.Ui))
++                {
++                    Int32 leaveStamp = _stampPending, leaveHost = _stampHost;
++                    _stampHost = _exitLast.Result;
++                    _stampPending = NetSyncEnd.StampFor(_exitLast.Result, _settleNoGameOver);
++                    if (_stampPending != leaveStamp || _stampHost != leaveHost)
++                        done = "re-decided from the host's latest block (" + NetSyncEnd.KindName(_exitLast.Kind) + ", result " + _stampHost
++                               + ", ui " + _exitLast.Ui + (_settleNoGameOver ? ", a NoGameOver scene" : "") + "): stamp " + leaveStamp
++                               + " -> " + _stampPending + " (the Leave read the host's " + leaveHost + ")";
++                }
++                if (_stampPending >= 0)
++                {
++                    FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
++                    _stampedWas = ff9.btl_result;
++                    ff9.btl_result = (Byte)_stampPending;
++                    _stamped = _stampPending;
++                    _stampPending = -1;
++                    done = (done == null ? "" : done + "; ") + "btl_result " + _stampedWas + " -> " + _stamped + " (the host's " + _stampHost + ")";
++                }
++                // [fixer S6-R2] once per return: stage 10's replay Hide already ran FadeInEx(256) -- a second call would snap the
++                // subtract back to black (FF9Wipe_FadeInEx sets FadeMode.Sub white first) and restart the 256-frame ramp
++                if (_endInjected && !_wipeLifted && !_replayHideTail && NetSyncEnd.GuestExitMode == NetSyncEnd.ExitModeOn)
++                {
++                    SceneDirector.FF9Wipe_FadeInEx(256);
++                    _wipeLifted = true;
++                    done = (done == null ? "" : done + "; ") + "the injected end fade lifted (FF9Wipe_FadeInEx(256), the stock result "
++                           + "screen's hide tail)";
++                }
++                if (done != null)
++                    Log.Message("[NetSync] diorama END: return settled at the teardown -- " + done);
++            }
++            catch (Exception ex)
++            {
++                try { Log.Error("[NetSync] diorama return settle (teardown) faulted: " + ex); }
++                catch { }
++            }
++        }
++
++        // [ff9mapkit netsync B5] stage 6 -> stage 10 HAND-OFF (fixer S6-R2): the stock result screen's hide tail -- the song
++        // shutdown and FF9Wipe_FadeInEx(256) -- runs ONCE per return. Stage 10's replay Hide (BattleResultUI seam b,
++        // NetReplayHidden) runs that tail itself and MUST call this, so the Leave-time settle skips ff9ShutdownStateBattleResult
++        // and the teardown skips its fade lift. No caller before stage 10 (behaviour-identical until then). Never throws.
++        internal static void NoteReplayHideTail()
++        {
++            if (_booted)
++                _replayHideTail = true;
++        }
++
++        // ---- harness reads (`netsync.battle.end.end_leave`; main thread, never throw) ----
++        public static String HarnessExitTrigger { get { return NetSyncEnd.TriggerName(_exitTrigger); } }
++        public static Int32 HarnessExitLatchedMs
++        {
++            get { return _exitTrigger != NetSyncEnd.TriggerNone && _booted ? Environment.TickCount - _exitLatchTick : -1; }
++        }
++        public static Int32 HarnessExitTries { get { return _exitTries; } }
++        public static Int32 HarnessExitDeferred { get { return _exitDeferred; } }
++        public static Boolean HarnessExitRequested { get { return _exitRequested; } }
++        public static Int32 HarnessExitRequestMs { get { return _exitRequestMs; } }
++        public static String HarnessExitWhy { get { return _exitWhy; } }
++        public static Boolean HarnessSettled { get { return _settled; } }
++        public static String HarnessSettleVia { get { return _settleVia; } }
++        public static Int32 HarnessStamp { get { return _stamped >= 0 ? _stamped : _stampPending; } }   // decided (pending or written)
++        public static Int32 HarnessStampHost { get { return _stampHost; } }
++        public static Int32 HarnessStamped { get { return _stamped; } }
++        public static Int32 HarnessStampedWas { get { return _stampedWas; } }
++        public static Boolean HarnessMusicShut { get { return _musicShut; } }
++        public static String HarnessMusicWhy { get { return _musicWhy; } }
++        public static Boolean HarnessWipeLifted { get { return _wipeLifted; } }
++
+         // ---------------------------------------------------------------------------------------
+         // THE B3.5 FIGURE BENCH (the F6 "Figure bench" button, diorama only). Pops ONE hand-built
+         // 1234-damage figure over the first live enemy (or btl_data[4]) through the EXACT Btl2dReq
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index e63838c..0839557 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1607,6 +1607,24 @@ namespace Memoria.Netsync
+             // and the diorama's save-safety is self-contained (the rung-2.5 bracket + save block).
+             if (nonce == _dioramaSkipNonce)
+                 return;   // the user walked out of this battle's diorama -- respect it
++            // [ff9mapkit netsync B5] stage 6 -- LATE JOIN (studies/battle-coop/B4-B5-DESIGN.md 5.4, owner decision 16): the
++            // lane's own end block (same nonce, never the selftest bench seam) already says the host's fight is OVER -- an end
++            // kind, or the host on its result screen, at Game Over or at the title. Booting now would swirl the guest into a
++            // finished battle it can only watch end; decline instead, stamping the skip nonce so the line is logged ONCE per
++            // battle (the skip is spent by the host's next battle nonce, as for every other skip). Also a second fence on
++            // "the same fight never re-boots" after an end-leave whose teardown somehow missed the skip stamp.
++            try
++            {
++                NetSyncBattle.PeerEnd lateEnd;
++                if (NetSyncBattle.TryGetPeerEnd(out lateEnd)
++                    && NetSyncEnd.DeclineLateJoin(lateEnd.Kind, lateEnd.Ui, lateEnd.Nonce, nonce, lateEnd.Bench))
++                {
++                    _dioramaSkipNonce = nonce;
++                    NetSyncEnd.NoteLateJoinDeclined(nonce, lateEnd.Kind, lateEnd.Ui, lateEnd.Result);
++                    return;
++                }
++            }
++            catch { }   // an unreadable end block declines nothing: today's boot path
+             try
+             {
+                 if (!FF9StateSystem.Battle.mapName.ContainsKey(mapNo))
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 65dd79c..1ead85a 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -91,6 +91,11 @@ namespace Memoria.Harness
+         // diorama's injected end, R8's refusals, the W1/W2 watchdogs, the achievement hold -- see AppendBattleEnd), the
+         // `endbench guest on|off|settle` calibration lever, and NetSyncEnd.SelfTest's `present` section (`endbench selftest`).
+         // A driver checks for `netsync.battle.end.r8_hits` -- absent = an engine whose guest presents no end.
++        // [ff9mapkit netsync B5] stage 6 (the guest's exit with the host), also additive under 5: `netsync.battle.end` gains
++        // `exit_mode`, `end_leave` (the latched trigger, the 1 Hz attempts and fade deferrals, the request, the return settle:
++        // the btl_result stamp, the battle-song shutdown, the lifted end fade) and `declined` (the watcher's late-join
++        // declines), the `endbench exit on|off` calibration lever, and NetSyncEnd.SelfTest's `exit` section. A driver
++        // checks for `netsync.battle.end.end_leave` -- absent = an engine whose guest leaves only on the stale lane.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1279,10 +1284,16 @@ namespace Memoria.Harness
+                             //   `endbench guest on|off|settle`  [ff9mapkit netsync B5] stage 5's lever: off = the pre-stage
+                             //       guest (a diorama presents no end), settle = the victory injection writes the per-unit-settle
+                             //       seq (a bench diorama stalls in MENU_OFF until W2 -- the watchdog's red);
++                            //   `endbench exit on|off`  [ff9mapkit netsync B5] stage 6's lever: off = the pre-stage guest
++                            //       (the host's exit still latches, but no end-leave and no return settle);
+                             //   `endbench selftest`  NetSyncEnd.SelfTest (fails the verb on FAIL);  `endbench clear`.
+-                            // Released on disarm/fault/reset (the bench end, the one-shot and both levers).
++                            // Released on disarm/fault/reset (the bench end, the one-shot and every lever).
+                             // [ff9mapkit netsync B5] stage 5: inside a selftest diorama (`dioboot`) a fabricated END kind is
+                             // PRESENTED -- read `netsync.battle.end` and `battle.phase/seq/result`.
++                            // [ff9mapkit netsync B5] stage 6: `ui 1` + `state 7` (the host's result screen hidden), `ui 2` (Game
++                            // Over) or `ui 3` (the title) makes that diorama LEAVE with the host -- read
++                            // `netsync.battle.end.end_leave` and, on the field, `battle.result` / `netsync.diorama.returns`.
++                            // The bench end stays armed after the leave: `endbench clear` before the next `dioboot`.
+                             String eop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             Int32 earg = -1;
+                             Boolean eloading = false;
+@@ -1315,6 +1326,7 @@ namespace Memoria.Harness
+                                     break;
+                                 case "host":
+                                 case "guest":                   // [ff9mapkit netsync B5] stage 5
++                                case "exit":                    // [ff9mapkit netsync B5] stage 6
+                                     emode = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
+                                     break;
+                             }
+@@ -2791,7 +2803,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3028,6 +3040,9 @@ namespace Memoria.Harness
+         //   protects: an invariant probe, -1 = unreadable), and the fanfare made readable: `music` (the current music id; the
+         //   stock victory tail plays song 5) and `btl_flag` (raw; 32 = BTL_PLAY_END_SONG, 64 = BTL_END_LOAD). Stages 6 and 10
+         //   add `end_leave` / `declined` / `replay`.
++        // [ff9mapkit netsync B5] stage 6 adds (design 5.4) `exit_mode` (the selftest lever: on | off), `end_leave` (see
++        // AppendEndLeave) and `declined` -- the watcher's late-join declines: `count` (monotonic per process, read DELTAS),
++        // `nonce` (the last declined battle, -1 = none) and `why`.
+         private static void AppendBattleEnd(StringBuilder sb)
+         {
+             Int32 kind = Memoria.Netsync.NetSyncDiorama.HarnessEndKind;
+@@ -3052,7 +3067,48 @@ namespace Memoria.Harness
+             Num(sb, "ach_held", Memoria.Netsync.NetSyncDiorama.HarnessAchHeld); sb.Append(",");
+             Num(sb, "ach_enemy_no", Memoria.Netsync.NetSyncDiorama.HarnessAchEnemyNo); sb.Append(",");
+             Num(sb, "music", Memoria.Netsync.NetSyncDiorama.HarnessMusicId); sb.Append(",");
+-            Num(sb, "btl_flag", Memoria.Netsync.NetSyncDiorama.HarnessBtlFlag);
++            Num(sb, "btl_flag", Memoria.Netsync.NetSyncDiorama.HarnessBtlFlag); sb.Append(",");
++            Str(sb, "exit_mode", Memoria.Netsync.NetSyncEnd.HarnessExitMode); sb.Append(",");                 // [ff9mapkit netsync B5] stage 6
++            AppendEndLeave(sb); sb.Append(",");
++            sb.Append("\"declined\":{");
++            Num(sb, "count", Memoria.Netsync.NetSyncEnd.HarnessLateDeclined); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncEnd.HarnessLateDeclinedNonce); sb.Append(",");
++            Str(sb, "why", Memoria.Netsync.NetSyncEnd.HarnessLateDeclinedWhy);
++            sb.Append("}}");
++        }
++
++        // [ff9mapkit netsync B5] stage 6: `netsync.battle.end.end_leave` -- the guest's exit WITH the host (NetSyncDiorama.ExitTick
++        // + the return settle; studies/battle-coop/B4-B5-DESIGN.md 5.4). Per diorama boot: reset by each boot, kept after the
++        // teardown until the next one (so the field-side read sees the stamp).
++        //   `trigger` (the host exit that latched: "result-hide" | "game-over" | "title" | null = not yet), `latched_ms` (ms since
++        //   the latch while this boot lives; -1 otherwise), `tries` (Leave() calls the end-leave made -- 1 per second at most),
++        //   `deferred` (attempts a scene fade deferred: Leave would only have deferred -- logged once per boot), `requested`
++        //   (the end-leave's Leave issued its Replace) + `request_ms` (latch -> request), `why` (the latest reason it has not
++        //   left: not latched, rate-limited, a fade, a leave already in flight, the lever; null = requested), `settled` (a Leave
++        //   of a FINISHED fight settled the return this boot -- any Leave: the end-leave, a ~ press, `dioleave`, the watcher's)
++        //   + `via` ("end-leave" | "leave"), `stamp` (the btl_result decided for the return, pending or written; -1 = none),
++        //   `stamp_host` (the host's raw result it came from; -1 = no settle), `stamped` / `stamped_was` (what the teardown wrote
++        //   over what; -1 = not yet / never), `music_shut` (ff9ShutdownStateBattleResult ran at the Leave) + `music_why` (why
++        //   not), `wipe_lifted` (the teardown lifted this boot's injected end fade).
++        private static void AppendEndLeave(StringBuilder sb)
++        {
++            sb.Append("\"end_leave\":{");
++            Str(sb, "trigger", Memoria.Netsync.NetSyncDiorama.HarnessExitTrigger); sb.Append(",");
++            Num(sb, "latched_ms", Memoria.Netsync.NetSyncDiorama.HarnessExitLatchedMs); sb.Append(",");
++            Num(sb, "tries", Memoria.Netsync.NetSyncDiorama.HarnessExitTries); sb.Append(",");
++            Num(sb, "deferred", Memoria.Netsync.NetSyncDiorama.HarnessExitDeferred); sb.Append(",");
++            Bool(sb, "requested", Memoria.Netsync.NetSyncDiorama.HarnessExitRequested); sb.Append(",");
++            Num(sb, "request_ms", Memoria.Netsync.NetSyncDiorama.HarnessExitRequestMs); sb.Append(",");
++            Str(sb, "why", Memoria.Netsync.NetSyncDiorama.HarnessExitWhy); sb.Append(",");
++            Bool(sb, "settled", Memoria.Netsync.NetSyncDiorama.HarnessSettled); sb.Append(",");
++            Str(sb, "via", Memoria.Netsync.NetSyncDiorama.HarnessSettleVia); sb.Append(",");
++            Num(sb, "stamp", Memoria.Netsync.NetSyncDiorama.HarnessStamp); sb.Append(",");
++            Num(sb, "stamp_host", Memoria.Netsync.NetSyncDiorama.HarnessStampHost); sb.Append(",");
++            Num(sb, "stamped", Memoria.Netsync.NetSyncDiorama.HarnessStamped); sb.Append(",");
++            Num(sb, "stamped_was", Memoria.Netsync.NetSyncDiorama.HarnessStampedWas); sb.Append(",");
++            Bool(sb, "music_shut", Memoria.Netsync.NetSyncDiorama.HarnessMusicShut); sb.Append(",");
++            Str(sb, "music_why", Memoria.Netsync.NetSyncDiorama.HarnessMusicWhy); sb.Append(",");
++            Bool(sb, "wipe_lifted", Memoria.Netsync.NetSyncDiorama.HarnessWipeLifted);
+             sb.Append("}");
+         }
+ 

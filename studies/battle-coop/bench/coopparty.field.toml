@@ -1,0 +1,36 @@
+# COOPPARTY -- the B4/B5 solo benches' PARTY SEEDER (studies/battle-coop/B4-B5-DESIGN.md section 8.2).
+#
+# WHY IT EXISTS. The harness's `newgame()` + `warp()` leaves the New-Game party base: Zidane in slot 0 and
+# slots 1-3 empty (FF9Play_SetParty(0, Zidane); memory project-ff9-pc-party-system). Measured on the sandbox
+# autosave 2026-10-13: `40000_Common/slot` = [0, 255, 255, 255]. Three of the B4/B5 benches need more:
+#   * coop_battle_host_gates.py hands party slot 1 to the selftest loopback guest (`netsync guestslots 2`) and
+#     needs a member THERE whose Ready bit can rise and fall;
+#   * coop_stock_menu.py's ability-panel leg needs an Ability-type command with a learned/equipped ability
+#     (Garnet's White Magic or Vivi's Black Magic, if Zidane's Skill list is empty at New Game);
+#   * every diorama bench is more telling with a full seated party.
+# Warping here runs this field's Main_Init, whose [party] block prepends B_PARTYADD for each member (dedup- and
+# overflow-guarded, so a second visit is a no-op). Each joins wearing its DefaultEquipment. The benches warp here
+# FIRST when this id is registered, then warp to their own bench field (30602 LOCKT2).
+#
+# Deploy (a NEW id: the first deploy registers it -- one game RELAUNCH). Read the live registrations first; 30604
+# was free in all four mod folders on 2026-10-13 (30601-30603 are FF9CustomMap-msgs's):
+#   py tools/deploy_field.py studies/battle-coop/bench/coopparty.field.toml --id 30604 --mod-folder FF9CustomMap-msgs
+# Offline check:  py -m ff9mapkit lint ../studies/battle-coop/bench/coopparty.field.toml   (from ff9mapkit/)
+
+[field]
+id = 30604
+name = "COOPPARTY"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+# Zidane is already slot 0 at New Game; these fill slots 1-3 in order (Vivi = slot 1, the host-gates guest slot).
+[party]
+add = ["vivi", "garnet", "steiner"]

@@ -378,6 +378,41 @@ head's `seq` is the ring's u16 seq: it skips 0, and a release restarts it at 1 u
 the bench REFUSES an `advance`/`choice`/`host adv` aimed at an input-inhibited window (LAW :1369) --
 drive its script's poll with `host key <uid> <bits>`, the polling uid being `script_key_reader`.
 
+The battle co-op arc (B4/B5, `studies/battle-coop/B4-B5-DESIGN.md`, memoria-patches s100-s105) adds one
+`netsync.battle` block with four sub-objects -- `host` (my own battle as I stream it), `peer` (the battle
+view I parsed: the selftest loopback's, or a real peer's), `menu` (the guest's battle menu lane) and `end`
+(the guest's presentation of the host's end, and its exit with the host) -- plus `battle.seq`,
+`battle.hud`, `battle.result_ui` and `battle.units[].cmd_busy`. Still protocol 5: each stage is told by a
+key's presence, one level deeper than F3.3, and the driver refuses a verb (or an `endbench` op) its engine
+lacks before spending the step, naming the patch AND quoting the engine's would-be refusal ("unknown
+sub-verb" / "unknown op"). Every verb is selftest-role only; every lever is released on disarm, fault and
+`reset`:
+
+```python
+from harness import battlewire as BW
+g.netsync("guestslots", 2)      # s100: party slot 1 of a selftest OWN battle belongs to the loopback guest
+g.netsync("bcmd", BW.command_hex(1, BW.ACT_ATTACK, mask=0x10))   # a raw v1 frame, drained inside an own battle
+g.netsync("hostgates", 0)       # s100's calibration lever (the pre-stage host)
+g.netsync("containment", 0)     # s101's lever (no R9, no G2); g.netsync("bctl", "00 00") = a raw control frame
+g.netsync("bmenu", "open", 0)   # s102: inside a `dioboot` diorama, the stock command panel for local slot 0
+g.netsync("bmenu", "capture", "off")   # s102's lever: the commit runs its stock body (into R9)
+g.netsync("endbench", "victory")       # s103: a fabricated host END BLOCK through the real codec (peer.end, bench)
+g.netsync("endbench", "ui", 1); g.netsync("endbench", "state", 7)   # s105: the host's result screen hidden
+g.netsync("endbench", "guest", "settle")   # s104's lever; "exit off" is s105's; "host cadence|off" s103's
+```
+
+The capabilities are `State.coop_host_gates` (s100), `coop_containment` (s101), `coop_stock_menu` (s102),
+`coop_end_trailer` (s103), `coop_presentation` (s104) and `coop_exit_with_host` (s105); every key has a
+typed accessor (`coop_host_caps`, `coop_peer_ready_mask`, `coop_menu_r9_refused`, `coop_menu_captured`,
+`coop_peer_end`, `coop_present_r8_hits`, `coop_exit_trigger`, `coop_exit_stamp`, ... --
+`State.NETSYNC_BATTLE_ACCESSORS` maps every key path to its accessor) that reads None when the engine
+cannot publish it; a null string reads `""`, a null record (`host.end`, `peer.end`, `menu.captured`) None.
+`tools/harness/battlewire.py` is the lane's codec in Python -- the v1 command frame, the control frame,
+the END BLOCK trailer, ClassifyEnd and the guest's pure decisions -- pinned to the patch stack by
+`tests/test_harness_netsync.py` (NetSyncEnd's constants, the engine SelfTest's own ClassifyEnd rows).
+Counters marked monotonic (`cmd_refused`, `r9_total`, `captures`, `ach_held`, ...) are per process: assert
+on deltas. `end.r8_hits` is non-decreasing, NOT per frame: assert a rise over seconds, never between polls.
+
 ## Walking, and why every measurement settles first
 
 `walk_to(x, z)` steers on the published position rather than counting frames, and it calibrates

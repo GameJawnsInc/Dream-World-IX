@@ -46,6 +46,9 @@ from pathlib import Path
 #: is exactly what happened, and 23 tests failed reporting the wrong cause.
 from .channel import BUTTONS, DIRECTIONS, PROTOCOL
 from .tickrate import CALLS_PER_TICK, DEFAULT_FIELD_TPS, MAX_DELTA_TIME, TickAccumulator
+# [ff9mapkit netsync B4] the battle lane's codec and pure decisions -- the stand-in fabricates through the same functions
+# the tests pin to the engine (its `endbench` round trip, ClassifyEnd, the presentation and exit verdicts)
+from . import battlewire as BW
 
 #: The real agent polls req.txt every 2 frames while idle and every 10 while a queue is running, and
 #: the arm file every 30. Modelled because the driver's "do not overwrite an unaccepted request" gate
@@ -107,7 +110,6 @@ NETSYNC_SUBVERBS_F3 = ("selftest", "bench", "l1", "advance", "choice", "unmatche
 NETSYNC_F33_CAPS = {"diorama": ("s97", ("dioboot", "dioleave")),
                     "ring": ("s98", ("host",)),
                     "keys": ("s99", ("tap-record", "replay"))}
-NETSYNC_SUBVERBS = NETSYNC_SUBVERBS_F32 + tuple(v for cap in NETSYNC_F33_CAPS.values() for v in cap[1])
 #: [ff9mapkit netsync F3.3] The flat keys each capability adds to the `netsync` block (the "diorama" capability adds the
 #: one `diorama` block), in AppendRing / AppendKeys order.
 NETSYNC_CAP_KEYS = {"diorama": ("diorama",),
@@ -117,6 +119,65 @@ NETSYNC_CAP_KEYS = {"diorama": ("diorama",),
                              "key_taps", "tap_record", "tape", "replay_left")}
 #: [ff9mapkit netsync F3.3] The bench host's ops (NetSyncClient.BenchHostOp), in its "unknown op" refusal's order.
 NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "freeze", "menu", "battle")
+#: [ff9mapkit netsync B4] [ff9mapkit netsync B5] The battle co-op capabilities (studies/battle-coop/B4-B5-DESIGN.md
+#: section 7, stages 1-6), in patch order: (the patch, the sub-verbs it adds). Additive under protocol 5 like F3.3, each
+#: told by its keys' PRESENCE inside the one `netsync.battle` block (:data:`NETSYNC_BATTLE_CAP_KEYS`). Each needs every
+#: capability before it (the stack is a ladder): a set with a gap models no engine.
+#:   "gates"       -- s100 stage 1, the host command-phase gates (`netsync.battle` itself);
+#:   "containment" -- s101 stage 2, the guest containment backstop R9 + G2 (+ `battle.units[].cmd_busy`);
+#:   "stockmenu"   -- s102 stage 3, the guest stock menu's first look + capture (+ `battle.seq`, `battle.hud`);
+#:   "endblock"    -- s103 stage 4, the host END BLOCK trailer (+ `battle.result_ui`);
+#:   "present"     -- s104 stage 5, the guest's victory presentation (`netsync.battle.end`; `endbench guest`);
+#:   "exit"        -- s105 stage 6, the guest's exit with the host (`end.end_leave` / `end.declined`; `endbench exit`).
+NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
+                       "containment": ("s101", ("containment", "bctl")),
+                       "stockmenu": ("s102", ("bmenu",)),
+                       "endblock": ("s103", ("endbench",)),
+                       "present": ("s104", ()),
+                       "exit": ("s105", ())}
+#: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
+#: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
+#: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
+NETSYNC_BATTLE_CAP_KEYS = {
+    "gates": {"host": ("gates_off", "guest_slots", "cmd_phase", "caps", "ready_mask", "cmd_refused", "cmd_dropped",
+                       "cmd_queued", "refused_why", "dropped_why", "roster_lag", "loop_cmds"),
+              "peer": ("live", "seq", "nonce", "caps", "ready_mask"),
+              "menu": ("roster_slots",)},
+    "containment": {"menu": ("r9_refused", "r9_total", "r9_cmd", "r9_site", "guest_owned", "contained",
+                             "containment_off")},
+    "stockmenu": {"menu": ("captures", "capture_refused", "capture_why", "capture_off", "outbox", "bench_open",
+                           "side_refused", "side_why", "captured")},
+    "endblock": {"host": ("end", "end_trail", "end_edges", "end_changes", "end_mode", "end_cmd"),
+                 "peer": ("end", "end_trail", "trailer_bad", "trailer_skipped", "trailer_why")},
+    "present": {"end": ("injected", "held", "kind", "kind_name", "action", "inject_phase", "inject_seq", "inject_ms",
+                        "r8_hits", "r8_first_ms", "w1_armed", "watchdog", "blocker", "why", "faulted", "hud_reasserts",
+                        "guest_mode", "ach_held", "ach_enemy_no", "music", "btl_flag")},
+    "exit": {"end": ("exit_mode", "end_leave", "declined")},
+}
+NETSYNC_BATTLE_END_LEAVE_KEYS = ("trigger", "latched_ms", "tries", "deferred", "requested", "request_ms", "why", "settled",
+                                 "via", "stamp", "stamp_host", "stamped", "stamped_was", "music_shut", "music_why",
+                                 "wipe_lifted")
+NETSYNC_BATTLE_DECLINED_KEYS = ("count", "nonce", "why")
+#: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
+NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
+#: [ff9mapkit netsync B5] `endbench <op>` (NetSyncEnd.HarnessEndBench) as s103 printed it; s104 inserts `guest` and s105
+#: `exit` after `host` (:func:`endbench_ops`). `manifest` is an op it knows and refuses (stage 9) but never lists.
+NETSYNC_ENDBENCH_OPS_S103 = ("victory", "pending", "nopose", "other", "defeat", "escape", "event", "fight", "ui", "state",
+                             "overflow", "afterevent", "cmd", "host", "selftest", "clear")
+NETSYNC_SUBVERBS = NETSYNC_SUBVERBS_F32 + tuple(v for cap in NETSYNC_F33_CAPS.values() for v in cap[1]) \
+    + tuple(v for cap in NETSYNC_BATTLE_CAPS.values() for v in cap[1])
+
+
+def endbench_ops(caps) -> tuple:
+    """[ff9mapkit netsync B5] The `endbench` ops an engine with these capabilities lists (its "unknown op" order)."""
+    ops = list(NETSYNC_ENDBENCH_OPS_S103)
+    at = ops.index("host") + 1
+    if "present" in caps:
+        ops.insert(at, "guest")
+        at += 1
+    if "exit" in caps:
+        ops.insert(at, "exit")
+    return tuple(ops)
 #: [ff9mapkit netsync F3.3] Section 7's host flags (NetSyncDialog.Hf*): b0 the sticky scene, b1 control, b2 an
 #: input-taking line open, b3 on a live field, b4 a non-HUD UI, b5 in battle.
 HF_SCENE, HF_CONTROL, HF_LINE, HF_ON_FIELD, HF_MENU, HF_BATTLE = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
@@ -475,9 +536,27 @@ class FakeGame:
         #: (s84/s85): no `dialogue` tag, the one-slot holder and its timeout, no F3.2 sub-verb.
         self.netsync_dialogue: str | None = "authority"
         #: [ff9mapkit netsync F3.3] the F3.3 capabilities this stand-in's engine has (:data:`NETSYNC_F33_CAPS`): all three
-        #: = the live stack (s99); empty = an F3.2 engine (s96: the type-7 FIFO, u8 host seqs, no `host`/`dioboot`/
-        #: `tap-record`). Read only under "authority". "keys" without "ring" models no engine.
-        self.netsync_caps: frozenset = frozenset(NETSYNC_F33_CAPS)
+        #: = s99; empty = an F3.2 engine (s96: the type-7 FIFO, u8 host seqs, no `host`/`dioboot`/`tap-record`). Read
+        #: only under "authority". "keys" without "ring" models no engine. [ff9mapkit netsync B4] plus the battle co-op
+        #: capabilities (:data:`NETSYNC_BATTLE_CAPS`, s100-s105): the default -- every one of both -- is the live stack;
+        #: `frozenset(NETSYNC_F33_CAPS)` is an s99 engine (no `netsync.battle`).
+        self.netsync_caps: frozenset = frozenset(NETSYNC_F33_CAPS) | frozenset(NETSYNC_BATTLE_CAPS)
+        #: [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane's harness state (:class:`_BattleLane`)
+        self._nb = _BattleLane()
+        #: [ff9mapkit netsync B4] the battle scene's `btl_scene.Info.NoGameOver` (the guest's return settle reads it)
+        self.scene_no_gameover = False
+        #: [ff9mapkit netsync B5] the diorama's victory camera never advances by itself (the native callback, SFX code
+        #: 110, may never fire in BattleMapDebug [I]) -- W1's case; False: the stock tail's camera runs out on its own
+        self.dio_camera_stuck = False
+        #: [ff9mapkit netsync B5] the presented victory's stock tail, in frames: MENU_OFF's trailing loop, then the victory
+        #: camera (SEQ_VICTORY_CAMERA_MOVE); each fade (FADEOUT -> WAIT) is the stock 32
+        self.dio_tail_frames = 12
+        self.dio_camera_frames = 60
+        #: [ff9mapkit netsync B5] the result screen's ResultState while ``ui_state`` is "BattleResult" (an own battle's
+        #: `host.end.res_state` / `battle.result_ui.state`; 0 Start .. 6 End, 7 Hide, 8 None)
+        self.result_state = 0
+        #: [ff9mapkit netsync B5] FF9StateSystem.Achievement.enemy_no -- the invariant R8 protects (`end.ach_enemy_no`)
+        self.ach_enemy_no = 0
         self._rng = random.Random()                 # the bench host's epoch draws (Guid bytes on the engine)
         #: [ff9mapkit netsync F3.3] C3 R9: the selftest bench HOST and its ring (:class:`_BenchHost`)
         self._bench = _BenchHost(self._rng)
@@ -1200,6 +1279,7 @@ class FakeGame:
                 self._step_scene()
                 self._step_machine("agent_last")
                 self._step_battle()
+                self._step_netsync_battle()  # [ff9mapkit netsync B4/B5] the own battle's pump, the diorama's EndTick
                 self._service_turn()        # s90: end, or cut, an in-place turn
                 self._step_netsync()        # s96: the F3.2 guest's dialogue lock (bench only)
                 self._step_script_poll()    # [ff9mapkit netsync F3.3] R5: the open polled line's script button-poll
@@ -2550,7 +2630,10 @@ class FakeGame:
                 opens = self.BATTLE_OPENS.get(label)
                 if opens is None:
                     # Defend / Change: no target, committed straight away.
-                    self._battle_command(self.battle_turn, 2, 177, 0, 0)
+                    if self._nb_commit(label, 1 << self.battle_turn if self.battle_turn >= 0 else 0, None):
+                        return                      # [ff9mapkit netsync B4] captured (or refused) inside the diorama
+                    self._battle_command(self.battle_turn, 2, 177, 0, 0,
+                                         site="BattleHUD.SendCommand < BattleHUD.OnKeyConfirm")
                     self._close_battle_cursor()
                     return
                 self._battle_pending_cmd = label
@@ -2586,8 +2669,16 @@ class FakeGame:
             elif button in ("confirm", "ok"):
                 foe = next((u for u in self.battle_units
                             if not u["player"] and u["alive"] and u["targetable"]), None)
+                label = self._battle_pending_cmd
+                sub_group = {"Item": "Battle.Item", "Skill": "Battle.Ability"}.get(label)
+                row = self.BATTLE_SUBMENU_ROWS[sub_group][self._sub_index] if sub_group else None
+                # [ff9mapkit netsync B4] inside the diorama the commit is CAPTURED (a Potion's default target: the caster)
+                mask = (1 << self.battle_turn) if label == "Item" and self.battle_turn >= 0 else (foe["id"] if foe else 0)
+                if self._nb_commit(label, mask, row):
+                    return
                 cmd = {"Attack": (1, 176), "Steal": (3, 178)}.get(self._battle_pending_cmd, (8, 1))
-                self._battle_command(self.battle_turn, cmd[0], cmd[1], foe["id"] if foe else 0, 0)
+                self._battle_command(self.battle_turn, cmd[0], cmd[1], foe["id"] if foe else 0, 0,
+                                     site="BattleHUD.SendCommand < BattleHUD.OnKeyConfirm")
                 self._close_battle_cursor()
 
     def _menu_step(self, button: str) -> None:
@@ -2763,8 +2854,12 @@ class FakeGame:
                "bonus": dict(self.battle_bonus)}
         if not self.battle_active:
             return doc
+        caps = self._nb_caps()
         doc.update({
-            "phase": 4,
+            # [ff9mapkit netsync B4] the phase as the stand-in runs it (PHASE_ENTER through the opening camera, NORMAL
+            # after it, the CLOSE fade of a `battle_exit` end, a diorama presentation's own) -- and, from s102, its seq
+            "phase": self._battle_phase_now(),
+            **({"seq": self._battle_seq_now()} if "stockmenu" in caps else {}),
             # ⚠ escape_held says the BUMPERS ARE DOWN and nothing more -- it is set before every
             # gate. `escaping` is the queued SysEscape, i.e. the roll actually landed. A stand-in
             # that conflated them could not catch a driver that waits on the wrong one.
@@ -2774,7 +2869,7 @@ class FakeGame:
             # ⚠ btl_scene.Info. `runaway` false means CheckEscape shows "Cannot escape!" and NEVER
             # rolls -- while btl_escape_key still runs the animation. Modelled because the driver
             # refuses that scene up front, and an unmodelled block makes that a guard nothing fires.
-            "scene_info": {"runaway": self.scene_runaway, "no_gameover": False,
+            "scene_info": {"runaway": self.scene_runaway, "no_gameover": self.scene_no_gameover,
                            "preemptive": False, "back_attack": False},
             # ⚠ GATED, exactly as the agent publishes it. `slot_raw` is the ungated value, which
             # during the intro is the PREVIOUS battle's -- and acting on it froze a real fight.
@@ -2783,9 +2878,21 @@ class FakeGame:
                      "slot_raw": self.battle_turn,
                      "ready": list(self.battle_ready) if self.commands_enabled else [],
                      "done": list(self.battle_done) if self.commands_enabled else []},
-            "menu": dict(self.battle_menu),
-            "units": [dict(u) for u in self.battle_units],
         })
+        if "stockmenu" in caps:
+            doc["hud"] = self._battle_hud_doc()                   # [ff9mapkit netsync B4] s102 NetDescribeHud
+        if "endblock" in caps:                                    # [ff9mapkit netsync B5] s103 the live result screen
+            doc["result_ui"] = ({"state": self.result_state, "loading": False, "paused": False}
+                                if self.ui_state == "BattleResult" else None)
+        doc["menu"] = dict(self.battle_menu)
+        units = [dict(u) for u in self.battle_units]
+        if "containment" in caps:
+            # [ff9mapkit netsync B4] s101: bit i while cmd[i] is queued or executing -- bit 0, the ATB command, from the
+            # commit to its resolution (an R9-refused enqueue never sets it)
+            pending = {e[1] for e in self.battle_pending}
+            for u in units:
+                u["cmd_busy"] = 1 if u["slot"] in pending else 0
+        doc["units"] = units
         return doc
 
     def start_battle(self, scene: int, *, group: int = -1, debug: bool = False,
@@ -2884,7 +2991,8 @@ class FakeGame:
             "items": [dict(i) for i in self.MENU_ITEMS],
         }
 
-    def _battle_command(self, slot: int, cmd: int, sub: int, tar_id: int, cursor: int) -> None:
+    def _battle_command(self, slot: int, cmd: int, sub: int, tar_id: int, cursor: int,
+                        site: str = "BattleHUD.SendNetCommand < HarnessAgent.Execute") -> None:
         """Commit a command for a slot -- with the engine's own refusals, then its effect.
 
         ⚠ THE REFUSALS ARE THE POINT. SendNetCommand returns false for an enemy slot and for a slot
@@ -2907,6 +3015,14 @@ class FakeGame:
         if slot in self.battle_done:
             raise RuntimeError(f"battlecmd: the HUD refused the command for slot {slot} -- "
                                f"a command is already in flight for this slot")
+        if self._nb_r9(slot, cmd, site):
+            # [ff9mapkit netsync B4] s101 R9: inside a live diorama SetCommand refuses the enqueue at its head -- the HUD's
+            # bookkeeping around it still runs (the slot done, the HUD idle: the verb ACKS), the swing never plays
+            self.battle_done.append(slot)
+            if self.battle_turn == slot:
+                self.battle_turn = -1
+                self._close_battle_cursor()
+            return
         self.battle_commands.append([slot, cmd, sub, tar_id, cursor])
         self.battle_done.append(slot)
         if self.battle_turn == slot:
@@ -2997,7 +3113,9 @@ class FakeGame:
 
         # InitialBattle(): the opening camera ends, the HUD resets its turn bookkeeping, and only
         # THEN does the battle start asking for commands.
-        if not self.commands_enabled and self.frame >= self._intro_until and not self._tutorial:
+        # [ff9mapkit netsync B5] ...never again while a diorama presents the host's end (its injection hid the HUD)
+        if not self.commands_enabled and self.frame >= self._intro_until and not self._tutorial \
+                and not self._nb_hud_off():
             self.battle_turn = -1
             self.battle_ready = []
             self.battle_done = []
@@ -3042,7 +3160,9 @@ class FakeGame:
             unit["atb"] = min(unit["atb_max"], unit["atb"] + self.atb_gain)
             ready = unit["atb"] >= unit["atb_max"]
             if unit["player"]:
-                if ready and unit["slot"] not in self.battle_ready \
+                # [ff9mapkit netsync B4] the ReadyQueue's only feeder (ProcessActiveTime -> AddPlayerToReady) runs under
+                # !isDebug alone: a diorama's queue fills only through the bench opener (`netsync bmenu open`)
+                if ready and unit["slot"] not in self.battle_ready and not self.battle_debug \
                         and unit["slot"] not in self.battle_done and unit.get("can_act", True):
                     self.battle_ready.append(unit["slot"])
             elif ready:
@@ -3054,10 +3174,11 @@ class FakeGame:
                     if victim["hp"] == 0:
                         victim["alive"] = False
 
-        # The HUD asks the first ready slot that has not answered -- BattleHUD.UpdatePlayer.
+        # The HUD asks the first ready slot that has not answered -- BattleHUD.UpdatePlayer. [ff9mapkit netsync B4] It skips a
+        # GUEST-OWNED slot (IsGuestOwnedSlot: a `guestslots` slot of a selftest own battle -- the loopback guest commands it)
         if self.battle_turn < 0:
             for slot in list(self.battle_ready):
-                if slot not in self.battle_done:
+                if slot not in self.battle_done and not self._nb_guest_owned(slot):
                     self.battle_turn = slot
                     self._open_battle_cursor()        # the command list opens on that slot
                     break
@@ -3271,7 +3392,8 @@ class FakeGame:
         if self.netsync_dialogue != "authority":
             return NETSYNC_SUBVERBS_F3
         return NETSYNC_SUBVERBS_F32 + tuple(v for cap, (_patch, verbs) in NETSYNC_F33_CAPS.items()
-                                            if cap in self.netsync_caps for v in verbs)
+                                            if cap in self.netsync_caps for v in verbs) \
+            + tuple(v for cap, (_patch, verbs) in NETSYNC_BATTLE_CAPS.items() if cap in self.netsync_caps for v in verbs)
 
     def _netsync(self, args: list[str]) -> None:
         """The agent's `netsync` verb: the same gates, the same refusal texts, the same state -- for the contract
@@ -3495,6 +3617,9 @@ class FakeGame:
             self._replay_next = 0
             self._replay_paced = paced != 0
             self._replay_start = self._guest_now()
+        elif sub in ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "endbench"):
+            # [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op benches (s100-s105)
+            self._battle_bench_verb(sub, args, arg, out_of_range)
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -3517,6 +3642,7 @@ class FakeGame:
         the bench host's ring restarts under a NEW epoch (seq from 1), the guest's lane half goes (epoch -1, gaps and the
         KEY counters 0), the bench host's levers, the tape and a running replay with it; the key tick and the last masked
         reader are process statics and stay."""
+        self._nb_release()          # [ff9mapkit netsync B4] on EVERY path, above the forced-role return (HarnessSelfTest)
         ns = self.netsync
         if not ns["forced"]:
             return
@@ -3547,6 +3673,8 @@ class FakeGame:
                 doc.update(self._keys_doc())
             if self._cap("diorama"):
                 doc["diorama"] = self._diorama_doc()
+            if "gates" in self._nb_caps():
+                doc["battle"] = self._nb_doc()          # [ff9mapkit netsync B4] s100+
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -3586,6 +3714,907 @@ class FakeGame:
                 "boot_x": d["boot_x"], "boot_z": d["boot_z"], "primed": d["primed"], "returns": d["returns"],
                 "last_return": d["last_return"], "last_return_field": d["last_return_field"],
                 "resuming": self._dio_warm_return and self._dio_resume_until is not None}
+
+    # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
+    def _nb_caps(self) -> frozenset:
+        """The battle co-op capabilities this stand-in's engine has (:data:`NETSYNC_BATTLE_CAPS`) -- none on an F3 engine."""
+        if self.netsync_dialogue != "authority":
+            return frozenset()
+        return frozenset(c for c in NETSYNC_BATTLE_CAPS if c in self.netsync_caps)
+
+    def _nb_role(self) -> bool:
+        """NetSyncClient.IsSelfTestRole (`_enabled && _role == "selftest"`)."""
+        return bool(self.netsync["enabled"] and self.netsync["selftest"])
+
+    def _nb_gates_on(self) -> bool:
+        """NetSyncBattle.HostGatesOn: the lever bites only in the selftest role."""
+        return not (self._nb.gates_off_lever and self._nb_role())
+
+    def _nb_containment_on(self) -> bool:
+        """NetSyncBattle.ContainmentOn (s101); an engine before s101 has no containment at all."""
+        if "containment" not in self._nb_caps():
+            return False
+        return not (self._nb.containment_off_lever and self._nb_role())
+
+    def _nb_capture_on(self) -> bool:
+        """NetSyncBattle.StockCaptureOn (s102); an engine before s102 captures nothing."""
+        if "stockmenu" not in self._nb_caps():
+            return False
+        return not (self._nb.capture_off_lever and self._nb_role())
+
+    def _nb_guest_mode(self) -> int:
+        """NetSyncEnd.GuestMode (s104)."""
+        return self._nb.guest_mode if self._nb_role() else BW.GUEST_ON
+
+    def _nb_exit_mode(self) -> int:
+        """NetSyncEnd.GuestExitMode (s105)."""
+        return self._nb.exit_mode if self._nb_role() else BW.EXIT_MODE_ON
+
+    def _nb_host_mode(self) -> int:
+        """NetSyncEnd.HostMode (s103)."""
+        return self._nb.host_mode if self._nb_role() else BW.MODE_ON
+
+    def _nb_active(self) -> bool:
+        """NetSyncDiorama.Active -- a booted diorama whose battle scene is live (the containment predicate)."""
+        return bool(self._dio["booted"] and self.battle_active and self.battle_debug)
+
+    def _nb_hud_off(self) -> bool:
+        """NetSyncDiorama.EndHudOff: an end presented or held on THIS live diorama, or the guest following the host out
+        (s105) -- keyed on Active, so a later battle never inherits it."""
+        nb = self._nb
+        following = nb.trigger != BW.TRIGGER_NONE and self._nb_exit_mode() == BW.EXIT_MODE_ON
+        return bool((nb.presented or following) and self._nb_active())
+
+    def _nb_guest_owned(self, slot: int) -> bool:
+        """NetSyncBattle.IsGuestOwnedSlot: a GuestSlots bit, the control lane fresh (MenuStaleMs 2.5 s) -- and, from
+        s101, never inside a diorama while containment is on (G2)."""
+        nb = self._nb
+        if not self.netsync["enabled"] or not nb.guest_slots or not 0 <= slot < 4 or not nb.guest_slots & (1 << slot):
+            return False
+        if self._nb_active() and self._nb_containment_on():
+            return False
+        return self.rt - nb.assist_rt < 2.5
+
+    def _nb_doc(self) -> dict:
+        """HarnessAgent.AppendNetsyncBattle -- the `netsync.battle` block for this stand-in's capabilities, in the agent's
+        key order (absent = an engine without the patch)."""
+        caps, nb = self._nb_caps(), self._nb
+        role = self._nb_role()
+        peer = nb.peer if nb.own_epoch is not None else None
+        host = {"gates_off": nb.gates_off_lever and role, "guest_slots": nb.guest_slots,
+                "cmd_phase": nb.phase_open, "caps": nb.last_caps, "ready_mask": nb.last_ready,
+                "cmd_refused": nb.cmd_refused, "cmd_dropped": nb.cmd_dropped, "cmd_queued": nb.cmd_queued,
+                "refused_why": nb.refused_why, "dropped_why": nb.dropped_why, "roster_lag": nb.roster_lag,
+                "loop_cmds": len(nb.loop)}
+        pdoc = {"live": peer is not None, "seq": peer["seq"] if peer else -1, "nonce": peer["nonce"] if peer else -1,
+                "caps": peer["caps"] if peer else -1, "ready_mask": peer["ready"] if peer else -1}
+        menu = {"roster_slots": list(nb.roster_slots) if peer else []}
+        if "endblock" in caps:
+            host.update(end=None if nb.host_end is None else BW.published_end(nb.host_end),
+                        end_trail=list(nb.host_trail), end_edges=nb.host_edges, end_changes=nb.host_changes,
+                        end_mode=BW.HOST_MODE_NAMES[self._nb_host_mode()], end_cmd=nb.cmd_status)
+            pdoc.update(end=self._nb_peer_end(), end_trail=list(nb.peer_trail), trailer_bad=nb.trailer_bad,
+                        trailer_skipped=nb.trailer_skipped, trailer_why=nb.trailer_why)
+        if "containment" in caps:
+            menu.update(r9_refused=nb.r9_refused, r9_total=nb.r9_total, r9_cmd=nb.r9_cmd, r9_site=nb.r9_site,
+                        guest_owned=sum(1 << s for s in range(4) if self._nb_guest_owned(s)),
+                        contained=self._nb_active(), containment_off=nb.containment_off_lever and role)
+        if "stockmenu" in caps:
+            menu.update(captures=nb.captures, capture_refused=nb.capture_refused, capture_why=nb.capture_why,
+                        capture_off=nb.capture_off_lever and role, outbox=len(nb.outbox), bench_open=nb.bench_open,
+                        side_refused=nb.side_refused, side_why=nb.side_why,
+                        captured=None if nb.captured is None else dict(nb.captured))
+        doc = {"host": host, "peer": pdoc, "menu": menu}
+        if "present" in caps:
+            end = {"injected": nb.injected, "held": nb.held, "kind": nb.kind,
+                   "kind_name": None if nb.kind < 0 else BW.kind_name(nb.kind), "action": BW.present_name(nb.action),
+                   "inject_phase": nb.inject_phase, "inject_seq": nb.inject_seq,
+                   "inject_ms": int((self.rt - nb.inject_rt) * 1000) if nb.injected and self._dio["booted"] else -1,
+                   "r8_hits": nb.r8_hits, "r8_first_ms": nb.r8_first_ms, "w1_armed": nb.w1_armed,
+                   "watchdog": nb.watchdog, "blocker": nb.blocker, "why": nb.why, "faulted": nb.faulted,
+                   "hud_reasserts": nb.hud_reasserts, "guest_mode": BW.GUEST_MODE_NAMES[self._nb_guest_mode()],
+                   "ach_held": nb.ach_held, "ach_enemy_no": self.ach_enemy_no, "music": nb.music,
+                   "btl_flag": nb.btl_flag}
+            if "exit" in caps:
+                end["exit_mode"] = "off" if self._nb_exit_mode() == BW.EXIT_MODE_OFF else "on"
+                end["end_leave"] = {
+                    "trigger": BW.trigger_name(nb.trigger),
+                    "latched_ms": int((self.rt - nb.latched_rt) * 1000) if nb.trigger and self._dio["booted"] else -1,
+                    "tries": nb.tries, "deferred": nb.deferred, "requested": nb.requested, "request_ms": nb.request_ms,
+                    "why": nb.exit_why, "settled": nb.settled, "via": nb.via,
+                    "stamp": nb.stamped if nb.stamped >= 0 else nb.stamp_pending, "stamp_host": nb.stamp_host,
+                    "stamped": nb.stamped, "stamped_was": nb.stamped_was, "music_shut": nb.music_shut,
+                    "music_why": nb.music_why, "wipe_lifted": nb.wipe_lifted}
+                end["declined"] = {"count": nb.declined_count, "nonce": nb.declined_nonce, "why": nb.declined_why}
+            doc["end"] = end
+        return doc
+
+    def _nb_peer_end(self) -> dict | None:
+        """NetSyncBattle.TryGetPeerEnd: the selftest bench seam first (bench True), else the live loopback's trailer."""
+        nb = self._nb
+        if nb.bench_armed and self._nb_role():
+            return dict(nb.bench_end)
+        peer = nb.peer if nb.own_epoch is not None else None
+        if peer is None or peer["end"] is None:
+            return None
+        return BW.published_end(peer["end"], nonce=peer["nonce"], wire_seq=peer["seq"], bench=False)
+
+    def _nb_release(self) -> None:
+        """NetSyncBattle.HarnessReleaseBench + the GuestSlots restore -- what NetSyncClient.HarnessSelfTest(false) runs on
+        EVERY path (disarm, fault, `reset`, `selftest 0`; a forced role or an ini-configured selftest alike), ABOVE its
+        forced-role early return."""
+        nb = self._nb
+        nb.gates_off_lever = False
+        nb.loop.clear()
+        nb.containment_off_lever = False
+        if nb.bench_control:
+            nb.bench_control = False
+            nb.remote_menu = False
+            nb.assist_rt = self.rt - 60.0
+        nb.capture_off_lever = False
+        nb.host_mode = BW.MODE_ON
+        nb.guest_mode = BW.GUEST_ON
+        nb.exit_mode = BW.EXIT_MODE_ON
+        nb.clear_bench()
+        if nb.bench_guest_slots:
+            nb.bench_guest_slots = False
+            nb.guest_slots = 0                      # the pin while forced, else the ini's own value (0 here)
+
+    def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
+        """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
+        ArgumentOutOfRangeException), then its Harness* entry point's gates and refusals, in the agent's order and
+        words."""
+        ns, nb, caps = self.netsync, self._nb, self._nb_caps()
+        role = self._nb_role()
+        if sub == "guestslots":
+            mask = BW.parse_mask(args[1] if len(args) > 1 else None)
+            if mask < 0:
+                raise out_of_range("netsync guestslots", "needs a slot mask 0-15 (decimal or 0x hex)")
+            if not role:
+                raise RuntimeError("netsync guestslots: needs the selftest role (netsync selftest 1)")
+            nb.guest_slots = mask
+            nb.bench_guest_slots = True
+        elif sub == "bcmd":
+            frame = BW.parse_hex(args[1:])
+            if frame is None:
+                raise out_of_range("netsync bcmd", "needs hex bytes, e.g. `netsync bcmd 01 01 00 00 00 00 10 00 00`")
+            if not role:
+                raise RuntimeError("netsync bcmd: needs the selftest role (netsync selftest 1)")
+            if not 0 < len(frame) <= 64:
+                raise RuntimeError("netsync bcmd: needs 1..64 bytes of hex (a v1 command frame is 9: ver slot action "
+                                   "menu idLo idHi maskLo maskHi cursor)")
+            if len(nb.loop) >= 16:
+                raise RuntimeError("netsync bcmd: 16 frames already wait on the loopback (no own battle is draining "
+                                   "them)")
+            nb.loop.append(frame)
+        elif sub == "hostgates":
+            on = arg(1, 1) != 0
+            if not role:
+                raise RuntimeError("netsync hostgates: needs the selftest role (netsync selftest 1)")
+            nb.gates_off_lever = not on
+        elif sub == "containment":
+            on = arg(1, 1) != 0
+            if not role:
+                raise RuntimeError("netsync containment: needs the selftest role (netsync selftest 1)")
+            nb.containment_off_lever = not on
+        elif sub == "bctl":
+            frame = BW.parse_hex(args[1:])
+            if frame is None:
+                raise out_of_range("netsync bctl", "needs hex bytes, e.g. `netsync bctl 00 00`")
+            if not role:
+                raise RuntimeError("netsync bctl: needs the selftest role (netsync selftest 1)")
+            if not 0 < len(frame) <= 64:
+                raise RuntimeError("netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 <menuOpen 0|1>)")
+            # ParseControl: a valid frame stamps the lane fresh; an invalid one clears the menu flag and stamps nothing
+            if BW.control_valid(frame):
+                nb.assist_rt = self.rt
+                nb.remote_menu = frame[1] != 0
+            else:
+                nb.remote_menu = False
+            nb.bench_control = True
+        elif sub == "bmenu":
+            self._nb_bmenu(args, arg, out_of_range)
+        elif sub == "endbench":
+            self._nb_endbench(args, arg, out_of_range, caps)
+
+    def _nb_bmenu(self, args: list, arg, out_of_range) -> None:
+        """`netsync bmenu ...` (s102): HarnessAgent's parse of `capture` / `open` / `close`, then
+        NetSyncBattle.HarnessStockMenu."""
+        nb = self._nb
+        op = args[1].lower() if len(args) > 1 else ""
+        barg = -1
+        if op == "capture":
+            v = args[2].lower() if len(args) > 2 else ""
+            barg = 1 if v in ("on", "1") else 0 if v in ("off", "0") else -1
+            if barg < 0:
+                raise out_of_range("netsync bmenu capture", "needs on|off (1|0)")
+        elif op in ("open", "close"):
+            barg = arg(2, -1)
+            if barg < 0 or barg > 3:
+                raise out_of_range("netsync bmenu " + op, "needs a local party slot 0-3")
+        if not self._nb_role():
+            raise RuntimeError("netsync bmenu: needs the selftest role (netsync selftest 1)")
+        if op == "capture":
+            nb.capture_off_lever = barg == 0
+        elif op == "open":
+            self._nb_bench_open(barg)
+        elif op == "close":
+            if not self._nb_active():
+                raise RuntimeError("netsync bmenu close: needs a live diorama")
+            if self.battle_turn == barg:
+                self.battle_turn = -1                       # SetIdle
+                self._close_battle_cursor()
+            self._nb_drop_slot(barg)
+            nb.bench_open &= ~(1 << barg)
+        elif op == "closeall":
+            self._nb_close_all("harness `bmenu closeall`")
+        elif op == "mainmenu":
+            if not self._nb_active():
+                raise RuntimeError("netsync bmenu mainmenu: needs a live diorama (a real battle's main menu is stock and is "
+                                   "never probed)")
+            if self.ui_state != "BattleHUD":
+                raise RuntimeError("netsync bmenu mainmenu: the battle HUD is not the UI state")
+            self._nb_side_refused("the in-battle main menu (AccessMenu / OnKeyMenu)")
+        else:
+            raise RuntimeError(f"netsync bmenu: unknown op '{op}' ({'|'.join(NETSYNC_BMENU_OPS)})")
+
+    def _nb_bench_open(self, slot: int) -> None:
+        """NetSyncBattle.BenchOpen: BenchMenuGate (a live diorama in its steady command phase), then
+        BattleHUD.NetStockMenuOpen (the stock feeder, duplicate-guarded) -- the HUD's next ready pass opens the panel."""
+        why = None
+        if not self._nb_active():
+            why = "needs a live diorama (netsync dioboot <scene>, then wait for battle.turn.enabled)"
+        elif self.ui_state != "BattleHUD":
+            why = f"the UI state is {self.ui_state}, not BattleHUD"
+        elif self._battle_phase_now() != BW.PHASE_NORMAL:
+            why = (f"the diorama is in phase {self._battle_phase_now()}, not its steady phase "
+                   f"({BW.PHASE_NORMAL})")
+        elif not self.commands_enabled:
+            why = "the HUD's command menu is not enabled yet (wait for battle.turn.enabled)"
+        if why is not None:
+            raise RuntimeError("netsync bmenu open: " + why)
+        unit = next((u for u in self.battle_units if u["slot"] == slot and u.get("player")), None)
+        if unit is None:
+            raise RuntimeError(f"netsync bmenu open: local slot {slot} holds no party member in this battle")
+        if slot in self.battle_ready:
+            if slot in self.battle_done:
+                raise RuntimeError(f"netsync bmenu open: local slot {slot} already committed this turn -- "
+                                   f"`netsync bmenu close {slot}` first")
+        else:
+            if not unit.get("alive") or not unit.get("can_act", True):
+                raise RuntimeError(f"netsync bmenu open: local slot {slot} cannot take input (KO, a NoInput status, or "
+                                   f"outside member_flag) -- the stock feeder refuses it")
+            self.battle_ready.append(slot)                  # AddPlayerToReady
+        self._nb.touched = True
+        self._nb.bench_open |= 1 << slot
+
+    def _nb_drop_slot(self, slot: int) -> bool:
+        """BattleHUD.NetDropSlot: the slot off ReadyQueue / InputFinishList."""
+        any_ = slot in self.battle_ready or slot in self.battle_done
+        self.battle_ready = [s for s in self.battle_ready if s != slot]
+        self.battle_done = [s for s in self.battle_done if s != slot]
+        return any_
+
+    def _nb_close_all(self, why: str) -> None:
+        """NetSyncBattle.StockMenuCloseAll: the outbox and the bench mask always; the HUD only if this lane opened or
+        captured this boot -- the party slots drained, then SetIdle."""
+        nb = self._nb
+        nb.outbox.clear()
+        nb.bench_open = 0
+        if not nb.touched:
+            return
+        for s in range(4):
+            self._nb_drop_slot(s)
+        if self.battle_turn >= 0:
+            self.battle_turn = -1
+            self._close_battle_cursor()
+        nb.touched = False
+
+    def _nb_side_refused(self, what: str) -> None:
+        """NetSyncBattle.NoteSideRefused."""
+        self._nb.side_refused += 1
+        self._nb.side_why = what
+
+    def _nb_r9(self, slot: int, cmd_no: int, site: str) -> bool:
+        """btl_cmd.SetCommand's head (s101 R9, NetSyncDiorama.RefuseLocalEnqueue): inside a live diorama with containment
+        on, a player's cmd[0] is never enqueued -- counted (`r9_refused` this boot, `r9_total`), the swing never plays.
+        True = refused."""
+        if not self._nb_active() or not self._nb_containment_on():
+            return False
+        unit = next((u for u in self.battle_units if u["slot"] == slot), None)
+        if unit is None or not unit.get("player"):
+            return False
+        nb = self._nb
+        nb.r9_refused += 1
+        nb.r9_total += 1
+        nb.r9_cmd = cmd_no
+        nb.r9_site = site
+        return True
+
+    #: The stand-in's battle grid command -> its stock (BattleCommandId, v1 action, wire menu); Change has none.
+    STOCK_COMMANDS = {"Attack": (1, BW.ACT_ATTACK, 0), "Defend": (2, BW.ACT_DEFEND, 0), "Steal": (3, BW.ACT_INSTANT, 2),
+                      "Skill": (5, BW.ACT_ABILITY, 3), "Item": (8, BW.ACT_ITEM, 0), "Change": (6, None, 0)}
+    #: The stand-in's submenu rows -> the ids a commit carries (RegularItem Potion 236 / Hi-Potion 237; an ability).
+    STOCK_ROW_IDS = {"Potion": 236, "Hi-Potion": 237, "Flee": 30}
+
+    def _nb_commit(self, label: str, mask: int, row: str | None) -> bool:
+        """A stock COMMIT inside a live diorama (BattleHUD.SendCommand's head, s102): captured -- forwarded as one v1
+        frame (ForwardStockCommand), the slot marked done, the panel idle, never enqueued -- or refused (outside the v1
+        scope: SFX 102, nothing committed, the panel stays). False = not in a diorama with the capture on: the stock body
+        runs (into R9, :meth:`_battle_command`)."""
+        if not (self._nb_active() and self._nb_capture_on()):
+            return False
+        nb, slot = self._nb, self.battle_turn
+        cmd_id, action, menu = self.STOCK_COMMANDS.get(label, (0, None, 0))
+        nb.touched = True
+        if action is None:
+            nb.capture_refused += 1
+            nb.capture_why = "Change is outside the v1 command scope (B4.2)"
+            return True
+        ident = self.STOCK_ROW_IDS.get(row, 0) if action in (BW.ACT_ABILITY, BW.ACT_ITEM) else 0
+        if not mask:
+            nb.capture_refused += 1
+            nb.capture_why = "empty target mask"
+            return True
+        frame = BW.encode_command(slot, action, menu, ident, mask, 0)          # the bench seats the own party: identity
+        if len(nb.outbox) >= 8:
+            nb.outbox.pop(0)
+        nb.outbox.append(frame)
+        nb.captures += 1
+        c = BW.decode_command(frame)
+        nb.captured = {"slot": c["slot"], "action": c["action"], "menu": c["menu"], "id": c["id"], "mask": c["mask"],
+                       "cursor": c["cursor"], "local_slot": slot, "cmd": cmd_id, "site": "SendCommand",
+                       "hex": BW.hex_bytes(frame), "action_name": BW.action_name(c["action"])}
+        if slot not in self.battle_done:
+            self.battle_done.append(slot)                   # InputFinishList.Add (the stock bookkeeping still runs)
+        self.battle_turn = -1                               # SetIdle
+        self._close_battle_cursor()
+        return True
+
+    def _nb_endbench(self, args: list, arg, out_of_range, caps) -> None:
+        """`netsync endbench ...` (s103-s105): HarnessAgent's parse, then NetSyncEnd.HarnessEndBench."""
+        nb = self._nb
+        op = args[1].lower() if len(args) > 1 else ""
+        earg, loading, frame, mode = -1, False, None, None
+        mode_ops = ("host",) + (("guest",) if "present" in caps else ()) + (("exit",) if "exit" in caps else ())
+        if op in ("other", "ui", "state", "overflow", "afterevent"):
+            earg = arg(2, -1)
+            if earg < 0:
+                raise out_of_range("netsync endbench " + op, "needs a non-negative integer argument")
+            if op == "state" and len(args) > 3:
+                if len(args) > 4 or args[3].lower() != "loading":
+                    raise out_of_range("netsync endbench state", "expected `state <0-8> [loading]`")
+                loading = True
+        elif op == "cmd":
+            if len(args) > 2:
+                frame = BW.parse_hex(args[2:])
+                if frame is None:
+                    raise out_of_range("netsync endbench cmd",
+                                       "needs hex bytes, e.g. `netsync endbench cmd 01 01 00 00 00 00 10 00 00`")
+        elif op in mode_ops:
+            mode = args[2].lower() if len(args) > 2 else ""
+        if not self._nb_role():
+            raise RuntimeError("netsync endbench: needs the selftest role (netsync selftest 1)")
+        t = nb.template
+        raw = {"victory": (BW.PHASE_VICTORY, BW.SEQ_VICTORY_CAMERA_MOVE, BW.BTL_RESULT_VICTORY),
+               "pending": (BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_VICTORY, BW.BTL_RESULT_INITIAL),
+               "nopose": (BW.PHASE_CLOSE, BW.SEQ_DEFEATCLOSE_FADEOUT, BW.BTL_RESULT_VICTORY_NO_POSE),
+               "defeat": (BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_DEFEAT, BW.BTL_RESULT_INITIAL),
+               "escape": (BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_ESCAPE, BW.BTL_RESULT_INITIAL),
+               "event": (BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_EVENT, BW.BTL_RESULT_INITIAL),
+               "fight": (BW.PHASE_NORMAL, 0, BW.BTL_RESULT_INITIAL)}
+        if op in raw:
+            t["phase"], t["seq"], t["result"] = raw[op]
+        elif op == "other":
+            if earg > 255:
+                raise RuntimeError("netsync endbench other: needs a btl_result 0-255 (5 interruption, 7 enemy flee, ...)")
+            t["phase"], t["seq"], t["result"] = BW.PHASE_CLOSE, BW.SEQ_DEFEATCLOSE_FADEOUT, earg
+        elif op == "ui":
+            if earg > 3:
+                raise RuntimeError("netsync endbench ui: needs 0 (battle/other), 1 (BattleResult), 2 (GameOver) or 3 "
+                                   "(Title)")
+            t["ui"] = earg
+        elif op == "state":
+            if earg > BW.RES_NONE:
+                raise RuntimeError("netsync endbench state: needs a ResultState 0-8 (0 Start .. 6 End, 7 Hide, 8 None) "
+                                   "[loading]")
+            t["state"], t["loading"] = earg, loading
+        elif op in ("overflow", "afterevent"):
+            if earg not in (0, 1):
+                raise RuntimeError(f"netsync endbench {op}: needs 0|1")
+            bit = BW.FLAG_ITEM_OVERFLOW if op == "overflow" else BW.FLAG_AFTER_EVENT
+            t["flags"] = t["flags"] | bit if earg else t["flags"] & ~bit
+        elif op == "cmd":
+            if frame is not None and not 0 < len(frame) <= 64:
+                raise RuntimeError("netsync endbench cmd: needs 1..64 bytes of hex (a v1 command frame is 9)")
+            nb.cmd_frame = frame or bytes([1, 1, 0, 0, 0, 0, 0x10, 0, 0])
+            nb.cmd_armed = True
+            nb.cmd_status = "armed"
+            return
+        elif op == "host":
+            m = {"on": BW.MODE_ON, "cadence": BW.MODE_CADENCE, "off": BW.MODE_OFF}.get(mode)
+            if m is None:
+                raise RuntimeError("netsync endbench host: needs on|cadence|off")
+            nb.host_mode = m
+            return
+        elif op == "guest" and "present" in caps:
+            m = {"on": BW.GUEST_ON, "off": BW.GUEST_OFF, "settle": BW.GUEST_SETTLE}.get(mode)
+            if m is None:
+                raise RuntimeError("netsync endbench guest: needs on|off|settle")
+            nb.guest_mode = m
+            return
+        elif op == "exit" and "exit" in caps:
+            m = {"on": BW.EXIT_MODE_ON, "off": BW.EXIT_MODE_OFF}.get(mode)
+            if m is None:
+                raise RuntimeError("netsync endbench exit: needs on|off")
+            nb.exit_mode = m
+            return
+        elif op == "selftest":
+            return                                          # the engine runs NetSyncEnd.SelfTest; the stand-in passes it
+        elif op == "clear":
+            nb.clear_bench()
+            return
+        elif op == "manifest":
+            raise RuntimeError("netsync endbench manifest: the result manifest is stage 9 -- this engine ships the end "
+                               "block only")
+        else:
+            raise RuntimeError(f"netsync endbench: unknown op '{op}' ({'|'.join(endbench_ops(caps))})")
+        # Fabricate: the template -> a block as a host ships it -> the codec -> the parse; the PARSED block is served
+        block = BW.make_block(t["phase"], t["seq"], t["result"], ui=t["ui"], state=t["state"], loading=t["loading"],
+                              flags=t["flags"])
+        got, why, _skipped = BW.read_trailer(BW.encode_trailer(block))
+        if got is None or why is not None or {k: got[k] for k in block} != block:
+            raise RuntimeError(f"netsync endbench {op}: the codec mangled the block -- sent {BW.block_text(block)}, "
+                               f"parsed {BW.block_text(got) if got else 'nothing'}")
+        nb.bench_seq = (nb.bench_seq + 1) & 0xFFFF
+        nb.bench_block = got
+        nb.bench_end = BW.published_end(got, nonce=BW.BENCH_NONCE, wire_seq=nb.bench_seq, bench=True)
+        nb.bench_armed = True
+
+    # ---- the per-frame lane: an own battle's host gates (SelfTestPump) and a diorama's end presentation (EndTick)
+    def _battle_phase_now(self) -> int:
+        """The battle's btl_phase as the stand-in runs it: the presentation's own once it moved it, the CLOSE fade of a
+        `battle_exit` end, NORMAL once the opening camera is over, PHASE_ENTER through it."""
+        if self._nb.phase is not None:
+            return self._nb.phase
+        if self._bexit is not None:
+            return BW.PHASE_CLOSE
+        return BW.PHASE_NORMAL if self.frame >= self._intro_until else BW.PHASE_ENTER
+
+    def _battle_seq_now(self) -> int:
+        if self._nb.seq is not None:
+            return self._nb.seq
+        if self._bexit is not None:
+            return BW.SEQ_DEFEATCLOSE_FADEOUT if self._bexit[0] == "fade" else BW.SEQ_DEFEATCLOSE_WAIT
+        return 0
+
+    def _step_netsync_battle(self) -> None:
+        """One frame of the battle lane: a selftest OWN battle's pump (rising / falling edges included), and a booted
+        diorama's EndTick."""
+        caps = self._nb_caps()
+        if "gates" not in caps:
+            return
+        nb = self._nb
+        own = (self.battle_active and not self.battle_debug and not self._dio["booted"] and self._nb_role())
+        if own:
+            if nb.own_epoch != self.battle_epoch:
+                self._nb_own_start()
+            self._nb_pump_own(caps)
+        elif nb.own_epoch is not None:
+            self._nb_own_end()
+        if "present" in caps and self._nb_active() and self._nb_role():
+            self._nb_end_tick(caps)
+        if self._nb_active() and nb.phase is not None:
+            self._nb_present_step()
+
+    def _nb_own_start(self) -> None:
+        """An own battle's rising edge (NoteOwnBattleStart + the nonce bump + NetSyncEnd.NoteHostBattleStart)."""
+        nb = self._nb
+        nb.own_epoch = self.battle_epoch
+        nb.own_battles += 1
+        nb.nonce = (nb.nonce + 1) & 0xFF
+        nb.phase_open = False
+        nb.phase_open_frame = -1
+        nb.roster_lag = -1
+        nb.roster_slots = []
+        nb.roster_next_rt = self.rt + 1.0
+        nb.refuse_logged.clear()
+        nb.host_key = None
+        nb.host_end = None
+        nb.host_changes = 0
+        nb.host_edges = 0
+        nb.host_trail = []
+        nb.host_trail_key = -1
+        if nb.bench_armed:                                  # DisarmStaleBenchEnd: the loopback's real block serves now
+            nb.bench_armed = False
+            nb.bench_block = nb.bench_end = None
+        nb.peer = None
+
+    def _nb_own_end(self) -> None:
+        """An own battle's falling edge (NoteOwnBattleEnd): the host's "last sample" reads -1, `host.end` null, the lane
+        is no longer live (the trails stay readable)."""
+        nb = self._nb
+        nb.own_epoch = None
+        nb.phase_open = False
+        nb.last_caps = -1
+        nb.last_ready = -1
+        nb.host_end = None
+        nb.host_key = None
+        nb.peer = None
+
+    def _nb_pump_own(self, caps) -> None:
+        """SelfTestPump in an own battle: TrackCommandPhase, the roster, the sample (caps + Ready bits + the end block),
+        the loopback parse, the `endbench cmd` one-shot, then the parked `bcmd` frames through the real intake."""
+        nb = self._nb
+        gates = self._nb_gates_on()
+        phase = self._battle_phase_now()
+        open_ = bool(self.commands_enabled and phase == BW.PHASE_NORMAL)
+        if open_ != nb.phase_open:
+            nb.phase_open = open_
+            if open_:
+                nb.phase_open_frame = self.frame
+                nb.roster_lag = -1
+        nb.assist_rt = self.rt                              # the loopback's own control frame stamps the lane every tick
+        # the roster: gated -> only in the command phase, rebuilt at its opening; ungated -> the RosterMs cadence (a
+        # second battle's intro reads the previous battle's ability keys as ready -- the stale roster leak)
+        menus_ready = open_ or (not gates and nb.own_battles > 1)
+        build = open_ if gates else self.rt >= nb.roster_next_rt
+        if not gates and self.rt >= nb.roster_next_rt:
+            nb.roster_next_rt += 1.0
+        if build and menus_ready:
+            slots = sorted(u["slot"] for u in self.battle_units
+                           if u.get("player") and 0 <= u["slot"] < 4 and nb.guest_slots & (1 << u["slot"]))
+            nb.roster_slots = slots
+            if nb.roster_lag < 0 and open_ and nb.phase_open_frame >= 0:
+                nb.roster_lag = self.frame - nb.phase_open_frame
+        # the sample
+        pending = {e[1] for e in self.battle_pending}
+        ready = 0
+        for u in self.battle_units:
+            s = u["slot"]
+            if not u.get("player") or not 0 <= s < 8:
+                continue
+            if s in self.battle_ready and s not in self.battle_done and s not in pending and (open_ or not gates):
+                ready |= 1 << s
+        caps_byte = BW.CAP_COMMAND_PHASE_GATED if gates else 0
+        nb.last_caps, nb.last_ready = caps_byte, ready
+        nb.wire_seq = (nb.wire_seq + 1) & 0xFFFF
+        end = None
+        if "endblock" in caps:
+            ui, state = BW.UI_OTHER, 0
+            if self.ui_state == "BattleResult":
+                ui, state = BW.UI_RESULT, self.result_state
+            block = BW.make_block(phase, self._battle_seq_now(), self.battle_result, ui=ui, state=state)
+            key = (block["phase"], block["seq"], block["result"], block["res_byte"], block["ui"])
+            if key != nb.host_key:
+                if nb.host_key is not None:
+                    nb.host_changes += 1
+                    if self._nb_host_mode() == BW.MODE_ON:
+                        nb.host_edges += 1
+                nb.host_key = key
+            if self._nb_host_mode() != BW.MODE_OFF:
+                end = block
+                nb.host_end = block
+                nb.host_trail_key = BW.append_trail(nb.host_trail, nb.host_trail_key, block)
+            else:
+                nb.host_end = None
+        nb.peer = {"seq": nb.wire_seq, "nonce": nb.nonce, "caps": caps_byte, "ready": ready, "end": end}
+        if "endblock" in caps:
+            if nb.peer_nonce != nb.nonce:                   # NotePeer: a new battle nonce restarts the trail
+                nb.peer_nonce = nb.nonce
+                nb.peer_trail, nb.peer_trail_key = [], -1
+            if end is not None:
+                nb.peer_trail_key = BW.append_trail(nb.peer_trail, nb.peer_trail_key, end)
+            if nb.cmd_armed and nb.host_end is not None and BW.is_end_kind(nb.host_end["kind"]):
+                nb.cmd_armed = False                        # BenchCommandTick: drained this tick
+                if len(nb.loop) < 16:
+                    nb.loop.append(nb.cmd_frame)
+                    nb.cmd_status = "fired " + BW.kind_name(nb.host_end["kind"])
+                else:
+                    nb.cmd_status = ("failed: netsync bcmd: 16 frames already wait on the loopback (no own battle is "
+                                     "draining them)")
+        while nb.loop:
+            self._nb_handle_command(nb.loop.pop(0), open_, gates, phase)
+
+    def _nb_drop(self, why: str) -> None:
+        self._nb.cmd_dropped += 1
+        self._nb.dropped_why = why
+
+    def _nb_handle_command(self, frame: bytes, open_: bool, gates: bool, phase: int) -> None:
+        """NetSyncBattle.HandleCommandPayload: the decoder's acceptance test, THE INTAKE GUARD (s100: before ownership),
+        ownership, the mask, the unit, "awaiting input", then the action through SendNetCommand."""
+        nb = self._nb
+        c = BW.decode_command(frame)
+        if c is None:
+            self._nb_drop("malformed command frame: " + f"len {len(frame)}" + (f", ver {frame[0]}" if frame else "")
+                          + " (want 9 bytes, ver 1)")
+            return
+        slot, action, mask = c["slot"], c["action"], c["mask"]
+        if gates and not open_:
+            nb.cmd_refused += 1
+            nb.refused_why = BW.phase_why(phase) if phase != BW.PHASE_NORMAL else BW.MENU_DISABLED_WHY
+            return
+        if not self._nb_guest_owned(slot):
+            self._nb_drop(f"slot {slot} is not a guest slot")
+            return
+        if mask == 0:
+            self._nb_drop(f"slot {slot} {BW.action_name(action)}: empty target mask")
+            return
+        unit = next((u for u in self.battle_units if u.get("player") and u["slot"] == slot), None)
+        if unit is None or unit["hp"] == 0:
+            self._nb_drop(f"slot {slot} absent or KO")
+            return
+        if slot not in self.battle_ready or slot in self.battle_done or slot in {e[1] for e in self.battle_pending}:
+            self._nb_drop(f"slot {slot} not awaiting input")
+            return
+        if action in (BW.ACT_ATTACK, BW.ACT_INSTANT):
+            living = any(mask & u["id"] and (u["hp"] > 0 or u.get("player")) for u in self.battle_units)
+            if action == BW.ACT_ATTACK and not living:
+                foe = next((u for u in self.battle_units if not u.get("player") and u["hp"] > 0), None)
+                mask = foe["id"] if foe else 0
+            if mask == 0:
+                self._nb_drop(f"slot {slot} Attack: no living target left to retarget to")
+                return
+            cmd, sub, what = (1, 176, "Attack") if action == BW.ACT_ATTACK else (3, 0, "Instant")
+        elif action == BW.ACT_DEFEND:
+            cmd, sub, mask, what = 2, 177, 1 << slot, "Defend"
+        elif action == BW.ACT_ABILITY:
+            ab = next((a for a in self.MENU_ABILITIES if a["sub"] == c["id"] and a["enabled"]), None)
+            if ab is None:
+                self._nb_drop(f"slot {slot} ability {c['id']} not usable")
+                return
+            cmd, sub, what = 4, c["id"], f"ability {c['id']}"
+        elif action == BW.ACT_ITEM:
+            it = next((i for i in self.MENU_ITEMS if i["sub"] == c["id"] and i["count"] > 0), None)
+            if it is None:
+                self._nb_drop(f"item {c['id']}: none left")
+                return
+            cmd, sub, what = 8, c["id"], f"Item {c['id']}"
+        else:
+            self._nb_drop(f"slot {slot}: unknown action {action} (v1 knows 0-4)")
+            return
+        try:
+            self._battle_command(slot, cmd, sub, mask, c["cursor"])
+        except RuntimeError:
+            self._nb_drop(f"slot {slot} {what}: the HUD refused -- a command is already in flight for it (or the unit "
+                          f"has no command slot)")
+            return
+        nb.cmd_queued += 1
+
+    def _nb_boot(self) -> None:
+        """Every diorama Boot: R9's per-boot ledger, the stock menu's per-boot state, the presentation and the exit."""
+        nb = self._nb
+        nb.r9_refused, nb.r9_cmd, nb.r9_site = 0, -1, None
+        nb.outbox.clear()
+        nb.touched = False
+        nb.bench_open = 0
+        nb.captured = None
+        nb.reset_presentation()
+        nb.reset_exit()
+        nb.btl_flag = 0
+
+    def _nb_teardown(self) -> None:
+        """NetSyncDiorama.ForceDisarm at the teardown: StockMenuCloseAll("the diorama tore down"), then (s105) the
+        return settle -- the btl_result stamp re-decided from the host's latest terminal block, the injected end fade
+        lifted. The presentation's phase override goes with the battle."""
+        nb = self._nb
+        caps = self._nb_caps()
+        if "stockmenu" in caps:
+            self._nb_close_all("the diorama tore down")
+        if "exit" in caps:
+            if (nb.settled and nb.stamped < 0 and nb.exit_seen and nb.exit_last is not None
+                    and BW.is_terminal(nb.exit_last["kind"], nb.exit_last["ui"])):
+                nb.stamp_host = nb.exit_last["result"]
+                nb.stamp_pending = BW.stamp_for(nb.exit_last["result"], nb.settle_no_gameover)
+            if nb.stamp_pending >= 0:
+                nb.stamped_was = self.battle_result
+                self.battle_result = nb.stamp_pending
+                nb.stamped, nb.stamp_pending = nb.stamp_pending, -1
+            if nb.injected and not nb.wipe_lifted and self._nb_exit_mode() == BW.EXIT_MODE_ON:
+                nb.wipe_lifted = True
+        nb.phase = nb.seq = None
+
+    def _nb_end_tick(self, caps) -> None:
+        """NetSyncDiorama.EndTick (s104; s105's ExitTick first): this boot's end block (the bench seam -- a dioboot has
+        no wire nonce), the exit with the host, then -- once per boot -- the injection the host's kind names."""
+        nb = self._nb
+        if nb.faulted:
+            return
+        e = nb.bench_block if nb.bench_armed else None
+        ours = e is not None
+        if ours:
+            nb.exit_seen = True
+            nb.exit_last = e
+        leaving = self._nb_exit_tick(ours, e) if "exit" in caps else False
+        if self._nb_hud_off() and self.commands_enabled:
+            self.commands_enabled = False                   # KeepHudOff
+        if nb.injected:
+            if not nb.w1_armed and ours and e["ui"] >= BW.UI_RESULT:
+                nb.w1_armed, nb.w1_since = True, self.rt
+            self._nb_watchdogs()
+            return
+        if leaving:
+            nb.why = (f"the host already left its battle ({BW.trigger_name(nb.trigger)}) -- the guest follows it out "
+                      f"without presenting")
+            return
+        if e is None:
+            nb.why = "no peer end block (no live lane, or a host that predates the end block)"
+            return
+        action = BW.present_action(e["kind"])
+        if action == BW.PRESENT_NONE or (action == BW.PRESENT_HOLD and nb.held):
+            nb.why = None
+            return
+        verdict = BW.inject_verdict(self._nb_guest_mode(), True, self._battle_phase_now(), self.ui_state == "BattleHUD")
+        if verdict is not None:
+            nb.why = f"the host's {BW.kind_name(e['kind'])} waits: {verdict}"
+            return
+        self._nb_inject(e, action)
+
+    def _nb_inject(self, e: dict, action: int) -> None:
+        """NetSyncDiorama.InjectEnd: the stock menu closed, the HUD hidden, then the stock end the kind names."""
+        nb = self._nb
+        if "stockmenu" in self._nb_caps():
+            self._nb_close_all("end injected")
+        self.commands_enabled = False                       # FF9BMenu_EnableMenu(false)
+        if self.battle_turn >= 0:
+            self.battle_turn = -1
+            self._close_battle_cursor()
+        nb.kind, nb.action, nb.why = e["kind"], action, None
+        if action == BW.PRESENT_HOLD:
+            nb.held = True
+            return
+        if action == BW.PRESENT_VICTORY:
+            nb.phase, nb.seq = BW.PHASE_MENU_OFF, BW.victory_seq(self._nb_guest_mode())
+            nb.stage_until = self.frame + self.dio_tail_frames
+        else:
+            self.battle_result = BW.close_result(e["result"])
+            nb.phase, nb.seq = BW.PHASE_CLOSE, BW.SEQ_DEFEATCLOSE_FADEOUT
+            nb.stage_until = self.frame + 32
+        nb.injected, nb.inject_rt = True, self.rt
+        nb.inject_phase, nb.inject_seq = nb.phase, nb.seq
+
+    def _nb_watchdogs(self) -> None:
+        """W1 (the victory camera stuck > 4 s after the host's ui >= 1) and W2 (still MENU_OFF > 8 s after the injection)."""
+        nb = self._nb
+        if not nb.w1_fired and BW.w1_due(nb.phase, nb.seq, nb.w1_armed, int((self.rt - nb.w1_since) * 1000)):
+            nb.w1_fired = True
+            nb.watchdog = "W1" if nb.watchdog is None else nb.watchdog + "+W1"
+            nb.seq, nb.stage_until = BW.SEQ_VICTORY_FADEOUT, self.frame + 32
+        if not nb.w2_fired and BW.w2_due(nb.phase, int((self.rt - nb.inject_rt) * 1000)):
+            nb.w2_fired = True
+            nb.watchdog = "W2" if nb.watchdog is None else nb.watchdog + "+W2"
+            blockers = []
+            if nb.seq == BW.SEQ_MENU_OFF_VICTORY:
+                n = sum(1 for u in self.battle_units if not u.get("player") and u.get("alive"))
+                if n:
+                    blockers.append(f"{n} unsettled unit(s) (SEQ_MENU_OFF_VICTORY's per-unit settle: an enemy without "
+                                    f"BattleEnd, or a dead player not yet down)")
+            nb.blocker = "; ".join(blockers) or "no blocker visible"
+            nb.btl_flag |= BW.BTL_END_LOAD
+            self.battle_result = BW.BTL_RESULT_VICTORY
+            nb.phase, nb.seq, nb.stage_until = BW.PHASE_VICTORY, BW.SEQ_VICTORY_FADEOUT, self.frame + 32
+
+    def _nb_present_step(self) -> None:
+        """The stock tail the injection set running, one frame: MENU_OFF's trailing loop (the _WITH_ENEMY seq has no
+        per-unit settle; the settle seq stalls while an enemy stands), PHASE_VICTORY's camera / fade / WAIT, the CLOSE
+        fade -- and R8 at the WAIT seq, where ManageBattleEnd is reached only when the Byte btl_fade_time++ > 32."""
+        nb = self._nb
+        if self.frame < nb.stage_until:
+            return
+        if nb.phase == BW.PHASE_MENU_OFF:
+            if nb.seq == BW.SEQ_MENU_OFF_VICTORY and any(not u.get("player") and u.get("alive")
+                                                         for u in self.battle_units):
+                return                                      # the per-unit settle: no host ever kills a bench enemy
+            self.battle_result = BW.BTL_RESULT_VICTORY      # the victory tail: VICTORY, song 5, poses, camera 2
+            nb.btl_flag |= BW.BTL_PLAY_END_SONG | BW.BTL_END_LOAD
+            nb.music = 5
+            nb.phase, nb.seq = BW.PHASE_VICTORY, BW.SEQ_VICTORY_CAMERA_MOVE
+            nb.stage_until = self.frame + self.dio_camera_frames
+        elif nb.phase == BW.PHASE_VICTORY and nb.seq == BW.SEQ_VICTORY_CAMERA_MOVE:
+            if not self.dio_camera_stuck:
+                nb.seq, nb.stage_until = BW.SEQ_VICTORY_FADEOUT, self.frame + 32
+        elif (nb.phase, nb.seq) in ((BW.PHASE_VICTORY, BW.SEQ_VICTORY_FADEOUT),
+                                    (BW.PHASE_CLOSE, BW.SEQ_DEFEATCLOSE_FADEOUT)):
+            nb.seq = BW.SEQ_VICTORY_WAIT if nb.phase == BW.PHASE_VICTORY else BW.SEQ_DEFEATCLOSE_WAIT
+            nb.fade = 0
+        else:                                               # a WAIT seq: R8 at the head of ManageBattleEnd
+            old, nb.fade = nb.fade, (nb.fade + 1) & 0xFF
+            if old > 32:
+                nb.r8_hits += 1
+                if nb.r8_hits == 1 and nb.injected:
+                    nb.r8_first_ms = int((self.rt - nb.inject_rt) * 1000)
+
+    def _nb_exit_tick(self, ours: bool, e: dict | None) -> bool:
+        """NetSyncDiorama.ExitTick (s105): latch the host's exit once per boot, then the end-leave at 1 Hz -- never into
+        the boot's swirl (a fade), never while a leave is in flight. True = the guest is following the host out."""
+        nb = self._nb
+        mode = self._nb_exit_mode()
+        if nb.trigger == BW.TRIGGER_NONE:
+            t = BW.host_exit_trigger(e["ui"], e["res_byte"]) if ours else BW.TRIGGER_NONE
+            if t == BW.TRIGGER_NONE:
+                nb.exit_why = BW.exit_why(BW.EXIT_NOT_LATCHED if mode == BW.EXIT_MODE_ON else BW.EXIT_HELD_BY_LEVER)
+                return False
+            nb.trigger, nb.latched_rt = t, self.rt
+            if mode == BW.EXIT_MODE_ON and "stockmenu" in self._nb_caps():
+                self._nb_close_all("the host left its battle")
+        fading = self.frame - self._dio_boot_frame < self.dio_swirl_frames
+        v = BW.exit_verdict(mode, True, self._dio_leave_recently(), fading, int((self.rt - nb.try_rt) * 1000))
+        if v == BW.EXIT_RATE_LIMITED:
+            return True
+        if v == BW.EXIT_FADE_DEFER:
+            nb.try_rt = self.rt
+            nb.deferred += 1
+            nb.exit_why = BW.exit_why(v)
+            return True
+        if v == BW.EXIT_IN_FLIGHT:
+            nb.exit_why = None if nb.requested else BW.exit_why(v)
+            return True
+        if v != BW.EXIT_GO:
+            nb.exit_why = BW.exit_why(v)
+            return False
+        nb.try_rt = self.rt
+        nb.tries += 1
+        self._dio_leave(via="end-leave")
+        if self._dio_leave_recently():
+            nb.requested = True
+            nb.request_ms = int((self.rt - nb.latched_rt) * 1000)
+            nb.exit_why = None
+        else:
+            nb.exit_why = "Leave() did not issue its Replace (Memoria.log names why) -- retrying at 1 Hz"
+        return True
+
+    def _nb_settle(self, via: str | None) -> None:
+        """NetSyncDiorama.SettleForReturn (s105): once per boot, a Leave of a FINISHED fight shuts the battle song down
+        and provisionally decides the btl_result the teardown stamps."""
+        nb = self._nb
+        if "exit" not in self._nb_caps() or nb.settled or not nb.exit_seen or nb.exit_last is None:
+            return
+        e = nb.exit_last
+        if not BW.is_terminal(e["kind"], e["ui"]):
+            return
+        if self._nb_exit_mode() != BW.EXIT_MODE_ON:
+            nb.music_why = "the calibration lever `endbench exit off` (no settle)"
+            return
+        nb.settled, nb.via = True, via or "leave"
+        nb.settle_no_gameover = self.scene_no_gameover
+        nb.stamp_host = e["result"]
+        nb.stamp_pending = BW.stamp_for(e["result"], nb.settle_no_gameover)
+        if e["flags"] & BW.FLAG_FIELD_SONG:
+            nb.music_why = "the host keeps its field song (BTL_CONTI_FLD_SONG): nothing shut down"
+        else:
+            nb.music_shut = True
+            nb.music = -1
+
+    def _battle_hud_doc(self) -> dict:
+        """BattleHUD.NetDescribeHud (s102) as the stand-in draws its battle cursor: `commands`/`rows` only while a menu
+        is up (their labels would be the LAST menu's)."""
+        group = self.menu.get("group")
+        panel = {"Battle.Command": "command", "Battle.Ability": "ability", "Battle.Item": "item",
+                 "Battle.Target": "target"}.get(group, "none")
+        up = panel != "none" and self.battle_turn >= 0
+        commands, rows = [], []
+        if up:
+            i = 0
+            for r in self.BATTLE_GRID:
+                for label in r:
+                    cmd_id = self.STOCK_COMMANDS.get(label, (0, None, 0))[0]
+                    commands.append({"menu": i, "id": cmd_id, "label": label, "state": 2, "raw": 2})
+                    i += 1
+            if panel in ("ability", "item"):
+                for i, label in enumerate(self.BATTLE_SUBMENU_ROWS[group]):
+                    # the ability row's MP cell: Flee costs 0, and the stock list draws a 0-MP cell BLANK
+                    # (BattleHUD.cs:845 `mp == 0 ? String.Empty : mp.ToString()`), never "0"
+                    rows.append({"i": i, "id": self.STOCK_ROW_IDS.get(label, 0), "label": label,
+                                 "number": "9" if panel == "item" else "", "state": 2, "raw": 2})
+            elif panel == "target":
+                for i, u in enumerate(u for u in self.battle_units if not u.get("player")):
+                    rows.append({"i": i, "id": u["slot"], "label": u["name"], "number": "",
+                                 "state": 2 if u.get("targetable") else 1, "raw": 1 if u.get("targetable") else 0})
+        return {"group": group, "panel": panel, "shown": bool(self.commands_enabled and not self._nb_hud_off()),
+                "slot": self.battle_turn if up else -1, "menu": 0, "cmd": 0, "sub": 0, "double_cast": 0,
+                "cursor_type": 0, "target_cursor": 0, "trance_menu": False, "manual_trance": False, "auto": False,
+                "hiding": False, "main_menu": False, "can_force_next": not self._nb_active(), "force_next": False,
+                "caption": "", "commands": commands, "rows": rows}
 
     # -- s96: the F3.2 guest's dialogue lock, on the stand-in's one window ---------------------------------------
     def _dialog_open(self) -> bool:
@@ -4279,17 +5308,20 @@ class FakeGame:
         self.texts, self.raw_texts, self.choice = [], [], None     # the field scene is replaced
         self._beats, self._beat_phase = [], None
         self.control = False
+        self._nb_boot()                                   # [ff9mapkit netsync B4] the battle lane's per-boot state
         self.start_battle(scene, debug=True)
 
     def _dio_leave_recently(self) -> bool:
         """NetSyncDiorama.LeaveRequestedRecently: a Leave issued its Replace in the last 5 s."""
         return self.rt - self._dio_leave_rt < 5.0
 
-    def _dio_leave(self) -> None:
+    def _dio_leave(self, via: str | None = None) -> None:
         """NetSyncDiorama.Leave -- request-only: deferred (nothing issued) while the boot's swirl is still in flight;
-        else the teardown lands :attr:`dio_leave_frames` later (a Leave already in flight is not re-issued)."""
+        else the teardown lands :attr:`dio_leave_frames` later (a Leave already in flight is not re-issued).
+        [ff9mapkit netsync B5] LeaveFrom(via): past its fade check, the return settle runs (s105, once per boot)."""
         if not self._dio["booted"] or self.frame - self._dio_boot_frame < self.dio_swirl_frames:
             return
+        self._nb_settle(via)
         self._dio_leave_rt = self.rt
         if self._dio_leave_at is None:
             self._dio_leave_at = self.frame + self.dio_leave_frames
@@ -4301,6 +5333,7 @@ class FakeGame:
         d = self._dio
         warm = d["primed"]
         fld = d["boot_field"]
+        self._nb_teardown()                       # [ff9mapkit netsync B4/B5] ForceDisarm: the stock menu, the return settle
         self.battle_active = False
         self.battle_debug = False
         self.commands_enabled = False
@@ -4990,6 +6023,171 @@ class _BenchHost:
         return {"epoch": self.epoch, "hb": self.heartbeat, "flags": flags, "scene": scene & 0xFF,
                 "field": max(0, fld), "head": self.seq, "open": [dict(o) for o in self.open[:self.OPEN_CAP]],
                 "ring": [dict(e) for e in self.ring]}
+
+
+# ======================================================================== [ff9mapkit netsync B4/B5] the battle lane
+class _BattleLane:
+    """[ff9mapkit netsync B4] [ff9mapkit netsync B5] The battle co-op lane's harness half on the stand-in (s100-s105,
+    studies/battle-coop/B4-B5-DESIGN.md): the state behind `netsync.battle` and the B4/B5 sub-verbs. The process-wide
+    statics of NetSyncBattle / NetSyncEnd / NetSyncDiorama the agent reads, kept apart so FakeGame's methods read as the
+    engine's call sites.
+
+    MODELLED: every verb's gates, refusals and levers (the agent's words, pinned by test_harness_netsync.py), every key at
+    the agent's sentinels, the release on disarm / fault / `reset` (HarnessReleaseBench), and a small behaviour core --
+    a selftest OWN battle's host gates (the Ready bits, the caps byte, the roster's opening, the `bcmd` intake through
+    the command-phase guard), R9 in a `dioboot` diorama (a refused enqueue counts, the swing never plays), the stock
+    menu's capture (`bmenu open` + the cursor's commit forwarded as a v1 frame), the bench END block fabricated through
+    the Python codec (:mod:`harness.battlewire`), its presentation (victory / close / hold, R8 counting, W1 / W2) and the
+    exit with the host (the end-leave, the return settle's btl_result stamp).
+    NOT MODELLED: the wire, timing below a frame, an own battle's victory and result screen (the stand-in's battles end
+    at once -- so `endbench cmd` stays "armed"), a live peer's lane (only the selftest loopback), log lines."""
+
+    def __init__(self):
+        # ---- s100: the host command-phase gates (NetSyncBattle statics)
+        self.gates_off_lever = False                # BenchHostGatesOff
+        self.guest_slots = 0                        # NetSyncBattle.GuestSlots (the battle lane's; `guestslots` override)
+        self.bench_guest_slots = False              # NetSyncClient._benchGuestSlots
+        self.cmd_refused = 0                        # monotonic per process
+        self.cmd_dropped = 0
+        self.cmd_queued = 0
+        self.refused_why: str | None = None
+        self.dropped_why: str | None = None
+        self.loop: list[bytes] = []                 # _loopCommands: parked `bcmd` frames
+        self.refuse_logged: set = set()
+        self.own_epoch: int | None = None           # the own battle being streamed (its battle epoch)
+        self.own_battles = 0                        # own battles this process (a second one's intro sees stale keys)
+        self.nonce = 0                              # the type-1 battle nonce (bumped per own battle)
+        self.phase_open = False                     # _hostPhaseOpen
+        self.phase_open_frame = -1
+        self.roster_lag = -1
+        self.roster_slots: list[int] = []
+        self.roster_next_rt = 0.0                   # the plain RosterMs cadence (`hostgates 0`)
+        self.last_caps = -1
+        self.last_ready = -1
+        self.wire_seq = 0                           # the loopback lane's seq
+        self.peer: dict | None = None               # the loopback's live view {seq, nonce, caps, ready, end}
+        # ---- s101: the containment backstop
+        self.containment_off_lever = False          # BenchContainmentOff
+        self.r9_refused = 0                         # per boot
+        self.r9_total = 0                           # per process
+        self.r9_cmd = -1
+        self.r9_site: str | None = None
+        self.assist_rt = -1e9                       # _assistTick: the control lane's last fresh frame (virtual seconds)
+        self.remote_menu = False
+        self.bench_control = False                  # _benchControlStamped
+        # ---- s102: the stock menu
+        self.capture_off_lever = False              # BenchStockCaptureOff
+        self.captures = 0
+        self.capture_refused = 0
+        self.capture_why: str | None = None
+        self.side_refused = 0
+        self.side_why: str | None = None
+        self.outbox: list[bytes] = []
+        self.bench_open = 0
+        self.touched = False                        # _stockTouched
+        self.captured: dict | None = None
+        # ---- s103: the end block
+        self.host_mode = 0                          # BW.MODE_ON
+        self.host_end: dict | None = None           # the block the last own-battle sample shipped
+        self.host_trail: list[str] = []
+        self.host_trail_key = -1
+        self.host_key = None
+        self.host_edges = 0
+        self.host_changes = 0
+        self.cmd_armed = False
+        self.cmd_frame: bytes | None = None
+        self.cmd_status: str | None = None
+        self.bench_armed = False
+        self.bench_block: dict | None = None        # the fabricated block, as the codec parsed it
+        self.bench_end: dict | None = None          # ...as `peer.end` publishes it
+        self.bench_seq = 0                          # _benchSeq (a u16 static: never reset)
+        self.template = self.blank_template()
+        self.peer_trail: list[str] = []
+        self.peer_trail_key = -1
+        self.peer_nonce: int | None = None
+        self.trailer_bad = 0
+        self.trailer_skipped = 0
+        self.trailer_why: str | None = None
+        # ---- s104: the guest presentation (per boot unless noted)
+        self.guest_mode = 0                         # BW.GUEST_ON
+        self.ach_held = 0                           # per process
+        self.music = -1                             # the current music id as the stand-in plays it
+        self.btl_flag = 0
+        self.reset_presentation()
+        # ---- s105: the exit with the host
+        self.exit_mode = 0                          # BW.EXIT_MODE_ON
+        self.declined_count = 0                     # per process (the watcher's late-join declines: never on a bench)
+        self.declined_nonce = -1
+        self.declined_why: str | None = None
+        self.reset_exit()
+
+    @staticmethod
+    def blank_template() -> dict:
+        """NetSyncEnd's bench template at rest (ClearBench): fighting, ui 0, no screen."""
+        return {"phase": 4, "seq": 0, "result": 0, "ui": 0, "state": 0, "loading": False, "flags": 0}
+
+    def reset_presentation(self) -> None:
+        """NetSyncDiorama.ResetEndPresentation (every boot): the presentation, its watchdogs and its counters."""
+        self.injected = False
+        self.held = False
+        self.kind = -1
+        self.action = 0                             # BW.PRESENT_NONE
+        self.inject_phase = -1
+        self.inject_seq = -1
+        self.inject_rt = 0.0
+        self.w1_armed = False
+        self.w1_since = 0.0
+        self.w1_fired = False
+        self.w2_fired = False
+        self.watchdog: str | None = None
+        self.blocker: str | None = None
+        self.why: str | None = None
+        self.faulted = False
+        self.hud_reasserts = 0
+        self.r8_hits = 0
+        self.r8_first_ms = -1
+        self.phase: int | None = None               # the diorama's btl_phase / btl_seq once the presentation moved them
+        self.seq: int | None = None
+        self.stage_until = 0                        # the frame the current presentation step ends
+        self.fade = 0                               # btl_fade_time (a Byte) at the WAIT seq
+
+    def reset_exit(self) -> None:
+        """NetSyncDiorama.ResetExit (every boot): the exit, its settle and its receipts."""
+        self.exit_seen = False
+        self.exit_last: dict | None = None
+        self.trigger = 0                            # BW.TRIGGER_NONE
+        self.latched_rt = 0.0
+        self.try_rt = -3600.0
+        self.tries = 0
+        self.deferred = 0
+        self.requested = False
+        self.request_ms = -1
+        self.exit_why: str | None = None
+        self.settled = False
+        self.via: str | None = None
+        self.stamp_pending = -1
+        self.stamp_host = -1
+        self.stamped = -1
+        self.stamped_was = -1
+        self.music_shut = False
+        self.music_why: str | None = None
+        self.wipe_lifted = False
+        self.settle_no_gameover = False
+
+    def clear_bench(self) -> None:
+        """NetSyncEnd.ClearBench: the bench end, its template and the command one-shot (the levers stay)."""
+        self.bench_armed = False
+        self.bench_block = None
+        self.bench_end = None
+        self.template = self.blank_template()
+        self.cmd_armed = False
+        self.cmd_frame = None
+        self.cmd_status = None
+
+    @property
+    def presented(self) -> bool:
+        """This boot presented (injected) or held an end -- kept after the teardown, like the engine's flags."""
+        return self.injected or self.held
 
 
 # ======================================================================== H10-H12: the machine beats (O4)
