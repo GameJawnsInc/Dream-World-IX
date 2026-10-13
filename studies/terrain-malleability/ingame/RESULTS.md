@@ -1095,6 +1095,34 @@ harness's frame rate, not the ground; the stall rule does not care.
 The owner judged labelled panels (`donors_panel_*.png`; the shapes differ, so no shuffle). **Verdict: "they read
 well to me."** The four new donors are qualified in `ff9mapkit/world/data/donors.toml`.
 
+## Round 19 (2026-10-13, owner's go: "lets get back to more shaping work"): a desert mountain, `world-mountain --donor 19,3` on a desert island, 34/37; the owner passes it
+
+Run `20261013-113037-mountain-donors` (the lane: `../mountaindonors/NOTES.md`). The July donor census, re-run
+against today's kit, splits the massifs by the ground they stand on at home; comp23, block (19,3), a desert peak,
+is the one new donor that carves clean at every angle (6/6 offline). One scratch island (`world-island --ground
+desert`, r55, blocks (20,0)-(22,2)) carved three ways: A `--rot 0`, B `--rot 200`, C `--rot 30 --rock-height 1.5`.
+The lab first in FolderNames with its mist-off Environment.txt, reached through bench 6603; the ini backed up and
+restored (sha a50776729b521144, the co-op folder kept), the lab moved into the run dir.
+
+### 34. A desert mountain on a desert island
+
+- **P1 holds:** every stage reached the world; the summits read 14.0625 / 14.0703 / 19.5117 against 14.0588 /
+  14.0663 / 19.5075.
+- **P2 holds:** 36/36 points round the foot read the built ground.
+- **P4 holds:** every home read 3.199.
+- **P3 FAILED as registered on 3 of 6 walks** (A west, A east, B west). The walk "reached" its target distance
+  instead of being blocked at the foot. Post-run, from the three failure state dumps (300 samples each):
+  - he never stood on rock;
+  - he followed the built surface to within 0.036u;
+  - his lowest point, 2.40, is the apron's own height at the rim.
+
+  comp23 is a narrow peak. With a few degrees of facing error (A west: 5.4 deg), a walk aimed at its centre passes
+  beside an arm of the rock. B east and both of C's walks were blocked as registered.
+
+The owner judged labelled panels (`mountain_panel_*.png`). **Verdict: "yes".** The peak reads as a stock desert
+mountain at 0 deg, at 200 deg and at x1.5. It is qualified in `ff9mapkit/world/data/donors.toml` as `desert-peak`
+(`19,3`, home ground desert).
+
 ## Not run
 
 - The boat "none" phase (see section 9).
@@ -1113,6 +1141,10 @@ well to me."** The four new donors are qualified in `ff9mapkit/world/data/donors
   barycentric inside its tri (`rot_prep.castable`).
 - **A walk's progress along a bearing overstates on a slanted foot (round 16):** the player slides along it and
   keeps gaining progress. Judge where he stops (ground, height, distance to the obstacle), not how far he got.
+  **And a narrow massif can be missed (round 19):** a few degrees of facing error carries a walk aimed at a peak's
+  centre past one of its arms, and it "reaches" instead of being blocked. Do not register "blocked" against a
+  narrow massif. Register what the trace must show: he never stands on rock, never leaves the built surface and
+  never drops below it. Keep the state samples, because the walk record holds no trace.
 - **Disc 1 at scenario 0 has mist over the open sea too (round 16).** Texture stills need it off: put
   `world-environment`'s `mist = false` Environment.txt in the lab (re-read at every world load).
 

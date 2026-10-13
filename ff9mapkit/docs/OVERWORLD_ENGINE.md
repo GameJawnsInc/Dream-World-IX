@@ -1043,6 +1043,12 @@ plugs wear the rock collar's own affine UV chart, gated against the atlas rock b
 * **`--rot DEG`, any angle** — the massif turns about its centre (clockwise seen from above); quarter turns keep
   the exact integer swap (the approved bytes), other angles the same rotation by cos/sin. Rotation about Y keeps
   every UV; the grass stays on its lattice and the zip is minted fresh. In game: Uaho at 0/45/30° (×1.5), owner-passed.
+* **THE HOME-GROUND WARNING** — every massif donor stands on ONE ground family at home (its rim's feet): Uaho,
+  comp20 and the horseshoe on grass, the crag and the desert peak (`--donor 19,3`) on desert. The donor catalog
+  (`world/data/donors.toml`, `home_ground`) records it; `world-mountain` and `world-fuse`'s `[[mountain]]` warn
+  when `--ground` differs (a lawful carry whose foot meets a ground it never meets in stock: no gate can see
+  that). Carry a desert massif onto `world-island --ground desert` with `--ground desert`. In game: the desert
+  peak at 0/200/30° (×1.5) on a desert island, owner-passed (terrain study, `mountaindonors/`).
 * **THE EXACT-WELD LAW** — the zip's grass corners take the kept grass's own float positions, never the hole
   ring's rounded weld keys: built from keys they sat up to 5e-4u off (one weld, two floats), a pinhole ring round
   the foot that no key-based gate can see. `carve_forest` follows the same law.
