@@ -53,6 +53,11 @@ BLOCK = float(_BS)
 
 # ---- the proven constants (forest_rehome.py / hill_at_scale.py) --------------------------
 FOREST_DONOR = (15, 15)          # the clean grass-bounded canopy blob
+FOREST_SPREAD_MAX = 1.5          # --spread ceiling: the canopy's plan stretch, kept in game (terrain study X3:
+#                                  "1.5x is starting to look stretched but still feels fine")
+FOREST_ZIP_NY_FLOOR = 0.5        # a mapped canopy's zip routes round tris steeper than this (~60 deg)
+CURTAIN_HAIRLINE = 0.05          # a steep curtain corner pair closer than this in plan (donor units) is one
+#                                  corner a hair off (the HAIRLINE CURTAIN, carve_forest)
 CLEAR = 2.5                      # annulus clearance around the carried rim
 SCAN_BAND = CLEAR + 4.0          # mains-only zone: dropped + hole-boundary tris
 RING_BAND = CLEAR + 6.5          # hole-ring once-edge capture
@@ -99,6 +104,7 @@ MTN_ZIP_NY_MIN = 0.83            # the zip winding ENVELOPE (~34 deg -- admits t
 #                                  steeper banks (the horseshoe's falls outlet: 2/137)
 MTN_ZIP_NY_FLOOR = 0.5           # the hard per-tri floor (~60 deg) for those banks
 MTN_ZIP_BANK_MAX = 2             # max zip tris allowed between FLOOR and ENVELOPE
+ZIP_STEEP_PENALTY = 1.0e6        # _zip_dp's extra cost for a candidate tri below its ny_floor (a sliver)
 MTN_FC_CLEAR = 0.75              # window hole clearance: the contact hugs the rim so the
 #                                  toe CONTINUES the face (THE PROFILE LAW, R4 take 8)
 MTN_FC_MIN_RISE = 2.5            # a rock foot course exists only where the CARRIED massif
@@ -429,13 +435,118 @@ def _coast_d2(soup, px, pz):
 
 
 # ---- THE FOREST CARVE -----------------------------------------------------------------------
+def _zip_dp(hole_ord, rim_base, rimw, h_float, *, ny_floor=None):
+    """THE ZIP ANNULUS by a minimal-total-chord DP strip between the hole ring and the carried rim (same
+    orientation), started at their closest pair: a greedy walk stalls on concavity into long chords and slivers
+    at any rotation; the DP strip is optimal and concavity-immune. With ``ny_floor`` a candidate tri steeper than
+    it costs :data:`ZIP_STEEP_PENALTY` more, so the strip routes round a sliver (a rim node on the line of a hole
+    edge) wherever another way exists (the forest's; the mountain passes none -- its foot course is deliberately
+    steep). ``rimw`` maps a rim key to its carried float; the hole side takes the kept grass's exact floats (THE
+    EXACT-WELD LAW). Returns ``(H, R, zip_tris)``: the aligned hole points, the aligned rim keys, the strip's
+    tris."""
+    def d2(p, q):
+        return (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
+
+    def steep(p, q, r):
+        if ny_floor is None:
+            return 0.0
+        ux, uy, uz = q[0] - p[0], q[1] - p[1], q[2] - p[2]
+        vx, vy, vz = r[0] - p[0], r[1] - p[1], r[2] - p[2]
+        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        ln = math.sqrt(nx * nx + ny * ny + nz * nz)
+        return ZIP_STEEP_PENALTY if ln < 1e-12 or abs(ny) / ln < ny_floor else 0.0
+
+    i0, j0 = min(((i, j) for i in range(len(hole_ord)) for j in range(len(rim_base))),
+                 key=lambda ij: d2(hole_ord[ij[0]], rimw(rim_base[ij[1]])))
+    H = [_weld_point(p, h_float) for p in hole_ord[i0:] + hole_ord[:i0]]   # exact floats, not the ring's keys
+    R = rim_base[j0:] + rim_base[:j0]
+    NH, NR = len(H), len(R)
+    Rw = [rimw(p) for p in R]
+    INF = 1e18
+    cost = [[INF] * (NR + 1) for _ in range(NH + 1)]
+    back = [[None] * (NR + 1) for _ in range(NH + 1)]
+    cost[0][0] = 0.0
+    for i in range(NH + 1):
+        for j in range(NR + 1):
+            c0 = cost[i][j]
+            if c0 >= INF:
+                continue
+            if i < NH:
+                nc = c0 + math.sqrt(d2(H[(i + 1) % NH], Rw[j % NR]))
+                nc += steep(H[i % NH], H[(i + 1) % NH], Rw[j % NR])
+                if nc < cost[i + 1][j]:
+                    cost[i + 1][j] = nc
+                    back[i + 1][j] = "h"
+            if j < NR:
+                nc = c0 + math.sqrt(d2(H[i % NH], Rw[(j + 1) % NR]))
+                nc += steep(H[i % NH], Rw[j % NR], Rw[(j + 1) % NR])
+                if nc < cost[i][j + 1]:
+                    cost[i][j + 1] = nc
+                    back[i][j + 1] = "r"
+    zip_tris = []
+    i, j = NH, NR
+    while i > 0 or j > 0:
+        if back[i][j] == "h":
+            zip_tris.append((H[(i - 1) % NH], H[i % NH], Rw[j % NR]))
+            i -= 1
+        else:
+            zip_tris.append((H[i % NH], Rw[j % NR], Rw[(j - 1) % NR]))
+            j -= 1
+    return H, R, zip_tris
+
+
+def _forest_plan(dv_w, dnrm, c, *, spread: float, rot_deg):
+    """THE CANOPY PLAN MAP (terrain study X3): the donor blob scaled ``spread`` in plan and
+    turned ``rot_deg`` about ``c``, heights kept -- every curtain stays vertical (its top and
+    base share a plan point, and the map moves both alike). Normals take the inverse
+    transpose, (nx/s, ny, nz/s) turned the same way, at their original length. Same angle
+    convention as :func:`carve_mountain`: a whole number of quarter turns is the exact
+    coordinate swap, any other angle cos/sin; positive turns east -> south."""
+    import numpy as np
+    k = 0
+    if rot_deg is not None:
+        d = float(rot_deg) % 360.0
+        k = int(d // 90) if d % 90.0 == 0.0 else d / 90.0
+
+    def turn(x, z):
+        if isinstance(k, int):
+            for _ in range(k):
+                x, z = z, -x
+            return x, z
+        c_, s_ = math.cos(k * math.pi / 2), math.sin(k * math.pi / 2)
+        return c_ * x + s_ * z, -s_ * x + c_ * z
+
+    out = np.array(dv_w, dtype=np.float64)
+    for i in range(len(out)):
+        x, z = turn(out[i][0] - c[0], out[i][2] - c[1])
+        out[i][0], out[i][2] = c[0] + spread * x, c[1] + spread * z
+    nrm = []
+    for n in dnrm:
+        nx, nz = turn(n[0] / spread, n[2] / spread)
+        L0 = math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])
+        L1 = math.sqrt(nx * nx + n[1] * n[1] + nz * nz) or 1.0
+        nrm.append([nx * L0 / L1, n[1] * L0 / L1, nz * L0 / L1])
+    return out, nrm
+
+
 def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int = 1,
-                 game=None, log=print) -> dict:
+                 game=None, spread: float = 1.0, rot_deg=None, log=print) -> dict:
     """Carry the donor block's topo-37 canopy blob onto the island at ``center`` (exact
     blob centre) or the best lawful placement near ``near``. Returns ``{"changed",
-    "center", "report"}``; raises ``ValueError`` on any gate."""
+    "center", "report"}``; raises ``ValueError`` on any gate.
+
+    ``spread`` (1.0..:data:`FOREST_SPREAD_MAX`) scales the blob in plan and ``rot_deg`` turns
+    it to any angle, both about the donor blob's centre (:func:`_forest_plan`); its heights,
+    UVs and topographs stay the donor's. ``spread=1`` with no ``rot_deg`` (or 0) is the
+    verbatim carry, byte for byte."""
     import numpy as np
     gpos, gtris, gmeta, gnrm = soup["pos"], soup["tris"], soup["meta"], soup["nrm"]
+    spread = float(spread)
+    if not (math.isfinite(spread) and 1.0 <= spread <= FOREST_SPREAD_MAX):
+        raise ValueError(f"spread x{spread:g} is outside 1.0..{FOREST_SPREAD_MAX:g} (the canopy's "
+                         f"in-game-judged range)")
+    if rot_deg is not None and not math.isfinite(float(rot_deg)):
+        raise ValueError(f"rot_deg must be a finite angle, got {rot_deg!r}")
 
     # donor blob, verbatim, world frame
     don = X.read_block(donor[0], donor[1], disc=disc, game=game)
@@ -444,21 +555,107 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
     duv = np.asarray(don.uvs, dtype=np.float64)
     dnrm = don.normals
     dtan = don.tangents
-    dtopo = [X.decode_id(int(dtan[t[0]][0]))["topograph"] for t in don.tris]
-    blob = [t for t in range(len(don.tris)) if dtopo[t] == 37]
+    dtris = [list(t) for t in don.tris]
+    dtopo = [X.decode_id(int(dtan[t[0]][0]))["topograph"] for t in dtris]
+    blob = [t for t in range(len(dtris)) if dtopo[t] == 37]
     if not blob:
         raise ValueError(f"donor block {donor} has no topo-37 canopy")
-    bpts = np.array([dv_w[i] for t in blob for i in don.tris[t]])
+    bpts = np.array([dv_w[i] for t in blob for i in dtris[t]])
     c_local = ((bpts[:, 0].min() + bpts[:, 0].max()) / 2, (bpts[:, 2].min() + bpts[:, 2].max()) / 2)
+    planned = spread != 1.0 or (rot_deg is not None and float(rot_deg) % 360.0 != 0.0)
+    if planned:
+        dv_w, dnrm = _forest_plan(dv_w, dnrm, c_local, spread=spread, rot_deg=rot_deg)
     edge_use = Counter()
     for t in blob:
-        tri = don.tris[t]
+        tri = dtris[t]
         for a, b in ((0, 1), (1, 2), (2, 0)):
             edge_use[tuple(sorted((kk3(dv_w[tri[a]]), kk3(dv_w[tri[b]]))))] += 1
     rim = chain_ring([e for e, n in edge_use.items() if n == 1], "donor rim")
     rim_set = set(rim)
     rim_poly_local = [(p[0], p[2]) for p in rim]
     log(f"donor blob: {len(blob)} tris, rim ring {len(rim)} positions")
+    hairlines = 0
+    if planned:
+        # THE HAIRLINE CURTAIN: 2 of the (15,15) blob's 48 curtain tris stand too steep for the engine's ground
+        # query (ny <= 0.1) yet keep a plan footprint 0.010-0.015u wide: both share one top corner set 0.0195u off
+        # the base corner below it, a strip no down-ray grounds on (the census MISSes it when a sample lands in
+        # it). The plan map widens it by s; close it by setting that top corner on its base corner in plan.
+        for t in blob:
+            P3 = [dv_w[i] for i in dtris[t]]
+            n = np.cross(P3[1] - P3[0], P3[2] - P3[0])
+            ln = float(np.linalg.norm(n))
+            if ln < 1e-12 or abs(n[1]) / ln > 0.1:
+                continue
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                ka, kb = kk3(P3[a]), kk3(P3[b])
+                dpl = math.hypot(P3[a][0] - P3[b][0], P3[a][2] - P3[b][2])
+                if not 0.0 < dpl <= CURTAIN_HAIRLINE * spread or (ka in rim_set) == (kb in rim_set):
+                    continue
+                base, top = (P3[a], kb) if ka in rim_set else (P3[b], ka)
+                bx_, bz_ = float(base[0]), float(base[2])
+                for i in range(len(dv_w)):
+                    if kk3(dv_w[i]) == top:
+                        dv_w[i][0], dv_w[i][2] = bx_, bz_
+                hairlines += 1
+    rim_splits = 0
+    if planned and spread > 1.0:
+        # THE RIM GRAIN: a spread rim edge is s times its donor length, and the zip bridging it grows with it (x1.5:
+        # 9.1u chords against the 9u grain gate). Split each rim edge longer than the donor's longest into equal
+        # pieces by splitting its curtain tri -- a planar split, UV and normal lerped along the edge, renders the
+        # same -- so the carried rim is never coarser than the donor's.
+        once = {e for e, k in edge_use.items() if k == 1}
+        elen = {e: math.hypot(e[0][0] - e[1][0], e[0][2] - e[1][2]) for e in once}
+        L0 = max(elen.values()) / spread
+        dtan = [list(t4) for t4 in dtan]
+        dnrm = [list(n3) for n3 in dnrm]
+        add_v, add_uv = [], []
+        for _ in range(3):                          # a corner tri wears two rim edges: its piece is split next pass
+            for t in list(blob):
+                tri = dtris[t]
+                for a in range(3):
+                    b, c = (a + 1) % 3, (a + 2) % 3
+                    pa = dv_w[tri[a]] if tri[a] < len(dv_w) else add_v[tri[a] - len(dv_w)]
+                    pb = dv_w[tri[b]] if tri[b] < len(dv_w) else add_v[tri[b] - len(dv_w)]
+                    e = tuple(sorted((kk3(pa), kk3(pb))))
+                    if e not in once or elen[e] <= L0 + 1e-9:
+                        continue
+                    k_n = math.ceil(elen[e] / L0 - 1e-9)
+                    ua = duv[tri[a]] if tri[a] < len(duv) else add_uv[tri[a] - len(duv)]
+                    ub = duv[tri[b]] if tri[b] < len(duv) else add_uv[tri[b] - len(duv)]
+                    chain = [tri[a]]
+                    for k in range(1, k_n):
+                        f = k / k_n
+                        add_v.append(np.asarray(pa, dtype=np.float64) + f * (np.asarray(pb) - np.asarray(pa)))
+                        add_uv.append(np.asarray(ua, dtype=np.float64) + f * (np.asarray(ub) - np.asarray(ua)))
+                        na, nb = np.asarray(dnrm[tri[a]]), np.asarray(dnrm[tri[b]])
+                        nm = na + f * (nb - na)
+                        dnrm.append(list(nm * (float(np.linalg.norm(na)) / (float(np.linalg.norm(nm)) or 1.0))))
+                        dtan.append(list(dtan[tri[a]]))
+                        chain.append(len(dv_w) + len(add_v) - 1)
+                    chain.append(tri[b])
+                    pieces = [[chain[k], chain[k + 1], tri[c]] for k in range(k_n)]
+                    dtris[t] = pieces[0]
+                    for pc in pieces[1:]:
+                        dtris.append(pc)
+                        blob.append(len(dtris) - 1)
+                    once.discard(e)
+                    rim_splits += 1
+                    break
+        if add_v:
+            dv_w = np.vstack([dv_w, np.array(add_v)])
+            duv = np.vstack([duv, np.array(add_uv)])
+            edge_use = Counter()
+            for t in blob:
+                tri = dtris[t]
+                for a, b in ((0, 1), (1, 2), (2, 0)):
+                    edge_use[tuple(sorted((kk3(dv_w[tri[a]]), kk3(dv_w[tri[b]]))))] += 1
+            rim = chain_ring([e for e, k in edge_use.items() if k == 1], "split rim")
+            rim_set = set(rim)
+            rim_poly_local = [(p[0], p[2]) for p in rim]
+    if planned:
+        log(f"canopy plan map: spread x{spread:g}, rot {0 if rot_deg is None else float(rot_deg) % 360.0:g} deg; "
+            f"{hairlines} hairline curtain corner(s) closed, {rim_splits} rim edge(s) split to the donor's grain "
+            f"(rim ring {len(rim)})")
 
     tri_c = _tri_centroids(soup)
 
@@ -554,7 +751,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
 
     rim_y = {p: nearest_ring_y(p[0] + DX, p[2] + DZ) for p in rim_set}
     for t in blob:                                          # per-face floor
-        tri = don.tris[t]
+        tri = dtris[t]
         ks = [kk3(dv_w[i]) for i in tri]
         tops = [dv_w[i][1] + DY for i, k in zip(tri, ks) if k not in rim_set]
         if not tops or not any(k in rim_set for k in ks):
@@ -566,7 +763,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
 
     def canopy_y_at(px, pz):
         for t in blob:
-            tri = don.tris[t]
+            tri = dtris[t]
             a, b, c = (dv_w[i] for i in tri)
             d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
             if abs(d) < 1e-12:
@@ -612,7 +809,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
         y = rim_y[k] if k in rim_set else p[1] + DY
         return [p[0] + DX, y, p[2] + DZ]
 
-    carried = {t: [carry_vert(i) for i in don.tris[t]] for t in blob}
+    carried = {t: [carry_vert(i) for i in dtris[t]] for t in blob}
     c_edge_use = Counter()
     c_float = {}
     for t in blob:
@@ -625,7 +822,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
     crim = chain_ring([e for e, n in c_edge_use.items() if n == 1], "carried rim")
     rim_nrm = {}
     for t in blob:
-        tri = don.tris[t]
+        tri = dtris[t]
         for k in range(3):
             key = kk3(carried[t][k])
             if key in c_float:
@@ -664,6 +861,9 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
     NH, NR = len(hole_ord), len(rim_ord)
     zip_tris = []
     i = j = 0
+    if planned:     # a turned or spread canopy takes the mountain's DP strip: the greedy walk slivers at odd angles
+        hole_ord, rim_ord, zip_tris = _zip_dp(list(hole), rim_ord, rimw, h_float, ny_floor=FOREST_ZIP_NY_FLOOR)
+        i, j = NH, NR
     while i < NH or j < NR:
         h_cur = hole_ord[i % NH]
         r_cur = rimw(rim_ord[j % NR])
@@ -728,7 +928,7 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
     GRASS_ID = float(X.encode_id(topograph=0))
     new_parents = []
     for t in blob:                                          # the canopy, verbatim channels
-        tri = don.tris[t]
+        tri = dtris[t]
         idall = float(dtan[tri[0]][0])
         corners = tuple((*carried[t][k], duv[tri[k]][0], duv[tri[k]][1], *dnrm[tri[k]])
                         for k in range(3))
@@ -769,15 +969,17 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
         if any(kk3(p) in crim_keys for p in ps):
             worst_wall = max(worst_wall, max(p[1] for p in ps) - min(p[1] for p in ps))
     va = np.array([[c[0], c[1], c[2]] for corners, _, _ in new_parents for c in corners])
+    fams = [fam for _, _, fam in new_parents]
     maxe = 0.0
     down = 0
     for kdx in range(0, len(va), 3):
         a, b, c = va[kdx], va[kdx + 1], va[kdx + 2]
         n = np.cross(b - a, c - a)
-        if n[1] < 0:
-            down += 1
-        for pq in ((a, b), (b, c), (c, a)):
-            maxe = max(maxe, float(np.linalg.norm(pq[0] - pq[1])))
+        if n[1] < -1e-6 * float(np.linalg.norm(n)):     # a split curtain piece is vertical to float noise
+            down += 1                                    # (~1e-13), not a down face
+        for pq in ((a, b), (b, c), (c, a)):    # a spread canopy edge is gated against its declared length
+            el = float(np.linalg.norm(pq[0] - pq[1]))
+            maxe = max(maxe, el / spread if fams[kdx // 3] == "forest" else el)
     ring_pts = np.array([list(p) for p in hole_ord] + [list(rimw(p)) for p in rim_ord])
     nm = 0
     for a_ in range(len(ring_pts)):
@@ -810,7 +1012,10 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
             "report": {"blob_tris": len(blob), "dropped": len(drop),
                        "zip_tris": len(zip_tris), "zip_fallback_cells": len(dropped),
                        "wall_rise": round(worst_wall, 2),
-                       "zip_rise": round(worst_zip_rise, 2)}}
+                       "zip_rise": round(worst_zip_rise, 2),
+                       "spread": spread,
+                       "rot_deg": 0 if rot_deg is None else round(float(rot_deg) % 360.0, 6),
+                       "hairlines": hairlines, "rim_splits": rim_splits}}
 
 
 def _assemble(soup, drop, new_by_block):
@@ -2396,40 +2601,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     def d2(p, q):
         return (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
 
-    i0, j0 = min(((i, j) for i in range(len(hole_ord)) for j in range(len(rim_base))),
-                 key=lambda ij: d2(hole_ord[ij[0]], rimw(rim_base[ij[1]])))
-    H = [_weld_point(p, h_float) for p in hole_ord[i0:] + hole_ord[:i0]]   # exact floats, not the ring's keys
-    R = rim_base[j0:] + rim_base[:j0]
-    NH, NR = len(H), len(R)
-    Rw = [rimw(p) for p in R]
-    INF = 1e18
-    cost = [[INF] * (NR + 1) for _ in range(NH + 1)]
-    back = [[None] * (NR + 1) for _ in range(NH + 1)]
-    cost[0][0] = 0.0
-    for i in range(NH + 1):
-        for j in range(NR + 1):
-            c0 = cost[i][j]
-            if c0 >= INF:
-                continue
-            if i < NH:
-                nc = c0 + math.sqrt(d2(H[(i + 1) % NH], Rw[j % NR]))
-                if nc < cost[i + 1][j]:
-                    cost[i + 1][j] = nc
-                    back[i + 1][j] = "h"
-            if j < NR:
-                nc = c0 + math.sqrt(d2(H[i % NH], Rw[(j + 1) % NR]))
-                if nc < cost[i][j + 1]:
-                    cost[i][j + 1] = nc
-                    back[i][j + 1] = "r"
-    zip_tris = []
-    i, j = NH, NR
-    while i > 0 or j > 0:
-        if back[i][j] == "h":
-            zip_tris.append((H[(i - 1) % NH], H[i % NH], Rw[j % NR]))
-            i -= 1
-        else:
-            zip_tris.append((H[i % NH], Rw[j % NR], Rw[(j - 1) % NR]))
-            j -= 1
+    H, R, zip_tris = _zip_dp(hole_ord, rim_base, rimw, h_float)
     rim_ord = R
     zip_maxe = 0.0
     for tri3 in zip_tris:

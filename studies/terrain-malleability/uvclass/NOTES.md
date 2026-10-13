@@ -267,6 +267,9 @@ Other envelope measurements:
   indistinguishable (stock p90 is 1.51u).
 - **X3. Canopy bend.** Carry the (15,15) canopy with a plan stretch of ×1.1 and ×1.25. Prediction: ×1.1 is
   faithful (93.9% inside the envelope) and ×1.25 shows on some charts (78.9%).
+  **RUN 2026-10-13** (`../canopyspread/NOTES.md`, `../ingame/RESULTS.md` section 32): carried at x1.25 and x1.5
+  (and turned 45 deg) by `world-forest --spread / --rot`, 53/53 in game. The owner keeps all four: "1.5x is starting
+  to look stretched but still feels fine". The prediction is refuted in the permissive direction, as X1's was.
 - **X4. Per-block texture re-bake identity.** Deploy one bench block with a Terrain override plus
   `Block[x][y] Terrain.png` set to the stock atlas (from the install, never committed). Prediction: an
   identical render. Then a tinted copy to prove it is live. This unlocks re-baking deformed M content.

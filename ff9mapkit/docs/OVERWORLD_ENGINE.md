@@ -1002,7 +1002,11 @@ and are the productized island-E studies, proven by a zero-byte-diff identity ru
   (default `15,15`, the clean grass-bounded blob): carve a hole in the mains, seat the blob, zip a grass annulus
   whose per-4u-cell mains UVs are DECODED from the kept bytes. Gated by the COMPREHENSIVE CANOPY STEP LAW (per-rim-
   station lift against the exact canopy surface one foot step inside) + a PERIMETER WALK-IN simulation of the
-  engine's climb rule around the whole rim (takes a few minutes) + the placement census.
+  engine's climb rule around the whole rim (takes a few minutes) + the placement census. `--spread S` (1.0-1.5) scales the
+  canopy in plan and `--rot DEG` turns it to any angle, about its centre, heights/UVs/topographs carried (terrain
+  study X3; in-game kept to x1.5). A mapped canopy closes the donor's HAIRLINE CURTAIN (one top corner 0.0195u off
+  its base: a strip no down-ray grounds on), splits rim edges longer than the donor's (THE RIM GRAIN), and zips with
+  the mountain's minimal-chord DP given an ny floor of 0.5 (no slivers); the unmapped carry keeps its July bytes.
 * `world-hill --mod-folder M --near WX,WZ [--height 4.2 --radius 18]` raises a raised-cosine grass hill by PURE-Y
   displacement (mains UVs are XZ-linear, so every tile stays lawful) with local normal re-smoothing. Gated by the
   measured grass-language envelope (flank p99 ≤ 28.6°, peak ≤ the lowland band top 8.6), the crack scan, and the
