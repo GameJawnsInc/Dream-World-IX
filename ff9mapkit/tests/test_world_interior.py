@@ -925,6 +925,217 @@ def test_carve_forest_zip_welds_bit_for_bit_to_the_kept_grass(monkeypatch, tmp_p
     assert not split, f"{len(split)} welds hold two floats, e.g. {next(iter(split.items()))}"
 
 
+def _canopy_dome(x0=8.0, z0=-8.0, n=5, cell=4.0, top=1.0):
+    """:func:`_canopy_donor` with relief: every inner vertex raised ``top`` (a low plateau,
+    rim at 0), so a plan map that touched heights would show."""
+    def y(i, j):
+        return top if 0 < i < n and 0 < j < n else 0.0
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            xa, xb = x0 + i * cell, x0 + (i + 1) * cell
+            za, zb = z0 - j * cell, z0 - (j + 1) * cell
+            a, b, c, d = (xa, y(i, j), za), (xb, y(i + 1, j), za), (xa, y(i, j + 1), zb), (xb, y(i + 1, j + 1), zb)
+            tris.append(((a, b, c), FOREST, 0.5))
+            tris.append(((b, d, c), FOREST, 0.5))
+    return _bm(tris, name="Block[15][15] Terrain", x=15, y=15)
+
+
+def _canopy_pts(res):
+    """The carried canopy's corners (world frame, the one-block bench), in emitted order."""
+    bm = res["changed"][(0, 0)]
+    pos, tan = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN]
+    return [tuple(pos[i]) for t in bm.tris for i in t if tan[t[0]][0] == FOREST]
+
+
+def test_carve_forest_spread_scales_the_canopy_in_plan_and_keeps_its_heights(monkeypatch, tmp_path):
+    """--spread (terrain study X3): every canopy corner lands at centre + s x (donor - donor centre) in plan, at
+    the height the verbatim carry gives it; THE RIM GRAIN splits each 5u rim edge in two (the donor's are 4u), its
+    midpoints on the rim at the rim's height; the zip still welds and every gate runs."""
+    _patch_donor(monkeypatch, _canopy_dome())
+    cut, rep = {}, {}
+    for s in (1.0, 1.25):
+        res = IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid()}), center=(26.0, -26.0),
+                              donor=(15, 15), game=tmp_path, spread=s, log=lambda *a: None)
+        assert res["report"]["spread"] == s
+        cut[s], rep[s] = _canopy_pts(res), res["report"]
+    one, wide = cut[1.0], cut[1.25]
+    assert len(one) == 150 and rep[1.0]["rim_splits"] == 0
+    assert rep[1.25]["rim_splits"] == 20 and len(wide) == 150 + 20 * 3          # one more tri per split edge
+    # the donor carpet spans x 8..28, z -8..-28 of block (15,15): its centre (18, -18) lands on (26, -26)
+    height_at = {(round(p[0] - 26.0, 6), round(p[2] + 26.0, 6)): p[1] for p in one}
+    mids = set()
+    for q in wide:
+        k = (round((q[0] - 26.0) / 1.25, 6), round((q[2] + 26.0) / 1.25, 6))
+        if k in height_at:
+            assert q[1] == height_at[k]                              # heights: the verbatim carry's
+        else:                                                        # a rim midpoint: on the rim, at its height
+            assert max(abs(k[0]), abs(k[1])) == pytest.approx(10.0) and q[1] == pytest.approx(3.2)
+            mids.add(k)
+    assert len(mids) == 20
+    xs = [p[0] for p in wide]
+    assert min(xs) == pytest.approx(13.5) and max(xs) == pytest.approx(38.5)   # 20u -> 25u wide
+    assert max(p[1] for p in wide) == pytest.approx(3.2 + 1.0)                   # the plateau still 1u up
+
+
+def test_carve_forest_rot_turns_the_canopy_and_identity_is_byte_exact(monkeypatch, tmp_path):
+    """--rot: 90 is the exact coordinate swap (dx, dz) -> (dz, -dx), any other angle the same turn by cos/sin;
+    spread 1 + rot 0 (or 360) is the verbatim carry byte for byte."""
+    _patch_donor(monkeypatch, _canopy_dome(z0=-10.0, n=5))      # off-square about the pivot, so a turn shows
+
+    def carve(**kw):
+        return IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid()}), center=(26.0, -26.0),
+                               donor=(15, 15), game=tmp_path, log=lambda *a: None, **kw)
+    base = carve()
+    for kw in ({"spread": 1.0, "rot_deg": 0}, {"rot_deg": 360}, {"rot_deg": -720.0}):
+        same = carve(**kw)
+        bm, bm0 = same["changed"][(0, 0)], base["changed"][(0, 0)]
+        assert bm.chan_arrays == bm0.chan_arrays and bm.tris == bm0.tris, kw
+    q90 = carve(rot_deg=90)
+    assert q90["report"]["rot_deg"] == 90
+    plan0 = sorted({(p[0] - 26.0, p[2] + 26.0) for p in _canopy_pts(base)})
+    plan90 = {(p[0] - 26.0, p[2] + 26.0) for p in _canopy_pts(q90)}
+    assert plan90 == {(dz, -dx) for dx, dz in plan0}                 # exact floats: the swap, not cos/sin
+    q30 = carve(rot_deg=30)
+    c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
+    want = sorted((round(c * dx + s * dz, 6), round(-s * dx + c * dz, 6)) for dx, dz in plan0)
+    got = sorted({(round(p[0] - 26.0, 6), round(p[2] + 26.0, 6)) for p in _canopy_pts(q30)})
+    assert got == sorted(set(want))
+    assert sorted(p[1] for p in _canopy_pts(q30)) == sorted(p[1] for p in _canopy_pts(base))
+
+
+def _canopy_plateau(n=5, cell=4.0, top=2.0, nudge=-0.02):
+    """A canopy blob with stock's anatomy: a flat top ``top`` up on vertical curtain walls (the rim is the walls'
+    base), one top corner (NE, over (28, -8)) set ``nudge`` off its base in x -- stock (15,15)'s HAIRLINE CURTAIN."""
+    x0, z0 = 8.0, -8.0
+    corner = (x0 + n * cell, z0)
+
+    def tp(x, z):
+        return (x + (nudge if (x, z) == corner else 0.0), top, z)
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            xa, xb = x0 + i * cell, x0 + (i + 1) * cell
+            za, zb = z0 - j * cell, z0 - (j + 1) * cell
+            tris.append(((tp(xa, za), tp(xb, za), tp(xa, zb)), FOREST, 0.5))
+            tris.append(((tp(xb, za), tp(xb, zb), tp(xa, zb)), FOREST, 0.5))
+    ring = [(x0 + k * cell, z0) for k in range(n)] + [(x0 + n * cell, z0 - k * cell) for k in range(n)] + \
+           [(x0 + n * cell - k * cell, z0 - n * cell) for k in range(n)] + [(x0, z0 - n * cell + k * cell) for k in range(n)]
+    cx, cz = x0 + n * cell / 2, z0 - n * cell / 2
+    for k in range(len(ring)):
+        (px, pz), (qx, qz) = ring[k], ring[(k + 1) % len(ring)]
+        a, b, c, d = (px, 0.0, pz), (qx, 0.0, qz), tp(qx, qz), tp(px, pz)
+        out = ((px + qx) / 2 - cx, (pz + qz) / 2 - cz)
+        for t in ((a, b, c), (a, c, d)):
+            u = [t[1][m] - t[0][m] for m in range(3)]
+            v = [t[2][m] - t[0][m] for m in range(3)]
+            nx, nz = u[1] * v[2] - u[2] * v[1], u[0] * v[1] - u[1] * v[0]
+            tris.append(((t if nx * out[0] + nz * out[1] > 0 else (t[0], t[2], t[1])), FOREST, 0.5))
+    return _bm(tris, name="Block[15][15] Terrain", x=15, y=15)
+
+
+def test_carve_forest_closes_the_hairline_curtain_only_when_mapped(monkeypatch, tmp_path):
+    """THE HAIRLINE CURTAIN: a curtain's top corner 0.02u off its base stays as the donor has it in the verbatim
+    carry (byte for byte), and is set on its base in plan once the canopy is turned or spread."""
+    _patch_donor(monkeypatch, _canopy_plateau())
+
+    def carve(**kw):
+        return IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid()}), center=(26.0, -26.0),
+                               donor=(15, 15), game=tmp_path, log=lambda *a: None, **kw)
+
+    def ne(res, base):
+        """The NE corner's top and base plan points (the base is the rim corner at ``base``)."""
+        tops = {(p[0], p[2]) for p in _canopy_pts(res) if p[1] > 4.0}
+        bx, bz = base
+        top = min(tops, key=lambda q: (q[0] - bx) ** 2 + (q[1] - bz) ** 2)
+        return top, (bx, bz)
+    v = carve()
+    assert v["report"]["hairlines"] == 0
+    top, base = ne(v, (36.0, -16.0))                                  # (28, -8) of the donor lands on (36, -16)
+    assert top[0] - base[0] == pytest.approx(-0.02) and top[1] == base[1]     # the donor's hairline, kept
+    q = carve(rot_deg=90)
+    assert q["report"]["hairlines"] == 1
+    top, base = ne(q, (36.0, -36.0))                                  # (dx, dz) = (10, 10) turns to (10, -10)
+    assert top == base                                                 # closed: over its base exactly
+    w = carve(spread=1.25)
+    assert w["report"]["hairlines"] == 1
+    top, base = ne(w, (38.5, -13.5))
+    assert top == base
+
+
+def test_zip_dp_ny_floor_routes_round_a_sliver():
+    """The DP strip with a floor: a rim node on the line of a hole edge (x 15.98 against the hole's x 16) makes the
+    shortest strip take a sliver (ny 0.05); with the forest's floor it routes round it. No floor = the mountain's
+    strip, unchanged."""
+    import numpy as np
+    n, step = 4, 4.0
+    hole = [(k * step, 0.0, 0.0) for k in range(n)] + [(16.0, 0.0, k * step) for k in range(n)] + \
+           [(16.0 - k * step, 0.0, 16.0) for k in range(n)] + [(0.0, 0.0, 16.0 - k * step) for k in range(n)]
+    rim = [(4.0, 0.4, 4.0), (12.0, 0.4, 4.0), (15.98, 0.4, 6.0), (12.0, 0.4, 12.0), (4.0, 0.4, 12.0)]
+    hk, rk = [IN.kk3(p) for p in hole], [IN.kk3(p) for p in rim]
+    hf, rf = dict(zip(hk, hole)), dict(zip(rk, rim))
+
+    def min_ny(tris):
+        out = 1.0
+        for t in tris:
+            a, b, c = (np.asarray(p) for p in t)
+            nn = np.cross(b - a, c - a)
+            out = min(out, abs(nn[1]) / np.linalg.norm(nn))
+        return out
+    _, _, plain = IN._zip_dp(hk, rk, lambda k: rf[k], hf)
+    _, _, floored = IN._zip_dp(hk, rk, lambda k: rf[k], hf, ny_floor=IN.FOREST_ZIP_NY_FLOOR)
+    assert len(plain) == len(floored) == len(hole) + len(rim)
+    assert min_ny(plain) < 0.1 and min_ny(floored) > 0.9
+
+
+def test_forest_plan_normals_take_the_inverse_transpose():
+    """A plane y = 0.75 x stretched x2 in plan is y = 0.375 x: its normal leans half as far, at unit length."""
+    import numpy as np
+    n0 = [-0.6, 0.8, 0.0]                                         # unit normal of y = 0.75 x
+    pts, nrm = IN._forest_plan(np.array([[1.0, 0.75, 0.0], [3.0, 2.25, 2.0]]), [n0, n0], (0.0, 0.0),
+                               spread=2.0, rot_deg=None)
+    assert pts.tolist() == [[2.0, 0.75, 0.0], [6.0, 2.25, 4.0]]
+    want = np.array([-0.375, 1.0, 0.0]) / math.hypot(0.375, 1.0)
+    assert np.allclose(nrm[0], want) and math.isclose(float(np.linalg.norm(nrm[0])), 1.0)
+    _, nrm90 = IN._forest_plan(np.zeros((1, 3)), [n0], (0.0, 0.0), spread=1.0, rot_deg=90)
+    assert nrm90 == [[0.0, 0.8, 0.6]]                             # (nx, nz) -> (nz, -nx), exact
+
+
+def test_carve_forest_refuses_a_spread_outside_its_range(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _canopy_dome())
+    for bad in (0.99, IN.FOREST_SPREAD_MAX + 0.01, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="spread"):
+            IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid()}), center=(26.0, -26.0),
+                            donor=(15, 15), game=tmp_path, spread=bad, log=lambda *a: None)
+    with pytest.raises(ValueError, match="finite angle"):
+        IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid()}), center=(26.0, -26.0),
+                        donor=(15, 15), game=tmp_path, rot_deg=float("nan"), log=lambda *a: None)
+
+
+def test_cli_world_forest_passes_spread_and_rot(monkeypatch, capsys):
+    from ff9mapkit import cli
+    seen = {}
+
+    def fake_carve(soup, **kw):
+        seen.update(kw)
+        return {"center": (0.0, 0.0), "changed": {},
+                "report": {"blob_tris": 132, "dropped": 9, "zip_tris": 60, "wall_rise": 1.8, "zip_rise": 0.8,
+                           "spread": kw["spread"], "rot_deg": kw["rot_deg"] or 0}}
+    monkeypatch.setattr(IN, "read_deployed_blocks", lambda *a, **k: {})
+    monkeypatch.setattr(IN, "soup_from_blocks", lambda blocks: object())
+    monkeypatch.setattr(IN, "carve_forest", fake_carve)
+    monkeypatch.setattr(IN, "census_gate", lambda *a, **k: None)
+    args = cli.build_parser().parse_args(["world-forest", "--mod-folder", "m", "--center", "0,0",
+                                          "--spread", "1.25", "--rot", "30", "--dry-run"])
+    assert cli._cmd_world_forest(args) == 0
+    assert seen["spread"] == 1.25 and seen["rot_deg"] == 30.0
+    assert "the canopy carry (spread x1.25, rot 30deg) at world" in capsys.readouterr().out
+    dflt = cli.build_parser().parse_args(["world-forest", "--mod-folder", "m", "--center", "0,0", "--dry-run"])
+    assert dflt.spread == 1.0 and dflt.rot is None
+    assert cli._cmd_world_forest(dflt) == 0
+    assert "the canopy carry at world" in capsys.readouterr().out
+
+
 # ---- the deployed-block loader ---------------------------------------------------------------
 
 def test_read_deployed_blocks_semantics(tmp_path):

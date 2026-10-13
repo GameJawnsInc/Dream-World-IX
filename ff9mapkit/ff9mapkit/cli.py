@@ -5468,7 +5468,7 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
         soup = IN.soup_from_blocks(blocks)
         res = IN.carve_forest(soup, center=(wx, wz) if exact else None,
                               near=None if exact else (wx, wz), donor=(dx, dy),
-                              disc=args.disc, game=args.game)
+                              disc=args.disc, game=args.game, spread=args.spread, rot_deg=args.rot)
         IN.census_gate(res["changed"], disc=args.disc, game=args.game,
                        probe=(res["center"], 37), baseline=blocks)
         if not args.dry_run:
@@ -5481,7 +5481,11 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
     verb = "would deploy" if args.dry_run else "deployed"
     cx, cz = res["center"]
     r = res["report"]
-    print(f"{verb} the canopy carry at world ({cx:.0f},{cz:.0f}): {r['blob_tris']} donor tris, "
+    bits = ([f"spread x{r['spread']:g}"] if r["spread"] != 1.0 else []) + \
+        ([f"rot {r['rot_deg']:g}deg"] if r["rot_deg"] else [])
+    shape = f" ({', '.join(bits)})" if bits else ""
+    splits = f" ({r['rim_splits']} rim edges split to the donor's grain)" if r.get("rim_splits") else ""
+    print(f"{verb} the canopy carry{shape} at world ({cx:.0f},{cz:.0f}): {r['blob_tris']} canopy tris{splits}, "
           f"{r['dropped']} island tris carved, {r['zip_tris']} zip tris; wall rise {r['wall_rise']} / "
           f"zip rise {r['zip_rise']} (ceiling 2.34). All gates CLEAN incl. the perimeter walk-in "
           f"simulation + placement census. ~ -> World -> re-enter, then walk INTO and OVER the canopy.")
@@ -10278,6 +10282,15 @@ def build_parser() -> argparse.ArgumentParser:
     wfo.add_argument("--donor", default="15,15", metavar="BX,BY",
                      help="real block whose topo-37 canopy blob to carry (default 15,15 = the proven "
                           "grass-bounded donor; a multi-blob or non-simple-rim donor refuses)")
+    wfo.add_argument("--spread", type=float, default=1.0, metavar="S",
+                     help="scale the canopy S times wider in plan (1.0-1.5) about its centre, heights, UVs "
+                          "and topographs carried: a bigger forest from the same donor, its curtains still "
+                          "vertical. The step law and the walk-in gate judge the result as usual. Default 1.0 "
+                          "= the verbatim carry.")
+    wfo.add_argument("--rot", type=float, default=None, metavar="DEG",
+                     help="turn the canopy to ANY angle about its centre (degrees, clockwise seen from above, "
+                          "as world-mountain --rot); its texture turns with it, the grass stays on its grid "
+                          "and the zip round the rim is minted fresh and gated. Default 0.")
     wfo.add_argument("--reach", type=float, default=96.0,
                      help="deployed-block load window around the point in units (default 96)")
     wfo.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
