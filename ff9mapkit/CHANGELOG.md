@@ -17,6 +17,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Proven in game: five islands sunk with `world-sink` were gone from both maps after a relaunch, and drawn again
   with the composite taken away.
 
+### Changed — `world-minimap` draws new land where the painted world sits
+- The all-world map is not painted to its registered frame: measured over 46 islands, the painting is ~4% short
+  down and ~0.9% narrow across, so near its top and bottom edges the art sits up to ~24px from the frame. New land
+  is now drawn through the frame plus that measured drift (`WORLD_MAP_DRIFT`), beside the painted coasts as they are
+  painted: a landmass in the far south moves ~20px up, one at the east edge ~11px left. The land colour is unchanged.
+
 ### Fixed — `world-minimap` painted over a real cell's own land, and stray dots
 - On a real cell the folder edited in place, only the land the folder ADDED is drawn; before, the cell's whole
   terrain was repainted flat in the islet colour over the painted art.

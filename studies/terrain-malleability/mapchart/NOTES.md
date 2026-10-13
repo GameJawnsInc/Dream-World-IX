@@ -115,6 +115,14 @@ it on its next run (it writes a `ModDescription.xml` into anything that looks li
 found mod into FolderNames and Priorities), and a 19:02 launch ran with its six sunk islands live. A lab belongs
 outside the install between sessions; this one now lives in the run dir.
 
+**New land follows the drift too (owner's call, 2026-10-12).** `world-minimap` draws a folder's added land through
+the frame plus `WORLD_MAP_DRIFT`. On the live `FF9CustomMap-world` composite each of its 11 drawn landmasses moved by
+the drift at its centre to within 0.3px (the far-south ones ~20px up, the east-edge ones ~11px left); the fill
+colour is unchanged (it is still sampled through the frame: through the drift two of the three islet anchors land on
+an olive interior and a halo). Test: `test_new_land_is_drawn_where_the_painted_world_sits` (red with the drift
+taken out of the paint path). Deployed to the live folder and seen in game (`ingame_drift.py`, `../ingame/RESULTS.md`
+section 29).
+
 ## 7. Not done
 
 - New land is still drawn flat (islet fill + rim), with no halo or shadow, and only on the all-world chart.

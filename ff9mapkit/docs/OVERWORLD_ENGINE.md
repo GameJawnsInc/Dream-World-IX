@@ -194,7 +194,8 @@ FolderNames-stacked — Moguri ships its own HD copy, so the override must sit A
 BOTH `FolderNames` AND `Priorities`, same order, or the launcher's Play click reverts the move).
 `ff9mapkit world-minimap --mod-folder <mod>` DRAWS the folder's deployed overworld land onto the active map:
 the engine's own projection (`w_naviGetPos`: the mapped world is exactly **1536×1280 units**) onto the image's
-registered art rect (the stock land mask correlated against the chart's land pixels), land colours sampled from
+registered art rect (the stock land mask correlated against the chart's land pixels), moved by the chart's measured
+drift to where the painted world sits there (`WORLD_MAP_DRIFT`, below; ★ 2026-10-12), land colours sampled from
 how the map draws real islets, a darker rim. Data-derived end to end (the 49 live navipos town anchors verify the
 registration). Only land the folder ADDS is drawn; a real cell's own stock land keeps its painted look.
 RELAUNCH to apply. The custom continent appears on the map — markers on it still need the DLL seam below.
