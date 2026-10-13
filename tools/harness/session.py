@@ -8269,15 +8269,18 @@ class Session:
     NETSYNC_PROTOCOL = 5
     #: The agent's sub-verbs, in its own order -- the list its "unknown sub-verb" refusal prints
     #: (HarnessAgent `case "netsync"`, s96; [ff9mapkit netsync F3.3] + s97 `dioboot`/`dioleave`, s98 `host`,
-    #: s99 `tap-record`/`replay`). Pinned to the patch stack by test_harness_netsync.py.
+    #: s99 `tap-record`/`replay`; [ff9mapkit netsync B4] + s100 `guestslots`/`bcmd`/`hostgates`, s101
+    #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`). Pinned to the patch stack by
+    #: test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
-                        "replay")
+                        "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "endbench")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
-    #: "authority", s96) -- the F3.3 ones included (they build on it). An F3 engine answers them "unknown
+    #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
-                                  "host", "tap-record", "replay")
+                                  "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
+                                  "bctl", "bmenu", "endbench")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8291,6 +8294,37 @@ class Session:
     #: The bench host's ops, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncClient.BenchHostOp, s98/s99). Pinned to the patch stack by test_harness_netsync.py.
     NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "freeze", "menu", "battle")
+    #: [ff9mapkit netsync B4] [ff9mapkit netsync B5] The battle co-op lane's sub-verbs (studies/battle-coop/B4-B5-DESIGN.md
+    #: 6.4), each told by a ``netsync.battle`` key's PRESENCE (protocol stays 5, the contract tag stays "authority"): the
+    #: State capability accessor, the key it reads, the patch that added the verb, and what the verb is. Pinned to the
+    #: patch stack by test_harness_netsync.py.
+    NETSYNC_BATTLE_SUBVERBS = {
+        "guestslots": ("coop_host_gates", "netsync.battle", "s100", "the B4/B5 host command-phase-gates bench"),
+        "bcmd": ("coop_host_gates", "netsync.battle", "s100", "the B4/B5 host command-phase-gates bench"),
+        "hostgates": ("coop_host_gates", "netsync.battle", "s100", "the B4/B5 host command-phase-gates bench"),
+        "containment": ("coop_containment", "netsync.battle.menu.r9_refused", "s101",
+                        "the B4 guest containment-backstop bench (R9 + G2)"),
+        "bctl": ("coop_containment", "netsync.battle.menu.r9_refused", "s101",
+                 "the B4 guest containment-backstop bench (R9 + G2)"),
+        "bmenu": ("coop_stock_menu", "netsync.battle.menu.captures", "s102", "the B4 guest stock-menu bench"),
+        "endbench": ("coop_end_trailer", "netsync.battle.host.end_trail", "s103", "the B5 end-block bench"),
+    }
+    #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
+    #: (NetSyncBattle.HarnessStockMenu, s102).
+    NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
+    #: [ff9mapkit netsync B5] `endbench <op>`, in the engine's order -- the list its "unknown op" refusal prints
+    #: (NetSyncEnd.HarnessEndBench: s103, + `guest` s104, + `exit` s105). `manifest` is not listed there but is an op the
+    #: engine knows -- and refuses ("the result manifest is stage 9") -- so the driver sends it.
+    NETSYNC_ENDBENCH_OPS = ("victory", "pending", "nopose", "other", "defeat", "escape", "event", "fight", "ui", "state",
+                            "overflow", "afterevent", "cmd", "host", "guest", "exit", "selftest", "clear")
+    NETSYNC_ENDBENCH_UNLISTED = ("manifest",)
+    #: [ff9mapkit netsync B5] The `endbench` ops a LATER patch added, told by their own key (as the sub-verbs are).
+    NETSYNC_ENDBENCH_OP_CAPS = {
+        "guest": ("coop_presentation", "netsync.battle.end.r8_hits", "s104",
+                  "the B5 guest-presentation calibration lever"),
+        "exit": ("coop_exit_with_host", "netsync.battle.end.end_leave", "s105",
+                 "the B5 guest-exit calibration lever"),
+    }
 
     def netsync(self, sub: str, *args, timeout: float = 20.0) -> State:
         """Drive the co-op client's solo benches -- the ~ menu's IMGUI buttons, as verbs.
@@ -8322,13 +8356,30 @@ class Session:
         the same ring now); ``tap-record 1|0`` records this copy's real host taps (bench lock OFF)
         and ``replay [[paced] 1|0]`` feeds the tape into the bench host's ring (lock ON) (s99).
 
+        [ff9mapkit netsync B4] [ff9mapkit netsync B5] -- the battle co-op benches, all selftest-role
+        only, each needing its own capability (``NETSYNC_BATTLE_SUBVERBS``; :attr:`State.coop_battle`
+        and the ``coop_*`` accessors read what they publish): ``guestslots <mask>`` hands party slots
+        of a selftest OWN battle to the loopback guest, ``bcmd <hex>`` parks a raw v1 command frame on
+        the loopback (drained through the host's real intake inside an own battle --
+        :func:`harness.battlewire.command_hex` composes one), ``hostgates 1|0`` is stage 1's
+        calibration lever (s100); ``containment 1|0`` (stage 2's lever) and ``bctl <hex>`` (a raw
+        control frame through ParseControl) (s101); ``bmenu open|close <L> | closeall | capture on|off
+        | mainmenu`` the guest stock-menu bench inside a ``dioboot`` diorama (s102); ``endbench <op>``
+        fabricates the host's END BLOCK through the real codec (``victory|pending|nopose|other <res>|
+        defeat|escape|event|fight|ui <n>|state <n> [loading]|overflow 0|1|afterevent 0|1``), arms the
+        victory-edge ``cmd [hex]``, pulls the levers ``host on|cadence|off`` (s103), ``guest
+        on|off|settle`` (s104) and ``exit on|off`` (s105), runs ``selftest`` or ``clear``s. Every lever
+        is released on disarm, fault and ``reset``.
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
-        without the contract (``unknown sub-verb``), an F3.3 sub-verb on an engine without its
-        capability (``unknown sub-verb`` again), and a bench-host op the engine does not have
-        (``unknown op``) -- worse messages and wasted steps. Every gate the agent itself applies (the
-        role, the bench lever, the lock, an open window, an argument's range) stays the agent's: its
-        refusal comes back as a :class:`StepRefused` carrying the engine's reason.
+        without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
+        capability (``unknown sub-verb`` again), and a bench-host / ``bmenu`` / ``endbench`` op the
+        engine does not have (``unknown op``; an ``endbench guest``/``exit`` on an engine before
+        s104/s105 included) -- worse messages and wasted steps. Every gate the agent itself applies (the
+        role, the bench lever, the lock, an open window, a live diorama, an argument's range or hex)
+        stays the agent's: its refusal comes back as a :class:`StepRefused` carrying the engine's
+        reason.
         """
         if self.engine_protocol is not None and self.engine_protocol < self.NETSYNC_PROTOCOL:
             raise HarnessError(
@@ -8338,10 +8389,12 @@ class Session:
         sub = str(sub).strip().lower()
         if sub not in self.NETSYNC_SUBVERBS:
             raise HarnessError(f"netsync: unknown sub-verb {sub!r} ({'|'.join(self.NETSYNC_SUBVERBS)})")
+        st = None
         if sub in self.NETSYNC_AUTHORITY_SUBVERBS:
             st = self.state
             authority = st.dialogue_authority
             f33 = self.NETSYNC_F33_SUBVERBS.get(sub)
+            nb = self.NETSYNC_BATTLE_SUBVERBS.get(sub)
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -8352,21 +8405,41 @@ class Session:
                            f"(`netsync.dialogue` = {st.netsync.get('dialogue')!r})"
                 what = (f"an F3.3 verb ({f33[3]}, memoria-patch {f33[2]}) on the F3.2 host-authoritative "
                         f"dialogue contract (memoria-patch s96)" if f33 else
+                        f"a B4/B5 battle co-op verb ({nb[3]}, memoria-patch {nb[2]}) on the F3.2 host-authoritative "
+                        f"dialogue contract (memoria-patch s96)" if nb else
                         "an F3.2 host-authoritative dialogue verb (memoria-patch s96)")
                 raise HarnessError(
                     f"netsync {sub}: the deployed engine {have}; `{sub}` is {what}. Rebuild the DLL, or update "
                     f"the driver.")
-            if f33 is not None and not getattr(st, f33[0]):
-                # [ff9mapkit netsync F3.3] the contract tag stays "authority" across s96-s99, so a capability is its key's
+            cap = f33 or nb
+            if cap is not None and not getattr(st, cap[0]):
+                # [ff9mapkit netsync F3.3] the contract tag stays "authority" across s96-s105, so a capability is its key's
                 # PRESENCE: an engine without it answers "unknown sub-verb" only after the step
+                after = (f"; it would answer \"netsync: unknown sub-verb '{sub}'\" only after the step" if nb else "")
                 raise HarnessError(
-                    f"netsync {sub}: the deployed engine publishes no `{f33[1]}` -- `{sub}` is {f33[3]} "
-                    f"(memoria-patch {f33[2]}). Rebuild the DLL, or update the driver.")
+                    f"netsync {sub}: the deployed engine publishes no `{cap[1]}` -- `{sub}` is {cap[3]} "
+                    f"(memoria-patch {cap[2]}){after}. Rebuild the DLL, or update the driver.")
         if sub == "host":
             # [ff9mapkit netsync F3.3] the op is the bench host's own sub-verb: refused before the step, in the engine's words
             op = str(args[0]).strip().lower() if args else ""
             if op not in self.NETSYNC_HOST_OPS:
                 raise HarnessError(f"netsync host: unknown op '{op}' ({'|'.join(self.NETSYNC_HOST_OPS)})")
+        elif sub == "bmenu":
+            # [ff9mapkit netsync B4] the agent lowercases the op and HarnessStockMenu refuses one it lacks -- in its words
+            op = str(args[0]).strip().lower() if args else ""
+            if op not in self.NETSYNC_BMENU_OPS:
+                raise HarnessError(f"netsync bmenu: unknown op '{op}' ({'|'.join(self.NETSYNC_BMENU_OPS)})")
+        elif sub == "endbench":
+            # [ff9mapkit netsync B5] the same for HarnessEndBench; a later patch's op is told by its own key
+            op = str(args[0]).strip().lower() if args else ""
+            if op not in self.NETSYNC_ENDBENCH_OPS + self.NETSYNC_ENDBENCH_UNLISTED:
+                raise HarnessError(f"netsync endbench: unknown op '{op}' ({'|'.join(self.NETSYNC_ENDBENCH_OPS)})")
+            cap = self.NETSYNC_ENDBENCH_OP_CAPS.get(op)
+            if cap is not None and not getattr(st, cap[0]):
+                raise HarnessError(
+                    f"netsync endbench {op}: the deployed engine publishes no `{cap[1]}` -- `endbench {op}` is {cap[3]} "
+                    f"(memoria-patch {cap[2]}); it would answer \"netsync endbench: unknown op '{op}'\" only after the "
+                    f"step. Rebuild the DLL, or update the driver.")
         self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
         return self.state
 

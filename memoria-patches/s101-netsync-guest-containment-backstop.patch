@@ -1,0 +1,494 @@
+diff --git a/Assembly-CSharp/Global/btl_cmd.cs b/Assembly-CSharp/Global/btl_cmd.cs
+index 207d64d..df88dba 100644
+--- a/Assembly-CSharp/Global/btl_cmd.cs
++++ b/Assembly-CSharp/Global/btl_cmd.cs
+@@ -152,6 +152,13 @@ public class btl_cmd
+     /// <summary>Enqueue a command for a player character</summary>
+     public static void SetCommand(CMD_DATA cmd, BattleCommandId commandId, Int32 sub_no, UInt16 tar_id, UInt32 cursor, Boolean forcePriority = false, BattleCommandMenu cmdMenu = BattleCommandMenu.None)
+     {
++        // [ff9mapkit netsync B4] R9 -- THE CONTAINMENT BACKSTOP: inside a co-op battle diorama a PLAYER's main command
++        // (cmd[0], also BattleUnit.ATBCommand) or double-cast first half (cmd[3]) is never enqueued locally -- the fight
++        // is the HOST's, and a local command would re-simulate it (CommandEngine runs ungated there and consumes the
++        // guest's real bag). At the head, before anything below mutates the caster. Refused + logged + counted; false
++        // (two Boolean reads) on every machine without a booted diorama, so vanilla and every real battle are unchanged.
++        if (Memoria.Netsync.NetSyncDiorama.RefuseLocalEnqueue(cmd, commandId, sub_no, tar_id))
++            return;
+         if (btl_cmd.CheckUsingCommand(cmd))
+             return;
+         cmd.cmd_no = commandId;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 314f0fe..1986a0f 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -82,6 +82,120 @@ namespace Memoria.Netsync
+         /// <summary>True while the diorama is ours to tear down. The teardown hook gates on THIS, never on Active.</summary>
+         public static Boolean Booted => _booted;
+ 
++        // ---------------------------------------------------------------------------------------
++        // [ff9mapkit netsync B4] stage 2 -- R9, THE CONTAINMENT BACKSTOP (studies/battle-coop/B4-B5-DESIGN.md 4.3 + 3.8
++        // item 1). B4 deliberately breaks the b34 invariant that nothing in a diorama fills the HUD's ReadyQueue, so the
++        // stock command menu will open there (stage 3+). Every stock commit site gets an Active-keyed CAPTURE; this is the
++        // layer BEHIND them: a missed site becomes one logged refusal instead of a RE-SIMULATION of the host's fight
++        // (CommandEngine runs ungated in the diorama, skips its ATB gate under isDebug, and at execution consumes the
++        // guest's REAL bag -- btl_cmd.cs ItemUse).
++        //
++        // SCOPE = a PLAYER unit's cmd[0] (the main command, also BattleUnit.ATBCommand) and cmd[3] (the double-cast first
++        // half), matched BY REFERENCE. That reaches every BattleHUD Send* site and the auto-battle and Vivi auto-magic
++        // writes -- AND (correction 1) the status-script enqueues on the same slots: Berserk and Confuse (cmd[0]), Garnet's
++        // trance SysPhantom recast (cmd[3]) and a battle script's SummonEiko (cmd[0]). In a diorama each of those would be
++        // re-simulation too, so refusing them is the desired outcome. Left alone on purpose: cmd[1] counters, cmd[2]
++        // SysStone, cmd[4] SysTrans, the escape command, and every enemy command.
++        // NOT REACHED -- the debug BattleUI: its playCommand (Attack / Skill1 / Skill2 / Item = Potion) enqueues a FRESH
++        // CMD_DATA { regist = the PC }, a player regist with no slot of its own (cmd_escape's shape), so R9Slot is -1
++        // there; its SetDebugEnemyCommand is an enemy command through EnqueueCommand. Both are held out of a diorama ONLY
++        // by the Active early-return at the top of BattleUI.OnGUI (their sole caller). R9 is no second layer for them,
++        // and must not be widened to every player regist to become one (that would catch cmd_escape -- stage 12's).
++        //
++        // KEYED ON Active ALONE (the containment predicate -- positive, engine-authoritative), never on netsync Enabled: a
++        // config edit mid-diorama must not drop containment while the scene is still live. The one other input is the
++        // selftest-only calibration lever (NetSyncBattle.ContainmentOn, harness `netsync containment 0`). Never throws: an
++        // exception inside the decision reads "not refused" (the pre-stage behaviour); the note after it cannot unrefuse.
++        // ---------------------------------------------------------------------------------------
++        private static readonly List<Int32> _r9Logged = new List<Int32>(4);   // cmd_no values already logged THIS boot
++
++        /// <summary>btl_cmd.SetCommand's head: true = refuse this enqueue (logged once per boot per cmd_no, counted).
++        /// Two Boolean reads and false on every machine without a booted diorama.</summary>
++        public static Boolean RefuseLocalEnqueue(CMD_DATA cmd, BattleCommandId commandId, Int32 subNo, UInt16 tarId)
++        {
++            if (!_armed || !_booted)
++                return false;
++            Int32 cmdSlot = R9Slot(cmd, NetSyncBattle.ContainmentOn);
++            if (cmdSlot < 0)
++                return false;
++            NoteRefusedEnqueue(cmd.regist, cmdSlot, commandId, subNo, tarId);
++            return true;
++        }
++
++        /// <summary>R9's decision, pure apart from the containment predicate: the refused command slot (0 or 3), or -1
++        /// = enqueue as stock. SelfTest scripts its truth table.</summary>
++        internal static Int32 R9Slot(CMD_DATA cmd, Boolean containmentOn)
++        {
++            try
++            {
++                if (!containmentOn || cmd == null || !Active)
++                    return -1;
++                BTL_DATA caster = cmd.regist;
++                if (caster == null || caster.bi == null || caster.bi.player == 0 || caster.cmd == null || caster.cmd.Count < 4)
++                    return -1;
++                if (ReferenceEquals(cmd, caster.cmd[0]))
++                    return 0;
++                if (ReferenceEquals(cmd, caster.cmd[3]))
++                    return 3;
++                return -1;
++            }
++            catch
++            {
++                return -1;
++            }
++        }
++
++        // Counted on EVERY refusal; logged once per (boot, cmd_no) with the caller chain -- the line that names a missed
++        // capture site. Never throws.
++        private static void NoteRefusedEnqueue(BTL_DATA caster, Int32 cmdSlot, BattleCommandId commandId, Int32 subNo, UInt16 tarId)
++        {
++            try
++            {
++                String site = RefusedEnqueueSite();
++                Int32 n = NetSyncBattle.NoteR9Refusal((Int32)commandId, site);
++                if (_r9Logged.Contains((Int32)commandId))
++                    return;
++                _r9Logged.Add((Int32)commandId);
++                Log.Message("[NetSync] diorama R9: refused a local enqueue -- unit 0x" + caster.btl_id.ToString("X2")
++                            + " (" + (CharacterId)caster.bi.slot_no + ") cmd[" + cmdSlot + "] cmd_no " + (Int32)commandId
++                            + " (" + commandId + ") sub " + subNo + " -> 0x" + tarId.ToString("X2") + ", from " + site
++                            + "; the diorama never re-simulates the host's fight (r9_refused=" + n
++                            + " this boot; logged once per boot per command)");
++            }
++            catch { }
++        }
++
++        // The first three managed frames above btl_cmd.SetCommand (this class's frames and SetCommand's own skipped), e.g.
++        // "BattleHUD.SendNetCommand < HarnessAgent.Execute". Runs only on a refusal; "?" when the runtime gives no frames.
++        private static String RefusedEnqueueSite()
++        {
++            try
++            {
++                System.Diagnostics.StackFrame[] frames = new System.Diagnostics.StackTrace(1, false).GetFrames();
++                if (frames == null)
++                    return "?";
++                String site = null;
++                Int32 taken = 0;
++                for (Int32 i = 0; i < frames.Length && taken < 3; i++)
++                {
++                    System.Reflection.MethodBase m = frames[i] == null ? null : frames[i].GetMethod();
++                    if (m == null)
++                        continue;
++                    Type t = m.DeclaringType;
++                    if (t == typeof(NetSyncDiorama) || (t == typeof(btl_cmd) && m.Name == "SetCommand"))
++                        continue;
++                    String name = (t != null ? t.Name + "." : "") + m.Name;
++                    site = site == null ? name : site + " < " + name;
++                    taken++;
++                }
++                return site ?? "?";
++            }
++            catch
++            {
++                return "?";
++            }
++        }
++
+         /// <summary>
+         /// B3.5 (F3) -- the wire nonce THIS diorama booted from, or -1. Set by NetSyncClient's watcher
+         /// after a successful wire boot (beside its own _dioramaWireNonce bookkeeping); reset to -1 in
+@@ -270,6 +384,8 @@ namespace Memoria.Netsync
+                 }
+                 _returnMode = PersistenSingleton<FF9StateSystem>.Instance.mode;
+                 _booted = true;
++                _r9Logged.Clear();                   // [ff9mapkit netsync B4] stage 2: R9's once-per-boot lines re-arm
++                NetSyncBattle.NoteDioramaBoot();     // ...and its per-boot count (the process total keeps counting)
+                 _seqSeen = false;                    // the reconciler starts fresh per boot
+                 _reconcileLogged = false;
+                 _reconcileErrLogged = false;
+@@ -494,7 +610,10 @@ namespace Memoria.Netsync
+             if (_warmPrimed && _warmFieldMap != null)
+                 UndoWarm("the boot never left field " + _warmField);
+             Disarm();
+-            Log.Message("[NetSync] diorama torn down -- state restored, isDebug cleared");
++            // [ff9mapkit netsync B4] stage 2: every teardown line carries this boot's R9 receipt (a guest log's grep-able
++            // "nothing tried to re-simulate" -- 0 in any diorama without a missed capture site).
++            Log.Message("[NetSync] diorama torn down -- state restored, isDebug cleared; r9_refused="
++                        + NetSyncBattle.HarnessR9Refused);
+         }
+ 
+         private static void Arm()
+@@ -1989,13 +2108,50 @@ namespace Memoria.Netsync
+                                    && !ReturnIsOurs(true, 100, 101, 1) && !ReturnIsOurs(true, 100, 100, 3);
+                 Boolean warmOk = warmFree && warmRefuses && returnOk;
+ 
++                // (5) [ff9mapkit netsync B4] stage 2 -- R9 IS FALSIFIABLE: inside the diorama a player's cmd[0] and cmd[3]
++                //     are refused and nothing else is (cmd[1]/[2]/[4]/[5], an enemy's slots, a command no unit owns, null);
++                //     a real battle, the swirl, a disarmed diorama and the pulled calibration lever refuse nothing. Pure:
++                //     scratch units only (stock builds CMD_DATA/BTL_DATA scratches the same way), nothing counted or logged.
++                BTL_DATA r9Pc = new BTL_DATA();
++                BTL_DATA r9En = new BTL_DATA();
++                r9Pc.bi.player = 1;
++                r9En.bi.player = 0;
++                for (Int32 i = 0; i < 6; i++)
++                {
++                    r9Pc.cmd[i] = new CMD_DATA { regist = r9Pc };
++                    r9En.cmd[i] = new CMD_DATA { regist = r9En };
++                }
++                CMD_DATA r9Foreign = new CMD_DATA { regist = r9Pc };   // a player's regist, but no slot of its own (cmd_escape's shape)
++                _armed = true;
++                _booted = true;
++                SceneName = () => DioramaScene;
++                Boolean r9Scope = R9Slot(r9Pc.cmd[0], true) == 0 && R9Slot(r9Pc.cmd[3], true) == 3
++                                  && R9Slot(r9Pc.cmd[1], true) < 0 && R9Slot(r9Pc.cmd[2], true) < 0
++                                  && R9Slot(r9Pc.cmd[4], true) < 0 && R9Slot(r9Pc.cmd[5], true) < 0
++                                  && R9Slot(r9En.cmd[0], true) < 0 && R9Slot(r9En.cmd[3], true) < 0
++                                  && R9Slot(r9Foreign, true) < 0 && R9Slot(new CMD_DATA { regist = null }, true) < 0
++                                  && R9Slot(null, true) < 0;
++                Boolean r9Lever = R9Slot(r9Pc.cmd[0], false) < 0;
++                SceneName = () => "BattleMap";
++                Boolean r9Gate = R9Slot(r9Pc.cmd[0], true) < 0;
++                SceneName = () => "SwirlScene";
++                r9Gate &= R9Slot(r9Pc.cmd[0], true) < 0;
++                SceneName = () => DioramaScene;
++                _armed = false;
++                _booted = false;
++                r9Gate &= R9Slot(r9Pc.cmd[0], true) < 0;
++                Boolean r9Ok = r9Scope && r9Lever && r9Gate;
++
+                 Boolean predicateOk = offInRealBattle && offInSwirl && onInDiorama && offWhenDisarmed;
+                 detail = String.Format("predicate[realBattle={0} swirl={1} diorama={2} disarmed={3}] bracket[gil={4} battleNo={5} catKills={6} modelKills={7} btlFields={8}] party[refs={9} untouched={10}] warm[gate={11} return={12}]",
+                     offInRealBattle ? "off" : "ON!", offInSwirl ? "off" : "ON!", onInDiorama ? "on" : "OFF!", offWhenDisarmed ? "off" : "ON!",
+                     gilOk ? "ok" : "LOST", bnoOk ? "ok" : "LOST", catOk ? "ok" : "LOST", modelOk ? "ok" : "LOST", btlFieldsOk ? "ok" : "LOST",
+                     !haveProbe ? "skip" : (refsOk ? "ok" : "LOST"), !haveProbe ? "skip" : (probesOk ? "ok" : "DIRTY"),
+-                    warmFree && warmRefuses ? "ok" : (warmFree ? "LEAKY" : "SHUT"), returnOk ? "ok" : "WRONG");
+-                return predicateOk && gilOk && bnoOk && catOk && modelOk && btlFieldsOk && (!haveProbe || (refsOk && probesOk)) && warmOk;
++                    warmFree && warmRefuses ? "ok" : (warmFree ? "LEAKY" : "SHUT"), returnOk ? "ok" : "WRONG")
++                    + " r9[scope=" + (r9Scope ? "ok" : "WRONG") + " lever=" + (r9Lever ? "ok" : "STUCK")   // [ff9mapkit netsync B4]
++                    + " gate=" + (r9Gate ? "ok" : "LEAKS") + "]";
++                return predicateOk && gilOk && bnoOk && catOk && modelOk && btlFieldsOk && (!haveProbe || (refsOk && probesOk)) && warmOk
++                       && r9Ok;
+             }
+             catch (Exception ex)
+             {
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index e4a9f1c..4b95fc0 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -26,7 +26,10 @@ namespace Memoria.Netsync
+     // FAIL-SAFE LAWS (same as the ghost lane): everything is gated on Enabled + GuestSlots; the peer
+     // stale/disconnected -> RemoteMenuOpen decays in ~2.5s and the ready-loop skip stops (slots revert
+     // to local control); any exception is swallowed into a log line and the vanilla battle continues.
+-    public static class NetSyncBattle
++    //
++    // [ff9mapkit netsync B4] stage 2: PARTIAL -- the B4 guest stock-menu lane (studies/battle-coop/B4-B5-DESIGN.md
++    // section 4) lands beside this file as NetSyncBattle.StockMenu.cs from stage 3 on.
++    public static partial class NetSyncBattle
+     {
+         // --- config mirror (written by NetSyncClient on every config [re]load; main thread) ---
+         public static Boolean Enabled;      // [Netsync] Enabled
+@@ -125,6 +128,46 @@ namespace Memoria.Netsync
+             get { return !(BenchHostGatesOff && NetSyncClient.IsSelfTestRole); }
+         }
+ 
++        // [ff9mapkit netsync B4] stage 2 -- THE GUEST CONTAINMENT BACKSTOP (design 4.3 + 3.8 item 1): R9 at the head of
++        // btl_cmd.SetCommand refuses a player's cmd[0]/cmd[3] while the diorama is Active (NetSyncDiorama.RefuseLocalEnqueue
++        // decides and logs; this file keeps the ledger), and G2 reads IsGuestOwnedSlot false while Active (below). Inert in
++        // production today: nothing in a diorama fills the HUD's ReadyQueue yet (stage 3 does), so a refusal now means a
++        // missed site -- e.g. a seat-carried Berserk/Confuse, whose status script enqueues on cmd[0]. The receipt
++        // `r9_refused` is PER DIORAMA BOOT (reset by Boot, kept after teardown until the next boot); `r9_total` is the
++        // process's monotonic count.
++        private static Int32 _r9Refused;              // R9 refusals THIS diorama boot
++        private static Int32 _r9Total;                // ...this process (monotonic: read deltas)
++        private static Int32 _r9LastCmd = -1;         // the last refused cmd_no this boot (-1 = none)
++        private static String _r9LastSite;            // ...and the caller chain that tried it (null = none)
++        private static Boolean _benchControlStamped;  // a harness `bctl` frame stamped the control lane (undone on release)
++        // SELFTEST CALIBRATION LEVER (harness `netsync containment 0`; cleared by every harness release through
++        // HarnessReleaseBench): true = the pre-stage behaviour -- no R9 refusal, no G2 -- so this stage's bench goes red on
++        // the very DLL it proves. Read only through ContainmentOn, which also needs the selftest role: a lever stranded
++        // across an ini edit can never uncontain a production diorama.
++        public static Boolean BenchContainmentOff;
++        internal static Boolean ContainmentOn
++        {
++            get { return !(BenchContainmentOff && NetSyncClient.IsSelfTestRole); }
++        }
++
++        // R9's ledger (NetSyncDiorama.NoteRefusedEnqueue, main thread): counts one refusal, returns this boot's count.
++        internal static Int32 NoteR9Refusal(Int32 cmdNo, String site)
++        {
++            _r9Refused++;
++            _r9Total++;
++            _r9LastCmd = cmdNo;
++            _r9LastSite = site;
++            return _r9Refused;
++        }
++
++        // Every diorama Boot: the per-boot receipt starts at zero (the process total keeps counting).
++        internal static void NoteDioramaBoot()
++        {
++            _r9Refused = 0;
++            _r9LastCmd = -1;
++            _r9LastSite = null;
++        }
++
+         // ================================================================== incoming (the peer's battle)
+         private sealed class UnitView
+         {
+@@ -250,6 +293,13 @@ namespace Memoria.Netsync
+         {
+             if (!Enabled || GuestSlots == 0 || slot < 0 || slot >= 4 || (GuestSlots & (1 << slot)) == 0)
+                 return false;
++            // [ff9mapkit netsync B4] stage 2 -- G2: "guest-owned" is a HOST concept (a slot a remote player commands in MY
++            // battle). Inside a diorama this machine is the guest and the battle is a picture of the host's, so no slot
++            // is ever guest-owned there. On a two-machine guest this already read false (_assistTick is stamped only by a
++            // host's ParseControl, which a Booted machine never runs); the selftest loopback is the one way it could read
++            // true, and it would make the diorama HUD skip the very slot the stage-3 bench opens (BattleHUD ready loop).
++            if (NetSyncDiorama.Active && ContainmentOn)
++                return false;
+             return (Environment.TickCount - _assistTick) < MenuStaleMs;
+         }
+ 
+@@ -2040,6 +2090,82 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] harness: " + _loopCommands.Count + " parked loopback command frame(s) discarded on release");
+                 _loopCommands.Clear();
+             }
++            // [ff9mapkit netsync B4] stage 2: the containment lever back on, and a `bctl` stamp undone at once (it would
++            // decay in MenuStaleMs anyway; a selftest own battle re-stamps on its next pump tick, as it always does).
++            if (BenchContainmentOff)
++                Log.Message("[NetSync] harness: diorama containment (R9 + G2) back ON (released with the harness)");
++            BenchContainmentOff = false;
++            if (_benchControlStamped)
++            {
++                _benchControlStamped = false;
++                _remoteMenuFlag = false;
++                _assistTick = Environment.TickCount - 60000;   // "long ago", never MinValue (see the declaration)
++            }
++        }
++
++        // ============================================================================ harness surface (B4 stage 2)
++        // [ff9mapkit netsync B4] stage 2 -- the containment backstop's harness keys (`netsync.battle.menu`) and verbs.
++        // Read-only, main-thread, never throw.
++        public static Int32 HarnessR9Refused { get { return _r9Refused; } }
++        public static Int32 HarnessR9Total { get { return _r9Total; } }
++        public static Int32 HarnessR9Cmd { get { return _r9LastCmd; } }
++        public static String HarnessR9Site { get { return _r9LastSite; } }
++        public static Boolean HarnessContainmentOff { get { return !ContainmentOn; } }
++        public static Boolean HarnessContained { get { return NetSyncDiorama.Active; } }
++
++        // The party slots IsGuestOwnedSlot answers true for right now, bit per slot -- what the local HUD skips (G2: 0
++        // inside a diorama while containment is on, whatever the control lane says).
++        public static Int32 HarnessGuestOwnedMask
++        {
++            get
++            {
++                Int32 m = 0;
++                for (Int32 s = 0; s < 4; s++)
++                    if (IsGuestOwnedSlot(s))
++                        m |= 1 << s;
++                return m;
++            }
++        }
++
++        // `netsync containment 1|0`: the stage's calibration lever (see BenchContainmentOff). Selftest role only.
++        public static Boolean HarnessContainment(Boolean on, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync containment: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            BenchContainmentOff = !on;
++            Log.Message("[NetSync] harness: diorama containment (R9 + G2) " + (on ? "ON"
++                        : "OFF -- CALIBRATION: the pre-stage guest (a diorama enqueues a player's cmd[0]/cmd[3] locally, and "
++                          + "IsGuestOwnedSlot follows the control lane there)"));
++            return true;
++        }
++
++        // `netsync bctl <hex>`: a raw type-3 control frame ([0][menuOpen]) through the REAL ParseControl, at once -- the
++        // control lane a host reads from its guest, minus the socket. A valid frame stamps the lane fresh for MenuStaleMs
++        // (_assistTick), which is the one input G2 overrides: inside a selftest diorama `guest_owned` must still read 0.
++        // Unvalidated on purpose (a malformed frame is ParseControl's to refuse: it clears the menu flag, stamps nothing).
++        // A selftest own battle overwrites it on its next pump tick (SelfTestPump parses its own loopback frame every
++        // tick). Undone by every harness release.
++        public static Boolean HarnessControlFrame(Byte[] frame, out String why)
++        {
++            why = null;
++            if (!Enabled || !NetSyncClient.IsSelfTestRole)
++                why = "netsync bctl: needs the selftest role (netsync selftest 1)";
++            else if (frame == null || frame.Length == 0 || frame.Length > 64)
++                why = "netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 <menuOpen 0|1>)";
++            if (why != null)
++                return false;
++            Boolean valid = frame.Length >= 2 && frame[0] == 0;   // ParseControl's own acceptance test
++            ParseControl(frame);
++            _benchControlStamped = true;
++            Log.Message("[NetSync] harness: control frame [" + BitConverter.ToString(frame).Replace('-', ' ')
++                        + "] through ParseControl -> " + (valid ? "the lane is FRESH" : "refused (lane not stamped)")
++                        + ", menu " + (_remoteMenuFlag ? "open" : "shut") + "; guest_owned=0x"
++                        + HarnessGuestOwnedMask.ToString("X") + (NetSyncDiorama.Active ? " (inside the diorama)" : ""));
++            return true;
+         }
+ 
+         // ============================================================================ the assist panel
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index af800ae..bcd8a84 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -71,6 +71,11 @@ namespace Memoria.Harness
+         // (host / peer / menu -- see AppendNetsyncBattle) and the selftest verbs `netsync guestslots <mask>`,
+         // `netsync bcmd <hex>` and `netsync hostgates 1|0`. A driver checks for `netsync.battle` -- absent = an engine
+         // whose host advertises a Ready bit and takes commands outside the command phase.
++        // [ff9mapkit netsync B4] stage 2 (the guest containment backstop R9 + G2), also additive under 5:
++        // `netsync.battle.menu` gains `r9_refused`/`r9_total`/`r9_cmd`/`r9_site`/`guest_owned`/`contained`/
++        // `containment_off`, every `battle.units[]` entry gains `cmd_busy`, and the selftest verbs `netsync containment 1|0`
++        // and `netsync bctl <hex>` join. A driver checks for `netsync.battle.menu.r9_refused` -- absent = an engine whose
++        // diorama enqueues a player's command locally.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1192,8 +1197,29 @@ namespace Memoria.Harness
+                             if (!Memoria.Netsync.NetSyncBattle.HarnessHostGates(Arg(s, 1, 1) != 0, out why))
+                                 throw new InvalidOperationException(why ?? "netsync hostgates refused");
+                             break;
++                        case "containment":
++                            // [ff9mapkit netsync B4] stage 2: the calibration lever -- `containment 0` = the pre-stage guest (a
++                            // diorama enqueues a player's cmd[0]/cmd[3] locally, no R9; IsGuestOwnedSlot follows the control
++                            // lane there, no G2), `containment 1` (default) = R9 + G2. Selftest role only; released on
++                            // disarm/fault/reset. `netsync.battle.menu.containment_off` reads it back.
++                            if (!Memoria.Netsync.NetSyncBattle.HarnessContainment(Arg(s, 1, 1) != 0, out why))
++                                throw new InvalidOperationException(why ?? "netsync containment refused");
++                            break;
++                        case "bctl":
++                        {
++                            // [ff9mapkit netsync B4] stage 2: `bctl <hex>` feeds a raw type-3 control frame through the REAL
++                            // ParseControl at once ("00 00" = a live guest, menu shut; "00 01" = menu open) -- it stamps the
++                            // control lane fresh for ~2.5 s, the input G2 overrides inside a diorama. Read the verdict off
++                            // `netsync.battle.menu.guest_owned`. Undone on disarm/fault/reset.
++                            Byte[] ctl = ArgHex(s, 1);
++                            if (ctl == null)
++                                throw new ArgumentOutOfRangeException("netsync bctl", "needs hex bytes, e.g. `netsync bctl 00 00`");
++                            if (!Memoria.Netsync.NetSyncBattle.HarnessControlFrame(ctl, out why))
++                                throw new InvalidOperationException(why ?? "netsync bctl refused");
++                            break;
++                        }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl)");
+                     }
+                     Block(2);
+                     break;
+@@ -2413,6 +2439,10 @@ namespace Memoria.Harness
+                     Bool(sb, "alive", Try(() => !unit.IsUnderStatus(Memoria.Data.BattleStatus.Death), false)); sb.Append(",");
+                     Bool(sb, "targetable", Try(() => unit.IsTargetable, false)); sb.Append(",");
+                     Num(sb, "level", Try(() => (Int32)unit.Level, -1)); sb.Append(",");
++                    // [ff9mapkit netsync B4] stage 2: bit i = the unit's cmd[i] is queued or executing (btl_cmd's own
++                    // CheckUsingCommand). Bit 0 = its main command is spent this turn; in a diorama a player's bit 0 or 3
++                    // set means a local enqueue got past R9 (re-simulation). -1 = unreadable.
++                    Num(sb, "cmd_busy", Try(() => CmdBusyMask(unit.Data), -1)); sb.Append(",");
+                     // A [Flags] ULONG with a bit at 63 -- published as a decimal STRING so nothing
+                     // downstream has to survive it arriving as a float.
+                     Str(sb, "status", Try(() => ((UInt64)unit.CurrentStatus).ToString(CultureInfo.InvariantCulture)));
+@@ -2426,6 +2456,19 @@ namespace Memoria.Harness
+             sb.Append("]");
+         }
+ 
++        // [ff9mapkit netsync B4] stage 2: `cmd_busy` -- bit i set while the unit's cmd[i] sits in the command queue or the
++        // executing list (btl_cmd.CheckUsingCommand, read-only: two short list walks per slot).
++        private static Int32 CmdBusyMask(BTL_DATA d)
++        {
++            Int32 mask = 0;
++            if (d == null || d.cmd == null)
++                return mask;
++            for (Int32 i = 0; i < d.cmd.Count && i < 8; i++)
++                if (d.cmd[i] != null && btl_cmd.CheckUsingCommand(d.cmd[i]))
++                    mask |= 1 << i;
++            return mask;
++        }
++
+         /// <summary>Drop FF9's bracketed text tags, leaving what a UILabel would actually draw.</summary>
+         private static String StripTags(String text)
+         {
+@@ -2560,7 +2603,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1},\"menu\":{\"roster_slots\":[]}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -2695,6 +2738,13 @@ namespace Memoria.Harness
+         //   peer -- the battle view I parsed (the selftest loopback's own battle, or a real peer's): `live`, `seq`, `nonce`,
+         //     `caps` (its whole header flags byte), `ready_mask` (its Ready bits); -1 whenever the lane is not live;
+         //   menu -- `roster_slots` (the slots the parsed roster carries menus for; [] = no live lane or no roster).
++        // [ff9mapkit netsync B4] stage 2 adds to `menu` (the guest containment backstop): `r9_refused` (R9 refusals THIS
++        //     diorama boot -- reset by each boot, kept after teardown until the next one), `r9_total` (the process's
++        //     monotonic count: read deltas), `r9_cmd` (the last refused cmd_no this boot, -1 = none) and `r9_site` (the
++        //     caller chain that tried it, e.g. "BattleHUD.SendNetCommand < ..."; null = none), `guest_owned` (bit per
++        //     party slot IsGuestOwnedSlot reads true for right now -- what the local HUD skips; G2 holds it 0 inside a
++        //     diorama), `contained` (NetSyncDiorama.Active -- the predicate R9 and G2 key on) and `containment_off` (the
++        //     selftest calibration lever `containment 0`).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -2718,7 +2768,14 @@ namespace Memoria.Harness
+             Num(sb, "caps", Memoria.Netsync.NetSyncBattle.HarnessPeerCaps); sb.Append(",");
+             Num(sb, "ready_mask", Memoria.Netsync.NetSyncBattle.HarnessPeerReadyMask);
+             sb.Append("},\"menu\":{");
+-            AppendIntList(sb, "roster_slots", Memoria.Netsync.NetSyncBattle.HarnessRosterSlots());
++            AppendIntList(sb, "roster_slots", Memoria.Netsync.NetSyncBattle.HarnessRosterSlots()); sb.Append(",");
++            Num(sb, "r9_refused", Memoria.Netsync.NetSyncBattle.HarnessR9Refused); sb.Append(",");     // [ff9mapkit netsync B4] stage 2
++            Num(sb, "r9_total", Memoria.Netsync.NetSyncBattle.HarnessR9Total); sb.Append(",");
++            Num(sb, "r9_cmd", Memoria.Netsync.NetSyncBattle.HarnessR9Cmd); sb.Append(",");
++            Str(sb, "r9_site", Memoria.Netsync.NetSyncBattle.HarnessR9Site); sb.Append(",");
++            Num(sb, "guest_owned", Memoria.Netsync.NetSyncBattle.HarnessGuestOwnedMask); sb.Append(",");
++            Bool(sb, "contained", Memoria.Netsync.NetSyncBattle.HarnessContained); sb.Append(",");
++            Bool(sb, "containment_off", Memoria.Netsync.NetSyncBattle.HarnessContainmentOff);
+             sb.Append("}}");
+         }
+ 

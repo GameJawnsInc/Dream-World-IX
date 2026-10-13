@@ -1,0 +1,1581 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index 2d6e0d6..dcef663 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1390,6 +1390,7 @@
+     <Compile Include="Memoria\Netsync\NetSyncSocket.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncRelay.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncBattle.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncBattle.StockMenu.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncVisitor.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncState.cs" />
+     <Compile Include="Memoria\Netsync\NetSyncParty.cs" />
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
+index e1ccb37..666f68c 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
+@@ -1603,6 +1603,15 @@ public partial class BattleHUD : UIScene
+         if (target.IsPlayer)
+             return;
+ 
++        // [ff9mapkit netsync B4] stage 3 -- a side path that mutates without a Send*: ProcessCommand runs this BEFORE any
++        // commit, and it writes cmd[0].info.IsZeroMP on the caster. Inside a diorama the pick stays a plain Attack (the
++        // capture forwards it; the host decides its own Vivi), and nothing is written.
++        if (Memoria.Netsync.NetSyncDiorama.Active)
++        {
++            Memoria.Netsync.NetSyncBattle.NoteSideRefused("the Vivi auto-magic swap (ViviAutoAttack)");
++            return;
++        }
++
+         CMD_DATA testCommand = new CMD_DATA
+         {
+             regist = caster.Data,
+@@ -1651,8 +1660,70 @@ public partial class BattleHUD : UIScene
+         }
+     }
+ 
++    // [ff9mapkit netsync B4] stage 3 -- THE CAPTURE (studies/battle-coop/B4-B5-DESIGN.md 4.3). Inside a co-op battle diorama
++    // the fight is the HOST's: a stock commit is forwarded as one v1 command frame (NetSyncBattle.ForwardStockCommand)
++    // and NEVER enqueued locally -- btl_cmd.SetCommand mutates the caster before it enqueues, and the ungated
++    // CommandEngine would re-simulate the fight on the guest's real bag. Taken at the TOP of each commit site, before any
++    // write. Forwarded = the stock bookkeeping a SendCommand does after its SetCommand (the slot is done this turn, the
++    // blink stops), so the stock SetIdle / SFX 103 flow continues unchanged; refused (outside the v1 scope, a slot with
++    // no wire unit) = SFX 102 and nothing committed, the panel stays where it was. The capture keys on
++    // NetSyncDiorama.Active (false in every real battle), plus a selftest-only calibration lever (StockCaptureOn).
++    private Boolean NetCaptureCommit(CommandDetail c, String site)
++    {
++        Int32 cmdType = -1;
++        Int32 id = 0;
++        try
++        {
++            CharacterCommand cc;
++            if (c != null && CharacterCommands.Commands.TryGetValue(c.CommandId, out cc))
++            {
++                cmdType = (Int32)cc.Type;
++                if (cc.Type == CharacterCommandType.Ability)
++                    id = (Int32)NetUnpatchedAbility(cc, c.SubId);   // UNPATCHED: the host patches per slot (SendNetCommand's validator)
++                else if (cc.Type == CharacterCommandType.Item)
++                    id = c.SubId;                                   // the item id
++            }
++        }
++        catch (Exception)
++        {
++            cmdType = -1;
++        }
++        if (c == null || !Memoria.Netsync.NetSyncBattle.ForwardStockCommand(site, CurrentPlayerIndex, (Int32)c.Menu, (Int32)c.CommandId,
++                                                                              cmdType, id, c.TargetId, c.TargetType))
++        {
++            FF9Sfx.FF9SFX_Play(102);
++            return false;
++        }
++        SetPartySwapButtonActive(false);
++        InputFinishList.Add(CurrentPlayerIndex);
++        _partyDetail.SetBlink(CurrentPlayerIndex, false);
++        return true;
++    }
++
++    // [ff9mapkit netsync B4] stage 3: ProcessCommand stores an Ability-type pick PATCHED (PatchAbility); the wire carries
++    // the command's own, UNPATCHED id. The current pick's source first (ProcessCommand's: GetAbilityId of the current
++    // sub-menu index), else the command's list searched for the entry that patches to it (a double cast's FIRST pick,
++    // made at an earlier index). No match: the patched id itself -- the host re-validates it and refuses.
++    private BattleAbilityId NetUnpatchedAbility(CharacterCommand cc, Int32 patchedSub)
++    {
++        PLAYER player = FF9StateSystem.Battle.FF9Battle.GetUnit(CurrentPlayerIndex).Player;
++        if (_currentSubMenuIndex >= 0)
++        {
++            BattleAbilityId current = cc.GetAbilityId(_currentSubMenuIndex);
++            if (current != BattleAbilityId.Void && (Int32)BattleAbilityHelper.Patch(current, player) == patchedSub)
++                return current;
++        }
++        foreach (BattleAbilityId active in cc.EnumerateAbilities())
++            if ((Int32)BattleAbilityHelper.Patch(active, player) == patchedSub)
++                return active;
++        return (BattleAbilityId)patchedSub;
++    }
++
+     private Boolean SendCommand(CommandDetail command)
+     {
++        // [ff9mapkit netsync B4] stage 3: the capture (see NetCaptureCommit)
++        if (Memoria.Netsync.NetSyncDiorama.Active && Memoria.Netsync.NetSyncBattle.StockCaptureOn)
++            return NetCaptureCommit(command, "SendCommand");
+         BTL_DATA btl = FF9StateSystem.Battle.FF9Battle.btl_data[CurrentPlayerIndex];
+         CMD_DATA cmd = btl.cmd[0];
+         cmd.regist.sel_mode = 1;
+@@ -1666,6 +1737,10 @@ public partial class BattleHUD : UIScene
+ 
+     private Boolean SendDoubleCastCommand(CommandDetail first, CommandDetail second)
+     {
++        // [ff9mapkit netsync B4] stage 3: the capture -- the FIRST detail only, so a double cast casts ONCE (as the digit
++        // panel does today; the true cmd[3] + cmd[0] pair rides the v2 frame of B4.2)
++        if (Memoria.Netsync.NetSyncDiorama.Active && Memoria.Netsync.NetSyncBattle.StockCaptureOn)
++            return NetCaptureCommit(first, "SendDoubleCastCommand");
+         CMD_DATA cmd1 = FF9StateSystem.Battle.FF9Battle.btl_data[CurrentPlayerIndex].cmd[3];
+         CMD_DATA cmd2 = FF9StateSystem.Battle.FF9Battle.btl_data[CurrentPlayerIndex].cmd[0]; // The second command sent/performed is the main one (it resets the ATB correctly amongst other things)
+         cmd1.regist.sel_mode = 1;
+@@ -1680,6 +1755,18 @@ public partial class BattleHUD : UIScene
+ 
+     private Boolean SendMixCommand(CommandDetail[] allInputs)
+     {
++        // [ff9mapkit netsync B4] stage 3: Mix is outside the v1 command scope (B4.2) -- refused inside the diorama BEFORE
++        // anything below, whose fail path consumes the guest's REAL ingredients (ItemUse) ahead of any SetCommand. Keyed on
++        // Active ALONE: a containment gate, not a forward -- R9 (SetCommand's head) cannot see that ItemUse, so the
++        // selftest calibration lever (StockCaptureOn) must never lift it.
++        if (Memoria.Netsync.NetSyncDiorama.Active)
++        {
++            CommandDetail mixLast = allInputs != null && allInputs.Length > 0 ? allInputs[allInputs.Length - 1] : null;
++            Memoria.Netsync.NetSyncBattle.RefuseStockCommit("SendMixCommand", CurrentPlayerIndex,
++                mixLast != null ? (Int32)mixLast.CommandId : -1, "Mix is outside the v1 command scope (B4.2)");
++            FF9Sfx.FF9SFX_Play(102);
++            return false;
++        }
+         CommandDetail lastInput = allInputs[allInputs.Length - 1];
+         CharacterCommand charCmd = CharacterCommands.Commands[lastInput.CommandId];
+         MixItems mixRequest = new MixItems()
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
+index 795345f..c083d41 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
+@@ -319,6 +319,10 @@ public partial class BattleHUD : UIScene
+ 
+             if (_isAutoAttack)
+             {
++                // [ff9mapkit netsync B4] stage 3: a slot whose diorama auto-battle capture was refused is parked (false
++                // outside a diorama) -- skipped, not retried every frame, and the slots behind it are still served
++                if (Memoria.Netsync.NetSyncBattle.StockAutoRefused(current))
++                    continue;
+                 SendAutoAttackCommand(current);
+                 break;
+             }
+@@ -598,11 +602,36 @@ public partial class BattleHUD : UIScene
+         _currentCommandIndex = BattleCommandMenu.Attack;
+ 
+         BattleUnit enemy = GetFirstAliveEnemy();
++        // [ff9mapkit netsync B4] stage 3 -- the capture (BattleHUD.NetCaptureCommit's contract): inside a diorama the
++        // auto-battle pick is forwarded as Attack at the first live enemy -- never the Vivi swap below (its IsZeroMP write)
++        // and never the local SetCommand. Forwarded = this method's own bookkeeping (the slot is done); refused = nothing
++        // committed, and the slot is PARKED for auto-battle (NetSyncBattle.StockAutoRefused: the ready loop skips it until
++        // it is reopened or closed) -- a refusal repeats identically, so re-forwarding it every frame would only spin the
++        // refusal counter and starve the slots queued behind it.
++        if (enemy != null && Memoria.Netsync.NetSyncDiorama.Active && Memoria.Netsync.NetSyncBattle.StockCaptureOn)
++        {
++            if (Memoria.Netsync.NetSyncBattle.ForwardStockCommand("SendAutoAttackCommand", playerIndex, (Int32)BattleCommandMenu.Attack,
++                    (Int32)BattleCommandId.Attack, (Int32)CharacterCommandType.Normal, 0, enemy.Id, 0U))
++                InputFinishList.Add(CurrentPlayerIndex);
++            else
++                Memoria.Netsync.NetSyncBattle.NoteStockAutoRefused(playerIndex);
++            CurrentPlayerIndex = -1;
++            return;
++        }
+         if (enemy != null)
+         {
+             Boolean cmdSent = false;
+             if (Configuration.Battle.ViviAutoAttack && player.PlayerIndex == CharacterId.Vivi)
+-                cmdSent = SelectViviMagicInsteadOfAttack_AutoAttack(player, enemy);
++            {
++                // [ff9mapkit netsync B4] stage 3: reached inside a diorama only under the selftest calibration lever
++                // (`bmenu capture off`), which bypasses ONLY the forward -- the swap's IsZeroMP write lands before R9 could
++                // refuse its SetCommand, so it stays closed (as the manual swap's gate does) and the plain Attack below
++                // runs into R9.
++                if (Memoria.Netsync.NetSyncDiorama.Active)
++                    Memoria.Netsync.NetSyncBattle.NoteSideRefused("the Vivi auto-magic swap (ViviAutoAttack)");
++                else
++                    cmdSent = SelectViviMagicInsteadOfAttack_AutoAttack(player, enemy);
++            }
+             if (!cmdSent)
+                 btl_cmd.SetCommand(player.Data.cmd[0], BattleCommandId.Attack, (Int32)BattleAbilityId.Attack, enemy.Id, 0U);
+             InputFinishList.Add(CurrentPlayerIndex);
+@@ -830,6 +859,300 @@ public partial class BattleHUD : UIScene
+         }
+     }
+ 
++    // [ff9mapkit netsync B4] stage 3 -- the guest stock menu's HUD half (NetSyncBattle.StockMenu.cs owns the policy; these
++    // are the private-state reads and the stock calls it needs). Only ever reached inside a co-op battle diorama.
++
++    // The bench opener: LOCAL slot playerIndex onto ReadyQueue through the STOCK feeder, duplicate-guarded (AddPlayerToReady
++    // has no guard of its own) and with its silent refusal named. AddPlayerToReady adds to ReadyQueue BEFORE its blink
++    // lookup, a LINQ First() that throws before DisplayParty -- a throw withdraws the slot again.
++    public Boolean NetStockMenuOpen(Int32 playerIndex, out String why)
++    {
++        why = null;
++        try
++        {
++            BTL_DATA d = playerIndex >= 0 && playerIndex < 4 ? FF9StateSystem.Battle.FF9Battle.btl_data[playerIndex] : null;
++            if (d == null || d.btl_id != (UInt16)(1 << playerIndex) || d.bi.player == 0)
++            {
++                why = "local slot " + playerIndex + " holds no party member in this battle";
++                return false;
++            }
++            if (ReadyQueue.Contains(playerIndex))
++            {
++                if (InputFinishList.Contains(playerIndex))
++                {
++                    why = "local slot " + playerIndex + " already committed this turn -- `netsync bmenu close " + playerIndex + "` first";
++                    return false;
++                }
++                return true;   // already queued and awaiting input: the ready pass opens it (idempotent)
++            }
++            if (_unconsciousStateList.Contains(playerIndex))
++            {
++                why = "local slot " + playerIndex + " cannot take input (KO, a NoInput status, or outside member_flag) -- the stock feeder refuses it";
++                return false;
++            }
++            AddPlayerToReady(playerIndex);
++            if (!ReadyQueue.Contains(playerIndex))
++            {
++                why = "the stock feeder refused local slot " + playerIndex;
++                return false;
++            }
++            return true;
++        }
++        catch (Exception err)
++        {
++            try { ReadyQueue.RemoveAll(i => i == playerIndex); }
++            catch (Exception) { }
++            why = "the stock feeder threw (" + err.GetType().Name + ": " + err.Message + ") -- local slot " + playerIndex + " withdrawn";
++            return false;
++        }
++    }
++
++    // Close one LOCAL slot: SetIdle if its panel is up, then off ReadyQueue/InputFinishList (RemovePlayerFromAction's
++    // effect without its unbounded power-of-two loop). True = something was open.
++    public Boolean NetStockMenuClose(Int32 playerIndex)
++    {
++        Boolean any = false;
++        if (playerIndex >= 0 && CurrentPlayerIndex == playerIndex)
++        {
++            SetIdle();
++            any = true;
++        }
++        if (NetDropSlot(playerIndex))
++            any = true;
++        return any;
++    }
++
++    // Close every stock menu: the party slots drained from ReadyQueue/InputFinishList FIRST, then SetIdle if a panel is
++    // up, in its own try -- at teardown the persistent HUD outlives the battle scene, and a SetIdle fault must strand
++    // neither the queues nor the active button group (a stale group makes the next real battle's FF9BMenu_EnableMenu(true)
++    // skip InitialBattle). On a fault: CurrentPlayerIndex = -1 and DisableAllGroup, the two things the next battle reads;
++    // setIdleFault names it (null = clean). Returns how many slots were drained. Only NetSyncBattle.StockMenuCloseAll
++    // calls it, and only if its lane touched the HUD this boot.
++    public Int32 NetStockMenuCloseAll(out String setIdleFault)
++    {
++        setIdleFault = null;
++        Int32 drained = 0;
++        for (Int32 i = 0; i < 4; i++)
++            if (NetDropSlot(i))
++                drained++;
++        if (CurrentPlayerIndex >= 0)
++        {
++            try
++            {
++                SetIdle();
++            }
++            catch (Exception err)
++            {
++                setIdleFault = err.GetType().Name + ": " + err.Message;
++                CurrentPlayerIndex = -1;
++                try { ButtonGroupState.DisableAllGroup(true); }
++                catch (Exception err2) { setIdleFault += "; DisableAllGroup also faulted (" + err2.GetType().Name + ")"; }
++            }
++        }
++        return drained;
++    }
++
++    private Boolean NetDropSlot(Int32 playerIndex)
++    {
++        Int32 removed = ReadyQueue.RemoveAll(i => i == playerIndex) + InputFinishList.RemoveAll(i => i == playerIndex);
++        if (removed > 0)
++        {
++            try { _partyDetail.SetBlink(playerIndex, false); }
++            catch (Exception) { }
++        }
++        return removed > 0;
++    }
++
++    // Harness `netsync bmenu mainmenu`: the REAL OpenMainMenu -- the one seat the AccessMenu button, OnKeyMenu and the
++    // main-menu party swap share. Inside a diorama its gate refuses before any state write. Returns _usingMainMenu after
++    // the call: false = the gate held, true = the main menu is OPENING (its first write) -- the gate is missing.
++    public Boolean NetBenchOpenMainMenu()
++    {
++        OpenMainMenu(null);
++        return _usingMainMenu;
++    }
++
++    // [ff9mapkit netsync B4] stage 3 -- harness `battle.hud` (NetDescribeHud): what the live stock panels SHOW, read off the
++    // NGUI they draw (labels as drawn, greyed as drawn), so a bench can assert the first look -- and stage 7 the
++    // roster-fed content -- without trusting a screenshot alone. Read-only: no Display*/SetAbilityAp, nothing written.
++    public sealed class NetHudRow
++    {
++        public Int32 Index;      // command: BattleCommandMenu; ability/item: the row's data index; target: label slot (players 0-3, enemies 4-7)
++        public Int32 Id;         // command: BattleCommandId; ability: the ACTIVE ability id; item: RegularItem; target: btl index (-1 = none)
++        public String Label;     // the row's label as drawn (raw NGUI text, tags included)
++        public String Number;    // the right-hand column as drawn (MP cost / count); null = none
++        public Int32 State;      // as drawn: 2 = enabled, 1 = greyed, 0 = blank (an unlearned ability row, a hidden command)
++        public Int32 Raw;        // command: _commandEnabledState (0/1/2, -1 = none); target: 1 = selectable; else -1
++    }
++
++    public sealed class NetHudView
++    {
++        public String Group;         // ButtonGroupState.ActiveGroup, raw ("Battle.Command", ... or "")
++        public String Panel;         // the topmost open panel: "target" | "ability" | "item" | "command" | "none"
++        public Int32 Slot;           // CurrentPlayerIndex (the LOCAL slot whose menu is up; -1 = none)
++        public Int32 Menu;           // _currentCommandIndex (BattleCommandMenu)
++        public Int32 CommandId;      // _currentCommandId (BattleCommandId)
++        public Int32 SubIndex;       // _currentSubMenuIndex (-1 = none)
++        public Int32 DoubleCast;     // _doubleCastCount
++        public Int32 CursorType;     // _cursorType (CursorGroup: 0 Individual, 1 AllPlayer, 2 AllEnemy, 3 All)
++        public Int32 TargetCursor;   // _targetCursor (TargetType)
++        public Boolean TranceMenu, ManualTrance, AutoBattle, HidingHud, CanForceNextTurn, ForceNextTurn, UsingMainMenu;
++        public Boolean MenuShown;    // AllMenuPanel (every panel's container) is active -- the command menu is enabled + not hidden
++        public String Caption;       // the command panel's caption as drawn
++        public readonly List<NetHudRow> Commands = new List<NetHudRow>();
++        public readonly List<NetHudRow> Rows = new List<NetHudRow>();
++    }
++
++    public NetHudView NetDescribeHud()
++    {
++        NetHudView v = new NetHudView();
++        v.Group = ButtonGroupState.ActiveGroup;
++        v.Slot = CurrentPlayerIndex;
++        v.Menu = (Int32)_currentCommandIndex;
++        v.CommandId = (Int32)_currentCommandId;
++        v.SubIndex = _currentSubMenuIndex;
++        v.DoubleCast = _doubleCastCount;
++        v.CursorType = (Int32)_cursorType;
++        v.TargetCursor = (Int32)_targetCursor;
++        v.TranceMenu = _isTranceMenu;
++        v.ManualTrance = _isManualTrance;
++        v.AutoBattle = _isAutoAttack;
++        v.HidingHud = _hidingHud;
++        v.ForceNextTurn = ForceNextTurn;
++        v.UsingMainMenu = _usingMainMenu;
++        v.MenuShown = AllMenuPanel != null && AllMenuPanel.activeSelf;
++        try { v.CanForceNextTurn = CanForceNextTurn; }
++        catch (Exception) { v.CanForceNextTurn = false; }
++        Boolean target = TargetPanel != null && TargetPanel.activeSelf;
++        Boolean ability = AbilityPanel != null && AbilityPanel.activeSelf;
++        Boolean item = ItemPanel != null && ItemPanel.activeSelf;
++        Boolean command = CommandPanel != null && CommandPanel.activeSelf && _commandPanel.IsActive;
++        v.Panel = target ? "target" : ability ? "ability" : item ? "item" : command ? "command" : "none";
++        if (CurrentPlayerIndex < 0)
++            return v;   // no menu up: every label below would be the LAST menu's, never this one's
++        try { v.Caption = _commandPanel.Caption.Caption.Label.rawText; }
++        catch (Exception) { }
++        BattleCommandMenu[] menus = { BattleCommandMenu.Attack, BattleCommandMenu.Defend, BattleCommandMenu.Ability1,
++                                      BattleCommandMenu.Ability2, BattleCommandMenu.Item, BattleCommandMenu.Change, BattleCommandMenu.AccessMenu };
++        foreach (BattleCommandMenu menu in menus)
++        {
++            try
++            {
++                if (menu == BattleCommandMenu.AccessMenu && _commandPanel.AccessMenu == null)
++                    continue;
++                Memoria.Scenes.GONavigationButton button = NetCommandButton(menu);
++                Int32 raw;
++                NetHudRow row = new NetHudRow { Index = (Int32)menu, Number = null };
++                row.Raw = _commandEnabledState.TryGetValue(menu, out raw) ? raw : -1;
++                try { row.Id = (Int32)GetCommandFromCommandIndex(menu, CurrentPlayerIndex); }
++                catch (Exception) { row.Id = -1; }
++                row.Label = button.Name.Label.rawText;
++                row.State = !button.IsActive || String.IsNullOrEmpty(row.Label) ? 0 : button.Name.Label.color == FF9TextTool.Gray ? 1 : 2;
++                v.Commands.Add(row);
++            }
++            catch (Exception) { }
++        }
++        try
++        {
++            if (target)
++                NetDescribeTargets(v.Rows);
++            else if (ability)
++                NetDescribeList(v.Rows, _abilityScrollList, true);
++            else if (item)
++                NetDescribeList(v.Rows, _itemScrollList, false);
++        }
++        catch (Exception) { }
++        return v;
++    }
++
++    private Memoria.Scenes.GONavigationButton NetCommandButton(BattleCommandMenu menu)
++    {
++        switch (menu)
++        {
++            case BattleCommandMenu.Attack: return _commandPanel.Attack;
++            case BattleCommandMenu.Defend: return _commandPanel.Defend;
++            case BattleCommandMenu.Ability1: return _commandPanel.Skill1;
++            case BattleCommandMenu.Ability2: return _commandPanel.Skill2;
++            case BattleCommandMenu.Item: return _commandPanel.Item;
++            case BattleCommandMenu.Change: return _commandPanel.Change;
++            default: return _commandPanel.AccessMenu;
++        }
++    }
++
++    // The ability or item list's VISIBLE rows (the populator's live cells), in data order.
++    private void NetDescribeList(List<NetHudRow> rows, RecycleListPopulator list, Boolean ability)
++    {
++        CharacterCommand cc = null;
++        if (ability)
++            CharacterCommands.Commands.TryGetValue(_currentCommandId, out cc);
++        foreach (Transform cell in list.ItemsPool)
++        {
++            if (cell == null || !cell.gameObject.activeInHierarchy)
++                continue;
++            RecycleListItem rli = cell.GetComponent<RecycleListItem>();
++            if (rli == null)
++                continue;
++            NetHudRow row = new NetHudRow { Index = rli.ItemDataIndex, Raw = -1, Id = -1 };
++            if (ability)
++            {
++                ItemListDetailHUD hud = new ItemListDetailHUD(cell.gameObject);
++                Boolean shown = hud.Content != null && hud.Content.activeSelf;
++                row.Label = shown ? hud.NameLabel.rawText : String.Empty;
++                row.Number = shown ? hud.NumberLabel.rawText : null;
++                row.State = !shown ? 0 : hud.NameLabel.color == FF9TextTool.Gray ? 1 : 2;
++                if (cc != null)
++                {
++                    try { row.Id = (Int32)cc.GetAbilityId(rli.ItemDataIndex); }
++                    catch (Exception) { row.Id = -1; }
++                }
++            }
++            else
++            {
++                ItemListDetailWithIconHUD hud = new ItemListDetailWithIconHUD(cell.gameObject, true);
++                row.Label = hud.NameLabel.rawText;
++                row.Number = hud.NumberLabel.rawText;
++                Color c = hud.NameLabel.color;
++                row.State = String.IsNullOrEmpty(row.Label) ? 0 : c == FF9TextTool.Gray || c == FF9TextTool.DarkYellow ? 1 : 2;
++                if (rli.ItemDataIndex >= 0 && rli.ItemDataIndex < _itemIdList.Count)
++                    row.Id = (Int32)_itemIdList[rli.ItemDataIndex];
++            }
++            rows.Add(row);
++        }
++        rows.Sort((a, b) => a.Index.CompareTo(b.Index));
++    }
++
++    // The target panel's label slots: players 0-3, then enemies 4-7, each with the btl index it names.
++    private void NetDescribeTargets(List<NetHudRow> rows)
++    {
++        for (Int32 i = 0; i < _targetPanel.AllTargets.Length; i++)
++        {
++            Memoria.Scenes.GONavigationButton button = _targetPanel.AllTargets[i];
++            if (button == null || !button.IsActive)
++                continue;
++            Int32 btlIndex = -1;
++            if (i < HonoluluBattleMain.EnemyStartIndex)
++            {
++                if (i < _matchBattleIdPlayerList.Count)
++                    btlIndex = _matchBattleIdPlayerList[i];
++            }
++            else if (i - HonoluluBattleMain.EnemyStartIndex < _matchBattleIdEnemyList.Count)
++            {
++                btlIndex = _matchBattleIdEnemyList[i - HonoluluBattleMain.EnemyStartIndex];
++            }
++            Boolean selectable = button.ButtonGroup != null && button.ButtonGroup.enabled;
++            String label = button.Name.Label.rawText;
++            rows.Add(new NetHudRow
++            {
++                Index = i,
++                Id = btlIndex,
++                Label = label,
++                Number = null,
++                State = String.IsNullOrEmpty(label) ? 0 : selectable ? 2 : 1,
++                Raw = selectable ? 1 : 0
++            });
++        }
++    }
++
+     private Boolean SelectViviMagicInsteadOfAttack_AutoAttack(BattleUnit caster, BattleUnit target)
+     {
+         CMD_DATA testCommand = new CMD_DATA
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
+index 2aba760..625926d 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
+@@ -190,6 +190,14 @@ public partial class BattleHUD : UIScene
+             FF9Sfx.FF9SFX_Play(103);
+             _currentCommandIndex = (BattleCommandMenu)go.transform.GetSiblingIndex();
+             Boolean triggerManualTrance = _isManualTrance && _currentCommandIndex == BattleCommandMenu.Change;
++            // [ff9mapkit netsync B4] stage 3 -- manual Trance writes the caster directly (Trance = 255, AlterStatus) with no
++            // Send* to capture. Inside a diorama it is the host's to trigger: the press falls through to the Change
++            // command, which the capture refuses (outside the v1 scope). Design 4.3: triggerManualTrance &= !Active.
++            if (triggerManualTrance && Memoria.Netsync.NetSyncDiorama.Active)
++            {
++                triggerManualTrance = false;
++                Memoria.Netsync.NetSyncBattle.NoteSideRefused("manual Trance (NoAutoTrance)");
++            }
+             _currentCommandId = triggerManualTrance ? BattleCommandId.None : GetCommandFromCommandIndex(_currentCommandIndex, CurrentPlayerIndex);
+             ResetSlidingButton();
+             TryMemorizeCommand();
+@@ -575,6 +583,16 @@ public partial class BattleHUD : UIScene
+ 
+     private void OpenMainMenu(PLAYER singlePlayerMenu = null)
+     {
++        // [ff9mapkit netsync B4] stage 3 -- the in-battle main menu writes party.member and the seated PLAYERs
++        // (UpdatePlayersForMainMenu) and swaps the party afterwards: inside a diorama none of that is the guest's. One gate
++        // here covers every way in (the AccessMenu command button, OnKeyMenu, the main-menu party swap) -- SFX 102 and
++        // out, before any state write.
++        if (Memoria.Netsync.NetSyncDiorama.Active)
++        {
++            FF9Sfx.FF9SFX_Play(102);
++            Memoria.Netsync.NetSyncBattle.NoteSideRefused("the in-battle main menu (AccessMenu / OnKeyMenu)");
++            return;
++        }
+         _usingMainMenu = true;
+         _mainMenuSinglePlayer = singlePlayerMenu;
+         _isFromPause = true;
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+index 2f3a7e7..c276502 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+@@ -23,7 +23,8 @@ public partial class BattleHUD : UIScene
+     public Boolean IsDoubleCast => DoubleCastSet.Contains(_currentCommandId) || MixCommandSet.ContainsKey(_currentCommandId);
+     public Boolean IsMixCast => MixCommandSet.ContainsKey(_currentCommandId);
+     public Boolean CanForceNextTurn => Configuration.Battle.Speed == 2 && UIManager.Battle.FF9BMenu_IsEnable() && !ForceNextTurn
+-        && ReadyQueue.Count > 0 && FF9StateSystem.Battle.FF9Battle.cur_cmd == null && btl_cmd.GetFirstCommandReadyToDequeue(FF9StateSystem.Battle.FF9Battle) == null;
++        && ReadyQueue.Count > 0 && FF9StateSystem.Battle.FF9Battle.cur_cmd == null && btl_cmd.GetFirstCommandReadyToDequeue(FF9StateSystem.Battle.FF9Battle) == null
++        && !Memoria.Netsync.NetSyncDiorama.Active;   // [ff9mapkit netsync B4] stage 3: a diorama's turn is the host's to force
+     public List<Int32> ReadyQueue { get; }
+     public List<Int32> InputFinishList { get; }
+     public Int32 CurrentPlayerIndex { get; private set; }
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index bcd8a84..6b17b66 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -76,6 +76,11 @@ namespace Memoria.Harness
+         // `containment_off`, every `battle.units[]` entry gains `cmd_busy`, and the selftest verbs `netsync containment 1|0`
+         // and `netsync bctl <hex>` join. A driver checks for `netsync.battle.menu.r9_refused` -- absent = an engine whose
+         // diorama enqueues a player's command locally.
++        // [ff9mapkit netsync B4] stage 3 (the guest stock menu's first look + the capture), also additive under 5:
++        // `battle.seq` (beside `phase`), `battle.hud` (NetDescribeHud -- see AppendBattleHud), `netsync.battle.menu` gains
++        // `captures`/`capture_refused`/`capture_why`/`capture_off`/`outbox`/`bench_open`/`side_refused`/`side_why`/
++        // `captured`, and the selftest verb `netsync bmenu open|close <L> | closeall | capture on|off | mainmenu` joins. A
++        // driver checks for `netsync.battle.menu.captures` -- absent = an engine whose diorama never opens the stock menu.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1218,8 +1223,39 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync bctl refused");
+                             break;
+                         }
++                        case "bmenu":
++                        {
++                            // [ff9mapkit netsync B4] stage 3 -- the guest stock-menu bench (NetSyncBattle.HarnessStockMenu):
++                            //   `bmenu open <L>`     THE BENCH OPENER: inside a live selftest diorama (`dioboot`) in its command phase,
++                            //                        LOCAL party slot L goes onto the stock ReadyQueue -- the real command panel
++                            //                        opens on the HUD's next ready pass; drive it with press/hold like any menu;
++                            //   `bmenu close <L>`    that slot's panel shut and its ReadyQueue/InputFinishList entries gone;
++                            //   `bmenu closeall`     StockMenuCloseAll (what the teardown runs);
++                            //   `bmenu capture on|off` the calibration lever (off = the commit sites run their stock bodies into R9);
++                            //   `bmenu mainmenu`     probe the OpenMainMenu gate through the real method.
++                            // Read back: `battle.turn`, `battle.hud`, `netsync.battle.menu.captured/captures/capture_refused/
++                            // side_refused/r9_refused`. Selftest role only; the lever is released on disarm/fault/reset.
++                            String bop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
++                            Int32 barg = -1;
++                            if (bop == "capture")
++                            {
++                                String bv = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
++                                barg = bv == "on" || bv == "1" ? 1 : bv == "off" || bv == "0" ? 0 : -1;
++                                if (barg < 0)
++                                    throw new ArgumentOutOfRangeException("netsync bmenu capture", "needs on|off (1|0)");
++                            }
++                            else if (bop == "open" || bop == "close")
++                            {
++                                barg = Arg(s, 2, -1);
++                                if (barg < 0 || barg > 3)
++                                    throw new ArgumentOutOfRangeException("netsync bmenu " + bop, "needs a local party slot 0-3");
++                            }
++                            if (!Memoria.Netsync.NetSyncBattle.HarnessStockMenu(bop, barg, out why))
++                                throw new InvalidOperationException(why ?? "netsync bmenu refused");
++                            break;
++                        }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu)");
+                     }
+                     Block(2);
+                     break;
+@@ -2172,6 +2208,8 @@ namespace Memoria.Harness
+                 }
+                 sb.Append(",");
+                 Num(sb, "phase", Try(() => (Int32)FF9StateSystem.Battle.FF9Battle.btl_phase, -1)); sb.Append(",");
++                // [ff9mapkit netsync B4] stage 3: the phase's sub-step (btl_seq) -- the victory/defeat/escape tails key on it
++                Num(sb, "seq", Try(() => (Int32)FF9StateSystem.Battle.FF9Battle.btl_seq, -1)); sb.Append(",");
+                 // WHY AN ESCAPE CANNOT WORK. `BattleHUD` sets btl_escape_key = 1 -- which is what
+                 // plays the running animation -- BEFORE calling btl_sys.CheckEscape, and CheckEscape
+                 // shows "Cannot escape!" and returns without ever rolling when this flag is clear.
+@@ -2234,6 +2272,8 @@ namespace Memoria.Harness
+                 AppendIntList(sb, "done", asking ? Try(() => UIManager.Battle == null ? null : UIManager.Battle.InputFinishList) : null);
+                 sb.Append("},");
+ 
++                AppendBattleHud(sb); sb.Append(",");   // [ff9mapkit netsync B4] stage 3
++
+                 AppendBattleMenu(sb); sb.Append(",");
+ 
+                 AppendUnits(sb);
+@@ -2246,6 +2286,85 @@ namespace Memoria.Harness
+             outer.Append("\"battle\":{").Append(sb).Append("}");
+         }
+ 
++        // [ff9mapkit netsync B4] stage 3 -- `battle.hud`: the live stock command panels AS DRAWN (BattleHUD.NetDescribeHud reads
++        // the NGUI labels and colours; it writes nothing). Built only inside a battle, like the rest of this section.
++        //   `group` (ButtonGroupState's raw group), `panel` ("target" | "ability" | "item" | "command" | "none" -- the topmost
++        //   open panel), `shown` (the panels' container is active), `slot` (the LOCAL slot whose menu is up; -1 = none),
++        //   `menu` / `cmd` / `sub` (the HUD's current BattleCommandMenu / BattleCommandId / sub-menu index), `double_cast`,
++        //   `cursor_type` (0 one, 1 all allies, 2 all enemies, 3 all), `target_cursor` (TargetType), `trance_menu`,
++        //   `manual_trance`, `auto`, `hiding`, `main_menu` (_usingMainMenu), `can_force_next`, `force_next`, `caption`,
++        //   `commands[]` ({menu, id, label, state, raw}: state AS DRAWN 2 on / 1 grey / 0 blank; raw = the HUD's own
++        //   enabled-state 0/1/2, -1 none) and `rows[]` (the open sub-panel's VISIBLE rows {i, id, label, number, state, raw}:
++        //   ability = the active ability id + the MP column, state 0 = a blank (unlearned) row; item = the item id + count;
++        //   target = the btl index it names, raw 1 = selectable). `commands`/`rows` are [] while no menu is up -- their
++        //   labels would be the LAST menu's. Labels are tag-stripped (what the UILabel draws). Null = no HUD.
++        private static void AppendBattleHud(StringBuilder outer)
++        {
++            StringBuilder sb = new StringBuilder(768);
++            try
++            {
++                BattleHUD hud = UIManager.Battle;
++                if (hud == null)
++                {
++                    outer.Append("\"hud\":null");
++                    return;
++                }
++                BattleHUD.NetHudView v = hud.NetDescribeHud();
++                Str(sb, "group", v.Group); sb.Append(",");
++                Str(sb, "panel", v.Panel); sb.Append(",");
++                Bool(sb, "shown", v.MenuShown); sb.Append(",");
++                Num(sb, "slot", v.Slot); sb.Append(",");
++                Num(sb, "menu", v.Menu); sb.Append(",");
++                Num(sb, "cmd", v.CommandId); sb.Append(",");
++                Num(sb, "sub", v.SubIndex); sb.Append(",");
++                Num(sb, "double_cast", v.DoubleCast); sb.Append(",");
++                Num(sb, "cursor_type", v.CursorType); sb.Append(",");
++                Num(sb, "target_cursor", v.TargetCursor); sb.Append(",");
++                Bool(sb, "trance_menu", v.TranceMenu); sb.Append(",");
++                Bool(sb, "manual_trance", v.ManualTrance); sb.Append(",");
++                Bool(sb, "auto", v.AutoBattle); sb.Append(",");
++                Bool(sb, "hiding", v.HidingHud); sb.Append(",");
++                Bool(sb, "main_menu", v.UsingMainMenu); sb.Append(",");
++                Bool(sb, "can_force_next", v.CanForceNextTurn); sb.Append(",");
++                Bool(sb, "force_next", v.ForceNextTurn); sb.Append(",");
++                Str(sb, "caption", StripTags(v.Caption)); sb.Append(",");
++                sb.Append("\"commands\":[");
++                for (Int32 i = 0; i < v.Commands.Count; i++)
++                {
++                    BattleHUD.NetHudRow r = v.Commands[i];
++                    if (i > 0) sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "menu", r.Index); sb.Append(",");
++                    Num(sb, "id", r.Id); sb.Append(",");
++                    Str(sb, "label", StripTags(r.Label)); sb.Append(",");
++                    Num(sb, "state", r.State); sb.Append(",");
++                    Num(sb, "raw", r.Raw);
++                    sb.Append("}");
++                }
++                sb.Append("],\"rows\":[");
++                for (Int32 i = 0; i < v.Rows.Count; i++)
++                {
++                    BattleHUD.NetHudRow r = v.Rows[i];
++                    if (i > 0) sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "i", r.Index); sb.Append(",");
++                    Num(sb, "id", r.Id); sb.Append(",");
++                    Str(sb, "label", StripTags(r.Label)); sb.Append(",");
++                    Str(sb, "number", StripTags(r.Number)); sb.Append(",");
++                    Num(sb, "state", r.State); sb.Append(",");
++                    Num(sb, "raw", r.Raw);
++                    sb.Append("}");
++                }
++                sb.Append("]");
++            }
++            catch (Exception)
++            {
++                outer.Append("\"hud\":null");
++                return;
++            }
++            outer.Append("\"hud\":{").Append(sb).Append("}");
++        }
++
+         /// <summary>Why SendNetCommand said no -- its own three tests, named.</summary>
+         /// <remarks>
+         /// A bare "the HUD refused the command" is the shape of failure this whole arc exists to
+@@ -2603,7 +2722,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -2745,6 +2864,13 @@ namespace Memoria.Harness
+         //     party slot IsGuestOwnedSlot reads true for right now -- what the local HUD skips; G2 holds it 0 inside a
+         //     diorama), `contained` (NetSyncDiorama.Active -- the predicate R9 and G2 key on) and `containment_off` (the
+         //     selftest calibration lever `containment 0`).
++        // [ff9mapkit netsync B4] stage 3 adds to `menu` (the stock menu's capture): `captures` (stock commits forwarded as v1
++        //     frames) / `capture_refused` (commits refused: outside the v1 scope -- Change, Throw, Mix -- or a slot with no
++        //     wire unit) / `side_refused` (side-path gates that fired: OpenMainMenu, manual Trance, the Vivi swap) -- all
++        //     three monotonic per process, read DELTAS -- `capture_why` / `side_why` (the last reasons, null = none),
++        //     `capture_off` (the selftest calibration lever `bmenu capture off`), `outbox` (forwarded frames waiting for a
++        //     transport; stage 3 has no production drain), `bench_open` (local slots `bmenu open` queued this boot, bit per
++        //     slot) and `captured` (see AppendStockCapture).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -2775,10 +2901,46 @@ namespace Memoria.Harness
+             Str(sb, "r9_site", Memoria.Netsync.NetSyncBattle.HarnessR9Site); sb.Append(",");
+             Num(sb, "guest_owned", Memoria.Netsync.NetSyncBattle.HarnessGuestOwnedMask); sb.Append(",");
+             Bool(sb, "contained", Memoria.Netsync.NetSyncBattle.HarnessContained); sb.Append(",");
+-            Bool(sb, "containment_off", Memoria.Netsync.NetSyncBattle.HarnessContainmentOff);
++            Bool(sb, "containment_off", Memoria.Netsync.NetSyncBattle.HarnessContainmentOff); sb.Append(",");
++            Num(sb, "captures", Memoria.Netsync.NetSyncBattle.HarnessStockCaptures); sb.Append(",");          // [ff9mapkit netsync B4] stage 3
++            Num(sb, "capture_refused", Memoria.Netsync.NetSyncBattle.HarnessStockRefused); sb.Append(",");
++            Str(sb, "capture_why", Memoria.Netsync.NetSyncBattle.HarnessStockRefusedWhy); sb.Append(",");
++            Bool(sb, "capture_off", Memoria.Netsync.NetSyncBattle.HarnessStockCaptureOff); sb.Append(",");
++            Num(sb, "outbox", Memoria.Netsync.NetSyncBattle.HarnessStockOutbox); sb.Append(",");
++            Num(sb, "bench_open", Memoria.Netsync.NetSyncBattle.HarnessBenchOpenMask); sb.Append(",");
++            Num(sb, "side_refused", Memoria.Netsync.NetSyncBattle.HarnessSideRefused); sb.Append(",");
++            Str(sb, "side_why", Memoria.Netsync.NetSyncBattle.HarnessSideRefusedWhy); sb.Append(",");
++            AppendStockCapture(sb);
+             sb.Append("}}");
+         }
+ 
++        // [ff9mapkit netsync B4] stage 3: `netsync.battle.menu.captured` -- the last stock commit this diorama boot forwarded,
++        // DECODED by the host's own TryDecodeCommand (wire side: `slot`, `action` 0 Attack / 1 Defend / 2 Ability / 3 Item /
++        // 4 Instant, `menu`, `id`, `mask`, `cursor`), plus the commit it came from (`local_slot`, `cmd` = the stock
++        // BattleCommandId, `site` = the commit method, `hex` = the 9 bytes, `action_name`). Null = none this boot.
++        private static void AppendStockCapture(StringBuilder sb)
++        {
++            Memoria.Netsync.NetSyncBattle.StockCaptureView c = Memoria.Netsync.NetSyncBattle.HarnessLastCapture();
++            if (c == null)
++            {
++                sb.Append("\"captured\":null");
++                return;
++            }
++            sb.Append("\"captured\":{");
++            Num(sb, "slot", c.Slot); sb.Append(",");
++            Num(sb, "action", c.Action); sb.Append(",");
++            Num(sb, "menu", c.Menu); sb.Append(",");
++            Num(sb, "id", c.Id); sb.Append(",");
++            Num(sb, "mask", c.Mask); sb.Append(",");
++            Num(sb, "cursor", c.Cursor); sb.Append(",");
++            Num(sb, "local_slot", c.LocalSlot); sb.Append(",");
++            Num(sb, "cmd", c.CmdId); sb.Append(",");
++            Str(sb, "site", c.Site); sb.Append(",");
++            Str(sb, "hex", c.Hex); sb.Append(",");
++            Str(sb, "action_name", c.ActionName);
++            sb.Append("}");
++        }
++
+         // The F3 lockstep keys a rev-5 driver may still read, pinned to "nothing" (see ProtocolVersion), plus
+         // the contract tag that tells a new driver the F3.2 keys are live.
+         private const String NetsyncF3Retired = "\"dialogue\":\"authority\",\"l1_pinned\":false,\"l1_forced_control\":false,"
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 4b95fc0..74cd5a5 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -28,7 +28,8 @@ namespace Memoria.Netsync
+     // to local control); any exception is swallowed into a log line and the vanilla battle continues.
+     //
+     // [ff9mapkit netsync B4] stage 2: PARTIAL -- the B4 guest stock-menu lane (studies/battle-coop/B4-B5-DESIGN.md
+-    // section 4) lands beside this file as NetSyncBattle.StockMenu.cs from stage 3 on.
++    // section 4) lands beside this file as NetSyncBattle.StockMenu.cs from stage 3 on (stage 3: the capture, the
++    // outbox, StockMenuCloseAll and the selftest bench opener; this file keeps the shared v1 codec).
+     public static partial class NetSyncBattle
+     {
+         // --- config mirror (written by NetSyncClient on every config [re]load; main thread) ---
+@@ -166,6 +167,7 @@ namespace Memoria.Netsync
+             _r9Refused = 0;
+             _r9LastCmd = -1;
+             _r9LastSite = null;
++            NoteStockMenuBoot();                   // [ff9mapkit netsync B4] stage 3: the stock-menu lane's per-boot state
+         }
+ 
+         // ================================================================== incoming (the peer's battle)
+@@ -1162,6 +1164,8 @@ namespace Memoria.Netsync
+             public UInt32 HpCur, HpMax, MpCur, MpMax;
+             public UInt16 AtbCur, AtbMax;
+             public Byte TranceGauge;           // v9: live gauge byte (players; reconciler writes d.trance)
++            public Boolean Ready;              // [ff9mapkit netsync B4] stage 3: the host's per-unit Ready bit (info bit 2) --
++                                               // the stage-8 ready mirror's input; command-phase gated on a caps-bit-1 host
+         }
+ 
+         /// <summary>
+@@ -1189,6 +1193,7 @@ namespace Memoria.Netsync
+                 dst[i].MpCur = u.MpCur; dst[i].MpMax = u.MpMax;
+                 dst[i].AtbCur = u.AtbCur; dst[i].AtbMax = u.AtbMax;
+                 dst[i].TranceGauge = u.TranceGauge;
++                dst[i].Ready = u.Ready;        // [ff9mapkit netsync B4] stage 3
+             }
+             return n;
+         }
+@@ -1750,6 +1755,15 @@ namespace Memoria.Netsync
+             _pendingSlot = slot;
+             ResetUi();
+             _uiSlot = slot;   // keep serving this slot (panel shows "sent...")
++            return EncodeCommand(slot, action, menu, id, mask, cursor);
++        }
++
++        // [ff9mapkit netsync B4] stage 3 -- THE v1 COMMAND CODEC, extracted UNCHANGED from BuildCommand (the encoder, byte
++        // for byte) and HandleCommandPayload (the decoder's acceptance test and field reads, in their order), so the
++        // digit panel, the stock-menu capture (NetSyncBattle.StockMenu.cs) and the host's intake share ONE codec. Pure:
++        // no UI state, no logging. The wire stays the 9-byte type-2 frame of v14.
++        internal static Byte[] EncodeCommand(Int32 slot, Int32 action, Int32 menu, Int32 id, UInt16 mask, Int32 cursor)
++        {
+             Byte[] p = new Byte[9];
+             p[0] = 1;
+             p[1] = (Byte)slot;
+@@ -1763,6 +1777,29 @@ namespace Memoria.Netsync
+             return p;
+         }
+ 
++        // One decoded v1 command frame (the host's view of a guest's pick).
++        internal struct NetCommand
++        {
++            public Int32 Slot, Action, Menu, Id;
++            public UInt16 Mask;
++            public UInt32 Cursor;
++        }
++
++        // The host's decoder: false = malformed (null, short, or not ver 1) -- HandleCommandPayload's own acceptance test.
++        internal static Boolean TryDecodeCommand(Byte[] p, out NetCommand c)
++        {
++            c = default(NetCommand);
++            if (p == null || p.Length < 9 || p[0] != 1)
++                return false;
++            c.Slot = p[1];
++            c.Action = p[2];
++            c.Menu = p[3];
++            c.Id = p[4] | (p[5] << 8);
++            c.Mask = (UInt16)(p[6] | (p[7] << 8));
++            c.Cursor = p[8];
++            return true;
++        }
++
+         private static Byte[] BuildControl(Boolean menuOpen)
+         {
+             return new Byte[] { 0, menuOpen ? (Byte)1 : (Byte)0 };
+@@ -1790,17 +1827,18 @@ namespace Memoria.Netsync
+         // is silently dropped there, btl_cmd.cs CheckCommandCondition), so the worst case is a no-op.
+         private static void HandleCommandPayload(Byte[] p)
+         {
+-            if (p == null || p.Length < 9 || p[0] != 1)
++            NetCommand frame;                      // [ff9mapkit netsync B4] stage 3: the shared codec (TryDecodeCommand)
++            if (!TryDecodeCommand(p, out frame))
+             {
+                 // [ff9mapkit netsync B4] stage 1: every decline names itself (design 3.8 item 4)
+                 Drop("malformed command frame: " + (p == null ? "null" :
+                      "len " + p.Length + (p.Length > 0 ? ", ver " + p[0] : "") + " (want 9 bytes, ver 1)"));
+                 return;
+             }
+-            Int32 slot = p[1], action = p[2], menu = p[3];
+-            Int32 id = p[4] | (p[5] << 8);
+-            UInt16 mask = (UInt16)(p[6] | (p[7] << 8));
+-            UInt32 cursor = p[8];
++            Int32 slot = frame.Slot, action = frame.Action, menu = frame.Menu;
++            Int32 id = frame.Id;
++            UInt16 mask = frame.Mask;
++            UInt32 cursor = frame.Cursor;
+             BattleHUD hud = UIManager.Battle;
+             FF9StateBattleSystem btlsys = FF9StateSystem.Battle.FF9Battle;
+             // [ff9mapkit netsync B4] stage 1 -- THE INTAKE GUARD: a command lands only while the battle is asking
+@@ -2101,6 +2139,7 @@ namespace Memoria.Netsync
+                 _remoteMenuFlag = false;
+                 _assistTick = Environment.TickCount - 60000;   // "long ago", never MinValue (see the declaration)
+             }
++            HarnessReleaseStockMenu();             // [ff9mapkit netsync B4] stage 3: the capture lever back on
+         }
+ 
+         // ============================================================================ harness surface (B4 stage 2)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+new file mode 100644
+index e69de29..b04e7fb 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+@@ -0,0 +1,605 @@
++using System;
++using System.Collections.Generic;
++using FF9;
++using Memoria.Data;
++using Memoria.Prime;
++
++namespace Memoria.Netsync
++{
++    // [ff9mapkit netsync B4] stage 3 -- THE GUEST'S STOCK COMMAND MENU: THE FIRST LOOK + THE CAPTURE
++    // (studies/battle-coop/B4-B5-DESIGN.md sections 4.1-4.3 and section 7, stage 3 -- the arc's GO/NO-GO).
++    //
++    // The guest's diorama already runs a LIVE stock BattleHUD. Its command menu never opened only because the single
++    // ReadyQueue feeder (HonoluluBattleMain.ProcessActiveTime -> AddPlayerToReady) sits behind !isDebug, which the
++    // diorama sets. B4 opens that menu and so deliberately breaks the b34 invariant "nothing in a diorama fills
++    // ReadyQueue". From this stage the menu CAN open in a diorama -- today only through the SELFTEST BENCH OPENER
++    // (`netsync bmenu open <slot>`, below); stage 8 adds the production ready mirror fed by the host's wire Ready bit
++    // (PeerUnit.Ready) -- so every stock COMMIT it can reach is CAPTURED here instead of executed:
++    //   SendCommand / SendDoubleCastCommand (the FIRST detail only: it casts once, as the digit panel does) /
++    //   SendAutoAttackCommand (Attack at the first live enemy) -> ForwardStockCommand -> ONE v1 type-2 frame (the
++    //   shared EncodeCommand) into the outbox. NEVER btl_cmd.SetCommand locally: that mutates the caster, and the
++    //   ungated CommandEngine would re-simulate the host's fight on the guest's REAL bag (design 3.3).
++    //   SendMixCommand -> refused (SFX 102) BEFORE its fail path's ItemUse (out of the v1 scope; B4.2) -- on Active alone,
++    //   like the side gates below: R9 cannot see that ItemUse, so the calibration lever never lifts it.
++    // and the side paths that mutate without a Send* are gated on Active in BattleHUD: the Vivi auto-magic swap (its
++    // IsZeroMP write), manual Trance, OpenMainMenu (one gate for the AccessMenu button, OnKeyMenu and the main-menu
++    // party swap) and CanForceNextTurn. R9 (stage 2, btl_cmd.SetCommand's head) stands BEHIND all of it: a missed site
++    // becomes one logged refusal (`r9_refused`), never a re-simulation.
++    //
++    // KEYED ON NetSyncDiorama.Active ALONE (the containment predicate -- false in every real battle on both machines),
++    // so vanilla, solo and the host's own fight never reach a line of this file except the harness reads. The one
++    // other input is the selftest-only calibration lever `bmenu capture off` (StockCaptureOn), which bypasses ONLY the
++    // forward: the stock body then runs into R9 -- the proof that the capture fired AND that R9 stands behind it.
++    //
++    // THE OUTBOX holds forwarded frames (cap 8, drop-oldest) for the transport. Stage 3 adds NO production drain on
++    // purpose: nothing in a production diorama can fill a ReadyQueue yet, and the Pump guest-branch drain belongs with
++    // stage 8's ready mirror (design 6.5). The selftest bench reads every forward back DECODED by the host's own
++    // TryDecodeCommand (`netsync.battle.menu.captured`), with no socket.
++    //
++    // THE MENU-WAKE TRACE (risk 2, redone for this stage). Every way a command panel opens inside a diorama:
++    //   (1) BattleHUD.UpdatePlayer's ready loop -> SwitchPlayer, for a ReadyQueue entry. ReadyQueue's feeders:
++    //       AddPlayerToReady (stock caller: ProcessActiveTime, never under isDebug; NEW: the bench opener here, selftest
++    //       + Active only) and two RE-ORDERINGS of existing entries (OnKeyMenu's rotation, SwitchAvailablePlayerOrIdle --
++    //       the latter only after the in-battle main menu, which the OpenMainMenu gate closes). Nothing else adds.
++    //   (2) the auto-battle branch of the same loop (_isAutoAttack, which can carry over from the guest's own fights)
++    //       -> SendAutoAttackCommand: CAPTURED (forwarded as Attack), never its own SetCommand / the Vivi swap; a REFUSED
++    //       auto capture parks the slot (StockAutoRefused) instead of re-forwarding it every frame.
++    //   (3) switchBtlId >= 0 -> SwitchPlayer: its only writer is ProcessActiveTime (ForceNextTurn), never under isDebug.
++    //   (4) ForceNextTurn: consumed only in ProcessActiveTime; CanForceNextTurn now reads false while Active (the LT
++    //       key), and OnKeyMenu's turn-based writes are cleared at ForceDisarm (its only other reset never runs here).
++    //   (5) a portrait click (PanelParty.OnCharacterClick) / OnKeyMenu rotation: SwitchPlayer for an entry ALREADY in
++    //       ReadyQueue and not finished -- a local view change, no commit.
++    // Every COMMIT those panels can reach lands in SendCommand / SendDoubleCastCommand / SendMixCommand (OnKeyConfirm,
++    // OnAllTargetClick, VerifyTarget, CheckDoubleCast -> SetTarget) or SendAutoAttackCommand -- all four captured.
++    // A Memoria merge that adds a BattleHUD SetCommand call needs this census re-run (R9 logs the miss meanwhile).
++    public static partial class NetSyncBattle
++    {
++        private const Int32 StockOutboxCap = 8;
++        private const Int32 StockLogKeysCap = 32;     // once-per-boot log keys (reasons can carry ids)
++        private static readonly Queue<Byte[]> _stockOutbox = new Queue<Byte[]>(StockOutboxCap);
++        private static readonly List<String> _stockLogged = new List<String>(8);
++        private static Boolean _stockTouched;         // this lane opened a slot or captured a commit THIS boot (CloseAll's licence)
++        private static Boolean _stockOutboxDropLogged;
++        private static Boolean _stockLogCapNoted;     // the once-per-boot log-key cap was hit (noted once)
++        private static Int32 _benchOpenMask;          // local slots `bmenu open` queued this boot (and not closed)
++        private static Int32 _autoRefusedMask;        // local slots whose AUTO-BATTLE capture was refused: parked until reopened/closed
++        private static Int32 _stockCaptures;          // forwards -- monotonic per process: read DELTAS
++        private static Int32 _stockRefused;           // commits the capture refused (outside the v1 scope / unmappable)
++        private static String _stockRefusedWhy;       // the last refusal reason (null = none yet)
++        private static Int32 _sideRefused;            // side-path gates that fired inside a diorama -- monotonic
++        private static String _sideRefusedWhy;        // the last one (null = none yet)
++        private static Byte[] _stockLastFrame;        // the last forwarded frame THIS boot (the harness decodes it; null = none)
++        private static Int32 _stockLastLocal = -1;    // ...its LOCAL slot (the HUD's CurrentPlayerIndex at the commit)
++        private static Int32 _stockLastCmd = -1;      // ...the stock command it captured (BattleCommandId)
++        private static String _stockLastSite;         // ...and the commit site ("SendCommand", ...)
++
++        // SELFTEST CALIBRATION LEVER (harness `netsync bmenu capture off`; cleared by every harness release through
++        // HarnessReleaseBench): true = the commit sites run their STOCK bodies inside the diorama (no forward), so R9
++        // must refuse the enqueue -- `r9_refused` +1 and no capture is this stage's red. Read only through
++        // StockCaptureOn, which also needs the selftest role: a lever stranded across an ini edit can never un-capture a
++        // production diorama.
++        public static Boolean BenchStockCaptureOff;
++
++        /// <summary>BattleHUD's capture sites test `NetSyncDiorama.Active &amp;&amp; StockCaptureOn`. True on every
++        /// production machine; false only while the selftest calibration lever is pulled.</summary>
++        public static Boolean StockCaptureOn
++        {
++            get { return !(BenchStockCaptureOff && NetSyncClient.IsSelfTestRole); }
++        }
++
++        // ======================================================================================= the capture
++        /// <summary>
++        /// THE FORWARD (design 4.3): one stock commit -> one v1 type-2 frame in the outbox. Called by BattleHUD's capture
++        /// sites (only while Active). Arguments are the commit as stock would have enqueued it: the LOCAL caster slot, the
++        /// menu, the command, its type (-1 = not in this install's table), the UNPATCHED ability id (the host patches per
++        /// slot) or the item id, the LOCAL target mask and GetSelectMode's 0/1/2 cursor. False = REFUSED (outside the v1
++        /// scope, or a slot with no wire unit): the caller plays SFX 102 and commits nothing. Never throws.
++        /// </summary>
++        public static Boolean ForwardStockCommand(String site, Int32 localSlot, Int32 menu, Int32 cmdId, Int32 cmdType,
++                                                  Int32 id, UInt16 localMask, UInt32 cursor)
++        {
++            try
++            {
++                _stockTouched = true;
++                Int32 action, wireMenu, wireId;
++                String why = V1Action(menu, cmdId, cmdType, id, out action, out wireMenu, out wireId);
++                if (why != null)
++                    return RefuseCapture(site, localSlot, cmdId, why);
++                Int32 wireSlot = NetSyncDiorama.WireIndexForLocal(localSlot);
++                if (wireSlot < 0)
++                    return RefuseCapture(site, localSlot, cmdId, "local slot " + localSlot + " has no wire unit (no host party member seats it)");
++                UInt16 wireMask;
++                why = MapTargetsToWire(localSlot, wireSlot, localMask, out wireMask);
++                if (why != null)
++                    return RefuseCapture(site, localSlot, cmdId, why);
++                if (cursor > 0xFF)
++                    return RefuseCapture(site, localSlot, cmdId, "cursor " + cursor + " does not fit the v1 frame");
++                Byte[] frame = EncodeCommand(wireSlot, action, wireMenu, wireId, wireMask, (Int32)cursor);
++                if (_stockOutbox.Count >= StockOutboxCap)
++                {
++                    _stockOutbox.Dequeue();               // drop-oldest: a stale pick is obsolete anyway
++                    if (!_stockOutboxDropLogged)
++                    {
++                        _stockOutboxDropLogged = true;
++                        Log.Message("[NetSync] stock menu: the outbox hit its cap (" + StockOutboxCap + ") -- oldest frame dropped "
++                                    + "(stage 3 has no production drain; the selftest bench reads `captured`; logged once per boot)");
++                    }
++                }
++                _stockOutbox.Enqueue(frame);
++                _stockCaptures++;
++                _stockLastFrame = frame;
++                _stockLastLocal = localSlot;
++                _stockLastCmd = cmdId;
++                _stockLastSite = site;
++                NetCommand c;
++                TryDecodeCommand(frame, out c);           // the host's own decoder: the log says what the HOST would read
++                Log.Message("[NetSync] stock menu: captured " + site + " -- local slot " + localSlot + " "
++                            + (BattleCommandId)cmdId + " -> v1 frame [" + BitConverter.ToString(frame).Replace('-', ' ')
++                            + "] = slot " + c.Slot + " " + ActionName(c.Action) + " menu " + c.Menu + " id " + c.Id
++                            + " mask 0x" + c.Mask.ToString("X2") + " cursor " + c.Cursor
++                            + "; forwarded, never enqueued locally (captures=" + _stockCaptures + ")");
++                return true;
++            }
++            catch (Exception ex)
++            {
++                return RefuseCapture(site, localSlot, cmdId, "capture fault: " + ex.GetType().Name + ": " + ex.Message);
++            }
++        }
++
++        // The stock commit -> the v1 action vocabulary (design 4.3): Attack menu -> ActAttack; the Defend command ->
++        // ActDefend; an Ability-type command in Ability1/2 -> ActAbility(menu, UNPATCHED id); a Normal/Instant-type
++        // command -> ActInstant(menu); the Item command -> ActItem(id). Menu/id bytes match what the digit panel sends
++        // for the same pick. Null = in scope; else WHY not (Change, Throw, Mix and AccessMenu are B4.2's).
++        private static String V1Action(Int32 menu, Int32 cmdId, Int32 cmdType, Int32 id,
++                                       out Int32 action, out Int32 wireMenu, out Int32 wireId)
++        {
++            action = -1;
++            wireMenu = 0;
++            wireId = 0;
++            BattleCommandId cmd = (BattleCommandId)cmdId;
++            if (cmdType < 0)
++                return "command " + cmd + " is not in this install's command table";
++            if (menu == (Int32)BattleCommandMenu.Attack)
++            {
++                action = ActAttack;
++                return null;
++            }
++            if (cmd == BattleCommandId.Defend)
++            {
++                action = ActDefend;
++                return null;
++            }
++            if (cmd == BattleCommandId.Change || menu == (Int32)BattleCommandMenu.Change)
++                return "Change is outside the v1 command scope (B4.2)";
++            if (menu == (Int32)BattleCommandMenu.Item)
++            {
++                if (cmdType != (Int32)CharacterCommandType.Item)
++                    return cmd + " (a " + (CharacterCommandType)cmdType + " command) is outside the v1 command scope (Throw rides B4.2)";
++                if (id < 0 || id > 0xFFFF || id == (Int32)RegularItem.NoItem)
++                    return "item id " + id + " cannot ride the v1 frame";
++                action = ActItem;
++                wireId = id;
++                return null;
++            }
++            if (menu == (Int32)BattleCommandMenu.Ability1 || menu == (Int32)BattleCommandMenu.Ability2
++                || menu == (Int32)BattleCommandMenu.Defend)
++            {
++                if (cmdType == (Int32)CharacterCommandType.Ability && menu != (Int32)BattleCommandMenu.Defend)
++                {
++                    if (id <= 0 || id > 0xFFFF)
++                        return cmd + ": ability id " + id + " cannot ride the v1 frame";
++                    action = ActAbility;
++                    wireMenu = menu;
++                    wireId = id;
++                    return null;
++                }
++                if (cmdType == (Int32)CharacterCommandType.Normal || cmdType == (Int32)CharacterCommandType.Instant)
++                {
++                    action = ActInstant;
++                    wireMenu = menu;
++                    return null;
++                }
++                return cmd + " (a " + (CharacterCommandType)cmdType + " command in menu " + menu + ") is outside the v1 command scope";
++            }
++            return "menu " + menu + " (" + cmd + ") is outside the v1 command scope";
++        }
++
++        // LOCAL target mask -> WIRE mask (design 4.3): the group masks 0x0F/0xF0/0xFF pass verbatim; enemy bits 4-7 are
++        // identity (both sides spawn the same scene pattern); each player bit maps through the character id. Null = ok.
++        private static String MapTargetsToWire(Int32 localSlot, Int32 wireSlot, UInt16 local, out UInt16 wire)
++        {
++            wire = 0;
++            if (local == 0)
++                return "empty target mask";
++            if (local == 0x0F || local == 0xF0 || local == 0xFF)
++            {
++                wire = local;
++                return null;
++            }
++            UInt16 w = (UInt16)(local & 0xFFF0);
++            for (Int32 l = 0; l < 4; l++)
++            {
++                if ((local & (1 << l)) == 0)
++                    continue;
++                Int32 t = l == localSlot ? wireSlot : NetSyncDiorama.WireIndexForLocal(l);
++                if (t < 0)
++                    return "target slot " + l + " has no wire unit";
++                w |= (UInt16)(1 << t);
++            }
++            wire = w;
++            return null;
++        }
++
++        /// <summary>A commit site that refuses outright inside the diorama (SendMixCommand): counted and logged like any
++        /// capture refusal; nothing is forwarded. The caller plays SFX 102. Never throws.</summary>
++        public static void RefuseStockCommit(String site, Int32 localSlot, Int32 cmdId, String why)
++        {
++            _stockTouched = true;
++            RefuseCapture(site, localSlot, cmdId, why);
++        }
++
++        // Counted on every refusal; logged once per boot per reason (the line is built only when it will be written).
++        // Always false (the caller's return value).
++        private static Boolean RefuseCapture(String site, Int32 localSlot, Int32 cmdId, String why)
++        {
++            try
++            {
++                _stockRefused++;
++                _stockRefusedWhy = why;
++                if (StockLogFirst("refuse " + why))
++                    Log.Message("[NetSync] stock menu: " + site + " for local slot " + localSlot + " ("
++                                + (BattleCommandId)cmdId + ") REFUSED -- " + why + "; nothing forwarded, nothing enqueued locally "
++                                + "(SFX 102; capture_refused=" + _stockRefused + ", logged once per boot per reason)");
++            }
++            catch { }
++            return false;
++        }
++
++        /// <summary>A side-path gate fired inside the diorama (BattleHUD: OpenMainMenu, manual Trance, the Vivi auto-magic
++        /// swap). Counted every time, logged once per boot per path. Never throws.</summary>
++        public static void NoteSideRefused(String what)
++        {
++            try
++            {
++                _sideRefused++;
++                _sideRefusedWhy = what;
++                if (StockLogFirst("side " + what))
++                    Log.Message("[NetSync] stock menu: " + what + " refused inside the diorama -- the fight is "
++                                + "the host's (side_refused=" + _sideRefused + ", logged once per boot per path)");
++            }
++            catch { }
++        }
++
++        // True = this key's FIRST sighting this boot: the caller builds and writes its line. Past the cap a new key is
++        // suppressed (one note, then counters only) -- a true cap, so no reason can ever log per frame.
++        private static Boolean StockLogFirst(String key)
++        {
++            if (_stockLogged.Contains(key))
++                return false;
++            if (_stockLogged.Count >= StockLogKeysCap)
++            {
++                if (!_stockLogCapNoted)
++                {
++                    _stockLogCapNoted = true;
++                    Log.Message("[NetSync] stock menu: " + StockLogKeysCap + " distinct log lines this boot -- further new "
++                                + "reasons are counted (capture_refused / side_refused), not logged");
++                }
++                return false;
++            }
++            _stockLogged.Add(key);
++            return true;
++        }
++
++        /// <summary>BattleHUD.SendAutoAttackCommand: its diorama capture REFUSED this local slot. The slot is parked for
++        /// auto-battle (the ready loop skips it -- see StockAutoRefused) until `bmenu open|close`, CloseAll or the next boot
++        /// clears it (stage 8's ready mirror must clear it whenever it re-feeds the slot). Never throws.</summary>
++        public static void NoteStockAutoRefused(Int32 localSlot)
++        {
++            if (localSlot >= 0 && localSlot < 4)
++                _autoRefusedMask |= 1 << localSlot;
++        }
++
++        /// <summary>BattleHUD.UpdatePlayer's auto-battle branch: true = skip this ready slot (its auto capture was refused
++        /// and nothing has re-armed it). False outside a diorama: the mask is 0 there, and Active is tested too, so even a
++        /// mask stranded by a faulted teardown can never hold back a real battle's auto-attack.</summary>
++        public static Boolean StockAutoRefused(Int32 localSlot)
++        {
++            return _autoRefusedMask != 0 && localSlot >= 0 && localSlot < 4
++                && (_autoRefusedMask & (1 << localSlot)) != 0 && NetSyncDiorama.Active;
++        }
++
++        // ======================================================================================= close / lifecycle
++        /// <summary>
++        /// Close every stock menu this lane opened: the outbox, the bench mask and the auto-battle parking clear always;
++        /// the HUD is touched ONLY if this lane opened a slot or captured a commit this boot (else the engine's HUD is left
++        /// exactly as it is) -- then ReadyQueue/InputFinishList drained of the party slots and SetIdle if a panel is up
++        /// (BattleHUD.NetStockMenuCloseAll: the drain first, SetIdle fault-contained). The licence (_stockTouched) clears
++        /// only once that HUD close has returned, so a fault leaves it for a retry. Called from NetSyncDiorama.ForceDisarm
++        /// (risk 16), `bmenu closeall`, and (stage 5) InjectEnd. Never throws: the persistent BattleHUD outlives the
++        /// battle scene.
++        /// </summary>
++        public static void StockMenuCloseAll(String why)
++        {
++            try
++            {
++                Int32 dropped = _stockOutbox.Count;
++                _stockOutbox.Clear();
++                Int32 bench = _benchOpenMask;
++                _benchOpenMask = 0;
++                _autoRefusedMask = 0;
++                if (!_stockTouched)
++                    return;
++                BattleHUD hud = UIManager.Battle;
++                String setIdleFault = null;
++                Int32 closed = hud != null ? hud.NetStockMenuCloseAll(out setIdleFault) : -1;
++                _stockTouched = false;
++                Log.Message("[NetSync] stock menu: closed all (" + why + ") -- " + (closed < 0 ? "no battle HUD" : closed + " slot(s) drained")
++                            + (bench != 0 ? ", bench-opened mask 0x" + bench.ToString("X") : "")
++                            + (dropped > 0 ? ", " + dropped + " unsent frame(s) discarded" : "")
++                            + (setIdleFault != null ? "; SetIdle FAULTED (" + setIdleFault + ") -- the panel was forced idle "
++                               + "(CurrentPlayerIndex -1, every button group disabled)" : ""));
++            }
++            catch (Exception ex)
++            {
++                try { Log.Message("[NetSync] stock menu: close-all (" + why + ") failed -- " + ex.GetType().Name + ": " + ex.Message); }
++                catch { }
++            }
++        }
++
++        // Every diorama Boot (NoteDioramaBoot): the lane's per-boot state starts clean. The process counters keep counting.
++        private static void NoteStockMenuBoot()
++        {
++            _stockOutbox.Clear();
++            _stockOutboxDropLogged = false;
++            _stockLogged.Clear();
++            _stockLogCapNoted = false;
++            _stockTouched = false;
++            _benchOpenMask = 0;
++            _autoRefusedMask = 0;
++            _stockLastFrame = null;
++            _stockLastLocal = -1;
++            _stockLastCmd = -1;
++            _stockLastSite = null;
++        }
++
++        // Every harness release (HarnessReleaseBench): the capture lever back on. The bench-opened slots close with the
++        // diorama itself (ForceDisarm -> StockMenuCloseAll), which the release also requests.
++        private static void HarnessReleaseStockMenu()
++        {
++            if (BenchStockCaptureOff)
++                Log.Message("[NetSync] harness: stock-menu capture back ON (released with the harness)");
++            BenchStockCaptureOff = false;
++        }
++
++        // ======================================================================================= harness surface (B4 stage 3)
++        // [ff9mapkit netsync B4] stage 3 -- `netsync.battle.menu` keys and the `netsync bmenu` verbs. Read-only reads,
++        // main thread, never throw.
++        public static Int32 HarnessStockCaptures { get { return _stockCaptures; } }
++        public static Int32 HarnessStockRefused { get { return _stockRefused; } }
++        public static String HarnessStockRefusedWhy { get { return _stockRefusedWhy; } }
++        public static Int32 HarnessSideRefused { get { return _sideRefused; } }
++        public static String HarnessSideRefusedWhy { get { return _sideRefusedWhy; } }
++        public static Boolean HarnessStockCaptureOff { get { return !StockCaptureOn; } }
++        public static Int32 HarnessStockOutbox { get { return _stockOutbox.Count; } }
++        public static Int32 HarnessBenchOpenMask { get { return _benchOpenMask; } }
++
++        /// <summary>The last forward of this boot, DECODED by the host's own TryDecodeCommand (wire side), plus the local
++        /// commit it came from. Null = none this boot.</summary>
++        public sealed class StockCaptureView
++        {
++            public Int32 Slot, Action, Menu, Id, Mask, Cursor;   // the frame as the HOST decodes it
++            public Int32 LocalSlot, CmdId;                        // the stock commit (local caster slot, BattleCommandId)
++            public String Site, Hex, ActionName;
++        }
++
++        public static StockCaptureView HarnessLastCapture()
++        {
++            try
++            {
++                Byte[] frame = _stockLastFrame;
++                NetCommand c;
++                if (frame == null || !TryDecodeCommand(frame, out c))
++                    return null;
++                return new StockCaptureView
++                {
++                    Slot = c.Slot,
++                    Action = c.Action,
++                    Menu = c.Menu,
++                    Id = c.Id,
++                    Mask = c.Mask,
++                    Cursor = (Int32)c.Cursor,
++                    LocalSlot = _stockLastLocal,
++                    CmdId = _stockLastCmd,
++                    Site = _stockLastSite,
++                    Hex = BitConverter.ToString(frame).Replace('-', ' '),
++                    ActionName = ActionName(c.Action)
++                };
++            }
++            catch
++            {
++                return null;
++            }
++        }
++
++        /// <summary>
++        /// `netsync bmenu open|close &lt;L&gt; | closeall | capture on|off | mainmenu` (selftest role only):
++        ///   open L     -- THE BENCH OPENER: inside a live diorama in its command phase, put LOCAL party slot L on the stock
++        ///                 ReadyQueue through the stock feeder (AddPlayerToReady, duplicate-guarded) -- the HUD's next ready
++        ///                 pass opens the REAL command panel for it (`battle.turn.slot`, `battle.hud`).
++        ///   close L    -- SetIdle if L's panel is up, then L off ReadyQueue/InputFinishList (a committed slot re-opens
++        ///                 only after a close).
++        ///   closeall   -- StockMenuCloseAll (what InjectEnd and the teardown run).
++        ///   capture    -- the calibration lever (`off` = the stock commit bodies run into R9).
++        ///   mainmenu   -- probe the OpenMainMenu gate through the REAL method (the seat the AccessMenu button, OnKeyMenu
++        ///                 and the main-menu party swap share): refused + `side_refused` +1, or the verb FAILS (the menu is
++        ///                 opening -- the gate is missing).
++        /// </summary>
++        public static Boolean HarnessStockMenu(String op, Int32 arg, out String why)
++        {
++            why = null;
++            if (!Enabled || !NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bmenu: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            switch (op)
++            {
++                case "capture":
++                    if (arg != 0 && arg != 1)
++                    {
++                        why = "netsync bmenu capture: on|off (1|0)";
++                        return false;
++                    }
++                    BenchStockCaptureOff = arg == 0;
++                    Log.Message("[NetSync] harness: stock-menu capture " + (arg != 0 ? "ON"
++                                : "OFF -- CALIBRATION: inside the diorama the stock commit bodies run (no forward), so R9 must refuse the enqueue"));
++                    return true;
++                case "open":
++                    return BenchOpen(arg, out why);
++                case "close":
++                    return BenchClose(arg, out why);
++                case "closeall":
++                    StockMenuCloseAll("harness `bmenu closeall`");
++                    return true;
++                case "mainmenu":
++                    return BenchProbeMainMenu(out why);
++                default:
++                    why = "netsync bmenu: unknown op '" + op + "' (open|close|closeall|capture|mainmenu)";
++                    return false;
++            }
++        }
++
++        // The opener's gates: a LIVE diorama in its steady command phase -- the same conditions the stage-8 ready mirror
++        // will test (design 4.6), so the bench opens nothing production could not.
++        private static String BenchMenuGate(out BattleHUD hud)
++        {
++            hud = null;
++            if (!NetSyncDiorama.Active)
++                return "needs a live diorama (netsync dioboot <scene>, then wait for battle.turn.enabled)";
++            hud = UIManager.Battle;
++            FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++            if (hud == null || b == null)
++                return "no battle HUD";
++            UIManager.UIState state = PersistenSingleton<UIManager>.Instance.State;
++            if (state != UIManager.UIState.BattleHUD)
++                return "the UI state is " + state + ", not BattleHUD";
++            if (b.btl_phase != FF9StateBattleSystem.PHASE_NORMAL)
++                return "the diorama is in phase " + b.btl_phase + ", not its steady phase (" + FF9StateBattleSystem.PHASE_NORMAL + ")";
++            const Byte need = ff9btl.LOAD_INITNPC | ff9btl.LOAD_INITCHR;
++            if ((b.btl_load_status & need) != need)
++                return "the diorama's units are not final yet";
++            if (!hud.FF9BMenu_IsEnable())
++                return "the HUD's command menu is not enabled yet (wait for battle.turn.enabled)";
++            return null;
++        }
++
++        private static Boolean BenchOpen(Int32 slot, out String why)
++        {
++            why = null;
++            try
++            {
++                if (slot < 0 || slot > 3)
++                {
++                    why = "netsync bmenu open: needs a local party slot 0-3";
++                    return false;
++                }
++                BattleHUD hud;
++                String gate = BenchMenuGate(out hud);
++                if (gate != null)
++                {
++                    why = "netsync bmenu open: " + gate;
++                    return false;
++                }
++                String refusal;
++                if (!hud.NetStockMenuOpen(slot, out refusal))
++                {
++                    why = "netsync bmenu open: " + refusal;
++                    return false;
++                }
++                _stockTouched = true;
++                _benchOpenMask |= 1 << slot;
++                _autoRefusedMask &= ~(1 << slot);         // a reopen re-arms a parked auto-battle refusal (one retry)
++                Log.Message("[NetSync] harness: bench opener -- local slot " + slot + " (wire slot "
++                            + NetSyncDiorama.WireIndexForLocal(slot) + ") is on the stock ReadyQueue; the diorama's command "
++                            + "panel opens on the HUD's next ready pass (every commit is captured, never enqueued locally)");
++                return true;
++            }
++            catch (Exception ex)
++            {
++                why = "netsync bmenu open: faulted -- " + ex.GetType().Name + ": " + ex.Message;
++                return false;
++            }
++        }
++
++        private static Boolean BenchClose(Int32 slot, out String why)
++        {
++            why = null;
++            try
++            {
++                if (slot < 0 || slot > 3)
++                {
++                    why = "netsync bmenu close: needs a local party slot 0-3";
++                    return false;
++                }
++                if (!NetSyncDiorama.Active)
++                {
++                    why = "netsync bmenu close: needs a live diorama";
++                    return false;
++                }
++                BattleHUD hud = UIManager.Battle;
++                if (hud == null)
++                {
++                    why = "netsync bmenu close: no battle HUD";
++                    return false;
++                }
++                Boolean any = hud.NetStockMenuClose(slot);
++                _benchOpenMask &= ~(1 << slot);
++                _autoRefusedMask &= ~(1 << slot);
++                Log.Message("[NetSync] harness: bench close -- local slot " + slot + (any ? " closed (off ReadyQueue/InputFinishList)" : " was not open"));
++                return true;
++            }
++            catch (Exception ex)
++            {
++                why = "netsync bmenu close: faulted -- " + ex.GetType().Name + ": " + ex.Message;
++                return false;
++            }
++        }
++
++        private static Boolean BenchProbeMainMenu(out String why)
++        {
++            why = null;
++            try
++            {
++                if (!NetSyncDiorama.Active)
++                {
++                    why = "netsync bmenu mainmenu: needs a live diorama (a real battle's main menu is stock and is never probed)";
++                    return false;
++                }
++                BattleHUD hud = UIManager.Battle;
++                if (hud == null || PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.BattleHUD)
++                {
++                    why = "netsync bmenu mainmenu: the battle HUD is not the UI state";
++                    return false;
++                }
++                Int32 before = _sideRefused;
++                Boolean opening = hud.NetBenchOpenMainMenu();
++                if (opening)
++                {
++                    why = "netsync bmenu mainmenu: the in-battle main menu is OPENING inside the diorama -- the OpenMainMenu gate is missing";
++                    return false;
++                }
++                if (_sideRefused == before)
++                {
++                    why = "netsync bmenu mainmenu: OpenMainMenu neither opened nor reported its refusal";
++                    return false;
++                }
++                return true;
++            }
++            catch (Exception ex)
++            {
++                why = "netsync bmenu mainmenu: faulted -- " + ex.GetType().Name + ": " + ex.Message;
++                return false;
++            }
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 1986a0f..ddf656a 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -609,6 +609,13 @@ namespace Memoria.Netsync
+             // StartEvents): the copy stays pending for it. Unity's == -- a destroyed FieldMap reads null.
+             if (_warmPrimed && _warmFieldMap != null)
+                 UndoWarm("the boot never left field " + _warmField);
++            // [ff9mapkit netsync B4] stage 3 -- the stock command menu dies with the boot (risk 16): a menu the bench opener or
++            // a capture left open would otherwise survive into the persistent BattleHUD (ReadyQueue/InputFinishList are
++            // cleared only by the next InitialBattle). CloseAll touches the HUD ONLY if this lane did this boot (never
++            // throws -- the persistent HUD outlives the scene). ForceNextTurn's only reset is ProcessActiveTime, which never
++            // runs under isDebug: a diorama turn-based Menu press must not hand the guest's next real battle a forced turn.
++            NetSyncBattle.StockMenuCloseAll("the diorama tore down");
++            BattleHUD.ForceNextTurn = false;
+             Disarm();
+             // [ff9mapkit netsync B4] stage 2: every teardown line carries this boot's R9 receipt (a guest log's grep-able
+             // "nothing tried to re-simulate" -- 0 in any diorama without a missed capture site).
+@@ -1374,8 +1381,11 @@ namespace Memoria.Netsync
+         //     corpse-safe and revive-self-healing where an edge-trigger is fragile (Death does NOT
+         //     strip the bit in a command-less diorama). Never AlterStatus(Trance) (SysTrans command +
+         //     achievement), never SetTranceModel on enemies (tranceGo null).
+-        //   ATB -- players only (enemies have no gauge): raw max.at then cur.at clamped. Menu-wake is
+-        //     impossible: AddPlayerToReady's only caller is inside the isDebug-gated ProcessActiveTime.
++        //   ATB -- players only (enemies have no gauge): raw max.at then cur.at clamped. A full gauge never
++        //     wakes the menu: AddPlayerToReady's stock caller is inside the isDebug-gated ProcessActiveTime.
++        //     [ff9mapkit netsync B4] stage 3: the menu CAN open in a diorama now -- through the selftest bench opener
++        //     (`netsync bmenu open`, NetSyncBattle.StockMenu.cs) and, from stage 8, the host's wire Ready bit -- and
++        //     every stock commit it can reach is CAPTURED and forwarded, with R9 behind it (B4-B5-DESIGN.md 4.3).
+         // ---------------------------------------------------------------------------------------
+         private static readonly NetSyncBattle.PeerUnit[] _wireUnits = new NetSyncBattle.PeerUnit[8];
+         private static UInt16 _lastAppliedSeq;
+@@ -1630,6 +1640,51 @@ namespace Memoria.Netsync
+             return false;
+         }
+ 
++        // [ff9mapkit netsync B4] stage 3 -- WIRE <-> LOCAL PARTY SLOTS (design 4.3 "Target mapping", risk 13). A wire player
++        // index is the HOST's compacted party position; a local one is this diorama's btl_data slot. They differ exactly
++        // when a guest seat fails (MirrorHostParty leaves that slot empty and InitPlayerData compacts past it), so both
++        // directions go through the CHARACTER id -- ResolveWireUnit's own compaction-proof join, never GetIndex. -1 = no
++        // such unit on this side (the caller refuses: a command is never aimed at a guessed slot). Main thread, never
++        // throws. In the selftest bench (no party mirror) both sides compact the guest's own party: identity.
++        internal static Int32 LocalIndexForWire(Int32 wireIndex)
++        {
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                if (b == null)
++                    return -1;
++                BTL_DATA d = ResolveWireUnit(b, wireIndex, true);
++                if (d == null)
++                    return -1;
++                for (Int32 i = 0; i < 4; i++)
++                    if (ReferenceEquals(b.btl_data[i], d))
++                        return i;
++            }
++            catch { }
++            return -1;
++        }
++
++        internal static Int32 WireIndexForLocal(Int32 localIndex)
++        {
++            try
++            {
++                if (localIndex < 0 || localIndex > 3)
++                    return -1;
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                BTL_DATA c = b != null ? b.btl_data[localIndex] : null;
++                if (c == null || c.btl_id != (UInt16)(1 << localIndex) || c.bi.player == 0)
++                    return -1;
++                for (Int32 w = 0; w < 4; w++)
++                {
++                    Byte charId;
++                    if (CompactedCharId(w, out charId) && charId == c.bi.slot_no)
++                        return w;
++                }
++            }
++            catch { }
++            return -1;
++        }
++
+         // ---------------------------------------------------------------------------------------
+         // B3.5 -- THE ACTION LANE (guest side): the host's per-CalcResult frames applied between
+         // the wire drain and the reconcile. Ordering laws (the assembled apply order): figures ->

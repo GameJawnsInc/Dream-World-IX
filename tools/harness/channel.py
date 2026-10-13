@@ -291,6 +291,18 @@ def parse_turn_end(ev: dict) -> dict:
             "moved": num("moved", float)}
 
 
+def _nb_prop(path: str, kind, doc: str) -> property:
+    """[ff9mapkit netsync B4] One ``netsync.battle`` key as a read-only :class:`State` property. ``path`` is dotted under
+    ``netsync.battle`` (``"host.caps"``, ``"end.end_leave.trigger"``); ``kind`` is how it reads (:meth:`State._nb_key`).
+    Every such property carries its path, so the test can hold the table against the agent's published keys."""
+    def get(self):
+        return self._nb_key(path, kind)
+    get.__doc__ = doc
+    get.__name__ = "nb_" + path.replace(".", "_")
+    get.nb_path = path
+    return property(get)
+
+
 class State:
     """One sample of the game's state, as published by the agent.
 
@@ -1022,6 +1034,237 @@ class State:
         a warm proof asserts it False once control is back, so a frozen field cannot pass on position alone."""
         return self._dio_key("resuming", bool)
 
+    # [ff9mapkit netsync B4] [ff9mapkit netsync B5] s100-s105: THE BATTLE CO-OP LANE -- ``netsync.battle`` (host / peer /
+    # menu / end). The same law as F3.2/F3.3, one level deeper: every key is told by its PRESENCE -- an engine without the
+    # patch that added it publishes no key, and every accessor below reads that as None ("this engine cannot"), never as
+    # 0 / False / [] ("nothing there"). Check the stage's capability property first (``coop_host_gates`` ..
+    # ``coop_exit_with_host``). Strings the engine publishes as null ("none yet") read ``""``; a null RECORD (``host.end``,
+    # ``peer.end``, ``menu.captured``: "no block / none this boot") reads None like an absent one -- tell the two apart by
+    # the capability. Counters marked monotonic are per PROCESS: assert on a DELTA.
+    def _nb_key(self, path: str, kind):
+        """``netsync.battle.<path>`` read as ``kind``: bool / int (a bool is never an int, an int never a bool), str (null
+        -> ""), list (a copy; dict rows copied), dict (a copy; null -> None). None when any step of the path is absent or
+        the value has the wrong type."""
+        ns = self.netsync
+        node = ns.get("battle") if isinstance(ns, dict) else None
+        parts = path.split(".")
+        for part in parts:
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        if kind is bool:
+            return node if isinstance(node, bool) else None
+        if kind is int:
+            return node if isinstance(node, int) and not isinstance(node, bool) else None
+        if kind is str:
+            if node is None:
+                return ""
+            return node if isinstance(node, str) else None
+        if kind is list:
+            return [dict(r) if isinstance(r, dict) else r for r in node] if isinstance(node, list) else None
+        if kind is dict:
+            return dict(node) if isinstance(node, dict) else None
+        raise TypeError(f"_nb_key: no reading for {kind!r}")
+
+    def _nb_cap(self, path: str, kind) -> bool | None:
+        """A stage's capability: None = no ``netsync`` block at all; else whether ``netsync.battle.<path>`` is published
+        with the right type (an engine before that stage reads False)."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._nb_key(path, kind) is not None
+
+    @property
+    def coop_host_gates(self) -> bool | None:
+        """s100 (B4/B5 stage 1): the host's command-phase gates and the ``netsync.battle`` block -- the verbs
+        ``guestslots`` / ``bcmd`` / ``hostgates``. False = a netsync block without ``battle`` (s99 and older)."""
+        ns = self.netsync
+        if not isinstance(ns, dict):
+            return None
+        return isinstance(ns.get("battle"), dict)
+
+    @property
+    def coop_containment(self) -> bool | None:
+        """s101 (stage 2): the guest containment backstop R9 + G2 (``menu.r9_refused``; the verbs ``containment`` /
+        ``bctl``; ``battle.units[].cmd_busy``)."""
+        return self._nb_cap("menu.r9_refused", int)
+
+    @property
+    def coop_stock_menu(self) -> bool | None:
+        """s102 (stage 3): the guest stock menu's capture (``menu.captures``; the verb ``bmenu``; ``battle.hud`` /
+        ``battle.seq``)."""
+        return self._nb_cap("menu.captures", int)
+
+    @property
+    def coop_end_trailer(self) -> bool | None:
+        """s103 (stage 4): the host END BLOCK on the type-1 lane (``host.end_trail``; the verb ``endbench``;
+        ``battle.result_ui``)."""
+        return self._nb_cap("host.end_trail", list)
+
+    @property
+    def coop_presentation(self) -> bool | None:
+        """s104 (stage 5): the guest's victory presentation (``netsync.battle.end`` with ``r8_hits``; ``endbench
+        guest``)."""
+        return self._nb_cap("end.r8_hits", int)
+
+    @property
+    def coop_exit_with_host(self) -> bool | None:
+        """s105 (stage 6): the guest's exit with the host (``end.end_leave``; ``endbench exit``)."""
+        return self._nb_cap("end.end_leave", dict)
+
+    @property
+    def coop_battle(self) -> dict | None:
+        """The whole ``netsync.battle`` block, copied one level deep (each sub-object a new dict). None = cannot."""
+        b = self.netsync.get("battle") if isinstance(self.netsync, dict) else None
+        return None if not isinstance(b, dict) else {k: dict(v) if isinstance(v, dict) else v for k, v in b.items()}
+
+    # ---- host: MY own battle as I stream it (s100; the end block s103)
+    coop_host_gates_off = _nb_prop("host.gates_off", bool, "The selftest calibration lever ``hostgates 0`` is pulled.")
+    coop_host_guest_slots = _nb_prop("host.guest_slots", int, "The battle lane's GuestSlots, a ``guestslots`` override "
+                                                               "included (bit per party slot).")
+    coop_host_cmd_phase = _nb_prop("host.cmd_phase", bool, "The pumps' last read of the command phase: PHASE_NORMAL && "
+                                                           "FF9BMenu_IsEnable.")
+    coop_host_caps = _nb_prop("host.caps", int, "The type-1 header flags byte of the last own-battle sample (bit 1 = a "
+                                                "command-phase-gated host); -1 = no own battle.")
+    coop_host_ready_mask = _nb_prop("host.ready_mask", int, "The Ready bits of the last own-battle sample (bit per btl "
+                                                            "slot); -1 = no own battle.")
+    coop_host_cmd_refused = _nb_prop("host.cmd_refused", int, "Intake-guard refusals (a command outside the command "
+                                                              "phase) -- monotonic per process.")
+    coop_host_cmd_dropped = _nb_prop("host.cmd_dropped", int, "Every other command decline (malformed, not a guest slot, "
+                                                              "an empty mask, ...) -- monotonic per process.")
+    coop_host_cmd_queued = _nb_prop("host.cmd_queued", int, "Commands queued through SendNetCommand -- monotonic per "
+                                                            "process.")
+    coop_host_refused_why = _nb_prop("host.refused_why", str, "The last intake refusal's reason ('' = none yet).")
+    coop_host_dropped_why = _nb_prop("host.dropped_why", str, "The last drop's reason ('' = none yet).")
+    coop_host_roster_lag = _nb_prop("host.roster_lag", int, "Frames from the command phase opening to its first roster; "
+                                                            "-1 = none yet this opening.")
+    coop_host_loop_cmds = _nb_prop("host.loop_cmds", int, "``bcmd`` frames still parked on the selftest loopback "
+                                                          "(drained only inside an own battle).")
+    coop_host_end = _nb_prop("host.end", dict, "s103: the END BLOCK the last own-battle sample shipped (kind, kind_name, "
+                                               "phase, seq, result, ui, res_state, loading, flags, win_pose, manifest_len); "
+                                               "None = no own battle, the ``endbench host off`` lever, or cannot.")
+    coop_host_end_trail = _nb_prop("host.end_trail", list, "s103: every DISTINCT 'kind/ui/state' the host shipped this "
+                                                           "own battle ('-' = no result screen, an L suffix = Loading) -- "
+                                                           "kept after the battle until the next one.")
+    coop_host_end_edges = _nb_prop("host.end_edges", int, "s103: samples an end-state change FORCED this own battle (the "
+                                                          "stage's effect; 0 under ``endbench host cadence|off``).")
+    coop_host_end_changes = _nb_prop("host.end_changes", int, "s103: end-state changes the tracker DETECTED this own "
+                                                              "battle (under every lever: the instrument).")
+    coop_host_end_mode = _nb_prop("host.end_mode", str, "s103: the ``endbench host`` lever -- 'on' | 'cadence' | 'off'.")
+    coop_host_end_cmd = _nb_prop("host.end_cmd", str, "s103: the ``endbench cmd`` one-shot -- '' | 'armed' | "
+                                                      "'fired <kind>' | 'failed: ...'.")
+    # ---- peer: the battle view I parsed (the selftest loopback's own battle, or a real peer's)
+    coop_peer_live = _nb_prop("peer.live", bool, "The parsed battle lane is live (fresh).")
+    coop_peer_seq = _nb_prop("peer.seq", int, "The live view's seq; -1 = no live lane.")
+    coop_peer_nonce = _nb_prop("peer.nonce", int, "The live view's battle nonce; -1 = no live lane.")
+    coop_peer_caps = _nb_prop("peer.caps", int, "The live view's whole header flags byte (bit 1 = a gated host); -1 = no "
+                                                "live lane.")
+    coop_peer_ready_mask = _nb_prop("peer.ready_mask", int, "The live view's Ready bits; -1 = no live lane.")
+    coop_peer_end = _nb_prop("peer.end", dict, "s103: the peer END BLOCK as TryGetPeerEnd serves it -- the selftest "
+                                               "``endbench`` seam first (bench True, nonce 181), else the live lane's "
+                                               "trailer; host.end's fields + rows, bench, nonce, wire_seq. None = neither "
+                                               "(or cannot).")
+    coop_peer_end_trail = _nb_prop("peer.end_trail", list, "s103: the same walk as PARSED off the lane (restarted by a "
+                                                           "new battle nonce, kept after the lane falls).")
+    coop_peer_trailer_bad = _nb_prop("peer.trailer_bad", int, "s103: malformed trailers ignored -- monotonic per process.")
+    coop_peer_trailer_skipped = _nb_prop("peer.trailer_skipped", int, "s103: unknown-fmt trailer records skipped -- "
+                                                                      "monotonic per process.")
+    coop_peer_trailer_why = _nb_prop("peer.trailer_why", str, "s103: the last malformed trailer's reason ('' = none).")
+    # ---- menu: the guest's battle menu lane
+    coop_menu_roster_slots = _nb_prop("menu.roster_slots", list, "The slots the parsed peer roster carries menus for, "
+                                                                 "ascending ([] = no live lane or no roster).")
+    coop_menu_r9_refused = _nb_prop("menu.r9_refused", int, "s101: R9 refusals THIS diorama boot (reset by each boot, "
+                                                            "kept after the teardown until the next).")
+    coop_menu_r9_total = _nb_prop("menu.r9_total", int, "s101: R9 refusals this process -- monotonic.")
+    coop_menu_r9_cmd = _nb_prop("menu.r9_cmd", int, "s101: the last refused cmd_no this boot; -1 = none.")
+    coop_menu_r9_site = _nb_prop("menu.r9_site", str, "s101: the caller chain that tried it ('BattleHUD.SendNetCommand "
+                                                      "< ...'; '' = none).")
+    coop_menu_guest_owned = _nb_prop("menu.guest_owned", int, "s101: bit per party slot IsGuestOwnedSlot reads true for "
+                                                              "now (G2 holds it 0 inside a diorama).")
+    coop_menu_contained = _nb_prop("menu.contained", bool, "s101: NetSyncDiorama.Active -- the predicate R9 and G2 key "
+                                                           "on.")
+    coop_menu_containment_off = _nb_prop("menu.containment_off", bool, "s101: the calibration lever ``containment 0``.")
+    coop_menu_captures = _nb_prop("menu.captures", int, "s102: stock commits forwarded as v1 frames -- monotonic.")
+    coop_menu_capture_refused = _nb_prop("menu.capture_refused", int, "s102: stock commits refused (outside the v1 "
+                                                                      "scope, or no wire unit) -- monotonic.")
+    coop_menu_capture_why = _nb_prop("menu.capture_why", str, "s102: the last capture refusal ('' = none).")
+    coop_menu_capture_off = _nb_prop("menu.capture_off", bool, "s102: the calibration lever ``bmenu capture off``.")
+    coop_menu_outbox = _nb_prop("menu.outbox", int, "s102: forwarded frames waiting for a transport (no production "
+                                                    "drain until stage 8).")
+    coop_menu_bench_open = _nb_prop("menu.bench_open", int, "s102: local slots ``bmenu open`` queued this boot (bit per "
+                                                            "slot).")
+    coop_menu_side_refused = _nb_prop("menu.side_refused", int, "s102: side-path gates fired (OpenMainMenu, manual "
+                                                                "Trance, the Vivi swap) -- monotonic.")
+    coop_menu_side_why = _nb_prop("menu.side_why", str, "s102: the last side refusal ('' = none).")
+    coop_menu_captured = _nb_prop("menu.captured", dict, "s102: the last stock commit this boot forwarded, DECODED by the "
+                                                         "host's own decoder (slot, action, menu, id, mask, cursor, "
+                                                         "local_slot, cmd, site, hex, action_name). None = none this "
+                                                         "boot (or cannot).")
+    # ---- end: the guest's presentation of the host's end (s104) and its exit with the host (s105)
+    coop_present_injected = _nb_prop("end.injected", bool, "s104: InjectEnd changed the phase this boot (a victory or "
+                                                           "close kind).")
+    coop_present_held = _nb_prop("end.held", bool, "s104: a defeat/escape HELD this boot (the HUD off, the phase "
+                                                   "untouched).")
+    coop_present_kind = _nb_prop("end.kind", int, "s104: the host kind presented this boot; -1 = none.")
+    coop_present_kind_name = _nb_prop("end.kind_name", str, "s104: its name ('' = none).")
+    coop_present_action = _nb_prop("end.action", str, "s104: 'victory' | 'close' | 'hold' ('' = none).")
+    coop_present_inject_phase = _nb_prop("end.inject_phase", int, "s104: the btl_phase InjectEnd wrote; -1 = none.")
+    coop_present_inject_seq = _nb_prop("end.inject_seq", int, "s104: the btl_seq InjectEnd wrote (4 = "
+                                                              "SEQ_MENU_OFF_VICTORY_WITH_ENEMY); -1 = none.")
+    coop_present_inject_ms = _nb_prop("end.inject_ms", int, "s104: ms since the injection while this boot lives; -1 "
+                                                            "otherwise.")
+    coop_present_r8_hits = _nb_prop("end.r8_hits", int, "s104: ManageBattleEnd refusals this boot -- non-decreasing, NOT "
+                                                        "per frame (33 of every 256 WAIT frames skip): assert a rise over "
+                                                        "seconds, never between polls.")
+    coop_present_r8_first_ms = _nb_prop("end.r8_first_ms", int, "s104: injection -> the first R8 hit (the guest's own "
+                                                                "presentation done); -1 = none.")
+    coop_present_w1_armed = _nb_prop("end.w1_armed", bool, "s104: the host reached ui >= 1 since the injection.")
+    coop_present_watchdog = _nb_prop("end.watchdog", str, "s104: 'W1' | 'W2' | 'W2+W1' ('' = none fired).")
+    coop_present_blocker = _nb_prop("end.blocker", str, "s104: W2's named blocker ('' = W2 did not fire).")
+    coop_present_why = _nb_prop("end.why", str, "s104: the latest reason the end is not presented ('' = presented, or "
+                                                "nothing to present).")
+    coop_present_faulted = _nb_prop("end.faulted", bool, "s104: EndTick threw and stopped for this boot.")
+    coop_present_hud_reasserts = _nb_prop("end.hud_reasserts", int, "s104: a swallowed HUD hide re-applied.")
+    coop_present_guest_mode = _nb_prop("end.guest_mode", str, "s104: the ``endbench guest`` lever -- 'on' | 'off' | "
+                                                              "'settle'.")
+    coop_present_ach_held = _nb_prop("end.ach_held", int, "s104: achievement reports a booted diorama held -- monotonic "
+                                                          "per process.")
+    coop_present_ach_enemy_no = _nb_prop("end.ach_enemy_no", int, "s104: the save-persistent battle-achievement counter "
+                                                                  "R8 protects (an invariant probe); -1 = unreadable.")
+    coop_present_music = _nb_prop("end.music", int, "s104: the current music id (the stock victory tail plays song 5).")
+    coop_present_btl_flag = _nb_prop("end.btl_flag", int, "s104: the raw btl_flag (32 = BTL_PLAY_END_SONG, 64 = "
+                                                          "BTL_END_LOAD).")
+    coop_exit_mode = _nb_prop("end.exit_mode", str, "s105: the ``endbench exit`` lever -- 'on' | 'off'.")
+    coop_end_leave = _nb_prop("end.end_leave", dict, "s105: the whole ``end_leave`` block, copied.")
+    coop_exit_trigger = _nb_prop("end.end_leave.trigger", str, "s105: the host exit that latched -- 'result-hide' | "
+                                                               "'game-over' | 'title' ('' = not yet).")
+    coop_exit_latched_ms = _nb_prop("end.end_leave.latched_ms", int, "s105: ms since the latch while this boot lives; "
+                                                                     "-1 otherwise.")
+    coop_exit_tries = _nb_prop("end.end_leave.tries", int, "s105: Leave() calls the end-leave made (1 per second at "
+                                                           "most).")
+    coop_exit_deferred = _nb_prop("end.end_leave.deferred", int, "s105: attempts a scene fade deferred.")
+    coop_exit_requested = _nb_prop("end.end_leave.requested", bool, "s105: the end-leave's Leave issued its Replace.")
+    coop_exit_request_ms = _nb_prop("end.end_leave.request_ms", int, "s105: latch -> request, ms; -1 = none.")
+    coop_exit_why = _nb_prop("end.end_leave.why", str, "s105: why it has not left ('' = requested).")
+    coop_exit_settled = _nb_prop("end.end_leave.settled", bool, "s105: a Leave of a FINISHED fight settled the return "
+                                                                "this boot.")
+    coop_exit_via = _nb_prop("end.end_leave.via", str, "s105: 'end-leave' | 'leave' ('' = no settle).")
+    coop_exit_stamp = _nb_prop("end.end_leave.stamp", int, "s105: the btl_result decided for the return (pending or "
+                                                           "written); -1 = none.")
+    coop_exit_stamp_host = _nb_prop("end.end_leave.stamp_host", int, "s105: the host's raw result it came from; -1 = no "
+                                                                     "settle.")
+    coop_exit_stamped = _nb_prop("end.end_leave.stamped", int, "s105: what the teardown wrote; -1 = not yet / never.")
+    coop_exit_stamped_was = _nb_prop("end.end_leave.stamped_was", int, "s105: the guest's own btl_result just before; "
+                                                                       "-1 = none.")
+    coop_exit_music_shut = _nb_prop("end.end_leave.music_shut", bool, "s105: ff9ShutdownStateBattleResult ran at the "
+                                                                      "Leave.")
+    coop_exit_music_why = _nb_prop("end.end_leave.music_why", str, "s105: why it did not ('' = it did, or no settle).")
+    coop_exit_wipe_lifted = _nb_prop("end.end_leave.wipe_lifted", bool, "s105: the teardown lifted this boot's injected "
+                                                                        "end fade.")
+    coop_declined = _nb_prop("end.declined", dict, "s105: the watcher's late-join declines, copied.")
+    coop_declined_count = _nb_prop("end.declined.count", int, "s105: late joins declined -- monotonic per process.")
+    coop_declined_nonce = _nb_prop("end.declined.nonce", int, "s105: the last declined battle nonce; -1 = none.")
+    coop_declined_why = _nb_prop("end.declined.why", str, "s105: its reason ('' = none).")
+
     # -- what is highlighted ----------------------------------------------------------------
     @property
     def menu_label(self) -> str | None:
@@ -1094,6 +1337,49 @@ class State:
     def battle_phase(self) -> int:
         """⚠ STALE OUTSIDE A BATTLE -- nothing resets it, so on a field it is the last fight's."""
         return int(self.battle.get("phase", -1))
+
+    @property
+    def battle_seq(self) -> int | None:
+        """[ff9mapkit netsync B4] ``btl_seq`` -- the phase's sub-step (s102: the victory / defeat / escape tails key on it:
+        MENU_OFF seq 4 = SEQ_MENU_OFF_VICTORY_WITH_ENEMY, VICTORY seq 2 = the WAIT). Mid-battle only, like ``phase``: None
+        outside a battle AND on an engine before s102 -- read :attr:`coop_stock_menu` to tell them apart."""
+        v = self.battle.get("seq")
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+    @property
+    def battle_hud(self) -> dict | None:
+        """[ff9mapkit netsync B4] ``battle.hud`` (s102, BattleHUD.NetDescribeHud) -- the live stock command panels AS
+        DRAWN, copied: ``group``, ``panel`` ("target" | "ability" | "item" | "command" | "none"), ``shown``, ``slot``,
+        ``menu`` / ``cmd`` / ``sub``, ``double_cast``, ``cursor_type``, ``target_cursor``, ``trance_menu``,
+        ``manual_trance``, ``auto``, ``hiding``, ``main_menu``, ``can_force_next``, ``force_next``, ``caption``,
+        ``commands[]`` {menu, id, label, state (2 on / 1 grey / 0 blank, as drawn), raw} and ``rows[]`` {i, id, label,
+        number, state, raw} -- both [] while no menu is up. None = no HUD, outside a battle, or an engine before s102."""
+        hud = self.battle.get("hud")
+        if not isinstance(hud, dict):
+            return None
+        out = dict(hud)
+        for key in ("commands", "rows"):
+            if isinstance(out.get(key), list):
+                out[key] = [dict(r) if isinstance(r, dict) else r for r in out[key]]
+        return out
+
+    @property
+    def battle_result_ui(self) -> dict | None:
+        """[ff9mapkit netsync B5] ``battle.result_ui`` (s103) -- the stock result screen read LIVE: ``state`` (ResultState
+        0 Start .. 6 End, 7 Hide, 8 None), ``loading``, ``paused``. None = not on the result screen, outside a battle, or
+        an engine before s103 (:attr:`coop_end_trailer`)."""
+        r = self.battle.get("result_ui")
+        return dict(r) if isinstance(r, dict) else None
+
+    def unit_cmd_busy(self, slot: int) -> int | None:
+        """[ff9mapkit netsync B4] ``battle.units[].cmd_busy`` (s101) for the unit in btl ``slot``: bit i set while its
+        cmd[i] is queued or executing (bit 0 = its ATB command -- R9's receipt). None = no such unit, or an engine before
+        s101 (no key)."""
+        for u in self.battle.get("units", []):
+            if isinstance(u, dict) and u.get("slot") == slot:
+                v = u.get("cmd_busy")
+                return v if isinstance(v, int) and not isinstance(v, bool) else None
+        return None
 
     @property
     def battle_cursor(self) -> dict:
@@ -1251,6 +1537,12 @@ class State:
         return (f"<State frame={self.frame} seq={self.seq}/{self.ack} {self.ui_state} {where} "
                 f"pos=({_f(self.player_x)},{_f(self.player_z)}) control={self.control}"
                 f"{' DIALOG' if self.dialog_open else ''}>")
+
+
+#: [ff9mapkit netsync B4] Every ``netsync.battle`` key path (dotted under ``netsync.battle``) -> the State accessor that
+#: reads it -- the table test_harness_netsync.py holds against the agent's published keys, patch by patch.
+State.NETSYNC_BATTLE_ACCESSORS = {p.fget.nb_path: name for name, p in vars(State).items()
+                                  if isinstance(p, property) and hasattr(p.fget, "nb_path")}
 
 
 def _f(v) -> str:

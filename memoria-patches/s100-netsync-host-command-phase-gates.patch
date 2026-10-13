@@ -1,0 +1,874 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 4158007..e4a9f1c 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -91,6 +91,40 @@ namespace Memoria.Netsync
+         private static Boolean _actionDropLogged;  // once PER BATTLE: cap-sizing telemetry for the Turbo question
+         private static Boolean _actionParseLogged; // selftest loopback: one codec-drift line per session
+ 
++        // [ff9mapkit netsync B4] stage 1 -- THE HOST COMMAND-PHASE GATES (studies/battle-coop/B4-B5-DESIGN.md
++        // section 6.1). "The battle is asking for commands" = PHASE_NORMAL && FF9BMenu_IsEnable(), the engine's
++        // own two signals: _commandEnable is false through the intro, falls again at the victory edge (from
++        // CheckForecastMenuOff, while the phase still reads NORMAL, then PHASE_MENU_OFF) and while paused or a
++        // tutorial is up. ReadyQueue/InputFinishList are cleared ONLY by InitialBattle, so outside that window
++        // they hold the PREVIOUS battle's entries (a second battle's intro) or this battle's (the victory
++        // edge): ungated, the Ready bit advertised a turn the battle was not offering, and a command queued
++        // into an intro FROZE the fight (HarnessAgent `battlecmd` earned the same guard). HOST-ONLY: the guest
++        // side is unchanged. Header flags bit 1 tells a guest these gates are live (old guests read bit 0).
++        public const Byte CapCommandPhaseGated = 2;   // type-1 header flags bit 1
++        private const Int32 RosterForceTries = 8;     // ticks the opening-edge roster rebuild keeps retrying
++        private static Boolean _hostPhaseOpen;        // the pumps' last read of the command phase (edge detector)
++        private static Int32 _phaseOpenFrame = -1;    // Time.frameCount of the last opening edge (harness lag)
++        private static Int32 _rosterForceTries;       // > 0: rebuild the roster every tick until one ships
++        private static Int32 _rosterLagFrames = -1;   // frames from the opening edge to its first roster (-1 = none yet)
++        private static Int32 _lastSampleFlags = -1;   // header flags byte of the last own-battle sample (-1 = none)
++        private static Int32 _lastReadyMask = -1;     // Ready bits of the last own-battle sample (-1 = none)
++        private static Int32 _cmdRefused;             // intake-guard refusals -- monotonic per process: read DELTAS
++        private static Int32 _cmdDropped;             // every other decline (malformed, ownership, validator, HUD)
++        private static Int32 _cmdQueued;              // frames that reached SendNetCommand and were queued
++        private static String _refusedWhy;           // the last intake-guard reason (harness)
++        private static String _droppedWhy;           // the last decline reason (harness)
++        private static readonly List<Int32> _refuseLogged = new List<Int32>(4);   // reasons logged THIS battle
++        // SELFTEST CALIBRATION LEVER (harness `netsync hostgates 0`; cleared by every harness release, forced role or
++        // ini selftest, through HarnessReleaseBench): true = the pre-stage behaviour -- no gate, no capability bit,
++        // no edge sample, the plain RosterMs cadence -- so this stage's bench goes red on the very DLL it proves
++        // (the pre-stage DLL has neither the verbs nor the block). Read only through HostGatesOn, which also needs
++        // the selftest role: a lever stranded across an ini edit to host/client can never ungate a real host.
++        public static Boolean BenchHostGatesOff;
++        private static Boolean HostGatesOn
++        {
++            get { return !(BenchHostGatesOff && NetSyncClient.IsSelfTestRole); }
++        }
++
+         // ================================================================== incoming (the peer's battle)
+         private sealed class UnitView
+         {
+@@ -117,6 +151,8 @@ namespace Memoria.Netsync
+             public Byte PatNum;            // the sender's RESOLVED pattern (never mirror the RNG)
+             public Byte StartType;         // battle_start_type_tags raw -- NOTE: BACK_ATTACK == 0
+             public Boolean IsRandomEncounter;
++            public Byte HostCaps;          // [ff9mapkit netsync B4] the whole header flags byte (bit 0 = rand,
++                                           // bit 1 = command-phase-gated host); old readers keep bit 0 only
+             public Byte Nonce;             // bumps per battle: same map+pattern back-to-back still re-boots
+             public UInt16 SongId;          // v10: the host's audible song -- 0xFFFF unknown / 0xFFFE silent
+             public readonly List<UnitView> Units = new List<UnitView>();
+@@ -271,6 +307,7 @@ namespace Memoria.Netsync
+             _actionsOut.Clear();
+             _actionDropLogged = false;
+             _actionParseLogged = false;
++            NoteOwnBattleEnd();                    // [ff9mapkit netsync B4] stage 1 (the counters + the lever stay)
+             ResetUi();
+         }
+ 
+@@ -282,6 +319,171 @@ namespace Memoria.Netsync
+             _uiPage = 0;
+         }
+ 
++        // ============================================================================ the command phase (B4 stage 1)
++        // [ff9mapkit netsync B4] stage 1: "the battle is asking for commands right now". Never throws: a torn-down
++        // HUD or battle system reads CLOSED, which is the safe answer for both consumers (no Ready bit, no intake).
++        private static Boolean HostCommandPhaseOpen(BattleHUD hud, FF9StateBattleSystem btlsys)
++        {
++            try
++            {
++                return hud != null && btlsys != null && btlsys.btl_phase == FF9StateBattleSystem.PHASE_NORMAL
++                       && hud.FF9BMenu_IsEnable();
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        // An own battle's rising edge (both pumps, beside the nonce bump): the edge detector starts CLOSED (an
++        // intro is never the command phase) and the once-per-battle refusal lines re-arm.
++        private static void NoteOwnBattleStart()
++        {
++            _hostPhaseOpen = false;
++            _rosterForceTries = 0;
++            _rosterLagFrames = -1;
++            _refuseLogged.Clear();
++        }
++
++        // An own battle's falling edge (Pump's else block; SelfTestPump through Reset): the harness's "last
++        // sample" reads -1 between battles instead of a finished fight's values.
++        private static void NoteOwnBattleEnd()
++        {
++            _hostPhaseOpen = false;
++            _rosterForceTries = 0;
++            _lastSampleFlags = -1;
++            _lastReadyMask = -1;
++        }
++
++        // One read of the command phase per pump tick (both pumps). An EDGE returns true and the caller samples
++        // NOW, so the Ready bit's falling edge reaches the wire inside a frame instead of up to SampleMs late; an
++        // OPENING also arms the roster rebuild, so the first turn never waits out RosterMs. With the calibration
++        // lever pulled it only tracks (the harness lag still measures the pre-stage cadence).
++        private static Boolean TrackCommandPhase()
++        {
++            Boolean open = HostCommandPhaseOpen(UIManager.Battle, FF9StateSystem.Battle.FF9Battle);
++            if (open == _hostPhaseOpen)
++                return false;
++            _hostPhaseOpen = open;
++            _rosterForceTries = 0;
++            if (open)
++            {
++                _phaseOpenFrame = UnityEngine.Time.frameCount;
++                _rosterLagFrames = -1;
++            }
++            if (!HostGatesOn)
++                return false;
++            if (open)
++                _rosterForceTries = RosterForceTries;
++            return true;
++        }
++
++        // After every roster build attempt: a shipped roster ends the opening-edge retries and records how many
++        // frames the opening waited for it; a null one spends a retry.
++        private static void NoteRosterAttempt(Boolean built)
++        {
++            if (built)
++            {
++                _rosterForceTries = 0;
++                if (_rosterLagFrames < 0 && _hostPhaseOpen && _phaseOpenFrame >= 0)
++                    _rosterLagFrames = UnityEngine.Time.frameCount - _phaseOpenFrame;
++            }
++            else if (_rosterForceTries > 0)
++            {
++                _rosterForceTries--;
++            }
++        }
++
++        // THE INTAKE GUARD's refusal: counted every time, logged once per battle per reason (a guest's stale
++        // frames can arrive every tick of an intro).
++        private static void RefuseOutsideCommandPhase(Int32 slot, Int32 action, BattleHUD hud, FF9StateBattleSystem btlsys)
++        {
++            _cmdRefused++;
++            Int32 phase = -1;
++            Boolean menuOn = false;
++            try
++            {
++                if (btlsys != null)
++                    phase = btlsys.btl_phase;
++                menuOn = hud != null && hud.FF9BMenu_IsEnable();
++            }
++            catch { }
++            Int32 key;
++            String why;
++            if (hud == null || btlsys == null)
++            {
++                key = 0x100;
++                why = "no battle HUD";
++            }
++            else if (phase != FF9StateBattleSystem.PHASE_NORMAL)
++            {
++                key = phase;
++                why = PhaseWhy(phase);
++            }
++            else
++            {
++                key = 0x101;
++                why = "the command menu is disabled (paused, a tutorial, or the last enemy falling)";
++            }
++            _refusedWhy = why;
++            if (_refuseLogged.Contains(key))
++                return;
++            _refuseLogged.Add(key);
++            Log.Message("[NetSync] peer command for slot " + slot + " (" + ActionName(action) + ") refused -- not in the "
++                        + "command phase: " + why + " (phase " + phase + ", menu " + (menuOn ? "on" : "off")
++                        + "); cmd_refused=" + _cmdRefused + ", logged once per battle per reason");
++        }
++
++        private static String PhaseWhy(Int32 phase)
++        {
++            switch (phase)
++            {
++                case FF9StateBattleSystem.PHASE_INIT_SYSTEM:
++                case FF9StateBattleSystem.PHASE_ENTER:
++                case FF9StateBattleSystem.PHASE_MENU_ON:
++                    return "the battle intro";
++                case FF9StateBattleSystem.PHASE_EVENT:
++                    return "a scripted battle event";
++                case FF9StateBattleSystem.PHASE_MENU_OFF:
++                    return "the battle is ending (menu off)";
++                case FF9StateBattleSystem.PHASE_VICTORY:
++                    return "the victory";
++                case FF9StateBattleSystem.PHASE_DEFEAT:
++                    return "the defeat";
++                case FF9StateBattleSystem.PHASE_CLOSE:
++                    return "the battle is closing";
++                default:
++                    return "phase " + phase;
++            }
++        }
++
++        private static String ActionName(Int32 action)
++        {
++            switch (action)
++            {
++                case ActAttack: return "Attack";
++                case ActDefend: return "Defend";
++                case ActAbility: return "Ability";
++                case ActItem: return "Item";
++                case ActInstant: return "Instant";
++                default: return "action " + action;
++            }
++        }
++
++        // Every other decline names itself (design 3.8 item 4: the silent returns were mask == 0, a null HUD or
++        // battle system, and the per-action failures after the ready gate) and is counted.
++        private static void Drop(String why)
++        {
++            Log.Message("[NetSync] peer command dropped (" + why + ")");
++            CountDrop(why);
++        }
++
++        private static void CountDrop(String why)
++        {
++            _cmdDropped++;
++            _droppedWhy = why;
++        }
++
+         // ============================================================================ the pumps
+         // Real co-op, both directions. Called every frame from NetSyncClient.Update (main thread).
+         public static void Pump(INetTransport socket, EventEngine ee)
+@@ -306,17 +508,22 @@ namespace Memoria.Netsync
+                     {
+                         _battleNonce++;            // a NEW battle -- even the same map+pattern re-boots the peer's diorama
+                         _actionDropLogged = false; // re-arm the once-per-battle action-drop telemetry
++                        NoteOwnBattleStart();      // [ff9mapkit netsync B4] stage 1
+                     }
++                    Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1: an edge samples NOW
+                     Int32 now = Environment.TickCount;
+-                    if (now - _lastSampleTick > SampleMs)
++                    if (phaseEdge || now - _lastSampleTick > SampleMs)
+                     {
+                         _lastSampleTick = now;
+                         socket.SetLocalBattle(SampleOwnBattle());
+                     }
+-                    if (GuestSlots != 0 && now - _lastRosterTick > RosterMs)
++                    // [ff9mapkit netsync B4] stage 1: the opening edge rebuilds the roster at once (retrying a few
++                    // ticks); otherwise the RosterMs cadence. BuildRoster ships nothing outside the command phase.
++                    if (GuestSlots != 0 && (_rosterForceTries > 0 || now - _lastRosterTick > RosterMs))
+                     {
+                         _lastRosterTick = now;
+                         Byte[] roster = BuildRoster();
++                        NoteRosterAttempt(roster != null);
+                         if (roster != null && !BytesEqual(roster, _lastRosterBytes))
+                         {
+                             _lastRosterBytes = roster;
+@@ -341,6 +548,7 @@ namespace Memoria.Netsync
+                         _lastRosterBytes = null;
+                         _localBattleSong = 0xFFFF;             // B3.6: falling edge (this block never calls
+                                                                // Reset) -- a swirl-less next battle ships unknown
++                        NoteOwnBattleEnd();                    // [ff9mapkit netsync B4] stage 1
+                     }
+                     // F1 -- a PLAIN else, every tick, deliberately NOT the one-shot `_wasInBattle` edge
+                     // above: frames buffered outside a wire battle (belt-and-braces; the emit's isDebug
+@@ -442,19 +650,22 @@ namespace Memoria.Netsync
+                 {
+                     _battleNonce++;
+                     _actionDropLogged = false;
++                    NoteOwnBattleStart();                  // [ff9mapkit netsync B4] stage 1
+                 }
+                 _wasInBattle = true;
+ 
++                Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1 (as Pump)
+                 Int32 now = Environment.TickCount;
+-                if (now - _lastSampleTick > SampleMs)
++                if (phaseEdge || now - _lastSampleTick > SampleMs)
+                 {
+                     _lastSampleTick = now;
+                     _loopBattle = SampleOwnBattle();       // the "wire": a byte[] round trip, no socket
+                 }
+-                if (GuestSlots != 0 && now - _lastRosterTick > RosterMs)
++                if (GuestSlots != 0 && (_rosterForceTries > 0 || now - _lastRosterTick > RosterMs))
+                 {
+                     _lastRosterTick = now;
+                     _loopRoster = BuildRoster();
++                    NoteRosterAttempt(_loopRoster != null);
+                 }
+                 // B3.5 loopback: my own CalcResult emits round-trip the action codec (buffer -> queue
+                 // -> TryParseAction -> discard; a selftest own-battle has no diorama to apply onto --
+@@ -559,6 +770,14 @@ namespace Memoria.Netsync
+                 catch { }
+                 Byte flags = 0;
+                 try { if (FF9StateSystem.Battle.isRandomEncounter) flags |= 1; } catch { }
++                // [ff9mapkit netsync B4] stage 1: bit 1 = "my Ready bit and command intake are command-phase
++                // gated" (wire stays v14: ParseView on an old guest reads bit 0 only, WireBenchBoot validates
++                // bit 0 only). Outside the command phase no unit is Ready, whatever the HUD's stale queues hold.
++                Boolean gated = HostGatesOn;
++                if (gated)
++                    flags |= CapCommandPhaseGated;
++                Boolean commandPhase = !gated || HostCommandPhaseOpen(hud, btlsys);
++                Int32 readyMask = 0;
+                 bw.Write(patNum);
+                 bw.Write(startType);
+                 bw.Write(flags);
+@@ -586,7 +805,7 @@ namespace Memoria.Netsync
+                     // LOGICAL 0 while alive, and the guest's death lane would kill it.
+                     Boolean alive = d.cur.hp > 0 && (d.stat.cur & BattleStatus.Death) == 0;
+                     Boolean ready = false;
+-                    if (isPlayer && hud != null)
++                    if (isPlayer && hud != null && commandPhase)   // [ff9mapkit netsync B4] stage 1: the phase gate
+                     {
+                         try
+                         {
+@@ -595,6 +814,8 @@ namespace Memoria.Netsync
+                         }
+                         catch { }
+                     }
++                    if (ready)
++                        readyMask |= 1 << index;
+                     Boolean hidden = !isPlayer && alive && !IsLinked(btlsys, d);
+                     Byte info = 0;
+                     if (isPlayer) info |= 1;
+@@ -619,6 +840,8 @@ namespace Memoria.Netsync
+                 ms.Position = countPos;
+                 bw.Write((Byte)count);
+                 ms.Position = endPos;
++                _lastSampleFlags = flags;                  // [ff9mapkit netsync B4] stage 1: the harness's host view
++                _lastReadyMask = readyMask;
+                 return ms.ToArray();
+             }
+         }
+@@ -680,6 +903,13 @@ namespace Memoria.Netsync
+             BattleHUD hud = UIManager.Battle;
+             if (hud == null)
+                 return null;
++            // [ff9mapkit netsync B4] stage 1: menu CONTENT only while the battle is asking for commands. Outside it
++            // _abilityDetailDict keeps the previous battle's KEYS (InitialBattle clears only the values), so
++            // NetMenusReady read true through a second battle's intro and shipped a stale-or-partial roster. A
++            // null ships nothing: the latest-slot lane keeps the last roster (a pause does not blink it), and
++            // the opening edge rebuilds at once (TrackCommandPhase).
++            if (HostGatesOn && !HostCommandPhaseOpen(hud, FF9StateSystem.Battle.FF9Battle))
++                return null;
+             try
+             {
+                 using (MemoryStream ms = new MemoryStream(1024))
+@@ -836,6 +1066,7 @@ namespace Memoria.Netsync
+                     view.StartType = br.ReadByte();
+                     Byte openFlags = br.ReadByte();
+                     view.IsRandomEncounter = (openFlags & 1) != 0;
++                    view.HostCaps = openFlags;                 // [ff9mapkit netsync B4] bit 1 = phase-gated host
+                     view.Nonce = br.ReadByte();
+                     view.SongId = br.ReadUInt16();             // v10: songId, payload offset 9-10
+                     Int32 count = br.ReadByte();
+@@ -1510,22 +1741,45 @@ namespace Memoria.Netsync
+         private static void HandleCommandPayload(Byte[] p)
+         {
+             if (p == null || p.Length < 9 || p[0] != 1)
++            {
++                // [ff9mapkit netsync B4] stage 1: every decline names itself (design 3.8 item 4)
++                Drop("malformed command frame: " + (p == null ? "null" :
++                     "len " + p.Length + (p.Length > 0 ? ", ver " + p[0] : "") + " (want 9 bytes, ver 1)"));
+                 return;
++            }
+             Int32 slot = p[1], action = p[2], menu = p[3];
+             Int32 id = p[4] | (p[5] << 8);
+             UInt16 mask = (UInt16)(p[6] | (p[7] << 8));
+             UInt32 cursor = p[8];
++            BattleHUD hud = UIManager.Battle;
++            FF9StateBattleSystem btlsys = FF9StateSystem.Battle.FF9Battle;
++            // [ff9mapkit netsync B4] stage 1 -- THE INTAKE GUARD: a command lands only while the battle is asking
++            // for one (PHASE_NORMAL && the menu enabled). BEFORE the ownership check on purpose: a bench with
++            // GuestSlots = 0 still reaches it, and an intro/victory frame is refused for the phase, not
++            // misreported as "not a guest slot". The host drains its queue every in-battle frame, so a frame left
++            // from the victory edge or the previous battle is drained HERE during the next intro -- refused,
++            // where it used to queue a SetCommand into the opening camera and freeze the fight.
++            if (HostGatesOn && !HostCommandPhaseOpen(hud, btlsys))
++            {
++                RefuseOutsideCommandPhase(slot, action, hud, btlsys);
++                return;
++            }
+             if (!IsGuestOwnedSlot(slot))
+             {
+                 Log.Message("[NetSync] peer command for slot " + slot + " refused (not a guest slot)");
++                CountDrop("slot " + slot + " is not a guest slot");
+                 return;
+             }
+             if (mask == 0)
++            {
++                Drop("slot " + slot + " " + ActionName(action) + ": empty target mask");
+                 return;
+-            BattleHUD hud = UIManager.Battle;
+-            FF9StateBattleSystem btlsys = FF9StateSystem.Battle.FF9Battle;
++            }
+             if (hud == null || btlsys == null)
++            {
++                Drop("slot " + slot + ": no battle HUD or battle system");
+                 return;
++            }
+ 
+             BattleUnit unit = null, firstAliveEnemy = null;
+             Boolean maskHasLiving = false;
+@@ -1542,12 +1796,14 @@ namespace Memoria.Netsync
+             if (unit == null || unit.CurrentHp == 0)
+             {
+                 Log.Message("[NetSync] peer command dropped (slot " + slot + " absent or KO)");
++                CountDrop("slot " + slot + " absent or KO");
+                 return;
+             }
+             if (!hud.ReadyQueue.Contains(slot) || hud.InputFinishList.Contains(slot) ||
+                 btl_cmd.CheckUsingCommand(unit.Data.cmd[0]))
+             {
+                 Log.Message("[NetSync] peer command dropped (slot " + slot + " not awaiting input)");
++                CountDrop("slot " + slot + " not awaiting input");
+                 return;
+             }
+ 
+@@ -1558,7 +1814,10 @@ namespace Memoria.Netsync
+                 {
+                     BattleCommandId cmdId = hud.NetCommandForMenu(slot, action == ActAttack ? 0 : menu);
+                     if (cmdId == BattleCommandId.None)
++                    {
++                        Drop("slot " + slot + " " + ActionName(action) + ": no command in menu " + (action == ActAttack ? 0 : menu));
+                         return;
++                    }
+                     // A single-shot cast routed through an ABILITY-type command (the guest saw an empty
+                     // list) must pass the SAME learned/usable validation as a listed pick -- otherwise an
+                     // unlearned ability could be cast through the fallback (playtest finding: Swd Art with
+@@ -1570,6 +1829,7 @@ namespace Memoria.Netsync
+                         {
+                             Log.Message("[NetSync] peer " + cmdId + " dropped (slot " + slot +
+                                         " has no usable ability in it -- empty-list fallback refused)");
++                            CountDrop("slot " + slot + " " + cmdId + ": no usable ability (empty-list fallback refused)");
+                             return;
+                         }
+                     }
+@@ -1580,46 +1840,205 @@ namespace Memoria.Netsync
+                     if (action == ActAttack && !maskHasLiving)
+                         mask = firstAliveEnemy != null ? firstAliveEnemy.Id : (UInt16)0;   // their pick died in flight
+                     if (mask == 0)
++                    {
++                        Drop("slot " + slot + " " + cmdId + ": no living target left to retarget to");
+                         return;
++                    }
+                     if (hud.SendNetCommand(slot, cmdId, subNo, mask, cursor))
++                    {
++                        _cmdQueued++;
+                         Log.Message("[NetSync] peer command: slot " + slot + " " + cmdId + " -> mask 0x" + mask.ToString("X2"));
++                    }
++                    else
++                        DropHudRefused(slot, cmdId.ToString());
+                     break;
+                 }
+                 case ActDefend:
+                 {
+                     if (hud.SendNetCommand(slot, BattleCommandId.Defend, (Int32)BattleAbilityId.Defend, (UInt16)(1 << slot), 0U))
++                    {
++                        _cmdQueued++;
+                         Log.Message("[NetSync] peer command: slot " + slot + " Defend");
++                    }
++                    else
++                        DropHudRefused(slot, "Defend");
+                     break;
+                 }
+                 case ActAbility:
+                 {
+                     BattleCommandId cmdId = hud.NetCommandForMenu(slot, menu);
+                     if (cmdId == BattleCommandId.None)
++                    {
++                        Drop("slot " + slot + " Ability: no command in menu " + menu);
+                         return;
++                    }
+                     Int32 subNo;
+                     if (!hud.NetAbilityUsable(slot, cmdId, id, out subNo))
+                     {
+                         Log.Message("[NetSync] peer ability " + id + " dropped (not usable by slot " + slot + ")");
++                        CountDrop("slot " + slot + " ability " + id + " not usable");
+                         return;
+                     }
+                     if (hud.SendNetCommand(slot, cmdId, subNo, mask, cursor))
++                    {
++                        _cmdQueued++;
+                         Log.Message("[NetSync] peer command: slot " + slot + " " + cmdId + " ability " + id + " -> mask 0x" + mask.ToString("X2"));
++                    }
++                    else
++                        DropHudRefused(slot, cmdId + " ability " + id);
+                     break;
+                 }
+                 case ActItem:
+                 {
+                     BattleCommandId cmdId = hud.NetCommandForMenu(slot, 4 /* BattleCommandMenu.Item */);
+                     if (cmdId == BattleCommandId.None)
++                    {
++                        Drop("slot " + slot + " Item: no command in the Item menu");
+                         return;
++                    }
+                     if (ff9item.FF9Item_GetCount((RegularItem)id) <= 0)
+                     {
+                         Log.Message("[NetSync] peer item " + id + " dropped (none left)");
++                        CountDrop("item " + id + ": none left");
+                         return;
+                     }
+                     if (hud.SendNetCommand(slot, cmdId, id, mask, cursor))
++                    {
++                        _cmdQueued++;
+                         Log.Message("[NetSync] peer command: slot " + slot + " Item " + id + " -> mask 0x" + mask.ToString("X2"));
++                    }
++                    else
++                        DropHudRefused(slot, "Item " + id);
+                     break;
+                 }
++                default:
++                    Drop("slot " + slot + ": unknown action " + action + " (v1 knows 0-4)");
++                    break;
++            }
++        }
++
++        // [ff9mapkit netsync B4] stage 1: SendNetCommand's own refusals, named (its two tests, in its order).
++        private static void DropHudRefused(Int32 slot, String what)
++        {
++            Boolean localOwns = false;
++            try { localOwns = UIManager.Battle != null && UIManager.Battle.CurrentPlayerIndex == slot; }
++            catch { }
++            Drop("slot " + slot + " " + what + ": the HUD refused -- " + (localOwns
++                 ? "the host's local menu owns this slot right now"
++                 : "a command is already in flight for it (or the unit has no command slot)"));
++        }
++
++        // ============================================================================ harness surface (B4 stage 1)
++        // [ff9mapkit netsync B4] stage 1 -- the sources of the harness's `netsync.battle` block and its verbs
++        // (additive under harness protocol 5). Read-only, main-thread, never throw. "host" = MY own battle as I
++        // stream it; "peer" = the battle view I parsed (the selftest loopback's own battle, or a real peer's) --
++        // -1 / empty whenever that lane is not live, never a finished fight's values.
++        public static Boolean HarnessGatesOff { get { return !HostGatesOn; } }
++        public static Int32 HarnessHostCaps { get { return _lastSampleFlags; } }
++        public static Int32 HarnessHostReadyMask { get { return _lastReadyMask; } }
++        public static Boolean HarnessHostCommandPhase { get { return _hostPhaseOpen; } }
++        public static Int32 HarnessCmdRefused { get { return _cmdRefused; } }
++        public static Int32 HarnessCmdDropped { get { return _cmdDropped; } }
++        public static Int32 HarnessCmdQueued { get { return _cmdQueued; } }
++        public static String HarnessRefusedWhy { get { return _refusedWhy; } }
++        public static String HarnessDroppedWhy { get { return _droppedWhy; } }
++        public static Int32 HarnessRosterLag { get { return _rosterLagFrames; } }
++        public static Int32 HarnessLoopCommands { get { return _loopCommands.Count; } }
++
++        private static BattleView LivePeerView()
++        {
++            BattleView v = _peerView;
++            return v != null && PeerBattleLive ? v : null;
++        }
++
++        public static Boolean HarnessPeerLive { get { return LivePeerView() != null; } }
++        public static Int32 HarnessPeerSeq { get { BattleView v = LivePeerView(); return v != null ? v.Seq : -1; } }
++        public static Int32 HarnessPeerNonce { get { BattleView v = LivePeerView(); return v != null ? v.Nonce : -1; } }
++        public static Int32 HarnessPeerCaps { get { BattleView v = LivePeerView(); return v != null ? v.HostCaps : -1; } }
++
++        public static Int32 HarnessPeerReadyMask
++        {
++            get
++            {
++                BattleView v = LivePeerView();
++                if (v == null)
++                    return -1;
++                Int32 m = 0;
++                for (Int32 i = 0; i < v.Units.Count; i++)
++                {
++                    UnitView u = v.Units[i];
++                    if (u.IsPlayer && u.Ready && u.Index >= 0 && u.Index < 8)
++                        m |= 1 << u.Index;
++                }
++                return m;
++            }
++        }
++
++        // The slots the parsed peer roster carries menus for, ascending (empty = no live lane or no roster yet).
++        public static List<Int32> HarnessRosterSlots()
++        {
++            List<Int32> slots = new List<Int32>(4);
++            RosterView roster = _peerRoster;
++            if (LivePeerView() != null && roster != null)
++            {
++                foreach (Int32 s in roster.Slots.Keys)
++                    slots.Add(s);
++                slots.Sort();
++            }
++            return slots;
++        }
++
++        // `netsync bcmd <hex>`: queue a raw type-2 command frame onto the selftest LOOPBACK command lane. SelfTestPump
++        // drains it on its next tick inside an own battle through the REAL HandleCommandPayload (the intake guard, the
++        // ownership check, the validator) -- a guest's frame on a host, minus the socket. Queued outside a battle it
++        // waits for the next one, exactly as a real host's socket queue does (Pump drains only in battle). The bytes
++        // are passed through UNVALIDATED on purpose: a malformed-frame bench is a bench.
++        public static Boolean HarnessQueueCommand(Byte[] frame, out String why)
++        {
++            why = null;
++            if (!Enabled || !NetSyncClient.IsSelfTestRole)
++                why = "netsync bcmd: needs the selftest role (netsync selftest 1)";
++            else if (frame == null || frame.Length == 0 || frame.Length > 64)
++                why = "netsync bcmd: needs 1..64 bytes of hex (a v1 command frame is 9: ver slot action menu idLo idHi maskLo maskHi cursor)";
++            else if (_loopCommands.Count >= 16)
++                why = "netsync bcmd: 16 frames already wait on the loopback (no own battle is draining them)";
++            if (why != null)
++                return false;
++            _loopCommands.Enqueue(frame);
++            Log.Message("[NetSync] harness: command frame [" + BitConverter.ToString(frame).Replace('-', ' ')
++                        + "] queued on the selftest loopback (drained inside an own battle)");
++            return true;
++        }
++
++        // `netsync hostgates 1|0`: the stage's calibration lever (see BenchHostGatesOff). Selftest role only.
++        public static Boolean HarnessHostGates(Boolean on, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync hostgates: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            BenchHostGatesOff = !on;
++            Log.Message("[NetSync] harness: host command-phase gates " + (on ? "ON"
++                        : "OFF -- CALIBRATION: the pre-stage host (no phase gate, no caps bit 1, RosterMs cadence)"));
++            return true;
++        }
++
++        // Every harness release (NetSyncClient.HarnessSelfTest(false): disarm, fault, `reset`), whether the selftest
++        // role was forced or ini-configured: the lever goes back to gated and no `bcmd` frame parked on the loopback
++        // outlives the scenario that queued it. Between pump ticks the loopback queue holds ONLY parked harness
++        // frames (the assist panel's own frames are enqueued and drained in the same tick), so the clear takes
++        // nothing else. Never throws.
++        public static void HarnessReleaseBench()
++        {
++            if (BenchHostGatesOff)
++                Log.Message("[NetSync] harness: host command-phase gates back ON (released with the harness)");
++            BenchHostGatesOff = false;
++            if (_loopCommands.Count > 0)
++            {
++                Log.Message("[NetSync] harness: " + _loopCommands.Count + " parked loopback command frame(s) discarded on release");
++                _loopCommands.Clear();
+             }
+         }
+ 
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index b709987..bc1b857 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -3525,6 +3525,7 @@ namespace Memoria.Netsync
+         // session is REFUSED (never override a real pairing), and a genuine ini edit mid-run takes
+         // precedence over the override (a human touched the config; ApplyConfigChange runs as usual).
+         private static Boolean _harnessSelfTest;         // TRUE while the harness override is in force
++        private static Boolean _benchGuestSlots;         // [ff9mapkit netsync B4] TRUE while a `netsync guestslots` override holds
+ 
+         public static Boolean HarnessSelfTest(Boolean on, out String why)
+         {
+@@ -3558,8 +3559,18 @@ namespace Memoria.Netsync
+                     Log.Message("[NetSync] harness: selftest role FORCED for this process (Memoria.ini untouched)");
+                     return true;
+                 }
++                // [ff9mapkit netsync B4] the B4 bench state is released on EVERY path, ABOVE the forced-role early
++                // return: its verbs need only IsSelfTestRole, which an ini-configured selftest satisfies too, so a
++                // scenario run there must not hand the next one ungated host gates, a GuestSlots override or a parked
++                // `bcmd` frame. Restoring _guestSlots is always right: it is the pin while forced, else the ini's own value.
++                NetSyncBattle.HarnessReleaseBench();                  // the calibration lever + the parked loopback frames
++                if (_benchGuestSlots)
++                {
++                    _benchGuestSlots = false;
++                    NetSyncBattle.GuestSlots = _guestSlots;           // a `guestslots` override back to the pin / the ini
++                }
+                 if (!_harnessSelfTest)
+-                    return true;                                      // nothing to undo
++                    return true;                                      // nothing else to undo
+                 _harnessSelfTest = false;
+                 if (_role != "selftest")
+                     return true;                                      // a human's ini edit already replaced the override
+@@ -3587,6 +3598,27 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync B4] stage 1 -- harness `netsync guestslots <mask>`: a process-local override of the
++        // GuestSlots = 0 pin HarnessSelfTest(true) sets, so a selftest OWN battle hands those party slots to the
++        // loopback "guest" exactly as [Netsync] GuestSlots would (the local HUD skips them, the assist lane serves
++        // them, the roster ships them). The battle lane only: _guestSlots (the field ghost's dress) keeps the pin.
++        // Memoria.ini untouched; HarnessSelfTest(false) restores the pin on every release path (a forced role or an
++        // ini-configured selftest alike); a genuine ini edit still wins.
++        public static Boolean HarnessGuestSlots(Int32 mask, out String why)
++        {
++            why = null;
++            if (!IsSelfTestRole)
++                why = "netsync guestslots: needs the selftest role (netsync selftest 1)";
++            else if (mask < 0 || mask > 0x0F)
++                why = "netsync guestslots: mask " + mask + " is outside 0..15 (party slots 0-3)";
++            if (why != null)
++                return false;
++            NetSyncBattle.GuestSlots = mask;
++            _benchGuestSlots = true;
++            Log.Message("[NetSync] harness: battle GuestSlots = " + mask + " for this process (Memoria.ini untouched)");
++            return true;
++        }
++
+         // The lockstep observables the harness publishes each frame (HarnessAgent.AppendNetsync). All
+         // instance-null-safe: on a vanilla launch nothing exists and every value reads as "absent".
+         public static Boolean HarnessEnabled { get { return _enabled; } }
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 9734ea5..af800ae 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -67,6 +67,10 @@ namespace Memoria.Harness
+         // `key_reader`/`keys[]`/`key_served`/`key_expired`/`key_gaveup`/`key_taps`/`tap_record`/`tape`/`replay_left`,
+         // the verbs `netsync tap-record 1|0` and `netsync replay [[paced] 1|0]`, and `netsync host key` is now SERVED (not
+         // ignored). A driver checks for `key_hold` -- absent = an engine whose guest ignores KEY.
++        // [ff9mapkit netsync B4] stage 1 (the host command-phase gates), also additive under 5: `netsync.battle`
++        // (host / peer / menu -- see AppendNetsyncBattle) and the selftest verbs `netsync guestslots <mask>`,
++        // `netsync bcmd <hex>` and `netsync hostgates 1|0`. A driver checks for `netsync.battle` -- absent = an engine
++        // whose host advertises a Ready bit and takes commands outside the command phase.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1153,8 +1157,43 @@ namespace Memoria.Harness
+                             // Booted reads false): a Leave the swirl overwrites must still be retried by a later release.
+                             break;
+                         }
++                        case "guestslots":
++                        {
++                            // [ff9mapkit netsync B4] stage 1: `guestslots <mask>` (0-15, decimal or 0x hex) hands those party
++                            // slots of a selftest OWN battle to the loopback guest -- a process-local override of the
++                            // GuestSlots = 0 pin `selftest 1` sets (Memoria.ini untouched; released on disarm/fault/reset,
++                            // a forced role or an ini-configured selftest alike).
++                            Int32 gmask = ArgMask(s, 1);
++                            if (gmask < 0)
++                                throw new ArgumentOutOfRangeException("netsync guestslots", "needs a slot mask 0-15 (decimal or 0x hex)");
++                            if (!Memoria.Netsync.NetSyncClient.HarnessGuestSlots(gmask, out why))
++                                throw new InvalidOperationException(why ?? "netsync guestslots refused");
++                            break;
++                        }
++                        case "bcmd":
++                        {
++                            // [ff9mapkit netsync B4] stage 1: `bcmd <hex>` queues a raw type-2 command frame on the selftest
++                            // loopback, drained through the REAL HandleCommandPayload inside an own battle (the intake guard,
++                            // ownership, the validator). Hex as one token or several ("01 01 00 00 00 00 10 00 00" = slot 1
++                            // Attack at enemy slot 4). `netsync.battle.host.cmd_refused/cmd_dropped/cmd_queued` count the outcome.
++                            // A frame still parked at disarm/fault/reset is discarded (NetSyncBattle.HarnessReleaseBench).
++                            Byte[] frame = ArgHex(s, 1);
++                            if (frame == null)
++                                throw new ArgumentOutOfRangeException("netsync bcmd", "needs hex bytes, e.g. `netsync bcmd 01 01 00 00 00 00 10 00 00`");
++                            if (!Memoria.Netsync.NetSyncBattle.HarnessQueueCommand(frame, out why))
++                                throw new InvalidOperationException(why ?? "netsync bcmd refused");
++                            break;
++                        }
++                        case "hostgates":
++                            // [ff9mapkit netsync B4] stage 1: the calibration lever -- `hostgates 0` = the pre-stage host (no
++                            // command-phase gate, no caps bit 1, the plain roster cadence), `hostgates 1` (default) = the gates.
++                            // Selftest role only; released on disarm/fault/reset (forced role or ini selftest alike).
++                            // `netsync.battle.host.gates_off` reads it back.
++                            if (!Memoria.Netsync.NetSyncBattle.HarnessHostGates(Arg(s, 1, 1) != 0, out why))
++                                throw new InvalidOperationException(why ?? "netsync hostgates refused");
++                            break;
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates)");
+                     }
+                     Block(2);
+                     break;
+@@ -1663,6 +1702,46 @@ namespace Memoria.Harness
+             return fallback;
+         }
+ 
++        // [ff9mapkit netsync B4] a slot mask 0-15 as decimal or 0x hex; -1 = absent or malformed (never a silent 0).
++        private static Int32 ArgMask(Step s, Int32 i)
++        {
++            if (s.Args.Length <= i)
++                return -1;
++            String a = s.Args[i].Trim();
++            Int32 v;
++            Boolean ok = a.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
++                ? Int32.TryParse(a.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out v)
++                : Int32.TryParse(a, NumberStyles.Integer, CultureInfo.InvariantCulture, out v);
++            return ok && v >= 0 && v <= 0x0F ? v : -1;
++        }
++
++        // [ff9mapkit netsync B4] the args from index i joined as hex bytes ("01 01 00" or "010100"); null = none or
++        // malformed (an odd digit count or a non-hex character is refused, never half-parsed).
++        private static Byte[] ArgHex(Step s, Int32 i)
++        {
++            if (s.Args.Length <= i)
++                return null;
++            StringBuilder hex = new StringBuilder(32);
++            for (Int32 k = i; k < s.Args.Length; k++)
++            {
++                String a = s.Args[k].Trim();
++                if (a.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
++                    a = a.Substring(2);
++                hex.Append(a);
++            }
++            if (hex.Length == 0 || (hex.Length & 1) != 0)
++                return null;
++            Byte[] bytes = new Byte[hex.Length / 2];
++            for (Int32 b = 0; b < bytes.Length; b++)
++            {
++                Int32 v;
++                if (!Int32.TryParse(hex.ToString(b * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out v))
++                    return null;
++                bytes[b] = (Byte)v;
++            }
++            return bytes;
++        }
++
+         // Accepts the Control enum names plus the aliases a human (or a scenario author) actually types.
+         private static Control ParseControl(String name)
+         {
+@@ -2476,11 +2555,12 @@ namespace Memoria.Harness
+                 Num(sb, "orphan_closes", Memoria.Netsync.NetSyncClient.HarnessOrphanCloses); sb.Append(",");
+                 Str(sb, "chip", Memoria.Netsync.NetSyncClient.HarnessDialogChip); sb.Append(",");
+                 AppendRing(sb); sb.Append(",");
+-                AppendDiorama(sb);
++                AppendDiorama(sb); sb.Append(",");
++                AppendNetsyncBattle(sb);
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1},\"menu\":{\"roster_slots\":[]}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -2601,6 +2681,47 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync B4] stage 1 -- `netsync.battle`, additive under protocol 5 (an engine without it publishes
++        // no key: read absence as "this engine has no command-phase gates", never as "nothing there"). The B4/B5 arc
++        // grows it (studies/battle-coop/B4-B5-DESIGN.md section 6.4); stage 1 publishes:
++        //   host -- MY own battle as I stream it: `gates_off` (the selftest calibration lever `hostgates 0`), `guest_slots`
++        //     (the battle lane's GuestSlots, incl. a `guestslots` override), `cmd_phase` (the pumps' last read of "the
++        //     battle is asking": PHASE_NORMAL && FF9BMenu_IsEnable), `caps` / `ready_mask` (the header flags byte and the
++        //     Ready bits of the last own-battle sample; -1 = no own battle; caps bit 1 = command-phase-gated host),
++        //     `cmd_refused` (intake-guard refusals), `cmd_dropped` (every other decline), `cmd_queued` (frames queued
++        //     through SendNetCommand) -- all three monotonic per process, read DELTAS -- `refused_why` / `dropped_why`
++        //     (the last reasons, null = none yet), `roster_lag` (frames from the command phase opening to its first
++        //     roster; -1 = none yet this opening) and `loop_cmds` (bcmd frames still waiting on the loopback);
++        //   peer -- the battle view I parsed (the selftest loopback's own battle, or a real peer's): `live`, `seq`, `nonce`,
++        //     `caps` (its whole header flags byte), `ready_mask` (its Ready bits); -1 whenever the lane is not live;
++        //   menu -- `roster_slots` (the slots the parsed roster carries menus for; [] = no live lane or no roster).
++        // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
++        private static void AppendNetsyncBattle(StringBuilder sb)
++        {
++            sb.Append("\"battle\":{\"host\":{");
++            Bool(sb, "gates_off", Memoria.Netsync.NetSyncBattle.HarnessGatesOff); sb.Append(",");
++            Num(sb, "guest_slots", Memoria.Netsync.NetSyncBattle.GuestSlots); sb.Append(",");
++            Bool(sb, "cmd_phase", Memoria.Netsync.NetSyncBattle.HarnessHostCommandPhase); sb.Append(",");
++            Num(sb, "caps", Memoria.Netsync.NetSyncBattle.HarnessHostCaps); sb.Append(",");
++            Num(sb, "ready_mask", Memoria.Netsync.NetSyncBattle.HarnessHostReadyMask); sb.Append(",");
++            Num(sb, "cmd_refused", Memoria.Netsync.NetSyncBattle.HarnessCmdRefused); sb.Append(",");
++            Num(sb, "cmd_dropped", Memoria.Netsync.NetSyncBattle.HarnessCmdDropped); sb.Append(",");
++            Num(sb, "cmd_queued", Memoria.Netsync.NetSyncBattle.HarnessCmdQueued); sb.Append(",");
++            Str(sb, "refused_why", Memoria.Netsync.NetSyncBattle.HarnessRefusedWhy); sb.Append(",");
++            Str(sb, "dropped_why", Memoria.Netsync.NetSyncBattle.HarnessDroppedWhy); sb.Append(",");
++            Num(sb, "roster_lag", Memoria.Netsync.NetSyncBattle.HarnessRosterLag); sb.Append(",");
++            Num(sb, "loop_cmds", Memoria.Netsync.NetSyncBattle.HarnessLoopCommands);
++            sb.Append("},\"peer\":{");
++            Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
++            Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessPeerNonce); sb.Append(",");
++            Num(sb, "caps", Memoria.Netsync.NetSyncBattle.HarnessPeerCaps); sb.Append(",");
++            Num(sb, "ready_mask", Memoria.Netsync.NetSyncBattle.HarnessPeerReadyMask);
++            sb.Append("},\"menu\":{");
++            AppendIntList(sb, "roster_slots", Memoria.Netsync.NetSyncBattle.HarnessRosterSlots());
++            sb.Append("}}");
++        }
++
+         // The F3 lockstep keys a rev-5 driver may still read, pinned to "nothing" (see ProtocolVersion), plus
+         // the contract tag that tells a new driver the F3.2 keys are live.
+         private const String NetsyncF3Retired = "\"dialogue\":\"authority\",\"l1_pinned\":false,\"l1_forced_control\":false,"

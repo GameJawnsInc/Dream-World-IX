@@ -1,0 +1,925 @@
+diff --git a/Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs b/Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs
+index d408424..59ad0c3 100644
+--- a/Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs
++++ b/Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs
+@@ -107,7 +107,10 @@ namespace Assets.SiliconSocial
+             // ramp can take it back. This is the single funnel every channel crosses (item pickup, battle,
+             // ability, minigame) before the native call, so gating here closes the whole class.
+             // [ff9mapkit netsync spectator-field]
+-            if (Memoria.Netsync.NetSyncClient.IsMirroringStory)
++            // [ff9mapkit netsync B5] stage 5: widened to a BOOTED battle diorama -- a selftest bench or a live followed session
++            // may boot one without IsMirroringStory, and its injected victory must never reach the platform (HoldAchievement
++            // counts and logs the hold; one Boolean read on every other machine).
++            if (Memoria.Netsync.NetSyncDiorama.HoldAchievement((Int32)key) || Memoria.Netsync.NetSyncClient.IsMirroringStory)
+                 return;
+             if (!Social.IsSocialPlatformAuthenticated())
+                 return;
+diff --git a/Assembly-CSharp/FF9/btl_sys.cs b/Assembly-CSharp/FF9/btl_sys.cs
+index 4869e44..f2c3f37 100644
+--- a/Assembly-CSharp/FF9/btl_sys.cs
++++ b/Assembly-CSharp/FF9/btl_sys.cs
+@@ -168,6 +168,17 @@ namespace FF9
+ 
+         public static UInt32 ManageBattleEnd(FF9StateBattleSystem btlsys)
+         {
++            // [ff9mapkit netsync B5] stage 5 -- R8: a battle diorama's end NEVER reaches the battle-end writes. From this stage
++            // the guest INJECTS the stock victory/close sequence (NetSyncDiorama.EndTick), whose WAIT seq calls this -- and with
++            // isDebug on IsOver never sets, so it would re-fire EVERY FRAME: the end-battle achievement (its save-persistent
++            // BattleAchievement counters included) and the DEFEAT -> GAMEOVER rewrite below (SavePlayerData is already gated at
++            // its definition). Keyed on Active alone, like every containment gate. The return value is irrelevant here:
++            // HonoluluBattleMain reads it only under !isDebug. The first hit is the guest's "my presentation is done" signal.
++            if (Memoria.Netsync.NetSyncDiorama.Active)
++            {
++                Memoria.Netsync.NetSyncDiorama.NoteR8();
++                return 1;
++            }
+             FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
+             FF9StateBattleSystem ff9Battle = FF9StateSystem.Battle.FF9Battle;
+             switch (ff9.btl_result)
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 4b40938..65dd79c 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -87,6 +87,10 @@ namespace Memoria.Harness
+         // <op>` joins (the bench end block through the real codec, the victory-edge `cmd` one-shot, the `host on|cadence|off`
+         // lever, `selftest`), and `battle.result_ui` (the live result screen's state/loading/paused -- see AppendResultUi).
+         // A driver checks for `netsync.battle.host.end_trail` -- absent = an engine with no end block.
++        // [ff9mapkit netsync B5] stage 5 (the guest's victory presentation), also additive under 5: `netsync.battle.end` (the
++        // diorama's injected end, R8's refusals, the W1/W2 watchdogs, the achievement hold -- see AppendBattleEnd), the
++        // `endbench guest on|off|settle` calibration lever, and NetSyncEnd.SelfTest's `present` section (`endbench selftest`).
++        // A driver checks for `netsync.battle.end.r8_hits` -- absent = an engine whose guest presents no end.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1272,8 +1276,13 @@ namespace Memoria.Harness
+                             //       slot 4) goes onto the selftest loopback the first time an own battle SHIPS an end kind;
+                             //   `endbench host on|cadence|off`  the calibration lever (cadence = no change-triggered sample,
+                             //       off = no trailer at all: the pre-stage host);
++                            //   `endbench guest on|off|settle`  [ff9mapkit netsync B5] stage 5's lever: off = the pre-stage
++                            //       guest (a diorama presents no end), settle = the victory injection writes the per-unit-settle
++                            //       seq (a bench diorama stalls in MENU_OFF until W2 -- the watchdog's red);
+                             //   `endbench selftest`  NetSyncEnd.SelfTest (fails the verb on FAIL);  `endbench clear`.
+-                            // Released on disarm/fault/reset (the bench end, the one-shot and the lever).
++                            // Released on disarm/fault/reset (the bench end, the one-shot and both levers).
++                            // [ff9mapkit netsync B5] stage 5: inside a selftest diorama (`dioboot`) a fabricated END kind is
++                            // PRESENTED -- read `netsync.battle.end` and `battle.phase/seq/result`.
+                             String eop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             Int32 earg = -1;
+                             Boolean eloading = false;
+@@ -1305,6 +1314,7 @@ namespace Memoria.Harness
+                                     }
+                                     break;
+                                 case "host":
++                                case "guest":                   // [ff9mapkit netsync B5] stage 5
+                                     emode = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
+                                     break;
+                             }
+@@ -2781,7 +2791,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -2942,6 +2952,7 @@ namespace Memoria.Harness
+         //   peer -- `end` (see AppendPeerEnd: the bench seam or the live trailer), `end_trail` (the same walk as PARSED off the
+         //     lane -- restarted by a new battle nonce, kept after the lane falls), `trailer_bad` / `trailer_skipped`
+         //     (malformed trailers / unknown-fmt records skipped -- monotonic per process, read DELTAS) and `trailer_why`.
++        // [ff9mapkit netsync B5] stage 5 adds the fourth sub-object, `end` (the guest's presentation -- see AppendBattleEnd).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -2993,7 +3004,56 @@ namespace Memoria.Harness
+             Num(sb, "side_refused", Memoria.Netsync.NetSyncBattle.HarnessSideRefused); sb.Append(",");
+             Str(sb, "side_why", Memoria.Netsync.NetSyncBattle.HarnessSideRefusedWhy); sb.Append(",");
+             AppendStockCapture(sb);
+-            sb.Append("}}");
++            sb.Append("},");
++            AppendBattleEnd(sb);                                                                        // [ff9mapkit netsync B5] stage 5
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync B5] stage 5: `netsync.battle.end` -- the GUEST'S end presentation on its battle diorama
++        // (NetSyncDiorama.EndTick / InjectEnd, R8, the watchdogs; studies/battle-coop/B4-B5-DESIGN.md 5.3). Per diorama boot:
++        // reset by each boot, kept after the teardown until the next one.
++        //   `injected` (the phase was changed: a victory or close kind), `held` (a defeat/escape HELD: the HUD off, the phase
++        //   untouched), `kind` / `kind_name` (the host kind presented; -1 / null = none), `action` ("victory" | "close" |
++        //   "hold" | null), `inject_phase` / `inject_seq` (what InjectEnd wrote; -1 = nothing -- inject_seq 4 =
++        //   SEQ_MENU_OFF_VICTORY_WITH_ENEMY, 0 under the `endbench guest settle` lever), `inject_ms` (ms since the injection
++        //   while this boot lives; -1 otherwise), `r8_hits` (btl_sys.ManageBattleEnd refusals this boot: 223 of every 256 frames at
++        //   the WAIT seq, as the Byte btl_fade_time wraps -- non-decreasing, so assert a rise over a window of seconds, never
++        //   between consecutive polls; rising = the guest holds, writing nothing), `r8_first_ms` (injection -> the first R8 hit, i.e. the guest's own
++        //   presentation done; -1 = none), `w1_armed` (the host reached ui >= 1 since the injection), `watchdog` ("W1" | "W2" |
++        //   "W2+W1" | null) and `blocker` (W2's named blocker; null = W2 did not fire), `why` (the latest reason the end is not
++        //   presented: no end block, another battle's nonce, waiting for the steady phase, the lever; null = presented or
++        //   nothing to present), `faulted` (EndTick threw and stopped for this boot), `hud_reasserts` (a swallowed HUD hide
++        //   re-applied), `guest_mode` (the selftest lever: on | off | settle), `ach_held` (achievement reports a booted diorama
++        //   held -- monotonic per process, read DELTAS), `ach_enemy_no` (the save-persistent battle-achievement counter R8
++        //   protects: an invariant probe, -1 = unreadable), and the fanfare made readable: `music` (the current music id; the
++        //   stock victory tail plays song 5) and `btl_flag` (raw; 32 = BTL_PLAY_END_SONG, 64 = BTL_END_LOAD). Stages 6 and 10
++        //   add `end_leave` / `declined` / `replay`.
++        private static void AppendBattleEnd(StringBuilder sb)
++        {
++            Int32 kind = Memoria.Netsync.NetSyncDiorama.HarnessEndKind;
++            sb.Append("\"end\":{");
++            Bool(sb, "injected", Memoria.Netsync.NetSyncDiorama.HarnessEndInjected); sb.Append(",");
++            Bool(sb, "held", Memoria.Netsync.NetSyncDiorama.HarnessEndHeld); sb.Append(",");
++            Num(sb, "kind", kind); sb.Append(",");
++            Str(sb, "kind_name", kind < 0 ? null : Memoria.Netsync.NetSyncEnd.KindName(kind)); sb.Append(",");
++            Str(sb, "action", Memoria.Netsync.NetSyncDiorama.HarnessEndAction); sb.Append(",");
++            Num(sb, "inject_phase", Memoria.Netsync.NetSyncDiorama.HarnessEndPhaseSet); sb.Append(",");
++            Num(sb, "inject_seq", Memoria.Netsync.NetSyncDiorama.HarnessEndSeqSet); sb.Append(",");
++            Num(sb, "inject_ms", Memoria.Netsync.NetSyncDiorama.HarnessEndAgeMs); sb.Append(",");
++            Num(sb, "r8_hits", Memoria.Netsync.NetSyncDiorama.HarnessR8Hits); sb.Append(",");
++            Num(sb, "r8_first_ms", Memoria.Netsync.NetSyncDiorama.HarnessR8FirstMs); sb.Append(",");
++            Bool(sb, "w1_armed", Memoria.Netsync.NetSyncDiorama.HarnessEndW1Armed); sb.Append(",");
++            Str(sb, "watchdog", Memoria.Netsync.NetSyncDiorama.HarnessEndWatchdog); sb.Append(",");
++            Str(sb, "blocker", Memoria.Netsync.NetSyncDiorama.HarnessEndBlocker); sb.Append(",");
++            Str(sb, "why", Memoria.Netsync.NetSyncDiorama.HarnessEndWhy); sb.Append(",");
++            Bool(sb, "faulted", Memoria.Netsync.NetSyncDiorama.HarnessEndFaulted); sb.Append(",");
++            Num(sb, "hud_reasserts", Memoria.Netsync.NetSyncDiorama.HarnessHudReasserts); sb.Append(",");
++            Str(sb, "guest_mode", Memoria.Netsync.NetSyncEnd.HarnessGuestMode); sb.Append(",");
++            Num(sb, "ach_held", Memoria.Netsync.NetSyncDiorama.HarnessAchHeld); sb.Append(",");
++            Num(sb, "ach_enemy_no", Memoria.Netsync.NetSyncDiorama.HarnessAchEnemyNo); sb.Append(",");
++            Num(sb, "music", Memoria.Netsync.NetSyncDiorama.HarnessMusicId); sb.Append(",");
++            Num(sb, "btl_flag", Memoria.Netsync.NetSyncDiorama.HarnessBtlFlag);
++            sb.Append("}");
+         }
+ 
+         // [ff9mapkit netsync B5] stage 4: `battle.result_ui` -- the stock result screen read LIVE at the harness tick (never
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index bf8096b..dafcab6 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -2341,6 +2341,10 @@ namespace Memoria.Netsync
+             {
+                 if (!PeerBattleLive || _peerView == null)
+                     return;
++                // [ff9mapkit netsync B5] stage 5: the host's end is being presented on this LIVE diorama (stock victory / close
++                // fade / a held defeat-escape with the HUD off) -- the panel stays quiet, like the hidden stock HUD.
++                if (NetSyncDiorama.EndHudOff)
++                    return;
+                 // B3.6: while the diorama's scene is LIVE the fight itself is on screen -- the roster
+                 // is clutter. Key on Active (the loadedLevelName containment predicate), never Booted:
+                 // Leave is request-only so _booted outlasts the scene, and a dropped Replace strands
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 57a8e1c..e63838c 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1116,6 +1116,10 @@ namespace Memoria.Netsync
+                     // The battle lane loops back through the full codec here -- entering a battle with
+                     // GuestSlots set turns this into the solo proof of B0+B1 (see NetSyncBattle).
+                     NetSyncBattle.SelfTestPump(ee);
++                    // [ff9mapkit netsync B5] stage 5: the guest's end presentation -- here, BEFORE the off-field early returns
++                    // below (a diorama is never "on a field"), so a selftest bench diorama presents a fabricated `endbench`
++                    // end. One Boolean read outside a booted diorama (design 6.3's selftest order).
++                    NetSyncDiorama.EndTick();
+                     // [ff9mapkit netsync F3.2] the dialogue-lock bench runs FIRST, on every selftest tick -- off-field
+                     // too, so a bench lock can never go stale across a battle or a load (the early returns below).
+                     BenchSceneEdge(fld);
+@@ -1354,6 +1358,11 @@ namespace Memoria.Netsync
+ 
+                 // B3.4: the reconciler -- the host's battle truth onto the diorama's actors.
+                 NetSyncDiorama.ReconcileTick();
++
++                // [ff9mapkit netsync B5] stage 5: the host's END BLOCK onto the diorama (the stock victory / close fade, once
++                // per boot). AFTER ReconcileTick on purpose: the sample that carries the end lands its final deaths before
++                // the phase flips and the reconciler quiesces (design 6.3).
++                NetSyncDiorama.EndTick();
+             }
+             catch (Exception err)
+             {
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index ddf656a..e3650fa 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -403,6 +403,7 @@ namespace Memoria.Netsync
+                 _returnExpectWarm = false;
+                 _bootSongSuspended = false;          // [ff9mapkit netsync F3.3] DIO-1: this boot's own audio suspends, for UndoWarm
+                 _bootResidentSuspended = false;
++                ResetEndPresentation();              // [ff9mapkit netsync B5] stage 5: the end presentation is once per boot
+ 
+                 FF9StateSystem.Battle.isDebug = true;
+                 FF9StateSystem.Battle.battleMapIndex = battleMapIndex;              // Int32
+@@ -1892,6 +1893,442 @@ namespace Memoria.Netsync
+                 && !btl_stat.CheckStatus(d, BattleStatusConst.FrozenAnimation);
+         }
+ 
++        // ---------------------------------------------------------------------------------------
++        // [ff9mapkit netsync B5] stage 5 -- THE GUEST'S VICTORY PRESENTATION (studies/battle-coop/B4-B5-DESIGN.md 5.3; section
++        // 7, stage 5). Before this stage the guest stayed in PHASE_NORMAL through the host's whole win: no fanfare, no poses,
++        // the HUD up, and it left ~2 s after the host was already back on its field (design 3.6). EndTick now reads the host's
++        // END BLOCK (stage 4's type-1 trailer, or the selftest `endbench` seam) every Update and, ONCE PER BOOT, injects the
++        // STOCK end the host's kind names (the decision table is NetSyncEnd.PresentAction):
++        //   victory / victory-pending -> PHASE_MENU_OFF + SEQ_MENU_OFF_VICTORY_WITH_ENEMY: BattleTrailingLoop's own tail stamps
++        //     VICTORY, plays song 5, sets the win-pose idles, enters PHASE_VICTORY and calls SFX.SetCamera(2) -- the stock
++        //     fanfare, poses and camera, nothing synthesized. _WITH_ENEMY has no per-unit settle, so an enemy the host hid
++        //     (alive and linked here, never killed by a wire frame) cannot stall it;
++        //   victory-no-pose / other-end -> PHASE_CLOSE + SEQ_DEFEATCLOSE_FADEOUT with the host's result (VICTORY folded to
++        //     VICTORY_NO_POSE): the stock CLOSE fade (battle.cs PHASE_CLOSE);
++        //   defeat / escape -> HELD: the HUD off, the phase untouched, the reconciler keeps driving (stage 12 injects these).
++        // Every presentation first closes the B4 stock menu (StockMenuCloseAll) and hides the HUD -- battle.cs's PHASE_MENU_OFF
++        // hide is !isDebug-gated, so the diorama does it itself -- then clears the escape key, the target-cursor bit, the
++        // command queue and every cmd_idle, exactly as the engine's own end flippers do (battle.cs auto-end, btl_scrp var 32).
++        //
++        // GATES: this diorama Booted + Active, netsync enabled, a guest role (client / selftest), a peer end block that is the
++        // BENCH's or names THIS diorama's wire nonce (a lane still carrying a previous battle never ends this one; a manual
++        // boot has no nonce and ends only on the bench), an END kind (Event is var 32's non-terminal MENU_OFF -- never
++        // presented), then NetSyncEnd.InjectVerdict (units latched, PHASE_NORMAL; the calibration lever). EndTick runs AFTER
++        // ReconcileTick (NetSyncClient), so the sample that carries the end block lands its final deaths before the phase
++        // flips and the reconciler quiesces.
++        //
++        // THE STOCK END THEN RUNS INTO R8 (btl_sys.ManageBattleEnd's head, keyed on Active alone like every containment gate):
++        // with isDebug on IsOver never sets, so ManageBattleEnd would re-fire EVERY FRAME at the WAIT seq -- the end-battle
++        // achievement with its save-persistent BattleAchievement counters, and the DEFEAT -> GAMEOVER rewrite. R8 returns at
++        // once and counts; its FIRST hit is "the guest's own presentation is done" (the fade has reached black). NEVER set
++        // IsOver to end a diorama: it opens the reward layer. The achievement funnel is widened to Booted too (HoldAchievement):
++        // a booted diorama never reports to the platform, whatever path reaches the funnel.
++        //
++        // WATCHDOGS (one log line each, once per boot): W1 -- PHASE_VICTORY + SEQ_VICTORY_CAMERA_MOVE for > 4 s after the host
++        // reached its result screen (the native camera callback, SFX code 110, may never fire in BattleMapDebug [I]) -> the
++        // FADEOUT seq. W2 -- still PHASE_MENU_OFF > 8 s after the injection -> name the blocker (SFX, the command queue, a
++        // running command, unsettled units, the victory song) and force the tail's no-pose half (VICTORY, PHASE_VICTORY, FADEOUT).
++        //
++        // OBSERVABLES: the harness `netsync.battle.end` block (the Harness* reads at the end of this section), kept after the
++        // teardown until the next boot. DrawGUI reads EndHudOff, so the digit panel stays quiet over the presentation.
++        // Vanilla, solo and the host's own fight never reach any of it: every entry point needs a booted diorama.
++        // ---------------------------------------------------------------------------------------
++        private static Boolean _endInjected;      // InjectEnd changed the phase this boot (a victory or close kind)
++        private static Boolean _endHeld;          // a held kind this boot (defeat / escape): the HUD off, the phase untouched
++        private static Int32 _endKind = -1;       // the kind presented (injected or held) this boot; -1 = none
++        private static Int32 _endAction = NetSyncEnd.PresentNone;
++        private static Int32 _endPhaseSet = -1;   // the btl_phase / btl_seq InjectEnd wrote (-1 = none)
++        private static Int32 _endSeqSet = -1;
++        // TICK-BASELINE LAW: both baselines start at a REAL tick and are compared only after a set (_endInjected / _w1Armed).
++        private static Int32 _endInjectTick = Environment.TickCount;
++        private static Int32 _w1Since = Environment.TickCount;
++        private static Boolean _w1Armed;          // the host read ui >= 1 (its result screen, Game Over, Title) since the injection
++        private static Boolean _w1Fired;
++        private static Boolean _w2Fired;
++        private static String _endWatchdog;       // "W1" | "W2" | "W2+W1" | null -- the watchdogs that fired this boot
++        private static String _endBlocker;        // W2's named blocker (null = W2 did not fire)
++        private static String _endWhy;           // why the end is not (yet) presented this tick; null = presented / nothing to present
++        private static Int32 _endWhyKey;          // the raw inputs behind _endWhy (0 = none): a reason is rebuilt only on a change
++        private static Int32 _r8Hits;             // R8 refusals this boot (at the WAIT seq: 223 of every 256 frames -- see NoteR8)
++        private static Int32 _r8FirstMs = -1;     // ms from the injection to the first R8 hit (-1 = none / not injected)
++        private static Int32 _hudReasserts;       // the HUD re-hidden after a swallowed hide (a quit prompt was up)
++        private static Boolean _endFaulted;       // EndTick threw: stop for this boot (logged once)
++        private static readonly List<String> _endLogged = new List<String>(8);   // once-per-boot decline lines
++        private static Int32 _achHeld;            // achievement reports a booted diorama held -- monotonic per process
++        private static Boolean _achLogged;        // once per boot
++
++        /// <summary>DrawGUI's guard (design 5.3): the end is being presented on THIS live diorama -- the digit panel stays
++        /// quiet. Keyed on Active too, so a stranded _booted on a field always fails toward drawing the fallback panel.</summary>
++        public static Boolean EndHudOff
++        {
++            get { return (_endInjected || _endHeld) && Active; }
++        }
++
++        // Every Boot: the presentation, its watchdogs and its counters start clean (they stay readable after the teardown).
++        private static void ResetEndPresentation()
++        {
++            _endInjected = false;
++            _endHeld = false;
++            _endKind = -1;
++            _endAction = NetSyncEnd.PresentNone;
++            _endPhaseSet = -1;
++            _endSeqSet = -1;
++            _endInjectTick = Environment.TickCount;
++            _w1Since = Environment.TickCount;
++            _w1Armed = false;
++            _w1Fired = false;
++            _w2Fired = false;
++            _endWatchdog = null;
++            _endBlocker = null;
++            _endWhy = null;
++            _endWhyKey = 0;
++            _r8Hits = 0;
++            _r8FirstMs = -1;
++            _hudReasserts = 0;
++            _endFaulted = false;
++            _endLogged.Clear();
++            _achLogged = false;
++        }
++
++        // A guest role: a two-machine client, or the sanctioned selftest bench. (A host never boots a diorama -- MayBoot --
++        // so this is the "every hook is role-gated" law made explicit, not a live filter.)
++        private static Boolean EndGuestRole
++        {
++            get { return NetSyncClient.IsSelfTestRole || String.Equals(NetSyncClient.HarnessRole, "client"); }
++        }
++
++        /// <summary>
++        /// Called every frame from NetSyncClient.Update: the transport branch right after ReconcileTick, the selftest branch
++        /// right after SelfTestPump (design 6.3). One Boolean read outside a booted diorama. Never throws into the engine.
++        /// </summary>
++        public static void EndTick()
++        {
++            if (!_booted || _endFaulted)
++                return;
++            try
++            {
++                if (!Active || !NetSyncBattle.Enabled || !EndGuestRole)
++                    return;
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                if (b == null)
++                    return;
++                NetSyncBattle.PeerEnd e;
++                Boolean any = NetSyncBattle.TryGetPeerEnd(out e);
++                Boolean ours = any && (e.Bench || e.Nonce == BootedWireNonce);
++                if (_endInjected || _endHeld)
++                    KeepHudOff();
++                if (_endInjected)
++                {
++                    if (!_w1Armed && ours && e.Ui >= NetSyncEnd.UiResult)
++                    {
++                        _w1Armed = true;
++                        _w1Since = Environment.TickCount;
++                    }
++                    EndWatchdogs(b);
++                    return;                              // once per boot: nothing re-injects
++                }
++                if (!any)
++                {
++                    _endWhy = "no peer end block (no live lane, or a host that predates the end block)";
++                    _endWhyKey = 0;
++                    return;
++                }
++                if (!ours)
++                {
++                    // keyed on the raw inputs: the reason is built (and logged) only when it changes, never per frame
++                    Int32 nkey = 0x01000000 | (e.Nonce << 8) | (BootedWireNonce < 0 ? 0x10000 : BootedWireNonce & 0xFF);
++                    if (nkey != _endWhyKey)
++                    {
++                        _endWhyKey = nkey;
++                        NoteEndWhy("the peer end block names battle nonce " + e.Nonce + ", this diorama booted "
++                                   + (BootedWireNonce < 0 ? "with no wire nonce (a manual boot: only the bench ends it)" : "nonce " + BootedWireNonce));
++                    }
++                    return;
++                }
++                Int32 action = NetSyncEnd.PresentAction(e.Kind);
++                if (action == NetSyncEnd.PresentNone || (action == NetSyncEnd.PresentHold && _endHeld))
++                {
++                    _endWhy = null;                      // fighting / event / already held: nothing (more) to present
++                    _endWhyKey = 0;
++                    return;
++                }
++                const Byte need = ff9btl.LOAD_INITNPC | ff9btl.LOAD_INITCHR;
++                Boolean latched = (b.btl_load_status & need) == need;
++                UIManager ui = PersistenSingleton<UIManager>.Instance;
++                Boolean hudUp = ui != null && ui.State == UIManager.UIState.BattleHUD && ui.QuitScene != null && !ui.QuitScene.isShowQuitUI
++                                && UIManager.Battle != null;
++                Int32 mode = NetSyncEnd.GuestMode;
++                // the verdict is a pure function of these inputs: the same key as the last refused tick is the same refusal
++                Int32 vkey = 0x02000000 | (e.Kind << 16) | ((mode & 0xF) << 12) | (b.btl_phase << 4) | (latched ? 2 : 0) | (hudUp ? 1 : 0);
++                if (vkey == _endWhyKey)
++                    return;
++                String verdict = NetSyncEnd.InjectVerdict(mode, latched, b.btl_phase, hudUp);
++                if (verdict != null)
++                {
++                    _endWhyKey = vkey;
++                    NoteEndWhy("the host's " + NetSyncEnd.KindName(e.Kind) + " waits: " + verdict);
++                    return;
++                }
++                _endWhyKey = 0;
++                InjectEnd(b, e, action);
++            }
++            catch (Exception ex)
++            {
++                _endFaulted = true;                      // never per-frame: the presentation stops for this boot
++                try { Log.Error("[NetSync] diorama END presentation faulted -- stopped for this boot (the watcher's stale-lane leave still ends the diorama): " + ex); }
++                catch { }
++            }
++        }
++
++        // The once-per-boot decline line (keyed on the WHOLE reason -- a fixed-length head collided for the 15-char kind
++        // names, "victory-pending"/"victory-no-pose", whose units-not-final and wrong-phase reasons share their first 40
++        // chars; capped at 8 per boot). _endWhy always carries the latest reason. Its own prefix, `diorama end-wait:`, so a
++        // `diorama END` grep stays the clean discriminator of an end the guest ACTED on (injected / HELD / watchdog / fault).
++        private static void NoteEndWhy(String why)
++        {
++            _endWhy = why;
++            if (_endLogged.Contains(why) || _endLogged.Count >= 8)
++                return;
++            _endLogged.Add(why);
++            Log.Message("[NetSync] diorama end-wait: not presented yet -- " + why + " (logged once per boot per reason)");
++        }
++
++        private static void InjectEnd(FF9StateBattleSystem b, NetSyncBattle.PeerEnd e, Int32 action)
++        {
++            FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
++            // [ff9mapkit netsync B4] the coupling FIRST: a stock window the bench (or, from stage 8, the ready mirror) opened
++            // closes with the fight -- SetIdle + ReadyQueue/InputFinishList drained (a no-op unless the B4 lane touched the HUD).
++            NetSyncBattle.StockMenuCloseAll("end injected");
++            BattleHUD hud = UIManager.Battle;
++            if (hud != null)
++                hud.FF9BMenu_EnableMenu(false);          // battle.cs:133's hide is !isDebug-gated: the diorama hides it itself
++            b.btl_escape_key = 0;
++            b.cmd_status &= 0xFFFD;
++            btl_cmd.KillAllCommand(b);
++            Int32 guard = 0;
++            for (BTL_DATA n = b.btl_list.next; n != null && guard < 16; n = n.next, guard++)
++                n.bi.cmd_idle = 0;
++            _endKind = e.Kind;
++            _endAction = action;
++            _endWhy = null;
++            String host = NetSyncEnd.KindName(e.Kind) + " (phase " + e.Phase + " seq " + e.Seq + " result " + e.Result + ", ui " + e.Ui
++                          + (e.Bench ? ", BENCH end" : ", nonce " + e.Nonce) + ")";
++            if (action == NetSyncEnd.PresentHold)
++            {
++                _endHeld = true;
++                Log.Message("[NetSync] diorama END: the host's " + host + " HELD -- the stock menu closed, the HUD hidden, the "
++                            + "phase left in " + b.btl_phase + " (the reconciler keeps driving; v1 presents no defeat/escape)");
++                return;
++            }
++            String path;
++            if (action == NetSyncEnd.PresentVictory)
++            {
++                b.btl_phase = FF9StateBattleSystem.PHASE_MENU_OFF;
++                b.btl_seq = NetSyncEnd.VictorySeq(NetSyncEnd.GuestMode);
++                path = b.btl_seq == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY_WITH_ENEMY
++                    ? "PHASE_MENU_OFF + SEQ_MENU_OFF_VICTORY_WITH_ENEMY (the stock tail: fanfare 5, win poses, victory camera)"
++                    : "PHASE_MENU_OFF + SEQ_MENU_OFF_VICTORY -- CALIBRATION (`endbench guest settle`): the per-unit settle, W2's red";
++            }
++            else
++            {
++                ff9.btl_result = NetSyncEnd.CloseResult(e.Result);
++                b.btl_phase = FF9StateBattleSystem.PHASE_CLOSE;
++                b.btl_seq = FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT;
++                path = "PHASE_CLOSE + SEQ_DEFEATCLOSE_FADEOUT with result " + ff9.btl_result + " (the stock fade)";
++            }
++            _endInjected = true;
++            _endInjectTick = Environment.TickCount;
++            _endPhaseSet = b.btl_phase;
++            _endSeqSet = b.btl_seq;
++            Log.Message("[NetSync] diorama END: injected " + path + " for the host's " + host + " -- the stock menu closed, the "
++                        + "HUD hidden; ManageBattleEnd answers R8 from here (nothing writes rewards)");
++        }
++
++        // The injection's hide can be undone (FF9BMenu_EnableMenu returns early while a quit prompt is up; a pause round trip
++        // re-shows the HUD from its stashed flags), and stock re-hides every PHASE_MENU_OFF frame only under !isDebug:
++        // re-assert it while the end is presented -- enabled OR the panels' container still drawn. Two reads per frame.
++        private static void KeepHudOff()
++        {
++            BattleHUD hud = UIManager.Battle;
++            if (hud == null || (!hud.FF9BMenu_IsEnable() && (hud.AllMenuPanel == null || !hud.AllMenuPanel.activeSelf)))
++                return;
++            UIManager m = PersistenSingleton<UIManager>.Instance;
++            if (m == null || m.State != UIManager.UIState.BattleHUD || m.QuitScene == null || m.QuitScene.isShowQuitUI)
++                return;
++            hud.FF9BMenu_EnableMenu(false);
++            _hudReasserts++;
++            if (_hudReasserts == 1)
++                Log.Message("[NetSync] diorama END: the battle HUD was still up after the end was presented (a swallowed or "
++                            + "undone hide) -- hidden again (logged once per boot)");
++        }
++
++        private static void EndWatchdogs(FF9StateBattleSystem b)
++        {
++            Int32 now = Environment.TickCount;
++            if (!_w1Fired && NetSyncEnd.W1Due(b.btl_phase, b.btl_seq, _w1Armed, now - _w1Since))
++            {
++                _w1Fired = true;
++                _endWatchdog = _endWatchdog == null ? "W1" : _endWatchdog + "+W1";
++                b.btl_seq = FF9StateBattleSystem.SEQ_VICTORY_FADEOUT;
++                Log.Message("[NetSync] diorama END watchdog W1: still PHASE_VICTORY + SEQ_VICTORY_CAMERA_MOVE "
++                            + (now - _w1Since) + " ms after the host reached its result screen -- the victory camera's callback "
++                            + "(SFX code 110) never advanced it in BattleMapDebug; forced SEQ_VICTORY_FADEOUT");
++            }
++            if (!_w2Fired && NetSyncEnd.W2Due(b.btl_phase, now - _endInjectTick))
++            {
++                _w2Fired = true;
++                _endWatchdog = _endWatchdog == null ? "W2" : _endWatchdog + "+W2";
++                _endBlocker = MenuOffBlocker(b);
++                // the stock tail's no-pose half (battle.cs SEQ_MENU_OFF_VICTORY*: BTL_END_LOAD, VICTORY, PHASE_VICTORY, then
++                // FADEOUT for a scene without WinPose) -- the fade reaches R8 like every other path
++                FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
++                ff9.btl_flag |= battle.BTL_END_LOAD;
++                ff9.btl_result = FF9StateGlobal.BTL_RESULT_VICTORY;
++                b.btl_phase = FF9StateBattleSystem.PHASE_VICTORY;
++                b.btl_seq = FF9StateBattleSystem.SEQ_VICTORY_FADEOUT;
++                Log.Message("[NetSync] diorama END watchdog W2: still PHASE_MENU_OFF " + (now - _endInjectTick)
++                            + " ms after the injection -- blocked by: " + _endBlocker + "; forced PHASE_VICTORY + "
++                            + "SEQ_VICTORY_FADEOUT (no fanfare/poses: the tail never ran)");
++            }
++        }
++
++        // W2's diagnosis: what BattleTrailingLoop is waiting on (its own proceedEnd tests, plus the victory song's sync).
++        private static String MenuOffBlocker(FF9StateBattleSystem b)
++        {
++            List<String> why = new List<String>(4);
++            try
++            {
++                if (SFX.IsRunning())
++                    why.Add("an SFX sequence is still running");
++                if (b.cmd_queue != null && b.cmd_queue.next != null)
++                    why.Add("the command queue is not empty (cmd_no " + (Int32)b.cmd_queue.next.cmd_no + " first)");
++                if (b.cur_cmd != null)
++                    why.Add("a command is still executing (cmd_no " + (Int32)b.cur_cmd.cmd_no + ")");
++                if (b.btl_seq == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY)
++                {
++                    Int32 unsettled = 0;
++                    foreach (BattleUnit u in b.EnumerateBattleUnits())
++                        if ((!u.IsPlayer && !u.IsUnderAnyStatus(BattleStatusConst.BattleEnd))
++                            || (u.IsPlayer && u.IsUnderStatus(BattleStatus.Death) && !btl_mot.checkMotion(u.Data, BattlePlayerCharacter.PlayerMotionIndex.MP_DISABLE)))
++                            unsettled++;
++                    if (unsettled > 0)
++                        why.Add(unsettled + " unsettled unit(s) (SEQ_MENU_OFF_VICTORY's per-unit settle: an enemy without "
++                                + "BattleEnd, or a dead player not yet down)");
++                }
++                if (b.btl_scene != null && b.btl_scene.Info.WinPose && (FF9StateSystem.Common.FF9.btl_flag & battle.BTL_PLAY_END_SONG) == 0)
++                    why.Add("the victory song has not started (ManageBattleSong's load/sync)");
++            }
++            catch (Exception ex)
++            {
++                why.Add("the blocker read faulted (" + ex.GetType().Name + ")");
++            }
++            return why.Count > 0 ? String.Join("; ", why.ToArray()) : "no blocker visible";
++        }
++
++        /// <summary>
++        /// R8 (btl_sys.ManageBattleEnd's head, under Active): count the refusal. The FIRST hit after an injection is the "the
++        /// guest's own presentation is done" signal (logged once); a hit with NO injection means a phase flipper the
++        /// containment set missed reached the battle end (logged as a warning). Never throws.
++        /// </summary>
++        public static void NoteR8()
++        {
++            try
++            {
++                _r8Hits++;
++                if (_r8Hits != 1)
++                    return;
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                String at = (b != null ? "phase " + b.btl_phase + " seq " + b.btl_seq : "no battle system")
++                            + ", result " + FF9StateSystem.Common.FF9.btl_result;
++                if (_endInjected)
++                {
++                    _r8FirstMs = Environment.TickCount - _endInjectTick;
++                    Log.Message("[NetSync] diorama R8: ManageBattleEnd refused (" + at + ", " + _r8FirstMs + " ms after the "
++                                + "injection) -- the guest's own end presentation is DONE; it holds here writing nothing (no "
++                                + "end-battle achievement, no DEFEAT->GAMEOVER rewrite, no party writeback) until the host's exit "
++                                + "(r8_hits counts each refusal: the Byte btl_fade_time wraps at the WAIT seq, so 33 of every 256 "
++                                + "frames skip the call -- read it as non-decreasing, rising over a window of seconds)");
++                }
++                else
++                    Log.Warning("[NetSync] diorama R8: ManageBattleEnd refused (" + at + ") with NO injected end -- a phase flipper "
++                                + "the containment set missed reached the battle end; R8 held it (r8_hits counts each refusal; "
++                                + "it pauses 33 of every 256 frames while the Byte btl_fade_time wraps)");
++            }
++            catch { }
++        }
++
++        /// <summary>
++        /// AchievementManager.ProcessAchievementReport's funnel, widened to Booted (design 5.3): true = HOLD this report -- a
++        /// booted diorama never reports to the platform (a selftest bench or a live followed session may boot one without
++        /// IsMirroringStory). Counted (`ach_held`), logged once per boot. One Boolean read on every other machine.
++        /// </summary>
++        public static Boolean HoldAchievement(Int32 key)
++        {
++            if (!_booted)
++                return false;
++            try
++            {
++                _achHeld++;
++                if (!_achLogged)
++                {
++                    _achLogged = true;
++                    Log.Message("[NetSync] diorama: achievement report " + key + " HELD -- a booted diorama never reports to "
++                                + "the platform (ach_held=" + _achHeld + "; logged once per boot)");
++                }
++            }
++            catch { }
++            return true;
++        }
++
++        // ---- harness reads (`netsync.battle.end`; main thread, never throw) ----
++        public static Boolean HarnessEndInjected { get { return _endInjected; } }
++        public static Boolean HarnessEndHeld { get { return _endHeld; } }
++        public static Int32 HarnessEndKind { get { return _endKind; } }
++        public static String HarnessEndAction { get { return NetSyncEnd.PresentName(_endAction); } }
++        public static Int32 HarnessEndPhaseSet { get { return _endPhaseSet; } }
++        public static Int32 HarnessEndSeqSet { get { return _endSeqSet; } }
++        public static Int32 HarnessEndAgeMs { get { return _endInjected && _booted ? Environment.TickCount - _endInjectTick : -1; } }
++        public static Boolean HarnessEndW1Armed { get { return _w1Armed; } }
++        public static String HarnessEndWatchdog { get { return _endWatchdog; } }
++        public static String HarnessEndBlocker { get { return _endBlocker; } }
++        public static String HarnessEndWhy { get { return _endWhy; } }
++        public static Boolean HarnessEndFaulted { get { return _endFaulted; } }
++        public static Int32 HarnessR8Hits { get { return _r8Hits; } }
++        public static Int32 HarnessR8FirstMs { get { return _r8FirstMs; } }
++        public static Int32 HarnessHudReasserts { get { return _hudReasserts; } }
++        public static Int32 HarnessAchHeld { get { return _achHeld; } }
++
++        // The fanfare, made readable (the harness cannot hear): the current music id (the stock victory tail plays song 5) and
++        // the raw btl_flag (32 = BTL_PLAY_END_SONG: ManageBattleSong played the end song; 64 = BTL_END_LOAD). -1 = unreadable.
++        public static Int32 HarnessMusicId
++        {
++            get
++            {
++                try { return FF9Snd.GetCurrentMusicId(); }
++                catch { return -1; }
++            }
++        }
++
++        public static Int32 HarnessBtlFlag
++        {
++            get
++            {
++                try { return FF9StateSystem.Common.FF9.btl_flag; }
++                catch { return -1; }
++            }
++        }
++
++        // The save-persistent battle-achievement counter R8 protects (UpdateEndBattleAchievement adds the pattern's monster
++        // count to it) -- an invariant probe for the bench: unchanged across a presented victory. -1 = unreadable.
++        public static Int32 HarnessAchEnemyNo
++        {
++            get
++            {
++                try { return FF9StateSystem.Achievement != null ? FF9StateSystem.Achievement.enemy_no : -1; }
++                catch { return -1; }
++            }
++        }
++
+         // ---------------------------------------------------------------------------------------
+         // THE B3.5 FIGURE BENCH (the F6 "Figure bench" button, diorama only). Pops ONE hand-built
+         // 1234-damage figure over the first live enemy (or btl_data[4]) through the EXACT Btl2dReq
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+index dc1a080..8b4ae4c 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+@@ -41,6 +41,15 @@ namespace Memoria.Netsync
+     // type-1 frame and decodes it through the REAL ParseView -- the bytes -> parse chain a guest runs, minus the socket --
+     // and serves the parsed block through TryGetPeerEnd as a BENCH end (Bench = true). Plus the calibration lever
+     // `endbench host on|cadence|off` and the victory-edge command one-shot `endbench cmd [hex]`.
++    //
++    // [ff9mapkit netsync B5] stage 5 -- THE GUEST'S VICTORY PRESENTATION (design 5.3; section 7, stage 5). The guest is the
++    // first CONSUMER of the end block: NetSyncDiorama.EndTick reads TryGetPeerEnd every Update and, once per boot, injects
++    // the stock end the host's kind names (victory -> MENU_OFF + SEQ_MENU_OFF_VICTORY_WITH_ENEMY: fanfare, win poses,
++    // victory camera; victory-no-pose / other-end -> the PHASE_CLOSE fade; defeat / escape -> HUD off and HOLD, stage 12
++    // injects those). THIS file holds the stage's PURE half -- PresentAction, CloseResult, VictorySeq, InjectVerdict and the
++    // two watchdog predicates (W1Due, W2Due), all pinned by SelfTest's `present` section -- and its selftest-only
++    // calibration lever `endbench guest on|off|settle` (GuestMode). The engine half (EndTick, InjectEnd, R8's NoteR8, the
++    // watchdogs' actions, the achievement hold) lives in NetSyncDiorama.
+     public static class NetSyncEnd
+     {
+         // ---- the trailer (design 6.2) ----
+@@ -213,6 +222,117 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // ==================================================================================== the guest presentation (stage 5)
++        // [ff9mapkit netsync B5] stage 5 -- the PURE half of the guest's end presentation (design 5.3). The engine half is
++        // NetSyncDiorama.EndTick / InjectEnd; every decision it makes about WHAT to inject and WHEN a watchdog fires is one of
++        // these functions, so SelfTest can falsify each of them offline. None of them reads or writes engine state.
++        public const Int32 PresentNone = 0;         // not an end (Fighting, Event, out of range): present nothing
++        public const Int32 PresentVictory = 1;      // MENU_OFF + a victory seq: the stock tail plays fanfare 5, poses, camera 2
++        public const Int32 PresentClose = 2;        // PHASE_CLOSE + SEQ_DEFEATCLOSE_FADEOUT: the stock fade (battle.cs CLOSE)
++        public const Int32 PresentHold = 3;         // HUD off, phase untouched, keep reconciling (v1 defeat / escape)
++
++        public const Int32 W1Ms = 4000;             // W1: the victory camera may hold this long after the host's ui >= 1
++        public const Int32 W2Ms = 8000;             // W2: an injected victory may sit in PHASE_MENU_OFF this long
++
++        /// <summary>The host's end kind -> what the guest injects (design 5.3's InjectEnd switch). Victory-pending and
++        /// victory share the stock victory tail; victory-no-pose and other-end share the CLOSE fade; defeat and escape are
++        /// HELD in v1 (stage 12 injects them). Pure; never throws.</summary>
++        public static Int32 PresentAction(Int32 kind)
++        {
++            switch (kind)
++            {
++                case KVictoryPending:
++                case KVictory:
++                    return PresentVictory;
++                case KVictoryNoPose:
++                case KOtherEnd:
++                    return PresentClose;
++                case KDefeat:
++                case KEscape:
++                    return PresentHold;
++                default:
++                    return PresentNone;             // Fighting, Event (var 32's MENU_OFF/EVENT is NOT an end), unknown
++            }
++        }
++
++        public static String PresentName(Int32 action)
++        {
++            switch (action)
++            {
++                case PresentVictory: return "victory";
++                case PresentClose: return "close";
++                case PresentHold: return "hold";
++                default: return null;
++            }
++        }
++
++        /// <summary>The btl_result a CLOSE injection stamps before the fade (battle.cs:151-175 reads it): the host's own
++        /// result, with VICTORY folded to VICTORY_NO_POSE -- the CLOSE path is the no-pose victory (the auto-end's and var
++        /// 33's own fold). Pure.</summary>
++        public static Byte CloseResult(Byte hostResult)
++        {
++            return hostResult == FF9StateGlobal.BTL_RESULT_VICTORY ? FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE : hostResult;
++        }
++
++        /// <summary>The MENU_OFF seq a victory injection writes. SEQ_MENU_OFF_VICTORY_WITH_ENEMY (4) has NO per-unit settle in
++        /// BattleTrailingLoop (design 3.5), so a linked but host-hidden enemy -- alive on the guest, never killed by a wire
++        /// frame -- cannot stall the tail. The `endbench guest settle` lever writes SEQ_MENU_OFF_VICTORY (0), whose settle
++        /// waits for every enemy's BattleEnd status: in a bench diorama (no host kills it) that STALLS, which is W2's red and
++        /// the proof that the choice of seq is load-bearing. Pure.</summary>
++        public static Byte VictorySeq(Int32 guestMode)
++        {
++            return guestMode == GuestSettle ? FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY : FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY_WITH_ENEMY;
++        }
++
++        /// <summary>May the guest inject NOW (design 5.3: load latched, PHASE_NORMAL; the calibration lever `off` = the
++        /// pre-stage guest)? hudUp = the UI state is BattleHUD with no quit prompt: a hide issued while paused would only stash
++        /// the enable flag and leave the menu panel drawn after the resume, so the injection waits for the HUD (the battle
++        /// itself does not advance while paused either). Null = yes; else the reason, one human line. Pure.</summary>
++        public static String InjectVerdict(Int32 guestMode, Boolean loadLatched, Byte phase, Boolean hudUp)
++        {
++            if (guestMode == GuestOff)
++                return "the calibration lever `endbench guest off` holds the pre-stage guest (nothing presented)";
++            if (!loadLatched)
++                return "the diorama's units are not final yet (LOAD_INITNPC|LOAD_INITCHR)";
++            if (phase != FF9StateBattleSystem.PHASE_NORMAL)
++                return "the diorama is in phase " + phase + ", not its steady phase (" + FF9StateBattleSystem.PHASE_NORMAL + ")";
++            if (!hudUp)
++                return "the battle HUD is not the UI state (paused, a quit prompt or a tutorial is up)";
++            return null;
++        }
++
++        /// <summary>W1 (design 5.3): an injected victory still in PHASE_VICTORY + SEQ_VICTORY_CAMERA_MOVE more than W1Ms after
++        /// the host reached its result screen (armed = the guest has seen ui >= 1 since the injection; armedMs = how long
++        /// ago). The native camera callback (SFX code 110) may never fire in BattleMapDebug [I]. Pure.</summary>
++        public static Boolean W1Due(Byte phase, Byte seq, Boolean armed, Int32 armedMs)
++        {
++            return armed && armedMs > W1Ms && phase == FF9StateBattleSystem.PHASE_VICTORY
++                   && seq == FF9StateBattleSystem.SEQ_VICTORY_CAMERA_MOVE;
++        }
++
++        /// <summary>W2 (design 5.3): an injected victory still in PHASE_MENU_OFF more than W2Ms after the injection (the
++        /// trailing loop waits on SFX, the command queue, a running command and the victory song's sync). Pure.</summary>
++        public static Boolean W2Due(Byte phase, Int32 injectedMs)
++        {
++            return injectedMs > W2Ms && phase == FF9StateBattleSystem.PHASE_MENU_OFF;
++        }
++
++        // SELFTEST CALIBRATION LEVER (harness `netsync endbench guest on|off|settle`; cleared by every harness release): off =
++        // the pre-stage guest (EndTick still READS the end block and names why it presents nothing -- the lever reverts the
++        // stage's path, not its instrument); settle = inject the per-unit-settle victory seq (VictorySeq). Read only through
++        // GuestMode, which also needs the selftest role: a lever stranded across an ini edit can never touch a real guest.
++        public const Int32 GuestOn = 0, GuestOff = 1, GuestSettle = 2;
++        private static Int32 _benchGuestMode = GuestOn;
++        public static Int32 GuestMode
++        {
++            get { return _benchGuestMode != GuestOn && NetSyncClient.IsSelfTestRole ? _benchGuestMode : GuestOn; }
++        }
++
++        private static String GuestModeName(Int32 mode)
++        {
++            return mode == GuestOff ? "off" : mode == GuestSettle ? "settle" : "on";
++        }
++
+         // ==================================================================================== the codec
+         /// <summary>One fmt-1 record: header + the 8-byte end block (+ manifest bytes, which set flags b1). Pure.</summary>
+         public static Byte[] EncodeTrailer(EndBlock b, Byte[] manifest)
+@@ -748,6 +868,8 @@ namespace Memoria.Netsync
+         ///   reproduce every field FAILS the verb. The next own battle's rising edge disarms it (DisarmStaleBenchEnd).
+         ///   cmd [hex]            arm the victory-edge one-shot (default: slot 1 Attack at enemy slot 4)
+         ///   host on|cadence|off  the stage's calibration lever (see HostMode)
++        ///   guest on|off|settle  [ff9mapkit netsync B5] stage 5's calibration lever (see GuestMode): off = the pre-stage
++        ///                        guest presents nothing; settle = the victory injection writes the per-unit-settle seq
+         ///   selftest             run SelfTest (fails the verb on FAIL)
+         ///   clear                disarm the bench end and the one-shot (the lever stays; a release resets it)
+         ///   manifest             refused: the result manifest is stage 9
+@@ -845,6 +967,19 @@ namespace Memoria.Netsync
+                                     : m == ModeCadence ? " -- CALIBRATION: the trailer ships on the plain SampleMs cadence (no change-triggered sample; the tracker still counts end_changes)"
+                                     : " -- CALIBRATION: the pre-stage host (no end-block trailer, no change-triggered sample; the tracker still counts end_changes)"));
+                         return true;
++                    case "guest":
++                        // [ff9mapkit netsync B5] stage 5: the guest presentation's calibration lever (see GuestMode)
++                        Int32 g = mode == "on" ? GuestOn : mode == "off" ? GuestOff : mode == "settle" ? GuestSettle : -1;
++                        if (g < 0)
++                        {
++                            why = "netsync endbench guest: needs on|off|settle";
++                            return false;
++                        }
++                        _benchGuestMode = g;
++                        Log.Message("[NetSync] harness: end presentation guest " + GuestModeName(g).ToUpperInvariant() + (g == GuestOn ? ""
++                                    : g == GuestOff ? " -- CALIBRATION: the pre-stage guest (EndTick reads the end block but injects nothing, hides nothing)"
++                                    : " -- CALIBRATION: a victory injects SEQ_MENU_OFF_VICTORY (the per-unit settle) instead of _WITH_ENEMY -- in a bench diorama that stalls in MENU_OFF until W2"));
++                        return true;
+                     case "selftest":
+                         String detail;
+                         Boolean ok = SelfTest(out detail);
+@@ -862,7 +997,7 @@ namespace Memoria.Netsync
+                         return false;
+                     default:
+                         why = "netsync endbench: unknown op '" + op + "' (victory|pending|nopose|other|defeat|escape|event|fight|ui|state|"
+-                              + "overflow|afterevent|cmd|host|selftest|clear)";
++                              + "overflow|afterevent|cmd|host|guest|selftest|clear)";
+                         return false;
+                 }
+                 return Fabricate(op, out why);
+@@ -946,6 +1081,9 @@ namespace Memoria.Netsync
+                 if (_benchHostMode != ModeOn)
+                     Log.Message("[NetSync] harness: end-block host back ON (released with the harness)");
+                 _benchHostMode = ModeOn;
++                if (_benchGuestMode != GuestOn)            // [ff9mapkit netsync B5] stage 5
++                    Log.Message("[NetSync] harness: end presentation guest back ON (released with the harness)");
++                _benchGuestMode = GuestOn;
+                 if (_benchArmed || _cmdArmed)
+                     Log.Message("[NetSync] harness: endbench released (bench end / command one-shot disarmed)");
+                 ClearBench();
+@@ -965,6 +1103,7 @@ namespace Memoria.Netsync
+         public static String HarnessTrailerBadWhy { get { return _trailerBadWhy; } }
+         public static List<String> HarnessHostTrail() { return new List<String>(_hostTrail); }
+         public static List<String> HarnessPeerTrail() { return new List<String>(_peerTrail); }
++        public static String HarnessGuestMode { get { return GuestModeName(GuestMode); } }   // [ff9mapkit netsync B5] stage 5
+ 
+         // ==================================================================================== SelfTest
+         /// <summary>
+@@ -974,11 +1113,14 @@ namespace Memoria.Netsync
+         /// EVERY truncated prefix from the end of the units on keeps the units and refuses the block; a trailer-less frame;
+         /// an unknown-fmt record skipped; foreign bytes; a short block; a manifest body skipped by its len). Pure apart from
+         /// ParseView's own statics (the bad-trailer counter is muted for the sweep). Never throws.
++        /// [ff9mapkit netsync B5] stage 5 adds `present`: PresentAction over every kind (incl. the pins: Event is never
++        /// presented; defeat/escape HOLD in v1), CloseResult's VICTORY fold, VictorySeq (PIN: the production seq is
++        /// _WITH_ENEMY, the one with no per-unit settle), InjectVerdict (each disqualifier alone) and the W1/W2 boundaries.
+         /// </summary>
+         public static Boolean SelfTest(out String detail)
+         {
+             List<String> fails = new List<String>();
+-            Int32 classify = 0, chase = 0, codec = 0;
++            Int32 classify = 0, chase = 0, codec = 0, present = 0;
+             Boolean wasQuiet = _quiet;
+             try
+             {
+@@ -1068,6 +1210,43 @@ namespace Memoria.Netsync
+                 Codec(fails, ref codec, "fmt-1 growth skipped", NetSyncBattle.BuildEndBenchFrame(9, 2, 0, Concat(grown, new Byte[] { 0x77, 0x77 }), out unitsEnd), 0, m, 0);
+                 Codec(fails, ref codec, "trailer-less frame", NetSyncBattle.BuildEndBenchFrame(3, 3, 4, null, out unitsEnd), 4, null, 0);
+                 Codec(fails, ref codec, "trailer-only frame", NetSyncBattle.BuildEndBenchFrame(3, 3, 0, trailer, out unitsEnd), 0, m, 0);
++
++                // ---- [ff9mapkit netsync B5] stage 5: the guest presentation's pure decisions ----
++                Int32[] wantAction = { PresentNone, PresentVictory, PresentVictory, PresentClose, PresentHold, PresentHold, PresentClose, PresentNone };
++                for (Int32 k = KFighting; k <= KEvent; k++)
++                    Expect(fails, ref present, PresentAction(k) == wantAction[k], "present " + KindName(k) + " -> " + PresentName(PresentAction(k)));
++                Expect(fails, ref present, PresentAction(KEvent) == PresentNone, "PIN event-is-never-presented (var 32)");
++                Expect(fails, ref present, PresentAction(-1) == PresentNone && PresentAction(8) == PresentNone && PresentAction(255) == PresentNone, "present out-of-range");
++                for (Int32 k = KFighting; k <= KEvent; k++)
++                    Expect(fails, ref present, (PresentAction(k) != PresentNone) == IsEndKind(k), "present-iff-end-kind " + KindName(k));
++                Expect(fails, ref present, CloseResult(FF9StateGlobal.BTL_RESULT_VICTORY) == FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE, "PIN close folds VICTORY to NO_POSE");
++                Byte[] keep = { FF9StateGlobal.BTL_RESULT_INITIAL, FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE, FF9StateGlobal.BTL_RESULT_ESCAPE,
++                                FF9StateGlobal.BTL_RESULT_INTERRUPTION, FF9StateGlobal.BTL_RESULT_ENEMY_FLEE };
++                foreach (Byte r in keep)
++                    Expect(fails, ref present, CloseResult(r) == r, "close keeps result " + r);
++                Expect(fails, ref present, VictorySeq(GuestOn) == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY_WITH_ENEMY, "PIN the victory seq is _WITH_ENEMY (no per-unit settle)");
++                Expect(fails, ref present, VictorySeq(GuestOff) == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY_WITH_ENEMY, "victory seq under the off lever");
++                Expect(fails, ref present, VictorySeq(GuestSettle) == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY, "the settle lever's seq");
++                Expect(fails, ref present, InjectVerdict(GuestOn, true, FF9StateBattleSystem.PHASE_NORMAL, true) == null, "inject when steady");
++                Expect(fails, ref present, InjectVerdict(GuestSettle, true, FF9StateBattleSystem.PHASE_NORMAL, true) == null, "inject under the settle lever");
++                Expect(fails, ref present, InjectVerdict(GuestOff, true, FF9StateBattleSystem.PHASE_NORMAL, true) != null, "the off lever refuses");
++                Expect(fails, ref present, InjectVerdict(GuestOn, false, FF9StateBattleSystem.PHASE_NORMAL, true) != null, "units not final refuse");
++                Expect(fails, ref present, InjectVerdict(GuestOn, true, FF9StateBattleSystem.PHASE_NORMAL, false) != null, "a paused HUD refuses");
++                Byte[] notSteady = { FF9StateBattleSystem.PHASE_INIT_SYSTEM, FF9StateBattleSystem.PHASE_ENTER, FF9StateBattleSystem.PHASE_MENU_ON,
++                                     FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.PHASE_VICTORY, FF9StateBattleSystem.PHASE_DEFEAT,
++                                     FF9StateBattleSystem.PHASE_CLOSE, FF9StateBattleSystem.PHASE_EVENT };
++                foreach (Byte ph in notSteady)
++                    Expect(fails, ref present, InjectVerdict(GuestOn, true, ph, true) != null, "phase " + ph + " refuses");
++                Byte pv = FF9StateBattleSystem.PHASE_VICTORY, cam = FF9StateBattleSystem.SEQ_VICTORY_CAMERA_MOVE;
++                Expect(fails, ref present, W1Due(pv, cam, true, W1Ms + 1), "W1 due past its window");
++                Expect(fails, ref present, !W1Due(pv, cam, true, W1Ms), "W1 not due at its window");
++                Expect(fails, ref present, !W1Due(pv, cam, false, W1Ms * 10), "PIN W1 waits for the host's ui >= 1");
++                Expect(fails, ref present, !W1Due(pv, FF9StateBattleSystem.SEQ_VICTORY_FADEOUT, true, W1Ms * 10)
++                                           && !W1Due(pv, FF9StateBattleSystem.SEQ_VICTORY_WAIT, true, W1Ms * 10), "W1 only on the camera seq");
++                Expect(fails, ref present, !W1Due(FF9StateBattleSystem.PHASE_MENU_OFF, cam, true, W1Ms * 10), "W1 only in PHASE_VICTORY");
++                Expect(fails, ref present, W2Due(FF9StateBattleSystem.PHASE_MENU_OFF, W2Ms + 1), "W2 due past its window");
++                Expect(fails, ref present, !W2Due(FF9StateBattleSystem.PHASE_MENU_OFF, W2Ms), "W2 not due at its window");
++                Expect(fails, ref present, !W2Due(pv, W2Ms * 10) && !W2Due(FF9StateBattleSystem.PHASE_CLOSE, W2Ms * 10), "W2 only in PHASE_MENU_OFF");
+             }
+             catch (Exception ex)
+             {
+@@ -1077,7 +1256,7 @@ namespace Memoria.Netsync
+             {
+                 _quiet = wasQuiet;
+             }
+-            String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec;
++            String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec + ", present " + present;
+             if (fails.Count == 0)
+             {
+                 detail = counts;
+@@ -1102,6 +1281,13 @@ namespace Memoria.Netsync
+             return false;
+         }
+ 
++        private static void Expect(List<String> fails, ref Int32 n, Boolean ok, String what)
++        {
++            n++;
++            if (!ok)
++                fails.Add(what);
++        }
++
+         private static void ExpectKind(List<String> fails, ref Int32 n, Byte phase, Byte seq, Byte result, Byte want, String what)
+         {
+             n++;

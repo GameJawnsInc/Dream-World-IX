@@ -614,6 +614,12 @@ Both rounds designed this independently. Merged:
 This stage changes nothing on the guest. It fixes the intro freeze and the victory-edge command race
 for today's digit panel.
 
+One guest-visible effect follows from the tightened Ready bit, and it is accepted. A host pause, the
+in-battle main menu, or a Libra window disables the menu while the phase stays PHASE_NORMAL, so every
+Ready bit drops. The guest's digit panel (old or new guest) then resets an in-progress pick to the root.
+On resume, the host's `GuestWaitMs` episode restarts. Before this stage, the pause instead burned that
+cap. Stage 8's stock menu behaves the same way (sitting 1, box 7).
+
 ### 6.2 The wire: no bump for either v1
 
 | Lane | Change | Stage | Peer on the old DLL |
@@ -875,13 +881,28 @@ New scenarios live under `studies/test-harness/scenarios/`.
 - Battle A: let slot 1 fill, leave it uncommanded, then win with `fight`. `peer.ready_mask` loses bit 1
   from the first frame `battle.phase != NORMAL` or `turn.enabled == false`, and stays 0 through the
   result screen. `host.caps` has bit 1.
-- Battle B, intro: `ready_mask == 0`, `roster_slots` empty. `netsync bcmd 01 01 00 00 00 10 00 00` logs
-  the "not in the command phase" refusal, `host.cmd_refused` rises by 1, and `turn.enabled` still rises.
-- Battle B, after enable: `roster_slots` is non-empty within 2 frames, and the same `bcmd` logs
-  "peer command: slot 1 Attack".
-- `endbench cmd` during a victory raises `cmd_refused` exactly once.
-- Calibration (old DLL): the bit stays set through victory, battle A's queue leaks into B's intro, and
-  the intro `bcmd` freezes the fight. Run the freeze leg last, on a throwaway sandbox save.
+- Battle B, intro: `ready_mask == 0`, `roster_slots` empty. `netsync bcmd 01 01 00 00 00 00 10 00 00`
+  (the 9-byte v1 frame `ver slot action menu idLo idHi maskLo maskHi cursor`: slot 1 Attack at enemy
+  slot 4), parked on the field after A, logs the "not in the command phase" refusal,
+  `host.cmd_refused` rises by 1, and `turn.enabled` still rises.
+- Battle B, after enable: `roster_slots` is non-empty within 2 frames (`host.roster_lag` 0..2), and the
+  same `bcmd` logs "peer command: slot 1 Attack".
+- A `bcmd` sent during battle A's victory raises `cmd_refused` exactly once, with one log line per
+  battle per reason. (`endbench cmd` is the stage-4 form of the same leg.)
+- Calibration. The pre-stage DLL has neither `netsync.battle` nor the verbs, so it runs only the
+  capability probe, which must fail closed. The behavioural reds run on the stage DLL with
+  `netsync hostgates 0`, which reverts exactly the stage's paths:
+  - `host.caps` and `peer.caps` lack bit 1, and the Ready bit stays set through victory;
+  - the victory Attack `bcmd` is NOT refused, but it does not land either: every enemy is dead at the
+    victory edge, so the Attack retarget drops it (`cmd_dropped` +1, "no living target left to
+    retarget to"). A frame that CAN land there is Defend `01 01 01 00 00 00 02 00 00` (`cmd_queued`
+    +1). It puts slot 1 into `InputFinishList`, which hides B's leak, so send it only in a separate
+    battle after the freeze leg (reload the sandbox save), never between A and B;
+  - `roster_lag` follows the free-running `RosterMs` cadence, uniform over 0..`RosterMs`, so a single
+    opening lands in 0..2 in roughly 5-10% of runs. Assert it over several openings (at least 4 of 5
+    above 2 frames), never on one;
+  - battle A's queue leaks into B's intro, and the parked intro `bcmd` freezes the fight. Run the freeze
+    leg last, on a throwaway sandbox save.
 - Stage 11 part: `netsync bench lapse 4000` as slot 1 fills.
   - The host captures it (`turn.slot == 1`), and `ready_mask` bit 1 == 0 (G6).
   - When the lapse ends at root, `turn.slot != 1` within 3 frames, with the hand-back log.

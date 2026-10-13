@@ -412,7 +412,7 @@ def test_netsync_refuses_an_unknown_sub_verb_before_spending_a_step(game):
         g.newgame(settle=0)
         seq = g.state.seq
         with pytest.raises(HarnessError, match=r"unknown sub-verb 'tape' \(selftest\|bench\|l1\|hostscene.*"
-                                               r"\|tap-record\|replay\)"):
+                                               r"\|tap-record\|replay\|.*\|bmenu\|endbench\)"):
             g.netsync("tape", 1)
         assert g.state.seq == seq and not any(s[:1] == ["netsync"] for s in fake.executed)
 
@@ -872,7 +872,10 @@ def test_each_f33_patch_adds_its_own_sub_verbs_and_keys_in_order():
         for verb in verbs:
             assert Session.NETSYNC_F33_SUBVERBS[verb][2] == patch, verb
         prev_verbs, prev_doc = verbs_now, doc_now
-    assert prev_verbs == _agent_subverbs() == FG.NETSYNC_SUBVERBS
+    # [ff9mapkit netsync B4] the F3.3 ladder ends at s99; the battle ladder (s100-s105) continues it to the live agent
+    # (test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order)
+    assert prev_verbs == FG.NETSYNC_SUBVERBS_F32 + tuple(v for _p, vs in FG.NETSYNC_F33_CAPS.values() for v in vs)
+    assert _agent_subverbs()[:len(prev_verbs)] == prev_verbs == FG.NETSYNC_SUBVERBS[:len(prev_verbs)]
     assert set(Session.NETSYNC_F33_SUBVERBS) == {v for _p, vs in FG.NETSYNC_F33_CAPS.values() for v in vs}
     # each verb's capability accessor is the one that reads the key that patch added
     for verb, (attr, key, _patch, _what) in Session.NETSYNC_F33_SUBVERBS.items():
@@ -1732,3 +1735,1079 @@ def test_the_key_tick_keeps_counting_through_a_battle(game):
         st = g.wait_for(lambda s: s.script_key_tick is not None and s.script_key_tick > tick, timeout=4.0,
                         what="the key tick to move inside the battle")
         assert st.battle.get("active") is True
+
+
+# =========================================================================== [ff9mapkit netsync B4/B5] s100-s105
+# The battle co-op lane (studies/battle-coop/B4-B5-DESIGN.md, stages 1-6), additive under protocol 5 like F3.3: each stage
+# is told by a key's PRESENCE inside the one `netsync.battle` block, so everything below is pinned to the patch that added
+# it, NESTED one level deeper than F3.3 -- s100 adds the block (host / peer / menu), s101-s103 grow its sub-objects, s104
+# adds `end`, s105 grows it (`exit_mode`, `end_leave`, `declined`). The Python codec (tools/harness/battlewire.py) is pinned
+# to NetSyncEnd's constants and to the engine SelfTest's own rows.
+
+from functools import lru_cache                                        # noqa: E402
+
+from harness import battlewire as BW                                   # noqa: E402
+
+BATTLE_FILES = ("HarnessAgent.cs", "NetSyncBattle.cs", "NetSyncBattle.StockMenu.cs", "NetSyncEnd.cs",
+                "NetSyncDiorama.cs", "NetSyncClient.cs", "BattleHUD.Scene.cs")
+#: A bench party for the stand-in's own battles: two players who can act (the default units' slot 1 is KO) and one
+#: enemy in btl slot 4 (id 0x10) with HP to spare.
+BENCH_UNITS = [
+    {"slot": 0, "id": 1, "player": True, "name": "Zidane", "hp": 420, "hp_max": 600, "hp_raw": 420, "hp_max_raw": 600,
+     "mp": 30, "mp_max": 40, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True,
+     "level": 5, "status": "0"},
+    {"slot": 1, "id": 2, "player": True, "name": "Vivi", "hp": 380, "hp_max": 380, "hp_raw": 380, "hp_max_raw": 380,
+     "mp": 12, "mp_max": 20, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True,
+     "level": 4, "status": "0"},
+    {"slot": 4, "id": 16, "player": False, "name": "Goblin", "hp": 3300, "hp_max": 3300, "hp_raw": 3300,
+     "hp_max_raw": 3300, "mp": 0, "mp_max": 0, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True,
+     "targetable": True, "level": 3, "status": "0"},
+]
+
+
+def _bench_battle(fake, *, intro: int = 30):
+    """An own battle on the stand-in with :data:`BENCH_UNITS` (fresh copies), gauges full every frame, no enemy damage,
+    commands that never resolve -- so a Ready bit holds still while a test reads it."""
+    fake.atb_gain = 6000
+    fake.enemy_hit = 0
+    fake.cmd_resolve_frames = 10 ** 6
+    fake.battle_intro_frames = intro
+    fake.start_battle(67, units=[dict(u) for u in BENCH_UNITS])
+
+
+@lru_cache(maxsize=None)
+def _stack_text(file_name: str) -> tuple:
+    """Every line the LIVE stack leaves added in ``file_name`` (net of removals), read once per run."""
+    return tuple(net_lines(file_name, r"."))
+
+
+def _battle_text(fragment: str) -> bool:
+    """The live stack's agent (or the netsync file behind a Harness* entry point) carries ``fragment`` in one line."""
+    return any(fragment in line for f in BATTLE_FILES for line in _stack_text(f))
+
+
+def _battle_of(doc: dict) -> dict:
+    b = doc.get("battle")
+    assert isinstance(b, dict), sorted(doc)
+    return b
+
+
+def _leaves(block: dict, prefix: str = "") -> dict:
+    """``netsync.battle``'s key paths -> values, descending only into the FIXED sub-objects (host / peer / menu / end /
+    end_leave / declined); a record that may be null (``host.end``, ``peer.end``, ``menu.captured``) is one leaf."""
+    out = {}
+    for k, v in block.items():
+        path = prefix + k
+        if isinstance(v, dict) and (prefix == "" or k in ("end_leave", "declined")):
+            out.update(_leaves(v, path + "."))
+        else:
+            out[path] = v
+    return out
+
+
+def _all_caps_through(cap: str) -> frozenset:
+    """The stand-in capability set of the engine at battle capability ``cap`` (every F3.3 cap + the ladder up to it)."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    return frozenset(FG.NETSYNC_F33_CAPS) | frozenset(names[:names.index(cap) + 1])
+
+
+def _agent_endbench_ops(patches=None) -> tuple:
+    """`endbench`'s "unknown op" list as the stack (or one patch) leaves NetSyncEnd.cs: two C# lines (the head is s103's,
+    the `+ "overflow|...|clear)"` continuation the one each stage rewrites)."""
+    head = net_lines("NetSyncEnd.cs", r"netsync endbench: unknown op '\" \+ op \+ \"' \(victory", patches)
+    tail = net_lines("NetSyncEnd.cs", r'\+ "overflow\|afterevent', patches)
+    assert len(tail) == 1, tail
+    if not head:                                    # a later patch rewrites only the continuation
+        head = net_lines("NetSyncEnd.cs", r"netsync endbench: unknown op '\" \+ op \+ \"' \(victory")
+    assert len(head) == 1, head
+    text = _literals(head[0])[-1] + _literals(tail[0])[0]
+    m = re.match(r"' \(([a-z|]+)\)$", text)
+    assert m, text
+    return tuple(m.group(1).split("|"))
+
+
+def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
+    """THE BATTLE LADDER, patch by patch: each of s100-s105's agent prints the previous sub-verb list with that stage's
+    verbs APPENDED (s104/s105 add none and leave the line alone), and its catch line carries the previous `netsync` keys
+    plus exactly that stage's NESTED keys, in the agent's order -- s100 the one top-level `battle`, every later stage
+    keys INSIDE it. The stand-in's tables (FG.NETSYNC_BATTLE_CAPS / NETSYNC_BATTLE_CAP_KEYS) are those diffs."""
+    prev_verbs, prev_doc = _subverbs_in("s99"), _catch_doc_in("s99")
+    assert "battle" not in prev_doc
+    for cap, (patch, verbs) in FG.NETSYNC_BATTLE_CAPS.items():
+        lines = net_lines("HarnessAgent.cs", r"netsync: unknown sub-verb", [_patch_bytes(patch)])
+        verbs_now = _subverbs_in(patch) if lines else prev_verbs
+        assert verbs_now == prev_verbs + verbs, (patch, verbs_now)
+        doc_now = _catch_doc_in(patch)
+        new_top = [k for k in doc_now if k not in prev_doc]
+        assert new_top == (["battle"] if cap == "gates" else []), (patch, new_top)
+        was, now = prev_doc.get("battle", {}), _battle_of(doc_now)
+        added = {}
+        for sub, keys in now.items():
+            fresh = [k for k in keys if k not in was.get(sub, {})]
+            if fresh:
+                added[sub] = tuple(fresh)
+        assert added == FG.NETSYNC_BATTLE_CAP_KEYS[cap], (patch, added)
+        for sub, keys in was.items():                   # nothing the previous stage published is lost
+            assert set(keys) <= set(now[sub]), (patch, sub, set(keys) - set(now[sub]))
+        for verb in verbs:
+            assert Session.NETSYNC_BATTLE_SUBVERBS[verb][2] == patch, verb
+        prev_verbs, prev_doc = verbs_now, doc_now
+    assert prev_verbs == _agent_subverbs() == FG.NETSYNC_SUBVERBS == Session.NETSYNC_SUBVERBS
+    end = _battle_of(prev_doc)["end"]
+    assert tuple(end["end_leave"]) == FG.NETSYNC_BATTLE_END_LEAVE_KEYS
+    assert tuple(end["declined"]) == FG.NETSYNC_BATTLE_DECLINED_KEYS
+    assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
+
+
+def test_each_battle_verbs_capability_key_is_one_its_patch_added():
+    """The driver tells each B4/B5 verb's engine apart by ONE key: it must be a key THAT patch added (s100: the block
+    itself), read by the State accessor it names -- and an accessor that reads the key, not a neighbour."""
+    for verb, (attr, key, patch, _what) in Session.NETSYNC_BATTLE_SUBVERBS.items():
+        cap = next(c for c, (p, _vs) in FG.NETSYNC_BATTLE_CAPS.items() if p == patch)
+        assert key.startswith("netsync.battle"), key
+        path = key[len("netsync.battle."):] if key != "netsync.battle" else ""
+        if path:
+            sub, leaf = path.split(".", 1)
+            assert leaf in FG.NETSYNC_BATTLE_CAP_KEYS[cap][sub], (verb, key)
+        else:
+            assert cap == "gates", verb
+        assert isinstance(getattr(State, attr), property), attr
+        full = {"frame": 1, "netsync": {"enabled": True, "battle": {"host": {}, "peer": {}, "menu": {}, "end": {}}}}
+        assert getattr(State(full), attr) is (cap == "gates"), (verb, attr)  # an empty block has only s100's key
+    for op, (attr, key, patch, _what) in Session.NETSYNC_ENDBENCH_OP_CAPS.items():
+        cap = next(c for c, (p, _vs) in FG.NETSYNC_BATTLE_CAPS.items() if p == patch)
+        sub, leaf = key[len("netsync.battle."):].split(".", 1)
+        assert leaf in FG.NETSYNC_BATTLE_CAP_KEYS[cap][sub], (op, key)
+        assert op in FG.endbench_ops(_all_caps_through(cap)) and op not in FG.endbench_ops(
+            _all_caps_through(list(FG.NETSYNC_BATTLE_CAPS)[list(FG.NETSYNC_BATTLE_CAPS).index(cap) - 1])), op
+
+
+def test_the_bmenu_and_endbench_ops_are_the_agents_patch_by_patch():
+    """`bmenu <op>` and `endbench <op>` are refused by the driver before the step, so their lists are gates: the
+    engine's, in its order, at every patch -- s104 inserts `guest`, s105 `exit` (after `host`)."""
+    bmenu = net_lines("NetSyncBattle.StockMenu.cs", r"netsync bmenu: unknown op '")
+    assert len(bmenu) == 1, bmenu
+    m = re.search(r"\(([a-z|]+)\)\";", bmenu[0])
+    assert m and tuple(m.group(1).split("|")) == Session.NETSYNC_BMENU_OPS == FG.NETSYNC_BMENU_OPS, bmenu
+    assert _agent_endbench_ops() == Session.NETSYNC_ENDBENCH_OPS == FG.endbench_ops(_all_caps_through("exit"))
+    assert _agent_endbench_ops([_patch_bytes("s103")]) == FG.NETSYNC_ENDBENCH_OPS_S103 \
+        == FG.endbench_ops(_all_caps_through("endblock"))
+    assert _agent_endbench_ops([_patch_bytes("s104")]) == FG.endbench_ops(_all_caps_through("present"))
+    assert _agent_endbench_ops([_patch_bytes("s105")]) == FG.endbench_ops(_all_caps_through("exit"))
+    # `manifest`: an op the engine KNOWS (and refuses, stage 9) but never lists -- the driver sends it
+    assert Session.NETSYNC_ENDBENCH_UNLISTED == ("manifest",) and "manifest" not in Session.NETSYNC_ENDBENCH_OPS
+    assert _battle_text('case "manifest":') and _battle_text("netsync endbench manifest: the result manifest is stage 9")
+
+
+def test_every_battle_key_has_an_accessor_and_every_accessor_a_key():
+    """Every key the live agent publishes under `netsync.battle` has a State accessor (a key read raw reads absence as a
+    KeyError or a default -- the "nothing" this module refuses), and every accessor's path is a key the agent publishes;
+    each accessor's reading matches its sentinel's type (null = a string or a record)."""
+    nothing, _ = _agent_netsync_nothing()
+    leaves = _leaves(_battle_of(nothing))
+    table = State.NETSYNC_BATTLE_ACCESSORS
+    assert set(leaves) <= set(table), sorted(set(leaves) - set(table))
+    containers = {"end.end_leave", "end.declined"}
+    assert set(table) - set(leaves) == containers, sorted(set(table) - set(leaves))
+    for path, name in table.items():
+        prop = getattr(State, name)
+        got = prop.fget(State({"frame": 1, "netsync": nothing}))
+        sentinel = leaves.get(path, _battle_of(nothing)["end"][path.split(".")[1]] if path in containers else None)
+        if sentinel is None:
+            assert got in ("", None), (path, got)            # a null string reads "", a null record None
+        elif isinstance(sentinel, (dict, list)):
+            assert got == sentinel and got is not sentinel, (path, got)
+        else:
+            assert got == sentinel and type(got) is type(sentinel), (path, got, sentinel)
+
+
+def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
+    """With no client, the stand-in's `netsync.battle` IS the agent's catch-line block -- same keys, same order, same
+    sentinels -- except the six values the agent reads LIVE off process statics that exist with no client: the three
+    calibration levers' names (`on` at rest; the catch line's null is "the block failed to build") and the engine's
+    music id, raw btl_flag and battle-achievement counter."""
+    nothing, _ = _agent_netsync_nothing()
+    want = _battle_of(nothing)
+    got = _battle_of(FakeGame(game)._netsync_doc())
+    live = {"host.end_mode": "HarnessHostMode", "end.guest_mode": "HarnessGuestMode", "end.exit_mode": "HarnessExitMode",
+            "end.music": "HarnessMusicId", "end.btl_flag": "HarnessBtlFlag", "end.ach_enemy_no": "HarnessAchEnemyNo"}
+    for sub in want:
+        assert list(got[sub]) == list(want[sub]), (sub, list(got[sub]), list(want[sub]))
+    for path, value in _leaves(want).items():
+        if path in live:
+            continue
+        assert _leaves(got)[path] == value, (path, _leaves(got)[path], value)
+    for path, getter in live.items():                    # ...each one a live read in the agent, never the sentinel
+        assert any(f"Netsync.NetSync" in ln and getter in ln for ln in _stack_text("HarnessAgent.cs")), getter
+    assert {k: _leaves(got)[k] for k in ("host.end_mode", "end.guest_mode", "end.exit_mode")} == \
+        {"host.end_mode": "on", "end.guest_mode": "on", "end.exit_mode": "on"}
+
+
+@pytest.mark.parametrize("level", ["s99", "s100", "s101", "s102", "s103", "s104", "s105"])
+def test_an_older_battle_stand_in_is_that_patchs_agent(game, level):
+    """A stand-in at battle capability level sNNN is exactly that patch's agent: its keys (top-level and NESTED) are that
+    patch's catch line, a later verb is an "unknown sub-verb" listing that patch's verbs, and `endbench`'s ops are that
+    patch's."""
+    fake = FakeGame(game)
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    have = [c for c in names if int(FG.NETSYNC_BATTLE_CAPS[c][0][1:]) <= int(level[1:])]
+    fake.netsync_caps = frozenset(FG.NETSYNC_F33_CAPS) | frozenset(have)
+    doc, want = fake._netsync_doc(), _catch_doc_in(level)
+    assert set(doc) == set(want), set(doc) ^ set(want)
+    if "battle" in want:
+        assert set(_leaves(_battle_of(doc))) == set(_leaves(_battle_of(want))), \
+            set(_leaves(_battle_of(doc))) ^ set(_leaves(_battle_of(want)))
+    lines = [p for p in ("s100", "s101", "s102", "s103") if int(p[1:]) <= int(level[1:])]
+    known = "|".join(_subverbs_in(lines[-1] if lines else "s99"))
+    for cap in names[len(have):]:
+        for verb in FG.NETSYNC_BATTLE_CAPS[cap][1]:
+            with pytest.raises(RuntimeError) as err:
+                fake._netsync([verb, "1"])
+            assert str(err.value) == f"netsync: unknown sub-verb '{verb}' ({known})"
+    if "endblock" in have:
+        fake._netsync(["selftest", "1"])
+        with pytest.raises(RuntimeError) as err:
+            fake._netsync(["endbench", "bogus"])
+        assert str(err.value) == ("netsync endbench: unknown op 'bogus' ("
+                                  + "|".join(_agent_endbench_ops([_patch_bytes(level)])
+                                             if int(level[1:]) >= 103 else ()) + ")")
+
+
+# (fragment the agent says -- ONE C# literal of the stack, or a piece of one -- how to make the stand-in say it)
+def _selftest(f):
+    f._netsync(["selftest", "1"])
+    return f
+
+
+def _bcmd_flood(f):
+    _selftest(f)
+    for _ in range(16):
+        f._netsync(["bcmd", "01", "01", "00", "00", "00", "00", "10", "00", "00"])
+    f._netsync(["bcmd", "01"])
+
+
+BATTLE_REFUSALS = [
+    ("netsync guestslots: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["guestslots", "2"])),
+    ("netsync bcmd: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["bcmd", "01"])),
+    ("netsync bcmd: needs 1..64 bytes of hex (a v1 command frame is 9: ver slot action menu idLo idHi maskLo maskHi "
+     "cursor)", lambda f: _selftest(f)._netsync(["bcmd", "00" * 65])),
+    ("netsync bcmd: 16 frames already wait on the loopback (no own battle is draining them)", _bcmd_flood),
+    ("netsync hostgates: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["hostgates", "0"])),
+    ("netsync containment: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["containment", "0"])),
+    ("netsync bctl: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["bctl", "00", "00"])),
+    ("netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 <menuOpen 0|1>)",
+     lambda f: _selftest(f)._netsync(["bctl", "00" * 65])),
+    ("netsync bmenu: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["bmenu", "closeall"])),
+    ("netsync bmenu: unknown op '", lambda f: _selftest(f)._netsync(["bmenu", "bogus"])),
+    ("' (open|close|closeall|capture|mainmenu)", lambda f: _selftest(f)._netsync(["bmenu"])),
+    ("needs a live diorama (netsync dioboot <scene>, then wait for battle.turn.enabled)",
+     lambda f: _selftest(f)._netsync(["bmenu", "open", "0"])),
+    ("netsync bmenu close: needs a live diorama", lambda f: _selftest(f)._netsync(["bmenu", "close", "0"])),
+    ("netsync bmenu mainmenu: needs a live diorama (a real battle's main menu is stock and is never probed)",
+     lambda f: _selftest(f)._netsync(["bmenu", "mainmenu"])),
+    ("netsync endbench: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["endbench", "victory"])),
+    ("netsync endbench: unknown op '", lambda f: _selftest(f)._netsync(["endbench", "bogus"])),
+    ("overflow|afterevent|cmd|host|guest|exit|selftest|clear)", lambda f: _selftest(f)._netsync(["endbench"])),
+    ("netsync endbench other: needs a btl_result 0-255 (5 interruption, 7 enemy flee, ...)",
+     lambda f: _selftest(f)._netsync(["endbench", "other", "300"])),
+    ("netsync endbench ui: needs 0 (battle/other), 1 (BattleResult), 2 (GameOver) or 3 (Title)",
+     lambda f: _selftest(f)._netsync(["endbench", "ui", "4"])),
+    ("netsync endbench state: needs a ResultState 0-8 (0 Start .. 6 End, 7 Hide, 8 None) [loading]",
+     lambda f: _selftest(f)._netsync(["endbench", "state", "9"])),
+    (": needs 0|1", lambda f: _selftest(f)._netsync(["endbench", "overflow", "2"])),
+    ("netsync endbench cmd: needs 1..64 bytes of hex (a v1 command frame is 9)",
+     lambda f: _selftest(f)._netsync(["endbench", "cmd", "00" * 65])),
+    ("netsync endbench host: needs on|cadence|off", lambda f: _selftest(f)._netsync(["endbench", "host", "x"])),
+    ("netsync endbench guest: needs on|off|settle", lambda f: _selftest(f)._netsync(["endbench", "guest", "x"])),
+    ("netsync endbench exit: needs on|off", lambda f: _selftest(f)._netsync(["endbench", "exit"])),
+    ("netsync endbench manifest: the result manifest is stage 9 -- this engine ships the end block only",
+     lambda f: _selftest(f)._netsync(["endbench", "manifest"])),
+]
+
+
+@pytest.mark.parametrize("fragment,provoke", BATTLE_REFUSALS, ids=[r[0][:40] for r in BATTLE_REFUSALS])
+def test_the_stand_in_refuses_the_battle_verbs_in_the_agents_words(game, fragment, provoke):
+    """Every B4/B5 gate the stand-in models refuses with the agent's own words -- the text a scenario's refusal match and
+    a live run's error latch both carry."""
+    assert _battle_text(fragment), f"the live stack no longer says {fragment!r}"
+    fake = FakeGame(game)
+    fake.field_id = FIELD
+    with pytest.raises(RuntimeError) as err:
+        provoke(fake)
+    assert fragment in str(err.value), str(err.value)
+
+
+BATTLE_ARGUMENT_REFUSALS = [
+    ("netsync guestslots", None, lambda f: f._netsync(["guestslots", "16"])),
+    ("netsync guestslots", None, lambda f: f._netsync(["guestslots", "0x1g"])),
+    ("netsync guestslots", None, lambda f: f._netsync(["guestslots"])),
+    ("netsync bcmd", None, lambda f: f._netsync(["bcmd", "0"])),                   # an odd digit count
+    ("netsync bcmd", None, lambda f: f._netsync(["bcmd", "zz"])),
+    ("netsync bctl", None, lambda f: f._netsync(["bctl"])),
+    ("netsync bmenu capture", None, lambda f: f._netsync(["bmenu", "capture", "maybe"])),
+    ("netsync bmenu ", "netsync bmenu open", lambda f: f._netsync(["bmenu", "open", "4"])),
+    ("netsync bmenu ", "netsync bmenu close", lambda f: f._netsync(["bmenu", "close"])),
+    ("netsync endbench ", "netsync endbench ui", lambda f: f._netsync(["endbench", "ui"])),
+    ("netsync endbench ", "netsync endbench other", lambda f: f._netsync(["endbench", "other", "-1"])),
+    ("netsync endbench state", None, lambda f: f._netsync(["endbench", "state", "2", "fading"])),
+    ("netsync endbench cmd", None, lambda f: f._netsync(["endbench", "cmd", "0x0"])),
+]
+
+
+@pytest.mark.parametrize("literal,param,provoke", BATTLE_ARGUMENT_REFUSALS,
+                         ids=[f"{r[1] or r[0]}-{i}" for i, r in enumerate(BATTLE_ARGUMENT_REFUSALS)])
+def test_a_battle_argument_refusal_has_the_engines_whole_shape_before_any_gate(game, literal, param, provoke):
+    """The B4/B5 argument parses run BEFORE the role gate (no client here), as ArgumentOutOfRangeExceptions: Mono's
+    ``message + CRLF + "Parameter name: " + param``, both read off the stack (a param the agent SPLICES -- ``"netsync bmenu
+    " + bop`` -- read as its literal head)."""
+    agent = _agent_argument_refusals()
+    assert literal in agent, sorted(agent)
+    fake = FakeGame(game)
+    with pytest.raises(RuntimeError) as err:
+        provoke(fake)
+    assert str(err.value) == f"{agent[literal]}\r\nParameter name: {param or literal}", repr(str(err.value))
+
+
+# --------------------------------------------------------------------------- State: B4/B5, absent = cannot
+
+def _battle_block(level: str) -> dict:
+    """The agent's own sentinel block at patch ``level`` (its catch line), as a published `netsync` document."""
+    return _catch_doc_in(level)
+
+
+def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
+    """No `netsync` block: every B4/B5 capability and accessor None. A block without `battle` (s99): the capabilities
+    False, every accessor None. Each patch's own block: its capabilities True, every LATER stage's capability False and
+    its accessors None -- a stage-1 engine's missing `r9_refused` read as 0 would make a containment assertion green
+    against the wrong DLL."""
+    caps = ("coop_host_gates", "coop_containment", "coop_stock_menu", "coop_end_trailer", "coop_presentation",
+            "coop_exit_with_host")
+    table = State.NETSYNC_BATTLE_ACCESSORS
+    none = State({"frame": 1})
+    assert all(getattr(none, c) is None for c in caps) and all(getattr(none, n) is None for n in table.values())
+    assert none.coop_battle is None
+    s99 = State({"frame": 1, "netsync": _battle_block("s99")})
+    assert all(getattr(s99, c) is False for c in caps) and all(getattr(s99, n) is None for n in table.values())
+    for i, level in enumerate(("s100", "s101", "s102", "s103", "s104", "s105")):
+        st = State({"frame": 1, "netsync": _battle_block(level)})
+        assert [getattr(st, c) for c in caps] == [True] * (i + 1) + [False] * (len(caps) - i - 1), level
+        published = set(_leaves(_battle_of(_battle_block(level)))) | (
+            {"end.end_leave", "end.declined"} if i >= 5 else set())
+        for path, name in table.items():
+            if path in published:
+                assert getattr(st, name) is not None or path in ("host.end", "peer.end", "menu.captured"), (level, path)
+            else:
+                assert getattr(st, name) is None, (level, path)
+
+
+BATTLE_BLOCK = {
+    "host": {"gates_off": False, "guest_slots": 2, "cmd_phase": True, "caps": 2, "ready_mask": 3, "cmd_refused": 4,
+             "cmd_dropped": 1, "cmd_queued": 7, "refused_why": "the battle intro", "dropped_why": None,
+             "roster_lag": 1, "loop_cmds": 0,
+             "end": {"kind": 2, "kind_name": "victory", "phase": 6, "seq": 0, "result": 1, "ui": 1, "res_state": 2,
+                     "loading": True, "flags": 0, "win_pose": 15, "manifest_len": 0},
+             "end_trail": ["0/0/-", "2/1/2L"], "end_edges": 3, "end_changes": 4, "end_mode": "on", "end_cmd": None},
+    "peer": {"live": True, "seq": 99, "nonce": 4, "caps": 3, "ready_mask": 2, "end": None, "end_trail": [],
+             "trailer_bad": 0, "trailer_skipped": 0, "trailer_why": None},
+    "menu": {"roster_slots": [1], "r9_refused": 2, "r9_total": 5, "r9_cmd": 1,
+             "r9_site": "BattleHUD.SendNetCommand < HarnessAgent.Execute", "guest_owned": 0, "contained": True,
+             "containment_off": False, "captures": 1, "capture_refused": 0, "capture_why": None, "capture_off": False,
+             "outbox": 1, "bench_open": 1, "side_refused": 0, "side_why": None,
+             "captured": {"slot": 0, "action": 0, "menu": 0, "id": 0, "mask": 16, "cursor": 0, "local_slot": 0, "cmd": 1,
+                          "site": "SendCommand", "hex": "01 00 00 00 00 00 10 00 00", "action_name": "Attack"}},
+    "end": {"injected": True, "held": False, "kind": 2, "kind_name": "victory", "action": "victory", "inject_phase": 5,
+            "inject_seq": 4, "inject_ms": 1200, "r8_hits": 30, "r8_first_ms": 900, "w1_armed": True, "watchdog": None,
+            "blocker": None, "why": None, "faulted": False, "hud_reasserts": 0, "guest_mode": "on", "ach_held": 0,
+            "ach_enemy_no": 12, "music": 5, "btl_flag": 96, "exit_mode": "on",
+            "end_leave": {"trigger": "result-hide", "latched_ms": 40, "tries": 1, "deferred": 0, "requested": True,
+                          "request_ms": 0, "why": None, "settled": True, "via": "end-leave", "stamp": 1, "stamp_host": 1,
+                          "stamped": -1, "stamped_was": -1, "music_shut": True, "music_why": None, "wipe_lifted": False},
+            "declined": {"count": 0, "nonce": -1, "why": None}},
+}
+
+
+def test_state_reads_the_battle_block():
+    st = State({"frame": 1, "netsync": dict(F33_BLOCK, battle=BATTLE_BLOCK)})
+    assert (st.coop_host_gates, st.coop_containment, st.coop_stock_menu, st.coop_end_trailer, st.coop_presentation,
+            st.coop_exit_with_host) == (True,) * 6
+    assert (st.coop_host_caps, st.coop_host_ready_mask, st.coop_host_guest_slots, st.coop_host_roster_lag) == (2, 3, 2, 1)
+    assert (st.coop_host_cmd_refused, st.coop_host_cmd_dropped, st.coop_host_cmd_queued) == (4, 1, 7)
+    assert st.coop_host_refused_why == "the battle intro" and st.coop_host_dropped_why == ""   # null: none yet
+    assert st.coop_host_gates_off is False and st.coop_host_cmd_phase is True
+    assert st.coop_host_end == BATTLE_BLOCK["host"]["end"] and st.coop_host_end is not BATTLE_BLOCK["host"]["end"]
+    assert st.coop_host_end_trail == ["0/0/-", "2/1/2L"] and st.coop_host_end_cmd == "" and st.coop_host_end_mode == "on"
+    assert (st.coop_peer_live, st.coop_peer_seq, st.coop_peer_caps, st.coop_peer_ready_mask) == (True, 99, 3, 2)
+    assert st.coop_peer_end is None and st.coop_peer_trailer_why == ""                        # a null record: None
+    assert st.coop_menu_roster_slots == [1] and st.coop_menu_r9_site.startswith("BattleHUD.SendNetCommand")
+    assert (st.coop_menu_r9_refused, st.coop_menu_r9_total, st.coop_menu_r9_cmd) == (2, 5, 1)
+    assert st.coop_menu_contained is True and st.coop_menu_guest_owned == 0
+    assert st.coop_menu_captured["mask"] == 16 and st.coop_menu_captured is not BATTLE_BLOCK["menu"]["captured"]
+    assert (st.coop_present_injected, st.coop_present_inject_phase, st.coop_present_inject_seq) == (True, 5, 4)
+    assert st.coop_present_watchdog == "" and st.coop_present_why == "" and st.coop_present_r8_hits == 30
+    assert (st.coop_exit_trigger, st.coop_exit_via, st.coop_exit_stamp, st.coop_exit_stamped) == \
+        ("result-hide", "end-leave", 1, -1)
+    assert st.coop_exit_why == "" and st.coop_exit_music_shut is True and st.coop_exit_mode == "on"
+    assert st.coop_end_leave == BATTLE_BLOCK["end"]["end_leave"] and st.coop_declined_nonce == -1
+    whole = st.coop_battle
+    assert whole["menu"] == BATTLE_BLOCK["menu"] and whole["menu"] is not BATTLE_BLOCK["menu"]
+    # a bool is never a count, a count never a bool, a string never a number -- and a wrong-typed block is no block
+    odd = State({"frame": 1, "netsync": dict(F33_BLOCK, battle=dict(
+        BATTLE_BLOCK, host=dict(BATTLE_BLOCK["host"], caps=True, cmd_phase=1, refused_why=7, end_trail={}),
+        menu=dict(BATTLE_BLOCK["menu"], captured=[], r9_refused=1.0)))})
+    assert odd.coop_host_caps is None and odd.coop_host_cmd_phase is None and odd.coop_host_refused_why is None
+    assert odd.coop_host_end_trail is None and odd.coop_menu_captured is None and odd.coop_menu_r9_refused is None
+    assert odd.coop_containment is False                    # its key is there, but not a count
+    flat = State({"frame": 1, "netsync": dict(F33_BLOCK, battle=[])})
+    assert flat.coop_host_gates is False and flat.coop_host_caps is None
+
+
+def test_state_reads_the_b4_battle_doc_keys():
+    """`battle.seq` / `battle.hud` (s102), `battle.result_ui` (s103), `units[].cmd_busy` (s101): absent = None."""
+    old = State({"frame": 1, "battle": {"active": True, "phase": 4, "units": [{"slot": 0, "player": True}]}})
+    assert old.battle_seq is None and old.battle_hud is None and old.battle_result_ui is None
+    assert old.unit_cmd_busy(0) is None and old.unit_cmd_busy(4) is None
+    hud = {"group": "Battle.Command", "panel": "command", "shown": True, "slot": 0,
+           "commands": [{"menu": 0, "id": 1, "label": "Attack", "state": 2, "raw": 2}], "rows": []}
+    new = State({"frame": 1, "battle": {"active": True, "phase": 6, "seq": 2, "hud": hud,
+                                        "result_ui": {"state": 7, "loading": True, "paused": False},
+                                        "units": [{"slot": 0, "player": True, "cmd_busy": 1},
+                                                  {"slot": 4, "player": False, "cmd_busy": True}]}})
+    assert new.battle_seq == 2 and new.battle_hud == hud and new.battle_hud["commands"][0] is not hud["commands"][0]
+    assert new.battle_result_ui == {"state": 7, "loading": True, "paused": False}
+    assert new.unit_cmd_busy(0) == 1 and new.unit_cmd_busy(4) is None          # a bool is not a mask
+    assert State({"frame": 1, "battle": {"seq": True}}).battle_seq is None
+
+
+# --------------------------------------------------------------------------- the driver: B4/B5 capabilities
+
+@pytest.mark.parametrize("level", ["s99", "s100", "s101", "s102", "s103"])
+def test_netsync_refuses_a_battle_verb_its_engine_lacks_before_spending_a_step(game, level):
+    """An engine without a stage answers its verb "unknown sub-verb" only AFTER the step; the driver names the patch and
+    the key first -- and quotes the engine's would-be refusal, so a scenario's "unknown sub-verb" match still reads it.
+    The verbs the engine HAS still reach it (whose own gates may refuse them -- after the step)."""
+    fake = FakeGame(game)
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    have = [c for c in names if int(FG.NETSYNC_BATTLE_CAPS[c][0][1:]) <= int(level[1:])]
+    fake.netsync_caps = frozenset(FG.NETSYNC_F33_CAPS) | frozenset(have)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        lacking = [v for c in names if c not in have for v in FG.NETSYNC_BATTLE_CAPS[c][1]]
+        for verb in lacking:
+            _attr, key, patch, _what = Session.NETSYNC_BATTLE_SUBVERBS[verb]
+            with pytest.raises(HarnessError, match=rf"^netsync {verb}: the deployed engine publishes no "
+                                                   rf"`{re.escape(key)}` .*\(memoria-patch {patch}\); it would answer "
+                                                   rf"\"netsync: unknown sub-verb '{verb}'\" only after the step"):
+                g.netsync(verb, *(("victory",) if verb == "endbench" else ("closeall",) if verb == "bmenu" else ()))
+        assert not any(s[:1] == ["netsync"] and s[1:2] and s[1] in lacking for s in fake.executed)
+        for verb in [v for c in have for v in FG.NETSYNC_BATTLE_CAPS[c][1]]:
+            try:
+                g.netsync(verb, *({"guestslots": (2,), "bcmd": ("01",), "hostgates": (1,), "containment": (1,),
+                                   "bctl": ("00", "00"), "bmenu": ("closeall",), "endbench": ("clear",)}[verb]))
+            except HarnessError:
+                pass                                        # the agent's own gate, after the step: fine
+            assert any(s[:2] == ["netsync", verb] for s in fake.executed), verb
+
+
+@pytest.mark.parametrize("level,op", [("s103", "guest"), ("s103", "exit"), ("s104", "exit")])
+def test_netsync_refuses_an_endbench_op_a_later_patch_added_before_spending_a_step(game, level, op):
+    """`endbench guest` (s104) and `endbench exit` (s105) ride a verb an older engine HAS: that engine refuses the op
+    only after the step ("unknown op"); the driver names the patch and the key first. Its other ops still reach it."""
+    fake = FakeGame(game)
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    have = [c for c in names if int(FG.NETSYNC_BATTLE_CAPS[c][0][1:]) <= int(level[1:])]
+    fake.netsync_caps = frozenset(FG.NETSYNC_F33_CAPS) | frozenset(have)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        _attr, key, patch, _what = Session.NETSYNC_ENDBENCH_OP_CAPS[op]
+        n = len(fake.executed)
+        with pytest.raises(HarnessError, match=rf"^netsync endbench {op}: the deployed engine publishes no "
+                                               rf"`{re.escape(key)}` .*\(memoria-patch {patch}\); it would answer "
+                                               rf"\"netsync endbench: unknown op '{op}'\""):
+            g.netsync("endbench", op, "off")
+        assert len(fake.executed) == n
+        with pytest.raises(RuntimeError, match=rf"^netsync endbench: unknown op '{op}'"):
+            fake._netsync(["endbench", op, "off"])         # ...what the engine itself says, after the step
+        st = g.netsync("endbench", "victory")
+        assert st.coop_peer_end["kind"] == BW.K_VICTORY and fake.executed[-1] == ["netsync", "endbench", "victory"]
+
+
+def test_netsync_refuses_an_unknown_bmenu_or_endbench_op_before_spending_a_step_in_the_engines_words(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        for sub, op in (("bmenu", "bogus"), ("bmenu", ""), ("endbench", "victorious"), ("endbench", "")):
+            with pytest.raises(HarnessError) as err:
+                g.netsync(sub, *((op,) if op else ()))
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync([sub, *((op,) if op else ())])     # what the engine would say after its gates
+            assert str(err.value) == str(agent.value), (str(err.value), str(agent.value))
+        assert len(fake.executed) == n
+        with pytest.raises(HarnessError, match=r"the result manifest is stage 9"):
+            g.netsync("endbench", "manifest")              # (an unlisted op the engine knows: sent, refused there)
+        assert fake.executed[-1] == ["netsync", "endbench", "manifest"]
+        st = g.netsync("bmenu", "CAPTURE", "off")               # the agent lowercases the op; so does the driver
+        assert st.coop_menu_capture_off is True and fake.executed[-1] == ["netsync", "bmenu", "CAPTURE", "off"]
+
+
+def test_an_f3_engine_refuses_the_battle_verbs_naming_the_patch(game):
+    fake = FakeGame(game)
+    fake.netsync_dialogue = None
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        for verb, (_attr, _key, patch, _what) in Session.NETSYNC_BATTLE_SUBVERBS.items():
+            with pytest.raises(HarnessError, match=rf"netsync {verb}: .*F3 lockstep.*a B4/B5 battle co-op verb .*"
+                                                   rf"memoria-patch {patch}.*memoria-patch s96"):
+                g.netsync(verb)
+
+
+def test_reset_releases_every_battle_lever_and_the_bench_end(game):
+    """Every B4/B5 lever, the parked `bcmd` frames, the `bctl` stamp, a `guestslots` override, the bench end and the
+    `endbench cmd` one-shot go back to rest on `reset` (HarnessSelfTest(false) -> HarnessReleaseBench) -- read again
+    UNDER a fresh selftest role, so a lever the role merely masks cannot pass for released."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        for args in (("guestslots", "0x3"), ("hostgates", 0), ("containment", 0), ("bctl", "00 01"),
+                     ("bmenu", "capture", "off"), ("endbench", "host", "cadence"), ("endbench", "guest", "settle"),
+                     ("endbench", "exit", "off"), ("endbench", "victory"), ("endbench", "cmd"),
+                     ("bcmd", BW.command_hex(1, BW.ACT_ATTACK, mask=0x10))):
+            g.netsync(*args)
+        st = g.state
+        assert (st.coop_host_gates_off, st.coop_menu_containment_off, st.coop_menu_capture_off) == (True,) * 3
+        assert st.coop_host_guest_slots == 3 and st.coop_host_loop_cmds == 1 and st.coop_menu_guest_owned == 3
+        assert (st.coop_host_end_mode, st.coop_present_guest_mode, st.coop_exit_mode) == ("cadence", "settle", "off")
+        assert st.coop_peer_end["bench"] is True and st.coop_host_end_cmd == "armed"
+        g.send("reset")
+        g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0, what="the release")
+        st = g.netsync("selftest", 1)
+        assert (st.coop_host_gates_off, st.coop_menu_containment_off, st.coop_menu_capture_off) == (False,) * 3
+        assert (st.coop_host_guest_slots, st.coop_host_loop_cmds, st.coop_menu_guest_owned) == (0, 0, 0)
+        assert (st.coop_host_end_mode, st.coop_present_guest_mode, st.coop_exit_mode) == ("on", "on", "on")
+        assert st.coop_peer_end is None and st.coop_host_end_cmd == ""
+
+
+def test_selftest_0_releases_the_battle_bench_on_an_unforced_role_too(game):
+    """HarnessSelfTest(false) releases the B4 bench ABOVE its forced-role early return (an ini-configured selftest
+    satisfies every B4 verb's gate): the stand-in's `_selftest_release` must too."""
+    assert _battle_text("the B4 bench state is released on EVERY path, ABOVE the forced-role early")
+    fake = _selftest(FakeGame(game))
+    fake._netsync(["hostgates", "0"])
+    fake.netsync["forced"] = False                      # as if the role came from the ini
+    fake._netsync(["selftest", "0"])
+    assert fake._nb.gates_off_lever is False
+
+
+# --------------------------------------------------------------------------- the stand-in: the B4/B5 behaviour core
+
+def _armed_selftest(g, fake, *, battle=False):
+    g.newgame(settle=0)
+    g.warp(FIELD)
+    g.netsync("selftest", 1)
+    if battle:
+        _bench_battle(fake)
+        g.wait_for(lambda s: s.coop_peer_live, timeout=4.0, what="the own battle's loopback lane")
+
+
+def test_an_own_battles_intro_refuses_a_parked_command_and_its_opening_takes_it(game):
+    """Stage 1 on the stand-in (design 8.2 `coop_battle_host_gates`): a `bcmd` parked on the field waits on the loopback
+    (only an own battle drains it); the intro drains it REFUSED (`the battle intro`, cmd_refused +1, no queue); the
+    command phase opens with the caps bit, the roster within the opening frame, slot 1 skipped by the local HUD -- and the
+    same frame then lands (cmd_queued +1, slot 1 done)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _armed_selftest(g, fake)
+        g.netsync("guestslots", 2)
+        frame = BW.command_hex(1, BW.ACT_ATTACK, mask=0x10)
+        st = g.netsync("bcmd", frame)
+        assert st.coop_host_loop_cmds == 1 and st.coop_peer_live is False and st.coop_host_caps == -1
+        refused = st.coop_host_cmd_refused
+        _bench_battle(fake, intro=240)
+        st = g.wait_for(lambda s: s.coop_host_loop_cmds == 0, timeout=4.0, what="the intro drain")
+        assert st.coop_host_cmd_refused == refused + 1 and st.coop_host_refused_why == "the battle intro"
+        assert st.coop_host_cmd_queued == 0 and st.battle_phase == BW.PHASE_ENTER and not st.commands_enabled
+        st = g.wait_for(lambda s: s.commands_enabled and s.coop_peer_ready_mask, timeout=4.0, what="the opening")
+        assert st.coop_host_caps & BW.CAP_COMMAND_PHASE_GATED and st.coop_peer_caps == st.coop_host_caps
+        assert st.coop_host_cmd_phase and 0 <= st.coop_host_roster_lag <= 2 and st.coop_menu_roster_slots == [1]
+        assert st.coop_peer_ready_mask & 2 and st.turn_slot != 1                      # the local HUD skips slot 1
+        queued = st.coop_host_cmd_queued
+        g.netsync("bcmd", frame)
+        st = g.wait_for(lambda s: s.coop_host_cmd_queued == queued + 1, timeout=4.0, what="the command to land")
+        assert 1 in st.battle["turn"]["done"] and not st.coop_peer_ready_mask & 2
+
+
+def test_hostgates_0_reverts_the_stage_to_the_pre_stage_host(game):
+    """The calibration lever: no caps bit 1, no intake guard (the intro frame is NOT refused -- it reaches the
+    ownership/ready checks), and the Ready bit follows the HUD's queues whatever the phase."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _armed_selftest(g, fake)
+        g.netsync("guestslots", 2)
+        st = g.netsync("hostgates", 0)
+        assert st.coop_host_gates_off is True
+        refused, dropped = st.coop_host_cmd_refused, st.coop_host_cmd_dropped
+        g.netsync("bcmd", BW.command_hex(1, BW.ACT_ATTACK, mask=0x10))
+        _bench_battle(fake, intro=240)
+        st = g.wait_for(lambda s: s.coop_host_loop_cmds == 0 and s.coop_peer_live, timeout=4.0, what="the drain")
+        assert st.coop_host_caps == 0 and st.coop_peer_caps == 0
+        assert st.coop_host_cmd_refused == refused and st.coop_host_cmd_dropped == dropped + 1
+        assert st.coop_host_dropped_why == "slot 1 not awaiting input"
+
+
+@pytest.mark.parametrize("frame,why,literals", [
+    ("01 01 00 00 00 00 10 00", "malformed command frame: len 8, ver 1 (want 9 bytes, ver 1)",
+     ("malformed command frame: ", "len ", ", ver ", " (want 9 bytes, ver 1)")),
+    ("02 01 00 00 00 00 10 00 00", "malformed command frame: len 9, ver 2 (want 9 bytes, ver 1)",
+     ("malformed command frame: ", " (want 9 bytes, ver 1)")),
+    ("01 01 00 00 00 00 00 00 00", "slot 1 Attack: empty target mask", (": empty target mask", 'case ActAttack: return "Attack";')),
+    ("01 02 00 00 00 00 10 00 00", "slot 2 is not a guest slot", (" is not a guest slot",)),
+    ("01 01 07 00 00 00 10 00 00", "slot 1: unknown action 7 (v1 knows 0-4)", (": unknown action ", " (v1 knows 0-4)")),
+])
+def test_a_command_frame_the_host_declines_names_itself(game, frame, why, literals):
+    """Every decline past the intake guard names itself (design 3.8 item 4): `cmd_dropped` +1 and `dropped_why` the
+    engine's reason (the literals HandleCommandPayload splices it from, each read off the stack)."""
+    for piece in literals:
+        assert _battle_text(piece), piece
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _armed_selftest(g, fake, battle=True)
+        g.netsync("guestslots", 2)
+        st = g.wait_for(lambda s: s.coop_peer_ready_mask and s.coop_peer_ready_mask & 2, timeout=4.0, what="slot 1")
+        dropped = st.coop_host_cmd_dropped
+        g.netsync("bcmd", frame)
+        st = g.wait_for(lambda s: s.coop_host_cmd_dropped == dropped + 1, timeout=4.0, what="the drop")
+        assert st.coop_host_dropped_why == why and st.coop_host_cmd_queued == 0
+
+
+def _dio(g, fake, *, fresh: bool = True):
+    """A selftest diorama in its steady command phase (the containment / stock-menu / end benches' start)."""
+    fake.reinit_fields = {FIELD}
+    fake.encounter_fields = {FIELD}
+    if fresh:
+        g.newgame(settle=0)
+    g.warp(FIELD)
+    g.netsync("selftest", 1)
+    fake.player = [10.0, 0.0, 20.0]
+    fake.control = True
+    g.netsync("dioboot", 67)
+    return g.wait_for(lambda s: s.coop_menu_contained and s.commands_enabled and s.battle_phase == BW.PHASE_NORMAL,
+                      timeout=4.0, what="the diorama's steady phase")
+
+
+def test_r9_refuses_a_local_enqueue_inside_the_diorama_and_containment_0_lets_it_swing(game):
+    """Stage 2 on the stand-in: `battlecmd` inside the diorama ACKS (SendNetCommand's bookkeeping runs) but R9 refuses
+    the enqueue -- `r9_refused` +1 this boot, `r9_cmd` 1, the site SendNetCommand's, `cmd_busy` never set, the enemy's
+    HP untouched. `containment 0` = the pre-stage guest: the Attack queues and swings."""
+    fake = FakeGame(game)
+    fake.cmd_resolve_frames = 20
+    with session(game, fake) as g:
+        st = _dio(g, fake)
+        assert (st.coop_menu_r9_refused, st.coop_menu_r9_cmd) == (0, -1)
+        total = st.coop_menu_r9_total
+        hp = st.unit("Masked Man")["hp_raw"]
+        g.battle_command(0, 1, sub=176, target=16)       # `battlecmd 0 1 176 16 0` (SendNetCommand)
+        st = stays(g, lambda s: s.unit_cmd_busy(0) == 0, frames=30, what="R9 let the enqueue through")
+        assert (st.coop_menu_r9_refused, st.coop_menu_r9_total, st.coop_menu_r9_cmd) == (1, total + 1, 1)
+        assert st.coop_menu_r9_site.startswith("BattleHUD.SendNetCommand") and st.unit("Masked Man")["hp_raw"] == hp
+        g.netsync("bmenu", "close", 0)                       # the refused slot is done: free it for the red leg
+        g.netsync("containment", 0)
+        g.battle_command(0, 1, sub=176, target=16)
+        g.wait_for(lambda s: s.unit_cmd_busy(0) == 1, timeout=4.0, what="the local enqueue (the pre-stage red)")
+        st = g.wait_for(lambda s: s.unit("Masked Man")["hp_raw"] < hp, timeout=4.0, what="the local swing")
+        assert st.coop_menu_r9_refused == 1
+
+
+def test_bctl_owns_a_guest_slot_on_the_field_and_g2_never_inside_the_diorama(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _armed_selftest(g, fake)
+        g.netsync("guestslots", 1)
+        st = g.netsync("bctl", BW.control_hex(False))
+        assert st.coop_menu_guest_owned == 1 and st.coop_menu_contained is False
+        st = g.netsync("bctl", "01")                         # one byte: ParseControl refuses it, nothing stamped
+        assert st.coop_menu_guest_owned == 1                 # (the earlier stamp is still fresh)
+        g.send("reset")
+        st = _dio(g, fake, fresh=False)
+        g.netsync("guestslots", 1)
+        st = g.netsync("bctl", "00 00")
+        assert st.coop_menu_guest_owned == 0 and st.coop_menu_contained is True        # G2
+        st = g.netsync("containment", 0)
+        assert st.coop_menu_guest_owned == 1                 # the lever: the pre-stage guest follows the lane
+
+
+def test_the_bench_opener_opens_the_stock_panel_and_a_commit_is_captured_not_enqueued(game):
+    """Stage 3 on the stand-in: `bmenu open 0` puts slot 0 on the ReadyQueue -- the command panel opens (`battle.hud`);
+    Attack + its target commit is CAPTURED as the v1 frame `01 00 00 00 00 00 10 00 00` (the host decodes slot 0 Attack
+    -> 0x10), the slot done, nothing queued; `capture off` sends the same commit into R9 (site SendCommand); Change is
+    refused outside the v1 scope; `mainmenu` fires the side gate."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        st = g.netsync("bmenu", "open", 0)
+        st = g.wait_for(lambda s: s.turn_slot == 0 and s.battle_hud and s.battle_hud["panel"] == "command",
+                        timeout=4.0, what="the stock command panel")
+        assert st.coop_menu_bench_open == 1 and st.battle_hud["group"] == "Battle.Command"
+        assert [c["label"] for c in st.battle_hud["commands"]][:2] == ["Attack", "Defend"]
+        captures = st.coop_menu_captures
+        g.press("confirm", 4)
+        g.wait_for(lambda s: s.battle_hud["panel"] == "target", timeout=4.0, what="the target panel")
+        g.press("confirm", 4)
+        st = g.wait_for(lambda s: s.coop_menu_captures == captures + 1, timeout=4.0, what="the capture")
+        cap = st.coop_menu_captured
+        assert {k: cap[k] for k in ("slot", "action", "menu", "id", "mask", "cursor", "local_slot", "site")} == \
+            {"slot": 0, "action": 0, "menu": 0, "id": 0, "mask": 16, "cursor": 0, "local_slot": 0, "site": "SendCommand"}
+        assert cap["hex"] == "01 00 00 00 00 00 10 00 00" == BW.command_hex(0, BW.ACT_ATTACK, mask=16)
+        assert BW.decode_command(bytes.fromhex(cap["hex"])) == {"slot": 0, "action": 0, "menu": 0, "id": 0, "mask": 16,
+                                                                "cursor": 0}
+        assert 0 in st.battle["turn"]["done"] and st.unit_cmd_busy(0) == 0 and st.coop_menu_r9_refused == 0
+        assert st.coop_menu_outbox == 1 and st.battle_hud["panel"] == "none"
+        g.netsync("bmenu", "capture", "off")
+        g.netsync("bmenu", "close", 0)
+        g.netsync("bmenu", "open", 0)
+        g.wait_for(lambda s: s.turn_slot == 0, timeout=4.0, what="the reopened panel")
+        g.press("confirm", 4)
+        g.press("confirm", 4)
+        st = g.wait_for(lambda s: s.coop_menu_r9_refused == 1, timeout=4.0, what="R9 behind the lever")
+        assert st.coop_menu_r9_site.startswith("BattleHUD.SendCommand") and st.coop_menu_captures == captures + 1
+        side = st.coop_menu_side_refused
+        st = g.netsync("bmenu", "mainmenu")
+        assert st.coop_menu_side_refused == side + 1
+        assert st.coop_menu_side_why == "the in-battle main menu (AccessMenu / OnKeyMenu)"
+        assert _battle_text(st.coop_menu_side_why)
+
+
+def test_endbench_fabricates_each_kind_through_the_codec(game):
+    """Stage 4's leg A on the stand-in: each template op's kind comes out of ClassifyEnd (incl. var 32's Event and CLOSE +
+    DEFEAT), the block rides the trailer codec, `peer.end` serves it as the BENCH end (nonce 181), each fabricate
+    advances its wire seq; `clear` disarms it."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _armed_selftest(g, fake)
+        st = g.netsync("endbench", "victory")
+        e = st.coop_peer_end
+        assert e == {"kind": 2, "kind_name": "victory", "phase": 6, "seq": 0, "result": 1, "ui": 0, "res_state": -1,
+                     "loading": False, "flags": 0, "win_pose": 15, "manifest_len": 0, "rows": 0, "bench": True,
+                     "nonce": 181, "wire_seq": e["wire_seq"]}
+        seq = e["wire_seq"]
+        for op, kind in (("pending", 1), ("nopose", 3), ("defeat", 4), ("escape", 5), ("event", 7), ("fight", 0)):
+            st = g.netsync("endbench", op)
+            assert st.coop_peer_end["kind"] == kind, op
+        for args, kind in ((("other", 5), 6), (("other", 3), 4)):
+            assert g.netsync("endbench", *args).coop_peer_end["kind"] == kind, args
+        st = g.netsync("endbench", "ui", 1)
+        assert st.coop_peer_end["res_state"] == 0 and st.coop_peer_end["wire_seq"] == seq + 9
+        st = g.netsync("endbench", "state", 2, "loading")
+        assert (st.coop_peer_end["res_state"], st.coop_peer_end["loading"]) == (2, True)
+        assert g.netsync("endbench", "afterevent", 1).coop_peer_end["flags"] == 1
+        assert g.netsync("endbench", "overflow", 1).coop_peer_end["flags"] == 5
+        st = g.netsync("endbench", "clear")
+        assert st.coop_peer_end is None
+
+
+def test_a_presented_victory_holds_at_r8_and_the_host_s_result_hide_takes_the_guest_home(game):
+    """Stages 5-6 on the stand-in: `endbench victory` in a diorama injects MENU_OFF + _WITH_ENEMY (the stock tail: VICTORY,
+    btl_flag 32|64, phase 6 to its WAIT seq), R8 then counts; `ui 1` + `state 7` latches the host's result-hide, the
+    end-leave settles the return (`btl_result` stamped 1, the end fade lifted) and the field reads `battle.result` 1."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        st = _dio(g, fake)
+        returns = st.diorama_returns
+        assert st.coop_exit_why == BW.exit_why(BW.EXIT_NOT_LATCHED) and st.coop_exit_trigger == ""
+        assert st.coop_present_injected is False and st.coop_exit_mode == "on"
+        st = g.netsync("endbench", "victory")
+        st = g.wait_for(lambda s: s.coop_present_injected, timeout=4.0, what="the injection")
+        assert (st.coop_present_action, st.coop_present_inject_phase, st.coop_present_inject_seq) == ("victory", 5, 4)
+        assert not st.commands_enabled and st.turn_slot == -1
+        st = g.wait_for(lambda s: s.coop_present_r8_hits > 0, timeout=10.0, what="R8")
+        assert st.battle_phase == BW.PHASE_VICTORY and st.battle_seq == BW.SEQ_VICTORY_WAIT and st.battle_result == 1
+        assert st.coop_present_btl_flag & (BW.BTL_PLAY_END_SONG | BW.BTL_END_LOAD) == 96 and st.coop_present_r8_first_ms >= 0
+        g.netsync("endbench", "ui", 1)
+        st = g.netsync("endbench", "state", 6)
+        assert st.coop_exit_trigger == ""                    # End is not Hide
+        fake.dio_leave_frames = 120                         # a teardown slow enough to read the Leave-time settle first
+        g.netsync("endbench", "state", 7)
+        st = g.wait_for(lambda s: s.coop_exit_requested, timeout=4.0, what="the end-leave")
+        assert st.diorama_booted and (st.coop_exit_settled, st.coop_exit_via) == (True, "end-leave")
+        assert (st.coop_exit_stamp, st.coop_exit_stamp_host, st.coop_exit_stamped) == (1, 1, -1)   # decided, not written
+        assert st.coop_exit_music_shut and not st.coop_exit_wipe_lifted and 0 <= st.coop_exit_request_ms <= 100
+        st = g.wait_for(lambda s: s.diorama_returns == returns + 1, timeout=6.0, what="the end-leave's return")
+        assert (st.coop_exit_trigger, st.coop_exit_tries, st.coop_exit_requested, st.coop_exit_via) == \
+            ("result-hide", 1, True, "end-leave")
+        assert (st.coop_exit_stamp, st.coop_exit_stamp_host, st.coop_exit_stamped) == (1, 1, 1)
+        assert st.coop_exit_wipe_lifted and st.coop_exit_music_shut and st.battle_result == 1
+        assert st.diorama_last_return == "warm" and not st.diorama_booted
+        # EndHudOff is keyed on Active: the next REAL battle (the receipts kept) asks for commands as ever
+        g.wait_for(lambda s: s.control, timeout=4.0, what="control back")
+        g.send("battle 67")
+        st = g.wait_for(lambda s: s.in_battle and s.commands_enabled, timeout=6.0, what="the next battle's menu")
+        assert st.coop_present_injected is True and st.battle_phase == BW.PHASE_NORMAL
+
+
+def test_exit_off_latches_the_hosts_exit_but_never_leaves(game):
+    """Stage 6's red inside its own DLL: `endbench exit off` -- the trigger still latches, no end-leave (tries 0, not
+    requested, why the lever); a manual `dioleave` then settles nothing (no stamp, no lift)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.netsync("endbench", "exit", "off")
+        g.netsync("endbench", "nopose")
+        g.netsync("endbench", "ui", 1)
+        g.netsync("endbench", "state", 7)
+        st = g.wait_for(lambda s: s.coop_exit_trigger == "result-hide", timeout=4.0, what="the latch")
+        st = stays(g, lambda s: s.diorama_booted, frames=90, what="the lever let the guest leave")
+        assert (st.coop_exit_mode, st.coop_exit_tries, st.coop_exit_requested) == ("off", 0, False)
+        assert st.coop_exit_why == BW.exit_why(BW.EXIT_HELD_BY_LEVER) and _battle_text(st.coop_exit_why)
+        g.netsync("dioleave")
+        st = g.wait_for(lambda s: not s.diorama_booted, timeout=6.0, what="the manual leave")
+        assert (st.coop_exit_settled, st.coop_exit_music_shut, st.coop_exit_wipe_lifted) == (False, False, False)
+        assert st.battle_result == BW.BTL_RESULT_VICTORY_NO_POSE     # the CLOSE fold, never stamped back to 1
+
+
+def test_guest_off_presents_nothing_and_says_why(game):
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.netsync("endbench", "guest", "off")
+        g.netsync("endbench", "victory")
+        st = stays(g, lambda s: not s.coop_present_injected and s.battle_phase == BW.PHASE_NORMAL, frames=30,
+                   what="the off lever presented the end")
+        assert st.coop_present_why == ("the host's victory waits: "
+                                       + BW.inject_verdict(BW.GUEST_OFF, True, BW.PHASE_NORMAL, True))
+        assert st.coop_present_guest_mode == "off" and st.coop_present_r8_hits == 0 and st.commands_enabled
+
+
+def test_w2_names_the_settle_seqs_blocker(game):
+    """`endbench guest settle` injects SEQ_MENU_OFF_VICTORY, whose per-unit settle never completes in a bench diorama:
+    phase 5 holds until W2 (8 s after the injection), which names the unsettled enemy and forces the no-pose half."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.netsync("endbench", "guest", "settle")
+        g.netsync("endbench", "victory")
+        st = g.wait_for(lambda s: s.coop_present_injected, timeout=4.0, what="the injection")
+        assert st.coop_present_inject_seq == BW.SEQ_MENU_OFF_VICTORY
+        st = stays(g, lambda s: s.battle_phase == BW.PHASE_MENU_OFF, frames=60, what="the settle seq moved on")
+        fake._nb.inject_rt -= 9.0                            # 8 s of stall, without spending them
+        st = g.wait_for(lambda s: s.coop_present_watchdog == "W2", timeout=4.0, what="W2")
+        assert st.coop_present_blocker.startswith("1 unsettled unit(s)") and _battle_text("unsettled unit(s) (SEQ_MENU")
+        g.wait_for(lambda s: s.battle_phase == BW.PHASE_VICTORY and s.coop_present_r8_hits > 0, timeout=6.0,
+                   what="the forced no-pose half to reach R8")
+
+
+# --------------------------------------------------------------------------- battlewire: pinned to the engine
+
+def _cs_int_consts(file_name: str) -> dict:
+    """Every `const Byte|Int32 Name = <integer literal>` (several per line too) the live stack leaves in ``file_name``,
+    with whether it is public."""
+    out = {}
+    for line in _stack_text(file_name):
+        m = re.match(r"(public |private |internal )?const (?:Byte|Int32) (.*);", line)
+        if not m:
+            continue
+        for decl in m.group(2).split(","):
+            d = re.match(r"\s*(\w+) = (0x[0-9A-Fa-f]+|-?\d+)\s*$", decl)
+            if d:
+                out[d.group(1)] = (int(d.group(2), 0), (m.group(1) or "").strip() == "public")
+    return out
+
+
+def test_battlewire_constants_are_netsyncends():
+    """Every integer constant the codec mirrors is NetSyncEnd's (by its C# name), and every PUBLIC integer constant
+    NetSyncEnd declares is mirrored -- a constant added on either side turns this red."""
+    cs = _cs_int_consts("NetSyncEnd.cs")
+    for name, value in BW.CS_CONSTANTS.items():
+        assert name in cs, name
+        assert cs[name][0] == value, (name, cs[name][0], value)
+    public = {n for n, (_v, pub) in cs.items() if pub}
+    assert public <= set(BW.CS_CONSTANTS), sorted(public - set(BW.CS_CONSTANTS))
+    acts = _cs_int_consts("NetSyncBattle.cs")
+    assert {n: acts[n][0] for n in ("ActAttack", "ActDefend", "ActAbility", "ActItem", "ActInstant")} == \
+        {"ActAttack": BW.ACT_ATTACK, "ActDefend": BW.ACT_DEFEND, "ActAbility": BW.ACT_ABILITY, "ActItem": BW.ACT_ITEM,
+         "ActInstant": BW.ACT_INSTANT}
+    assert acts["CapCommandPhaseGated"][0] == BW.CAP_COMMAND_PHASE_GATED
+
+
+#: The stock constants the engine's SelfTest rows name (FF9StateBattleSystem / FF9StateGlobal) -> battlewire's.
+_STOCK = {f"FF9StateBattleSystem.{n}": getattr(BW, n) for n in dir(BW) if n.startswith(("PHASE_", "SEQ_"))}
+_STOCK.update({f"FF9StateGlobal.{n}": getattr(BW, n) for n in dir(BW) if n.startswith("BTL_RESULT_")})
+
+
+def _cs_value(token: str) -> int:
+    token = token.strip()
+    if token in _STOCK:
+        return _STOCK[token]
+    if token in BW.CS_CONSTANTS:
+        return BW.CS_CONSTANTS[token]
+    return int(token, 0)
+
+
+def test_classify_end_agrees_with_every_row_of_the_engines_selftest():
+    """ClassifyEnd's Python twin against NetSyncEnd.SelfTest's OWN rows, read off the stack: every literal ExpectKind line,
+    plus the two loops (the four fighting phases; victory seq 0..2) -- 23 rows, the engine's `classify 23`."""
+    rows = []
+    for line in _stack_text("NetSyncEnd.cs"):
+        m = re.match(r"ExpectKind\(fails, ref classify, (.*)\);$", line)
+        if m:
+            rows.append([a.strip() for a in m.group(1).split(",")[:4]])   # phase, seq, result, want: no commas in them
+    fighting = next(ln for ln in _stack_text("NetSyncEnd.cs") if ln.startswith("Byte[] fighting = {"))
+    phases = [_cs_value(t) for t in re.search(r"\{(.*)\}", fighting).group(1).split(",")]
+    assert any(ln == "for (Byte s = 0; s <= 2; s++)" for ln in _stack_text("NetSyncEnd.cs"))
+    checked = 0
+    for phase, seq, result, want in rows:
+        if phase == "ph":
+            for ph in phases:
+                assert BW.classify_end(ph, _cs_value(seq), _cs_value(result)) == _cs_value(want), (ph, want)
+                checked += 1
+        elif seq == "s":
+            for s in range(3):
+                assert BW.classify_end(_cs_value(phase), s, _cs_value(result)) == _cs_value(want), (phase, s)
+                checked += 1
+        else:
+            assert BW.classify_end(_cs_value(phase), _cs_value(seq), _cs_value(result)) == _cs_value(want), \
+                (phase, seq, result, want)
+            checked += 1
+    assert checked == 23 == len(phases) + 3 + (len(rows) - 2), (checked, rows)
+
+
+def test_present_action_agrees_with_the_engines_want_table():
+    line = next(ln for ln in _stack_text("NetSyncEnd.cs") if ln.startswith("Int32[] wantAction = {"))
+    want = [_cs_value(t) for t in re.search(r"\{(.*)\}", line).group(1).split(",")]
+    assert [BW.present_action(k) for k in range(BW.K_FIGHTING, BW.K_EVENT + 1)] == want
+    assert all(BW.present_action(k) == BW.PRESENT_NONE for k in (-1, 8, 255))
+    assert all((BW.present_action(k) != BW.PRESENT_NONE) == BW.is_end_kind(k) for k in range(8))
+
+
+def test_the_pure_decisions_hold_the_engines_pins():
+    """The s103-s105 SelfTest PINS, restated against the Python twins (each pin's name is the engine's)."""
+    # ChaseStep: none-is-never-chased, no-step-at-natural-EndEXPAndAP, the-host-fade-steps-the-tick-pages, end-steps-only-
+    # to-hide, out of range
+    assert not any(BW.chase_step(l, BW.RES_NONE, ld) for l in range(9) for ld in (False, True))
+    assert not BW.chase_step(BW.RES_END_EXP, BW.RES_END_EXP, False) and not BW.chase_step(BW.RES_EXP_TICK, BW.RES_END_EXP, False)
+    assert BW.chase_step(BW.RES_EXP_TICK, BW.RES_END_EXP, True) and BW.chase_step(BW.RES_END_EXP, BW.RES_END_EXP, True)
+    assert BW.chase_step(BW.RES_END, BW.RES_HIDE, False) and not BW.chase_step(BW.RES_END, BW.RES_END, False)
+    assert not BW.chase_step(BW.RES_HIDE, BW.RES_HIDE, False)
+    assert not (BW.chase_step(0, -1, False) or BW.chase_step(0, 9, False) or BW.chase_step(-1, BW.RES_HIDE, False))
+    assert sum(1 for l in range(9) for h in range(9) for ld in (0, 1) if BW.chase_step(l, h, bool(ld))) > 0
+    for name in ("PIN none-is-never-chased", "PIN no-step-at-natural-EndEXPAndAP", "PIN end-steps-only-to-hide"):
+        assert _battle_text(name), name
+    # s104
+    assert BW.close_result(BW.BTL_RESULT_VICTORY) == BW.BTL_RESULT_VICTORY_NO_POSE
+    assert all(BW.close_result(r) == r for r in (0, 2, 4, 5, 7))
+    assert BW.victory_seq(BW.GUEST_ON) == BW.victory_seq(BW.GUEST_OFF) == BW.SEQ_MENU_OFF_VICTORY_WITH_ENEMY
+    assert BW.victory_seq(BW.GUEST_SETTLE) == BW.SEQ_MENU_OFF_VICTORY
+    assert BW.inject_verdict(BW.GUEST_ON, True, BW.PHASE_NORMAL, True) is None
+    assert all(BW.inject_verdict(BW.GUEST_ON, True, ph, True) for ph in (0, 1, 2, 3, 5, 6, 7, 8))
+    assert BW.w1_due(6, 0, True, BW.W1_MS + 1) and not BW.w1_due(6, 0, True, BW.W1_MS) and not BW.w1_due(6, 0, False, 10 ** 6)
+    assert BW.w2_due(5, BW.W2_MS + 1) and not BW.w2_due(5, BW.W2_MS) and not BW.w2_due(6, 10 ** 6)
+    # s105
+    for ui in range(5):
+        for rs in range(19):
+            res = BW.RES_NO_SCREEN if rs == 18 else (rs if rs < 9 else (rs - 9) | BW.RES_LOADING_BIT)
+            want = ((BW.TRIGGER_RESULT_HIDE if res != BW.RES_NO_SCREEN and res & 0x7F == BW.RES_HIDE else 0)
+                    if ui == 1 else BW.TRIGGER_GAME_OVER if ui == 2 else BW.TRIGGER_TITLE if ui == 3 else 0)
+            assert BW.host_exit_trigger(ui, res) == want, (ui, res)
+    for r in range(256):
+        want = 1 if r in (1, 2) else r if r in (3, 4, 5, 7) else -1
+        assert BW.stamp_result(r) == want and BW.stamp_for(r, True) == want
+        assert BW.stamp_for(r, False) == (-1 if r == BW.BTL_RESULT_DEFEAT else want)
+    for k in range(8):
+        for ui in range(5):
+            term = BW.is_end_kind(k) or 1 <= ui <= 3
+            assert BW.is_terminal(k, ui) == term == BW.decline_late_join(k, ui, 9, 9, False)
+            assert not BW.decline_late_join(k, ui, 9, 9, True) and not BW.decline_late_join(k, ui, 8, 9, False)
+    assert BW.exit_verdict(0, True, False, False, BW.EXIT_RETRY_MS) == BW.EXIT_GO
+    assert BW.exit_verdict(1, False, True, True, 0) == BW.EXIT_HELD_BY_LEVER
+    assert BW.exit_verdict(0, True, True, True, 0) == BW.EXIT_IN_FLIGHT
+    assert BW.exit_verdict(0, True, False, True, 0) == BW.EXIT_RATE_LIMITED
+    assert BW.exit_verdict(0, True, False, True, BW.EXIT_RETRY_MS) == BW.EXIT_FADE_DEFER
+
+
+def test_the_twins_say_the_engines_words():
+    """Every reason a twin returns is a literal the stack carries (a spliced one, piece by piece)."""
+    for v in range(6):
+        if BW.exit_why(v) is not None:
+            assert _battle_text(BW.exit_why(v)), v
+    for ph in range(9):
+        if ph != BW.PHASE_NORMAL:
+            assert _battle_text(BW.phase_why(ph)), ph
+    assert _battle_text(BW.MENU_DISABLED_WHY)
+    for v in (BW.inject_verdict(BW.GUEST_OFF, True, 4, True), BW.inject_verdict(BW.GUEST_ON, False, 4, True),
+              BW.inject_verdict(BW.GUEST_ON, True, 4, False)):
+        assert _battle_text(v), v
+    assert _battle_text("the diorama is in phase ") and _battle_text(", not its steady phase (")
+    assert all(_battle_text(f'case {k}: return "{n}";') or _battle_text(f'return "{n}";')
+               for k, n in BW.KIND_NAMES.items())
+    for name in list(BW.TRIGGER_NAMES.values()) + list(BW.PRESENT_NAMES.values()):
+        assert _battle_text(f'return "{name}";'), name
+
+
+def test_the_trailer_codec_matches_the_engines_selftest_cases():
+    """NetSyncEnd.ReadTrailer's Python twin over the SelfTest's codec cases: a full record round-trips; EVERY truncated
+    prefix refuses the block (with the engine's reason); an unknown fmt is skipped by its len; foreign bytes and a short
+    block refuse; a manifest is skipped by its len (flags b1); no trailer is (None, None)."""
+    m = BW.make_block(BW.PHASE_CLOSE, 1, BW.BTL_RESULT_VICTORY_NO_POSE, ui=BW.UI_RESULT, state=BW.RES_START_GIL,
+                      loading=True, flags=BW.FLAG_AFTER_EVENT | BW.FLAG_ESCAPE_GIL | BW.FLAG_FIELD_SONG, win_pose=0x0B)
+    t = BW.encode_trailer(m)
+    got, why, skipped = BW.read_trailer(t)
+    assert {k: got[k] for k in m} == m and why is None and skipped == 0
+    assert BW.read_trailer(b"") == (None, None, 0)
+    for cut in range(1, len(t)):
+        got, why, _ = BW.read_trailer(t[:cut])
+        assert got is None and why and _battle_text(re.sub(r" \(.*$", "", why).replace("fmt-1 body", "fmt-")), (cut, why)
+    unknown = bytes([BW.TRAILER_MAGIC, 0x02, 0x03, 0x00, 0xAA, 0xBB, 0xCC])
+    got, why, skipped = BW.read_trailer(unknown + t)
+    assert got is not None and why is None and skipped == 1
+    assert BW.read_trailer(unknown) == (None, None, 1)
+    assert BW.read_trailer(bytes([0, 1, 2, 3, 4]))[1].startswith("foreign trailing bytes (0x00")
+    assert BW.read_trailer(bytes([BW.TRAILER_MAGIC, BW.FMT_END, 5, 0, 1, 2, 3, 4, 5]))[1] == "short end block (5 of 8 byte(s))"
+    manifest = bytes(0xE0 + i for i in range(13))
+    got, why, _ = BW.read_trailer(BW.encode_trailer(m, manifest))
+    assert got["flags"] & BW.FLAG_MANIFEST and got["manifest_len"] == 13 and why is None
+    grown = bytearray(t) + b"\x77\x77"
+    grown[2] = BW.END_BLOCK_LEN + 2                      # a later fmt-1 growth WITHOUT b1: skipped, block kept
+    got, why, _ = BW.read_trailer(bytes(grown))
+    assert got is not None and got["manifest_len"] == 0 and why is None
+    assert BW.trail_entry(m) == "3/1/3L" and BW.block_text(m) == \
+        "victory-no-pose (phase 8 seq 1 result 2; ui 1, res 3L, flags 0x19, pose 0x0B)"
+
+
+def test_the_command_codec_and_the_bench_parsers_are_the_agents():
+    """The v1 frame is EncodeCommand's (the engine's own default `endbench cmd` frame is slot 1 Attack at 0x10); the
+    decoder refuses what TryDecodeCommand refuses; ArgHex / ArgMask accept and refuse what the agent does."""
+    line = next(ln for ln in _stack_text("NetSyncEnd.cs") if "DefaultCmdFrame = {" in ln)
+    default = bytes(int(t, 16) for t in re.search(r"\{(.*)\}", line).group(1).split(","))
+    assert BW.encode_command(1, BW.ACT_ATTACK, mask=0x10) == default
+    assert BW.command_hex(1, BW.ACT_ATTACK, mask=0x10) == "01 01 00 00 00 00 10 00 00"
+    assert BW.decode_command(BW.encode_command(2, BW.ACT_ITEM, 4, 236, 0x0101, 1)) == \
+        {"slot": 2, "action": 3, "menu": 4, "id": 236, "mask": 0x0101, "cursor": 1}
+    assert BW.decode_command(default[:8]) is None and BW.decode_command(b"\x02" + default[1:]) is None
+    assert BW.decode_command(default + b"\xff") == BW.decode_command(default)   # bytes past the ninth are ignored
+    assert BW.control_hex(True) == "00 01" and BW.control_valid(b"\x00\x00") and not BW.control_valid(b"\x01\x00")
+    assert not BW.control_valid(b"\x00")
+    assert BW.parse_hex(["01", "0x02", "0304"]) == b"\x01\x02\x03\x04" and BW.parse_hex("01 01") == b"\x01\x01"
+    for bad in ([], ["0"], ["zz"], ["0x"], ["01", "0"], ["1_0"]):
+        assert BW.parse_hex(bad) is None, bad
+    for text, want in (("2", 2), ("0x0F", 15), ("0XA", 10), ("+3", 3), ("15", 15), ("16", -1), ("-1", -1),
+                       ("0x10", -1), ("x", -1), (None, -1), ("1.0", -1), ("0x", -1), ("0x-1", -1)):
+        assert BW.parse_mask(text) == want, text
+
+
+def test_the_stock_constants_are_the_engines_when_the_clone_is_here():
+    """The stock phase/seq/result constants are not in the patch stack: read them off the shared Memoria clone when this
+    machine has it (C:\\gd\\FFIX\\Memoria); elsewhere this pin is skipped, and the SelfTest-row test above still holds
+    the kinds."""
+    root = pathlib.Path(r"C:\gd\FFIX\Memoria\Assembly-CSharp\Global\ff9\State")
+    files = [root / "Battle" / "FF9StateBattleSystem.cs", root / "FF9StateGlobal.cs"]
+    if not all(f.is_file() for f in files):
+        pytest.skip("the shared Memoria clone is not on this machine")
+    text = "\n".join(f.read_text(encoding="utf-8-sig", errors="replace") for f in files)
+    for name in [n for n in dir(BW) if n.startswith(("PHASE_", "SEQ_", "BTL_RESULT_"))]:
+        m = re.search(rf"public const Byte {name} = (\d+);", text)
+        assert m and int(m.group(1)) == getattr(BW, name), name
