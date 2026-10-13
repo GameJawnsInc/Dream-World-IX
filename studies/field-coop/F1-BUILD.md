@@ -649,3 +649,50 @@ closes, zero own-script/timer closes, zero `local advance restored`, zero deferr
 **Open:** the rest of the package README boxes (choice on 30801, mash, blip, host-kill, panic unlock, feel). Known C2 gaps, for C3 (wire v14): script-polled windows (save moogle, shops, [NFOC]/"press Confirm"
 beats) stay guest-driven; a type-7 frame dropped by the relay is not re-sent (that line falls to the orphan
 rule). DIO-1 (the guest's field cold-starts after every host battle and relocates it) is the next "warp".
+
+## ★★ F3.3 — warm battle return (s97) + wire v14 dialogue ring (s98) + script-key relay (s99); DEPLOYED 2026-10-12, TWO-MACHINE PROVEN
+
+**s97 (DIO-1).** The diorama (the guest's local replay of the host's battle) used to return through a
+cold `Main_Init` -- the guest was thrown to the arrival point and its MAP state reset after every host
+battle, while the host came back through `Main_Reinit` in place. Boot now does the stock field-side
+save (`BackupPosObjData` + the `sEventContext1` copy the isDebug battle skips) when the guest is
+FREE-STANDING (control on, FieldHUD, no window of any kind, a running context for this field, the
+engine's battle-return slot empty, entry 0 not mid-Main_Reinit) on a field that HAS an entry-0 tag-10
+`Main_Reinit` AND armed encounters (`encratio > 0`); anything else keeps the cold return and logs why.
+THE NO-REINIT LAW: 432/817 stock fields have no Main_Reinit, and a reinit return there leaves every
+object suspended for good (EnterBattleEnd suspends them, only ExitBattleEnd -- entry 0 returning at level 0
+-- resumes them); all 176 fields with encounters have one. Every stale copy is cleared (boot catch, refused
+Replace, fence mop-up, a Leave elsewhere, any other field load). The engine reports which StartEvents
+branch ran (`NoteFieldEventsStart`); the exit ramp waits out an open battle-return bracket. Harness:
+`netsync dioboot <scene> [pattern]` / `dioleave`, `netsync.diorama` block.
+
+**s98 (C3 delivery, WIRE v14).** The host's dialogue events ride a 32-event ring in state section 7
+(re-sent every 33 ms, pushed out-of-band on change), with the host's open windows (THE CURSOR MIRROR and
+the orphan claim), a heartbeat (10 s unchanged = a hung host, the lock drops) and an epoch (a relaunch
+resets the guest's inbox and dedup nonces, history never replays). Type 7 is retired on the host.
+
+**s99 (C3 keys).** The host's control-off script button polls (`B_KEYON`/`B_KEY`, EBin hoisted with the
+left-first order and type chain intact) are relayed per READING OBJECT and served once per key tick to the
+guest's same poll, after any earlier window event for an open guest line, carrying the host's cursor. The
+guest's own decision bits are masked meanwhile. LAW :1369 holds: an input-inhibited window refuses a
+confirm-advance; its poll is driven by `netsync host key <uid> <bits>`.
+
+**Deploy:** `build_memoria.py --label pre-s97-s99-coop-f33`, live `3b4d4c4474b049cd…`, backup
+`20261012-184529`. **Calibration on s96:** authority 82/96 (exactly the 14 predicted reds, incl. the
+behavioural R-B2: the guest's own Confirm closed the polled page), diorama 5/21 (the boot verbs are
+s97-only; the position test's own calibration is C5 below). **Solo proof on s97-s99:** diorama 22/22 twice
+(W6: back at (-540, -1540) where he stood, moved 0.0, Main_Init placement 649 away; C5: the cold leg's
+same test reads NOT KEPT, 1380 off; G: 30801 has no Main_Reinit -> refused warm, cold to the arrival),
+authority 147/147 twice, talk relay 28/28. Two harness-side fixes on the way: a cold return reads
+`control` on for a frame before Main_Init has placed the player (`player.x/z` None), so the scenario's
+free-standing test now requires a placed player.
+
+**★★ TWO-MACHINE PROVEN 2026-10-12 (evening)** (owner: everything working except the shop box, not run;
+guest log `laptop-Memoria.log` in the package folder): the Dali inn save moogle (field 351, uid 8) followed
+the host's relayed presses -- `key relay: host seq N ... served to uid 8's poll`, incl. a cursor-6 pick, and
+the moogle's Menu() declined on the guest; a host battle on field 250 booted the diorama `WARM return primed
+-- field 250, player at (884, -1105)` and came back `RETURN (warm) ... through Main_Reinit` with the field
+song resumed; 30801's menu choice 3 + follow-up page closed by host seqs; the session's end released the lock
+after 3 s of dead link and the guest reloaded its own autosave. **Open:** the shop box (not run). Not done: DIO-2 (a scripted Battle() on a mirrored guest runs its post-battle lines inline,
+ahead of the host); the warm return reads `GetBattleResult` 0 where the host reads its real result (9
+stock Main_Reinit branch on it).

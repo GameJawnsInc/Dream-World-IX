@@ -69,6 +69,16 @@ from pathlib import Path
 #:      ``hostscene 0|1`` (alias ``l1``), ``stale 1|0``, ``unlock``, ``click``, ``drag <dy>``;
 #:      ``advance``/``choice``/``unmatched`` now feed the guest's inbox and need ``lock 1``. A driver
 #:      checks :attr:`State.dialogue_authority` before asserting on a new key.)
+#:      (Additive, same version, [ff9mapkit netsync F3.3]: s97's ``netsync.diorama`` block {booted, boot,
+#:      boot_why, boot_field, boot_x, boot_z, primed, returns, last_return, last_return_field, resuming} and
+#:      sub-verbs ``dioboot <scene> [pattern]`` / ``dioleave`` -- :attr:`State.diorama_warm_return`; s98's
+#:      section-7 ring keys ``wire``/``epoch``/``head_seq``/``last_seen``/``gaps``/``heartbeat``/
+#:      ``host_stalled``/``host_flags``/``host_open[]``/``cursor``/``key_ignored``/``host_frozen``/
+#:      ``host_menu``/``host_battle`` and the bench host ``host <op> [n ...]`` -- :attr:`State.dialogue_ring`;
+#:      s99's script-key relay keys ``key_tick``/``key_hold``/``key_reader``/``keys[]``/``key_served``/
+#:      ``key_expired``/``key_gaveup``/``key_taps``/``tap_record``/``tape``/``replay_left`` and ``tap-record
+#:      1|0`` / ``replay [[paced] 1|0]`` -- :attr:`State.script_key_relay`. ``dialogue`` stays "authority":
+#:      each capability is told by its own key's PRESENCE, never by a tag.)
 PROTOCOL = 5
 
 #: The agent polls the arm file every 30 FRAMES (HarnessAgent.PollArm). A delete+create inside one
@@ -738,6 +748,279 @@ class State:
             return None
         v = ns["chip"]
         return "" if v is None else str(v)
+
+    # [ff9mapkit netsync F3.3] C3 (s98): THE DIALOGUE RING -- the host's taps ride state section 7 (wire v14) with an
+    # epoch, a heartbeat, the host's flags and its open windows. The same law as F3.2: an ABSENT key reads None ("this
+    # engine cannot" -- an s96/s97 DLL), never 0 / False / [] ("nothing there"). Check :attr:`dialogue_ring` first.
+    #: Section 7's host-flags byte (``host_flags``), bit by name: b0 the host's sticky scene, b1 its user control, b2 an
+    #: input-taking (non-[NFOC]) line open, b3 on a live field, b4 a non-HUD UI (menu/shop/pause), b5 in battle.
+    HOST_FLAG_BITS = {"scene": 0x01, "control": 0x02, "line": 0x04, "on_field": 0x08, "menu": 0x10, "battle": 0x20}
+
+    @property
+    def dialogue_ring(self) -> bool | None:
+        """Whether the engine delivers the host's dialogue taps through the section-7 RING (s98: ``netsync.wire`` is
+        published, 14 or later). False: a ``netsync`` block without ``wire`` -- an s96/s97 engine, whose taps ride the
+        type-7 FIFO and whose bench has no ``host`` verb; None: no ``netsync`` block at all."""
+        ns = self.netsync
+        if not isinstance(ns, dict):
+            return None
+        wire = self._ns_key("wire", int)
+        return wire is not None and wire >= 14
+
+    @property
+    def dialogue_wire(self) -> int | None:
+        """The co-op wire version THIS engine speaks (14 = the dialogue ring; a v13/v14 pair is refused). None = cannot."""
+        return self._ns_key("wire", int)
+
+    @property
+    def dialogue_epoch(self) -> int | None:
+        """The host epoch the guest last saw on its lane (1..65535, drawn fresh per host session); -1 = no section 7
+        seen yet. A change clears the inbox and re-baselines at the new head -- no history replays."""
+        return self._ns_key("epoch", int)
+
+    @property
+    def dialogue_head_seq(self) -> int | None:
+        """The newest event in the host's ring (u16, skips 0: 65535 -> 1); -1 = no section 7 on the lane right now."""
+        return self._ns_key("head_seq", int)
+
+    @property
+    def dialogue_last_seen(self) -> int | None:
+        """The guest's merge baseline -- the newest ring seq merged (or skipped as history); -1 = not baselined (no
+        session: a rising session baselines at the host's head, so what the ring held before it never replays)."""
+        return self._ns_key("last_seen", int)
+
+    @property
+    def dialogue_gaps(self) -> int | None:
+        """Ring gaps the guest detected on this lane (each logged once; their lines fall to the orphan rule) --
+        monotonic until the transport resets, so assert on a DELTA."""
+        return self._ns_key("gaps", int)
+
+    @property
+    def dialogue_heartbeat(self) -> int | None:
+        """The host's heartbeat in the latest section 7 (a host Update counter); -1 = no section on the lane."""
+        return self._ns_key("heartbeat", int)
+
+    @property
+    def dialogue_host_stalled(self) -> bool | None:
+        """R6: the host's heartbeat sat still HostStallMs (10 s) on a live lane -- a HUNG host; the lock let go."""
+        return self._ns_key("host_stalled", bool)
+
+    @property
+    def dialogue_host_flags(self) -> int | None:
+        """Section 7's flags byte (:data:`HOST_FLAG_BITS`); -1 = no section on the lane. :attr:`dialogue_host_flag_set`
+        names the bits."""
+        return self._ns_key("host_flags", int)
+
+    @property
+    def dialogue_host_flag_set(self) -> frozenset[str] | None:
+        """The names of the set :attr:`dialogue_host_flags` bits (``{"scene", "line", "on_field"}``, ...). None when the
+        engine cannot publish them OR no section 7 is on the lane right now (-1) -- an empty set means a section with no
+        bit set, never "no section"."""
+        flags = self.dialogue_host_flags
+        if flags is None or flags < 0:
+            return None
+        return frozenset(name for name, bit in self.HOST_FLAG_BITS.items() if flags & bit)
+
+    @property
+    def dialogue_host_open(self) -> list[dict] | None:
+        """The host's open windows per section 7 (``host_open[]``): ``win``, ``text``, ``cursor`` (-1 = not a ready
+        choice), ``page``, ``flags`` (b0 choice, b1 complete, b2 inh). ``[]`` = none (or no section); None = cannot."""
+        rows = self._ns_key("host_open", list)
+        return None if rows is None else [dict(r) for r in rows if isinstance(r, dict)]
+
+    @property
+    def dialogue_cursor(self) -> int | None:
+        """R4: the host cursor the guest's cursor lock enforced on its last tick (-1 = none) -- the cursor MIRROR."""
+        return self._ns_key("cursor", int)
+
+    @property
+    def dialogue_key_ignored(self) -> int | None:
+        """KEY events this guest ignored: every KEY on an s98 engine (counted, not relayed), only a KEY with no
+        host-owned button on s99. Monotonic per lane: assert on a delta."""
+        return self._ns_key("key_ignored", int)
+
+    @property
+    def bench_host_frozen(self) -> bool | None:
+        """The bench host's ``host freeze`` lever (its heartbeat stopped: a hung host, R6)."""
+        return self._ns_key("host_frozen", bool)
+
+    @property
+    def bench_host_menu(self) -> bool | None:
+        """The bench host's ``host menu`` lever (section 7 b4 -- the chip's 'in a menu' variant, R7)."""
+        return self._ns_key("host_menu", bool)
+
+    @property
+    def bench_host_battle(self) -> bool | None:
+        """The bench host's ``host battle`` lever (section 7 b5 -- the chip's 'in a battle' variant, R7)."""
+        return self._ns_key("host_battle", bool)
+
+    # [ff9mapkit netsync F3.3] R5 (s99): THE SCRIPT-KEY RELAY -- a host-driven scene's control-off script button polls
+    # (B_KEYON/B_KEY) answer to the host's relayed press. Absent ``key_hold`` = an engine whose guest ignores KEY.
+    @property
+    def script_key_relay(self) -> bool | None:
+        """Whether the engine relays script button-polls (s99: ``netsync.key_hold`` is published). False: a ``netsync``
+        block without it (s98 counts KEY and ignores it; older engines have no KEY); None: no ``netsync`` block."""
+        ns = self.netsync
+        if not isinstance(ns, dict):
+            return None
+        return self._ns_key("key_hold", bool) is not None
+
+    @property
+    def script_key_tick(self) -> int | None:
+        """The event engine's script KEY TICK: one per EventEngine.ServiceEvents -- field, battle AND world map, so it keeps
+        counting through a battle. 0 before the first (a static Int32); -1 only when the agent's netsync block failed to
+        build (its catch literal). A relayed press is served for exactly one of them. It counts on vanilla too (inert)."""
+        return self._ns_key("key_tick", int)
+
+    @property
+    def script_key_hold(self) -> bool | None:
+        """The script-key lock on this field: the lock engaged AND (the host busy or holding input here, or a KEY still
+        waiting for this field) -- whatever the guest's control (the poll itself also needs control OFF)."""
+        return self._ns_key("key_hold", bool)
+
+    @property
+    def script_key_reader(self) -> int | None:
+        """The last reader uid whose host-owned bits a locked guest masked (-1 = none yet) -- the uid a ``netsync host
+        key <uid> <bits>`` must name to reach that poll."""
+        return self._ns_key("key_reader", int)
+
+    @property
+    def script_keys(self) -> list[dict] | None:
+        """The relayed KEY list (``keys[]``, at most 8): ``seq``, ``field``, ``uid``, ``bits`` (compact: b0 Select b1
+        Triangle b2 Circle b3 Cross b4 Square b5 Cancel b6 Confirm b7 MenuControl b8 Special b9 Menu), ``cursor`` (-1 =
+        none), ``age_ms``, ``state`` (pending = behind the ordering guard, stored, active = served this key tick)."""
+        rows = self._ns_key("keys", list)
+        return None if rows is None else [dict(r) for r in rows if isinstance(r, dict)]
+
+    @property
+    def script_key_served(self) -> int | None:
+        """KEYs served to a poll this lane -- monotonic: assert on a delta."""
+        return self._ns_key("key_served", int)
+
+    @property
+    def script_key_expired(self) -> int | None:
+        """KEYs dropped unserved this lane (another field, the 20 s TTL, both sides idle 1500 ms, the cap, a purge)."""
+        return self._ns_key("key_expired", int)
+
+    @property
+    def script_key_gaveup(self) -> int | None:
+        """KEYs the ordering guard (or the cursor wait) gave up on after KeyGuardMs and released anyway."""
+        return self._ns_key("key_gaveup", int)
+
+    @property
+    def script_key_taps(self) -> int | None:
+        """KEY taps THIS process made (a host's ring, or the tap-record tape)."""
+        return self._ns_key("key_taps", int)
+
+    @property
+    def bench_tap_record(self) -> bool | None:
+        """R9: the ``tap-record`` lever (this copy's real host taps record onto the tape while the bench lock is OFF)."""
+        return self._ns_key("tap_record", bool)
+
+    @property
+    def bench_tape(self) -> int | None:
+        """R9: events on the tape (dialog taps + key taps)."""
+        return self._ns_key("tape", int)
+
+    @property
+    def bench_replay_left(self) -> int | None:
+        """R9: taped events a running ``replay`` has yet to feed into the bench host's ring (0 = done / none)."""
+        return self._ns_key("replay_left", int)
+
+    # [ff9mapkit netsync F3.3] DIO-1 (s97): THE DIORAMA WARM RETURN. An engine without it publishes no ``diorama`` block:
+    # read that as "cannot", never as "cold".
+    def _dio_key(self, key: str, kind):
+        dio = self.diorama
+        if dio is None or key not in dio:
+            return None
+        v = dio[key]
+        if kind is int and (isinstance(v, bool) or not isinstance(v, int)):
+            return None
+        if kind is not int and not isinstance(v, kind):
+            return None
+        return v
+
+    @property
+    def diorama_warm_return(self) -> bool | None:
+        """Whether the engine publishes the DIO-1 warm-return bench (s97: ``netsync.diorama``). None: no ``netsync``
+        block at all."""
+        ns = self.netsync
+        if not isinstance(ns, dict):
+            return None
+        return isinstance(ns.get("diorama"), dict)
+
+    @property
+    def diorama(self) -> dict | None:
+        """The ``netsync.diorama`` block, copied: ``booted``, ``boot`` (warm|cold|null), ``boot_why``, ``boot_field``,
+        ``boot_x``/``boot_z`` (the controlled actor at a WARM boot -- the ``player.x/z`` source), ``primed``,
+        ``returns``, ``last_return`` (warm|cold|reinit-missing|null -- the branch StartEvents REPORTED),
+        ``last_return_field``, ``resuming`` (a battle-return bracket open on the live field). None = cannot."""
+        dio = self._ns_key("diorama", dict)
+        return None if dio is None else dict(dio)
+
+    @property
+    def diorama_booted(self) -> bool | None:
+        return self._dio_key("booted", bool)
+
+    @property
+    def diorama_boot(self) -> str | None:
+        """The last boot's return decision: ``"warm"`` (the stock battle-return slot primed) or ``"cold"``; ``""`` = no
+        boot yet (published null); None = cannot."""
+        dio = self.diorama
+        if dio is None or "boot" not in dio:
+            return None
+        return "" if dio["boot"] is None else str(dio["boot"])
+
+    @property
+    def diorama_boot_why(self) -> str | None:
+        """The cold reason (one human line); ``""`` = none (a warm boot, or no boot yet); None = cannot."""
+        dio = self.diorama
+        if dio is None or "boot_why" not in dio:
+            return None
+        return "" if dio["boot_why"] is None else str(dio["boot_why"])
+
+    @property
+    def diorama_boot_field(self) -> int | None:
+        return self._dio_key("boot_field", int)
+
+    @property
+    def diorama_boot_xz(self) -> tuple[float, float] | None:
+        """The controlled actor's (x, z) at a WARM boot -- the same source as ``player.x/z``. None when the last boot was
+        not warm (published null), or the engine cannot."""
+        x, z = self._dio_key("boot_x", (int, float)), self._dio_key("boot_z", (int, float))
+        if x is None or z is None or isinstance(x, bool) or isinstance(z, bool):
+            return None
+        return float(x), float(z)
+
+    @property
+    def diorama_primed(self) -> bool | None:
+        """Our warm copy still sits in the engine's battle-return slot (true from a warm boot to its return)."""
+        return self._dio_key("primed", bool)
+
+    @property
+    def diorama_returns(self) -> int | None:
+        """Diorama returns this process -- bumped at the return's StartEvents, BEFORE the actors are placed: compare
+        positions only once ``player.control`` is back. Monotonic: assert on a delta."""
+        return self._dio_key("returns", int)
+
+    @property
+    def diorama_last_return(self) -> str | None:
+        """The branch the last return's StartEvents REPORTED: ``"warm"`` (Main_Reinit called), ``"cold"`` (Main_Init),
+        ``"reinit-missing"`` (the reinit branch with no Main_Reinit -- a frozen field); ``""`` = none yet; None = cannot."""
+        dio = self.diorama
+        if dio is None or "last_return" not in dio:
+            return None
+        return "" if dio["last_return"] is None else str(dio["last_return"])
+
+    @property
+    def diorama_last_return_field(self) -> int | None:
+        return self._dio_key("last_return_field", int)
+
+    @property
+    def diorama_resuming(self) -> bool | None:
+        """A battle-return bracket is open on the live field right now (Main_Reinit still running / objects suspended):
+        a warm proof asserts it False once control is back, so a frozen field cannot pass on position alone."""
+        return self._dio_key("resuming", bool)
 
     # -- what is highlighted ----------------------------------------------------------------
     @property

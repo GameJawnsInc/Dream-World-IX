@@ -8268,12 +8268,29 @@ class Session:
     #: The protocol that turned the ~ menu's IMGUI bench buttons into verbs.
     NETSYNC_PROTOCOL = 5
     #: The agent's sub-verbs, in its own order -- the list its "unknown sub-verb" refusal prints
-    #: (HarnessAgent `case "netsync"`, s96). Pinned to the patch stack by test_harness_netsync.py.
+    #: (HarnessAgent `case "netsync"`, s96; [ff9mapkit netsync F3.3] + s97 `dioboot`/`dioleave`, s98 `host`,
+    #: s99 `tap-record`/`replay`). Pinned to the patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
-                        "advance", "choice", "unmatched", "talk")
+                        "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
+                        "replay")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
-    #: "authority", s96). An F3 engine answers them "unknown sub-verb" only AFTER the step is spent.
-    NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag")
+    #: "authority", s96) -- the F3.3 ones included (they build on it). An F3 engine answers them "unknown
+    #: sub-verb" only AFTER the step is spent.
+    NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
+                                  "host", "tap-record", "replay")
+    #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
+    #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
+    #: engine without it, the key it reads, the patch that added it, and what the verb is.
+    NETSYNC_F33_SUBVERBS = {
+        "dioboot": ("diorama_warm_return", "netsync.diorama", "s97", "the DIO-1 diorama warm-return bench"),
+        "dioleave": ("diorama_warm_return", "netsync.diorama", "s97", "the DIO-1 diorama warm-return bench"),
+        "host": ("dialogue_ring", "netsync.wire", "s98", "the C3 bench host (section 7, wire v14)"),
+        "tap-record": ("script_key_relay", "netsync.key_hold", "s99", "the R9 tap-record bench"),
+        "replay": ("script_key_relay", "netsync.key_hold", "s99", "the R9 tap-record bench"),
+    }
+    #: The bench host's ops, in the engine's order -- the list its "unknown op" refusal prints
+    #: (NetSyncClient.BenchHostOp, s98/s99). Pinned to the patch stack by test_harness_netsync.py.
+    NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "freeze", "menu", "battle")
 
     def netsync(self, sub: str, *args, timeout: float = 20.0) -> State:
         """Drive the co-op client's solo benches -- the ~ menu's IMGUI buttons, as verbs.
@@ -8294,11 +8311,24 @@ class Session:
         ``|dy| > 50`` moves a choice). Returns a fresh state so the caller can read ``netsync``
         straight after.
 
+        [ff9mapkit netsync F3.3] -- each needs its own capability, told by a published key
+        (``NETSYNC_F33_SUBVERBS``): ``dioboot <scene> [pattern]`` boots a battle diorama from a live
+        field and ``dioleave`` requests its return (s97 -- :attr:`State.diorama`: warm = the stock
+        battle-return slot primed, the return resumes the field through Main_Reinit in place);
+        ``host <op> [n ...]`` drives the bench HOST whose section 7 the guest half reads through the
+        real codec (s98 -- ops ``open [cursor] | open <win> <text> [cursor]``, ``shut``,
+        ``adv [closes 0|1]``, ``choice <i>``, ``key <uid> <bits> [cursor]``, ``gap <n>``, ``epoch``,
+        ``freeze [1|0]``, ``menu [1|0]``, ``battle [1|0]``; ``advance``/``choice``/``unmatched`` ride
+        the same ring now); ``tap-record 1|0`` records this copy's real host taps (bench lock OFF)
+        and ``replay [[paced] 1|0]`` feeds the tape into the bench host's ring (lock ON) (s99).
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
-        verbs (``unknown op``), a sub-verb the agent does not have, and an F3.2 sub-verb on an engine
-        without the contract (``unknown sub-verb``) -- worse messages and wasted steps. Every gate
-        the agent itself applies (the role, the bench lever, the lock, an open window) stays the
-        agent's: its refusal comes back as a :class:`StepRefused` carrying the engine's reason.
+        verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
+        without the contract (``unknown sub-verb``), an F3.3 sub-verb on an engine without its
+        capability (``unknown sub-verb`` again), and a bench-host op the engine does not have
+        (``unknown op``) -- worse messages and wasted steps. Every gate the agent itself applies (the
+        role, the bench lever, the lock, an open window, an argument's range) stays the agent's: its
+        refusal comes back as a :class:`StepRefused` carrying the engine's reason.
         """
         if self.engine_protocol is not None and self.engine_protocol < self.NETSYNC_PROTOCOL:
             raise HarnessError(
@@ -8311,6 +8341,7 @@ class Session:
         if sub in self.NETSYNC_AUTHORITY_SUBVERBS:
             st = self.state
             authority = st.dialogue_authority
+            f33 = self.NETSYNC_F33_SUBVERBS.get(sub)
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -8319,9 +8350,23 @@ class Session:
                 else:
                     have = f"speaks a dialogue contract this driver does not know " \
                            f"(`netsync.dialogue` = {st.netsync.get('dialogue')!r})"
+                what = (f"an F3.3 verb ({f33[3]}, memoria-patch {f33[2]}) on the F3.2 host-authoritative "
+                        f"dialogue contract (memoria-patch s96)" if f33 else
+                        "an F3.2 host-authoritative dialogue verb (memoria-patch s96)")
                 raise HarnessError(
-                    f"netsync {sub}: the deployed engine {have}; `{sub}` is an F3.2 host-authoritative "
-                    f"dialogue verb (memoria-patch s96). Rebuild the DLL, or update the driver.")
+                    f"netsync {sub}: the deployed engine {have}; `{sub}` is {what}. Rebuild the DLL, or update "
+                    f"the driver.")
+            if f33 is not None and not getattr(st, f33[0]):
+                # [ff9mapkit netsync F3.3] the contract tag stays "authority" across s96-s99, so a capability is its key's
+                # PRESENCE: an engine without it answers "unknown sub-verb" only after the step
+                raise HarnessError(
+                    f"netsync {sub}: the deployed engine publishes no `{f33[1]}` -- `{sub}` is {f33[3]} "
+                    f"(memoria-patch {f33[2]}). Rebuild the DLL, or update the driver.")
+        if sub == "host":
+            # [ff9mapkit netsync F3.3] the op is the bench host's own sub-verb: refused before the step, in the engine's words
+            op = str(args[0]).strip().lower() if args else ""
+            if op not in self.NETSYNC_HOST_OPS:
+                raise HarnessError(f"netsync host: unknown op '{op}' ({'|'.join(self.NETSYNC_HOST_OPS)})")
         self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
         return self.state
 
