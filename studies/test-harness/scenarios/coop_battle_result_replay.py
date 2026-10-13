@@ -21,14 +21,25 @@ THE BENCH. `netsync selftest 1` (saves sandboxed), the party seeded through COOP
   it), then NOTHING until state 2 (the natural tick path, the only one on which `host.learned` must equal the schedule);
   then the lever's battle. S9-C4L records whether that learn equality was EXERCISED: `battle 67` with the COOPPARTY
   party may teach nothing (schedule [] == learned [] holds vacuously), and then C4L is RED "not reached" by design --
-  equip an ability whose remaining AP is at most the fight's AP to make it a teaching fight.
+  equip an ability whose remaining AP is at most the fight's AP to make it a teaching fight. ON THIS BENCH IT CANNOT BE:
+  no harness verb sets a member's AP or equipment (tools/harness/session.py and the engine's step table carry none),
+  newgame() + COOPPARTY seat fresh members (pa[] all 0), `battle 67` pays AP 1 a row, and the cheapest ability those four
+  presets teach costs 10 AP (Vivi's; Zidane/Steiner 20, Garnet 15 -- StreamingAssets/Data/Characters/Abilities). So C4L
+  stays a documented RED 'not reached' here; it needs a save or bench that seats a nearly-mastered ability.
   PART 10 (S10-*): `dioboot 67 0` with the guest's REAL party seated; `endbench manifest 1` + `victory` + `ui 1` opens
   the replay; every page is stepped ONLY by `endbench state <n> [loading]` (the bench host's state) and photographed:
       s10-1-start.png  s10-2-levelup.png  s10-3-gil-items.png  s10-4-item-full.png  s10-5-end.png  -- READ them.
+  (s10-2 is the learn page: in the diorama slot 0 is the selftest mirror's Lv-99 BENCH stand-in, and `manifest 1` takes
+  its one shared exp gain from the first seated row -- 1 at the cap -- so R1's manifest levels NO row. The LEVEL UP is
+  R7's: `manifest 1` fabricated on the FIELD, where the first seated member is a Lv-1 COOPPARTY member, then booted
+  without a clear -- s10-6-levelup-field.png.)
   The write guard's live fingerprint (`netsync.battle.end.replay.fp`) is read on the field (FP0), after the boot (FP1)
-  and at EVERY page; the sandbox autosave fingerprint is compared setup -> end (S10-INV). Then the quit guard (R2 --
-  NEVER a Confirm while the guest's own quit prompt is up: its Yes quits the game), the refusal (R3), the abort (R4),
-  the negatives (R5), the fixer's field-song leg (R6) and the stage's two levers (L1 `replay off`, L2 `replay local`).
+  and at EVERY page; W0 holds FP1 to FP0 only on the components the diorama does not seat (its MirrorHostParty swaps
+  scratch PLAYERs into the dictionary while booted, so level/exp/pa differ by design until the teardown restores them --
+  W2 holds the whole fingerprint after the return); the sandbox autosave fingerprint is compared setup -> end (S10-INV).
+  Then the quit guard (R2 -- NEVER a Confirm while the guest's own quit prompt is up: its Yes quits the game), the
+  refusal (R3), the abort (R4), the negatives (R5), the fixer's field-song leg (R6), the stage's two levers (L1 `replay
+  off`, L2 `replay local`) and, last, the level-up leg (R7).
 `COOP_REPLAY_PART=9` or `=10` runs one part only (the catalog shrinks to it); the default runs both. `COOP_REPLAY_OVERFLOW=1`
 adds S9-D (a 99-drop overflow; needs a sandbox save that already holds 99 of the fight's drop -- else two-machine box 27).
 
@@ -43,8 +54,8 @@ CALIBRATION -- a check that cannot fail is not a check.
     "battle result manifest" line, no result_ui labels); E RED (no lever). Part 10: P0 RED; R0 RED (the SelfTest detail
     ends at "exit 280"); the walk still runs where it can -- every replay/fp check RED (`replay` absent), the stage-6
     end-leave at `state 7` then runs with music_shut/wipe_lifted true; R2-R6, L1, L2 RED ("unknown op" for quit /
-    replay / fieldsong). GREEN there: S0, S9-PRE, S10-W3 (no "WRITE DETECTED": a DLL that opens no screen cannot write)
-    and S10-INV (the autosave fingerprint is unchanged). On the s100-s105 stand-in: S0 and S10-W3 green (the stand-in
+    replay / fieldsong); R7 RED (`manifest 1` refused on the field). GREEN there: S0, S9-PRE, S10-W3 (no "WRITE
+    DETECTED": a DLL that opens no screen cannot write) and S10-INV (the autosave fingerprint is unchanged). On the s100-s105 stand-in: S0 and S10-W3 green (the stand-in
     writes no autosave and its default battle skips the result screen, so PRE/INV/C read red there too).
     On the full s106-s110 stand-in (a green-path smoke, not an oracle): part 10 alone 17/29 -- every red is the stand-in's
     own gap (no [NetSync] log lines: R0 R1a R1b R1d R1h R1k R2 R3 R4 R6 and S910-R read theirs; no autosave: INV); the
@@ -117,6 +128,13 @@ REL_MANIFEST = "result manifest host back ON (released with the harness)"
 REL_REPLAY = "result-screen replay guest back ON (released with the harness)"
 V_GO, V_LEVER, V_HOST_NOT_ON, V_AFTER_EVENT, V_NO_MANIFEST, V_NO_ROW = 0, 1, 5, 7, 8, 10
 FOLLOW_QUIT, FOLLOW_IN_STEP = 3, 6
+LEVEL_CAP = 99                           # ff9level.LEVEL_COUNT: BenchManifest pays exp 1 (no LEVEL UP) to a row at it
+#: The write guard's fingerprint parts (`replay.fp`) the diorama does NOT seat. While booted, MirrorHostParty swaps a
+#: scratch PLAYER into ff9.player[id] for every seated slot (keys kept: `players` holds) and the teardown restores the
+#: guest's own, so FP_SEATED (and the hash that mixes them) differ BY DESIGN between the field and the boot -- the run
+#: read level_sum 12 -> 110, exp_sum 40 -> 6633177, pa_sum 24 -> 6 with every unseated part equal.
+FP_UNSEATED = ("gil", "items", "item_sum", "players", "cards", "abilities", "passive")
+FP_SEATED = ("level_sum", "exp_sum", "pa_sum")
 
 
 def _catalog() -> dict:
@@ -149,7 +167,8 @@ def _catalog() -> dict:
                      "with level_ups lv_after - lv_before, and host.learned == the rows' learn schedule (no unscheduled learn)",
             "S9-C4L": "C: the learn half is EXERCISED -- the fight teaches (the manifest's learn schedule is non-empty) and "
                       "host.learned on the natural tick path == that schedule, ap_at for ap_at; a fight that teaches nothing "
-                      "records this RED 'not reached' (equip an ability whose remaining AP <= the fight's AP)",
+                      "records this RED 'not reached' (equip an ability whose remaining AP <= the fight's AP) -- on this "
+                      "bench it always does: no harness verb seats a nearly-mastered ability (see the module note)",
             "S9-C5": "C: Confirm to state 3 -- the gil-received label carries gil_gain, gil-current gil_before, the items shown "
                      "with their counts, the card shown when card != 255",
             "S9-C6": "C: plausibility (no reward support abilities) -- gil_gain == battle.bonus.gil and default_exp == "
@@ -172,7 +191,9 @@ def _catalog() -> dict:
             "S10-P0": "the engine publishes `netsync.battle.end.replay` (memoria-patch s109, stage 10)",
             "S10-R0": f"`endbench selftest` -> 'battle end-block selftest OK (... exit 280, manifest 708, replay "
                       f"{REPLAY_PINS})'",
-            "S10-W0": "FP1 (the write guard's live fingerprint after `dioboot`) == FP0 (on the field), component by component",
+            "S10-W0": "FP1 (the write guard's live fingerprint after `dioboot`) == FP0 (on the field) on every component the "
+                      "diorama does NOT seat -- gil, items, item_sum, players, cards, abilities, passive (level/exp/pa are the "
+                      "seated mirror's until the teardown; S10-W2 holds the whole fingerprint after the return)",
             "S10-R1a": "R1: `manifest 1` + `victory` -> injected and R8 within 12 s; replay.armed false, verdict 5 (the host "
                        "not on its result screen), the replay-wait line",
             "S10-R1b": "R1: `ui 1` -> within 2 s armed + opened, verdict 0, host_state_at_arm 0, row_mask == seated_mask, "
@@ -182,8 +203,10 @@ def _catalog() -> dict:
                        "level == lv_before, exp == exp_before, dim == !draw (PNG s10-1-start)",
             "S10-R1d": "R1: the guest's own Confirm is INERT -- 3 short presses + a 2 s hold: screen.state 0, steps 0, "
                        "local_confirms >= 3, the inert line exactly once",
-            "S10-R1e": "R1: `state 1` -> steps 1, trail ['0>1'], state 1; the first row reaches lv_after with level_ups 2; "
-                       "screen.learned == [{slot, M's learn, ap 3}] (PNG s10-2-levelup)",
+            "S10-R1e": "R1: `state 1` -> steps 1, trail ['0>1'], state 1; the first row's shadow reaches lv_after and NO row "
+                       "shows more LEVEL UPs than M pays it (lv_after - lv_before: 0 on every row of a diorama-built M, its "
+                       "slot 0 being the Lv-99 BENCH -- the level-up itself is S10-R7's); screen.learned == [{slot, M's "
+                       "learn, ap 3}] (PNG s10-2-levelup)",
             "S10-R1f": "R1: `state 2` (no loading) -> the local ticks end naturally at state 2: steps still 1, follow 6",
             "S10-R1g": "R1: `state 2 loading` -> steps 2, trail[1] '2>2L', state 3 after the fade; page 2 shows gil received "
                        "4321, current 1234567, the items [{marker, 7}] shown, the card shown; screen.gil == gil_before while "
@@ -215,6 +238,11 @@ def _catalog() -> dict:
                       "for 2 s",
             "S10-L2": "L2 (lever `replay local`): the guest's own Confirm STEPS the replay -- local_steps > 0, steps 0 -- while "
                       "writes stay 0 and replay.fp.hash == FP1.hash",
+            "S10-R7": "R7 (a LEVEL UP on the replay): `manifest 1` fabricated on the FIELD (its shared exp gain taken from a "
+                      "Lv-1 COOPPARTY member) and booted WITHOUT a clear; `ui 1` opens; after `state 1` + `state 2` a row the "
+                      "replay validated (row_mask) with lv_before < 99 and lv_after > lv_before reads level lv_after with "
+                      "level_ups lv_after - lv_before (shadow too), writes 0; the end-leave returns with fp == FP0 (PNG "
+                      "s10-6-levelup-field)",
             "S10-W3": "WRITE NOTHING: Memoria.log carries no 'WRITE DETECTED' line for the whole run",
             "S10-INV": "the guest's save/party/bag fingerprint (sandbox autosave) is byte-identical, part 10's start to end",
         })
@@ -578,11 +606,19 @@ def _c4(g, led: cb.Ledger, hm: dict | None) -> None:
               f"learned {fired} vs schedule {sched}")
     # The sheet singles out the learn half (host.learned == the schedule ON THE NATURAL TICK PATH), and an empty schedule
     # makes that equality hold vacuously ([] == []). Record it as its own check so a fight that teaches nothing is visible.
+    # On this bench it is ALWAYS 'not reached' (the module note): no harness verb sets a member's AP or equipment, the
+    # COOPPARTY members start at pa[] 0, `battle 67` pays AP 1 a row and the cheapest ability their presets teach costs 10
+    # AP. Kept red on purpose -- a green here would claim the learn half proven when it never ran. Still turns GREEN only on
+    # a fight whose schedule is non-empty AND fired == that schedule at the natural state 2 (the else branch below).
     if not sched:
+        ap = (cb.battle(g.state).get("bonus") or {}).get("ap")
+        gains = sorted({r.get("ap_gain") for r in hm.get("rows") or []}, key=str)
         g.note("S9-C4: this fight taught nothing (the manifest's learn schedule is empty) -- the learn half is NOT proven; "
                "equip an ability whose remaining AP <= the fight's AP for a teaching fight")
-        led.check("S9-C4L", False, f"not reached: the fight taught nothing (schedule [], host.learned {fired}) -- the "
-                                   f"natural-tick learn equality is untested; use a teaching fight")
+        led.check("S9-C4L", False, f"not reached: the fight taught nothing (schedule [], host.learned {fired}; the fight "
+                                   f"paid bonus AP {ap!r}, rows' ap_gain {gains}) -- no harness verb seats a "
+                                   f"nearly-mastered ability (fresh COOPPARTY pa[] 0; cheapest learn 10 AP), so the "
+                                   f"natural-tick learn equality stays untested on this bench")
     else:
         led.check("S9-C4L", s2 is not None and fired == sched,
                   f"state 2 {'reached' if s2 else 'NOT reached'}; learned {fired} vs schedule {sched}")
@@ -675,8 +711,43 @@ def _w1(r: _R, st, where: str) -> None:
         r.w1.append((where, (f or {}).get("hash"), s.get("writes")))
 
 
-def _boot(g, field: int) -> tuple:
-    _eb(g, "clear")
+def _fp_unseated_diff(a: dict | None, b: dict | None) -> list:
+    """The FP_UNSEATED parts that differ between two `replay.fp` reads. A part ``a`` lacks or reads non-integer counts as
+    differing (so does one ``b`` lacks): an fp without these parts can never pass S10-W0."""
+    a, b = a or {}, b or {}
+    return [k for k in FP_UNSEATED if not isinstance(a.get(k), int) or a.get(k) != b.get(k)]
+
+
+def _levelable(rows, mask=None) -> list:
+    """The manifest rows that LEVEL: lv_before below LEVEL_CAP and lv_after above lv_before -- and, given the replay's
+    ``mask`` (row_mask: the rows whose charId matches the member seated in their slot), only the rows the replay draws."""
+    out = []
+    for x in rows or []:
+        lb, la, s = x.get("lv_before"), x.get("lv_after"), x.get("slot")
+        if not (isinstance(lb, int) and isinstance(la, int) and isinstance(s, int) and 0 <= s < 4):
+            continue
+        if lb < LEVEL_CAP and la > lb and (mask is None or (isinstance(mask, int) and (mask >> s) & 1)):
+            out.append(x)
+    return out
+
+
+def _over_levelled(rows, ru: dict) -> list:
+    """Manifest rows whose result-screen row shows MORE level-ups than the manifest pays it (lv_after - lv_before), or
+    publishes no integer level_ups at all. [] = every row within its pay."""
+    bad = []
+    for x in rows or []:
+        w = _row(ru, x.get("slot"))
+        lb, la, ups = x.get("lv_before"), x.get("lv_after"), w.get("level_ups")
+        if not (isinstance(lb, int) and isinstance(la, int) and isinstance(ups, int)) or ups < 0 or ups > la - lb:
+            bad.append(f"slot {x.get('slot')}: level_ups {ups!r} vs pay {lb!r}->{la!r}")
+    return bad
+
+
+def _boot(g, field: int, *, clear: bool = True) -> tuple:
+    """`endbench clear` (unless ``clear`` is False: R7 carries a manifest fabricated on the field into the boot), then
+    `dioboot` and the command phase. (state or None, why)."""
+    if clear:
+        _eb(g, "clear")
     ok, why = cb.boot(g)
     if not ok:
         cb.back_to_field(g, field)
@@ -752,6 +823,7 @@ def _part10(g, led: cb.Ledger, field: int, ctx: dict) -> None:
     _r6(g, led, field)
     _l1(g, led, field)
     _l2(g, led, field, r)
+    _r7(g, led, field, r)                # last: its manifest rides in from the field, so a mishap here costs no other leg
 
 
 def _r1(g, led: cb.Ledger, field: int, r: _R) -> None:
@@ -764,9 +836,17 @@ def _r1(g, led: cb.Ledger, field: int, r: _R) -> None:
         led.unreached(cids, why)
         return
     r.fp1 = _fp(g.state)
-    led.check("S10-W0", r.fp0 is not None and r.fp1 == r.fp0,
-              f"FP0 {r.fp0}; FP1 {r.fp1}; differing components "
-              f"{[k for k in (r.fp0 or {}) if (r.fp0 or {}).get(k) != (r.fp1 or {}).get(k)]}")
+    # W0 holds only what the boot must NOT move. The diorama SEATS the host's mirrored party in the live structures
+    # (MirrorHostParty: a scratch PLAYER in ff9.player[id] per seated slot -- here the Lv-99 BENCH stand-in and scratch
+    # copies of slots 1-3) and restores the guest's own at the teardown, so level_sum / exp_sum / pa_sum and the hash
+    # differ by design while booted (the run read 12 -> 110 / 40 -> 6633177 / 24 -> 6). The write guard's meaning --
+    # nothing the replay did reached the guest's own save -- is S10-W2 (the WHOLE fingerprint, hash included, after the
+    # return; green in the run) and S10-W1 (every in-diorama page == FP1.hash). Still red: a boot that moves the guest's
+    # gil, bag, card count, ability-achievement sets or the dictionary's size, or an fp that does not read.
+    w0 = _fp_unseated_diff(r.fp0, r.fp1)
+    led.check("S10-W0", r.fp0 is not None and r.fp1 is not None and not w0,
+              f"unseated parts differing {w0} of {list(FP_UNSEATED)}; seated parts (differ by design while booted) "
+              f"{[k for k in FP_SEATED if (r.fp0 or {}).get(k) != (r.fp1 or {}).get(k)]}; FP0 {r.fp0}; FP1 {r.fp1}")
     ok, mwhy = _eb(g, "manifest", "1")
     if not ok:
         # an engine before stage 9 (or a refusal): the walk goes on WITHOUT a manifest, so the calibration still records
@@ -861,13 +941,22 @@ def _r1(g, led: cb.Ledger, field: int, r: _R) -> None:
     _w1(r, s, "state 1")
     sc, ru = _scr(s), _ru(s) or {}
     p2, pw = cb.shot(g, "s10-2-levelup")
+    # The level half no longer wants `level_ups == 2` on the first row. In the diorama slot 0 is the selftest mirror's
+    # Lv-99 BENCH stand-in, and BenchManifest takes its ONE shared exp gain from the first seated row: at the cap that
+    # gain is 1, so NO row of this M levels (lv_after == lv_before everywhere; the run read 'c4 lv99 +1xp' and the Lv-1
+    # rows '+1xp', level_ups 0 on the BENCH row). The LEVEL UP itself is judged where a row can level -- S10-R7, on a
+    # manifest fabricated on the field. Here every row stays within its pay (level_ups <= lv_after - lv_before, 0 on this
+    # M): still red on a replay that levels past the host's levelAfter (the Lv-99 row, or an exp-1 row on the guest's own
+    # table) or a row that publishes no level_ups.
+    over = _over_levelled(M.get("rows"), ru)
     # state 1 (EXPAndAPTick) -- or already 2 when the ticks ran out between two reads: the trail is the step's receipt
     led.check("S10-R1e", st is not None and sc.get("steps") == 1 and sc.get("trail") == ["0>1"] and sc.get("state") in (1, 2)
-              and _row(ru, first).get("level_ups") == 2
+              and bool(M.get("rows")) and not over
               and sc.get("learned") == [{"slot": first, "abil": learn.get("abil"), "ap": 3}] and _shown(p2),
               f"steps={sc.get('steps')!r} trail={sc.get('trail')!r} state={sc.get('state')!r} learned={sc.get('learned')!r} "
-              f"(want {[{'slot': first, 'abil': learn.get('abil'), 'ap': 3}]}); level_ups={_row(ru, first).get('level_ups')!r}; "
-              f"{p2 or pw}")
+              f"(want {[{'slot': first, 'abil': learn.get('abil'), 'ap': 3}]}); rows past their pay {over}; levelable rows "
+              f"in M {[x.get('slot') for x in _levelable(M.get('rows'))]} (R7 owns the LEVEL UP); "
+              f"level_ups={[_row(ru, x.get('slot')).get('level_ups') for x in M.get('rows') or []]}; {p2 or pw}")
     _eb(g, "state", "2")
     st = cb.poll(g, lambda s: _scr(s).get("state") == 2, 30.0, "the natural end of the ticks")
     s = st or g.state
@@ -1175,6 +1264,79 @@ def _l2(g, led: cb.Ledger, field: int, r: _R) -> None:
               f"{sc.get('state')!r}; fp hash {(fp_open or {}).get('hash')!r} -> {(fpn or {}).get('hash')!r}")
     _eb(g, "replay", "on")
     _leave_with_hide(g, field)
+    _eb(g, "clear")
+
+
+def _r7(g, led: cb.Ledger, field: int, r: _R) -> None:
+    """THE LEVEL UP on the replay. BenchManifest (`endbench manifest 1`) takes its one shared exp gain from the FIRST
+    seated row: inside a diorama that is the selftest mirror's Lv-99 BENCH (gain 1 -- no row levels: R1's M), on the field
+    it is the guest's own Lv-1 COOPPARTY member (the exp for two LEVEL UPs, every Lv-1 row 1 -> 3 -- part 9's B leg read
+    '[0:c0 lv1->3 +47xp]' ...). So the manifest is fabricated HERE on the field and booted WITHOUT a clear (`clear` is the
+    only thing that drops the template's manifest; the boot does not). In the diorama its row 0 (the field's slot-0 char)
+    meets the BENCH impostor and is not drawn (row_mask lacks bit 0); rows 1-3 match the scratch copies and level."""
+    g.note("S10-R7: a LEVEL UP on the replay -- `manifest 1` fabricated on the field (a Lv-1 first row), booted uncleared")
+
+    def brief(man: dict) -> list:
+        return [cb.pick(x, "slot", "char", "lv_before", "lv_after") for x in man.get("rows") or []]
+
+    _eb(g, "clear")
+    ok, w = _eb(g, "manifest", "1")
+    mf = _man(_peer_end(g.state)) or {}
+    if not ok or not _levelable(mf.get("rows")):
+        led.check("S10-R7", False, "not reached: " + (f"`endbench manifest 1` on the field refused -- {w}" if not ok else
+                  f"the field-built manifest levels no row (rows {brief(mf)}; note "
+                  f"{cb.peer(g.state).get('bench_manifest_note')!r})"))
+        _eb(g, "clear")
+        return
+    st, why = _boot(g, field, clear=False)
+    if st is None:
+        led.check("S10-R7", False, f"not reached: {why}")
+        _eb(g, "clear")
+        return
+    st, why = _victory_r8(g)
+    m = _man(_peer_end(g.state)) or {}            # the manifest the victory actually serves (the template's, re-encoded)
+    if st is not None:
+        ok, w = _eb(g, "ui", "1")
+        st = cb.poll(g, lambda s: _rep(s).get("opened") is True and (_ru(s) or {}).get("state") == 0, 4.0,
+                     "the replay open") if ok else None
+        why = ("" if st is not None else (f"`endbench ui 1` refused -- {w}" if not ok else
+               f"the replay never opened (replay={cb.pick(_rep(g.state), 'armed', 'opened', 'verdict', 'why')})"))
+    rp = _rep(g.state)
+    mask = rp.get("row_mask")
+    pick = _levelable(m.get("rows"), mask)
+    if st is None or not pick:
+        led.check("S10-R7", False, f"not reached: {why}" if st is None else
+                  f"not reached: no levelable row is drawn by the replay (row_mask {mask!r} of seated "
+                  f"{rp.get('seated_mask')!r}; rows {brief(m)})")
+        if cb.dio(g.state).get("booted"):
+            _leave_with_hide(g, field)
+        _eb(g, "clear")
+        return
+    x = pick[0]
+    slot, lb, la = x.get("slot"), x.get("lv_before"), x.get("lv_after")
+
+    def shadow(s) -> dict:
+        return next((v for v in _scr(s).get("rows") or [] if v.get("slot") == slot), {})
+
+    _eb(g, "state", "1")
+    cb.poll(g, lambda s: shadow(s).get("level") == la or _scr(s).get("state") == 2, 25.0,
+            "the levelable row's shadow to reach lv_after")
+    _eb(g, "state", "2")                          # R1f's path: the local ticks end NATURALLY at 2 (the chase never steps it)
+    end = cb.poll(g, lambda s: _scr(s).get("state") == 2, 30.0, "the natural end of the ticks")
+    g.wait_frames(10)
+    s = g.state
+    sc, ru = _scr(s), _ru(s) or {}
+    row, sh = _row(ru, slot), shadow(s)
+    p6, pw = cb.shot(g, "s10-6-levelup-field")
+    left, lwhy = _leave_with_hide(g, field)
+    fpn = _fp(g.state)
+    led.check("S10-R7", end is not None and row.get("shown") is True and cb.digits(row.get("level")) == str(la)
+              and row.get("level_ups") == la - lb and sh.get("level") == la and sc.get("writes") == 0 and _shown(p6)
+              and left and r.fp0 is not None and fpn == r.fp0,
+              f"slot {slot} (char {x.get('char')!r}) lv {lb}->{la}: screen level {row.get('level')!r} level_ups "
+              f"{row.get('level_ups')!r} (want {la - lb}) shadow {sh.get('level')!r}; state {sc.get('state')!r} writes "
+              f"{sc.get('writes')!r}; row_mask {mask!r} of seated {rp.get('seated_mask')!r}; left {left} {lwhy}; "
+              f"fp == FP0: {fpn == r.fp0}; {p6 or pw}")
     _eb(g, "clear")
 
 

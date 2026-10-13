@@ -12,26 +12,37 @@ state 1), 4 ability (RosterAbilityState + the MP column), 8 bag (DisplayItem lis
 the open panel under MuteActiveSound).
 
 THE BENCH. Field 30602, `netsync selftest 1`, the party seeded through COOPPARTY (30604: +vivi +garnet +steiner), then
-`netsync dioboot 67 0`. `netsync bbench roster auto 0` FABRICATES a two-marker roster for local slot 0 (Zidane) through
-the REAL EncodeRoster/ParseRoster -- every marker chosen from the guest's own state so it is ABSENT there (the
-TWO-MARKER law): a command outside Zidane's preset (WhiteMagicGarnet) whose 1st entry is listed ENABLED at MP 1 and
-whose 2nd is listed DISABLED; Zidane's OWN Ability-type command listing ONLY an entry the save has NOT learned
-(omitting one it HAS learned); a bag of ONE battle item the guest owns 0 of, x77. The markers come back at
-`netsync.battle.menu.bench_roster`. The panels are driven like a player's (`bmenu open` = the stage-3 bench opener;
-press / cursor labels) and read back through `battle.hud` (NetDescribeHud: what the NGUI draws); one in-engine PNG per
-panel leg PROVES the host roster is what is drawn -- READ them after the run:
-    s7-B-commands.png  s7-C-marker-abilities.png  s7-C-own-abilities.png  s7-D-items.png  s7-F-repainted.png
+`netsync dioboot 67 0`. `netsync bbench roster auto 0` FABRICATES a two-marker roster for local slot 0 (the diorama's
+BENCH stand-in: Attack/Defend/Jump/Dragon/Item/Change) through the REAL EncodeRoster/ParseRoster -- every marker chosen
+from the guest's own state so it is ABSENT there (the TWO-MARKER law): a command outside the slot's preset
+(WhiteMagicGarnet) whose 1st entry is listed ENABLED at MP 1 and whose 2nd is listed DISABLED; the slot's OWN
+Ability-type command listing ONLY an entry the save has NOT learned (omitting one it HAS learned); a bag of ONE battle
+item the guest owns 0 of, x77. The markers come back at `netsync.battle.menu.bench_roster`. THE STAND-IN'S ONE GAP: its
+learned-ability table pa[] is ZEROED by design (that is why the roster exists), so its own DragonAct holds no LEARNED
+entry to omit and the fabricator says so in `note` ("the slot's own DragonAct holds no LEARNED entry to omit") -- the
+legs on slot 0 tolerate exactly that one note, and leg R proves the learned-omitted BLANK row on a REAL party slot
+(the first of 1-3 whose fabrication chooses every marker: Vivi, whose Black Magic lists Fire). The panels are driven
+like a player's (`bmenu open` = the stage-3 bench opener; press / cursor labels) and read back through `battle.hud`
+(NetDescribeHud: what the NGUI draws); one in-engine PNG per panel leg PROVES the host roster is what is drawn -- READ
+them after the run:
+    s7-B-commands.png  s7-C-marker-abilities.png  s7-C-own-abilities.png  s7-D-items.png  s7-R-real-abilities.png
+    s7-F-repainted.png
 The deployment notes' BENCH CHANGES are applied: `menu.mirrored` is a LIST ([0] / []); leg F re-arms a plain roster
 and opens the marker menu first (straight after leg E's `dbl` roster the repaint would bounce to the command panel).
 
 WHAT IS PROVEN (S7-*; outcomes: the HUD as drawn, the engine's counters and log lines -- never an ack):
   P    the capability (`menu.content_hits`; `battle.hud.mirrored`; `bbench content on` accepted).
   BASE the stock panels before any roster: slot 0's commands as the stand-in draws them (Change on) -- the contrast.
-  A    the fabricated roster through the REAL ParseRoster: the arm line, every marker chosen (note null), the marker
-       command outside the stand-in's drawn commands, `mirrored == [0]`, `roster_src "bench"`, the guest owns 0 of M.
-  B    commands: the marker menu draws the HOST's command (id, label != the stand-in's), Change (and AccessMenu) grey.
+  A    the fabricated roster through the REAL ParseRoster: the arm line, every marker chosen (note null -- or the
+       stand-in's one learned gap, above), the marker command outside the stand-in's drawn commands, `mirrored == [0]`,
+       `roster_src "bench"`, the guest owns 0 of M.
+  B    commands: the marker menu draws the HOST's command (id, label != the stand-in's), Change grey (state 1, raw 1),
+       AccessMenu grey when DRAWN and clamped (raw 1) when this layout does not draw it.
   C    abilities: the marker list -- marker_shown on with MP "1" (the stand-in's own MP is not 1), marker_grey grey,
-       every other row blank; the own list -- the UNLEARNED entry on with "1", the LEARNED one blank.
+       every other row blank; the own list -- the UNLEARNED entry on with "1", every other row blank (the stand-in
+       has no LEARNED entry: leg R carries that row).
+  R    (run after D, before E) a REAL party slot (pa[] not zeroed): `bbench roster auto L` chooses every marker (note
+       null), and slot L's own list draws the UNLEARNED entry on with "1" and the LEARNED one BLANK (the host omitted it).
   D    bag + count: the item list is exactly "M x77" (no Potion); the target panel holds 30 frames (no SFX-101 bounce);
        the Confirm is captured {action 3, id M, local_slot 0, site SendCommand}; the guest's own M (0) and Potion (N)
        counts unchanged 5 s later; r9_refused 0.
@@ -41,7 +52,8 @@ WHAT IS PROVEN (S7-*; outcomes: the HUD as drawn, the engine's counters and log 
        grey with no reopen and the cursor in place; refresh +1, roster_gen +1, painted == gen; the mute released.
        Both frame bounds count from the re-arm verb's ACK (no verb frame is published; the ack lands after the agent's
        2-frame block), so they bound "repainted by then" and "never stuck", not the hook's own latency; the run sets
-       `stateevery 1` so the windows are read on every frame. F3 cannot see the 2-frame mute itself reliably (noted).
+       `stateevery 1` so the windows are read on every frame. F3 samples its OWN window (every publish from the ack to
+       the first one past MUTE_FRAMES): mute_held true only inside the window, false on that first publish past it.
   G    only mirrored slots change: slot 1 (absent from the roster) draws the guest's own bag and Change on.
   H    `bbench roster clear` -> mirrored [] / roster_src null and slot 0 draws stock again; `reset` with a roster armed
        and the lever pulled logs both release lines.
@@ -54,21 +66,29 @@ the repaint, the MirrorActive gate (design 4.2 -- the peer roster counts only un
 CALIBRATION -- a check that cannot fail is not a check.
   * THE DEPLOYED DLL AT WRITING (s105): no stage 7 at all. `netsync bbench ...` answers "netsync: unknown sub-verb
     'bbench' (...|bmenu|endbench)" and `menu.content_hits` / `battle.hud.mirrored` are absent, so the probe fails
-    closed: P0, P1 and every A-H/X check RED ("not reached" with that refusal), H2 RED (no lever, no release lines).
+    closed: P0, P1 and every A-H/R/X check RED ("not reached" with that refusal), H2 RED (no lever, no release lines).
     GREEN there: S0, PRE (the Potion count), BASE (the stage-3 opener draws stock content) and INV (nothing written).
     Measured on the s100-s105 stand-in (tools/harness/fakegame.py): S0 + BASE green; PRE and INV red there (the stand-in
     lists no Potion for `menus` in a diorama / writes no autosave) -- the real s105 adds those two greens.
     On the full s106-s110 stand-in (the green-path smoke, not an oracle): 24/33; its 9 reds are the stand-in's own gaps
     -- it writes no [NetSync] log lines (A1 B2 B3 E2 X1 H2 read their lines), lists no Potion (PRE), seats no slot 1 in
-    the diorama (G1) and writes no autosave (INV).
+    the diorama (G1) and writes no autosave (INV). (Measured BEFORE leg R: R1/R2 are unmeasured on the stand-in.)
+  * THE REAL s106-s110 DLL, run 20261013-131817 (before this round's fixes): 27/33. A1 A2 C2 E1 were the stand-in's
+    zeroed pa[] (note "the slot's own DragonAct holds no LEARNED entry to omit"), B3 the undrawn AccessMenu (state 0,
+    raw 1), F3 the sampler (the repaint landed by the ack, so F1's watch returned at once and the next read was the
+    shot's, 20 frames on -- the published states show mute_held true at 2607/2609 and false from 2611).
   * IN-RUN, on the stage DLL: `COOP_CONTENT_ON=<mask>` pulls `bbench content <mask>` (the hooks left ON) right after leg
     A, runs every leg under it and judges S7-CAL against the predicted red set (PREDICTED below; the run itself is red
     by design). The eight sheet levers and their reds:
-        0    B2 B3 C1 C2 C3 D1 D2 D3 E2 F1 F2 F3 X3   (the pre-stage panels: Steal, Change on, the guest's bag)
-        126  B2 C1 C3 E2 F1 F2 F3 X3   (command off: the marker command missing, so its lists cannot open)
+        0    B2 B3 C1 C2 C3 D1 D2 D3 E2 F1 F2 F3 R2 X3   (the pre-stage panels: Steal, Change on, the guest's bag,
+                                                      the real slot's own learning)
+        126  B2 C1 C3 E2 F1 F2 F3 X3   (command off: the marker command missing, so its lists cannot open; R's list is
+                                        the real slot's OWN command, fed by the ability hook -- R2 stays green)
         125  B3                        (grey off: Change state 2)
-        123  C1 C2 E2 F1 F2 F3         (ability off: the rows blank / drawn by the stand-in's own learning; the
-                                        blank marker_shown row cannot be picked, so leg F is not reached)
+        123  C1 C2 E2 F1 F2 F3 R2      (ability off: the rows blank / drawn by the slot's own learning -- the real
+                                        slot draws its LEARNED row and blanks the unlearned; the blank marker_shown
+                                        row cannot be picked, so leg F is not reached)
+        R1 is never predicted red: the fabricator reads through the content BYPASS, so no lever reaches it.
         119  D1 D2 D3                  (bag off: the guest's own bag, M absent)
         111  D2 D3                     (count off: the pick of M bounces back to the item list, nothing captured)
         95   E2                        (cast off, with `dbl`: the target Confirm returns to the ability list,
@@ -85,6 +105,7 @@ engine without `menu.content_hits` ("publishes no ..."): read as "this engine ca
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -108,6 +129,12 @@ SHOWS_HOST = "shows the HOST's "
 ONE_PICK = "makes ONE pick on a mirrored slot"
 REL_CONTENT = "stock-menu content hooks back ON (released with the harness)"
 REL_ROSTER = "the bench menu roster cleared (released with the harness)"
+NOT_FABRICATED = " -- NOT fabricated: "
+#: BenchFabricate's note when a slot's OWN Ability-type command holds no LEARNED entry to omit -- the one gap the BENCH
+#: stand-in (local slot 0) always has: its pa[] is ZEROED by design. Matched WHOLE, so any other gap ("no ... command
+#: outside the slot's preset", "no battle item the guest owns 0 of") -- alone or '; '-joined to this one -- does not.
+LEARNED_GAP = re.compile(r"the slot's own [A-Za-z0-9]+ holds no LEARNED entry to omit")
+REAL_SLOTS = (1, 2, 3)                   # leg R's candidates: COOPPARTY seats Vivi / Garnet / Steiner here
 
 
 def _env_mask():
@@ -125,13 +152,15 @@ CAL_MASK = _env_mask()
 
 #: The on-mask -> the checks its lever must turn red (and nothing else). The sheet's eight levers.
 PREDICTED = {
+    # R2 under 0 and 123: with the ability hook off the real slot's list is its OWN learning -- the LEARNED row drawn
+    # (state 2), the unlearned one blank -- the exact reverse of what R2 asks
     0: ("S7-B2", "S7-B3", "S7-C1", "S7-C2", "S7-C3", "S7-D1", "S7-D2", "S7-D3", "S7-E2", "S7-F1", "S7-F2", "S7-F3",
-        "S7-X3"),
+        "S7-R2", "S7-X3"),
     126: ("S7-B2", "S7-C1", "S7-C3", "S7-E2", "S7-F1", "S7-F2", "S7-F3", "S7-X3"),
     125: ("S7-B3",),
     # 123: marker_shown is not listed by the stand-in's own learning, so its row draws blank (NetDescribeList publishes
     # label ''), pick_row cannot reach it and leg F records F1-F3 "not reached" -- exactly as E2 is for the same reason
-    123: ("S7-C1", "S7-C2", "S7-E2", "S7-F1", "S7-F2", "S7-F3"),
+    123: ("S7-C1", "S7-C2", "S7-E2", "S7-F1", "S7-F2", "S7-F3", "S7-R2"),
     119: ("S7-D1", "S7-D2", "S7-D3"),
     111: ("S7-D2", "S7-D3"),
     95: ("S7-E2",),
@@ -150,10 +179,13 @@ def _catalog() -> dict:
         "S7-BASE": "BASE (no roster): `bmenu open 0` draws the stand-in's stock commands -- Change (menu 5) on (state 2), "
                    "every drawn command labelled -- recorded as the contrast",
         "S7-A1": "A: `bbench roster auto 0` is accepted and logs 'harness: bench menu roster armed (auto, N bytes through "
-                 "the REAL ParseRoster; wire slot(s) 0, 1 item(s)) [..]; local slot 0 (wire 0): marker ...'",
-        "S7-A2": "A: bench_roster carries every marker (note null): src auto, slot 0, wire 0, marker_menu/uk_menu the two "
-                 "Ability menus, marker_cmd outside the stand-in's drawn commands, marker_shown/marker_grey/unlearned/"
-                 "learned/item chosen, count 77, mp 1",
+                 "the REAL ParseRoster; wire slot(s) 0, 1 item(s)) [..]; local slot 0 (wire 0): marker ...' -- note "
+                 "null, or ONLY the stand-in's learned gap ('the slot's own <cmd> holds no LEARNED entry to omit', "
+                 "learned -1), and the line ends with exactly that note",
+        "S7-A2": "A: bench_roster carries every marker: src auto, slot 0, wire 0, marker_menu/uk_menu the two Ability "
+                 "menus, marker_cmd outside the stand-in's drawn commands, marker_shown/marker_grey/unlearned/item "
+                 "chosen, count 77, mp 1; learned chosen with note null -- or learned -1 with ONLY the stand-in's "
+                 "learned gap as its note (leg R proves the learned marker on a real slot)",
         "S7-A3": "A: menu.mirrored == [0], roster_src 'bench', and the published roster carries wire 0 + exactly "
                  "[{id M, count 77}]",
         "S7-A4": "A: the TWO-MARKER law -- the guest's own bag (`menus 0`, FF9.item) holds 0 of M",
@@ -161,12 +193,14 @@ def _catalog() -> dict:
         "S7-B2": "B: the marker menu draws the HOST's command -- its row has id marker_cmd, state 2 and a label that is not "
                  "the stand-in's; content_hits.command moved; 'stock menu: local slot 0 menu <m> shows the HOST's <cmd> "
                  "instead of the stand-in's ...' logged since the roster arm (once per boot: A4's `menus 0` may log it)",
-        "S7-B3": "B: Change (menu 5) is drawn GREY (state 1, raw 1) -- and AccessMenu when present; content_hits.grey "
-                 "moved; '(Change) drawn GREYED -- Change is outside the v1 command scope (B4.2)' logged",
+        "S7-B3": "B: Change (menu 5) is drawn GREY (state 1, raw 1) -- and AccessMenu GREY (state 1) when DRAWN, its "
+                 "enabled state clamped (raw 1) when this layout does not draw it (state 0); content_hits.grey moved; "
+                 "'(Change) drawn GREYED -- Change is outside the v1 command scope (B4.2)' logged",
         "S7-B4": "B: an in-engine PNG of the command panel, decoded non-blank (s7-B-commands)",
         "S7-C1": "C: the marker list -- the marker_shown row state 2 with MP '1' (the stand-in's own MP for it is not 1), "
                  "the marker_grey row state 1, every other visible row state 0; content_hits.ability moved",
-        "S7-C2": "C: the stand-in's own list -- the UNLEARNED row state 2 with MP '1', the LEARNED row state 0 (blank)",
+        "S7-C2": "C: the stand-in's own list -- the UNLEARNED row state 2 with MP '1', the LEARNED row state 0 (blank); "
+                 "when the stand-in has no learned entry (A's tolerated gap) every row but the unlearned one is state 0",
         "S7-C3": "C: an in-engine PNG of each list, decoded non-blank (s7-C-marker-abilities, s7-C-own-abilities)",
         "S7-D1": "D: the item list is exactly one row -- id M, number '77', state 2 -- and no Potion; content_hits.bag moved",
         "S7-D2": f"D: Confirm on M opens the target panel and it HOLDS {HOLD_FRAMES} frames (no SFX-101 bounce to the item "
@@ -176,16 +210,26 @@ def _catalog() -> dict:
         "S7-D4": "D: 5 s later the guest's OWN bag is untouched -- M still 0, Potion still N (`menus 0`)",
         "S7-D5": "D: an in-engine PNG of the item list, decoded non-blank (s7-D-items)",
         "S7-E1": "E: `bbench roster auto 0 dbl` arms a double-cast marker (bench_roster.dbl, marker_cmd DoubleBlackMagic "
-                 "or DoubleWhiteMagic)",
+                 "or DoubleWhiteMagic; note null, or ONLY the stand-in's learned gap -- it concerns the learn sub-marker, "
+                 "not the double-cast one)",
         "S7-E2": "E: ONE pick + one target Confirm is captured {action 2, menu marker_menu, id marker_shown}, "
                  "hud.double_cast stays 0, content_hits.cast moved, '... makes ONE pick on a mirrored slot' logged",
         "S7-F1": f"F: under the open marker list `bbench roster auto 0 mp=9 grey` repaints IN PLACE within "
                  f"{REPAINT_FRAMES} frames of the re-arm's ack -- marker_shown reads '9' and state 1, the panel still "
                  f"'ability', the cursor on the same row",
         "S7-F2": "F: content_hits.refresh +1, roster_gen +1 and roster_painted == roster_gen",
-        "S7-F3": f"F: the repaint's mute never STICKS -- mute_held false within {MUTE_FRAMES} frames of the re-arm's ack "
-                 f"(the 2-frame hold itself may fall between publishes: seen held is noted, not required -- so this "
-                 f"proves 'released', not 'muted'; it stays green under the refresh-off lever 63, where nothing mutes)",
+        "S7-F3": f"F: the repaint's mute never STICKS -- every publish from the re-arm's ack on that shows mute_held true "
+                 f"lies within {MUTE_FRAMES} frames of it, the first publish more than {MUTE_FRAMES} frames after it "
+                 f"shows false, and so does the read after the shot (the 2-frame hold itself may fall between "
+                 f"publishes: seen held is noted, not required -- so this proves 'released', not 'muted'; it stays green "
+                 f"under the refresh-off lever 63, where nothing mutes)",
+        "S7-R1": "R (a REAL party slot -- the stand-in's zeroed pa[] has no learned entry to omit): `bbench roster auto "
+                 "L` on the first of local slots 1-3 whose fabrication chooses EVERY marker -- note null, learned and "
+                 "unlearned chosen and distinct, uk_menu an Ability menu, one arm line naming local slot L with no "
+                 "'NOT fabricated', mirrored == [L]",
+        "S7-R2": "R: slot L's OWN list (the bench opener; hud.mirrored true) draws the UNLEARNED row state 2 with MP '1' "
+                 "and the LEARNED row state 0 (BLANK: the host omitted it); content_hits.ability moved; an in-engine "
+                 "PNG of it decoded non-blank (s7-R-real-abilities)",
         "S7-G1": "G: slot 1 (absent from the roster) is NOT mirrored -- hud.mirrored false, its item list the guest's own "
                  "bag (Potion N present, M absent), Change on (state 2)",
         "S7-H1": "H: `bbench roster clear` -> mirrored [] and roster_src null; slot 0 reopens with the stand-in's stock "
@@ -238,6 +282,67 @@ def _rows_brief(st) -> list:
 def _cmds_brief(st) -> list:
     return [(r.get("menu"), r.get("id"), r.get("label"), r.get("state"), r.get("raw")) for r in cb.hud(st).get("commands")
             or []]
+
+
+# ------------------------------------------------------------------------------------------- verdicts
+def _learned_gap_only(br: dict) -> bool:
+    """The fabricator's note names EXACTLY ONE gap -- the learn sub-marker's learned entry -- and the record agrees
+    (learned -1, the unlearned entry still chosen). This is what the BENCH stand-in (local slot 0) always reports: its
+    pa[] is zeroed by design, so its own DragonAct holds nothing LEARNED to omit (run 20261013-131817). Red for any
+    other gap: a missing marker command / unlearned entry / bag item, or two gaps '; '-joined."""
+    note = br.get("note")
+    return (isinstance(note, str) and LEARNED_GAP.fullmatch(note) is not None and br.get("learned") == -1
+            and isinstance(br.get("unlearned"), int) and br["unlearned"] > 0)
+
+
+def _note_ok(br: dict) -> bool:
+    """A1/A2/E1's note verdict. Every marker fabricated (note null, so the learned entry IS chosen), or the stand-in's
+    one tolerated gap (:func:`_learned_gap_only`) -- the learned-omitted blank row it cannot show is leg R's, on a real
+    slot. Still red: any other note, a note with learned chosen, or no note with learned unchosen."""
+    if br.get("note") is None:
+        return isinstance(br.get("learned"), int) and br["learned"] > 0
+    return _learned_gap_only(br)
+
+
+def _arm_line_note_ok(line: str, br: dict) -> bool:
+    """The arm line carries the SAME verdict as the published record: no 'NOT fabricated' tail for a null note, else it
+    ends with exactly ' -- NOT fabricated: <note>' (ArmBenchRoster appends it last)."""
+    if br.get("note") is None:
+        return NOT_FABRICATED not in line
+    return line.rstrip().endswith(NOT_FABRICATED + str(br.get("note")))
+
+
+def _access_ok(acc) -> bool:
+    """B3's AccessMenu (menu 7) verdict. NetDescribeHud publishes state 0 for a button that is NOT DRAWN
+    (!button.IsActive or an empty label) and raw = the menu's _commandEnabledState. Run 20261013-131817's command panel
+    (Attack/Defend/Jump/Dragon/Item/Change) does not draw it: state 0 with raw 1 after the grey hook, raw 2 in BASE (no
+    roster) -- so a not-drawn AccessMenu is judged by the CLAMP (raw 1) and a drawn one by its colour (state 1). Still
+    red: a drawn AccessMenu at state 2, or a not-drawn one whose enabled state was not clamped (raw 2 / -1)."""
+    if acc is None:
+        return True                     # this layout has no AccessMenu button at all (NetDescribeHud skips it)
+    if acc.get("state") != 0:
+        return acc.get("state") == 1
+    return acc.get("raw") == 1
+
+
+def _mute_verdict(pubs, f1: int, window: int = MUTE_FRAMES) -> tuple:
+    """F3's judge over every publish from the re-arm's ACK (frame ``f1``) on. (ok, held frames, the first frame more than
+    ``window`` frames after the ack or None, its mute_held). OK = every publish showing mute_held true lies within
+    ``window`` frames of the ack AND the first publish past the window shows false. The engine holds MuteActiveSound for
+    2 frames after the repaint (StockMenuMute/StockMenuMuteSettle): run 20261013-131817 published it true at 2607/2609
+    (ack 2609) and false from 2611. Still red: a mute held past the window, true on the first publish past it, or no
+    publish past it at all (a starved sampler proves nothing)."""
+    seen = {}
+    for x in pubs:
+        f = cb.frame_of(x)
+        if f >= f1:
+            seen.setdefault(f, _menu(x).get("mute_held"))
+    held = sorted(f for f, v in seen.items() if v is True)
+    past = sorted(f for f in seen if f > f1 + window)
+    first = past[0] if past else None
+    val = seen[first] if first is not None else None
+    ok = all(f <= f1 + window for f in held) and first is not None and val is False
+    return ok, held, first, val
 
 
 class _Ctx:
@@ -340,6 +445,7 @@ def _run(g, led: cb.Ledger, ctx: _Ctx, field: int, fp0: list) -> None:
     _leg_b(g, led, ctx)
     _leg_c(g, led, ctx)
     _leg_d(g, led, ctx)
+    _leg_r(g, led, ctx)                    # re-arms the roster for a real slot; leg E re-arms slot 0 first thing
     _leg_e(g, led, ctx)
     _leg_f(g, led, ctx)
     _leg_g(g, led, ctx)
@@ -370,7 +476,11 @@ def _leg_a(g, led: cb.Ledger, ctx: _Ctx) -> bool:
            in ln and "; local slot 0 (wire 0): marker " in ln]
     br = _br(st)
     ctx.br = br
-    led.check("S7-A1", ok and len(arm) == 1 and br.get("note") is None, why or cb.grep(lines, "bench menu roster"))
+    # The note: null, or ONLY the stand-in's learned gap (its pa[] is zeroed -- run 20261013-131817 armed with "the slot's
+    # own DragonAct holds no LEARNED entry to omit"); leg R proves the learned marker on a real slot. Any other gap, or a
+    # line whose 'NOT fabricated' tail disagrees with the record, is still red.
+    led.check("S7-A1", ok and len(arm) == 1 and _note_ok(br) and _arm_line_note_ok(arm[0], br),
+              why or f"note {br.get('note')!r} learned {br.get('learned')!r}; {cb.grep(lines, 'bench menu roster')}")
     if not ok:
         led.unreached([c for c in led.pending("S7-A")], f"`bbench roster auto 0` refused -- {why}")
         return False
@@ -379,9 +489,9 @@ def _leg_a(g, led: cb.Ledger, ctx: _Ctx) -> bool:
     good = (br.get("src") == "auto" and br.get("slot") == 0 and br.get("wire") == 0
             and br.get("marker_menu") in menus and br.get("uk_menu") in menus and br.get("marker_menu") != br.get("uk_menu")
             and isinstance(br.get("marker_cmd"), int) and br["marker_cmd"] > 0 and br["marker_cmd"] not in base_ids
-            and all(isinstance(br.get(k), int) and br[k] > 0 for k in ("marker_shown", "marker_grey", "unlearned", "learned"))
+            and all(isinstance(br.get(k), int) and br[k] > 0 for k in ("marker_shown", "marker_grey", "unlearned"))
             and isinstance(br.get("item"), int) and br["item"] >= 0 and br.get("count") == 77 and br.get("mp") == 1
-            and br.get("note") is None)
+            and _note_ok(br))                    # learned chosen + note null, or the stand-in's one gap (see A1)
     led.check("S7-A2", good, f"bench_roster={br}; the stand-in's drawn command ids {sorted(i for i in base_ids if i is not None)}")
     m = _menu(st)
     roster = m.get("roster") if isinstance(m.get("roster"), dict) else {}
@@ -425,7 +535,8 @@ def _leg_b(g, led: cb.Ledger, ctx: _Ctx) -> None:
               f"command hits +{_hit_delta(h0, st, 'command')!r}; since the roster arm: {cb.grep(lines_a, SHOWS_HOST)}")
     ch = cb.hud_cmd(st, cb.MENU_CHANGE) or {}
     acc = cb.hud_cmd(st, cb.MENU_ACCESS)
-    led.check("S7-B3", ch.get("state") == 1 and ch.get("raw") == 1 and (acc is None or acc.get("state") == 1)
+    # AccessMenu: 'when present' means DRAWN -- a not-drawn one (state 0) is judged by the clamp, raw 1 (_access_ok)
+    led.check("S7-B3", ch.get("state") == 1 and ch.get("raw") == 1 and _access_ok(acc)
               and (_hit_delta(h0, st, "grey") or 0) > 0 and any(GREY_LINE in ln and "(Change)" in ln for ln in lines),
               f"Change row {ch}; AccessMenu row {acc}; grey hits +{_hit_delta(h0, st, 'grey')!r}; {cb.grep(lines, 'GREYED')}")
     _shot(g, ctx, "commands", "s7-B-commands")
@@ -464,9 +575,20 @@ def _leg_c(g, led: cb.Ledger, ctx: _Ctx) -> None:
         g.wait_frames(6)
         st = g.state
         un, kn = cb.hud_row(st, br.get("unlearned", -1)), cb.hud_row(st, br.get("learned", -1))
+        if isinstance(br.get("learned"), int) and br["learned"] > 0:
+            learned_ok, lwhy = kn is not None and kn.get("state") == 0, "the learned row must be blank"
+        else:
+            # The stand-in's tolerated gap (A1/A2): nothing LEARNED to omit, so the learned-omitted blank row is leg R's.
+            # What this list CAN prove: the roster lists ONLY the unlearned entry, so every other visible row is blank
+            # (run 20261013-131817: Lancer '1' on, rows 118-124 state 0). Still red: another row drawn, or a note that is
+            # not exactly the learned gap.
+            others = [r for r in cb.hud(st).get("rows") or [] if r is not un and r.get("state") != 0]
+            learned_ok = _learned_gap_only(br) and not others
+            lwhy = f"no learned entry (leg R carries that row); non-blank others {others[:3]}"
         led.check("S7-C2", un is not None and un.get("state") == 2 and cb.strip_tags(un.get("number")) == "1"
-                  and kn is not None and kn.get("state") == 0,
-                  f"rows {_rows_brief(st)}; unlearned {br.get('unlearned')} -> {un}; learned {br.get('learned')} -> {kn}")
+                  and learned_ok,
+                  f"rows {_rows_brief(st)}; unlearned {br.get('unlearned')} -> {un}; learned {br.get('learned')} -> {kn} "
+                  f"({lwhy})")
         _shot(g, ctx, "own", "s7-C-own-abilities")
         cb.back_to_root(g)
     else:
@@ -543,13 +665,74 @@ def _pick_item(g, led: cb.Ledger, item: int, h0: dict, c0, r90) -> None:
               f"mask {mask!r}); r9_refused {r90!r}->{_menu(st2).get('r9_refused')!r}")
 
 
+def _leg_r(g, led: cb.Ledger, ctx: _Ctx) -> None:
+    """R: the learned-omitted BLANK row on a REAL party slot. The stand-in (slot 0) cannot show it -- its pa[] is zeroed,
+    so it has nothing LEARNED to omit. COOPPARTY seats Vivi / Garnet / Steiner in local slots 1-3 with real learned sets
+    (an earlier `menus 1` listed Vivi's Black Magic Fire enabled); the first of them whose fabrication chooses EVERY
+    marker (note null, learned chosen) carries the leg. Runs after D (D needs leg A's slot-0 roster) and before E, whose
+    first act re-arms slot 0 -- so G still finds slot 1 absent from the roster."""
+    g.note("R: the learned-omitted blank row on a REAL party slot (the stand-in has learned nothing to omit)")
+    cb.bmenu_close(g, 0)                   # no slot-0 panel up while the roster changes under it
+    slot, br, arm, tried = None, {}, [], []
+    for L in REAL_SLOTS:
+        at = cb.mark(g)
+        ok, why = _bb(g, "roster", "auto", L)
+        b = _br(g.state)
+        if not ok:
+            tried.append(f"slot {L}: refused -- {why[:160]}")
+            continue
+        lines = cb.wait_log(g, at, ARMED, 2.0)
+        if b.get("slot") == L and b.get("note") is None and isinstance(b.get("learned"), int) and b["learned"] > 0:
+            slot, br = L, b
+            arm = [ln for ln in lines if ARMED + "auto, " in ln and f"; local slot {L} (wire {b.get('wire')}): marker " in ln]
+            break
+        tried.append(f"slot {L}: note {b.get('note')!r} learned {b.get('learned')!r}")
+    st = g.state
+    m = _menu(st)
+    led.check("S7-R1", slot is not None and len(arm) == 1 and NOT_FABRICATED not in arm[0]
+              and br.get("src") == "auto" and isinstance(br.get("wire"), int) and br["wire"] >= 0
+              and br.get("uk_menu") in (cb.MENU_ABILITY1, cb.MENU_ABILITY2)
+              and isinstance(br.get("unlearned"), int) and br["unlearned"] > 0 and br["unlearned"] != br["learned"]
+              and m.get("mirrored") == [slot],
+              f"slot {slot!r}: bench_roster={br}; mirrored={m.get('mirrored')!r}; {len(arm)} arm line(s) "
+              f"{cb.grep(arm, 'bench menu roster', limit=300)}; skipped: {tried or 'none'}")
+    if slot is None:
+        led.unreached(("S7-R2",), f"no real party slot in {REAL_SLOTS} fabricated every marker: {'; '.join(tried)}")
+        return
+    h0 = _hits(g.state)
+    ok, why, st = cb.bmenu_open(g, slot)
+    if ok:
+        ok, why, st = cb.pick_command(g, br.get("uk_menu", -1), expect_panel="ability")
+    if not ok:
+        led.unreached(("S7-R2",), f"slot {slot}'s own list (menu {br.get('uk_menu')}) never opened: {why}")
+        cb.to_root(g)
+        cb.bmenu_close(g, slot)
+        return
+    g.wait_frames(6)
+    st = g.state
+    un, kn = cb.hud_row(st, br["unlearned"]), cb.hud_row(st, br["learned"])
+    _shot(g, ctx, "real", "s7-R-real-abilities")
+    sok, sdetail = _shot_ok(ctx, "real")
+    led.check("S7-R2", cb.hud(st).get("mirrored") is True and cb.hud(st).get("slot") == slot
+              and un is not None and un.get("state") == 2 and cb.strip_tags(un.get("number")) == "1"
+              and kn is not None and kn.get("state") == 0 and (_hit_delta(h0, st, "ability") or 0) > 0 and sok,
+              f"slot {slot} menu {br.get('uk_menu')} (cmd {br.get('uk_cmd')}) rows {_rows_brief(st)}; unlearned "
+              f"{br['unlearned']} -> {un} (its stock MP {br.get('unlearned_local_mp')!r}); learned {br['learned']} -> {kn}; "
+              f"mirrored={cb.hud(st).get('mirrored')!r}; ability hits +{_hit_delta(h0, st, 'ability')!r}; {sdetail}")
+    cb.to_root(g)
+    cb.bmenu_close(g, slot)
+
+
 def _leg_e(g, led: cb.Ledger, ctx: _Ctx) -> None:
     g.note("E: a double-cast marker makes ONE pick")
     cb.bmenu_close(g, 0)
     ok, why = _bb(g, "roster", "auto", 0, "dbl")
     br = _br(g.state)
+    # The double-cast marker is judged on its own: the stand-in's learned gap (run 20261013-131817: marker_cmd 23 =
+    # DoubleBlackMagic, note "the slot's own DragonAct holds no LEARNED entry to omit") concerns the LEARN sub-marker,
+    # not this one. Still red: no dbl, a marker outside the two double-cast commands, or any other note.
     led.check("S7-E1", ok and br.get("dbl") is True and br.get("marker_cmd") in (DOUBLE_BLACK, DOUBLE_WHITE)
-              and br.get("note") is None, why or f"bench_roster={br}")
+              and _note_ok(br), why or f"bench_roster={br}")
     if not ok:
         led.unreached(("S7-E2",), f"`bbench roster auto 0 dbl` refused -- {why}")
         return
@@ -618,6 +801,10 @@ def _leg_f(g, led: cb.Ledger, ctx: _Ctx) -> None:
     samples, hit = cb.watch_from(g, st1, want, 2.0)
     fhit = cb.frame_of(hit) if hit is not None else None
     left = [cb.frame_of(x) for x in samples if cb.hud(x).get("panel") != "ability"]
+    # F3's OWN window: watch_from answers AT the ack when the repaint already landed by then (run 20261013-131817:
+    # samples == [the ack, 2609] and the next read was the shot's, 2629 -- F3 measured the sampler), so read every
+    # publish from here until the first one PAST the mute window before the shot's own wait.
+    msamples, _ = cb.watch(g, lambda s: cb.frame_of(s) > f1 + MUTE_FRAMES, 2.0)
     _shot(g, ctx, "repaint", "s7-F-repainted")
     st2 = g.state
     led.check("S7-F1", hit is not None and fhit - f1 <= REPAINT_FRAMES and not left and cb.cursor_label(st2) == cur0
@@ -629,12 +816,16 @@ def _leg_f(g, led: cb.Ledger, ctx: _Ctx) -> None:
               and m2.get("roster_painted") == m2.get("roster_gen"),
               f"refresh hits +{_hit_delta(h0, st2, 'refresh')!r}; roster_gen {gen0!r}->{m2.get('roster_gen')!r} painted "
               f"{m2.get('roster_painted')!r}")
-    held = [cb.frame_of(x) for x in samples if _menu(x).get("mute_held") is True]
-    released = cb.first_frame([x for x in samples + [st2] if cb.frame_of(x) >= f1],
-                              lambda x: _menu(x).get("mute_held") is False and cb.frame_of(x) > (max(held) if held else -1))
-    led.check("S7-F3", _menu(st2).get("mute_held") is False and released is not None and released - f1 <= MUTE_FRAMES,
-              f"mute_held true on {held[:4]} (seen: {bool(held)} -- a 2-frame hold can fall between publishes); released at "
-              f"{released!r} (re-arm frame {f1})")
+    # Judged on every publish from the ack on (the engine releases MuteActiveSound 2 frames after the repaint --
+    # StockMenuMute / StockMenuMuteSettle), not on when the sampler first caught a false: see _mute_verdict.
+    mok, held, first_past, past_val = _mute_verdict(samples + msamples, f1)
+    released = cb.first_frame([x for x in samples + msamples if cb.frame_of(x) >= f1],
+                              lambda x: _menu(x).get("mute_held") is False)
+    led.check("S7-F3", mok and _menu(st2).get("mute_held") is False,
+              f"mute_held true on {held[:4]} (seen: {bool(held)} -- a 2-frame hold can fall between publishes; all must "
+              f"be <= {f1 + MUTE_FRAMES}); first false at {released!r}; first publish past the window {first_past!r} "
+              f"mute_held {past_val!r}; after the shot (frame {cb.frame_of(st2)}) {_menu(st2).get('mute_held')!r} "
+              f"(re-arm ack {f1}; {len(msamples)} window publishes)")
     cb.to_root(g)
 
 

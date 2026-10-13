@@ -24,8 +24,10 @@ the release restores 2). `bbench roster auto 0` (stage 7's two-marker roster -- 
 `bbench start 0x01`.
 
 WHAT IS PROVEN (S8-*):
-  P   the capability (`menu.stock_owns`); the no-feed baseline (stock_owns false, why "the party mirror is not active
-      ...", feed null, mirror.serving false, turn.slot -1); the feed starts.
+  P   the capability (`menu.stock_owns`); the no-feed baseline (stock_owns false, why one of the two gates the feed
+      satisfies -- "no live peer battle lane", what s107 answers once the diorama's party bench has armed the
+      mirror, or "the party mirror is not active ..." -- feed null, mirror.serving false, turn.slot -1, peer.live
+      false); the feed starts.
   A   opens on the wire bit: before `ready`, a live lane with caps 2 serving and nothing open; `bbench ready 0x01` ->
       within 3 frames of the bit turn.slot 0 / panel "command" / mirror.open 1 / fed +1, the digit panel idle
       (assist_slot -1) while the control frame reads open; both log lines; a PNG of the STOCK window (s8-A-stock-window).
@@ -115,8 +117,8 @@ def _catalog(calibrate: bool) -> dict:
     c = {
         "S8-S0": "the harness forced the selftest role for this process (Memoria.ini untouched)",
         "S8-P0": "the engine publishes `netsync.battle.menu.stock_owns` (memoria-patch s107, stage 8)",
-        "S8-P1": "no feed: stock_owns false, why 'the party mirror is not active ...', feed null, mirror.serving false, "
-                 "turn.slot -1",
+        "S8-P1": "no feed: stock_owns false, why a gate the feed satisfies ('no live peer battle lane' or 'the party "
+                 "mirror is not active ...'), feed null, mirror.serving false, turn.slot -1, peer.live false",
         "S8-P2": "`bbench roster auto 0` and `bbench start 0x01` are accepted; 'harness: bench feed STARTED' logged",
         "S8-A1": "A (before ready): peer.live, peer.caps 2, peer.ready_mask 0, stock_owns true, why null, mirror.serving "
                  "true, turn.slot -1, assist_slot -1, feed.menu_open false",
@@ -202,6 +204,32 @@ def _mir(x) -> dict:
 def _feed(x) -> dict:
     v = _m(x).get("feed")
     return v if isinstance(v, dict) else {}
+
+
+def _no_feed_baseline(m: dict, peer_live, turn_slot) -> tuple:
+    """S8-P1's predicate on `netsync.battle.menu` before `bbench start`. (ok, which reason answered).
+
+    StockMenuOwns (NetSyncBattle.StockMenu.cs) answers the FIRST missing gate, in this order: the knob, a live diorama,
+    the party mirror (NetSyncParty.MirrorActive || BenchFeedArmed), a peer view, caps bit 1, not faulted. Two of those
+    gates are the feed's to satisfy -- BenchFeedArmed is the mirror gate's second leg, and the feed is what fills the
+    peer view -- so with no feed either one can be the first gate missing, and both are the no-feed baseline. On the
+    selftest role the diorama's own B3.2 party bench (HonoluluBattleMain.Start -> NetSyncParty.SelfTestMirror, logged
+    "diorama party BENCH: armed") sets MirrorActive, so the s107 run passed the mirror gate and answered the LATER one,
+    "no live peer battle lane". A build or role where that bench does not arm answers the mirror gate instead.
+    Still RED: the knob or diorama reason (the knob is the ini's and the diorama is up and steady, so either is a real
+    fault), caps or faulted (no view exists to read them from), any other text, owns true, a feed object (or no `feed`
+    key), serving, an open slot, or a live peer lane."""
+    why = str(m.get("why") or "")
+    if why == WHY_STALE:
+        which = "the lane gate: 'no live peer battle lane' (the mirror gate passed: the diorama's party bench arms it)"
+    elif why.startswith(WHY_NO_MIRROR):
+        which = "the mirror gate: 'the party mirror is not active ...'"
+    else:
+        return False, f"NOT a reason the feed satisfies: {why!r}"
+    mir = m.get("mirror") if isinstance(m.get("mirror"), dict) else {}
+    ok = (m.get("stock_owns") is False and "feed" in m and m.get("feed") is None and mir.get("serving") is False
+          and turn_slot == -1 and peer_live is False)
+    return ok, which
 
 
 def _bb(g, *args) -> tuple:
@@ -300,9 +328,8 @@ def _run(g, led: cb.Ledger, ctx: _Ctx, field: int, fp0: list, calibrate: bool) -
         cb.leave(g, field)
         return
     m = _m(st)
-    led.check("S8-P1", m.get("stock_owns") is False and str(m.get("why") or "").startswith(WHY_NO_MIRROR)
-              and "feed" in m and m.get("feed") is None and _mir(st).get("serving") is False and st.turn_slot == -1,
-              _brief(st) + f" feed={m.get('feed', 'ABSENT')!r}")
+    p1_ok, p1_which = _no_feed_baseline(m, cb.peer(st).get("live"), st.turn_slot)
+    led.check("S8-P1", p1_ok, f"{p1_which}; " + _brief(st) + f" feed={m.get('feed', 'ABSENT')!r}")
     at = cb.mark(g)
     ok1, why1 = _bb(g, "roster", "auto", 0)
     ok2, why2 = _bb(g, "start", "0x01") if ok1 else (False, why1)
