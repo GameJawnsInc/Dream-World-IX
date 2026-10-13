@@ -13,6 +13,7 @@ the rigid carry, ×1.5 is borderline, ×2.0 reads stretched. If ×1.25 passes, `
 | `x1_build.py` | Offline. Builds the three variants from the live bench, runs gates G1-G5, measures each one's texture stretch, picks the viewpoints and the summit probe -> `out/x1/` (gitignored) |
 | `x1_session.py` | The harness scenario: four world loads (rigid, ×1.25, ×1.5, ×2.0), two stills from each of two viewpoints, and a summit height per stage |
 | `x1_post.py` | After the run: scores the summit probes, checks the stills settled, builds the blind panels (A-D, key in the run dir) |
+| `x1_kit_check.py` | Checks the kit's `world-mountain --rock-height` against the in-game build, on the real Uaho donor (K1-K4) |
 
 ## 1. The bench
 
@@ -77,3 +78,25 @@ section 3 (bench 30950 + `inject_worldjump.py`), then
 **Verdict (owner, on the blind panels; key A = x1.25, B = x1.5, C = rigid, D = x2.0): "2x honestly doesn't look bad."** No variant reads badly stretched, x2.0 included. The registered prediction (x1.5 borderline, x2.0 visibly stretched) is refuted in the permissive direction.
 
 What it licenses: a smooth pure-Y height scale of carried rock about its pinned rim, up to x2.0 (texture stretch p50 1.55, max 2.1), on Uaho's rock at the default overworld camera (~26u, two sides, no fog). What it does not: the v1/v2 blend conform's smear stays refuted (an uneven, rim-driven per-vertex pull, not a height scale), so `MTN_ROCK_RIGID` keeps guarding any deformation a builder does not declare. Untested: other donors (the crag, the horseshoe), close camera angles, the alcove.
+
+## 5. In the kit: `world-mountain --rock-height`
+
+`--rock-height S` (1.0-2.0) applies this map inside `world-mountain`: `interior._rock_height_map`, run on the
+de-tilted donor blob before it is seated. Pinned positions are the blob rim, every aperture ring, and each rock
+position shared with non-rock carried geometry or the donor's Object. The rock-rigid gate measures the carry
+against the stretched shape (`dVref`), so any other deformation still trips `MTN_ROCK_RIGID`. Refusals:
+- a stretch outside 1.0-2.0 (past what was seen in game);
+- a massif with geometry on its face that does not weld to the rock (a footprint sweep, an ensemble mouth). Of
+  the qualified donors only the horseshoe has one: 6 loose shingles and its falls/river mouth. Uaho, the crag
+  and comp20 are rock pinned only at their rim and welds;
+- a peak above stock's tallest terrain (42.68), where a flying airship (42.1875) would sit inside the rock.
+
+`x1_kit_check.py` carves the real Uaho donor onto a flat 2x2-block bench at x1.0 / x1.25 / x1.5 / x2.0:
+- K1: every gate passes, and the rigidity drift stays the rigid carry's (3.15-3.17%: the de-tilt's own);
+- K2: the kit pins the same 30 positions the in-game round pinned and stretches the same 53;
+- K3: the largest rise is the in-game variant's to the millimetre (2.070 / 4.139 / 8.279u);
+- K4: only rock entries move, in y only; topology and UVs are the rigid carry's.
+
+Hermetic tests (`tests/test_world_interior.py`): the pyramid's apex rises x1.5 with the rim and bench unmoved;
+1.0 is byte-identical to the rigid carry; the refusals; and a break-it test in which a map that declares the raw
+donor as its shape is refused by the rigid gate.

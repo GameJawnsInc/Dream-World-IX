@@ -125,6 +125,12 @@ MTN_FOOT_NY_FLOOR = 0.25         # foot-course tris are DELIBERATELY steep rock 
 #                                  topo 49, exempt from the grass zip envelope); below
 #                                  ~75 deg they are slivers, refuse
 MTN_ROCK_RIGID = 0.035           # THE ROCK-RIGID GATE: max carried-edge length drift
+#                                  (against the DECLARED shape: the donor, or its --rock-height map)
+MTN_ROCK_HEIGHT_MAX = 2.0        # --rock-height ceiling: the owner passed the Uaho rock stretched
+#                                  x2.0 in game ("2x honestly doesn't look bad", terrain study X1,
+#                                  RESULTS section 30); past it is untested
+STOCK_TERRAIN_MAX_Y = 42.68      # the tallest stock terrain vertex (terrain study vertical census);
+#                                  the airship flies at 42.1875, so taller rock holds it inside
 MTN_APRON_SLOPE = 29.5           # the grass apron's slope envelope (deg)
 # The terrain atlas's rock-band UV phase (u, v) -- measured by daguerreo_massif_anatomy.py
 # (its out/daguerreo_massif.json "phase"); the aperture-plug chart gate quantizes against
@@ -1327,11 +1333,106 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
                 r_rim=r_rim, ta=ta, tb=tb, dV2=dV2, dN2=dN2, rim2=rim2)
 
 
+def _rock_height_map(B, s: float, *, rock_topos, log=print):
+    """THE DECLARED ROCK HEIGHT (``world-mountain --rock-height``; terrain study X1, in-game
+    passed to x2.0): stretch the carried rock pure-Y about its pinned rim, UV carried --
+    ``y' = b(x,z) + s (y - b(x,z))`` on every FREE rock position, in the de-tilted donor frame.
+
+    PINNED (never moves): the blob rim, every aperture ring, and every rock position the rock
+    shares with non-rock carried geometry (an alcove floor, an enclosed ledge) or with the
+    donor's Object. ``b`` is the least-squares plane through the pinned positions plus an
+    inverse-distance blend of their residuals, so it equals the height at every pin: the rim,
+    the plugs, the apron and the zip are untouched by construction (the Uaho build pins exactly
+    the 30 positions the in-game round pinned). ``b`` is a function of plan position only, so
+    coincident entries (one weld) map to one point. Normals take the map's inverse transpose.
+
+    REFUSES a donor carrying geometry on its face that does not weld to the rock -- a
+    footprint sweep (loose shingles, a mouth lining) or an ensemble aperture (falls / river
+    riding the face, the horseshoe): neither would follow the stretch.
+
+    Returns ``(dV2, dN2, dVref, report)``: the stretched de-tilted arrays, and the raw-frame
+    REFERENCE shape the rock-rigid gate measures against, so a deformation the map does not
+    declare still trips :data:`MTN_ROCK_RIGID`."""
+    import numpy as np
+    if not 1.0 <= s <= MTN_ROCK_HEIGHT_MAX:
+        raise ValueError(f"--rock-height {s:g} is outside 1.0..{MTN_ROCK_HEIGHT_MAX:g}: x{MTN_ROCK_HEIGHT_MAX:g} "
+                         f"is the tallest stretch seen in game (terrain study X1); lower is untested")
+    if B["ensemble_apertures"] or B["sweep"]:
+        raise ValueError(f"--rock-height refused: this massif carries geometry on its face that is not "
+                         f"welded to the rock ({len(B['ensemble_apertures'])} falls/river mouth(s), "
+                         f"{len(B['sweep'])} loose footprint tris); a height stretch would leave it behind. "
+                         f"It is proven on rock-only massifs (Uaho; the crag and comp20 share its structure)")
+    dV, dV2, dN2, dtri, dtopo = B["dV"], B["dV2"], B["dN2"], B["dtri"], B["dtopo"]
+    ROCK = frozenset(rock_topos)
+    rock = [t for t in B["blob"] if dtopo[t] in ROCK]
+    rock_pos = {kk3(dV[i]) for t in rock for i in dtri[t]}
+    other_pos = {kk3(dV[i]) for t in B["blob"] if dtopo[t] not in ROCK for i in dtri[t]}
+    ring = set(B["rim"]) | {p for r in B["apertures"] for p in r}
+    obj_pos = {kk3(p) for p in B["oV"]} if B["oV"] is not None else set()
+    pinned = rock_pos & (other_pos | ring | obj_pos)
+    if not pinned:
+        raise ValueError("--rock-height: the rock has no pinned rim to stretch about")
+    at = {}                                        # one de-tilted position per pinned key
+    for t in B["blob"]:
+        for i in dtri[t]:
+            k = kk3(dV[i])
+            if k in pinned and k not in at:
+                at[k] = dV2[i]
+    P = np.array([at[k] for k in sorted(at)])
+    A = np.c_[P[:, 0], P[:, 2], np.ones(len(P))]
+    coef, *_ = np.linalg.lstsq(A, P[:, 1], rcond=None)
+    res = P[:, 1] - A @ coef
+
+    def b(x, z):
+        d2 = (P[:, 0] - x) ** 2 + (P[:, 2] - z) ** 2
+        plane = coef[0] * x + coef[1] * z + coef[2]
+        if d2.min() < 1e-12:
+            return float(plane + res[int(d2.argmin())])
+        w = 1.0 / d2
+        return float(plane + (w * res).sum() / w.sum())
+
+    h = 1e-3
+    out_V, out_N, ref = dV2.copy(), [list(n) for n in dN2], dV.copy()
+    moved = {}
+    for t in rock:
+        for i in dtri[t]:
+            k = kk3(dV[i])
+            if k in pinned:
+                continue
+            if k not in moved:
+                x, y, z = dV2[i]
+                bb = b(x, z)
+                bx_ = (b(x + h, z) - b(x - h, z)) / (2 * h)
+                bz_ = (b(x, z + h) - b(x, z - h)) / (2 * h)
+                moved[k] = (y + (s - 1.0) * (y - bb), (1 - s) * bx_, (1 - s) * bz_, y)
+            y_new, a_, c_, _ = moved[k]
+            dy = y_new - dV2[i][1]
+            out_V[i][1] = y_new
+            ref[i][1] = dV[i][1] + dy                  # the raw frame's declared shape (de-tilt is a y shear)
+            nx, ny, nz = dN2[i]                        # J = [[1,0,0],[a,s,c],[0,0,1]] -> n' ~ J^-T n
+            m = np.array([nx - a_ * ny / s, ny / s, nz - c_ * ny / s])
+            out_N[i] = (m * (math.sqrt(nx * nx + ny * ny + nz * nz) / (np.linalg.norm(m) or 1.0))).tolist()
+    for t in rock:                                     # orientation: det J = s > 0, enforced anyway
+        p0 = [dV2[i] for i in dtri[t]]
+        p1 = [out_V[i] for i in dtri[t]]
+        n0 = np.cross(p0[1] - p0[0], p0[2] - p0[0])
+        n1 = np.cross(p1[1] - p1[0], p1[2] - p1[0])
+        if np.sign(n0[1]) != np.sign(n1[1]) or np.linalg.norm(n1) < 2e-4:
+            raise ValueError("--rock-height flipped or collapsed a rock tri (the rim pin sheared it)")
+    report = {"scale": s, "pinned": len(pinned), "free": len(moved),
+              "rise_max": round(max((v[0] - v[3] for v in moved.values()), default=0.0), 3)}
+    log(f"rock height x{s:g}: {report['free']} rock positions stretched about {report['pinned']} pinned "
+        f"(rim + welds + apertures; plane tilt {math.degrees(math.atan(math.hypot(coef[0], coef[1]))):.1f}deg), "
+        f"tallest rise +{report['rise_max']:.2f}u")
+    return out_V, out_N, ref, report
+
+
 def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                    rock_topos=MOUNTAIN_ROCK_TOPOS, alcove="auto", clear=MTN_CLEAR,
                    scan_band=None, gblend=MTN_GBLEND, search_radius=10, search_step=2,
                    scan_cutoff=60, ground: str = "grass", disc: int = 1, game=None,
-                   max_apron_lift=None, foot_course_rects=None, log=print) -> dict:
+                   max_apron_lift=None, foot_course_rects=None, rock_height: float = 1.0,
+                   log=print) -> dict:
     """Carry a REAL rock massif (largest ``rock_topos`` component + enclosed raised tris
     + optional alcove floor + Object-aperture plugs) verbatim onto the island at
     ``center`` (exact placement, rotation 0) or the best lawful placement scanned around
@@ -1361,6 +1462,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     the byte-measured TRANSLATION LAWS): the plain-ground classification, the zip
     annulus's mains UVs + topograph, and the outside-the-rim probe all speak that
     family. ``"grass"`` is the bit-frozen identity (the Uaho acceptance).
+
+    ``rock_height`` (1.0..:data:`MTN_ROCK_HEIGHT_MAX`) stretches the carried rock pure-Y
+    about its pinned rim before it is seated (:func:`_rock_height_map`, terrain study X1); the
+    rock-rigid gate then measures the carry against that DECLARED shape. 1.0 = byte-identical.
 
     Returns ``{"changed", "center", "rot", "drop", "report"}``; raises ``ValueError`` on
     any gate."""
@@ -1398,6 +1503,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     oV, oN, otris = B["oV"], B["oN"], B["otris"]
     c_local, r_rim, ta, tb = B["c_local"], B["r_rim"], B["ta"], B["tb"]
     dV2, dN2, rim2 = B["dV2"], B["dN2"], B["rim2"]
+    dVref, rh = dV, None                       # the rock-rigid gate's reference: the donor ...
+    if rock_height != 1.0:                     # ... or its declared --rock-height stretch
+        dV2, dN2, dVref, rh = _rock_height_map(B, float(rock_height), rock_topos=ROCK, log=log)
 
     def detilt_p(p):
         return (p[0], p[1] - ta * (p[0] - c_local[0]) - tb * (p[2] - c_local[1]), p[2])
@@ -2745,7 +2853,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                     or (round(carried[t][b][0], 3),
                         round(carried[t][b][2], 3)) in _rig_exempt):
                 continue                         # the deliberate conform / face steepen
-            d0 = float(np.linalg.norm(dV[tri[a]] - dV[tri[b]]))
+            d0 = float(np.linalg.norm(dVref[tri[a]] - dVref[tri[b]]))
             if d0 > 0.05:
                 worst_rig = max(worst_rig,
                                 abs(math.dist(carried[t][a], carried[t][b]) / d0 - 1.0))
@@ -2780,7 +2888,14 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                          "(THE PROFILE LAW relief gate: a mountain that does not rise "
                          "gets no rock course)")
     if worst_rig >= MTN_ROCK_RIGID:
-        raise ValueError("carried rock deformed beyond the de-tilt affine")
+        raise ValueError("carried rock deformed beyond the de-tilt affine"
+                         + (f" and its declared x{rock_height:g} height" if rh else ""))
+    if rh:
+        _peak = max(p[1] for ps in carried.values() for p in ps)
+        if _peak > STOCK_TERRAIN_MAX_Y:
+            raise ValueError(f"--rock-height x{rock_height:g} lifts the peak to y {_peak:.2f}, above stock's "
+                             f"tallest terrain ({STOCK_TERRAIN_MAX_Y}): a flying airship (42.1875) would sit "
+                             f"inside the rock. Use a lower --rock-height")
     if g_worst > MTN_APRON_SLOPE:
         raise ValueError("the ground apron exceeds the grass slope envelope")
 
@@ -2985,6 +3100,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                        "peak_y": round(float(
                            max(p[1] for ps in carried.values() for p in ps)), 2),
                        "zip_rise": round(zip_rise, 2), "rock_rigid": round(worst_rig, 4),
+                       "rock_height": rh,
                        "apron_slope": round(g_worst, 1), "lifted": len(lift_of),
                        "patched_holes": patched_holes,
                        "lawn_snapped": lawn_snap["entries"],
