@@ -96,9 +96,9 @@ def test_donor_literals_pin_to_catalog_rows():
     proven = rows[_spec(TR.PROVEN_DONOR)]
     assert proven["class"] == "coast" and proven["status"] == "qualified"
 
-    # the four qualified massif rects the interior topo-narrowing verified (interior.py's
-    # MOUNTAIN_ROCK_TOPOS comment names them)
-    for blocks in ("0,0", "10,5-6", "5-6,15-16", "12,16-17"):
+    # the qualified massif rects: the four the interior topo-narrowing verified (interior.py's
+    # MOUNTAIN_ROCK_TOPOS comment names them) and the desert peak (terrain study, mountaindonors/)
+    for blocks in ("0,0", "10,5-6", "5-6,15-16", "12,16-17", "19,3"):
         assert rows[blocks]["class"] == "massif" and rows[blocks]["status"] == "qualified"
 
 

@@ -86,6 +86,16 @@ Run `20261013-113037-mountain-donors`, **34/37**:
   error (A west: 5.4 deg) passes beside an arm of the rock and keeps gaining distance along the bearing. An aim
   instrument against a narrow massif, not a crack: round 16's walks met Uaho's broad face.
 
+The owner judged labelled panels (`mountain_panel_*.png`). **Verdict: "yes"**: the desert peak reads as a stock
+desert mountain at 0 deg, 200 deg and x1.5. It is qualified as `desert-peak` (`19,3`, home ground desert).
+
+## Open
+
+- comp26 and comp10 carry only with the raised ground their rim steps onto at home: an ensemble carry, like the
+  horseshoe's falls mouth.
+- The snow massifs (comp9, comp19) need a coarse-rim split (the forest's RIM GRAIN, for the mountain zip) and a
+  level foot respectively; the big three (comp2/3/4) need an island past r111 and their own aperture anatomy.
+
 ## 5. The kit: THE HOME-GROUND WARNING
 
 `world/data/donors.toml` rows now carry `home_ground` for every massif, and `world-mountain` and `world-fuse`'s

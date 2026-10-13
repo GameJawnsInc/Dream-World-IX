@@ -42,6 +42,9 @@ below were checked against the code. Anything not measured is labelled so.
   - the game-eye cull.
 - It renders the committed bench cameras pixel-identical to the study it was promoted from.
 - Its inner loop runs once per triangle in Python, so it produces stills, not frames.
+- **It reads only a mod folder's deployed overrides** (`render.load_batches`): stock land renders as sky. The
+  terrain study's `mountaindonors/home_render.py` feeds it stock parts through `part_src`, and the editor's view
+  needs the same fallback (stock under the overrides).
 - `atlas.load_atlas` (`atlas.py:187`) extracts the atlases and resolves the engine-true HD override across the mod
   stack (`resolve_atlas_source`, `:110`).
 - **The look is cheap for a GPU.** It is unlit, uses one texture sheet, and needs one trivial shader. A block is a

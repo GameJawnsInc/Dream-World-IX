@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-mountain`: a desert mountain, and a warning when a mountain leaves its home ground
+- A new qualified donor, `world-mountain --donor 19,3 --ground desert`: a desert peak (139 rock triangles, about
+  12u tall) for desert islands (`world-island --ground desert`). It carves cleanly at every angle tried, and in game
+  it read as built at 0°, 200° and 30° ×1.5 taller; the owner passed the look. `world-donors --class massif` lists it.
+- Every mountain donor stands on one ground at home: Uaho, comp20 and the horseshoe on grass, the crag and the
+  desert peak on desert. The donor catalog records it, and `world-mountain` (and `world-fuse`'s `[[mountain]]`)
+  prints a warning when `--ground` differs. It is a warning, not a refusal: the carry is lawful, but its foot meets
+  a ground it never meets in the game.
+
 ### Added — `world-forest --donor`: four more forest shapes
 - `world-forest --donor BX,BY` now carries the largest forest touching that block whose edge meets only grass,
   collected whole across block borders. A census of all 44 disc-1 forests qualifies five (one outline, grass and

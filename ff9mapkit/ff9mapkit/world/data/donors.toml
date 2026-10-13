@@ -63,8 +63,8 @@ blocks = "19,3"
 class = "massif"
 aperture = "none"
 home_ground = "desert"
-status = "candidate"
-anatomy_study = "studies/terrain-malleability/mountaindonors/ (census.py comp23; sweep.py 6/6 angles on a desert bench)"
+status = "qualified"
+anatomy_study = "studies/terrain-malleability/mountaindonors/ (census.py comp23; sweep.py 6/6 angles on a desert bench; in game: ingame/RESULTS.md section 34, 34/37, owner-passed)"
 note = "139 rock tris (all topo 49), radius 26.1u, peak 12.5u over its rim; a desert coast at home. Carry onto a desert island: world-island --ground desert, world-mountain --donor 19,3 --ground desert."
 
 [[donor]]
