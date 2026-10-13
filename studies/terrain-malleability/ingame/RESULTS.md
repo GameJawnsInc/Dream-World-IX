@@ -966,6 +966,13 @@ location-marker dots the engine drew in the last stage only and a HUD widget off
 **Verdict.** The game shows the composited charts: an island sunk with `world-sink` comes off the in-game map, on the
 all-world chart and on the disc-1 Mist chart, after `world-minimap` and a relaunch.
 
+**Then new land on the drift (owner's go, same evening; `.harness-runs/20261012-202003-mapchart-drift`, 3/3, 38 s, no
+ini change).** The live `FF9CustomMap-world` map re-composited with its drawn land at frame + `WORLD_MAP_DRIFT` (old
+PNG in `backups/world_map_full_all.png.FF9CustomMap-world.<stamp>`; the deployed file equals the reviewed render).
+Against round 14's `all_base` frame (the old composite of the same folder) the far-south landmasses stand ~20px
+higher, clear of the bottom frame line, and the east-edge one ~11px further left, ending where the painted world
+ends (`ingame_drift.py`; zoomed pairs `cmp_sw.png`, `cmp_east.png`).
+
 ## Not run
 
 - Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.

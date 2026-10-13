@@ -344,8 +344,8 @@ MIST_MAP_ART_FRAME = (-778 / 1273.0, -586 / 1080.0, 1.300 * 1536 / 1273.0, 1.307
 # registered frame scaled. The local offsets of 46 islands, each found on the art, fit a plane to ~1.3px rms: the
 # painted world is ~4% short down and ~0.9% narrow across, so a coast near the top or bottom edge is painted up to
 # ~24px from where WORLD_MAP_ART_FRAME puts it (the middle agrees). (dx/W, dy/H) = a + b*(x/W) + c*(y/H) per axis.
-# The map erase starts its search there; new land is still drawn on the frame. The Mist frame was registered with
-# its two scales apart and needs none (16 islands, all within 7px).
+# The map erase starts its search there, and new land is drawn there (frame + drift: ART-TRUE, the owner's rule).
+# The Mist frame was registered with its two scales apart and needs none (16 islands, all within 7px).
 WORLD_MAP_DRIFT = ((-0.87 / 1273.0, -0.0089, 0.0002 * 1080 / 1273.0),
                    (19.22 / 1080.0, -0.0014 * 1273 / 1080.0, -0.0401))
 
@@ -427,10 +427,12 @@ def render_world_maps(mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=
     override). Returns ``(summary, all-world image, Mist image or None)``.
 
     Reads every ``Block[x][y] Terrain.ff9mesh`` under the folder's WorldMap tree,
-    projects the terrain triangles through the engine's own map projection
-    (frame-calibrated), and paints them in colours sampled from the map itself
-    (fill = the median land colour at the real-town anchors; rim = that colour
-    darkened). Data-derived end to end -- no hand art. RELAUNCH to see it.
+    projects the terrain triangles through the engine's own map projection onto the
+    registered frame, then by the chart's measured drift (:data:`WORLD_MAP_DRIFT`) to where
+    the PAINTED world sits there (up to ~24px off the frame at the chart's top and bottom
+    edges), and paints them in colours sampled from the map itself (fill = the median land
+    colour at the islet anchors; rim = that colour darkened). Data-derived end to end -- no
+    hand art. RELAUNCH to see it.
 
     THE ERASE (disc 1 and 4): land the folder REMOVED from a real cell (``world-sink``, an
     in-place coast cut) is taken off the chart first, repainted as the sea round it
@@ -462,6 +464,9 @@ def render_world_maps(mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=
         return (x0 + (wxw / ext_x) * (x1 - x0),
                 y0 + ((-wzw) / ext_z) * (y1 - y0))
 
+    # the fill samples through the FRAME, not frame + drift, deliberately: the anchors were chosen that way and the live
+    # composites carry its colour (through the drift two of the three land on an olive interior and a halo, and the
+    # drawn land would turn halo-coloured)
     samples = []
     for wx, wz in _islet_anchors():
         px, py = to_px(wx, wz)
@@ -484,6 +489,7 @@ def render_world_maps(mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=
         edited = set(edited)
         stock_land = dilate(stock == LAND, 2)   # a kept coast's thin tri centres a half-covered pixel
     draw = ImageDraw.Draw(im)
+    drift = _drift(im, WORLD_MAP_DRIFT)      # where the painted world sits off the frame (THE DRIFT LAW)
     n_tris = 0
     polys = []
     for p in blocks:
@@ -503,11 +509,11 @@ def render_world_maps(mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=
             # at the chart edges, which is exactly how the engine's own minimap unrolls a torus.
             pts = [(x0 + ((bm.verts[i][0] + ox) / ext_x) * (x1 - x0),
                     y0 + ((-(bm.verts[i][2] + oz)) / ext_z) * (y1 - y0)) for i in tri]
-            if (bx, by) in edited:           # a real cell: draw only the land the folder ADDED
+            if (bx, by) in edited:           # a real cell: draw only the land the folder ADDED (frame vs frame)
                 cx, cy = (int(sum(q[0] for q in pts) / 3), int(sum(q[1] for q in pts) / 3))
                 if 0 <= cx < W and 0 <= cy < H and stock_land[cy, cx]:
                     continue
-            polys.append(pts)
+            polys.append([(qx + dqx, qy + dqy) for qx, qy in pts for dqx, dqy in (drift(qx, qy),)])
             n_tris += 1
     for pts in polys:                       # rim pass: a 1px outline under the fills
         draw.polygon(pts, outline=rim)

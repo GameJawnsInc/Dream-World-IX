@@ -157,6 +157,41 @@ def test_class_rasters_read_the_folders_parts_over_stock(monkeypatch):
     assert stock[90, 90] == ME.DEEP
 
 
+def test_new_land_is_drawn_where_the_painted_world_sits(tmp_path):
+    """A fake install: a plain chart (its islet anchors painted a marker colour, so the sampled fill is findable) and
+    one flat block deployed in the Path D namespace (no erase, no stock reads) near the chart's bottom edge. The drawn
+    land is centred on the frame's projection PLUS the chart's measured drift there (~19px up), not on the frame."""
+    from PIL import Image, ImageDraw
+    from ff9mapkit.world import mesh as M, navimap as NM
+    (tmp_path / "Memoria.ini").write_text('[Mod]\nFolderNames = "Mine", "Base"\n', encoding="utf-8")
+    chart = Image.new("RGB", (1273, 1080), (166, 119, 58))
+    x0, y0, x1, y1 = NM._world_art_rect(chart)
+
+    def frame(wx, wz):
+        return x0 + wx / 1536 * (x1 - x0), y0 - wz / 1280 * (y1 - y0)
+    marker = (200, 60, 60)
+    d = ImageDraw.Draw(chart)
+    for wx, wz in NM._islet_anchors():
+        ax, ay = frame(wx, wz)
+        d.rectangle((ax - 2, ay - 2, ax + 2, ay + 2), fill=marker)
+    sprite = tmp_path / "Base" / NM.MAP_SPRITE_REL
+    sprite.parent.mkdir(parents=True)
+    chart.save(sprite)
+    dest = tmp_path / "Mine" / M.override_relpath(9, 5, 18)
+    dest.parent.mkdir(parents=True)
+    M.write_ff9mesh(M.flat_block_mesh(disc=9, x=5, y=18, seg=4, height=2.0), dest)
+
+    summary, im, mist = NM.render_world_maps("Mine", game=tmp_path, verbose=False, target_disc=9)
+    assert summary["fill"] == marker and summary["tris"] > 0 and mist is None and summary["erased"] == []
+    drawn = np.all(np.asarray(im) == marker, axis=-1)
+    drawn[np.all(np.asarray(chart) == marker, axis=-1)] = False          # the anchor marks themselves
+    ys, xs = np.nonzero(drawn)
+    fx, fy = frame(64 * 5 + 32, -(64 * 18 + 32))                         # the block's centre, on the frame
+    dx, dy = NM._drift(im, NM.WORLD_MAP_DRIFT)(fx, fy)
+    assert dy < -15                                                      # near the bottom edge: well off the frame
+    assert abs(xs.mean() - (fx + dx)) < 1.5 and abs(ys.mean() - (fy + dy)) < 1.5     # pixel grid vs continuous
+
+
 @pytest.mark.parametrize("frame_name", ["WORLD_MAP_ART_FRAME", "MIST_MAP_ART_FRAME"])
 def test_the_chart_frames_are_pinned(frame_name):
     from ff9mapkit.world import navimap as NM
