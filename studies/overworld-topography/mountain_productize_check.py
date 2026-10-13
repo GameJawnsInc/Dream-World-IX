@@ -17,6 +17,10 @@ re-triangulations the fix changed in the MINT itself (world ~(142,-1220) and
 ~(144,-1264), both far outside the carve band); the carve must pick the identical
 placement, patch zero holes, and block (2,18) must stay byte-identical.
 
+HISTORICAL (2026-10-12): the deployed bench and its ``.pristine-r31s42`` sibling are gone
+from the install (redeployed in July), so this script no longer runs. Both tracks now live
+in ``ff9mapkit/tests/test_world_interior.py``, rebuilt in-test with SHA-256 pins.
+
 Run from the repo root:  py studies/overworld-topography/mountain_productize_check.py
 """
 import sys

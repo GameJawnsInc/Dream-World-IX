@@ -6,6 +6,10 @@ clean seed-55 mint -> module forest-carve (exact recovered center) -> f32 write/
 DEPLOYED, in-game-proven island E files. Identity = the productized path is proven by
 identity with the playtested deploy (the declarative-shore-tweaks pattern).
 
+HISTORICAL (2026-10-12): island E's blocks (5,17)/(5,18) are gone from the install, so this
+script no longer runs. The standing check is ``ff9mapkit/tests/test_world_interior.py``
+(inputs rebuilt in-test, outputs pinned by SHA-256).
+
 Run from the repo root:  py studies/overworld-topography/interior_productize_check.py
 """
 import sys

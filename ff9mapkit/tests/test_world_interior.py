@@ -1,12 +1,12 @@
 """world-forest / world-hill / world-mountain -- the interior-topography verbs (hermetic).
 
-The full-fidelity acceptance is the zero-byte-diff identity proof against the deployed,
-in-game-proven island E / Uaho bench (``studies/overworld-topography/
-interior_productize_check.py`` + ``mountain_productize_check.py`` -- mint -> module carve
-reproduces the playtested bytes exactly). The identity assertions themselves are ported
-here as the game-data-gated tests at the bottom (skipped without the install + the
-deployed FF9CustomMap-world blocks); the studies keep the forensic extras (the mountain's
-fresh-mint dent-tolerance TRACK B). The rest covers the hermetic machinery:
+The full-fidelity acceptance is the zero-byte-diff identity proof against the in-game-proven
+island E / Uaho bench (``studies/overworld-topography/interior_productize_check.py`` +
+``mountain_productize_check.py`` -- mint -> module carve reproduces the playtested bytes
+exactly). The identity assertions themselves are ported here as the game-data-gated tests at
+the bottom: inputs rebuilt in-test, outputs pinned as SHA-256 digests, so they need only the
+install + UnityPy (the stock donor read) and never the shared FF9CustomMap-world folder. The
+rest covers the hermetic machinery:
 
   * chain_ring (simple-cycle chaining + degeneracy refusal)
   * chain_rings (multi-cycle chaining + degree-2 refusal) + signed_area orientation
@@ -909,121 +909,230 @@ def test_wall_context_law_mint_guard():
 #
 # The ★ ZERO-BYTE-DIFF IDENTITY claims (world-forest/world-hill productized 2026-07-13,
 # world-mountain productized 2026-07-15), ported from the study acceptance scripts so they
-# are a standing regression net, not a proven-once-by-hand result. Each needs the FF9
-# install (the mint/carve reads stock blocks via UnityPy) AND the deployed, in-game-proven
-# FF9CustomMap-world overrides this machine playtested -- both gates checked explicitly so
-# a fresh install (game present, nothing deployed) skips instead of failing.
+# are a standing regression net, not a proven-once-by-hand result.
+#
+# HERMETIC TO THE MOD FOLDERS (2026-10-12). Both nets used to byte-compare against the
+# deployed FF9CustomMap-world bench files; other sessions redeployed those blocks in July,
+# both nets SKIPPED for ~3 months, and carve_mountain took two unguarded default-path UV
+# passes in that window (R5b 009884a4, R5c 6b1b1ad3). Now every INPUT is rebuilt in-test
+# (the mints are kit code; the carves read only the stock donor through UnityPy) and every
+# expected output is a SHA-256 pin -- a one-way digest, zero Square-Enix bytes
+# (docs/PROVENANCE.md: "build goldens are hashes too"). The pins were re-derived by running
+# the historical package snapshots (``git archive`` of e8ca8e0^ / 10b92a1d / fac2a744 /
+# b286a87c) on the reconstructed inputs; that reconstruction reproduces the recorded July
+# measurements exactly (the strip's 447 tangent.x entries, the swap's UV-only diff).
+# The only skip left is a machine with no install or no UnityPy, and the reason names which.
+
+UAHO_SEED_PT = (160.0, -1246.0)                             # the study's own scan seed
+UAHO_MINT = dict(center=UAHO_SEED_PT, base_radius=31.0, seed=42.0, lobes=1, n_patches=0)
+UAHO_DENTS = ((141.9, -1219.5), (143.6, -1263.8))           # e8ca8e0's two re-triangulated dents
+#: the bench the July carry transformed: the r31 seed-42 mint BEFORE e8ca8e0's ring-edge
+#: recovery (its one-tri hole intact, so the carve's mint-hole patch runs) -- Block[2][19]
+UAHO_PRISTINE_SHA = "e74eb4ecc6ffa82309eb30b8699d77928751cf63e19e20ea7ccfc92bd9c501a2"
+#: the in-game-approved July bench: the DONOR-DISPATCH STRIP re-carve ("zoom is gone",
+#: 2026-07-15) = today's carve with R5b/R5c switched off
+UAHO_JULY_SHA = "ad2da91874dd4c3665c187d22bb81d6c1152139dbdf3f31135ce386da85f877c"
+#: today's default carve = July + R5b THE LAWN-LINE SNAP (3 uv.v) + R5c THE FRINGE-SEAM
+#: UNIFY (8 uv.v), studies/overworld-topography/west-seam-continent/UAHO-*-BENCH.md
+UAHO_CARVE_SHA = "886573685d79b2455130bfdea9fa9196f9e76ea8760784e92d09316a3239a998"
 
 ISLAND_E_BLOCKS = [(4, 17), (5, 17), (4, 18), (5, 18), (6, 18)]
-UAHO_SEED_PT = (160.0, -1246.0)                             # the study's own scan seed
+ISLAND_E_FOREST = (312, -1140)          # recovered from the July deploy's canopy (topo 37)
+ISLAND_E_HILL = (348, -1184)
+#: today's island E, per block: the July carve after THE DIVERSITY POLICY swap (b286a87c)
+ISLAND_E_SHA = {
+    (4, 17): "9d7e5dd77ba793057ef3ed9910368156b6d6461aef5a3d3b2b57abd493b074a6",
+    (5, 17): "af359a0964f84cad7cf529901d6ddae6f539d48cc829951802f2e8a1ad93a434",
+    (4, 18): "96a3efd8ac0e405b58b90071cf2a76758b49d6b78c87cd4ad197b9731c7d2362",
+    (5, 18): "9f72ed31f78ccc39c1167eccd7ce1c0327ecb5f6420655801850e81ce2cd2df3",
+    (6, 18): "ec91596f9f1adadf44022ff01c7b7e85fcf0a9d24a2ebbb1728d5c27c7077339",
+}
+#: the in-game-proven July island E (fac2a744) WITHOUT its UVs (see _geom_sha): the swap
+#: moved only fallback-ring zip UVs, so this half of the July bytes must still hold verbatim
+ISLAND_E_JULY_GEOM_SHA = {
+    (4, 17): "3ed5502dfb96e657437d2d0e85f347fb44e119a5bc4405d0bbf726d8702c22f7",
+    (5, 17): "8e05c70db01d849132ca5b308e845294fcc3c9c7f9325d704c6bbe3e4d4ab3e1",
+    (4, 18): "c0c43c203a50032ad046a6dca5083358f8278e6a571aaf915ebc5230ee295123",
+    (5, 18): "465c57a50d870ee2b9f3f6a00a8ec2bf6173944798b47539b02eefe80dd6255e",
+    (6, 18): "d4479ba5bf16b015dafae388d648ddb0fd4031f6732ab1ca10f8dc92bb8c09d8",
+}
 
 
-def _modw():
-    from ff9mapkit import config
-    return (config.find_game_path(None) / "FF9CustomMap-world" / "FF9_Data" / "WorldMap"
-            / "Disc1" / "0_1")
-
-
-def _game_ready() -> bool:
+def _game_skip_reason():
+    """None when the identity nets can run, else WHICH prerequisite is missing."""
     try:
         import UnityPy  # noqa: F401
+    except ImportError:
+        return "UnityPy is not installed (the carves read the stock donor block through it)"
+    try:
         from ff9mapkit import config
-        return (config.find_game_path(None) / "StreamingAssets").is_dir()
-    except Exception:
-        return False
+        gp = config.find_game_path(None)
+    except Exception as e:  # noqa: BLE001 -- ConfigError, or a broken user config
+        return f"no FF9 install resolves ({type(e).__name__}: {e})"
+    if not (gp / "StreamingAssets").is_dir():
+        return f"the FF9 install at {gp} has no StreamingAssets"
+    return None
 
 
-def _uaho_ready() -> bool:
-    try:
-        if not _game_ready():
-            return False
-        dep = _modw() / "r19" / "Block[2][19] Terrain.ff9mesh"
-        return dep.is_file() and dep.with_name(dep.name + ".pristine-r31s42").is_file()
-    except Exception:
-        return False
+_GAME_SKIP = _game_skip_reason()
+needs_game = pytest.mark.skipif(_GAME_SKIP is not None, reason=f"identity net: {_GAME_SKIP}")
 
 
-def _island_e_ready() -> bool:
-    try:
-        if not _game_ready():
-            return False
-        return all((_modw() / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh").is_file()
-                   for bx, by in ISLAND_E_BLOCKS)
-    except Exception:
-        return False
+def _sha(path) -> str:
+    import hashlib
+    from pathlib import Path
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-@pytest.mark.skipif(not _uaho_ready(),
-                    reason="needs the FF9 install + UnityPy + the deployed Uaho bench "
-                           "(Block[2][19] and its .pristine-r31s42 sibling)")
-def test_carve_mountain_reproduces_deployed_uaho_bench(tmp_path):
-    """THE IDENTITY NET (mountain): the pristine r31-seed-42 bench mint the study actually
-    transformed -> carve_mountain at the study's own scan seed -> byte-identical to the
-    deployed, in-game-approved Block[2][19] ("the cliff is great -- walkable, seams
-    against the grass great", 2026-07-13). The pristine input still carries the pre-fix
-    mint's one-tri hole, so the module's mint-hole patch is exercised too. Ported from
-    mountain_productize_check.py TRACK A."""
-    dep_p = _modw() / "r19" / "Block[2][19] Terrain.ff9mesh"
-    pris = dep_p.with_name(dep_p.name + ".pristine-r31s42")
-    bm = M.blockmesh_from_ff9mesh(pris, disc=1, x=2, y=19, part="terrain")
-    soup = IN.soup_from_blocks({(2, 19): bm})
-    res = IN.carve_mountain(soup, near=UAHO_SEED_PT, log=lambda *a: None)
-    got = M.write_ff9mesh(res["changed"][(2, 19)], tmp_path / "a.ff9mesh").read_bytes()
-    assert got == dep_p.read_bytes(), "carve output differs from the deployed Uaho bench"
+def _geom_sha(bm) -> str:
+    """SHA-256 over everything but the UVs: the tri index list + POS/NRM/TAN as f32."""
+    import hashlib
+    h = hashlib.sha256(np.asarray(bm.tris, dtype="<i4").tobytes())
+    for ch in (CH_POS, CH_NRM, CH_TAN):
+        h.update(np.asarray(bm.chan_arrays[ch], dtype="<f4").tobytes())
+    return h.hexdigest()
 
 
-@pytest.mark.skipif(not _island_e_ready(),
-                    reason="needs the FF9 install + UnityPy + the deployed island E "
-                           "blocks in FF9CustomMap-world")
-def test_interior_pipeline_reproduces_deployed_island_e(tmp_path):
-    """THE IDENTITY NET (forest + hill): clean seed-55 mint -> carve_forest at the center
-    recovered from the deployed canopy -> f32 write/read-back (the deployed
-    representation) -> build_hill -> all 5 deployed island E blocks byte-identical
-    (in-game proven 2026-07-13). Ported from interior_productize_check.py.
-    NOTE: the zip fallback moved to the assign_mains policy (THE DIVERSITY POLICY,
-    2026-07-25) -- identity holds against a deploy CARVED BY THIS MODULE; the pre-policy
-    island E bytes (36 fallback cells' zip UVs, the old chevron ring) no longer match, so
-    restore-from-old-backup would fail here by design. Re-carve + redeploy instead."""
-    from ff9mapkit.world.extract import decode_id
+def _uaho_mint(tmp_path, monkeypatch, *, pristine):
+    """The r31 seed-42 bench mint written to disk (the carve is fed DISK-READ f32 bytes --
+    part of the proven identity). ``pristine`` switches e8ca8e0's ring-edge recovery off."""
+    from ff9mapkit.world import island as I
+    with monkeypatch.context() as mp:
+        if pristine:
+            mp.setattr(I, "_recover_ring_edges", lambda xz, tri_idx, nring: (tri_idx, 0))
+        built = I.build_landmass(**UAHO_MINT)
+    tag = "pristine" if pristine else "fresh"
+    return {blk: M.write_ff9mesh(bm, tmp_path / f"{tag}_{blk[0]}_{blk[1]}.ff9mesh")
+            for blk, bm in built["blocks"].items()}
+
+
+def _read19(path):
+    return M.blockmesh_from_ff9mesh(path, disc=1, x=2, y=19, part="terrain")
+
+
+def _uaho_carve(path, out):
+    res = IN.carve_mountain(IN.soup_from_blocks({(2, 19): _read19(path)}), near=UAHO_SEED_PT,
+                            log=lambda *a: None)
+    assert sorted(res["changed"]) == [(2, 19)]
+    return res, M.write_ff9mesh(res["changed"][(2, 19)], out)
+
+
+def _uaho_r5_off(mp):
+    """Switch R5b + R5c off: carve_mountain then runs its July path."""
+    mp.setattr(IN, "_lawn_line_snap", lambda np_, *, rock_topos, log=print: (np_, {"entries": 0}))
+    mp.setattr(IN, "_fringe_seam_unify",
+               lambda np_, *, rock_topos, log=print: (np_, {"entries": 0}))
+
+
+@needs_game
+def test_carve_mountain_reproduces_the_july_uaho_bench(tmp_path, monkeypatch):
+    """THE IDENTITY NET (mountain), anchored to July: the pristine bench mint the study
+    transformed -> carve_mountain at the study's scan seed with R5b/R5c off -> byte-identical
+    to the in-game-approved July Block[2][19] ("the cliff is great -- walkable, seams against
+    the grass great", 2026-07-13; re-carved with the donor-dispatch strip, "zoom is gone",
+    2026-07-15). The pristine input carries the pre-fix mint's one-tri hole, so the
+    mint-hole patch runs. Ported from mountain_productize_check.py TRACK A."""
+    pris = _uaho_mint(tmp_path, monkeypatch, pristine=True)[(2, 19)]
+    assert _sha(pris) == UAHO_PRISTINE_SHA, (
+        "the pre-e8ca8e0 r31 seed-42 mint drifted (island.build_landmass with no ring flips) -- "
+        "the carve's input is no longer the July bench, so the carve cannot be judged")
+    with monkeypatch.context() as mp:
+        _uaho_r5_off(mp)
+        res, got = _uaho_carve(pris, tmp_path / "july.ff9mesh")
+    assert (res["center"], res["rot"]) == ((162, -1246), 0)
+    assert res["report"]["patched_holes"] == 1
+    assert _sha(got) == UAHO_JULY_SHA, "carve_mountain no longer reproduces the July Uaho bench"
+
+
+@needs_game
+def test_carve_mountain_default_is_july_plus_the_declared_r5_uv_passes(tmp_path, monkeypatch):
+    """THE IDENTITY NET (mountain), today's default path: the same carve with R5b/R5c ON is
+    pinned, and it differs from the July bytes ONLY by those passes' declared edits -- 3 + 8
+    uv.v entries, nothing in POS/NRM/TAN or the tri list (both benches, UAHO-*-BENCH.md)."""
+    pris = _uaho_mint(tmp_path, monkeypatch, pristine=True)[(2, 19)]
+    res, got = _uaho_carve(pris, tmp_path / "now.ff9mesh")
+    assert (res["report"]["lawn_snapped"], res["report"]["seam_unified"]) == (3, 8)
+    with monkeypatch.context() as mp:
+        _uaho_r5_off(mp)
+        _, july = _uaho_carve(pris, tmp_path / "july.ff9mesh")
+    a, b = _read19(july), _read19(got)
+    assert _geom_sha(a) == _geom_sha(b), "the R5 passes moved more than UVs"
+    ua, ub = a.chan_arrays[CH_UV], b.chan_arrays[CH_UV]
+    assert len(ua) == len(ub)
+    assert all(ua[i][0] == ub[i][0] for i in range(len(ua))), "an R5 pass moved a uv.u"
+    assert sum(ua[i][1] != ub[i][1] for i in range(len(ua))) == 3 + 8
+    assert _sha(got) == UAHO_CARVE_SHA, "carve_mountain's default Uaho bytes changed"
+
+
+@needs_game
+def test_carve_mountain_fresh_mint_differs_only_at_the_dents(tmp_path, monkeypatch):
+    """The go-forward path (TRACK B): a FRESH world-island mint (ring-edge recovery on, so
+    hole-free) carves to the same placement, patches no hole, and differs from the pristine
+    carve only around the two concave-dent re-triangulations e8ca8e0 made in the MINT itself
+    (both far outside the carve band); the neighbour block the mint spills into is
+    untouched by the fix."""
+    pris = _uaho_mint(tmp_path, monkeypatch, pristine=True)
+    fresh = _uaho_mint(tmp_path, monkeypatch, pristine=False)
+    assert _sha(fresh[(2, 18)]) == _sha(pris[(2, 18)])
+    res_a, got_a = _uaho_carve(pris[(2, 19)], tmp_path / "a.ff9mesh")
+    res_b, got_b = _uaho_carve(fresh[(2, 19)], tmp_path / "b.ff9mesh")
+    assert (res_b["center"], res_b["rot"]) == (res_a["center"], res_a["rot"])
+    assert res_b["report"]["patched_holes"] == 0
+
+    def tri_set(path):
+        bm = _read19(path)
+        ps, us = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_UV]
+        ns, ts = bm.chan_arrays[CH_NRM], bm.chan_arrays[CH_TAN]
+        return {tuple(tuple((*ps[i], *us[i], *ns[i], ts[i][0])) for i in tri) for tri in bm.tris}
+
+    diff = tri_set(got_a) ^ tri_set(got_b)
+    assert diff, "the fresh mint should re-triangulate the dents"
+    # the flips re-triangulate ~6 tris and re-smooth their corner normals, which the
+    # neighbouring tris' coincident entries share -- measured 24 tris total (2026-07-15)
+    assert len(diff) <= 32, f"dent diff too large ({len(diff)} tris)"
+    for t in diff:
+        cx = sum(p[0] for p in t) / 3 + 64.0 * 2
+        cz = sum(p[2] for p in t) / 3 - 64.0 * 19
+        assert any((cx - dx) ** 2 + (cz - dz) ** 2 < 6.0 ** 2 for dx, dz in UAHO_DENTS), \
+            f"a fresh-mint carve differs away from the mint dents, at ({cx:.1f},{cz:.1f})"
+
+
+@needs_game
+def test_interior_pipeline_reproduces_island_e(tmp_path):
+    """THE IDENTITY NET (forest + hill): clean seed-55 mint -> carve_forest at the July
+    deploy's own canopy center -> f32 write/read-back (the deployed representation) ->
+    build_hill -> all 5 island E blocks pinned. Anchored to the in-game-proven July bytes
+    (2026-07-13) through ISLAND_E_JULY_GEOM_SHA: THE DIVERSITY POLICY swap (2026-07-25)
+    re-picked only the fallback ring's zip UVs, so the tri lists, POS, NRM and TAN still
+    match July verbatim, and block (6,18) matches it whole. Ported from
+    interior_productize_check.py."""
     from ff9mapkit.world.island import build_landmass
-
-    modw = _modw()
-    # recover the forest center from the deployed canopy bytes (topo 37)
-    xs, zs = [], []
-    for bx, by in ISLAND_E_BLOCKS:
-        p = modw / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh"
-        bm = M.blockmesh_from_ff9mesh(p, disc=1, x=bx, y=by, part="terrain")
-        ts = bm.chan_arrays[CH_TAN]
-        ps = bm.chan_arrays[CH_POS]
-        for tri in bm.tris:
-            if decode_id(int(round(ts[tri[0]][0])))["topograph"] == 37:
-                for i in tri:
-                    xs.append(ps[i][0] + 64.0 * bx)
-                    zs.append(ps[i][2] - 64.0 * by)
-    assert xs, "no deployed canopy found on island E"
-    center = (round((min(xs) + max(xs)) / 2), round((min(zs) + max(zs)) / 2))
 
     built = build_landmass(center=(344, -1152), base_radius=46, seed=55, lobes=3,
                            stamps="auto")
-    res_f = IN.carve_forest(IN.soup_from_blocks(built["blocks"]), center=center,
+    res_f = IN.carve_forest(IN.soup_from_blocks(built["blocks"]), center=ISLAND_E_FOREST,
                             donor=(15, 15))
-    IN.census_gate(res_f["changed"], probe=(center, 37))
+    IN.census_gate(res_f["changed"], probe=(ISLAND_E_FOREST, 37))
+    assert sorted(res_f["changed"]) == sorted(ISLAND_E_BLOCKS)
     paths = {blk: M.write_ff9mesh(bm, tmp_path / f"f_{blk[0]}_{blk[1]}.ff9mesh")
              for blk, bm in res_f["changed"].items()}
     blocks2 = {blk: M.blockmesh_from_ff9mesh(p, disc=1, x=blk[0], y=blk[1],
                                              part="terrain")
                for blk, p in paths.items()}
-    res_h = IN.build_hill(IN.soup_from_blocks(blocks2), center=(348, -1184))
+    res_h = IN.build_hill(IN.soup_from_blocks(blocks2), center=ISLAND_E_HILL)
     IN.census_gate(res_h["changed"])
     assert sorted(res_h["changed"]) == [(5, 18)]
+    geom_off, bytes_off = [], []
     for blk in ISLAND_E_BLOCKS:
-        if blk in res_h["changed"]:
-            got = M.write_ff9mesh(res_h["changed"][blk],
-                                  tmp_path / f"h_{blk[0]}_{blk[1]}.ff9mesh").read_bytes()
-        else:
-            got = paths[blk].read_bytes()
-        dep = (modw / f"r{blk[1]}" / f"Block[{blk[0]}][{blk[1]}] Terrain.ff9mesh")
-        assert got == dep.read_bytes(), f"block {blk} differs from the deployed island E"
+        p = (M.write_ff9mesh(res_h["changed"][blk], tmp_path / f"h_{blk[0]}_{blk[1]}.ff9mesh")
+             if blk in res_h["changed"] else paths[blk])
+        bm = M.blockmesh_from_ff9mesh(p, disc=1, x=blk[0], y=blk[1], part="terrain")
+        if _geom_sha(bm) != ISLAND_E_JULY_GEOM_SHA[blk]:
+            geom_off.append(blk)
+        if _sha(p) != ISLAND_E_SHA[blk]:
+            bytes_off.append(blk)
+    assert not geom_off, f"island E left the in-game-proven July geometry on {geom_off}"
+    assert not bytes_off, f"island E's bytes changed on {bytes_off}"
 
 
 # ---- the census gate's CUT sea plane (audit rec 4: the dead-gate revival) -------------------------------------------
