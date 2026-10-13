@@ -973,12 +973,53 @@ Against round 14's `all_base` frame (the old composite of the same folder) the f
 higher, clear of the bottom frame line, and the east-edge one ~11px further left, ending where the painted world
 ends (`ingame_drift.py`; zoomed pairs `cmp_sw.png`, `cmp_east.png`).
 
+## Round 15 (2026-10-12, owner's go: "let's do X1 next"): rock stretch tolerance, 17/18, awaiting the owner's eye
+
+Runs `.harness-runs/20261012-203933-x1-rockstretch` (13/14, 157 s) and `.harness-runs/20261012-204228-x1-rockstretch-rigid`
+(4/4, 70 s), in the epic-nightingale worktree. One scratch folder, `FF9CustomMap-lab`, first in FolderNames for the two
+runs and holding bench 30950 (the rung-6 pad into world 9013, with its splice) plus, per stage, one stretched
+`Block[13][15] Terrain.ff9mesh`. Ini backed up (`backups/Memoria.ini.20261012-203904.x1-rockstretch`) and restored
+byte-exact (sha256 `efaebbf4…`); the bench reverted, the lab and the bench's revert script moved into the first run
+dir; the live carry's sha unchanged. Scenario: `../rockstretch/x1_session.py`; the lane: `../rockstretch/NOTES.md`.
+
+### 30. X1: the Uaho rock stretched x1.25 / x1.5 / x2.0 on the Path D world
+
+The bench is the Uaho block carried whole onto Disc9 (13,15) (`FF9CustomMap-world`). Its rock is stretched pure-Y about
+its pinned rim, UV carried (`x1_build.py`: gates G1-G5, identity byte-exact). The engine re-reads an override at every
+world load, so one launch covered every stage, with the lab's file swapped at the title.
+
+| stage | summit probe, predicted | read | east still | west still |
+|---|---|---|---|---|
+| rigid (the live carry) | 13.0099 | 13.0117 | faced 164.2 (bearing 163.9) | faced 333.0 (328.9) |
+| x1.25 | 14.9582 | 14.9609 | faced 164.2 | faced 333.0 |
+| x1.5 | 16.9064 | 16.9102 | faced 161.4 | faced 330.1 |
+| x2.0 | 20.8030 | 20.8086 | faced 161.4 | faced 327.3 |
+
+Every summit reads the file its stage names (to the engine's 1/256 grid), so each still shows the variant it is labelled
+with. The two stills per view are 60 frames apart and differ in at most 0.26% of pixels (the animated sea): the camera
+had settled. The first run's rigid stage was lost to `world_face` (the lessons below); the rerun of that stage alone
+passed 4/4. The rerun's camera sits slightly lower (its horizon ~20 px lower in the east view) at the same heading.
+
+The owner judges from blind panels (A-D, seeded order, key in the first run dir's `x1_key.json`): `x1_crops_east.png`,
+`x1_crops_west.png` (the rock at 2x) and `x1_panel_*.png` (full frames), all in the first run dir.
+
+**Verdict.** Pending the owner's eye.
+
 ## Not run
 
-- Rank 9 (rock stretch): needs the owner's eye on the Uaho bench.
+- Rank 9 (rock stretch): stills taken (round 15, section 30); the owner's verdict is pending.
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
+
+- **FACE ON OPEN GROUND FIRST (round 15).** `world_face` learns the bumper's turn rate from its first correction and keeps
+  it on the session. At a viewpoint ~14u from a massif that correction read +0.07 deg twice (the "up" probe slid along
+  the rock foot) and the verb refused the camera ("the bumpers are not reaching the overworld camera"), losing the
+  stage. Learn the rate on an open lawn (Disc9's landing lawn, (428.36, -476.59)) right after the world loads; every
+  later `world_face` in the session then converged.
+- A lab's `revert_deploy_<id>.py` left in `tools/scroll_out/` after its revert is run again as the next deploy of that
+  id's prelude, and the generated script `mkdir`s its mod folder's DictionaryPatch parent first: a later deploy would
+  recreate the lab folder in the install, where the launcher activates it (round 14). Park the script with the run.
 
 - **A SCRATCH FOLDER IN THE INSTALL IS ACTIVATED BY THE NEXT LAUNCHER RUN, in or out of FolderNames (round 14).** The
   Memoria launcher's `CheckForValidModFolder` writes a `ModDescription.xml` into any folder that looks like a mod, and
