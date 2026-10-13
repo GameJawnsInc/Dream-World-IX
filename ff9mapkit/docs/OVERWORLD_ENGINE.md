@@ -1033,6 +1033,12 @@ plugs wear the rock collar's own affine UV chart, gated against the atlas rock b
   stock's tallest terrain (42.68; the airship flies at 42.1875). In game, the owner passed Uaho stretched
   ×2.0 (terrain study X1, `studies/terrain-malleability/rockstretch/`); the kit's map reproduces that
   build's rise to the millimetre.
+* **`--rot DEG`, any angle** — the massif turns about its centre (clockwise seen from above); quarter turns keep
+  the exact integer swap (the approved bytes), other angles the same rotation by cos/sin. Rotation about Y keeps
+  every UV; the grass stays on its lattice and the zip is minted fresh. In game: Uaho at 0/45/30° (×1.5), owner-passed.
+* **THE EXACT-WELD LAW** — the zip's grass corners take the kept grass's own float positions, never the hole
+  ring's rounded weld keys: built from keys they sat up to 5e-4u off (one weld, two floats), a pinhole ring round
+  the foot that no key-based gate can see. `carve_forest` follows the same law.
 * **THE WELD-SAFE LIFT** — worldmap meshes don't share vertex entries, so every lift computes per POSITION and
   applies to every coincident entry (a one-sided lift splits the weld = sea visible through the sliver).
 * Hole carve + a **minimal-total-chord DP zip** (a greedy walk stalls on floor-mouth concavity) + an apron normal

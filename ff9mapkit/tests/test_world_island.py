@@ -863,3 +863,19 @@ def test_sea4_override_stub_carries_the_wrapped_label():
     like every other deployed part -- unwrapped col 24 deploys as Block[0]."""
     sea = I._sea4_override(_synth_plane(), 24, 1, frozenset(), _full_cover_land(x=24), 0)
     assert sea.name == "Block[0][1] Sea4" and sea.x == 0
+
+
+def test_landmass_refusal_names_the_failing_placement_probe(monkeypatch, tmp_path):
+    """The NOT CLEAN refusal prints the report minus its long 'placement' table -- which once read every gate
+    clean while a block's placement census had a MISS (a mint centred on a block corner, rot-mountain lab). The
+    failing probes are now named."""
+    monkeypatch.setattr(I, "_real_block_parts", lambda blk, **k: {})
+    monkeypatch.setattr(M, "mod_overwrite_gate", lambda *a, **k: None)
+    monkeypatch.setattr(I, "_sea_plane", lambda disc, game: None)
+    monkeypatch.setattr(I, "verify_landmass", lambda built, **k: {
+        "cracks": 0, "clean": False,
+        "placement": {(3, 1): {"miss": 1, "stacked": 0, "centre": (3.2, "Terrain", 0), "centre_ok": True},
+                      (4, 1): {"miss": 0, "stacked": 0}}})
+    with pytest.raises(ValueError, match=r"failing placement probes: \{\(3, 1\): \{'miss': 1") as exc:
+        I.landmass("modx", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True, game=tmp_path, dry_run=True)
+    assert "(4, 1)" not in str(exc.value)

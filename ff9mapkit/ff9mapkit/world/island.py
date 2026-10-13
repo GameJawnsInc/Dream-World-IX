@@ -1073,7 +1073,13 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     plane = _sea_plane(disc, game)
     report = verify_landmass(built, sea_plane=plane, land_height=land_height)
     if not report["clean"]:
-        raise ValueError(f"landmass NOT CLEAN -- refusing to deploy: { {k: v for k, v in report.items() if k != 'placement'} }")
+        # name the failing placement probes too: the report minus 'placement' (it is long) once printed every
+        # gate clean while a block's centre probe had failed -- an island centred on a block corner
+        bad_place = {blk: {k: e[k] for k in ("miss", "stacked", "centre", "centre_ok") if k in e}
+                     for blk, e in (report.get("placement") or {}).items()
+                     if e["miss"] or e.get("stacked", 0) or not e.get("centre_ok", True)}
+        raise ValueError(f"landmass NOT CLEAN -- refusing to deploy: { {k: v for k, v in report.items() if k != 'placement'} }"
+                         + (f"; failing placement probes: {bad_place}" if bad_place else ""))
     summary = {"op": "landmass", "center": list(built["center"]), "seed": built["seed"],
                "radius": base_radius, "blocks": [], "report": report, "area": stamp}
     # THE READ/WRITE DISC SPLIT. `disc` stays the READ disc -- which stock tree the meshes, sea plane, stamps

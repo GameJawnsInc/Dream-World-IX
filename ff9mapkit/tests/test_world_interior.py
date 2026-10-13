@@ -744,6 +744,22 @@ def test_carve_mountain_rock_height_gate_still_catches_an_undeclared_stretch(mon
         _carve_pyramid(tmp_path, rock_height=1.5)
 
 
+def test_carve_mountain_zip_welds_bit_for_bit_to_the_kept_grass(monkeypatch, tmp_path):
+    """THE EXACT-WELD LAW (round 16: the owner saw 1-pixel seams round the foot). The zip's grass side was built
+    from the hole ring's kk3 KEYS (rounded to 1e-3), so on ground whose heights are not round it sat up to 5e-4u
+    off the kept grass -- one weld, two floats, a pinhole on screen, invisible to every key-based gate. On a bench
+    at y 3.21371 every position the carve emits must be ONE float triple, however many entries share it."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    res = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _mountain_bench(y=3.21371)}), center=(26.0, -26.0),
+                            alcove=None, game=tmp_path, log=lambda *a: None)
+    floats = defaultdict(set)
+    for p in res["changed"][(0, 0)].chan_arrays[CH_POS]:
+        floats[IN.kk3(p)].add(tuple(p))
+    split = {k: v for k, v in floats.items() if len(v) > 1}
+    assert not split, f"{len(split)} welds hold two floats, e.g. {next(iter(split.items()))}"
+    assert res["report"]["zip_tris"] > 0
+
+
 def test_carve_mountain_rot_deg_turns_the_massif_to_any_angle(monkeypatch, tmp_path):
     """--rot: the pyramid turned 45 deg about its centre -- its base corners now on the axes, the apex (on the axis)
     unmoved, rigid (drift 0), UVs carried; 0 deg is byte-identical to the default exact carry, and a quarter angle
@@ -894,6 +910,19 @@ def test_carve_forest_fallback_ring_wears_the_assign_mains_policy(monkeypatch, t
     (blk2, bm2), = res2["changed"].items()
     assert blk == blk2 == (0, 0)
     assert bm.chan_arrays == bm2.chan_arrays and bm.tris == bm2.tris
+
+
+def test_carve_forest_zip_welds_bit_for_bit_to_the_kept_grass(monkeypatch, tmp_path):
+    """THE EXACT-WELD LAW in the forest carve (the same zip pattern as the mountain's): on ground whose heights
+    are not round, every emitted position must be one float triple."""
+    _patch_donor(monkeypatch, _canopy_donor())
+    res = IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid(y=3.21371)}), center=(26.0, -26.0),
+                          donor=(15, 15), game=tmp_path, log=lambda *a: None)
+    floats = defaultdict(set)
+    for p in res["changed"][(0, 0)].chan_arrays[CH_POS]:
+        floats[IN.kk3(p)].add(tuple(p))
+    split = {k: v for k, v in floats.items() if len(v) > 1}
+    assert not split, f"{len(split)} welds hold two floats, e.g. {next(iter(split.items()))}"
 
 
 # ---- the deployed-block loader ---------------------------------------------------------------

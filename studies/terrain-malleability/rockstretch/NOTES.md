@@ -1,4 +1,4 @@
-# Rock stretch tolerance (X1)
+# Rock stretch (X1) and any-angle rotation for carried mountains
 
 **Question.** How far can carried rock stretch vertically before its painted texture reads stretched in game?
 `world-mountain` keeps carried rock rigid (`MTN_ROCK_RIGID` 0.035: no carried edge may change length by 3.5% or
@@ -14,6 +14,13 @@ the rigid carry, ×1.5 is borderline, ×2.0 reads stretched. If ×1.25 passes, `
 | `x1_session.py` | The harness scenario: four world loads (rigid, ×1.25, ×1.5, ×2.0), two stills from each of two viewpoints, and a summit height per stage |
 | `x1_post.py` | After the run: scores the summit probes, checks the stills settled, builds the blind panels (A-D, key in the run dir) |
 | `x1_kit_check.py` | Checks the kit's `world-mountain --rock-height` against the in-game build, on the real Uaho donor (K1-K4) |
+| `rot_sweep.py` | `--rot` offline: Uaho, the crag and comp20 at every 15 deg, rigid and x1.5, on a flat bench (R1-R3) |
+| `rot_prep.py` | Round 16's lab predictions: summit, 12 foot points, three viewpoints per variant (out/rotlab/, gitignored) |
+| `rot_session.py` | Round 16's scenario (three variants, one launch) |
+| `rot_post.py` | Round 16's blind panels |
+| `rot_cracks.py` | Open edges and T-junctions (3D, across block borders) in the lab meshes, calibrated by injection |
+| `rot_texseams.py` | Grass tris whose texture spans more than one mains window, against the island's decoded field |
+| `rot_pinholes.py` | Sky-coloured single pixels in the grass of the stills |
 
 ## 1. The bench
 
@@ -100,3 +107,23 @@ against the stretched shape (`dVref`), so any other deformation still trips `MTN
 Hermetic tests (`tests/test_world_interior.py`): the pyramid's apex rises x1.5 with the rim and bench unmoved;
 1.0 is byte-identical to the rigid carry; the refusals; and a break-it test in which a map that declares the raw
 donor as its shape is refused by the rigid gate.
+
+## 6. Any angle: `world-mountain --rot`
+
+`--rot DEG` turns the massif about its centre to any angle (clockwise seen from above). An int quarter count keeps
+the exact swap the in-game-approved bytes use; any other angle the same rotation by cos/sin. Rotation about Y
+keeps every UV verbatim. Offline (`rot_sweep.py`): 144/144 carves pass every gate (3 donors x 24 angles x rigid and
+x1.5); the rigidity drift equals the 0-deg carry's at every angle; the rock's texel density, anisotropy and UV
+area stay within 1%.
+
+In game (round 16, `../ingame/RESULTS.md` section 31): 37/37 on the fixed build, and the owner passed it watching.
+
+**THE EXACT-WELD LAW**, found on the way: the zip's grass side was built from the hole ring's kk3 keys (rounded to
+1e-3), so about 30 welds per carve held two floats up to 5e-4u apart -- a pinhole ring round the foot, invisible
+to every key-based gate, present since July. The zip now takes the kept grass's own floats (`h_float`) in
+`carve_mountain` and `carve_forest`; tests on a bench at a non-round height fail on the old line (16 and 26 split
+welds) and pass on the fix. Not the rotation: the 0-deg control had it too.
+
+Texture windows (`rot_texseams.py`): every carve, the 0-deg control included, leaves ~65-71 grass tris within ~4u of
+the rock whose UVs are not one window of the island's mains field (the re-cut cells and the zip). That is
+`world-mountain`'s existing zip-UV policy, not `--rot`, and the owner's look did not flag it; recorded, not changed.

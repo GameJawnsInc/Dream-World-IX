@@ -631,7 +631,14 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
             s += x1 * z2 - x2 * z1
         return s / 2
 
-    hole_ord = list(hole)
+    # THE EXACT-WELD LAW (see carve_mountain): the ring holds kk3 KEYS; the zip's grass corners take the kept
+    # grass's own float position, or on ground whose heights are not round they sit off it by up to 5e-4u
+    h_float = {}
+    for tidx, tri in enumerate(gtris):
+        if tidx not in drop:
+            for i in tri:
+                h_float.setdefault(kk3(gpos[i]), tuple(gpos[i]))
+    hole_ord = [h_float[p] for p in hole]
     rim_ord = list(crim)
     if signed_area(hole_ord) * signed_area(rim_ord) < 0:
         rim_ord.reverse()
@@ -2196,6 +2203,20 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     if len(holes) != 1:
         raise ValueError(f"hole is {len(holes)} rings, want 1")
     hole = holes[0]
+    # THE EXACT-WELD LAW (round 16, the owner's "1-pixel seams"): the ring's points are kk3 KEYS (rounded to
+    # 1e-3), not positions. Emitted as zip corners they sat up to 5e-4u off the kept grass they weld to --
+    # invisible to every key-based gate, a pinhole crack on screen all round the foot. The zip's grass side
+    # takes the kept grass's own float position, bit for bit, as its rock side always took c_float.
+    h_float = {}
+    for tdx, tri in enumerate(gtris):
+        if tdx in drop:
+            continue
+        for i in tri:
+            k = kk3(gpos[i])
+            if k in h_float and tuple(gpos[i]) != h_float[k]:
+                raise ValueError(f"kept grass at {k} has two float positions {h_float[k]} / {tuple(gpos[i])} "
+                                 f"-- a weld split before the zip; the zip cannot weld to both")
+            h_float.setdefault(k, tuple(gpos[i]))
     log(f"hole ring: {len(hole)} positions")
 
     carried = {t: [carry_vert(i) for i in dtri[t]] for t in blob}
@@ -2369,7 +2390,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
 
     i0, j0 = min(((i, j) for i in range(len(hole_ord)) for j in range(len(rim_base))),
                  key=lambda ij: d2(hole_ord[ij[0]], rimw(rim_base[ij[1]])))
-    H = hole_ord[i0:] + hole_ord[:i0]
+    H = [h_float[p] for p in hole_ord[i0:] + hole_ord[:i0]]      # exact floats, not the ring's keys
     R = rim_base[j0:] + rim_base[:j0]
     NH, NR = len(H), len(R)
     Rw = [rimw(p) for p in R]
