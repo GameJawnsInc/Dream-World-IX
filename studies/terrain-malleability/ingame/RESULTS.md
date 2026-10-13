@@ -973,7 +973,7 @@ Against round 14's `all_base` frame (the old composite of the same folder) the f
 higher, clear of the bottom frame line, and the east-edge one ~11px further left, ending where the painted world
 ends (`ingame_drift.py`; zoomed pairs `cmp_sw.png`, `cmp_east.png`).
 
-## Round 15 (2026-10-12, owner's go: "let's do X1 next"): rock stretch tolerance, 17/18, awaiting the owner's eye
+## Round 15 (2026-10-12, owner's go: "let's do X1 next"): rock stretch tolerance, 17/18; the owner passes x2.0
 
 Runs `.harness-runs/20261012-203933-x1-rockstretch` (13/14, 157 s) and `.harness-runs/20261012-204228-x1-rockstretch-rigid`
 (4/4, 70 s), in the epic-nightingale worktree. One scratch folder, `FF9CustomMap-lab`, first in FolderNames for the two
@@ -1003,11 +1003,12 @@ passed 4/4. The rerun's camera sits slightly lower (its horizon ~20 px lower in 
 The owner judges from blind panels (A-D, seeded order, key in the first run dir's `x1_key.json`): `x1_crops_east.png`,
 `x1_crops_west.png` (the rock at 2x) and `x1_panel_*.png` (full frames), all in the first run dir.
 
-**Verdict.** Pending the owner's eye.
+**Verdict (owner, on the blind panels; key A = x1.25, B = x1.5, C = rigid, D = x2.0): "2x honestly doesn't look bad."** No variant reads badly stretched, x2.0 included. The registered prediction (x1.5 borderline, x2.0 visibly stretched) is refuted in the permissive direction.
+
+What it licenses: a smooth pure-Y height scale of carried rock about its pinned rim, up to x2.0 (texture stretch p50 1.55, max 2.1), on Uaho's rock at the default overworld camera (~26u, two sides, no fog). What it does not: the v1/v2 blend conform's smear stays refuted (an uneven, rim-driven per-vertex pull, not a height scale), so `MTN_ROCK_RIGID` keeps guarding any deformation a builder does not declare. Untested: other donors (the crag, the horseshoe), close camera angles, the alcove.
 
 ## Not run
 
-- Rank 9 (rock stretch): stills taken (round 15, section 30); the owner's verdict is pending.
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)

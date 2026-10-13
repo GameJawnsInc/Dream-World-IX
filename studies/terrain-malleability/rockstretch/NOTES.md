@@ -74,4 +74,6 @@ section 3 (bench 30950 + `inject_worldjump.py`), then
 `py tools/play.py studies/terrain-malleability/rockstretch/x1_session.py --label x1-rockstretch`, then
 `py studies/terrain-malleability/rockstretch/x1_post.py <run dir> [<rerun dir>]`.
 
-**Verdict.** Pending the owner's eye on the blind panels.
+**Verdict (owner, on the blind panels; key A = x1.25, B = x1.5, C = rigid, D = x2.0): "2x honestly doesn't look bad."** No variant reads badly stretched, x2.0 included. The registered prediction (x1.5 borderline, x2.0 visibly stretched) is refuted in the permissive direction.
+
+What it licenses: a smooth pure-Y height scale of carried rock about its pinned rim, up to x2.0 (texture stretch p50 1.55, max 2.1), on Uaho's rock at the default overworld camera (~26u, two sides, no fog). What it does not: the v1/v2 blend conform's smear stays refuted (an uneven, rim-driven per-vertex pull, not a height scale), so `MTN_ROCK_RIGID` keeps guarding any deformation a builder does not declare. Untested: other donors (the crag, the horseshoe), close camera angles, the alcove.

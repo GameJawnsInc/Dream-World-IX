@@ -261,6 +261,8 @@ Other envelope measurements:
   indistinguishable (95.4% inside the envelope), ×1.5 is borderline (89.9%), and ×2.0 reads stretched
   (63.5%). The harness world-teleports and faces the massif, `game_snap` takes stills, and the owner judges. If
   ×1.25 passes, `MTN_ROCK_RIGID` 0.035 can relax to about 0.10.
+  **RUN 2026-10-12** (`../rockstretch/NOTES.md`, `../ingame/RESULTS.md` section 30): the owner passes x2.0 ("2x
+  honestly doesn't look bad"). The envelope numbers did not apply: Uaho's rock is mostly M.free, not M.flow.
 - **X2. Mains corner jitter.** Displace interior L.rule lattice verts ±1.5u in XZ with carried UV. Prediction:
   indistinguishable (stock p90 is 1.51u).
 - **X3. Canopy bend.** Carry the (15,15) canopy with a plan stretch of ×1.1 and ×1.25. Prediction: ×1.1 is
