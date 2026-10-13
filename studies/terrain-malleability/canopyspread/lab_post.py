@@ -1,8 +1,10 @@
-"""`world-forest --spread / --rot` post-run: score the record and build the owner's blind panels.
+"""`world-forest --spread / --rot` post-run: score the record and build the owner's shuffled panels.
 
 Per view (west, east, north): the four stages' settled stills (the "-b" frame) side by side as W / X / Y / Z in a
 seeded shuffled order (key in forest_key.json in the run dir). The question for the owner: does any canopy look
-stretched, or turned wrong, next to the verbatim carry -- and from which spread on?
+stretched, or turned wrong, next to the verbatim carry -- and from which spread on? NOT BLIND: one camera per view,
+so each canopy's size names it (round 17's owner saw it at a glance); a blind texture judgement needs each variant
+framed at a distance scaled by its spread (RESULTS.md, instrument lessons).
 
 RUN:  py studies/terrain-malleability/canopyspread/lab_post.py <run dir>
 """

@@ -14,7 +14,7 @@ the same way. A spread and an angle make each forest its own.
 | `lab_build.py` | The four in-game variants, carved by the kit's own `world-forest` command |
 | `lab_prep.py` | The run's registered predictions from the built files (canopy, ring, views, walk lines) |
 | `lab_session.py` | The in-game run (P1-P4 and the owner's stills) |
-| `lab_post.py` | The owner's blind panels |
+| `lab_post.py` | The owner's shuffled panels (not blind: the size shows) |
 
 `out/` (gitignored) holds the lab island and the variants.
 
@@ -56,3 +56,27 @@ blob plus ~11.5u of plain grass round it (the 6.5u scan band and the 5u coast ma
 odd angles. The r58 mint WARNs (2, no FAIL): grass windows at the island's block corners, and the sea-plan gate's
 adjacent-block Sea4 ratio, which is infinite because the land covers block (21,1) whole (no deep-sea underlay there
 to see).
+
+## 2. Offline (`sweep.py`)
+
+The real (15,15) canopy on the lab island, `carve_forest(near=...)` + the placement census, at x1.0 / 1.1 / 1.25 /
+1.5 x 0, 15, 30, 45, 60, 75, 90, 120, 200, 315 deg. With the three fixes in section 1:
+
+- **S1** every carve clean: **40/40** (37/40 before the fixes).
+- **S2** the walkable canopy's plan texel density is the donor's / s^2 to 4 places, anisotropy (median singular-value
+  ratio 2.065) unchanged: **PASS**. The first metric counted the curtains too, and the two hairline curtains alone
+  swung it 2.6% once a mapped carve closed them; the metric now scores tops only (ny > 0.1).
+- **S3** "at rot 0 a wider canopy never climbs worse at the rim than the verbatim carry": **FAIL, the prediction was
+  wrong** -- the perimeter walk-in's worst single step is 2.06-2.08 against the verbatim 2.05, every carve under
+  the 2.30 gate. The per-station rim lift pins each pad 2.10 under the highest canopy within 0.75u, so a flatter
+  dome brings the one-step climb toward 2.10 from below rather than away from it.
+
+## 3. In game (`lab_session.py`; `../ingame/RESULTS.md` section 32)
+
+53/53 on one launch: every canopy point read its surface minus the canopy sink, every grass point round the canopy
+its built height, and all 12 walks climbed onto the canopy, crossed it and stepped off the far side. Pinholes 0-1
+per frame. The owner keeps all four: "1.5x is starting to look stretched but still feels fine" (on panels that
+were not blind: the size shows; RESULTS.md's instrument lessons). `FOREST_SPREAD_MAX` stays 1.5.
+
+Untested: other donors (the multi-blob ones refuse), close camera angles, a spread forest on disc 4 (the mirror
+copies the written cells as for any carve).

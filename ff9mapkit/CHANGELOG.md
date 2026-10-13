@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-forest --spread` / `--rot`: a carried forest wider and at any angle
+- `world-forest --spread S` (1.0–1.5) scales the carried canopy S times wider in plan, and `--rot DEG` turns it to
+  any angle (clockwise seen from above, as `world-mountain --rot`), both about its centre; its heights, texture and
+  topographs are carried, so every edge wall stays vertical and every existing gate judges the result. Neither
+  option given = the verbatim carry, byte for byte.
+- A widened or turned canopy closes the stock donor's one hairline wall corner (a 0.02u strip no ground query
+  lands on), splits its stretched rim edges back to the donor's size, and zips the grass round it with the
+  mountain's minimal-chord strip, steered round slivers.
+- Offline, 40/40 carves at ×1.0–1.5 and ten angles pass every gate. In game, the verbatim carry, 45°, ×1.25 and
+  ×1.5 all passed every height and walk-through check; the owner keeps all four (×1.5 "starting to look stretched
+  but still feels fine").
+
 ### Added — `world-mountain --rot`: a carried mountain at any angle
 - `world-mountain --rot DEG` turns the carried massif about its centre to any angle (clockwise seen from above):
   exact with `--center`, the only angle `--near` tries. The rock's texture turns with it unchanged; the grass stays

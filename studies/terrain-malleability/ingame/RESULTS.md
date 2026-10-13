@@ -1041,11 +1041,51 @@ X1's verbatim stock Uaho block shows 7-15 a frame (the stock "seam slits" open i
 
 **Verdict (owner, watching run 3 live): "passed my visual check."**
 
+## Round 17 (2026-10-13, owner's go: "pick another non-DLL terrain shaping task"): X3, `world-forest --spread` / `--rot`, 53/53; the owner keeps all four
+
+One launch, `.harness-runs/20261013-014520-canopy-spread`, with a scratch folder `FF9CustomMap-lab` first in
+FolderNames (ini backed up to `backups/Memoria.ini.<stamp>.canopy-spread` and restored byte-exact, sha256
+`efaebbf4...`; the lab moved into the run dir). The lab is one scratch island on open ocean no live folder touches,
+blocks (20,0)-(22,2) (`world-island --center 1372,-84 --radius 58 --lobes 1 --patches 0 --seed 42`; radius 48 had
+no lawful pocket for a x1.5 canopy), carved four ways with the (15,15) canopy at one centre, (1380, -92), by the
+kit's own `world-forest`: A the verbatim carry (the control), B `--rot 45`, C `--spread 1.25`, D `--spread 1.5`.
+Each stage swaps the lab's nine Terrain files and re-enters the disc-1 world through bench 6603; the lab's
+Environment.txt holds the mist off. Scenario: `../canopyspread/lab_session.py`; predictions: `lab_prep.py`.
+
+### 32. A carried forest wider and turned
+
+Per stage, every registered prediction held:
+- **P1:** all 9 canopy points read the built surface minus the canopy sink (36/36).
+- **P2:** all 12 grass points 2u outside the canopy read the built ground (48/48).
+- **P3:** every walk from the three viewpoints climbed onto the canopy, crossed it and stepped off the far side
+  onto grass, never stalled and never below y 3.2 (12/12; 3-11 bursts on the canopy).
+- **P4:** every home read its height.
+
+The climb onto the canopy cost no visible speed: the burst that crosses the ~2u curtain moved 3.92-3.94u like any
+other (the slowest burst in any walk, 3.32u, came at a descent). Sky-coloured pinholes in the grass (`../rockstretch/rot_pinholes.py`):
+0-1 per frame in every stage, the control included (Uaho's stock block shows 7-15).
+
+The owner judges from shuffled panels (W-Z, seeded order, key in the run dir's `forest_key.json`: W = B 45 deg,
+X = C x1.25, Y = D x1.5, Z = A verbatim): `forest_panel_west.png`, `_east.png`, `_north.png`. **They were not
+blind:** one centre and one camera per view, so each canopy's size named it at a glance (the owner: "it's very
+easy to tell which size each one is"). The verdict is a sighted one.
+
+**Verdict (owner, on the panels, sizes visible): "we can keep all 4, 1.5x is starting to look stretched but still
+feels fine."** The uvclass prediction (x1.1 faithful, x1.25 showing on some charts) is refuted in the permissive
+direction, as X1's was: x1.25 reads like the verbatim carry, and x1.5 is the edge, kept. `world-forest --spread`
+keeps its 1.5 ceiling.
+
 ## Not run
 
 - The boat "none" phase (see section 9).
 
 ## Instrument lessons (for the next scenario)
+
+- **A SHUFFLE IS NOT BLIND WHEN THE VARIABLE IS VISIBLE (round 17).** Panels of a size (or height) variant shot from
+  one camera name each variant by its size; the shuffle hides only the letters (round 15's X1 heights had the same
+  flaw). To judge the texture blind, frame each variant at a distance scaled by its factor, so every one fills
+  the same share of the frame and only its texture differs, or crop a fixed screen patch of each at matched
+  apparent scale.
 
 - **A TELEPORT TARGET MUST SIT INSIDE ITS TRIANGLE, NOT ON AN EDGE (round 16).** Off the 4u lattice LINES is not
   enough: a point on a grass cell's DIAGONAL is on a shared edge, and the one-shot cast there missed both tris in

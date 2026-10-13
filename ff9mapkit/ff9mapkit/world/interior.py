@@ -53,7 +53,8 @@ BLOCK = float(_BS)
 
 # ---- the proven constants (forest_rehome.py / hill_at_scale.py) --------------------------
 FOREST_DONOR = (15, 15)          # the clean grass-bounded canopy blob
-FOREST_SPREAD_MAX = 1.5          # --spread ceiling: the canopy's plan stretch (terrain study X3)
+FOREST_SPREAD_MAX = 1.5          # --spread ceiling: the canopy's plan stretch, kept in game (terrain study X3:
+#                                  "1.5x is starting to look stretched but still feels fine")
 FOREST_ZIP_NY_FLOOR = 0.5        # a mapped canopy's zip routes round tris steeper than this (~60 deg)
 CURTAIN_HAIRLINE = 0.05          # a steep curtain corner pair closer than this in plan (donor units) is one
 #                                  corner a hair off (the HAIRLINE CURTAIN, carve_forest)

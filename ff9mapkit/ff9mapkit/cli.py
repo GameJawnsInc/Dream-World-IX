@@ -10285,8 +10285,8 @@ def build_parser() -> argparse.ArgumentParser:
     wfo.add_argument("--spread", type=float, default=1.0, metavar="S",
                      help="scale the canopy S times wider in plan (1.0-1.5) about its centre, heights, UVs "
                           "and topographs carried: a bigger forest from the same donor, its curtains still "
-                          "vertical. The step law and the walk-in gate judge the result as usual. Default 1.0 "
-                          "= the verbatim carry.")
+                          "vertical. The step law and the walk-in gate judge the result as usual. In-game kept to "
+                          "x1.5 (terrain study X3). Default 1.0 = the verbatim carry.")
     wfo.add_argument("--rot", type=float, default=None, metavar="DEG",
                      help="turn the canopy to ANY angle about its centre (degrees, clockwise seen from above, "
                           "as world-mountain --rot); its texture turns with it, the grass stays on its grid "
