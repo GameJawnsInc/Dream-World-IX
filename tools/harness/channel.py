@@ -291,6 +291,15 @@ def parse_turn_end(ev: dict) -> dict:
             "moved": num("moved", float)}
 
 
+def _json_copy(v):
+    """A deep copy of a parsed-JSON value (dicts and lists all the way down) -- an accessor never hands out the raw doc."""
+    if isinstance(v, dict):
+        return {k: _json_copy(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_json_copy(x) for x in v]
+    return v
+
+
 def _nb_prop(path: str, kind, doc: str) -> property:
     """[ff9mapkit netsync B4] One ``netsync.battle`` key as a read-only :class:`State` property. ``path`` is dotted under
     ``netsync.battle`` (``"host.caps"``, ``"end.end_leave.trigger"``); ``kind`` is how it reads (:meth:`State._nb_key`).
@@ -1034,13 +1043,16 @@ class State:
         a warm proof asserts it False once control is back, so a frozen field cannot pass on position alone."""
         return self._dio_key("resuming", bool)
 
-    # [ff9mapkit netsync B4] [ff9mapkit netsync B5] s100-s105: THE BATTLE CO-OP LANE -- ``netsync.battle`` (host / peer /
+    # [ff9mapkit netsync B4] [ff9mapkit netsync B5] s100-s110: THE BATTLE CO-OP LANE -- ``netsync.battle`` (host / peer /
     # menu / end). The same law as F3.2/F3.3, one level deeper: every key is told by its PRESENCE -- an engine without the
     # patch that added it publishes no key, and every accessor below reads that as None ("this engine cannot"), never as
     # 0 / False / [] ("nothing there"). Check the stage's capability property first (``coop_host_gates`` ..
-    # ``coop_exit_with_host``). Strings the engine publishes as null ("none yet") read ``""``; a null RECORD (``host.end``,
-    # ``peer.end``, ``menu.captured``: "no block / none this boot") reads None like an absent one -- tell the two apart by
-    # the capability. Counters marked monotonic are per PROCESS: assert on a DELTA.
+    # ``coop_exit_with_host``, then s106-s110 ``coop_menu_content`` / ``coop_ready_mirror`` / ``coop_result_manifest`` /
+    # ``coop_result_replay`` / ``coop_slot_handback``). Strings the engine publishes as null ("none yet") read ``""``; a
+    # null RECORD (``host.end``, ``peer.end``, ``menu.captured``; s106-s110 ``menu.roster`` / ``bench_roster`` /
+    # ``pending`` / ``feed``, ``host.manifest``, ``host.handback.last``, ``end.replay.screen`` / ``fp``: "none") reads
+    # None like an absent one -- tell the two apart by the capability. Counters marked monotonic are per PROCESS: assert
+    # on a DELTA. Records and lists are copied DEEP.
     def _nb_key(self, path: str, kind):
         """``netsync.battle.<path>`` read as ``kind``: bool / int (a bool is never an int, an int never a bool), str (null
         -> ""), list (a copy; dict rows copied), dict (a copy; null -> None). None when any step of the path is absent or
@@ -1061,9 +1073,10 @@ class State:
                 return ""
             return node if isinstance(node, str) else None
         if kind is list:
-            return [dict(r) if isinstance(r, dict) else r for r in node] if isinstance(node, list) else None
+            # [ff9mapkit netsync B5] a DEEP copy: the s106-s110 records nest (manifest rows -> learns, roster slots -> cmds)
+            return _json_copy(node) if isinstance(node, list) else None
         if kind is dict:
-            return dict(node) if isinstance(node, dict) else None
+            return _json_copy(node) if isinstance(node, dict) else None
         raise TypeError(f"_nb_key: no reading for {kind!r}")
 
     def _nb_cap(self, path: str, kind) -> bool | None:
@@ -1110,6 +1123,42 @@ class State:
     def coop_exit_with_host(self) -> bool | None:
         """s105 (stage 6): the guest's exit with the host (``end.end_leave``; ``endbench exit``)."""
         return self._nb_cap("end.end_leave", dict)
+
+    @property
+    def coop_menu_content(self) -> bool | None:
+        """s106 (stage 7): the roster-fed menu content (``menu.content_hits``; the verb ``bbench`` with its ``roster`` /
+        ``content`` ops; ``battle.hud.mirrored``)."""
+        return self._nb_cap("menu.content_hits", dict)
+
+    @property
+    def coop_ready_mirror(self) -> bool | None:
+        """s107 (stage 8): the production ready mirror + ``[Netsync] GuestStockMenu`` (``menu.stock_owns``; the ``bbench``
+        feed ops ``start|stop|ready|caps|mode|freeze|unmap|knob``)."""
+        return self._nb_cap("menu.stock_owns", bool)
+
+    @property
+    def coop_result_manifest(self) -> bool | None:
+        """s108 (stage 9): the host result manifest (``host.manifest_captures``; ``endbench manifest``)."""
+        return self._nb_cap("host.manifest_captures", int)
+
+    @property
+    def coop_result_replay(self) -> bool | None:
+        """s109 (stage 10): the guest result-screen replay (``end.replay``; ``endbench replay|quit|fieldsong``;
+        ``battle.result_ui.replay``)."""
+        return self._nb_cap("end.replay", dict)
+
+    @property
+    def coop_slot_handback(self) -> bool | None:
+        """s110 (stage 11): the host's guest-slot hand-back (``host.handback``; the NAMED ops ``bench lapse`` / ``bench
+        handback`` -- ⚠ an engine before it reads them as ``bench 1``: probe this first, never send them on False)."""
+        return self._nb_cap("host.handback", dict)
+
+    @property
+    def coop_peer_end_manifest(self) -> dict | None:
+        """s108: ``peer.end.manifest`` -- the DECODED manifest beside the peer end block (the bench seam's preset, or the
+        live lane's), copied one level. None = no peer end, no flags b1, a body that did not decode (``peer.end
+        .manifest_why`` says which), or an engine before s108."""
+        return self._nb_key("peer.end.manifest", dict)
 
     @property
     def coop_battle(self) -> dict | None:
@@ -1264,6 +1313,155 @@ class State:
     coop_declined_count = _nb_prop("end.declined.count", int, "s105: late joins declined -- monotonic per process.")
     coop_declined_nonce = _nb_prop("end.declined.nonce", int, "s105: the last declined battle nonce; -1 = none.")
     coop_declined_why = _nb_prop("end.declined.why", str, "s105: its reason ('' = none).")
+    # ---- menu: s106 (stage 7) the roster-fed content
+    coop_menu_mirrored = _nb_prop("menu.mirrored", list, "s106: the LOCAL party slots (ascending) whose stock panels draw "
+                                                         "the menu roster inside a diorama ([] = none).")
+    coop_menu_roster_src = _nb_prop("menu.roster_src", str, "s106: the menu roster in effect -- 'bench' | 'peer' ('' = "
+                                                            "none).")
+    coop_menu_roster_sig = _nb_prop("menu.roster_sig", str, "s106: its content signature '0x...' (battlewire."
+                                                            "roster_sig_text; equal = the same content; '' = none).")
+    coop_menu_roster_gen = _nb_prop("menu.roster_gen", int, "s106: the content generation the HUD last saw (moves only "
+                                                            "while a diorama menu is up).")
+    coop_menu_roster_painted = _nb_prop("menu.roster_painted", int, "s106: the generation the HUD last repainted for.")
+    coop_menu_content_off = _nb_prop("menu.content_off", int, "s106: the ``bbench content`` lever -- bit per hook turned "
+                                                              "OFF (1 command .. 64 refresh; 0 = production).")
+    coop_content_hits = _nb_prop("menu.content_hits", dict, "s106: the whole ``content_hits`` block, copied.")
+    coop_content_hits_command = _nb_prop("menu.content_hits.command", int, "s106: hook (1) answers that replaced stock "
+                                                                           "content -- monotonic per process.")
+    coop_content_hits_grey = _nb_prop("menu.content_hits.grey", int, "s106: hook (2) -- monotonic.")
+    coop_content_hits_ability = _nb_prop("menu.content_hits.ability", int, "s106: hook (3) -- monotonic.")
+    coop_content_hits_bag = _nb_prop("menu.content_hits.bag", int, "s106: hook (4) -- monotonic.")
+    coop_content_hits_count = _nb_prop("menu.content_hits.count", int, "s106: hook (5) -- monotonic.")
+    coop_content_hits_cast = _nb_prop("menu.content_hits.cast", int, "s106: hook (6) -- monotonic.")
+    coop_content_hits_refresh = _nb_prop("menu.content_hits.refresh", int, "s106: hook (7), repaints -- monotonic.")
+    coop_menu_content_faults = _nb_prop("menu.content_faults", int, "s106: hook faults swallowed -- monotonic.")
+    coop_menu_content_why = _nb_prop("menu.content_why", str, "s106: the last hook fault ('' = none).")
+    coop_menu_mute_held = _nb_prop("menu.mute_held", bool, "s106: a repaint's MuteActiveSound is still held.")
+    coop_menu_roster = _nb_prop("menu.roster", dict, "s106: the menu roster ({slots[] {wire, cmds[] {menu, cmd, type, "
+                                                     "abils, on}}, items[] {id, count}}); None = none (or cannot).")
+    coop_menu_bench_roster = _nb_prop("menu.bench_roster", dict, "s106: what ``bbench roster`` armed (src, bytes, slot, "
+                                                                 "wire, the markers ...; -1 = not fabricated); None = "
+                                                                 "no bench roster (or cannot).")
+    # ---- menu: s107 (stage 8) the production ready mirror
+    coop_stock_owns = _nb_prop("menu.stock_owns", bool, "s107: the stock menu (not the digit panel) owns the guest's "
+                                                        "slots right now.")
+    coop_stock_why = _nb_prop("menu.why", str, "s107: the first missing ownership condition, or 'waiting: <gate>' ('' = "
+                                               "serving).")
+    coop_stock_knob = _nb_prop("menu.knob", int, "s107: the effective [Netsync] GuestStockMenu, 1/0.")
+    coop_stock_knob_bench = _nb_prop("menu.knob_bench", int, "s107: the ``bbench knob`` override; -1 = the ini.")
+    coop_assist_slot = _nb_prop("menu.assist_slot", int, "s107: the WIRE slot the digit panel serves; -1 = none.")
+    coop_stranded = _nb_prop("menu.stranded", list, "s107: WIRE slots Ready but stranded to the digit panel this turn "
+                                                    "(no local seat, refused by the feeder, or no roster after 2.5 s).")
+    coop_pending = _nb_prop("menu.pending", dict, "s107: {slot (local), wire, ms, seqs} -- the lowest forwarded command "
+                                                  "awaiting the host's verdict; None = none (or cannot).")
+    coop_pending_mask = _nb_prop("menu.pending_mask", int, "s107: LOCAL slots with a pending command.")
+    coop_mirror_refused = _nb_prop("menu.refused", int, "s107: pending commands the host left Ready >= 2.5 s and >= 3 "
+                                                        "samples (reopened with a buzzer) -- monotonic.")
+    coop_stock_sent = _nb_prop("menu.sent", int, "s107: forwarded frames handed to a transport (the socket or the bench "
+                                                 "host) -- monotonic.")
+    coop_mirror = _nb_prop("menu.mirror", dict, "s107: the whole ``mirror`` block, copied.")
+    coop_mirror_serving = _nb_prop("menu.mirror.serving", bool, "s107: the mirror's last tick served.")
+    coop_mirror_open = _nb_prop("menu.mirror.open", int, "s107: LOCAL slots the mirror holds on ReadyQueue (a mask).")
+    coop_mirror_fed = _nb_prop("menu.mirror.fed", int, "s107: slots the mirror opened -- monotonic.")
+    coop_mirror_accepted = _nb_prop("menu.mirror.accepted", int, "s107: pending commands whose bit fell -- monotonic.")
+    coop_mirror_obsolete = _nb_prop("menu.mirror.obsolete", int, "s107: pending commands a new nonce or a KO voided -- "
+                                                                 "monotonic.")
+    coop_mirror_closed = _nb_prop("menu.mirror.closed", int, "s107: slots the mirror closed -- monotonic.")
+    coop_mirror_no_roster = _nb_prop("menu.mirror.no_roster", int, "s107: WIRE slots Ready but absent from the menu "
+                                                                   "roster (waiting; a mask).")
+    coop_mirror_faulted = _nb_prop("menu.mirror.faulted", bool, "s107: the mirror faulted this boot (the digit panel "
+                                                                "serves).")
+    coop_mirror_fault_why = _nb_prop("menu.mirror.fault_why", str, "s107: why ('' = none).")
+    coop_feed = _nb_prop("menu.feed", dict, "s107: the selftest bench feed ({guest_slots, ready, caps, mode, frozen, "
+                                            "unmap, nonce, seq, live, menu_open, frames, taken, accepted, refused, bad, "
+                                            "last}); None = not running (or cannot).")
+    # ---- host / peer: s108 (stage 9) the result manifest
+    coop_host_manifest = _nb_prop("host.manifest", dict, "s108: the host's last captured manifest (battlewire."
+                                                         "published_manifest's shape); None = none this battle (or "
+                                                         "cannot).")
+    coop_host_manifest_bytes = _nb_prop("host.manifest_bytes", int, "s108: the captured manifest's ENCODED size while "
+                                                                    "its battle lasts -- NOT a shipping signal (read "
+                                                                    "host.end.flags & 2 / manifest_len).")
+    coop_host_manifest_captures = _nb_prop("host.manifest_captures", int, "s108: manifests captured -- monotonic.")
+    coop_host_manifest_skipped = _nb_prop("host.manifest_skipped", int, "s108: result screens that captured nothing -- "
+                                                                        "monotonic.")
+    coop_host_manifest_why = _nb_prop("host.manifest_why", str, "s108: why the last InitialNormal captured nothing ('' = "
+                                                                "it did).")
+    coop_host_manifest_mode = _nb_prop("host.manifest_mode", str, "s108: the ``endbench manifest host`` lever -- 'on' | "
+                                                                  "'off'.")
+    coop_host_overflow = _nb_prop("host.overflow", bool, "s108: the sticky host tap in UpdateItem (an item did not fit).")
+    coop_host_learned = _nb_prop("host.learned", list, "s108: each ApLearned the host's screen fired: [{slot, abil, "
+                                                       "ap_at}].")
+    coop_peer_manifest_bad = _nb_prop("peer.manifest_bad", int, "s108: flags-b1 bodies that did not decode -- monotonic.")
+    coop_peer_manifest_bad_why = _nb_prop("peer.manifest_bad_why", str, "s108: the last one's reason ('' = none).")
+    coop_peer_manifest_nonce = _nb_prop("peer.manifest_nonce", int, "s108: the battle nonce of the manifest the guest "
+                                                                    "STORED off the live lane; -1 = none.")
+    coop_peer_manifest_rx = _nb_prop("peer.manifest_rx", int, "s108: distinct manifests stored -- monotonic (the bench "
+                                                              "seam never stores one).")
+    coop_peer_bench_manifest = _nb_prop("peer.bench_manifest", int, "s108: the ``endbench manifest`` preset in the "
+                                                                    "template; 0 = none.")
+    coop_peer_bench_manifest_note = _nb_prop("peer.bench_manifest_note", str, "s108: a marker that preset could not "
+                                                                              "choose ('' = every one).")
+    # ---- end: s109 (stage 10) the result-screen replay
+    coop_replay = _nb_prop("end.replay", dict, "s109: the whole ``replay`` block, copied.")
+    coop_replay_mode = _nb_prop("end.replay.mode", str, "s109: the ``endbench replay`` lever -- 'on' | 'off' | 'local'.")
+    coop_replay_armed = _nb_prop("end.replay.armed", bool, "s109: armed this boot.")
+    coop_replay_pending = _nb_prop("end.replay.pending", bool, "s109: armed, the screen's Show not run yet.")
+    coop_replay_opened = _nb_prop("end.replay.opened", bool, "s109: the Show took the arm.")
+    coop_replay_live = _nb_prop("end.replay.live", bool, "s109: pending, or on screen and neither closed nor aborted.")
+    coop_replay_closed = _nb_prop("end.replay.closed", bool, "s109: its own hide tail ran.")
+    coop_replay_aborted = _nb_prop("end.replay.aborted", bool, "s109: a leave / the teardown / a fault ended it first.")
+    coop_replay_abort_why = _nb_prop("end.replay.abort_why", str, "s109: why ('' = not aborted).")
+    coop_replay_refused = _nb_prop("end.replay.refused", bool, "s109: no manifest row matched a seated member (sticky).")
+    coop_replay_verdict = _nb_prop("end.replay.verdict", int, "s109: the last ArmVerdict (battlewire.ARM_*); -1 = never "
+                                                              "asked this boot.")
+    coop_replay_why = _nb_prop("end.replay.why", str, "s109: its reason (battlewire.arm_why; '' = go or never asked).")
+    coop_replay_row_mask = _nb_prop("end.replay.row_mask", int, "s109: the valid rows at the arm.")
+    coop_replay_seated_mask = _nb_prop("end.replay.seated_mask", int, "s109: the seated slots at the arm.")
+    coop_replay_manifest_rows = _nb_prop("end.replay.manifest_rows", int, "s109: the manifest's rows at the arm.")
+    coop_replay_host_state_at_arm = _nb_prop("end.replay.host_state_at_arm", int, "s109: the host's ResultState at the "
+                                                                                  "arm; -1 = not armed.")
+    coop_replay_bench = _nb_prop("end.replay.bench", bool, "s109: armed off the endbench seam.")
+    coop_replay_arm_ms = _nb_prop("end.replay.arm_ms", int, "s109: injection -> arm; -1 = not armed.")
+    coop_replay_open_ms = _nb_prop("end.replay.open_ms", int, "s109: arm -> Show; -1 = not opened.")
+    coop_replay_close_ms = _nb_prop("end.replay.close_ms", int, "s109: arm -> its hide tail; -1 = not closed.")
+    coop_replay_exit_waited = _nb_prop("end.replay.exit_waited", bool, "s109: the end-leave waited for it.")
+    coop_replay_exit_wait_ms = _nb_prop("end.replay.exit_wait_ms", int, "s109: latch -> the wait's end; -1 = never / still "
+                                                                        "waiting.")
+    coop_replay_screen = _nb_prop("end.replay.screen", dict, "s109: the result screen's own replay receipts (state, "
+                                                             "host_state, follow, steps, trail, local_confirms, rows, "
+                                                             "gil, learned, overflow_shown, writes, ...); None = no "
+                                                             "result screen object (or cannot).")
+    coop_replay_fp = _nb_prop("end.replay.fp", dict, "s109: THE WRITE GUARD's fingerprint read LIVE (hash, gil, items, "
+                                                     "item_sum, players, level_sum, exp_sum, pa_sum, cards, abilities, "
+                                                     "passive); None = unreadable (or cannot).")
+    # ---- host: s110 (stage 11) the guest-slot hand-back
+    coop_handback = _nb_prop("host.handback", dict, "s110: the whole ``handback`` block, copied.")
+    coop_handback_off = _nb_prop("host.handback.off", bool, "s110: the ``bench handback 0`` calibration lever.")
+    coop_handback_held = _nb_prop("host.handback.held", int, "s110: the guest slot the host's own window holds; -1 = none "
+                                                             "/ between battles.")
+    coop_handback_held_ms = _nb_prop("host.handback.held_ms", int, "s110: how long; -1 = none.")
+    coop_handback_owed = _nb_prop("host.handback.owed", bool, "s110: the held slot is guest-owned again (a hand-back is "
+                                                              "due).")
+    coop_handback_g6_mask = _nb_prop("host.handback.g6_mask", int, "s110: Ready bits G6 withheld in the last own-battle "
+                                                                   "sample; -1 = no sample.")
+    coop_handback_captures = _nb_prop("host.handback.captures", int, "s110: holds of a guest slot by the host's window -- "
+                                                                     "monotonic.")
+    coop_handback_returns = _nb_prop("host.handback.returns", int, "s110: hand-backs fired -- monotonic.")
+    coop_handback_deferred = _nb_prop("host.handback.deferred", int, "s110: holds whose hand-back waited (a submenu, a "
+                                                                     "hidden HUD) -- monotonic.")
+    coop_handback_faults = _nb_prop("host.handback.faults", int, "s110: attempts that threw -- monotonic.")
+    coop_handback_last = _nb_prop("host.handback.last", dict, "s110: {slot, frame, held_ms, why ('handed back' | "
+                                                              "'deferred: ...')}; None = none yet (or cannot).")
+    coop_handback_lapse = _nb_prop("host.handback.lapse", dict, "s110: the whole ``lapse`` block, copied.")
+    coop_lapse_active = _nb_prop("host.handback.lapse.active", bool, "s110: a ``bench lapse`` stall is in force.")
+    coop_lapse_hold = _nb_prop("host.handback.lapse.hold", bool, "s110: ...as ``hold`` (until ``bench lapse end``).")
+    coop_lapse_left_ms = _nb_prop("host.handback.lapse.left_ms", int, "s110: ms left on a TIMED lapse; -1 = none or "
+                                                                      "hold.")
+    coop_lapse_count = _nb_prop("host.handback.lapse.count", int, "s110: lapses armed -- monotonic.")
+    coop_lapse_end_frame = _nb_prop("host.handback.lapse.end_frame", int, "s110: the frame the last lapse ended (a "
+                                                                          "hand-back's latency is last.frame - this); "
+                                                                          "-1 = not yet.")
 
     # -- what is highlighted ----------------------------------------------------------------
     @property
@@ -1357,19 +1555,35 @@ class State:
         hud = self.battle.get("hud")
         if not isinstance(hud, dict):
             return None
-        out = dict(hud)
-        for key in ("commands", "rows"):
-            if isinstance(out.get(key), list):
-                out[key] = [dict(r) if isinstance(r, dict) else r for r in out[key]]
-        return out
+        return _json_copy(hud)
+
+    @property
+    def battle_hud_mirrored(self) -> bool | None:
+        """[ff9mapkit netsync B4] ``battle.hud.mirrored`` (s106): the slot the HUD serves draws the menu ROSTER (the host's
+        content), not the stand-in's local state. None = no HUD, or an engine before s106 (:attr:`coop_menu_content`)."""
+        hud = self.battle.get("hud")
+        v = hud.get("mirrored") if isinstance(hud, dict) else None
+        return v if isinstance(v, bool) else None
 
     @property
     def battle_result_ui(self) -> dict | None:
         """[ff9mapkit netsync B5] ``battle.result_ui`` (s103) -- the stock result screen read LIVE: ``state`` (ResultState
-        0 Start .. 6 End, 7 Hide, 8 None), ``loading``, ``paused``. None = not on the result screen, outside a battle, or
-        an engine before s103 (:attr:`coop_end_trailer`)."""
+        0 Start .. 6 End, 7 Hide, 8 None), ``loading``, ``paused``; s108 adds the screen's own view (``labels`` {exp, ap,
+        gil_receive, gil_current, card}, ``card_shown``, ``model`` {default_exp, default_ap, default_gil, gil_value,
+        gil_current, party_gil, card}, ``rows`` [{slot, shown, name, level, exp, next, dim, level_ups, exp_value,
+        exp_current, ap_value, ap_current, need_exp, need_ap}], ``items`` [{id, count, shown, name, number}] -- dropped
+        whole on a fault), s109 ``replay`` (this show is the guest's write-nothing replay). Copied deep. None = not on the
+        result screen, outside a battle, or an engine before s103 (:attr:`coop_end_trailer`)."""
         r = self.battle.get("result_ui")
-        return dict(r) if isinstance(r, dict) else None
+        return _json_copy(r) if isinstance(r, dict) else None
+
+    @property
+    def battle_result_replay(self) -> bool | None:
+        """[ff9mapkit netsync B5] ``battle.result_ui.replay`` (s109): the result screen up is the guest's write-nothing
+        REPLAY of the host's. None = no result screen, or an engine before s109 (:attr:`coop_result_replay`)."""
+        r = self.battle.get("result_ui")
+        v = r.get("replay") if isinstance(r, dict) else None
+        return v if isinstance(v, bool) else None
 
     def unit_cmd_busy(self, slot: int) -> int | None:
         """[ff9mapkit netsync B4] ``battle.units[].cmd_busy`` (s101) for the unit in btl ``slot``: bit i set while its

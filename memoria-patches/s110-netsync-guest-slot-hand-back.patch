@@ -1,0 +1,621 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index ccf3368..5ddf924 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -37,6 +37,10 @@ namespace Memoria.Netsync
+     //
+     // [ff9mapkit netsync B5] stage 9: the end block's fmt-1 body may carry the host's RESULT MANIFEST (flags b1; NetSyncEnd
+     // encodes, decodes and stores it) -- PeerEnd.Manifest serves it decoded. Same trailer, same frame: still v14.
++    //
++    // [ff9mapkit netsync B4] stage 11: THE GUEST-SLOT HAND-BACK (BTL-1, host-only -- see "the guest-slot hand-back" below):
++    // G6 withholds the Ready bit of the unit the host's own command window holds, and G3 hands a stalled guest's slot back
++    // at the command root once its control lane is live again. Same Ready byte, same frames: still v14.
+     public static partial class NetSyncBattle
+     {
+         // --- config mirror (written by NetSyncClient on every config [re]load; main thread) ---
+@@ -407,6 +411,11 @@ namespace Memoria.Netsync
+             _rosterLagFrames = -1;
+             _refuseLogged.Clear();
+             NetSyncEnd.NoteHostBattleStart();      // [ff9mapkit netsync B5] stage 4: the end tracker, block and trail start clean
++            _heldSlot = -1;                        // [ff9mapkit netsync B4] stage 11: no hold carries in; the line budget re-arms
++            _heldDeferNoted = false;
++            _handbackEdge = false;
++            _handbackLogs = 0;
++            _lastG6Mask = -1;
+         }
+ 
+         // An own battle's falling edge (Pump's else block; SelfTestPump through Reset): the harness's "last
+@@ -418,6 +427,10 @@ namespace Memoria.Netsync
+             _lastSampleFlags = -1;
+             _lastReadyMask = -1;
+             NetSyncEnd.NoteHostBattleEnd();        // [ff9mapkit netsync B5] stage 4: `host.end` reads null between battles
++            _heldSlot = -1;                        // [ff9mapkit netsync B4] stage 11: `handback.held` / `g6_mask` read "none" between
++            _lastG6Mask = -1;                      // battles, and a bench lapse never outlives the own battle it stalled
++            _handbackEdge = false;
++            EndLapse("the own battle ended");
+         }
+ 
+         // One read of the command phase per pump tick (both pumps). An EDGE returns true and the caller samples
+@@ -549,6 +562,238 @@ namespace Memoria.Netsync
+             _droppedWhy = why;
+         }
+ 
++        // ============================================================================ the guest-slot hand-back (B4 stage 11)
++        // [ff9mapkit netsync B4] stage 11 -- BTL-1 (studies/battle-coop/B4-B5-DESIGN.md 4.7, owner decision 4). A guest slot is
++        // guest-owned only while the guest's control lane is fresh (IsGuestOwnedSlot -- the fail-safe law), so after a guest
++        // STALL (no control frame for MenuStaleMs) the host's stock ready loop opens that slot's command window LOCALLY. Nothing
++        // ever handed it back: the returning guest's window opened on a slot the host held, and every pick it sent was refused
++        // ("the HUD refused -- the host's local menu owns this slot right now"). HOST-ONLY, two rules:
++        //   G6  the per-unit Ready bit also requires hud.CurrentPlayerIndex != slot (SampleOwnBattle): while the host's own
++        //       window holds a unit, the guest's window for it stays closed instead of buzzing refusals. A change of the held
++        //       guest slot is an EDGE that samples at once (TrackHostHold), so the bit moves inside a frame, not SampleMs late.
++        //   G3  the ROOT-ONLY hand-back (HandBackGuestSlot), right after ParseControl in both pumps: the host's window on a
++        //       slot that is guest-owned AGAIN closes -- stock SetIdle plus SetPartySwapButtonActive(false), the stock pair
++        //       for closing the window from outside (ProcessAutoBattleInput) -- ONLY while it sits at the command root
++        //       (ButtonGroupState.ActiveGroup == CommandGroupButton, no Quit prompt). Mid-submenu, or with the HUD hidden or
++        //       paused, the host finishes its own pick: the hand-back waits, counted DEFERRED and logged once per hold. It is
++        //       level-triggered, so a Cancel back to the root hands back on that tick. The slot stays on ReadyQueue: its Ready
++        //       bit returns, the guest's window opens, and the stock ready loop skips it again (IsGuestOwnedSlot).
++        // Vanilla never reaches either rule (IsGuestOwnedSlot needs Enabled + GuestSlots; G6 needs the host's window on a
++        // unit, which only matters on the wire), nor does a guest's diorama (G2 reads IsGuestOwnedSlot false while Active, and
++        // Pump's host branch needs !Booted). Wire UNCHANGED (v14): the Ready bit's byte is today's, only its meaning tightens
++        // (design 6.2). Never throws into the engine.
++        // SELFTEST CALIBRATION LEVER (harness `netsync bench handback 0`; cleared by every harness release through
++        // HarnessReleaseBench): true = the pre-stage host -- no G6, no hand-back, no hold-edge sample (the hold is still TRACKED
++        // and counted: the instrument stays on, so `captures` rising with `returns` flat is the lever's red). Read only through
++        // HandbackOn, which also needs the selftest role: a lever stranded across an ini edit can never ungate a real host.
++        public static Boolean BenchHandbackOff;
++        internal static Boolean HandbackOn
++        {
++            get { return !(BenchHandbackOff && NetSyncClient.IsSelfTestRole); }
++        }
++        private const Int32 HandbackLogBudget = 8;    // hand-back lines per own battle (the counters keep counting past it)
++        private const Int32 StallMemoryMs = 60000;    // a hold is logged as a STALL only if the control lane was fresh this recently
++        private static Int32 _heldSlot = -1;          // the GuestSlots slot the host's own window holds (TrackHostHold; -1 = none)
++        private static Int32 _heldSinceTick = Environment.TickCount - 60000;   // tick-baseline law: never 0
++        private static Boolean _heldDeferNoted;       // this hold's deferral is already counted + logged (once per hold)
++        private static Boolean _handbackEdge;         // a hand-back released the hold (it clears _heldSlot itself, so `held`/`owed`
++                                                      // agree with `returns` in the same doc): TrackHostHold's next call samples
++        private static Int32 _handbackCaptures;       // holds of a guest slot by the host's window -- monotonic: read DELTAS
++        private static Int32 _handbackReturns;        // hand-backs fired -- monotonic
++        private static Int32 _handbackDeferred;       // holds whose due hand-back waited on a submenu / hidden HUD -- monotonic
++        private static Int32 _handbackFaults;         // hand-back attempts that threw (logged up to 3 per process) -- monotonic
++        private static Int32 _handbackLogs;           // hand-back lines this own battle (HandbackLogBudget)
++        private static Int32 _lastG6Mask = -1;        // Ready bits G6 withheld in the last own-battle sample (-1 = no sample)
++        private static Int32 _lastHandbackSlot = -1;  // the last hand-back or deferral: its slot (-1 = none yet) ...
++        private static Int32 _lastHandbackFrame = -1; // ... Time.frameCount ...
++        private static Int32 _lastHandbackHeldMs = -1;// ... how long the host had held the slot ...
++        private static String _lastHandbackWhy;       // ... and "handed back" | "deferred: <why>"
++        // THE SELFTEST STALL (harness `netsync bench lapse <ms>|hold|end`; design 6.4 / 8.2): SelfTestPump's loopback guest
++        // sends NO control frame for the lapse -- ParseControl(null), exactly the call Pump makes on a stale socket -- so its
++        // slots fall back to the host's local menu after MenuStaleMs, as a stalled guest's do; when it ends the stamp resumes
++        // and the hand-back is due. Selftest only (Pump never reads it); ended by its timer, `end`, the own battle's falling
++        // edge or a harness release.
++        private static Boolean _lapseArmed;
++        private static Boolean _lapseHold;            // `hold`: until `bench lapse end`
++        private static Int32 _lapseStartTick = Environment.TickCount - 60000;
++        private static Int32 _lapseMs;
++        private static Int32 _lapseCount;             // lapses armed this process -- monotonic
++        private static Int32 _lapseEndFrame = -1;     // Time.frameCount when the last lapse ended (the stamp resumes that tick)
++
++        // The GuestSlots slot the host's OWN command window holds right now (-1 = none). Never throws.
++        // PHASE_NORMAL only: stock leaves CurrentPlayerIndex STALE across a battle end -- the MENU_OFF / victory paths call only
++        // FF9BMenu_EnableMenu(false) (DisableAllGroup, never SetIdle), and the persistent HUD resets the index only in the next
++        // battle's InitialBattle (MENU_ON, the same call that flips PHASE_NORMAL) -- so the victory, the result screen and the
++        // next intro would read a dead hold (false captures, deferrals and lines). A pause, the Quit prompt and the in-battle
++        // main menu all keep PHASE_NORMAL, so their deferrals are unchanged. (Residual: the Terra Homing script battle,
++        // SUMMON_RAY_FLAG, defers the menu enable past the flip -- counters only; its ActiveGroup is empty, so no SetIdle.)
++        private static Int32 HostHeldGuestSlot(BattleHUD hud)
++        {
++            try
++            {
++                if (hud == null || GuestSlots == 0)
++                    return -1;
++                FF9StateBattleSystem btlsys = FF9StateSystem.Battle.FF9Battle;
++                if (btlsys == null || btlsys.btl_phase != FF9StateBattleSystem.PHASE_NORMAL)
++                    return -1;
++                Int32 s = hud.CurrentPlayerIndex;
++                return s >= 0 && s < 4 && (GuestSlots & (1 << s)) != 0 ? s : -1;
++            }
++            catch
++            {
++                return -1;
++            }
++        }
++
++        // One read per pump tick (both pumps, beside TrackCommandPhase). A change of the held guest slot returns true -- G6
++        // moved that unit's Ready bit, so the caller samples NOW. Counts the holds and logs them (a STALL only: the lane was
++        // fresh within StallMemoryMs -- a host with GuestSlots set and no guest at all holds every such turn, silently). With
++        // the lever pulled it only tracks. A hand-back releases its hold itself (HandBackGuestSlot clears _heldSlot), so the
++        // tick after one is an edge too: it samples the returned Ready bit at once.
++        private static Boolean TrackHostHold()
++        {
++            Int32 held = HostHeldGuestSlot(UIManager.Battle);
++            if (held == _heldSlot)
++            {
++                if (!_handbackEdge)
++                    return false;
++                _handbackEdge = false;
++                return HandbackOn;
++            }
++            _handbackEdge = false;
++            Int32 was = _heldSlot;
++            Int32 now = Environment.TickCount;
++            Boolean stall = (now - _assistTick) < StallMemoryMs;
++            if (was >= 0 && stall)
++                HandbackLog("[NetSync] hand-back: the host's window on guest slot " + was + " closed after " + (now - _heldSinceTick)
++                            + " ms by itself (the host's own pick, a KO, or the turn or the battle ending) -- nothing to hand back");
++            _heldSlot = held;
++            _heldDeferNoted = false;
++            if (held >= 0)
++            {
++                _heldSinceTick = now;
++                _handbackCaptures++;
++                Int32 silentMs = now - _assistTick;
++                if (stall)
++                    HandbackLog("[NetSync] hand-back: the host's local window holds guest slot " + held + " -- " + (silentMs >= MenuStaleMs
++                                ? "the guest's control lane has been silent " + silentMs + " ms (a stall)"
++                                : "the slot became a guest slot while the host's window held it (a GuestSlots change)") + (HandbackOn
++                                ? "; its Ready bit is withheld while the host holds it (G6), and it is handed back at the command "
++                                  + "root once the guest is live again (G3)"
++                                : " -- hand-back lever OFF (calibration): no G6, no hand-back") + "; captures=" + _handbackCaptures);
++            }
++            return HandbackOn;
++        }
++
++        // G3 -- right after ParseControl in both pumps (the control lane has just refreshed IsGuestOwnedSlot). Level-triggered:
++        // runs whenever the host's window holds a slot the guest owns again. Never throws into the engine.
++        private static void HandBackGuestSlot()
++        {
++            if (!HandbackOn || GuestSlots == 0)
++                return;
++            try
++            {
++                BattleHUD hud = UIManager.Battle;
++                Int32 slot = HostHeldGuestSlot(hud);
++                if (slot < 0 || !IsGuestOwnedSlot(slot))
++                    return;
++                Int32 now = Environment.TickCount;
++                Int32 heldMs = slot == _heldSlot ? now - _heldSinceTick : -1;
++                String group = ButtonGroupState.ActiveGroup;
++                Boolean quitUp = QuitPromptUp();
++                if (quitUp || group != BattleHUD.CommandGroupButton)
++                {
++                    // the host is mid-pick (or its HUD is hidden, paused or under the Quit prompt): it finishes first
++                    if (!_heldDeferNoted)
++                    {
++                        _heldDeferNoted = true;
++                        _handbackDeferred++;
++                        String why = HandbackDeferWhy(group, quitUp);
++                        _lastHandbackSlot = slot;
++                        _lastHandbackFrame = UnityEngine.Time.frameCount;
++                        _lastHandbackHeldMs = heldMs;
++                        _lastHandbackWhy = "deferred: " + why;
++                        HandbackLog("[NetSync] hand-back: guest slot " + slot + " is the guest's again, but the hand-back WAITS -- " + why
++                                    + "; the host finishes its own pick (root-only, owner decision 4; logged once per hold), deferred="
++                                    + _handbackDeferred);
++                    }
++                    return;
++                }
++                hud.SetIdle();
++                hud.SetPartySwapButtonActive(false);
++                if (slot == _heldSlot)
++                {
++                    _heldSlot = -1;                // the hold ends HERE, not on the next tick: `held` / `owed` / `held_ms` agree with
++                    _heldDeferNoted = false;       // `returns` and `turn.slot` in the same harness doc; the next TrackHostHold
++                    _handbackEdge = true;          // still takes the Ready re-sample
++                }
++                _handbackReturns++;
++                _lastHandbackSlot = slot;
++                _lastHandbackFrame = UnityEngine.Time.frameCount;
++                _lastHandbackHeldMs = heldMs;
++                _lastHandbackWhy = "handed back";
++                HandbackLog("[NetSync] hand-back: guest slot " + slot + " handed BACK to the guest -- its control lane is live again "
++                            + "and the host's window sat at the command root (held " + heldMs + " ms); the host's window closed, the "
++                            + "slot's Ready bit returns (BTL-1), returns=" + _handbackReturns);
++            }
++            catch (Exception err)
++            {
++                _handbackFaults++;
++                if (_handbackFaults <= 3)
++                    Log.Error(err, "[NetSync] hand-back failed -- the host keeps its window (logged up to 3 times per process)");
++            }
++        }
++
++        private static String HandbackDeferWhy(String group, Boolean quitUp)
++        {
++            if (quitUp)
++                return "the host's Quit prompt is up";
++            if (group == BattleHUD.AbilityGroupButton || group == BattleHUD.ItemGroupButton || group == BattleHUD.TargetGroupButton)
++                return "the host's window is in a submenu (" + group + ")";
++            if (String.IsNullOrEmpty(group))
++                return "the host's command window is hidden, paused or disabled";
++            return "another UI holds the buttons (" + group + ")";
++        }
++
++        // Every hand-back line goes through here: HandbackLogBudget lines per own battle, then silence (the counters keep
++        // counting; the last line says so).
++        private static void HandbackLog(String line)
++        {
++            if (_handbackLogs >= HandbackLogBudget)
++                return;
++            _handbackLogs++;
++            Log.Message(_handbackLogs < HandbackLogBudget ? line
++                        : line + " (the last hand-back line this battle -- the harness counters keep counting)");
++        }
++
++        // SelfTestPump, once per tick, BEFORE its ParseControl: true while a `bench lapse` holds the loopback guest silent. The
++        // first tick after a timed lapse runs out ends it (the end frame recorded, one line) and the stamp resumes that tick.
++        private static Boolean BenchLapseTick()
++        {
++            if (!_lapseArmed)
++                return false;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                EndLapse("the selftest role ended");
++                return false;
++            }
++            if (_lapseHold || (Environment.TickCount - _lapseStartTick) < _lapseMs)
++                return true;
++            EndLapse("its " + _lapseMs + " ms ran out");
++            return false;
++        }
++
++        private static void EndLapse(String why)
++        {
++            if (!_lapseArmed)
++                return;
++            _lapseArmed = false;
++            _lapseHold = false;
++            _lapseEndFrame = UnityEngine.Time.frameCount;
++            Log.Message("[NetSync] harness: bench lapse ENDED (" + why + ") after " + (Environment.TickCount - _lapseStartTick)
++                        + " ms -- the loopback guest's control lane stamps again from the next selftest pump tick");
++        }
++
+         // ============================================================================ the pumps
+         // Real co-op, both directions. Called every frame from NetSyncClient.Update (main thread).
+         public static void Pump(INetTransport socket, EventEngine ee)
+@@ -577,11 +822,12 @@ namespace Memoria.Netsync
+                     }
+                     Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1: an edge samples NOW
+                     Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4: so does an end-state change
++                    Boolean holdEdge = TrackHostHold();        // [ff9mapkit netsync B4] stage 11: so does a G6 hold change
+                     Int32 now = Environment.TickCount;
+                     Boolean cadenceDue = now - _lastSampleTick > SampleMs;
+-                    if (phaseEdge || endEdge || cadenceDue)
++                    if (phaseEdge || endEdge || holdEdge || cadenceDue)
+                     {
+-                        if (!phaseEdge && !cadenceDue)
++                        if (endEdge && !phaseEdge && !cadenceDue)   // (stage 11: written out -- a hold edge is not an end edge)
+                             NetSyncEnd.NoteEdgeSample();       // [ff9mapkit netsync B5] stage 4: a sample ONLY the end change took
+                         _lastSampleTick = now;
+                         socket.SetLocalBattle(SampleOwnBattle());
+@@ -631,10 +877,18 @@ namespace Memoria.Netsync
+                 // --- the peer's commands -> my battle ---
+                 if (inBattle)
+                 {
++                    // [ff9mapkit netsync B4] stage 11: the control lane FIRST, then G3, then the commands -- SelfTestPump's order,
++                    // so the bench measures this path. A guest returning from an uplink stall delivers its queued pick and its
++                    // fresh control frame in one burst (NetSyncSocket.CollectOutgoing writes commands before control on the one
++                    // ordered stream); drained first, that pick met a still-stale lane and was refused "not a guest slot". Now
++                    // the lane is stamped and, at the root, the slot already handed back when it lands. (v14 limit, B4.2: a pick
++                    // still in flight when G6 drops the Ready bit is read by the guest's mirror as ACCEPTED -- if the host then
++                    // finishes its own pick in a submenu, the guest's pick is refused and the guest is never told.)
++                    ParseControl(socket.GetRemoteControl());
++                    HandBackGuestSlot();                   // [ff9mapkit netsync B4] stage 11 -- G3, the root-only hand-back (BTL-1)
+                     Byte[] cmd;
+                     while ((cmd = socket.NextRemoteCommand()) != null)
+                         HandleCommandPayload(cmd);
+-                    ParseControl(socket.GetRemoteControl());
+                 }
+                 else
+                 {
+@@ -730,11 +984,12 @@ namespace Memoria.Netsync
+ 
+                 Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1 (as Pump)
+                 Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4 (as Pump)
++                Boolean holdEdge = TrackHostHold();        // [ff9mapkit netsync B4] stage 11 (as Pump)
+                 Int32 now = Environment.TickCount;
+                 Boolean cadenceDue = now - _lastSampleTick > SampleMs;
+-                if (phaseEdge || endEdge || cadenceDue)
++                if (phaseEdge || endEdge || holdEdge || cadenceDue)
+                 {
+-                    if (!phaseEdge && !cadenceDue)
++                    if (endEdge && !phaseEdge && !cadenceDue)
+                         NetSyncEnd.NoteEdgeSample();       // [ff9mapkit netsync B5] stage 4 (as Pump)
+                     _lastSampleTick = now;
+                     _loopBattle = SampleOwnBattle();       // the "wire": a byte[] round trip, no socket
+@@ -781,7 +1036,10 @@ namespace Memoria.Netsync
+                 if (live)
+                 {
+                     _loopMenuOpen = FirstReadyGuestSlot(_peerView) >= 0;
+-                    ParseControl(BuildControl(_loopMenuOpen));   // RemoteMenuOpen through the codec too
++                    // [ff9mapkit netsync B4] stage 11: a `bench lapse` silences the loopback guest -- ParseControl(null), exactly
++                    // Pump's call on a stale socket -- and the hand-back runs right after the parse, as in Pump
++                    ParseControl(BenchLapseTick() ? null : BuildControl(_loopMenuOpen));   // RemoteMenuOpen through the codec too
++                    HandBackGuestSlot();
+                     // [ff9mapkit netsync B4] stage 8: the shared digit-panel decision -- an own battle is never a diorama, so the
+                     // stock menu never owns these slots and it serves the first ready slot, exactly as before
+                     Byte[] command = GuestAssistTick(_peerView, _peerRoster);
+@@ -858,6 +1116,15 @@ namespace Memoria.Netsync
+                     flags |= CapCommandPhaseGated;
+                 Boolean commandPhase = !gated || HostCommandPhaseOpen(hud, btlsys);
+                 Int32 readyMask = 0;
++                // [ff9mapkit netsync B4] stage 11 -- G6: the unit the host's OWN command window holds is not Ready on the wire
++                // (the host is commanding it), so a guest's window for it stays closed instead of buzzing refusals.
++                Int32 heldByHost = -1;
++                if (HandbackOn && hud != null)
++                {
++                    try { heldByHost = hud.CurrentPlayerIndex; }
++                    catch { }
++                }
++                Int32 g6Mask = 0;
+                 bw.Write(patNum);
+                 bw.Write(startType);
+                 bw.Write(flags);
+@@ -894,6 +1161,11 @@ namespace Memoria.Netsync
+                         }
+                         catch { }
+                     }
++                    if (ready && index == heldByHost)
++                    {
++                        ready = false;                    // [ff9mapkit netsync B4] stage 11 -- G6
++                        g6Mask |= 1 << index;
++                    }
+                     if (ready)
+                         readyMask |= 1 << index;
+                     Boolean hidden = !isPlayer && alive && !IsLinked(btlsys, d);
+@@ -924,6 +1196,7 @@ namespace Memoria.Netsync
+                                                            // a fault ships the frame trailer-less, never half-written)
+                 _lastSampleFlags = flags;                  // [ff9mapkit netsync B4] stage 1: the harness's host view
+                 _lastReadyMask = readyMask;
++                _lastG6Mask = g6Mask;                      // [ff9mapkit netsync B4] stage 11
+                 return ms.ToArray();
+             }
+         }
+@@ -2294,6 +2567,11 @@ namespace Memoria.Netsync
+             }
+             HarnessReleaseStockMenu();             // [ff9mapkit netsync B4] stage 3: the capture lever back on
+             NetSyncEnd.HarnessRelease();           // [ff9mapkit netsync B5] stage 4: the end bench, its one-shot and its lever
++            // [ff9mapkit netsync B4] stage 11: the hand-back lever back on, and a bench lapse ended (the loopback stamps again)
++            if (BenchHandbackOff)
++                Log.Message("[NetSync] harness: guest-slot hand-back (G6 + G3) back ON (released with the harness)");
++            BenchHandbackOff = false;
++            EndLapse("released with the harness");
+         }
+ 
+         // ============================================================================ harness surface (B4 stage 2)
+@@ -2361,6 +2639,98 @@ namespace Memoria.Netsync
+             return true;
+         }
+ 
++        // ============================================================================ harness surface (B4 stage 11)
++        // [ff9mapkit netsync B4] stage 11 -- the guest-slot hand-back's harness keys (`netsync.battle.host.handback`) and its two
++        // `netsync bench` ops. Read-only, main-thread, never throw. `held` is the pumps' last read (TrackHostHold; -1 between
++        // own battles); the counters are monotonic per process (read DELTAS).
++        public static Boolean HarnessHandbackOff { get { return !HandbackOn; } }
++        public static Int32 HarnessHeldSlot { get { return _heldSlot; } }
++        public static Int32 HarnessHeldMs { get { return _heldSlot >= 0 ? Environment.TickCount - _heldSinceTick : -1; } }
++        public static Int32 HarnessG6Mask { get { return _lastG6Mask; } }
++        public static Int32 HarnessHandbackCaptures { get { return _handbackCaptures; } }
++        public static Int32 HarnessHandbackReturns { get { return _handbackReturns; } }
++        public static Int32 HarnessHandbackDeferred { get { return _handbackDeferred; } }
++        public static Int32 HarnessHandbackFaults { get { return _handbackFaults; } }
++        public static Int32 HarnessLastHandbackSlot { get { return _lastHandbackSlot; } }
++        public static Int32 HarnessLastHandbackFrame { get { return _lastHandbackFrame; } }
++        public static Int32 HarnessLastHandbackHeldMs { get { return _lastHandbackHeldMs; } }
++        public static String HarnessLastHandbackWhy { get { return _lastHandbackWhy; } }
++        public static Boolean HarnessLapseActive   // the pump ends a timed lapse on its next tick; this reads the timer itself
++        {
++            get { return _lapseArmed && (_lapseHold || (Environment.TickCount - _lapseStartTick) < _lapseMs); }
++        }
++        public static Boolean HarnessLapseHold { get { return _lapseArmed && _lapseHold; } }
++        public static Int32 HarnessLapseCount { get { return _lapseCount; } }
++        public static Int32 HarnessLapseEndFrame { get { return _lapseEndFrame; } }
++
++        // The held slot is the guest's again right now (a hand-back is DUE: it fires at the root, waits in a submenu, and under
++        // the `bench handback 0` lever never fires -- that lever's red reads `owed` true with `returns` flat).
++        public static Boolean HarnessHandbackOwed
++        {
++            get
++            {
++                Int32 s = _heldSlot;
++                return s >= 0 && IsGuestOwnedSlot(s);
++            }
++        }
++
++        // Ms left on a TIMED lapse (-1 = none in force, or `hold`).
++        public static Int32 HarnessLapseLeftMs
++        {
++            get
++            {
++                if (!_lapseArmed || _lapseHold)
++                    return -1;
++                return Math.Max(0, _lapseMs - (Environment.TickCount - _lapseStartTick));
++            }
++        }
++
++        // `netsync bench lapse <ms>|hold|end`: ms > 0 = a timed lapse, ms < 0 = `hold` (until `end`), ms == 0 = `end` (idempotent).
++        // Re-arming restarts it. Selftest role only (the agent parses the argument).
++        public static Boolean HarnessBenchLapse(Int32 ms, out String why)
++        {
++            why = null;
++            if (!Enabled || !NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench lapse: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            if (ms == 0)
++            {
++                if (_lapseArmed)
++                    EndLapse("`netsync bench lapse end`");
++                else
++                    Log.Message("[NetSync] harness: bench lapse end -- no lapse was in force");
++                return true;
++            }
++            _lapseArmed = true;
++            _lapseHold = ms < 0;
++            _lapseMs = ms < 0 ? 0 : ms;
++            _lapseStartTick = Environment.TickCount;
++            _lapseEndFrame = -1;
++            _lapseCount++;
++            Log.Message("[NetSync] harness: bench lapse " + (_lapseHold ? "HOLD (until `bench lapse end`)" : ms + " ms")
++                        + " -- the loopback guest sends no control frame (a guest STALL): its slots fall back to the host's local "
++                        + "menu after " + MenuStaleMs + " ms; lapse #" + _lapseCount);
++            return true;
++        }
++
++        // `netsync bench handback 1|0`: the stage's calibration lever (see BenchHandbackOff). Selftest role only.
++        public static Boolean HarnessHandback(Boolean on, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench handback: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            BenchHandbackOff = !on;
++            Log.Message("[NetSync] harness: guest-slot hand-back " + (on ? "ON (G6 + G3)"
++                        : "OFF -- CALIBRATION: the pre-stage host (the Ready bit ignores the host's own window, and nothing hands "
++                          + "a captured guest slot back)"));
++            return true;
++        }
++
+         // ============================================================================ the assist panel
+         public static void DrawGUI()
+         {
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index cee2d00..2d3c7e9 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -123,6 +123,11 @@ namespace Memoria.Harness
+         // on|off|local` and the quit-guard op `netsync endbench quit on|off` join, and NetSyncEnd.SelfTest gains its `replay`
+         // section. A driver checks for
+         // `netsync.battle.end.replay` -- absent = an engine whose guest holds black through the host's reward screen.
++        // [ff9mapkit netsync B4] stage 11 (the guest-slot hand-back, BTL-1), also additive under 5: `netsync.battle.host` gains
++        // `handback` (see AppendHandback), and the selftest verb `netsync bench` gains two named ops -- `bench lapse
++        // <ms>|hold|end` (the selftest guest STALL) and `bench handback 1|0` (the calibration lever); no new sub-verb. A driver
++        // checks for `netsync.battle.host.handback` -- absent = an engine whose host never hands a captured guest slot back
++        // (and which reads `bench lapse` as `bench 1`).
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1045,6 +1050,39 @@ namespace Memoria.Harness
+                         case "bench":
+                             if (!Memoria.Netsync.NetSyncClient.IsSelfTestRole)
+                                 throw new InvalidOperationException("netsync bench: needs the selftest role (netsync selftest 1)");
++                            {
++                                // [ff9mapkit netsync B4] stage 11 -- two NAMED ops under `bench` (no new sub-verb; any other argument
++                                // keeps `bench <1|0>`, the field-gate bench, exactly as before):
++                                //   `bench lapse <1-600000 ms>|hold|end`  THE SELFTEST STALL: the own battle's loopback guest sends no
++                                //       control frame (ParseControl(null), a stale socket's call), so its GuestSlots fall back to the
++                                //       host's local menu after ~2.5 s; at the end the hand-back is due (`end`/`0` ends it now);
++                                //   `bench handback 1|0`  the stage's calibration lever (0 = the pre-stage host: no G6, no hand-back).
++                                // Read back: `battle.turn.slot`, `battle.hud.group|panel`, `netsync.battle.host.ready_mask` and
++                                // `netsync.battle.host.handback`. Both are released on disarm/fault/reset.
++                                // CAUTION: an engine before stage 11 parses `bench lapse`/`bench handback` as `bench 1` (the field-gate
++                                // bench ON): probe `netsync.battle.host.handback` first -- absent = do not send them.
++                                String bnop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
++                                if (bnop == "lapse")
++                                {
++                                    String la = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
++                                    Int32 lms = Arg(s, 2, Int32.MinValue);
++                                    Boolean lhold = la == "hold", lend = la == "end" || lms == 0;
++                                    if (s.Args.Length != 3 || (!lhold && !lend && (lms < 1 || lms > 600000)))
++                                        throw new ArgumentOutOfRangeException("netsync bench lapse", "expected `netsync bench lapse <1-600000 ms>|hold|end`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchLapse(lend ? 0 : lhold ? -1 : lms, out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench lapse refused");
++                                    break;
++                                }
++                                if (bnop == "handback")
++                                {
++                                    Int32 hb = Arg(s, 2, -1);
++                                    if (s.Args.Length != 3 || (hb != 0 && hb != 1))
++                                        throw new ArgumentOutOfRangeException("netsync bench handback", "expected `netsync bench handback 1|0`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessHandback(hb != 0, out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench handback refused");
++                                    break;
++                                }
++                            }
+                             Memoria.Netsync.NetSyncField.BenchGates = Arg(s, 1, 1) != 0;
+                             Memoria.Prime.Log.Message("[NetSync] field-gate bench " + (Memoria.Netsync.NetSyncField.BenchGates ? "ON" : "OFF") + " (harness)");
+                             break;
+@@ -2920,7 +2958,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[]},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1}}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3041,6 +3079,51 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync B4] stage 11 -- `netsync.battle.host.handback` (the guest-slot hand-back, BTL-1; design 4.7): the HOST
++        // side of a guest stall, MY own battle. `off` (the selftest calibration lever `netsync bench handback 0`), `held` (the
++        // GuestSlots slot my own command window holds, as the pumps last read it -- PHASE_NORMAL only, and a hand-back clears it
++        // the tick it fires; -1 = none / between battles), `held_ms`,
++        // `owed` (the held slot is guest-owned again -- a hand-back is due: it fires at the command root, waits in a submenu,
++        // and never fires under the lever), `g6_mask` (Ready bits G6 withheld in the last own-battle sample; -1 = no sample),
++        // the monotonic `captures` / `returns` / `deferred` / `faults` (holds of a guest slot by my window / hand-backs fired /
++        // holds whose hand-back waited / attempts that threw -- read DELTAS), `last` (the last hand-back or deferral: slot,
++        // frame = Time.frameCount, held_ms, why = "handed back" | "deferred: ..."; null = none yet) and `lapse` (the selftest
++        // stall `netsync bench lapse`: active, hold, left_ms -- -1 = none or hold -- count, end_frame = the frame it ended,
++        // -1 = not yet). A hand-back's latency is `last.frame - lapse.end_frame`.
++        private static void AppendHandback(StringBuilder sb)
++        {
++            sb.Append("\"handback\":{");
++            Bool(sb, "off", Memoria.Netsync.NetSyncBattle.HarnessHandbackOff); sb.Append(",");
++            Num(sb, "held", Memoria.Netsync.NetSyncBattle.HarnessHeldSlot); sb.Append(",");
++            Num(sb, "held_ms", Memoria.Netsync.NetSyncBattle.HarnessHeldMs); sb.Append(",");
++            Bool(sb, "owed", Memoria.Netsync.NetSyncBattle.HarnessHandbackOwed); sb.Append(",");
++            Num(sb, "g6_mask", Memoria.Netsync.NetSyncBattle.HarnessG6Mask); sb.Append(",");
++            Num(sb, "captures", Memoria.Netsync.NetSyncBattle.HarnessHandbackCaptures); sb.Append(",");
++            Num(sb, "returns", Memoria.Netsync.NetSyncBattle.HarnessHandbackReturns); sb.Append(",");
++            Num(sb, "deferred", Memoria.Netsync.NetSyncBattle.HarnessHandbackDeferred); sb.Append(",");
++            Num(sb, "faults", Memoria.Netsync.NetSyncBattle.HarnessHandbackFaults); sb.Append(",");
++            if (Memoria.Netsync.NetSyncBattle.HarnessLastHandbackSlot < 0)
++            {
++                sb.Append("\"last\":null,");
++            }
++            else
++            {
++                sb.Append("\"last\":{");
++                Num(sb, "slot", Memoria.Netsync.NetSyncBattle.HarnessLastHandbackSlot); sb.Append(",");
++                Num(sb, "frame", Memoria.Netsync.NetSyncBattle.HarnessLastHandbackFrame); sb.Append(",");
++                Num(sb, "held_ms", Memoria.Netsync.NetSyncBattle.HarnessLastHandbackHeldMs); sb.Append(",");
++                Str(sb, "why", Memoria.Netsync.NetSyncBattle.HarnessLastHandbackWhy);
++                sb.Append("},");
++            }
++            sb.Append("\"lapse\":{");
++            Bool(sb, "active", Memoria.Netsync.NetSyncBattle.HarnessLapseActive); sb.Append(",");
++            Bool(sb, "hold", Memoria.Netsync.NetSyncBattle.HarnessLapseHold); sb.Append(",");
++            Num(sb, "left_ms", Memoria.Netsync.NetSyncBattle.HarnessLapseLeftMs); sb.Append(",");
++            Num(sb, "count", Memoria.Netsync.NetSyncBattle.HarnessLapseCount); sb.Append(",");
++            Num(sb, "end_frame", Memoria.Netsync.NetSyncBattle.HarnessLapseEndFrame);
++            sb.Append("}}");
++        }
++
+         // [ff9mapkit netsync B4] stage 1 -- `netsync.battle`, additive under protocol 5 (an engine without it publishes
+         // no key: read absence as "this engine has no command-phase gates", never as "nothing there"). The B4/B5 arc
+         // grows it (studies/battle-coop/B4-B5-DESIGN.md section 6.4); stage 1 publishes:
+@@ -3103,6 +3186,7 @@ namespace Memoria.Harness
+         //     `manifest_rx` (distinct manifests stored -- monotonic; the bench seam never stores one, so a bench manifest
+         //     shows only on `peer.end.manifest`), `bench_manifest` (the `endbench manifest` preset in the template; 0 =
+         //     none) and `bench_manifest_note` (a marker that preset could not choose; null = every one).
++        // [ff9mapkit netsync B4] stage 11 adds to `host` the guest-slot hand-back (BTL-1): `handback` (see AppendHandback).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3144,7 +3228,8 @@ namespace Memoria.Harness
+                 Num(sb, "ap_at", learned[i][2]);
+                 sb.Append("}");
+             }
+-            sb.Append("]");
++            sb.Append("],");
++            AppendHandback(sb);                                                                      // [ff9mapkit netsync B4] stage 11
+             sb.Append("},\"peer\":{");
+             Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
+             Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");

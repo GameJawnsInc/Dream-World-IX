@@ -1,0 +1,1802 @@
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
+index 666f68c..2d9fc21 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
+@@ -443,12 +443,24 @@ public partial class BattleHUD : UIScene
+         {
+             commands[i] = CharacterCommands.CommandSets[presetId].Get(_isTranceMenu, CharacterCommandSet.SupportedMenus[i]);
+             commands[i] = BattleCommandHelper.Patch(commands[i], CharacterCommandSet.SupportedMenus[i], btl.Player, btl);
++            commands[i] = NetResolveMenuCommand(CharacterCommandSet.SupportedMenus[i], CurrentPlayerIndex, btl, presetId, commands[i]);   // [ff9mapkit netsync B4] stage 7
+             _commandEnabledState[CharacterCommandSet.SupportedMenus[i]] = BattleCommandHelper.GetCommandEnabledState(commands[i], CharacterCommandSet.SupportedMenus[i], btl.Player, btl);
++            // [ff9mapkit netsync B4] stage 7 -- ClampMenuState: on a co-op diorama's mirrored slot a command outside the v1 scope
++            // (Change, Throw-type, Mix) draws greyed (owner decision 2). One Boolean read outside a diorama.
++            if (Memoria.Netsync.NetSyncDiorama.Active)
++                _commandEnabledState[CharacterCommandSet.SupportedMenus[i]] = Memoria.Netsync.NetSyncBattle.ClampMenuState(CurrentPlayerIndex,
++                    (Int32)CharacterCommandSet.SupportedMenus[i], (Int32)commands[i], _commandEnabledState[CharacterCommandSet.SupportedMenus[i]]);
+         }
+         BattleCommandId accessMenuCommand = BattleCommandHelper.Patch(BattleCommandId.AccessMenu, BattleCommandMenu.AccessMenu, btl.Player, btl);
+         _commandEnabledState[BattleCommandMenu.AccessMenu] = BattleCommandHelper.GetCommandEnabledState(accessMenuCommand, BattleCommandMenu.AccessMenu, btl.Player, btl);
++        if (Memoria.Netsync.NetSyncDiorama.Active)   // [ff9mapkit netsync B4] stage 7: ...and AccessMenu (the in-battle main menu)
++            _commandEnabledState[BattleCommandMenu.AccessMenu] = Memoria.Netsync.NetSyncBattle.ClampMenuState(CurrentPlayerIndex,
++                (Int32)BattleCommandMenu.AccessMenu, (Int32)accessMenuCommand, _commandEnabledState[BattleCommandMenu.AccessMenu]);
+ 
+-        if (Configuration.Battle.NoAutoTrance && btl.Trance == Byte.MaxValue && !_isTranceMenu)
++        // [ff9mapkit netsync B4] stage 7: manual Trance is never offered on a mirrored slot -- the host's Trance is the host's
++        // (owner decision 8); Change is set up (greyed) by the else branch instead.
++        if (Configuration.Battle.NoAutoTrance && btl.Trance == Byte.MaxValue && !_isTranceMenu
++            && !(Memoria.Netsync.NetSyncDiorama.Active && Memoria.Netsync.NetSyncBattle.SkipManualTrance(CurrentPlayerIndex)))
+         {
+             if (!_isManualTrance)
+             {
+@@ -673,7 +685,10 @@ public partial class BattleHUD : UIScene
+         _itemIdList.Clear();
+         List<ListDataTypeBase> inDataList = new List<ListDataTypeBase>();
+         Boolean isThrow = ff9Command.Type == CharacterCommandType.Throw;
+-        foreach (FF9ITEM ff9Item in FF9StateSystem.Common.FF9.item)
++        // [ff9mapkit netsync B4] stage 7 -- RosterBag: a co-op diorama's mirrored slot lists the HOST's bag (the type-4 roster),
++        // never the guest's own; null everywhere else (one Boolean read outside a diorama) = the stock bag.
++        List<FF9ITEM> netBag = Memoria.Netsync.NetSyncDiorama.Active ? Memoria.Netsync.NetSyncBattle.RosterBag(CurrentPlayerIndex) : null;
++        foreach (FF9ITEM ff9Item in netBag ?? FF9StateSystem.Common.FF9.item)
+         {
+             if (ff9Item.count <= 0)
+                 continue;
+@@ -839,6 +854,12 @@ public partial class BattleHUD : UIScene
+             {
+                 BattleAbilityId patchedID = PatchAbility(ff9abil.GetActiveAbilityFromAbilityId(battleAbilityListData.Id));
+                 mp = GetActionMpCost(FF9StateSystem.Battle.FF9Battle.aa_data[patchedID], curUnit, patchedID);
++                if (Memoria.Netsync.NetSyncDiorama.Active)   // [ff9mapkit netsync B4] stage 7: a mirrored slot's MP column is the HOST's cost (the roster)
++                {
++                    Int32 rosterMp = Memoria.Netsync.NetSyncBattle.RosterAbilityMp(CurrentPlayerIndex, (Int32)_currentCommandIndex, battleAbilityListData.Id);
++                    if (rosterMp >= 0)
++                        mp = rosterMp;
++                }
+                 itemListDetailHud.NameLabel.rawText = FF9TextTool.ActionAbilityName(patchedID);
+                 itemListDetailHud.Button.Help.Text = FF9TextTool.ActionAbilityHelpDescription(patchedID);
+             }
+@@ -1320,6 +1341,19 @@ public partial class BattleHUD : UIScene
+         Boolean checkCurrentPlayer = playerIndex < 0;
+         if (checkCurrentPlayer)
+             playerIndex = CurrentPlayerIndex;
++        // [ff9mapkit netsync B4] stage 7 -- RosterAbilityState: on a co-op diorama's mirrored slot the stand-in's pa[] is all
++        // zero (every AP-learned row would draw blank), so the HOST's roster answers -- listed: Enable / Disable by its flag;
++        // not listed: None (a blank row, exactly stock). One hook for the list rows, the confirm check (CheckAbilityStatus) and
++        // the realtime repaint. Keyed to the open command's menu (and the command its list was built for, so a trance list the
++        // roster has not caught up with reads its normal counterpart) when it is the current slot's. One Boolean read outside a diorama.
++        if (Memoria.Netsync.NetSyncDiorama.Active)
++        {
++            Boolean netCurrent = playerIndex == CurrentPlayerIndex;
++            Int32 rosterState = Memoria.Netsync.NetSyncBattle.RosterAbilityState(playerIndex, netCurrent ? (Int32)_currentCommandIndex : -1, abilId,
++                netCurrent ? (Int32)_currentCommandId : -1);
++            if (rosterState >= 0)
++                return (AbilityStatus)rosterState;
++        }
+         AbilityPlayerDetail abilityPlayerDetail = _abilityDetailDict[playerIndex];
+         BattleUnit unit = FF9StateSystem.Battle.FF9Battle.GetUnit(playerIndex);
+         BattleAbilityId patchedId = BattleAbilityHelper.Patch(ff9abil.GetActiveAbilityFromAbilityId(abilId), unit.Player);
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Const.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Const.cs
+index a6c8b63..9e0e2f3 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Const.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Const.cs
+@@ -230,7 +230,8 @@ public partial class BattleHUD : UIScene
+         if ((Int32)commandIndex >= 0 && (Int32)commandIndex < CharacterCommandSet.SupportedMenus.Count)
+         {
+             BattleCommandId result = CharacterCommands.CommandSets[presetId].Get(player.IsUnderAnyStatus(BattleStatus.Trance), commandIndex);
+-            return BattleCommandHelper.Patch(result, commandIndex, player.Player, player);
++            // [ff9mapkit netsync B4] stage 7: a co-op diorama's mirrored slot resolves the HOST's command (NetResolveMenuCommand)
++            return NetResolveMenuCommand(commandIndex, playerIndex, player, presetId, BattleCommandHelper.Patch(result, commandIndex, player.Player, player));
+         }
+         else if (commandIndex == BattleCommandMenu.AccessMenu)
+         {
+@@ -239,6 +240,30 @@ public partial class BattleHUD : UIScene
+         return BattleCommandId.None;
+     }
+ 
++    // [ff9mapkit netsync B4] stage 7 -- RESOLVE THE MENU COMMAND (studies/battle-coop/B4-B5-DESIGN.md 4.5 item 1). Inside a co-op
++    // battle diorama a mirrored slot's stand-in carries the DEFAULT preset, so a host whose preset a script changed would show the
++    // wrong command here. NetSyncBattle.ResolveMenuCommand answers from the host's type-4 roster: its command wins only when it is
++    // none of this preset's patched normal/trance variants for the menu; otherwise the local value stands (trance-exact -- the
++    // reconciler mirrors Trance). One Boolean read outside a diorama; any fault keeps the local value. Shared by
++    // GetCommandFromCommandIndex (OnKeyConfirm's pick, the harness) and the DisplayCommand loop, so the drawn button and the
++    // committed command never disagree.
++    private static BattleCommandId NetResolveMenuCommand(BattleCommandMenu menu, Int32 playerIndex, BattleUnit player, CharacterPresetId presetId, BattleCommandId local)
++    {
++        if (!Memoria.Netsync.NetSyncDiorama.Active || !Memoria.Netsync.NetSyncBattle.IsMirroredSlot(playerIndex))
++            return local;
++        try
++        {
++            CharacterCommandSet set = CharacterCommands.CommandSets[presetId];
++            BattleCommandId normal = BattleCommandHelper.Patch(set.GetRegular(menu), menu, player.Player, player);
++            BattleCommandId trance = BattleCommandHelper.Patch(set.GetTrance(menu), menu, player.Player, player);
++            return (BattleCommandId)Memoria.Netsync.NetSyncBattle.ResolveMenuCommand(playerIndex, (Int32)menu, (Int32)local, (Int32)normal, (Int32)trance);
++        }
++        catch (Exception)
++        {
++            return local;
++        }
++    }
++
+     private static Int32 GetFirstAlivePlayerIndex()
+     {
+         Int32 index = 0;
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
+index c083d41..89b61dd 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
+@@ -202,6 +202,9 @@ public partial class BattleHUD : UIScene
+         _blinkAlphaCounter += RealTime.deltaTime * 3f;
+         _blinkAlphaCounter = _blinkAlphaCounter <= 2.0 ? _blinkAlphaCounter : 0.0f;
+         Single alpha = _blinkAlphaCounter > 1.0 ? 2f - _blinkAlphaCounter : _blinkAlphaCounter;
++        // [ff9mapkit netsync B4] stage 7: a content repaint's MuteActiveSound ends after its 2-frame settle. Unguarded on purpose:
++        // with nothing held it is one static field compare (cheaper than an Active read), and only a diorama repaint can hold it.
++        Memoria.Netsync.NetSyncBattle.StockMenuMuteSettle(false);
+         if (!_commandEnable)
+             return;
+ 
+@@ -251,6 +254,10 @@ public partial class BattleHUD : UIScene
+ 
+         if (CurrentPlayerIndex > -1)
+         {
++            // [ff9mapkit netsync B4] stage 7 -- the roster realtime repaint (the stock DisplayAbilityRealTime's sibling): inside a
++            // co-op diorama, a change of the menu roster's content repaints the open menu under MuteActiveSound.
++            if (Memoria.Netsync.NetSyncDiorama.Active && Memoria.Netsync.NetSyncBattle.StockRosterRepaintDue(CurrentPlayerIndex))
++                NetRefreshMenus();
+             BattleUnit unit = FF9StateSystem.Battle.FF9Battle.GetUnit(CurrentPlayerIndex);
+             if (ButtonGroupState.ActiveGroup == CommandGroupButton && _isTranceMenu)
+             {
+@@ -464,7 +471,7 @@ public partial class BattleHUD : UIScene
+                 return false;
+             }
+         }
+-        else if ((_subMenuType == SubMenuType.Item || _subMenuType == SubMenuType.Throw) && ff9item.FF9Item_GetCount(_itemIdList[_currentSubMenuIndex]) == 0)
++        else if ((_subMenuType == SubMenuType.Item || _subMenuType == SubMenuType.Throw) && NetItemCount(_itemIdList[_currentSubMenuIndex]) == 0)   // [ff9mapkit netsync B4] stage 7
+         {
+             FF9Sfx.FF9SFX_Play(101);
+             DisplayItem(CharacterCommands.Commands[_currentCommandId]);
+@@ -915,6 +922,7 @@ public partial class BattleHUD : UIScene
+         if (playerIndex >= 0 && CurrentPlayerIndex == playerIndex)
+         {
+             SetIdle();
++            _doubleCastCount = 0;   // [ff9mapkit netsync B4] stage 7: a pick closed mid-double-cast never strands its count (SetIdle keeps it)
+             any = true;
+         }
+         if (NetDropSlot(playerIndex))
+@@ -935,6 +943,7 @@ public partial class BattleHUD : UIScene
+         for (Int32 i = 0; i < 4; i++)
+             if (NetDropSlot(i))
+                 drained++;
++        _doubleCastCount = 0;   // [ff9mapkit netsync B4] stage 7: no double-cast count survives a close-all (SetIdle keeps it)
+         if (CurrentPlayerIndex >= 0)
+         {
+             try
+@@ -972,6 +981,83 @@ public partial class BattleHUD : UIScene
+         return _usingMainMenu;
+     }
+ 
++    // [ff9mapkit netsync B4] stage 7 -- the roster-fed content's HUD half (NetSyncBattle.StockMenu.cs owns the policy; design 4.5).
++
++    // Repaint on a roster change (item 7), stock ManagerInfo's idiom: the command buttons ALWAYS (DisplayCommand re-asserts the
++    // command group only when it is the active one, so an open submenu stays put; only the cursor memo is root-gated), the
++    // ability list if it is open, and the item list on its next realtime pass -- all under MuteActiveSound, held across the
++    // 2-frame settle (the list-refresh cursor-beep law; StockMenuMuteSettle releases it, and every close-all / boot forces the
++    // release). If the change RE-RESOLVED the command of the menu whose submenu or target panel is open (the host's command
++    // for that menu changed, or the slot started / stopped being mirrored), that panel was built for a command the menu no
++    // longer carries: back to the command panel with SFX 101, exactly stock's trance flip (UpdatePlayer), so the drawn
++    // button, the open list and the committed command never disagree. Called only inside a co-op diorama with a menu up. A
++    // fault is counted and logged (the repaint is cosmetic), never thrown into Update.
++    public void NetRefreshMenus()
++    {
++        if (CurrentPlayerIndex < 0)
++            return;
++        Memoria.Netsync.NetSyncBattle.StockMenuMute();
++        try
++        {
++            Boolean rootUp = ButtonGroupState.ActiveGroup == CommandGroupButton;
++            if (rootUp)
++                TryMemorizeCommand();
++            DisplayCommand();
++            if (!rootUp && (TargetPanel.activeSelf || (AbilityPanel != null && AbilityPanel.activeSelf) || (ItemPanel != null && ItemPanel.activeSelf)))
++            {
++                BattleCommandId resolved = GetCommandFromCommandIndex(_currentCommandIndex, CurrentPlayerIndex);
++                if (resolved != _currentCommandId)
++                {
++                    Memoria.Netsync.NetSyncBattle.NoteRepaintBounce(CurrentPlayerIndex, (Int32)_currentCommandIndex, (Int32)_currentCommandId, (Int32)resolved);
++                    FF9Sfx.FF9SFX_Play(101);
++                    ResetToReady();
++                    return;
++                }
++            }
++            if (AbilityPanel != null && AbilityPanel.activeSelf)
++                DisplayAbility();
++            _needItemUpdate = true;
++        }
++        catch (Exception err)
++        {
++            Memoria.Netsync.NetSyncBattle.NoteRepaintFault(err);
++        }
++    }
++
++    // The target-time item count (item 5): a mirrored slot reads the HOST's count from the roster, everything else the bag.
++    private Int32 NetItemCount(RegularItem itemId)
++    {
++        if (Memoria.Netsync.NetSyncDiorama.Active)
++        {
++            Int32 hostCount = Memoria.Netsync.NetSyncBattle.RosterItemCount(CurrentPlayerIndex, (Int32)itemId);
++            if (hostCount >= 0)
++                return hostCount;
++        }
++        return ff9item.FF9Item_GetCount(itemId);
++    }
++
++    // The bench fabricator's LOCAL read (NetSyncBattle `bbench roster auto`, under its content bypass, so the roster hooks
++    // answer stock): local slot playerIndex's own state of one ACTIVE ability -- 0 None (not learned/equipped: a blank row),
++    // 1 Disable, 2 Enable; -1 unreadable -- and its stock MP cost (menu-free, as the host's roster computes it).
++    public Int32 NetLocalAbility(Int32 playerIndex, Int32 activeAbilId, out Int32 mp)
++    {
++        mp = -1;
++        try
++        {
++            if (!_abilityDetailDict.ContainsKey(playerIndex))
++                return -1;
++            BattleUnit unit = FF9StateSystem.Battle.FF9Battle.GetUnit(playerIndex);
++            SetAbilityAp(_abilityDetailDict[playerIndex]);
++            BattleAbilityId patched = BattleAbilityHelper.Patch((BattleAbilityId)activeAbilId, unit.Player);
++            mp = GetActionMpCost(FF9StateSystem.Battle.FF9Battle.aa_data[patched], unit, patched, false);
++            return (Int32)GetAbilityState(ff9abil.GetAbilityIdFromActiveAbility((BattleAbilityId)activeAbilId), playerIndex);
++        }
++        catch (Exception)
++        {
++            return -1;
++        }
++    }
++
+     // [ff9mapkit netsync B4] stage 3 -- harness `battle.hud` (NetDescribeHud): what the live stock panels SHOW, read off the
+     // NGUI they draw (labels as drawn, greyed as drawn), so a bench can assert the first look -- and stage 7 the
+     // roster-fed content -- without trusting a screenshot alone. Read-only: no Display*/SetAbilityAp, nothing written.
+@@ -998,6 +1084,7 @@ public partial class BattleHUD : UIScene
+         public Int32 TargetCursor;   // _targetCursor (TargetType)
+         public Boolean TranceMenu, ManualTrance, AutoBattle, HidingHud, CanForceNextTurn, ForceNextTurn, UsingMainMenu;
+         public Boolean MenuShown;    // AllMenuPanel (every panel's container) is active -- the command menu is enabled + not hidden
++        public Boolean Mirrored;     // [ff9mapkit netsync B4] stage 7: Slot is a mirrored slot (its panels draw the host's roster)
+         public String Caption;       // the command panel's caption as drawn
+         public readonly List<NetHudRow> Commands = new List<NetHudRow>();
+         public readonly List<NetHudRow> Rows = new List<NetHudRow>();
+@@ -1021,6 +1108,7 @@ public partial class BattleHUD : UIScene
+         v.ForceNextTurn = ForceNextTurn;
+         v.UsingMainMenu = _usingMainMenu;
+         v.MenuShown = AllMenuPanel != null && AllMenuPanel.activeSelf;
++        v.Mirrored = CurrentPlayerIndex >= 0 && Memoria.Netsync.NetSyncBattle.IsMirroredSlot(CurrentPlayerIndex);   // [ff9mapkit netsync B4] stage 7
+         try { v.CanForceNextTurn = CanForceNextTurn; }
+         catch (Exception) { v.CanForceNextTurn = false; }
+         Boolean target = TargetPanel != null && TargetPanel.activeSelf;
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
+index 625926d..5a07dd5 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
+@@ -203,6 +203,8 @@ public partial class BattleHUD : UIScene
+             TryMemorizeCommand();
+             if (!triggerManualTrance && IsDoubleCast)
+                 _doubleCastCount = 1;
++            else if (Memoria.Netsync.NetSyncDiorama.Active)
++                _doubleCastCount = 0;   // [ff9mapkit netsync B4] stage 7: IsDoubleCast can change under a diorama (single cast follows the roster), so a single-cast pick never inherits a raised count
+ 
+             if (triggerManualTrance)
+             {
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+index c276502..b3f595e 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+@@ -20,8 +20,12 @@ public partial class BattleHUD : UIScene
+     public Boolean BtlWorkPeep => _currentPeepingMessageCount > 0;
+     public GameObject PlayerTargetPanel => TargetPanel.GetChild(0);
+     public GameObject EnemyTargetPanel => TargetPanel.GetChild(1);
+-    public Boolean IsDoubleCast => DoubleCastSet.Contains(_currentCommandId) || MixCommandSet.ContainsKey(_currentCommandId);
+-    public Boolean IsMixCast => MixCommandSet.ContainsKey(_currentCommandId);
++    // [ff9mapkit netsync B4] stage 7 -- single cast: a co-op diorama's mirrored slot makes ONE pick for a double-cast or Mix
++    // command (the v1 frame carries one; B4.2's v2 frame the pair). Evaluated only for such a command, and then one Boolean
++    // read outside a diorama.
++    public Boolean IsDoubleCast => (DoubleCastSet.Contains(_currentCommandId) || MixCommandSet.ContainsKey(_currentCommandId)) && !NetSingleCast();
++    public Boolean IsMixCast => MixCommandSet.ContainsKey(_currentCommandId) && !NetSingleCast();
++    private Boolean NetSingleCast() => Memoria.Netsync.NetSyncDiorama.Active && Memoria.Netsync.NetSyncBattle.SingleCastSlot(CurrentPlayerIndex);
+     public Boolean CanForceNextTurn => Configuration.Battle.Speed == 2 && UIManager.Battle.FF9BMenu_IsEnable() && !ForceNextTurn
+         && ReadyQueue.Count > 0 && FF9StateSystem.Battle.FF9Battle.cur_cmd == null && btl_cmd.GetFirstCommandReadyToDequeue(FF9StateSystem.Battle.FF9Battle) == null
+         && !Memoria.Netsync.NetSyncDiorama.Active;   // [ff9mapkit netsync B4] stage 3: a diorama's turn is the host's to force
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 1ead85a..fc90b38 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -96,6 +96,12 @@ namespace Memoria.Harness
+         // the btl_result stamp, the battle-song shutdown, the lifted end fade) and `declined` (the watcher's late-join
+         // declines), the `endbench exit on|off` calibration lever, and NetSyncEnd.SelfTest's `exit` section. A driver
+         // checks for `netsync.battle.end.end_leave` -- absent = an engine whose guest leaves only on the stale lane.
++        // [ff9mapkit netsync B4] stage 7 (the roster-fed menu content), also additive under 5: `netsync.battle.menu` gains
++        // `mirrored`/`roster_src`/`roster_sig`/`roster_gen`/`roster_painted`/`content_off`/`content_hits`/`content_faults`/
++        // `content_why`/`mute_held`/`roster`/`bench_roster` (see AppendStockContent), `battle.hud` gains `mirrored`, and the
++        // selftest verb `netsync bbench roster <hex...>|auto <L> [dbl] [grey] [mp=<n>] [count=<n>]|clear` and `netsync bbench
++        // content on|off|<mask>` join. A driver checks for `netsync.battle.menu.content_hits` -- absent = an engine whose
++        // diorama panels draw the stand-in's own content.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1269,6 +1275,42 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync bmenu refused");
+                             break;
+                         }
++                        case "bbench":
++                        {
++                            // [ff9mapkit netsync B4] stage 7 -- the roster-fed content bench (NetSyncBattle.HarnessStockBench),
++                            // selftest role only (stage 8 adds start|ready|caps|mode|unmap|stop to this verb):
++                            //   `bbench roster <hex...>`  a raw v1 type-4 roster (slots keyed by WIRE index) through the REAL
++                            //       ParseRoster -> the bench menu roster (the verb FAILS if ParseRoster refuses it);
++                            //   `bbench roster auto <L> [dbl] [grey] [mp=<n>] [count=<n>]`  FABRICATE a two-marker roster for
++                            //       LOCAL slot L inside a live `dioboot` diorama in its command phase -- a command outside the
++                            //       slot's preset (`dbl`: a double-cast one), the slot's own command listing ONLY an unlearned
++                            //       entry, a bag of one item the guest owns 0 of -- encoded in the v1 layout and read back
++                            //       through the REAL ParseRoster (the verb FAILS if the round trip changes a field); the
++                            //       markers chosen are published at `netsync.battle.menu.bench_roster`;
++                            //   `bbench roster clear`;
++                            //   `bbench content on|off|<mask>`  the calibration lever: the content hooks left ON (1 command,
++                            //       2 grey, 4 ability, 8 bag, 16 count, 32 cast, 64 refresh; off = the pre-stage guest).
++                            // Read back: `battle.hud` (the panels as drawn, `mirrored`), `netsync.battle.menu.mirrored/
++                            // content_hits/roster/bench_roster`. The roster and the lever are released on disarm/fault/reset.
++                            String bbop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
++                            String[] bbrest = new String[Math.Max(0, s.Args.Length - 2)];
++                            if (bbrest.Length > 0)
++                                Array.Copy(s.Args, 2, bbrest, 0, bbrest.Length);
++                            Byte[] bbhex = null;
++                            if (bbop == "roster" && bbrest.Length > 0)
++                            {
++                                String bbfirst = bbrest[0].ToLowerInvariant();
++                                if (bbfirst != "auto" && bbfirst != "clear")
++                                {
++                                    bbhex = ArgHex(s, 2);
++                                    if (bbhex == null)
++                                        throw new ArgumentOutOfRangeException("netsync bbench roster", "needs hex bytes (a v1 type-4 roster), `auto <L> [dbl] [grey] [mp=<n>] [count=<n>]` or `clear`");
++                                }
++                            }
++                            if (!Memoria.Netsync.NetSyncBattle.HarnessStockBench(bbop, bbrest, bbhex, out why))
++                                throw new InvalidOperationException(why ?? "netsync bbench refused");
++                            break;
++                        }
+                         case "endbench":
+                         {
+                             // [ff9mapkit netsync B5] stage 4 -- the end-block bench (NetSyncEnd.HarnessEndBench), selftest role only:
+@@ -1335,7 +1377,7 @@ namespace Memoria.Harness
+                             break;
+                         }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|endbench)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench)");
+                     }
+                     Block(2);
+                     break;
+@@ -2370,7 +2412,8 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync B4] stage 3 -- `battle.hud`: the live stock command panels AS DRAWN (BattleHUD.NetDescribeHud reads
+         // the NGUI labels and colours; it writes nothing). Built only inside a battle, like the rest of this section.
+         //   `group` (ButtonGroupState's raw group), `panel` ("target" | "ability" | "item" | "command" | "none" -- the topmost
+-        //   open panel), `shown` (the panels' container is active), `slot` (the LOCAL slot whose menu is up; -1 = none),
++        //   open panel), `shown` (the panels' container is active), `mirrored` ([ff9mapkit netsync B4] stage 7: `slot`'s panels
++        //   draw the host's roster), `slot` (the LOCAL slot whose menu is up; -1 = none),
+         //   `menu` / `cmd` / `sub` (the HUD's current BattleCommandMenu / BattleCommandId / sub-menu index), `double_cast`,
+         //   `cursor_type` (0 one, 1 all allies, 2 all enemies, 3 all), `target_cursor` (TargetType), `trance_menu`,
+         //   `manual_trance`, `auto`, `hiding`, `main_menu` (_usingMainMenu), `can_force_next`, `force_next`, `caption`,
+@@ -2394,6 +2437,7 @@ namespace Memoria.Harness
+                 Str(sb, "group", v.Group); sb.Append(",");
+                 Str(sb, "panel", v.Panel); sb.Append(",");
+                 Bool(sb, "shown", v.MenuShown); sb.Append(",");
++                Bool(sb, "mirrored", v.Mirrored); sb.Append(",");                   // [ff9mapkit netsync B4] stage 7
+                 Num(sb, "slot", v.Slot); sb.Append(",");
+                 Num(sb, "menu", v.Menu); sb.Append(",");
+                 Num(sb, "cmd", v.CommandId); sb.Append(",");
+@@ -2803,7 +2847,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -2965,6 +3009,9 @@ namespace Memoria.Harness
+         //     lane -- restarted by a new battle nonce, kept after the lane falls), `trailer_bad` / `trailer_skipped`
+         //     (malformed trailers / unknown-fmt records skipped -- monotonic per process, read DELTAS) and `trailer_why`.
+         // [ff9mapkit netsync B5] stage 5 adds the fourth sub-object, `end` (the guest's presentation -- see AppendBattleEnd).
++        // [ff9mapkit netsync B4] stage 7 adds to `menu` the roster-fed content keys (see AppendStockContent): `mirrored`,
++        //     `roster_src`, `roster_sig`, `roster_gen`, `roster_painted`, `content_off`, `content_hits`, `content_faults`,
++        //     `content_why`, `mute_held`, `roster`, `bench_roster`.
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3015,7 +3062,8 @@ namespace Memoria.Harness
+             Num(sb, "bench_open", Memoria.Netsync.NetSyncBattle.HarnessBenchOpenMask); sb.Append(",");
+             Num(sb, "side_refused", Memoria.Netsync.NetSyncBattle.HarnessSideRefused); sb.Append(",");
+             Str(sb, "side_why", Memoria.Netsync.NetSyncBattle.HarnessSideRefusedWhy); sb.Append(",");
+-            AppendStockCapture(sb);
++            AppendStockCapture(sb); sb.Append(",");
++            AppendStockContent(sb);                                                                     // [ff9mapkit netsync B4] stage 7
+             sb.Append("},");
+             AppendBattleEnd(sb);                                                                        // [ff9mapkit netsync B5] stage 5
+             sb.Append("}");
+@@ -3216,6 +3264,112 @@ namespace Memoria.Harness
+         // DECODED by the host's own TryDecodeCommand (wire side: `slot`, `action` 0 Attack / 1 Defend / 2 Ability / 3 Item /
+         // 4 Instant, `menu`, `id`, `mask`, `cursor`), plus the commit it came from (`local_slot`, `cmd` = the stock
+         // BattleCommandId, `site` = the commit method, `hex` = the 9 bytes, `action_name`). Null = none this boot.
++        // [ff9mapkit netsync B4] stage 7 -- the roster-fed content keys of `netsync.battle.menu` (NetSyncBattle.StockMenu.cs;
++        // studies/battle-coop/B4-B5-DESIGN.md 4.5). Reading them writes nothing (the repaint generation moves only in the HUD).
++        //   `mirrored` (the LOCAL party slots, ascending, whose panels draw the menu roster: inside a diorama, the roster carries
++        //   its wire index; a list like `roster_slots`, [] = none), `roster_src` ("bench" | "peer" | null -- the menu roster in
++        //   effect), `roster_sig` (its content signature,
++        //   "0x..." -- equal = the same content; null = none), `roster_gen` / `roster_painted` (the content generation the HUD
++        //   last saw / last repainted for; both move only while a diorama menu is up), `content_off` (the selftest lever: bit
++        //   per hook turned OFF -- 1 command, 2 grey, 4 ability, 8 bag, 16 count, 32 cast, 64 refresh; 0 = production),
++        //   `content_hits` ({command, grey, ability, bag, count, cast, refresh}: how many answers each hook gave that REPLACED
++        //   stock content -- monotonic per process, read DELTAS; `refresh` = repaints), `content_faults` / `content_why` (hook
++        //   faults swallowed -- monotonic -- and the last one), `mute_held` (a repaint's MuteActiveSound is still held),
++        //   `roster` (the menu roster: `slots[]` {wire, cmds[] {menu, cmd, type, abils, on}} + `items[]` {id, count}; null =
++        //   none) and `bench_roster` (what `bbench roster` armed: {src "auto"|"hex", bytes, slot, wire, marker_menu, marker_cmd,
++        //   marker_shown, marker_grey, marker_local_mp, uk_menu, uk_cmd, unlearned, unlearned_local_mp, learned, item, count,
++        //   mp, dbl, grey, note}; -1 = not fabricated; null = no bench roster).
++        private static void AppendStockContent(StringBuilder sb)
++        {
++            AppendIntList(sb, "mirrored", Memoria.Netsync.NetSyncBattle.HarnessMirroredSlots()); sb.Append(",");
++            Str(sb, "roster_src", Memoria.Netsync.NetSyncBattle.HarnessRosterSource); sb.Append(",");
++            Str(sb, "roster_sig", Memoria.Netsync.NetSyncBattle.HarnessRosterSig); sb.Append(",");
++            Num(sb, "roster_gen", Memoria.Netsync.NetSyncBattle.HarnessRosterGen); sb.Append(",");
++            Num(sb, "roster_painted", Memoria.Netsync.NetSyncBattle.HarnessRosterPainted); sb.Append(",");
++            Num(sb, "content_off", Memoria.Netsync.NetSyncBattle.HarnessContentOff); sb.Append(",");
++            sb.Append("\"content_hits\":{");
++            for (Int32 i = 0; i < Memoria.Netsync.NetSyncBattle.HarnessContentHitCount; i++)
++            {
++                if (i > 0) sb.Append(",");
++                Num(sb, Memoria.Netsync.NetSyncBattle.HarnessContentHitName(i), Memoria.Netsync.NetSyncBattle.HarnessContentHit(i));
++            }
++            sb.Append("},");
++            Num(sb, "content_faults", Memoria.Netsync.NetSyncBattle.HarnessContentFaults); sb.Append(",");
++            Str(sb, "content_why", Memoria.Netsync.NetSyncBattle.HarnessContentFaultWhy); sb.Append(",");
++            Bool(sb, "mute_held", Memoria.Netsync.NetSyncBattle.HarnessMuteHeld); sb.Append(",");
++            List<Int32[]> items = Memoria.Netsync.NetSyncBattle.HarnessRosterItems();
++            if (items == null)
++            {
++                sb.Append("\"roster\":null,");
++            }
++            else
++            {
++                sb.Append("\"roster\":{\"slots\":[");
++                Boolean firstSlot = true;
++                for (Int32 w = 0; w < 4; w++)
++                {
++                    List<Int32[]> cmds = Memoria.Netsync.NetSyncBattle.HarnessRosterCommands(w);
++                    if (cmds == null)
++                        continue;
++                    if (!firstSlot) sb.Append(",");
++                    firstSlot = false;
++                    sb.Append("{");
++                    Num(sb, "wire", w); sb.Append(",\"cmds\":[");
++                    for (Int32 i = 0; i < cmds.Count; i++)
++                    {
++                        Int32[] c = cmds[i];
++                        if (i > 0) sb.Append(",");
++                        sb.Append("{");
++                        Num(sb, "menu", c[0]); sb.Append(",");
++                        Num(sb, "cmd", c[1]); sb.Append(",");
++                        Num(sb, "type", c[2]); sb.Append(",");
++                        Num(sb, "abils", c[3]); sb.Append(",");
++                        Num(sb, "on", c[4]);
++                        sb.Append("}");
++                    }
++                    sb.Append("]}");
++                }
++                sb.Append("],\"items\":[");
++                for (Int32 i = 0; i < items.Count; i++)
++                {
++                    if (i > 0) sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "id", items[i][0]); sb.Append(",");
++                    Num(sb, "count", items[i][1]);
++                    sb.Append("}");
++                }
++                sb.Append("]},");
++            }
++            Memoria.Netsync.NetSyncBattle.BenchRosterInfo b = Memoria.Netsync.NetSyncBattle.HarnessBenchRoster;
++            if (b == null)
++            {
++                sb.Append("\"bench_roster\":null");
++                return;
++            }
++            sb.Append("\"bench_roster\":{");
++            Str(sb, "src", b.Source); sb.Append(",");
++            Num(sb, "bytes", b.Bytes); sb.Append(",");
++            Num(sb, "slot", b.Slot); sb.Append(",");
++            Num(sb, "wire", b.Wire); sb.Append(",");
++            Num(sb, "marker_menu", b.MarkerMenu); sb.Append(",");
++            Num(sb, "marker_cmd", b.MarkerCmd); sb.Append(",");
++            Num(sb, "marker_shown", b.MarkerShown); sb.Append(",");
++            Num(sb, "marker_grey", b.MarkerGrey); sb.Append(",");
++            Num(sb, "marker_local_mp", b.MarkerLocalMp); sb.Append(",");
++            Num(sb, "uk_menu", b.UkMenu); sb.Append(",");
++            Num(sb, "uk_cmd", b.UkCmd); sb.Append(",");
++            Num(sb, "unlearned", b.Unlearned); sb.Append(",");
++            Num(sb, "unlearned_local_mp", b.UnlearnedLocalMp); sb.Append(",");
++            Num(sb, "learned", b.Learned); sb.Append(",");
++            Num(sb, "item", b.Item); sb.Append(",");
++            Num(sb, "count", b.Count); sb.Append(",");
++            Num(sb, "mp", b.Mp); sb.Append(",");
++            Bool(sb, "dbl", b.Dbl); sb.Append(",");
++            Bool(sb, "grey", b.Grey); sb.Append(",");
++            Str(sb, "note", b.Note);
++            sb.Append("}");
++        }
++
+         private static void AppendStockCapture(StringBuilder sb)
+         {
+             Memoria.Netsync.NetSyncBattle.StockCaptureView c = Memoria.Netsync.NetSyncBattle.HarnessLastCapture();
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+index b04e7fb..7983915 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+@@ -1,7 +1,9 @@
+ using System;
+ using System.Collections.Generic;
++using System.IO;
+ using FF9;
+ using Memoria.Data;
++using Memoria.Database;
+ using Memoria.Prime;
+ 
+ namespace Memoria.Netsync
+@@ -159,6 +161,11 @@ namespace Memoria.Netsync
+             BattleCommandId cmd = (BattleCommandId)cmdId;
+             if (cmdType < 0)
+                 return "command " + cmd + " is not in this install's command table";
++            // [ff9mapkit netsync B4] stage 7: a Mix command (Memoria's MixCommandSet) is outside the v1 scope however it is
++            // reached -- stage 7's single cast makes IsMixCast read false on a mirrored slot, so a Mix pick that slipped past
++            // its greyed button would otherwise commit through SendCommand as ONE item use. Keep V1Scope in step.
++            if (BattleHUD.MixCommandSet.ContainsKey(cmd))
++                return "Mix (" + cmd + ") is outside the v1 command scope (B4.2)";
+             if (menu == (Int32)BattleCommandMenu.Attack)
+             {
+                 action = ActAttack;
+@@ -322,6 +329,7 @@ namespace Memoria.Netsync
+         {
+             try
+             {
++                StockMenuMuteSettle(true);                // [ff9mapkit netsync B4] stage 7: a held repaint mute never outlives the menu
+                 Int32 dropped = _stockOutbox.Count;
+                 _stockOutbox.Clear();
+                 Int32 bench = _benchOpenMask;
+@@ -360,6 +368,10 @@ namespace Memoria.Netsync
+             _stockLastLocal = -1;
+             _stockLastCmd = -1;
+             _stockLastSite = null;
++            StockMenuMuteSettle(true);                    // [ff9mapkit netsync B4] stage 7: no repaint mute crosses a boot,
++            _sigTaken = false;                            // the menu roster's signature is retaken (the generation keeps counting)
++            _contentLogged.Clear();                       // and the content lines log afresh
++            _contentLogCapNoted = false;
+         }
+ 
+         // Every harness release (HarnessReleaseBench): the capture lever back on. The bench-opened slots close with the
+@@ -369,6 +381,626 @@ namespace Memoria.Netsync
+             if (BenchStockCaptureOff)
+                 Log.Message("[NetSync] harness: stock-menu capture back ON (released with the harness)");
+             BenchStockCaptureOff = false;
++            // [ff9mapkit netsync B4] stage 7: the content lever back on and the bench roster gone (an open bench menu repaints
++            // to its stock content on its next frame -- the generation changes).
++            if (BenchContentOff != 0)
++                Log.Message("[NetSync] harness: stock-menu content hooks back ON (released with the harness)");
++            BenchContentOff = 0;
++            if (_benchRoster != null)
++                Log.Message("[NetSync] harness: the bench menu roster cleared (released with the harness)");
++            _benchRoster = null;
++            _benchInfo = null;
++        }
++
++        // ======================================================================================= stage 7: roster-fed content
++        // [ff9mapkit netsync B4] stage 7 -- ROSTER-FED MENU CONTENT (studies/battle-coop/B4-B5-DESIGN.md 4.5, section 7 stage 7).
++        // The diorama seats a STAND-IN per host party member (FF9Play_New: the default preset, pa[] all zero) and the bag is
++        // the GUEST's own, so a stock panel built from local state shows the stand-in's preset commands, hides nearly every
++        // learned ability (a row below max AP draws blank) and lists the guest's items. The host already ships the truth per
++        // guest slot in the type-4 roster (Attack / Ability1 / Ability2, the abilities each lists with the host's MP cost and
++        // enabled flag, and one battle-usable item list). For a MIRRORED slot the stock panels draw THAT:
++        //   (1) command -- ResolveMenuCommand (GetCommandFromCommandIndex + the DisplayCommand loop): the roster's command for
++        //                  Attack/Ability1/Ability2 wins only when it is NOT one of the local preset's patched {normal, trance}
++        //                  variants for that menu (the host's script-changed preset, which the stand-in cannot know); else the
++        //                  local value stands -- trance-exact, the reconciler mirrors the Trance bit;
++        //   (2) grey    -- ClampMenuState (+ SkipManualTrance): Change, Throw-type, Mix and AccessMenu draw greyed (state 1)
++        //                  and manual Trance never relabels Change -- owner decisions 2 and 8, all B4.2's;
++        //   (3) ability -- RosterAbilityState at the head of GetAbilityState (list rows, the confirm check, the realtime
++        //                  repaint): listed -> Enable / Disable by the host's flag; absent -> None (a blank row, exactly
++        //                  stock; a trance list the roster has not caught up with reads its normal counterpart through
++        //                  TranceBridge); RosterAbilityMp -> the MP column is the host's cost;
++        //   (4) bag     -- RosterBag (DisplayItem): the HOST's items, never the guest's own (a fault lists NOTHING);
++        //   (5) count   -- RosterItemCount (ManageTargetCommand's per-frame target-time count);
++        //   (6) cast    -- SingleCastSlot: IsDoubleCast / IsMixCast read false -- one pick, one v1 frame (B4.2 the pair);
++        //   (7) refresh -- StockRosterRepaintDue -> BattleHUD.NetRefreshMenus, under MuteActiveSound, on every change of the
++        //                  menu roster's CONTENT while a menu is up: the command buttons always (stock ManagerInfo's idiom),
++        //                  and an open submenu / target panel whose menu's command RE-RESOLVED goes back to the command panel.
++        // NOT hooked, on purpose (design 4.5, risk 11): the target-time MP and CannotUseMagic checks read the mirrored unit; a
++        // divergence bounces back with stock SFX 101 or the host refuses -- nothing ever commits locally (the capture).
++        //
++        // MIRRORED (IsMirroredSlot) = NetSyncDiorama.Active && the menu roster carries the slot's WIRE index (the character-id
++        // join, NetSyncDiorama.WireIndexForLocal). The menu roster is the selftest BENCH roster (`netsync bbench roster`, the
++        // selftest role only), else the live peer roster -- and that one only under the party mirror (NetSyncParty.MirrorActive):
++        // without it the diorama seats the guest's own party and the wire<->local join is meaningless (design 4.2). Every hook
++        // keys on Active first (false in every real battle on both machines), so vanilla, solo and the host's own fight never
++        // get past one Boolean read; every hook answers "stock" on any doubt and never throws into the engine.
++        public const Int32 ContentCommand = 1, ContentGrey = 2, ContentAbility = 4, ContentBag = 8, ContentCount = 16,
++                           ContentCast = 32, ContentRefresh = 64, ContentAll = 127;
++        private static readonly String[] ContentNames = { "command", "grey", "ability", "bag", "count", "cast", "refresh" };
++        // SELFTEST CALIBRATION LEVER (harness `netsync bbench content on|off|<mask>`; released with the harness): the hooks
++        // turned OFF, a bit per hook above (0 = production; ContentAll = exactly the pre-stage guest's panels). Read only
++        // through ContentOn, which also needs the selftest role: a lever stranded across an ini edit never reaches production.
++        public static Int32 BenchContentOff;
++        private static Boolean _contentBypass;           // the bench fabricator reads LOCAL (stock) state through the hooked paths
++        private static readonly Int32[] _contentHits = new Int32[7];   // per hook: answers that replaced stock content (monotonic)
++        private static Int32 _contentFaults;              // hook faults swallowed (monotonic)
++        private static String _contentFaultWhy;           // the last one (null = none)
++
++        private static Boolean ContentOn(Int32 bit)
++        {
++            return !_contentBypass && !((BenchContentOff & bit) != 0 && NetSyncClient.IsSelfTestRole);
++        }
++
++        // The content lines' OWN once-per-boot budget (a 4-slot diorama can name ~30 keys): they never spend stage 3's
++        // StockLogFirst budget, so a capture refusal line is never silenced by content lines. Past the cap: counters only.
++        private const Int32 ContentLogKeysCap = 48;
++        private static readonly List<String> _contentLogged = new List<String>(16);
++        private static Boolean _contentLogCapNoted;
++
++        private static Boolean ContentLogFirst(String key)
++        {
++            if (_contentLogged.Contains(key))
++                return false;
++            if (_contentLogged.Count >= ContentLogKeysCap)
++            {
++                if (!_contentLogCapNoted)
++                {
++                    _contentLogCapNoted = true;
++                    Log.Message("[NetSync] stock menu: " + ContentLogKeysCap + " distinct content lines this boot -- further ones are "
++                                + "counted (content_hits / content_faults), not logged");
++                }
++                return false;
++            }
++            _contentLogged.Add(key);
++            return true;
++        }
++
++        private static void Hit(Int32 bit)
++        {
++            for (Int32 i = 0; i < _contentHits.Length; i++)
++                if (bit == 1 << i)
++                {
++                    _contentHits[i]++;
++                    return;
++                }
++        }
++
++        private static void NoteContentFault(String where, Exception ex)
++        {
++            try
++            {
++                _contentFaults++;
++                _contentFaultWhy = where + ": " + ex.GetType().Name + ": " + ex.Message;
++                if (ContentLogFirst("fault " + where))
++                    Log.Message("[NetSync] stock menu: content hook " + where + " FAULTED (" + ex.GetType().Name + ": " + ex.Message
++                                + ") -- the panel draws stock content there (a mirrored bag draws empty); logged once per boot");
++            }
++            catch { }
++        }
++
++        // The selftest bench roster (`netsync bbench roster`): ALWAYS the output of the REAL ParseRoster.
++        private static RosterView _benchRoster;
++        private static BenchRosterInfo _benchInfo;
++
++        // The menu roster: the bench roster (selftest role), else the LIVE peer roster under the party mirror. Null = none.
++        private static RosterView MenuRoster(out String source)
++        {
++            source = null;
++            if (_benchRoster != null && NetSyncClient.IsSelfTestRole)
++            {
++                source = "bench";
++                return _benchRoster;
++            }
++            RosterView r = _peerRoster;
++            if (r == null || !PeerBattleLive || !NetSyncParty.MirrorActive)
++                return null;
++            source = "peer";
++            return r;
++        }
++
++        // A mirrored slot's roster commands (and the roster); null = not mirrored -> stock content. Never throws.
++        private static List<CmdView> MirroredRoster(Int32 localSlot, out RosterView roster)
++        {
++            roster = null;
++            if (localSlot < 0 || localSlot > 3 || !NetSyncDiorama.Active)
++                return null;
++            try
++            {
++                String src;
++                RosterView r = MenuRoster(out src);
++                if (r == null)
++                    return null;
++                Int32 wire = NetSyncDiorama.WireIndexForLocal(localSlot);
++                List<CmdView> cmds;
++                if (wire < 0 || !r.Slots.TryGetValue(wire, out cmds) || cmds == null)
++                    return null;
++                roster = r;
++                return cmds;
++            }
++            catch (Exception ex)
++            {
++                NoteContentFault("mirror lookup", ex);
++                return null;
++            }
++        }
++
++        /// <summary>Content predicate (design 4.2): inside a booted diorama, local party slot L's menus are fed by the menu
++        /// roster (the host's truth). False everywhere else -- every content hook is stock then. Never throws.</summary>
++        public static Boolean IsMirroredSlot(Int32 localSlot)
++        {
++            RosterView r;
++            return MirroredRoster(localSlot, out r) != null;
++        }
++
++        /// <summary>
++        /// (1) The command a mirrored slot's menu shows (BattleCommandId values): the roster's command for that menu when it
++        /// is NOT the local value nor one of the local preset's patched normal/trance variants -- the host's script-changed
++        /// preset; otherwise <paramref name="local"/>. Any doubt (not mirrored, the menu absent from the roster -- Defend, Item,
++        /// Change, AccessMenu never ride it -- or an id this install lacks) = local. Never throws.
++        /// </summary>
++        public static Int32 ResolveMenuCommand(Int32 localSlot, Int32 menu, Int32 local, Int32 normal, Int32 trance)
++        {
++            if (!ContentOn(ContentCommand))
++                return local;
++            RosterView r;
++            List<CmdView> cmds = MirroredRoster(localSlot, out r);
++            if (cmds == null)
++                return local;
++            try
++            {
++                for (Int32 i = 0; i < cmds.Count; i++)
++                {
++                    CmdView c = cmds[i];
++                    if (c == null || c.Menu != menu)
++                        continue;
++                    Int32 host = c.CmdId;
++                    if (host == local || host == normal || host == trance)
++                        return local;
++                    if (host == (Int32)BattleCommandId.None || !CharacterCommands.Commands.ContainsKey((BattleCommandId)host))
++                    {
++                        if (ContentLogFirst("cmd unknown " + localSlot + "/" + menu + "/" + host))
++                            Log.Message("[NetSync] stock menu: local slot " + localSlot + " menu " + (BattleCommandMenu)menu + ": the host's command "
++                                        + host + " is not in this install's command table -- the stand-in's " + (BattleCommandId)local
++                                        + " stays (logged once per boot)");
++                        return local;
++                    }
++                    Hit(ContentCommand);
++                    if (ContentLogFirst("cmd " + localSlot + "/" + menu + "/" + host))
++                        Log.Message("[NetSync] stock menu: local slot " + localSlot + " menu " + (BattleCommandMenu)menu + " shows the HOST's "
++                                    + (BattleCommandId)host + " instead of the stand-in's " + (BattleCommandId)local + " (not a variant of its preset: "
++                                    + (BattleCommandId)normal + " / " + (BattleCommandId)trance + " -- the host's script-changed preset; logged once per boot)");
++                    return host;
++                }
++            }
++            catch (Exception ex)
++            {
++                NoteContentFault("ResolveMenuCommand", ex);
++            }
++            return local;
++        }
++
++        /// <summary>(2) A mirrored slot's command outside the v1 scope (Change, Throw-type, Mix, AccessMenu) draws GREYED: an
++        /// enabled state (2) is clamped to 1. Every other state, slot or command passes unchanged. Never throws.</summary>
++        public static Int32 ClampMenuState(Int32 localSlot, Int32 menu, Int32 cmdId, Int32 state)
++        {
++            if (state < 2 || !ContentOn(ContentGrey) || !IsMirroredSlot(localSlot))
++                return state;
++            try
++            {
++                String why = V1Scope(menu, cmdId);
++                if (why == null)
++                    return state;
++                Hit(ContentGrey);
++                if (ContentLogFirst("grey " + localSlot + "/" + menu + "/" + cmdId))
++                    Log.Message("[NetSync] stock menu: local slot " + localSlot + " menu " + (BattleCommandMenu)menu + " (" + (BattleCommandId)cmdId
++                                + ") drawn GREYED -- " + why + " (owner decision 2; logged once per boot)");
++                return 1;
++            }
++            catch (Exception ex)
++            {
++                NoteContentFault("ClampMenuState", ex);
++                return state;
++            }
++        }
++
++        /// <summary>(2) DisplayCommand's NoAutoTrance branch (Change relabelled "Trance") is skipped for a mirrored slot: the
++        /// host's Trance is the host's to trigger (owner decision 8). True = skip. Never throws.</summary>
++        public static Boolean SkipManualTrance(Int32 localSlot)
++        {
++            if (!ContentOn(ContentGrey) || !IsMirroredSlot(localSlot))
++                return false;
++            Hit(ContentGrey);
++            if (ContentLogFirst("trance " + localSlot))
++                Log.Message("[NetSync] stock menu: local slot " + localSlot + " -- manual Trance (NoAutoTrance) is not offered on a mirrored "
++                            + "slot; Change draws greyed instead (owner decision 8; logged once per boot)");
++            return true;
++        }
++
++        // The v1 command scope by CLASS (no per-pick id): null = ForwardStockCommand can carry this command; else why not.
++        // V1Action's classification minus its id checks -- keep the two in step.
++        private static String V1Scope(Int32 menu, Int32 cmdId)
++        {
++            BattleCommandId cmd = (BattleCommandId)cmdId;
++            if (menu == (Int32)BattleCommandMenu.AccessMenu || cmd == BattleCommandId.AccessMenu)
++                return "AccessMenu (the in-battle main menu) is outside the v1 command scope";
++            CharacterCommand cc;
++            if (!CharacterCommands.Commands.TryGetValue(cmd, out cc) || cc == null)
++                return null;                                 // stock: the capture refuses it if it is ever picked
++            if (BattleHUD.MixCommandSet.ContainsKey(cmd))
++                return "Mix is outside the v1 command scope (B4.2)";
++            if (menu == (Int32)BattleCommandMenu.Attack || cmd == BattleCommandId.Defend)
++                return null;
++            if (cmd == BattleCommandId.Change || menu == (Int32)BattleCommandMenu.Change)
++                return "Change is outside the v1 command scope (B4.2)";
++            if (menu == (Int32)BattleCommandMenu.Item)
++                return cc.Type == CharacterCommandType.Item ? null
++                     : cmd + " (a " + cc.Type + " command) is outside the v1 command scope (Throw rides B4.2)";
++            if (menu == (Int32)BattleCommandMenu.Ability1 || menu == (Int32)BattleCommandMenu.Ability2 || menu == (Int32)BattleCommandMenu.Defend)
++            {
++                if (cc.Type == CharacterCommandType.Ability && menu != (Int32)BattleCommandMenu.Defend)
++                    return null;
++                if (cc.Type == CharacterCommandType.Normal || cc.Type == CharacterCommandType.Instant)
++                    return null;
++                return cmd + " (a " + cc.Type + " command) is outside the v1 command scope (Throw rides B4.2)";
++            }
++            return "menu " + menu + " (" + cmd + ") is outside the v1 command scope";
++        }
++
++        // A roster ability by ACTIVE id: in the given menu's command (menu < 0 = any of the slot's commands). Null = absent.
++        private static AbilView FindRosterAbility(List<CmdView> cmds, Int32 menu, Int32 activeId)
++        {
++            for (Int32 i = 0; i < cmds.Count; i++)
++            {
++                CmdView c = cmds[i];
++                if (c == null || (menu >= 0 && c.Menu != menu))
++                    continue;
++                for (Int32 a = 0; a < c.Abilities.Count; a++)
++                    if (c.Abilities[a] != null && c.Abilities[a].Id == activeId)
++                        return c.Abilities[a];
++            }
++            return null;
++        }
++
++        // (3) THE TRANCE BRIDGE. The stand-in's Trance bit is mirrored every sample, but the host rebuilds the roster only every
++        // RosterMs, so for up to a roster period the open menu shows the preset's TRANCE command (Dyne, Eidolon, Elan) while the
++        // roster still lists its NORMAL counterpart (Skill, Summon, Flair) -- or the reverse on leaving Trance. ResolveMenuCommand
++        // rightly keeps the local command, but a trance list whose ability ids differ from the normal one's would draw every
++        // row blank. Stock's own rule (SetAbilityTrance) learns trance entry j iff normal entry j is learned, so the row reads
++        // the counterpart's roster entry through that positional pairing (its Enabled flag; the MP column stays stock for a
++        // bridged row -- RosterAbilityMp does not bridge). ONLY when the roster's command for the menu and the shown one are
++        // exactly the stand-in preset's patched {normal, trance} pair (the case ResolveMenuCommand tolerates); anything else
++        // answers null (a blank row). Cheap on the steady path: the roster command equal to the shown one returns at once.
++        private static AbilView TranceBridge(Int32 localSlot, List<CmdView> cmds, Int32 menu, Int32 activeId, Int32 shownCmd)
++        {
++            if (menu < 0 || shownCmd <= 0)
++                return null;
++            CmdView host = null;
++            for (Int32 i = 0; i < cmds.Count; i++)
++                if (cmds[i] != null && cmds[i].Menu == menu)
++                {
++                    host = cmds[i];
++                    break;
++                }
++            if (host == null || host.CmdId == shownCmd || host.Abilities == null)
++                return null;
++            CharacterCommand shown, other;
++            if (!CharacterCommands.Commands.TryGetValue((BattleCommandId)shownCmd, out shown) || shown == null || shown.ListEntry == null
++                || shown.Type != CharacterCommandType.Ability
++                || !CharacterCommands.Commands.TryGetValue((BattleCommandId)host.CmdId, out other) || other == null || other.ListEntry == null
++                || other.Type != CharacterCommandType.Ability)
++                return null;
++            BattleUnit unit = FF9StateSystem.Battle.FF9Battle.GetUnit(localSlot);
++            PLAYER player = unit.Player;
++            PLAYER member = FF9StateSystem.Common.FF9.party.member[unit.Position];
++            CharacterCommandSet set;
++            if (player == null || member == null || !CharacterCommands.CommandSets.TryGetValue(member.PresetId, out set) || set == null)
++                return null;
++            BattleCommandMenu m = (BattleCommandMenu)menu;
++            Int32 normal = (Int32)BattleCommandHelper.Patch(set.GetRegular(m), m, player, unit);
++            Int32 trance = (Int32)BattleCommandHelper.Patch(set.GetTrance(m), m, player, unit);
++            if (normal == trance || !((shownCmd == normal && host.CmdId == trance) || (shownCmd == trance && host.CmdId == normal)))
++                return null;
++            Int32 n = Math.Min(shown.ListEntry.Length, other.ListEntry.Length);
++            for (Int32 j = 0; j < n; j++)
++            {
++                if (shown.ListEntry[j] != activeId)
++                    continue;
++                Int32 counterpart = other.ListEntry[j];
++                for (Int32 a = 0; a < host.Abilities.Count; a++)
++                    if (host.Abilities[a] != null && host.Abilities[a].Id == counterpart)
++                    {
++                        if (ContentLogFirst("bridge " + localSlot + "/" + menu))
++                            Log.Message("[NetSync] stock menu: local slot " + localSlot + " menu " + m + " shows " + (BattleCommandId)shownCmd
++                                        + " while the roster still lists the host's " + (BattleCommandId)host.CmdId + " -- its rows read the "
++                                        + "counterpart entries through stock's positional normal/trance pairing until the host's next roster "
++                                        + "(logged once per boot)");
++                        return host.Abilities[a];
++                    }
++                return null;
++            }
++            return null;
++        }
++
++        /// <summary>(3) A mirrored slot's ability state from the roster (abilId = the ability-index space GetAbilityState
++        /// takes; menu = the open command's BattleCommandMenu, -1 = any; shownCmd = the BattleCommandId the open list was built
++        /// for, -1 = unknown): 2 Enable / 1 Disable by the host's flag, 0 None (not listed: a blank row, exactly stock). A row
++        /// of the preset's trance list while the roster still carries its normal counterpart (or the reverse) is read through
++        /// TranceBridge. -1 = not mirrored -> stock. Never throws.</summary>
++        public static Int32 RosterAbilityState(Int32 localSlot, Int32 menu, Int32 abilId, Int32 shownCmd)
++        {
++            if (!ContentOn(ContentAbility))
++                return -1;
++            RosterView r;
++            List<CmdView> cmds = MirroredRoster(localSlot, out r);
++            if (cmds == null)
++                return -1;
++            try
++            {
++                Int32 active = (Int32)ff9abil.GetActiveAbilityFromAbilityId(abilId);
++                AbilView a = FindRosterAbility(cmds, menu, active);
++                if (a == null)
++                    a = TranceBridge(localSlot, cmds, menu, active, shownCmd);
++                Hit(ContentAbility);
++                return a == null ? 0 : a.Enabled ? 2 : 1;
++            }
++            catch (Exception ex)
++            {
++                NoteContentFault("RosterAbilityState", ex);
++                return -1;
++            }
++        }
++
++        /// <summary>(3) The host's MP cost of a listed ability (the MP column); -1 = not mirrored or not listed -> stock.
++        /// Never throws.</summary>
++        public static Int32 RosterAbilityMp(Int32 localSlot, Int32 menu, Int32 abilId)
++        {
++            if (!ContentOn(ContentAbility))
++                return -1;
++            RosterView r;
++            List<CmdView> cmds = MirroredRoster(localSlot, out r);
++            if (cmds == null)
++                return -1;
++            try
++            {
++                AbilView a = FindRosterAbility(cmds, menu, (Int32)ff9abil.GetActiveAbilityFromAbilityId(abilId));
++                return a == null ? -1 : a.Mp;
++            }
++            catch (Exception ex)
++            {
++                NoteContentFault("RosterAbilityMp", ex);
++                return -1;
++            }
++        }
++
++        /// <summary>(4) The bag a mirrored slot's item list enumerates: the HOST's items (count > 0, ids this install knows) as
++        /// FF9ITEMs -- a fresh list, never the guest's own FF9.item. Null = not mirrored -> stock. A fault on a mirrored slot
++        /// returns an EMPTY list (no item), never the guest's own bag. Never throws.</summary>
++        public static List<FF9ITEM> RosterBag(Int32 localSlot)
++        {
++            if (!ContentOn(ContentBag))
++                return null;
++            RosterView r;
++            if (MirroredRoster(localSlot, out r) == null || r == null)
++                return null;
++            List<FF9ITEM> bag = new List<FF9ITEM>(16);
++            try
++            {
++                Int32 unknown = 0;
++                for (Int32 i = 0; i < r.Items.Count; i++)
++                {
++                    ItemView it = r.Items[i];
++                    if (it == null || it.Count <= 0)
++                        continue;
++                    RegularItem id = (RegularItem)it.Id;
++                    if (!ff9item._FF9Item_Data.ContainsKey(id))
++                    {
++                        unknown++;
++                        continue;
++                    }
++                    bag.Add(new FF9ITEM(id, (Byte)Math.Min(it.Count, 255)));
++                }
++                Hit(ContentBag);
++                if (ContentLogFirst("bag " + localSlot))
++                    Log.Message("[NetSync] stock menu: local slot " + localSlot + " lists the HOST's bag (" + bag.Count + " item(s) from the roster"
++                                + (unknown > 0 ? ", " + unknown + " id(s) this install lacks skipped" : "") + ") -- never the guest's own "
++                                + "(logged once per boot)");
++            }
++            catch (Exception ex)
++            {
++                NoteContentFault("RosterBag", ex);
++                bag.Clear();
++            }
++            return bag;
++        }
++
++        /// <summary>(5) The host's count of an item for a mirrored slot's target-time check (0 = not in the host's bag); -1 = not
++        /// mirrored -> stock (the guest's own count). Per frame while the target panel is up: no list or roster allocation (the
++        /// mirror lookup's NetSyncDiorama.Active read is the scene-name check every Active hook pays). Never throws.</summary>
++        public static Int32 RosterItemCount(Int32 localSlot, Int32 itemId)
++        {
++            if (!ContentOn(ContentCount))
++                return -1;
++            RosterView r;
++            if (MirroredRoster(localSlot, out r) == null || r == null)
++                return -1;
++            try
++            {
++                Hit(ContentCount);
++                for (Int32 i = 0; i < r.Items.Count; i++)
++                    if (r.Items[i] != null && r.Items[i].Id == itemId)
++                        return r.Items[i].Count;
++                return 0;
++            }
++            catch (Exception ex)
++            {
++                NoteContentFault("RosterItemCount", ex);
++                return 0;
++            }
++        }
++
++        /// <summary>(6) BattleHUD.IsDoubleCast / IsMixCast (reached only for a double-cast or Mix command): true = this mirrored
++        /// slot casts ONCE -- one pick, one v1 frame (the true pair rides B4.2's v2 frame). Never throws.</summary>
++        public static Boolean SingleCastSlot(Int32 localSlot)
++        {
++            if (!ContentOn(ContentCast) || !IsMirroredSlot(localSlot))
++                return false;
++            Hit(ContentCast);
++            if (ContentLogFirst("cast " + localSlot))
++                Log.Message("[NetSync] stock menu: local slot " + localSlot + " -- a double-cast / Mix command makes ONE pick on a mirrored "
++                            + "slot (the v1 frame carries one; B4.2 the pair; logged once per boot)");
++            return true;
++        }
++
++        // ---- (7) the repaint: a content signature of the menu roster, retaken whenever the roster OBJECT changes (the
++        // peer lane re-parses at the pump's rate, the bench re-arms); every content change bumps the generation.
++        private static RosterView _sigRoster;
++        private static Boolean _sigTaken;
++        private static UInt64 _sigValue;                  // 0 = no menu roster
++        private static Int32 _rosterGen;                  // bumps on every change of the menu roster's CONTENT (monotonic)
++        private static Int32 _rosterGenPainted;           // the generation an open menu was last repainted for
++        private static Int32 _muteUntilFrame = -1;        // MuteActiveSound held by a repaint until this frame (-1 = not held)
++
++        private static void TrackRosterGen()
++        {
++            String src;
++            RosterView r = MenuRoster(out src);
++            if (_sigTaken && ReferenceEquals(r, _sigRoster))
++                return;
++            _sigTaken = true;
++            _sigRoster = r;
++            UInt64 sig = r == null ? 0UL : RosterSignature(r);
++            if (sig != _sigValue)
++            {
++                _sigValue = sig;
++                _rosterGen++;
++            }
++        }
++
++        // FNV-1a over every field the panels can draw, in the roster's own slot order (ParseRoster inserts in wire order, so the
++        // same bytes always walk the same order; no allocation -- the HUD calls this per frame on the peer lane). Never 0 for a
++        // roster (0 = none).
++        private static UInt64 RosterSignature(RosterView r)
++        {
++            UInt64 h = 14695981039346656037UL;
++            foreach (KeyValuePair<Int32, List<CmdView>> kv in r.Slots)
++            {
++                h = Fnv(h, 0x5100 + kv.Key);
++                List<CmdView> cmds = kv.Value;
++                if (cmds == null)
++                    continue;
++                foreach (CmdView c in cmds)
++                {
++                    if (c == null)
++                        continue;
++                    h = Fnv(Fnv(Fnv(Fnv(h, c.Menu), c.CmdId), c.Type), c.TargetType);
++                    foreach (AbilView a in c.Abilities)
++                        if (a != null)
++                            h = Fnv(Fnv(Fnv(h, a.Id), a.Mp), (a.Enabled ? 1 : 0) | (a.ForDead ? 2 : 0) | (a.TargetType << 2));
++                }
++            }
++            h = Fnv(h, 0x17E5);
++            foreach (ItemView it in r.Items)
++                if (it != null)
++                    h = Fnv(Fnv(h, it.Id), it.Count | (it.TargetType << 8) | (it.ForDead ? 0x10000 : 0));
++            return h == 0UL ? 1UL : h;
++        }
++
++        private static UInt64 Fnv(UInt64 h, Int32 v)
++        {
++            for (Int32 i = 0; i < 4; i++)
++            {
++                h ^= (Byte)(v >> (8 * i));
++                h *= 1099511628211UL;
++            }
++            return h;
++        }
++
++        /// <summary>(7) BattleHUD.UpdatePlayer, inside a diorama with a menu up: true once per change of the menu roster's
++        /// content (incl. it appearing or vanishing) -- the caller repaints (NetRefreshMenus). The first frame of a menu opened
++        /// after a change also answers true once (a muted, idempotent repaint). Never throws.</summary>
++        public static Boolean StockRosterRepaintDue(Int32 localSlot)
++        {
++            try
++            {
++                TrackRosterGen();
++                if (_rosterGenPainted == _rosterGen)
++                    return false;
++                _rosterGenPainted = _rosterGen;
++                if (!ContentOn(ContentRefresh))
++                    return false;
++                Hit(ContentRefresh);
++                if (ContentLogFirst("refresh " + localSlot))
++                    Log.Message("[NetSync] stock menu: the menu roster changed (generation " + _rosterGen + ") with local slot " + localSlot
++                                + "'s menu up -- repainted under MuteActiveSound (logged once per boot per slot)");
++                return true;
++            }
++            catch (Exception ex)
++            {
++                NoteContentFault("StockRosterRepaintDue", ex);
++                return false;
++            }
++        }
++
++        /// <summary>(7) Hold ButtonGroupState.MuteActiveSound across a content repaint and the 2-frame settle after it (the
++        /// list-refresh cursor-beep law). Released by StockMenuMuteSettle: every HUD frame (BattleHUD.UpdatePlayer calls it
++        /// unguarded -- one field compare when nothing is held), and forced by
++        /// StockMenuCloseAll (every teardown, every injected end) and every boot -- never stranded game-wide.</summary>
++        public static void StockMenuMute()
++        {
++            try
++            {
++                ButtonGroupState.MuteActiveSound = true;
++                _muteUntilFrame = UnityEngine.Time.frameCount + 2;
++            }
++            catch { }
++        }
++
++        public static void StockMenuMuteSettle(Boolean force)
++        {
++            if (_muteUntilFrame < 0)
++                return;
++            try
++            {
++                if (!force && UnityEngine.Time.frameCount <= _muteUntilFrame)
++                    return;
++                _muteUntilFrame = -1;
++                ButtonGroupState.MuteActiveSound = false;
++            }
++            catch
++            {
++                _muteUntilFrame = -1;
++            }
++        }
++
++        /// <summary>BattleHUD.NetRefreshMenus' fault: counted and logged once per boot (the repaint is cosmetic).</summary>
++        public static void NoteRepaintFault(Exception ex)
++        {
++            NoteContentFault("NetRefreshMenus", ex);
++        }
++
++        /// <summary>BattleHUD.NetRefreshMenus sent an open submenu / target panel back to the command panel: the roster change
++        /// re-resolved the command of the menu it was built for. Logged once per boot per slot and menu. Never throws.</summary>
++        public static void NoteRepaintBounce(Int32 localSlot, Int32 menu, Int32 wasCmd, Int32 nowCmd)
++        {
++            try
++            {
++                if (ContentLogFirst("bounce " + localSlot + "/" + menu))
++                    Log.Message("[NetSync] stock menu: the menu roster changed local slot " + localSlot + " menu " + (BattleCommandMenu)menu
++                                + " from " + (BattleCommandId)wasCmd + " to " + (BattleCommandId)nowCmd + " with its submenu open -- back to the "
++                                + "command panel (SFX 101, stock's trance-flip idiom), so the open list never draws a command the menu no "
++                                + "longer carries (logged once per boot)");
++            }
++            catch { }
+         }
+ 
+         // ======================================================================================= harness surface (B4 stage 3)
+@@ -601,5 +1233,598 @@ namespace Memoria.Netsync
+                 return false;
+             }
+         }
++
++        // ======================================================================================= the content bench (B4 stage 7)
++        // [ff9mapkit netsync B4] stage 7 -- `netsync bbench roster|content` (selftest role only; stage 8 adds start/ready/caps/
++        // mode/unmap/stop to the same verb). The bench roster is ALWAYS the output of the REAL ParseRoster: a raw hex frame, or
++        // one FABRICATED from the live diorama's own state and encoded in the v1 type-4 layout BuildRoster writes (the verb
++        // fails unless ParseRoster reads back exactly what was fabricated). It stays armed across boots until `bbench roster
++        // clear` or the harness release; it serves only the selftest role.
++
++        /// <summary>What the bench roster carries (`netsync.battle.menu.bench_roster`): `auto` fills every marker it could; a
++        /// raw hex roster only Source and Bytes. Ability ids are ACTIVE ids (what `battle.hud.rows[].id` reads).</summary>
++        public sealed class BenchRosterInfo
++        {
++            public String Source;                              // "auto" | "hex"
++            public Int32 Bytes;                                // the roster frame's length (through the REAL ParseRoster)
++            public Int32 Slot = -1, Wire = -1;                 // auto: the LOCAL slot it mirrors and that slot's wire index
++            public Int32 MarkerMenu = -1, MarkerCmd = -1;      // a command OUTSIDE the slot's preset (a script-changed preset), in this menu
++            public Int32 MarkerShown = -1;                     // its 1st entry: listed ENABLED (greyed under `grey`)
++            public Int32 MarkerGrey = -1;                      // its 2nd entry: listed DISABLED
++            public Int32 MarkerLocalMp = -1;                   // the stand-in's own stock MP for MarkerShown (the MP column's contrast)
++            public Int32 UkMenu = -1, UkCmd = -1;              // the slot's OWN Ability-type command carrying the learn markers
++            public Int32 Unlearned = -1;                       // LISTED enabled: the local save has NOT learned it (stock: a blank row)
++            public Int32 UnlearnedLocalMp = -1;                // ...and its stock MP
++            public Int32 Learned = -1;                         // OMITTED: the local save HAS learned it (stock: drawn)
++            public Int32 Item = -1, Count = -1;                // the WHOLE bag: this item (the guest owns 0) x Count
++            public Int32 Mp = 1;                               // the MP every listed ability carries
++            public Boolean Dbl, Grey;                          // the `dbl` / `grey` options
++            public String Note;                                // a marker that could not be fabricated (null = every one)
++        }
++
++        // Marker commands, tried in order: Ability-type, a list of >= 2, outside the slot's preset (every menu, both variants).
++        private static readonly BattleCommandId[] BenchMarkerCommands =
++        {
++            BattleCommandId.WhiteMagicGarnet, BattleCommandId.BlackMagic, BattleCommandId.WhiteMagicEiko, BattleCommandId.BlueMagic,
++            BattleCommandId.SwordAct, BattleCommandId.DragonAct, BattleCommandId.SecretTrick
++        };
++        private static readonly BattleCommandId[] BenchMarkerDoubleCommands = { BattleCommandId.DoubleBlackMagic, BattleCommandId.DoubleWhiteMagic };
++
++        /// <summary>
++        /// `netsync bbench &lt;op&gt; ...` (selftest role only):
++        ///   roster &lt;hex...&gt;    a raw v1 type-4 roster (slots keyed by WIRE index) through the REAL ParseRoster -> the bench menu
++        ///                       roster (the verb fails if ParseRoster refuses it);
++        ///   roster auto &lt;L&gt; [dbl] [grey] [mp=&lt;n&gt;] [count=&lt;n&gt;]
++        ///                       FABRICATE a two-marker roster for LOCAL slot L inside a live diorama in its command phase (see
++        ///                       BenchFabricate; read the markers back from `netsync.battle.menu.bench_roster`);
++        ///   roster clear        back to the live peer roster (none on a bench);
++        ///   content on|off|&lt;mask&gt;  the calibration lever: the hooks left ON (1 command, 2 grey, 4 ability, 8 bag, 16 count,
++        ///                       32 cast, 64 refresh; on = 127; off = 0 = the pre-stage guest's panels).
++        /// </summary>
++        public static Boolean HarnessStockBench(String op, String[] args, Byte[] hex, out String why)
++        {
++            why = null;
++            if (!Enabled || !NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bbench: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            try
++            {
++                switch (op)
++                {
++                    case "roster":
++                        return BenchRoster(args ?? new String[0], hex, out why);
++                    case "content":
++                        return BenchContent(args ?? new String[0], out why);
++                    default:
++                        why = "netsync bbench: unknown op '" + op + "' (roster|content; stage 8 adds start|ready|caps|mode|unmap|stop)";
++                        return false;
++                }
++            }
++            catch (Exception ex)
++            {
++                why = "netsync bbench " + op + ": faulted -- " + ex.GetType().Name + ": " + ex.Message;
++                return false;
++            }
++        }
++
++        private static Boolean BenchContent(String[] args, out String why)
++        {
++            why = null;
++            String a = args.Length > 0 ? args[0].Trim().ToLowerInvariant() : "";
++            Int32 on;
++            if (a == "on")
++                on = ContentAll;
++            else if (a == "off")
++                on = 0;
++            else if (!(a.StartsWith("0x") ? Int32.TryParse(a.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out on)
++                                          : Int32.TryParse(a, out on)) || on < 0 || on > ContentAll)
++            {
++                why = "netsync bbench content: on|off|<mask 0-127> (the hooks left ON: 1 command, 2 grey, 4 ability, 8 bag, 16 count, "
++                      + "32 cast, 64 refresh)";
++                return false;
++            }
++            BenchContentOff = ContentAll & ~on;
++            Log.Message("[NetSync] harness: stock-menu content hooks " + (BenchContentOff == 0 ? "ALL ON"
++                        : "OFF for " + ContentNameList(BenchContentOff) + " -- CALIBRATION: those panels draw the stand-in's LOCAL content")
++                        + " (on mask 0x" + on.ToString("X2") + ")");
++            return true;
++        }
++
++        private static String ContentNameList(Int32 mask)
++        {
++            List<String> names = new List<String>(7);
++            for (Int32 i = 0; i < ContentNames.Length; i++)
++                if ((mask & (1 << i)) != 0)
++                    names.Add(ContentNames[i]);
++            return names.Count == 0 ? "none" : String.Join("+", names.ToArray());
++        }
++
++        private static Boolean BenchRoster(String[] args, Byte[] hex, out String why)
++        {
++            why = null;
++            String sub = args.Length > 0 ? args[0].Trim().ToLowerInvariant() : "";
++            if (sub == "clear")
++            {
++                Boolean had = _benchRoster != null;
++                _benchRoster = null;
++                _benchInfo = null;
++                Log.Message("[NetSync] harness: bench menu roster " + (had ? "cleared -- the menus draw the live peer roster (none on a bench)" : "was not armed"));
++                return true;
++            }
++            if (sub == "auto")
++            {
++                Int32 slot;
++                if (args.Length < 2 || !Int32.TryParse(args[1], out slot) || slot < 0 || slot > 3)
++                {
++                    why = "netsync bbench roster auto: needs a local party slot 0-3";
++                    return false;
++                }
++                Boolean dbl = false, grey = false;
++                Int32 mp = 1, count = 77;
++                for (Int32 i = 2; i < args.Length; i++)
++                {
++                    String t = args[i].Trim().ToLowerInvariant();
++                    if (t == "dbl")
++                        dbl = true;
++                    else if (t == "grey" || t == "gray")
++                        grey = true;
++                    else if (t.StartsWith("mp=") && Int32.TryParse(t.Substring(3), out mp) && mp >= 0 && mp <= 255)
++                        continue;
++                    else if (t.StartsWith("count=") && Int32.TryParse(t.Substring(6), out count) && count >= 1 && count <= 255)
++                        continue;
++                    else
++                    {
++                        why = "netsync bbench roster auto: unknown option '" + args[i] + "' (dbl | grey | mp=<0-255> | count=<1-255>)";
++                        return false;
++                    }
++                }
++                RosterView src;
++                BenchRosterInfo info;
++                String gate = BenchFabricate(slot, dbl, grey, mp, count, out src, out info);
++                if (gate != null)
++                {
++                    why = "netsync bbench roster auto: " + gate;
++                    return false;
++                }
++                Byte[] bytes = EncodeRoster(src);
++                RosterView parsed = ParseRoster(bytes);
++                if (parsed == null || RosterSignature(parsed) != RosterSignature(src))
++                {
++                    why = "netsync bbench roster auto: the v1 roster codec round trip CHANGED the fabricated roster ["
++                          + BitConverter.ToString(bytes).Replace('-', ' ') + "]";
++                    return false;
++                }
++                info.Bytes = bytes.Length;
++                ArmBenchRoster(parsed, info, bytes);
++                return true;
++            }
++            if (hex == null || hex.Length == 0)
++            {
++                why = "netsync bbench roster: needs hex bytes (a v1 type-4 roster), `auto <L> [dbl] [grey] [mp=<n>] [count=<n>]` or `clear`";
++                return false;
++            }
++            RosterView raw = ParseRoster(hex);
++            if (raw == null)
++            {
++                why = "netsync bbench roster: the REAL ParseRoster refused those " + hex.Length + " bytes (not a v1 roster -- the log names the fault)";
++                return false;
++            }
++            ArmBenchRoster(raw, new BenchRosterInfo { Source = "hex", Bytes = hex.Length }, hex);
++            return true;
++        }
++
++        private static void ArmBenchRoster(RosterView r, BenchRosterInfo info, Byte[] bytes)
++        {
++            _benchRoster = r;
++            _benchInfo = info;
++            List<Int32> slots = new List<Int32>(r.Slots.Keys);
++            slots.Sort();
++            String detail = info.Source != "auto" ? ""
++                : "; local slot " + info.Slot + " (wire " + info.Wire + "): marker " + (BattleCommandId)info.MarkerCmd + " in menu "
++                  + (BattleCommandMenu)info.MarkerMenu + " (rows " + info.MarkerShown + (info.Grey ? " grey" : " on") + ", " + info.MarkerGrey
++                  + " grey), own " + (BattleCommandId)info.UkCmd + " in menu " + (BattleCommandMenu)info.UkMenu + " lists ONLY unlearned "
++                  + info.Unlearned + " (learned " + info.Learned + " omitted), mp " + info.Mp + ", bag = item " + info.Item + " x" + info.Count
++                  + (info.Dbl ? ", dbl" : "") + (info.Note != null ? " -- NOT fabricated: " + info.Note : "");
++            Log.Message("[NetSync] harness: bench menu roster armed (" + info.Source + ", " + bytes.Length + " bytes through the REAL ParseRoster; "
++                        + "wire slot(s) " + String.Join(",", slots.ConvertAll(s => s.ToString()).ToArray()) + ", " + r.Items.Count + " item(s)) ["
++                        + BitConverter.ToString(bytes).Replace('-', ' ') + "]" + detail);
++        }
++
++        // The `auto` fabricator. Inside a live diorama in its command phase (the opener's gates), for LOCAL slot L, with every
++        // read below taken through the content BYPASS (the hooks answer stock, so a previously armed bench roster cannot leak
++        // into the markers): the TWO-MARKER law -- each value is chosen from the guest's own state so it is absent there:
++        //   * Attack: the slot's own (not under test);
++        //   * learn markers: the first of Ability2, Ability1 whose OWN Ability-type command holds an entry the save has NOT
++        //     learned (preferring one that also holds a LEARNED entry) -- the roster lists ONLY that unlearned entry (enabled,
++        //     MP mp): stock draws it blank and the learned one drawn; the roster draws the reverse;
++        //   * marker command: in the OTHER of Ability1/Ability2, the first Ability-type command OUTSIDE the slot's preset (every
++        //     menu, normal and trance, raw and patched -- so ResolveMenuCommand must take it), a double-cast one under `dbl`;
++        //     its 1st entry listed enabled (disabled under `grey`), its 2nd listed DISABLED, both MP mp;
++        //   * the bag: exactly one battle-usable item (Item type, an effect, no use_condition, not for the dead; single-target
++        //     preferred) the guest owns 0 of, x count.
++        // A marker that cannot be chosen is skipped and named in Note (the verb still arms). Null = fabricated.
++        private static String BenchFabricate(Int32 L, Boolean dbl, Boolean grey, Int32 mp, Int32 count, out RosterView src, out BenchRosterInfo info)
++        {
++            src = null;
++            info = null;
++            BattleHUD hud;
++            String gate = BenchMenuGate(out hud);
++            if (gate != null)
++                return gate;
++            FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++            BTL_DATA d = b.btl_data[L];
++            if (d == null || d.btl_id != (UInt16)(1 << L) || d.bi.player == 0)
++                return "local slot " + L + " holds no party member in this battle";
++            if (!hud.NetMenusReady(L))
++                return "the HUD has not seeded local slot " + L + "'s ability detail yet (wait for battle.turn.enabled)";
++            Int32 wire = NetSyncDiorama.WireIndexForLocal(L);
++            if (wire < 0)
++                return "local slot " + L + " has no wire index (no party member seats it)";
++            BattleUnit unit = new BattleUnit(d);
++            PLAYER player = unit.Player;
++            PLAYER member = FF9StateSystem.Common.FF9.party.member[unit.Position];
++            CharacterCommandSet set;
++            if (player == null || member == null || !CharacterCommands.CommandSets.TryGetValue(member.PresetId, out set) || set == null)
++                return "local slot " + L + "'s command preset is unreadable";
++
++            info = new BenchRosterInfo { Source = "auto", Slot = L, Wire = wire, Mp = mp, Dbl = dbl, Grey = grey };
++            src = new RosterView();
++            List<CmdView> cmds = new List<CmdView>(3);
++            List<String> notes = new List<String>(3);
++            _contentBypass = true;
++            try
++            {
++                HashSet<Int32> preset = new HashSet<Int32>();
++                foreach (BattleCommandMenu m in CharacterCommandSet.SupportedMenus)
++                {
++                    BattleCommandId reg = set.GetRegular(m), tr = set.GetTrance(m);
++                    preset.Add((Int32)reg);
++                    preset.Add((Int32)tr);
++                    preset.Add((Int32)BattleCommandHelper.Patch(reg, m, player, unit));
++                    preset.Add((Int32)BattleCommandHelper.Patch(tr, m, player, unit));
++                }
++
++                // the learn markers
++                Int32 ukMenu = -1, ukCmd = -1, unlearned = -1, unlearnedMp = -1, learned = -1;
++                foreach (BattleCommandMenu m in new[] { BattleCommandMenu.Ability2, BattleCommandMenu.Ability1 })
++                {
++                    BattleCommandId c = hud.NetCommandForMenu(L, (Int32)m);
++                    CharacterCommand cc;
++                    if (c == BattleCommandId.None || !CharacterCommands.Commands.TryGetValue(c, out cc) || cc == null
++                        || cc.Type != CharacterCommandType.Ability)
++                        continue;
++                    Int32 u = -1, uMp = -1, k = -1;
++                    foreach (BattleAbilityId act in cc.EnumerateAbilities())
++                    {
++                        if ((Int32)act <= 0 || act == BattleAbilityId.Void)
++                            continue;
++                        Int32 lmp;
++                        Int32 st = hud.NetLocalAbility(L, (Int32)act, out lmp);
++                        if (st == 0 && u < 0)
++                        {
++                            u = (Int32)act;
++                            uMp = lmp;
++                        }
++                        else if (st > 0 && k < 0)
++                        {
++                            k = (Int32)act;
++                        }
++                    }
++                    if (u < 0)
++                        continue;
++                    if (ukMenu < 0 || (learned < 0 && k >= 0))
++                    {
++                        ukMenu = (Int32)m;
++                        ukCmd = (Int32)c;
++                        unlearned = u;
++                        unlearnedMp = uMp;
++                        learned = k;
++                    }
++                    if (learned >= 0)
++                        break;
++                }
++
++                // the marker command, in the other ability menu
++                Int32 mkMenu = ukMenu == (Int32)BattleCommandMenu.Ability1 ? (Int32)BattleCommandMenu.Ability2 : (Int32)BattleCommandMenu.Ability1;
++                Int32 mkLocal = (Int32)hud.NetCommandForMenu(L, mkMenu);
++                CharacterCommand markerCc = null;
++                foreach (BattleCommandId c in dbl ? BenchMarkerDoubleCommands : BenchMarkerCommands)
++                {
++                    CharacterCommand cc;
++                    if (!CharacterCommands.Commands.TryGetValue(c, out cc) || cc == null || cc.Type != CharacterCommandType.Ability
++                        || cc.ListEntry == null || cc.ListEntry.Length < 2)
++                        continue;
++                    if (preset.Contains((Int32)c) || (Int32)c == mkLocal || BattleHUD.MixCommandSet.ContainsKey(c)
++                        || BattleHUD.DoubleCastSet.Contains(c) != dbl)
++                        continue;
++                    markerCc = cc;
++                    break;
++                }
++
++                // Attack: the slot's own
++                BattleCommandId atk = hud.NetCommandForMenu(L, (Int32)BattleCommandMenu.Attack);
++                CharacterCommand atkCc;
++                if (atk != BattleCommandId.None && CharacterCommands.Commands.TryGetValue(atk, out atkCc) && atkCc != null)
++                    cmds.Add(new CmdView { Menu = (Int32)BattleCommandMenu.Attack, CmdId = (Int32)atk, Type = (Int32)atkCc.Type, TargetType = BenchTargetInfo(atkCc, player) });
++
++                if (markerCc != null)
++                {
++                    CmdView mc = new CmdView { Menu = mkMenu, CmdId = (Int32)markerCc.Id, Type = (Int32)CharacterCommandType.Ability, TargetType = 0 };
++                    Int32 n = 0;
++                    foreach (BattleAbilityId act in markerCc.EnumerateAbilities())
++                    {
++                        if ((Int32)act <= 0 || act == BattleAbilityId.Void)
++                            continue;
++                        if (n == 0)
++                        {
++                            mc.Abilities.Add(BenchAbility(act, player, mp, !grey));
++                            info.MarkerShown = (Int32)act;
++                            Int32 lmp;
++                            hud.NetLocalAbility(L, (Int32)act, out lmp);
++                            info.MarkerLocalMp = lmp;
++                        }
++                        else
++                        {
++                            mc.Abilities.Add(BenchAbility(act, player, mp, false));
++                            info.MarkerGrey = (Int32)act;
++                        }
++                        if (++n == 2)
++                            break;
++                    }
++                    cmds.Add(mc);
++                    info.MarkerMenu = mkMenu;
++                    info.MarkerCmd = (Int32)markerCc.Id;
++                }
++                else
++                {
++                    notes.Add("no " + (dbl ? "double-cast " : "") + "Ability-type command outside the slot's preset");
++                }
++
++                if (ukMenu >= 0)
++                {
++                    CmdView uc = new CmdView { Menu = ukMenu, CmdId = ukCmd, Type = (Int32)CharacterCommandType.Ability, TargetType = 0 };
++                    uc.Abilities.Add(BenchAbility((BattleAbilityId)unlearned, player, mp, true));
++                    cmds.Add(uc);
++                    info.UkMenu = ukMenu;
++                    info.UkCmd = ukCmd;
++                    info.Unlearned = unlearned;
++                    info.UnlearnedLocalMp = unlearnedMp;
++                    info.Learned = learned;
++                    if (learned < 0)
++                        notes.Add("the slot's own " + (BattleCommandId)ukCmd + " holds no LEARNED entry to omit");
++                }
++                else
++                {
++                    notes.Add("no own Ability-type command (Ability1/Ability2) holds an unlearned entry");
++                }
++                cmds.Sort((x, y) => x.Menu.CompareTo(y.Menu));
++                src.Slots[wire] = cmds;
++
++                Int32 item = BenchMarkerItem();
++                if (item >= 0)
++                {
++                    ITEM_DATA eff = ff9item.GetItemEffect((RegularItem)item);
++                    src.Items.Add(new ItemView { Id = item, Count = count, TargetType = (Int32)eff.info.Target, ForDead = eff.info.ForDead });
++                    info.Item = item;
++                    info.Count = count;
++                }
++                else
++                {
++                    notes.Add("no battle item the guest owns 0 of");
++                }
++            }
++            finally
++            {
++                _contentBypass = false;
++            }
++            info.Note = notes.Count > 0 ? String.Join("; ", notes.ToArray()) : null;
++            return null;
++        }
++
++        // A Normal/Instant command's target byte as BuildRoster ships it (its single ability's target | 0x80 for the dead).
++        private static Int32 BenchTargetInfo(CharacterCommand cc, PLAYER player)
++        {
++            try
++            {
++                if (cc.Type != CharacterCommandType.Normal && cc.Type != CharacterCommandType.Instant)
++                    return 0;
++                foreach (BattleAbilityId act in cc.EnumerateAbilities())
++                {
++                    AA_DATA aa = FF9StateSystem.Battle.FF9Battle.aa_data[BattleAbilityHelper.Patch(act, player)];
++                    return (Int32)aa.Info.Target | (aa.Info.ForDead ? 0x80 : 0);
++                }
++            }
++            catch { }
++            return 0;
++        }
++
++        private static AbilView BenchAbility(BattleAbilityId active, PLAYER player, Int32 mp, Boolean enabled)
++        {
++            AbilView a = new AbilView { Id = (Int32)active, Mp = Math.Min(Math.Max(mp, 0), 255), Enabled = enabled };
++            try
++            {
++                AA_DATA aa = FF9StateSystem.Battle.FF9Battle.aa_data[BattleAbilityHelper.Patch(active, player)];
++                a.TargetType = (Int32)aa.Info.Target;
++                a.ForDead = aa.Info.ForDead;
++            }
++            catch { }
++            return a;
++        }
++
++        // The bag marker: the lowest-id item the Item command can use (an effect, Item type, no use_condition, not for the dead)
++        // that the guest owns 0 of -- a single-target one first (the bench targets with one Confirm). -1 = none.
++        private static Int32 BenchMarkerItem()
++        {
++            List<RegularItem> ids = new List<RegularItem>(ff9item._FF9Item_Data.Keys);
++            ids.Sort();
++            Int32 fallback = -1;
++            foreach (RegularItem id in ids)
++            {
++                try
++                {
++                    if (id == RegularItem.NoItem || (Int32)id < 0 || (Int32)id > 0xFFFF || !ff9item.HasItemEffect(id))
++                        continue;
++                    FF9ITEM_DATA data = ff9item._FF9Item_Data[id];
++                    if ((data.type & ItemType.Item) == 0 || !String.IsNullOrEmpty(data.use_condition) || ff9item.FF9Item_GetCount(id) != 0)
++                        continue;
++                    ITEM_DATA eff = ff9item.GetItemEffect(id);
++                    if (eff.info.ForDead)
++                        continue;
++                    if (eff.info.Target == TargetType.SingleAlly || eff.info.Target == TargetType.SingleAny)
++                        return (Int32)id;
++                    if (fallback < 0)
++                        fallback = (Int32)id;
++                }
++                catch { }
++            }
++            return fallback;
++        }
++
++        // The v1 type-4 layout, exactly as BuildRoster writes it (slots ascending). The bench's only encoder: its output is
++        // read back through the REAL ParseRoster and compared field by field (RosterSignature) before it is armed.
++        private static Byte[] EncodeRoster(RosterView r)
++        {
++            using (MemoryStream ms = new MemoryStream(256))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                bw.Write((Byte)1);
++                List<Int32> slots = new List<Int32>(r.Slots.Keys);
++                slots.Sort();
++                bw.Write((Byte)slots.Count);
++                foreach (Int32 s in slots)
++                {
++                    List<CmdView> cmds = r.Slots[s] ?? new List<CmdView>();
++                    bw.Write((Byte)s);
++                    bw.Write((Byte)cmds.Count);
++                    foreach (CmdView c in cmds)
++                    {
++                        bw.Write((Byte)c.Menu);
++                        bw.Write((UInt16)c.CmdId);
++                        bw.Write((Byte)c.Type);
++                        bw.Write((Byte)c.TargetType);
++                        Int32 n = Math.Min(c.Abilities.Count, 255);
++                        bw.Write((Byte)n);
++                        for (Int32 i = 0; i < n; i++)
++                        {
++                            AbilView a = c.Abilities[i];
++                            bw.Write((UInt16)a.Id);
++                            bw.Write((Byte)Math.Min(a.Mp, 255));
++                            bw.Write((Byte)((a.Enabled ? 1 : 0) | (a.ForDead ? 2 : 0)));
++                            bw.Write((Byte)a.TargetType);
++                        }
++                    }
++                }
++                bw.Write((UInt16)r.Items.Count);
++                foreach (ItemView it in r.Items)
++                {
++                    bw.Write((UInt16)it.Id);
++                    bw.Write((Byte)Math.Min(it.Count, 255));
++                    bw.Write((Byte)it.TargetType);
++                    bw.Write((Byte)(it.ForDead ? 1 : 0));
++                }
++                return ms.ToArray();
++            }
++        }
++
++        // ======================================================================================= harness surface (B4 stage 7)
++        // [ff9mapkit netsync B4] stage 7 -- the content keys of `netsync.battle.menu`. Main thread; never throw. Reading them
++        // never moves the repaint generation (the HUD tracks it while a menu is up).
++        // `mirrored`: the LOCAL party slots (ascending) whose panels draw the menu roster -- a LIST, like `roster_slots` and the
++        // plan's `stranded` (design 6.4 / 8.2: "`mirrored` is empty"); [] = none.
++        public static List<Int32> HarnessMirroredSlots()
++        {
++            List<Int32> slots = new List<Int32>(4);
++            for (Int32 s = 0; s < 4; s++)
++                if (IsMirroredSlot(s))
++                    slots.Add(s);
++            return slots;
++        }
++
++        public static String HarnessRosterSource
++        {
++            get
++            {
++                try
++                {
++                    String src;
++                    MenuRoster(out src);
++                    return src;
++                }
++                catch { return null; }
++            }
++        }
++
++        public static Int32 HarnessContentOff { get { return NetSyncClient.IsSelfTestRole ? BenchContentOff & ContentAll : 0; } }
++        public static Int32 HarnessContentFaults { get { return _contentFaults; } }
++        public static String HarnessContentFaultWhy { get { return _contentFaultWhy; } }
++        public static Int32 HarnessRosterGen { get { return _rosterGen; } }
++        public static Int32 HarnessRosterPainted { get { return _rosterGenPainted; } }
++        public static Boolean HarnessMuteHeld { get { return _muteUntilFrame >= 0; } }
++        public static Int32 HarnessContentHitCount { get { return _contentHits.Length; } }
++        public static String HarnessContentHitName(Int32 i) { return i >= 0 && i < ContentNames.Length ? ContentNames[i] : null; }
++        public static Int32 HarnessContentHit(Int32 i) { return i >= 0 && i < _contentHits.Length ? _contentHits[i] : 0; }
++
++        /// <summary>The live menu roster's content signature as "0x..." (computed fresh, nothing written); null = no menu roster.
++        /// Equal strings = the same content the panels would draw.</summary>
++        public static String HarnessRosterSig
++        {
++            get
++            {
++                try
++                {
++                    String src;
++                    RosterView r = MenuRoster(out src);
++                    return r == null ? null : "0x" + RosterSignature(r).ToString("X16");
++                }
++                catch { return null; }
++            }
++        }
++
++        public static BenchRosterInfo HarnessBenchRoster { get { return _benchRoster != null ? _benchInfo : null; } }
++
++        /// <summary>The menu roster's commands for one WIRE slot, flattened for the harness: per command {menu, cmd, type, n
++        /// abilities, n enabled}. Null = that slot is not in the menu roster.</summary>
++        public static List<Int32[]> HarnessRosterCommands(Int32 wireSlot)
++        {
++            try
++            {
++                String src;
++                RosterView r = MenuRoster(out src);
++                List<CmdView> cmds;
++                if (r == null || !r.Slots.TryGetValue(wireSlot, out cmds) || cmds == null)
++                    return null;
++                List<Int32[]> rows = new List<Int32[]>(cmds.Count);
++                foreach (CmdView c in cmds)
++                {
++                    Int32 on = 0;
++                    foreach (AbilView a in c.Abilities)
++                        if (a != null && a.Enabled)
++                            on++;
++                    rows.Add(new[] { c.Menu, c.CmdId, c.Type, c.Abilities.Count, on });
++                }
++                return rows;
++            }
++            catch { return null; }
++        }
++
++        /// <summary>The menu roster's item list for the harness: {id, count} pairs. Null = no menu roster.</summary>
++        public static List<Int32[]> HarnessRosterItems()
++        {
++            try
++            {
++                String src;
++                RosterView r = MenuRoster(out src);
++                if (r == null)
++                    return null;
++                List<Int32[]> rows = new List<Int32[]>(r.Items.Count);
++                foreach (ItemView it in r.Items)
++                    if (it != null)
++                        rows.Add(new[] { it.Id, it.Count });
++                return rows;
++            }
++            catch { return null; }
++        }
+     }
+ }
