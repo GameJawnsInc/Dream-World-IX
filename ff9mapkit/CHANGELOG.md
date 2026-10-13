@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-mountain --rock-height`: carry a mountain taller
+- `world-mountain --rock-height S` (1.0–2.0) stretches the carried rock S times taller about its rim, its
+  texture carried. The rim, the welds to any floor or ledge and the aperture plugs stay where they are, so the
+  grass apron and the seam round the foot are exactly the rigid carry's.
+- The rigid-rock gate now measures the carry against the declared stretch, so any other deformation of the rock
+  is still refused.
+- Refused for a mountain with loose geometry on its face (the horseshoe's waterfall and river mouth would not
+  follow) and for a peak above stock's tallest terrain (42.68), where a flying airship would sit inside the rock.
+- Proven in game first: the Uaho rock stretched ×1.25, ×1.5 and ×2.0 on the Path D world, judged from blind
+  stills; ×2.0 passed ("2x honestly doesn't look bad"). The kit's stretch reproduces that build exactly.
+
 ### Added — the world map loses the land you sink (`world-minimap` erase)
 - `world-minimap` now takes land a folder REMOVED off the in-game map: an island `world-sink` sank, or a coast an
   in-place cut pulled back, is repainted as the sea round it, open parchment where the new water is deep, the

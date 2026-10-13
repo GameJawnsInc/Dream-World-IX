@@ -676,6 +676,96 @@ def test_carve_mountain_ensemble_aperture(monkeypatch, tmp_path):
     assert outs and n_donor == len(r["blocks"])
 
 
+def _carve_pyramid(tmp_path, **kw):
+    return IN.carve_mountain(IN.soup_from_blocks({(0, 0): _mountain_bench()}), center=(26.0, -26.0),
+                             alcove=None, game=tmp_path, log=lambda *a: None, **kw)
+
+
+def test_carve_mountain_rock_height_stretches_the_rock_about_its_rim(monkeypatch, tmp_path):
+    """--rock-height (terrain study X1, in-game passed to x2.0): the pyramid's apex rises x1.5 above its base
+    ring; the ring (the rim) and everything round it stay where the rigid carry puts them, UVs carried; the
+    rigidity gate measures the carry against the DECLARED shape (drift 0, not the raw donor's 50%)."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    rigid = _carve_pyramid(tmp_path)
+    res = _carve_pyramid(tmp_path, rock_height=1.5)
+    r = res["report"]
+    assert r["peak_y"] == pytest.approx(3.2 + 6.0, abs=1e-5)
+    assert r["rock_rigid"] < 1e-6
+    assert (r["rock_height"]["pinned"], r["rock_height"]["free"]) == (4, 1)
+    a, b = rigid["changed"][(0, 0)], res["changed"][(0, 0)]
+    pa, pb = a.chan_arrays[CH_POS], b.chan_arrays[CH_POS]
+    assert len(pa) == len(pb) and a.flat_index == b.flat_index
+    moved = [k for k in range(len(pa)) if pa[k] != pb[k]]
+    assert len(moved) == 4                                      # the apex, once per rock face
+    assert all(pa[k][1] == pytest.approx(3.2 + 4.0, abs=1e-5) and pb[k][1] == pytest.approx(3.2 + 6.0, abs=1e-5)
+               and (pa[k][0], pa[k][2]) == (pb[k][0], pb[k][2]) for k in moved)
+    assert a.chan_arrays[CH_UV] == b.chan_arrays[CH_UV]
+
+
+def test_carve_mountain_rock_height_one_is_the_rigid_carry(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _pyramid_donor())
+    rigid = M.write_ff9mesh(_carve_pyramid(tmp_path)["changed"][(0, 0)], tmp_path / "a.ff9mesh").read_bytes()
+    same = M.write_ff9mesh(_carve_pyramid(tmp_path, rock_height=1.0)["changed"][(0, 0)],
+                           tmp_path / "b.ff9mesh").read_bytes()
+    assert rigid == same
+
+
+def test_carve_mountain_rock_height_refusals(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _pyramid_donor())
+    for s in (0.8, 2.5):                                        # outside what was seen in game
+        with pytest.raises(ValueError, match=r"outside 1\.0\.\.2"):
+            _carve_pyramid(tmp_path, rock_height=s)
+    _patch_donor(monkeypatch, _pyramid_donor(apex=20.0))      # x2: 3.2 + 40 = 43.2, above stock's tallest
+    with pytest.raises(ValueError, match="tallest terrain"):
+        _carve_pyramid(tmp_path, rock_height=2.0)
+    _carve_pyramid(tmp_path, rock_height=1.5)                   # 3.2 + 30 = 33.2: lawful
+    terr, parts = _frustum_donor_with_falls()                   # a falls riding the face would not follow
+    _patch_donor(monkeypatch, terr, parts=parts)
+    coast = [(((2.0, 3.2, -2.0), (6.0, 3.2, -2.0), (2.0, 3.2, -6.0)), ROCK, 0.9)]
+    soup = IN.soup_from_blocks({
+        (0, 1): _grid_block(0, 1, extra=coast), (1, 1): _grid_block(1, 1),
+        (0, 2): _grid_block(0, 2), (1, 2): _grid_block(1, 2)})
+    with pytest.raises(ValueError, match="not welded to the rock"):
+        IN.carve_mountain(soup, near=(64.0, -128.0), donor=[(0, 0), (1, 0)], alcove=None, game=tmp_path,
+                          rock_height=1.5, log=lambda *a: None)
+
+
+def test_carve_mountain_rock_height_gate_still_catches_an_undeclared_stretch(monkeypatch, tmp_path):
+    """Break-it: if the map stretched the rock but declared the RAW donor as its shape, the rock-rigid gate must
+    refuse -- the gate is what keeps every deformation but the declared one out."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    real = IN._rock_height_map
+
+    def undeclared(B, s, **kw):
+        V, N, _ref, rep = real(B, s, **kw)
+        return V, N, B["dV"], rep
+    monkeypatch.setattr(IN, "_rock_height_map", undeclared)
+    with pytest.raises(ValueError, match="deformed beyond"):
+        _carve_pyramid(tmp_path, rock_height=1.5)
+
+
+def test_cli_world_mountain_passes_rock_height_and_reports_it(monkeypatch, capsys):
+    from ff9mapkit import cli
+    seen = {}
+
+    def fake_carve(soup, **kw):
+        seen.update(kw)
+        return {"center": (0.0, 0.0), "changed": {}, "changed_parts": {}, "donor_ref": (0, 0),
+                "report": {"blocks": [[3, 3]], "rot_deg": 0, "blob_tris": 4, "plugs": 0, "dropped": 0,
+                           "zip_tris": 0, "peak_y": 9.2, "rock_rigid": 0.0, "apron_slope": 0.0, "teleport": (0, 0),
+                           "rock_height": {"scale": 1.5, "pinned": 4, "free": 1, "rise_max": 2.0}}}
+    monkeypatch.setattr(IN, "read_deployed_blocks", lambda *a, **k: {})
+    monkeypatch.setattr(IN, "soup_from_blocks", lambda blocks: object())
+    monkeypatch.setattr(IN, "carve_mountain", fake_carve)
+    monkeypatch.setattr(IN, "census_gate", lambda *a, **k: None)
+    args = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0",
+                                          "--rock-height", "1.5", "--dry-run"])
+    assert cli._cmd_world_mountain(args) == 0
+    assert seen["rock_height"] == 1.5
+    assert "rock height x1.5: 1 rock positions stretched about 4 pinned" in capsys.readouterr().out
+    assert cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0"]).rock_height == 1.0
+
+
 def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):
     _patch_donor(monkeypatch, _pyramid_donor())
     soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})

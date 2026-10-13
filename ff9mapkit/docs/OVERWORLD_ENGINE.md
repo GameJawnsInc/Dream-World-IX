@@ -1023,6 +1023,16 @@ plugs wear the rock collar's own affine UV chart, gated against the atlas rock b
   the vertical anchor `DY`); ALL seating deformation goes to the GRASS, a donor-shaped pure-Y apron lift rising
   from bench ground to the rigid rim (the proven hill-at-scale mechanism), tapered at block borders and before the
   coast band.
+* **`--rock-height S` (1.0–2.0), the one declared exception** — the carried rock stretched S times taller about
+  its rim, UV carried: `y' = b + S (y − b)` in the de-tilted donor frame, where `b` is the plane through the
+  pinned positions plus an inverse-distance blend of their residuals. Pinned (never moves): the rim, every
+  aperture ring, and each rock position shared with non-rock carried geometry or the donor's Object, so the
+  rim, plugs, apron and zip are the rigid carry's. The ROCK-RIGID gate then measures the carry against that
+  declared shape, so any other deformation still trips it. Refused for a massif with geometry on its face
+  that does not weld to the rock (a footprint sweep, an ensemble mouth: the horseshoe) and for a peak above
+  stock's tallest terrain (42.68; the airship flies at 42.1875). In game, the owner passed Uaho stretched
+  ×2.0 (terrain study X1, `studies/terrain-malleability/rockstretch/`); the kit's map reproduces that
+  build's rise to the millimetre.
 * **THE WELD-SAFE LIFT** — worldmap meshes don't share vertex entries, so every lift computes per POSITION and
   applies to every coincident entry (a one-sided lift splits the weld = sea visible through the sliver).
 * Hole carve + a **minimal-total-chord DP zip** (a greedy walk stalls on floor-mouth concavity) + an apron normal
@@ -1032,7 +1042,7 @@ plugs wear the rock collar's own affine UV chart, gated against the atlas rock b
   cameraDistance 6000, a visible zoom-out on the alcove floor) and event 1–3 marks a PLACE-ENTRANCE tile that
   fires the world `.eb` — donor dispatch context, meaningless and hazardous on a custom island.
 * Gates: single-rim accounting, dropped-tris-all-plain-grass, baseline-subtracted once-edges (cracks), down-facing,
-  near-miss welds, ROCK-RIGID drift < 3.5%, zip rise ≤ 2.34 / winding ≥ 0.83, apron slope ≤ 29.5°, the placement
+  near-miss welds, ROCK-RIGID drift < 3.5% (against the declared shape), zip rise ≤ 2.34 / winding ≥ 0.83, apron slope ≤ 29.5°, the placement
   probes (blob centre grounds on carried rock; the grass just outside stays plain), the Moguri-atlas alpha gate
   (when installed), and the census. The whole working band must fit inside ONE deployed block.
 

@@ -5585,7 +5585,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
                 fc_rects.append(tuple(parts))
         res = IN.carve_mountain(soup, max_apron_lift=args.max_apron_lift,
                                 gblend=args.gblend if args.gblend is not None else IN.MTN_GBLEND,
-                                foot_course_rects=fc_rects,
+                                foot_course_rects=fc_rects, rock_height=args.rock_height,
                                 center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
                                 ground=args.ground, disc=args.disc, game=args.game)
@@ -5612,6 +5612,11 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     cx, cz = res["center"]
     r = res["report"]
     tx, tz = r["teleport"]
+    rh = r.get("rock_height")
+    if rh:
+        print(f"rock height x{rh['scale']:g}: {rh['free']} rock positions stretched about {rh['pinned']} "
+              f"pinned (the rim never moves), tallest rise +{rh['rise_max']:.2f}u; the rigidity gate measured "
+              f"the carry against the stretched shape.")
     ens = (f" + THE ENSEMBLE CARRY ({r['ensemble_tris']} falls/river/object tris riding "
            f"the same rigid map, Donor.txt -> {res['donor_ref']})") if r.get("ensemble_tris") else ""
     print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']}deg across "
@@ -10349,6 +10354,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "toward the massif centre in units, full at lawn height fading to "
                           "zero at TOP (default lawn+12) -- for a donor face that is "
                           "low-angle because its home context hides it.")
+    wmt.add_argument("--rock-height", type=float, default=1.0, metavar="S",
+                     help="stretch the carried rock S times taller (1.0-2.0) about its rim, UV carried: the "
+                          "rim, the welds to any floor or ledge and the aperture plugs stay put, so the apron "
+                          "and zip are unchanged. In-game passed to x2.0 on Uaho (terrain study X1). Refused "
+                          "for a massif with loose geometry on its face (the horseshoe's falls/river mouth) "
+                          "and for a peak above stock's tallest terrain (42.68). Default 1.0 = the rigid carry.")
     wmt.add_argument("--gblend", type=float, default=None, metavar="U",
                      help="ground-apron blend reach in units (default 12.0, the proven hill-at-scale "
                           "value): how far out from the rigid rim the grass apron spreads its rise. "
