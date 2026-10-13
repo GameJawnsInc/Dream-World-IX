@@ -1432,7 +1432,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                    scan_band=None, gblend=MTN_GBLEND, search_radius=10, search_step=2,
                    scan_cutoff=60, ground: str = "grass", disc: int = 1, game=None,
                    max_apron_lift=None, foot_course_rects=None, rock_height: float = 1.0,
-                   log=print) -> dict:
+                   rot_deg=None, log=print) -> dict:
     """Carry a REAL rock massif (largest ``rock_topos`` component + enclosed raised tris
     + optional alcove floor + Object-aperture plugs) verbatim onto the island at
     ``center`` (exact placement, rotation 0) or the best lawful placement scanned around
@@ -1466,6 +1466,14 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     ``rock_height`` (1.0..:data:`MTN_ROCK_HEIGHT_MAX`) stretches the carried rock pure-Y
     about its pinned rim before it is seated (:func:`_rock_height_map`, terrain study X1); the
     rock-rigid gate then measures the carry against that DECLARED shape. 1.0 = byte-identical.
+
+    ``rot_deg`` turns the massif to ANY angle about its centre (degrees; positive is clockwise
+    seen from above, east toward south, as the quarter-turn scan's +90): exact with ``center``, the only angle the ``near``
+    scan tries. Rotation about Y keeps every UV verbatim and cannot leave the texture
+    envelope (uvclass census); the grass stays on its lattice and the zip is minted fresh,
+    so the gates judge the seam. A multiple of 90 takes the exact quarter-turn path, so
+    ``rot_deg=0`` is byte-identical to the default ``center`` carry. ``None`` = the four
+    quarter turns (scan) / 0 (exact), as before.
 
     Returns ``{"changed", "center", "rot", "drop", "report"}``; raises ``ValueError`` on
     any gate."""
@@ -1706,17 +1714,35 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             eu0[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
     once0 = {e for e, n in eu0.items() if n == 1}
 
+    # ROT counts quarter turns: an int takes the exact swap (the in-game-approved bytes); a
+    # float is a free angle (``rot_deg``), the same rotation by cos/sin -- k = 1 gives (dz, -dx)
     def rot_pt(p, k):
         dx3, dz3 = p[0] - c_local[0], p[2] - c_local[1]
-        for _ in range(k):
-            dx3, dz3 = dz3, -dx3
+        if isinstance(k, int):
+            for _ in range(k):
+                dx3, dz3 = dz3, -dx3
+        else:
+            c_, s_ = math.cos(k * math.pi / 2), math.sin(k * math.pi / 2)
+            dx3, dz3 = c_ * dx3 + s_ * dz3, -s_ * dx3 + c_ * dz3
         return (c_local[0] + dx3, p[1], c_local[1] + dz3)
 
     def rot_n(n, k):
         nx, nz = n[0], n[2]
-        for _ in range(k):
-            nx, nz = nz, -nx
+        if isinstance(k, int):
+            for _ in range(k):
+                nx, nz = nz, -nx
+        else:
+            c_, s_ = math.cos(k * math.pi / 2), math.sin(k * math.pi / 2)
+            nx, nz = c_ * nx + s_ * nz, -s_ * nx + c_ * nz
         return [nx, n[1], nz]
+
+    ROT0 = None                                # the fixed angle, in quarter turns
+    if rot_deg is not None:
+        _d = float(rot_deg)
+        if not math.isfinite(_d):
+            raise ValueError(f"rot_deg must be a finite angle, got {rot_deg!r}")
+        _d %= 360.0
+        ROT0 = int(_d // 90) if _d % 90.0 == 0.0 else _d / 90.0
 
     def in_span(ROT, gx, gz):
         """The hole band must stay inside the covered span (a mint can spill a few coast
@@ -1741,7 +1767,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         return True
 
     if center is not None:
-        ROT, TX, TZ = 0, CX, CZ
+        ROT, TX, TZ = (0 if ROT0 is None else ROT0), CX, CZ
         if not in_span(ROT, TX, TZ):
             raise ValueError(f"massif at ({TX:.0f},{TZ:.0f}) leaves block span "
                              f"{span} (the working band must stay on covered ground)")
@@ -1752,11 +1778,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
               + np.array([TX - c_local[0], TZ - c_local[1]]))
         dmin = math.inf if interior else float(np.sqrt(((nonplain_c[:, None, :] - pp[None, :, :]) ** 2)
                                                        .sum(axis=2).min()))
-        log(f"placement (exact): rot 0deg, blob centre -> ({TX},{TZ}) "
+        log(f"placement (exact): rot {ROT * 90:g}deg, blob centre -> ({TX},{TZ}) "
             f"(raw clearance {clr(dmin)})")
     else:
         cands = []                                         # (score, dmin, ROT, gx, gz)
-        for ROT in (0, 1, 2, 3):
+        for ROT in ((0, 1, 2, 3) if ROT0 is None else (ROT0,)):
             poly_pts = np.array([(p[0], p[2]) for p in (rot_pt(q, ROT) for q in rim)])
             for gx in range(int(CX) - search_radius, int(CX) + search_radius + 1, search_step):
                 for gz in range(int(CZ) - search_radius, int(CZ) + search_radius + 1, search_step):
@@ -1777,7 +1803,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                              f"(radius {r_rim:.1f}u + band {SCAN_BAND}u) does not fit "
                              f"the covered span {span}")
         cands.sort(reverse=True)
-        log(f"scan: best raw clearance {clr(cands[0][1])} (rot {cands[0][2] * 90}deg) "
+        log(f"scan: best raw clearance {clr(cands[0][1])} (rot {cands[0][2] * 90:g}deg) "
             f"of {len(cands)} in-bounds candidates")
         chosen = None
         for score, dmin, ROT, gx, gz in cands[:scan_cutoff]:
@@ -1790,7 +1816,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             raise ValueError(f"no lawful placement -- best raw clearance "
                              f"{clr(cands[0][1])} vs the {SCAN_BAND}u band")
         ROT, TX, TZ, dmin = chosen
-        log(f"placement: rot {ROT * 90}deg, blob centre -> ({TX},{TZ}) "
+        log(f"placement: rot {ROT * 90:g}deg, blob centre -> ({TX},{TZ}) "
             f"(clearance {clr(dmin)})")
     DX, DZ = TX - c_local[0], TZ - c_local[1]
     rim_poly = [(p[0] + DX, p[2] + DZ) for p in (rot_pt(q, ROT) for q in rim)]
@@ -3096,7 +3122,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                        "zip_tris": len(zip_tris), "foot_tris": fc_n,
                        "plugs": len(plug_parents),
                        "ensemble_tris": n_ens_tris,
-                       "rot_deg": ROT * 90, "blocks": [list(b) for b in span],
+                       "rot_deg": ROT * 90 if isinstance(ROT, int) else round(ROT * 90, 6),
+                       "blocks": [list(b) for b in span],
                        "peak_y": round(float(
                            max(p[1] for ps in carried.values() for p in ps)), 2),
                        "zip_rise": round(zip_rise, 2), "rock_rigid": round(worst_rig, 4),

@@ -744,7 +744,35 @@ def test_carve_mountain_rock_height_gate_still_catches_an_undeclared_stretch(mon
         _carve_pyramid(tmp_path, rock_height=1.5)
 
 
-def test_cli_world_mountain_passes_rock_height_and_reports_it(monkeypatch, capsys):
+def test_carve_mountain_rot_deg_turns_the_massif_to_any_angle(monkeypatch, tmp_path):
+    """--rot: the pyramid turned 45 deg about its centre -- its base corners now on the axes, the apex (on the axis)
+    unmoved, rigid (drift 0), UVs carried; 0 deg is byte-identical to the default exact carry, and a quarter angle
+    takes the exact quarter-turn swap the scan uses."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    rigid = _carve_pyramid(tmp_path)
+    zero = _carve_pyramid(tmp_path, rot_deg=0)
+    assert (M.write_ff9mesh(rigid["changed"][(0, 0)], tmp_path / "a.ff9mesh").read_bytes()
+            == M.write_ff9mesh(zero["changed"][(0, 0)], tmp_path / "b.ff9mesh").read_bytes())
+    res = _carve_pyramid(tmp_path, rot_deg=45)
+    r = res["report"]
+    assert r["rot_deg"] == pytest.approx(45.0) and r["rock_rigid"] < 1e-6
+    assert r["peak_y"] == pytest.approx(3.2 + 4.0, abs=1e-6)
+    bm = res["changed"][(0, 0)]
+    pos, tan = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_TAN]
+    base = {(round(p[0], 3), round(p[2], 3)) for p, t4 in zip(pos, tan) if t4[0] == MASSIF and p[1] < 3.2 + 1e-6}
+    h = 4.0 * math.sqrt(2.0)                                  # a corner at half-diagonal, now on an axis
+    assert base == {(round(26.0 + dx, 3), round(-26.0 + dz, 3)) for dx, dz in ((h, 0), (-h, 0), (0, h), (0, -h))}
+    uv_rock = sorted(tuple(u) for u, t4 in zip(bm.chan_arrays[CH_UV], tan) if t4[0] == MASSIF)
+    uv_rigid = sorted(tuple(u) for u, t4 in zip(rigid["changed"][(0, 0)].chan_arrays[CH_UV],
+                                                 rigid["changed"][(0, 0)].chan_arrays[CH_TAN]) if t4[0] == MASSIF)
+    assert uv_rock == uv_rigid
+    q = _carve_pyramid(tmp_path, rot_deg=450)                 # 450 = 90: the int swap, not cos/sin
+    assert q["rot"] == 1 and isinstance(q["rot"], int) and q["report"]["rot_deg"] == 90
+    with pytest.raises(ValueError, match="finite angle"):
+        _carve_pyramid(tmp_path, rot_deg=float("nan"))
+
+
+def test_cli_world_mountain_passes_rock_height_and_rot(monkeypatch, capsys):
     from ff9mapkit import cli
     seen = {}
 
@@ -759,11 +787,12 @@ def test_cli_world_mountain_passes_rock_height_and_reports_it(monkeypatch, capsy
     monkeypatch.setattr(IN, "carve_mountain", fake_carve)
     monkeypatch.setattr(IN, "census_gate", lambda *a, **k: None)
     args = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0",
-                                          "--rock-height", "1.5", "--dry-run"])
+                                          "--rock-height", "1.5", "--rot", "30", "--dry-run"])
     assert cli._cmd_world_mountain(args) == 0
-    assert seen["rock_height"] == 1.5
+    assert seen["rock_height"] == 1.5 and seen["rot_deg"] == 30.0
     assert "rock height x1.5: 1 rock positions stretched about 4 pinned" in capsys.readouterr().out
-    assert cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0"]).rock_height == 1.0
+    dflt = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0"])
+    assert dflt.rock_height == 1.0 and dflt.rot is None
 
 
 def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):

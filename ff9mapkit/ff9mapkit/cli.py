@@ -5586,6 +5586,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         res = IN.carve_mountain(soup, max_apron_lift=args.max_apron_lift,
                                 gblend=args.gblend if args.gblend is not None else IN.MTN_GBLEND,
                                 foot_course_rects=fc_rects, rock_height=args.rock_height,
+                                rot_deg=args.rot,
                                 center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
                                 ground=args.ground, disc=args.disc, game=args.game)
@@ -5619,7 +5620,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
               f"the carry against the stretched shape.")
     ens = (f" + THE ENSEMBLE CARRY ({r['ensemble_tris']} falls/river/object tris riding "
            f"the same rigid map, Donor.txt -> {res['donor_ref']})") if r.get("ensemble_tris") else ""
-    print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']}deg across "
+    print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']:g}deg across "
           f"{len(r['blocks'])} block(s): {r['blob_tris']} donor tris (+{r['plugs']} aperture "
           f"plugs), {r['dropped']} island tris carved, {r['zip_tris']} zip tris{ens}; peak y "
           f"{r['peak_y']}, rock rigidity drift {r['rock_rigid'] * 100:.1f}% (<= 3.5), apron "
@@ -10354,6 +10355,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "toward the massif centre in units, full at lawn height fading to "
                           "zero at TOP (default lawn+12) -- for a donor face that is "
                           "low-angle because its home context hides it.")
+    wmt.add_argument("--rot", type=float, default=None, metavar="DEG",
+                     help="turn the massif to ANY angle about its centre (degrees, clockwise seen from above): "
+                          "exact with --center, the only angle --near scans. The rock's texture turns with it "
+                          "unchanged; the grass stays on its grid and the foot seam is minted fresh and gated. "
+                          "Default: --near tries the four quarter turns, --center uses 0.")
     wmt.add_argument("--rock-height", type=float, default=1.0, metavar="S",
                      help="stretch the carried rock S times taller (1.0-2.0) about its rim, UV carried: the "
                           "rim, the welds to any floor or ledge and the aperture plugs stay put, so the apron "
