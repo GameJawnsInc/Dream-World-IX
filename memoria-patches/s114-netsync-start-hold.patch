@@ -1,0 +1,1622 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index b8d11f3..6de21d3 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -45,6 +45,10 @@ namespace Memoria.Netsync
+     // [ff9mapkit netsync R3 s113] WAIT PARITY (see CtlShut below): the type-3 control frame's byte 1 carries the guest window's
+     // depth (2 = at the command root, 3 = below it), and the host's Wait gauges freeze only below the root, as for a local
+     // window. Same 2-byte frame (an s110 host reads any non-zero byte as open): still v14.
++    //
++    // [ff9mapkit netsync R3 s114] THE START HOLD (see FlagStartHold below): the control frame grows a 3-byte trailer -- the
++    // guest's diorama boot state for the host's battle nonce -- and the host holds every gauge (BattleHUD.IsNativeEnableAtb)
++    // while that report reads BOOTING, capped, deciding once per battle. Additive bytes (older hosts read bytes 0-1): still v14.
+     public static partial class NetSyncBattle
+     {
+         // --- config mirror (written by NetSyncClient on every config [re]load; main thread) ---
+@@ -210,6 +214,141 @@ namespace Memoria.Netsync
+         // under the selftest role (GuestMenuByte) -- Pump never runs there, so a real guest always encodes its own window.
+         public static Int32 BenchCtl = -1;
+ 
++        // [ff9mapkit netsync R3 s114] THE START HOLD (studies/battle-coop/R3-DESIGN.md 3.1.4). Sitting 2: the host's gauges ran from
++        // its first command-phase frame while the laptop was still swirling into its diorama -- the guest arrived seconds into a
++        // fight already moving. The guest now REPORTS how far its diorama of the host's battle has got, in a trailer on the type-3
++        // control frame -- [0][menu][fmt 1][host battle nonce][boot] (5 bytes; boot: 0 NONE, 1 BOOTING, 2 LIVE, 3 DECLINED, 4 BUSY
++        // -- GuestBootState) -- and the host holds EVERY gauge while that report reads BOOTING: one gate in
++        // BattleHUD.IsNativeEnableAtb, after the _commandEnable test and before the Active early return, so every ATB mode and
++        // every Speed (5 included) stops exactly as in the stock "menu not yet enabled" state an intro already uses. The host
++        // decides ONCE per own battle, at its command phase's opening (a BOOTING report then arms it; a BOOTING report within
++        // LateArmMs after it arms it late), never primes on silence, and every release is FINAL: the guest LIVE, declined/busy/
++        // none, the link cut (the transport's null frame, ~2 s after a cut), a trailer-less frame (an older guest), the cap
++        // ([Netsync] StartHoldMs, enforced by the getter itself), the battle's end, or the knob going off. Byte 1 is nonce-gated:
++        // a trailer naming ANOTHER battle reads as shut, so a stale frame can never freeze this one. Header flags bit 4 is set
++        // while it holds (observability only). Wire stays v14: an s110-s113 host reads bytes 0-1 and ignores the trailer (no
++        // hold); a new host with an older guest gets 2-byte frames and never primes. Owner: gauges only (the intro camera plays),
++        // StartHoldMs default 8000 (0 = off, live), a GuestSlots=0 spectator guest holds too, no on-screen cue (log only).
++        public const Byte FlagStartHold = 0x10;       // type-1 header flags bit 4: the host's start hold is holding now
++        public const Byte CtlFmt1 = 1;                // the control trailer's format byte (byte 2)
++        public const Byte BootNone = 0, BootBooting = 1, BootLive = 2, BootDeclined = 3, BootBusy = 4;
++        public static Int32 StartHoldMs = 8000;       // [Netsync] StartHoldMs -- the hold's cap (0 = off); a behaviour key (applies live)
++        public const Int32 StartHoldMaxMs = 60000;    // the ini's ceiling (NetSyncClient clamps to it): the cap is the one bound on a
++                                                      // hold whose release never comes, so it must stay a real one (review S114-LIVE-1)
++        private const Int32 LateArmMs = 1000;         // a BOOTING report this soon after the opening still arms the hold
++        internal struct StartHoldState                // one own battle's hold (StartHoldStep decides; the getter reads two fields)
++        {
++            public Boolean OpenSeen;                  // the command phase has opened this battle (OpenTick = when)
++            public Boolean Primed;                    // a BOOTING report: through the intro it follows the latest report; then fixed
++            public Boolean Decided;                   // the opening edge decided (once per battle)
++            public Boolean Armed;                     // this battle's hold armed (at the opening or late)
++            public Boolean Started;                   // the hold's clock runs (SinceTick): the first command-phase read, or the arm
++            public Boolean Released;                  // final until the next own battle
++            public Boolean CapSpent;                  // the getter saw the cap pass (HoldGate) -- one-way, so a cap raised later (an ini
++                                                      // edit, `bench starthold cap`) or a tick wrap never re-holds; StartHoldStep then
++                                                      // logs the cap release (review S114-LIVE-2)
++            public Int32 OpenTick, SinceTick, LateMs;
++        }
++        private static StartHoldState _hold;
++        private static Int32 _holdNonce = -1;         // the battle nonce the hold belongs to (-1 between own battles)
++        private static Boolean _ctlTrailer;           // host: the last valid control frame carried an fmt-1 trailer
++        private static Int32 _rptNonce = -1;          // ...its host battle nonce (-1 = none since a reset)
++        private static Int32 _rptBoot = -1;           // ...its boot state
++        private static Int32 _rptFmt = -1;            // ...byte 2 of the last valid frame (0 = a 2-byte frame; -1 = none)
++        private static Int32 _rptTick = Environment.TickCount - 60000;   // tick-baseline law: "long ago", never MinValue
++        private static Boolean _guestR3Seen;          // a trailer arrived at all this process (`guest.r3`; observability only)
++        private static Boolean _ctlNullSeen;          // a null control frame while the hold was primed (the transport's silence verdict)
++        private static Boolean _lastCtlLegacy;        // the last valid control frame had no fmt-1 trailer (an older guest)
++        private static Boolean _sampledHoldBit;       // header bit 4 in the last own-battle sample (a change forces a sample)
++        private static String _holdWhy;               // the opening's decision ("booting" | "late" | not-armed reason); kept to the next battle
++        private static String _holdRelease;           // the release reason (null = none); kept to the next battle
++        private static Int32 _holdHeldMs = -1;        // the released hold's length; kept to the next battle
++        private static Int32 _holdLateMs = -1;        // a late arm's offset from the opening; kept to the next battle
++        private static Int32 _holdCount;              // holds armed -- monotonic per process (read DELTAS)
++        private static Int32 _relLive, _relDeclined, _relLink, _relOld, _relCap, _relEnded;   // releases by reason -- monotonic
++        private static Boolean _holdErrLogged;        // StartHoldTick threw: one line per process
++        // guest: the diorama watcher's own predicates, noted each transport frame right after NetSyncClient.DioramaTick
++        // (NoteGuestWatch); the selftest branch never notes them, so its loopback reports NONE (or the bench's value).
++        private static Boolean _gWatching, _gUiFree;
++        private static Int32 _gSkipNonce = -1;
++        // ...and the diorama's own state AT THE SAME INSTANT (review s114-R1: a live Booted read beside the watcher's notes of the
++        // frame before mixed two instants -- OnDestroy's ForceDisarm lands between Updates, so the frame after every end-leave
++        // read "not booted, still watching, no skip yet" = a false BOOTING, then DECLINED once the watcher stamped its skip).
++        private static Boolean _gBooted, _gLive;
++        private static Int32 _gBootedNonce = -1;
++        private static Int32 _gRptNonce = -1, _gRptBoot = -1;   // the last report my guest side sent (the transition lines)
++        private static Boolean _gRptLive;             // ...and that nonce's report has read LIVE: its leave reports stay quiet
++        // SELFTEST CALIBRATION LEVER (harness `netsync bench starthold 0`; released by HarnessReleaseBench): true = the pre-stage
++        // host -- no hold, ever -- so the stage's bench goes red on the very DLL it proves; `bench starthold cap <ms>` shortens
++        // the cap for the cap legs. Read only through StartHoldCapMs, which also needs the selftest role: a lever stranded
++        // across an ini edit can never change a real host's hold.
++        public static Boolean BenchStartHoldOff;
++        public static Int32 BenchStartHoldCapMs = -1; // -1 = [Netsync] StartHoldMs
++        // SELFTEST LEVER (harness `netsync bench boot auto|none|booting|live|declined|busy|stale|silent|late <ms>`; released by
++        // HarnessReleaseBench): -1 = auto (the guest's own report), 0-4 = that boot state for the view's nonce, BenchBootStale =
++        // LIVE naming the PREVIOUS nonce, BenchBootSilent = the loopback guest sends no control frame at all, BenchBootLate = it
++        // sends none until BenchBootLateMs after the host's opening, then BOOTING. Read only under the selftest role.
++        public const Int32 BenchBootStale = 5, BenchBootSilent = 6, BenchBootLate = 7;
++        public static Int32 BenchBoot = -1;
++        public static Int32 BenchBootLateMs;
++
++        /// <summary>[ff9mapkit netsync R3 s114] The hold's cap now: the selftest bench's (`bench starthold 0` = 0, `cap <ms>`),
++        /// else [Netsync] StartHoldMs; 0 or less = off. Read live, so an ini edit to 0 lets go at once.</summary>
++        internal static Int32 StartHoldCapMs
++        {
++            get
++            {
++                if (NetSyncClient.IsSelfTestRole)
++                {
++                    if (BenchStartHoldOff)
++                        return 0;
++                    if (BenchStartHoldCapMs >= 0)
++                        return BenchStartHoldCapMs;
++                }
++                return StartHoldMs;
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s114] BattleHUD.IsNativeEnableAtb's gate, read only once _commandEnable is true: the
++        /// start hold holds every gauge right now. One static read on vanilla, solo, a guest's diorama and every unheld battle
++        /// (_hold.Primed is set only by a host's StartHoldTick). Self-capped: the first command-phase read starts the clock, and
++        /// past the cap it reads false whatever the pump does -- latched (HoldGate), so a dead pump can never freeze a battle,
++        /// nor a cap raised afterwards re-freeze one. Never throws.</summary>
++        public static Boolean StartHoldActive
++        {
++            get
++            {
++                if (!_hold.Primed || _hold.Released || !Enabled)
++                    return false;
++                return HoldGate(ref _hold, Environment.TickCount, StartHoldCapMs);
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s114] The getter's body, pure apart from the struct it advances (ControlSelfTest pins it):
++        /// a primed, unreleased hold holds until its clock (started by the first read, or by the arm) passes capMs -- and from then
++        /// on never again (CapSpent; review S114-LIVE-2: a bare comparison re-froze a battle whose gauges had already resumed when
++        /// the cap was raised live, or after a tick wrap, if the pump never reached StartHoldTick to latch the release).</summary>
++        internal static Boolean HoldGate(ref StartHoldState h, Int32 now, Int32 capMs)
++        {
++            if (!h.Primed || h.Released || h.CapSpent)
++                return false;
++            if (!h.Started)
++            {
++                h.Started = true;
++                h.SinceTick = now;
++            }
++            if (now - h.SinceTick < capMs)
++                return true;
++            h.CapSpent = true;
++            return false;
++        }
++
++        // Header flags bit 4: the hold is holding now (primed, its clock running, not released, its cap not spent).
++        private static Boolean StartHoldBit
++        {
++            get { return _hold.Primed && _hold.Started && !_hold.Released && !_hold.CapSpent; }
++        }
++
+         // [ff9mapkit netsync B4] stage 2 -- THE GUEST CONTAINMENT BACKSTOP (design 4.3 + 3.8 item 1): R9 at the head of
+         // btl_cmd.SetCommand refuses a player's cmd[0]/cmd[3] while the diorama is Active (NetSyncDiorama.RefuseLocalEnqueue
+         // decides and logs; this file keeps the ledger), and G2 reads IsGuestOwnedSlot false while Active (below). Inert in
+@@ -483,6 +622,20 @@ namespace Memoria.Netsync
+             _ctlSrc = null;
+             _stockDeep = false;
+             _lapseLastCtl = null;                  // (a `reserve` lapse never re-serves a frame from an earlier battle)
++            _ctlTrailer = false;                   // [ff9mapkit netsync R3 s114] the guest's last report forgotten (NoteOwnBattleEnd
++            _rptNonce = -1;                        // below ends a running hold, logged "ended")
++            _rptBoot = -1;
++            _rptFmt = -1;
++            _rptTick = Environment.TickCount - 60000;
++            _gWatching = false;                    // ...and my guest side's noted watcher predicates and its last report
++            _gUiFree = false;
++            _gSkipNonce = -1;
++            _gBooted = false;
++            _gBootedNonce = -1;
++            _gLive = false;
++            _gRptNonce = -1;
++            _gRptBoot = -1;
++            _gRptLive = false;
+             _actionsOut.Clear();
+             _actionDropLogged = false;
+             _actionParseLogged = false;
+@@ -533,6 +686,22 @@ namespace Memoria.Netsync
+             NoteOwnIntro();                        // [ff9mapkit netsync R3 s111] the intro choice this battle publishes
+             _legacyCtlSeen = false;                // [ff9mapkit netsync R3 s113] `host.wait.legacy_seen` and the Wait-parity lines
+             _waitLogMask = 0;                      // re-arm per own battle (kept after it until the next one starts)
++            ClearStartHold();                      // [ff9mapkit netsync R3 s114] a fresh hold: undecided, unprimed, unreleased
++            _holdNonce = _battleNonce;             // (both pumps bump the nonce before this call)
++            _holdWhy = null;                       // ...and its observables start clean (kept after the battle until now)
++            _holdRelease = null;
++            _holdHeldMs = -1;
++            _holdLateMs = -1;
++        }
++
++        // [ff9mapkit netsync R3 s114] NoteOwnBattleStart / NoteOwnBattleEnd (Reset reaches it there): the hold's per-battle state
++        // and the two lane latches it reads start clean. The guest's last report (_rptNonce ...) stays: it names its own nonce.
++        private static void ClearStartHold()
++        {
++            _hold = default(StartHoldState);
++            _ctlNullSeen = false;
++            _lastCtlLegacy = false;
++            _sampledHoldBit = false;
+         }
+ 
+         // [ff9mapkit netsync R3 s111] The rising edge latches THIS battle's intro: HonoluluBattleMain.Start's own test
+@@ -572,6 +741,11 @@ namespace Memoria.Netsync
+             _handbackEdge = false;
+             EndLapse("the own battle ended");
+             _ownIntro = -1;                        // [ff9mapkit netsync R3 s111] `host.intro.own_skip` reads -1 between battles
++            // [ff9mapkit netsync R3 s114] a hold still running when the battle ends (or the lane resets) ends with it -- one line
++            if (_hold.Armed && !_hold.Released)
++                ReleaseStartHold(HoldRelEnded, Environment.TickCount);
++            ClearStartHold();
++            _holdNonce = -1;
+         }
+ 
+         // One read of the command phase per pump tick (both pumps). An EDGE returns true and the caller samples
+@@ -988,9 +1162,10 @@ namespace Memoria.Netsync
+                     Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1: an edge samples NOW
+                     Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4: so does an end-state change
+                     Boolean holdEdge = TrackHostHold();        // [ff9mapkit netsync B4] stage 11: so does a G6 hold change
++                    Boolean startEdge = StartHoldBit != _sampledHoldBit;   // [ff9mapkit netsync R3 s114]: so does header bit 4
+                     Int32 now = Environment.TickCount;
+                     Boolean cadenceDue = now - _lastSampleTick > SampleMs;
+-                    if (phaseEdge || endEdge || holdEdge || cadenceDue)
++                    if (phaseEdge || endEdge || holdEdge || startEdge || cadenceDue)
+                     {
+                         if (endEdge && !phaseEdge && !cadenceDue)   // (stage 11: written out -- a hold edge is not an end edge)
+                             NetSyncEnd.NoteEdgeSample();       // [ff9mapkit netsync B5] stage 4: a sample ONLY the end change took
+@@ -1052,6 +1227,7 @@ namespace Memoria.Netsync
+                     ParseControl(socket.GetRemoteControl());
+                     NoteWaitCap();                         // [ff9mapkit netsync R3 s113] the cap's one line per own battle
+                     HandBackGuestSlot();                   // [ff9mapkit netsync B4] stage 11 -- G3, the root-only hand-back (BTL-1)
++                    StartHoldTick();                       // [ff9mapkit netsync R3 s114] the start hold reads the report just parsed
+                     Byte[] cmd;
+                     while ((cmd = socket.NextRemoteCommand()) != null)
+                         HandleCommandPayload(cmd);
+@@ -1155,9 +1331,10 @@ namespace Memoria.Netsync
+                 Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1 (as Pump)
+                 Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4 (as Pump)
+                 Boolean holdEdge = TrackHostHold();        // [ff9mapkit netsync B4] stage 11 (as Pump)
++                Boolean startEdge = StartHoldBit != _sampledHoldBit;   // [ff9mapkit netsync R3 s114] (as Pump)
+                 Int32 now = Environment.TickCount;
+                 Boolean cadenceDue = now - _lastSampleTick > SampleMs;
+-                if (phaseEdge || endEdge || holdEdge || cadenceDue)
++                if (phaseEdge || endEdge || holdEdge || startEdge || cadenceDue)
+                 {
+                     if (endEdge && !phaseEdge && !cadenceDue)
+                         NetSyncEnd.NoteEdgeSample();       // [ff9mapkit netsync B5] stage 4 (as Pump)
+@@ -1209,9 +1386,12 @@ namespace Memoria.Netsync
+                     // Pump's call on a stale socket -- and the hand-back runs right after the parse, as in Pump
+                     // [ff9mapkit netsync R3 s113] the loopback guest's window depth (GuestMenuByte: the digit panel's mode, or the
+                     // `bench ctl` lever) through the same codec; a `bench lapse ... reserve` re-serves its last frame first
+-                    ParseControl(BenchLapseFrame(GuestControl(_peerView)));   // RemoteMenuOpen/RemoteMenuDeep through the codec too
++                    // [ff9mapkit netsync R3 s114] ...with its boot report (auto = NONE: this machine is no diorama guest here), unless
++                    // `bench boot silent|late` withholds the frame (BenchBootFrame), and the start hold right after the hand-back
++                    ParseControl(BenchLapseFrame(BenchBootFrame(GuestControl(_peerView))));   // RemoteMenuOpen/RemoteMenuDeep through the codec too
+                     NoteWaitCap();
+                     HandBackGuestSlot();
++                    StartHoldTick();
+                     // [ff9mapkit netsync B4] stage 8: the shared digit-panel decision -- an own battle is never a diorama, so the
+                     // stock menu never owns these slots and it serves the first ready slot, exactly as before
+                     Byte[] command = GuestAssistTick(_peerView, _peerRoster);
+@@ -1294,6 +1474,12 @@ namespace Memoria.Netsync
+                     if (_ownIntro == 1)
+                         flags |= FlagIntroSkipped;
+                 }
++                // [ff9mapkit netsync R3 s114] bit 4: the start hold is holding every gauge now (observability only; every pre-s114
++                // reader ignores it). A change of it forces a sample in both pumps (startEdge), so it reaches the wire inside a frame.
++                Boolean holdBit = StartHoldBit;
++                if (holdBit)
++                    flags |= FlagStartHold;
++                _sampledHoldBit = holdBit;
+                 Boolean commandPhase = !gated || HostCommandPhaseOpen(hud, btlsys);
+                 Int32 readyMask = 0;
+                 // [ff9mapkit netsync B4] stage 11 -- G6: the unit the host's OWN command window holds is not Ready on the wire
+@@ -2423,9 +2609,174 @@ namespace Memoria.Netsync
+ 
+         // [ff9mapkit netsync R3 s113] byte 1 = the guest window's depth (CtlShut / CtlOpenLegacy / CtlOpenRoot / CtlOpenDeep); the
+         // frame stays 2 bytes. GuestControl is the one guest-side encoder.
+-        private static Byte[] BuildControl(Byte menu)
++        // [ff9mapkit netsync R3 s114] ...plus the start-hold trailer: [0][menu][fmt 1][the host battle nonce this report is about]
++        // [boot 0-4] -- 5 bytes (an s110-s113 host reads bytes 0-1 only).
++        internal static Byte[] BuildControl(Byte menu, Byte nonce, Byte boot)
++        {
++            return new Byte[] { 0, menu, CtlFmt1, nonce, boot };
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s114] THE HOST'S DECODE of one type-3 control payload against its own battle nonce --
++        /// ParseControl's acceptance test and reads, and ControlSelfTest's oracle. False = malformed (null, short, not ver 0).
++        /// menu = byte 1, EXCEPT under a trailer naming another battle: then shut (a report about ANOTHER battle never freezes
++        /// this one -- the byte-1 nonce gate). trailer = an fmt-1 trailer (bytes 2-4); anything else (2 bytes, short, an unknown
++        /// fmt) is trailer-less -- an older guest's frame, whose byte 1 is read ungated, as before. Pure.</summary>
++        internal static Boolean DecodeControl(Byte[] p, Byte battleNonce, out Int32 menu, out Boolean trailer, out Int32 nonce,
++                                              out Int32 boot)
++        {
++            menu = -1;
++            trailer = false;
++            nonce = -1;
++            boot = -1;
++            if (p == null || p.Length < 2 || p[0] != 0)
++                return false;
++            menu = p[1];
++            if (p.Length >= 5 && p[2] == CtlFmt1)
++            {
++                trailer = true;
++                nonce = p[3];
++                boot = p[4];
++                if (nonce != battleNonce)
++                    menu = CtlShut;
++            }
++            return true;
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s114] THE GUEST'S REPORT -- its diorama of the host battle `nonce`, from the watcher's own
++        /// predicates (NetSyncClient.DioramaTick; noted by NoteGuestWatch) and the diorama's live latch (NetSyncDiorama.LiveTick):
++        ///   booted, same nonce        -> LIVE once that boot latched its command phase with a host sample in hand, else BOOTING
++        ///   booted, no wire nonce     -> DECLINED (a manual ~ / harness diorama: the watcher never manages it)
++        ///   booted, an older battle   -> BOOTING while watching (the watcher leaves it and boots the new one), else NONE
++        ///   not watching              -> NONE (not following, not a client, off a field -- a world-map battle -- or may not boot)
++        ///   the skip nonce is this one -> DECLINED (an opt-out, a late join, an undisplayable scene, a settled leave: one line,
++        ///                                 the whole battle -- or a boot that keeps failing: NetSyncClient.NoteBootWatch)
++        ///   the UI is not free        -> BUSY (a durable non-FieldHUD state -- a menu, a shop, a pause: the watcher waits on it)
++        ///   otherwise                 -> BOOTING (fades, warps and the watcher's 1 s rate limit clear by themselves).
++        /// Pure.</summary>
++        internal static Byte GuestBootState(Byte nonce, Boolean watching, Boolean uiFree, Int32 skipNonce, Boolean booted,
++                                            Int32 bootedNonce, Boolean live)
+         {
+-            return new Byte[] { 0, menu };
++            if (booted)
++            {
++                if (bootedNonce == nonce)
++                    return live ? BootLive : BootBooting;
++                if (bootedNonce < 0)
++                    return BootDeclined;
++                return watching ? BootBooting : BootNone;
++            }
++            if (!watching)
++                return BootNone;
++            if (skipNonce == nonce)
++                return BootDeclined;
++            if (!uiFree)
++                return BootBusy;
++            return BootBooting;
++        }
++
++        internal static String BootName(Int32 boot)
++        {
++            switch (boot)
++            {
++                case BootNone: return "none";
++                case BootBooting: return "booting";
++                case BootLive: return "live";
++                case BootDeclined: return "declined";
++                case BootBusy: return "busy";
++                default: return boot < 0 ? null : "unknown " + boot;
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s114] NetSyncClient, every transport frame right after DioramaTick: the watcher's own
++        /// predicates AND the diorama's state (booted, its wire nonce, the live latch), all read at that one instant, for the next
++        /// control frame's report (a frame behind at most, but never two instants mixed -- review s114-R1). Main thread.</summary>
++        internal static void NoteGuestWatch(Boolean watching, Boolean uiFree, Int32 skipNonce, Boolean booted, Int32 bootedNonce,
++                                            Boolean live)
++        {
++            _gWatching = watching;
++            _gUiFree = uiFree;
++            _gSkipNonce = skipNonce;
++            _gBooted = booted;
++            _gBootedNonce = bootedNonce;
++            _gLive = live;
++        }
++
++        // [ff9mapkit netsync R3 s114] This tick's report for the view's battle: the selftest `bench boot` lever (a forced state, or
++        // `stale` = LIVE naming the previous nonce -- `nonce` is rewritten), else GuestBootState. A real peer reads the snapshot
++        // NoteGuestWatch took (one instant); the selftest role, which has no watcher, reads the diorama live. A bench feed's
++        // diorama IS the feed's battle (a manual boot has no wire nonce; the feed stands in for the host's lane), so it reports as
++        // a wire boot.
++        private static Byte GuestBootFor(BattleView view, ref Byte nonce)
++        {
++            if (BenchBoot >= 0 && NetSyncClient.IsSelfTestRole)
++            {
++                if (BenchBoot == BenchBootStale)
++                {
++                    nonce = (Byte)(nonce - 1);
++                    return BootLive;
++                }
++                if (BenchBoot <= BootBusy)
++                    return (Byte)BenchBoot;
++                if (BenchBoot == BenchBootLate && BenchBootLateDue)
++                    return BootBooting;
++                // silent, and late before its time: the frame is built as auto; the loopback withholds it (BenchBootFrame)
++            }
++            if (!NetSyncClient.IsSelfTestRole)
++                return GuestBootState(nonce, _gWatching, _gUiFree, _gSkipNonce, _gBooted, _gBootedNonce, _gLive);
++            Boolean booted = NetSyncDiorama.Booted;
++            Int32 bootedNonce = NetSyncDiorama.BootedWireNonce;
++            if (booted && bootedNonce < 0 && BenchFeedArmed && view != null && view.Nonce == _feedNonce)
++                bootedNonce = _feedNonce;
++            return GuestBootState(nonce, _gWatching, _gUiFree, _gSkipNonce, booted, bootedNonce, NetSyncDiorama.LiveLatched);
++        }
++
++        // [ff9mapkit netsync R3 s114] SelfTestPump only, between GuestControl and the lapse: `bench boot silent` withholds every
++        // loopback control frame (the host's ParseControl(null): no guest at all), `bench boot late <ms>` every frame until <ms>
++        // after the host's command phase opened (then the BOOTING report); `menu.ctl` then reads "none" (the lane is shut).
++        private static Byte[] BenchBootFrame(Byte[] frame)
++        {
++            if (BenchBoot < BenchBootSilent || !NetSyncClient.IsSelfTestRole)
++                return frame;
++            if (BenchBoot == BenchBootLate && BenchBootLateDue)
++                return frame;                     // GuestBootFor already reported BOOTING
++            _ctlOut = null;
++            _ctlSrc = null;
++            return null;
++        }
++
++        // `bench boot late <ms>`: the host's command phase opened at least <ms> ago this own battle (the loopback reads the host's
++        // own opening tick -- one process).
++        private static Boolean BenchBootLateDue
++        {
++            get { return _hold.OpenSeen && Environment.TickCount - _hold.OpenTick >= BenchBootLateMs; }
++        }
++
++        // [ff9mapkit netsync R3 s114] The guest's report lines: one per change of (host nonce, boot), never for a battle that only
++        // ever reads NONE (a host-role peer, a non-follower: once per battle would still be noise), nor for a battle's reports
++        // after it read LIVE other than BOOTING/LIVE (review s114-R1: the end-leave of every followed battle -- and an opt-out
++        // after it went live -- reads DECLINED or NONE until the host's lane goes stale; the host decided long before, and the
++        // watcher's own "leave noted" line already names it). Never throws.
++        private static void NoteGuestReport(Byte nonce, Byte boot)
++        {
++            if (nonce == _gRptNonce && boot == _gRptBoot)
++                return;
++            Boolean quiet = boot == BootNone && (nonce != _gRptNonce || _gRptBoot == BootNone);
++            if (nonce != _gRptNonce)
++                _gRptLive = false;
++            if (boot == BootLive)
++                _gRptLive = true;
++            else if (_gRptLive && boot != BootBooting)
++                quiet = true;
++            _gRptNonce = nonce;
++            _gRptBoot = boot;
++            if (quiet)
++                return;
++            Log.Message("[NetSync] start hold report: host battle nonce " + nonce + " -> " + BootName(boot).ToUpperInvariant() + " -- "
++                        + (boot == BootBooting ? "my diorama of it is booting or in its intro (the host holds its gauges)"
++                           : boot == BootLive ? "my diorama of it reached its command phase (the host's gauges may run)"
++                           : boot == BootDeclined ? "I decline it (an opt-out, a late join, an undisplayable scene, a settled leave, a "
++                                                    + "boot that keeps failing or a manual diorama)"
++                           : boot == BootBusy ? "I am busy (a menu, a shop, a pause): the diorama waits on me, the host does not"
++                           : "no diorama of it here"));
+         }
+ 
+         // [ff9mapkit netsync R3 s113] THE GUEST'S ENCODING -- byte 1 for this tick (src = what decided it, a literal for the harness):
+@@ -2469,25 +2820,51 @@ namespace Memoria.Netsync
+ 
+         // [ff9mapkit netsync R3 s113] The control frame my guest side sends this tick -- Pump's guest branch, the selftest loopback
+         // and the bench feed all build it here -- recorded for `netsync.battle.menu.ctl`.
++        // [ff9mapkit netsync R3 s114] ...with the start-hold trailer: my report on the view's battle (GuestBootFor).
+         private static Byte[] GuestControl(BattleView view)
+         {
+             String src;
+-            Byte[] frame = BuildControl(GuestMenuByte(view, out src));
++            Byte menu = GuestMenuByte(view, out src);
++            Byte nonce = view != null ? view.Nonce : (Byte)0;
++            Byte boot = GuestBootFor(view, ref nonce);
++            Byte[] frame = BuildControl(menu, nonce, boot);
+             _ctlOut = frame;
+             _ctlSrc = src;
++            NoteGuestReport(nonce, boot);
+             return frame;
+         }
+ 
+         private static void ParseControl(Byte[] payload)
+         {
+-            if (payload == null || payload.Length < 2 || payload[0] != 0)
++            Int32 menuRead, rptNonce, rptBoot;
++            Boolean trailer;
++            if (!DecodeControl(payload, _battleNonce, out menuRead, out trailer, out rptNonce, out rptBoot))   // [ff9mapkit netsync R3 s114]
+             {
+                 _remoteMenuFlag = false;
+                 _remoteMenuSeen = -1;              // [ff9mapkit netsync R3 s113] `host.wait.menu`: no valid frame this tick
++                // [ff9mapkit netsync R3 s114] null = the transport's own "2 s of silence" verdict (it re-serves a silent sender's
++                // last frame that long first; a seq would read dead through the guest's scene-load stall, review ctrl F3). Only
++                // while a hold is primed: an idle lane hands null every tick. A malformed frame is no silence.
++                if (payload == null && _hold.Primed && !_hold.Released)
++                    _ctlNullSeen = true;
+                 return;
+             }
+             _assistTick = Environment.TickCount;   // any valid control frame = the guest is live + watching
+-            Byte menu = payload[1];
++            // [ff9mapkit netsync R3 s114] the trailer: the guest's report (rptThis = it names THIS battle -- StartHoldTick); byte 1
++            // came back shut if the report names another battle (DecodeControl's nonce gate)
++            _ctlTrailer = trailer;
++            _lastCtlLegacy = !trailer;
++            _rptFmt = payload.Length >= 3 ? payload[2] : 0;
++            if (trailer)
++            {
++                _rptNonce = rptNonce;
++                _rptBoot = rptBoot;
++                _rptTick = _assistTick;
++                _guestR3Seen = true;
++            }
++            if (!_hold.Decided || !_hold.Primed)
++                _ctlNullSeen = false;              // a frame answers an earlier silence -- except while holding: that release is final
++            Byte menu = (Byte)menuRead;
+             Boolean open = menu != 0;
+             Boolean wasOpen = _remoteMenuFlag;     // [ff9mapkit netsync R3 s113] (read before the flag changes below)
+             Boolean wasDeep = wasOpen && _remoteMenuByte != CtlOpenRoot;
+@@ -2560,6 +2937,373 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // ============================================================================ the start hold (R3 s114)
++        // [ff9mapkit netsync R3 s114] StartHoldStep's verdicts (StartHoldTick logs and counts them; ControlSelfTest pins them).
++        internal const Int32 HoldNothing = 0, HoldPrimed = 1, HoldUnprimed = 2, HoldArmed = 3, HoldNotArmed = 4, HoldLateArmed = 5,
++                             HoldLatePassed = 6, HoldRelLive = 7, HoldRelDeclined = 8, HoldRelLink = 9, HoldRelOld = 10,
++                             HoldRelCap = 11, HoldRelOff = 12, HoldRelEnded = 13;
++
++        /// <summary>[ff9mapkit netsync R3 s114] ONE TICK OF THE START HOLD -- pure apart from the struct it advances (the getter
++        /// starts the same clock). Inputs: the knob (on, capMs), the command phase now (phaseOpen: latched into OpenSeen), the
++        /// guest's report on THIS battle (rptThis: an fmt-1 trailer naming this nonce, fresh within MenuStaleMs; rptBoot), the
++        /// transport's silence verdict while primed (nullSeen) and a trailer-less last frame (legacyLast). In order:
++        ///   released                        -> nothing (final until the next own battle: a pause or a Libra cannot re-freeze)
++        ///   off (on false, or capMs &lt;= 0) -> released at once; RelOff if it was holding
++        ///   the intro (no opening yet)      -> primed follows the latest report: BOOTING (and no silence since) primes, anything
++        ///                                      else unprimes -- never primed on silence
++        ///   the opening (once)              -> decided: a BOOTING report now arms (the clock starts), else NotArmed
++        ///   not armed, inside LateArmMs     -> a BOOTING report arms late (LateMs = how late); past it -> released, silently
++        ///   holding                         -> released by LIVE, by NONE/DECLINED/BUSY ("declined"), by the silence ("link"), by
++        ///                                      a trailer-less frame ("old guest"), else by the cap (or the getter's spent-cap
++        ///                                      latch, HoldGate) -- in that order
++        /// The return is the verdict (HoldNothing = no change).</summary>
++        internal static Int32 StartHoldStep(ref StartHoldState h, Int32 now, Boolean on, Int32 capMs, Boolean phaseOpen,
++                                            Boolean rptThis, Int32 rptBoot, Boolean nullSeen, Boolean legacyLast)
++        {
++            if (phaseOpen && !h.OpenSeen)
++            {
++                h.OpenSeen = true;
++                h.OpenTick = now;
++            }
++            if (h.Released)
++                return HoldNothing;
++            if (!on || capMs <= 0)
++            {
++                Boolean holding = h.Armed;
++                h.Decided = true;
++                h.Released = true;
++                return holding ? HoldRelOff : HoldNothing;
++            }
++            Boolean booting = rptThis && rptBoot == BootBooting && !nullSeen;
++            if (!h.Decided)
++            {
++                if (!h.OpenSeen)
++                {
++                    if (booting == h.Primed)
++                        return HoldNothing;
++                    h.Primed = booting;
++                    return booting ? HoldPrimed : HoldUnprimed;
++                }
++                h.Decided = true;
++                h.Primed = booting;
++                if (!booting)
++                {
++                    h.Started = false;            // (a getter read a frame before the opening may have started a clock for nothing)
++                    h.CapSpent = false;
++                    return HoldNotArmed;
++                }
++                h.Armed = true;
++                if (!h.Started)
++                {
++                    h.Started = true;
++                    h.SinceTick = now;
++                }
++                return HoldArmed;
++            }
++            if (!h.Primed)
++            {
++                if (now - h.OpenTick < LateArmMs)
++                {
++                    if (!booting)
++                        return HoldNothing;
++                    h.Primed = true;
++                    h.Armed = true;
++                    h.LateMs = now - h.OpenTick;
++                    h.Started = true;
++                    h.SinceTick = now;
++                    h.CapSpent = false;
++                    return HoldLateArmed;
++                }
++                h.Released = true;
++                return HoldLatePassed;
++            }
++            Int32 ev = HoldNothing;
++            if (rptThis && rptBoot == BootLive)
++                ev = HoldRelLive;
++            else if (rptThis && (rptBoot == BootNone || rptBoot == BootDeclined || rptBoot == BootBusy))
++                ev = HoldRelDeclined;
++            else if (nullSeen)
++                ev = HoldRelLink;
++            else if (legacyLast)
++                ev = HoldRelOld;
++            else if (h.CapSpent || (h.Started && now - h.SinceTick >= capMs))
++                ev = HoldRelCap;                  // (CapSpent: the getter saw the cap pass first -- its latch, whatever the cap now)
++            if (ev != HoldNothing)
++                h.Released = true;
++            return ev;
++        }
++
++        // Both pumps, right after HandBackGuestSlot (the control lane has just been parsed): one StartHoldStep, then its lines and
++        // counters. Int compares on a host with no guest once the battle has decided; never throws into the engine (a fault
++        // releases the hold -- the safe answer).
++        private static void StartHoldTick()
++        {
++            try
++            {
++                Int32 now = Environment.TickCount;
++                Boolean rptThis = _ctlTrailer && _rptNonce == _battleNonce && now - _rptTick < MenuStaleMs;
++                Boolean wasHolding = _hold.Armed && !_hold.Released;
++                Int32 heldBefore = wasHolding && _hold.Started ? now - _hold.SinceTick : 0;
++                Int32 ev = StartHoldStep(ref _hold, now, StartHoldCapMs > 0, StartHoldCapMs, _hostPhaseOpen, rptThis, _rptBoot,
++                                         _ctlNullSeen, _lastCtlLegacy);
++                if (ev != HoldNothing)
++                    NoteStartHold(ev, now, rptThis, heldBefore);
++            }
++            catch (Exception err)
++            {
++                _hold.Released = true;
++                if (!_holdErrLogged)
++                {
++                    _holdErrLogged = true;
++                    Log.Error(err, "[NetSync] start hold tick failed -- the hold is released (logged once per process)");
++                }
++            }
++        }
++
++        // One verdict's line and counters (StartHoldTick).
++        private static void NoteStartHold(Int32 ev, Int32 now, Boolean rptThis, Int32 heldMs)
++        {
++            switch (ev)
++            {
++                case HoldArmed:
++                    _holdCount++;
++                    _holdWhy = "booting";
++                    Log.Message("[NetSync] start hold ARMED for battle nonce " + _battleNonce + " -- the guest's diorama is BOOTING; every "
++                                + "gauge waits (cap " + StartHoldCapMs + " ms)");
++                    return;
++                case HoldLateArmed:
++                    _holdCount++;
++                    _holdWhy = "late";
++                    _holdLateMs = _hold.LateMs;
++                    Log.Message("[NetSync] start hold ARMED late +" + _hold.LateMs + " ms for battle nonce " + _battleNonce + " -- the "
++                                + "guest's report turned BOOTING after the command phase opened; every gauge waits (cap " + StartHoldCapMs
++                                + " ms)");
++                    return;
++                case HoldNotArmed:
++                {
++                    String phrase;
++                    _holdWhy = NotArmedWhy(now, rptThis, out phrase);
++                    // only when a guest's control lane was live within StallMemoryMs (a host with no guest -- or whose guest left
++                    // long ago: _guestR3Seen latches for the process, observability only, review s114-R2 -- stays quiet), or on
++                    // the bench. (A report stamps _assistTick too, so a recent report always counts.)
++                    if (now - _assistTick < StallMemoryMs || NetSyncClient.IsSelfTestRole)
++                        Log.Message("[NetSync] start hold not armed for battle nonce " + _battleNonce + " -- " + phrase + " (a BOOTING "
++                                    + "report within " + LateArmMs + " ms still arms it)");
++                    return;
++                }
++                case HoldRelLive:
++                case HoldRelDeclined:
++                case HoldRelLink:
++                case HoldRelOld:
++                case HoldRelCap:
++                case HoldRelOff:
++                    ReleaseStartHold(ev, now, heldMs);
++                    return;
++            }
++            // HoldPrimed / HoldUnprimed (the intro follows the report: no line) and HoldLatePassed (silent by design)
++        }
++
++        // A release: final, counted, one line. NoteOwnBattleEnd passes HoldRelEnded itself (the hold dies with its battle).
++        private static void ReleaseStartHold(Int32 ev, Int32 now)
++        {
++            ReleaseStartHold(ev, now, _hold.Started ? now - _hold.SinceTick : 0);
++        }
++
++        private static void ReleaseStartHold(Int32 ev, Int32 now, Int32 heldMs)
++        {
++            _hold.Released = true;
++            String why;
++            switch (ev)
++            {
++                case HoldRelLive: _relLive++; why = "live"; break;
++                case HoldRelDeclined: _relDeclined++; why = "declined"; break;
++                case HoldRelLink: _relLink++; why = "link"; break;
++                case HoldRelOld: _relOld++; why = "old guest"; break;
++                case HoldRelCap: _relCap++; why = "cap"; break;
++                case HoldRelEnded: _relEnded++; why = "ended"; break;
++                default: why = "off"; break;
++            }
++            _holdRelease = why;
++            _holdHeldMs = Math.Max(0, heldMs);
++            String detail;
++            switch (ev)
++            {
++                case HoldRelLive: detail = "the guest's diorama reached its command phase"; break;
++                case HoldRelDeclined: detail = "the guest reports " + (BootName(_rptBoot) ?? "?") + " for this battle"; break;
++                case HoldRelLink: detail = "the guest's control lane went silent (the transport's 2 s verdict)"; break;
++                case HoldRelOld: detail = "the guest's control frame carries no report (an older DLL)"; break;
++                case HoldRelCap: detail = "the cap (" + StartHoldCapMs + " ms)"; break;
++                case HoldRelEnded: detail = "the own battle ended (or the lane reset) while it held"; break;
++                default: detail = "StartHoldMs is 0 (or the selftest lever `bench starthold 0`)"; break;
++            }
++            Log.Message("[NetSync] start hold RELEASED after " + _holdHeldMs + " ms: " + why + " -- " + detail + " (battle nonce "
++                        + _battleNonce + "; final for this battle)");
++        }
++
++        // The opening's not-armed reason: a short key for the harness (`start_hold.why`) and a phrase for the line.
++        private static String NotArmedWhy(Int32 now, Boolean rptThis, out String phrase)
++        {
++            if (rptThis)
++            {
++                switch (_rptBoot)
++                {
++                    case BootLive:
++                        phrase = "the guest is live (its diorama of this battle already reached its command phase)";
++                        return "live";
++                    case BootDeclined:
++                        phrase = "the guest declined this battle (an opt-out, a late join, an undisplayable scene, a boot that keeps "
++                                 + "failing or a manual diorama)";
++                        return "declined";
++                    case BootBusy:
++                        phrase = "the guest is busy (a menu, a shop, a pause -- its diorama waits on it, the host does not)";
++                        return "busy";
++                    case BootNone:
++                        phrase = "the guest has no diorama of it (not following, off a field -- a world-map battle -- or may not boot)";
++                        return "none";
++                    case BootBooting:
++                        phrase = "the guest's control lane went silent while it was booting";
++                        return "link";
++                }
++                phrase = "the guest's report is no known state (" + _rptBoot + ")";
++                return "unknown";
++            }
++            if (_ctlTrailer && now - _rptTick < MenuStaleMs)
++            {
++                phrase = "the guest's report names another battle (nonce " + _rptNonce + ")";
++                return "stale nonce";
++            }
++            if (_lastCtlLegacy && now - _assistTick < MenuStaleMs)
++            {
++                phrase = "the guest's control frame carries no report (an older DLL): no hold";
++                return "old guest";
++            }
++            phrase = "no word yet from a guest";
++            return "no word yet";
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s114] THE BATTLE CONTROL SELFTEST (NetSyncClient's selftest proof block: "battle control
++        /// selftest: OK|FAIL (...)"): the trailer codec and its byte-1 nonce gate (DecodeControl), the guest's report
++        /// (GuestBootState, the BUSY row included) and the host's decisions (StartHoldStep) as a truth table of sequences -- the
++        /// stale-nonce LIVE that releases nothing, the 2-byte frame that never holds, the unknown fmt that is ignored, the
++        /// released-then-paused battle that never re-arms, a late arm, the link and old-guest releases, silence that never
++        /// primes -- and the getter's body (HoldGate), whose spent cap never re-holds. Each row discriminates one rule, so a mutant
++        /// of that rule fails it. Pure: touches no live state.</summary>
++        internal static Boolean ControlSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                const Byte N = 0x41;
++                Int32 m, n, b;
++                Boolean t;
++                // --- the codec + the byte-1 nonce gate
++                Byte[] f = BuildControl(CtlOpenDeep, N, BootLive);
++                Row(f.Length == 5 && f[0] == 0 && f[1] == CtlOpenDeep && f[2] == CtlFmt1 && f[3] == N && f[4] == BootLive, "encode", ref rows, ref fail);
++                Row(DecodeControl(f, N, out m, out t, out n, out b) && m == CtlOpenDeep && t && n == N && b == BootLive, "decode", ref rows, ref fail);
++                Row(DecodeControl(BuildControl(CtlOpenDeep, N - 1, BootLive), N, out m, out t, out n, out b) && m == CtlShut && t && n == N - 1,
++                    "nonce gate", ref rows, ref fail);
++                Row(DecodeControl(new Byte[] { 0, CtlOpenRoot }, N, out m, out t, out n, out b) && m == CtlOpenRoot && !t && n == -1,
++                    "2-byte frame", ref rows, ref fail);
++                Row(DecodeControl(new Byte[] { 0, CtlOpenDeep, 9, N - 1, BootLive }, N, out m, out t, out n, out b) && m == CtlOpenDeep && !t,
++                    "unknown fmt ignored", ref rows, ref fail);
++                Row(DecodeControl(new Byte[] { 0, CtlOpenDeep, CtlFmt1, N - 1 }, N, out m, out t, out n, out b) && m == CtlOpenDeep && !t,
++                    "short trailer", ref rows, ref fail);
++                Row(!DecodeControl(new Byte[] { 1, CtlOpenRoot }, N, out m, out t, out n, out b) && !DecodeControl(null, N, out m, out t, out n, out b),
++                    "malformed", ref rows, ref fail);
++                // --- the guest's report (nonce, watching, uiFree, skip, booted, bootedNonce, live)
++                Row(GuestBootState(N, true, true, -1, true, N, true) == BootLive, "boot live", ref rows, ref fail);
++                Row(GuestBootState(N, true, true, -1, true, N, false) == BootBooting, "boot intro", ref rows, ref fail);
++                Row(GuestBootState(N, true, true, -1, true, -1, true) == BootDeclined, "boot manual", ref rows, ref fail);
++                Row(GuestBootState(N, true, true, -1, true, N - 1, true) == BootBooting, "boot older+watching", ref rows, ref fail);
++                Row(GuestBootState(N, false, true, -1, true, N - 1, true) == BootNone, "boot older", ref rows, ref fail);
++                Row(GuestBootState(N, false, true, -1, false, -1, false) == BootNone, "boot not watching", ref rows, ref fail);
++                Row(GuestBootState(N, true, true, N, false, -1, false) == BootDeclined, "boot skip", ref rows, ref fail);
++                Row(GuestBootState(N, true, false, N - 1, false, -1, false) == BootBusy, "boot busy", ref rows, ref fail);
++                Row(GuestBootState(N, true, true, N - 1, false, -1, false) == BootBooting, "boot will boot", ref rows, ref fail);
++                // --- the host's decisions (StartHoldStep: now, on, cap, phaseOpen, rptThis, rptBoot, nullSeen, legacyLast)
++                StartHoldState h = default(StartHoldState);
++                Row(StartHoldStep(ref h, 0, true, 8000, false, true, BootBooting, false, false) == HoldPrimed
++                    && StartHoldStep(ref h, 100, true, 8000, true, true, BootBooting, false, false) == HoldArmed && h.Started && h.SinceTick == 100,
++                    "arm at the opening", ref rows, ref fail);
++                Row(StartHoldStep(ref h, 1200, true, 8000, true, true, BootLive, false, false) == HoldRelLive && h.Released,
++                    "live releases", ref rows, ref fail);
++                Row(StartHoldStep(ref h, 1300, true, 8000, false, true, BootBooting, false, false) == HoldNothing
++                    && StartHoldStep(ref h, 1400, true, 8000, true, true, BootBooting, false, false) == HoldNothing && h.Released,
++                    "released then paused: final", ref rows, ref fail);
++                h = default(StartHoldState);
++                StartHoldStep(ref h, 0, true, 3000, true, true, BootBooting, false, false);
++                Row(StartHoldStep(ref h, 1000, true, 3000, true, false, BootLive, false, false) == HoldNothing
++                    && StartHoldStep(ref h, 2999, true, 3000, true, false, BootLive, false, false) == HoldNothing
++                    && StartHoldStep(ref h, 3000, true, 3000, true, false, BootLive, false, false) == HoldRelCap,
++                    "stale-nonce LIVE: the cap", ref rows, ref fail);
++                h = default(StartHoldState);
++                Row(StartHoldStep(ref h, 0, true, 8000, false, false, -1, false, true) == HoldNothing && !h.Primed
++                    && StartHoldStep(ref h, 100, true, 8000, true, false, -1, false, true) == HoldNotArmed
++                    && StartHoldStep(ref h, 1099, true, 8000, true, false, -1, false, true) == HoldNothing
++                    && StartHoldStep(ref h, 1100, true, 8000, true, false, -1, false, true) == HoldLatePassed && !h.Armed && h.Released,
++                    "2-byte frame: no hold", ref rows, ref fail);
++                h = default(StartHoldState);
++                Row(StartHoldStep(ref h, 0, true, 8000, false, false, -1, false, false) == HoldNothing && !h.Primed
++                    && StartHoldStep(ref h, 100, true, 8000, true, false, -1, false, false) == HoldNotArmed && !h.Primed,
++                    "silence never primes", ref rows, ref fail);
++                Row(StartHoldStep(ref h, 400, true, 8000, true, true, BootBooting, false, false) == HoldLateArmed && h.LateMs == 300
++                    && h.Primed && h.SinceTick == 400, "late arm", ref rows, ref fail);
++                h = default(StartHoldState);
++                StartHoldStep(ref h, 0, true, 8000, true, true, BootBooting, false, false);
++                Row(StartHoldStep(ref h, 500, true, 8000, true, true, BootBusy, false, false) == HoldRelDeclined, "busy releases",
++                    ref rows, ref fail);
++                h = default(StartHoldState);
++                StartHoldStep(ref h, 0, true, 8000, true, true, BootBooting, false, false);
++                Row(StartHoldStep(ref h, 500, true, 8000, true, true, BootBooting, true, false) == HoldRelLink, "link releases",
++                    ref rows, ref fail);
++                h = default(StartHoldState);
++                StartHoldStep(ref h, 0, true, 8000, true, true, BootBooting, false, false);
++                Row(StartHoldStep(ref h, 500, true, 8000, true, false, -1, false, true) == HoldRelOld, "old guest releases",
++                    ref rows, ref fail);
++                h = default(StartHoldState);
++                Row(StartHoldStep(ref h, 0, true, 8000, false, true, BootBooting, false, false) == HoldPrimed
++                    && StartHoldStep(ref h, 50, true, 8000, false, true, BootLive, false, false) == HoldUnprimed
++                    && StartHoldStep(ref h, 100, true, 8000, true, true, BootLive, false, false) == HoldNotArmed,
++                    "the intro follows the report", ref rows, ref fail);
++                h = default(StartHoldState);
++                Row(StartHoldStep(ref h, 0, true, 8000, false, true, BootBooting, false, false) == HoldPrimed
++                    && StartHoldStep(ref h, 50, true, 8000, false, true, BootBooting, true, false) == HoldUnprimed,
++                    "silence in the intro unprimes", ref rows, ref fail);
++                h = default(StartHoldState);
++                Row(StartHoldStep(ref h, 0, false, 8000, false, true, BootBooting, false, false) == HoldNothing && h.Released
++                    && StartHoldStep(ref h, 100, true, 8000, true, true, BootBooting, false, false) == HoldNothing && !h.Armed,
++                    "off never holds", ref rows, ref fail);
++                h = default(StartHoldState);
++                StartHoldStep(ref h, 0, true, 8000, true, true, BootBooting, false, false);
++                Row(StartHoldStep(ref h, 500, true, 0, true, true, BootBooting, false, false) == HoldRelOff, "off releases",
++                    ref rows, ref fail);
++                // --- the getter's body (HoldGate): an unprimed hold never holds nor starts a clock; once its cap is spent, a cap
++                // raised afterwards never re-holds (review S114-LIVE-2), and the step then logs the cap release whatever the cap
++                h = default(StartHoldState);
++                Row(!HoldGate(ref h, 0, 8000) && !h.Started, "gate: unprimed never holds", ref rows, ref fail);
++                StartHoldStep(ref h, 0, true, 3000, true, true, BootBooting, false, false);
++                Row(HoldGate(ref h, 2999, 3000) && !HoldGate(ref h, 3000, 3000) && h.CapSpent && !HoldGate(ref h, 3100, 600000)
++                    && !h.Released, "gate: a spent cap never re-holds", ref rows, ref fail);
++                Row(StartHoldStep(ref h, 3200, true, 600000, true, true, BootBooting, false, false) == HoldRelCap && h.Released,
++                    "gate: the spent cap releases as cap", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
++        }
++
++        private static void Row(Boolean ok, String name, ref Int32 rows, ref String fail)
++        {
++            rows++;
++            if (!ok && fail == null)
++                fail = name;
++        }
++
+         // ============================================================================ injection (B1 in)
+         // A command frame from the peer (or the selftest loopback): validate hard, then queue it through
+         // BattleHUD.SendNetCommand -- the engine's own inspection re-validates (a stale/illegal command
+@@ -2781,6 +3525,7 @@ namespace Memoria.Netsync
+         public static Boolean HarnessPeerLive { get { return LivePeerView() != null; } }
+         public static Int32 HarnessPeerSeq { get { BattleView v = LivePeerView(); return v != null ? v.Seq : -1; } }
+         public static Int32 HarnessPeerNonce { get { BattleView v = LivePeerView(); return v != null ? v.Nonce : -1; } }
++        internal static Int32 LivePeerNonce { get { return HarnessPeerNonce; } }   // [ff9mapkit netsync R3 s114] NetSyncDiorama.LatchLive
+         public static Int32 HarnessPeerCaps { get { BattleView v = LivePeerView(); return v != null ? v.HostCaps : -1; } }
+ 
+         public static Int32 HarnessPeerReadyMask
+@@ -2878,6 +3623,12 @@ namespace Memoria.Netsync
+                 _remoteMenuFlag = false;
+                 _remoteMenuSeen = -1;              // [ff9mapkit netsync R3 s113]
+                 _assistTick = Environment.TickCount - 60000;   // "long ago", never MinValue (see the declaration)
++                _ctlTrailer = false;               // [ff9mapkit netsync R3 s114] ...and the report a `bctl` trailer carried
++                _lastCtlLegacy = false;
++                _rptNonce = -1;
++                _rptBoot = -1;
++                _rptFmt = -1;
++                _rptTick = Environment.TickCount - 60000;
+             }
+             HarnessReleaseStockMenu();             // [ff9mapkit netsync B4] stage 3: the capture lever back on
+             NetSyncEnd.HarnessRelease();           // [ff9mapkit netsync B5] stage 4: the end bench, its one-shot and its lever
+@@ -2899,6 +3650,16 @@ namespace Memoria.Netsync
+             if (BenchCtl >= 0)
+                 Log.Message("[NetSync] harness: bench ctl back to auto (released with the harness)");
+             BenchCtl = -1;
++            // [ff9mapkit netsync R3 s114] the start-hold lever back on, its bench cap gone, and the loopback / feed guest reports its
++            // own boot state again
++            if (BenchStartHoldOff || BenchStartHoldCapMs >= 0)
++                Log.Message("[NetSync] harness: start hold back to [Netsync] StartHoldMs (released with the harness)");
++            BenchStartHoldOff = false;
++            BenchStartHoldCapMs = -1;
++            if (BenchBoot >= 0)
++                Log.Message("[NetSync] harness: bench boot back to auto (released with the harness)");
++            BenchBoot = -1;
++            BenchBootLateMs = 0;
+         }
+ 
+         // ============================================================================ harness surface (R3 s111)
+@@ -3196,6 +3957,173 @@ namespace Memoria.Netsync
+             return true;
+         }
+ 
++        // ============================================================================ harness surface (R3 s114)
++        // [ff9mapkit netsync R3 s114] -- the start hold's harness keys (`netsync.battle.host.start_hold`, `menu.ctl`'s trailer) and its
++        // two `netsync bench` ops. Read-only getters, main thread, never throw.
++        //   start_hold -- `off` (the cap reads 0: StartHoldMs 0 or the lever `bench starthold 0`), `cap_ms` (the cap now), `state`
++        //                 ("idle" no own battle | "off" | "intro" | "primed" (the intro, a BOOTING report in hand) | "holding" |
++        //                 "late" (not armed at the opening, inside the late window) | "released" (it held, then let go) |
++        //                 "not_armed" (it never held this battle)), `nonce` (the own battle's nonce; -1 between), `why` (the opening's
++        //                 decision: "booting" | "late" | "live" | "declined" | "busy" | "none" | "link" | "stale nonce" | "old guest" |
++        //                 "no word yet" | "unknown"; null = undecided -- kept after the battle until the next starts), `release`
++        //                 ("live" | "declined" | "link" | "old guest" | "cap" | "ended" | "off"; null = none), `held_ms` (running while
++        //                 it holds, else the released hold's; -1 = none), `late_ms` (a late arm's offset; -1 = none), `count` (holds
++        //                 armed -- monotonic: read DELTAS), `released` (per-reason monotonic counts) and `guest` -- the guest's last
++        //                 report as parsed: `r3` (a trailer arrived at all this process), `lane_ms` (since the last valid control
++        //                 frame; -1 = none within a minute), `fmt` (byte 2 of the last valid frame: 1 = a report, 0 = a 2-byte frame,
++        //                 -1 = none), `nonce` / `boot` / `boot_name` (-1 / null = none since a reset).
++        //   menu.ctl   -- gains `nonce` / `boot` / `boot_name`: the trailer my GUEST side sent last (-1 / null = none).
++        public static Boolean HarnessStartHoldOff { get { return StartHoldCapMs <= 0; } }
++        public static Int32 HarnessStartHoldCapMs { get { return StartHoldCapMs; } }
++        public static Int32 HarnessStartHoldNonce { get { return _holdNonce; } }
++        public static String HarnessStartHoldWhy { get { return _holdWhy; } }
++        public static String HarnessStartHoldRelease { get { return _holdRelease; } }
++        public static Int32 HarnessStartHoldLateMs { get { return _holdLateMs; } }
++        public static Int32 HarnessStartHoldCount { get { return _holdCount; } }
++        public static Int32 HarnessReleasedLive { get { return _relLive; } }
++        public static Int32 HarnessReleasedDeclined { get { return _relDeclined; } }
++        public static Int32 HarnessReleasedLink { get { return _relLink; } }
++        public static Int32 HarnessReleasedOldGuest { get { return _relOld; } }
++        public static Int32 HarnessReleasedCap { get { return _relCap; } }
++        public static Int32 HarnessReleasedEnded { get { return _relEnded; } }
++        public static Boolean HarnessGuestR3 { get { return _guestR3Seen; } }
++        public static Int32 HarnessGuestFmt { get { return _rptFmt; } }
++        public static Int32 HarnessGuestNonce { get { return _rptNonce; } }
++        public static Int32 HarnessGuestBoot { get { return _rptBoot; } }
++        public static String HarnessGuestBootName { get { return BootName(_rptBoot); } }
++        public static Int32 HarnessCtlNonce { get { return CtlTrailerOf(_ctlOut, 3); } }
++        public static Int32 HarnessCtlBoot { get { return CtlTrailerOf(_ctlOut, 4); } }
++        public static String HarnessCtlBootName { get { return BootName(CtlTrailerOf(_ctlOut, 4)); } }
++
++        public static Int32 HarnessGuestLaneMs
++        {
++            get
++            {
++                Int32 ms = Environment.TickCount - _assistTick;
++                return ms >= 0 && ms < StallMemoryMs ? ms : -1;
++            }
++        }
++
++        public static Int32 HarnessStartHoldHeldMs
++        {
++            get { return StartHoldBit ? Environment.TickCount - _hold.SinceTick : _holdHeldMs; }
++        }
++
++        public static String HarnessStartHoldState
++        {
++            get
++            {
++                if (_holdNonce < 0)
++                    return "idle";
++                if (_hold.Released)
++                    return _hold.Armed ? "released" : StartHoldCapMs <= 0 ? "off" : "not_armed";
++                if (StartHoldCapMs <= 0)
++                    return "off";
++                if (!_hold.Decided)
++                    return _hold.Primed ? "primed" : "intro";
++                return _hold.Primed ? "holding" : "late";
++            }
++        }
++
++        // A control frame's trailer byte (3 = the nonce, 4 = the boot state); -1 = no frame or no fmt-1 trailer.
++        internal static Int32 CtlTrailerOf(Byte[] frame, Int32 at)
++        {
++            return frame != null && frame.Length >= 5 && frame[2] == CtlFmt1 ? frame[at] : -1;
++        }
++
++        // `netsync bench starthold 1|0|cap <ms>|cap ini`: the stage's calibration lever (0 = the pre-stage host: no hold) and the
++        // bench cap (the cap legs). Selftest role only.
++        public static Boolean HarnessBenchStartHold(String op, String arg, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench starthold: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            op = (op ?? "").ToLowerInvariant();
++            if ((op == "1" || op == "0") && arg == null)
++            {
++                BenchStartHoldOff = op == "0";
++                Log.Message("[NetSync] harness: start hold " + (BenchStartHoldOff
++                            ? "OFF -- CALIBRATION: the pre-stage host (no hold: its gauges run from the first command-phase frame)"
++                            : "ON (cap " + StartHoldCapMs + " ms)") + " -- set it before `battle`: the hold primes in the intro");
++                return true;
++            }
++            if (op == "cap" && arg != null)
++            {
++                String a = arg.Trim().ToLowerInvariant();
++                Int32 ms;
++                if (a == "ini")
++                    BenchStartHoldCapMs = -1;
++                else if (Int32.TryParse(a, out ms) && ms >= 0 && ms <= 600000)
++                    BenchStartHoldCapMs = ms;
++                else
++                {
++                    why = "netsync bench starthold cap: expected 0-600000 ms, or ini (back to [Netsync] StartHoldMs = " + StartHoldMs + ")";
++                    return false;
++                }
++                Log.Message("[NetSync] harness: start hold cap " + (BenchStartHoldCapMs < 0 ? "back to [Netsync] StartHoldMs (" + StartHoldMs + " ms)"
++                            : BenchStartHoldCapMs + " ms for this process (Memoria.ini untouched)"));
++                return true;
++            }
++            why = "netsync bench starthold: expected 1|0|cap <ms>|cap ini";
++            return false;
++        }
++
++        // `netsync bench boot auto|none|booting|live|declined|busy|stale|silent|late <ms>`: the boot state the loopback / bench-feed
++        // guest reports (see BenchBoot). Selftest role only.
++        public static Boolean HarnessBenchBoot(String op, String arg, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench boot: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            op = (op ?? "").ToLowerInvariant();
++            Int32 v;
++            switch (op)
++            {
++                case "auto": v = -1; break;
++                case "none": v = BootNone; break;
++                case "booting": v = BootBooting; break;
++                case "live": v = BootLive; break;
++                case "declined": v = BootDeclined; break;
++                case "busy": v = BootBusy; break;
++                case "stale": v = BenchBootStale; break;
++                case "silent": v = BenchBootSilent; break;
++                case "late": v = BenchBootLate; break;
++                default:
++                    why = "netsync bench boot: expected auto|none|booting|live|declined|busy|stale|silent|late <ms>";
++                    return false;
++            }
++            Int32 lateMs = 0;
++            if (v == BenchBootLate)
++            {
++                if (arg == null || !Int32.TryParse(arg.Trim(), out lateMs) || lateMs < 0 || lateMs > 600000)
++                {
++                    why = "netsync bench boot late: needs <ms> 0-600000 (no control frame until that long after the host's command "
++                          + "phase opens, then BOOTING)";
++                    return false;
++                }
++            }
++            else if (arg != null)
++            {
++                why = "netsync bench boot " + op + ": takes no argument";
++                return false;
++            }
++            BenchBoot = v;
++            BenchBootLateMs = lateMs;
++            Log.Message("[NetSync] harness: bench boot " + (v < 0 ? "auto -- the loopback / feed guest reports its own diorama state"
++                        : v == BenchBootStale ? "stale -- the loopback / feed guest reports LIVE naming the PREVIOUS battle nonce"
++                        : v == BenchBootSilent ? "silent -- the loopback guest sends no control frame at all"
++                        : v == BenchBootLate ? "late " + lateMs + " -- the loopback guest sends no control frame until " + lateMs
++                                               + " ms after the host's command phase opens, then reports BOOTING"
++                        : op + " -- the loopback / feed guest reports " + op.ToUpperInvariant() + " for the view's battle nonce"));
++            return true;
++        }
++
+         // ============================================================================ harness surface (B4 stage 2)
+         // [ff9mapkit netsync B4] stage 2 -- the containment backstop's harness keys (`netsync.battle.menu`) and verbs.
+         // Read-only, main-thread, never throw.
+@@ -3249,7 +4177,8 @@ namespace Memoria.Netsync
+             if (!Enabled || !NetSyncClient.IsSelfTestRole)
+                 why = "netsync bctl: needs the selftest role (netsync selftest 1)";
+             else if (frame == null || frame.Length == 0 || frame.Length > 64)
+-                why = "netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 <menu 0 shut|1 legacy|2 root|3 deep>)";
++                why = "netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 <menu 0 shut|1 legacy|2 root|3 deep>, "
++                      + "or 5 with the start-hold trailer: ... 01 <host battle nonce> <boot 0-4>)";   // [ff9mapkit netsync R3 s114]
+             if (why != null)
+                 return false;
+             Boolean valid = frame.Length >= 2 && frame[0] == 0;   // ParseControl's own acceptance test
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+index 999959c..b5236f2 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+@@ -1638,6 +1638,8 @@ namespace Memoria.Netsync
+                 _feedPublished = true;
+                 if (live)
+                 {
++                    // [ff9mapkit netsync R3 s114] ...now with the start-hold trailer: this diorama reports on the feed's own nonce
++                    // (GuestBootFor treats the feed's diorama as that battle's wire boot), BOOTING until its live latch, then LIVE
+                     _feedCtl = GuestControl(_peerView);   // [ff9mapkit netsync R3 s113] the control frame, as Pump builds it (0/2/3)
+                     Byte[] digit = GuestAssistTick(_peerView, _benchRoster);
+                     if (digit != null)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index fae0216..201c64d 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -35,6 +35,9 @@ namespace Memoria.Netsync
+     //   DioramaSwirlFrames = 0              [ff9mapkit netsync R3 s112] (guest side): the longest battle swirl (30 Hz frames)
+     //                                       the host's diorama plays here -- min(my [Graphics] BattleSwirlFrames, this). 0 = the
+     //                                       desktop host's skip; -1 = keep my own. My real battles never read it. Applies live.
++    //   StartHoldMs = 8000                  [ff9mapkit netsync R3 s114] (host side): my battle's gauges wait at most this long (ms)
++    //                                       for a guest whose diorama of it reports BOOTING (the start hold; released at once when
++    //                                       it goes live, declines, is busy or the link drops). 0 = off. Applies live.
+     //
+     // THE COOP CELLS (V2 "[[coop]]" authoring, kit-reserved): while Enabled, every frame writes the
+     // peer's presence + walkmesh position into gEventGlobal bytes 2032-2039 (top of the kit's custom
+@@ -416,6 +419,15 @@ namespace Memoria.Netsync
+         private Int32 _dioramaSkipNonce = -1;            // the user manually left THIS battle's diorama -- don't re-boot it
+         private Boolean _dioramaWatcherLeft;             // B3.6: OUR OWN staleness-leave/fence-disarm is in flight --
+                                                          // the opt-out stamp must not misread it as a user opt-out
++        // [ff9mapkit netsync R3 s114] A BOOT THAT KEEPS FAILING, for the start-hold report only (review S114-LIVE-3): Boot's snapshot
++        // refusal and its catch stamp no skip -- the watcher retries at 1/s for the whole battle, by design -- so the report read
++        // BOOTING throughout and the host held every gauge to its cap, every such battle. Consecutive failed wire boots of one
++        // nonce are counted (a fade in flight at the try excluded: Boot's own transient refusal), and from DioramaBootFailReport on
++        // NoteBootWatch hands that nonce in as the report's skip (DECLINED). The watcher itself is unchanged: it keeps retrying.
++        // Spent by a boot, a new peer battle, or a host epoch change.
++        private Int32 _dioramaBootFailNonce = -1;
++        private Int32 _dioramaBootFails;
++        private const Int32 DioramaBootFailReport = 2;
+         // s56 DIORAMA BLIP-TOLERANCE (resync-not-reboot). A transport blip flickers the battle lane
+         // stale mid-fight; pre-s56 the watcher LEFT (its 2s PeerBattleLive horizon is shorter than the
+         // ~2.5-3s reconnect) and the teardown cleared the nonce WITHOUT a skip stamp, so the SAME
+@@ -750,6 +762,27 @@ namespace Memoria.Netsync
+                 Int32 guestWait = 30000;   // max continuous gauge-freeze per guest turn (0 = unlimited)
+                 if (Int32.TryParse(ini.GetSetting("Netsync", "GuestWaitMs", "30000"), out n) && n >= 0)
+                     guestWait = n;
++                // [ff9mapkit netsync R3 s114] StartHoldMs, default 8000 (host side): the start hold's cap -- my gauges wait at most this
++                // long for a guest whose diorama reports BOOTING; 0 (or any negative) = off. A BEHAVIOUR key (in bsig below): the hold's
++                // getter reads it every frame, so an edit applies live (0 lets a running hold go at once). Quotes accepted. Clamped to
++                // NetSyncBattle.StartHoldMaxMs: the cap is the one bound on a hold whose release never comes (a guest stuck reporting
++                // BOOTING, a dead pump), so a huge value or a typo must never freeze a whole battle (review S114-LIVE-1).
++                Int32 startHold = 8000;
++                String shRaw = ini.GetSetting("Netsync", "StartHoldMs", "8000").Trim();
++                if (shRaw.Length >= 2 && shRaw[0] == '"' && shRaw[shRaw.Length - 1] == '"')
++                    shRaw = shRaw.Substring(1, shRaw.Length - 2).Trim();
++                if (Int32.TryParse(shRaw, out n))
++                {
++                    startHold = n < 0 ? 0 : n;
++                    if (startHold > NetSyncBattle.StartHoldMaxMs)
++                    {
++                        startHold = NetSyncBattle.StartHoldMaxMs;
++                        Log.Message("[NetSync] StartHoldMs " + n + " is past the ceiling -- clamped to " + startHold + " ms (the cap bounds "
++                                    + "a hold whose release never comes)");
++                    }
++                }
++                else if (shRaw.Length > 0)
++                    Log.Message("[NetSync] StartHoldMs '" + shRaw + "' malformed (want ms; 0 = off) -- keeping 8000");
+                 String ghostAs = ini.GetSetting("Netsync", "GhostAs", "").Trim();
+                 Boolean followHost = ini.GetSetting("Netsync", "FollowHost", "0").Trim() == "1";
+                 Boolean autoTeleport = ini.GetSetting("Netsync", "AutoTeleport", "0").Trim() == "1";   // s55: default OFF
+@@ -827,7 +860,8 @@ namespace Memoria.Netsync
+                               "|" + (followHost ? "1" : "0") + "|" + stDx + "," + stDz +
+                               "|" + (dioramaSwirl ? "1" : "0") + "|" + (autoTeleport ? "1" : "0") +
+                               "|" + (guestStockMenu ? "1" : "0") +                // [ff9mapkit netsync B4] stage 8
+-                              "|" + swirlClamp;                                    // [ff9mapkit netsync R3 s112]
++                              "|" + swirlClamp +                                   // [ff9mapkit netsync R3 s112]
++                              "|" + startHold;                                     // [ff9mapkit netsync R3 s114]
+                 Boolean first = !_configLoaded;
+                 _configLoaded = true;
+                 Boolean tChanged = tsig != _cfgTransportSig;
+@@ -848,6 +882,7 @@ namespace Memoria.Netsync
+                 NetSyncDiorama.UseSwirl = dioramaSwirl;                             // B3.6: the diorama boot-transition lever
+                 NetSyncBattle.GuestStockMenu = guestStockMenu;                      // [ff9mapkit netsync B4] stage 8: read per frame
+                 NetSyncDiorama.SwirlClampFrames = swirlClamp;                       // [ff9mapkit netsync R3 s112]: read per diorama swirl
++                NetSyncBattle.StartHoldMs = startHold;                              // [ff9mapkit netsync R3 s114]: read per frame (the hold's getter)
+                 NetSyncVisitor.Enabled = _enabled;                                  // the visitor lane's config mirror
+                 NetSyncVisitor.GhostAs = _ghostAs;
+                 NetSyncVisitor.FollowHost = _followHost;
+@@ -859,6 +894,7 @@ namespace Memoria.Netsync
+                             (!dioramaSwirl ? " dioramaSwirl=0" : "") +
+                             (!guestStockMenu ? " guestStockMenu=0" : "") +                 // [ff9mapkit netsync B4] stage 8
+                             (swirlClamp != 0 ? " dioramaSwirlFrames=" + swirlClamp : "") +    // [ff9mapkit netsync R3 s112]
++                            (startHold != 8000 ? " startHoldMs=" + startHold : "") +          // [ff9mapkit netsync R3 s114]
+                             (_selfTestDx != 250 || _selfTestDz != 0 ? " selfTestOffset=" + _selfTestDx + "," + _selfTestDz : "") +
+                             (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
+                                                   : " peer=" + _peer + ":" + _port));
+@@ -912,7 +948,8 @@ namespace Memoria.Netsync
+ 
+         // A BEHAVIOR config edit landed while the game runs (play-style keys only: TargetField,
+         // GuestSlots, GuestWaitMs, GhostAs, FollowHost, SelfTestOffset, DioramaSwirl, AutoTeleport,
+-        // GuestStockMenu -- [ff9mapkit netsync B4] stage 8; DioramaSwirlFrames -- [ff9mapkit netsync R3 s112]): every consumer
++        // GuestStockMenu -- [ff9mapkit netsync B4] stage 8; DioramaSwirlFrames -- [ff9mapkit netsync R3 s112]; StartHoldMs --
++        // [ff9mapkit netsync R3 s114]): every consumer
+         // reads the committed statics per frame (dress/scope/slots pick the new value up on the next
+         // tick), so the transport and the mirrored session stay INTACT -- no teardown, no reconnect
+         // window with SuppressEncounters forced off, no exit ramp on a mere play-style tweak. The two
+@@ -1194,6 +1231,10 @@ namespace Memoria.Netsync
+                         Boolean endOk = NetSyncEnd.SelfTest(out endDetail);
+                         Log.Message("[NetSync] battle end-block selftest: "
+                                     + (endOk ? "OK (" + endDetail + ")" : "FAIL (" + endDetail + ")"));
++                        String ctlDetail;                // [ff9mapkit netsync R3 s114] the control trailer, the guest report, the start hold
++                        Boolean ctlOk = NetSyncBattle.ControlSelfTest(out ctlDetail);
++                        Log.Message("[NetSync] battle control selftest: "
++                                    + (ctlOk ? "OK (" + ctlDetail + ")" : "FAIL (" + ctlDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+@@ -1394,6 +1435,10 @@ namespace Memoria.Netsync
+                 // B3: the diorama watcher -- boot/leave the host's battle scene from the wire.
+                 DioramaTick(onField);
+ 
++                // [ff9mapkit netsync R3 s114] the watcher's own predicates, for the start-hold report the NEXT control frame carries
++                // (Pump builds it before this tick's DioramaTick: one frame behind at most).
++                NoteBootWatch();
++
+                 // B3.4: the reconciler -- the host's battle truth onto the diorama's actors.
+                 NetSyncDiorama.ReconcileTick();
+ 
+@@ -1562,6 +1607,11 @@ namespace Memoria.Netsync
+                     Log.Message("[NetSync] diorama note: the party mirror hasn't armed yet -- the diorama "
+                                 + "stages YOUR party for now (it syncs at your next field load)");
+             }
++            if (live && _dioramaBootFailNonce >= 0 && nonce != _dioramaBootFailNonce)
++            {
++                _dioramaBootFailNonce = -1;              // [ff9mapkit netsync R3 s114] a new peer battle: its failed boots count afresh
++                _dioramaBootFails = 0;
++            }
+             if (!_followHost)
+                 return;                                  // hosts and non-followers never auto-boot
+ 
+@@ -1722,10 +1772,22 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] peer battle undisplayable -- spectate panel only: " + why);
+                 return;
+             }
++            // [ff9mapkit netsync R3 s114] a fade in flight at the try is Boot's own transient refusal -- never counted as a failure
++            Boolean fadingAtTry = false;
++            try
++            {
++                SceneDirector sdTry = PersistenSingleton<SceneDirector>.Instance;
++                fadingAtTry = sdTry != null && sdTry.IsFading;
++            }
++            catch { }
+             // [ff9mapkit netsync R3 s111] the host's intro choice rides along (-1 from an s110 host: our own setting)
+             NetSyncDiorama.BootFromWire(mapNo, patNum, startType, rand, songId, NetSyncBattle.WireIntro(hostFlags));
++            if (!NetSyncDiorama.Booted && !fadingAtTry)
++                NoteBootFail(nonce);                     // [ff9mapkit netsync R3 s114]
+             if (NetSyncDiorama.Booted)
+             {
++                _dioramaBootFailNonce = -1;              // [ff9mapkit netsync R3 s114] a boot spends the failed-boot count
++                _dioramaBootFails = 0;
+                 _dioramaWireNonce = nonce;
+                 _dioramaWatcherLeft = false;             // B3.6: a fresh boot clears any stale leave flag
+                 _dioramaWatcherLeftFinal = false;        // s56: ...and the skip-on-teardown intent with it
+@@ -1741,6 +1803,59 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync R3 s114] The start-hold report's inputs, from the watcher's OWN predicates (DioramaTick above): watching
++        // = a following client on a field that may boot at all (a world-map battle reads NONE -- the watcher never boots off a
++        // field); uiFree = the UI the watcher waits on is free or clears by itself (FieldHUD, a fade, a follow warp) -- a durable
++        // non-FieldHUD state (a menu, a shop, a pause, a card game) reads BUSY, review ctrl F6; and the skip nonce (an opt-out, a
++        // late join, an undisplayable scene, a settled leave -- or, for the report only, a boot that keeps failing). The diorama's
++        // own state is read at this SAME instant (review s114-R1). Never throws: a failure notes "not watching" (NONE: the host
++        // never holds on it).
++        private void NoteBootWatch()
++        {
++            Boolean booted = NetSyncDiorama.Booted;
++            Int32 bootedNonce = NetSyncDiorama.BootedWireNonce;
++            Boolean live = NetSyncDiorama.LiveLatched;
++            try
++            {
++                Int32 rptSkip = _dioramaSkipNonce >= 0 ? _dioramaSkipNonce
++                              : _dioramaBootFails >= DioramaBootFailReport ? _dioramaBootFailNonce : -1;
++                Boolean watching = _role == "client" && _followHost && _tapFieldMode && NetSyncDiorama.MayBootNow;
++                Boolean uiFree = false;
++                if (watching)
++                {
++                    uiFree = _followWarpPending >= 0;
++                    if (!uiFree)
++                    {
++                        SceneDirector sd = PersistenSingleton<SceneDirector>.Instance;
++                        uiFree = sd != null && sd.IsFading;
++                    }
++                    if (!uiFree)
++                        uiFree = PersistenSingleton<UIManager>.Instance.State == UIManager.UIState.FieldHUD;
++                }
++                NetSyncBattle.NoteGuestWatch(watching, uiFree, rptSkip, booted, bootedNonce, live);
++            }
++            catch
++            {
++                NetSyncBattle.NoteGuestWatch(false, false, -1, booted, bootedNonce, live);
++            }
++        }
++
++        // [ff9mapkit netsync R3 s114] One failed wire boot (no fade in flight at the try), counted per nonce: the
++        // DioramaBootFailReport-th turns this battle's start-hold report DECLINED, with one line. The watcher keeps retrying.
++        private void NoteBootFail(Int32 nonce)
++        {
++            if (nonce != _dioramaBootFailNonce)
++            {
++                _dioramaBootFailNonce = nonce;
++                _dioramaBootFails = 0;
++            }
++            _dioramaBootFails++;
++            if (_dioramaBootFails == DioramaBootFailReport)
++                Log.Message("[NetSync] diorama boot of host battle nonce " + nonce + " failed " + _dioramaBootFails + " times in a row -- "
++                            + "the start-hold report now reads DECLINED (the host's gauges need not wait on it); the watcher keeps "
++                            + "retrying");
++        }
++
+         // ---------------------------------------------------------------- FOLLOW-HOST (visitor mode)
+         // Chase the peer onto their field: once their broadcast field id is REAL, DIFFERENT from mine,
+         // stable for FollowStableMs (debounces their door transitions), REGISTERED on this install, and
+@@ -2700,6 +2815,8 @@ namespace Memoria.Netsync
+             _lastEventNonce = -1;
+             _dioramaSkipNonce = -1;
+             _dioramaSeenNonce = -1;
++            _dioramaBootFailNonce = -1;      // [ff9mapkit netsync R3 s114] ...and the failed-boot count (its nonce restarts too)
++            _dioramaBootFails = 0;
+             _talkDeferNonce = -1;            // a deferred start of the old host is gone with it
+             _talkSceneTalk = -1;             // ...and the scene record keyed on its (restarting) talk nonce
+             _talkSceneNonce = -1;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index e2f1d0c..0087002 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -262,6 +262,13 @@ namespace Memoria.Netsync
+         private static Int32 _introCalls;              // calls this boot the HOST's choice decided (BattleLoadLoop asks per frame)
+         private static Int32 _normalMs = -1;           // boot -> the first steady frame (PHASE_NORMAL, units loaded, Active); -1 = not yet
+         private static Boolean _liveErrLogged;         // LiveTick threw: one line per boot
++        // [ff9mapkit netsync R3 s114] THE LIVE LATCH (the start-hold report's LIVE, NetSyncBattle.GuestBootState): this boot's first
++        // steady frame (LatchNormal's predicates) WITH a host sample in hand (NetSyncBattle.PeerBattleLive -- a live type-1 lane, or
++        // the selftest bench feed). Per boot: reset with the intro observables (Boot's block, its catch, ForceDisarm -- review ctrl
++        // F2), so a fresh boot reports BOOTING until its OWN command phase.
++        private static Boolean _liveLatched;
++        private static Int32 _liveMs = -1;             // boot -> the live latch; -1 = not yet
++        private static Int32 _liveNonce = -1;          // the host battle nonce of the sample in hand at the latch; -1 = none
+ 
+         /// <summary>[ff9mapkit netsync R3 s111] The stock intro test's one seam (HonoluluBattleMain.Start, battle.BattleLoadLoop):
+         /// `stock` everywhere except a booted diorama with a host choice, where the HOST's choice wins. One Boolean read on
+@@ -311,6 +318,9 @@ namespace Memoria.Netsync
+             _introCalls = 0;
+             _normalMs = -1;
+             _liveErrLogged = false;
++            _liveLatched = false;                 // [ff9mapkit netsync R3 s114] the live latch is per boot (review ctrl F2)
++            _liveMs = -1;
++            _liveNonce = -1;
+             _bootSwirlUsed = -1;                  // [ff9mapkit netsync R3 s112] this boot's swirl, set by SwirlFrames (SFX_Rush's constructor)
+             _bootSwirlOwn = -1;
+             _bootSwirlClamp = -1;
+@@ -329,6 +339,8 @@ namespace Memoria.Netsync
+             {
+                 if (_normalMs < 0)
+                     LatchNormal();
++                if (!_liveLatched)
++                    LatchLive();                  // [ff9mapkit netsync R3 s114]
+             }
+             catch (Exception ex)
+             {
+@@ -341,15 +353,35 @@ namespace Memoria.Netsync
+         }
+ 
+         // The first frame of the steady state ReconcileTick also waits for: PHASE_NORMAL, both load bits latched, the scene ours.
+-        private static void LatchNormal()
++        // [ff9mapkit netsync R3 s114] the predicate is SteadyFrame, shared with the live latch.
++        private static Boolean SteadyFrame()
+         {
+             if (!Active)
+-                return;
++                return false;
+             FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
+             if (b == null || b.btl_phase != FF9StateBattleSystem.PHASE_NORMAL)
+-                return;
++                return false;
+             const Byte need = ff9btl.LOAD_INITNPC | ff9btl.LOAD_INITCHR;
+-            if ((b.btl_load_status & need) != need)
++            return (b.btl_load_status & need) == need;
++        }
++
++        // [ff9mapkit netsync R3 s114] The live latch: a steady frame with a host sample in hand. One line per boot -- the laptop's
++        // measurement of when the host's start hold may let go (normally the same frame as LatchNormal's).
++        private static void LatchLive()
++        {
++            if (!NetSyncBattle.PeerBattleLive || !SteadyFrame())
++                return;
++            _liveLatched = true;
++            _liveMs = Math.Max(0, Environment.TickCount - BootTick);
++            _liveNonce = NetSyncBattle.LivePeerNonce;
++            Log.Message("[NetSync] diorama LIVE " + _liveMs + " ms after the boot (host battle nonce " + _liveNonce + ", booted from "
++                        + (BootedWireNonce >= 0 ? "wire nonce " + BootedWireNonce : "no wire nonce") + ") -- the start-hold report for "
++                        + "this battle now reads LIVE");
++        }
++
++        private static void LatchNormal()
++        {
++            if (!SteadyFrame())
+                 return;
+             _normalMs = Math.Max(0, Environment.TickCount - BootTick);
+             String applied = _introApplied == 1 ? "skip" : _introApplied == 0 ? "play" : "?";
+@@ -370,6 +402,14 @@ namespace Memoria.Netsync
+         internal static Int32 HarnessNormalMs { get { return _normalMs; } }
+         internal static Int32 HarnessSwirlFrames { get { return LocalSwirlFrames; } }
+ 
++        /// <summary>[ff9mapkit netsync R3 s114] The start-hold report's LIVE input: this boot latched its command phase with a host
++        /// sample in hand (LatchLive). False between boots.</summary>
++        internal static Boolean LiveLatched { get { return _booted && _liveLatched; } }
++        // The harness's `netsync.diorama.live` (see HarnessAgent.AppendDioramaLive): THIS boot only, sentinels between boots.
++        internal static Boolean HarnessLiveLatched { get { return LiveLatched; } }
++        internal static Int32 HarnessLiveMs { get { return _liveMs; } }
++        internal static Int32 HarnessLiveNonce { get { return _liveNonce; } }
++
+         /// <summary>[ff9mapkit netsync R3 s111] The harness's `dioboot &lt;scene&gt; [pattern] [skip|play|own] [rand]`: the manual
+         /// boot (no wire song, a NORMAL start) with a bench host's intro choice (1 skip, 0 play, -1 own) and an optional random
+         /// encounter -- the selftest stand-in for a wire boot's header. Selftest role checked by the caller.</summary>
+@@ -593,6 +633,9 @@ namespace Memoria.Netsync
+         private static Boolean MayBoot => NetSyncClient.IsMirroringStory || NetSyncClient.IsLiveFollowedSession
+                                           || NetSyncClient.IsSelfTestRole;
+ 
++        /// <summary>[ff9mapkit netsync R3 s114] MayBoot for the start-hold report's `watching` (NetSyncClient.NoteBootWatch).</summary>
++        internal static Boolean MayBootNow => MayBoot;
++
+         /// <summary>The user-facing reason MayBoot is false, for the F6 panel.</summary>
+         public static String BootBlockedReason =>
+             MayBoot ? null
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index f2c0ecc..048d6b4 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -148,6 +148,13 @@ namespace Memoria.Harness
+         // wait|active|restore` and `bench lapse <ms>|hold reserve`; no new sub-verb. A driver checks for
+         // `netsync.battle.host.wait` -- absent = an engine whose host freezes its Wait gauges on any open guest window (and which
+         // reads `bench waitparity`/`bench ctl` as `bench 1`; an engine before s113 refuses `bench cfg atb` and a 4-argument lapse).
++        // [ff9mapkit netsync R3 s114] (the start hold; studies/battle-coop/R3-DESIGN.md 3.1.4), also additive under 5:
++        // `netsync.battle.host` gains `start_hold` (see AppendHostStartHold), `netsync.battle.menu.ctl` gains `nonce`/`boot`/
++        // `boot_name` (the control trailer my guest side sent), `netsync.diorama` gains `live` (see AppendDioramaLive), and
++        // `netsync bench` gains two named ops -- `bench boot auto|none|booting|live|declined|busy|stale|silent|late <ms>` (what the
++        // loopback / feed guest reports) and `bench starthold 1|0|cap <ms>|cap ini` (the calibration lever and the bench cap); no
++        // new sub-verb. A driver checks for `netsync.battle.host.start_hold` -- absent = an engine whose host never holds its
++        // gauges for a booting guest (and which reads `bench boot`/`bench starthold` as `bench 1`).
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1172,6 +1179,33 @@ namespace Memoria.Harness
+                                         throw new InvalidOperationException(why ?? "netsync bench ctl refused");
+                                     break;
+                                 }
++                                // [ff9mapkit netsync R3 s114] two more named ops (the start hold):
++                                //   `bench boot auto|none|booting|live|declined|busy|stale|silent|late <ms>`  the boot state the loopback /
++                                //       bench-feed guest reports in its control trailer (auto = its own; stale = LIVE naming the previous
++                                //       battle nonce; silent = the loopback sends no control frame; late <ms> = none until <ms> after the
++                                //       host's command phase opens, then BOOTING);
++                                //   `bench starthold 1|0|cap <ms>|cap ini`  the calibration lever (0 = the pre-stage host: no hold) and a
++                                //       process-local cap (ini = back to [Netsync] StartHoldMs). Set both BEFORE `battle`: the hold primes
++                                //       in the intro.
++                                // Read back: `netsync.battle.host.start_hold`, `netsync.battle.menu.ctl`, `netsync.diorama.live`. Both are
++                                // released on disarm/fault/reset. CAUTION: an engine before s114 parses them as `bench 1` (the field-gate
++                                // bench ON): probe `netsync.battle.host.start_hold` first -- absent = do not send them.
++                                if (bnop == "boot")
++                                {
++                                    if (s.Args.Length != 3 && s.Args.Length != 4)
++                                        throw new ArgumentOutOfRangeException("netsync bench boot", "expected `netsync bench boot auto|none|booting|live|declined|busy|stale|silent` or `netsync bench boot late <ms>`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchBoot(s.Args[2], s.Args.Length == 4 ? s.Args[3] : null, out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench boot refused");
++                                    break;
++                                }
++                                if (bnop == "starthold")
++                                {
++                                    if (s.Args.Length != 3 && s.Args.Length != 4)
++                                        throw new ArgumentOutOfRangeException("netsync bench starthold", "expected `netsync bench starthold 1|0` or `netsync bench starthold cap <ms>|ini`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchStartHold(s.Args[2], s.Args.Length == 4 ? s.Args[3] : null, out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench starthold refused");
++                                    break;
++                                }
+                                 // [ff9mapkit netsync R3 s112] one more named op (the diorama swirl clamp):
+                                 //   `bench swirl local <0-1800>|ini`  every swirl in this process plays <frames> as its OWN length (the
+                                 //       laptop's [Graphics] BattleSwirlFrames stand-in); ini = back to [Graphics];
+@@ -3108,7 +3142,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3226,7 +3260,22 @@ namespace Memoria.Harness
+             Str(sb, "last_return", Memoria.Netsync.NetSyncDiorama.LastReturnMode); sb.Append(",");
+             Num(sb, "last_return_field", Memoria.Netsync.NetSyncDiorama.LastReturnField); sb.Append(",");
+             Bool(sb, "resuming", Memoria.Netsync.NetSyncDiorama.HarnessFieldResuming); sb.Append(",");
+-            AppendDioramaIntro(sb);                                                                     // [ff9mapkit netsync R3 s111]
++            AppendDioramaIntro(sb); sb.Append(",");                                                     // [ff9mapkit netsync R3 s111]
++            AppendDioramaLive(sb);                                                                      // [ff9mapkit netsync R3 s114]
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync R3 s114] `netsync.diorama.live` -- the start-hold report's LIVE latch (guest side), THIS boot only
++        // (sentinels between boots): `latched` (the boot's first steady frame -- PHASE_NORMAL, both load bits, the scene ours -- came
++        // with a host sample in hand: a live type-1 lane or the bench feed), `ms` (Boot -> that frame; normally `intro.normal_ms`;
++        // -1 = not yet) and `nonce` (the host battle nonce of the sample in hand then; -1 = none). AppendNetsync's catch line
++        // carries the same keys at their sentinels.
++        private static void AppendDioramaLive(StringBuilder sb)
++        {
++            sb.Append("\"live\":{");
++            Bool(sb, "latched", Memoria.Netsync.NetSyncDiorama.HarnessLiveLatched); sb.Append(",");
++            Num(sb, "ms", Memoria.Netsync.NetSyncDiorama.HarnessLiveMs); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncDiorama.HarnessLiveNonce);
+             sb.Append("}");
+         }
+ 
+@@ -3367,17 +3416,64 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync R3 s114] `netsync.battle.host.start_hold` -- the start hold, the HOST's side (MY own battle): `off` (the
++        // cap reads 0 -- [Netsync] StartHoldMs 0 or the selftest lever `netsync bench starthold 0`), `cap_ms` (the cap now; a
++        // `bench starthold cap` shows here), `state` ("idle" between own battles | "off" | "intro" | "primed" (the intro, a BOOTING
++        // report in hand) | "holding" | "late" (not armed at the opening, inside the 1000 ms late window) | "released" (it held,
++        // then let go) | "not_armed" (it never held this battle)), `nonce` (the own battle's nonce; -1 between), `why` (the
++        // opening's decision: "booting" | "late" | "live" | "declined" | "busy" | "none" | "link" | "stale nonce" | "old guest" |
++        // "no word yet" | "unknown"; null = undecided), `release` ("live" | "declined" | "link" | "old guest" | "cap" | "ended" |
++        // "off"; null = none), `held_ms` (running while it holds, else the released hold's length; -1 = none), `late_ms` (a late
++        // arm's offset from the opening; -1 = none) -- why/release/held_ms/late_ms are kept after the battle until the next starts
++        // -- `count` (holds armed) and `released` (per reason) -- both monotonic per process: read DELTAS -- and `guest`, the
++        // guest's last report as parsed: `r3` (a trailer arrived at all this process), `lane_ms` (since the last valid control
++        // frame; -1 = none within a minute), `fmt` (byte 2 of the last valid frame: 1 = a report, 0 = a 2-byte frame, -1 = none),
++        // `nonce` / `boot` / `boot_name` (-1 / null = none since a reset). AppendNetsync's catch line carries the same keys.
++        private static void AppendHostStartHold(StringBuilder sb)
++        {
++            sb.Append("\"start_hold\":{");
++            Bool(sb, "off", Memoria.Netsync.NetSyncBattle.HarnessStartHoldOff); sb.Append(",");
++            Num(sb, "cap_ms", Memoria.Netsync.NetSyncBattle.HarnessStartHoldCapMs); sb.Append(",");
++            Str(sb, "state", Memoria.Netsync.NetSyncBattle.HarnessStartHoldState); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessStartHoldNonce); sb.Append(",");
++            Str(sb, "why", Memoria.Netsync.NetSyncBattle.HarnessStartHoldWhy); sb.Append(",");
++            Str(sb, "release", Memoria.Netsync.NetSyncBattle.HarnessStartHoldRelease); sb.Append(",");
++            Num(sb, "held_ms", Memoria.Netsync.NetSyncBattle.HarnessStartHoldHeldMs); sb.Append(",");
++            Num(sb, "late_ms", Memoria.Netsync.NetSyncBattle.HarnessStartHoldLateMs); sb.Append(",");
++            Num(sb, "count", Memoria.Netsync.NetSyncBattle.HarnessStartHoldCount); sb.Append(",");
++            sb.Append("\"released\":{");
++            Num(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessReleasedLive); sb.Append(",");
++            Num(sb, "declined", Memoria.Netsync.NetSyncBattle.HarnessReleasedDeclined); sb.Append(",");
++            Num(sb, "link", Memoria.Netsync.NetSyncBattle.HarnessReleasedLink); sb.Append(",");
++            Num(sb, "oldguest", Memoria.Netsync.NetSyncBattle.HarnessReleasedOldGuest); sb.Append(",");
++            Num(sb, "cap", Memoria.Netsync.NetSyncBattle.HarnessReleasedCap); sb.Append(",");
++            Num(sb, "ended", Memoria.Netsync.NetSyncBattle.HarnessReleasedEnded);
++            sb.Append("},\"guest\":{");
++            Bool(sb, "r3", Memoria.Netsync.NetSyncBattle.HarnessGuestR3); sb.Append(",");
++            Num(sb, "lane_ms", Memoria.Netsync.NetSyncBattle.HarnessGuestLaneMs); sb.Append(",");
++            Num(sb, "fmt", Memoria.Netsync.NetSyncBattle.HarnessGuestFmt); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessGuestNonce); sb.Append(",");
++            Num(sb, "boot", Memoria.Netsync.NetSyncBattle.HarnessGuestBoot); sb.Append(",");
++            Str(sb, "boot_name", Memoria.Netsync.NetSyncBattle.HarnessGuestBootName);
++            sb.Append("}}");
++        }
++
+         // [ff9mapkit netsync R3 s113] `netsync.battle.menu.ctl` -- Wait parity, the GUEST's encode: the control frame this machine's
+         // guest side built last (Pump's guest branch, the selftest loopback or the bench feed). `menu` (its byte 1: 0 shut, 2 root,
+         // 3 below the root, or a `bench ctl` byte; -1 = none -- the lane is shut), `hex` (the frame; null = none) and `src` (what
+         // decided byte 1: "none" no ready guest slot | "bench" the `bench ctl` lever | "digit" the digit panel below its root |
+         // "stock" the stock window below its root | "root"; null = none). AppendNetsync's catch line carries the same keys.
++        // [ff9mapkit netsync R3 s114] + the start-hold trailer that frame carried: `nonce` (the host battle nonce it reports on),
++        // `boot` (0 none, 1 booting, 2 live, 3 declined, 4 busy) and `boot_name`; -1 / null = no frame or no trailer.
+         private static void AppendMenuCtl(StringBuilder sb)
+         {
+             sb.Append("\"ctl\":{");
+             Num(sb, "menu", Memoria.Netsync.NetSyncBattle.HarnessCtlMenu); sb.Append(",");
+             Str(sb, "hex", Memoria.Netsync.NetSyncBattle.HarnessCtlHex); sb.Append(",");
+-            Str(sb, "src", Memoria.Netsync.NetSyncBattle.HarnessCtlSrc);
++            Str(sb, "src", Memoria.Netsync.NetSyncBattle.HarnessCtlSrc); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessCtlNonce); sb.Append(",");            // [ff9mapkit netsync R3 s114]
++            Num(sb, "boot", Memoria.Netsync.NetSyncBattle.HarnessCtlBoot); sb.Append(",");
++            Str(sb, "boot_name", Memoria.Netsync.NetSyncBattle.HarnessCtlBootName);
+             sb.Append("}");
+         }
+ 
+@@ -3447,6 +3543,8 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync R3 s111] adds to `host` the intro mirror's host half: `cfg` and `intro` (see AppendHostIntro).
+         // [ff9mapkit netsync R3 s113] adds Wait parity: `host.wait` (see AppendHostWait) and `menu.ctl` (see AppendMenuCtl); the
+         //     bench feed gains `ctl`/`ctl_menu` (see AppendStockMirror) and `host.handback.lapse` gains `reserve`.
++        // [ff9mapkit netsync R3 s114] adds the start hold: `host.start_hold` (see AppendHostStartHold) and `menu.ctl`'s `nonce`/`boot`/
++        //     `boot_name` (the control trailer).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3491,7 +3589,8 @@ namespace Memoria.Harness
+             sb.Append("],");
+             AppendHandback(sb); sb.Append(",");                                                      // [ff9mapkit netsync B4] stage 11
+             AppendHostIntro(sb); sb.Append(",");                                                     // [ff9mapkit netsync R3 s111]
+-            AppendHostWait(sb);                                                                      // [ff9mapkit netsync R3 s113]
++            AppendHostWait(sb); sb.Append(",");                                                      // [ff9mapkit netsync R3 s113]
++            AppendHostStartHold(sb);                                                                 // [ff9mapkit netsync R3 s114]
+             sb.Append("},\"peer\":{");
+             Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
+             Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+index aee609f..68849ac 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+@@ -772,6 +772,12 @@ public partial class BattleHUD : UIScene
+         if (!_commandEnable)
+             return false;
+ 
++        // [ff9mapkit netsync R3 s114] THE START HOLD: a co-op host holds every gauge while its guest's diorama of this battle is still
++        // booting (capped, decided once per battle) -- the stock "menu not yet enabled" answer, BEFORE the Active early return, so
++        // every ATB mode and every Speed stops. One static read (false) on vanilla, solo, a guest and every unheld battle.
++        if (Memoria.Netsync.NetSyncBattle.StartHoldActive)
++            return false;
++
+         if ((Int64)FF9StateSystem.Settings.cfg.atb != 1L)
+             return true;
+ 

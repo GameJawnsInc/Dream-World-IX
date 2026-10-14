@@ -312,6 +312,18 @@ def _nb_prop(path: str, kind, doc: str) -> property:
     return property(get)
 
 
+def _dio_prop(path: str, kind, doc: str) -> property:
+    """[ff9mapkit netsync R3 s111] One ``netsync.diorama`` key BELOW the F3.3 block (s111's ``intro``, s112's
+    ``intro.swirl_clamp``, s114's ``live``) as a read-only :class:`State` property, carrying its path for the test's table
+    (:attr:`State.NETSYNC_DIORAMA_ACCESSORS`)."""
+    def get(self):
+        return self._dio_path(path, kind)
+    get.__doc__ = doc
+    get.__name__ = "dio_" + path.replace(".", "_")
+    get.dio_path = path
+    return property(get)
+
+
 class State:
     """One sample of the game's state, as published by the agent.
 
@@ -1463,6 +1475,227 @@ class State:
                                                                           "hand-back's latency is last.frame - this); "
                                                                           "-1 = not yet.")
 
+    # [ff9mapkit netsync R3 s111-s117] BATTLE CO-OP ROUND 3 (studies/battle-coop/R3-DESIGN.md 5.1): the same law -- every
+    # key told by its PRESENCE, absent = None ("this engine cannot"). The capabilities: s111 ``coop_intro_mirror``
+    # (``netsync.diorama.intro``), s112 ``coop_swirl_clamp`` (``netsync.diorama.intro.swirl_clamp``), s113
+    # ``coop_wait_parity`` (``host.wait``), s114 ``coop_start_hold`` (``host.start_hold``), s115 ``coop_flee``
+    # (``end.flee``), s116 ``coop_flee_gil`` (``end.flee.msg_gil``), s117 ``coop_defeat`` (``end.follow_msg``). ⚠ s111-s114
+    # ride the OLD ``bench`` sub-verb: an engine before each reads its op as ``bench 1`` -- probe first.
+    @property
+    def coop_intro_mirror(self) -> bool | None:
+        """s111: the battle intro mirror (``netsync.diorama.intro``; ``host.cfg`` / ``host.intro``; the ``bench intro`` /
+        ``bench cfg`` ops, ``battle ... rand``, ``dioboot ... [wire] [skip|play|own] [rand]``)."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._dio_path("intro", dict) is not None
+
+    @property
+    def coop_swirl_clamp(self) -> bool | None:
+        """s112: the diorama swirl clamp (``netsync.diorama.intro.swirl_clamp``; ``bench swirl local|clamp``)."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._dio_path("intro.swirl_clamp", dict) is not None
+
+    @property
+    def coop_wait_parity(self) -> bool | None:
+        """s113: Wait parity (``host.wait``; ``menu.ctl``; ``bench waitparity`` / ``bench ctl`` / ``bench cfg atb`` /
+        ``bench lapse ... reserve``)."""
+        return self._nb_cap("host.wait", dict)
+
+    @property
+    def coop_start_hold(self) -> bool | None:
+        """s114: the start hold (``host.start_hold``; ``menu.ctl`` nonce/boot; ``netsync.diorama.live``; ``bench boot`` /
+        ``bench starthold``)."""
+        return self._nb_cap("host.start_hold", dict)
+
+    @property
+    def coop_flee(self) -> bool | None:
+        """s115: the guest's flee presentation (``end.flee``; ``end_leave.reverted``; ``battle.units[].mot|disappear|z``;
+        ``endbench guest hold|nor9b``)."""
+        return self._nb_cap("end.flee", dict)
+
+    @property
+    def coop_flee_gil(self) -> bool | None:
+        """s116: the host's "Dropped N Gil" relayed (``end.flee.msg_gil``; ``host.flee_gil``; ``host.end`` / ``peer.end``
+        ``flee_gil``; ``endbench fleegil``)."""
+        return self._nb_cap("end.flee.msg_gil", int)
+
+    @property
+    def coop_defeat(self) -> bool | None:
+        """s117: the guest's defeat presentation (``end.follow_msg``; ``endbench kill`` / ``phase-defeat``)."""
+        return self._nb_cap("end.follow_msg", str)
+
+    # ---- host: s111 the intro mirror's host half
+    coop_host_cfg = _nb_prop("host.cfg", dict, "s111: the whole ``cfg`` block, copied (LIVE reads).")
+    coop_cfg_atb = _nb_prop("host.cfg.atb", int, "s111: cfg.atb -- 0 Active, 1 Wait (a ``bench cfg atb`` override shows "
+                                                 "here); -1 = unreadable.")
+    coop_cfg_skip_btl_camera = _nb_prop("host.cfg.skip_btl_camera", int, "s111: cfg.skip_btl_camera (0 = skip the intro "
+                                                                         "camera on a random encounter; a ``bench cfg "
+                                                                         "skipcam`` override shows here).")
+    coop_cfg_speed = _nb_prop("host.cfg.speed", int, "s111: [Battle] Speed.")
+    coop_cfg_swirl_frames = _nb_prop("host.cfg.swirl_frames", int, "s111: [Graphics] BattleSwirlFrames.")
+    coop_host_intro = _nb_prop("host.intro", dict, "s111: the whole ``intro`` block, copied.")
+    coop_intro_off = _nb_prop("host.intro.off", bool, "s111: the ``bench intro 0`` calibration lever.")
+    coop_intro_published = _nb_prop("host.intro.published", int, "s111: the intro the last own-battle sample carried (1 "
+                                                                 "skip, 0 play; -1 = no intro bits or no own battle).")
+    coop_intro_own_skip = _nb_prop("host.intro.own_skip", int, "s111: the rising edge's latch (1 skipped, 0 played; -1 = "
+                                                               "none / between battles).")
+    # ---- host / menu: s113 Wait parity
+    coop_host_wait = _nb_prop("host.wait", dict, "s113: the whole ``wait`` block, copied.")
+    coop_wait_parity_off = _nb_prop("host.wait.parity_off", bool, "s113: the ``bench waitparity 0`` calibration lever.")
+    coop_wait_menu = _nb_prop("host.wait.menu", int, "s113: byte 1 of the last valid control frame the host parsed (0 "
+                                                     "shut, 1 legacy, 2 root, 3 below the root; -1 = none).")
+    coop_wait_open = _nb_prop("host.wait.open", bool, "s113: RemoteMenuOpen now (turn-based freezes on it).")
+    coop_wait_deep = _nb_prop("host.wait.deep", bool, "s113: RemoteMenuDeep now (the Wait branch freezes on it).")
+    coop_wait_legacy_seen = _nb_prop("host.wait.legacy_seen", bool, "s113: a legacy 1 arrived this own battle.")
+    coop_lapse_reserve = _nb_prop("host.handback.lapse.reserve", bool, "s113: the running lapse re-serves the guest's "
+                                                                       "last frame for 2000 ms first (``reserve``).")
+    coop_menu_ctl = _nb_prop("menu.ctl", dict, "s113: the whole ``ctl`` block, copied.")
+    coop_ctl_menu = _nb_prop("menu.ctl.menu", int, "s113: byte 1 of the control frame my guest side built last (-1 = "
+                                                   "none).")
+    coop_ctl_hex = _nb_prop("menu.ctl.hex", str, "s113: that frame ('' = none).")
+    coop_ctl_src = _nb_prop("menu.ctl.src", str, "s113: what decided byte 1 -- 'none' | 'bench' | 'digit' | 'stock' | "
+                                                 "'root' ('' = none).")
+    coop_ctl_nonce = _nb_prop("menu.ctl.nonce", int, "s114: the host battle nonce that frame's trailer reports on (-1 = "
+                                                     "none).")
+    coop_ctl_boot = _nb_prop("menu.ctl.boot", int, "s114: its boot state 0-4 (-1 = none).")
+    coop_ctl_boot_name = _nb_prop("menu.ctl.boot_name", str, "s114: its name ('' = none).")
+    # ---- host: s114 the start hold
+    coop_start_hold_block = _nb_prop("host.start_hold", dict, "s114: the whole ``start_hold`` block, copied.")
+    coop_hold_off = _nb_prop("host.start_hold.off", bool, "s114: the cap reads 0 (StartHoldMs 0, or ``bench starthold "
+                                                          "0``).")
+    coop_hold_cap_ms = _nb_prop("host.start_hold.cap_ms", int, "s114: the cap now (LIVE).")
+    coop_hold_state = _nb_prop("host.start_hold.state", str, "s114: 'idle' | 'off' | 'intro' | 'primed' | 'holding' | "
+                                                             "'late' | 'released' | 'not_armed'.")
+    coop_hold_nonce = _nb_prop("host.start_hold.nonce", int, "s114: the own battle's nonce (-1 between).")
+    coop_hold_why = _nb_prop("host.start_hold.why", str, "s114: the opening's decision ('booting' | 'late' | 'live' | "
+                                                         "'declined' | 'busy' | 'none' | 'link' | 'stale nonce' | 'old "
+                                                         "guest' | 'no word yet' | 'unknown'; '' = undecided).")
+    coop_hold_release = _nb_prop("host.start_hold.release", str, "s114: 'live' | 'declined' | 'link' | 'old guest' | "
+                                                                 "'cap' | 'ended' | 'off' ('' = none).")
+    coop_hold_held_ms = _nb_prop("host.start_hold.held_ms", int, "s114: running while it holds, else the released hold's "
+                                                                 "length; -1 = none.")
+    coop_hold_late_ms = _nb_prop("host.start_hold.late_ms", int, "s114: a late arm's offset from the opening; -1 = none.")
+    coop_hold_count = _nb_prop("host.start_hold.count", int, "s114: holds armed -- monotonic.")
+    coop_hold_released = _nb_prop("host.start_hold.released", dict, "s114: releases per reason, copied -- monotonic.")
+    coop_hold_released_live = _nb_prop("host.start_hold.released.live", int, "s114: -- monotonic.")
+    coop_hold_released_declined = _nb_prop("host.start_hold.released.declined", int, "s114: -- monotonic.")
+    coop_hold_released_link = _nb_prop("host.start_hold.released.link", int, "s114: -- monotonic.")
+    coop_hold_released_oldguest = _nb_prop("host.start_hold.released.oldguest", int, "s114: -- monotonic.")
+    coop_hold_released_cap = _nb_prop("host.start_hold.released.cap", int, "s114: -- monotonic.")
+    coop_hold_released_ended = _nb_prop("host.start_hold.released.ended", int, "s114: -- monotonic.")
+    coop_hold_guest = _nb_prop("host.start_hold.guest", dict, "s114: the guest's last report as parsed, copied.")
+    coop_hold_guest_r3 = _nb_prop("host.start_hold.guest.r3", bool, "s114: a trailer arrived at all this process.")
+    coop_hold_guest_lane_ms = _nb_prop("host.start_hold.guest.lane_ms", int, "s114: since the last valid control frame; "
+                                                                             "-1 = none within a minute.")
+    coop_hold_guest_fmt = _nb_prop("host.start_hold.guest.fmt", int, "s114: byte 2 of the last valid frame (1 a report, 0 "
+                                                                     "a 2-byte frame; -1 = none).")
+    coop_hold_guest_nonce = _nb_prop("host.start_hold.guest.nonce", int, "s114: the report's host battle nonce (-1 = "
+                                                                         "none).")
+    coop_hold_guest_boot = _nb_prop("host.start_hold.guest.boot", int, "s114: the report's boot state (-1 = none).")
+    coop_hold_guest_boot_name = _nb_prop("host.start_hold.guest.boot_name", str, "s114: its name ('' = none).")
+    # ---- host / end: s115-s117 flee and defeat
+    coop_host_flee_gil = _nb_prop("host.flee_gil", int, "s116: the host tap's receipt -- the gil this own battle's stock "
+                                                        "escape tail dropped (-1 = none; kept until the next own battle).")
+    coop_exit_reverted = _nb_prop("end.end_leave.reverted", int, "s115: the local btl_result the scoped no-leak rule "
+                                                                 "reverted (-1 = none).")
+    coop_end_flee = _nb_prop("end.flee", dict, "s115: the whole ``flee`` block, copied.")
+    coop_flee_r9b = _nb_prop("end.flee.r9b", int, "s115: the escape tail's STATE half skipped by R9b this boot.")
+    coop_flee_bypassed = _nb_prop("end.flee.bypassed", int, "s115: the ``guest nor9b`` lever let stock run it (the red).")
+    coop_flee_overload = _nb_prop("end.flee.overload", bool, "s115: an IOverloadOnFleeScript was loaded at R9b.")
+    coop_flee_ability_flag = _nb_prop("end.flee.ability_flag", bool, "s115: LIVE btl_flag & BTL_FLAG_ABILITY_FLEE.")
+    coop_flee_gil_now = _nb_prop("end.flee.gil_now", int, "s115: LIVE party.gil -- read it WHILE booted (the teardown's "
+                                                          "Restore puts it back).")
+    coop_flee_penalty = _nb_prop("end.flee.penalty", int, "s115: the stock default method's gil penalty (frozen at R9b, "
+                                                          "else live while booted; -1 otherwise).")
+    coop_flee_msg_gil = _nb_prop("end.flee.msg_gil", int, "s116: the HOST's \"Dropped N Gil\" figure this boot's run-away "
+                                                          "showed (-1 = none).")
+    coop_follow_msg = _nb_prop("end.follow_msg", str, "s117: the stock follow message this boot's end showed -- "
+                                                      "'annihilated' | 'dropped-gil' ('' = none).")
+
+    # ---- netsync.diorama: s111 the intro mirror's guest half (THIS boot only; sentinels between boots)
+    diorama_intro = _dio_prop("intro", dict, "s111: the whole ``intro`` block, copied (``swirl_clamp`` inside).")
+    diorama_intro_wire = _dio_prop("intro.wire", int, "s111: the host's choice the boot carries (1 skip, 0 play; -1 = none "
+                                                      "-- a manual boot, the F6 wire bench, an s110 host).")
+    diorama_intro_applied = _dio_prop("intro.applied", str, "s111: the last SkipBattleIntro answer -- 'skip' | 'play' ('' "
+                                                            "= no call yet).")
+    diorama_intro_own = _dio_prop("intro.own", str, "s111: the stock value it was handed ('skip' | 'play' | '').")
+    diorama_intro_off = _dio_prop("intro.off", bool, "s111: the ``bench intro 0`` lever.")
+    diorama_intro_calls = _dio_prop("intro.calls", int, "s111: stock-site calls the HOST's choice decided this boot.")
+    diorama_intro_normal_ms = _dio_prop("intro.normal_ms", int, "s111: Boot -> the first steady frame, swirl included; "
+                                                                "-1 = not yet.")
+    diorama_intro_swirl_frames = _dio_prop("intro.swirl_frames", int, "s111: this process's own BattleSwirlFrames (s112: "
+                                                                      "the ``bench swirl local`` stand-in while set).")
+    # ---- s112 the swirl clamp
+    diorama_swirl_clamp = _dio_prop("intro.swirl_clamp", dict, "s112: the whole ``swirl_clamp`` block, copied.")
+    diorama_swirl_ini = _dio_prop("intro.swirl_clamp.ini", int, "s112: [Netsync] DioramaSwirlFrames as loaded (-1 = keep "
+                                                                "own).")
+    diorama_swirl_clamp_now = _dio_prop("intro.swirl_clamp.clamp", int, "s112: what a diorama swirl applies now (-1 = "
+                                                                        "off).")
+    diorama_swirl_src = _dio_prop("intro.swirl_clamp.src", str, "s112: 'ini' | 'bench'.")
+    diorama_swirl_bench_local = _dio_prop("intro.swirl_clamp.bench_local", int, "s112: the ``bench swirl local`` stand-in "
+                                                                                "(-1 = none).")
+    diorama_swirl_diorama = _dio_prop("intro.swirl_clamp.diorama", bool, "s112: the LAST swirl was a diorama's.")
+    diorama_swirl_own = _dio_prop("intro.swirl_clamp.own", int, "s112: its own length (frames).")
+    diorama_swirl_used = _dio_prop("intro.swirl_clamp.used", int, "s112: the frames it played.")
+    diorama_swirl_clamped = _dio_prop("intro.swirl_clamp.clamped", bool, "s112: used != own.")
+    diorama_swirl_dwell_ms = _dio_prop("intro.swirl_clamp.dwell_ms", int, "s112: SFX_Rush's constructor -> its first done "
+                                                                          "frame; -1 = not done / none.")
+    diorama_swirl_swirls = _dio_prop("intro.swirl_clamp.swirls", int, "s112: swirls this process -- monotonic.")
+    diorama_swirl_dioramas = _dio_prop("intro.swirl_clamp.dioramas", int, "s112: ...inside a booted diorama -- "
+                                                                          "monotonic.")
+    diorama_swirl_clamps = _dio_prop("intro.swirl_clamp.clamps", int, "s112: ...shortened by the clamp -- monotonic.")
+    # ---- s114 the start-hold report's LIVE latch
+    diorama_live = _dio_prop("live", dict, "s114: the whole ``live`` block, copied.")
+    diorama_live_latched = _dio_prop("live.latched", bool, "s114: this boot's first steady frame came with a host sample in "
+                                                           "hand.")
+    diorama_live_ms = _dio_prop("live.ms", int, "s114: Boot -> that frame; -1 = not yet.")
+    diorama_live_nonce = _dio_prop("live.nonce", int, "s114: the host battle nonce of the sample in hand then; -1 = none.")
+
+    # [ff9mapkit netsync R3 s111] s111/s112/s114 publish INSIDE ``netsync.diorama`` (the F3.3 block): ``intro`` (with s112's
+    # ``swirl_clamp``) and ``live``. The same reading as ``_nb_key``, one block over.
+    def _dio_path(self, path: str, kind):
+        """``netsync.diorama.<path>`` read as ``kind`` (bool / int / str null -> "" / dict copied / (int, float) a
+        number); None when any step is absent or the type is wrong."""
+        node = self.diorama
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        if kind is bool:
+            return node if isinstance(node, bool) else None
+        if kind is int:
+            return node if isinstance(node, int) and not isinstance(node, bool) else None
+        if kind is str:
+            return "" if node is None else node if isinstance(node, str) else None
+        if kind is dict:
+            return _json_copy(node) if isinstance(node, dict) else None
+        raise TypeError(f"_dio_path: no reading for {kind!r}")
+
+    def unit_mot(self, slot: int) -> int | None:
+        """[ff9mapkit netsync R3 s115] ``battle.units[].mot`` for btl ``slot``: the current clip as the unit's own motion
+        index (a player's 17 = MP_ESCAPE, 4 = MP_DISABLE; -1 = none of its own). None = no such unit / before s115."""
+        return self._unit_num(slot, "mot", int)
+
+    def unit_disappear(self, slot: int) -> int | None:
+        """[ff9mapkit netsync R3 s115] ``battle.units[].disappear`` (bi.disappear: 5 once the escape fade finished)."""
+        return self._unit_num(slot, "disappear", int)
+
+    def unit_z(self, slot: int) -> float | None:
+        """[ff9mapkit netsync R3 s115] ``battle.units[].z`` (pos.z: falls while a runner runs; None = unreadable)."""
+        return self._unit_num(slot, "z", float)
+
+    def _unit_num(self, slot: int, key: str, kind):
+        for u in self.battle.get("units", []):
+            if isinstance(u, dict) and u.get("slot") == slot:
+                v = u.get(key)
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    return None
+                if kind is int:
+                    return v if isinstance(v, int) else None
+                return float(v)
+        return None
+
     # -- what is highlighted ----------------------------------------------------------------
     @property
     def menu_label(self) -> str | None:
@@ -1757,6 +1990,10 @@ class State:
 #: reads it -- the table test_harness_netsync.py holds against the agent's published keys, patch by patch.
 State.NETSYNC_BATTLE_ACCESSORS = {p.fget.nb_path: name for name, p in vars(State).items()
                                   if isinstance(p, property) and hasattr(p.fget, "nb_path")}
+#: [ff9mapkit netsync R3 s111] Every ``netsync.diorama`` key path below the F3.3 block (s111 ``intro``, s112
+#: ``intro.swirl_clamp``, s114 ``live``) -> its State accessor -- held against the agent's keys the same way.
+State.NETSYNC_DIORAMA_ACCESSORS = {p.fget.dio_path: name for name, p in vars(State).items()
+                                   if isinstance(p, property) and hasattr(p.fget, "dio_path")}
 
 
 def _f(v) -> str:

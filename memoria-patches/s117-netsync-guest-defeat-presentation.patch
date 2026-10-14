@@ -1,0 +1,1065 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+index d5356e6..4ecd0e6 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+@@ -116,6 +116,26 @@ namespace Memoria.Netsync
+     // pinned by SelfTest's `fleegil` section, the host tap and the selftest bench op `endbench fleegil <n>|none` (the
+     // template's flee record, fabricated through the real codec). The engine half (FleeGilTick: at R9b and every EndTick
+     // after it) lives in NetSyncDiorama; the tap's call site in battle.cs.
++    //
++    // [ff9mapkit netsync R3 s117] -- THE GUEST'S DEFEAT PRESENTATION (studies/battle-coop/R3-DESIGN.md 3.2.3; stage 12b). The
++    // host's defeat (kind 4, already on every s103+ end block -- no wire change) is no longer HELD. The host's MENU_OFF/DEFEAT
++    // can last ONE battle tick (several ticks run per frame) and the guest's receive is latest-slot, so the host's raw phase
++    // plus "every local player down" (allDown) picks the path: PHASE_MENU_OFF -> the stock ANNIHILATION (btl_sys
++    // CheckBattlePhase's writes: the "Annihilated" follow message, MENU_OFF + SEQ_MENU_OFF_DEFEAT, then BattleTrailingLoop's own
++    // settle -> PHASE_DEFEAT -> song 6 in a Game-Over scene only -> the fade into R8); PHASE_DEFEAT -> the annihilation when
++    // every local player is down, else var 34's scripted end (DEFEAT, PHASE_DEFEAT, the fade -- no message); any other phase
++    // (CLOSE + DEFEAT/GAMEOVER: var 33, a late join) -> the CLOSE fade. THIS file holds the stage's PURE half -- PresentFor's
++    // defeat rows, AllDown, W2Force's / W2ForceWhy's defeat rows (never VICTORY) and ArmVerdict's NoGameOver-defeat row (the
++    // s109 replay follows a NoGameOver defeat's result screen once the defeat was injected) -- pinned by SelfTest's `defeat`
++    // section, and two selftest bench ops: `endbench phase-defeat` (the PHASE_DEFEAT template through the real codec) and
++    // `endbench kill [mask]` (the reconciler's own KillUnit on seated players: NetSyncDiorama.HarnessKillPlayers). The engine
++    // half (InjectEnd's annihilate / defeat cases, AllPlayersDown, MenuOffBlocker's defeat rows) lives in NetSyncDiorama.
++    // Game Over keeps decision 13: the guest leaves to its OWN field on the host's ui 2 (stage 6's exit), never the title.
++    // FIX PASS after review: s117-1 -- the diorama mirrors only Death, so a host annihilated by Petrify / Venom / Stop left a
++    // local player standing: PHASE_DEFEAT read as var 34 (no "Annihilated"), and a caught MENU_OFF waited on a settle that
++    // could never pass until W2. PresentFor now also takes hostEvent (var 34 is legal only from the host's PHASE_EVENT) and
++    // AnnihilateSettles sends an annihilation the local party cannot settle straight to the defeat tail's writes; s117-2 --
++    // DefeatSongShuts: a defeat that played song 6 (a Game-Over scene) shuts it at the return whatever the host's b4 says.
+     public static class NetSyncEnd
+     {
+         // ---- the trailer (design 6.2) ----
+@@ -312,6 +332,8 @@ namespace Memoria.Netsync
+         public const Int32 PresentClose = 2;        // PHASE_CLOSE + SEQ_DEFEATCLOSE_FADEOUT: the stock fade (battle.cs CLOSE)
+         public const Int32 PresentHold = 3;         // HUD off, phase untouched, keep reconciling (v1 defeat / escape)
+         public const Int32 PresentFlee = 4;         // [ff9mapkit netsync R3 s115] MENU_OFF + SEQ_MENU_OFF_ESCAPE: the stock run-away
++        public const Int32 PresentAnnihilate = 5;   // [ff9mapkit netsync R3 s117] "Annihilated" + MENU_OFF + SEQ_MENU_OFF_DEFEAT: the stock annihilation
++        public const Int32 PresentDefeat = 6;       // [ff9mapkit netsync R3 s117] DEFEAT + PHASE_DEFEAT + SEQ_DEFEATCLOSE_FADEOUT: var 34's writes
+ 
+         public const Int32 W1Ms = 4000;             // W1: the victory camera may hold this long after the host's ui >= 1
+         public const Int32 W2Ms = 8000;             // W2: an injected victory may sit in PHASE_MENU_OFF this long
+@@ -342,18 +364,71 @@ namespace Memoria.Netsync
+         /// (PresentAction, still pinned) for every kind it does not hold; a held kind is re-decided from the host's raw phase.
+         /// An escape the host is still running (PHASE_MENU_OFF: its run-away) is the stock run-away (PresentFlee); any other
+         /// escape -- CLOSE + ESCAPE: var 33's scripted end, or a guest that first sees the host's escape after its run (a late
+-        /// join) -- is the CLOSE fade, with the host's ESCAPE result. Defeat stays HELD here (s117 replaces that line with
+-        /// the defeat rows; allDown -- every local player down -- is theirs). The `endbench guest hold` lever keeps the v1
+-        /// table (the pre-stage guest). Pure; never throws.
++        /// join) -- is the CLOSE fade, with the host's ESCAPE result. The `endbench guest hold` lever keeps the v1 table (the
++        /// pre-stage guest: an escape -- and, from s117, a defeat -- HELD). Pure; never throws.
++        /// [ff9mapkit netsync R3 s117] THE DEFEAT ROWS (design 3.2.3): the host's MENU_OFF (its SEQ_MENU_OFF_DEFEAT: the
++        /// player-die path's annihilation) -> PresentAnnihilate; PHASE_DEFEAT -> PresentAnnihilate when every local player is
++        /// down (allDown: the host's MENU_OFF can last one battle tick and the guest's receive is latest-slot, so the settled
++        /// annihilation is told apart from var 34's scripted end by the party, not the phase), else PresentDefeat (var 34's
++        /// writes); any other phase (CLOSE + DEFEAT/GAMEOVER: var 33's scripted end, or a late join) -> the CLOSE fade.
++        /// [ff9mapkit netsync R3 s117] FIX PASS (review s117-1): the party alone cannot tell them apart -- the diorama mirrors
++        /// only Death (the unit record carries hp + Alive, no status), so a host annihilated by Petrify / Venom / Stop (stock
++        /// BattleEndFull) leaves a local player STANDING. hostEvent = the host's latest pre-end block of this boot read Event
++        /// (var 32's MENU_OFF/EVENT or PHASE_EVENT; a Fighting block clears it): var 34 is legal ONLY from PHASE_EVENT
++        /// (btl_scrp SetBattleVariable 34), so PHASE_DEFEAT is var 34's scripted end only when the party stands AND the host
++        /// was last seen in its event phase; every other PHASE_DEFEAT is the annihilation (AnnihilateSettles then decides
++        /// whether the local party can take the stock settle).
+         /// </summary>
+-        public static Int32 PresentFor(Int32 kind, Byte phase, Int32 guestMode, Boolean allDown)
++        public static Int32 PresentFor(Int32 kind, Byte phase, Int32 guestMode, Boolean allDown, Boolean hostEvent)
+         {
+             Int32 a = PresentAction(kind);
+             if (a != PresentHold || guestMode == GuestHold)
+                 return a;
+             if (kind == KEscape)
+                 return phase == FF9StateBattleSystem.PHASE_MENU_OFF ? PresentFlee : PresentClose;
+-            return PresentHold;                     // [ff9mapkit netsync R3 s115] s117 replaces this line (the defeat rows)
++            if (kind == KDefeat)                    // [ff9mapkit netsync R3 s117] the defeat rows
++            {
++                if (phase == FF9StateBattleSystem.PHASE_MENU_OFF)
++                    return PresentAnnihilate;
++                if (phase == FF9StateBattleSystem.PHASE_DEFEAT)
++                    return allDown || !hostEvent ? PresentAnnihilate : PresentDefeat;   // fix pass s117-1: + !hostEvent
++                return PresentClose;
++            }
++            return PresentHold;                     // unreachable for the v1 table (only defeat / escape hold)
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s117] FIX PASS (review s117-1): does an injected annihilation take the stock per-unit
++        /// settle (PHASE_MENU_OFF + SEQ_MENU_OFF_DEFEAT: BattleTrailingLoop waits for every visible player's MP_DISABLE or a
++        /// BattleEnd status, then DEFEAT + PHASE_DEFEAT)? Only when every local player is down (allDown): a player the host
++        /// has under Petrify / Venom / Stop stands in the diorama (only Death is mirrored, and the reconciler quiesces once
++        /// the phase leaves NORMAL), so that settle could never pass -- the guest would sit in MENU_OFF until W2. Otherwise the
++        /// annihilation writes the SEQ_MENU_OFF_DEFEAT tail's own result directly (DEFEAT, PHASE_DEFEAT, then the fade's seq),
++        /// after the same "Annihilated". The `endbench guest settle` lever (selftest only) always takes the settle: W2's
++        /// defeat-row bench and this rule's calibration red. Pure.</summary>
++        public static Boolean AnnihilateSettles(Boolean allDown, Int32 guestMode)
++        {
++            return allDown || guestMode == GuestSettle;
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s117] FIX PASS (review s117-2): the return's song rule over a played DEFEAT song.
++        /// Once this boot's defeat presentation (annihilate / defeat) reached PHASE_DEFEAT in a Game-Over scene, stock
++        /// BattleIdleLoop ran ManageBattleSong(30, 6) -- it faded every song, suspended a non-battle one and set
++        /// BTL_SONG_FADEOUT (the only diorama-reachable writer of that bit on a defeat path: the NoGameOver test gates the
++        /// call, and isDebug runs no battle script). The host's end-block b4 then names a field song that a Game-Over host
++        /// never returns to, so it must not keep song 6 playing on the guest's own field: the stock shutdown runs whatever b4
++        /// says. Pure.</summary>
++        public static Boolean DefeatSongShuts(Int32 action, Byte localBtlFlag)
++        {
++            return (action == PresentAnnihilate || action == PresentDefeat) && (localBtlFlag & battle.BTL_SONG_FADEOUT) != 0;
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s117] "Every local player down" (PresentFor's allDown) from the engine's count of
++        /// linked players and of those under BattleStatusConst.BattleEndFull (btl_sys.CheckBattlePhase's own test): all of
++        /// them, and at least one -- a diorama with no linked player is never "all down" (an empty party is not an
++        /// annihilation). Pure.</summary>
++        public static Boolean AllDown(Int32 players, Int32 down)
++        {
++            return players > 0 && down >= players;
+         }
+ 
+         public static String PresentName(Int32 action)
+@@ -364,6 +439,8 @@ namespace Memoria.Netsync
+                 case PresentClose: return "close";
+                 case PresentHold: return "hold";
+                 case PresentFlee: return "flee";    // [ff9mapkit netsync R3 s115]
++                case PresentAnnihilate: return "annihilate";   // [ff9mapkit netsync R3 s117]
++                case PresentDefeat: return "defeat";           // [ff9mapkit netsync R3 s117]
+                 default: return null;
+             }
+         }
+@@ -424,7 +501,10 @@ namespace Memoria.Netsync
+         /// VICTORY on any MENU_OFF stall before). A run-away -> the escape tail's own writes (battle.cs SEQ_MENU_OFF_ESCAPE:
+         /// ESCAPE, PHASE_CLOSE, then the CLOSE fade's seq) -- never its state half, which a forced tail never reaches; anything
+         /// else -> the victory tail's no-pose half (VICTORY, PHASE_VICTORY, SEQ_VICTORY_FADEOUT). The engine ORs BTL_END_LOAD
+-        /// on every row (both stock tails set it). s117 adds the defeat rows. Pure; never throws.
++        /// on every row (both stock tails set it). Pure; never throws.
++        /// [ff9mapkit netsync R3 s117] + THE DEFEAT ROWS: an annihilation stalled in MENU_OFF (its settle waits for every
++        /// player's MP_DISABLE) -> the defeat tail's own writes (battle.cs SEQ_MENU_OFF_DEFEAT: DEFEAT, PHASE_DEFEAT, then the
++        /// fade's seq) -- NEVER VICTORY for a defeat; PresentDefeat (var 34's writes, never in MENU_OFF) shares the row.
+         /// </summary>
+         public static void W2Force(Int32 action, out Byte phase, out Byte seq, out Byte result)
+         {
+@@ -435,7 +515,12 @@ namespace Memoria.Netsync
+                     seq = FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT;
+                     result = FF9StateGlobal.BTL_RESULT_ESCAPE;
+                     return;
+-                // [ff9mapkit netsync R3 s115] s117 adds the defeat rows here (never VICTORY for a defeat)
++                case PresentAnnihilate:             // [ff9mapkit netsync R3 s117] the defeat rows (never VICTORY for a defeat)
++                case PresentDefeat:
++                    phase = FF9StateBattleSystem.PHASE_DEFEAT;
++                    seq = FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT;
++                    result = FF9StateGlobal.BTL_RESULT_DEFEAT;
++                    return;
+                 default:
+                     phase = FF9StateBattleSystem.PHASE_VICTORY;
+                     seq = FF9StateBattleSystem.SEQ_VICTORY_FADEOUT;
+@@ -453,6 +538,10 @@ namespace Memoria.Netsync
+                 case PresentFlee:
+                     return "PHASE_CLOSE + SEQ_DEFEATCLOSE_FADEOUT + ESCAPE (the escape tail's writes: the run-away never finished, "
+                            + "and R9b's state half was never reached)";
++                case PresentAnnihilate:             // [ff9mapkit netsync R3 s117]
++                case PresentDefeat:
++                    return "PHASE_DEFEAT + SEQ_DEFEATCLOSE_FADEOUT + DEFEAT (the defeat tail's writes: the party never settled "
++                           + "down -- never VICTORY for a defeat; song 6 still only in a Game-Over scene)";
+                 default:
+                     return "PHASE_VICTORY + SEQ_VICTORY_FADEOUT (no fanfare/poses: the tail never ran)";
+             }
+@@ -514,8 +603,10 @@ namespace Memoria.Netsync
+ 
+         // SELFTEST CALIBRATION LEVER (harness `netsync endbench guest on|off|settle|hold|nor9b`; cleared by every harness
+         // release): off = the pre-stage guest (EndTick still READS the end block and names why it presents nothing -- the lever
+-        // reverts the stage's path, not its instrument); settle = inject the per-unit-settle victory seq (VictorySeq).
+-        // [ff9mapkit netsync R3 s115] hold = the pre-s115 guest (an escape is HELD again: PresentFor keeps the v1 table); nor9b =
++        // reverts the stage's path, not its instrument); settle = inject the per-unit-settle victory seq (VictorySeq)
++        // ([ff9mapkit netsync R3 s117] and take the per-unit settle on every annihilation: AnnihilateSettles).
++        // [ff9mapkit netsync R3 s115] hold = the pre-s115 guest (an escape -- [ff9mapkit netsync R3 s117] and a defeat -- is
++        // HELD again: PresentFor keeps the v1 table); nor9b =
+         // R9b bypassed -- the flee injection also sets BTL_FLAG_ABILITY_FLEE and FleeTailR9b lets the stock tail's STATE half
+         // run in the diorama (the gil penalty while booted: the calibration red). Read only through GuestMode, which also needs
+         // the selftest role: a lever stranded across an ini edit can never touch a real guest.
+@@ -1159,6 +1250,10 @@ namespace Memoria.Netsync
+         /// [ff9mapkit netsync R3 s115] + hostResult (the host's raw btl_result, review end F3): an ESCAPE ignores b0 -- the
+         /// host's BattleResultUI.Show takes its ESCAPE branch (escape_gil -> the reward pages, else InitialNone) without ever
+         /// reading btl_bonus.Event, while SampleHost still sets FlagAfterEvent from it; every other result keeps the b0 rule.
++        /// [ff9mapkit netsync R3 s117] A NoGameOver DEFEAT arms like a victory (the host's Show takes its DEFEAT through
++        /// InitialNormal -- the reward pages, with the manifest -- unless AfterEvent): no new row, only `injected`, which a
++        /// presented defeat (annihilate / defeat / close) now sets. A Game-Over scene's defeat never reaches ui 1 (its host
++        /// goes to Game Over: the stage-6 exit takes the guest to its own field).
+         /// </summary>
+         public static Int32 ArmVerdict(Int32 replayMode, Boolean injected, Int32 r8Hits, Boolean exitLatched, Byte ui, Int32 hostState,
+                                        Byte flags, Byte hostResult, Boolean haveManifest, Boolean hudUp, Int32 validRowMask)
+@@ -1192,7 +1287,7 @@ namespace Memoria.Netsync
+             {
+                 case ArmGo: return null;
+                 case ArmHeldByLever: return "the calibration lever `endbench replay off` holds the pre-stage guest (no replay: a black hold, then the exit)";
+-                case ArmNotInjected: return "this diorama presented no victory/close/run-away (a held defeat/escape, or no end yet)";
++                case ArmNotInjected: return "this diorama presented no victory/close/run-away/defeat (a kind held by the `guest hold` lever, or no end yet)";   // [ff9mapkit netsync R3 s117] + defeat
+                 case ArmNoR8: return "the guest's own victory presentation is not done yet (no R8 hit: its fade is still running)";
+                 case ArmExitLatched: return "the guest is leaving (the host left its battle, or a leave is already in flight)";
+                 case ArmNotOnScreen: return "the host is not on its result screen (ui != 1)";
+@@ -2267,8 +2362,11 @@ namespace Memoria.Netsync
+         ///   host on|cadence|off  the stage's calibration lever (see HostMode)
+         ///   guest on|off|settle  [ff9mapkit netsync B5] stage 5's calibration lever (see GuestMode): off = the pre-stage
+         ///                        guest presents nothing; settle = the victory injection writes the per-unit-settle seq
+-        ///   guest hold|nor9b     [ff9mapkit netsync R3 s115]: hold = the pre-s115 guest (an escape is HELD); nor9b = R9b
+-        ///                        bypassed (the stock escape tail's state half runs in the diorama -- the red)
++        ///                        ([ff9mapkit netsync R3 s117] and an annihilation always takes the per-unit settle --
++        ///                        AnnihilateSettles: a standing party then stalls in MENU_OFF until W2's defeat row)
++        ///   guest hold|nor9b     [ff9mapkit netsync R3 s115]: hold = the pre-s115 guest (an escape is HELD -- [ff9mapkit
++        ///                        netsync R3 s117] and a defeat); nor9b = R9b bypassed (the stock escape tail's state half
++        ///                        runs in the diorama -- the red)
+         ///   exit on|off          [ff9mapkit netsync B5] stage 6's calibration lever (see GuestExitMode): off = the
+         ///                        pre-stage guest -- no end-leave, no return settle (the trigger still latches)
+         ///   selftest             run SelfTest (fails the verb on FAIL)
+@@ -2284,6 +2382,11 @@ namespace Memoria.Netsync
+         ///   fleegil &lt;n&gt;|none   [ff9mapkit netsync R3 s116]: the template's FLEE RECORD (arg = the host's gilLost, mode
+         ///                        "none" = no record), kept across later ops; re-fabricates (the fmt-2 record rides the frame
+         ///                        after the end block, through the real codec -- read it back at `peer.end.flee_gil`)
++        ///   phase-defeat         [ff9mapkit netsync R3 s117]: the template's raw (PHASE_DEFEAT, SEQ_DEFEATCLOSE_FADEOUT,
++        ///                        DEFEAT) -- the host past its annihilation's settle, or var 34's scripted end; re-fabricates
++        ///   kill [mask]          [ff9mapkit netsync R3 s117]: inside a booted selftest diorama in PHASE_NORMAL, the reconciler's
++        ///                        own KillUnit on the seated players whose btl_id bit is in mask (1-15; the harness defaults
++        ///                        to 15) -- BTL_DATA only (SavePlayerData is gated); never re-fabricates, the template stands
+         /// </summary>
+         public static Boolean HarnessEndBench(String op, Int32 arg, Boolean loading, Byte[] frame, String mode, out String why)
+         {
+@@ -2317,6 +2420,17 @@ namespace Memoria.Netsync
+                     case "defeat":
+                         SetRaw(FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_DEFEAT, FF9StateGlobal.BTL_RESULT_INITIAL);
+                         break;
++                    case "phase-defeat":                // [ff9mapkit netsync R3 s117] past the annihilation's settle, or var 34
++                        SetRaw(FF9StateBattleSystem.PHASE_DEFEAT, FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT, FF9StateGlobal.BTL_RESULT_DEFEAT);
++                        break;
++                    case "kill":
++                        // [ff9mapkit netsync R3 s117] the reconciler's own KillUnit on seated players (no fabricate: the template stands)
++                        if (arg < 1 || arg > 15)
++                        {
++                            why = "netsync endbench kill: needs a player mask 1-15 (a bit per player btl_id; default 15)";
++                            return false;
++                        }
++                        return NetSyncDiorama.HarnessKillPlayers(arg, out why);
+                     case "escape":
+                         SetRaw(FF9StateBattleSystem.PHASE_MENU_OFF, FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE, FF9StateGlobal.BTL_RESULT_INITIAL);
+                         break;
+@@ -2381,7 +2495,8 @@ namespace Memoria.Netsync
+                         return true;
+                     case "guest":
+                         // [ff9mapkit netsync B5] stage 5: the guest presentation's calibration lever (see GuestMode)
+-                        // [ff9mapkit netsync R3 s115] + hold (the pre-s115 guest: an escape is HELD) and nor9b (R9b bypassed)
++                        // [ff9mapkit netsync R3 s115] + hold (the pre-s115 guest: an escape -- from s117 a defeat too -- is HELD)
++                        // and nor9b (R9b bypassed)
+                         Int32 g = mode == "on" ? GuestOn : mode == "off" ? GuestOff : mode == "settle" ? GuestSettle
+                                 : mode == "hold" ? GuestHold : mode == "nor9b" ? GuestNoR9b : -1;
+                         if (g < 0)
+@@ -2392,9 +2507,10 @@ namespace Memoria.Netsync
+                         _benchGuestMode = g;
+                         Log.Message("[NetSync] harness: end presentation guest " + GuestModeName(g).ToUpperInvariant() + (g == GuestOn ? ""
+                                     : g == GuestOff ? " -- CALIBRATION: the pre-stage guest (EndTick reads the end block but injects nothing, hides nothing)"
+-                                    : g == GuestHold ? " -- the pre-s115 guest: the host's escape is HELD again (HUD off, phase untouched), never run away"
++                                    : g == GuestHold ? " -- the pre-s115 guest: the host's escape and defeat are HELD again (HUD off, phase untouched), never run away or annihilated"
+                                     : g == GuestNoR9b ? " -- CALIBRATION: R9b bypassed (a run-away injection sets BTL_FLAG_ABILITY_FLEE and the stock escape tail's STATE half runs in the diorama: the gil penalty while booted; the teardown's Restore puts the gil back)"
+-                                    : " -- CALIBRATION: a victory injects SEQ_MENU_OFF_VICTORY (the per-unit settle) instead of _WITH_ENEMY -- in a bench diorama that stalls in MENU_OFF until W2"));
++                                    : " -- CALIBRATION: a victory injects SEQ_MENU_OFF_VICTORY (the per-unit settle) instead of _WITH_ENEMY -- in a bench diorama that stalls in MENU_OFF until W2"
++                                      + "; an annihilation always takes SEQ_MENU_OFF_DEFEAT's per-unit settle (a standing party stalls until W2's defeat row)"));   // [ff9mapkit netsync R3 s117]
+                         return true;
+                     case "exit":
+                         // [ff9mapkit netsync B5] stage 6: the guest exit's calibration lever (see GuestExitMode)
+@@ -2496,8 +2612,9 @@ namespace Memoria.Netsync
+                         }
+                         break;
+                     default:
+-                        why = "netsync endbench: unknown op '" + op + "' (victory|pending|nopose|other|defeat|escape|event|fight|ui|state|"
+-                              + "overflow|afterevent|fieldsong|manifest|fleegil|cmd|host|guest|exit|replay|quit|selftest|clear)";
++                        why = "netsync endbench: unknown op '" + op + "' (victory|pending|nopose|other|defeat|phase-defeat|escape|event|"
++                              + "fight|ui|state|overflow|afterevent|fieldsong|manifest|fleegil|kill|cmd|host|guest|exit|replay|quit|"
++                              + "selftest|clear)";   // [ff9mapkit netsync R3 s117] + phase-defeat, kill
+                         return false;
+                 }
+                 return Fabricate(op, out why);
+@@ -2935,11 +3052,15 @@ namespace Memoria.Netsync
+         /// NoLeakResult and ArmVerdict's ESCAPE row. The detail now ends "..., replay N, flee M".
+         /// [ff9mapkit netsync R3 s116] adds `fleegil` (SelfTestFleeGil): the fmt-2 flee record through the REAL ParseView (and
+         /// ReadTrailer's skip count) and FleeMsgVerdict. The detail now ends "..., flee M, fleegil K".
++        /// [ff9mapkit netsync R3 s117] adds `defeat` (SelfTestDefeat): PresentFor's defeat rows, AllDown, AnnihilateSettles,
++        /// DefeatSongShuts, W2Force's defeat rows, the defeat returns (StampFor + NoLeakResult) and ArmVerdict's NoGameOver-defeat row -- each pin fails under
++        /// its named mutant ("return local", "PHASE_DEFEAT always annihilates", "W2 forces VICTORY"). SelfTestFlee's sweep
++        /// now carries the defeat rows too. The detail now ends "..., fleegil K, defeat D".
+         /// </summary>
+         public static Boolean SelfTest(out String detail)
+         {
+             List<String> fails = new List<String>();
+-            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0, mfst = 0, rply = 0, flee = 0, fleegil = 0;
++            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0, mfst = 0, rply = 0, flee = 0, fleegil = 0, defeat = 0;
+             Boolean wasQuiet = _quiet;
+             try
+             {
+@@ -3159,6 +3280,9 @@ namespace Memoria.Netsync
+ 
+                 // ---- [ff9mapkit netsync R3 s116] the host's flee gil relayed (still muted from the codec section) ----
+                 SelfTestFleeGil(fails, ref fleegil);
++
++                // ---- [ff9mapkit netsync R3 s117] the defeat presentation ----
++                SelfTestDefeat(fails, ref defeat);
+             }
+             catch (Exception ex)
+             {
+@@ -3170,7 +3294,8 @@ namespace Memoria.Netsync
+             }
+             String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec + ", present " + present + ", exit " + exit
+                             + ", manifest " + mfst + ", replay " + rply + ", flee " + flee   // [ff9mapkit netsync R3 s115] + flee
+-                            + ", fleegil " + fleegil;                                       // [ff9mapkit netsync R3 s116] + fleegil
++                            + ", fleegil " + fleegil                                        // [ff9mapkit netsync R3 s116] + fleegil
++                            + ", defeat " + defeat;                                         // [ff9mapkit netsync R3 s117] + defeat
+             if (fails.Count == 0)
+             {
+                 detail = counts;
+@@ -3486,11 +3611,12 @@ namespace Memoria.Netsync
+ 
+         // [ff9mapkit netsync R3 s115] -- the flee presentation's offline-provable half (SelfTest's `flee` section). Pins: a
+         // running escape (MENU_OFF) is the run-away and a CLOSE+ESCAPE the CLOSE fade; the `hold` lever is the pre-s115 table;
+-        // defeat stays HELD until s117; W2 never forces VICTORY on a run-away; the no-leak rule reverts only DEFEAT/GAMEOVER or
++        // defeat stayed HELD until s117 ([ff9mapkit netsync R3 s117]: the sweep now carries its rows, held only under the
++        // lever; SelfTestDefeat pins them); W2 never forces VICTORY on a run-away; the no-leak rule reverts only DEFEAT/GAMEOVER or
+         // anything under a host Defeat, never a stamp's return nor a legitimate local ESCAPE; an escape's replay ignores b0.
+         private static void SelfTestFlee(List<String> fails, ref Int32 n)
+         {
+-            // ---- PresentFor: the whole kind x phase x lever x allDown sweep against its spec, then the named pins ----
++            // ---- PresentFor: the whole kind x phase x lever x allDown (x hostEvent, s117) sweep against its spec, then the pins ----
+             Int32[] modes = { GuestOn, GuestOff, GuestSettle, GuestHold, GuestNoR9b };
+             Int32 off = 0;
+             String firstOff = null;
+@@ -3500,20 +3626,25 @@ namespace Memoria.Netsync
+                 {
+                     foreach (Int32 mode in modes)
+                     {
+-                        for (Int32 ad = 0; ad < 2; ad++)
++                        for (Int32 cell = 0; cell < 4; cell++)   // [ff9mapkit netsync R3 s117] allDown x hostEvent (fix pass s117-1)
+                         {
++                            Int32 ad = cell & 1, he = cell >> 1;
+                             Int32 v1 = PresentAction(k);
+                             Int32 want = v1 != PresentHold || mode == GuestHold ? v1
+                                        : k == KEscape ? (ph == FF9StateBattleSystem.PHASE_MENU_OFF ? PresentFlee : PresentClose)
++                                       // [ff9mapkit netsync R3 s117] the defeat rows (design 3.2.3; var 34 only after the host's event phase)
++                                       : k == KDefeat ? (ph == FF9StateBattleSystem.PHASE_MENU_OFF || (ph == FF9StateBattleSystem.PHASE_DEFEAT && (ad != 0 || he == 0))
++                                                         ? PresentAnnihilate
++                                                         : ph == FF9StateBattleSystem.PHASE_DEFEAT ? PresentDefeat : PresentClose)
+                                        : PresentHold;
+-                            Int32 got = PresentFor(k, (Byte)ph, mode, ad != 0);
++                            Int32 got = PresentFor(k, (Byte)ph, mode, ad != 0, he != 0);
+                             n++;
+                             if (got == want)
+                                 continue;
+                             off++;
+                             if (firstOff == null)
+                                 firstOff = "present-for " + KindName(k) + " phase " + ph + " mode " + GuestModeName(mode) + (ad != 0 ? " allDown" : "")
+-                                           + " -> " + (PresentName(got) ?? "none") + " != " + (PresentName(want) ?? "none");
++                                           + (he != 0 ? " hostEvent" : "") + " -> " + (PresentName(got) ?? "none") + " != " + (PresentName(want) ?? "none");
+                         }
+                     }
+                 }
+@@ -3521,20 +3652,21 @@ namespace Memoria.Netsync
+             if (off > 0)
+                 fails.Add(firstOff + (off > 1 ? " (+" + (off - 1) + " more cells)" : ""));
+             Byte menuOff = FF9StateBattleSystem.PHASE_MENU_OFF, close = FF9StateBattleSystem.PHASE_CLOSE;
+-            Expect(fails, ref n, PresentFor(KEscape, menuOff, GuestOn, false) == PresentFlee, "PIN a running escape (MENU_OFF) is the stock run-away");
+-            Expect(fails, ref n, PresentFor(KEscape, close, GuestOn, false) == PresentClose, "PIN CLOSE+ESCAPE is the CLOSE fade (var 33 / a late join)");
+-            Expect(fails, ref n, PresentFor(KEscape, menuOff, GuestHold, false) == PresentHold && PresentFor(KEscape, close, GuestHold, false) == PresentHold,
++            Expect(fails, ref n, PresentFor(KEscape, menuOff, GuestOn, false, false) == PresentFlee, "PIN a running escape (MENU_OFF) is the stock run-away");
++            Expect(fails, ref n, PresentFor(KEscape, close, GuestOn, false, false) == PresentClose, "PIN CLOSE+ESCAPE is the CLOSE fade (var 33 / a late join)");
++            Expect(fails, ref n, PresentFor(KEscape, menuOff, GuestHold, false, false) == PresentHold && PresentFor(KEscape, close, GuestHold, false, false) == PresentHold,
+                    "PIN the hold lever is the pre-s115 guest (escape HELD)");
+-            Expect(fails, ref n, PresentFor(KEscape, menuOff, GuestNoR9b, false) == PresentFlee, "the nor9b lever still runs away (it bypasses R9b only)");
+-            Expect(fails, ref n, PresentFor(KDefeat, menuOff, GuestOn, false) == PresentHold && PresentFor(KDefeat, menuOff, GuestOn, true) == PresentHold
+-                                 && PresentFor(KDefeat, FF9StateBattleSystem.PHASE_DEFEAT, GuestOn, true) == PresentHold
+-                                 && PresentFor(KDefeat, close, GuestOn, true) == PresentHold, "defeat stays HELD (s117's rows)");
+-            Expect(fails, ref n, PresentFor(KFighting, menuOff, GuestOn, false) == PresentNone && PresentFor(KEvent, menuOff, GuestOn, false) == PresentNone,
++            Expect(fails, ref n, PresentFor(KEscape, menuOff, GuestNoR9b, false, false) == PresentFlee, "the nor9b lever still runs away (it bypasses R9b only)");
++            // [ff9mapkit netsync R3 s117] defeat is no longer held (its rows are SelfTestDefeat's) -- only the hold lever keeps it
++            Expect(fails, ref n, PresentFor(KDefeat, menuOff, GuestHold, true, true) == PresentHold && PresentFor(KDefeat, FF9StateBattleSystem.PHASE_DEFEAT, GuestHold, true, true) == PresentHold
++                                 && PresentFor(KDefeat, FF9StateBattleSystem.PHASE_DEFEAT, GuestHold, false, false) == PresentHold
++                                 && PresentFor(KDefeat, close, GuestHold, true, true) == PresentHold, "defeat is HELD under the hold lever only (the pre-s117 guest)");
++            Expect(fails, ref n, PresentFor(KFighting, menuOff, GuestOn, false, false) == PresentNone && PresentFor(KEvent, menuOff, GuestOn, false, true) == PresentNone,
+                    "PIN a non-end kind is never presented (var 32's MENU_OFF/EVENT)");
+-            Expect(fails, ref n, PresentFor(KVictoryPending, menuOff, GuestHold, false) == PresentVictory
+-                                 && PresentFor(KOtherEnd, menuOff, GuestOn, false) == PresentClose, "victory / other-end keep the v1 table at any phase");
++            Expect(fails, ref n, PresentFor(KVictoryPending, menuOff, GuestHold, false, false) == PresentVictory
++                                 && PresentFor(KOtherEnd, menuOff, GuestOn, false, false) == PresentClose, "victory / other-end keep the v1 table at any phase");
+             for (Int32 k = KFighting; k <= KEvent; k++)
+-                Expect(fails, ref n, (PresentFor(k, menuOff, GuestOn, false) != PresentNone) == IsEndKind(k), "present-for-iff-end-kind " + KindName(k));
++                Expect(fails, ref n, (PresentFor(k, menuOff, GuestOn, false, false) != PresentNone) == IsEndKind(k), "present-for-iff-end-kind " + KindName(k));
+             Expect(fails, ref n, PresentName(PresentFlee) == "flee" && PresentAction(KEscape) == PresentHold, "the flee name; PresentAction (v1) unchanged");
+             Expect(fails, ref n, InjectVerdict(GuestHold, true, FF9StateBattleSystem.PHASE_NORMAL, true) == null
+                                  && InjectVerdict(GuestNoR9b, true, FF9StateBattleSystem.PHASE_NORMAL, true) == null, "the hold / nor9b levers still inject");
+@@ -3724,6 +3856,105 @@ namespace Memoria.Netsync
+             Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 1, 1, false, true, -1, -1) == FleeMsgNoRecord, "after R8 with no record is NoRecord (nothing to log late)");
+         }
+ 
++        // [ff9mapkit netsync R3 s117] -- the defeat presentation's offline-provable half (SelfTest's `defeat` section). Each pin
++        // names the rule it guards, and each of the design's three mutants fails at least one: "return local" (a defeat return
++        // that carries the guest's own DEFEAT / GAMEOVER -- the stamp and no-leak pins), "PHASE_DEFEAT always annihilates"
++        // (var 34's row with the party standing) and "W2 forces VICTORY" (the watchdog's defeat rows). PresentFor's whole
++        // kind x phase x lever x allDown x hostEvent sweep is SelfTestFlee's (it carries these rows); here the named pins,
++        // AllDown, W2Force, the defeat returns (A3, C, E, S6-D1) and the replay's NoGameOver-defeat arm. The fix pass adds the
++        // review's mutants "return local party" (s117-1: PHASE_DEFEAT read off the party alone), "always settle" (s117-1:
++        // AnnihilateSettles) and "b4 keeps song 6" (s117-2: DefeatSongShuts).
++        private static void SelfTestDefeat(List<String> fails, ref Int32 n)
++        {
++            Byte menuOff = FF9StateBattleSystem.PHASE_MENU_OFF, pdef = FF9StateBattleSystem.PHASE_DEFEAT, close = FF9StateBattleSystem.PHASE_CLOSE;
++            // ---- PresentFor's defeat rows ----
++            Expect(fails, ref n, PresentFor(KDefeat, menuOff, GuestOn, false, false) == PresentAnnihilate && PresentFor(KDefeat, menuOff, GuestOn, true, false) == PresentAnnihilate
++                                 && PresentFor(KDefeat, menuOff, GuestOn, false, true) == PresentAnnihilate,
++                   "PIN the host's MENU_OFF defeat is the stock annihilation, whatever the local party or the host's last event reads");
++            Expect(fails, ref n, PresentFor(KDefeat, pdef, GuestOn, true, false) == PresentAnnihilate && PresentFor(KDefeat, pdef, GuestOn, true, true) == PresentAnnihilate,
++                   "PIN PHASE_DEFEAT with every local player down is the annihilation (the host's one-tick MENU_OFF was missed)");
++            Expect(fails, ref n, PresentFor(KDefeat, pdef, GuestOn, false, true) == PresentDefeat,
++                   "PIN PHASE_DEFEAT with the party standing after the host's event phase is var 34's scripted end (mutant: PHASE_DEFEAT always annihilates)");
++            // [ff9mapkit netsync R3 s117] fix pass s117-1: the party alone is not the discriminator
++            Expect(fails, ref n, PresentFor(KDefeat, pdef, GuestOn, false, false) == PresentAnnihilate,
++                   "PIN PHASE_DEFEAT with the party standing and NO host event phase is the annihilation (a host Petrify / Venom / Stop "
++                   + "the diorama does not mirror; var 34 is legal only from PHASE_EVENT -- mutant: return local party)");
++            Expect(fails, ref n, PresentFor(KDefeat, close, GuestOn, true, false) == PresentClose && PresentFor(KDefeat, close, GuestOn, false, true) == PresentClose,
++                   "PIN CLOSE + DEFEAT/GAMEOVER is the CLOSE fade (var 33 / a late join)");
++            for (Int32 ph = 0; ph <= 9; ph++)
++                if (ph != menuOff && ph != pdef)
++                    Expect(fails, ref n, PresentFor(KDefeat, (Byte)ph, GuestOn, true, true) == PresentClose && PresentFor(KDefeat, (Byte)ph, GuestOn, false, false) == PresentClose,
++                           "a defeat at phase " + ph + " is the CLOSE fade");
++            Expect(fails, ref n, PresentFor(KDefeat, pdef, GuestSettle, false, true) == PresentDefeat && PresentFor(KDefeat, menuOff, GuestNoR9b, false, false) == PresentAnnihilate
++                                 && PresentFor(KDefeat, menuOff, GuestOff, false, false) == PresentAnnihilate,
++                   "the settle / nor9b / off levers keep the defeat rows (off refuses in InjectVerdict, not here)");
++            Expect(fails, ref n, PresentFor(KEscape, pdef, GuestOn, true, true) == PresentClose && PresentFor(KEscape, menuOff, GuestOn, true, true) == PresentFlee
++                                 && PresentFor(KVictory, pdef, GuestOn, true, true) == PresentVictory && PresentFor(KEscape, pdef, GuestOn, false, false) == PresentClose,
++                   "allDown / hostEvent touch only a defeat's rows");
++            Expect(fails, ref n, PresentName(PresentAnnihilate) == "annihilate" && PresentName(PresentDefeat) == "defeat" && PresentAction(KDefeat) == PresentHold,
++                   "the defeat names; PresentAction (v1) unchanged");
++            // ---- AnnihilateSettles (fix pass s117-1): the stock per-unit settle only for a party that can settle ----
++            Expect(fails, ref n, AnnihilateSettles(true, GuestOn) && AnnihilateSettles(true, GuestNoR9b),
++                   "PIN every local player down takes the stock settle (SEQ_MENU_OFF_DEFEAT: the death poses, then PHASE_DEFEAT)");
++            Expect(fails, ref n, !AnnihilateSettles(false, GuestOn) && !AnnihilateSettles(false, GuestNoR9b) && !AnnihilateSettles(false, GuestOff),
++                   "PIN a standing local player goes straight to the defeat tail's writes -- never a MENU_OFF wait only W2 ends (mutant: always settle)");
++            Expect(fails, ref n, AnnihilateSettles(false, GuestSettle) && AnnihilateSettles(true, GuestSettle),
++                   "the settle lever always settles (W2's defeat-row bench; the calibration red)");
++            // ---- DefeatSongShuts (fix pass s117-2): song 6 never outlives a Game-Over defeat on the guest's own field ----
++            Byte fade = battle.BTL_SONG_FADEOUT;
++            Expect(fails, ref n, DefeatSongShuts(PresentAnnihilate, fade) && DefeatSongShuts(PresentDefeat, (Byte)(fade | battle.BTL_PLAY_END_SONG)),
++                   "PIN a defeat whose song 6 ran (BTL_SONG_FADEOUT) shuts it down at the return, whatever the host's b4 says (mutant: b4 keeps it)");
++            Expect(fails, ref n, !DefeatSongShuts(PresentAnnihilate, 0) && !DefeatSongShuts(PresentDefeat, battle.BTL_END_LOAD),
++                   "PIN no song 6 ran (a NoGameOver scene, or the guest left before PHASE_DEFEAT): b4's verdict stands");
++            Expect(fails, ref n, !DefeatSongShuts(PresentVictory, fade) && !DefeatSongShuts(PresentClose, fade) && !DefeatSongShuts(PresentFlee, fade)
++                                 && !DefeatSongShuts(PresentHold, fade) && !DefeatSongShuts(PresentNone, fade),
++                   "PIN only a defeat presentation overrides b4 (a victory's fanfare keeps the stage-10 song rule)");
++            Expect(fails, ref n, SongVerdict(FlagFieldSong, false) == SongHostKeeps, "SongVerdict itself is unchanged (the override sits beside it)");
++            // ---- AllDown ----
++            Expect(fails, ref n, AllDown(4, 4) && AllDown(1, 1) && !AllDown(4, 3) && !AllDown(2, 0), "AllDown: every linked player");
++            Expect(fails, ref n, !AllDown(0, 0), "PIN no linked player is never all down (an empty party is not an annihilation)");
++            // ---- W2Force: the defeat rows ----
++            Int32[] defeatRows = { PresentAnnihilate, PresentDefeat };
++            Byte p, s, r;
++            foreach (Int32 a in defeatRows)
++            {
++                W2Force(a, out p, out s, out r);
++                Expect(fails, ref n, p == FF9StateBattleSystem.PHASE_DEFEAT && s == FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT && r == FF9StateGlobal.BTL_RESULT_DEFEAT,
++                       "PIN W2 forces a stalled " + PresentName(a) + " into the defeat tail's writes (PHASE_DEFEAT / FADEOUT / DEFEAT)");
++                Expect(fails, ref n, p != FF9StateBattleSystem.PHASE_VICTORY && r != FF9StateGlobal.BTL_RESULT_VICTORY && r != FF9StateGlobal.BTL_RESULT_VICTORY_NO_POSE,
++                       "PIN W2 never forces VICTORY for a " + PresentName(a) + " (mutant: W2 forces VICTORY)");
++                Expect(fails, ref n, !W2Due(p, W2Ms * 10), "W2's " + PresentName(a) + " row leaves PHASE_MENU_OFF (W2 cannot re-fire on it)");
++            }
++            Expect(fails, ref n, W2ForceWhy(PresentAnnihilate).IndexOf("DEFEAT", StringComparison.Ordinal) >= 0 && W2ForceWhy(PresentAnnihilate) != W2ForceWhy(PresentVictory)
++                                 && W2ForceWhy(PresentAnnihilate) != W2ForceWhy(PresentFlee), "the W2 line names the defeat row");
++            W2Force(PresentFlee, out p, out s, out r);
++            Expect(fails, ref n, p == FF9StateBattleSystem.PHASE_CLOSE && r == FF9StateGlobal.BTL_RESULT_ESCAPE, "the defeat rows leave the run-away's row alone");
++            W2Force(PresentVictory, out p, out s, out r);
++            Expect(fails, ref n, p == FF9StateBattleSystem.PHASE_VICTORY && r == FF9StateGlobal.BTL_RESULT_VICTORY, "the defeat rows leave the victory row alone");
++            // ---- the defeat returns: a Game-Over scene (A3, S6-D1) never carries the guest's own result; a NoGameOver one
++            // carries the HOST's DEFEAT from the stamp (C, E) ----
++            Byte dft = FF9StateGlobal.BTL_RESULT_DEFEAT, gov = FF9StateGlobal.BTL_RESULT_GAMEOVER;
++            Expect(fails, ref n, StampFor(dft, false) == -1 && StampFor(gov, false) == -1 && StampFor(gov, true) == -1,
++                   "PIN a Game Over is never stamped (decision 13: the guest leaves to its own field, never the title)");
++            Expect(fails, ref n, NoLeakResult(-1, true, dft, 0, KDefeat) == 0,
++                   "PIN an annihilation's local DEFEAT reverts at a Game-Over return (A3: reverted 3, field 0; mutant: return local)");
++            Expect(fails, ref n, NoLeakResult(-1, true, gov, 0, KDefeat) == 0,
++                   "PIN S6-D1: a CLOSE + GAMEOVER's local 6 reverts (reverted 6, field 0; mutant: return local)");
++            Expect(fails, ref n, NoLeakResult(-1, true, dft, 0, KEscape) == 0 && NoLeakResult(-1, true, dft, 0, KOtherEnd) == 0,
++                   "a local DEFEAT reverts whatever the host's last kind read");
++            Expect(fails, ref n, StampFor(dft, true) == dft && NoLeakResult(dft, true, dft, 0, KDefeat) == -1,
++                   "PIN a NoGameOver defeat returns the HOST's DEFEAT from the stamp (field result 3, reverted -1)");
++            // ---- ArmVerdict: the replay follows a NoGameOver defeat's result screen once the defeat was injected ----
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResStart, FlagManifest, dft, true, true, 0x01) == ArmGo,
++                   "PIN a presented NoGameOver defeat arms the replay on the host's result screen");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, false, 1, false, UiResult, ResStart, FlagManifest, dft, true, true, 0x01) == ArmNotInjected,
++                   "a defeat held by the lever never arms");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 0, false, UiResult, ResStart, FlagManifest, dft, true, true, 0x01) == ArmNoR8,
++                   "a defeat's replay waits for its own fade (R8)");
++            Expect(fails, ref n, ArmVerdict(ReplayModeOn, true, 1, false, UiResult, ResStart, (Byte)(FlagManifest | FlagAfterEvent), dft, true, true, 0x01) == ArmAfterEvent,
++                   "a defeat keeps the AfterEvent rule (only an escape is exempt)");
++        }
++
+         // One manifest codec case through the REAL ParseView: the view stands with its units; the block equals `wantBlock`
+         // with `wantLen` manifest bytes; the manifest equals `wantM`, or (wantBad) is null with a reason. Returns the block.
+         private static EndBlock ManifestCase(List<String> fails, ref Int32 n, String what, Byte[] payload, Int32 wantUnits, EndBlock wantBlock,
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index e350119..bb922a7 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -2387,9 +2387,38 @@ namespace Memoria.Netsync
+         // the record is already in hand (the frame stock would have shown its own), else on the EndTick that first carries it
+         // (the host's record is born at ITS tail, which may land after the guest's). A record that comes after R8 (the fade at
+         // black) is logged once and never shown. Under the nor9b lever R9b never counts: stock shows the guest's own figure.
++        //
++        // [ff9mapkit netsync R3 s117] -- THE GUEST'S DEFEAT PRESENTATION (studies/battle-coop/R3-DESIGN.md 3.2.3; stage 12b).
++        // The host's defeat is no longer HELD (NetSyncEnd.PresentFor's defeat rows; allDown = AllPlayersDown, every linked local
++        // player under BattleEndFull -- btl_sys.CheckBattlePhase's own test):
++        //   annihilate (the host in MENU_OFF, or in PHASE_DEFEAT with the local party down) -> btl_sys.CheckBattlePhase's writes
++        //     in stock order: the "Annihilated" follow message BEFORE the menu hide, then PHASE_MENU_OFF + SEQ_MENU_OFF_DEFEAT
++        //     (the command kill is the injection's own prologue). BattleTrailingLoop's own settle then waits for every player's
++        //     MP_DISABLE, writes DEFEAT and PHASE_DEFEAT; BattleIdleLoop plays song 6 ONLY in a Game-Over scene (battle.cs's
++        //     !NoGameOver test -- stock parity, no song code of ours); the fade reaches R8 like every other path;
++        //   defeat (the host in PHASE_DEFEAT, the local party standing: var 34's scripted end) -> var 34's writes (DEFEAT,
++        //     PHASE_DEFEAT, SEQ_DEFEATCLOSE_FADEOUT), no message, never MENU_OFF;
++        //   any other phase (CLOSE + DEFEAT/GAMEOVER) -> the stage-5 CLOSE fade with the host's result.
++        //   W2's defeat rows (NetSyncEnd.W2Force): an annihilation stalled in MENU_OFF is forced into PHASE_DEFEAT / FADEOUT /
++        //   DEFEAT, never VICTORY; MenuOffBlocker names the defeat settle's own blocker (players not down).
++        //   The returns: a Game-Over scene's defeat is never stamped (StampFor) and the no-leak rule reverts the local DEFEAT /
++        //   GAMEOVER at the teardown -- Game Over keeps decision 13 (the stage-6 exit takes the guest to its OWN field on the
++        //   host's ui 2; R8 holds IsOver, so no Game Over screen and no title ever opens here); a NoGameOver defeat is stamped
++        //   from the host's DEFEAT, and the stage-10 replay follows its result screen (the injection sets `injected`).
++        //   Bench ops (selftest only): `endbench kill [mask]` (HarnessKillPlayers: the reconciler's own KillUnit) and
++        //   `endbench phase-defeat`. The `endbench guest hold` lever is the pre-s117 guest (a defeat HELD).
++        //   W1 now counts BATTLE time too (s115's paused-span counter): a guest pause during the victory camera no longer forces
++        //   the FADEOUT early.
++        //   FIX PASS after review: s117-1 -- the diorama mirrors only Death (the unit record carries no status), so a host
++        //   annihilated by Petrify / Venom / Stop leaves a local player STANDING: the party alone misread PHASE_DEFEAT as var 34
++        //   and a caught MENU_OFF waited on a settle that could never pass (W2's 8 s). PresentFor now also reads _hostEvent (the
++        //   host's latest pre-end block of this boot was its event phase: var 34 is legal only from PHASE_EVENT), and an
++        //   annihilation the local party cannot settle (NetSyncEnd.AnnihilateSettles) writes the SEQ_MENU_OFF_DEFEAT tail's
++        //   result directly after the same "Annihilated" -- the `guest settle` lever keeps the settle (W2's defeat-row bench);
++        //   s117-2 -- the return's song rule (ReturnSongVerdict): a defeat that played song 6 shuts it whatever the host's b4.
+         // ---------------------------------------------------------------------------------------
+-        private static Boolean _endInjected;      // InjectEnd changed the phase this boot (a victory, close or run-away kind)
+-        private static Boolean _endHeld;          // a held kind this boot (defeat / escape): the HUD off, the phase untouched
++        private static Boolean _endInjected;      // InjectEnd changed the phase this boot (a victory, close, run-away or -- s117 -- defeat kind)
++        private static Boolean _endHeld;          // a held kind this boot (defeat / escape under the `guest hold` lever): the HUD off, the phase untouched
+         private static Int32 _endKind = -1;       // the kind presented (injected or held) this boot; -1 = none
+         private static Int32 _endAction = NetSyncEnd.PresentNone;
+         private static Int32 _endPhaseSet = -1;   // the btl_phase / btl_seq InjectEnd wrote (-1 = none)
+@@ -2429,6 +2458,16 @@ namespace Memoria.Netsync
+         private static Int32 _endPausedMs;
+         private static Int32 _endWatchLast = Environment.TickCount;   // the previous EndWatchdogs tick (TICK-BASELINE LAW)
+         private static Boolean _endWatchPaused;                       // ...and whether the battle loop was paused at it
++        // [ff9mapkit netsync R3 s117] W1 counts battle time too: _endPausedMs at the first watchdog read after W1's arm (-1 =
++        // not taken yet), so W1's paused share is the spans AFTER its arm only (never inflated by the pre-arm ones)
++        private static Int32 _w1PausedBase = -1;
++        // [ff9mapkit netsync R3 s117] the stock follow message this boot's end presentation showed (per boot; readable after the
++        // teardown): "annihilated" (InjectEnd's annihilation) | "dropped-gil" (s116's relayed figure) | null
++        private static String _followMsg;
++        private static Boolean _followErrLogged;                      // one follow-message fault line per boot
++        // [ff9mapkit netsync R3 s117] fix pass s117-1: the host's latest pre-end block of THIS boot read Event (var 32's
++        // MENU_OFF/EVENT or PHASE_EVENT); a Fighting block clears it (var 35 resumed the fight). PresentFor's hostEvent.
++        private static Boolean _hostEvent;
+ 
+         /// <summary>DrawGUI's guard (design 5.3): the end is being presented on THIS live diorama -- the digit panel stays
+         /// quiet. Keyed on Active too, so a stranded _booted on a field always fails toward drawing the fallback panel.</summary>
+@@ -2474,6 +2513,10 @@ namespace Memoria.Netsync
+             _endPausedMs = 0;
+             _endWatchLast = Environment.TickCount;
+             _endWatchPaused = false;
++            _w1PausedBase = -1;                  // [ff9mapkit netsync R3 s117]
++            _followMsg = null;
++            _followErrLogged = false;
++            _hostEvent = false;                  // [ff9mapkit netsync R3 s117] fix pass s117-1
+             ResetExit();                        // [ff9mapkit netsync B5] stage 6: the exit and its return settle, per boot too
+             ResetReplay();                       // [ff9mapkit netsync B5] stage 10: the result-screen replay, per boot too
+         }
+@@ -2510,6 +2553,11 @@ namespace Memoria.Netsync
+                 {
+                     _exitLast = e;
+                     _exitSeen = true;
++                    // [ff9mapkit netsync R3 s117] fix pass s117-1: the host's latest pre-end state (an end kind leaves it as is)
++                    if (e.Kind == NetSyncEnd.KEvent)
++                        _hostEvent = true;
++                    else if (e.Kind == NetSyncEnd.KFighting)
++                        _hostEvent = false;
+                 }
+                 Boolean leaving = ExitTick(ours, e);
+                 if (_endInjected || _endHeld)
+@@ -2520,6 +2568,7 @@ namespace Memoria.Netsync
+                     {
+                         _w1Armed = true;
+                         _w1Since = Environment.TickCount;
++                        _w1PausedBase = -1;              // [ff9mapkit netsync R3 s117] taken at EndWatchdogs' next read (this tick)
+                     }
+                     EndWatchdogs(b);
+                     FleeGilTick(ours, e, false);         // [ff9mapkit netsync R3 s116] the host's figure, if it came after R9b
+@@ -2554,8 +2603,11 @@ namespace Memoria.Netsync
+                     return;
+                 }
+                 // [ff9mapkit netsync R3 s115] the phase-aware table: a running escape is the run-away, CLOSE+ESCAPE the fade.
+-                // allDown (every local player down) is s117's input for the defeat rows -- PresentFor reads it for no s115 row.
+-                Int32 action = NetSyncEnd.PresentFor(e.Kind, e.Phase, NetSyncEnd.GuestMode, false);
++                // [ff9mapkit netsync R3 s117] + the defeat rows: allDown (every linked local player down) tells a settled
++                // annihilation in the host's PHASE_DEFEAT from var 34's scripted end. Walked only for a defeat kind (a fighting
++                // host reaches this line every frame). Fix pass s117-1: + _hostEvent (var 34 only after the host's event phase).
++                Boolean allDown = e.Kind == NetSyncEnd.KDefeat && AllPlayersDown(b);
++                Int32 action = NetSyncEnd.PresentFor(e.Kind, e.Phase, NetSyncEnd.GuestMode, allDown, _hostEvent);
+                 if (action == NetSyncEnd.PresentNone || (action == NetSyncEnd.PresentHold && _endHeld))
+                 {
+                     _endWhy = null;                      // fighting / event / already held: nothing (more) to present
+@@ -2580,7 +2632,7 @@ namespace Memoria.Netsync
+                     return;
+                 }
+                 _endWhyKey = 0;
+-                InjectEnd(b, e, action);
++                InjectEnd(b, e, action, allDown);
+             }
+             catch (Exception ex)
+             {
+@@ -2603,7 +2655,9 @@ namespace Memoria.Netsync
+             Log.Message("[NetSync] diorama end-wait: not presented yet -- " + why + " (logged once per boot per reason)");
+         }
+ 
+-        private static void InjectEnd(FF9StateBattleSystem b, NetSyncBattle.PeerEnd e, Int32 action)
++        // [ff9mapkit netsync R3 s117] + allDown (EndTick's AllPlayersDown, false for a non-defeat kind): the annihilation's
++        // settle-or-tail choice (NetSyncEnd.AnnihilateSettles; fix pass s117-1).
++        private static void InjectEnd(FF9StateBattleSystem b, NetSyncBattle.PeerEnd e, Int32 action, Boolean allDown)
+         {
+             FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
+             _preInjectResult = ff9.btl_result;          // [ff9mapkit netsync R3 s115] the scoped no-leak rule's baseline
+@@ -2611,6 +2665,10 @@ namespace Memoria.Netsync
+             // closes with the fight -- SetIdle + ReadyQueue/InputFinishList drained (a no-op unless the B4 lane touched the HUD).
+             NetSyncBattle.StockMenuCloseAll("end injected");
+             BattleHUD hud = UIManager.Battle;
++            // [ff9mapkit netsync R3 s117] the annihilation in btl_sys.CheckBattlePhase's own order: the follow message BEFORE the
++            // menu hide below. In its own try: a message fault must never stop the presentation half-way (the menu is closed).
++            if (action == NetSyncEnd.PresentAnnihilate && hud != null)
++                ShowFollowMessage(hud, BattleMesages.Annihilated, "annihilated");
+             if (hud != null)
+                 hud.FF9BMenu_EnableMenu(false);          // battle.cs:133's hide is !isDebug-gated: the diorama hides it itself
+             b.btl_escape_key = 0;
+@@ -2629,8 +2687,8 @@ namespace Memoria.Netsync
+                 _endHeld = true;
+                 Log.Message("[NetSync] diorama END: the host's " + host + " HELD -- the stock menu closed, the HUD hidden, the "
+                             + "phase left in " + b.btl_phase + " (the reconciler keeps driving; "
+-                            + (NetSyncEnd.GuestMode == NetSyncEnd.GuestHold ? "the `endbench guest hold` lever: the pre-s115 guest)"
+-                                                                            : "a defeat is not presented yet)"));
++                            + (NetSyncEnd.GuestMode == NetSyncEnd.GuestHold ? "the `endbench guest hold` lever: the pre-s115/s117 guest)"
++                                                                            : "no presentation for this kind)"));   // [ff9mapkit netsync R3 s117]
+                 return;
+             }
+             String path;
+@@ -2646,6 +2704,47 @@ namespace Memoria.Netsync
+                 case NetSyncEnd.PresentFlee:
+                     path = InjectRunAway(b, ff9);    // [ff9mapkit netsync R3 s115]
+                     break;
++                case NetSyncEnd.PresentAnnihilate:
++                {
++                    // [ff9mapkit netsync R3 s117] btl_sys.CheckBattlePhase's phase/seq (its message went out above, before the
++                    // hide); BattleTrailingLoop's own settle takes it on: every player down -> DEFEAT + PHASE_DEFEAT -> song 6 in a
++                    // Game-Over scene only -> the fade -> R8
++                    String msg = _followMsg == "annihilated" ? "after the stock \"Annihilated\"" : "WITHOUT the \"Annihilated\" message (it faulted, or no HUD)";
++                    String song = " -- song 6 " + (SceneNoGameOver(b) ? "NOT played: a NoGameOver scene, as in stock" : "in this Game-Over scene, as in stock")
++                                  + " -- and the fade)";
++                    if (NetSyncEnd.AnnihilateSettles(allDown, NetSyncEnd.GuestMode))
++                    {
++                        b.btl_phase = FF9StateBattleSystem.PHASE_MENU_OFF;
++                        b.btl_seq = FF9StateBattleSystem.SEQ_MENU_OFF_DEFEAT;
++                        path = "PHASE_MENU_OFF + SEQ_MENU_OFF_DEFEAT " + msg + " (the stock annihilation: the party settles down, then "
++                               + "DEFEAT + PHASE_DEFEAT" + song
++                               + (allDown ? "" : " -- CALIBRATION (`endbench guest settle`): a standing party stalls here until W2's defeat row");
++                    }
++                    else
++                    {
++                        // [ff9mapkit netsync R3 s117] fix pass s117-1: a local player stands (the host's Petrify / Venom / Stop is
++                        // not mirrored -- only Death is -- and the reconciler quiesces outside NORMAL), so the per-unit settle
++                        // could never pass: the SEQ_MENU_OFF_DEFEAT tail's own writes (battle.cs: DEFEAT, PHASE_DEFEAT, then the
++                        // fade's seq), as stock writes them once its settle passes
++                        b.btl_phase = FF9StateBattleSystem.PHASE_DEFEAT;
++                        b.btl_seq = FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT;
++                        ff9.btl_result = FF9StateGlobal.BTL_RESULT_DEFEAT;
++                        path = "PHASE_DEFEAT + SEQ_DEFEATCLOSE_FADEOUT with result " + ff9.btl_result + " " + msg + " (the stock "
++                               + "annihilation's tail, its per-unit settle skipped: " + StandingPlayers(b) + " local player(s) standing -- "
++                               + "a host BattleEnd status (Petrify / Venom / Stop) the diorama does not mirror"
++                               + (_hostEvent ? "" : "; the host was never last seen in its event phase, so not var 34") + song;
++                    }
++                    break;
++                }
++                case NetSyncEnd.PresentDefeat:
++                    // [ff9mapkit netsync R3 s117] var 34's writes (btl_scrp SetBattleVariable 34): no message, never MENU_OFF
++                    b.btl_phase = FF9StateBattleSystem.PHASE_DEFEAT;
++                    b.btl_seq = FF9StateBattleSystem.SEQ_DEFEATCLOSE_FADEOUT;
++                    ff9.btl_result = FF9StateGlobal.BTL_RESULT_DEFEAT;
++                    path = "PHASE_DEFEAT + SEQ_DEFEATCLOSE_FADEOUT with result " + ff9.btl_result + " (var 34's scripted end: the "
++                           + "local party still standing after the host's event phase, no message; song 6 "
++                           + (SceneNoGameOver(b) ? "not played (a NoGameOver scene)" : "in this Game-Over scene") + ")";
++                    break;
+                 default:                             // PresentClose
+                     ff9.btl_result = NetSyncEnd.CloseResult(e.Result);
+                     b.btl_phase = FF9StateBattleSystem.PHASE_CLOSE;
+@@ -2692,6 +2791,126 @@ namespace Memoria.Netsync
+                                     + "stock penalty runs in the diorama" : "");
+         }
+ 
++        // [ff9mapkit netsync R3 s117] PresentFor's allDown: every LINKED local player under BattleStatusConst.BattleEndFull
++        // (btl_sys.CheckBattlePhase's own test, minus its die_seq wait -- the stock settle waits for that), and at least one
++        // (NetSyncEnd.AllDown). Read-only; EndTick's try covers it.
++        private static Boolean AllPlayersDown(FF9StateBattleSystem b)
++        {
++            Int32 players, down;
++            CountPlayersDown(b, out players, out down);
++            return NetSyncEnd.AllDown(players, down);
++        }
++
++        // [ff9mapkit netsync R3 s117] fix pass s117-1: the linked local players NOT under BattleEndFull (the injection line's
++        // count for an annihilation whose settle is skipped). Read-only.
++        private static Int32 StandingPlayers(FF9StateBattleSystem b)
++        {
++            Int32 players, down;
++            CountPlayersDown(b, out players, out down);
++            return players - down;
++        }
++
++        private static void CountPlayersDown(FF9StateBattleSystem b, out Int32 players, out Int32 down)
++        {
++            players = 0;
++            down = 0;
++            Int32 guard = 0;
++            for (BTL_DATA n = b.btl_list.next; n != null && guard < 16; n = n.next, guard++)
++            {
++                if (n.bi.player == 0)
++                    continue;
++                players++;
++                if (btl_stat.CheckStatus(n, BattleStatusConst.BattleEndFull))
++                    down++;
++            }
++        }
++
++        // [ff9mapkit netsync R3 s117] This diorama's scene is NoGameOver (the host's own scene: song 6 is never played there,
++        // battle.cs's BattleIdleLoop test). Unreadable = false. For the injection line only.
++        private static Boolean SceneNoGameOver(FF9StateBattleSystem b)
++        {
++            try { return b.btl_scene != null && b.btl_scene.Info.NoGameOver; }
++            catch { return false; }
++        }
++
++        // [ff9mapkit netsync R3 s117] One stock follow message for the end presentation -- BattleHUD.SetBattleFollowMessage, the
++        // engine's own call (its text, voice line and priority) -- recorded for `end.follow_msg`. Never throws: a fault is
++        // logged once per boot and the presentation goes on without the message. True = shown.
++        private static Boolean ShowFollowMessage(BattleHUD hud, BattleMesages msg, String name)
++        {
++            try
++            {
++                hud.SetBattleFollowMessage(msg);
++                _followMsg = name;
++                return true;
++            }
++            catch (Exception ex)
++            {
++                if (!_followErrLogged)
++                {
++                    _followErrLogged = true;
++                    try { Log.Error("[NetSync] diorama END: the stock \"" + name + "\" follow message faulted -- the presentation goes on without it (logged once per boot): " + ex); }
++                    catch { }
++                }
++                return false;
++            }
++        }
++
++        /// <summary>
++        /// [ff9mapkit netsync R3 s117] `netsync endbench kill [mask]` (selftest role: NetSyncEnd.HarnessEndBench's gate): the
++        /// reconciler's own KillUnit -- HP 0, the Death status, the death pose now -- on every LINKED player whose btl_id bit
++        /// is in mask (1-15), on this booted diorama in PHASE_NORMAL. BTL_DATA only: SavePlayerData is gated at its definition
++        /// and btl_sys.CheckBattlePhase returns at once under Active, so nothing ends the fight -- the bench then feeds the
++        /// host's end (`endbench defeat` / `phase-defeat`). A unit already dead is counted, never re-killed. Main thread; never
++        /// throws (false + why on a refusal or a fault).
++        /// </summary>
++        internal static Boolean HarnessKillPlayers(Int32 mask, out String why)
++        {
++            why = null;
++            try
++            {
++                if (!_booted || !Active)
++                {
++                    why = "netsync endbench kill: needs a booted battle diorama (`netsync dioboot <scene>`)";
++                    return false;
++                }
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                if (b == null || b.btl_phase != FF9StateBattleSystem.PHASE_NORMAL)
++                {
++                    why = "netsync endbench kill: needs the diorama in PHASE_NORMAL (phase " + (b != null ? b.btl_phase.ToString() : "-") + ")";
++                    return false;
++                }
++                Int32 matched = 0, killed = 0, already = 0, guard = 0;
++                for (BTL_DATA n = b.btl_list.next; n != null && guard < 16; n = n.next, guard++)
++                {
++                    if (n.bi.player == 0 || (n.btl_id & mask) == 0)
++                        continue;
++                    matched++;
++                    if ((n.stat.cur & BattleStatus.Death) != 0)
++                    {
++                        already++;
++                        continue;
++                    }
++                    KillUnit(n);
++                    killed++;
++                }
++                if (matched == 0)
++                {
++                    why = "netsync endbench kill: no linked player's btl_id is in mask 0x" + mask.ToString("X1");
++                    return false;
++                }
++                Log.Message("[NetSync] harness: endbench kill -- the reconciler's KillUnit on " + killed + " seated player(s) (mask 0x"
++                            + mask.ToString("X1") + ", " + matched + " matched, " + already + " already dead): HP 0 + Death, the death pose "
++                            + "now -- BTL_DATA only (nothing ends the fight: the bench feeds the host's end)");
++                return true;
++            }
++            catch (Exception ex)
++            {
++                why = "netsync endbench kill: faulted -- " + ex.GetType().Name + ": " + ex.Message;
++                return false;
++            }
++        }
++
+         // The injection's hide can be undone (FF9BMenu_EnableMenu returns early while a quit prompt is up; a pause round trip
+         // re-shows the HUD from its stashed flags), and stock re-hides every PHASE_MENU_OFF frame only under !isDebug:
+         // re-assert it while the end is presented -- enabled OR the panels' container still drawn. Two reads per frame.
+@@ -2713,22 +2932,29 @@ namespace Memoria.Netsync
+         private static void EndWatchdogs(FF9StateBattleSystem b)
+         {
+             Int32 now = Environment.TickCount;
+-            if (!_w1Fired && NetSyncEnd.W1Due(b.btl_phase, b.btl_seq, _w1Armed, now - _w1Since))
+-            {
+-                _w1Fired = true;
+-                _endWatchdog = _endWatchdog == null ? "W1" : _endWatchdog + "+W1";
+-                b.btl_seq = FF9StateBattleSystem.SEQ_VICTORY_FADEOUT;
+-                Log.Message("[NetSync] diorama END watchdog W1: still PHASE_VICTORY + SEQ_VICTORY_CAMERA_MOVE "
+-                            + (now - _w1Since) + " ms after the host reached its result screen -- the victory camera's callback "
+-                            + "(SFX code 110) never advanced it in BattleMapDebug; forced SEQ_VICTORY_FADEOUT");
+-            }
+             // [ff9mapkit netsync R3 s115] W2's clock skips the battle loop's paused spans (HonoluluBattleMain.IsPaused's own read:
+             // the pause screen's NOPUTDISPENV, or the special tutorial window -- BattleMain does not run under either).
++            // [ff9mapkit netsync R3 s117] read FIRST now, so W1 counts battle time too (the s115 review: a guest pause during the
++            // victory camera forced the FADEOUT early on wall time) -- W1's share is the paused spans after its arm only.
+             Boolean paused = (b.attr & ff9btl.ATTR.NOPUTDISPENV) != 0 || battle.isSpecialTutorialWindow;
+             if (paused && _endWatchPaused)
+                 _endPausedMs += now - _endWatchLast;
+             _endWatchPaused = paused;
+             _endWatchLast = now;
++            if (_w1Armed && _w1PausedBase < 0)
++                _w1PausedBase = _endPausedMs;
++            Int32 w1Paused = _w1Armed ? _endPausedMs - _w1PausedBase : 0;
++            if (!_w1Fired && NetSyncEnd.W1Due(b.btl_phase, b.btl_seq, _w1Armed, now - _w1Since - w1Paused))
++            {
++                _w1Fired = true;
++                _endWatchdog = _endWatchdog == null ? "W1" : _endWatchdog + "+W1";
++                b.btl_seq = FF9StateBattleSystem.SEQ_VICTORY_FADEOUT;
++                Log.Message("[NetSync] diorama END watchdog W1: still PHASE_VICTORY + SEQ_VICTORY_CAMERA_MOVE "
++                            + (now - _w1Since) + " ms after the host reached its result screen"
++                            + (w1Paused > 0 ? " (" + w1Paused + " ms of it paused, not counted)" : "")   // [ff9mapkit netsync R3 s117]
++                            + " -- the victory camera's callback (SFX code 110) never advanced it in BattleMapDebug; forced "
++                            + "SEQ_VICTORY_FADEOUT");
++            }
+             if (!_w2Fired && NetSyncEnd.W2Due(b.btl_phase, now - _endInjectTick - _endPausedMs))
+             {
+                 _w2Fired = true;
+@@ -2736,9 +2962,11 @@ namespace Memoria.Netsync
+                 _endBlocker = MenuOffBlocker(b);
+                 // [ff9mapkit netsync R3 s115] KIND-AWARE (NetSyncEnd.W2Force): the tail of the kind actually injected -- a
+                 // run-away gets the escape tail's writes (ESCAPE, PHASE_CLOSE, the CLOSE fade; never its state half, which a
+-                // forced tail never reaches), anything else the victory tail's no-pose half (battle.cs SEQ_MENU_OFF_VICTORY*:
+-                // VICTORY, PHASE_VICTORY, then FADEOUT for a scene without WinPose). BTL_END_LOAD on every row (both stock
+-                // tails set it). The fade reaches R8 like every other path.
++                // forced tail never reaches), [ff9mapkit netsync R3 s117] an annihilation the defeat tail's (DEFEAT,
++                // PHASE_DEFEAT, the fade -- never VICTORY; song 6 then follows in a Game-Over scene only, as in stock), anything
++                // else the victory tail's no-pose half (battle.cs SEQ_MENU_OFF_VICTORY*: VICTORY, PHASE_VICTORY, then FADEOUT for
++                // a scene without WinPose). BTL_END_LOAD on every row (PHASE_DEFEAT/CLOSE set it anyway). The fade reaches R8
++                // like every other path.
+                 Byte phase, seq, result;
+                 NetSyncEnd.W2Force(_endAction, out phase, out seq, out result);
+                 FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
+@@ -2810,9 +3038,21 @@ namespace Memoria.Netsync
+                         note = "no local runner: no visible living player can escape (CannotEscape, or none left), so the "
+                                + "run-away fade never started -- not a blocker";
+                 }
+-                // [ff9mapkit netsync R3 s115] s117 adds the defeat seq's rows here
++                // [ff9mapkit netsync R3 s117] the defeat tail's own blocker (battle.cs SEQ_MENU_OFF_DEFEAT), in its own per-unit
++                // test: a visible player neither down (MP_DISABLE) nor under a BattleEnd status (Petrify / Venom / Stop) holds
++                // proceedEnd -- an annihilation whose party never settles (the bench's `defeat` with no `kill`)
++                if (b.btl_seq == FF9StateBattleSystem.SEQ_MENU_OFF_DEFEAT)
++                {
++                    Int32 notDown = 0;
++                    foreach (BattleUnit u in b.EnumerateBattleUnits())
++                        if (u.Data.bi.disappear == 0 && u.IsPlayer && !btl_mot.checkMotion(u.Data, BattlePlayerCharacter.PlayerMotionIndex.MP_DISABLE)
++                            && !u.IsUnderAnyStatus(BattleStatusConst.BattleEnd))
++                            notDown++;
++                    if (notDown > 0)
++                        why.Add(notDown + " player(s) not down (the defeat tail waits for every player's MP_DISABLE or a BattleEnd status)");
++                }
+                 // The victory song gates only the VICTORY tail (battle.cs: ManageBattleSong(5) under WinPose); the escape tail
+-                // (and s117's defeat tail) never waits on it.
++                // and the defeat tail never wait on it (song 6 is PHASE_DEFEAT's, after MENU_OFF).
+                 if ((b.btl_seq == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY || b.btl_seq == FF9StateBattleSystem.SEQ_MENU_OFF_VICTORY_WITH_ENEMY)
+                     && b.btl_scene != null && b.btl_scene.Info.WinPose && (FF9StateSystem.Common.FF9.btl_flag & battle.BTL_PLAY_END_SONG) == 0)
+                     why.Add("the victory song has not started (ManageBattleSong's load/sync)");
+@@ -2971,6 +3211,7 @@ namespace Memoria.Netsync
+                 UInt32 gil = (UInt32)e.FleeGil;
+                 hud.SetBattleFollowMessage(BattleMesages.DroppedGil, gil);   // battle.cs's own call, with the HOST's figure
+                 _fleeMsgGil = gil;
++                _followMsg = "dropped-gil";          // [ff9mapkit netsync R3 s117] `end.follow_msg`
+                 Log.Message("[NetSync] diorama flee: \"Dropped " + gil + " Gil\" shown with the HOST's figure ("
+                             + (atR9b ? "at R9b: the record was in hand" : "after R9b, as the record arrived") + "; "
+                             + (Environment.TickCount - _endInjectTick) + " ms after the injection, "
+@@ -3034,6 +3275,7 @@ namespace Memoria.Netsync
+         public static Boolean HarnessFleeOverload { get { return _fleeOverload; } }
+         public static Int32 HarnessReverted { get { return _revertedFrom; } }
+         public static Int64 HarnessFleeMsgGil { get { return _fleeMsgGil; } }      // [ff9mapkit netsync R3 s116] `end.flee.msg_gil`
++        public static String HarnessEndFollowMsg { get { return _followMsg; } }    // [ff9mapkit netsync R3 s117] `end.follow_msg`
+         public static Boolean HarnessFleeAbilityFlag
+         {
+             get
+@@ -3340,11 +3582,13 @@ namespace Memoria.Netsync
+                 _stampPending = NetSyncEnd.StampFor(e.Result, _settleNoGameOver);   // provisional: the teardown re-decides it
+                 // [fixer S10-R1] ONE song rule (NetSyncEnd.SongVerdict: the host's b4 first, then this diorama's own flag) for
+                 // this settle and the replay's own hide tail, which records its decision for the receipt (ReplayHideTailSong)
++                // [ff9mapkit netsync R3 s117] -- both through ReturnSongVerdict (+ the played-defeat-song override, review s117-2)
++                Boolean overB4 = false;
+                 if (_replayHideTail)
+                     _musicWhy = _replayMusicWhy ?? "the replay's own hide tail already shut the songs (stage 10): nothing shut down twice";
+                 else
+                 {
+-                    Int32 sv = NetSyncEnd.SongVerdict(e.Flags, (FF9StateSystem.Common.FF9.btl_flag & battle.BTL_CONTI_FLD_SONG) != 0);
++                    Int32 sv = ReturnSongVerdict(e.Flags, out overB4);   // [ff9mapkit netsync R3 s117] + the defeat-song override
+                     if (sv == NetSyncEnd.SongShut)
+                     {
+                         battle.ff9ShutdownStateBattleResult();   // the stock result screen's hide: fade + stop the current song
+@@ -3355,7 +3599,8 @@ namespace Memoria.Netsync
+                 }
+                 Log.Message("[NetSync] diorama END: leaving a finished fight (" + _settleVia + "; the host's " + NetSyncEnd.KindName(e.Kind)
+                             + ", result " + e.Result + ", ui " + e.Ui + ") -- "
+-                            + (_musicShut ? "the battle song shut down (ff9ShutdownStateBattleResult)" : _musicWhy)
++                            + (_musicShut ? "the battle song shut down (ff9ShutdownStateBattleResult)"
++                                            + (overB4 ? " -- " + DefeatSongOverB4Why : "") : _musicWhy)
+                             + "; the teardown stamps " + (_stampPending >= 0 ? "btl_result " + _stampPending
+                                                                              : "no btl_result (the host's " + e.Result + " is not carried"
+                                                                                + (e.Result == FF9StateGlobal.BTL_RESULT_DEFEAT && !_settleNoGameOver
+@@ -3457,6 +3702,22 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync R3 s117] THE RETURN'S SONG RULE, shared by SettleForReturn and ReplayHideTailSong (fixer S10-R1's
++        // one rule): NetSyncEnd.SongVerdict (the host's b4 first, then this diorama's own flag), overridden to SongShut when
++        // this boot's defeat presentation played song 6 (NetSyncEnd.DefeatSongShuts, review s117-2: a Game-Over host never
++        // returns to the field song its b4 keeps). overB4 = the override turned a keep into the shutdown. Throws only what
++        // the engine reads throw (both callers catch).
++        private static Int32 ReturnSongVerdict(Byte hostFlags, out Boolean overB4)
++        {
++            Byte local = FF9StateSystem.Common.FF9.btl_flag;
++            Int32 v = NetSyncEnd.SongVerdict(hostFlags, (local & battle.BTL_CONTI_FLD_SONG) != 0);
++            overB4 = v != NetSyncEnd.SongShut && NetSyncEnd.DefeatSongShuts(_endAction, local);
++            return overB4 ? NetSyncEnd.SongShut : v;
++        }
++
++        private const String DefeatSongOverB4Why = "over the host's b4: this diorama's own defeat tail played song 6 (a Game-Over "
++                                                   + "scene), and a Game-Over host never returns to the field song b4 keeps";
++
+         /// <summary>
+         /// [ff9mapkit netsync B5] stage 10 (fixer S10-R1): the SONG half of the replay's own hide tail (BattleResultUI seam b),
+         /// under the settle's rule (NetSyncEnd.SongVerdict): the host's latest end block of this boot (else the one the replay
+@@ -3471,7 +3732,8 @@ namespace Memoria.Netsync
+             try
+             {
+                 Byte hostFlags = _exitSeen ? _exitLast.Flags : _replayFlags;
+-                v = NetSyncEnd.SongVerdict(hostFlags, (FF9StateSystem.Common.FF9.btl_flag & battle.BTL_CONTI_FLD_SONG) != 0);
++                Boolean overB4;
++                v = ReturnSongVerdict(hostFlags, out overB4);    // [ff9mapkit netsync R3 s117] the settle's rule, override included
+             }
+             catch
+             {
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index afc7e44..9f5cae3 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -169,6 +169,18 @@ namespace Memoria.Harness
+         // NetSyncEnd.SelfTest gains its `fleegil` section (the detail ends "..., flee M, fleegil K"); no new sub-verb. A driver
+         // checks for `netsync.battle.end.flee.msg_gil` -- absent = an engine whose guest never shows the host's figure (and
+         // which answers `endbench fleegil` with "unknown op 'fleegil'").
++        // [ff9mapkit netsync R3 s117] (the guest's defeat presentation; studies/battle-coop/R3-DESIGN.md 3.2.3), also additive
++        // under 5: `netsync.battle.end` gains `follow_msg` (the stock follow message this boot's end presentation showed:
++        // "annihilated" | "dropped-gil" | null), `end.action` gains "annihilate" (inject_phase 5 / inject_seq 1; 7 / 0 when a
++        // local player stands -- the fix pass's skipped settle, unless `endbench guest settle`) and "defeat" (inject_phase 7 /
++        // inject_seq 0: only after the host's event phase, e.g. `endbench event` first), `end.blocker` names the defeat
++        // settle's "player(s) not down", `end_leave.music_shut` is true after a defeat that played song 6 whatever b4 says,
++        // the `endbench guest hold` lever now holds a defeat too (and `guest settle` always takes an annihilation's settle),
++        // and `netsync endbench` gains two ops -- `endbench phase-defeat` (the PHASE_DEFEAT
++        // template through the real codec) and `endbench kill [mask]` (the reconciler's KillUnit on seated players; mask 1-15,
++        // default 15); NetSyncEnd.SelfTest gains its `defeat` section (the detail ends "..., fleegil K, defeat D"); no new
++        // sub-verb. A driver checks for `netsync.battle.end.follow_msg` -- absent = an engine whose guest HOLDS the host's
++        // defeat (and which answers `endbench kill`/`phase-defeat` with "unknown op").
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1599,7 +1611,8 @@ namespace Memoria.Harness
+                             //       guest (a diorama presents no end), settle = the victory injection writes the per-unit-settle
+                             //       seq (a bench diorama stalls in MENU_OFF until W2 -- the watchdog's red);
+                             //   `endbench guest hold|nor9b`  [ff9mapkit netsync R3 s115]: hold = the pre-s115 guest (the host's
+-                            //       escape HELD), nor9b = R9b bypassed (the stock escape tail's state half runs in the diorama);
++                            //       escape HELD -- [ff9mapkit netsync R3 s117] and its defeat), nor9b = R9b bypassed (the stock
++                            //       escape tail's state half runs in the diorama);
+                             //   `endbench exit on|off`  [ff9mapkit netsync B5] stage 6's lever: off = the pre-stage guest
+                             //       (the host's exit still latches, but no end-leave and no return settle);
+                             //   `endbench selftest`  NetSyncEnd.SelfTest (fails the verb on FAIL);  `endbench clear`.
+@@ -1626,6 +1639,10 @@ namespace Memoria.Harness
+                             // [ff9mapkit netsync R3 s116]: `endbench fleegil <n>|none` sets the template's FLEE RECORD (the
+                             //   host's "Dropped N Gil" figure, a fmt-2 record after the block) and re-fabricates -- read it back
+                             //   at `netsync.battle.peer.end.flee_gil`; a run-away diorama shows it after R9b (`end.flee.msg_gil`).
++                            // [ff9mapkit netsync R3 s117]: `endbench phase-defeat` sets the template's raw (PHASE_DEFEAT,
++                            //   SEQ_DEFEATCLOSE_FADEOUT, DEFEAT) and re-fabricates; `endbench kill [mask]` (mask 1-15, default 15:
++                            //   a bit per player btl_id) runs the reconciler's own KillUnit on the seated players of a booted
++                            //   diorama in PHASE_NORMAL -- no fabricate (poll `battle.units[].mot == 4` before `endbench defeat`).
+                             String eop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             Int32 earg = -1;
+                             Boolean eloading = false;
+@@ -1700,6 +1717,15 @@ namespace Memoria.Harness
+                                     }
+                                     break;
+                                 }
++                                case "kill":                    // [ff9mapkit netsync R3 s117] `kill [mask]`, mask 1-15 (default 15)
++                                    earg = s.Args.Length > 2 ? Arg(s, 2, -1) : 15;
++                                    if (earg < 1 || earg > 15 || s.Args.Length > 3)
++                                        throw new ArgumentOutOfRangeException("netsync endbench kill", "expected `kill [mask]` (mask 1-15, a bit per player btl_id; default 15)");
++                                    break;
++                                case "phase-defeat":            // [ff9mapkit netsync R3 s117] no argument
++                                    if (s.Args.Length > 2)
++                                        throw new ArgumentOutOfRangeException("netsync endbench phase-defeat", "takes no argument");
++                                    break;
+                             }
+                             if (!Memoria.Netsync.NetSyncEnd.HarnessEndBench(eop, earg, eloading, eframe, emode, out why))
+                                 throw new InvalidOperationException(why ?? "netsync endbench refused");
+@@ -3191,7 +3217,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3713,6 +3739,14 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync R3 s115]: `action` gains "flee" (the stock run-away: inject_phase 5 / inject_seq 3), `guest_mode`
+         // gains hold | nor9b, `watchdog` W2 forces the injected kind's own tail (`blocker` names the escape seq's rows), and
+         // `flee` joins (see AppendEndFlee).
++        // [ff9mapkit netsync R3 s117]: `action` gains "annihilate" (the stock annihilation: inject_phase 5 / inject_seq 1, then
++        // the stock settle into phase 7 -- or inject_phase 7 / inject_seq 0 at once when a local player stands: a host
++        // Petrify / Venom / Stop the diorama does not mirror) and "defeat" (var 34's writes: inject_phase 7 / inject_seq 0, no
++        // message; only when the host was last seen in its event phase), `guest_mode`
++        // hold now holds a defeat too, `blocker` names the defeat settle's "player(s) not down" (W2 forces PHASE_DEFEAT / DEFEAT,
++        // never VICTORY), and `follow_msg` joins -- the stock follow message this boot's end presentation showed: "annihilated"
++        // (the annihilation's, before the menu hide) | "dropped-gil" (s116's relayed figure) | null (per boot, kept after the
++        // teardown until the next).
+         private static void AppendBattleEnd(StringBuilder sb)
+         {
+             Int32 kind = Memoria.Netsync.NetSyncDiorama.HarnessEndKind;
+@@ -3746,7 +3780,8 @@ namespace Memoria.Harness
+             Str(sb, "why", Memoria.Netsync.NetSyncEnd.HarnessLateDeclinedWhy);
+             sb.Append("},");
+             AppendReplay(sb); sb.Append(",");                                                           // [ff9mapkit netsync B5] stage 10
+-            AppendEndFlee(sb);                                                                          // [ff9mapkit netsync R3 s115]
++            AppendEndFlee(sb); sb.Append(",");                                                          // [ff9mapkit netsync R3 s115]
++            Str(sb, "follow_msg", Memoria.Netsync.NetSyncDiorama.HarnessEndFollowMsg);                  // [ff9mapkit netsync R3 s117]
+             sb.Append("}");
+         }
+ 

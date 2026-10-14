@@ -1,0 +1,930 @@
+diff --git a/Assembly-CSharp/Global/battle/battle.cs b/Assembly-CSharp/Global/battle/battle.cs
+index 23ab465..10cadca 100644
+--- a/Assembly-CSharp/Global/battle/battle.cs
++++ b/Assembly-CSharp/Global/battle/battle.cs
+@@ -478,6 +478,9 @@ public static class battle
+                             sys.party.gil = 0U;
+                         }
+                         UIManager.Battle.SetBattleFollowMessage(BattleMesages.DroppedGil, gilLost);
++                        // [ff9mapkit netsync R3 s116] a co-op HOST ships this figure to its guest's run-away (HostTapWanted:
++                        // vanilla, solo and a guest's diorama return at once); the stock drop above is untouched
++                        Memoria.Netsync.NetSyncEnd.HostNoteFleeGil(gilLost);
+                     }
+                 }
+                 break;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+index 2cc48ca..d5356e6 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncEnd.cs
+@@ -21,6 +21,9 @@ namespace Memoria.Netsync
+     //               b3 escape_gil, b4 BTL_CONTI_FLD_SONG
+     //     winPoseMask  bit per host btl_data slot that strikes the win pose (victory kinds on a WinPose scene; else 0)
+     //   any bytes of a fmt-1 body past those 8 are the stage-9 manifest (flags b1: DecodeManifest) or later growth (skipped).
++    //   fmt 2 = [ff9mapkit netsync R3 s116] THE FLEE RECORD: u8 fleeFlags (b0 = the host's stock gil drop ran), u32 gilLost
++    //     (little-endian) -- shipped only once the host's escape tail dropped gil; a body shorter than 5 is SKIPPED (counted
++    //     like an unknown fmt, never nulling the end block), bytes past the 5 are later growth (skipped).
+     //
+     // NO WIRE BUMP (design 6.2): ParseView on a pre-B5 peer reads exactly `count` units and ignores the rest, and this
+     // engine reads the trailer in its OWN try -- a bad trailer nulls only the end block, never the view (a null view would
+@@ -99,6 +102,20 @@ namespace Memoria.Netsync
+     // state half runs in the diorama -- the calibration red). The engine half (InjectEnd's flee case, FleeTailR9b, the
+     // kind-aware W2 and the return's no-leak revert) lives in NetSyncDiorama; R9b's call site in battle.cs. SEAMS: s116 shows
+     // the host's "Dropped N Gil" from the R9b point; s117 replaces PresentFor's last line and adds W2Force's defeat rows.
++    //
++    // [ff9mapkit netsync R3 s116] -- THE HOST'S "DROPPED N GIL" RELAYED (studies/battle-coop/R3-DESIGN.md 3.2.4; stage 12c;
++    // owner: build it). The host's stock escape tail (battle.cs SEQ_MENU_OFF_ESCAPE, its default method under
++    // BTL_FLAG_ABILITY_FLEE -- Zidane's Flee) takes a tenth of the bonus gil and says so; the guest's diorama never runs that
++    // state half (R9b), so it showed nothing. The host's tap (HostNoteFleeGil, right after the stock follow message, under
++    // HostTapWanted -- once per flee, the default path only) latches the figure, and every later sample of that battle ships
++    // it as an ADDITIVE fmt-2 trailer record [fleeFlags u8][gilLost u32] after the end block (no wire bump: an s103-s115
++    // guest steps over it by its len and counts trailer_skipped; a pre-s103 guest stops at `count` units). The guest parses
++    // it beside the block (ReadTrailer: EndBlock.FleeFlags/FleeGil, -1 = none) and, once its OWN run-away has reached R9b and
++    // before R8 (its fade at black), shows the HOST's figure through the stock SetBattleFollowMessage(DroppedGil, n) -- its
++    // own gil is never touched. THIS file holds the stage's PURE half -- EncodeFleeRecord, the fmt-2 read, FleeMsgVerdict --
++    // pinned by SelfTest's `fleegil` section, the host tap and the selftest bench op `endbench fleegil <n>|none` (the
++    // template's flee record, fabricated through the real codec). The engine half (FleeGilTick: at R9b and every EndTick
++    // after it) lives in NetSyncDiorama; the tap's call site in battle.cs.
+     public static class NetSyncEnd
+     {
+         // ---- the trailer (design 6.2) ----
+@@ -106,6 +123,10 @@ namespace Memoria.Netsync
+         public const Byte FmtEnd = 1;
+         public const Int32 RecordHeaderLen = 4;     // u8 magic, u8 fmt, u16 len
+         public const Int32 EndBlockLen = 8;         // kind phase seq result ui resState flags winPoseMask
++        // [ff9mapkit netsync R3 s116] the flee record (fmt 2)
++        public const Byte FmtFlee = 2;
++        public const Int32 FleeRecordLen = 5;       // u8 fleeFlags, u32 gilLost (little-endian)
++        public const Byte FleeGilDrop = 1;          // fleeFlags b0: the host's stock gil drop ran (its default flee method)
+ 
+         // ---- kind ----
+         public const Byte KFighting = 0;
+@@ -152,6 +173,8 @@ namespace Memoria.Netsync
+             public Int32 ManifestLen;               // fmt-1 body bytes past the block while flags b1 is set (stage 9 parses them)
+             public Manifest Manifest;               // [ff9mapkit netsync B5] stage 9: the decoded manifest (null = none, or bad)
+             public String ManifestWhy;              // stage 9: why a flags-b1 body did not decode (null = it did, or no b1)
++            public Int32 FleeFlags = -1;            // [ff9mapkit netsync R3 s116] the fmt-2 record beside the block: its flags
++            public Int64 FleeGil = -1;              // and gilLost (both -1 = no record, or a short one)
+ 
+             public Boolean Loading { get { return ResState != ResNoScreen && (ResState & ResLoadingBit) != 0; } }
+             public Int32 State { get { return ResState == ResNoScreen ? -1 : ResState & 0x7F; } }
+@@ -162,6 +185,12 @@ namespace Memoria.Netsync
+                        && ResState == o.ResState && Flags == o.Flags && WinPoseMask == o.WinPoseMask;
+             }
+ 
++            /// <summary>[ff9mapkit netsync R3 s116] The flee record matches (SameAs stays the 8-byte block).</summary>
++            public Boolean SameFlee(EndBlock o)
++            {
++                return o != null && FleeFlags == o.FleeFlags && FleeGil == o.FleeGil;
++            }
++
+             public EndBlock Clone()
+             {
+                 return (EndBlock)MemberwiseClone();
+@@ -171,7 +200,8 @@ namespace Memoria.Netsync
+             {
+                 return KindName(Kind) + " (phase " + Phase + " seq " + Seq + " result " + Result + "; ui " + Ui + ", res "
+                        + (ResState == ResNoScreen ? "-" : State + (Loading ? "L" : "")) + ", flags 0x" + Flags.ToString("X2")
+-                       + ", pose 0x" + WinPoseMask.ToString("X2") + ")";
++                       + ", pose 0x" + WinPoseMask.ToString("X2")
++                       + (FleeFlags >= 0 ? ", flee 0x" + FleeFlags.ToString("X2") + " " + FleeGil + " gil" : "") + ")";   // [ff9mapkit netsync R3 s116]
+             }
+         }
+ 
+@@ -448,6 +478,40 @@ namespace Memoria.Netsync
+             return -1;
+         }
+ 
++        // [ff9mapkit netsync R3 s116] -- the guest's "Dropped N Gil" decision (design 3.2.4). FleeMsgVerdict's codes:
++        public const Int32 FleeMsgShow = 0;         // show the HOST's figure now (the stock follow message; the guest's gil untouched)
++        public const Int32 FleeMsgNotRunAway = 1;   // this boot presented no run-away (a held / close / victory end, or none)
++        public const Int32 FleeMsgShown = 2;        // already shown this boot (once per boot)
++        public const Int32 FleeMsgBeforeR9b = 3;    // the guest's own escape tail has not reached R9b yet (or the nor9b lever ran stock)
++        public const Int32 FleeMsgNotOurs = 4;      // no end block of THIS diorama's battle
++        public const Int32 FleeMsgNoRecord = 5;     // no flee record, or one whose b0 is clear (the host's tail dropped nothing)
++        public const Int32 FleeMsgAfterR8 = 6;      // the record came after the guest's fade reached black (R8): too late to show
++
++        /// <summary>
++        /// [ff9mapkit netsync R3 s116] May the guest show the host's "Dropped N Gil" figure now? Only on a presented RUN-AWAY
++        /// (action == PresentFlee), once per boot, after its own escape tail reached R9b (r9b &gt; 0: the point the stock
++        /// tail would have shown its OWN figure -- so never under the nor9b lever, where stock shows the guest's) and before
++        /// R8 (r8Hits == 0: the CLOSE fade not yet at black), from THIS battle's end block, whose flee record has b0 set and a
++        /// u32 gil. Checked in that order: a run-away that never reached R9b says so before a missing record, and a record
++        /// that comes after R8 is told apart (AfterR8: logged once, never shown). Pure; never throws.
++        /// </summary>
++        public static Int32 FleeMsgVerdict(Int32 action, Int32 r9b, Int32 r8Hits, Boolean shown, Boolean ours, Int32 fleeFlags, Int64 fleeGil)
++        {
++            if (action != PresentFlee)
++                return FleeMsgNotRunAway;
++            if (shown)
++                return FleeMsgShown;
++            if (r9b <= 0)
++                return FleeMsgBeforeR9b;
++            if (!ours)
++                return FleeMsgNotOurs;
++            if (fleeFlags < 0 || (fleeFlags & FleeGilDrop) == 0 || fleeGil < 0 || fleeGil > UInt32.MaxValue)
++                return FleeMsgNoRecord;
++            if (r8Hits > 0)
++                return FleeMsgAfterR8;
++            return FleeMsgShow;
++        }
++
+         // SELFTEST CALIBRATION LEVER (harness `netsync endbench guest on|off|settle|hold|nor9b`; cleared by every harness
+         // release): off = the pre-stage guest (EndTick still READS the end block and names why it presents nothing -- the lever
+         // reverts the stage's path, not its instrument); settle = inject the per-unit-settle victory seq (VictorySeq).
+@@ -1348,10 +1412,29 @@ namespace Memoria.Netsync
+             return t;
+         }
+ 
++        /// <summary>[ff9mapkit netsync R3 s116] One fmt-2 record: header + [fleeFlags u8][gilLost u32 LE] (9 bytes). Pure.</summary>
++        public static Byte[] EncodeFleeRecord(Byte fleeFlags, UInt32 gilLost)
++        {
++            Byte[] t = new Byte[RecordHeaderLen + FleeRecordLen];
++            t[0] = TrailerMagic;
++            t[1] = FmtFlee;
++            t[2] = (Byte)FleeRecordLen;
++            t[3] = 0;
++            t[4] = fleeFlags;
++            t[5] = (Byte)(gilLost & 0xFF);
++            t[6] = (Byte)((gilLost >> 8) & 0xFF);
++            t[7] = (Byte)((gilLost >> 16) & 0xFF);
++            t[8] = (Byte)(gilLost >> 24);
++            return t;
++        }
++
+         /// <summary>
+         /// Read the trailer records from `offset` to the end of `payload`. Returns the fmt-1 END BLOCK, or null: no trailer
+         /// at all (a pre-B5 host: why = null), or a malformed one (why = the reason: truncated, foreign bytes, short body).
+         /// `skipped` counts unknown-fmt records stepped over. Pure and bounds-checked; never throws.
++        /// [ff9mapkit netsync R3 s116] A fmt-2 FLEE RECORD lands on the returned block (FleeFlags / FleeGil, in either order
++        /// beside the fmt-1 record; the last one wins); a fmt-2 body shorter than 5 bytes is counted in `skipped` and never
++        /// nulls the block; a flee record with no end block is dropped with it.
+         /// </summary>
+         public static EndBlock ReadTrailer(Byte[] payload, Int32 offset, out String why, out Int32 skipped)
+         {
+@@ -1365,6 +1448,8 @@ namespace Memoria.Netsync
+                     return null;
+                 }
+                 EndBlock found = null;
++                Int32 fleeFlags = -1;                // [ff9mapkit netsync R3 s116] the fmt-2 record (-1 = none)
++                Int64 fleeGil = -1;
+                 Int32 p = offset;
+                 while (p < payload.Length)
+                 {
+@@ -1414,12 +1499,24 @@ namespace Memoria.Netsync
+                         }
+                         found = e;                   // the last fmt-1 record wins (an encoder writes exactly one)
+                     }
+-                    else
++                    else if (fmt == FmtFlee && len >= FleeRecordLen)
+                     {
+-                        skipped++;                   // an unknown fmt: skip it by its len
++                        // [ff9mapkit netsync R3 s116] the host's flee record; bytes past the 5 are later growth (skipped by len)
++                        fleeFlags = payload[body];
++                        fleeGil = (UInt32)payload[body + 1] | ((UInt32)payload[body + 2] << 8) | ((UInt32)payload[body + 3] << 16)
++                                  | ((UInt32)payload[body + 4] << 24);
+                     }
++                    else
++                    {
++                        skipped++;                   // an unknown fmt -- or [ff9mapkit netsync R3 s116] a SHORT fmt-2 body (the
++                    }                                // end block stands) -- skip it by its len
+                     p = body + len;
+                 }
++                if (found != null)
++                {
++                    found.FleeFlags = fleeFlags;     // [ff9mapkit netsync R3 s116]
++                    found.FleeGil = fleeGil;
++                }
+                 return found;
+             }
+             catch (Exception ex)
+@@ -1572,7 +1669,8 @@ namespace Memoria.Netsync
+             ReadHostRaw(out phase, out seq, out result, out ui, out resState);
+             return phase | ((Int64)seq << 8) | ((Int64)result << 16) | ((Int64)resState << 24) | ((Int64)ui << 32)
+                    | (_hostManifestBytes != null ? 1L << 40 : 0L)       // [ff9mapkit netsync B5] stage 9: a capture samples
+-                   | (_hostOverflow ? 1L << 41 : 0L);                    // at once, and so does the sticky overflow
++                   | (_hostOverflow ? 1L << 41 : 0L)                     // at once, and so does the sticky overflow
++                   | (_hostFleeNoted ? 1L << 42 : 0L);                   // [ff9mapkit netsync R3 s116] ...and the flee gil drop
+         }
+ 
+         /// <summary>The pumps, every own-battle tick (beside TrackCommandPhase): true = the end key changed since the last
+@@ -1621,6 +1719,9 @@ namespace Memoria.Netsync
+             _hostManifestWhy = null;
+             _hostOverflow = false;
+             _hostLearned.Clear();
++            _hostFleeNoted = false;                 // [ff9mapkit netsync R3 s116] the flee record starts unshipped, its receipt
++            _hostFleeGil = 0;                       // unheld
++            _hostFleeGilLast = -1;
+             DisarmStaleBenchEnd();
+         }
+ 
+@@ -1632,7 +1733,8 @@ namespace Memoria.Netsync
+             _lastHost = null;
+             _hostInBattle = false;                  // [ff9mapkit netsync B5] stage 9: nothing ships between battles; the last
+             _hostManifestBytes = null;              // manifest, the overflow bit and the learn receipt stay READABLE until
+-        }                                           // the next own battle starts
++            _hostFleeNoted = false;                 // the next own battle starts ([ff9mapkit netsync R3 s116]: so does the
++        }                                           // flee receipt, `host.flee_gil`)
+ 
+         /// <summary>The host end block as it stands now. Never throws (a torn read is a Fighting block).</summary>
+         internal static EndBlock SampleHost()
+@@ -1676,6 +1778,12 @@ namespace Memoria.Netsync
+                     e.Manifest = _hostManifest;
+                 }
+             }
++            if (_hostInBattle && _hostFleeNoted)
++            {
++                // [ff9mapkit netsync R3 s116] the stock gil drop ran this battle: WriteHostTrailer ships its fmt-2 record
++                e.FleeFlags = FleeGilDrop;
++                e.FleeGil = _hostFleeGil;
++            }
+             return e;
+         }
+ 
+@@ -1723,6 +1831,8 @@ namespace Memoria.Netsync
+                 }
+                 EndBlock e = SampleHost();
+                 Byte[] t = EncodeTrailer(e, (e.Flags & FlagManifest) != 0 ? _hostManifestBytes : null);   // stage 9: + the manifest
++                if (e.FleeFlags >= 0)                // [ff9mapkit netsync R3 s116] + the flee record, in the same single write
++                    t = Concat(t, EncodeFleeRecord((Byte)e.FleeFlags, (UInt32)e.FleeGil));
+                 bw.Write(t);
+                 _lastHost = e;
+                 NoteHostShipped(e);
+@@ -1917,6 +2027,37 @@ namespace Memoria.Netsync
+             catch { }
+         }
+ 
++        // ==================================================================================== the host's flee gil (s116)
++        // [ff9mapkit netsync R3 s116] -- the host tap behind the fmt-2 record. Main thread; every entry never throws.
++        private static Boolean _hostFleeNoted;      // the stock gil drop ran this own battle: SampleHost ships the record
++        private static UInt32 _hostFleeGil;         // ...and the gil it dropped
++        private static Int64 _hostFleeGilLast = -1; // the receipt (`host.flee_gil`): kept after the battle until the next starts
++
++        /// <summary>
++        /// [ff9mapkit netsync R3 s116] battle.cs's escape tail, right after the stock SetBattleFollowMessage(DroppedGil,
++        /// gilLost) -- the DEFAULT flee method under BTL_FLAG_ABILITY_FLEE, never a mod's IOverloadOnFleeScript (its figure,
++        /// if any, is its own): latch the figure for the rest of this own battle (SampleHost then ships it as a fmt-2 record
++        /// on every sample, and HostKey's change samples it at once). HostTapWanted gates it -- vanilla, solo and a guest's
++        /// diorama (whose tail R9b skips anyway) return at the first test. One line per flee. Never throws.
++        /// </summary>
++        internal static void HostNoteFleeGil(UInt32 gilLost)
++        {
++            try
++            {
++                if (!HostTapWanted)
++                    return;
++                Boolean again = _hostFleeNoted;
++                _hostFleeNoted = true;
++                _hostFleeGil = gilLost;
++                _hostFleeGilLast = gilLost;
++                Log.Message("[NetSync] battle flee (host): the stock escape tail dropped " + gilLost + " gil (\"Dropped N Gil\") -- the "
++                            + "figure rides the end block as a fmt-2 record until the battle ends; the guest shows it on its run-away, "
++                            + "its own gil untouched" + (again ? " (a SECOND drop this battle: the latest figure wins)" : "")
++                            + (HostMode == ModeOff ? " -- CALIBRATION: `endbench host off` ships no trailer at all" : ""));
++            }
++            catch { }
++        }
++
+         // ==================================================================================== the guest side
+         private static Boolean _peerArmed;
+         private static Byte _peerNonce;
+@@ -1924,6 +2065,7 @@ namespace Memoria.Netsync
+         private static Int32 _peerTrailKey = -1;
+         private static Byte _peerLoggedKind = 0xFF;
+         private static Byte _peerLoggedUi = 0xFF;
++        private static Boolean _peerFleeLogged;     // [ff9mapkit netsync R3 s116] this nonce's flee record was logged
+ 
+         /// <summary>NetSyncBattle's pumps, on every freshly parsed peer view (seq-advanced on the transport; every tick on
+         /// the selftest loopback): a new battle nonce restarts the trail; a (kind, ui) change logs one line. Never throws.</summary>
+@@ -1940,10 +2082,19 @@ namespace Memoria.Netsync
+                     _peerLoggedKind = 0xFF;
+                     _peerLoggedUi = 0xFF;
+                     _peerManifest = null;            // [ff9mapkit netsync B5] stage 9: a new battle's manifest starts unheld
++                    _peerFleeLogged = false;         // [ff9mapkit netsync R3 s116]
+                 }
+                 if (e == null)
+                     return;
+                 NotePeerManifest(nonce, e.Manifest);   // [ff9mapkit netsync B5] stage 9: the guest STORES it
++                if (e.FleeFlags >= 0 && !_peerFleeLogged)
++                {
++                    // [ff9mapkit netsync R3 s116] the host's flee record, first seen on this battle's lane (one line per nonce)
++                    _peerFleeLogged = true;
++                    Log.Message("[NetSync] battle flee record (peer, nonce " + nonce + "): the host's escape tail dropped " + e.FleeGil
++                                + " gil (flee flags 0x" + e.FleeFlags.ToString("X2") + ") -- a run-away diorama shows that figure "
++                                + "between its R9b and R8, never touching its own gil");
++                }
+                 AppendTrail(_peerTrail, ref _peerTrailKey, e);
+                 if (e.Kind == _peerLoggedKind && e.Ui == _peerLoggedUi)
+                     return;
+@@ -2020,6 +2171,8 @@ namespace Memoria.Netsync
+             p.Manifest = b.Manifest;                // [ff9mapkit netsync B5] stage 9: the decoded manifest (null = none / bad)
+             p.ManifestWhy = b.ManifestWhy;
+             p.Rows = b.Manifest != null ? b.Manifest.RowCount : 0;
++            p.FleeFlags = b.FleeFlags;              // [ff9mapkit netsync R3 s116] the flee record (-1 = none)
++            p.FleeGil = b.FleeGil;
+             p.Nonce = nonce;
+             p.WireSeq = wireSeq;
+             p.Bench = bench;
+@@ -2037,6 +2190,8 @@ namespace Memoria.Netsync
+         private static Manifest _bManifest;         // [ff9mapkit netsync B5] stage 9: `endbench manifest <preset>` (null = none)
+         private static Int32 _bManifestPreset;      // the preset it came from (0 = none)
+         private static String _bManifestNote;       // a marker the preset could not choose (null = every one)
++        private static Int64 _bFleeGil = -1;        // [ff9mapkit netsync R3 s116] `endbench fleegil <n>|none`: the template's
++                                                    // flee record (b0 set, n gil); -1 = none
+         // the victory-edge command one-shot (`endbench cmd [hex]`)
+         private static Boolean _cmdArmed;
+         private static Byte[] _cmdFrame;
+@@ -2126,6 +2281,9 @@ namespace Memoria.Netsync
+         ///                        guest (no replay arms); local = the guest's own Confirm steps the replay too (seam c's red)
+         ///   quit on|off          [ff9mapkit netsync B5] stage 10's quit-guard bench: the guest's own quit prompt, opened
+         ///                        through the stock quit command / hidden (BenchQuitPrompt). Never press Confirm on it.
++        ///   fleegil &lt;n&gt;|none   [ff9mapkit netsync R3 s116]: the template's FLEE RECORD (arg = the host's gilLost, mode
++        ///                        "none" = no record), kept across later ops; re-fabricates (the fmt-2 record rides the frame
++        ///                        after the end block, through the real codec -- read it back at `peer.end.flee_gil`)
+         /// </summary>
+         public static Boolean HarnessEndBench(String op, Int32 arg, Boolean loading, Byte[] frame, String mode, out String why)
+         {
+@@ -2321,9 +2479,25 @@ namespace Memoria.Netsync
+                         _bManifestPreset = arg;
+                         _bFlags = (Byte)(arg == 2 ? _bFlags | FlagEscapeGil : _bFlags & ~FlagEscapeGil);
+                         break;
++                    case "fleegil":
++                        // [ff9mapkit netsync R3 s116] the template's flee record (the harness passes mode "none" for `fleegil none`)
++                        if (mode == "none")
++                        {
++                            _bFleeGil = -1;
++                        }
++                        else if (String.IsNullOrEmpty(mode) && arg >= 0)
++                        {
++                            _bFleeGil = arg;
++                        }
++                        else
++                        {
++                            why = "netsync endbench fleegil: needs the host's gilLost (a non-negative integer) or none";
++                            return false;
++                        }
++                        break;
+                     default:
+                         why = "netsync endbench: unknown op '" + op + "' (victory|pending|nopose|other|defeat|escape|event|fight|ui|state|"
+-                              + "overflow|afterevent|fieldsong|manifest|cmd|host|guest|exit|replay|quit|selftest|clear)";
++                              + "overflow|afterevent|fieldsong|manifest|fleegil|cmd|host|guest|exit|replay|quit|selftest|clear)";
+                         return false;
+                 }
+                 return Fabricate(op, out why);
+@@ -2409,9 +2583,17 @@ namespace Memoria.Netsync
+             {
+                 b.Flags = (Byte)(b.Flags & ~FlagManifest);
+             }
++            Byte[] trailer = EncodeTrailer(b, mbytes);
++            if (_bFleeGil >= 0)
++            {
++                // [ff9mapkit netsync R3 s116] the flee record rides after the block, exactly as WriteHostTrailer ships it
++                b.FleeFlags = FleeGilDrop;
++                b.FleeGil = _bFleeGil;
++                trailer = Concat(trailer, EncodeFleeRecord(FleeGilDrop, (UInt32)_bFleeGil));
++            }
+             UInt16 seq = ++_benchSeq;
+             Int32 unitsEnd;
+-            Byte[] payload = NetSyncBattle.BuildEndBenchFrame(seq, BenchNonce, 0, EncodeTrailer(b, mbytes), out unitsEnd);
++            Byte[] payload = NetSyncBattle.BuildEndBenchFrame(seq, BenchNonce, 0, trailer, out unitsEnd);
+             Int32 units;
+             Boolean viewOk;
+             UInt16 parsedSeq;
+@@ -2436,6 +2618,13 @@ namespace Memoria.Netsync
+                       + ", parsed " + (got.Manifest != null ? got.Manifest.ToString() : "none (" + (got.ManifestWhy ?? "no body") + ")");
+                 return false;
+             }
++            if (!got.SameFlee(b))
++            {
++                // [ff9mapkit netsync R3 s116] the flee record must come back whole, or not at all when none was sent
++                why = "netsync endbench " + op + ": the codec mangled the flee record -- sent " + (b.FleeFlags >= 0 ? b.FleeGil + " gil" : "none")
++                      + ", parsed " + (got.FleeFlags >= 0 ? got.FleeGil + " gil (flags 0x" + got.FleeFlags.ToString("X2") + ")" : "none");
++                return false;
++            }
+             _benchEnd = ToPeer(got, parsedNonce, parsedSeq, true);
+             _benchArmed = true;
+             Log.Message("[NetSync] harness: endbench " + op + " -- fabricated " + got + " through the real ParseView ("
+@@ -2638,6 +2827,7 @@ namespace Memoria.Netsync
+             _bManifest = null;                      // [ff9mapkit netsync B5] stage 9
+             _bManifestPreset = 0;
+             _bManifestNote = null;
++            _bFleeGil = -1;                         // [ff9mapkit netsync R3 s116]
+             _cmdArmed = false;
+             _cmdFrame = null;
+             _cmdStatus = null;
+@@ -2718,6 +2908,7 @@ namespace Memoria.Netsync
+         public static Int32 HarnessBenchManifestPreset { get { return _bManifest != null ? _bManifestPreset : 0; } }
+         public static String HarnessBenchManifestNote { get { return _bManifestNote; } }
+         public static String HarnessReplayMode { get { return ReplayModeName(ReplayMode); } }   // [ff9mapkit netsync B5] stage 10
++        public static Int64 HarnessHostFleeGil { get { return _hostFleeGilLast; } }            // [ff9mapkit netsync R3 s116]
+ 
+         // ==================================================================================== SelfTest
+         /// <summary>
+@@ -2742,11 +2933,13 @@ namespace Memoria.Netsync
+         /// whole ChaseStep sweep), ExitWaitsForReplay, ReplayOverflow, ReplayLevel, LearnsDue and the fingerprint's FpMix.
+         /// [ff9mapkit netsync R3 s115] adds `flee` (SelfTestFlee): PresentFor over every kind x phase x lever, W2Force,
+         /// NoLeakResult and ArmVerdict's ESCAPE row. The detail now ends "..., replay N, flee M".
++        /// [ff9mapkit netsync R3 s116] adds `fleegil` (SelfTestFleeGil): the fmt-2 flee record through the REAL ParseView (and
++        /// ReadTrailer's skip count) and FleeMsgVerdict. The detail now ends "..., flee M, fleegil K".
+         /// </summary>
+         public static Boolean SelfTest(out String detail)
+         {
+             List<String> fails = new List<String>();
+-            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0, mfst = 0, rply = 0, flee = 0;
++            Int32 classify = 0, chase = 0, codec = 0, present = 0, exit = 0, mfst = 0, rply = 0, flee = 0, fleegil = 0;
+             Boolean wasQuiet = _quiet;
+             try
+             {
+@@ -2816,7 +3009,9 @@ namespace Memoria.Netsync
+                 Codec(fails, ref codec, "full frame", full, 2, m, 0);
+                 for (Int32 cut = unitsEnd; cut < full.Length; cut++)
+                     Codec(fails, ref codec, "prefix " + cut + "/" + full.Length, Prefix(full, cut), 2, null, 0);
+-                Byte[] unknown = { TrailerMagic, 0x02, 0x03, 0x00, 0xAA, 0xBB, 0xCC };
++                // [ff9mapkit netsync R3 s116] fmt 2 is the flee record now: the unknown-fmt rows use 0x7F (a short fmt-2 body
++                // is SelfTestFleeGil's row)
++                Byte[] unknown = { TrailerMagic, 0x7F, 0x03, 0x00, 0xAA, 0xBB, 0xCC };
+                 Codec(fails, ref codec, "unknown fmt skipped", NetSyncBattle.BuildEndBenchFrame(7, 1, 1, Concat(unknown, trailer), out unitsEnd), 1, m, 0);
+                 Codec(fails, ref codec, "unknown fmt alone", NetSyncBattle.BuildEndBenchFrame(7, 1, 1, unknown, out unitsEnd), 1, null, 0);
+                 Codec(fails, ref codec, "foreign trailing bytes", NetSyncBattle.BuildEndBenchFrame(7, 1, 1, new Byte[] { 0x00, 0x01, 0x02, 0x03, 0x04 }, out unitsEnd), 1, null, 0);
+@@ -2961,6 +3156,9 @@ namespace Memoria.Netsync
+ 
+                 // ---- [ff9mapkit netsync R3 s115] the flee presentation ----
+                 SelfTestFlee(fails, ref flee);
++
++                // ---- [ff9mapkit netsync R3 s116] the host's flee gil relayed (still muted from the codec section) ----
++                SelfTestFleeGil(fails, ref fleegil);
+             }
+             catch (Exception ex)
+             {
+@@ -2971,7 +3169,8 @@ namespace Memoria.Netsync
+                 _quiet = wasQuiet;
+             }
+             String counts = "classify " + classify + ", chase " + chase + " + pins, codec " + codec + ", present " + present + ", exit " + exit
+-                            + ", manifest " + mfst + ", replay " + rply + ", flee " + flee;   // [ff9mapkit netsync R3 s115] + flee
++                            + ", manifest " + mfst + ", replay " + rply + ", flee " + flee   // [ff9mapkit netsync R3 s115] + flee
++                            + ", fleegil " + fleegil;                                       // [ff9mapkit netsync R3 s116] + fleegil
+             if (fails.Count == 0)
+             {
+                 detail = counts;
+@@ -3400,6 +3599,131 @@ namespace Memoria.Netsync
+                    "the ESCAPE row skips only b0 (the checks around it stand)");
+         }
+ 
++        // [ff9mapkit netsync R3 s116] -- the flee gil relay's offline-provable half (SelfTest's `fleegil` section): the fmt-2
++        // record's bytes, its round trip beside the block through the REAL ParseView (either order, the u32 range, gil 0), the
++        // framing an s103-s115 reader steps over by len, the SHORT body (skipped + counted, the block KEPT -- design 6.13 K),
++        // later growth, a flee record with no block, the last record winning, every frame prefix cut inside the record (the
++        // existing truncation rule: no block), then FleeMsgVerdict's whole input sweep against its spec and the named pins:
++        // only a run-away, once, after R9b (so never under nor9b), never after R8, never without b0, never another battle's
++        // block, and gil 0 shows (stock says "Dropped 0 Gil").
++        private static void SelfTestFleeGil(List<String> fails, ref Int32 n)
++        {
++            // ---- the record's bytes ----
++            Byte[] rec = EncodeFleeRecord(FleeGilDrop, 0x12345678u);
++            Byte[] wantRec = { TrailerMagic, FmtFlee, 0x05, 0x00, 0x01, 0x78, 0x56, 0x34, 0x12 };
++            Boolean same = rec.Length == wantRec.Length;
++            for (Int32 i = 0; same && i < rec.Length; i++)
++                same = rec[i] == wantRec[i];
++            Expect(fails, ref n, same, "fleegil encode: [B5 02 05 00 01 78 56 34 12] (" + BitConverter.ToString(rec) + ")");
++            Expect(fails, ref n, (rec[2] | (rec[3] << 8)) == rec.Length - RecordHeaderLen && rec[0] == TrailerMagic,
++                   "PIN the record is self-delimiting (an s103-s115 reader steps over it by len)");
++
++            // ---- the round trip through the REAL ParseView ----
++            EndBlock m = new EndBlock();
++            m.Kind = KEscape; m.Phase = FF9StateBattleSystem.PHASE_CLOSE; m.Seq = 0; m.Result = FF9StateGlobal.BTL_RESULT_ESCAPE;
++            m.Ui = UiOther; m.ResState = ResNoScreen; m.Flags = 0; m.WinPoseMask = 0;
++            Byte[] block = EncodeTrailer(m, null);
++            EndBlock mf = m.Clone();
++            mf.FleeFlags = FleeGilDrop;
++            mf.FleeGil = 0x12345678L;
++            Int32 unitsEnd;
++            Byte[] full = NetSyncBattle.BuildEndBenchFrame(0x2B5, 0x3C, 2, Concat(block, rec), out unitsEnd);
++            Int32 fullUnitsEnd = unitsEnd;           // the later frames reuse unitsEnd
++            Codec(fails, ref n, "fleegil block + record", full, 2, mf, 0);
++            Codec(fails, ref n, "fleegil record before the block", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, Concat(rec, block), out unitsEnd), 1, mf, 0);
++            Codec(fails, ref n, "fleegil block alone (no record: -1)", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, block, out unitsEnd), 1, m, 0);
++            EndBlock mmax = m.Clone();
++            mmax.FleeFlags = FleeGilDrop;
++            mmax.FleeGil = UInt32.MaxValue;
++            Codec(fails, ref n, "fleegil u32 max", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, Concat(block, EncodeFleeRecord(FleeGilDrop, UInt32.MaxValue)), out unitsEnd), 1, mmax, 0);
++            EndBlock mzero = m.Clone();
++            mzero.FleeFlags = FleeGilDrop;
++            mzero.FleeGil = 0;
++            Codec(fails, ref n, "fleegil 0 gil (stock's \"Dropped 0 Gil\")", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, Concat(block, EncodeFleeRecord(FleeGilDrop, 0u)), out unitsEnd), 1, mzero, 0);
++            EndBlock mclr = m.Clone();
++            mclr.FleeFlags = 0x80;
++            mclr.FleeGil = 77;
++            Codec(fails, ref n, "fleegil flags carried raw (b0 clear)", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, Concat(block, EncodeFleeRecord(0x80, 77u)), out unitsEnd), 1, mclr, 0);
++            EndBlock m77 = m.Clone();
++            m77.FleeFlags = FleeGilDrop;
++            m77.FleeGil = 77;
++            Codec(fails, ref n, "fleegil the last record wins", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, Concat(Concat(rec, block), EncodeFleeRecord(FleeGilDrop, 77u)), out unitsEnd), 1, m77, 0);
++            Codec(fails, ref n, "fleegil record alone (no block)", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, rec, out unitsEnd), 1, null, 0);
++            Byte[] grown = { TrailerMagic, FmtFlee, 0x07, 0x00, 0x01, 0x4D, 0x00, 0x00, 0x00, 0xEE, 0xEE };
++            Codec(fails, ref n, "fleegil growth skipped by len", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, Concat(block, grown), out unitsEnd), 1, m77, 0);
++            Byte[] unknown = { TrailerMagic, 0x7F, 0x01, 0x00, 0x00 };
++            Codec(fails, ref n, "fleegil beside an unknown fmt", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, Concat(Concat(block, rec), unknown), out unitsEnd), 1, mf, 0);
++            // every frame prefix cut inside the record: the existing truncation rule (a malformed trailer has no block); the cut
++            // AT the record's start is a well-formed block-only frame
++            Codec(fails, ref n, "fleegil cut before the record", Prefix(full, fullUnitsEnd + block.Length), 2, m, 0);
++            for (Int32 cut = fullUnitsEnd + block.Length + 1; cut < full.Length; cut++)
++                Codec(fails, ref n, "fleegil prefix " + cut + "/" + full.Length, Prefix(full, cut), 2, null, 0);
++
++            // ---- the SHORT body (design 6.13 K) and the skip count, through ReadTrailer itself ----
++            for (Int32 len = 0; len < FleeRecordLen; len++)
++            {
++                Byte[] shortRec = new Byte[RecordHeaderLen + len];
++                shortRec[0] = TrailerMagic;
++                shortRec[1] = FmtFlee;
++                shortRec[2] = (Byte)len;
++                for (Int32 i = 0; i < len; i++)
++                    shortRec[RecordHeaderLen + i] = 0x01;
++                Codec(fails, ref n, "fleegil short body " + len + " skipped, the block KEPT", NetSyncBattle.BuildEndBenchFrame(5, 1, 1, Concat(block, shortRec), out unitsEnd), 1, m, 0);
++                String why;
++                Int32 skipped;
++                EndBlock got = ReadTrailer(Concat(shortRec, block), 0, out why, out skipped);
++                Expect(fails, ref n, got != null && got.SameAs(m) && got.FleeFlags == -1 && got.FleeGil == -1 && skipped == 1 && why == null,
++                       "fleegil short body " + len + " counts ONE skip and keeps the block (skipped " + skipped + ", why " + (why ?? "none") + ")");
++            }
++            String w2;
++            Int32 sk2;
++            EndBlock g2 = ReadTrailer(Concat(block, rec), 0, out w2, out sk2);
++            Expect(fails, ref n, g2 != null && g2.SameFlee(mf) && sk2 == 0 && w2 == null, "PIN a whole record is PARSED, never counted as skipped");
++            g2 = ReadTrailer(Concat(Concat(block, rec), unknown), 0, out w2, out sk2);
++            Expect(fails, ref n, g2 != null && g2.SameFlee(mf) && sk2 == 1, "an unknown fmt beside it still counts (skipped 1)");
++
++            // ---- FleeMsgVerdict: the whole input sweep against its spec ----
++            Int32[] actions = { PresentNone, PresentVictory, PresentClose, PresentHold, PresentFlee, 99 };
++            Int32[] flagSet = { -1, 0, FleeGilDrop, 0x80, FleeGilDrop | 0x80 };
++            Int64[] gils = { -1, 0, 77, UInt32.MaxValue, (Int64)UInt32.MaxValue + 1 };
++            Int32 off = 0;
++            String firstOff = null;
++            foreach (Int32 a in actions)
++                for (Int32 r9b = 0; r9b <= 2; r9b++)
++                    for (Int32 r8 = 0; r8 <= 1; r8++)
++                        for (Int32 sh = 0; sh < 2; sh++)
++                            for (Int32 ou = 0; ou < 2; ou++)
++                                foreach (Int32 f in flagSet)
++                                    foreach (Int64 gl in gils)
++                                    {
++                                        Boolean rcd = f >= 0 && (f & FleeGilDrop) != 0 && gl >= 0 && gl <= UInt32.MaxValue;
++                                        Int32 want = a != PresentFlee ? FleeMsgNotRunAway : sh != 0 ? FleeMsgShown : r9b == 0 ? FleeMsgBeforeR9b
++                                                   : ou == 0 ? FleeMsgNotOurs : !rcd ? FleeMsgNoRecord : r8 != 0 ? FleeMsgAfterR8 : FleeMsgShow;
++                                        Int32 got = FleeMsgVerdict(a, r9b, r8, sh != 0, ou != 0, f, gl);
++                                        n++;
++                                        if (got == want)
++                                            continue;
++                                        off++;
++                                        if (firstOff == null)
++                                            firstOff = "flee-msg action " + a + " r9b " + r9b + " r8 " + r8 + (sh != 0 ? " shown" : "") + (ou != 0 ? " ours" : "")
++                                                       + " flags " + f + " gil " + gl + " -> " + got + " != " + want;
++                                    }
++            if (off > 0)
++                fails.Add(firstOff + (off > 1 ? " (+" + (off - 1) + " more cells)" : ""));
++            Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 1, 0, false, true, FleeGilDrop, 77) == FleeMsgShow, "PIN a run-away past R9b shows the host's figure");
++            Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 1, 0, false, true, FleeGilDrop, 0) == FleeMsgShow, "PIN gil 0 shows (stock says \"Dropped 0 Gil\")");
++            Expect(fails, ref n, FleeMsgVerdict(PresentClose, 1, 0, false, true, FleeGilDrop, 77) == FleeMsgNotRunAway
++                                 && FleeMsgVerdict(PresentHold, 1, 0, false, true, FleeGilDrop, 77) == FleeMsgNotRunAway, "PIN only a run-away shows it (a CLOSE / held escape never)");
++            Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 0, 0, false, true, FleeGilDrop, 77) == FleeMsgBeforeR9b,
++                   "PIN never before R9b (the nor9b lever never counts r9b: stock shows the guest's own figure there)");
++            Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 1, 0, true, true, FleeGilDrop, 77) == FleeMsgShown, "PIN once per boot");
++            Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 1, 1, false, true, FleeGilDrop, 77) == FleeMsgAfterR8, "PIN never after R8 (the fade at black)");
++            Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 1, 0, false, true, 0x80, 77) == FleeMsgNoRecord
++                                 && FleeMsgVerdict(PresentFlee, 1, 0, false, true, -1, -1) == FleeMsgNoRecord, "PIN b0 clear / no record shows nothing");
++            Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 1, 0, false, false, FleeGilDrop, 77) == FleeMsgNotOurs, "PIN another battle's block never shows");
++            Expect(fails, ref n, FleeMsgVerdict(PresentFlee, 1, 1, false, true, -1, -1) == FleeMsgNoRecord, "after R8 with no record is NoRecord (nothing to log late)");
++        }
++
+         // One manifest codec case through the REAL ParseView: the view stands with its units; the block equals `wantBlock`
+         // with `wantLen` manifest bytes; the manifest equals `wantM`, or (wantBad) is null with a reason. Returns the block.
+         private static EndBlock ManifestCase(List<String> fails, ref Int32 n, String what, Byte[] payload, Int32 wantUnits, EndBlock wantBlock,
+@@ -3503,7 +3827,7 @@ namespace Memoria.Netsync
+                 fails.Add("codec " + what + ": " + units + " unit(s) != " + wantUnits);
+             else if (want == null && got != null)
+                 fails.Add("codec " + what + ": a block was accepted (" + got + ")");
+-            else if (want != null && (got == null || !got.SameAs(want) || got.ManifestLen != wantManifest))
++            else if (want != null && (got == null || !got.SameAs(want) || got.ManifestLen != wantManifest || !got.SameFlee(want)))   // [ff9mapkit netsync R3 s116] + flee
+                 fails.Add("codec " + what + ": " + (got != null ? got + " manifest " + got.ManifestLen : "no block") + " != " + want);
+         }
+ 
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 3f50bd7..e350119 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -2378,6 +2378,15 @@ namespace Memoria.Netsync
+         //   The lever `endbench guest hold` is the pre-s115 guest (escape HELD); `endbench guest nor9b` bypasses R9b (the red).
+         //   SEAMS: s116 shows the host's "Dropped N Gil" figure from the R9b point (the guest's gil never touched); s117 adds the
+         //   defeat rows (PresentFor's allDown, W2Force, MenuOffBlocker).
++        //
++        // [ff9mapkit netsync R3 s116] -- THE HOST'S "DROPPED N GIL" ON THE RUN-AWAY (studies/battle-coop/R3-DESIGN.md 3.2.4;
++        // stage 12c). R9b skips the stock tail's gil penalty and its follow message, so the guest's run-away said nothing where
++        // the host's said "Dropped N Gil". FleeGilTick shows the HOST's figure (the end block's fmt-2 flee record, NetSyncEnd)
++        // through the stock SetBattleFollowMessage(DroppedGil, n) -- the same call, the same text and voice line, never a gil
++        // write -- once per boot, between the guest's own R9b and its first R8 (NetSyncEnd.FleeMsgVerdict): at R9b itself when
++        // the record is already in hand (the frame stock would have shown its own), else on the EndTick that first carries it
++        // (the host's record is born at ITS tail, which may land after the guest's). A record that comes after R8 (the fade at
++        // black) is logged once and never shown. Under the nor9b lever R9b never counts: stock shows the guest's own figure.
+         // ---------------------------------------------------------------------------------------
+         private static Boolean _endInjected;      // InjectEnd changed the phase this boot (a victory, close or run-away kind)
+         private static Boolean _endHeld;          // a held kind this boot (defeat / escape): the HUD off, the phase untouched
+@@ -2410,6 +2419,10 @@ namespace Memoria.Netsync
+         private static Boolean _fleeOverload;         // an IOverloadOnFleeScript was loaded when the tail reached R9b
+         private static Int64 _fleePenalty = -1;       // the stock default penalty at the tail (gil; -1 = the tail not reached)
+         private static Boolean _fleeErrLogged;        // one R9b fault line per boot
++        // [ff9mapkit netsync R3 s116] the host's "Dropped N Gil" on the run-away (per boot; readable after the teardown)
++        private static Int64 _fleeMsgGil = -1;        // the HOST's figure shown this boot (-1 = none)
++        private static Boolean _fleeMsgLateLogged;    // one "came after R8" line per boot
++        private static Boolean _fleeMsgErrLogged;     // one fault line per boot
+         // [ff9mapkit netsync R3 s115] W2 counts BATTLE time: the wall ms the battle loop sat paused since the injection (a pause
+         // is allowed at SEQ_MENU_OFF_ESCAPE, and EndTick keeps running through it) are not W2's -- else a long pause mid-run
+         // forces the CLOSE tail over frozen, half-faded runners. Spans between two paused watchdog reads only (never inflated).
+@@ -2455,6 +2468,9 @@ namespace Memoria.Netsync
+             _fleeOverload = false;
+             _fleePenalty = -1;
+             _fleeErrLogged = false;
++            _fleeMsgGil = -1;                    // [ff9mapkit netsync R3 s116]
++            _fleeMsgLateLogged = false;
++            _fleeMsgErrLogged = false;
+             _endPausedMs = 0;
+             _endWatchLast = Environment.TickCount;
+             _endWatchPaused = false;
+@@ -2506,6 +2522,7 @@ namespace Memoria.Netsync
+                         _w1Since = Environment.TickCount;
+                     }
+                     EndWatchdogs(b);
++                    FleeGilTick(ours, e, false);         // [ff9mapkit netsync R3 s116] the host's figure, if it came after R9b
+                     ReplayArmTick(ours, e);              // [ff9mapkit netsync B5] stage 10: the result-screen replay, once per boot
+                     return;                              // once per boot: nothing re-injects
+                 }
+@@ -2848,8 +2865,8 @@ namespace Memoria.Netsync
+         /// real weight is the overload skip: BTL_FLAG_ABILITY_FLEE is set only by the SysEscape executor (never run here) and
+         /// Disarm's Restore puts party.gil back at every teardown. Counted (flee.r9b) and logged once per boot; the
+         /// `endbench guest nor9b` lever returns false (stock runs in the diorama: the calibration red, counted as bypassed). A
+-        /// throw returns true: fail closed. SEAM: s116 shows the HOST's "Dropped N Gil" figure from this point (never the
+-        /// guest's own). Never throws.
++        /// throw returns true: fail closed. [ff9mapkit netsync R3 s116] The skip path then shows the HOST's "Dropped N Gil"
++        /// figure when its flee record is in hand (FleeGilTick; never the guest's own). Never throws.
+         /// </summary>
+         public static Boolean FleeTailR9b(FF9StateGlobal sys)
+         {
+@@ -2879,7 +2896,12 @@ namespace Memoria.Netsync
+                                 + "loaded" : "none loaded") + "), no gil penalty (the default method would take " + _fleePenalty + " gil with "
+                                 + "BTL_FLAG_ABILITY_FLEE, which is " + (abilityFlag ? "SET" : "clear") + "), no \"Dropped N Gil\" -- the "
+                                 + "run-away was presentation, the host's flee is the real one (logged once per boot; flee.r9b counts)");
+-                // [ff9mapkit netsync R3 s115] SEAM: s116 shows the HOST's "Dropped N Gil" figure here (the guest's gil untouched)
++                // [ff9mapkit netsync R3 s116] the HOST's "Dropped N Gil" figure, here -- the frame stock would have shown the
++                // guest's own -- when the host's flee record is already in hand (else EndTick shows it when it comes, before
++                // R8). The guest's gil untouched; FleeGilTick never throws, so the skip above stands whatever it does.
++                NetSyncBattle.PeerEnd pe;
++                Boolean any = NetSyncBattle.TryGetPeerEnd(out pe);
++                FleeGilTick(any && (pe.Bench || pe.Nonce == BootedWireNonce), pe, true);
+                 return true;
+             }
+             catch (Exception ex)
+@@ -2914,6 +2936,58 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        /// <summary>
++        /// [ff9mapkit netsync R3 s116] Show the HOST's "Dropped N Gil" figure on this boot's run-away -- once, between the
++        /// guest's own R9b and its first R8 (NetSyncEnd.FleeMsgVerdict decides; `ours` = an end block of THIS diorama's
++        /// battle: the bench's, or the booted wire nonce's). Called from R9b's skip path (atR9b) and from every EndTick after
++        /// the injection. The stock follow message only -- battle.cs's own SetBattleFollowMessage(DroppedGil, n): its text,
++        /// voice line and priority -- never a gil write. Needs netsync on and a guest role (R9b's call site gates on Active
++        /// alone). One compare outside a run-away. Never throws: a fault is logged once and stops it for this boot.
++        /// </summary>
++        private static void FleeGilTick(Boolean ours, NetSyncBattle.PeerEnd e, Boolean atR9b)
++        {
++            if (_fleeMsgGil >= 0 || _fleeMsgErrLogged || _endAction != NetSyncEnd.PresentFlee)
++                return;
++            try
++            {
++                if (!NetSyncBattle.Enabled || !EndGuestRole)
++                    return;
++                Int32 v = NetSyncEnd.FleeMsgVerdict(_endAction, _fleeR9b, _r8Hits, false, ours, ours ? e.FleeFlags : -1, ours ? e.FleeGil : -1);
++                if (v == NetSyncEnd.FleeMsgAfterR8)
++                {
++                    if (!_fleeMsgLateLogged)
++                    {
++                        _fleeMsgLateLogged = true;
++                        Log.Message("[NetSync] diorama flee: the host's \"Dropped " + e.FleeGil + " Gil\" came after this run-away's fade "
++                                    + "reached black (R8) -- NOT shown (logged once per boot)");
++                    }
++                    return;
++                }
++                if (v != NetSyncEnd.FleeMsgShow)
++                    return;
++                BattleHUD hud = UIManager.Battle;
++                if (hud == null)
++                    return;
++                UInt32 gil = (UInt32)e.FleeGil;
++                hud.SetBattleFollowMessage(BattleMesages.DroppedGil, gil);   // battle.cs's own call, with the HOST's figure
++                _fleeMsgGil = gil;
++                Log.Message("[NetSync] diorama flee: \"Dropped " + gil + " Gil\" shown with the HOST's figure ("
++                            + (atR9b ? "at R9b: the record was in hand" : "after R9b, as the record arrived") + "; "
++                            + (Environment.TickCount - _endInjectTick) + " ms after the injection, "
++                            + (e.Bench ? "BENCH end" : "host battle nonce " + e.Nonce) + ") -- the stock follow message only: the "
++                            + "guest's own gil (" + HarnessGilNow + ") is untouched");
++            }
++            catch (Exception ex)
++            {
++                if (!_fleeMsgErrLogged)
++                {
++                    _fleeMsgErrLogged = true;
++                    try { Log.Error("[NetSync] diorama flee: showing the host's \"Dropped N Gil\" faulted -- stopped for this boot: " + ex); }
++                    catch { }
++                }
++            }
++        }
++
+         /// <summary>
+         /// AchievementManager.ProcessAchievementReport's funnel, widened to Booted (design 5.3): true = HOLD this report -- a
+         /// booted diorama never reports to the platform (a selftest bench or a live followed session may boot one without
+@@ -2959,6 +3033,7 @@ namespace Memoria.Netsync
+         public static Int32 HarnessFleeBypassed { get { return _fleeBypassed; } }
+         public static Boolean HarnessFleeOverload { get { return _fleeOverload; } }
+         public static Int32 HarnessReverted { get { return _revertedFrom; } }
++        public static Int64 HarnessFleeMsgGil { get { return _fleeMsgGil; } }      // [ff9mapkit netsync R3 s116] `end.flee.msg_gil`
+         public static Boolean HarnessFleeAbilityFlag
+         {
+             get
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 6de21d3..88cd06f 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -38,6 +38,10 @@ namespace Memoria.Netsync
+     // [ff9mapkit netsync B5] stage 9: the end block's fmt-1 body may carry the host's RESULT MANIFEST (flags b1; NetSyncEnd
+     // encodes, decodes and stores it) -- PeerEnd.Manifest serves it decoded. Same trailer, same frame: still v14.
+     //
++    // [ff9mapkit netsync R3 s116]: once the host's escape tail dropped gil, the trailer carries a second record (fmt 2: the
++    // host's "Dropped N Gil" figure; NetSyncEnd) -- PeerEnd.FleeFlags/FleeGil serve it. An s103-s115 reader steps over it by
++    // its len (trailer_skipped). Same trailer, same frame: still v14.
++    //
+     // [ff9mapkit netsync B4] stage 11: THE GUEST-SLOT HAND-BACK (BTL-1, host-only -- see "the guest-slot hand-back" below):
+     // G6 withholds the Ready bit of the unit the host's own command window holds, and G3 hands a stalled guest's slot back
+     // at the command root once its control lane is live again. Same Ready byte, same frames: still v14.
+@@ -1887,6 +1891,9 @@ namespace Memoria.Netsync
+             public NetSyncEnd.Manifest Manifest;   // [ff9mapkit netsync B5] stage 9: the decoded manifest (null = none / bad);
+                                                    // shared, never mutated after the parse
+             public String ManifestWhy;         // stage 9: why a flags-b1 body did not decode (null = it did, or no b1)
++            public Int32 FleeFlags;            // [ff9mapkit netsync R3 s116] the fmt-2 flee record: flags (b0 the host's stock
++            public Int64 FleeGil;              // gil drop ran) and gilLost -- both -1 = no record (ToPeer; default(PeerEnd) is 0,
++                                               // which reads b0 clear: nothing to show)
+             public Byte Nonce;                 // the frame header's battle nonce (stage 5 gates on == BootedWireNonce)
+             public UInt16 WireSeq;             // the frame's seq: advances per host sample (per fabricate on the bench)
+             public Boolean Bench;              // the selftest bench seam (`netsync endbench`), not a wire frame
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index d1c1219..afc7e44 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -161,6 +161,14 @@ namespace Memoria.Harness
+         // guest: escape HELD) and `nor9b` (R9b bypassed); NetSyncEnd.SelfTest gains its `flee` section (the detail ends "...,
+         // replay N, flee M"); no new sub-verb. A driver checks for `netsync.battle.end.flee` -- absent = an engine whose guest
+         // HOLDS the host's escape (and which answers `endbench guest hold|nor9b` with "needs on|off|settle").
++        // [ff9mapkit netsync R3 s116] (the host's "Dropped N Gil" relayed; studies/battle-coop/R3-DESIGN.md 3.2.4), also additive
++        // under 5: `netsync.battle.host.end` and `netsync.battle.peer.end` gain `flee_gil` (the end block's fmt-2 flee record;
++        // -1 = none), `netsync.battle.host` gains `flee_gil` (the host tap's receipt, kept after the battle until the next
++        // starts), `netsync.battle.end.flee` gains `msg_gil` (the host's figure the guest's run-away showed; -1 = none), and
++        // `netsync endbench` gains one op -- `endbench fleegil <n>|none` (the template's flee record, through the real codec);
++        // NetSyncEnd.SelfTest gains its `fleegil` section (the detail ends "..., flee M, fleegil K"); no new sub-verb. A driver
++        // checks for `netsync.battle.end.flee.msg_gil` -- absent = an engine whose guest never shows the host's figure (and
++        // which answers `endbench fleegil` with "unknown op 'fleegil'").
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1615,6 +1623,9 @@ namespace Memoria.Harness
+                             //   a host step must never answer it) -- close it with `press cancel`, NEVER Confirm (Yes quits).
+                             //   `endbench fieldsong 0|1` (fixer S10-R1) sets flags b4 (the host keeps its field song): the
+                             //   replay's own hide tail then keeps the song too (`end_leave.music_why`).
++                            // [ff9mapkit netsync R3 s116]: `endbench fleegil <n>|none` sets the template's FLEE RECORD (the
++                            //   host's "Dropped N Gil" figure, a fmt-2 record after the block) and re-fabricates -- read it back
++                            //   at `netsync.battle.peer.end.flee_gil`; a run-away diorama shows it after R9b (`end.flee.msg_gil`).
+                             String eop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             Int32 earg = -1;
+                             Boolean eloading = false;
+@@ -1674,6 +1685,21 @@ namespace Memoria.Harness
+                                     }
+                                     break;
+                                 }
++                                case "fleegil":                 // [ff9mapkit netsync R3 s116]
++                                {
++                                    String fa = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
++                                    if (fa == "none" && s.Args.Length == 3)
++                                    {
++                                        emode = "none";
++                                    }
++                                    else
++                                    {
++                                        earg = Arg(s, 2, -1);
++                                        if (earg < 0 || s.Args.Length > 3)
++                                            throw new ArgumentOutOfRangeException("netsync endbench fleegil", "expected `fleegil <gil>|none` (gil a non-negative integer)");
++                                    }
++                                    break;
++                                }
+                             }
+                             if (!Memoria.Netsync.NetSyncEnd.HarnessEndBench(eop, earg, eloading, eframe, emode, out why))
+                                 throw new InvalidOperationException(why ?? "netsync endbench refused");
+@@ -3165,7 +3191,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3568,6 +3594,10 @@ namespace Memoria.Harness
+         //     bench feed gains `ctl`/`ctl_menu` (see AppendStockMirror) and `host.handback.lapse` gains `reserve`.
+         // [ff9mapkit netsync R3 s114] adds the start hold: `host.start_hold` (see AppendHostStartHold) and `menu.ctl`'s `nonce`/`boot`/
+         //     `boot_name` (the control trailer).
++        // [ff9mapkit netsync R3 s116] adds `host.flee_gil` (the host tap's receipt: the gil this own battle's stock escape tail
++        //     dropped -- kept after the battle until the next starts, -1 = none; what SHIPPED is `host.end.flee_gil`) and
++        //     `flee_gil` on both `host.end` and `peer.end` (see AppendEndBlock). `peer.trailer_skipped` now also counts a SHORT
++        //     fmt-2 body (the end block kept); a whole flee record is parsed, never counted.
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3613,7 +3643,8 @@ namespace Memoria.Harness
+             AppendHandback(sb); sb.Append(",");                                                      // [ff9mapkit netsync B4] stage 11
+             AppendHostIntro(sb); sb.Append(",");                                                     // [ff9mapkit netsync R3 s111]
+             AppendHostWait(sb); sb.Append(",");                                                      // [ff9mapkit netsync R3 s113]
+-            AppendHostStartHold(sb);                                                                 // [ff9mapkit netsync R3 s114]
++            AppendHostStartHold(sb); sb.Append(",");                                                 // [ff9mapkit netsync R3 s114]
++            Num(sb, "flee_gil", Memoria.Netsync.NetSyncEnd.HarnessHostFleeGil);                      // [ff9mapkit netsync R3 s116]
+             sb.Append("},\"peer\":{");
+             Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
+             Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");
+@@ -3728,6 +3759,8 @@ namespace Memoria.Harness
+         //   & BTL_FLAG_ABILITY_FLEE -- set only by the SysEscape executor, or the nor9b lever), `gil_now` (LIVE: party.gil --
+         //   read it WHILE booted: the teardown's Restore puts the gil back) and `penalty` (the stock default method's gil
+         //   penalty -- frozen at the tail once it reached R9b, else read live while booted; -1 otherwise).
++        // [ff9mapkit netsync R3 s116] + `msg_gil` (the HOST's "Dropped N Gil" figure this boot's run-away showed through the stock
++        //   follow message, between its R9b and R8; -1 = none -- per boot, kept after the teardown until the next).
+         private static void AppendEndFlee(StringBuilder sb)
+         {
+             sb.Append("\"flee\":{");
+@@ -3736,7 +3769,8 @@ namespace Memoria.Harness
+             Bool(sb, "overload", Memoria.Netsync.NetSyncDiorama.HarnessFleeOverload); sb.Append(",");
+             Bool(sb, "ability_flag", Memoria.Netsync.NetSyncDiorama.HarnessFleeAbilityFlag); sb.Append(",");
+             Num(sb, "gil_now", Memoria.Netsync.NetSyncDiorama.HarnessGilNow); sb.Append(",");
+-            Num(sb, "penalty", Memoria.Netsync.NetSyncDiorama.HarnessFleePenalty);
++            Num(sb, "penalty", Memoria.Netsync.NetSyncDiorama.HarnessFleePenalty); sb.Append(",");
++            Num(sb, "msg_gil", Memoria.Netsync.NetSyncDiorama.HarnessFleeMsgGil);                // [ff9mapkit netsync R3 s116]
+             sb.Append("}");
+         }
+ 
+@@ -4152,6 +4186,8 @@ namespace Memoria.Harness
+         // battle/other, 1 BattleResult, 2 GameOver, 3 Title), `res_state` (the result screen's ResultState 0 Start .. 6 End,
+         // 7 Hide, 8 None; -1 = no result screen) + `loading`, `flags` (b0 AfterEvent, b1 manifest, b2 item overflow, b3
+         // escape_gil, b4 BTL_CONTI_FLD_SONG), `win_pose` (bit per host btl_data slot) and `manifest_len` (the manifest's bytes while flags b1 ships it; stage 9).
++        // [ff9mapkit netsync R3 s116] + `flee_gil` (the fmt-2 flee record's gilLost -- the host's "Dropped N Gil" figure, shipped
++        // once its escape tail dropped gil; -1 = no record).
+         private static void AppendEndBlock(StringBuilder sb, Memoria.Netsync.NetSyncEnd.EndBlock e)
+         {
+             if (e == null)
+@@ -4160,7 +4196,8 @@ namespace Memoria.Harness
+                 return;
+             }
+             sb.Append("\"end\":{");
+-            AppendEndFields(sb, e.Kind, e.Phase, e.Seq, e.Result, e.Ui, e.State, e.Loading, e.Flags, e.WinPoseMask, e.ManifestLen);
++            AppendEndFields(sb, e.Kind, e.Phase, e.Seq, e.Result, e.Ui, e.State, e.Loading, e.Flags, e.WinPoseMask, e.ManifestLen,
++                            e.FleeFlags >= 0 ? e.FleeGil : -1);
+             sb.Append("}");
+         }
+ 
+@@ -4171,6 +4208,7 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync B5] stage 9: `rows` counts the decoded manifest's rows, plus `manifest` (the decoded manifest --
+         // see AppendManifest; null = no flags b1, or a body that did not decode) and `manifest_why` (why it did not; null =
+         // it did, or no b1).
++        // [ff9mapkit netsync R3 s116] + `flee_gil` (as host.end: the parsed flee record, the bench's or the lane's; -1 = none).
+         private static void AppendPeerEnd(StringBuilder sb)
+         {
+             Memoria.Netsync.NetSyncBattle.PeerEnd e;
+@@ -4180,7 +4218,8 @@ namespace Memoria.Harness
+                 return;
+             }
+             sb.Append("\"end\":{");
+-            AppendEndFields(sb, e.Kind, e.Phase, e.Seq, e.Result, e.Ui, e.State, e.Loading, e.Flags, e.WinPoseMask, e.ManifestLen);
++            AppendEndFields(sb, e.Kind, e.Phase, e.Seq, e.Result, e.Ui, e.State, e.Loading, e.Flags, e.WinPoseMask, e.ManifestLen,
++                            e.FleeFlags >= 0 ? e.FleeGil : -1);
+             sb.Append(",");
+             Num(sb, "rows", e.Rows); sb.Append(",");
+             Bool(sb, "bench", e.Bench); sb.Append(",");
+@@ -4192,7 +4231,7 @@ namespace Memoria.Harness
+         }
+ 
+         private static void AppendEndFields(StringBuilder sb, Int32 kind, Int32 phase, Int32 seq, Int32 result, Int32 ui, Int32 state,
+-                                            Boolean loading, Int32 flags, Int32 winPose, Int32 manifestLen)
++                                            Boolean loading, Int32 flags, Int32 winPose, Int32 manifestLen, Int64 fleeGil)
+         {
+             Num(sb, "kind", kind); sb.Append(",");
+             Str(sb, "kind_name", Memoria.Netsync.NetSyncEnd.KindName(kind)); sb.Append(",");
+@@ -4204,7 +4243,8 @@ namespace Memoria.Harness
+             Bool(sb, "loading", loading); sb.Append(",");
+             Num(sb, "flags", flags); sb.Append(",");
+             Num(sb, "win_pose", winPose); sb.Append(",");
+-            Num(sb, "manifest_len", manifestLen);
++            Num(sb, "manifest_len", manifestLen); sb.Append(",");
++            Num(sb, "flee_gil", fleeGil);                    // [ff9mapkit netsync R3 s116]
+         }
+ 
+         private static void AppendStrList(StringBuilder sb, String key, List<String> values)

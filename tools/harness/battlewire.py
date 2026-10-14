@@ -136,10 +136,12 @@ def command_hex(slot: int, action: int, menu: int = 0, ident: int = 0, mask: int
     return hex_bytes(encode_command(slot, action, menu, ident, mask, cursor))
 
 
-def control_hex(menu_open: bool) -> str:
+def control_hex(menu, nonce: int | None = None, boot: int | None = None) -> str:
     """The ``netsync bctl`` argument for one control frame (NetSyncBattle.BuildControl): ``"00 00"`` shut, ``"00 01"``
-    open."""
-    return hex_bytes(bytes([0, 1 if menu_open else 0]))
+    open. A bool is the s100-s112 shape (True = 1, the legacy "open"). [ff9mapkit netsync R3 s113] an int is byte 1 --
+    the guest window's DEPTH (:data:`CTL_SHUT` / :data:`CTL_LEGACY` / :data:`CTL_ROOT` / :data:`CTL_DEEP`); [ff9mapkit
+    netsync R3 s114] with ``nonce`` and ``boot`` the 5-byte frame ``00 menu 01 nonce boot`` (:func:`encode_control`)."""
+    return hex_bytes(encode_control(menu, nonce, boot))
 
 
 def control_valid(frame) -> bool:
@@ -236,6 +238,14 @@ FLAG_ITEM_OVERFLOW = 4
 FLAG_ESCAPE_GIL = 8
 FLAG_FIELD_SONG = 16
 
+# [ff9mapkit netsync R3 s116] the FLEE RECORD (fmt 2): [fleeFlags u8][gilLost u32 LE] after the end block
+FMT_FLEE = 2
+FLEE_RECORD_LEN = 5
+FLEE_GIL_DROP = 1                        # fleeFlags b0: the host's stock gil drop ran (its default flee method)
+# NetSyncEnd.FleeMsgVerdict's codes (s116: may the guest show the host's "Dropped N Gil" now?)
+FLEE_MSG_SHOW, FLEE_MSG_NOT_RUN_AWAY, FLEE_MSG_SHOWN, FLEE_MSG_BEFORE_R9B = 0, 1, 2, 3
+FLEE_MSG_NOT_OURS, FLEE_MSG_NO_RECORD, FLEE_MSG_AFTER_R8 = 4, 5, 6
+
 #: The selftest bench end's battle nonce (NetSyncEnd.BenchNonce, private): ``peer.end.nonce`` 181 on every bench end.
 BENCH_NONCE = 0xB5
 #: The end trail's cap (NetSyncEnd.TrailCap, private): past 48 distinct entries one "..." marks the cap.
@@ -246,11 +256,16 @@ PRESENT_NONE = 0
 PRESENT_VICTORY = 1
 PRESENT_CLOSE = 2
 PRESENT_HOLD = 3
-PRESENT_NAMES = {PRESENT_VICTORY: "victory", PRESENT_CLOSE: "close", PRESENT_HOLD: "hold"}
+PRESENT_FLEE = 4                         # [ff9mapkit netsync R3 s115] MENU_OFF + SEQ_MENU_OFF_ESCAPE: the stock run-away
+PRESENT_ANNIHILATE = 5                   # [ff9mapkit netsync R3 s117] "Annihilated" + MENU_OFF + SEQ_MENU_OFF_DEFEAT
+PRESENT_DEFEAT = 6                       # [ff9mapkit netsync R3 s117] DEFEAT + PHASE_DEFEAT + FADEOUT: var 34's writes
+PRESENT_NAMES = {PRESENT_VICTORY: "victory", PRESENT_CLOSE: "close", PRESENT_HOLD: "hold", PRESENT_FLEE: "flee",
+                 PRESENT_ANNIHILATE: "annihilate", PRESENT_DEFEAT: "defeat"}
 W1_MS = 4000
 W2_MS = 8000
 GUEST_ON, GUEST_OFF, GUEST_SETTLE = 0, 1, 2
-GUEST_MODE_NAMES = {GUEST_ON: "on", GUEST_OFF: "off", GUEST_SETTLE: "settle"}
+GUEST_HOLD, GUEST_NOR9B = 3, 4           # [ff9mapkit netsync R3 s115] `endbench guest hold|nor9b`
+GUEST_MODE_NAMES = {GUEST_ON: "on", GUEST_OFF: "off", GUEST_SETTLE: "settle", GUEST_HOLD: "hold", GUEST_NOR9B: "nor9b"}
 
 # ---- s105: the guest exit
 EXIT_RETRY_MS = 1000
@@ -354,6 +369,13 @@ CS_CONSTANTS = {
     "FollowNoHost": FOLLOW_NO_HOST, "FollowInStep": FOLLOW_IN_STEP, "FollowRateLimited": FOLLOW_RATE_LIMITED,
     "SongShut": SONG_SHUT, "SongHostKeeps": SONG_HOST_KEEPS, "SongLocalKeeps": SONG_LOCAL_KEEPS,
     "ReplayModeOn": REPLAY_MODE_ON, "ReplayModeOff": REPLAY_MODE_OFF, "ReplayModeLocal": REPLAY_MODE_LOCAL,
+    # [ff9mapkit netsync R3 s115] / s116 / s117 (FleeMsgShow's declaration line carries a `;` in its comment, so the
+    # test's one-line reader skips it: it is pinned by its literal instead)
+    "PresentFlee": PRESENT_FLEE, "PresentAnnihilate": PRESENT_ANNIHILATE, "PresentDefeat": PRESENT_DEFEAT,
+    "GuestHold": GUEST_HOLD, "GuestNoR9b": GUEST_NOR9B, "FmtFlee": FMT_FLEE, "FleeRecordLen": FLEE_RECORD_LEN,
+    "FleeGilDrop": FLEE_GIL_DROP, "FleeMsgNotRunAway": FLEE_MSG_NOT_RUN_AWAY,
+    "FleeMsgShown": FLEE_MSG_SHOWN, "FleeMsgBeforeR9b": FLEE_MSG_BEFORE_R9B, "FleeMsgNotOurs": FLEE_MSG_NOT_OURS,
+    "FleeMsgNoRecord": FLEE_MSG_NO_RECORD, "FleeMsgAfterR8": FLEE_MSG_AFTER_R8,
 }
 
 
@@ -421,15 +443,19 @@ def block_loading(block: dict) -> bool:
 
 
 def published_end(block: dict, *, nonce: int | None = None, wire_seq: int | None = None,
-                  bench: bool | None = None, with_manifest: bool = True) -> dict:
+                  bench: bool | None = None, with_manifest: bool = True, with_flee: bool = False) -> dict:
     """An end block the way HarnessAgent publishes it: ``host.end`` (AppendEndBlock) without the three peer fields,
     ``peer.end`` (AppendPeerEnd) with ``rows``, ``bench``, ``nonce`` and ``wire_seq`` -- and, from s108
     (``with_manifest``), ``rows`` the decoded manifest's row count plus ``manifest`` (:func:`published_manifest`; None =
-    no flags b1, or a body that did not decode) and ``manifest_why`` (why it did not). Before s108 ``rows`` is 0."""
+    no flags b1, or a body that did not decode) and ``manifest_why`` (why it did not). Before s108 ``rows`` is 0.
+    [ff9mapkit netsync R3 s116] ``with_flee``: ``flee_gil`` after ``manifest_len`` (the fmt-2 record's gilLost; -1 = no
+    record)."""
     doc = {"kind": block["kind"], "kind_name": kind_name(block["kind"]), "phase": block["phase"],
            "seq": block["seq"], "result": block["result"], "ui": block["ui"], "res_state": block_state(block),
            "loading": block_loading(block), "flags": block["flags"], "win_pose": block["win_pose"],
            "manifest_len": block.get("manifest_len", 0)}
+    if with_flee:
+        doc["flee_gil"] = block.get("flee_gil", -1) if block.get("flee_flags", -1) >= 0 else -1
     if bench is not None:
         m = block.get("manifest") if with_manifest else None
         doc.update(rows=manifest_row_count(m) if m is not None else 0, bench=bool(bench), nonce=int(nonce or 0),
@@ -490,11 +516,14 @@ def read_trailer(payload, offset: int = 0) -> tuple[dict | None, str | None, int
     by its length (counted); the LAST fmt-1 record wins; a fmt-1 body past 8 bytes is a manifest (flags b1) or later
     growth, skipped. [ff9mapkit netsync B5] s108: under flags b1 the body past the 8 bytes is DECODED inside the record's
     own bounds (:func:`decode_manifest`) -- the block carries ``manifest`` (None = it did not decode) and
-    ``manifest_why`` (the reason); a bad manifest never nulls the block. Without b1 both are None."""
+    ``manifest_why`` (the reason); a bad manifest never nulls the block. Without b1 both are None. [ff9mapkit netsync R3
+    s116] A fmt-2 FLEE RECORD lands on the block as ``flee_flags`` / ``flee_gil`` (-1 = none; either order, the last one
+    wins); a fmt-2 body shorter than 5 bytes is counted in ``skipped`` and never nulls the block."""
     data = bytes(payload) if payload is not None else None
     if data is None or offset < 0 or offset > len(data):
         return None, "the unit records overran the frame", 0
     found, skipped, p = None, 0, offset
+    flee_flags, flee_gil = -1, -1                # [ff9mapkit netsync R3 s116] the fmt-2 record (-1 = none)
     while p < len(data):
         left = len(data) - p
         if left < RECORD_HEADER_LEN:
@@ -517,9 +546,15 @@ def read_trailer(payload, offset: int = 0) -> tuple[dict | None, str | None, int
             if flags & FLAG_MANIFEST:
                 found["manifest"], found["manifest_why"] = decode_manifest(data, body + END_BLOCK_LEN,
                                                                            length - END_BLOCK_LEN)
+        elif fmt == FMT_FLEE and length >= FLEE_RECORD_LEN:
+            # [ff9mapkit netsync R3 s116] the host's flee record (the last one wins); bytes past the 5 are later growth
+            flee_flags = data[body]
+            flee_gil = data[body + 1] | (data[body + 2] << 8) | (data[body + 3] << 16) | (data[body + 4] << 24)
         else:
-            skipped += 1
+            skipped += 1                         # an unknown fmt -- or (s116) a SHORT fmt-2 body: the block stands
         p = body + length
+    if found is not None:
+        found["flee_flags"], found["flee_gil"] = flee_flags, flee_gil
     return found, None, skipped
 
 
@@ -1109,9 +1144,11 @@ def cap_learns(learns) -> tuple[list, int]:
 
 # ---- s109: the replay's pure decisions
 def arm_verdict(replay_mode: int, injected: bool, r8_hits: int, exit_latched: bool, ui: int, host_state: int, flags: int,
-                have_manifest: bool, hud_up: bool, valid_row_mask: int) -> int:
+                host_result: int, have_manifest: bool, hud_up: bool, valid_row_mask: int) -> int:
     """NetSyncEnd.ArmVerdict -- may the guest arm its result-screen replay NOW? In the engine's order: the lever, an
-    injection, the first R8 hit, not leaving, ui 1, a host state 0..6, not AfterEvent, a manifest, the HUD, a valid row."""
+    injection, the first R8 hit, not leaving, ui 1, a host state 0..6, not AfterEvent, a manifest, the HUD, a valid row.
+    [ff9mapkit netsync R3 s115] + ``host_result`` (the host's raw btl_result): an ESCAPE ignores b0 AfterEvent -- the
+    host's BattleResultUI.Show takes its ESCAPE branch without reading it."""
     if replay_mode == REPLAY_MODE_OFF:
         return ARM_HELD_BY_LEVER
     if not injected:
@@ -1124,7 +1161,7 @@ def arm_verdict(replay_mode: int, injected: bool, r8_hits: int, exit_latched: bo
         return ARM_NOT_ON_SCREEN
     if host_state < RES_START or host_state >= RES_HIDE:
         return ARM_HOST_STATE
-    if flags & FLAG_AFTER_EVENT:
+    if flags & FLAG_AFTER_EVENT and host_result != BTL_RESULT_ESCAPE:   # [ff9mapkit netsync R3 s115]
         return ARM_AFTER_EVENT
     if not have_manifest:
         return ARM_NO_MANIFEST
@@ -1141,12 +1178,15 @@ def arm_why(verdict: int) -> str | None:
         ARM_GO: None,
         ARM_HELD_BY_LEVER: "the calibration lever `endbench replay off` holds the pre-stage guest (no replay: a black hold, "
                            "then the exit)",
-        ARM_NOT_INJECTED: "this diorama presented no victory/close (a held defeat/escape, or no end yet)",
+        # [ff9mapkit netsync R3 s117] + run-away / defeat
+        ARM_NOT_INJECTED: "this diorama presented no victory/close/run-away/defeat (a kind held by the `guest hold` lever, "
+                          "or no end yet)",
         ARM_NO_R8: "the guest's own victory presentation is not done yet (no R8 hit: its fade is still running)",
         ARM_EXIT_LATCHED: "the guest is leaving (the host left its battle, or a leave is already in flight)",
         ARM_NOT_ON_SCREEN: "the host is not on its result screen (ui != 1)",
         ARM_HOST_STATE: "the host's result screen reads Hide / None / nothing (no reward pages to follow)",
-        ARM_AFTER_EVENT: "the host runs an AfterEvent battle (its post-battle script, no reward pages)",
+        ARM_AFTER_EVENT: "the host runs an AfterEvent battle (its post-battle script, no reward pages; an escape is "
+                         "exempt)",
         ARM_NO_MANIFEST: "no result manifest for this battle (a pre-stage-9 host, a manifest that did not decode, or the "
                          "host lever)",
         ARM_HUD_NOT_UP: "the guest's battle HUD is not the UI state (paused, a quit prompt or a tutorial is up)",
@@ -1252,3 +1292,383 @@ def fp_mix(h: int, v: int) -> int:
         h ^= (v >> (8 * i)) & 0xFF
         h = (h * FP_PRIME) & 0xFFFFFFFFFFFFFFFF
     return h
+
+# ======================================================================================== [ff9mapkit netsync R3] s111-s117
+# Battle co-op round 3 (studies/battle-coop/R3-DESIGN.md section 2, the single wire/bit table): the intro mirror and the
+# start hold's type-1 header bits, Wait parity's control byte and the start hold's control trailer, the guest's report and
+# the host's hold decision, the swirl clamp, and the flee / defeat presentation's pure decisions. NetSyncBattle's constants
+# are pinned by name in CS_BATTLE_CONSTANTS (the test reads them off the stack's NetSyncBattle.cs).
+
+# ---- s111: the intro mirror (type-1 header flags, NetSyncBattle.FlagIntroSkipped / CapIntroMirror)
+FLAG_INTRO_SKIPPED = 4                   # bit 2: the host skipped this battle's intro
+CAP_INTRO_MIRROR = 8                     # bit 3: bit 2 is meaningful (an intro-mirror host)
+# ---- s114: the start hold (header bit 4, observability only)
+FLAG_START_HOLD = 16
+
+
+def wire_intro(flags: int) -> int:
+    """NetSyncBattle.WireIntro: a header flags byte's intro -- -1 = not an intro-mirror host (bit 3 clear: the guest keeps
+    its own setting), 1 = the host skipped, 0 = the host played."""
+    flags = int(flags)
+    return -1 if not flags & CAP_INTRO_MIRROR else 1 if flags & FLAG_INTRO_SKIPPED else 0
+
+
+def own_intro_skipped(skip_btl_camera: int, random_encounter: bool) -> bool:
+    """The stock intro test (HonoluluBattleMain.Start, latched by NoteOwnBattleStart): the intro camera is skipped on a
+    RANDOM encounter whose per-save ``cfg.skip_btl_camera`` reads 0."""
+    return int(skip_btl_camera) == 0 and bool(random_encounter)
+
+
+def own_battle_caps(gated: bool, random_encounter: bool, *, intro_on: bool = True, skipped: bool = False,
+                    holding: bool = False) -> int:
+    """SampleOwnBattle's header flags byte: bit 0 random, bit 1 gated (s100), bits 2-3 the intro (s111: both clear under
+    the ``bench intro 0`` lever), bit 4 the start hold holding now (s114)."""
+    f = (CAP_RANDOM_ENCOUNTER if random_encounter else 0) | (CAP_COMMAND_PHASE_GATED if gated else 0)
+    if intro_on:
+        f |= CAP_INTRO_MIRROR | (FLAG_INTRO_SKIPPED if skipped else 0)
+    if holding:
+        f |= FLAG_START_HOLD
+    return f
+
+
+# ---- s112: the diorama swirl clamp (NetSyncDiorama.SwirlFrames)
+SWIRL_FPS = 30                           # SFX_Rush runs at 30 Hz
+SWIRL_DEFAULT_FRAMES = 115               # [Graphics] BattleSwirlFrames' code default (~3.8 s)
+SWIRL_BENCH_MAX_FRAMES = 1800            # `bench swirl local|clamp`'s ceiling (NetSyncDiorama.SwirlBenchMaxFrames)
+
+
+def swirl_frames(local: int, booted: bool, clamp: int) -> int:
+    """NetSyncDiorama.SwirlFrames: a swirl constructed while a diorama is BOOTED plays min(own, clamp) -- clamp -1 keeps
+    the guest's own; every other swirl (a real battle on either machine) plays its own."""
+    return min(int(local), int(clamp)) if booted and clamp >= 0 else int(local)
+
+
+def swirl_ms(frames: int) -> int:
+    """A swirl's nominal dwell at 30 Hz (``swirl_clamp.dwell_ms`` measures the real one)."""
+    return int(frames) * 1000 // SWIRL_FPS
+
+
+# ---- s113: Wait parity (the type-3 control frame's byte 1 = the guest window's DEPTH)
+CTL_SHUT, CTL_LEGACY, CTL_ROOT, CTL_DEEP = 0, 1, 2, 3
+CTL_NAMES = {CTL_SHUT: "shut", CTL_LEGACY: "legacy", CTL_ROOT: "root", CTL_DEEP: "deep"}
+#: `bench ctl <name>` -> the byte the loopback / feed guest sends (auto = -1: its own encoding)
+BENCH_CTL = {"auto": -1, "shut": CTL_SHUT, "legacy": CTL_LEGACY, "root": CTL_ROOT, "deep": CTL_DEEP}
+# ---- s114: the start hold's control trailer [0][menu][fmt 1][host battle nonce][boot]
+CTL_FMT1 = 1
+CONTROL_LEN_V1 = 2
+CONTROL_LEN_TRAILER = 5
+BOOT_NONE, BOOT_BOOTING, BOOT_LIVE, BOOT_DECLINED, BOOT_BUSY = 0, 1, 2, 3, 4
+BOOT_NAMES = {BOOT_NONE: "none", BOOT_BOOTING: "booting", BOOT_LIVE: "live", BOOT_DECLINED: "declined",
+              BOOT_BUSY: "busy"}
+#: `bench boot <op>`'s bench-only values (NetSyncBattle.BenchBootStale / Silent / Late)
+BENCH_BOOT_STALE, BENCH_BOOT_SILENT, BENCH_BOOT_LATE = 5, 6, 7
+BENCH_BOOT = {"auto": -1, "none": BOOT_NONE, "booting": BOOT_BOOTING, "live": BOOT_LIVE, "declined": BOOT_DECLINED,
+              "busy": BOOT_BUSY, "stale": BENCH_BOOT_STALE, "silent": BENCH_BOOT_SILENT, "late": BENCH_BOOT_LATE}
+START_HOLD_MS = 8000                     # [Netsync] StartHoldMs's default (0 = off)
+START_HOLD_MAX_MS = 60000                # ...its ceiling (NetSyncBattle.StartHoldMaxMs)
+LATE_ARM_MS = 1000                       # a BOOTING report this soon after the opening still arms (private LateArmMs)
+LAPSE_RESERVE_MS = 2000                  # `bench lapse ... reserve`: the transport's re-serve window (private)
+STALL_MEMORY_MS = 60000                  # `start_hold.guest.lane_ms` reads -1 past this (NetSyncBattle.StallMemoryMs)
+# StartHoldStep's verdicts (NetSyncBattle.Hold*)
+HOLD_NOTHING, HOLD_PRIMED, HOLD_UNPRIMED, HOLD_ARMED, HOLD_NOT_ARMED, HOLD_LATE_ARMED, HOLD_LATE_PASSED = 0, 1, 2, 3, 4, 5, 6
+HOLD_REL_LIVE, HOLD_REL_DECLINED, HOLD_REL_LINK, HOLD_REL_OLD, HOLD_REL_CAP, HOLD_REL_OFF, HOLD_REL_ENDED = \
+    7, 8, 9, 10, 11, 12, 13
+#: a release verdict -> its `start_hold.release` name (ReleaseStartHold) and its `start_hold.released` counter key
+HOLD_RELEASE_NAMES = {HOLD_REL_LIVE: "live", HOLD_REL_DECLINED: "declined", HOLD_REL_LINK: "link",
+                      HOLD_REL_OLD: "old guest", HOLD_REL_CAP: "cap", HOLD_REL_ENDED: "ended", HOLD_REL_OFF: "off"}
+HOLD_RELEASED_KEYS = {HOLD_REL_LIVE: "live", HOLD_REL_DECLINED: "declined", HOLD_REL_LINK: "link",
+                      HOLD_REL_OLD: "oldguest", HOLD_REL_CAP: "cap", HOLD_REL_ENDED: "ended"}
+#: `start_hold.state`'s vocabulary (HarnessStartHoldState)
+HOLD_STATES = ("idle", "off", "intro", "primed", "holding", "late", "released", "not_armed")
+
+#: NetSyncBattle's integer constants this module mirrors, by their C# names (the test reads the stack's NetSyncBattle.cs).
+CS_BATTLE_CONSTANTS = {
+    "CapCommandPhaseGated": CAP_COMMAND_PHASE_GATED, "FlagIntroSkipped": FLAG_INTRO_SKIPPED,
+    "CapIntroMirror": CAP_INTRO_MIRROR, "FlagStartHold": FLAG_START_HOLD, "CtlFmt1": CTL_FMT1,
+    "CtlShut": CTL_SHUT, "CtlOpenLegacy": CTL_LEGACY, "CtlOpenRoot": CTL_ROOT, "CtlOpenDeep": CTL_DEEP,
+    "BootNone": BOOT_NONE, "BootBooting": BOOT_BOOTING, "BootLive": BOOT_LIVE, "BootDeclined": BOOT_DECLINED,
+    "BootBusy": BOOT_BUSY, "BenchBootStale": BENCH_BOOT_STALE, "BenchBootSilent": BENCH_BOOT_SILENT,
+    "BenchBootLate": BENCH_BOOT_LATE, "StartHoldMaxMs": START_HOLD_MAX_MS, "LateArmMs": LATE_ARM_MS,
+    "LapseReserveMs": LAPSE_RESERVE_MS,
+    "HoldNothing": HOLD_NOTHING, "HoldPrimed": HOLD_PRIMED, "HoldUnprimed": HOLD_UNPRIMED, "HoldArmed": HOLD_ARMED,
+    "HoldNotArmed": HOLD_NOT_ARMED, "HoldLateArmed": HOLD_LATE_ARMED, "HoldLatePassed": HOLD_LATE_PASSED,
+    "HoldRelLive": HOLD_REL_LIVE, "HoldRelDeclined": HOLD_REL_DECLINED, "HoldRelLink": HOLD_REL_LINK,
+    "HoldRelOld": HOLD_REL_OLD, "HoldRelCap": HOLD_REL_CAP, "HoldRelOff": HOLD_REL_OFF, "HoldRelEnded": HOLD_REL_ENDED,
+}
+
+
+def ctl_name(menu: int) -> str:
+    """NetSyncBattle.CtlName: a control byte 1's name (`host.wait.menu`'s vocabulary in the log lines)."""
+    menu = int(menu)
+    return CTL_NAMES.get(menu, "none" if menu < 0 else f"unknown {menu}")
+
+
+def boot_name(boot: int) -> str | None:
+    """NetSyncBattle.BootName: a report's boot state -> `boot_name` (None = -1, no report)."""
+    boot = int(boot)
+    return None if boot < 0 else BOOT_NAMES.get(boot, f"unknown {boot}")
+
+
+def encode_control(menu, nonce: int | None = None, boot: int | None = None) -> bytes:
+    """NetSyncBattle.BuildControl: ``[0][menu]`` (a bool menu is the pre-R3 shape: True = 1), or -- with ``nonce`` and
+    ``boot`` -- the s114 report ``[0][menu][fmt 1][host battle nonce][boot]``."""
+    m = (1 if menu else 0) if isinstance(menu, bool) else int(menu) & 0xFF
+    if nonce is None and boot is None:
+        return bytes([0, m])
+    if nonce is None or boot is None:
+        raise ValueError("a control trailer needs both the host battle nonce and the boot state")
+    return bytes([0, m, CTL_FMT1, int(nonce) & 0xFF, int(boot) & 0xFF])
+
+
+def decode_control(frame, host_nonce: int) -> dict | None:
+    """NetSyncBattle.DecodeControl -- the HOST's decode of one control payload against its own battle nonce: None =
+    malformed (null, short, not ver 0); else ``{menu, trailer, nonce, boot}``. ``menu`` is byte 1, EXCEPT under a trailer
+    naming another battle: then CTL_SHUT (the byte-1 nonce gate -- a report about ANOTHER battle never freezes this one).
+    A 2-byte frame, a short trailer or an unknown fmt is trailer-less (an older guest's frame: byte 1 read ungated)."""
+    data = bytes(frame) if frame is not None else b""
+    if len(data) < 2 or data[0] != 0:
+        return None
+    out = {"menu": data[1], "trailer": False, "nonce": -1, "boot": -1}
+    if len(data) >= CONTROL_LEN_TRAILER and data[2] == CTL_FMT1:
+        out.update(trailer=True, nonce=data[3], boot=data[4])
+        if data[3] != (int(host_nonce) & 0xFF):
+            out["menu"] = CTL_SHUT
+    return out
+
+
+def remote_menu_deep(menu_open: bool, menu_byte: int, parity_on: bool = True) -> bool:
+    """NetSyncBattle.RemoteMenuDeep (the Wait freeze): a fresh open lane below the root -- 3, a legacy 1, an unknown byte;
+    a 2 (the root, or a pick in flight) runs, exactly as a local window at its root. Under the ``bench waitparity 0``
+    lever (``parity_on`` False) every open window freezes, the root included (the pre-stage host)."""
+    return bool(menu_open) and (int(menu_byte) != CTL_ROOT or not parity_on)
+
+
+def guest_boot_state(nonce: int, watching: bool, ui_free: bool, skip_nonce: int, booted: bool, booted_nonce: int,
+                     live: bool) -> int:
+    """NetSyncBattle.GuestBootState -- THE GUEST'S REPORT on the host battle ``nonce``: booted on it -> LIVE once its
+    command phase latched, else BOOTING; a manual diorama (no wire nonce) -> DECLINED; an older battle's diorama ->
+    BOOTING while watching, else NONE; not watching -> NONE; the skip nonce -> DECLINED; a busy UI -> BUSY; else
+    BOOTING."""
+    if booted:
+        if booted_nonce == nonce:
+            return BOOT_LIVE if live else BOOT_BOOTING
+        if booted_nonce < 0:
+            return BOOT_DECLINED
+        return BOOT_BOOTING if watching else BOOT_NONE
+    if not watching:
+        return BOOT_NONE
+    if skip_nonce == nonce:
+        return BOOT_DECLINED
+    if not ui_free:
+        return BOOT_BUSY
+    return BOOT_BOOTING
+
+
+def new_hold_state() -> dict:
+    """NetSyncBattle.StartHoldState at rest (``default(StartHoldState)``): one own battle's hold."""
+    return {"open_seen": False, "primed": False, "decided": False, "armed": False, "started": False,
+            "released": False, "cap_spent": False, "open_tick": 0, "since_tick": 0, "late_ms": 0}
+
+
+def start_hold_step(h: dict, now: int, on: bool, cap_ms: int, phase_open: bool, rpt_this: bool, rpt_boot: int,
+                    null_seen: bool, legacy_last: bool) -> int:
+    """NetSyncBattle.StartHoldStep -- ONE TICK OF THE START HOLD, advancing ``h`` (:func:`new_hold_state`) in place;
+    returns the verdict (HOLD_*). Released is final; off releases (HOLD_REL_OFF if it held); the intro follows the latest
+    report (never primes on silence); the opening decides once (a BOOTING report arms); not armed, a BOOTING report
+    within LATE_ARM_MS arms late; holding, it releases on LIVE, NONE/DECLINED/BUSY ("declined"), the transport's silence
+    ("link"), a trailer-less frame ("old guest"), else the cap (or the getter's spent-cap latch) -- in that order."""
+    if phase_open and not h["open_seen"]:
+        h["open_seen"], h["open_tick"] = True, now
+    if h["released"]:
+        return HOLD_NOTHING
+    if not on or cap_ms <= 0:
+        holding = h["armed"]
+        h["decided"] = h["released"] = True
+        return HOLD_REL_OFF if holding else HOLD_NOTHING
+    booting = bool(rpt_this) and rpt_boot == BOOT_BOOTING and not null_seen
+    if not h["decided"]:
+        if not h["open_seen"]:
+            if booting == h["primed"]:
+                return HOLD_NOTHING
+            h["primed"] = booting
+            return HOLD_PRIMED if booting else HOLD_UNPRIMED
+        h["decided"] = True
+        h["primed"] = booting
+        if not booting:
+            h["started"] = h["cap_spent"] = False
+            return HOLD_NOT_ARMED
+        h["armed"] = True
+        if not h["started"]:
+            h["started"], h["since_tick"] = True, now
+        return HOLD_ARMED
+    if not h["primed"]:
+        if now - h["open_tick"] < LATE_ARM_MS:
+            if not booting:
+                return HOLD_NOTHING
+            h.update(primed=True, armed=True, late_ms=now - h["open_tick"], started=True, since_tick=now,
+                     cap_spent=False)
+            return HOLD_LATE_ARMED
+        h["released"] = True
+        return HOLD_LATE_PASSED
+    ev = HOLD_NOTHING
+    if rpt_this and rpt_boot == BOOT_LIVE:
+        ev = HOLD_REL_LIVE
+    elif rpt_this and rpt_boot in (BOOT_NONE, BOOT_DECLINED, BOOT_BUSY):
+        ev = HOLD_REL_DECLINED
+    elif null_seen:
+        ev = HOLD_REL_LINK
+    elif legacy_last:
+        ev = HOLD_REL_OLD
+    elif h["cap_spent"] or (h["started"] and now - h["since_tick"] >= cap_ms):
+        ev = HOLD_REL_CAP
+    if ev != HOLD_NOTHING:
+        h["released"] = True
+    return ev
+
+
+#: the design's name for the host's decision (R3-DESIGN.md 5.2) -- the same function
+start_hold_verdict = start_hold_step
+
+
+def hold_gate(h: dict, now: int, cap_ms: int) -> bool:
+    """NetSyncBattle.HoldGate -- the StartHoldActive getter's body (read by IsNativeEnableAtb once the command menu is
+    enabled): an unprimed, released or cap-spent hold never holds; the first read starts the clock; past the cap it
+    latches ``cap_spent`` one-way, so a cap raised later never re-holds."""
+    if not h["primed"] or h["released"] or h["cap_spent"]:
+        return False
+    if not h["started"]:
+        h["started"], h["since_tick"] = True, now
+    if now - h["since_tick"] < cap_ms:
+        return True
+    h["cap_spent"] = True
+    return False
+
+
+def hold_bit(h: dict) -> bool:
+    """NetSyncBattle.StartHoldBit -- header flags bit 4: primed, its clock running, not released, its cap not spent."""
+    return h["primed"] and h["started"] and not h["released"] and not h["cap_spent"]
+
+
+def hold_state_name(h: dict | None, cap_ms: int) -> str:
+    """NetSyncBattle.HarnessStartHoldState -- `start_hold.state` (``h`` None = no own battle: "idle")."""
+    if h is None:
+        return "idle"
+    if h["released"]:
+        return "released" if h["armed"] else "off" if cap_ms <= 0 else "not_armed"
+    if cap_ms <= 0:
+        return "off"
+    if not h["decided"]:
+        return "primed" if h["primed"] else "intro"
+    return "holding" if h["primed"] else "late"
+
+
+# ---- s115 / s117: the guest's flee and defeat presentation (NetSyncEnd's pure half)
+BTL_FLAG_ABILITY_FLEE = 4                # stock battle.BTL_FLAG_ABILITY_FLEE (set only by the SysEscape executor)
+BTL_SONG_FADEOUT = 16                    # stock battle.BTL_SONG_FADEOUT (ManageBattleSong(30, 6)'s mark)
+MP_DISABLE = 4                           # BattlePlayerCharacter.PlayerMotionIndex.MP_DISABLE (down)
+MP_ESCAPE = 17                           # ...MP_ESCAPE (the run-away pose) -- `battle.units[].mot`
+DISAPPEAR_DONE = 5                       # `battle.units[].disappear` once the escape fade finished
+
+
+def present_for(kind: int, phase: int, guest_mode: int, all_down_: bool, host_event: bool) -> int:
+    """NetSyncEnd.PresentFor -- what the guest injects for the host's end NOW: the v1 table (:func:`present_action`) for
+    every kind it does not hold, and the `guest hold` lever keeps it; an escape still in the host's MENU_OFF is the stock
+    run-away, any other escape the CLOSE fade (s115); a defeat in the host's MENU_OFF is the stock annihilation, in its
+    PHASE_DEFEAT the annihilation unless the party stands AND the host was last seen in its event phase (then var 34's
+    scripted end), any other phase the CLOSE fade (s117)."""
+    a = present_action(kind)
+    if a != PRESENT_HOLD or guest_mode == GUEST_HOLD:
+        return a
+    if kind == K_ESCAPE:
+        return PRESENT_FLEE if phase == PHASE_MENU_OFF else PRESENT_CLOSE
+    if kind == K_DEFEAT:
+        if phase == PHASE_MENU_OFF:
+            return PRESENT_ANNIHILATE
+        if phase == PHASE_DEFEAT:
+            return PRESENT_ANNIHILATE if all_down_ or not host_event else PRESENT_DEFEAT
+        return PRESENT_CLOSE
+    return PRESENT_HOLD
+
+
+def annihilate_settles(all_down_: bool, guest_mode: int) -> bool:
+    """NetSyncEnd.AnnihilateSettles: an injected annihilation takes the stock per-unit settle (MENU_OFF +
+    SEQ_MENU_OFF_DEFEAT) only when every local player is down -- else the defeat tail's writes at once (7/0); the
+    `guest settle` lever always settles (W2's defeat-row bench)."""
+    return bool(all_down_) or guest_mode == GUEST_SETTLE
+
+
+def defeat_song_shuts(action: int, local_btl_flag: int) -> bool:
+    """NetSyncEnd.DefeatSongShuts: a defeat presentation whose song 6 ran (BTL_SONG_FADEOUT) shuts it at the return,
+    whatever the host's b4 says."""
+    return action in (PRESENT_ANNIHILATE, PRESENT_DEFEAT) and bool(int(local_btl_flag) & BTL_SONG_FADEOUT)
+
+
+def all_down(players: int, down: int) -> bool:
+    """NetSyncEnd.AllDown: every linked local player under BattleEndFull -- and at least one (an empty party is not an
+    annihilation)."""
+    return players > 0 and down >= players
+
+
+def w2_force(action: int) -> tuple[int, int, int]:
+    """NetSyncEnd.W2Force -> ``(phase, seq, result)``: the tail of the kind actually injected -- a run-away the escape
+    tail's writes (CLOSE / FADEOUT / ESCAPE), an annihilation or var 34's defeat the defeat tail's (PHASE_DEFEAT / FADEOUT
+    / DEFEAT -- never VICTORY), anything else the victory tail's no-pose half. The engine ORs BTL_END_LOAD on every row."""
+    if action == PRESENT_FLEE:
+        return PHASE_CLOSE, SEQ_DEFEATCLOSE_FADEOUT, BTL_RESULT_ESCAPE
+    if action in (PRESENT_ANNIHILATE, PRESENT_DEFEAT):
+        return PHASE_DEFEAT, SEQ_DEFEATCLOSE_FADEOUT, BTL_RESULT_DEFEAT
+    return PHASE_VICTORY, SEQ_VICTORY_FADEOUT, BTL_RESULT_VICTORY
+
+
+def w2_force_why(action: int) -> str:
+    """NetSyncEnd.W2ForceWhy -- the W2 line's "forced ..." phrase for the row."""
+    if action == PRESENT_FLEE:
+        return ("PHASE_CLOSE + SEQ_DEFEATCLOSE_FADEOUT + ESCAPE (the escape tail's writes: the run-away never finished, "
+                "and R9b's state half was never reached)")
+    if action in (PRESENT_ANNIHILATE, PRESENT_DEFEAT):
+        return ("PHASE_DEFEAT + SEQ_DEFEATCLOSE_FADEOUT + DEFEAT (the defeat tail's writes: the party never settled "
+                "down -- never VICTORY for a defeat; song 6 still only in a Game-Over scene)")
+    return "PHASE_VICTORY + SEQ_VICTORY_FADEOUT (no fanfare/poses: the tail never ran)"
+
+
+def no_leak_result(stamp: int, injected: bool, local: int, pre_inject: int, host_kind: int) -> int:
+    """NetSyncEnd.NoLeakResult -- THE NO-LEAK RULE, scoped: the btl_result the return reverts to when nothing is stamped
+    (-1 = leave the guest's own value). A stamp wins; nothing injected, no baseline or an unchanged value reverts
+    nothing; a local DEFEAT / GAMEOVER always reverts, and any local value once the host's final kind is Defeat."""
+    if stamp >= 0 or not injected or pre_inject < 0 or local == pre_inject:
+        return -1
+    if local in (BTL_RESULT_DEFEAT, BTL_RESULT_GAMEOVER):
+        return pre_inject
+    if host_kind == K_DEFEAT:
+        return pre_inject
+    return -1
+
+
+def flee_msg_verdict(action: int, r9b: int, r8_hits: int, shown: bool, ours: bool, flee_flags: int, flee_gil: int) -> int:
+    """NetSyncEnd.FleeMsgVerdict (s116) -- may the guest show the host's "Dropped N Gil" now? Only on a presented
+    run-away, once, after R9b, from this battle's block, whose flee record has b0 and a u32 gil, before R8."""
+    if action != PRESENT_FLEE:
+        return FLEE_MSG_NOT_RUN_AWAY
+    if shown:
+        return FLEE_MSG_SHOWN
+    if r9b <= 0:
+        return FLEE_MSG_BEFORE_R9B
+    if not ours:
+        return FLEE_MSG_NOT_OURS
+    if flee_flags < 0 or not flee_flags & FLEE_GIL_DROP or flee_gil < 0 or flee_gil > 0xFFFFFFFF:
+        return FLEE_MSG_NO_RECORD
+    if r8_hits > 0:
+        return FLEE_MSG_AFTER_R8
+    return FLEE_MSG_SHOW
+
+
+def encode_flee_record(flee_flags: int, gil_lost: int) -> bytes:
+    """NetSyncEnd.EncodeFleeRecord (s116): one fmt-2 record -- ``B5 02 05 00`` + [fleeFlags u8][gilLost u32 LE]."""
+    g = int(gil_lost) & 0xFFFFFFFF
+    return bytes([TRAILER_MAGIC, FMT_FLEE, FLEE_RECORD_LEN, 0, int(flee_flags) & 0xFF,
+                  g & 0xFF, (g >> 8) & 0xFF, (g >> 16) & 0xFF, g >> 24])
+
+
+#: `end.follow_msg`'s vocabulary (NetSyncDiorama's ShowFollowMessage names)
+FOLLOW_MSG_ANNIHILATED = "annihilated"
+FOLLOW_MSG_DROPPED_GIL = "dropped-gil"

@@ -404,7 +404,7 @@ def _run(g, led: cb.Ledger, ctx: _Ctx, field: int, fp0: list) -> None:
     fp, fwhy = cb.fingerprint(g, field=field)
     fp0[0], fp0[1] = fp, fwhy
     st = g.state
-    g.note(f"probe stage: {cb.stage_of(st)} (the highest B4/B5 stage whose key this engine publishes)")
+    g.note(f"probe stage: {cb.stage_note(st)} (the highest B4/B5 stage and R3 patch whose keys this engine publishes)")
     led.check("S7-P0", cb.has(st, cb.PROBES[7]),
               f"netsync.battle.menu keys: {sorted(_menu(st))}" if cb.has(st, "netsync.battle") else
               "no `netsync.battle` at all (a pre-s100 engine)")

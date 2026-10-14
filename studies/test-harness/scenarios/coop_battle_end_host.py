@@ -50,6 +50,19 @@ CALIBRATION.
     (stand-in at s99 caps: 1 green / 22 red).
   * In-run, on the stage DLL: leg D is the lever's red, judged as its own checks (D1/D2 pass when the lever reverts
     exactly the stage's paths).
+  * R3 RE-BASELINE (s115-s117, studies/battle-coop/R3-DESIGN.md 3.2.4): the only change s115-s117 make on THIS bench's wire is s116's
+    additive fmt-2 FLEE record after the 0xB5 fmt-1 block -- written only once the host's stock escape tail has dropped
+    gil (Zidane's Flee), so every victory frame stays byte-identical to s115. S4-B3 now also wants
+    `peer.trailer_skipped` UNCHANGED across leg B's real battle -- an s103-s115 guest skips an unknown record by its len
+    and an s116+ guest skips a SHORT fmt-2 body (both count trailer_skipped), so a malformed record turns it red -- AND,
+    on an engine that publishes the key (s116+), `host.end.flee_gil` and `peer.end.flee_gil` reading -1 on every
+    battle publish: an s116+ guest PARSES a whole fmt-2 record and never counts it (NetSyncEnd.ReadTrailer), so only
+    the parsed figure can catch a host that wrongly shipped a well-formed record on a victory (review R3H-4). Green on
+    every engine from s103 on (no record; before s116 the flee_gil keys are absent and that half reads nothing).
+    Unchanged and still green: S4-A1/A2's head ("codec 46": s116 moved its unknown-fmt rows from 0x02 to 0x7F
+    and kept the count), S4-A3's line (EndBlock.ToString adds ", flee 0x.. N gil" only when a record is present -- the
+    template carries none without `endbench fleegil`), S4-A5's kinds (escape 5, defeat 4: ClassifyEnd untouched), S4-B9's
+    lines (the record's own line is "battle flee record (peer, ...", never "battle end block").
 
     py tools/play.py studies/test-harness/scenarios/coop_battle_end_host.py --field 30602
 """
@@ -90,7 +103,10 @@ CATALOG = {
     "S4-B1": "B (a real own battle): peer.end is NEVER the bench seam on any loopback read (bench false)",
     "S4-B2": "B: while ui is 1, host.end.res_state/loading equal battle.result_ui.state/loading, or trail it by exactly "
              "one publish (the previous local value, or agreeing on the next)",
-    "S4-B3": "B: after the field load host.end_trail == peer.end_trail (the loopback round trip), non-empty",
+    "S4-B3": "B: after the field load host.end_trail == peer.end_trail (the loopback round trip), non-empty, and "
+             "peer.trailer_skipped unchanged across the battle (no trailer record skipped), and where the engine "
+             "publishes them (s116+) host.end.flee_gil and peer.end.flee_gil -1 on every battle publish (a victory "
+             "ships no s116 flee record: a whole one is PARSED, never counted)",
     "S4-B4": "B: the trail's shape -- starts 0/0/-, kind walks 0 -> (1) -> 2 never back, ui 0 -> 1, the result state "
              "never decreases and reaches 7 (the Hide, '2/1/7' or '2/1/7L'), after which only the close '2/0/-' (the "
              "result-hide edge) or None states follow, with an L entry at state 2 or 3 (the EXP/AP fade)",
@@ -294,6 +310,8 @@ def _leg_b(g, led: cb.Ledger) -> None:
     g.note("B: a real own battle through the loopback -- the trail")
     _endbench(g, "clear")
     tb0 = cb.peer(g.state).get("trailer_bad")
+    # [R3 re-baseline, s116] the trailer's skip counter, read around the same battle (S4-B3; the module note)
+    ts0 = cb.peer(g.state).get("trailer_skipped")
     at = cb.mark(g)
     result, why, samples, presses = _battle(g, epoch_tag="B")
     if result is None:
@@ -322,7 +340,17 @@ def _leg_b(g, led: cb.Ledger) -> None:
               f"{len(pairs)} paired publish(es); mismatches not resolved by the next: {[pairs[i] for i in unresolved][:5]}")
     # B3/B4/B6: the trails
     ht, pt = cb.host(st).get("end_trail"), cb.peer(st).get("end_trail")
-    led.check("S4-B3", isinstance(ht, list) and ht and ht == pt, f"host {ht}; peer {pt}")
+    ts1 = cb.peer(st).get("trailer_skipped")
+    # [R3 re-baseline, s116; review R3H-4] an s116+ guest PARSES a whole fmt-2 record (trailer_skipped stays put), so a
+    # stray record on this victory shows only as a parsed figure: every battle publish's flee_gil must read -1 (no record)
+    stray = [(x.get("frame"), side, e.get("flee_gil")) for x in battle_samples
+             for side, e in (("host", cb.host(x).get("end")), ("peer", cb.peer(x).get("end")))
+             if isinstance(e, dict) and "flee_gil" in e and e.get("flee_gil") != -1]
+    keyed = sum(1 for x in battle_samples for e in (cb.host(x).get("end"), cb.peer(x).get("end"))
+                if isinstance(e, dict) and "flee_gil" in e)
+    led.check("S4-B3", isinstance(ht, list) and ht and ht == pt and ts1 == ts0 and not stray,
+              f"host {ht}; peer {pt}; trailer_skipped {ts0!r}->{ts1!r} ({cb.peer(st).get('trailer_why')!r}); flee_gil "
+              f"read on {keyed} end block(s), != -1 on {stray[:4]}")
     tr = _trail(ht)
     kinds = [k for k, _, _, _ in tr]
     uis = [u for _, u, _, _ in tr]

@@ -48,6 +48,15 @@ manifest, mouse routing on the real screen, the screen composing over the host-d
 deferral (a `dioboot` has no wire nonce, so the watcher returns early).
 
 CALIBRATION -- a check that cannot fail is not a check.
+  * R3 RE-BASELINE (s115, R3-DESIGN 3.2.2 / review end F2): S10-R0 reads the replay count up to a comma OR the closing
+    paren -- from s115 the SelfTest detail goes on past the replay section (", flee M"; s116 ", fleegil K"; s117 ",
+    defeat D"), so the old `replay (\\d+)\\)` read nothing and S10-R0 went red on a correct engine. The pin is unchanged:
+    s115-s117 add no replay row (86 on s109-s117). Nothing else here moves -- this bench presents only victories, and
+    s115's ESCAPE-only AfterEvent exemption leaves R5a's verdict 7 as it was.
+  * R2's TIMING RACE (found red on both s117 runs; a scenario defect since R2 was written, not an engine change): `quit
+    on` went out on `_open`'s first open sample, while the stock screen's Show fade still held Loading (open+0..+2
+    frames; clear from +4 on s110 and s117 alike), so the engine's own Quit gate refused it whenever the agent picked the
+    step up fast (accept ~28 ms). R2 now waits for `result_ui.loading` false (`_open_settled`) first; never clearing is RED.
   * THE DEPLOYED DLL AT WRITING (s105): neither probe key exists. Part 9: P0 RED; `endbench manifest 1` FAILS ("the
     result manifest is stage 9 -- this engine ships the end block only"), so every B check is RED "not reached"; the
     real battle still runs and C1-C8 (and C4L) go RED on the absent keys (peer.end.flags & 2 == 0, manifest_len 0, rows 0, no
@@ -364,7 +373,7 @@ def _run(g, led: cb.Ledger, field: int, ctx: dict) -> None:
                                        "replay (s109), solo")
     led.check("S910-S0", ok, why)
     ctx["at0"] = cb.mark(g)
-    g.note(f"probe stage: {cb.stage_of(g.state)}")
+    g.note(f"probe stage: {cb.stage_note(g.state)}")
     if PART9:
         _part9(g, led, field)
     if PART10:
@@ -790,6 +799,13 @@ def _open(g, field: int, *pre) -> tuple:
                                              f"(replay={cb.pick(_rep(g.state), 'armed', 'opened', 'verdict', 'why')})")
 
 
+def _open_settled(s) -> bool:
+    """The replay is open at state 0 AND the stock screen's Show fade is over (`battle.result_ui.loading` is False --
+    the very bit UIManager.IsLoading and BattleResultUI.OnKeyQuit read). `_open` alone answers during that fade."""
+    ru = _ru(s) or {}
+    return _rep(s).get("opened") is True and ru.get("state") == 0 and ru.get("loading") is False
+
+
 def _leave_with_hide(g, field: int) -> tuple:
     """`state 7` and the end-leave's return (or a manual leave if none comes). (returned via the end-leave, why)."""
     _eb(g, "state", "7")
@@ -811,7 +827,10 @@ def _part10(g, led: cb.Ledger, field: int, ctx: dict) -> None:
     ok, why = _eb(g, "selftest")
     lines = cb.wait_log(g, at, "harness: battle end-block selftest", 2.0)
     hit = next((ln for ln in lines if "harness: " + SELFTEST10 in ln), "")
-    m = re.search(r"replay (\d+)\)", hit)
+    # [R3 re-baseline, s115] the detail no longer ENDS at the replay section: s115 appends ", flee M" (s116 ", fleegil K",
+    # s117 ", defeat D"), so the count is read up to a comma OR the closing paren (R3-DESIGN 3.2.2, review end F2). The
+    # pin itself is unchanged -- s115-s117 add no replay row (REPLAY_PINS stays 86); an s109-s114 detail still ends ")".
+    m = re.search(r"replay (\d+)[,)]", hit)
     led.check("S10-R0", ok and m is not None and int(m.group(1)) == REPLAY_PINS,
               why or cb.grep(lines, "end-block selftest") + f" (want replay {REPLAY_PINS})")
     r = _R()
@@ -1062,6 +1081,21 @@ def _r2(g, led: cb.Ledger, field: int) -> None:
         led.check("S10-R2", False, f"not reached: {why}")
         if cb.dio(g.state).get("booted"):
             _leave_with_hide(g, field)
+        return
+    # [R3 triage, s117 runs 085923 + 091014] `_open` answers on the FIRST sample with opened + state 0, which is the
+    # frame BattleResultUI.Show starts its fade-out -- UIScene.Show sets Loading for [Interface] FadeDuration (40 ms),
+    # and both UIKeyTrigger.OnQuitCommandDetected (UIManager.IsLoading) and BattleResultUI.OnKeyQuit (!Loading) refuse
+    # Quit until it clears. Measured: result_ui.loading is True for the open sample and the next one (open+0, +2 frames)
+    # and False from open+4, on s110 and s117 alike. `quit on` sent straight after `_open` was a race decided by the
+    # agent's step pickup (accept 28 ms -> open+2 -> REFUSED, both s117 runs; 48-50 ms -> open+4..6 -> up, both s110
+    # runs). Wait for Loading to clear first. Still a check that can fail: a screen that never leaves Loading is RED.
+    st = cb.poll(g, _open_settled, 2.0, "the result screen's Show fade to end (result_ui.loading false)")
+    if st is None:
+        led.check("S10-R2", False, f"not reached: the opened result screen never left Loading within 2 s "
+                                   f"(result_ui {cb.pick(_ru(g.state), 'state', 'loading', 'paused')}, replay "
+                                   f"{cb.pick(_rep(g.state), 'opened', 'verdict')}, screen "
+                                   f"{cb.pick(_scr(g.state), 'state', 'steps', 'follow', 'follow_why')})")
+        _leave_with_hide(g, field)
         return
     at = cb.mark(g)
     r0 = cb.dio(g.state).get("returns")

@@ -292,7 +292,7 @@ def _run(g, led: cb.Ledger, field: int, probe: list) -> None:
     probe[0] = cb.has(st, cb.PROBES[11])
     led.check("S11-P0", probe[0], f"netsync.battle.host keys: {sorted(cb.host(st))}" if cb.has(st, "netsync.battle") else
               "no `netsync.battle`")
-    g.note(f"probe stage: {cb.stage_of(st)}" + ("" if probe[0] else
+    g.note(f"probe stage: {cb.stage_note(st)}" + ("" if probe[0] else
            " -- `bench lapse` / `bench handback` will NOT be sent (a pre-s110 agent reads them as `bench 1`)"))
     ok, why = cb.try_ns(g, "guestslots", 2)
     led.check("S11-P1", ok, why or "accepted")

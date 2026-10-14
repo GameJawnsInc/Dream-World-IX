@@ -85,6 +85,22 @@ CALIBRATION.
   * The DEPLOYED DLL at writing (s99): no `endbench` at all -- every S5/S6 leg "not reached" with that refusal; GREEN
     there: S5-S0, S5-PRE (the instrument) and S56-INV (the run changes nothing: no leg ran); S56-R is RED (no levers).
   * In-run, on the stage DLLs: legs D/E (stage 5) and F (stage 6) are the levers' reds, judged as their own checks.
+  * R3 RE-BASELINE (s115 + s117, studies/battle-coop/R3-DESIGN.md 3.2.2 / 3.2.3 / 6.1): from s115 the guest PRESENTS the
+    host's escape (a run-away) and from s117 its defeat (an annihilation, var 34, or -- CLOSE + DEFEAT/GAMEOVER -- the
+    CLOSE fade), so the legs that assert the v1 HOLD now run under the lever `endbench guest hold` (the pre-s115/s117
+    guest) on an engine that has it -- told by `netsync.battle.end.flee` (s115); an s110-s114 engine answers the lever
+    "needs on|off|settle", is not sent it, and holds on its own, so the same checks stay GREEN on both:
+      S5-B (defeat HELD, escape changes nothing): under the lever S5-B2 also wants guest_mode 'hold' and the HELD line
+        naming the lever (an s115+ guest that held for any OTHER reason is a regression);
+      S6-C1/C2 (a held CLOSE + DEFEAT stamped 3 / not at all): under the lever -- s117 presents it as the CLOSE fade, a
+        path coop_battle_flee_defeat part b proves (its legs E2, scene 67: stamp -1, reverted 3, field 0; and E3, a
+        NoGameOver scene: stamp 3, reverted -1, field 3 -- design 6.6 row E).
+    S6-D1 is STRENGTHENED on an s117 engine (`netsync.battle.end.follow_msg`; review end F5): it sent `other 6` and `ui 2`
+    back to back and could pass with nothing presented; now it first polls the CLOSE fade (injected, action 'close',
+    local battle.result 6) and then wants end_leave.reverted == 6 (the no-leak rule) beside field result 0. On s110-s116
+    a CLOSE + GAMEOVER is HELD by design, so the old (weaker) S6-D1 is what those engines are judged by.
+    Nothing else moves: S5-F1/S6-S1 match the detail's HEAD ("... present 48, exit 280" -- s115-s117 append sections
+    after it), and every victory / close / exit leg is untouched by s115-s117.
 
     py tools/play.py studies/test-harness/scenarios/coop_battle_end_guest.py --field 30602
 """
@@ -113,6 +129,13 @@ R8_DONE = "the guest's own end presentation is DONE"
 R8_WARN = "with NO injected end"
 INJECT_LINE = "diorama END: injected PHASE_MENU_OFF + SEQ_MENU_OFF_VICTORY_WITH_ENEMY"
 HELD_LINE = "diorama END: the host's defeat"
+#: [R3 re-baseline] the s115 key whose PRESENCE says `endbench guest hold` exists (an s110-s114 engine answers the lever
+#: "netsync endbench guest: needs on|off|settle"), the s117 key that says a CLOSE + DEFEAT/GAMEOVER is PRESENTED (the
+#: CLOSE fade) rather than held, and the HELD line's lever clause (s115 "...: the pre-s115 guest)", s117 "...: the
+#: pre-s115/s117 guest)" -- the common head is matched).
+HOLD_KEY = "netsync.battle.end.flee"
+S117_KEY = "netsync.battle.end.follow_msg"
+HOLD_LEVER = "the `endbench guest hold` lever"
 #: Battle scenes whose header carries NoGameOver (BTL_SCENE.SetupSceneInfo: `flags & 4`, the u16 at raw16 +4), read off
 #: this install's p0data2 scene headers (15 scenes in all; scene 67 is not one): 12 = LB_E080B (one enemy type, one
 #: pattern), 336 = TH_E001, 339 = TR_E074D. Tried in order for leg C1; the BOOTED scene's own `scene_info.no_gameover`
@@ -142,8 +165,10 @@ CATALOG = {
     "S5-A9": "A: `dioleave` -> a warm return (returns +1) and battle.result reads 1 on the field",
     "S5-A10": "A: every invariant byte-identical across the leg",
     "S5-B1": "B: `endbench event` (var 32) presents nothing for 2 s -- phase 4, not injected, not held, why null",
-    "S5-B2": "B: `endbench defeat` HOLDS -- held, not injected, action 'hold', phase 4, hud.shown false, the HELD line",
-    "S5-B3": "B: `endbench escape` changes nothing more (held, not injected, action 'hold', phase 4)",
+    "S5-B2": "B: `endbench defeat` HOLDS -- held, not injected, action 'hold', phase 4, hud.shown false, the HELD line "
+             "(from s115 the leg runs under `endbench guest hold`: guest_mode 'hold' and the line names the lever)",
+    "S5-B3": "B: `endbench escape` changes nothing more (held, not injected, action 'hold', phase 4) -- under the hold "
+             "lever from s115 (an s115+ guest runs the escape away without it)",
     "S5-B4": "B: a `victory` in the same boot still injects (injected, action 'victory', PHASE_VICTORY within 3 s)",
     "S5-C1": "C: `nopose` -> action 'close', inject_phase 8, inject_seq 0, battle.result 2, R8 rising",
     "S5-C2": "C: `other 7` -> action 'close', battle.result 7, R8 rising",
@@ -173,11 +198,12 @@ CATALOG = {
     "S6-B2": "B: `other 7` + ui 1 + state 7 -> the field reads 7",
     "S6-C1": "C: in a NoGameOver scene (one of NOGO_SCENES, booted and reading scene_info.no_gameover true), a held "
              "CLOSE + DEFEAT (`other 3`) + ui 1 + state 7 carries the DEFEAT: stamp 3, field battle.result 3, "
-             "wipe_lifted false",
+             "wipe_lifted false (held under `endbench guest hold` from s115: s117 presents it as the CLOSE fade)",
     "S6-C2": "C: in a Game Over scene (scene 67, reading scene_info.no_gameover false) the same held DEFEAT is a Game "
-             "Over in transit, never stamped: stamp -1, field battle.result 0, wipe_lifted false",
+             "Over in transit, never stamped: stamp -1, field battle.result 0, wipe_lifted false (under the same lever)",
     "S6-D1": "D: `other 6` + `ui 2` -> trigger 'game-over', settled, stamp -1, back on the bench field, the Title never "
-             "shown, field result 0",
+             "shown, field result 0; from s117 (follow_msg published) the CLOSE fade is presented FIRST -- injected, "
+             "action 'close', local battle.result 6 before `ui 2` -- and end_leave.reverted == 6 (the no-leak rule)",
     "S6-D2": "D: `other 6` + `ui 3` -> trigger 'title', back on the bench field, the Title never shown",
     "S6-M1": "M: a mid-fight `dioleave` (no end block) settles NOTHING -- settled false, trigger null, stamp -1",
     "S6-E1": "E: a LATE boot (victory + ui 1 + state 7 armed before dioboot) presents nothing (injected false, why 'the "
@@ -238,6 +264,17 @@ def _r8_rising(g, seconds: float = 3.5, first_s: float = 6.0) -> tuple:
 
 def _endbench(g, *args) -> tuple:
     return cb.try_ns(g, "endbench", *args)
+
+
+def _hold_lever(g) -> tuple:
+    """[R3 re-baseline, s115/s117] Pull `endbench guest hold` (the pre-s115/s117 guest: an escape and a defeat HELD) when
+    the engine has it -- `netsync.battle.end.flee` (s115) present. An s110-s114 engine is never sent it (it would answer
+    "needs on|off|settle") and holds both on its own, so the legs below read the same v1 hold on every engine.
+    (pulled, why): why is non-empty only when the key is there and the lever was refused (the leg's red)."""
+    if not cb.has(g.state, HOLD_KEY):
+        return False, ""
+    ok, why = _endbench(g, "guest", "hold")
+    return ok, ("" if ok else f"`endbench guest hold` refused on an s115+ engine -- {why}")
 
 
 def _return_frame(g, name: str) -> tuple:
@@ -465,34 +502,45 @@ def _s5_b(g, led: cb.Ledger, field: int) -> None:
     if st is None:
         led.unreached(cids, why)
         return
-    ok, why = _endbench(g, "event")
-    samples = cb.hold_for(g, 2.0)
-    bad = [(cb.raw(x).get("frame"), _phase(x), _end(x).get("injected"), _end(x).get("held")) for x in samples
-           if _phase(x) != cb.PHASE_NORMAL or _end(x).get("injected") or _end(x).get("held")]
-    led.check("S5-B1", ok and samples and not bad and _end(g.state).get("why") is None,
-              why or f"violations {bad[:5]}; why={_end(g.state).get('why')!r}")
-    at = cb.mark(g)
-    ok, why = _endbench(g, "defeat")
-    st = cb.poll(g, lambda x: _end(x).get("held") is True, 2.0, "the defeat to be HELD")
-    s = st or g.state
-    e = _end(s)
-    lines = cb.new(g, at)
-    led.check("S5-B2", ok and st is not None and e.get("injected") is False and e.get("action") == "hold"
-              and _phase(s) == cb.PHASE_NORMAL and _shown(s) is False
-              and any(HELD_LINE in ln and "HELD" in ln for ln in lines),
-              why or f"end={ {k: e.get(k) for k in ('held', 'injected', 'action')} } phase={_phase(s)!r} "
-                     f"hud.shown={_shown(s)!r}; {cb.grep(lines, 'diorama END')}")
-    ok, why = _endbench(g, "escape")
-    samples = cb.hold_for(g, 1.5)
-    bad = [cb.raw(x).get("frame") for x in samples if not (_end(x).get("held") is True and _end(x).get("injected") is False
-                                                           and _end(x).get("action") == "hold" and _phase(x) == cb.PHASE_NORMAL)]
-    led.check("S5-B3", ok and samples and not bad, why or f"changed on frames {bad[:5]}")
-    ok, why = _endbench(g, "victory")
-    st = cb.poll(g, lambda x: _end(x).get("injected") is True and _phase(x) == cb.PHASE_VICTORY, 3.0,
-                 "the victory to inject after the hold")
-    e = _end(st or g.state)
-    led.check("S5-B4", ok and st is not None and e.get("action") == "victory",
-              why or f"injected={e.get('injected')!r} action={e.get('action')!r} phase={_phase(g.state)!r}")
+    # [R3 re-baseline, s115/s117] the v1 hold is the LEVER's from s115 (an s115+ guest runs the escape away and, from
+    # s117, annihilates on the defeat): pulled for this leg only, put back below -- see the module note
+    hold, hwhy = _hold_lever(g)
+    try:
+        ok, why = _endbench(g, "event")
+        samples = cb.hold_for(g, 2.0)
+        bad = [(cb.raw(x).get("frame"), _phase(x), _end(x).get("injected"), _end(x).get("held")) for x in samples
+               if _phase(x) != cb.PHASE_NORMAL or _end(x).get("injected") or _end(x).get("held")]
+        led.check("S5-B1", ok and samples and not bad and _end(g.state).get("why") is None,
+                  why or f"violations {bad[:5]}; why={_end(g.state).get('why')!r}")
+        at = cb.mark(g)
+        ok, why = _endbench(g, "defeat")
+        st = cb.poll(g, lambda x: _end(x).get("held") is True, 2.0, "the defeat to be HELD")
+        s = st or g.state
+        e = _end(s)
+        lines = cb.new(g, at)
+        held_lines = [ln for ln in lines if HELD_LINE in ln and "HELD" in ln]
+        # under the lever the hold must be the LEVER's (guest_mode 'hold', the line naming it): an s115+ guest that held
+        # a defeat for any other reason would be a regression the plain v1 reading could not see
+        lever_ok = not hwhy and (not hold or (e.get("guest_mode") == "hold" and any(HOLD_LEVER in ln for ln in held_lines)))
+        led.check("S5-B2", ok and st is not None and e.get("injected") is False and e.get("action") == "hold"
+                  and _phase(s) == cb.PHASE_NORMAL and _shown(s) is False and bool(held_lines) and lever_ok,
+                  (why or hwhy) or f"end={ {k: e.get(k) for k in ('held', 'injected', 'action', 'guest_mode')} } "
+                                   f"phase={_phase(s)!r} hud.shown={_shown(s)!r} hold lever pulled={hold}; "
+                                   f"{cb.grep(lines, 'diorama END')}")
+        ok, why = _endbench(g, "escape")
+        samples = cb.hold_for(g, 1.5)
+        bad = [cb.raw(x).get("frame") for x in samples if not (_end(x).get("held") is True and _end(x).get("injected") is False
+                                                               and _end(x).get("action") == "hold" and _phase(x) == cb.PHASE_NORMAL)]
+        led.check("S5-B3", ok and samples and not bad and not hwhy, (why or hwhy) or f"changed on frames {bad[:5]}")
+        ok, why = _endbench(g, "victory")
+        st = cb.poll(g, lambda x: _end(x).get("injected") is True and _phase(x) == cb.PHASE_VICTORY, 3.0,
+                     "the victory to inject after the hold")
+        e = _end(st or g.state)
+        led.check("S5-B4", ok and st is not None and e.get("action") == "victory",
+                  why or f"injected={e.get('injected')!r} action={e.get('action')!r} phase={_phase(g.state)!r}")
+    finally:
+        if hold:
+            _endbench(g, "guest", "on")
     _out(g, field)
 
 
@@ -733,6 +781,21 @@ def _held_defeat(g, field: int, *, want_stamp: int, want_field: int) -> tuple:
 
 def _s6_c(g, led: cb.Ledger, field: int) -> None:
     g.note("S6-C: a held CLOSE + DEFEAT carries 3 only into a NoGameOver scene")
+    # [R3 re-baseline, s117] an s117 guest PRESENTS a CLOSE + DEFEAT (the CLOSE fade), so the HELD stamp rule this leg
+    # proves runs under `endbench guest hold` (the pre-s117 guest) wherever the lever exists; the presented twin (the CLOSE
+    # fade, its stamp and the no-leak revert) is coop_battle_flee_defeat part b's legs E2 (scene 67) and E3 (NoGameOver)
+    hold, hwhy = _hold_lever(g)
+    if hwhy:
+        led.unreached(("S6-C1", "S6-C2"), hwhy)
+        return
+    try:
+        _s6_c_legs(g, led, field)
+    finally:
+        if hold:
+            _endbench(g, "guest", "on")
+
+
+def _s6_c_legs(g, led: cb.Ledger, field: int) -> None:
     # C1, the positive: a scene whose header says NoGameOver (the booted scene's own flag is the judge)
     tried = []
     for scene in NOGO_SCENES:
@@ -776,7 +839,15 @@ def _s6_d(g, led: cb.Ledger, field: int) -> None:
             led.unreached((cid,), why)
             continue
         titles = []
+        # [R3 re-baseline, s117; review end F5] on an s117 engine S6-D1 first waits for the PRESENTED end: CLOSE +
+        # GAMEOVER is the CLOSE fade there (local btl_result 6), which the Game-Over return must then revert (the no-leak
+        # rule: never stamped, reverted 6 -> its pre-injection 0). Sent back to back, `other 6` + `ui 2` could pass with
+        # nothing presented at all. Before s117 the same block is HELD by design: the original check judges those.
+        strong = cid == "S6-D1" and cb.has(g.state, S117_KEY)
         ok, why = _endbench(g, "other", "6")
+        pres = cb.poll(g, lambda x: _end(x).get("injected") is True and _end(x).get("action") == "close"
+                       and _result(x) == 6, 3.0, "the CLOSE fade of the host's GAMEOVER (local result 6)") \
+            if strong and ok else None
         ok2, why2 = _endbench(g, "ui", ui) if ok else (False, why)
         samples, back = cb.watch(g, lambda s: not cb.dio(s).get("booted") and s.field_id == field and cb.free(s), 15.0,
                                  on_sample=lambda s: titles.append(s.frame) if s.ui_state == "Title" else None)
@@ -787,12 +858,16 @@ def _s6_d(g, led: cb.Ledger, field: int) -> None:
         s = g.state
         el = _el(s)
         extra = (el.get("settled") is True and el.get("stamp") == -1 and _result(s) == 0) if cid == "S6-D1" else True
+        if strong:
+            extra = extra and pres is not None and el.get("reverted") == 6
         led.check(cid, ok and ok2 and back is not None and el.get("trigger") == trigger and not titles
                   and cb.dio(s).get("last_return_field") == field and extra,
                   (why or why2) or f"returned: {back is not None}; trigger={el.get('trigger')!r} settled={el.get('settled')!r} "
                                    f"stamp={el.get('stamp')!r} field battle.result={_result(s)!r} (want 0: the diorama's "
                                    f"InitBattle value) last_return_field={cb.dio(s).get('last_return_field')!r} "
-                                   f"Title frames {titles[:3]}")
+                                   f"Title frames {titles[:3]}"
+                                   + (f"; s117: CLOSE fade presented first={pres is not None} reverted="
+                                      f"{el.get('reverted', 'ABSENT')!r} (want 6)" if strong else ""))
         _out(g, field)
 
 

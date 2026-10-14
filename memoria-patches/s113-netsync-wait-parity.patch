@@ -1,0 +1,1117 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index c5de5e7..b8d11f3 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -41,6 +41,10 @@ namespace Memoria.Netsync
+     // [ff9mapkit netsync B4] stage 11: THE GUEST-SLOT HAND-BACK (BTL-1, host-only -- see "the guest-slot hand-back" below):
+     // G6 withholds the Ready bit of the unit the host's own command window holds, and G3 hands a stalled guest's slot back
+     // at the command root once its control lane is live again. Same Ready byte, same frames: still v14.
++    //
++    // [ff9mapkit netsync R3 s113] WAIT PARITY (see CtlShut below): the type-3 control frame's byte 1 carries the guest window's
++    // depth (2 = at the command root, 3 = below it), and the host's Wait gauges freeze only below the root, as for a local
++    // window. Same 2-byte frame (an s110 host reads any non-zero byte as open): still v14.
+     public static partial class NetSyncBattle
+     {
+         // --- config mirror (written by NetSyncClient on every config [re]load; main thread) ---
+@@ -167,6 +171,45 @@ namespace Memoria.Netsync
+             return (f & CapIntroMirror) == 0 ? -1 : (f & FlagIntroSkipped) != 0 ? 1 : 0;
+         }
+ 
++        // [ff9mapkit netsync R3 s113] WAIT PARITY (studies/battle-coop/R3-DESIGN.md 3.1.3). In Wait mode the host's gauges froze
++        // for as long as a guest window was open -- even at its command root, where a LOCAL window lets them run (the stock root
++        // test at the foot of BattleHUD.IsNativeEnableAtb). The type-3 control frame's byte 1 now carries the guest window's
++        // DEPTH: 0 = shut, 1 = open (sent only by pre-R3 guests), 2 = at the command root (or a pick in flight), 3 = below the root
++        // (an Ability/Item list or the target window; any other value reads as 3). The host's Wait branch freezes only below the
++        // root (RemoteMenuDeep: a 3, a legacy 1, an unknown value); turn-based keeps the any-open freeze (RemoteMenuOpen), and the
++        // MenuStaleMs staleness is unchanged. The GuestWaitMs cap still bounds a CONTINUOUS freeze, so in Wait it now times the
++        // stretch below the root (_menuDeepSince): root time is no freeze there, and with two guest slots a root that runs the
++        // gauges can keep one Ready slot up for turn after turn -- the open episode's clock then spanned several turns and, past
++        // 30 s, let a deep window stop freezing (review s113-B1). Turn-based (its root freezes too) and the lever keep the episode
++        // clock; a legacy 1 is deep from its first frame, so its two clocks are one. The guest encodes from the stock menu (its
++        // window below the root; the Quit prompt excluded) and the digit panel's sub-mode (GuestMenuByte). Wire stays v14: an
++        // s110 host reads byte 1 != 0 as open, so 2 and 3 both freeze there exactly as before; an s110 guest's 1 freezes here
++        // exactly as before.
++        public const Byte CtlShut = 0, CtlOpenLegacy = 1, CtlOpenRoot = 2, CtlOpenDeep = 3;
++        private static Byte _remoteMenuByte;          // host: byte 1 of the last valid control frame (RemoteMenuDeep reads it)
++        private static Int32 _menuDeepSince = Environment.TickCount - 60000;   // start of the CURRENT stretch below the root (the
++                                                      // Wait freeze's GuestWaitMs cap; ParseControl arms it -- "long ago" until then)
++        private static Int32 _remoteMenuSeen = -1;    // ...the same for the harness: -1 = none since a null/malformed frame or a reset
++        private static Boolean _legacyCtlSeen;        // a legacy 1 arrived since this own battle started (`host.wait.legacy_seen`)
++        private static Int32 _waitLogMask;            // Wait-parity lines logged this own battle (WaitLog*)
++        private const Int32 WaitLogR3 = 1, WaitLogLegacy = 2, WaitLogUnknown = 4, WaitLogCap = 8;
++        private static Byte[] _ctlOut;                // guest: the control frame my guest side built last (Pump, the loopback, the
++                                                      // bench feed); null = the lane is shut (`netsync.battle.menu.ctl`)
++        private static String _ctlSrc;                // ...and what decided its byte 1 (a literal; GuestMenuByte)
++        // SELFTEST CALIBRATION LEVER (harness `netsync bench waitparity 0`; released by HarnessReleaseBench): true = the pre-stage
++        // host -- every open guest window freezes the Wait gauges, the root included -- so the stage's bench goes red on the very
++        // DLL it proves. Host-side only (the guest keeps encoding its depth). Read only through WaitParityOn, which also needs the
++        // selftest role: a lever stranded across an ini edit can never change a real host's Wait gate.
++        public static Boolean BenchWaitParityOff;
++        internal static Boolean WaitParityOn
++        {
++            get { return !(BenchWaitParityOff && NetSyncClient.IsSelfTestRole); }
++        }
++        // SELFTEST LEVER (harness `netsync bench ctl auto|shut|legacy|root|deep`; released by HarnessReleaseBench): -1 = auto (the
++        // guest's own encoding), else the byte 1 the loopback / bench-feed guest sends while one of its slots is Ready. Read only
++        // under the selftest role (GuestMenuByte) -- Pump never runs there, so a real guest always encodes its own window.
++        public static Int32 BenchCtl = -1;
++
+         // [ff9mapkit netsync B4] stage 2 -- THE GUEST CONTAINMENT BACKSTOP (design 4.3 + 3.8 item 1): R9 at the head of
+         // btl_cmd.SetCommand refuses a player's cmd[0]/cmd[3] while the diorama is Active (NetSyncDiorama.RefuseLocalEnqueue
+         // decides and logs; this file keeps the ledger), and G2 reads IsGuestOwnedSlot false while Active (below). Inert in
+@@ -316,7 +359,6 @@ namespace Memoria.Netsync
+         private static Byte[] _loopRoster;
+         private static readonly Queue<Byte[]> _loopCommands = new Queue<Byte[]>();
+         private static readonly Queue<Byte[]> _loopActions = new Queue<Byte[]>();
+-        private static Boolean _loopMenuOpen;
+ 
+         // GUI
+         private static Texture2D _panelBg;
+@@ -364,6 +406,45 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync R3 s113] THE WAIT FREEZE (BattleHUD.IsNativeEnableAtb's Wait branch): a fresh open lane (the staleness
++        // above) whose window is below its command root. A root report (2) runs the gauges, exact parity with the stock root test;
++        // a 3, a pre-R3 1 or any unknown value freezes; the `bench waitparity 0` lever is exactly RemoteMenuOpen (the pre-stage
++        // host: every open window, the open episode's cap). The GuestWaitMs cap times THIS stretch below the root (_menuDeepSince),
++        // because in Wait the root runs the gauges and so is no part of a continuous freeze (review s113-B1); turn-based, whose
++        // root freezes too (FF9BMenu_IsEnableAtb reads RemoteMenuOpen), also keeps the episode's cap, the old bound. A legacy 1
++        // arms both clocks on the same tick, so an old guest's freeze is unchanged. False on vanilla at the first test.
++        public static Boolean RemoteMenuDeep
++        {
++            get { return WaitFreeze(true); }
++        }
++
++        // The Wait freeze with (capped) or without the GuestWaitMs cap -- NoteWaitCap compares the two. Pure reads; never throws.
++        private static Boolean WaitFreeze(Boolean capped)
++        {
++            if (!Enabled || GuestSlots == 0 || !_remoteMenuFlag ||
++                (Environment.TickCount - _remoteMenuTick) >= MenuStaleMs)
++                return false;
++            if (!WaitParityOn)
++                return !capped || RemoteMenuOpen;  // the lever: the pre-stage host
++            if (_remoteMenuByte == CtlOpenRoot)
++                return false;                      // at the command root: the gauges run, as for a local window
++            if (!capped || GuestWaitMs <= 0)
++                return true;
++            Int32 now = Environment.TickCount;
++            if ((now - _menuDeepSince) > GuestWaitMs)
++                return false;                      // this stretch below the root ran out -- gauges resume (the command still lands)
++            if ((now - _menuOpenSince) > GuestWaitMs && TurnBasedNow)
++                return false;                      // turn-based: the open episode's cap, as before the stage
++            return true;
++        }
++
++        // [Battle] Speed 2 -- FF9BMenu_IsEnableAtb's turn-based gate, whose any-open freeze includes the root. Read only once a deep
++        // window's open episode has passed the cap; an unreadable config reads turn-based (the earlier cap, never a longer freeze).
++        private static Boolean TurnBasedNow
++        {
++            get { try { return Configuration.Battle.Speed == 2; } catch { return true; } }
++        }
++
+         // UIKeyTrigger hook (F6-pattern early intercept): true when an assist key is down WHILE the
+         // assist panel is taking a command -- the caller then returns before the game's own key
+         // handlers run, so a digit bound to a game control can't double-fire. Cheap + never throws.
+@@ -396,7 +477,12 @@ namespace Memoria.Netsync
+             _loopRoster = null;
+             _loopCommands.Clear();
+             _loopActions.Clear();
+-            _loopMenuOpen = false;
++            _remoteMenuByte = CtlShut;             // [ff9mapkit netsync R3 s113] the host's last byte and my guest frame forgotten
++            _remoteMenuSeen = -1;
++            _ctlOut = null;
++            _ctlSrc = null;
++            _stockDeep = false;
++            _lapseLastCtl = null;                  // (a `reserve` lapse never re-serves a frame from an earlier battle)
+             _actionsOut.Clear();
+             _actionDropLogged = false;
+             _actionParseLogged = false;
+@@ -445,6 +531,8 @@ namespace Memoria.Netsync
+             _handbackLogs = 0;
+             _lastG6Mask = -1;
+             NoteOwnIntro();                        // [ff9mapkit netsync R3 s111] the intro choice this battle publishes
++            _legacyCtlSeen = false;                // [ff9mapkit netsync R3 s113] `host.wait.legacy_seen` and the Wait-parity lines
++            _waitLogMask = 0;                      // re-arm per own battle (kept after it until the next one starts)
+         }
+ 
+         // [ff9mapkit netsync R3 s111] The rising edge latches THIS battle's intro: HonoluluBattleMain.Start's own test
+@@ -672,6 +760,13 @@ namespace Memoria.Netsync
+         private static Int32 _lapseMs;
+         private static Int32 _lapseCount;             // lapses armed this process -- monotonic
+         private static Int32 _lapseEndFrame = -1;     // Time.frameCount when the last lapse ended (the stamp resumes that tick)
++        // [ff9mapkit netsync R3 s113] `bench lapse <ms>|hold reserve`: the REAL link's silence. The transport keeps serving a silent
++        // sender's last control frame for its own StaleMs (NetSyncSocket, 2000 ms) before it hands Pump a null, and each re-serve
++        // re-stamps the lane (THE STACKED-STALENESS LAW: the lane reads stale ~4.5 s after a cut). Under `reserve` the loopback
++        // host reads the last frame the guest built before the lapse for LapseReserveMs, then nothing -- review ctrl F3/F4.
++        private const Int32 LapseReserveMs = 2000;    // = NetSyncSocket.StaleMs (the transport's re-serve window)
++        private static Boolean _lapseReserve;         // the running lapse re-serves first
++        private static Byte[] _lapseLastCtl;          // the loopback guest's last frame outside a lapse (what `reserve` re-serves)
+ 
+         // The GuestSlots slot the host's OWN command window holds right now (-1 = none). Never throws.
+         // PHASE_NORMAL only: stock leaves CurrentPlayerIndex STALE across a battle end -- the MENU_OFF / victory paths call only
+@@ -836,12 +931,29 @@ namespace Memoria.Netsync
+             return false;
+         }
+ 
++        // [ff9mapkit netsync R3 s113] SelfTestPump, once per tick, in place of its control frame: the frame the loopback HOST reads
++        // this tick. Outside a lapse the fresh frame (remembered: what a `reserve` lapse re-serves); inside one null --
++        // ParseControl(null), a stale socket's call -- except a `reserve` lapse's first LapseReserveMs, which re-serve the guest's
++        // last frame from before the lapse, as the transport does for a silent sender (each re-serve re-stamps the lane).
++        private static Byte[] BenchLapseFrame(Byte[] fresh)
++        {
++            if (!BenchLapseTick())
++            {
++                _lapseLastCtl = fresh;
++                return fresh;
++            }
++            if (_lapseReserve && (Environment.TickCount - _lapseStartTick) < LapseReserveMs)
++                return _lapseLastCtl;
++            return null;
++        }
++
+         private static void EndLapse(String why)
+         {
+             if (!_lapseArmed)
+                 return;
+             _lapseArmed = false;
+             _lapseHold = false;
++            _lapseReserve = false;                 // [ff9mapkit netsync R3 s113]
+             _lapseEndFrame = UnityEngine.Time.frameCount;
+             Log.Message("[NetSync] harness: bench lapse ENDED (" + why + ") after " + (Environment.TickCount - _lapseStartTick)
+                         + " ms -- the loopback guest's control lane stamps again from the next selftest pump tick");
+@@ -938,6 +1050,7 @@ namespace Memoria.Netsync
+                     // still in flight when G6 drops the Ready bit is read by the guest's mirror as ACCEPTED -- if the host then
+                     // finishes its own pick in a submenu, the guest's pick is refused and the guest is never told.)
+                     ParseControl(socket.GetRemoteControl());
++                    NoteWaitCap();                         // [ff9mapkit netsync R3 s113] the cap's one line per own battle
+                     HandBackGuestSlot();                   // [ff9mapkit netsync B4] stage 11 -- G3, the root-only hand-back (BTL-1)
+                     Byte[] cmd;
+                     while ((cmd = socket.NextRemoteCommand()) != null)
+@@ -946,6 +1059,7 @@ namespace Memoria.Netsync
+                 else
+                 {
+                     _remoteMenuFlag = false;
++                    _remoteMenuSeen = -1;                  // [ff9mapkit netsync R3 s113] `host.wait.menu`: no own battle, no lane
+                 }
+ 
+                 // --- the peer's battle -> my panel + my keys -> the wire ---
+@@ -974,10 +1088,11 @@ namespace Memoria.Netsync
+                 PeerBattleLive = live;
+                 if (live && !inBattle)                     // both in battle at once -> spectate only, no assist
+                 {
+-                    // [ff9mapkit netsync B4] stage 8: the control frame is UNCHANGED (menu open = any guest slot ready); the digit
+-                    // panel serves only GuestAssistTick's slot (every ready slot unless the stock menu owns them), and the stock
+-                    // menu's captured frames follow its own on the type-2 queue (DrainStockOutbox).
+-                    socket.SetLocalControl(BuildControl(FirstReadyGuestSlot(_peerView) >= 0));
++                    // [ff9mapkit netsync B4] stage 8: the digit panel serves only GuestAssistTick's slot (every ready slot unless the
++                    // stock menu owns them), and the stock menu's captured frames follow its own on the type-2 queue (DrainStockOutbox).
++                    // [ff9mapkit netsync R3 s113] the control frame's byte 1 now carries the window's DEPTH (0 shut / 2 root / 3 below
++                    // the root -- GuestMenuByte; it reads the UI state the previous frame left, one frame behind at most).
++                    socket.SetLocalControl(GuestControl(_peerView));
+                     Byte[] command = GuestAssistTick(_peerView, _peerRoster);
+                     if (command != null)
+                         socket.SendCommand(command);
+@@ -988,6 +1103,8 @@ namespace Memoria.Netsync
+                     AssistInputActive = false;
+                     _assistSlot = -1;                      // [ff9mapkit netsync B4] stage 8
+                     socket.SetLocalControl(null);
++                    _ctlOut = null;                        // [ff9mapkit netsync R3 s113] `menu.ctl`: the lane is shut
++                    _ctlSrc = null;
+                     if (!live)
+                     {
+                         _peerView = null;
+@@ -1088,10 +1205,12 @@ namespace Memoria.Netsync
+                 PeerBattleLive = live;
+                 if (live)
+                 {
+-                    _loopMenuOpen = FirstReadyGuestSlot(_peerView) >= 0;
+                     // [ff9mapkit netsync B4] stage 11: a `bench lapse` silences the loopback guest -- ParseControl(null), exactly
+                     // Pump's call on a stale socket -- and the hand-back runs right after the parse, as in Pump
+-                    ParseControl(BenchLapseTick() ? null : BuildControl(_loopMenuOpen));   // RemoteMenuOpen through the codec too
++                    // [ff9mapkit netsync R3 s113] the loopback guest's window depth (GuestMenuByte: the digit panel's mode, or the
++                    // `bench ctl` lever) through the same codec; a `bench lapse ... reserve` re-serves its last frame first
++                    ParseControl(BenchLapseFrame(GuestControl(_peerView)));   // RemoteMenuOpen/RemoteMenuDeep through the codec too
++                    NoteWaitCap();
+                     HandBackGuestSlot();
+                     // [ff9mapkit netsync B4] stage 8: the shared digit-panel decision -- an own battle is never a diorama, so the
+                     // stock menu never owns these slots and it serves the first ready slot, exactly as before
+@@ -2029,7 +2148,8 @@ namespace Memoria.Netsync
+         }
+ 
+         // [ff9mapkit netsync B4] stage 8 -- THE GUEST'S DIGIT-PANEL DECISION, shared by Pump's guest branch, the selftest own-battle
+-        // loopback and the selftest bench feed (each still builds its control frame itself from FirstReadyGuestSlot -- unchanged).
++        // loopback and the selftest bench feed (each builds its control frame itself -- [ff9mapkit netsync R3 s113] through
++        // GuestControl, whose byte 1 reads this panel's mode from the previous tick).
+         // The digit panel serves only AssistSlot (NetSyncBattle.StockMenu.cs): every ready guest slot, first first, while the stock
+         // menu does not own them -- byte-for-byte the pre-stage panel -- else only a ready slot the ready mirror marked stranded
+         // (design 4.6, G7). AssistInputActive (the UIKeyTrigger digit swallow) and DrawGUI's menu half follow it. Returns the digit
+@@ -2301,9 +2421,61 @@ namespace Memoria.Netsync
+             return true;
+         }
+ 
+-        private static Byte[] BuildControl(Boolean menuOpen)
++        // [ff9mapkit netsync R3 s113] byte 1 = the guest window's depth (CtlShut / CtlOpenLegacy / CtlOpenRoot / CtlOpenDeep); the
++        // frame stays 2 bytes. GuestControl is the one guest-side encoder.
++        private static Byte[] BuildControl(Byte menu)
++        {
++            return new Byte[] { 0, menu };
++        }
++
++        // [ff9mapkit netsync R3 s113] THE GUEST'S ENCODING -- byte 1 for this tick (src = what decided it, a literal for the harness):
++        //   no ready guest slot                                                      -> 0 shut ("none")
++        //   the selftest `bench ctl` lever (the loopback / bench feed only)          -> its byte ("bench")
++        //   the digit panel's slot below its root (an Ability/Item page, a target)   -> 3 ("digit")
++        //   the stock window on a mirror slot below its root (_stockDeep; the Quit prompt excluded -- StockMenuTick) -> 3 ("stock")
++        //   otherwise: a window at its command root, or a pick in flight (the slot is still Ready) -> 2 ("root")
++        // The stock half is BattleHUD.NetWindowDeep, the stock Wait root test's own negation, so a guest window freezes the host's
++        // Wait gauges exactly when a local window there would. It reads the UI state the previous frame left (Pump builds the
++        // frame before GuestAssistTick, and StockMenuTick runs after Pump): a depth change reaches the wire one frame late at most.
++        // The digit half reads the panel itself (_uiSlot/_uiMode), never _assistSlot: RunAssistUi resets the panel whenever it serves
++        // no slot, so _uiSlot >= 0 already means "it served one last tick" -- while _assistSlot is cleared every tick by
++        // SelfTestPump's not-in-battle branch, BEFORE the bench feed builds its frame (review s113-R1: the feed read a false 2).
++        // Pure static reads -- never throws.
++        private static Byte GuestMenuByte(BattleView view, out String src)
++        {
++            if (FirstReadyGuestSlot(view) < 0)
++            {
++                src = "none";
++                return CtlShut;
++            }
++            if (BenchCtl >= 0 && NetSyncClient.IsSelfTestRole)
++            {
++                src = "bench";
++                return (Byte)BenchCtl;
++            }
++            if (_uiSlot >= 0 && _uiMode != UiRoot)
++            {
++                src = "digit";
++                return CtlOpenDeep;
++            }
++            if (_stockDeep)
++            {
++                src = "stock";
++                return CtlOpenDeep;
++            }
++            src = "root";
++            return CtlOpenRoot;
++        }
++
++        // [ff9mapkit netsync R3 s113] The control frame my guest side sends this tick -- Pump's guest branch, the selftest loopback
++        // and the bench feed all build it here -- recorded for `netsync.battle.menu.ctl`.
++        private static Byte[] GuestControl(BattleView view)
+         {
+-            return new Byte[] { 0, menuOpen ? (Byte)1 : (Byte)0 };
++            String src;
++            Byte[] frame = BuildControl(GuestMenuByte(view, out src));
++            _ctlOut = frame;
++            _ctlSrc = src;
++            return frame;
+         }
+ 
+         private static void ParseControl(Byte[] payload)
+@@ -2311,15 +2483,81 @@ namespace Memoria.Netsync
+             if (payload == null || payload.Length < 2 || payload[0] != 0)
+             {
+                 _remoteMenuFlag = false;
++                _remoteMenuSeen = -1;              // [ff9mapkit netsync R3 s113] `host.wait.menu`: no valid frame this tick
+                 return;
+             }
+             _assistTick = Environment.TickCount;   // any valid control frame = the guest is live + watching
+-            Boolean open = payload[1] != 0;
++            Byte menu = payload[1];
++            Boolean open = menu != 0;
++            Boolean wasOpen = _remoteMenuFlag;     // [ff9mapkit netsync R3 s113] (read before the flag changes below)
++            Boolean wasDeep = wasOpen && _remoteMenuByte != CtlOpenRoot;
+             if (open && !_remoteMenuFlag)
+                 _menuOpenSince = Environment.TickCount;   // a NEW open episode (the per-turn cap restarts)
+             _remoteMenuFlag = open;
+             if (open)
+                 _remoteMenuTick = Environment.TickCount;
++            // [ff9mapkit netsync R3 s113] the window's depth for RemoteMenuDeep. A 2 <-> 3 change is the SAME open episode (both
++            // read open above), so the episode's cap (turn-based, the lever) keeps counting across it; the Wait freeze's own clock
++            // restarts on each descent below the root (review s113-B1) -- on the episode's own tick when both start together
++            // (a legacy 1, or a first frame already deep), so an old guest's two clocks are one.
++            if (open && menu != CtlOpenRoot && !wasDeep)
++                _menuDeepSince = wasOpen ? Environment.TickCount : _menuOpenSince;
++            _remoteMenuByte = menu;
++            _remoteMenuSeen = menu;
++            if (open)
++                NoteWaitParity(menu);
++        }
++
++        // [ff9mapkit netsync R3 s113] What kind of guest the open byte shows -- one line per kind per own battle (an int compare
++        // after the first); a legacy 1 is also the `host.wait.legacy_seen` latch.
++        private static void NoteWaitParity(Byte menu)
++        {
++            Int32 kind = menu == CtlOpenLegacy ? WaitLogLegacy
++                       : menu == CtlOpenRoot || menu == CtlOpenDeep ? WaitLogR3
++                       : WaitLogUnknown;
++            if (kind == WaitLogLegacy)
++                _legacyCtlSeen = true;
++            if ((_waitLogMask & kind) != 0)
++                return;
++            _waitLogMask |= kind;
++            if (kind == WaitLogR3)
++                Log.Message("[NetSync] Wait parity: the guest's control frame carries its window depth (byte 1 = " + menu
++                            + ": 2 root, 3 below the root) -- " + (WaitParityOn
++                                ? "in Wait the gauges run while its window sits at the command root and freeze below it, as a local "
++                                  + "window's do"
++                                : "the selftest lever `bench waitparity 0`: every open window freezes them (the pre-R3 host)")
++                            + " (logged once per own battle)");
++            else if (kind == WaitLogLegacy)
++                Log.Message("[NetSync] Wait parity: the guest's control frame reads 1 -- a pre-R3 guest (or `bench ctl legacy`): in Wait "
++                            + "any open window of its freezes the gauges, as before (logged once per own battle)");
++            else
++                Log.Message("[NetSync] Wait parity: the guest's control byte " + menu + " is no known window state -- read as below "
++                            + "the root (the Wait gauges freeze; logged once per own battle)");
++        }
++
++        // [ff9mapkit netsync R3 s113] Pump / SelfTestPump, after ParseControl: one line per own battle when the GuestWaitMs cap lets
++        // a guest window's gauge freeze go -- the Wait freeze below the root (in Wait), or turn-based's any-open one. It was silent
++        // before (review s113-B1). Int compares once spent or while the lane is shut; never throws.
++        private static void NoteWaitCap()
++        {
++            if ((_waitLogMask & WaitLogCap) != 0 || GuestWaitMs <= 0 || GuestSlots == 0 || !_remoteMenuFlag
++                || (Environment.TickCount - _remoteMenuTick) >= MenuStaleMs)
++                return;
++            try
++            {
++                Boolean wait = (Int64)FF9StateSystem.Settings.cfg.atb == 1L && WaitFreeze(false) && !WaitFreeze(true);
++                Boolean turn = !wait && !RemoteMenuOpen && TurnBasedNow;
++                if (!wait && !turn)
++                    return;
++                _waitLogMask |= WaitLogCap;
++                Log.Message("[NetSync] Wait parity: the GuestWaitMs cap (" + GuestWaitMs + " ms) let the guest window's gauge freeze go -- "
++                            + (wait ? "it has sat below the command root that long (Wait)" : "it has been open that long (turn-based)")
++                            + "; the battle flows on and its command still lands (logged once per own battle)");
++            }
++            catch
++            {
++                _waitLogMask |= WaitLogCap;
++            }
+         }
+ 
+         // ============================================================================ injection (B1 in)
+@@ -2638,6 +2876,7 @@ namespace Memoria.Netsync
+             {
+                 _benchControlStamped = false;
+                 _remoteMenuFlag = false;
++                _remoteMenuSeen = -1;              // [ff9mapkit netsync R3 s113]
+                 _assistTick = Environment.TickCount - 60000;   // "long ago", never MinValue (see the declaration)
+             }
+             HarnessReleaseStockMenu();             // [ff9mapkit netsync B4] stage 3: the capture lever back on
+@@ -2651,8 +2890,15 @@ namespace Memoria.Netsync
+             if (BenchIntroOff)
+                 Log.Message("[NetSync] harness: battle intro mirror back ON (released with the harness)");
+             BenchIntroOff = false;
+-            BenchCfgRestore("released with the harness");
++            BenchCfgRestore("released with the harness");   // [ff9mapkit netsync R3 s113] skipcam AND atb
+             NetSyncDiorama.HarnessReleaseSwirl();  // [ff9mapkit netsync R3 s112] `bench swirl local|clamp` back to the ini
++            // [ff9mapkit netsync R3 s113] the Wait-parity lever back on, and the loopback / feed guest encodes its own window again
++            if (BenchWaitParityOff)
++                Log.Message("[NetSync] harness: Wait parity back ON (released with the harness)");
++            BenchWaitParityOff = false;
++            if (BenchCtl >= 0)
++                Log.Message("[NetSync] harness: bench ctl back to auto (released with the harness)");
++            BenchCtl = -1;
+         }
+ 
+         // ============================================================================ harness surface (R3 s111)
+@@ -2706,10 +2952,16 @@ namespace Memoria.Netsync
+         // input on both machines), so a bench can pick an intro without the config menu. The first override remembers the
+         // value it replaced; `restore` and every harness release write it back -- but only while the cfg still holds the
+         // bench's value (a save loaded since brought its own setting, which wins). Selftest role only (a selftest's saves are
+-        // sandboxed). s113 adds `atb` here.
++        // sandboxed).
++        // [ff9mapkit netsync R3 s113] adds `bench cfg atb wait|active|restore`: the same override for the per-save cfg.atb (1 =
++        // Wait, 0 = Active -- the mode IsNativeEnableAtb's Wait branch keys on), with its own remembered value; each `restore`
++        // undoes its own setting, a harness release undoes both.
+         private static Boolean _benchSkipCamSet;      // an override is in force
+         private static UInt64 _benchSkipCamWas;       // ...the value it replaced
+         private static UInt64 _benchSkipCamBench;     // ...the value it wrote
++        private static Boolean _benchAtbSet;          // [ff9mapkit netsync R3 s113] the `atb` override is in force
++        private static UInt64 _benchAtbWas;           // ...the value it replaced
++        private static UInt64 _benchAtbBench;         // ...the value it wrote
+ 
+         public static Boolean HarnessBenchCfg(String what, String value, out String why)
+         {
+@@ -2721,16 +2973,18 @@ namespace Memoria.Netsync
+             }
+             what = (what ?? "").ToLowerInvariant();
+             value = (value ?? "").ToLowerInvariant();
++            if (what == "atb")
++                return BenchCfgAtb(value, out why);        // [ff9mapkit netsync R3 s113]
+             if (what != "skipcam")
+             {
+-                why = "netsync bench cfg: unknown setting '" + what + "' (skipcam)";
++                why = "netsync bench cfg: unknown setting '" + what + "' (skipcam|atb)";
+                 return false;
+             }
+             if (value == "restore")
+             {
+                 if (!_benchSkipCamSet)
+                     Log.Message("[NetSync] harness: bench cfg skipcam restore -- no override in force");
+-                BenchCfgRestore("`bench cfg skipcam restore`");
++                BenchCfgRestoreSkipCam("`bench cfg skipcam restore`");
+                 return true;
+             }
+             if (value != "0" && value != "1")
+@@ -2759,8 +3013,81 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // The `bench cfg` override undone (restore / every harness release). Never throws.
++        // [ff9mapkit netsync R3 s113] `bench cfg atb wait|active|restore` (HarnessBenchCfg routes here, the role already checked).
++        private static Boolean BenchCfgAtb(String value, out String why)
++        {
++            why = null;
++            if (value == "restore")
++            {
++                if (!_benchAtbSet)
++                    Log.Message("[NetSync] harness: bench cfg atb restore -- no override in force");
++                BenchCfgRestoreAtb("`bench cfg atb restore`");
++                return true;
++            }
++            if (value != "wait" && value != "active")
++            {
++                why = "netsync bench cfg atb: expected wait|active|restore (the per-save ATB mode: Wait = 1, Active = 0)";
++                return false;
++            }
++            try
++            {
++                UInt64 cur = FF9StateSystem.Settings.cfg.atb;
++                if (!_benchAtbSet)
++                {
++                    _benchAtbWas = cur;
++                    _benchAtbSet = true;
++                }
++                _benchAtbBench = value == "wait" ? 1UL : 0UL;
++                FF9StateSystem.Settings.cfg.atb = _benchAtbBench;
++                Log.Message("[NetSync] harness: bench cfg atb " + AtbName(cur) + " -> " + AtbName(_benchAtbBench)
++                            + " for this process (the save's value " + AtbName(_benchAtbWas) + " comes back on restore/release)");
++                return true;
++            }
++            catch (Exception err)
++            {
++                why = "netsync bench cfg atb: " + err.Message;
++                return false;
++            }
++        }
++
++        private static String AtbName(UInt64 v)
++        {
++            return v == 1UL ? "1 (Wait)" : v == 0UL ? "0 (Active)" : v.ToString();
++        }
++
++        // Every `bench cfg` override undone (every harness release). Never throws.
+         private static void BenchCfgRestore(String why)
++        {
++            BenchCfgRestoreSkipCam(why);
++            BenchCfgRestoreAtb(why);                    // [ff9mapkit netsync R3 s113]
++        }
++
++        // [ff9mapkit netsync R3 s113] the `atb` override undone (restore / every harness release) -- only while the cfg still
++        // holds the bench's value, as skipcam. Never throws.
++        private static void BenchCfgRestoreAtb(String why)
++        {
++            if (!_benchAtbSet)
++                return;
++            _benchAtbSet = false;
++            try
++            {
++                UInt64 cur = FF9StateSystem.Settings.cfg.atb;
++                if (cur == _benchAtbBench)
++                {
++                    FF9StateSystem.Settings.cfg.atb = _benchAtbWas;
++                    Log.Message("[NetSync] harness: bench cfg atb back to " + AtbName(_benchAtbWas) + " (" + why + ")");
++                }
++                else
++                {
++                    Log.Message("[NetSync] harness: bench cfg atb left at " + AtbName(cur) + " (" + why
++                                + "; something wrote it since the bench set " + AtbName(_benchAtbBench) + ")");
++                }
++            }
++            catch { }
++        }
++
++        // The `bench cfg skipcam` override undone (restore / every harness release). Never throws.
++        private static void BenchCfgRestoreSkipCam(String why)
+         {
+             if (!_benchSkipCamSet)
+                 return;
+@@ -2782,6 +3109,93 @@ namespace Memoria.Netsync
+             catch { }
+         }
+ 
++        // ============================================================================ harness surface (R3 s113)
++        // [ff9mapkit netsync R3 s113] -- Wait parity's harness keys (`netsync.battle.host.wait`, `netsync.battle.menu.ctl`, the bench
++        // feed's `ctl`/`ctl_menu`) and its `netsync bench` ops. Read-only getters, main thread, never throw.
++        //   host.wait -- `parity_off` (the lever `bench waitparity 0`), `menu` (byte 1 of the last valid control frame the host
++        //                parsed: 0 shut, 1 legacy open, 2 root, 3 below the root; -1 = none -- a null or malformed frame, no own
++        //                battle, a reset), `open` (RemoteMenuOpen now: fresh, open, under the GuestWaitMs cap -- what turn-based
++        //                freezes on), `deep` (RemoteMenuDeep now -- what the Wait branch freezes on; its GuestWaitMs cap times the
++        //                stretch below the root, review s113-B1) and `legacy_seen` (a legacy 1
++        //                arrived since this own battle started; kept after it until the next one starts).
++        //   menu.ctl  -- the control frame my GUEST side built last (Pump's guest branch, the loopback or the bench feed): `menu`
++        //                (its byte 1; -1 = none, the lane is shut), `hex` and `src` (what decided byte 1: "none" | "bench" |
++        //                "digit" | "stock" | "root" -- GuestMenuByte).
++        public static Boolean HarnessWaitParityOff { get { return !WaitParityOn; } }
++        public static Int32 HarnessRemoteMenu { get { return _remoteMenuSeen; } }
++        public static Boolean HarnessRemoteMenuOpen { get { return RemoteMenuOpen; } }
++        public static Boolean HarnessRemoteMenuDeep { get { return RemoteMenuDeep; } }
++        public static Boolean HarnessLegacyCtlSeen { get { return _legacyCtlSeen; } }
++        public static Int32 HarnessCtlMenu { get { return CtlMenuOf(_ctlOut); } }
++        public static String HarnessCtlHex { get { return CtlHexOf(_ctlOut); } }
++        public static String HarnessCtlSrc { get { return _ctlOut != null ? _ctlSrc : null; } }
++        public static Boolean HarnessLapseReserve { get { return _lapseArmed && _lapseReserve; } }
++
++        // A control frame's byte 1 (-1 = no frame) and its hex (null = no frame) -- `menu.ctl` and the bench feed's `ctl`.
++        internal static Int32 CtlMenuOf(Byte[] frame)
++        {
++            return frame != null && frame.Length > 1 ? frame[1] : -1;
++        }
++
++        internal static String CtlHexOf(Byte[] frame)
++        {
++            return frame != null ? BitConverter.ToString(frame).Replace('-', ' ') : null;
++        }
++
++        private static String CtlName(Int32 menu)
++        {
++            switch (menu)
++            {
++                case CtlShut: return "shut";
++                case CtlOpenLegacy: return "legacy";
++                case CtlOpenRoot: return "root";
++                case CtlOpenDeep: return "deep";
++                default: return menu < 0 ? "none" : "unknown " + menu;
++            }
++        }
++
++        // `netsync bench waitparity 1|0`: the stage's calibration lever (see BenchWaitParityOff -- host side). Selftest role only.
++        public static Boolean HarnessBenchWaitParity(Boolean on, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench waitparity: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            BenchWaitParityOff = !on;
++            Log.Message("[NetSync] harness: Wait parity " + (on ? "ON (a guest window at its command root lets the Wait gauges run)"
++                        : "OFF -- CALIBRATION: the pre-stage host (every open guest window freezes the Wait gauges, the root included)"));
++            return true;
++        }
++
++        // `netsync bench ctl auto|shut|legacy|root|deep`: the byte 1 the loopback / bench-feed guest sends while one of its slots is
++        // Ready (auto = its own encoding; see BenchCtl). Selftest role only.
++        public static Boolean HarnessBenchCtl(String value, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench ctl: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            switch ((value ?? "").ToLowerInvariant())
++            {
++                case "auto": BenchCtl = -1; break;
++                case "shut": BenchCtl = CtlShut; break;
++                case "legacy": BenchCtl = CtlOpenLegacy; break;
++                case "root": BenchCtl = CtlOpenRoot; break;
++                case "deep": BenchCtl = CtlOpenDeep; break;
++                default:
++                    why = "netsync bench ctl: expected auto|shut|legacy|root|deep (the control byte 1 a Ready loopback / feed guest sends)";
++                    return false;
++            }
++            Log.Message("[NetSync] harness: bench ctl " + (BenchCtl < 0 ? "auto -- the loopback / feed guest encodes its own window"
++                        : CtlName(BenchCtl) + " -- the loopback / feed guest sends control byte " + BenchCtl + " while one of its slots is "
++                          + "Ready (0 when none is)"));
++            return true;
++        }
++
+         // ============================================================================ harness surface (B4 stage 2)
+         // [ff9mapkit netsync B4] stage 2 -- the containment backstop's harness keys (`netsync.battle.menu`) and verbs.
+         // Read-only, main-thread, never throw.
+@@ -2822,19 +3236,20 @@ namespace Memoria.Netsync
+             return true;
+         }
+ 
+-        // `netsync bctl <hex>`: a raw type-3 control frame ([0][menuOpen]) through the REAL ParseControl, at once -- the
++        // `netsync bctl <hex>`: a raw type-3 control frame ([0][menu]) through the REAL ParseControl, at once -- the
+         // control lane a host reads from its guest, minus the socket. A valid frame stamps the lane fresh for MenuStaleMs
+         // (_assistTick), which is the one input G2 overrides: inside a selftest diorama `guest_owned` must still read 0.
+         // Unvalidated on purpose (a malformed frame is ParseControl's to refuse: it clears the menu flag, stamps nothing).
+         // A selftest own battle overwrites it on its next pump tick (SelfTestPump parses its own loopback frame every
+-        // tick). Undone by every harness release.
++        // tick). Undone by every harness release. [ff9mapkit netsync R3 s113] byte 1 is the window's depth (0 shut, 1 legacy
++        // open, 2 root, 3 below the root): `host.wait` reads it back.
+         public static Boolean HarnessControlFrame(Byte[] frame, out String why)
+         {
+             why = null;
+             if (!Enabled || !NetSyncClient.IsSelfTestRole)
+                 why = "netsync bctl: needs the selftest role (netsync selftest 1)";
+             else if (frame == null || frame.Length == 0 || frame.Length > 64)
+-                why = "netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 <menuOpen 0|1>)";
++                why = "netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 <menu 0 shut|1 legacy|2 root|3 deep>)";
+             if (why != null)
+                 return false;
+             Boolean valid = frame.Length >= 2 && frame[0] == 0;   // ParseControl's own acceptance test
+@@ -2842,7 +3257,7 @@ namespace Memoria.Netsync
+             _benchControlStamped = true;
+             Log.Message("[NetSync] harness: control frame [" + BitConverter.ToString(frame).Replace('-', ' ')
+                         + "] through ParseControl -> " + (valid ? "the lane is FRESH" : "refused (lane not stamped)")
+-                        + ", menu " + (_remoteMenuFlag ? "open" : "shut") + "; guest_owned=0x"
++                        + ", menu " + (_remoteMenuFlag ? "open (" + CtlName(_remoteMenuByte) + ")" : "shut") + "; guest_owned=0x"
+                         + HarnessGuestOwnedMask.ToString("X") + (NetSyncDiorama.Active ? " (inside the diorama)" : ""));
+             return true;
+         }
+@@ -2895,7 +3310,9 @@ namespace Memoria.Netsync
+ 
+         // `netsync bench lapse <ms>|hold|end`: ms > 0 = a timed lapse, ms < 0 = `hold` (until `end`), ms == 0 = `end` (idempotent).
+         // Re-arming restarts it. Selftest role only (the agent parses the argument).
+-        public static Boolean HarnessBenchLapse(Int32 ms, out String why)
++        // [ff9mapkit netsync R3 s113] `reserve` (a timed or held lapse only): the loopback host first reads the guest's last frame
++        // for LapseReserveMs (the transport's re-serve; see BenchLapseFrame), then nothing.
++        public static Boolean HarnessBenchLapse(Int32 ms, Boolean reserve, out String why)
+         {
+             why = null;
+             if (!Enabled || !NetSyncClient.IsSelfTestRole)
+@@ -2905,21 +3322,39 @@ namespace Memoria.Netsync
+             }
+             if (ms == 0)
+             {
++                if (reserve)
++                {
++                    why = "netsync bench lapse: `reserve` needs a lapse to re-serve into (<ms> or hold), not `end`";
++                    return false;
++                }
+                 if (_lapseArmed)
+                     EndLapse("`netsync bench lapse end`");
+                 else
+                     Log.Message("[NetSync] harness: bench lapse end -- no lapse was in force");
+                 return true;
+             }
++            // [ff9mapkit netsync R3 s113] `reserve` re-serves the loopback guest's last frame: with none remembered (no own battle's
++            // loopback has pumped since Reset) it would be a plain lapse while its key and line claimed a re-serve (review s113-B3)
++            if (reserve && _lapseLastCtl == null)
++            {
++                why = "netsync bench lapse: `reserve` has no loopback control frame to re-serve -- arm it inside an own battle "
++                      + "once the loopback guest has pumped";
++                return false;
++            }
+             _lapseArmed = true;
+             _lapseHold = ms < 0;
+             _lapseMs = ms < 0 ? 0 : ms;
++            _lapseReserve = reserve;               // [ff9mapkit netsync R3 s113]
+             _lapseStartTick = Environment.TickCount;
+             _lapseEndFrame = -1;
+             _lapseCount++;
+             Log.Message("[NetSync] harness: bench lapse " + (_lapseHold ? "HOLD (until `bench lapse end`)" : ms + " ms")
+-                        + " -- the loopback guest sends no control frame (a guest STALL): its slots fall back to the host's local "
+-                        + "menu after " + MenuStaleMs + " ms; lapse #" + _lapseCount);
++                        + (reserve
++                            ? " RESERVE -- the loopback host re-reads the guest's last control frame (" + CtlName(CtlMenuOf(_lapseLastCtl))
++                              + ") for " + LapseReserveMs + " ms, as the transport re-serves a silent sender's, then gets none (the real "
++                              + "link's cut): its slots fall back to the host's local menu after " + (LapseReserveMs + MenuStaleMs) + " ms"
++                            : " -- the loopback guest sends no control frame (a guest STALL): its slots fall back to the host's local "
++                              + "menu after " + MenuStaleMs + " ms") + "; lapse #" + _lapseCount);
+             return true;
+         }
+ 
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+index dbecb3a..999959c 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+@@ -1041,6 +1041,9 @@ namespace Memoria.Netsync
+         // that turn. While it does not own them, the digit panel serves every slot exactly as before. The control frame is
+         // UNCHANGED (menu open = any guest slot ready: the host's WAIT gating and GuestWaitMs cap read it as before). Any fault:
+         // the mirror latches `faulted` for the boot, StockMenuCloseAll, one line -- the digit panel returns. Never throws.
++        // [ff9mapkit netsync R3 s113] the control frame's byte 1 now says HOW DEEP the open window is (2 root / 3 below it --
++        // NetSyncBattle.GuestMenuByte): each serving tick records _stockDeep -- the stock window on a mirror slot sits below its
++        // command root (BattleHUD.NetWindowDeep, the stock Wait root test's own negation), the guest's Quit prompt excluded.
+ 
+         /// <summary>[Netsync] GuestStockMenu -- NetSyncClient's config mirror, a BEHAVIOUR key (in the behaviour signature: an edit
+         /// applies live and never tears the session down). 1 (default) = inside a battle diorama the stock command menu serves
+@@ -1089,6 +1092,8 @@ namespace Memoria.Netsync
+         private static Int32 _mirrorRefuseLogs;
+         private static Int32 _assistSlot = -1;        // the WIRE slot the digit panel serves (GuestAssistTick; -1 = none)
+         private static RosterView _assistRoster;      // ...and the roster it serves it from (DrawGUI's menu half)
++        private static Boolean _stockDeep;            // [ff9mapkit netsync R3 s113] the last serving tick: the stock window on a mirror
++                                                      // slot sat below its command root (GuestMenuByte's stock half; false otherwise)
+ 
+         private static Boolean MirrorLogFirst(String key)
+         {
+@@ -1207,6 +1212,7 @@ namespace Memoria.Netsync
+             _noRosterMask = 0;
+             _noRosterWait = 0;
+             _mirrorServing = false;
++            _stockDeep = false;                           // [ff9mapkit netsync R3 s113] (StockMenuCloseAll, NoteMirrorBoot)
+         }
+ 
+         // Every diorama boot (NoteStockMenuBoot): the mirror's per-boot state starts clean; the process counters keep counting. A
+@@ -1243,6 +1249,7 @@ namespace Memoria.Netsync
+                 _strandedMask = 0;
+                 _noRosterMask = 0;
+                 _mirrorServing = false;
++                _stockDeep = false;                       // [ff9mapkit netsync R3 s113]
+                 return;
+             }
+             try
+@@ -1268,13 +1275,27 @@ namespace Memoria.Netsync
+                                     + "for the guest's slots (the digit panel only for a stranded slot; logged once per boot)");
+                 }
+                 MirrorServe(view, hud);
++                _stockDeep = StockWindowDeep(hud);        // [ff9mapkit netsync R3 s113] the next control frame's depth
+             }
+             catch (Exception ex)
+             {
++                _stockDeep = false;
+                 MirrorFault(ex);
+             }
+         }
+ 
++        // [ff9mapkit netsync R3 s113] The stock window sits below its command root on a slot the mirror holds -- an Ability/Item
++        // list or the target window (BattleHUD.NetWindowDeep: the stock Wait root test, negated) -- and the guest's own Quit
++        // prompt is not up (it owns the button groups; it is the guest's own app-level prompt, not a pick the host should wait
++        // for). A window the stage-3 bench opener queued (not on _mirrorMask) never counts. Inside StockMenuTick's try.
++        private static Boolean StockWindowDeep(BattleHUD hud)
++        {
++            if (hud == null || _mirrorMask == 0)
++                return false;
++            Int32 p = hud.CurrentPlayerIndex;
++            return p >= 0 && p < 4 && (_mirrorMask & (1 << p)) != 0 && hud.NetWindowDeep() && !QuitPromptUp();
++        }
++
+         // The gate failed: close every slot the mirror holds (and only then -- a mirror that holds nothing touches nothing; and
+         // never under the guest's own Quit prompt, which owns the button groups -- the slots stay held until it hides). A
+         // reason is logged once per boot, and only a STANDING one (an ownership reason over a live diorama); a transient
+@@ -1285,6 +1306,7 @@ namespace Memoria.Netsync
+         {
+             Boolean held = _mirrorMask != 0 || _pendMask != 0;
+             _mirrorServing = false;
++            _stockDeep = false;                           // [ff9mapkit netsync R3 s113] not serving: no stock depth (the Quit prompt included)
+             _strandedMask = 0;
+             _noRosterMask = 0;
+             _noRosterWait = 0;                            // a roster wait counts serving ticks only: it restarts after a stand-down
+@@ -1560,7 +1582,8 @@ namespace Memoria.Netsync
+         private static UInt16 _feedSeq = 0x8000;
+         private static Int32 _feedLastTick = Environment.TickCount - 60000;   // tick-baseline law
+         private static Boolean _feedForce;            // a lever changed: build a frame on the next tick
+-        private static Boolean _feedMenuOpen;         // the control frame Pump would send this tick (menu open)
++        private static Byte[] _feedCtl;               // [ff9mapkit netsync R3 s113] the EXACT control frame Pump would send this tick
++                                                      // (GuestControl; null = none: the lane is not live) -- `menu_open` is byte 1 != 0
+         private static Int32 _feedFrames, _feedTaken, _feedAcceptedN, _feedRefusedN, _feedBad;   // per start
+         private static String _feedLast;              // the last frame the bench host took, decoded, with its verdict
+ 
+@@ -1615,14 +1638,16 @@ namespace Memoria.Netsync
+                 _feedPublished = true;
+                 if (live)
+                 {
+-                    _feedMenuOpen = FirstReadyGuestSlot(_peerView) >= 0;   // the control frame, unchanged
++                    _feedCtl = GuestControl(_peerView);   // [ff9mapkit netsync R3 s113] the control frame, as Pump builds it (0/2/3)
+                     Byte[] digit = GuestAssistTick(_peerView, _benchRoster);
+                     if (digit != null)
+                         BenchTake(digit, "digit panel");
+                 }
+                 else
+                 {
+-                    _feedMenuOpen = false;
++                    _feedCtl = null;                      // [ff9mapkit netsync R3 s113] Pump sends none (SetLocalControl(null))
++                    _ctlOut = null;
++                    _ctlSrc = null;
+                     AssistInputActive = false;
+                     _assistSlot = -1;
+                     _assistRoster = null;
+@@ -1752,6 +1777,7 @@ namespace Memoria.Netsync
+             _feedForce = true;
+             _feedFrames = _feedTaken = _feedAcceptedN = _feedRefusedN = _feedBad = 0;
+             _feedLast = null;
++            _feedCtl = null;                              // [ff9mapkit netsync R3 s113] the first tick builds it
+             Log.Message("[NetSync] harness: bench feed " + (restart ? "RESTARTED" : "STARTED") + " -- a type-1 frame every " + SampleMs
+                         + " ms from the diorama's live units through the REAL ParseView (guest slots 0x" + _feedGuestSlots.ToString("X")
+                         + ", Ready 0x0, caps 0x" + _feedCaps.ToString("X2") + ", nonce " + _feedNonce + ", mode accept); it stands in for "
+@@ -1777,7 +1803,10 @@ namespace Memoria.Netsync
+                     _assistSlot = -1;
+                     _assistRoster = null;
+                     ResetUi();
++                    _ctlOut = null;                       // [ff9mapkit netsync R3 s113] the feed's guest lane is gone
++                    _ctlSrc = null;
+                 }
++                _feedCtl = null;
+                 Log.Message("[NetSync] harness: bench feed stopped (" + why + ") -- the bench lane is gone (frames " + _feedFrames
+                             + ", taken " + _feedTaken + ", accepted " + _feedAcceptedN + ", refused " + _feedRefusedN + ")");
+             }
+@@ -1996,18 +2025,22 @@ namespace Memoria.Netsync
+             return null;
+         }
+ 
+-        /// <summary>The bench feed (`netsync.battle.menu.feed`); null = not running.</summary>
++        /// <summary>The bench feed (`netsync.battle.menu.feed`); null = not running. [ff9mapkit netsync R3 s113] `Ctl` / `CtlMenu`:
++        /// the exact control frame Pump would send this tick, as hex, and its byte 1 (null / -1 = none -- the lane is not live).</summary>
+         public sealed class BenchFeedView
+         {
+             public Int32 GuestSlots, Ready, Caps, Unmap, Nonce, Seq, Frames, Taken, Accepted, Refused, Bad;
+             public String Mode, Last;
+             public Boolean Frozen, MenuOpen, Live;
++            public String Ctl;                            // [ff9mapkit netsync R3 s113]
++            public Int32 CtlMenu;
+         }
+ 
+         public static BenchFeedView HarnessBenchFeed()
+         {
+             if (!BenchFeedArmed)
+                 return null;
++            Byte[] ctl = _feedCtl;
+             return new BenchFeedView
+             {
+                 GuestSlots = _feedGuestSlots,
+@@ -2024,8 +2057,10 @@ namespace Memoria.Netsync
+                 Mode = _feedFrozen ? "freeze" : _feedRefuse ? "refuse" : "accept",
+                 Last = _feedLast,
+                 Frozen = _feedFrozen,
+-                MenuOpen = _feedMenuOpen,
+-                Live = PeerBattleLive
++                MenuOpen = CtlMenuOf(ctl) > 0,            // [ff9mapkit netsync R3 s113] byte 1 != 0 (2 and 3 both read open)
++                Live = PeerBattleLive,
++                Ctl = CtlHexOf(ctl),
++                CtlMenu = CtlMenuOf(ctl)
+             };
+         }
+ 
+diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+index eecb904..aee609f 100644
+--- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
++++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
+@@ -777,7 +777,10 @@ public partial class BattleHUD : UIScene
+ 
+         // [ff9mapkit s37] vanilla WAIT freezes gauges while a LOCAL submenu is open; a co-op guest's
+         // remote menu deserves the same protection (Active mode above stays untouched by design).
+-        if (Memoria.Netsync.NetSyncBattle.RemoteMenuOpen)
++        // [ff9mapkit netsync R3 s113] WAIT PARITY -- the same protection and no more: only a guest window BELOW its command root
++        // freezes (RemoteMenuDeep; a pre-R3 guest's plain "open" still does), as the stock root test below lets a local window
++        // at the root run the gauges. Turn-based (FF9BMenu_IsEnableAtb) keeps the any-open freeze.
++        if (Memoria.Netsync.NetSyncBattle.RemoteMenuDeep)
+             return false;
+ 
+         if (_hidingHud)
+@@ -786,6 +789,17 @@ public partial class BattleHUD : UIScene
+         return CurrentPlayerIndex == -1 || ButtonGroupState.ActiveGroup == CommandGroupButton || ButtonGroupState.ActiveGroup == String.Empty;
+     }
+ 
++    /// <summary>[ff9mapkit netsync R3 s113] A co-op GUEST's own window (on its diorama) sits below its command root: the stock
++    /// Wait root test above, negated, so the host's Wait gauges freeze on the guest's window exactly when they would on a local
++    /// one -- parity by construction. False with no window open (CurrentPlayerIndex -1). Read by NetSyncBattle.StockMenuTick.</summary>
++    public Boolean NetWindowDeep()
++    {
++        if (CurrentPlayerIndex == -1)
++            return false;
++        String group = _hidingHud ? _currentButtonGroup : ButtonGroupState.ActiveGroup;
++        return !(group == CommandGroupButton || group == String.Empty);
++    }
++
+     public void FF9BMenu_EnableMenu(Boolean active)
+     {
+         if (PersistenSingleton<UIManager>.Instance.QuitScene.isShowQuitUI)
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index e2bfc17..f2c0ecc 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -141,6 +141,13 @@ namespace Memoria.Harness
+         // own swirl length) and `bench swirl clamp <frames>|-1|ini` (a process-local [Netsync] DioramaSwirlFrames; -1 = the
+         // calibration lever); no new sub-verb. A driver checks for `netsync.diorama.intro.swirl_clamp` -- absent = an engine
+         // whose diorama plays the guest's own swirl (and which reads `bench swirl` as `bench 1`).
++        // [ff9mapkit netsync R3 s113] (Wait parity; studies/battle-coop/R3-DESIGN.md 3.1.3), also additive under 5:
++        // `netsync.battle.host` gains `wait` (see AppendHostWait), `netsync.battle.menu` gains `ctl` (see AppendMenuCtl), the bench
++        // feed gains `ctl`/`ctl_menu`, `netsync.battle.host.handback.lapse` gains `reserve`, and `netsync bench` gains two named
++        // ops -- `bench waitparity 1|0` (the calibration lever) and `bench ctl auto|shut|legacy|root|deep` -- plus `bench cfg atb
++        // wait|active|restore` and `bench lapse <ms>|hold reserve`; no new sub-verb. A driver checks for
++        // `netsync.battle.host.wait` -- absent = an engine whose host freezes its Wait gauges on any open guest window (and which
++        // reads `bench waitparity`/`bench ctl` as `bench 1`; an engine before s113 refuses `bench cfg atb` and a 4-argument lapse).
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1095,9 +1102,13 @@ namespace Memoria.Harness
+                                     String la = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
+                                     Int32 lms = Arg(s, 2, Int32.MinValue);
+                                     Boolean lhold = la == "hold", lend = la == "end" || lms == 0;
+-                                    if (s.Args.Length != 3 || (!lhold && !lend && (lms < 1 || lms > 600000)))
+-                                        throw new ArgumentOutOfRangeException("netsync bench lapse", "expected `netsync bench lapse <1-600000 ms>|hold|end`");
+-                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchLapse(lend ? 0 : lhold ? -1 : lms, out why))
++                                    // [ff9mapkit netsync R3 s113] an optional 4th argument `reserve` (a timed or held lapse): the loopback
++                                    // host re-reads the guest's last control frame for 2000 ms first (the transport's re-serve), then none.
++                                    // An engine before s113 refuses the 4-argument form (fails closed).
++                                    Boolean lreserve = s.Args.Length == 4 && s.Args[3].ToLowerInvariant() == "reserve";
++                                    if ((s.Args.Length != 3 && !lreserve) || (!lhold && !lend && (lms < 1 || lms > 600000)) || (lreserve && lend))
++                                        throw new ArgumentOutOfRangeException("netsync bench lapse", "expected `netsync bench lapse <1-600000 ms>|hold|end` or `netsync bench lapse <1-600000 ms>|hold reserve`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchLapse(lend ? 0 : lhold ? -1 : lms, lreserve, out why))
+                                         throw new InvalidOperationException(why ?? "netsync bench lapse refused");
+                                     break;
+                                 }
+@@ -1129,12 +1140,38 @@ namespace Memoria.Harness
+                                 }
+                                 if (bnop == "cfg")
+                                 {
++                                    // [ff9mapkit netsync R3 s113] `bench cfg atb wait|active|restore` joins (a process-local cfg.atb)
+                                     if (s.Args.Length != 4)
+-                                        throw new ArgumentOutOfRangeException("netsync bench cfg", "expected `netsync bench cfg skipcam 0|1|restore`");
++                                        throw new ArgumentOutOfRangeException("netsync bench cfg", "expected `netsync bench cfg skipcam 0|1|restore` or `netsync bench cfg atb wait|active|restore`");
+                                     if (!Memoria.Netsync.NetSyncBattle.HarnessBenchCfg(s.Args[2], s.Args[3], out why))
+                                         throw new InvalidOperationException(why ?? "netsync bench cfg refused");
+                                     break;
+                                 }
++                                // [ff9mapkit netsync R3 s113] two more named ops (Wait parity):
++                                //   `bench waitparity 1|0`  the calibration lever (0 = the pre-stage host: every open guest window freezes
++                                //       the Wait gauges, the command root included);
++                                //   `bench ctl auto|shut|legacy|root|deep`  the control byte 1 the loopback / bench-feed guest sends while
++                                //       one of its slots is Ready (auto = its own encoding; 0 is sent when none is).
++                                // Read back: `netsync.battle.host.wait`, `netsync.battle.menu.ctl`, `netsync.battle.menu.feed.ctl_menu`.
++                                // Both are released on disarm/fault/reset. CAUTION: an engine before s113 parses them as `bench 1` (the
++                                // field-gate bench ON): probe `netsync.battle.host.wait` first -- absent = do not send them.
++                                if (bnop == "waitparity")
++                                {
++                                    Int32 wp = Arg(s, 2, -1);
++                                    if (s.Args.Length != 3 || (wp != 0 && wp != 1))
++                                        throw new ArgumentOutOfRangeException("netsync bench waitparity", "expected `netsync bench waitparity 1|0`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchWaitParity(wp != 0, out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench waitparity refused");
++                                    break;
++                                }
++                                if (bnop == "ctl")
++                                {
++                                    if (s.Args.Length != 3)
++                                        throw new ArgumentOutOfRangeException("netsync bench ctl", "expected `netsync bench ctl auto|shut|legacy|root|deep`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchCtl(s.Args[2], out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench ctl refused");
++                                    break;
++                                }
+                                 // [ff9mapkit netsync R3 s112] one more named op (the diorama swirl clamp):
+                                 //   `bench swirl local <0-1800>|ini`  every swirl in this process plays <frames> as its OWN length (the
+                                 //       laptop's [Graphics] BattleSwirlFrames stand-in); ini = back to [Graphics];
+@@ -1406,7 +1443,9 @@ namespace Memoria.Harness
+                             // [ff9mapkit netsync B4] stage 2: `bctl <hex>` feeds a raw type-3 control frame through the REAL
+                             // ParseControl at once ("00 00" = a live guest, menu shut; "00 01" = menu open) -- it stamps the
+                             // control lane fresh for ~2.5 s, the input G2 overrides inside a diorama. Read the verdict off
+-                            // `netsync.battle.menu.guest_owned`. Undone on disarm/fault/reset.
++                            // `netsync.battle.menu.guest_owned`. Undone on disarm/fault/reset. [ff9mapkit netsync R3 s113] "00 02" =
++                            // open at the command root, "00 03" = below it ("00 01" is now the pre-R3 guest's legacy open);
++                            // `netsync.battle.host.wait` reads the byte back.
+                             Byte[] ctl = ArgHex(s, 1);
+                             if (ctl == null)
+                                 throw new ArgumentOutOfRangeException("netsync bctl", "needs hex bytes, e.g. `netsync bctl 00 00`");
+@@ -3069,7 +3108,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3253,7 +3292,8 @@ namespace Memoria.Harness
+         // holds whose hand-back waited / attempts that threw -- read DELTAS), `last` (the last hand-back or deferral: slot,
+         // frame = Time.frameCount, held_ms, why = "handed back" | "deferred: ..."; null = none yet) and `lapse` (the selftest
+         // stall `netsync bench lapse`: active, hold, left_ms -- -1 = none or hold -- count, end_frame = the frame it ended,
+-        // -1 = not yet). A hand-back's latency is `last.frame - lapse.end_frame`.
++        // -1 = not yet). A hand-back's latency is `last.frame - lapse.end_frame`. [ff9mapkit netsync R3 s113] `lapse.reserve`: the
++        // running lapse was armed with `reserve` (its first 2000 ms re-serve the guest's last control frame; false = none running).
+         private static void AppendHandback(StringBuilder sb)
+         {
+             sb.Append("\"handback\":{");
+@@ -3284,7 +3324,8 @@ namespace Memoria.Harness
+             Bool(sb, "hold", Memoria.Netsync.NetSyncBattle.HarnessLapseHold); sb.Append(",");
+             Num(sb, "left_ms", Memoria.Netsync.NetSyncBattle.HarnessLapseLeftMs); sb.Append(",");
+             Num(sb, "count", Memoria.Netsync.NetSyncBattle.HarnessLapseCount); sb.Append(",");
+-            Num(sb, "end_frame", Memoria.Netsync.NetSyncBattle.HarnessLapseEndFrame);
++            Num(sb, "end_frame", Memoria.Netsync.NetSyncBattle.HarnessLapseEndFrame); sb.Append(",");
++            Bool(sb, "reserve", Memoria.Netsync.NetSyncBattle.HarnessLapseReserve);                  // [ff9mapkit netsync R3 s113]
+             sb.Append("}}");
+         }
+ 
+@@ -3309,6 +3350,37 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync R3 s113] `netsync.battle.host.wait` -- Wait parity, the HOST's decode of its guest's control lane:
++        // `parity_off` (the selftest lever `netsync bench waitparity 0`), `menu` (byte 1 of the last valid control frame parsed: 0
++        // shut, 1 legacy open, 2 at the command root, 3 below it; -1 = none -- a null or malformed frame, no own battle, a reset),
++        // `open` (RemoteMenuOpen now: fresh, open, under the GuestWaitMs cap -- turn-based freezes on it), `deep` (RemoteMenuDeep
++        // now: the Wait branch of IsNativeEnableAtb freezes on it) and `legacy_seen` (a legacy 1 arrived since this own battle
++        // started; kept after it until the next one starts). AppendNetsync's catch line carries the same keys at their sentinels.
++        private static void AppendHostWait(StringBuilder sb)
++        {
++            sb.Append("\"wait\":{");
++            Bool(sb, "parity_off", Memoria.Netsync.NetSyncBattle.HarnessWaitParityOff); sb.Append(",");
++            Num(sb, "menu", Memoria.Netsync.NetSyncBattle.HarnessRemoteMenu); sb.Append(",");
++            Bool(sb, "open", Memoria.Netsync.NetSyncBattle.HarnessRemoteMenuOpen); sb.Append(",");
++            Bool(sb, "deep", Memoria.Netsync.NetSyncBattle.HarnessRemoteMenuDeep); sb.Append(",");
++            Bool(sb, "legacy_seen", Memoria.Netsync.NetSyncBattle.HarnessLegacyCtlSeen);
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync R3 s113] `netsync.battle.menu.ctl` -- Wait parity, the GUEST's encode: the control frame this machine's
++        // guest side built last (Pump's guest branch, the selftest loopback or the bench feed). `menu` (its byte 1: 0 shut, 2 root,
++        // 3 below the root, or a `bench ctl` byte; -1 = none -- the lane is shut), `hex` (the frame; null = none) and `src` (what
++        // decided byte 1: "none" no ready guest slot | "bench" the `bench ctl` lever | "digit" the digit panel below its root |
++        // "stock" the stock window below its root | "root"; null = none). AppendNetsync's catch line carries the same keys.
++        private static void AppendMenuCtl(StringBuilder sb)
++        {
++            sb.Append("\"ctl\":{");
++            Num(sb, "menu", Memoria.Netsync.NetSyncBattle.HarnessCtlMenu); sb.Append(",");
++            Str(sb, "hex", Memoria.Netsync.NetSyncBattle.HarnessCtlHex); sb.Append(",");
++            Str(sb, "src", Memoria.Netsync.NetSyncBattle.HarnessCtlSrc);
++            sb.Append("}");
++        }
++
+         // [ff9mapkit netsync B4] stage 1 -- `netsync.battle`, additive under protocol 5 (an engine without it publishes
+         // no key: read absence as "this engine has no command-phase gates", never as "nothing there"). The B4/B5 arc
+         // grows it (studies/battle-coop/B4-B5-DESIGN.md section 6.4); stage 1 publishes:
+@@ -3373,6 +3445,8 @@ namespace Memoria.Harness
+         //     none) and `bench_manifest_note` (a marker that preset could not choose; null = every one).
+         // [ff9mapkit netsync B4] stage 11 adds to `host` the guest-slot hand-back (BTL-1): `handback` (see AppendHandback).
+         // [ff9mapkit netsync R3 s111] adds to `host` the intro mirror's host half: `cfg` and `intro` (see AppendHostIntro).
++        // [ff9mapkit netsync R3 s113] adds Wait parity: `host.wait` (see AppendHostWait) and `menu.ctl` (see AppendMenuCtl); the
++        //     bench feed gains `ctl`/`ctl_menu` (see AppendStockMirror) and `host.handback.lapse` gains `reserve`.
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3416,7 +3490,8 @@ namespace Memoria.Harness
+             }
+             sb.Append("],");
+             AppendHandback(sb); sb.Append(",");                                                      // [ff9mapkit netsync B4] stage 11
+-            AppendHostIntro(sb);                                                                     // [ff9mapkit netsync R3 s111]
++            AppendHostIntro(sb); sb.Append(",");                                                     // [ff9mapkit netsync R3 s111]
++            AppendHostWait(sb);                                                                      // [ff9mapkit netsync R3 s113]
+             sb.Append("},\"peer\":{");
+             Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
+             Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");
+@@ -3453,7 +3528,8 @@ namespace Memoria.Harness
+             Str(sb, "side_why", Memoria.Netsync.NetSyncBattle.HarnessSideRefusedWhy); sb.Append(",");
+             AppendStockCapture(sb); sb.Append(",");
+             AppendStockContent(sb); sb.Append(",");                                                     // [ff9mapkit netsync B4] stage 7
+-            AppendStockMirror(sb);                                                                      // [ff9mapkit netsync B4] stage 8
++            AppendStockMirror(sb); sb.Append(",");                                                      // [ff9mapkit netsync B4] stage 8
++            AppendMenuCtl(sb);                                                                          // [ff9mapkit netsync R3 s113]
+             sb.Append("},");
+             AppendBattleEnd(sb);                                                                        // [ff9mapkit netsync B5] stage 5
+             sb.Append("}");
+@@ -4120,6 +4196,9 @@ namespace Memoria.Harness
+         //   none) / `nonce` / `seq` (the last frame's) / `live` (its lane is fresh) / `menu_open` (the control frame Pump would
+         //   send) / `frames` / `taken` / `accepted` / `refused` / `bad` (per start) / `last` (the last frame the bench host took,
+         //   decoded, with its verdict)).
++        //   [ff9mapkit netsync R3 s113] `feed` gains `ctl` (the EXACT control frame Pump would send this tick, as hex; null = none --
++        //   the lane is not live) and `ctl_menu` (its byte 1: 0 shut, 2 root, 3 below the root; -1 = none); `menu_open` is
++        //   `ctl_menu > 0`, as before (2 and 3 both read open). The feed is null in the catch line, so it needs no sentinel.
+         private static void AppendStockMirror(StringBuilder sb)
+         {
+             Bool(sb, "stock_owns", Memoria.Netsync.NetSyncBattle.HarnessStockOwns); sb.Append(",");
+@@ -4173,6 +4252,8 @@ namespace Memoria.Harness
+             Num(sb, "seq", f.Seq); sb.Append(",");
+             Bool(sb, "live", f.Live); sb.Append(",");
+             Bool(sb, "menu_open", f.MenuOpen); sb.Append(",");
++            Str(sb, "ctl", f.Ctl); sb.Append(",");                                                     // [ff9mapkit netsync R3 s113]
++            Num(sb, "ctl_menu", f.CtlMenu); sb.Append(",");
+             Num(sb, "frames", f.Frames); sb.Append(",");
+             Num(sb, "taken", f.Taken); sb.Append(",");
+             Num(sb, "accepted", f.Accepted); sb.Append(",");
