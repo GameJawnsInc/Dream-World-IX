@@ -15,11 +15,17 @@ THE BENCH. Field 30602 (LOCKT2), `netsync selftest 1`, `stateevery 1`.
   * HOST (leg A): a selftest OWN battle on scene 67 with `netsync guestslots 15` -- every party slot belongs to the
     loopback guest, so the host's own window never opens and only the loopback's control byte can freeze anything. The
     Wait mode is `bench cfg atb wait` (on an engine without it, the save's own cfg.atb -- the stock default is Wait).
-    "Moving" = any living unit's published `atb` CHANGES between consecutive publishes (a fill, or an action's reset --
-    neither can happen while IsNativeEnableAtb is false: ProcessActiveTime and the declarable dequeue both wait on it);
-    "flat" = no unit's gauge changes for the whole window. Each "moving" window stops at the first change, so the lone
-    Goblin swings as little as possible at an uncommanded party. At the end `guestslots 0` hands the party back and the
-    battle is fought out.
+    "Moving" = any living unit's published `atb` CHANGES between consecutive publishes (a fill, or an action's reset).
+    "Flat" = no unit's gauge FILLS for the whole window: ProcessActiveTime and the declarable dequeue both wait on
+    IsNativeEnableAtb, but an action dequeued BEFORE the freeze plays out through it and its FinishCommand reset lands
+    regardless (btl_cmd.FinishCommand -> ResetCurrentBattlerActiveTime, ungated -- stock Wait never stops an action in
+    flight). So a flat window lets through exactly that reset -- a drop from a FULL gauge (atb >= atb_max) to below it
+    (6568 -> 8 under IsKeepRestTimeInBattle) -- and counts every other change; and it must open with at least one
+    FILLABLE unit (living, atb < atb_max), else nothing could move and "flat" could not fail. (Run 20261014-083020: the
+    A3 brief root admitted the Goblin's long-queued Knife; its reset landed 2.68 s into the legacy window with every
+    other gauge flat -- W-A3 read red on a freeze that held.) Each "moving" window stops at the first change, so the
+    lone Goblin swings as little as possible at an uncommanded party. At the end `guestslots 0` hands the party back
+    and the battle is fought out.
   * GUEST (leg B): `dioboot 67 0` + the stage-8 bench feed (`bbench roster auto 0`, `start 0x01`, `mode refuse` -- review
     ctrl F10: under accept the commit drops the bit and reads 0), the stock window driven through its depths; read back
     at `netsync.battle.menu.feed.ctl_menu` (the EXACT frame Pump would send) and `netsync.battle.menu.ctl.src`.
@@ -182,24 +188,62 @@ def _gauges(x) -> dict:
     return out
 
 
+def _gauge_max(x) -> dict:
+    """{unit id: atb_max} for every unit publishing a positive one."""
+    out = {}
+    for u in cb.units(x):
+        m = u.get("atb_max")
+        if isinstance(m, int) and not isinstance(m, bool) and m > 0:
+            out[int(u.get("id", -1))] = m
+    return out
+
+
 def _foe_atb(x) -> list:
     return [u.get("atb") for u in cb.units(x, player=False)]
 
 
 class _Mover:
-    """A `watch` predicate: true from the first publish whose gauges differ from the previous publish's."""
+    """A `watch` predicate: true from the first publish whose gauges differ from the previous publish's.
 
-    def __init__(self):
+    ``excuse_resets`` (the FLAT windows): a drop from a FULL gauge (prev >= atb_max) to below it is an action's
+    FinishCommand reset (btl_cmd.FinishCommand -> ResetCurrentBattlerActiveTime, applied to declarable main commands
+    only, and NOT gated by IsNativeEnableAtb -- an action dequeued before a freeze plays out through it, as in stock
+    Wait), so it is recorded in ``excused`` instead of counting. Every rise still counts, and so does any other drop.
+    This keeps the window able to fail: a declarable command can only DEQUEUE on a tick whose IsNativeEnableAtb is
+    true, and ProcessActiveTime reads the same gate in the same UpdateBattleFrame (HonoluluBattleMain: BattleMain,
+    then YMenu_ManagerActiveTime), so any tick the freeze leaks fills every fillable unit -- a rise. ``fillable`` = the
+    units below their max at the first publish; _flat refuses a window that has none (nothing there could fill)."""
+
+    def __init__(self, excuse_resets: bool = False):
         self.prev = None
+        self.prev_max = {}
         self.first = None
         self.n = 0
+        self.excuse_resets = excuse_resets
+        self.excused = []          # (unit id, atb before, atb after, the state) -- action resets let through
+        self.fillable = None       # sorted unit ids below their max at the first publish
+
+    def _counts(self, k: int, before: int, after: int) -> bool:
+        if not self.excuse_resets:
+            return True
+        m = self.prev_max.get(k)
+        return not (m is not None and before >= m and after < before)
 
     def __call__(self, s) -> bool:
         cur = _gauges(s)
+        top = _gauge_max(s)
         self.n += 1
-        if self.first is None and self.prev is not None and any(k in self.prev and cur[k] != self.prev[k] for k in cur):
-            self.first = s
-        self.prev = cur
+        if self.prev is None:
+            self.fillable = sorted(k for k, a in cur.items() if k in top and a < top[k])
+        elif self.first is None:
+            for k in cur:
+                if k not in self.prev or cur[k] == self.prev[k]:
+                    continue
+                if self._counts(k, self.prev[k], cur[k]):
+                    self.first = s
+                    break
+                self.excused.append((k, self.prev[k], cur[k], s))
+        self.prev, self.prev_max = cur, top
         return self.first is not None
 
 
@@ -215,12 +259,22 @@ def _moving(g, st0, seconds: float) -> tuple:
 
 
 def _flat(g, seconds: float) -> tuple:
-    """Every publish for ``seconds``. (flat, publishes read, seconds covered, the first change's seconds or None)."""
-    mv = _Mover()
+    """Every publish for ``seconds``. (flat, publishes read, seconds covered, the first change's seconds or None, a note
+    naming the fillable units and any action reset let through). Flat = no counted change (an action's reset from a
+    full gauge is excused -- _Mover) AND at least one fillable unit at the start (else the window could not fail)."""
+    mv = _Mover(excuse_resets=True)
     samples = cb.hold_for(g, seconds, on_sample=mv)
+    return _flat_verdict(mv, samples)
+
+
+def _flat_verdict(mv: _Mover, samples: list) -> tuple:
+    """_flat's verdict over a fed _Mover and its samples (split out so the predicate replays offline on a states ring)."""
     span = cb.elapsed(samples[0], samples[-1]) if len(samples) > 1 else 0.0
     t = cb.elapsed(samples[0], mv.first) if (mv.first is not None and samples) else None
-    return mv.first is None and len(samples) >= 2, len(samples), span, t
+    resets = ", ".join(f"unit {k} {a}->{b} @{cb.elapsed(samples[0], s):.2f} s" for k, a, b, s in mv.excused)
+    note = (f"fillable {mv.fillable}" + (" (NONE: the window cannot fail)" if not mv.fillable else "")
+            + (f"; action reset(s) let through: {resets}" if resets else ""))
+    return mv.first is None and len(samples) >= 2 and bool(mv.fillable), len(samples), span, t, note
 
 
 def _brief(x) -> str:
@@ -398,24 +452,27 @@ def _a2_a3(g, led: cb.Ledger, ctx: _Ctx, at: int) -> None:
     g.note("A2: `bench ctl deep` -- the Wait gauges freeze below the root")
     ok, why, st = _ctl_to(g, "deep", CTL_DEEP)
     if ok:
-        flat, n, span, t = _flat(g, FLAT_S)
+        flat, n, span, t, fnote = _flat(g, FLAT_S)
         s = g.state
         led.check("W-A2", flat and span >= FLAT_S - 0.2 and _w(s).get("menu") == CTL_DEEP and _w(s).get("deep") is True
                   and _cfg(s).get("atb") == 1,
-                  f"flat={flat} over {span:.2f} s ({n} publishes; first change {t!r}); {_brief(s)}")
+                  f"flat={flat} over {span:.2f} s ({n} publishes; first change {t!r}; {fnote}); {_brief(s)}")
     else:
         led.check("W-A2", False, f"not reached: {why}")
+    # The brief root RUNS the gauges by design, so it can also admit a queued declarable command (run 20261014-083020:
+    # the Goblin's Knife, queued through all of A2) whose ~3 s action then ends INSIDE the legacy window -- its reset is
+    # excused by _flat (a drop from a full gauge), never a fill.
     g.note("A3: a brief root (the deep stretch's GuestWaitMs clock restarts), then `bench ctl legacy` -- a pre-R3 guest")
     _ctl_to(g, "root", CTL_ROOT)
     at3 = cb.mark(g)
     ok, why, st = _ctl_to(g, "legacy", CTL_LEGACY)
     if ok:
-        flat, n, span, t = _flat(g, FLAT_S)
+        flat, n, span, t, fnote = _flat(g, FLAT_S)
         s = g.state
         lines = cb.new(g, at3)
         led.check("W-A3", flat and span >= FLAT_S - 0.2 and _w(s).get("menu") == CTL_LEGACY and _w(s).get("deep") is True
                   and _w(s).get("legacy_seen") is True and cb.count(cb.new(g, at), LEGACY_LINE) == 1,
-                  f"flat={flat} over {span:.2f} s ({n} publishes; first change {t!r}); {_brief(s)}; "
+                  f"flat={flat} over {span:.2f} s ({n} publishes; first change {t!r}; {fnote}); {_brief(s)}; "
                   f"{cb.grep(lines, 'Wait parity')}")
     else:
         led.check("W-A3", False, f"not reached: {why}")
@@ -441,10 +498,10 @@ def _a4(g, led: cb.Ledger, ctx: _Ctx) -> None:
 def _a5(g, led: cb.Ledger, ctx: _Ctx) -> None:
     g.note(f"A5a: deep, then `bench lapse {LAPSE_MS}` -- the null frame clears the freeze at once")
     ok, why, st = _ctl_to(g, "deep", CTL_DEEP)
-    pre, n0, span0, _ = _flat(g, PRE_FLAT_S) if ok else (False, 0, 0.0, None)
+    pre, n0, span0, _, pnote = _flat(g, PRE_FLAT_S) if ok else (False, 0, 0.0, None, "")
     if not (ok and pre):
         led.check("W-A5a", False, f"not reached: the deep freeze did not hold first ({why or 'flat=' + str(pre)}; "
-                                  f"{_brief(g.state)})")
+                                  f"{pnote}; {_brief(g.state)})")
     else:
         try:
             ack = cb.ns_verb(g, "bench", "lapse", LAPSE_MS)
@@ -462,9 +519,9 @@ def _a5(g, led: cb.Ledger, ctx: _Ctx) -> None:
             "the hand-back settled and the deep frames back")
     g.note(f"A5b: deep, then `bench lapse {LAPSE_MS} reserve` -- the re-served frame holds the freeze ~2 s, then silence")
     at = cb.mark(g)
-    pre, n0, span0, _ = _flat(g, PRE_FLAT_S)
+    pre, n0, span0, _, pnote = _flat(g, PRE_FLAT_S)
     if not pre:
-        led.check("W-A5b", False, f"not reached: the deep freeze did not hold first ({_brief(g.state)})")
+        led.check("W-A5b", False, f"not reached: the deep freeze did not hold first ({pnote}; {_brief(g.state)})")
         return
     try:
         ack = cb.ns_verb(g, "bench", "lapse", LAPSE_MS, "reserve")
