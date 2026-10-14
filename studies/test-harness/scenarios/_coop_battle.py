@@ -28,7 +28,13 @@ What lives here, and why once:
     ``netsync.battle.menu.content_hits``; 8 ``netsync.battle.menu.stock_owns``; 9 ``netsync.battle.host.
     manifest_captures``; 10 ``netsync.battle.end.replay``; 11 ``netsync.battle.host.handback`` (:data:`PROBES`).
     CAUTION: Stage 11's ops ride the OLD `bench` sub-verb: an engine before s110 reads `bench lapse` / `bench handback` as
-    `bench 1` and turns the FIELD-GATE bench ON -- probe first, never send them on an engine without the key.
+    `bench 1` and turns the FIELD-GATE bench ON -- probe first, never send them on an engine without the key. The R3
+    patches (s111-s117) have their own ladder, keyed by patch number (:data:`R3_PROBES`, :func:`r3_stage_of`);
+    :func:`stage_note` names both in a run's notes.
+  * THE ROLE-GATED LEVERS. Every R3 selftest lever's getter (GuestMode, IntroMirrorOn, WaitParityOn, StartHoldCapMs, the
+    swirl levers) answers its REST value whenever the selftest role is off -- so a read after `reset` (which releases
+    the role) cannot see a bench field the release forgot. :func:`reread_with_role` re-forces the role (which releases
+    nothing) and reads the levers WITH it, then resets again.
   * THE DRIVER'S OP TABLES. ``Session.netsync`` also refuses an ``endbench`` op its NETSYNC_ENDBENCH_OPS lacks (a
     driver that predates s109's ``replay`` / ``quit`` / ``fieldsong``); :func:`ns_verb` sends those as raw steps too, so
     the ENGINE's answer -- not a stale driver's -- decides (an engine without them answers "netsync endbench: unknown op
@@ -106,6 +112,20 @@ PROBES = {
 }
 
 
+#: [R3] The capability probe of each battle co-op round-3 patch (studies/battle-coop/R3-DESIGN.md 5.2), keyed by its
+#: PATCH number (a separate ladder: :func:`stage_of` stays on the B4/B5 stages 0-11). The R3 benches read their keys from
+#: here, so one probe string is one constant. CAUTION as above: s111-s114's ops ride the OLD `bench` sub-verb.
+R3_PROBES = {
+    111: "netsync.diorama.intro",                   # the intro mirror (`bench intro|cfg`, `dioboot ... skip|play`)
+    112: "netsync.diorama.intro.swirl_clamp",       # the diorama swirl clamp (`bench swirl`)
+    113: "netsync.battle.host.wait",                # Wait parity (`bench waitparity|ctl`, `bench cfg atb`)
+    114: "netsync.battle.host.start_hold",          # the start hold (`bench boot|starthold`)
+    115: "netsync.battle.end.flee",                 # the guest's flee presentation (`endbench guest hold|nor9b`)
+    116: "netsync.battle.end.flee.msg_gil",         # the host's "Dropped N Gil" relayed (`endbench fleegil`)
+    117: "netsync.battle.end.follow_msg",           # the guest's defeat presentation (`endbench kill|phase-defeat`)
+}
+
+
 def stage_of(x) -> int:
     """The highest B4/B5 stage whose probe key this document carries (0 = none) -- for the notes only; every check
     reads its own key."""
@@ -114,6 +134,22 @@ def stage_of(x) -> int:
         if has(x, PROBES[n]):
             top = n
     return top
+
+
+def r3_stage_of(x) -> int:
+    """The highest R3 patch whose probe key (:data:`R3_PROBES`) this document carries (0 = none: s110 or older) -- for the
+    notes only; every check reads its own key."""
+    top = 0
+    for n in sorted(R3_PROBES):
+        if has(x, R3_PROBES[n]):
+            top = n
+    return top
+
+
+def stage_note(x) -> str:
+    """Both ladders for a run's notes: "B4/B5 stage 11, R3 s117" (or "R3 none")."""
+    r3 = r3_stage_of(x)
+    return f"B4/B5 stage {stage_of(x)}, R3 {'s' + str(r3) if r3 else 'none'}"
 
 #: COOP_CALIBRATE=1 runs a scenario's in-run calibration mode (each scenario's note says what it pulls).
 CALIBRATE = os.environ.get("COOP_CALIBRATE", "").strip() not in ("", "0")
@@ -535,6 +571,23 @@ def release(g, ledger: Ledger | None = None, cid: str | None = None, *, expect_l
     ledger.check(cid, ns.get("forced") is False and not dio(st).get("booted") and not missing,
                  f"forced={ns.get('forced')!r} booted={dio(st).get('booted')!r} missing lines={missing}; "
                  f"{grep(lines, 'released with the harness', 'override released')}")
+
+
+def reread_with_role(g) -> tuple:
+    """[R3] AFTER a :func:`release`: force the selftest role AGAIN, read one state WITH it, then `reset` once more.
+    Every R3 lever's getter answers its rest value while the role is off (GuestMode, IntroMirrorOn, WaitParityOn,
+    StartHoldCapMs, the swirl levers: `bench field && IsSelfTestRole`), so the read straight after `reset` is green
+    whatever the bench field holds; `netsync selftest 1` re-forces the role and releases NOTHING
+    (NetSyncClient.HarnessSelfTest), so this read shows the bench fields themselves. (state or None, why)."""
+    ok, why = try_ns(g, "selftest", 1)
+    if not ok:
+        return None, f"the re-read's `netsync selftest 1` was refused: {why}"
+    st = poll(g, lambda s: bool((s.netsync or {}).get("forced")) and bool((s.netsync or {}).get("selftest")), 5.0,
+              "the re-forced selftest role")
+    release(g)
+    if st is None:
+        return None, "the selftest role never came back for the re-read"
+    return st, ""
 
 
 # ------------------------------------------------------------------------------------------ the diorama

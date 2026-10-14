@@ -7429,12 +7429,17 @@ class Session:
     # and every wait is anchored to `battle_epoch` -- because `btl_result` is 0 both DURING a battle
     # and BEFORE any battle has ever run, so it cannot tell those apart on its own.
 
-    def start_battle(self, scene: int, *, group: int = -1, timeout: float = 60.0) -> State:
+    def start_battle(self, scene: int, *, group: int = -1, rand: bool = False, timeout: float = 60.0) -> State:
         """Boot a real battle from a field and wait until it is actually running.
 
         ⚠ Not the diorama. `NetSyncDiorama.Boot` is the cheap way to put a battle scene on screen and
         it sets `isDebug`, under which the battle CAN NEVER END -- so every result or reward
         assertion against it is vacuous. This uses the field's own encounter transition.
+
+        [ff9mapkit netsync R3 s111] ``rand`` boots it as a RANDOM encounter (``battle <scene> <group> rand``) -- the
+        stock intro test's other input (``cfg.skip_btl_camera == 0 && isRandomEncounter`` skips the intro camera). An
+        engine before s111 IGNORES the third argument (always non-random), so it is refused here unless the engine
+        publishes ``netsync.diorama.intro``.
         """
         st = self.state
         if st.ui_state != "FieldHUD":
@@ -7442,8 +7447,13 @@ class Session:
                 f"start_battle needs a field to leave FROM (ui_state={st.ui_state!r}); the engine "
                 f"routes the transition by the FIELD's nextMode."
             )
+        if rand and not st.coop_intro_mirror:
+            raise HarnessError(
+                "start_battle(rand=True): the deployed engine publishes no `netsync.diorama.intro` -- `battle <scene> "
+                "<group> rand` is the R3 intro-mirror bench (memoria-patch s111); an engine before it ignores the third "
+                "argument and boots a NON-random battle. Not sent. Rebuild the DLL, or update the driver.")
         before = st.battle_epoch
-        self.send(f"battle {int(scene)} {int(group)}")
+        self.send(f"battle {int(scene)} {int(group)}" + (" rand" if rand else ""))
         return self.wait_battle(timeout=timeout, after_epoch=before)
 
     def wait_battle(self, *, timeout: float = 60.0, after_epoch: int | None = None) -> State:
@@ -8326,10 +8336,10 @@ class Session:
                               for op in ("start", "stop", "ready", "caps", "mode", "freeze", "unmap", "knob")}
     #: [ff9mapkit netsync B5] `endbench <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncEnd.HarnessEndBench: s103, + `guest` s104, + `exit` s105, + `manifest` s108, + `fieldsong` / `replay` /
-    #: `quit` s109).
-    NETSYNC_ENDBENCH_OPS = ("victory", "pending", "nopose", "other", "defeat", "escape", "event", "fight", "ui", "state",
-                            "overflow", "afterevent", "fieldsong", "manifest", "cmd", "host", "guest", "exit", "replay",
-                            "quit", "selftest", "clear")
+    #: `quit` s109; [ff9mapkit netsync R3] + `fleegil` s116, + `phase-defeat` / `kill` s117).
+    NETSYNC_ENDBENCH_OPS = ("victory", "pending", "nopose", "other", "defeat", "phase-defeat", "escape", "event", "fight",
+                            "ui", "state", "overflow", "afterevent", "fieldsong", "manifest", "fleegil", "kill", "cmd",
+                            "host", "guest", "exit", "replay", "quit", "selftest", "clear")
     #: Ops an engine knows without listing them (s103-s107 knew `manifest` and refused it; s108 lists it): none now.
     NETSYNC_ENDBENCH_UNLISTED = ()
     #: [ff9mapkit netsync B5] The `endbench` ops a LATER patch added, told by their own key (as the sub-verbs are).
@@ -8345,6 +8355,22 @@ class Session:
         "replay": ("coop_result_replay", "netsync.battle.end.replay", "s109",
                    "the B5 result-screen replay calibration lever"),
         "quit": ("coop_result_replay", "netsync.battle.end.replay", "s109", "the B5 replay quit-guard bench"),
+        # [ff9mapkit netsync R3] s116 / s117
+        "fleegil": ("coop_flee_gil", "netsync.battle.end.flee.msg_gil", "s116",
+                    "the R3 flee-gil relay bench (the template's fmt-2 flee record)"),
+        "phase-defeat": ("coop_defeat", "netsync.battle.end.follow_msg", "s117",
+                         "the R3 defeat bench (the PHASE_DEFEAT template)"),
+        "kill": ("coop_defeat", "netsync.battle.end.follow_msg", "s117",
+                 "the R3 defeat bench (the reconciler's KillUnit on seated players)"),
+    }
+    #: [ff9mapkit netsync R3 s115] A later patch's VALUE of an older op, told by its own key: `endbench guest hold|nor9b`
+    #: (s104 knew `guest` with on|off|settle) -- (the accessor, the key, the patch, what it is, what an older engine answers).
+    NETSYNC_ENDBENCH_VALUE_CAPS = {
+        ("guest", "hold"): ("coop_flee", "netsync.battle.end.flee", "s115",
+                            "the R3 pre-s115 guest lever (the host's escape -- and from s117 its defeat -- HELD)",
+                            "netsync endbench guest: needs on|off|settle"),
+        ("guest", "nor9b"): ("coop_flee", "netsync.battle.end.flee", "s115",
+                             "the R3 flee calibration lever (R9b bypassed)", "netsync endbench guest: needs on|off|settle"),
     }
     #: What an older engine answers a later `endbench` op with, when it is not "unknown op" (s103-s107 knew `manifest`).
     NETSYNC_ENDBENCH_OLD_ANSWERS = {
@@ -8358,7 +8384,23 @@ class Session:
                   "the B4 guest-slot hand-back bench (the selftest guest stall)"),
         "handback": ("coop_slot_handback", "netsync.battle.host.handback", "s110",
                      "the B4 guest-slot hand-back calibration lever"),
+        # [ff9mapkit netsync R3] s111-s114's named ops -- the same hazard: each older engine reads them as `bench 1`
+        "intro": ("coop_intro_mirror", "netsync.diorama.intro", "s111", "the R3 intro-mirror calibration lever"),
+        "cfg": ("coop_intro_mirror", "netsync.diorama.intro", "s111",
+                "the R3 process-local cfg override (`skipcam` s111, `atb` s113)"),
+        "swirl": ("coop_swirl_clamp", "netsync.diorama.intro.swirl_clamp", "s112",
+                  "the R3 diorama swirl-clamp bench (`local` / `clamp`)"),
+        "waitparity": ("coop_wait_parity", "netsync.battle.host.wait", "s113", "the R3 Wait-parity calibration lever"),
+        "ctl": ("coop_wait_parity", "netsync.battle.host.wait", "s113",
+                "the R3 Wait-parity bench (the loopback / feed guest's control byte 1)"),
+        "boot": ("coop_start_hold", "netsync.battle.host.start_hold", "s114",
+                 "the R3 start-hold bench (the loopback / feed guest's report)"),
+        "starthold": ("coop_start_hold", "netsync.battle.host.start_hold", "s114",
+                      "the R3 start-hold calibration lever and bench cap"),
     }
+    #: [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern]`'s trailing tokens (`[wire] [skip|play|own] [rand]`): an
+    #: engine before s111 IGNORES them (a manual boot with the guest's own intro) -- a silent wrong action, never sent.
+    NETSYNC_DIOBOOT_TOKENS = ("wire", "skip", "play", "own", "rand")
 
     def netsync(self, sub: str, *args, timeout: float = 20.0) -> State:
         """Drive the co-op client's solo benches -- the ~ menu's IMGUI buttons, as verbs.
@@ -8414,6 +8456,17 @@ class Session:
         on|off|local | quit on|off`` (s109 -- NEVER press Confirm on the quit prompt: its Yes quits);
         ``bench lapse <ms>|hold|end`` and ``bench handback 1|0`` (s110, two NAMED ops of the F1
         ``bench`` verb).
+
+        [ff9mapkit netsync R3] s111-s117 (studies/battle-coop/R3-DESIGN.md 5.1), no new sub-verb: the
+        NAMED ``bench`` ops ``intro 1|0`` and ``cfg skipcam 0|1|restore`` (s111), ``swirl local <frames>|ini``
+        / ``swirl clamp <frames>|-1|ini`` (s112), ``waitparity 1|0``, ``ctl auto|shut|legacy|root|deep``,
+        ``cfg atb wait|active|restore`` and ``lapse <ms>|hold reserve`` (s113), ``boot auto|none|booting|live|
+        declined|busy|stale|silent|late <ms>`` and ``starthold 1|0|cap <ms>|cap ini`` (s114) -- each probed
+        on its own key first (:attr:`NETSYNC_BENCH_OPS`: an older engine reads it as ``bench 1``);
+        ``dioboot <scene> [pattern] [wire] [skip|play|own] [rand]`` (s111: the tokens are refused unless
+        ``netsync.diorama.intro`` is published -- an older engine ignores them); ``endbench guest hold|nor9b``
+        (s115, its VALUES told by ``netsync.battle.end.flee``), ``endbench fleegil <n>|none`` (s116),
+        ``endbench phase-defeat`` and ``endbench kill [mask]`` (s117).
 
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
@@ -8495,12 +8548,33 @@ class Session:
             if op not in self.NETSYNC_ENDBENCH_OPS + self.NETSYNC_ENDBENCH_UNLISTED:
                 raise HarnessError(f"netsync endbench: unknown op '{op}' ({'|'.join(self.NETSYNC_ENDBENCH_OPS)})")
             cap = self.NETSYNC_ENDBENCH_OP_CAPS.get(op)
+            value = str(args[1]).strip().lower() if len(args) > 1 else ""
+            vcap = self.NETSYNC_ENDBENCH_VALUE_CAPS.get((op, value))
+            if vcap is not None and not getattr(st, vcap[0]) and (cap is None or getattr(st, cap[0])):
+                # [ff9mapkit netsync R3 s115] a later VALUE of an older op: its engine answers in the op's own words
+                raise HarnessError(
+                    f"netsync endbench {op} {value}: the deployed engine publishes no `{vcap[1]}` -- `endbench {op} "
+                    f"{value}` is {vcap[3]} (memoria-patch {vcap[2]}); it would answer \"{vcap[4]}\" only after the step. "
+                    f"Rebuild the DLL, or update the driver.")
             if cap is not None and not getattr(st, cap[0]):
                 answer = self.NETSYNC_ENDBENCH_OLD_ANSWERS.get(op, f"netsync endbench: unknown op '{op}'")
                 raise HarnessError(
                     f"netsync endbench {op}: the deployed engine publishes no `{cap[1]}` -- `endbench {op}` is {cap[3]} "
                     f"(memoria-patch {cap[2]}); it would answer \"{answer}\" only after the step. Rebuild the DLL, or "
                     f"update the driver.")
+        elif sub == "dioboot" and len(args) > 1:
+            # [ff9mapkit netsync R3 s111] the trailing tokens start at args[1] when it is not an integer (no pattern), else
+            # at args[2] -- the agent's own `dioTok`; an older engine boots WITHOUT them, so refuse before the step
+            try:
+                int(str(args[1]).strip())
+                tokens = args[2:]
+            except ValueError:
+                tokens = args[1:]
+            if tokens and not st.coop_intro_mirror:
+                raise HarnessError(
+                    f"netsync dioboot: the deployed engine publishes no `netsync.diorama.intro` -- the tokens "
+                    f"{' '.join(str(a) for a in tokens)!r} are the R3 intro-mirror bench (memoria-patch s111); an engine "
+                    f"before it boots WITHOUT them (its own intro). Not sent. Rebuild the DLL, or update the driver.")
         elif sub == "bench" and args and str(args[0]).strip().lower() in self.NETSYNC_BENCH_OPS:
             # [ff9mapkit netsync B4] s110: a named op of the F1 `bench` verb -- probe its key FIRST: an older agent's
             # Arg() fallback reads `bench lapse` / `bench handback` as `bench 1` (the field-gate bench ON), so the step
@@ -8515,6 +8589,44 @@ class Session:
                     f"FIELD-GATE bench ON. Not sent. Rebuild the DLL, or update the driver.")
         self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
         return self.state
+
+    # -- [ff9mapkit netsync R3] small reads the round-3 benches share ------------------------------------------------
+    def ctl_byte(self) -> int | None:
+        """[ff9mapkit netsync R3 s113] Byte 1 of the control frame this process's GUEST side built last
+        (``netsync.battle.menu.ctl.menu``: 0 shut, 2 root, 3 below the root; -1 = none). None = an engine before s113."""
+        return self.state.coop_ctl_menu
+
+    def hold_window(self) -> dict | None:
+        """[ff9mapkit netsync R3 s114] The HOST's start hold as published (``netsync.battle.host.start_hold``, copied:
+        state / why / release / held_ms / late_ms / count / released / guest). None = an engine before s114."""
+        return self.state.coop_start_hold_block
+
+    def atb_flat(self, seconds: float, *, slots=None, player: bool | None = None) -> tuple[bool, list]:
+        """[ff9mapkit netsync R3 s113/s114] Watch the battle's ATB gauges for ``seconds`` (virtual time on the stand-in,
+        wall time on the engine) and say whether every watched unit's ``atb`` stayed CONSTANT -- the Wait freeze's and the
+        start hold's observable. ``slots`` (btl slots) or ``player`` (True/False) narrows the units; a unit full at its max
+        counts as flat (it cannot rise). Returns ``(flat, samples)`` -- each sample ``{frame, atb: {slot: atb}}``. Raises
+        when no battle is up or no unit matches."""
+        deadline = time.time() + float(seconds)
+        samples, first = [], None
+        while True:
+            st = self.state
+            if not st.battle.get("active"):
+                raise HarnessError("atb_flat: no battle is up")
+            units = st.units(player=player)
+            if slots is not None:
+                units = [u for u in units if u.get("slot") in set(slots)]
+            if not units:
+                raise HarnessError(f"atb_flat: no unit matches (slots={slots!r}, player={player!r})")
+            atb = {u["slot"]: u.get("atb") for u in units}
+            samples.append({"frame": st.frame, "atb": atb})
+            if first is None:
+                first = atb
+            elif any(atb.get(s) != v for s, v in first.items()):
+                return False, samples
+            if time.time() >= deadline:
+                return True, samples
+            time.sleep(0.05)
 
     # -- the story-write trace (memoria-patch s88) ---------------------------------------------
     def storytrace(self, on: bool = True, *, timeout: float = 10.0) -> State:

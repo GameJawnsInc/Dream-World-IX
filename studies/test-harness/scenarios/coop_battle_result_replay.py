@@ -48,6 +48,11 @@ manifest, mouse routing on the real screen, the screen composing over the host-d
 deferral (a `dioboot` has no wire nonce, so the watcher returns early).
 
 CALIBRATION -- a check that cannot fail is not a check.
+  * R3 RE-BASELINE (s115, R3-DESIGN 3.2.2 / review end F2): S10-R0 reads the replay count up to a comma OR the closing
+    paren -- from s115 the SelfTest detail goes on past the replay section (", flee M"; s116 ", fleegil K"; s117 ",
+    defeat D"), so the old `replay (\\d+)\\)` read nothing and S10-R0 went red on a correct engine. The pin is unchanged:
+    s115-s117 add no replay row (86 on s109-s117). Nothing else here moves -- this bench presents only victories, and
+    s115's ESCAPE-only AfterEvent exemption leaves R5a's verdict 7 as it was.
   * THE DEPLOYED DLL AT WRITING (s105): neither probe key exists. Part 9: P0 RED; `endbench manifest 1` FAILS ("the
     result manifest is stage 9 -- this engine ships the end block only"), so every B check is RED "not reached"; the
     real battle still runs and C1-C8 (and C4L) go RED on the absent keys (peer.end.flags & 2 == 0, manifest_len 0, rows 0, no
@@ -364,7 +369,7 @@ def _run(g, led: cb.Ledger, field: int, ctx: dict) -> None:
                                        "replay (s109), solo")
     led.check("S910-S0", ok, why)
     ctx["at0"] = cb.mark(g)
-    g.note(f"probe stage: {cb.stage_of(g.state)}")
+    g.note(f"probe stage: {cb.stage_note(g.state)}")
     if PART9:
         _part9(g, led, field)
     if PART10:
@@ -811,7 +816,10 @@ def _part10(g, led: cb.Ledger, field: int, ctx: dict) -> None:
     ok, why = _eb(g, "selftest")
     lines = cb.wait_log(g, at, "harness: battle end-block selftest", 2.0)
     hit = next((ln for ln in lines if "harness: " + SELFTEST10 in ln), "")
-    m = re.search(r"replay (\d+)\)", hit)
+    # [R3 re-baseline, s115] the detail no longer ENDS at the replay section: s115 appends ", flee M" (s116 ", fleegil K",
+    # s117 ", defeat D"), so the count is read up to a comma OR the closing paren (R3-DESIGN 3.2.2, review end F2). The
+    # pin itself is unchanged -- s115-s117 add no replay row (REPLAY_PINS stays 86); an s109-s114 detail still ends ")".
+    m = re.search(r"replay (\d+)[,)]", hit)
     led.check("S10-R0", ok and m is not None and int(m.group(1)) == REPLAY_PINS,
               why or cb.grep(lines, "end-block selftest") + f" (want replay {REPLAY_PINS})")
     r = _R()

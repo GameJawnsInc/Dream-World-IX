@@ -310,7 +310,7 @@ def _run(g, led: cb.Ledger, ctx: _Ctx, field: int, fp0: list, calibrate: bool) -
     fp, fwhy = cb.fingerprint(g, field=field)
     fp0[0], fp0[1] = fp, fwhy
     st = g.state
-    g.note(f"probe stage: {cb.stage_of(st)}; [Netsync] GuestStockMenu in Memoria.ini (read-only): {ctx.ini_knob!r}")
+    g.note(f"probe stage: {cb.stage_note(st)}; [Netsync] GuestStockMenu in Memoria.ini (read-only): {ctx.ini_knob!r}")
     led.check("S8-P0", cb.has(st, cb.PROBES[8]),
               f"netsync.battle.menu keys: {sorted(_m(st))}" if cb.has(st, "netsync.battle") else "no `netsync.battle`")
     try:
@@ -376,6 +376,10 @@ def _leg_a(g, led: cb.Ledger, feed_at: int) -> None:
     st = cb.poll(g, lambda s: cb.peer(s).get("live") is True and _mir(s).get("serving") is True, 2.0,
                  "the feed's lane and the mirror serving") or g.state
     m, p, f = _m(st), cb.peer(st), _feed(st)
+    # [R3 s111/s113/s114 re-baselines, none needed here] `peer.caps` is the BENCH FEED's header byte (`bbench caps`, default 2:
+    # NetSyncBattle.StockMenu `_feedCaps`), never an own battle's sample, so s111's intro bits (0x08/0x04) and s114's hold bit
+    # (0x10) cannot reach it: `== 2` stays exact. `feed.menu_open` is `ctl_menu > 0` from s113 (the root's new byte 2 and a deep
+    # 3 both read open; s114's 5-byte frame keeps byte 1), so A1's false and A3's true are unchanged.
     led.check("S8-A1", p.get("live") is True and p.get("caps") == 2 and p.get("ready_mask") == 0 and m.get("stock_owns") is True
               and m.get("why") is None and _mir(st).get("serving") is True and st.turn_slot == -1
               and m.get("assist_slot") == -1 and f.get("menu_open") is False,

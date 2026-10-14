@@ -137,6 +137,19 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #:   "replay"      -- s109 stage 10, the guest result-screen replay (`end.replay`; `endbench fieldsong|replay|quit`;
 #:                    `battle.result_ui.replay`);
 #:   "handback"    -- s110 stage 11, the host's guest-slot hand-back (`host.handback`; `bench lapse|handback`).
+#: [ff9mapkit netsync R3] battle co-op round 3 (studies/battle-coop/R3-DESIGN.md section 4), no new sub-verb:
+#:   "intro"       -- s111, the battle intro mirror (`host.cfg` / `host.intro`, `netsync.diorama.intro`; `bench intro|cfg`,
+#:                    `battle ... rand`, `dioboot ... [wire] [skip|play|own] [rand]`);
+#:   "swirl"       -- s112, the diorama swirl clamp (`netsync.diorama.intro.swirl_clamp`; `bench swirl local|clamp`);
+#:   "waitparity"  -- s113, Wait parity (`host.wait`, `menu.ctl`, the feed's `ctl`/`ctl_menu`, `lapse.reserve`;
+#:                    `bench waitparity|ctl`, `bench cfg atb`, `bench lapse ... reserve`);
+#:   "starthold"   -- s114, the start hold (`host.start_hold`, `menu.ctl` nonce/boot, `netsync.diorama.live`;
+#:                    `bench boot|starthold`);
+#:   "flee"        -- s115, the guest's flee presentation (`end.flee`, `end_leave.reverted`, `battle.units[].mot|disappear|z`;
+#:                    `endbench guest hold|nor9b`);
+#:   "fleegil"     -- s116, the host's "Dropped N Gil" relayed (`host.flee_gil`, `end.flee.msg_gil`, `host.end`/`peer.end`
+#:                    `flee_gil`; `endbench fleegil`);
+#:   "defeat"      -- s117, the guest's defeat presentation (`end.follow_msg`; `endbench kill|phase-defeat`).
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -147,7 +160,14 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "mirror": ("s107", ()),
                        "manifest": ("s108", ()),
                        "replay": ("s109", ()),
-                       "handback": ("s110", ())}
+                       "handback": ("s110", ()),
+                       "intro": ("s111", ()),
+                       "swirl": ("s112", ()),
+                       "waitparity": ("s113", ()),
+                       "starthold": ("s114", ()),
+                       "flee": ("s115", ()),
+                       "fleegil": ("s116", ()),
+                       "defeat": ("s117", ())}
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench")
@@ -179,10 +199,29 @@ NETSYNC_BATTLE_CAP_KEYS = {
                           "bench_manifest_note")},
     "replay": {"end": ("replay",)},
     "handback": {"host": ("handback",)},
+    # [ff9mapkit netsync R3] s111-s117 (s112 adds nothing at this level: its block sits inside `netsync.diorama.intro`)
+    "intro": {"host": ("cfg", "intro")},
+    "swirl": {},
+    "waitparity": {"host": ("wait",), "menu": ("ctl",)},
+    "starthold": {"host": ("start_hold",)},
+    "flee": {"end": ("flee",)},
+    "fleegil": {"host": ("flee_gil",)},
+    "defeat": {"end": ("follow_msg",)},
 }
+#: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
+NETSYNC_BATTLE_NESTED_KEYS = {
+    "waitparity": {"host.handback.lapse": ("reserve",)},
+    "starthold": {"menu.ctl": ("nonce", "boot", "boot_name")},
+    "flee": {"end.end_leave": ("reverted",)},
+    "fleegil": {"end.flee": ("msg_gil",)},
+}
+#: [ff9mapkit netsync R3] The keys a battle capability adds to the F3.3 `netsync.diorama` block (s111 `intro`, s114 `live`)
+#: and inside it (s112 `intro.swirl_clamp`).
+NETSYNC_DIORAMA_CAP_KEYS = {"intro": ("intro",), "starthold": ("live",)}
+NETSYNC_DIORAMA_NESTED_KEYS = {"swirl": {"intro": ("swirl_clamp",)}}
 NETSYNC_BATTLE_END_LEAVE_KEYS = ("trigger", "latched_ms", "tries", "deferred", "requested", "request_ms", "why", "settled",
                                  "via", "stamp", "stamp_host", "stamped", "stamped_was", "music_shut", "music_why",
-                                 "wipe_lifted")
+                                 "wipe_lifted", "reverted")
 NETSYNC_BATTLE_DECLINED_KEYS = ("count", "nonce", "why")
 #: [ff9mapkit netsync B4] [ff9mapkit netsync B5] s106-s110's FIXED sub-objects (always published whole, in the agent's
 #: order): `menu.content_hits`, `menu.mirror`, `end.replay`, `host.handback` and its `lapse`.
@@ -194,7 +233,23 @@ NETSYNC_BATTLE_REPLAY_KEYS = ("mode", "armed", "pending", "opened", "live", "clo
                               "arm_ms", "open_ms", "close_ms", "exit_waited", "exit_wait_ms", "screen", "fp")
 NETSYNC_BATTLE_HANDBACK_KEYS = ("off", "held", "held_ms", "owed", "g6_mask", "captures", "returns", "deferred", "faults",
                                 "last", "lapse")
-NETSYNC_BATTLE_LAPSE_KEYS = ("active", "hold", "left_ms", "count", "end_frame")
+NETSYNC_BATTLE_LAPSE_KEYS = ("active", "hold", "left_ms", "count", "end_frame", "reserve")
+#: [ff9mapkit netsync R3] s111-s117's FIXED sub-objects (always published whole, in the agent's order): `host.cfg`,
+#: `host.intro`, `host.wait`, `menu.ctl`, `host.start_hold` (+ its `released` / `guest`), `end.flee`; and inside
+#: `netsync.diorama`: `intro` (+ `swirl_clamp`) and `live`. Each tuple is the live agent's; an older patch's is a prefix.
+NETSYNC_BATTLE_CFG_KEYS = ("atb", "skip_btl_camera", "speed", "swirl_frames")
+NETSYNC_BATTLE_HOST_INTRO_KEYS = ("off", "published", "own_skip")
+NETSYNC_BATTLE_WAIT_KEYS = ("parity_off", "menu", "open", "deep", "legacy_seen")
+NETSYNC_BATTLE_CTL_KEYS = ("menu", "hex", "src", "nonce", "boot", "boot_name")
+NETSYNC_BATTLE_START_HOLD_KEYS = ("off", "cap_ms", "state", "nonce", "why", "release", "held_ms", "late_ms", "count",
+                                  "released", "guest")
+NETSYNC_BATTLE_RELEASED_KEYS = ("live", "declined", "link", "oldguest", "cap", "ended")
+NETSYNC_BATTLE_HOLD_GUEST_KEYS = ("r3", "lane_ms", "fmt", "nonce", "boot", "boot_name")
+NETSYNC_BATTLE_FLEE_KEYS = ("r9b", "bypassed", "overload", "ability_flag", "gil_now", "penalty", "msg_gil")
+NETSYNC_DIORAMA_INTRO_KEYS = ("wire", "applied", "own", "off", "calls", "normal_ms", "swirl_frames", "swirl_clamp")
+NETSYNC_DIORAMA_SWIRL_KEYS = ("ini", "clamp", "src", "bench_local", "diorama", "own", "used", "clamped", "dwell_ms",
+                              "swirls", "dioramas", "clamps")
+NETSYNC_DIORAMA_LIVE_KEYS = ("latched", "ms", "nonce")
 #: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
 NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
 #: [ff9mapkit netsync B4] `bbench <op>` (NetSyncBattle.HarnessStockBench): s106's two, then s107's bench feed -- each
@@ -237,6 +292,11 @@ def endbench_ops(caps) -> tuple:
         ops.insert(ops.index("afterevent") + 1, "manifest")
     if "replay" in caps:
         ops.insert(ops.index("afterevent") + 1, "fieldsong")
+    if "fleegil" in caps:                               # [ff9mapkit netsync R3 s116] after `manifest`
+        ops.insert(ops.index("manifest") + 1, "fleegil")
+    if "defeat" in caps:                                # [ff9mapkit netsync R3 s117] after `defeat`, and after `fleegil`
+        ops.insert(ops.index("defeat") + 1, "phase-defeat")
+        ops.insert(ops.index("fleegil") + 1, "kill")
     return tuple(ops)
 
 
@@ -637,6 +697,21 @@ class FakeGame:
         self._nb = _BattleLane()
         #: [ff9mapkit netsync B4] the battle scene's `btl_scene.Info.NoGameOver` (the guest's return settle reads it)
         self.scene_no_gameover = False
+        #: [ff9mapkit netsync R3 s111] the stand-in's per-save config and ini (`netsync.battle.host.cfg`, LIVE reads):
+        #: cfg.atb (1 = Wait, the stock default), cfg.skip_btl_camera (1 = play the intro), [Battle] Speed, [Graphics]
+        #: BattleSwirlFrames, and [Netsync] DioramaSwirlFrames / StartHoldMs (s112 / s114). `bench cfg` overrides the
+        #: first two for the process; `battle ... rand` makes an own battle a random encounter (the intro test's input).
+        self.cfg_atb = 1
+        self.cfg_skipcam = 1
+        self.cfg_speed = 5
+        self.cfg_swirl_frames = 0
+        self.ini_swirl_clamp = 0
+        self.ini_start_hold_ms = BW.START_HOLD_MS
+        self.battle_random = False
+        #: [ff9mapkit netsync R3 s111] a skipped intro's length in frames (the plunge camera skipped: SkipCameraAnimation)
+        self.battle_intro_skip_frames = 6
+        #: [ff9mapkit netsync R3 s115] the presented run-away's frames: the runners turn and run, then the escape fade
+        self.dio_run_frames = 20
         #: [ff9mapkit netsync B5] the diorama's victory camera never advances by itself (the native callback, SFX code
         #: 110, may never fire in BattleMapDebug [I]) -- W1's case; False: the stock tail's camera runs out on its own
         self.dio_camera_stuck = False
@@ -1601,9 +1676,18 @@ class FakeGame:
             self._lock, self._coll = 0.0, 0.0
             self._block(3)
         elif op == "battle":
+            brand = False
+            if len(args) > 2 and "intro" in self._nb_caps():
+                # [ff9mapkit netsync R3 s111] `battle <scene> [group] [rand|1|0]` -- parsed BEFORE the field gate (the agent
+                # throws its ArgumentOutOfRangeException first); an engine before s111 ignores the third argument
+                ra = args[2].lower()
+                if len(args) > 3 or ra not in ("rand", "1", "0"):
+                    raise RuntimeError("expected `battle <scene> [group] [rand|1|0]`, got '" + " ".join(args)
+                                       + "'\r\nParameter name: battle")
+                brand = ra != "0"
             if self.ui_state != "FieldHUD":
                 raise RuntimeError("battle: field only")
-            self.start_battle(num(0, -1), group=num(1, -1))
+            self.start_battle(num(0, -1), group=num(1, -1), rand=brand)
             self._block(3)
         elif op == "battlecmd":
             self._race_end(op)
@@ -3062,17 +3146,34 @@ class FakeGame:
             # commit to its resolution (an R9-refused enqueue never sets it)
             pending = {e[1] for e in self.battle_pending}
             for u in units:
+                status = u.pop("status", "0")               # (the agent's order: cmd_busy before status)
                 u["cmd_busy"] = 1 if u["slot"] in pending else 0
+                u["status"] = status
+        if "flee" in caps:
+            # [ff9mapkit netsync R3 s115] the run-away made readable, after cmd_busy and before status (the agent's order):
+            # `mot` (17 MP_ESCAPE while running, 4 MP_DISABLE once down; 0 the idle), `disappear` (5 once the escape fade
+            # finished) and `z` (falls while a runner runs)
+            for i, u in enumerate(units):
+                r = self._nb.unit_r3.get(u["slot"], {})
+                status = u.pop("status", "0")
+                u["mot"] = r.get("mot", BW.MP_DISABLE if not u.get("alive", True) else 0)
+                u["disappear"] = r.get("disappear", 0)
+                u["z"] = float(r.get("z", -600.0 if u.get("player") else 600.0))
+                u["status"] = status
         doc["units"] = units
         return doc
 
     def start_battle(self, scene: int, *, group: int = -1, debug: bool = False,
-                     units: list[dict] | None = None) -> None:
-        """Stand a battle up, advancing the epoch the way battle.InitBattle does."""
+                     units: list[dict] | None = None, rand: bool = False) -> None:
+        """Stand a battle up, advancing the epoch the way battle.InitBattle does. [ff9mapkit netsync R3 s111] ``rand``: a
+        random encounter -- with cfg.skip_btl_camera 0 the stock intro test skips the plunge camera (a short intro);
+        inside a booted diorama the HOST's choice decides instead (NetSyncDiorama.SkipBattleIntro)."""
         self.battle_epoch += 1
         self.battle_active = True
         self.battle_debug = debug
+        self.battle_random = bool(rand)
         self.battle_result = 0                    # reset at START, which is why 0 is ambiguous
+        self._nb.flee_ability_flag = False        # [ff9mapkit netsync R3 s115] InitBattle zeroes ff9.btl_flag (its flee bit too)
         self.battle_scene = scene
         self.ui_state = "BattleHUD"
         self._tutorial = scene in self.tutorial_scenes
@@ -3087,6 +3188,11 @@ class FakeGame:
         # intro ends, which is where the engine clears them too.
         self.commands_enabled = False
         self._intro_until = self.frame + self.battle_intro_frames
+        if "intro" in self._nb_caps() and self._nb_intro_skipped(debug):
+            # [ff9mapkit netsync R3 s111] the stock intro test (or, in a diorama, the host's choice) skips the camera
+            self._intro_until = self.frame + min(self.battle_intro_frames, self.battle_intro_skip_frames)
+        if "swirl" in self._nb_caps() and not debug:
+            self._nb_record_swirl(False)            # [ff9mapkit netsync R3 s112] a real battle's swirl keeps its own length
         self.battle_pending = []
         self.escaping = False
         self.run_counter = 0.0
@@ -3325,7 +3431,10 @@ class FakeGame:
                 self.battle_turn = -1
                 self._close_battle_cursor()
 
-        for unit in self.battle_units:
+        # [ff9mapkit netsync R3 s113/s114] IsNativeEnableAtb false (the start hold, the Wait freeze): ProcessActiveTime does
+        # not run -- no gauge moves, no player turns Ready, no enemy acts
+        frozen = self._nb_atb_frozen()
+        for unit in ([] if frozen else self.battle_units):
             if not unit["alive"]:
                 continue
             unit["atb"] = min(unit["atb_max"], unit["atb"] + self.atb_gain)
@@ -3608,6 +3717,12 @@ class FakeGame:
                 # [ff9mapkit netsync B4] s110: two NAMED ops of `bench` (an older agent's Arg() reads them as `bench 1`)
                 self._nb_bench_named(bnop, args, arg, int_min, out_of_range)
                 return
+            r3_op = {"intro": "intro", "cfg": "intro", "swirl": "swirl", "waitparity": "waitparity",
+                     "ctl": "waitparity", "boot": "starthold", "starthold": "starthold"}.get(bnop)
+            if sub == "bench" and r3_op is not None and r3_op in self._nb_caps():
+                # [ff9mapkit netsync R3] s111-s114's named ops (the same hazard: an older agent reads each as `bench 1`)
+                self._nb_bench_r3(bnop, args, arg, out_of_range)
+                return
             key = "l1" if sub == "hostscene" else sub
             if key == "l1" and flag and not ns["l1"]:
                 self._guest.scene_nonce = (self._guest.scene_nonce + 1) & 0xFF   # BenchSceneEdge: one per rise
@@ -3725,7 +3840,31 @@ class FakeGame:
             scene = arg(1, -1)
             if scene < 0 or scene not in self.battle_scenes:
                 raise out_of_range("netsync dioboot", "needs a battle scene id registered on this install")
-            self._dio_boot(scene)
+            wire, rand, wire_bench = -1, False, False
+            if "intro" in self._nb_caps():
+                # [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern] [wire] [skip|play|own] [rand]` (the agent's dioTok:
+                # the tokens start at args[2] when it is not an integer, else at args[3]); an older agent ignores them
+                tok = 2 if len(args) > 2 and arg(2, int_min) == int_min else 3
+                for k in range(tok, len(args)):
+                    dt = args[k].lower()
+                    if dt in ("skip", "play", "own"):
+                        wire = {"skip": 1, "play": 0, "own": -1}[dt]
+                    elif dt == "rand":
+                        rand = True
+                    elif dt == "wire":
+                        wire_bench = True
+                    else:
+                        raise out_of_range("netsync dioboot", "expected `netsync dioboot <scene> [pattern] [wire] "
+                                           f"[skip|play|own] [rand]`, got '{args[k]}'")
+                if wire_bench:
+                    if rand:
+                        raise out_of_range("netsync dioboot", "`wire` boots the wire bench, whose header is always a "
+                                           "random encounter: drop `rand`")
+                    # WireBenchBoot: the fabricated header (flags 0x01, or 0x0D / 0x09) through the parse -> WireIntro;
+                    # its header is a random encounter
+                    flags = 0x01 | (0 if wire < 0 else BW.CAP_INTRO_MIRROR | (BW.FLAG_INTRO_SKIPPED if wire == 1 else 0))
+                    wire, rand = BW.wire_intro(flags), True
+            self._dio_boot(scene, wire_intro=wire, rand=rand)
             if not self._dio["booted"]:
                 raise RuntimeError("netsync dioboot: refused (Memoria.log names why: [NetSync] diorama boot REFUSED)")
             self._dio_by_harness = True
@@ -3884,10 +4023,29 @@ class FakeGame:
     def _diorama_doc(self) -> dict:
         """[ff9mapkit netsync F3.3] AppendDiorama -- `resuming` = a WARM return's battle-return bracket still open."""
         d = self._dio
-        return {"booted": d["booted"], "boot": d["boot"], "boot_why": d["boot_why"], "boot_field": d["boot_field"],
-                "boot_x": d["boot_x"], "boot_z": d["boot_z"], "primed": d["primed"], "returns": d["returns"],
-                "last_return": d["last_return"], "last_return_field": d["last_return_field"],
-                "resuming": self._dio_warm_return and self._dio_resume_until is not None}
+        doc = {"booted": d["booted"], "boot": d["boot"], "boot_why": d["boot_why"], "boot_field": d["boot_field"],
+               "boot_x": d["boot_x"], "boot_z": d["boot_z"], "primed": d["primed"], "returns": d["returns"],
+               "last_return": d["last_return"], "last_return_field": d["last_return_field"],
+               "resuming": self._dio_warm_return and self._dio_resume_until is not None}
+        caps, nb = self._nb_caps(), self._nb
+        if "intro" in caps:
+            # [ff9mapkit netsync R3 s111] AppendDioramaIntro -- THIS boot only (`wire` -1 between boots); `swirl_frames` the
+            # process's own (s112: the `bench swirl local` stand-in while set)
+            intro = {"wire": nb.d_wire if d["booted"] else -1,
+                     "applied": {1: "skip", 0: "play"}.get(nb.d_applied), "own": {1: "skip", 0: "play"}.get(nb.d_own),
+                     "off": not self._nb_intro_on(), "calls": nb.d_calls, "normal_ms": nb.d_normal_ms,
+                     "swirl_frames": self._nb_local_swirl() if "swirl" in caps else self.cfg_swirl_frames}
+            if "swirl" in caps:                             # [ff9mapkit netsync R3 s112] AppendSwirlClamp
+                intro["swirl_clamp"] = {
+                    "ini": self.ini_swirl_clamp, "clamp": self._nb_swirl_clamp(),
+                    "src": "bench" if nb.swirl_clamp_set else "ini", "bench_local": nb.swirl_local,
+                    "diorama": nb.sw_diorama, "own": nb.sw_own, "used": nb.sw_used,
+                    "clamped": nb.sw_swirls > 0 and nb.sw_used != nb.sw_own, "dwell_ms": nb.sw_dwell_ms,
+                    "swirls": nb.sw_swirls, "dioramas": nb.sw_dioramas, "clamps": nb.sw_clamps}
+            doc["intro"] = intro
+        if "starthold" in caps:                             # [ff9mapkit netsync R3 s114] AppendDioramaLive
+            doc["live"] = {"latched": nb.live_latched and d["booted"], "ms": nb.live_ms, "nonce": nb.live_nonce}
+        return doc
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -3964,7 +4122,7 @@ class FakeGame:
                 "caps": peer["caps"] if peer else -1, "ready_mask": peer["ready"] if peer else -1}
         menu = {"roster_slots": list(nb.roster_slots) if peer is not None and nb.own_epoch is not None else []}
         if "endblock" in caps:
-            host.update(end=None if nb.host_end is None else BW.published_end(nb.host_end),
+            host.update(end=None if nb.host_end is None else BW.published_end(nb.host_end, with_flee="fleegil" in caps),
                         end_trail=list(nb.host_trail), end_edges=nb.host_edges, end_changes=nb.host_changes,
                         end_mode=BW.HOST_MODE_NAMES[self._nb_host_mode()], end_cmd=nb.cmd_status)
             pdoc.update(end=self._nb_peer_end(), end_trail=list(nb.peer_trail), trailer_bad=nb.trailer_bad,
@@ -3980,6 +4138,22 @@ class FakeGame:
                         bench_manifest_note=nb.manifest_note)
         if "handback" in caps:                              # [ff9mapkit netsync B4] s110
             host["handback"] = self._nb_handback_doc()
+            if "waitparity" in caps:                        # [ff9mapkit netsync R3 s113]
+                host["handback"]["lapse"]["reserve"] = nb.lapse_armed and nb.lapse_reserve
+        if "intro" in caps:                                 # [ff9mapkit netsync R3 s111] AppendHostIntro (LIVE cfg reads)
+            host["cfg"] = {"atb": self.cfg_atb, "skip_btl_camera": self.cfg_skipcam, "speed": self.cfg_speed,
+                           "swirl_frames": self.cfg_swirl_frames}
+            host["intro"] = {"off": not self._nb_intro_on(),
+                             "published": -1 if nb.last_caps < 0 else BW.wire_intro(nb.last_caps),
+                             "own_skip": nb.own_intro}
+        if "waitparity" in caps:                            # [ff9mapkit netsync R3 s113] AppendHostWait
+            host["wait"] = {"parity_off": nb.waitparity_off_lever and role, "menu": nb.remote_seen,
+                            "open": self._nb_remote_open(), "deep": self._nb_remote_deep(),
+                            "legacy_seen": nb.legacy_seen}
+        if "starthold" in caps:                             # [ff9mapkit netsync R3 s114] AppendHostStartHold
+            host["start_hold"] = self._nb_hold_doc()
+        if "fleegil" in caps:                               # [ff9mapkit netsync R3 s116] the host tap's receipt
+            host["flee_gil"] = nb.host_flee_gil
         if "containment" in caps:
             menu.update(r9_refused=nb.r9_refused, r9_total=nb.r9_total, r9_cmd=nb.r9_cmd, r9_site=nb.r9_site,
                         guest_owned=sum(1 << s for s in range(4) if self._nb_guest_owned(s)),
@@ -4017,6 +4191,15 @@ class FakeGame:
                                 "no_roster": nb.no_roster_mask, "faulted": nb.mirror_faulted,
                                 "fault_why": nb.mirror_fault_why},
                         feed=self._nb_feed_doc())
+        if "waitparity" in caps:                            # [ff9mapkit netsync R3 s113] AppendMenuCtl (s114: + the trailer)
+            out = nb.ctl_out
+            ctl = {"menu": out[1] if out is not None and len(out) > 1 else -1,
+                   "hex": None if out is None else BW.hex_bytes(out), "src": nb.ctl_src if out is not None else None}
+            if "starthold" in caps:
+                trailer = out is not None and len(out) >= 5 and out[2] == BW.CTL_FMT1
+                ctl.update(nonce=out[3] if trailer else -1, boot=out[4] if trailer else -1,
+                           boot_name=BW.boot_name(out[4]) if trailer else None)
+            menu["ctl"] = ctl
         doc = {"host": host, "peer": pdoc, "menu": menu}
         if "present" in caps:
             end = {"injected": nb.injected, "held": nb.held, "kind": nb.kind,
@@ -4038,9 +4221,23 @@ class FakeGame:
                     "stamp": nb.stamped if nb.stamped >= 0 else nb.stamp_pending, "stamp_host": nb.stamp_host,
                     "stamped": nb.stamped, "stamped_was": nb.stamped_was, "music_shut": nb.music_shut,
                     "music_why": nb.music_why, "wipe_lifted": nb.wipe_lifted}
+                if "flee" in caps:                          # [ff9mapkit netsync R3 s115] the scoped no-leak rule's receipt
+                    end["end_leave"]["reverted"] = nb.reverted
                 end["declined"] = {"count": nb.declined_count, "nonce": nb.declined_nonce, "why": nb.declined_why}
             if "replay" in caps:                            # [ff9mapkit netsync B5] s109 AppendReplay
                 end["replay"] = self._nb_replay_doc()
+            if "flee" in caps:                              # [ff9mapkit netsync R3 s115] AppendEndFlee (s116: + msg_gil)
+                booted = self._dio["booted"]
+                # ability_flag is the LIVE ff9.btl_flag & BTL_FLAG_ABILITY_FLEE (HarnessFleeAbilityFlag: no booted gate):
+                # the teardown leaves it set, and only the next battle's InitBattle (start_battle) clears it (R3H-7)
+                end["flee"] = {"r9b": nb.flee_r9b, "bypassed": nb.flee_bypassed, "overload": False,
+                               "ability_flag": nb.flee_ability_flag, "gil_now": self.save_gil,
+                               "penalty": nb.flee_penalty if nb.flee_penalty >= 0 or not booted
+                               else self._nb_flee_penalty()}
+                if "fleegil" in caps:
+                    end["flee"]["msg_gil"] = nb.flee_msg_gil
+            if "defeat" in caps:                            # [ff9mapkit netsync R3 s117]
+                end["follow_msg"] = nb.follow_msg
             doc["end"] = end
         return doc
 
@@ -4049,14 +4246,15 @@ class FakeGame:
         [ff9mapkit netsync B5] From s108 it carries the decoded `manifest` / `manifest_why` (and `rows` counts it)."""
         nb = self._nb
         with_manifest = "manifest" in self._nb_caps()
+        with_flee = "fleegil" in self._nb_caps()            # [ff9mapkit netsync R3 s116] + flee_gil
         if nb.bench_armed and self._nb_role():
             return BW.published_end(nb.bench_block, nonce=BW.BENCH_NONCE, wire_seq=nb.bench_wire_seq, bench=True,
-                                    with_manifest=with_manifest)
+                                    with_manifest=with_manifest, with_flee=with_flee)
         peer = nb.peer if nb.own_epoch is not None else None
         if peer is None or peer["end"] is None:
             return None
         return BW.published_end(peer["end"], nonce=peer["nonce"], wire_seq=peer["seq"], bench=False,
-                                with_manifest=with_manifest)
+                                with_manifest=with_manifest, with_flee=with_flee)
 
     def _nb_peer_view(self) -> dict | None:
         """The production `_peerView` while it is live: a selftest OWN battle's loopback, or (s107) the bench feed's lane
@@ -4095,6 +4293,16 @@ class FakeGame:
         nb.clear_bench()
         nb.handback_off_lever = False                    # [ff9mapkit netsync B4] s110 -- and a lapse ended
         self._nb_end_lapse()
+        # [ff9mapkit netsync R3] s111-s114's levers and bench values (HarnessReleaseBench, HarnessReleaseSwirl, the cfg
+        # overrides' restore)
+        nb.intro_off_lever = False
+        self._nb_cfg_restore("skipcam")
+        self._nb_cfg_restore("atb")
+        nb.swirl_local, nb.swirl_clamp_set, nb.swirl_clamp = -1, False, -1
+        nb.waitparity_off_lever = False
+        nb.bench_ctl = -1
+        nb.starthold_off_lever, nb.starthold_cap_bench = False, -1
+        nb.bench_boot, nb.bench_boot_late_ms = -1, 0
         if nb.bench_guest_slots:
             nb.bench_guest_slots = False
             nb.guest_slots = 0                      # the pin while forced, else the ini's own value (0 here)
@@ -4143,9 +4351,15 @@ class FakeGame:
             if not role:
                 raise RuntimeError("netsync bctl: needs the selftest role (netsync selftest 1)")
             if not 0 < len(frame) <= 64:
-                raise RuntimeError("netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 <menuOpen 0|1>)")
+                raise RuntimeError("netsync bctl: needs 1..64 bytes of hex (a control frame is 2: 00 " + (
+                    "<menuOpen 0|1>)" if "waitparity" not in caps else
+                    "<menu 0 shut|1 legacy|2 root|3 deep>)" if "starthold" not in caps else
+                    "<menu 0 shut|1 legacy|2 root|3 deep>, or 5 with the start-hold trailer: ... 01 <host battle nonce> "
+                    "<boot 0-4>)"))
             # ParseControl: a valid frame stamps the lane fresh; an invalid one clears the menu flag and stamps nothing
-            if BW.control_valid(frame):
+            if "waitparity" in caps:
+                self._nb_parse_control(frame)               # [ff9mapkit netsync R3 s113/s114] the depth byte, the trailer
+            elif BW.control_valid(frame):
                 nb.assist_rt = self.rt
                 nb.remote_menu = frame[1] != 0
             else:
@@ -4356,6 +4570,23 @@ class FakeGame:
                                        "needs hex bytes, e.g. `netsync endbench cmd 01 01 00 00 00 00 10 00 00`")
         elif op in mode_ops:
             mode = args[2].lower() if len(args) > 2 else ""
+        elif op == "fleegil" and "fleegil" in caps:         # [ff9mapkit netsync R3 s116] `fleegil <gil>|none`
+            fa = args[2].lower() if len(args) > 2 else ""
+            if fa == "none" and len(args) == 3:
+                mode = "none"
+            else:
+                earg = arg(2, -1)
+                if earg < 0 or len(args) > 3:
+                    raise out_of_range("netsync endbench fleegil",
+                                       "expected `fleegil <gil>|none` (gil a non-negative integer)")
+        elif op == "kill" and "defeat" in caps:             # [ff9mapkit netsync R3 s117] `kill [mask]`, 1-15 (default 15)
+            earg = arg(2, -1) if len(args) > 2 else 15
+            if earg < 1 or earg > 15 or len(args) > 3:
+                raise out_of_range("netsync endbench kill",
+                                   "expected `kill [mask]` (mask 1-15, a bit per player btl_id; default 15)")
+        elif op == "phase-defeat" and "defeat" in caps:     # [ff9mapkit netsync R3 s117] no argument
+            if len(args) > 2:
+                raise out_of_range("netsync endbench phase-defeat", "takes no argument")
         if not self._nb_role():
             raise RuntimeError("netsync endbench: needs the selftest role (netsync selftest 1)")
         t = nb.template
@@ -4366,6 +4597,8 @@ class FakeGame:
                "escape": (BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_ESCAPE, BW.BTL_RESULT_INITIAL),
                "event": (BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_EVENT, BW.BTL_RESULT_INITIAL),
                "fight": (BW.PHASE_NORMAL, 0, BW.BTL_RESULT_INITIAL)}
+        if "defeat" in caps:                                # [ff9mapkit netsync R3 s117] past the settle, or var 34
+            raw["phase-defeat"] = (BW.PHASE_DEFEAT, BW.SEQ_DEFEATCLOSE_FADEOUT, BW.BTL_RESULT_DEFEAT)
         if op in raw:
             t["phase"], t["seq"], t["result"] = raw[op]
         elif op == "other":
@@ -4401,10 +4634,16 @@ class FakeGame:
             nb.host_mode = m
             return
         elif op == "guest" and "present" in caps:
-            m = {"on": BW.GUEST_ON, "off": BW.GUEST_OFF, "settle": BW.GUEST_SETTLE}.get(mode)
+            modes = {"on": BW.GUEST_ON, "off": BW.GUEST_OFF, "settle": BW.GUEST_SETTLE}
+            if "flee" in caps:                              # [ff9mapkit netsync R3 s115] + hold | nor9b
+                modes.update(hold=BW.GUEST_HOLD, nor9b=BW.GUEST_NOR9B)
+            m = modes.get(mode)
             if m is None:
-                raise RuntimeError("netsync endbench guest: needs on|off|settle")
+                raise RuntimeError("netsync endbench guest: needs " + "|".join(modes))
             nb.guest_mode = m
+            return
+        elif op == "kill" and "defeat" in caps:
+            self._nb_kill(earg)                             # [ff9mapkit netsync R3 s117] no fabricate: the template stands
             return
         elif op == "exit" and "exit" in caps:
             m = {"on": BW.EXIT_MODE_ON, "off": BW.EXIT_MODE_OFF}.get(mode)
@@ -4448,6 +4687,10 @@ class FakeGame:
         elif op == "manifest":
             raise RuntimeError("netsync endbench manifest: the result manifest is stage 9 -- this engine ships the end "
                                "block only")
+        elif op == "fleegil" and "fleegil" in caps:         # [ff9mapkit netsync R3 s116] the template's flee record
+            t["flee_gil"] = -1 if mode == "none" else earg
+        elif op == "phase-defeat" and "defeat" in caps:
+            pass                                            # (the raw table above set it)
         else:
             raise RuntimeError(f"netsync endbench: unknown op '{op}' ({'|'.join(endbench_ops(caps))})")
         # Fabricate: the template -> a block as a host ships it -> the codec -> the parse; the PARSED block is served
@@ -4459,10 +4702,14 @@ class FakeGame:
             block["manifest_len"] = len(mbytes)
         else:
             block["flags"] &= ~BW.FLAG_MANIFEST
-        got, why, _skipped = BW.read_trailer(BW.encode_trailer(block, mbytes))
+        flee = t.get("flee_gil", -1) if "fleegil" in caps else -1
+        rec = BW.encode_flee_record(BW.FLEE_GIL_DROP, flee) if flee >= 0 else b""   # [ff9mapkit netsync R3 s116]
+        got, why, _skipped = BW.read_trailer(BW.encode_trailer(block, mbytes) + rec)
         if got is None or why is not None or {k: got[k] for k in block} != block:
             raise RuntimeError(f"netsync endbench {op}: the codec mangled the block -- sent {BW.block_text(block)}, "
                                f"parsed {BW.block_text(got) if got else 'nothing'}")
+        if (got["flee_gil"] if got["flee_flags"] >= 0 else -1) != flee:
+            raise RuntimeError(f"netsync endbench {op}: the codec mangled the flee record (sent {flee})")
         if (not BW.same_manifest(got["manifest"], t["manifest"]) if mbytes is not None
                 else got["manifest"] is not None or got["manifest_len"] != 0):
             raise RuntimeError(f"netsync endbench {op}: the codec mangled the manifest -- parsed "
@@ -4894,12 +5141,33 @@ class FakeGame:
         if f is None:
             return None
         view = self._nb_feed_view_live()
-        return {"guest_slots": f["guest_slots"], "ready": f["ready"], "caps": f["caps"],
-                "mode": "refuse" if f["refuse"] else "accept", "frozen": f["frozen"], "unmap": f["unmap"],
-                "nonce": f["nonce"], "seq": f["seq"], "live": view is not None,
-                "menu_open": view is not None and self._nb_first_ready_guest(view) >= 0, "frames": f["frames"],
-                "taken": f["taken"], "accepted": f["accepted"], "refused": f["refused"], "bad": f["bad"],
-                "last": f["last"]}
+        doc = {"guest_slots": f["guest_slots"], "ready": f["ready"], "caps": f["caps"],
+               "mode": "refuse" if f["refuse"] else "accept", "frozen": f["frozen"], "unmap": f["unmap"],
+               "nonce": f["nonce"], "seq": f["seq"], "live": view is not None,
+               "menu_open": view is not None and self._nb_first_ready_guest(view) >= 0}
+        if "waitparity" in self._nb_caps():
+            # [ff9mapkit netsync R3 s113] the EXACT frame Pump would send this tick, and its byte 1 (`menu_open` is
+            # `ctl_menu > 0`, as before)
+            frame, _src = self._nb_feed_control()
+            doc.update(ctl=None if frame is None else BW.hex_bytes(frame), ctl_menu=frame[1] if frame is not None else -1)
+            doc["menu_open"] = frame is not None and frame[1] > 0
+        doc.update(frames=f["frames"], taken=f["taken"], accepted=f["accepted"], refused=f["refused"], bad=f["bad"],
+                   last=f["last"])
+        return doc
+
+    def _nb_feed_control(self) -> tuple:
+        """[ff9mapkit netsync R3 s113/s114] The bench feed's control frame -- what Pump's guest branch would send while the
+        feed's lane is live: GuestControl over the feed view (the stock window below its root = 3, the Quit prompt
+        excluded) and, s114, the report of a WIRE boot of the feed's nonce (LIVE once the LIVE latch holds)."""
+        view = self._nb_feed_view_live()
+        if view is None:
+            return None, None
+        nb = self._nb
+        ready = self._nb_first_ready_guest(view) >= 0
+        slot = self.battle_turn
+        deep = (slot >= 0 and bool(nb.mirror_mask & (1 << slot)) and not self.quit_prompt
+                and self.menu.get("group") in ("Battle.Ability", "Battle.Item", "Battle.Target"))
+        return self._nb_guest_control(view["nonce"], ready, deep=deep, booted_live=nb.live_latched)
 
     def _nb_first_ready_guest(self, view: dict) -> int:
         """FirstReadyGuestSlot: the first WIRE slot the view offers that is Ready and alive (-1 = none)."""
@@ -5255,15 +5523,16 @@ class FakeGame:
         ui = e["ui"] if ours else 0xFF
         host_state = BW.block_state(e) if ours else -1
         flags = e["flags"] if ours else 0
-        v = BW.arm_verdict(mode, nb.injected, nb.r8_hits, exit_latched, ui, host_state, flags, True, True, 0x0F)
+        res = e["result"] if ours else 0                    # [ff9mapkit netsync R3 s115] an ESCAPE ignores b0
+        v = BW.arm_verdict(mode, nb.injected, nb.r8_hits, exit_latched, ui, host_state, flags, res, True, True, 0x0F)
         m, mask, seated_mask = None, 0, 0
         if v == BW.ARM_GO:
             m = e.get("manifest")
             hud_up = self.ui_state == "BattleHUD" and not self.quit_prompt
             seated, seated_mask = self._nb_seated()
             mask = BW.valid_row_mask(m, seated) if m is not None and hud_up else 0
-            v = BW.arm_verdict(mode, nb.injected, nb.r8_hits, exit_latched, ui, host_state, flags, m is not None, hud_up,
-                               mask)
+            v = BW.arm_verdict(mode, nb.injected, nb.r8_hits, exit_latched, ui, host_state, flags, res, m is not None,
+                               hud_up, mask)
         nb.r_verdict = v
         if v != BW.ARM_GO:
             if v == BW.ARM_NO_VALID_ROW:
@@ -5545,13 +5814,26 @@ class FakeGame:
             la = args[2].lower() if len(args) > 2 else ""
             lms = arg(2, int_min)
             lhold, lend = la == "hold", la == "end" or lms == 0
-            if len(args) != 3 or (not lhold and not lend and not 1 <= lms <= 600000):
-                raise out_of_range("netsync bench lapse", "expected `netsync bench lapse <1-600000 ms>|hold|end`")
+            if "waitparity" in self._nb_caps():
+                # [ff9mapkit netsync R3 s113] an optional 4th argument `reserve` (a timed or held lapse)
+                reserve = len(args) == 4 and args[3].lower() == "reserve"
+                if (len(args) != 3 and not reserve) or (not lhold and not lend and not 1 <= lms <= 600000) \
+                        or (reserve and lend):
+                    raise out_of_range("netsync bench lapse", "expected `netsync bench lapse <1-600000 ms>|hold|end` or "
+                                       "`netsync bench lapse <1-600000 ms>|hold reserve`")
+            else:
+                reserve = False
+                if len(args) != 3 or (not lhold and not lend and not 1 <= lms <= 600000):
+                    raise out_of_range("netsync bench lapse", "expected `netsync bench lapse <1-600000 ms>|hold|end`")
             if not self._nb_role():
                 raise RuntimeError("netsync bench lapse: needs the selftest role (netsync selftest 1)")
             if lend:
                 self._nb_end_lapse()
                 return
+            if reserve and nb.lapse_last_ctl is None:
+                raise RuntimeError("netsync bench lapse: `reserve` has no loopback control frame to re-serve -- arm it "
+                                   "inside an own battle once the loopback guest has pumped")
+            nb.lapse_reserve = reserve
             nb.lapse_armed, nb.lapse_hold = True, lhold
             nb.lapse_ms = 0 if lhold else lms
             nb.lapse_start_rt = self.rt
@@ -5569,8 +5851,431 @@ class FakeGame:
         nb = self._nb
         if not nb.lapse_armed:
             return
-        nb.lapse_armed = nb.lapse_hold = False
+        nb.lapse_armed = nb.lapse_hold = nb.lapse_reserve = False
         nb.lapse_end_frame = self.frame
+
+    # ---- [ff9mapkit netsync R3] s111-s114: the intro mirror, the swirl clamp, Wait parity and the start hold
+    def _nb_bench_r3(self, op: str, args: list, arg, out_of_range) -> None:
+        """`netsync bench intro|cfg|swirl|waitparity|ctl|boot|starthold ...` (s111-s114): the agent's argument counts
+        first (an ArgumentOutOfRangeException), then each Harness* entry point's role gate and refusals, in its words."""
+        nb = self._nb
+        if op == "intro":
+            v = arg(2, -1)
+            if len(args) != 3 or v not in (0, 1):
+                raise out_of_range("netsync bench intro", "expected `netsync bench intro 1|0`")
+            if not self._nb_role():
+                raise RuntimeError("netsync bench intro: needs the selftest role (netsync selftest 1)")
+            nb.intro_off_lever = v == 0
+        elif op == "cfg":
+            if len(args) != 4:
+                raise out_of_range("netsync bench cfg", "expected `netsync bench cfg skipcam 0|1|restore` or `netsync "
+                                   "bench cfg atb wait|active|restore`")
+            if not self._nb_role():
+                raise RuntimeError("netsync bench cfg: needs the selftest role (netsync selftest 1)")
+            what, value = args[2].lower(), args[3].lower()
+            if what == "atb" and "waitparity" in self._nb_caps():
+                if value == "restore":
+                    self._nb_cfg_restore("atb")
+                    return
+                if value not in ("wait", "active"):
+                    raise RuntimeError("netsync bench cfg atb: expected wait|active|restore (the per-save ATB mode: Wait "
+                                       "= 1, Active = 0)")
+                if not nb.atb_set:
+                    nb.atb_set, nb.atb_was = True, self.cfg_atb
+                self.cfg_atb = 1 if value == "wait" else 0
+                return
+            if what != "skipcam":
+                raise RuntimeError(f"netsync bench cfg: unknown setting '{what}' ("
+                                   + ("skipcam|atb" if "waitparity" in self._nb_caps() else "skipcam") + ")")
+            if value == "restore":
+                self._nb_cfg_restore("skipcam")
+                return
+            if value not in ("0", "1"):
+                raise RuntimeError("netsync bench cfg skipcam: expected 0|1|restore (0 = skip the intro camera on a "
+                                   "random encounter)")
+            if not nb.skipcam_set:
+                nb.skipcam_set, nb.skipcam_was = True, self.cfg_skipcam
+            self.cfg_skipcam = int(value)
+        elif op == "swirl":
+            if len(args) != 4:
+                raise out_of_range("netsync bench swirl", "expected `netsync bench swirl local <frames>|ini` or `netsync "
+                                   "bench swirl clamp <frames>|-1|ini`")
+            if not self._nb_role():
+                raise RuntimeError("netsync bench swirl: needs the selftest role (netsync selftest 1)")
+            what, value = args[2].lower(), args[3].lower()
+            ini = value == "ini"
+            n = _int32(value)
+            top = BW.SWIRL_BENCH_MAX_FRAMES
+            if what == "local":
+                if not ini and (n is None or not 0 <= n <= top):
+                    raise RuntimeError(f"netsync bench swirl local: expected <0-{top} frames>|ini (this process's own "
+                                       f"swirl; ini = [Graphics] BattleSwirlFrames)")
+                nb.swirl_local = -1 if ini else n
+            elif what == "clamp":
+                if not ini and (n is None or not -1 <= n <= top):
+                    raise RuntimeError(f"netsync bench swirl clamp: expected <0-{top} frames>|-1|ini (-1 = keep own; ini = "
+                                       f"[Netsync] DioramaSwirlFrames)")
+                nb.swirl_clamp_set, nb.swirl_clamp = not ini, -1 if ini else n
+            else:
+                raise RuntimeError(f"netsync bench swirl: unknown setting '{what}' (local|clamp)")
+        elif op == "waitparity":
+            v = arg(2, -1)
+            if len(args) != 3 or v not in (0, 1):
+                raise out_of_range("netsync bench waitparity", "expected `netsync bench waitparity 1|0`")
+            if not self._nb_role():
+                raise RuntimeError("netsync bench waitparity: needs the selftest role (netsync selftest 1)")
+            nb.waitparity_off_lever = v == 0
+        elif op == "ctl":
+            if len(args) != 3:
+                raise out_of_range("netsync bench ctl", "expected `netsync bench ctl auto|shut|legacy|root|deep`")
+            if not self._nb_role():
+                raise RuntimeError("netsync bench ctl: needs the selftest role (netsync selftest 1)")
+            v = BW.BENCH_CTL.get(args[2].lower())
+            if v is None:
+                raise RuntimeError("netsync bench ctl: expected auto|shut|legacy|root|deep (the control byte 1 a Ready "
+                                   "loopback / feed guest sends)")
+            nb.bench_ctl = v
+        elif op == "boot":
+            if len(args) not in (3, 4):
+                raise out_of_range("netsync bench boot", "expected `netsync bench boot auto|none|booting|live|declined|"
+                                   "busy|stale|silent` or `netsync bench boot late <ms>`")
+            if not self._nb_role():
+                raise RuntimeError("netsync bench boot: needs the selftest role (netsync selftest 1)")
+            name = args[2].lower()
+            v = BW.BENCH_BOOT.get(name)
+            if v is None:
+                raise RuntimeError("netsync bench boot: expected auto|none|booting|live|declined|busy|stale|silent|late <ms>")
+            late = 0
+            if v == BW.BENCH_BOOT_LATE:
+                late = _int32(args[3].strip()) if len(args) == 4 else None
+                if late is None or not 0 <= late <= 600000:
+                    raise RuntimeError("netsync bench boot late: needs <ms> 0-600000 (no control frame until that long "
+                                       "after the host's command phase opens, then BOOTING)")
+            elif len(args) == 4:
+                raise RuntimeError(f"netsync bench boot {name}: takes no argument")
+            nb.bench_boot, nb.bench_boot_late_ms = v, late
+        elif op == "starthold":
+            if len(args) not in (3, 4):
+                raise out_of_range("netsync bench starthold", "expected `netsync bench starthold 1|0` or `netsync bench "
+                                   "starthold cap <ms>|ini`")
+            if not self._nb_role():
+                raise RuntimeError("netsync bench starthold: needs the selftest role (netsync selftest 1)")
+            a = args[2].lower()
+            if a in ("1", "0") and len(args) == 3:
+                nb.starthold_off_lever = a == "0"
+                return
+            if a == "cap" and len(args) == 4:
+                c = args[3].strip().lower()
+                ms = _int32(c)
+                if c == "ini":
+                    nb.starthold_cap_bench = -1
+                elif ms is not None and 0 <= ms <= 600000:
+                    nb.starthold_cap_bench = ms
+                else:
+                    raise RuntimeError("netsync bench starthold cap: expected 0-600000 ms, or ini (back to [Netsync] "
+                                       f"StartHoldMs = {self.ini_start_hold_ms})")
+                return
+            raise RuntimeError("netsync bench starthold: expected 1|0|cap <ms>|cap ini")
+
+    def _nb_cfg_restore(self, which: str) -> None:
+        """BenchCfgRestoreSkipCam / BenchCfgRestoreAtb: the save's value back (a restore, or every harness release)."""
+        nb = self._nb
+        if which == "skipcam" and nb.skipcam_set:
+            nb.skipcam_set, self.cfg_skipcam = False, nb.skipcam_was
+        if which == "atb" and nb.atb_set:
+            nb.atb_set, self.cfg_atb = False, nb.atb_was
+
+    def _nb_intro_on(self) -> bool:
+        """NetSyncBattle.IntroMirrorOn: the `bench intro 0` lever bites only in the selftest role."""
+        return not (self._nb.intro_off_lever and self._nb_role())
+
+    def _nb_intro_skipped(self, debug: bool) -> bool:
+        """The intro the battle starting now plays: the stock test (cfg.skip_btl_camera 0 on a random encounter) -- or,
+        in a booted diorama, NetSyncDiorama.SkipBattleIntro (the HOST's wire choice unless none or the lever), which also
+        records `applied` / `own` / `calls`. An own battle latches its choice (NoteOwnBattleStart's _ownIntro)."""
+        nb = self._nb
+        stock = BW.own_intro_skipped(self.cfg_skipcam, self.battle_random)
+        if not debug:
+            nb.own_intro = 1 if stock else 0
+            return stock
+        skip = stock
+        if nb.d_wire >= 0 and self._nb_intro_on():
+            skip = nb.d_wire == 1
+            nb.d_calls += 1
+        nb.d_own, nb.d_applied = int(stock), int(skip)
+        return skip
+
+    def _nb_local_swirl(self) -> int:
+        """NetSyncDiorama.LocalSwirlFrames: the `bench swirl local` stand-in, else [Graphics] BattleSwirlFrames."""
+        return self._nb.swirl_local if self._nb.swirl_local >= 0 else self.cfg_swirl_frames
+
+    def _nb_swirl_clamp(self) -> int:
+        """NetSyncDiorama.SwirlClamp: the `bench swirl clamp` override, else [Netsync] DioramaSwirlFrames (-1 = off)."""
+        return self._nb.swirl_clamp if self._nb.swirl_clamp_set else self.ini_swirl_clamp
+
+    def _nb_record_swirl(self, booted: bool) -> None:
+        """NetSyncDiorama.SwirlFrames from SFX_Rush's constructor: every swirl recorded (a diorama's clamped); its dwell is
+        the nominal 30 Hz length (NOT MODELLED: the swirl's real frames -- the stand-in's boot keeps `dio_swirl_frames`)."""
+        nb = self._nb
+        own = self._nb_local_swirl()
+        used = BW.swirl_frames(own, booted, self._nb_swirl_clamp())
+        nb.sw_diorama, nb.sw_own, nb.sw_used, nb.sw_dwell_ms = booted, own, used, BW.swirl_ms(used)
+        nb.sw_swirls += 1
+        nb.sw_dioramas += 1 if booted else 0
+        nb.sw_clamps += 1 if used != own else 0
+
+    def _nb_start_hold_cap(self) -> int:
+        """NetSyncBattle.StartHoldCapMs: the `bench starthold 0` lever (0), the bench cap, else [Netsync] StartHoldMs."""
+        nb = self._nb
+        if self._nb_role() and nb.starthold_off_lever:
+            return 0
+        if self._nb_role() and nb.starthold_cap_bench >= 0:
+            return nb.starthold_cap_bench
+        return self.ini_start_hold_ms
+
+    def _nb_atb_frozen(self) -> bool:
+        """BattleHUD.IsNativeEnableAtb's netsync gates on the HOST (an own battle, the command menu enabled): s114's start
+        hold (HoldGate: every ATB mode), then s113's Wait freeze (cfg.atb 1: RemoteMenuDeep -- a fresh open guest window
+        below its root, or any open one under the `bench waitparity 0` lever). Before s113 the stand-in models no remote
+        freeze at all (NOT MODELLED: the GuestWaitMs cap, turn-based Speed < 3)."""
+        nb, caps = self._nb, self._nb_caps()
+        if nb.own_epoch is None or not self.commands_enabled:
+            return False
+        if "starthold" in caps and nb.hold is not None and \
+                BW.hold_gate(nb.hold, int(self.rt * 1000), self._nb_start_hold_cap()):
+            return True
+        return "waitparity" in caps and self.cfg_atb == 1 and self._nb_remote_deep()
+
+    def _nb_remote_open(self) -> bool:
+        """NetSyncBattle.RemoteMenuOpen: an open window on a fresh control lane (MenuStaleMs)."""
+        nb = self._nb
+        return nb.remote_menu and self.rt - nb.assist_rt < BW.MENU_STALE_MS / 1000.0
+
+    def _nb_remote_deep(self) -> bool:
+        """NetSyncBattle.RemoteMenuDeep (the Wait freeze)."""
+        on = not (self._nb.waitparity_off_lever and self._nb_role())
+        return BW.remote_menu_deep(self._nb_remote_open(), self._nb.remote_byte, on)
+
+    def _nb_guest_control(self, view_nonce: int, ready: bool, *, deep: bool = False, booted_live: bool | None = None,
+                          src_deep: str = "stock") -> tuple:
+        """NetSyncBattle.GuestControl: the frame this process's GUEST side sends this tick -> ``(frame | None, src)``.
+        Byte 1: 0 with no Ready guest slot, the `bench ctl` byte, 3 below the root (``deep``), else 2; s114's trailer
+        reports on ``view_nonce`` -- the `bench boot` value, else the guest's own (``booted_live``: None = the selftest
+        loopback, no diorama -> NONE; else a wire boot of that nonce -> LIVE / BOOTING). `silent` and an early `late`
+        send no frame at all (None)."""
+        nb, caps = self._nb, self._nb_caps()
+        if not ready:
+            menu, src = BW.CTL_SHUT, "none"
+        elif nb.bench_ctl >= 0 and self._nb_role():
+            menu, src = nb.bench_ctl, "bench"
+        elif deep:
+            menu, src = BW.CTL_DEEP, src_deep
+        else:
+            menu, src = BW.CTL_ROOT, "root"
+        if "starthold" not in caps:
+            return BW.encode_control(menu), src
+        b, nonce = nb.bench_boot if self._nb_role() else -1, view_nonce
+        if b == BW.BENCH_BOOT_SILENT:
+            return None, src
+        if b == BW.BENCH_BOOT_LATE:
+            # none until <ms> after the HOST's command phase opened (its hold's own opening tick), then BOOTING; a feed
+            # diorama (no own battle, no hold) reports BOOTING at once
+            h = nb.hold
+            if h is not None and (not h["open_seen"] or int(self.rt * 1000) - h["open_tick"] < nb.bench_boot_late_ms):
+                return None, src
+            b = BW.BOOT_BOOTING
+        elif b == BW.BENCH_BOOT_STALE:
+            b, nonce = BW.BOOT_LIVE, (view_nonce - 1) & 0xFF
+        elif b < 0:
+            b = BW.BOOT_NONE if booted_live is None else (BW.BOOT_LIVE if booted_live else BW.BOOT_BOOTING)
+        return BW.encode_control(menu, nonce, b), src
+
+    def _nb_parse_control(self, frame) -> None:
+        """NetSyncBattle.ParseControl on the HOST (s113 byte 1 = the depth; s114 the trailer behind the byte-1 nonce gate):
+        a valid frame stamps the lane; null (a stale socket / a lapse) and a malformed frame shut the menu flag."""
+        nb, caps = self._nb, self._nb_caps()
+        if frame is None:
+            nb.remote_menu, nb.remote_seen = False, -1
+            if nb.hold is not None and nb.hold["primed"] and not nb.hold["released"]:
+                nb.ctl_null_seen = True               # the transport's silence verdict while the hold is primed
+            return
+        d = BW.decode_control(frame, nb.nonce) if "starthold" in caps else \
+            ({"menu": frame[1], "trailer": False, "nonce": -1, "boot": -1} if BW.control_valid(frame) else None)
+        if d is None:
+            nb.remote_menu, nb.remote_seen = False, -1
+            return
+        nb.assist_rt = self.rt
+        nb.remote_byte, nb.remote_seen, nb.remote_menu = d["menu"], d["menu"], d["menu"] != 0
+        if d["menu"] == BW.CTL_LEGACY:
+            nb.legacy_seen = True
+        if "starthold" in caps:
+            data = bytes(frame)
+            nb.rpt_fmt = data[2] if len(data) > 2 else 0
+            nb.ctl_trailer = d["trailer"]
+            if d["trailer"]:
+                nb.rpt_nonce, nb.rpt_boot, nb.rpt_rt, nb.guest_r3 = d["nonce"], d["boot"], self.rt, True
+                nb.last_ctl_legacy = False
+            else:
+                nb.last_ctl_legacy = True
+
+    def _nb_loopback_control(self, caps, ready: bool) -> None:
+        """SelfTestPump's control lane in an own battle (s113+): the loopback guest's frame (GuestControl), a `bench lapse`
+        (none -- or, `reserve`, the last pre-lapse frame for LAPSE_RESERVE_MS), then the HOST's ParseControl of it."""
+        nb = self._nb
+        frame, src = self._nb_guest_control(nb.nonce, ready)
+        if "handback" in caps and self._nb_lapse_tick():
+            if nb.lapse_reserve and self.rt - nb.lapse_start_rt < BW.LAPSE_RESERVE_MS / 1000.0:
+                self._nb_parse_control(nb.lapse_last_ctl)
+            else:
+                self._nb_parse_control(None)
+            return
+        nb.ctl_out, nb.ctl_src = frame, src if frame is not None else None
+        if frame is not None:
+            nb.lapse_last_ctl = frame
+        self._nb_parse_control(frame)
+
+    def _nb_start_hold_tick(self) -> None:
+        """NetSyncBattle.StartHoldTick (both pumps, after the control parse): one StartHoldStep, its counters and the
+        opening's / release's reasons (the agent's `start_hold` keys)."""
+        nb = self._nb
+        h = nb.hold
+        if h is None:
+            return
+        now = int(self.rt * 1000)
+        cap = self._nb_start_hold_cap()
+        rpt_this = nb.ctl_trailer and nb.rpt_nonce == nb.nonce and self.rt - nb.rpt_rt < BW.MENU_STALE_MS / 1000.0
+        held = now - h["since_tick"] if h["armed"] and not h["released"] and h["started"] else 0
+        ev = BW.start_hold_step(h, now, cap > 0, cap, nb.phase_open, rpt_this, nb.rpt_boot, nb.ctl_null_seen,
+                                nb.last_ctl_legacy)
+        if ev == BW.HOLD_ARMED:
+            nb.hold_count += 1
+            nb.hold_why = "booting"
+        elif ev == BW.HOLD_LATE_ARMED:
+            nb.hold_count += 1
+            nb.hold_why, nb.hold_late_ms = "late", h["late_ms"]
+        elif ev == BW.HOLD_NOT_ARMED:
+            nb.hold_why = self._nb_not_armed_why(rpt_this)
+        elif ev in BW.HOLD_RELEASE_NAMES:
+            self._nb_release_hold(ev, held)
+
+    def _nb_not_armed_why(self, rpt_this: bool) -> str:
+        """NetSyncBattle.NotArmedWhy's short key."""
+        nb = self._nb
+        if rpt_this:
+            return {BW.BOOT_LIVE: "live", BW.BOOT_DECLINED: "declined", BW.BOOT_BUSY: "busy", BW.BOOT_NONE: "none",
+                    BW.BOOT_BOOTING: "link"}.get(nb.rpt_boot, "unknown")
+        fresh = self.rt - nb.rpt_rt < BW.MENU_STALE_MS / 1000.0
+        if nb.ctl_trailer and fresh:
+            return "stale nonce"
+        if nb.last_ctl_legacy and self.rt - nb.assist_rt < BW.MENU_STALE_MS / 1000.0:
+            return "old guest"
+        return "no word yet"
+
+    def _nb_release_hold(self, ev: int, held_ms: int) -> None:
+        """NetSyncBattle.ReleaseStartHold: final, counted (per reason), the release's name and held length."""
+        nb = self._nb
+        if nb.hold is not None:
+            nb.hold["released"] = True
+        key = BW.HOLD_RELEASED_KEYS.get(ev)
+        if key is not None:
+            nb.released[key] += 1
+        nb.hold_release, nb.hold_held_ms = BW.HOLD_RELEASE_NAMES[ev], max(0, held_ms)
+
+    def _nb_hold_doc(self) -> dict:
+        """`netsync.battle.host.start_hold` (AppendHostStartHold)."""
+        nb = self._nb
+        cap = self._nb_start_hold_cap()
+        h = nb.hold
+        held = int(self.rt * 1000) - h["since_tick"] if h is not None and BW.hold_bit(h) else nb.hold_held_ms
+        lane = int((self.rt - nb.assist_rt) * 1000)
+        return {"off": cap <= 0, "cap_ms": cap, "state": BW.hold_state_name(h, cap), "nonce": nb.hold_nonce,
+                "why": nb.hold_why, "release": nb.hold_release, "held_ms": held, "late_ms": nb.hold_late_ms,
+                "count": nb.hold_count, "released": dict(nb.released),
+                "guest": {"r3": nb.guest_r3, "lane_ms": lane if 0 <= lane < BW.STALL_MEMORY_MS else -1,
+                          "fmt": nb.rpt_fmt, "nonce": nb.rpt_nonce, "boot": nb.rpt_boot,
+                          "boot_name": BW.boot_name(nb.rpt_boot)}}
+
+    def _nb_diorama_r3_tick(self) -> None:
+        """NetSyncDiorama.LiveTick (s111: the first steady frame -> `normal_ms`; s114: the LIVE latch -- a steady frame with
+        a host sample in hand, the bench feed's live view here)."""
+        nb, caps = self._nb, self._nb_caps()
+        if not self._nb_active() or not self.commands_enabled or self._battle_phase_now() != BW.PHASE_NORMAL:
+            return
+        ms = int((self.rt - nb.d_boot_rt) * 1000)
+        if "intro" in caps and nb.d_normal_ms < 0:
+            nb.d_normal_ms = ms
+        view = self._nb_feed_view_live() if "mirror" in caps else None
+        if "starthold" in caps and not nb.live_latched and view is not None:
+            nb.live_latched, nb.live_ms, nb.live_nonce = True, ms, view["nonce"]
+
+    # ---- [ff9mapkit netsync R3] s115-s117: the run-away, the annihilation, the defeat
+    def _nb_players(self) -> list:
+        return [u for u in self.battle_units if u.get("player")]
+
+    def _nb_all_down(self) -> bool:
+        """NetSyncDiorama.AllPlayersDown: every linked player under BattleEndFull (the stand-in: Death), at least one."""
+        players = self._nb_players()
+        return BW.all_down(len(players), sum(1 for u in players if not u.get("alive", True)))
+
+    def _nb_kill(self, mask: int) -> None:
+        """NetSyncDiorama.HarnessKillPlayers: the reconciler's KillUnit on every seated player whose btl_id bit is in
+        ``mask`` -- HP 0, Death, the death pose (MP_DISABLE) -- BTL_DATA only; refused off a live PHASE_NORMAL diorama."""
+        if not self._dio["booted"] or not self._nb_active():
+            raise RuntimeError("netsync endbench kill: needs a booted battle diorama (`netsync dioboot <scene>`)")
+        phase = self._battle_phase_now()
+        if phase != BW.PHASE_NORMAL:
+            raise RuntimeError(f"netsync endbench kill: needs the diorama in PHASE_NORMAL (phase {phase})")
+        matched = [u for u in self._nb_players() if u.get("id", 0) & mask]
+        if not matched:
+            raise RuntimeError(f"netsync endbench kill: no linked player's btl_id is in mask 0x{mask:X}")
+        for u in matched:
+            if not u.get("alive", True):
+                continue
+            u.update(hp=0, hp_raw=0, alive=False)
+            self._nb.unit_r3.setdefault(u["slot"], {})["mot"] = BW.MP_DISABLE
+
+    def _nb_flee_penalty(self) -> int:
+        """The stock default flee method's gil penalty (NOT the engine's formula: a tenth of the save's gil)."""
+        return self.save_gil // 10
+
+    def _nb_run_step(self) -> None:
+        """The run-away, one frame (battle.cs SEQ_MENU_OFF_ESCAPE): each runner's z falls 100 a frame; once the run is
+        over the escape fade has finished and every runner reads `disappear` 5."""
+        nb = self._nb
+        done = self.frame >= nb.run_until
+        for r in nb.unit_r3.values():
+            if r.get("mot") != BW.MP_ESCAPE:
+                continue
+            if done:
+                r["disappear"] = BW.DISAPPEAR_DONE
+            else:
+                r["z"] = r.get("z", -600.0) - 100.0
+
+    def _nb_standing(self) -> int:
+        """MenuOffBlocker's defeat row: visible players neither down (MP_DISABLE) nor dead."""
+        return sum(1 for u in self._nb_players()
+                   if u.get("alive", True) and self._nb.unit_r3.get(u["slot"], {}).get("mot") != BW.MP_DISABLE)
+
+    def _nb_defeat_song(self) -> None:
+        """PHASE_DEFEAT's BattleIdleLoop: ManageBattleSong(30, 6) -- song 6 and BTL_SONG_FADEOUT | BTL_PLAY_END_SONG in a
+        Game-Over scene only (btl_scene.Info.NoGameOver gates the call); BTL_END_LOAD either way."""
+        nb = self._nb
+        nb.btl_flag |= BW.BTL_END_LOAD
+        if not self.scene_no_gameover:
+            nb.btl_flag |= BW.BTL_PLAY_END_SONG | BW.BTL_SONG_FADEOUT
+            nb.music = 6
+
+    def _nb_flee_gil_tick(self, ours: bool, e: dict | None) -> None:
+        """NetSyncDiorama.FleeGilTick (s116): FleeMsgVerdict over this boot's run-away -- the HOST's figure shown once,
+        through the stock follow message ("dropped-gil"), never the guest's own gil."""
+        nb = self._nb
+        flags = e.get("flee_flags", -1) if ours and e is not None else -1
+        gil = e.get("flee_gil", -1) if ours and e is not None else -1
+        v = BW.flee_msg_verdict(nb.action, nb.flee_r9b, nb.r8_hits, nb.flee_msg_gil >= 0, ours, flags, gil)
+        if v == BW.FLEE_MSG_SHOW:
+            nb.flee_msg_gil = gil
+            nb.follow_msg = BW.FOLLOW_MSG_DROPPED_GIL
+
 
     def _nb_lapse_tick(self) -> bool:
         """BenchLapseTick (SelfTestPump, before its ParseControl): True while a lapse holds the loopback guest silent; the
@@ -5668,6 +6373,8 @@ class FakeGame:
             self._nb_pump_own(caps)
         elif nb.own_epoch is not None:
             self._nb_own_end()
+        if "intro" in caps and self._nb_active():
+            self._nb_diorama_r3_tick()                      # [ff9mapkit netsync R3 s111/s114] LiveTick
         if "present" in caps and self._nb_active() and self._nb_role():
             self._nb_end_tick(caps)
         if self._nb_active() and nb.phase is not None:
@@ -5678,6 +6385,10 @@ class FakeGame:
             self._nb_feed_tick()
             self._nb_mirror_tick()
             self._nb_drain_outbox()
+            if "waitparity" in caps and nb.feed is not None and nb.own_epoch is None:
+                frame, src = self._nb_feed_control()        # [ff9mapkit netsync R3 s113] the feed records the frame Pump
+                if frame is not None:                       # would send: `menu.ctl` reads it back
+                    nb.ctl_out, nb.ctl_src = frame, src
         if "replay" in caps:                                # [ff9mapkit netsync B5] s109: the replay's screen
             self._nb_replay_open()
             self._nb_screen_tick()
@@ -5705,6 +6416,14 @@ class FakeGame:
             nb.bench_block = None
         nb.peer = None
         nb.hb_held, nb.hb_defer_noted, nb.handback_edge, nb.g6_mask = -1, False, False, -1   # [ff9mapkit netsync B4] s110
+        # [ff9mapkit netsync R3 s113/s114] NoteOwnBattleStart: a fresh hold for this nonce, the edge's flags cleared (the
+        # previous battle's why / release / held / late stay readable until now)
+        nb.legacy_seen = False
+        nb.hold = BW.new_hold_state()
+        nb.hold_nonce = nb.nonce
+        nb.hold_why = nb.hold_release = None
+        nb.hold_held_ms = nb.hold_late_ms = -1
+        nb.ctl_null_seen = nb.last_ctl_legacy = False
 
     def _nb_own_end(self) -> None:
         """An own battle's falling edge (NoteOwnBattleEnd): the host's "last sample" reads -1, `host.end` null, the lane
@@ -5719,6 +6438,16 @@ class FakeGame:
         nb.peer = None
         nb.hb_held, nb.hb_defer_noted, nb.handback_edge, nb.g6_mask = -1, False, False, -1
         self._nb_end_lapse()
+        # [ff9mapkit netsync R3] NoteOwnBattleEnd: a hold still holding dies with its battle ("ended"); the intro latch and
+        # the host's decode of the lane go (`host.wait.menu` -1)
+        h = nb.hold
+        if h is not None and h["armed"] and not h["released"]:
+            self._nb_release_hold(BW.HOLD_REL_ENDED, int(self.rt * 1000) - h["since_tick"] if h["started"] else 0)
+        nb.hold, nb.hold_nonce = None, -1
+        nb.own_intro = -1
+        nb.remote_seen = -1
+        nb.remote_menu = False
+        nb.ctl_null_seen = nb.last_ctl_legacy = False
 
     def _nb_pump_own(self, caps) -> None:
         """SelfTestPump in an own battle: TrackCommandPhase, the roster, the sample (caps + Ready bits + the end block),
@@ -5735,10 +6464,17 @@ class FakeGame:
         handback = "handback" in caps
         if handback:
             self._nb_track_hold()                           # [ff9mapkit netsync B4] s110 TrackHostHold (beside the phase)
-        if not (handback and self._nb_lapse_tick()):
+        if "waitparity" in caps:
+            # [ff9mapkit netsync R3 s113/s114] the loopback guest's GuestControl (its depth byte, the s114 report), a lapse
+            # (none, or the reserve), then the host's ParseControl of it
+            view = nb.peer
+            self._nb_loopback_control(caps, bool(view is not None and view["ready"] & nb.guest_slots))
+        elif not (handback and self._nb_lapse_tick()):
             nb.assist_rt = self.rt                          # the loopback's own control frame stamps the lane every tick
         if handback:                                        # ...a `bench lapse` sends none: ParseControl(null), a STALL
             self._nb_hand_back()                            # G3, right after ParseControl
+        if "starthold" in caps:
+            self._nb_start_hold_tick()                      # [ff9mapkit netsync R3 s114] right after HandBackGuestSlot
         # the roster: gated -> only in the command phase, rebuilt at its opening; ungated -> the RosterMs cadence (a
         # second battle's intro reads the previous battle's ability keys as ready -- the stale roster leak)
         menus_ready = open_ or (not gates and nb.own_battles > 1)
@@ -5767,6 +6503,12 @@ class FakeGame:
         if handback:
             nb.g6_mask = g6
         caps_byte = BW.CAP_COMMAND_PHASE_GATED if gates else 0
+        if "intro" in caps:
+            # [ff9mapkit netsync R3 s111] bit 0 random, bits 2-3 the intro (clear under the `bench intro 0` lever); s114 bit
+            # 4 while the start hold holds
+            caps_byte = BW.own_battle_caps(gates, self.battle_random, intro_on=self._nb_intro_on(),
+                                           skipped=nb.own_intro == 1,
+                                           holding="starthold" in caps and nb.hold is not None and BW.hold_bit(nb.hold))
         nb.last_caps, nb.last_ready = caps_byte, ready
         nb.wire_seq = (nb.wire_seq + 1) & 0xFFFF
         end = None
@@ -5894,6 +6636,13 @@ class FakeGame:
         nb.no_roster_since.clear()
         nb.mirror_faulted, nb.mirror_fault_why = False, None
         nb.reset_replay()
+        # [ff9mapkit netsync R3] s111/s114: the intro's and the LIVE latch's per-boot record (the boot's wire intro is
+        # stamped by the caller after this); s115-s117: the flee / defeat presentation's
+        nb.d_applied = nb.d_own = -1
+        nb.d_calls, nb.d_normal_ms, nb.d_boot_rt = 0, -1, self.rt
+        nb.live_latched, nb.live_ms, nb.live_nonce = False, -1, -1
+        nb.reset_r3_end()
+        nb.unit_r3.clear()
 
     def _nb_teardown(self) -> None:
         """NetSyncDiorama.ForceDisarm at the teardown: StockMenuCloseAll("the diorama tore down"), then (s105) the
@@ -5918,8 +6667,19 @@ class FakeGame:
                 nb.stamped_was = self.battle_result
                 self.battle_result = nb.stamp_pending
                 nb.stamped, nb.stamp_pending = nb.stamp_pending, -1
+            elif "flee" in caps and nb.settled and nb.stamped < 0:
+                # [ff9mapkit netsync R3 s115] THE NO-LEAK RULE, scoped (ApplyReturnSettle): nothing stamped -- a local
+                # DEFEAT / GAMEOVER, or any local value once the host's final kind is Defeat, reverts to the pre-injection
+                # result
+                kind = nb.exit_last["kind"] if nb.exit_seen and nb.exit_last is not None else nb.kind
+                back = BW.no_leak_result(-1, nb.injected, self.battle_result, nb.pre_inject, kind)
+                if back >= 0:
+                    nb.reverted, self.battle_result = self.battle_result, back
             if nb.injected and not nb.wipe_lifted and not nb.r_hide_tail and self._nb_exit_mode() == BW.EXIT_MODE_ON:
                 nb.wipe_lifted = True
+        if nb.gil_taken:                                    # [ff9mapkit netsync R3 s115] Disarm's Restore: party.gil back
+            self.save_gil += nb.gil_taken
+            nb.gil_taken = 0
         nb.phase = nb.seq = None
 
     def _nb_end_tick(self, caps) -> None:
@@ -5933,15 +6693,21 @@ class FakeGame:
         if ours:
             nb.exit_seen = True
             nb.exit_last = e
+            if e["kind"] == BW.K_EVENT:                     # [ff9mapkit netsync R3 s117] the host's latest pre-end state
+                nb.host_event = True
+            elif e["kind"] == BW.K_FIGHTING:
+                nb.host_event = False
         leaving = self._nb_exit_tick(ours, e) if "exit" in caps else False
         if self._nb_hud_off() and self.commands_enabled:
             self.commands_enabled = False                   # KeepHudOff
         if nb.injected:
             if not nb.w1_armed and ours and e["ui"] >= BW.UI_RESULT:
                 nb.w1_armed, nb.w1_since = True, self.rt
+            self._nb_watchdogs()
+            if "fleegil" in caps:
+                self._nb_flee_gil_tick(ours, e)             # [ff9mapkit netsync R3 s116] a record that came after R9b
             if "replay" in caps:
                 self._nb_replay_arm_tick(ours, e)           # [ff9mapkit netsync B5] s109 ReplayArmTick
-            self._nb_watchdogs()
             return
         if leaving:
             nb.why = (f"the host already left its battle ({BW.trigger_name(nb.trigger)}) -- the guest follows it out "
@@ -5951,6 +6717,13 @@ class FakeGame:
             nb.why = "no peer end block (no live lane, or a host that predates the end block)"
             return
         action = BW.present_action(e["kind"])
+        if "flee" in caps:
+            # [ff9mapkit netsync R3 s115] the phase-aware table; s117 + the defeat rows (an s115/s116 guest still holds a
+            # defeat: PresentFor's last line)
+            all_down = e["kind"] == BW.K_DEFEAT and self._nb_all_down()
+            action = BW.present_for(e["kind"], e["phase"], self._nb_guest_mode(), all_down, nb.host_event)
+            if "defeat" not in caps and e["kind"] == BW.K_DEFEAT and self._nb_guest_mode() != BW.GUEST_HOLD:
+                action = BW.PRESENT_HOLD
         if action == BW.PRESENT_NONE or (action == BW.PRESENT_HOLD and nb.held):
             nb.why = None
             return
@@ -5961,8 +6734,13 @@ class FakeGame:
         self._nb_inject(e, action)
 
     def _nb_inject(self, e: dict, action: int) -> None:
-        """NetSyncDiorama.InjectEnd: the stock menu closed, the HUD hidden, then the stock end the kind names."""
+        """NetSyncDiorama.InjectEnd: the stock menu closed, the HUD hidden, then the stock end the kind names.
+        [ff9mapkit netsync R3] s115 the run-away (the SysEscape executor's VISUAL half), s117 the annihilation ("Annihilated"
+        BEFORE the hide; the stock settle, or the defeat tail's writes at once for a standing party) and var 34's defeat."""
         nb = self._nb
+        nb.pre_inject = self.battle_result                  # [ff9mapkit netsync R3 s115] the no-leak rule's baseline
+        if action == BW.PRESENT_ANNIHILATE:
+            nb.follow_msg = BW.FOLLOW_MSG_ANNIHILATED       # [ff9mapkit netsync R3 s117] CheckBattlePhase's order
         if "stockmenu" in self._nb_caps():
             self._nb_close_all("end injected")
         self.commands_enabled = False                       # FF9BMenu_EnableMenu(false)
@@ -5976,6 +6754,30 @@ class FakeGame:
         if action == BW.PRESENT_VICTORY:
             nb.phase, nb.seq = BW.PHASE_MENU_OFF, BW.victory_seq(self._nb_guest_mode())
             nb.stage_until = self.frame + self.dio_tail_frames
+        elif action == BW.PRESENT_FLEE:
+            # [ff9mapkit netsync R3 s115] every living player turns and runs (MP_ESCAPE, z falling), then the escape fade
+            if self._nb_guest_mode() == BW.GUEST_NOR9B:
+                nb.flee_ability_flag = True                 # CALIBRATION ONLY: the stock penalty's flag
+            for u in self._nb_players():
+                if u.get("alive", True) and u["hp"] > 0:
+                    nb.unit_r3[u["slot"]] = {"mot": BW.MP_ESCAPE, "disappear": 0, "z": -600.0}
+            nb.phase, nb.seq = BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_ESCAPE
+            nb.run_until = self.frame + self.dio_run_frames
+            nb.stage_until = nb.run_until
+        elif action == BW.PRESENT_ANNIHILATE:
+            if BW.annihilate_settles(self._nb_all_down(), self._nb_guest_mode()):
+                nb.phase, nb.seq = BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_DEFEAT
+                nb.stage_until = self.frame + self.dio_tail_frames
+            else:                                           # a standing party: the tail's writes, its settle skipped
+                self.battle_result = BW.BTL_RESULT_DEFEAT
+                nb.phase, nb.seq = BW.PHASE_DEFEAT, BW.SEQ_DEFEATCLOSE_FADEOUT
+                self._nb_defeat_song()
+                nb.stage_until = self.frame + 32
+        elif action == BW.PRESENT_DEFEAT:                   # [ff9mapkit netsync R3 s117] var 34's writes, no message
+            self.battle_result = BW.BTL_RESULT_DEFEAT
+            nb.phase, nb.seq = BW.PHASE_DEFEAT, BW.SEQ_DEFEATCLOSE_FADEOUT
+            self._nb_defeat_song()
+            nb.stage_until = self.frame + 32
         else:
             self.battle_result = BW.close_result(e["result"])
             nb.phase, nb.seq = BW.PHASE_CLOSE, BW.SEQ_DEFEATCLOSE_FADEOUT
@@ -5999,17 +6801,57 @@ class FakeGame:
                 if n:
                     blockers.append(f"{n} unsettled unit(s) (SEQ_MENU_OFF_VICTORY's per-unit settle: an enemy without "
                                     f"BattleEnd, or a dead player not yet down)")
+            if nb.seq == BW.SEQ_MENU_OFF_DEFEAT and "defeat" in self._nb_caps():
+                n = self._nb_standing()                     # [ff9mapkit netsync R3 s117] the defeat tail's own blocker
+                if n:
+                    blockers.append(f"{n} player(s) not down (the defeat tail waits for every player's MP_DISABLE or a "
+                                    f"BattleEnd status)")
             nb.blocker = "; ".join(blockers) or "no blocker visible"
             nb.btl_flag |= BW.BTL_END_LOAD
-            self.battle_result = BW.BTL_RESULT_VICTORY
-            nb.phase, nb.seq, nb.stage_until = BW.PHASE_VICTORY, BW.SEQ_VICTORY_FADEOUT, self.frame + 32
+            # [ff9mapkit netsync R3 s115/s117] KIND-AWARE: the tail of the kind actually injected (W2Force)
+            if "flee" in self._nb_caps():
+                phase, seq, result = BW.w2_force(nb.action)
+            else:
+                phase, seq, result = BW.PHASE_VICTORY, BW.SEQ_VICTORY_FADEOUT, BW.BTL_RESULT_VICTORY
+            self.battle_result = result
+            nb.phase, nb.seq, nb.stage_until = phase, seq, self.frame + 32
 
     def _nb_present_step(self) -> None:
         """The stock tail the injection set running, one frame: MENU_OFF's trailing loop (the _WITH_ENEMY seq has no
         per-unit settle; the settle seq stalls while an enemy stands), PHASE_VICTORY's camera / fade / WAIT, the CLOSE
         fade -- and R8 at the WAIT seq, where ManageBattleEnd is reached only when the Byte btl_fade_time++ > 32."""
         nb = self._nb
+        if nb.phase == BW.PHASE_MENU_OFF and nb.seq == BW.SEQ_MENU_OFF_ESCAPE:
+            self._nb_run_step()                             # [ff9mapkit netsync R3 s115] the runners, every frame
         if self.frame < nb.stage_until:
+            return
+        if nb.phase == BW.PHASE_MENU_OFF and nb.seq == BW.SEQ_MENU_OFF_ESCAPE:
+            # [ff9mapkit netsync R3 s115] battle.cs's escape tail: ESCAPE, PHASE_CLOSE -- then R9b (the STATE half skipped:
+            # counted; the `guest nor9b` lever lets the stock penalty run instead), BTL_END_LOAD, the CLOSE fade
+            self.battle_result = BW.BTL_RESULT_ESCAPE
+            nb.btl_flag |= BW.BTL_END_LOAD
+            nb.phase, nb.seq = BW.PHASE_CLOSE, BW.SEQ_DEFEATCLOSE_FADEOUT
+            nb.flee_penalty = self._nb_flee_penalty()
+            if self._nb_guest_mode() == BW.GUEST_NOR9B:
+                nb.flee_bypassed += 1
+                self.save_gil -= nb.flee_penalty            # the stock penalty, in the diorama (the teardown puts it back)
+                nb.gil_taken = nb.flee_penalty
+            else:
+                nb.flee_r9b += 1
+                if "fleegil" in self._nb_caps():
+                    self._nb_flee_gil_tick(nb.bench_armed, nb.bench_block)
+            nb.stage_until = self.frame + 32
+            return
+        if nb.phase == BW.PHASE_MENU_OFF and nb.seq == BW.SEQ_MENU_OFF_DEFEAT:
+            # [ff9mapkit netsync R3 s117] the defeat tail's per-unit settle: every visible player down, then DEFEAT,
+            # PHASE_DEFEAT -- song 6 in a Game-Over scene only -- and the fade
+            if self._nb_standing():
+                return
+            self.battle_result = BW.BTL_RESULT_DEFEAT
+            nb.btl_flag |= BW.BTL_END_LOAD
+            nb.phase, nb.seq = BW.PHASE_DEFEAT, BW.SEQ_DEFEATCLOSE_FADEOUT
+            self._nb_defeat_song()
+            nb.stage_until = self.frame + 32
             return
         if nb.phase == BW.PHASE_MENU_OFF:
             if nb.seq == BW.SEQ_MENU_OFF_VICTORY and any(not u.get("player") and u.get("alive")
@@ -6024,7 +6866,8 @@ class FakeGame:
             if not self.dio_camera_stuck:
                 nb.seq, nb.stage_until = BW.SEQ_VICTORY_FADEOUT, self.frame + 32
         elif (nb.phase, nb.seq) in ((BW.PHASE_VICTORY, BW.SEQ_VICTORY_FADEOUT),
-                                    (BW.PHASE_CLOSE, BW.SEQ_DEFEATCLOSE_FADEOUT)):
+                                    (BW.PHASE_CLOSE, BW.SEQ_DEFEATCLOSE_FADEOUT),
+                                    (BW.PHASE_DEFEAT, BW.SEQ_DEFEATCLOSE_FADEOUT)):
             nb.seq = BW.SEQ_VICTORY_WAIT if nb.phase == BW.PHASE_VICTORY else BW.SEQ_DEFEATCLOSE_WAIT
             nb.fade = 0
         else:                                               # a WAIT seq: R8 at the head of ManageBattleEnd
@@ -6819,10 +7662,12 @@ class FakeGame:
             return "no controlled actor"
         return None
 
-    def _dio_boot(self, scene: int) -> None:
+    def _dio_boot(self, scene: int, *, wire_intro: int = -1, rand: bool = False) -> None:
         """NetSyncDiorama.Boot: (a refusal, :attr:`dio_boot_refusal`, leaves every observable alone) PrimeWarmReturn --
         WARM only when free-standing, the actor's position kept -- then the Replace into the debug battle, which never
-        ends by itself (isDebug)."""
+        ends by itself (isDebug). [ff9mapkit netsync R3 s111] ``wire_intro`` (1 skip, 0 play, -1 own) is the boot's
+        _wireIntro (HarnessBoot / BootFromWire), ``rand`` its random-encounter flag; [s112] the boot's swirl is
+        recorded (its OWN length, clamped by DioramaSwirlFrames)."""
         if self.dio_boot_refusal is not None:
             return
         # [ff9mapkit netsync F3.3] Boot's `_leaveTick = TickCount - 3600000` (after every refusal): a fresh boot
@@ -6845,7 +7690,10 @@ class FakeGame:
         self._beats, self._beat_phase = [], None
         self.control = False
         self._nb_boot()                                   # [ff9mapkit netsync B4] the battle lane's per-boot state
-        self.start_battle(scene, debug=True,
+        self._nb.d_wire = wire_intro if "intro" in self._nb_caps() and wire_intro in (0, 1) else -1
+        if "swirl" in self._nb_caps():
+            self._nb_record_swirl(True)                   # [ff9mapkit netsync R3 s112] SFX_Rush's constructor, booted
+        self.start_battle(scene, debug=True, rand=rand,
                           units=None if self.dio_units is None else [dict(u) for u in self.dio_units])
 
     def _dio_leave_recently(self) -> bool:
@@ -7730,6 +8578,78 @@ class _BattleLane:
         self.lapse_start_rt = 0.0
         self.lapse_count = 0
         self.lapse_end_frame = -1
+        # ---- [ff9mapkit netsync R3] s111: the intro mirror (NetSyncBattle / NetSyncDiorama statics)
+        self.intro_off_lever = False                # BenchIntroOff (both halves)
+        self.own_intro = -1                         # _ownIntro: this own battle's latch (1 skipped, 0 played, -1 none)
+        self.skipcam_set = False                    # the `bench cfg skipcam` override: in force / the value it replaced
+        self.skipcam_was = 0
+        self.atb_set = False                        # [s113] the `bench cfg atb` override
+        self.atb_was = 0
+        self.d_wire = -1                            # the diorama's _wireIntro (THIS boot)
+        self.d_applied = -1                         # _introApplied / _introOwn (-1 = no SkipBattleIntro call yet)
+        self.d_own = -1
+        self.d_calls = 0
+        self.d_normal_ms = -1
+        self.d_boot_rt = 0.0
+        # ---- s112: the swirl clamp
+        self.swirl_local = -1                       # `bench swirl local` (-1 = [Graphics])
+        self.swirl_clamp_set = False                # `bench swirl clamp` in force
+        self.swirl_clamp = -1
+        self.sw_diorama = False                     # the LAST swirl constructed
+        self.sw_own = -1
+        self.sw_used = -1
+        self.sw_dwell_ms = -1
+        self.sw_swirls = self.sw_dioramas = self.sw_clamps = 0   # monotonic per process
+        # ---- s113: Wait parity
+        self.waitparity_off_lever = False           # BenchWaitParityOff
+        self.bench_ctl = -1                         # BenchCtl (-1 = auto)
+        self.remote_byte = 0                        # _remoteMenuByte
+        self.remote_seen = -1                       # _remoteMenuSeen (-1 = none since a null/malformed frame or a reset)
+        self.legacy_seen = False
+        self.ctl_out: bytes | None = None           # _ctlOut: the frame my guest side built last
+        self.ctl_src: str | None = None
+        self.lapse_reserve = False
+        self.lapse_last_ctl: bytes | None = None    # _lapseLastCtl: the loopback's last pre-lapse frame
+        # ---- s114: the start hold
+        self.starthold_off_lever = False            # BenchStartHoldOff
+        self.starthold_cap_bench = -1               # BenchStartHoldCapMs (-1 = the ini)
+        self.bench_boot = -1                        # BenchBoot (-1 = auto)
+        self.bench_boot_late_ms = 0
+        self.hold: dict | None = None               # _hold (BW.new_hold_state) -- None between own battles
+        self.hold_nonce = -1
+        self.ctl_trailer = False
+        self.rpt_nonce = self.rpt_boot = self.rpt_fmt = -1
+        self.rpt_rt = -60.0
+        self.guest_r3 = False
+        self.ctl_null_seen = False
+        self.last_ctl_legacy = False
+        self.hold_why: str | None = None
+        self.hold_release: str | None = None
+        self.hold_held_ms = -1
+        self.hold_late_ms = -1
+        self.hold_count = 0                         # monotonic
+        self.released = {k: 0 for k in BW.HOLD_RELEASED_KEYS.values()}   # monotonic, per reason
+        self.live_latched = False                   # the diorama's LIVE latch (THIS boot)
+        self.live_ms = -1
+        self.live_nonce = -1
+        # ---- s115-s117: flee and defeat (per boot unless noted)
+        self.unit_r3: dict = {}                     # btl slot -> {mot, disappear, z} (the run-away / a KillUnit)
+        self.reset_r3_end()
+        self.host_flee_gil = -1                     # NOT MODELLED: the stand-in's own battles never take the flee tail
+
+    def reset_r3_end(self) -> None:
+        """[ff9mapkit netsync R3 s115-s117] NetSyncDiorama's per-boot flee / defeat state (Boot's reset)."""
+        self.flee_r9b = 0
+        self.flee_bypassed = 0
+        self.flee_penalty = -1
+        self.flee_ability_flag = False
+        self.flee_msg_gil = -1
+        self.follow_msg: str | None = None
+        self.pre_inject = -1
+        self.reverted = -1
+        self.host_event = False
+        self.run_until = -1                         # the run-away's frames (then the escape fade)
+        self.gil_taken = 0                          # the `guest nor9b` penalty Disarm's Restore puts back at the teardown
 
     def reset_replay(self) -> None:
         """NetSyncDiorama.ResetReplay (every boot): the arm, its receipts and the screen's."""
@@ -7755,7 +8675,8 @@ class _BattleLane:
     def blank_template() -> dict:
         """NetSyncEnd's bench template at rest (ClearBench): fighting, ui 0, no screen -- [ff9mapkit netsync B5] and no
         result manifest (s108)."""
-        return {"phase": 4, "seq": 0, "result": 0, "ui": 0, "state": 0, "loading": False, "flags": 0, "manifest": None}
+        return {"phase": 4, "seq": 0, "result": 0, "ui": 0, "state": 0, "loading": False, "flags": 0, "manifest": None,
+                "flee_gil": -1}
 
     def reset_presentation(self) -> None:
         """NetSyncDiorama.ResetEndPresentation (every boot): the presentation, its watchdogs and its counters."""

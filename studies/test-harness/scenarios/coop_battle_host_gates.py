@@ -32,8 +32,15 @@ WHAT IS PROVEN (each an OUTCOME: published counters/masks and the engine's own l
   R      `reset` releases the lever, the override (guest_slots back to the pin 0) and the role.
 NOT PROVEN HERE (two-machine sitting 1): an OLD guest ignoring bit 1 against a new host; the real relay timing.
 
-ATB MODE. Run with the save's ATB set to Active (Config). In WAIT mode the loopback guest's open digit menu
-(RemoteMenuOpen) freezes the gauges up to GuestWaitMs = 30 s per uncommanded slot-1 turn -- slower, not wrong.
+ATB MODE. Run with the save's ATB set to Active (Config). In WAIT mode, on an engine before s113, the loopback guest's
+open digit menu (RemoteMenuOpen) froze the gauges up to GuestWaitMs = 30 s per uncommanded slot-1 turn -- slower, not
+wrong. [R3 s113 re-baseline] From s113 the loopback's digit panel at its command ROOT sends control byte 2 (Wait parity),
+so a Wait save's gauges RUN while slot 1 waits there -- the enemy acts, as it would beside a local root window; only a
+window below the root freezes them. No check here assumed the freeze (slot 1's fill, the landings and the victory edge
+read the same either way), so none changed; a Wait run is now simply faster.
+[R3 s111/s114 re-baseline] An own battle's header caps now also carry 0x08 (+0x04 when the host skipped its intro) and,
+while an s114 start hold holds, 0x10 -- A1 reads bit 1 MASKED (`& 2`), so it is unchanged. The s114 loopback frame grows
+to 5 bytes (a boot-report trailer); nothing here reads the control frame.
 
 CALIBRATION -- a check that cannot fail is not a check.
   * On the PRE-STAGE DLL (s99, the one deployed at writing) only the probe can run, and it must fail closed: P0
@@ -268,7 +275,8 @@ def _battle_a(g, led: cb.Ledger, field: int, calibrate: bool):
               "the New-Game party is Zidane alone -- deploy COOPPARTY (30604) or run on a save whose party seats slot 1"))
     if not slot1:
         led.unreached(SLOT1_LEGS, "no party member in slot 1 (S1-PRE)")
-    # A1: within two publishes of turn.enabled
+    # A1: within two publishes of turn.enabled. Bit 1 is MASKED, never compared whole: from s111 the same byte carries the
+    # intro mirror's 0x08/0x04 (and s114's 0x10 while a start hold holds) -- [R3 s111 re-baseline], unchanged by design
     samples, st2 = cb.watch(g, lambda s: (cb.host(s).get("cmd_phase") is True and cb.mask_bits(cb.host(s).get("caps")) & 2
                                           and cb.mask_bits(cb.peer(s).get("caps")) & 2 and cb.peer(s).get("live") is True),
                             1.5)
