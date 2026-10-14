@@ -1,0 +1,847 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 5ddf924..07e1c3b 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -140,6 +140,33 @@ namespace Memoria.Netsync
+             get { return !(BenchHostGatesOff && NetSyncClient.IsSelfTestRole); }
+         }
+ 
++        // [ff9mapkit netsync R3 s111] THE INTRO MIRROR, host half (studies/battle-coop/R3-DESIGN.md 3.1.2). Sitting 2: the
++        // host skipped its battle intro (the per-save cfg.skip_btl_camera, on a random encounter) while the diorama played the
++        // GUEST's own choice -- the laptop sat seconds behind. The host latches its choice at its own battle's rising edge (the
++        // stock expression of HonoluluBattleMain.Start, verbatim) and publishes it in two type-1 header bits: bit 3 = "bit 2 is
++        // meaningful" (an intro-mirror host), bit 2 = "I skipped". Wire stays v14: every s110 reader ignores bits 2-7
++        // (ParseView keeps bit 0 as the rand flag, the stock menu tests bit 1), so an old guest keeps its own intro; a new guest
++        // with an old host sees bit 3 clear and does the same. The guest applies it through NetSyncDiorama.SkipBattleIntro.
++        public const Byte FlagIntroSkipped = 4;       // type-1 header flags bit 2: the host skipped this battle's intro
++        public const Byte CapIntroMirror = 8;         // type-1 header flags bit 3: bit 2 is meaningful
++        private static Int32 _ownIntro = -1;          // this own battle's latched intro: 1 skipped, 0 played, -1 none/unreadable
++        // SELFTEST CALIBRATION LEVER (harness `netsync bench intro 0`; released by HarnessReleaseBench): true = the pre-stage
++        // behaviour on BOTH halves -- the host publishes neither bit, the diorama applies its own setting -- so the stage's bench
++        // goes red on the very DLL it proves. Read only through IntroMirrorOn (and NetSyncDiorama's gate), which also need the
++        // selftest role: a lever stranded across an ini edit can never strip a real host's bits.
++        public static Boolean BenchIntroOff;
++        internal static Boolean IntroMirrorOn
++        {
++            get { return !(BenchIntroOff && NetSyncClient.IsSelfTestRole); }
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s111] A header flags byte's intro: -1 = not an intro-mirror host (bit 3 clear: use
++        /// your own setting), 1 = the host skipped, 0 = the host played. Pure.</summary>
++        internal static Int32 WireIntro(Int32 f)
++        {
++            return (f & CapIntroMirror) == 0 ? -1 : (f & FlagIntroSkipped) != 0 ? 1 : 0;
++        }
++
+         // [ff9mapkit netsync B4] stage 2 -- THE GUEST CONTAINMENT BACKSTOP (design 4.3 + 3.8 item 1): R9 at the head of
+         // btl_cmd.SetCommand refuses a player's cmd[0]/cmd[3] while the diorama is Active (NetSyncDiorama.RefuseLocalEnqueue
+         // decides and logs; this file keeps the ledger), and G2 reads IsGuestOwnedSlot false while Active (below). Inert in
+@@ -209,6 +236,7 @@ namespace Memoria.Netsync
+             public Boolean IsRandomEncounter;
+             public Byte HostCaps;          // [ff9mapkit netsync B4] the whole header flags byte (bit 0 = rand,
+                                            // bit 1 = command-phase-gated host); old readers keep bit 0 only
++                                           // [ff9mapkit netsync R3 s111] bits 2-3 = the host's intro (WireIntro)
+             public Byte Nonce;             // bumps per battle: same map+pattern back-to-back still re-boots
+             public UInt16 SongId;          // v10: the host's audible song -- 0xFFFF unknown / 0xFFFE silent
+             public readonly List<UnitView> Units = new List<UnitView>();
+@@ -416,6 +444,30 @@ namespace Memoria.Netsync
+             _handbackEdge = false;
+             _handbackLogs = 0;
+             _lastG6Mask = -1;
++            NoteOwnIntro();                        // [ff9mapkit netsync R3 s111] the intro choice this battle publishes
++        }
++
++        // [ff9mapkit netsync R3 s111] The rising edge latches THIS battle's intro: HonoluluBattleMain.Start's own test
++        // (cfg.skip_btl_camera == 0 && isRandomEncounter -- neither changes mid-battle), read once, logged once. An unreadable
++        // value latches -1 and the sample then publishes no intro bit (the guest keeps its own setting, as with an old host).
++        private static void NoteOwnIntro()
++        {
++            _ownIntro = -1;
++            try
++            {
++                UInt64 skipCam = FF9StateSystem.Settings.cfg.skip_btl_camera;
++                Boolean rand = FF9StateSystem.Battle.isRandomEncounter;
++                _ownIntro = skipCam == 0UL && rand ? 1 : 0;
++                Log.Message("[NetSync] battle intro: " + (_ownIntro == 1 ? "SKIPPED" : "PLAYED") + " (skip_btl_camera " + skipCam
++                            + ", random " + (rand ? 1 : 0) + ") -- " + (IntroMirrorOn
++                                ? "published in the type-1 header (bit 2)"
++                                : "NOT published: the selftest lever `bench intro 0` (the pre-R3 header)"));
++            }
++            catch (Exception err)
++            {
++                _ownIntro = -1;
++                Log.Message("[NetSync] battle intro: unreadable (" + err.GetType().Name + ") -- no intro bit this battle");
++            }
+         }
+ 
+         // An own battle's falling edge (Pump's else block; SelfTestPump through Reset): the harness's "last
+@@ -431,6 +483,7 @@ namespace Memoria.Netsync
+             _lastG6Mask = -1;                      // battles, and a bench lapse never outlives the own battle it stalled
+             _handbackEdge = false;
+             EndLapse("the own battle ended");
++            _ownIntro = -1;                        // [ff9mapkit netsync R3 s111] `host.intro.own_skip` reads -1 between battles
+         }
+ 
+         // One read of the command phase per pump tick (both pumps). An EDGE returns true and the caller samples
+@@ -1114,6 +1167,14 @@ namespace Memoria.Netsync
+                 Boolean gated = HostGatesOn;
+                 if (gated)
+                     flags |= CapCommandPhaseGated;
++                // [ff9mapkit netsync R3 s111] bits 2-3, the intro mirror: bit 3 = "bit 2 is meaningful", bit 2 = "I skipped this
++                // battle's intro" (wire stays v14: every s110 reader ignores both). Nothing when unlatched or under `bench intro 0`.
++                if (IntroMirrorOn && _ownIntro >= 0)
++                {
++                    flags |= CapIntroMirror;
++                    if (_ownIntro == 1)
++                        flags |= FlagIntroSkipped;
++                }
+                 Boolean commandPhase = !gated || HostCommandPhaseOpen(hud, btlsys);
+                 Int32 readyMask = 0;
+                 // [ff9mapkit netsync B4] stage 11 -- G6: the unit the host's OWN command window holds is not Ready on the wire
+@@ -1809,9 +1870,11 @@ namespace Memoria.Netsync
+         // this. True only while the peer's battle lane is FRESH -- the lane going stale IS the
+         // battle-over signal (no close frame to lose; same staleness the spectate panel keys on).
+         public static Boolean TryGetPeerBattleOpen(out Int32 mapNo, out Int32 patNum, out Int32 startType,
+-                                                   out Boolean isRandomEncounter, out Int32 nonce, out Int32 songId)
++                                                   out Boolean isRandomEncounter, out Int32 nonce, out Int32 songId,
++                                                   out Int32 hostFlags)
+         {
+             mapNo = 0; patNum = 0; startType = 0; isRandomEncounter = false; nonce = 0; songId = 0xFFFF;
++            hostFlags = 0;
+             BattleView view = _peerView;
+             if (view == null || !PeerBattleLive)
+                 return false;
+@@ -1821,6 +1884,7 @@ namespace Memoria.Netsync
+             isRandomEncounter = view.IsRandomEncounter;
+             nonce = view.Nonce;
+             songId = view.SongId;                  // v10: the host's audible battle song (B3.6)
++            hostFlags = view.HostCaps;             // [ff9mapkit netsync R3 s111] the whole header flags byte (WireIntro reads bits 2-3)
+             return true;
+         }
+ 
+@@ -1833,9 +1897,14 @@ namespace Memoria.Netsync
+         // bench FAILS. PASS = the enemies stand rotated 180 degrees (the pre-emptive layout).
+         // (The hand-built payload mirrors SampleOwnBattle's layout; the parser is the shared oracle --
+         // encoder drift shows up as a garbled spectate panel in any selftest battle.)
+-        internal static Boolean WireBenchBoot(Int32 mapNo, Int32 patNum, out String detail, Boolean silent = false)
++        // [ff9mapkit netsync R3 s111] hostFlags = the fabricated header flags byte (bit 0 is always set: the bench's random
++        // encounter). The default 0x01 is the F6 buttons' bytes, unchanged; the harness's `dioboot ... wire skip|play` passes
++        // 0x0D/0x09 to bench the parsed intro bits through the real ParseView -> HostCaps -> WireIntro -> BootFromWire chain.
++        internal static Boolean WireBenchBoot(Int32 mapNo, Int32 patNum, out String detail, Boolean silent = false,
++                                              Byte hostFlags = 0x01)
+         {
+             const Byte BenchNonce = 77;
++            Byte benchFlags = (Byte)(hostFlags | 0x01);   // [ff9mapkit netsync R3 s111]
+             // v10 marker: 156 (the ending theme) is DISTINCTIVE on purpose -- unmistakably not the
+             // local battle BGM, so a dropped songId carry is audible AND visible in the detail line.
+             // s54: the silent bench ships 0xFFFE (the host-audibly-silent sentinel) instead, to
+@@ -1854,7 +1923,7 @@ namespace Memoria.Netsync
+                     bw.Write((Byte)0);                         // guestSlots
+                     bw.Write((Byte)patNum);
+                     bw.Write((Byte)battle_start_type_tags.BTL_START_FIRST_ATTACK);
+-                    bw.Write((Byte)1);                         // flags: isRandomEncounter
++                    bw.Write(benchFlags);                      // flags: isRandomEncounter (+ the R3 s111 intro bits, harness only)
+                     bw.Write(BenchNonce);
+                     bw.Write(BenchSong);                       // v10: songId between nonce and unitCount
+                     bw.Write((Byte)0);                         // unitCount
+@@ -1868,7 +1937,8 @@ namespace Memoria.Netsync
+                 }
+                 if (view.MapNo != mapNo || view.PatNum != patNum ||
+                     view.StartType != (Byte)battle_start_type_tags.BTL_START_FIRST_ATTACK ||
+-                    !view.IsRandomEncounter || view.Nonce != BenchNonce || view.SongId != BenchSong)
++                    !view.IsRandomEncounter || view.Nonce != BenchNonce || view.SongId != BenchSong
++                    || view.HostCaps != benchFlags)   // [ff9mapkit netsync R3 s111] the whole flags byte round-trips too
+                 {
+                     detail = String.Format("boot block mangled: map={0} pat={1} start={2} rand={3} nonce={4} song={5}",
+                                            view.MapNo, view.PatNum, view.StartType, view.IsRandomEncounter, view.Nonce, view.SongId);
+@@ -1876,7 +1946,12 @@ namespace Memoria.Netsync
+                 }
+                 detail = String.Format("parsed map={0} pat={1} start=FIRST rand=1 nonce={2} song={3} -> boot",
+                                        view.MapNo, view.PatNum, view.Nonce, view.SongId);
+-                NetSyncDiorama.BootFromWire(view.MapNo, view.PatNum, view.StartType, view.IsRandomEncounter, view.SongId);
++                if (benchFlags != 0x01)
++                    detail += " flags=0x" + benchFlags.ToString("X2") + " intro=" + WireIntro(view.HostCaps);   // [ff9mapkit netsync R3 s111]
++                // [ff9mapkit netsync R3 s111] the parsed header's intro, through the same argument the watcher passes. The F6
++                // buttons' flags stay 0x01 (bit 3 clear -> -1), so they keep their own intro, byte-for-byte as before.
++                NetSyncDiorama.BootFromWire(view.MapNo, view.PatNum, view.StartType, view.IsRandomEncounter, view.SongId,
++                                            WireIntro(view.HostCaps));
+                 return true;
+             }
+             catch (Exception err)
+@@ -2572,6 +2647,138 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] harness: guest-slot hand-back (G6 + G3) back ON (released with the harness)");
+             BenchHandbackOff = false;
+             EndLapse("released with the harness");
++            // [ff9mapkit netsync R3 s111] the intro-mirror lever back on, and a `bench cfg` override undone
++            if (BenchIntroOff)
++                Log.Message("[NetSync] harness: battle intro mirror back ON (released with the harness)");
++            BenchIntroOff = false;
++            BenchCfgRestore("released with the harness");
++        }
++
++        // ============================================================================ harness surface (R3 s111)
++        // [ff9mapkit netsync R3 s111] -- the intro mirror's harness keys (`netsync.battle.host.cfg`, `netsync.battle.host.intro`)
++        // and its two `netsync bench` ops. Read-only getters, main-thread, never throw.
++        //   cfg   -- the inputs the host's (and a diorama's) intro and pace read: `atb` (cfg.atb: 0 Active, 1 Wait), `skip_btl_camera`
++        //            (cfg.skip_btl_camera: 0 = skip the intro camera on a random encounter), `speed` ([Battle] Speed) and
++        //            `swirl_frames` ([Graphics] BattleSwirlFrames, this process's value); -1 = unreadable.
++        //   intro -- `off` (the lever `bench intro 0`), `published` (WireIntro of the last own-battle sample: 1 skip, 0 play, -1 = no
++        //            intro bits or no own battle) and `own_skip` (the rising edge's latch: 1, 0, -1 = none / between battles).
++        public static Int32 HarnessCfgAtb
++        {
++            get { try { return (Int32)FF9StateSystem.Settings.cfg.atb; } catch { return -1; } }
++        }
++
++        public static Int32 HarnessCfgSkipCam
++        {
++            get { try { return (Int32)FF9StateSystem.Settings.cfg.skip_btl_camera; } catch { return -1; } }
++        }
++
++        public static Int32 HarnessCfgSpeed
++        {
++            get { try { return Configuration.Battle.Speed; } catch { return -1; } }
++        }
++
++        public static Int32 HarnessSwirlFrames
++        {
++            get { try { return Configuration.Graphics.BattleSwirlFrames; } catch { return -1; } }
++        }
++
++        public static Boolean HarnessIntroOff { get { return !IntroMirrorOn; } }
++        public static Int32 HarnessIntroPublished { get { return _lastSampleFlags < 0 ? -1 : WireIntro(_lastSampleFlags); } }
++        public static Int32 HarnessOwnIntro { get { return _ownIntro; } }
++
++        // `netsync bench intro 1|0`: the stage's calibration lever (see BenchIntroOff -- both halves). Selftest role only.
++        public static Boolean HarnessBenchIntro(Boolean on, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench intro: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            BenchIntroOff = !on;
++            Log.Message("[NetSync] harness: battle intro mirror " + (on ? "ON"
++                        : "OFF -- CALIBRATION: the pre-stage pair (the host publishes no intro bits; a diorama applies its own setting)"));
++            return true;
++        }
++
++        // `netsync bench cfg skipcam 0|1|restore`: a PROCESS-LOCAL override of the per-save cfg.skip_btl_camera (the intro's
++        // input on both machines), so a bench can pick an intro without the config menu. The first override remembers the
++        // value it replaced; `restore` and every harness release write it back -- but only while the cfg still holds the
++        // bench's value (a save loaded since brought its own setting, which wins). Selftest role only (a selftest's saves are
++        // sandboxed). s113 adds `atb` here.
++        private static Boolean _benchSkipCamSet;      // an override is in force
++        private static UInt64 _benchSkipCamWas;       // ...the value it replaced
++        private static UInt64 _benchSkipCamBench;     // ...the value it wrote
++
++        public static Boolean HarnessBenchCfg(String what, String value, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench cfg: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            what = (what ?? "").ToLowerInvariant();
++            value = (value ?? "").ToLowerInvariant();
++            if (what != "skipcam")
++            {
++                why = "netsync bench cfg: unknown setting '" + what + "' (skipcam)";
++                return false;
++            }
++            if (value == "restore")
++            {
++                if (!_benchSkipCamSet)
++                    Log.Message("[NetSync] harness: bench cfg skipcam restore -- no override in force");
++                BenchCfgRestore("`bench cfg skipcam restore`");
++                return true;
++            }
++            if (value != "0" && value != "1")
++            {
++                why = "netsync bench cfg skipcam: expected 0|1|restore (0 = skip the intro camera on a random encounter)";
++                return false;
++            }
++            try
++            {
++                UInt64 cur = FF9StateSystem.Settings.cfg.skip_btl_camera;
++                if (!_benchSkipCamSet)
++                {
++                    _benchSkipCamWas = cur;
++                    _benchSkipCamSet = true;
++                }
++                _benchSkipCamBench = value == "0" ? 0UL : 1UL;
++                FF9StateSystem.Settings.cfg.skip_btl_camera = _benchSkipCamBench;
++                Log.Message("[NetSync] harness: bench cfg skip_btl_camera " + cur + " -> " + _benchSkipCamBench
++                            + " for this process (the save's value " + _benchSkipCamWas + " comes back on restore/release)");
++                return true;
++            }
++            catch (Exception err)
++            {
++                why = "netsync bench cfg skipcam: " + err.Message;
++                return false;
++            }
++        }
++
++        // The `bench cfg` override undone (restore / every harness release). Never throws.
++        private static void BenchCfgRestore(String why)
++        {
++            if (!_benchSkipCamSet)
++                return;
++            _benchSkipCamSet = false;
++            try
++            {
++                UInt64 cur = FF9StateSystem.Settings.cfg.skip_btl_camera;
++                if (cur == _benchSkipCamBench)
++                {
++                    FF9StateSystem.Settings.cfg.skip_btl_camera = _benchSkipCamWas;
++                    Log.Message("[NetSync] harness: bench cfg skip_btl_camera back to " + _benchSkipCamWas + " (" + why + ")");
++                }
++                else
++                {
++                    Log.Message("[NetSync] harness: bench cfg skip_btl_camera left at " + cur + " (" + why
++                                + "; something wrote it since the bench set " + _benchSkipCamBench + ")");
++                }
++            }
++            catch { }
+         }
+ 
+         // ============================================================================ harness surface (B4 stage 2)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 78b0715..7b2792c 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -247,6 +247,126 @@ namespace Memoria.Netsync
+             return true;
+         }
+ 
++        // ---------------------------------------------------------------------------------------
++        // [ff9mapkit netsync R3 s111] THE INTRO MIRROR, guest half (studies/battle-coop/R3-DESIGN.md 3.1.2). The diorama used to
++        // play the GUEST's own intro choice (its save's cfg.skip_btl_camera); the host publishes ITS choice in type-1 header bits
++        // 2-3 (NetSyncBattle.WireIntro) and a wire boot applies it at the two stock sites that read the choice --
++        // HonoluluBattleMain.Start (SFX.SkipCameraAnimation: the plunge camera) and battle.BattleLoadLoop (noDelayFade: the
++        // actors' fade-in) -- through ONE seam, SkipBattleIntro. _wireIntro follows the _wireSongId pattern: stamped by
++        // BootFromWire (or the harness's `dioboot ... skip|play`), reset to -1 by the manual Boot overload, Boot's catch and
++        // ForceDisarm. -1 = no host choice (a manual boot, an F6 wire bench, an s110 host): the stock expression decides.
++        // ---------------------------------------------------------------------------------------
++        private static Int32 _wireIntro = -1;          // 1 = the host skipped, 0 = the host played, -1 = use our own setting
++        private static Int32 _introApplied = -1;       // this boot's last SkipBattleIntro answer: 1 skip, 0 play, -1 = no call
++        private static Int32 _introOwn = -1;           // ...and the stock value it was handed (the guest's own choice)
++        private static Int32 _introCalls;              // calls this boot the HOST's choice decided (BattleLoadLoop asks per frame)
++        private static Int32 _normalMs = -1;           // boot -> the first steady frame (PHASE_NORMAL, units loaded, Active); -1 = not yet
++        private static Boolean _liveErrLogged;         // LiveTick threw: one line per boot
++
++        /// <summary>[ff9mapkit netsync R3 s111] The stock intro test's one seam (HonoluluBattleMain.Start, battle.BattleLoadLoop):
++        /// `stock` everywhere except a booted diorama with a host choice, where the HOST's choice wins. One Boolean read on
++        /// vanilla, solo and every real battle (a diorama is never booted there). Never throws.</summary>
++        public static Boolean SkipBattleIntro(Boolean stock)
++        {
++            if (!_booted)
++                return stock;                     // vanilla, solo, every real battle on either machine: stock
++            Boolean skip = stock;
++            if (_wireIntro >= 0 && NetSyncBattle.IntroMirrorOn)   // (the selftest lever `bench intro 0` = the pre-stage diorama)
++            {
++                skip = _wireIntro == 1;           // the HOST's choice
++                _introCalls++;
++            }
++            _introOwn = stock ? 1 : 0;
++            _introApplied = skip ? 1 : 0;
++            return skip;
++        }
++
++        // The BOOT line's `intro=` token: whose choice this boot plays (decided at the boot -- the own value is read later), by
++        // SkipBattleIntro's own gate, so the lever `bench intro 0` reads `own` here as the command-phase line's source does.
++        private static String IntroSource
++        {
++            get { return _wireIntro < 0 || !NetSyncBattle.IntroMirrorOn ? "own" : _wireIntro == 1 ? "skip(host)" : "play(host)"; }
++        }
++
++        // This process's [Graphics] BattleSwirlFrames (SFX_Rush reads the same value once, at 30 Hz); -1 = unreadable.
++        private static Int32 LocalSwirlFrames
++        {
++            get { try { return Configuration.Graphics.BattleSwirlFrames; } catch { return -1; } }
++        }
++
++        // Boot / Boot's catch / ForceDisarm: the intro observables describe the LIVE boot only (sentinels between boots).
++        private static void ResetIntro()
++        {
++            _introApplied = -1;
++            _introOwn = -1;
++            _introCalls = 0;
++            _normalMs = -1;
++            _liveErrLogged = false;
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s111] One call per client frame, in BOTH branches (transport: after ReconcileTick;
++        /// selftest: after StockMenuTick, where a bench feed has re-published PeerBattleLive). A no-op unless booted. Latches
++        /// how long this boot took from the Boot call (swirl included) to its first steady frame -- the laptop's measurement
++        /// s112 and s114 need -- and logs it once. Never throws into the client tick.</summary>
++        public static void LiveTick()
++        {
++            if (!_booted)
++                return;
++            try
++            {
++                if (_normalMs < 0)
++                    LatchNormal();
++            }
++            catch (Exception ex)
++            {
++                if (!_liveErrLogged)
++                {
++                    _liveErrLogged = true;        // once per boot: never per-frame error spam
++                    Log.Error("[NetSync] diorama live tick failed: " + ex);
++                }
++            }
++        }
++
++        // The first frame of the steady state ReconcileTick also waits for: PHASE_NORMAL, both load bits latched, the scene ours.
++        private static void LatchNormal()
++        {
++            if (!Active)
++                return;
++            FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++            if (b == null || b.btl_phase != FF9StateBattleSystem.PHASE_NORMAL)
++                return;
++            const Byte need = ff9btl.LOAD_INITNPC | ff9btl.LOAD_INITCHR;
++            if ((b.btl_load_status & need) != need)
++                return;
++            _normalMs = Math.Max(0, Environment.TickCount - BootTick);
++            String applied = _introApplied == 1 ? "skip" : _introApplied == 0 ? "play" : "?";
++            String src = _wireIntro < 0 ? "own" : NetSyncBattle.IntroMirrorOn ? "host" : "own: bench intro 0";
++            Log.Message("[NetSync] diorama reached its command phase " + _normalMs + " ms after the boot (intro " + applied + "(" + src
++                        + "), swirl " + LocalSwirlFrames + " frames)");
++        }
++
++        // The harness's `netsync.diorama.intro` (see HarnessAgent.AppendDiorama). Read-only, never throw.
++        internal static Int32 HarnessIntroWire { get { return _booted ? _wireIntro : -1; } }
++        internal static Int32 HarnessIntroApplied { get { return _introApplied; } }
++        internal static Int32 HarnessIntroOwn { get { return _introOwn; } }
++        internal static Int32 HarnessIntroCalls { get { return _introCalls; } }
++        internal static Int32 HarnessNormalMs { get { return _normalMs; } }
++        internal static Int32 HarnessSwirlFrames { get { return LocalSwirlFrames; } }
++
++        /// <summary>[ff9mapkit netsync R3 s111] The harness's `dioboot &lt;scene&gt; [pattern] [skip|play|own] [rand]`: the manual
++        /// boot (no wire song, a NORMAL start) with a bench host's intro choice (1 skip, 0 play, -1 own) and an optional random
++        /// encounter -- the selftest stand-in for a wire boot's header. Selftest role checked by the caller.</summary>
++        internal static void HarnessBoot(Int32 battleMapIndex, Int32 patternIndex, Int32 wireIntro, Boolean isRandomEncounter)
++        {
++            if (_booted)
++                return;                           // never re-stamp a live boot's intro
++            _wireSongId = -1;                     // the manual boot's own song lane
++            _wireIntro = wireIntro >= 0 && wireIntro <= 1 ? wireIntro : -1;
++            Boot(battleMapIndex, patternIndex, battle_start_type_tags.BTL_START_NORMAL_ATTACK, isRandomEncounter);
++            if (!_booted)
++                _wireIntro = -1;                  // a refused boot keeps nothing (the private Boot's early refusals touch nothing)
++        }
++
+         /// <summary>May this machine boot a diorama at all? A mirrored session, a LIVE followed session
+         /// (the mirror may simply not have armed yet -- its arming needs a field load that sees a host
+         /// snapshot; the diorama's save-safety never depended on it), or the sanctioned solo bench.</summary>
+@@ -280,6 +400,8 @@ namespace Memoria.Netsync
+         public static void Boot(Int32 battleMapIndex, Int32 patternIndex)
+         {
+             _wireSongId = -1;   // B3.6: a manual boot has no wire song -- the swirl computes locally
++            if (!_booted)
++                _wireIntro = -1;   // [ff9mapkit netsync R3 s111] ...and no host intro: the stock expression decides
+             Boot(battleMapIndex, patternIndex, battle_start_type_tags.BTL_START_NORMAL_ATTACK, false);
+         }
+ 
+@@ -289,8 +411,11 @@ namespace Memoria.Netsync
+         /// REFUSED (the diorama analogue of OvlPeerNoField -- a modded host's custom battle scene may
+         /// not exist on this install), and an out-of-range start type clamps to NORMAL rather than
+         /// garbage-indexing (BACK_ATTACK == 0, so a zeroed byte is a legal value, never a sentinel).
++        /// [ff9mapkit netsync R3 s111] wireIntro = NetSyncBattle.WireIntro of the header (1 skip, 0 play, -1 = the host
++        /// publishes none: our own setting). The default keeps every pre-R3 caller compiling and behaving as before.
+         /// </summary>
+-        public static void BootFromWire(Int32 battleMapIndex, Int32 patternIndex, Int32 startType, Boolean isRandomEncounter, Int32 songId)
++        public static void BootFromWire(Int32 battleMapIndex, Int32 patternIndex, Int32 startType, Boolean isRandomEncounter, Int32 songId,
++                                        Int32 wireIntro = -1)
+         {
+             // B3.6/Q5 -- the shared durable-validation gate replaces the old inline mapName check
+             // (whose catch { return; } was a SILENT decline). Every refusal says why.
+@@ -307,6 +432,8 @@ namespace Memoria.Netsync
+             // maps to unknown, and the guest's swirl then falls through to its LOCAL computation
+             // (fail-safe, s33-precedented). 0xFFFE (host silent) is carried through.
+             _wireSongId = songId >= 0 && songId <= 0xFFFE ? songId : -1;
++            if (!_booted)
++                _wireIntro = wireIntro >= 0 && wireIntro <= 1 ? wireIntro : -1;   // [ff9mapkit netsync R3 s111] never a live boot's
+             Boot(battleMapIndex, patternIndex, start, isRandomEncounter);
+         }
+ 
+@@ -404,6 +531,7 @@ namespace Memoria.Netsync
+                 _bootSongSuspended = false;          // [ff9mapkit netsync F3.3] DIO-1: this boot's own audio suspends, for UndoWarm
+                 _bootResidentSuspended = false;
+                 ResetEndPresentation();              // [ff9mapkit netsync B5] stage 5: the end presentation is once per boot
++                ResetIntro();                        // [ff9mapkit netsync R3 s111] the intro observables + the timing latch, per boot
+ 
+                 FF9StateSystem.Battle.isDebug = true;
+                 FF9StateSystem.Battle.battleMapIndex = battleMapIndex;              // Int32
+@@ -416,8 +544,10 @@ namespace Memoria.Netsync
+                 FF9StateSystem.Battle.debugStartType = startType;
+                 FF9StateSystem.Battle.isRandomEncounter = isRandomEncounter;
+ 
++                // [ff9mapkit netsync R3 s111] + whose intro this boot plays and this machine's swirl length (the laptop's record)
+                 Log.Message("[NetSync] diorama BOOT scene=" + battleMapIndex + " pattern=" + patternIndex
+-                            + " start=" + startType + (isRandomEncounter ? " rand" : ""));
++                            + " start=" + startType + (isRandomEncounter ? " rand" : "")
++                            + " intro=" + IntroSource + " swirl=" + LocalSwirlFrames);
+                 BootTick = Environment.TickCount;   // B3.6: the SwirlScene watchdog's baseline (fence 2)
+                 _leaveTick = Environment.TickCount - 3600000;   // a fresh boot invalidates any old leave intent
+                 // [ff9mapkit netsync F3.3] DIO-1: the stock battle entry's FIELD half, done here because isDebug
+@@ -541,6 +671,8 @@ namespace Memoria.Netsync
+                 Array.Clear(_gateSeq, 0, _gateSeq.Length);
+                 BootedWireNonce = -1;
+                 _wireSongId = -1;                           // B3.6: no song survives a failed boot either
++                _wireIntro = -1;                            // [ff9mapkit netsync R3 s111] ...nor a host intro, nor its observables
++                ResetIntro();
+                 try { FF9StateSystem.Battle.isDebug = false; } catch { }
+             }
+         }
+@@ -619,6 +751,8 @@ namespace Memoria.Netsync
+             Array.Clear(_gateSeq, 0, _gateSeq.Length);
+             BootedWireNonce = -1;
+             _wireSongId = -1;                           // B3.6: the wire song dies with the boot
++            _wireIntro = -1;                            // [ff9mapkit netsync R3 s111] ...and so do the host intro and its observables
++            ResetIntro();
+             // [ff9mapkit netsync F3.3] DIO-1: the boot field still ALIVE at teardown = the boot never left it
+             // (fence 1's dropped-Replace mop-up) -- the primed copy and the MovePC freeze must die with the
+             // boot. A destroyed boot field is the normal teardown (OnDestroy runs BEFORE the return's
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index a0b6c75..96cc42a 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1136,6 +1136,10 @@ namespace Memoria.Netsync
+                     // here: this branch never reaches Pump or ReconcileTick. An armed `bbench start` feed runs first inside it (it
+                     // stands in for Pump's guest branch). Two field reads outside a booted diorama.
+                     NetSyncBattle.StockMenuTick();
++                    // [ff9mapkit netsync R3 s111] the diorama's boot-to-steady timing. AFTER StockMenuTick on purpose: SelfTestPump
++                    // clears PeerBattleLive outside an own battle and only a bench feed inside StockMenuTick re-publishes it (s114's
++                    // LIVE latch reads it here). One Boolean read outside a booted diorama.
++                    NetSyncDiorama.LiveTick();
+                     // [ff9mapkit netsync F3.2] the dialogue-lock bench runs FIRST, on every selftest tick -- off-field
+                     // too, so a bench lock can never go stale across a battle or a load (the early returns below).
+                     BenchSceneEdge(fld);
+@@ -1375,6 +1379,10 @@ namespace Memoria.Netsync
+                 // B3.4: the reconciler -- the host's battle truth onto the diorama's actors.
+                 NetSyncDiorama.ReconcileTick();
+ 
++                // [ff9mapkit netsync R3 s111] the diorama's boot-to-steady timing (Pump set PeerBattleLive this frame). One Boolean
++                // read outside a booted diorama.
++                NetSyncDiorama.LiveTick();
++
+                 // [ff9mapkit netsync B5] stage 5: the host's END BLOCK onto the diorama (the stock victory / close fade, once
+                 // per boot). AFTER ReconcileTick on purpose: the sample that carries the end lands its final deaths before
+                 // the phase flips and the reconciler quiesces (design 6.3).
+@@ -1503,9 +1511,10 @@ namespace Memoria.Netsync
+                                 + ") -- the watcher won't re-boot this battle");
+                 }
+             }
+-            Int32 mapNo, patNum, startType, nonce, songId;
++            Int32 mapNo, patNum, startType, nonce, songId, hostFlags;
+             Boolean rand;
+-            Boolean live = NetSyncBattle.TryGetPeerBattleOpen(out mapNo, out patNum, out startType, out rand, out nonce, out songId);
++            Boolean live = NetSyncBattle.TryGetPeerBattleOpen(out mapNo, out patNum, out startType, out rand, out nonce, out songId,
++                                                              out hostFlags);   // [ff9mapkit netsync R3 s111] + the header flags
+             if (!live)
+             {
+                 // B3.6: KEEP the skip (and the seen-nonce) -- staleness is NOT a battle boundary. A
+@@ -1695,7 +1704,8 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] peer battle undisplayable -- spectate panel only: " + why);
+                 return;
+             }
+-            NetSyncDiorama.BootFromWire(mapNo, patNum, startType, rand, songId);
++            // [ff9mapkit netsync R3 s111] the host's intro choice rides along (-1 from an s110 host: our own setting)
++            NetSyncDiorama.BootFromWire(mapNo, patNum, startType, rand, songId, NetSyncBattle.WireIntro(hostFlags));
+             if (NetSyncDiorama.Booted)
+             {
+                 _dioramaWireNonce = nonce;
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 2d3c7e9..af28c0d 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -128,6 +128,13 @@ namespace Memoria.Harness
+         // <ms>|hold|end` (the selftest guest STALL) and `bench handback 1|0` (the calibration lever); no new sub-verb. A driver
+         // checks for `netsync.battle.host.handback` -- absent = an engine whose host never hands a captured guest slot back
+         // (and which reads `bench lapse` as `bench 1`).
++        // [ff9mapkit netsync R3 s111] (the battle intro mirror; studies/battle-coop/R3-DESIGN.md 3.1.2), also additive under 5:
++        // `netsync.battle.host` gains `cfg` and `intro` (see AppendHostIntro), `netsync.diorama` gains `intro` (see
++        // AppendDioramaIntro), `battle` takes an optional third argument `rand`, `netsync dioboot` takes trailing tokens
++        // `[wire] [skip|play|own] [rand]` (`wire` = the ~ menu's wire bench), and `netsync bench` gains two named ops --
++        // `bench intro 1|0` (the calibration lever) and `bench cfg skipcam 0|1|restore`; no new sub-verb. A driver checks
++        // for `netsync.diorama.intro` -- absent = an engine
++        // whose diorama plays its own intro (and which reads `bench intro`/`bench cfg` as `bench 1`).
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -763,11 +770,26 @@ namespace Memoria.Harness
+                 // Boot a REAL battle from a field. Deliberately not the diorama: that sets
+                 // isDebug, under which the battle can never END, so every result or reward
+                 // assertion there is green-having-observed-nothing.
++                // [ff9mapkit netsync R3 s111] `battle <scene> [group] [rand]`: an optional third argument `rand` (or 1) boots
++                // it as a RANDOM encounter -- what the stock intro test keys on, so a bench can make an own battle skip its
++                // intro (`netsync bench cfg skipcam 0` first). 0 / absent = the scripted-battle write, as before. An engine
++                // before s111 ignores the third argument (always non-random): probe `netsync.battle.host.intro` first.
+                 case "battle":
+-                    if (!Ff9mkDebugMenu.HarnessBattle(Arg(s, 0, -1), Arg(s, 1, -1)))
++                {
++                    Boolean brand = false;
++                    if (s.Args.Length > 2)
++                    {
++                        String ra = s.Args[2].ToLowerInvariant();
++                        if (s.Args.Length > 3 || (ra != "rand" && ra != "1" && ra != "0"))
++                            throw new ArgumentOutOfRangeException("battle", "expected `battle <scene> [group] [rand|1|0]`, got '"
++                                                                  + String.Join(" ", s.Args) + "'");
++                        brand = ra != "0";
++                    }
++                    if (!Ff9mkDebugMenu.HarnessBattle(Arg(s, 0, -1), Arg(s, 1, -1), brand))
+                         throw new InvalidOperationException(Ff9mkDebugMenu.HarnessStatus ?? "battle refused");
+                     Block(2);
+                     break;
++                }
+ 
+                 // Issue an exact command instead of steering a cursor -- the difference between
+                 // testing a damage formula and testing NGUI navigation. This is the same entry
+@@ -1082,6 +1104,31 @@ namespace Memoria.Harness
+                                         throw new InvalidOperationException(why ?? "netsync bench handback refused");
+                                     break;
+                                 }
++                                // [ff9mapkit netsync R3 s111] two more named ops (the intro mirror):
++                                //   `bench intro 1|0`  the calibration lever on BOTH halves (0 = the host publishes no intro bits and a
++                                //       diorama plays its own setting -- the pre-stage pair);
++                                //   `bench cfg skipcam 0|1|restore`  a process-local cfg.skip_btl_camera (0 = skip the intro camera on
++                                //       a random encounter); restore/release writes the save's value back.
++                                // Read back: `netsync.battle.host.intro`, `netsync.battle.host.cfg`, `netsync.diorama.intro`. Both are
++                                // released on disarm/fault/reset. CAUTION: an engine before s111 parses them as `bench 1` (the
++                                // field-gate bench ON): probe `netsync.diorama.intro` first -- absent = do not send them.
++                                if (bnop == "intro")
++                                {
++                                    Int32 io = Arg(s, 2, -1);
++                                    if (s.Args.Length != 3 || (io != 0 && io != 1))
++                                        throw new ArgumentOutOfRangeException("netsync bench intro", "expected `netsync bench intro 1|0`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchIntro(io != 0, out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench intro refused");
++                                    break;
++                                }
++                                if (bnop == "cfg")
++                                {
++                                    if (s.Args.Length != 4)
++                                        throw new ArgumentOutOfRangeException("netsync bench cfg", "expected `netsync bench cfg skipcam 0|1|restore`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchCfg(s.Args[2], s.Args[3], out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench cfg refused");
++                                    break;
++                                }
+                             }
+                             Memoria.Netsync.NetSyncField.BenchGates = Arg(s, 1, 1) != 0;
+                             Memoria.Prime.Log.Message("[NetSync] field-gate bench " + (Memoria.Netsync.NetSyncField.BenchGates ? "ON" : "OFF") + " (harness)");
+@@ -1191,7 +1238,50 @@ namespace Memoria.Harness
+                             Int32 dioScene = Arg(s, 1, -1);
+                             if (dioScene < 0 || !Try(() => FF9StateSystem.Battle.mapName.ContainsKey(dioScene), false))
+                                 throw new ArgumentOutOfRangeException("netsync dioboot", "needs a battle scene id registered on this install");
+-                            Memoria.Netsync.NetSyncDiorama.Boot(dioScene, Arg(s, 2, 0));
++                            // [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern] [wire] [skip|play|own] [rand]`: the trailing tokens stand
++                            // in for a wire boot's header -- skip/play = a bench host's intro choice (`netsync.diorama.intro.wire` 1/0),
++                            // own = none (the default), rand = boot it as a random encounter (the stock intro test's other input).
++                            // No token = the manual boot, exactly as before. `wire` = the ~ menu's "Wire bench" instead (IMGUI, so
++                            // unreachable by injected input): a fabricated type-1 header through the REAL ParseView -> HostCaps ->
++                            // WireIntro -> BootFromWire chain -- flags 0x01 (the button's bytes: no intro bits, `intro=own`), or
++                            // with `skip`/`play` 0x0D/0x09; its header is always a random encounter, so `rand` is refused there.
++                            // An engine before s111 ignores the tokens: probe `netsync.diorama.intro` first.
++                            Int32 dioTok = s.Args.Length > 2 && Arg(s, 2, Int32.MinValue) == Int32.MinValue ? 2 : 3;
++                            Int32 dioIntro = -1;
++                            Boolean dioRand = false;
++                            Boolean dioWire = false;
++                            for (Int32 k = dioTok; k < s.Args.Length; k++)
++                            {
++                                String dt = s.Args[k].ToLowerInvariant();
++                                if (dt == "skip")
++                                    dioIntro = 1;
++                                else if (dt == "play")
++                                    dioIntro = 0;
++                                else if (dt == "own")
++                                    dioIntro = -1;
++                                else if (dt == "rand")
++                                    dioRand = true;
++                                else if (dt == "wire")
++                                    dioWire = true;
++                                else
++                                    throw new ArgumentOutOfRangeException("netsync dioboot", "expected `netsync dioboot <scene> [pattern] [wire] [skip|play|own] [rand]`, got '"
++                                                                          + s.Args[k] + "'");
++                            }
++                            if (dioWire)
++                            {
++                                if (dioRand)
++                                    throw new ArgumentOutOfRangeException("netsync dioboot", "`wire` boots the wire bench, whose header is always a random encounter: drop `rand`");
++                                Byte dioFlags = (Byte)(0x01 | (dioIntro < 0 ? 0 : Memoria.Netsync.NetSyncBattle.CapIntroMirror
++                                                                                 | (dioIntro == 1 ? Memoria.Netsync.NetSyncBattle.FlagIntroSkipped : 0)));
++                                String dioDetail;
++                                if (!Memoria.Netsync.NetSyncBattle.WireBenchBoot(dioScene, Arg(s, 2, 0), out dioDetail, false, dioFlags))
++                                    throw new InvalidOperationException("netsync dioboot wire: " + dioDetail);
++                                Memoria.Prime.Log.Message("[NetSync] diorama wire bench (harness): " + dioDetail);   // the ~ button's line
++                            }
++                            else if (dioTok < s.Args.Length)
++                                Memoria.Netsync.NetSyncDiorama.HarnessBoot(dioScene, Arg(s, 2, 0), dioIntro, dioRand);
++                            else
++                                Memoria.Netsync.NetSyncDiorama.Boot(dioScene, Arg(s, 2, 0));
+                             if (!Memoria.Netsync.NetSyncDiorama.Booted)
+                                 throw new InvalidOperationException("netsync dioboot: refused (Memoria.log names why: [NetSync] diorama boot REFUSED)");
+                             _dioramaByHarness = true;
+@@ -2958,7 +3048,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1}}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3075,7 +3165,30 @@ namespace Memoria.Harness
+             Num(sb, "returns", Memoria.Netsync.NetSyncDiorama.ReturnCount); sb.Append(",");
+             Str(sb, "last_return", Memoria.Netsync.NetSyncDiorama.LastReturnMode); sb.Append(",");
+             Num(sb, "last_return_field", Memoria.Netsync.NetSyncDiorama.LastReturnField); sb.Append(",");
+-            Bool(sb, "resuming", Memoria.Netsync.NetSyncDiorama.HarnessFieldResuming);
++            Bool(sb, "resuming", Memoria.Netsync.NetSyncDiorama.HarnessFieldResuming); sb.Append(",");
++            AppendDioramaIntro(sb);                                                                     // [ff9mapkit netsync R3 s111]
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync R3 s111] `netsync.diorama.intro` -- the intro mirror's guest half, THIS boot only (every value at its
++        // sentinel between boots): `wire` (the host's choice the boot carries: 1 skip, 0 play, -1 = none -- a manual boot, an F6
++        // wire bench, an s110 host), `applied` / `own` (the last NetSyncDiorama.SkipBattleIntro answer and the stock value it was
++        // handed: "skip" | "play" | null = no call yet), `off` (the lever `netsync bench intro 0`), `calls` (stock-site calls the
++        // HOST's choice decided -- BattleLoadLoop asks every loading frame), `normal_ms` (Boot -> the first steady frame --
++        // PHASE_NORMAL, both load bits, the scene ours -- swirl included; -1 = not yet) and `swirl_frames` (this process's
++        // [Graphics] BattleSwirlFrames; -1 = unreadable). AppendNetsync's catch line carries the same keys at their sentinels.
++        private static void AppendDioramaIntro(StringBuilder sb)
++        {
++            Int32 applied = Memoria.Netsync.NetSyncDiorama.HarnessIntroApplied;
++            Int32 own = Memoria.Netsync.NetSyncDiorama.HarnessIntroOwn;
++            sb.Append("\"intro\":{");
++            Num(sb, "wire", Memoria.Netsync.NetSyncDiorama.HarnessIntroWire); sb.Append(",");
++            Str(sb, "applied", applied == 1 ? "skip" : applied == 0 ? "play" : null); sb.Append(",");
++            Str(sb, "own", own == 1 ? "skip" : own == 0 ? "play" : null); sb.Append(",");
++            Bool(sb, "off", Memoria.Netsync.NetSyncBattle.HarnessIntroOff); sb.Append(",");
++            Num(sb, "calls", Memoria.Netsync.NetSyncDiorama.HarnessIntroCalls); sb.Append(",");
++            Num(sb, "normal_ms", Memoria.Netsync.NetSyncDiorama.HarnessNormalMs); sb.Append(",");
++            Num(sb, "swirl_frames", Memoria.Netsync.NetSyncDiorama.HarnessSwirlFrames);
+             sb.Append("}");
+         }
+ 
+@@ -3124,6 +3237,27 @@ namespace Memoria.Harness
+             sb.Append("}}");
+         }
+ 
++        // [ff9mapkit netsync R3 s111] `netsync.battle.host.cfg` + `netsync.battle.host.intro` -- the intro mirror's host half.
++        //   cfg   -- `atb` (cfg.atb: 0 Active, 1 Wait), `skip_btl_camera` (0 = skip the intro camera on a random encounter; a
++        //            `bench cfg skipcam` override shows here), `speed` ([Battle] Speed) and `swirl_frames` ([Graphics]
++        //            BattleSwirlFrames); -1 = unreadable. Live reads, in or out of battle.
++        //   intro -- `off` (the lever `netsync bench intro 0`), `published` (the intro the last own-battle sample carried: 1 skip,
++        //            0 play, -1 = no intro bits or no own battle -- `caps & 0x0C` is the same fact) and `own_skip` (the rising
++        //            edge's latch: 1 skipped, 0 played, -1 = none / between battles).
++        private static void AppendHostIntro(StringBuilder sb)
++        {
++            sb.Append("\"cfg\":{");
++            Num(sb, "atb", Memoria.Netsync.NetSyncBattle.HarnessCfgAtb); sb.Append(",");
++            Num(sb, "skip_btl_camera", Memoria.Netsync.NetSyncBattle.HarnessCfgSkipCam); sb.Append(",");
++            Num(sb, "speed", Memoria.Netsync.NetSyncBattle.HarnessCfgSpeed); sb.Append(",");
++            Num(sb, "swirl_frames", Memoria.Netsync.NetSyncBattle.HarnessSwirlFrames);
++            sb.Append("},\"intro\":{");
++            Bool(sb, "off", Memoria.Netsync.NetSyncBattle.HarnessIntroOff); sb.Append(",");
++            Num(sb, "published", Memoria.Netsync.NetSyncBattle.HarnessIntroPublished); sb.Append(",");
++            Num(sb, "own_skip", Memoria.Netsync.NetSyncBattle.HarnessOwnIntro);
++            sb.Append("}");
++        }
++
+         // [ff9mapkit netsync B4] stage 1 -- `netsync.battle`, additive under protocol 5 (an engine without it publishes
+         // no key: read absence as "this engine has no command-phase gates", never as "nothing there"). The B4/B5 arc
+         // grows it (studies/battle-coop/B4-B5-DESIGN.md section 6.4); stage 1 publishes:
+@@ -3187,6 +3321,7 @@ namespace Memoria.Harness
+         //     shows only on `peer.end.manifest`), `bench_manifest` (the `endbench manifest` preset in the template; 0 =
+         //     none) and `bench_manifest_note` (a marker that preset could not choose; null = every one).
+         // [ff9mapkit netsync B4] stage 11 adds to `host` the guest-slot hand-back (BTL-1): `handback` (see AppendHandback).
++        // [ff9mapkit netsync R3 s111] adds to `host` the intro mirror's host half: `cfg` and `intro` (see AppendHostIntro).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3229,7 +3364,8 @@ namespace Memoria.Harness
+                 sb.Append("}");
+             }
+             sb.Append("],");
+-            AppendHandback(sb);                                                                      // [ff9mapkit netsync B4] stage 11
++            AppendHandback(sb); sb.Append(",");                                                      // [ff9mapkit netsync B4] stage 11
++            AppendHostIntro(sb);                                                                     // [ff9mapkit netsync R3 s111]
+             sb.Append("},\"peer\":{");
+             Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
+             Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+index 65ff818..f9a7940 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -504,13 +504,16 @@ public class Ff9mkDebugMenu : MonoBehaviour
+     // make `ServiceEvents()` return 3 from outside, so those writes are performed here -- every one
+     // of them a plain assignment to a public member, and `SetBattleScene` itself is reachable as its
+     // public twin `SetNextMap`.
+-    public static Boolean HarnessBattle(Int32 sceneId, Int32 group)
++    // [ff9mapkit netsync R3 s111] `rand` (the harness's `battle <scene> [group] [rand]`) boots the fight as a RANDOM encounter
++    // instead -- what the stock intro test keys on (cfg.skip_btl_camera == 0 && isRandomEncounter), so a bench can make an
++    // own battle skip its intro. The default false keeps ENCOUNT2's scripted-battle write.
++    public static Boolean HarnessBattle(Int32 sceneId, Int32 group, Boolean rand = false)
+     {
+         Ensure();
+-        return _instance.StartBattle(sceneId, group);
++        return _instance.StartBattle(sceneId, group, rand);
+     }
+ 
+-    private Boolean StartBattle(Int32 sceneId, Int32 group)
++    private Boolean StartBattle(Int32 sceneId, Int32 group, Boolean rand = false)
+     {
+         try
+         {
+@@ -533,7 +536,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+             FF9StateSystem.Common.FF9.btlSubMapNo = (SByte)group;   // -1 = let the scene pick its group
+             ee.SetNextMap(sceneId);                                 // == the private SetBattleScene
+-            FF9StateSystem.Battle.isRandomEncounter = false;
++            FF9StateSystem.Battle.isRandomEncounter = rand;         // [ff9mapkit netsync R3 s111] false = ENCOUNT2's write
+             FF9StateSystem.Battle.isDebug = false;                  // it must be able to END
+             FF9StateSystem.Battle.mappingBattleIDWithMapList = false;
+             FF9StateSystem.Field.FF9Field.loc.map.nextMode = 2;     // 1 field / 2 battle / 3 world
+@@ -544,7 +547,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             _open = false;
+             NoteRecent(sceneId);
+             _status = "starting battle " + sceneId
+-                      + (group >= 0 ? " group " + group : " (random group)") + " ...";
++                      + (group >= 0 ? " group " + group : " (random group)") + (rand ? " as a random encounter" : "") + " ...";
+             return true;
+         }
+         catch (Exception err)
+diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluBattleMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluBattleMain.cs
+index b9dafaa..2caca18 100644
+--- a/Assembly-CSharp/Global/Honolulu/HonoluluBattleMain.cs
++++ b/Assembly-CSharp/Global/Honolulu/HonoluluBattleMain.cs
+@@ -164,7 +164,9 @@ public class HonoluluBattleMain : PersistenSingleton<MonoBehaviour>
+             BattleVoice.InitBattle();
+             SmoothFrameUpdater_Battle.OnBattleMapChange();
+ 
+-            if ((Int64)FF9StateSystem.Settings.cfg.skip_btl_camera == 0L && FF9StateSystem.Battle.isRandomEncounter)
++            // [ff9mapkit netsync R3 s111] the intro test through ONE seam: stock everywhere but a booted co-op diorama, which
++            // plays the HOST's choice (the type-1 header's intro bits) instead of this machine's own setting.
++            if (Memoria.Netsync.NetSyncDiorama.SkipBattleIntro((Int64)FF9StateSystem.Settings.cfg.skip_btl_camera == 0L && FF9StateSystem.Battle.isRandomEncounter))
+                 SFX.SkipCameraAnimation(-1);
+ 
+             if (!FF9StateSystem.Battle.isNoBoosterMap())
+diff --git a/Assembly-CSharp/Global/battle/battle.cs b/Assembly-CSharp/Global/battle/battle.cs
+index 055fb90..c72f811 100644
+--- a/Assembly-CSharp/Global/battle/battle.cs
++++ b/Assembly-CSharp/Global/battle/battle.cs
+@@ -492,7 +492,9 @@ public static class battle
+     private static void BattleLoadLoop(FF9StateGlobal sys, FF9StateBattleSystem btlsys)
+     {
+         //uint id = sys.id;
+-        Boolean noDelayFade = FF9StateSystem.Settings.cfg.skip_btl_camera == 0 && FF9StateSystem.Battle.isRandomEncounter;
++        // [ff9mapkit netsync R3 s111] the same seam as HonoluluBattleMain.Start: a booted co-op diorama fades its actors in at
++        // the HOST's intro pace; stock everywhere else.
++        Boolean noDelayFade = Memoria.Netsync.NetSyncDiorama.SkipBattleIntro(FF9StateSystem.Settings.cfg.skip_btl_camera == 0 && FF9StateSystem.Battle.isRandomEncounter);
+         btlsys.attr |= ff9btl.ATTR.LOADNPC;
+         btlsys.attr |= ff9btl.ATTR.LOADCHR;
+         if ((noDelayFade || btlsys.btl_cnt > 20) && (btlsys.attr & ff9btl.ATTR.LOADNPC) != 0 && (btlsys.btl_load_status & ff9btl.LOAD_FADENPC) == 0 && (btlsys.btl_load_status & ff9btl.LOAD_INITNPC) != 0)

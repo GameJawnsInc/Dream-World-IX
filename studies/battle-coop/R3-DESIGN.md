@@ -215,8 +215,13 @@ public static Boolean RemoteMenuDeep   // the Wait freeze; RemoteMenuOpen keeps 
     root test at `:783-786`.
   - Turn-based keeps `RemoteMenuOpen` at `:759-760`, because stock turn-based freezes on the root panel too
     (`_commandPanel.IsActive`).
-  - `GuestWaitMs` and the 2.5 s staleness rule are unchanged (`:326-337`). Time spent at the root still counts toward
-    the 30 s per-turn cap, as a backstop.
+  - `GuestWaitMs` and the 2.5 s staleness rule are unchanged (`:326-337`).
+  - **As built (s113 review B1):** in Wait the 30 s cap times only the current stretch below the root. Counting root
+    time let one episode run across chained guest turns, so a deep window stopped freezing after 30 s with no log.
+    Turn-based and legacy guests keep the old episode bound. A cap expiry now logs once.
+  - **As built (s113 review B2):** a guest that pauses while its slot is Ready reads 2 (root), so the host's Wait
+    gauges keep running through the guest's own pause. On s110 they froze, for up to 30 s. A guest's local pause no
+    longer stalls the host's fight. Sitting A checks how this feels.
 
 **Guest.**
 
@@ -1053,7 +1058,7 @@ s126 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s125 -> s116, s115 -> s1
 
 | Patch | Verbs / ops (selftest) | Keys |
 |---|---|---|
-| s111 | `battle <scene> [group] [rand]`; `netsync dioboot <scene> [pattern] [skip\|play\|own] [rand]`; `bench intro 1\|0`; `bench cfg skipcam 0\|1\|restore` | `netsync.battle.host.cfg {atb, skip_btl_camera, speed, swirl_frames}`; `netsync.battle.host.intro {off, published, own_skip}`; `netsync.diorama.intro {wire, applied, own, off, calls, normal_ms, swirl_frames}` |
+| s111 | `battle <scene> [group] [rand]`; `netsync dioboot <scene> [pattern] [wire] [skip\|play\|own] [rand]` (`wire` = the F6 wire bench: flags 0x01, or 0x0D/0x09 with `skip`/`play`; `wire rand` is refused); `bench intro 1\|0`; `bench cfg skipcam 0\|1\|restore` | `netsync.battle.host.cfg {atb, skip_btl_camera, speed, swirl_frames}`; `netsync.battle.host.intro {off, published, own_skip}`; `netsync.diorama.intro {wire, applied, own, off, calls, normal_ms, swirl_frames}` |
 | s113 | `bench waitparity 1\|0`; `bench ctl auto\|shut\|legacy\|root\|deep`; `bench cfg atb wait\|active\|restore`; `bench lapse <ms> reserve` (the last frame re-served for 2000 ms, then silence) | `netsync.battle.host.wait {parity_off, menu, open, deep, legacy_seen}`; `netsync.battle.menu.ctl {menu, hex, src}`; feed gains `ctl`, `ctl_menu` |
 | s114 | `bench boot auto\|none\|booting\|live\|declined\|busy\|stale\|silent\|late <ms>`; `bench starthold 1\|0\|cap <ms>` | `netsync.battle.host.start_hold {off, cap_ms, state, nonce, why, release, held_ms, late_ms, count, released{live, declined, link, oldguest, cap, ended}, guest{r3, lane_ms, fmt, nonce, boot, boot_name}}`; `menu.ctl` gains `nonce, boot, boot_name`; `netsync.diorama.live {latched, ms, nonce}` |
 | s115 | `endbench guest hold\|nor9b` | `netsync.battle.end.flee {r9b, bypassed, overload, ability_flag, gil_now, penalty}`; `end.action` gains `flee`; `end.end_leave.reverted` (-1 = none); `battle.units[]` gains `mot`, `disappear`, `z` |
@@ -1154,11 +1159,11 @@ Host legs use selftest own battles on scene 67. Guest legs use `dioboot 67 0` on
 | I-A1 | `bench cfg skipcam 0` + `battle 67 -1 1` | `(host.caps & 0x0C) == 0x0C` **(review ctrl F9a)**, `host.intro.published == 1`, the "SKIPPED" line | the cfg op is withheld by the probe; `HarnessAgent.cs:767` passes args 0-1 only, so the battle is non-random → caps 0x02. Lever: `bench intro 0` → bits clear |
 | I-A2 | `battle 67` (rand 0) | bit 3 set, bit 2 clear (published 0) | bit 3 clear |
 | I-A3 | timing | A1's ENTER→NORMAL span is >= 1000 ms shorter than A2's | spans equal (rand ignored) |
-| I-B1/B2 | `dioboot 67 0 skip`, `dioleave`, `dioboot 67 0 play` | `diorama.intro.wire` 1/0, applied skip/play, `normal_ms` recorded | extra args ignored (`HarnessAgent.cs:1194`); key absent. Lever: `bench intro 0` |
+| I-B1/B2 | `dioboot 67 0 skip`, `dioleave`, `dioboot 67 0 play` | `diorama.intro.wire` 1/0, applied skip/play, `calls > 0`, `normal_ms` recorded | extra args ignored (`HarnessAgent.cs:1194`); key absent. Lever: `bench intro 0` → `calls == 0` (B2's applied stays `play` under the lever on a non-random boot, so `calls` is its only red) |
 | I-B3 | — | `T_play - T_skip >= 1500` ms | difference < 1500 |
 | I-B4 | `bench cfg skipcam 0` + `dioboot 67 0 play rand` | applied `play`, own `skip` (the wire beats own) | not reached (no rand on a manual boot); lever `bench intro 0` → applied skip |
 | I-B5 | — | the BOOT line names `intro=` and `swirl=`; one "reached its command phase" line | line absent |
-| I-B6 | the F6 wire bench (its fabricated header stays flags 0x01, `NetSyncBattle.cs:1857`) | boots as before and its BOOT line reads `intro=own` (bit 3 clear → `WireIntro` -1 through the new argument) **(review ctrl F9c)** | `intro=` token absent (a non-regression check) |
+| I-B6 | the F6 wire bench (its fabricated header stays flags 0x01, `NetSyncBattle.cs:1857`), solo via `dioboot 67 0 wire`; then `dioleave`, `dioboot 67 0 wire play` | boots as before and its BOOT line reads `intro=own` (bit 3 clear → `WireIntro` -1 through the new argument) **(review ctrl F9c)**; `wire play` reads `diorama.intro.wire == 0`, `intro=play(host)` (the parsed header through `BootFromWire`) | `intro=` token absent (a non-regression check); `wire` is ignored on s110 (a manual boot), so the `wire play` leg is "not reached" |
 
 ### 6.3 s113 — `coop_battle_wait_parity.py`
 

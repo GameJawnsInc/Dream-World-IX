@@ -1,0 +1,499 @@
+diff --git a/Assembly-CSharp/Global/SFX/SFX_Rush.cs b/Assembly-CSharp/Global/SFX/SFX_Rush.cs
+index 4208cf5..2a9c656 100644
+--- a/Assembly-CSharp/Global/SFX/SFX_Rush.cs
++++ b/Assembly-CSharp/Global/SFX/SFX_Rush.cs
+@@ -12,7 +12,13 @@ using Random = UnityEngine.Random;
+ public class SFX_Rush
+ {
+     private static readonly Int32 StartFadeOutFrame = Configuration.Graphics.BattleSwirlFrames;
+-    private static readonly Int32 RushParamLastFrame = StartFadeOutFrame + 5;
++
++    // [ff9mapkit netsync R3 s112] the swirl's length is chosen per INSTANCE, in the constructor (it was the static pair
++    // StartFadeOutFrame / RushParamLastFrame = StartFadeOutFrame + 5): a battle DIORAMA clamps it to [Netsync]
++    // DioramaSwirlFrames through NetSyncDiorama.SwirlFrames; every real battle on either machine plays StartFadeOutFrame.
++    private readonly Int32 _startFadeOutFrame;
++    private readonly Int32 _rushParamLastFrame;
++    private Boolean _doneNoted;
+ 
+     private static Single _px;
+     private static Single _py;
+@@ -34,6 +40,8 @@ public class SFX_Rush
+ 
+     public SFX_Rush()
+     {
++        _startFadeOutFrame = Memoria.Netsync.NetSyncDiorama.SwirlFrames(StartFadeOutFrame);   // [ff9mapkit netsync R3 s112] never throws
++        _rushParamLastFrame = _startFadeOutFrame + 5;
+         _isRandomEncounter = FF9StateSystem.Battle.isRandomEncounter;
+         _rot = 0.0f;
+         _rotInc = 0.03926991f;
+@@ -95,9 +103,16 @@ public class SFX_Rush
+ 
+     public Boolean update()
+     {
+-        if (_rushSeq++ > RushParamLastFrame)
++        if (_rushSeq++ > _rushParamLastFrame)
++        {
++            if (!_doneNoted)
++            {
++                _doneNoted = true;
++                Memoria.Netsync.NetSyncDiorama.NoteSwirlDone();   // [ff9mapkit netsync R3 s112] the swirl's dwell (BattleSwirl's ReplacePending frame)
++            }
+             return true;
+-        if (_rushSeq > StartFadeOutFrame)
++        }
++        if (_rushSeq > _startFadeOutFrame)
+             SceneDirector.ServiceFade();
+         _isUpdate = true;
+         return false;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 7b2792c..e2f1d0c 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -289,9 +289,18 @@ namespace Memoria.Netsync
+         }
+ 
+         // This process's [Graphics] BattleSwirlFrames (SFX_Rush reads the same value once, at 30 Hz); -1 = unreadable.
++        // [ff9mapkit netsync R3 s112] ...or the selftest stand-in `bench swirl local <frames>`: the guest's OWN swirl, before the clamp.
+         private static Int32 LocalSwirlFrames
+         {
+-            get { try { return Configuration.Graphics.BattleSwirlFrames; } catch { return -1; } }
++            get
++            {
++                try
++                {
++                    Int32 bench = BenchSwirlLocal;
++                    return bench >= 0 ? bench : Configuration.Graphics.BattleSwirlFrames;
++                }
++                catch { return -1; }
++            }
+         }
+ 
+         // Boot / Boot's catch / ForceDisarm: the intro observables describe the LIVE boot only (sentinels between boots).
+@@ -302,6 +311,10 @@ namespace Memoria.Netsync
+             _introCalls = 0;
+             _normalMs = -1;
+             _liveErrLogged = false;
++            _bootSwirlUsed = -1;                  // [ff9mapkit netsync R3 s112] this boot's swirl, set by SwirlFrames (SFX_Rush's constructor)
++            _bootSwirlOwn = -1;
++            _bootSwirlClamp = -1;
++            _bootSwirlBench = false;
+         }
+ 
+         /// <summary>[ff9mapkit netsync R3 s111] One call per client frame, in BOTH branches (transport: after ReconcileTick;
+@@ -341,8 +354,12 @@ namespace Memoria.Netsync
+             _normalMs = Math.Max(0, Environment.TickCount - BootTick);
+             String applied = _introApplied == 1 ? "skip" : _introApplied == 0 ? "play" : "?";
+             String src = _wireIntro < 0 ? "own" : NetSyncBattle.IntroMirrorOn ? "host" : "own: bench intro 0";
++            // [ff9mapkit netsync R3 s112] `swirl N frames` = the frames THIS boot's swirl played (after the clamp), then why
++            String swirl = _bootSwirlUsed >= 0
++                ? SwirlPhrase(_bootSwirlUsed, _bootSwirlOwn, _bootSwirlClamp, _bootSwirlBench)
++                : "swirl 0 frames (none played: " + (UseSwirl ? "no swirl recorded" : "DioramaSwirl 0, the plain fade") + "; own " + LocalSwirlFrames + ")";
+             Log.Message("[NetSync] diorama reached its command phase " + _normalMs + " ms after the boot (intro " + applied + "(" + src
+-                        + "), swirl " + LocalSwirlFrames + " frames)");
++                        + "), " + swirl + ")");
+         }
+ 
+         // The harness's `netsync.diorama.intro` (see HarnessAgent.AppendDiorama). Read-only, never throw.
+@@ -367,6 +384,209 @@ namespace Memoria.Netsync
+                 _wireIntro = -1;                  // a refused boot keeps nothing (the private Boot's early refusals touch nothing)
+         }
+ 
++        // ---------------------------------------------------------------------------------------
++        // [ff9mapkit netsync R3 s112] THE DIORAMA SWIRL CLAMP (studies/battle-coop/R3-DESIGN.md 3.1.5). SFX_Rush plays [Graphics]
++        // BattleSwirlFrames 30 Hz frames of swirl before its fade (the code default 115, about 3.8 s; the ini template ships 0).
++        // The desktop host runs 0, so a guest with a longer swirl reached the host's fight seconds late. A swirl constructed
++        // while a diorama is BOOTED now plays min(own, [Netsync] DioramaSwirlFrames) frames: default 0 = the desktop's skip, -1 =
++        // keep the guest's own. SFX_Rush asks once per swirl, from its constructor (BattleSwirl.Awake, which the boot's
++        // SwirlInBlack Replace reaches only after Boot set _booted), with its static readonly config field as the stock input.
++        // Every real battle on either machine is untouched: _booted is false there and the answer is `local` (or the selftest
++        // stand-in below). Guest only; no wire change. The same call records the swirl for the harness
++        // (`netsync.diorama.intro.swirl_clamp`), and SFX_Rush.update's first "done" frame stamps its dwell -- for EVERY swirl, so
++        // a bench can show a real battle keeping its own length.
++        // ---------------------------------------------------------------------------------------
++
++        /// <summary>[ff9mapkit netsync R3 s112] [Netsync] DioramaSwirlFrames -- NetSyncClient's config mirror, a BEHAVIOUR key (in the
++        /// behaviour signature: an edit applies live, from the next swirl). The longest swirl, in 30 Hz frames, a battle diorama
++        /// plays: 0 (default) = the desktop's skip; -1 = keep this machine's own [Graphics] BattleSwirlFrames.</summary>
++        internal static Int32 SwirlClampFrames = 0;
++
++        // SELFTEST LEVERS (harness `netsync bench swirl local <frames>|ini` and `netsync bench swirl clamp <frames>|-1|ini`;
++        // released with the harness). Read only through BenchSwirlLocal / SwirlClamp, which also need the selftest role.
++        private const Int32 SwirlBenchMaxFrames = 1800;   // 60 s at 30 Hz: the bench levers' range
++        private static Int32 _benchSwirlLocal = -1;   // >= 0: this process's OWN swirl reads this, not [Graphics] (the laptop stand-in)
++        private static Boolean _benchClampSet;        // the clamp override is in force...
++        private static Int32 _benchClamp = -1;        // ...with this value (-1 = keep own: the pre-stage diorama, the calibration lever)
++
++        // The last swirl this process constructed (any SFX_Rush -- a diorama's or a real battle's), for the harness.
++        private static Int32 _swirlOwn = -1;          // its own length (the [Graphics] value or the bench stand-in)
++        private static Int32 _swirlUsed = -1;         // ...the length it played (SwirlFrames' answer)
++        private static Int32 _swirlDwellMs = -1;      // constructor -> its first "done" frame; -1 = not done yet / no swirl yet
++        private static Boolean _swirlDiorama;         // it was a diorama's
++        private static Boolean _swirlLogged;          // it logged its decision, so its dwell logs too (a diorama, or the bench stand-in)
++        private static Int32 _swirlTick = Environment.TickCount;   // when it was constructed (tick-baseline law: a real tick)
++        private static Int32 _swirls;                 // swirls constructed this process
++        private static Int32 _swirlDioramas;          // ...inside a booted diorama
++        private static Int32 _swirlClamps;            // ...that the clamp shortened
++        // THIS boot's swirl, for the command-phase line (reset per boot through ResetIntro: Boot, Boot's catch, ForceDisarm).
++        private static Int32 _bootSwirlUsed = -1;
++        private static Int32 _bootSwirlOwn = -1;
++        private static Int32 _bootSwirlClamp = -1;
++        private static Boolean _bootSwirlBench;
++
++        private static Int32 BenchSwirlLocal
++        {
++            get { return _benchSwirlLocal >= 0 && NetSyncClient.IsSelfTestRole ? _benchSwirlLocal : -1; }
++        }
++
++        private static Boolean SwirlClampFromBench
++        {
++            get { return _benchClampSet && NetSyncClient.IsSelfTestRole; }
++        }
++
++        // The clamp a diorama swirl applies now: the bench override, else [Netsync] DioramaSwirlFrames; -1 = off (keep own).
++        private static Int32 SwirlClamp
++        {
++            get { return SwirlClampFromBench ? _benchClamp : SwirlClampFrames; }
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s112] SFX_Rush's swirl length, asked once per swirl from its constructor with the stock
++        /// value (`local` = [Graphics] BattleSwirlFrames). Outside a booted diorama: `local` (or the selftest stand-in). Inside
++        /// one: min(own, the clamp), unless the clamp is -1. Records the swirl for the harness; logs only for a diorama or the
++        /// stand-in (vanilla stays silent). Never throws: an exception reads `local`, the stock swirl.</summary>
++        public static Int32 SwirlFrames(Int32 local)
++        {
++            try
++            {
++                Int32 bench = BenchSwirlLocal;
++                Int32 own = bench >= 0 ? bench : local;
++                Boolean diorama = _booted;
++                Int32 clamp = diorama ? SwirlClamp : -1;
++                Int32 used = clamp >= 0 ? Math.Min(own, clamp) : own;
++                _swirls++;
++                _swirlOwn = own;
++                _swirlUsed = used;
++                _swirlDiorama = diorama;
++                _swirlTick = Environment.TickCount;
++                _swirlDwellMs = -1;
++                _swirlLogged = diorama || bench >= 0;
++                if (used != own)
++                    _swirlClamps++;
++                if (diorama)
++                {
++                    _swirlDioramas++;
++                    _bootSwirlUsed = used;
++                    _bootSwirlOwn = own;
++                    _bootSwirlClamp = clamp;
++                    _bootSwirlBench = SwirlClampFromBench;
++                    Log.Message("[NetSync] diorama " + SwirlPhrase(used, own, clamp, _bootSwirlBench) + " -- real battles keep their own");
++                }
++                else if (bench >= 0)
++                {
++                    Log.Message("[NetSync] battle swirl " + used + " frames (the bench stand-in `bench swirl local " + bench
++                                + "`; not a diorama, so no clamp)");
++                }
++                return used;
++            }
++            catch
++            {
++                return local;
++            }
++        }
++
++        // "swirl U frames (own O, clamped by DioramaSwirlFrames C)" -- the one wording of a diorama swirl's decision.
++        private static String SwirlPhrase(Int32 used, Int32 own, Int32 clamp, Boolean bench)
++        {
++            String knob = "DioramaSwirlFrames " + clamp + (bench ? " (bench)" : "");
++            if (clamp < 0)
++                return "swirl " + used + " frames (own " + own + "; " + knob + " keeps it)";
++            return "swirl " + used + " frames (own " + own + (used != own ? ", clamped by " : ", within ") + knob + ")";
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s112] SFX_Rush.update's first "done" frame -- the frame BattleSwirl calls ReplacePending,
++        /// so constructor -> here is the swirl's dwell. Once per swirl (SFX_Rush latches its own call). Never throws.</summary>
++        public static void NoteSwirlDone()
++        {
++            try
++            {
++                if (_swirlDwellMs >= 0)
++                    return;
++                _swirlDwellMs = Math.Max(0, Environment.TickCount - _swirlTick);
++                if (_swirlLogged)
++                    Log.Message("[NetSync] " + (_swirlDiorama ? "diorama" : "battle") + " swirl done after " + _swirlDwellMs + " ms ("
++                                + _swirlUsed + " frames)");
++            }
++            catch { }
++        }
++
++        // The harness's `netsync.diorama.intro.swirl_clamp` (see HarnessAgent.AppendSwirlClamp). Read-only, never throw.
++        internal static Int32 HarnessSwirlClampIni { get { return SwirlClampFrames; } }
++        internal static Int32 HarnessSwirlClamp { get { return SwirlClamp; } }
++        internal static String HarnessSwirlClampSrc { get { return SwirlClampFromBench ? "bench" : "ini"; } }
++        internal static Int32 HarnessSwirlBenchLocal { get { return BenchSwirlLocal; } }
++        internal static Boolean HarnessSwirlDiorama { get { return _swirlDiorama; } }
++        internal static Int32 HarnessSwirlOwn { get { return _swirlOwn; } }
++        internal static Int32 HarnessSwirlUsed { get { return _swirlUsed; } }
++        internal static Boolean HarnessSwirlClamped { get { return _swirls > 0 && _swirlUsed != _swirlOwn; } }
++        internal static Int32 HarnessSwirlDwellMs { get { return _swirlDwellMs; } }
++        internal static Int32 HarnessSwirls { get { return _swirls; } }
++        internal static Int32 HarnessSwirlDioramas { get { return _swirlDioramas; } }
++        internal static Int32 HarnessSwirlClamps { get { return _swirlClamps; } }
++
++        /// <summary>[ff9mapkit netsync R3 s112] `netsync bench swirl local &lt;frames&gt;|ini` -- this process's OWN swirl reads
++        /// &lt;frames&gt; (a stand-in for the laptop's [Graphics] BattleSwirlFrames, for every swirl; `ini` = back to [Graphics]) --
++        /// and `netsync bench swirl clamp &lt;frames&gt;|-1|ini` -- a process-local [Netsync] DioramaSwirlFrames (-1 = keep own: the
++        /// pre-stage diorama, the stage's calibration lever; `ini` = back to the Memoria.ini value). Memoria.ini is never touched.
++        /// Selftest role only; released with the harness (NetSyncBattle.HarnessReleaseBench).</summary>
++        internal static Boolean HarnessBenchSwirl(String what, String value, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench swirl: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            what = (what ?? "").ToLowerInvariant();
++            value = (value ?? "").ToLowerInvariant();
++            Boolean ini = value == "ini";
++            Int32 n;
++            Boolean num = Int32.TryParse(value, out n);
++            if (what == "local")
++            {
++                if (!ini && (!num || n < 0 || n > SwirlBenchMaxFrames))
++                {
++                    why = "netsync bench swirl local: expected <0-" + SwirlBenchMaxFrames + " frames>|ini (this process's own swirl; ini = [Graphics] BattleSwirlFrames)";
++                    return false;
++                }
++                _benchSwirlLocal = ini ? -1 : n;
++                Log.Message(ini ? "[NetSync] harness: bench swirl local back to [Graphics] BattleSwirlFrames (" + LocalSwirlFrames + ")"
++                                : "[NetSync] harness: bench swirl local " + n + " frames -- every swirl in this process plays this as its OWN"
++                                  + " length (the laptop stand-in; Memoria.ini untouched)");
++                return true;
++            }
++            if (what == "clamp")
++            {
++                if (!ini && (!num || n < -1 || n > SwirlBenchMaxFrames))
++                {
++                    why = "netsync bench swirl clamp: expected <0-" + SwirlBenchMaxFrames + " frames>|-1|ini (-1 = keep own; ini = [Netsync] DioramaSwirlFrames)";
++                    return false;
++                }
++                _benchClampSet = !ini;
++                _benchClamp = ini ? -1 : n;
++                Log.Message(ini ? "[NetSync] harness: bench swirl clamp back to [Netsync] DioramaSwirlFrames (" + SwirlClampFrames + ")"
++                                : "[NetSync] harness: bench swirl clamp " + n + " for this process" + (n < 0
++                                  ? " -- CALIBRATION: the pre-stage diorama (its swirl keeps the guest's own length)"
++                                  : " (a diorama swirl plays at most " + n + " frames; Memoria.ini untouched)"));
++                return true;
++            }
++            why = "netsync bench swirl: unknown setting '" + what + "' (local|clamp)";
++            return false;
++        }
++
++        // Every harness release (NetSyncBattle.HarnessReleaseBench: disarm, fault, `reset`): both swirl levers back to the ini.
++        internal static void HarnessReleaseSwirl()
++        {
++            if (_benchSwirlLocal >= 0)
++                Log.Message("[NetSync] harness: bench swirl local back to [Graphics] BattleSwirlFrames (released with the harness)");
++            if (_benchClampSet)
++                Log.Message("[NetSync] harness: bench swirl clamp back to [Netsync] DioramaSwirlFrames " + SwirlClampFrames
++                            + " (released with the harness)");
++            _benchSwirlLocal = -1;
++            _benchClampSet = false;
++            _benchClamp = -1;
++        }
++
+         /// <summary>May this machine boot a diorama at all? A mirrored session, a LIVE followed session
+         /// (the mirror may simply not have armed yet -- its arming needs a field load that sees a host
+         /// snapshot; the diorama's save-safety never depended on it), or the sanctioned solo bench.</summary>
+@@ -547,7 +767,10 @@ namespace Memoria.Netsync
+                 // [ff9mapkit netsync R3 s111] + whose intro this boot plays and this machine's swirl length (the laptop's record)
+                 Log.Message("[NetSync] diorama BOOT scene=" + battleMapIndex + " pattern=" + patternIndex
+                             + " start=" + startType + (isRandomEncounter ? " rand" : "")
+-                            + " intro=" + IntroSource + " swirl=" + LocalSwirlFrames);
++                            + " intro=" + IntroSource + " swirl=" + LocalSwirlFrames
++                            // [ff9mapkit netsync R3 s112] + the clamp this boot's swirl will apply (SFX_Rush asks at the swirl itself)
++                            + " clamp=" + (!UseSwirl ? "none(plain fade)"
++                                           : SwirlClamp >= 0 ? SwirlClamp + (SwirlClampFromBench ? "(bench)" : "") : "off"));
+                 BootTick = Environment.TickCount;   // B3.6: the SwirlScene watchdog's baseline (fence 2)
+                 _leaveTick = Environment.TickCount - 3600000;   // a fresh boot invalidates any old leave intent
+                 // [ff9mapkit netsync F3.3] DIO-1: the stock battle entry's FIELD half, done here because isDebug
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 96cc42a..fae0216 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -32,6 +32,9 @@ namespace Memoria.Netsync
+     //   GuestStockMenu = 1                  [ff9mapkit netsync B4] stage 8 (guest side): inside the host's battle diorama the
+     //                                       STOCK command menu serves my slots (fed from the host's Ready bits; needs the
+     //                                       party mirror and a stage-1 host). 0 = the digit panel. Applies live.
++    //   DioramaSwirlFrames = 0              [ff9mapkit netsync R3 s112] (guest side): the longest battle swirl (30 Hz frames)
++    //                                       the host's diorama plays here -- min(my [Graphics] BattleSwirlFrames, this). 0 = the
++    //                                       desktop host's skip; -1 = keep my own. My real battles never read it. Applies live.
+     //
+     // THE COOP CELLS (V2 "[[coop]]" authoring, kit-reserved): while Enabled, every frame writes the
+     // peer's presence + walkmesh position into gEventGlobal bytes 2032-2039 (top of the kit's custom
+@@ -71,6 +74,7 @@ namespace Memoria.Netsync
+         private static String _cfgTransportSig = "";     // enabled|role|peer|port|relay|code|tls (our own code-persist != a change)
+         private static String _cfgBehaviorSig = "";      // targetField|guestSlots|guestWait|ghostAs|followHost|selfTestOffset|dioramaSwirl
+                                                          // |autoTeleport|guestStockMenu ([ff9mapkit netsync B4] stage 8)
++                                                         // |dioramaSwirlFrames ([ff9mapkit netsync R3 s112])
+         private static Boolean _enabled;
+         private static String _role = "selftest";       // selftest | host | client
+         private static String _peer = "127.0.0.1";
+@@ -763,6 +767,17 @@ namespace Memoria.Netsync
+                 // the guest's slots (NetSyncBattle.StockMenuTick); 0 = the digit panel. A BEHAVIOUR key (in bsig below): an edit
+                 // applies live, the session stays up.
+                 Boolean guestStockMenu = ini.GetSetting("Netsync", "GuestStockMenu", "1").Trim() != "0";
++                // [ff9mapkit netsync R3 s112] DioramaSwirlFrames, default 0: the longest swirl (30 Hz frames) a battle DIORAMA plays --
++                // min(my own [Graphics] BattleSwirlFrames, this); -1 (or any negative) = keep my own. Real battles never read it. A
++                // BEHAVIOUR key (in bsig below): an edit applies from the next diorama swirl, the session stays up. Quotes accepted.
++                Int32 swirlClamp = 0;
++                String swRaw = ini.GetSetting("Netsync", "DioramaSwirlFrames", "0").Trim();
++                if (swRaw.Length >= 2 && swRaw[0] == '"' && swRaw[swRaw.Length - 1] == '"')
++                    swRaw = swRaw.Substring(1, swRaw.Length - 2).Trim();
++                if (Int32.TryParse(swRaw, out n))
++                    swirlClamp = n < 0 ? -1 : n;
++                else if (swRaw.Length > 0)
++                    Log.Message("[NetSync] DioramaSwirlFrames '" + swRaw + "' malformed (want an integer: frames, or -1 = keep my own swirl) -- keeping 0");
+                 // B3.6 -- [Netsync] SelfTestOffset = "dx,dz" (walkmesh units, default "250,0" = exact
+                 // current behavior). Per-component Int32.TryParse: integer digits parse identically in
+                 // every locale (no comma-decimal hazard, no Globalization using).
+@@ -811,7 +826,8 @@ namespace Memoria.Netsync
+                 String bsig = field + "|" + guestSlots + "|" + guestWait + "|" + ghostAs +
+                               "|" + (followHost ? "1" : "0") + "|" + stDx + "," + stDz +
+                               "|" + (dioramaSwirl ? "1" : "0") + "|" + (autoTeleport ? "1" : "0") +
+-                              "|" + (guestStockMenu ? "1" : "0");                 // [ff9mapkit netsync B4] stage 8
++                              "|" + (guestStockMenu ? "1" : "0") +                // [ff9mapkit netsync B4] stage 8
++                              "|" + swirlClamp;                                    // [ff9mapkit netsync R3 s112]
+                 Boolean first = !_configLoaded;
+                 _configLoaded = true;
+                 Boolean tChanged = tsig != _cfgTransportSig;
+@@ -831,6 +847,7 @@ namespace Memoria.Netsync
+                 NetSyncBattle.SelfTest = _role != "host" && _role != "client";
+                 NetSyncDiorama.UseSwirl = dioramaSwirl;                             // B3.6: the diorama boot-transition lever
+                 NetSyncBattle.GuestStockMenu = guestStockMenu;                      // [ff9mapkit netsync B4] stage 8: read per frame
++                NetSyncDiorama.SwirlClampFrames = swirlClamp;                       // [ff9mapkit netsync R3 s112]: read per diorama swirl
+                 NetSyncVisitor.Enabled = _enabled;                                  // the visitor lane's config mirror
+                 NetSyncVisitor.GhostAs = _ghostAs;
+                 NetSyncVisitor.FollowHost = _followHost;
+@@ -841,6 +858,7 @@ namespace Memoria.Netsync
+                             (_autoTeleport ? " autoTeleport=1" : "") +
+                             (!dioramaSwirl ? " dioramaSwirl=0" : "") +
+                             (!guestStockMenu ? " guestStockMenu=0" : "") +                 // [ff9mapkit netsync B4] stage 8
++                            (swirlClamp != 0 ? " dioramaSwirlFrames=" + swirlClamp : "") +    // [ff9mapkit netsync R3 s112]
+                             (_selfTestDx != 250 || _selfTestDz != 0 ? " selfTestOffset=" + _selfTestDx + "," + _selfTestDz : "") +
+                             (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
+                                                   : " peer=" + _peer + ":" + _port));
+@@ -894,7 +912,7 @@ namespace Memoria.Netsync
+ 
+         // A BEHAVIOR config edit landed while the game runs (play-style keys only: TargetField,
+         // GuestSlots, GuestWaitMs, GhostAs, FollowHost, SelfTestOffset, DioramaSwirl, AutoTeleport,
+-        // GuestStockMenu -- [ff9mapkit netsync B4] stage 8): every consumer
++        // GuestStockMenu -- [ff9mapkit netsync B4] stage 8; DioramaSwirlFrames -- [ff9mapkit netsync R3 s112]): every consumer
+         // reads the committed statics per frame (dress/scope/slots pick the new value up on the next
+         // tick), so the transport and the mirrored session stay INTACT -- no teardown, no reconnect
+         // window with SuppressEncounters forced off, no exit ramp on a mere play-style tweak. The two
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 07e1c3b..c5de5e7 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -2652,6 +2652,7 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] harness: battle intro mirror back ON (released with the harness)");
+             BenchIntroOff = false;
+             BenchCfgRestore("released with the harness");
++            NetSyncDiorama.HarnessReleaseSwirl();  // [ff9mapkit netsync R3 s112] `bench swirl local|clamp` back to the ini
+         }
+ 
+         // ============================================================================ harness surface (R3 s111)
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index af28c0d..e2bfc17 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -135,6 +135,12 @@ namespace Memoria.Harness
+         // `bench intro 1|0` (the calibration lever) and `bench cfg skipcam 0|1|restore`; no new sub-verb. A driver checks
+         // for `netsync.diorama.intro` -- absent = an engine
+         // whose diorama plays its own intro (and which reads `bench intro`/`bench cfg` as `bench 1`).
++        // [ff9mapkit netsync R3 s112] (the diorama swirl clamp; studies/battle-coop/R3-DESIGN.md 3.1.5), also additive under 5:
++        // `netsync.diorama.intro` gains `swirl_clamp` (see AppendSwirlClamp; `swirl_frames` now shows the `bench swirl local`
++        // stand-in when one is set), and `netsync bench` gains one named op -- `bench swirl local <frames>|ini` (this process's
++        // own swirl length) and `bench swirl clamp <frames>|-1|ini` (a process-local [Netsync] DioramaSwirlFrames; -1 = the
++        // calibration lever); no new sub-verb. A driver checks for `netsync.diorama.intro.swirl_clamp` -- absent = an engine
++        // whose diorama plays the guest's own swirl (and which reads `bench swirl` as `bench 1`).
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1129,6 +1135,21 @@ namespace Memoria.Harness
+                                         throw new InvalidOperationException(why ?? "netsync bench cfg refused");
+                                     break;
+                                 }
++                                // [ff9mapkit netsync R3 s112] one more named op (the diorama swirl clamp):
++                                //   `bench swirl local <0-1800>|ini`  every swirl in this process plays <frames> as its OWN length (the
++                                //       laptop's [Graphics] BattleSwirlFrames stand-in); ini = back to [Graphics];
++                                //   `bench swirl clamp <0-1800>|-1|ini`  a process-local [Netsync] DioramaSwirlFrames (-1 = keep own: the
++                                //       pre-stage diorama, the calibration lever); ini = back to the Memoria.ini value.
++                                // Read back: `netsync.diorama.intro.swirl_clamp`. Released on disarm/fault/reset. CAUTION: an engine
++                                // before s112 parses it as `bench 1`: probe `netsync.diorama.intro.swirl_clamp` first.
++                                if (bnop == "swirl")
++                                {
++                                    if (s.Args.Length != 4)
++                                        throw new ArgumentOutOfRangeException("netsync bench swirl", "expected `netsync bench swirl local <frames>|ini` or `netsync bench swirl clamp <frames>|-1|ini`");
++                                    if (!Memoria.Netsync.NetSyncDiorama.HarnessBenchSwirl(s.Args[2], s.Args[3], out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench swirl refused");
++                                    break;
++                                }
+                             }
+                             Memoria.Netsync.NetSyncField.BenchGates = Arg(s, 1, 1) != 0;
+                             Memoria.Prime.Log.Message("[NetSync] field-gate bench " + (Memoria.Netsync.NetSyncField.BenchGates ? "ON" : "OFF") + " (harness)");
+@@ -3048,7 +3069,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3177,6 +3198,8 @@ namespace Memoria.Harness
+         // HOST's choice decided -- BattleLoadLoop asks every loading frame), `normal_ms` (Boot -> the first steady frame --
+         // PHASE_NORMAL, both load bits, the scene ours -- swirl included; -1 = not yet) and `swirl_frames` (this process's
+         // [Graphics] BattleSwirlFrames; -1 = unreadable). AppendNetsync's catch line carries the same keys at their sentinels.
++        // [ff9mapkit netsync R3 s112] `swirl_frames` reads the `bench swirl local` stand-in while one is set (the swirl's OWN
++        // length, before the clamp), and `swirl_clamp` joins (see AppendSwirlClamp).
+         private static void AppendDioramaIntro(StringBuilder sb)
+         {
+             Int32 applied = Memoria.Netsync.NetSyncDiorama.HarnessIntroApplied;
+@@ -3188,7 +3211,35 @@ namespace Memoria.Harness
+             Bool(sb, "off", Memoria.Netsync.NetSyncBattle.HarnessIntroOff); sb.Append(",");
+             Num(sb, "calls", Memoria.Netsync.NetSyncDiorama.HarnessIntroCalls); sb.Append(",");
+             Num(sb, "normal_ms", Memoria.Netsync.NetSyncDiorama.HarnessNormalMs); sb.Append(",");
+-            Num(sb, "swirl_frames", Memoria.Netsync.NetSyncDiorama.HarnessSwirlFrames);
++            Num(sb, "swirl_frames", Memoria.Netsync.NetSyncDiorama.HarnessSwirlFrames); sb.Append(",");
++            AppendSwirlClamp(sb);                                                                       // [ff9mapkit netsync R3 s112]
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync R3 s112] `netsync.diorama.intro.swirl_clamp` -- the diorama swirl clamp (guest side). The knob: `ini`
++        // ([Netsync] DioramaSwirlFrames as loaded; -1 = keep own), `clamp` (what a diorama swirl applies now: the bench override,
++        // else the ini; -1 = off), `src` ("ini" | "bench" -- `netsync bench swirl clamp`) and `bench_local` (the `bench swirl local`
++        // stand-in for this process's own swirl; -1 = none). The LAST swirl this process constructed -- a diorama's or a real
++        // battle's, so a bench can show a real battle keeping its own length: `diorama`, `own` (its own length), `used` (the frames
++        // it played), `clamped` (used != own) and `dwell_ms` (SFX_Rush's constructor -> its first "done" frame, the frame
++        // BattleSwirl calls ReplacePending; -1 = not done yet / no swirl yet; -1/false everywhere before the first swirl). Counts
++        // this process: `swirls`, `dioramas` (inside a booted diorama) and `clamps` (shortened by the clamp). AppendNetsync's
++        // catch line carries the same keys at their sentinels.
++        private static void AppendSwirlClamp(StringBuilder sb)
++        {
++            sb.Append("\"swirl_clamp\":{");
++            Num(sb, "ini", Memoria.Netsync.NetSyncDiorama.HarnessSwirlClampIni); sb.Append(",");
++            Num(sb, "clamp", Memoria.Netsync.NetSyncDiorama.HarnessSwirlClamp); sb.Append(",");
++            Str(sb, "src", Memoria.Netsync.NetSyncDiorama.HarnessSwirlClampSrc); sb.Append(",");
++            Num(sb, "bench_local", Memoria.Netsync.NetSyncDiorama.HarnessSwirlBenchLocal); sb.Append(",");
++            Bool(sb, "diorama", Memoria.Netsync.NetSyncDiorama.HarnessSwirlDiorama); sb.Append(",");
++            Num(sb, "own", Memoria.Netsync.NetSyncDiorama.HarnessSwirlOwn); sb.Append(",");
++            Num(sb, "used", Memoria.Netsync.NetSyncDiorama.HarnessSwirlUsed); sb.Append(",");
++            Bool(sb, "clamped", Memoria.Netsync.NetSyncDiorama.HarnessSwirlClamped); sb.Append(",");
++            Num(sb, "dwell_ms", Memoria.Netsync.NetSyncDiorama.HarnessSwirlDwellMs); sb.Append(",");
++            Num(sb, "swirls", Memoria.Netsync.NetSyncDiorama.HarnessSwirls); sb.Append(",");
++            Num(sb, "dioramas", Memoria.Netsync.NetSyncDiorama.HarnessSwirlDioramas); sb.Append(",");
++            Num(sb, "clamps", Memoria.Netsync.NetSyncDiorama.HarnessSwirlClamps);
+             sb.Append("}");
+         }
+ 
