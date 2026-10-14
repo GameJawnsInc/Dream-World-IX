@@ -49,7 +49,12 @@ share (``--field N`` restricts it to one field). What ``host``/``join`` do:
    copied to the clipboard. The guest passes the host's code to ``join``.
 4. **Bridge** -- run the ws->wss bridge in-process and stay in the foreground
    while the game plays (FF9's old Mono has no TLS 1.2, so the bridge carries
-   the connection to the relay).
+   the connection to the relay). Its lines are wall-clock stamped and teed to
+   ``%LOCALAPPDATA%\\ff9mapkit\\bridge-logs\\`` (``--bridge-log FILE`` overrides);
+   a game that stops sending for 10 s (``--hang-after``) is logged as SILENT, and
+   ``--hang-dump`` (or ``FF9_HANG_DUMP=1``; default off, a dump is 1-3 GB) also
+   writes one full minidump of the hung FF9.exe + its logs to
+   ``%LOCALAPPDATA%\\ff9mapkit\\hangdumps\\`` (``--hang-dump-dir DIR``).
 
 Direct-LAN mode (no relay, no bridge, same WiFi): ``coop host --lan`` and
 ``coop join --lan <host-ip>``.
@@ -544,12 +549,51 @@ def _copy_clipboard(text: str) -> bool:
         return False
 
 
-def _run_bridge_foreground(port: int, relay: str | None, insecure: bool, *, out=print) -> int:
+def _bridge_options(args) -> dict:
+    """The bridge's T1 knobs off a parsed ``coop`` namespace (absent attrs = defaults)."""
+    return {"hang_dump": bool(getattr(args, "hang_dump", False)),
+            "hang_dump_dir": getattr(args, "hang_dump_dir", None),
+            "hang_after": getattr(args, "hang_after", None),
+            "log_path": getattr(args, "bridge_log", None)}
+
+
+def _bridge_flags_text(args) -> str:
+    """The bridge flags this run was given, re-spelled for the ``--no-bridge`` hint -- so the bridge started
+    later keeps the same relay, hang-dump arming and log file (a value with a space is double-quoted)."""
+    parts = []
+    for flag, attr in (("--relay", "relay"), ("--hang-dump-dir", "hang_dump_dir"),
+                       ("--hang-after", "hang_after"), ("--bridge-log", "bridge_log")):
+        value = getattr(args, attr, None)
+        if value is None or value == "":
+            continue
+        text = f"{value:g}" if isinstance(value, float) else str(value)
+        parts.append(f'{flag} "{text}"' if " " in text else f"{flag} {text}")
+    for flag, attr in (("--insecure", "insecure"), ("--hang-dump", "hang_dump")):
+        if getattr(args, attr, False):
+            parts.append(flag)
+    return "".join(" " + p for p in parts)
+
+
+def _run_bridge_foreground(port: int, relay: str | None, insecure: bool, *, out=print,
+                           hang_dump: bool = False, hang_dump_dir: str | None = None,
+                           hang_after: float | None = None, log_path: str | None = None) -> int:
     from . import netsync_bridge as nb
+    # T1: every bridge line is wall-clock stamped and teed to a per-run log file; a game hop silent
+    # for --hang-after seconds is logged, and -- only with --hang-dump / FF9_HANG_DUMP=1 -- dumped.
+    hang = nb.hangdump.HangDumper.from_options(flag=hang_dump, dump_dir=hang_dump_dir,
+                                               after_s=hang_after, log=nb._late_log)
     relay_url = relay or nb.default_relay()
-    server, thread = nb.run_server("127.0.0.1", port, relay_url, insecure)
+    session_log = nb.open_session_log(log_path)
+    try:
+        server, thread = nb.run_server("127.0.0.1", port, relay_url, insecure, hang=hang)
+    except BaseException:
+        nb.close_session_log()
+        raise
     out(f"  bridge: running on ws://127.0.0.1:{port} -- leave this window open while you play "
         "(Ctrl+C to stop)")
+    if session_log:
+        out(f"  bridge log: {session_log}")
+    out(f"  {hang.describe()}")
     try:
         while thread.is_alive():
             thread.join(timeout=1.0)
@@ -557,6 +601,7 @@ def _run_bridge_foreground(port: int, relay: str | None, insecure: bool, *, out=
         out("  bridge: stopped")
     finally:
         server.close()
+        nb.close_session_log()
     return 0
 
 
@@ -575,6 +620,9 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
                                   None if follow is None else follow == "on")
         if code:                      # empty/None = none given (host mints, LAN join needs none)
             validate_code(code)
+        if getattr(args, "hang_after", None) is not None:      # a bad --hang-after fails HERE, not
+            from .hangdump import HangDumper                     # after the room build + ini write
+            HangDumper.from_options(after_s=args.hang_after)
     except ValueError as e:
         out(f"  {e}")
         return 2
@@ -659,10 +707,10 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         return 0
     out("")
     if getattr(args, "no_bridge", False):
-        out(f"  --no-bridge: start it later with  ff9mapkit coop bridge --port {args.port}")
+        out(f"  --no-bridge: start it later with  ff9mapkit coop bridge --port {args.port}{_bridge_flags_text(args)}")
         return 0
     return _run_bridge_foreground(args.port, getattr(args, "relay", None),
-                                  getattr(args, "insecure", False), out=out)
+                                  getattr(args, "insecure", False), out=out, **_bridge_options(args))
 
 
 def run(args, out=print) -> int:
@@ -688,6 +736,6 @@ def run(args, out=print) -> int:
         return show_config(find_game_path(args.game), out=out)
     if action == "bridge":
         return _run_bridge_foreground(args.port, getattr(args, "relay", None),
-                                      getattr(args, "insecure", False), out=out)
+                                      getattr(args, "insecure", False), out=out, **_bridge_options(args))
     out(f"unknown coop action: {action}")
     return 2

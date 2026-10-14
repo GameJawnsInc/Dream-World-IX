@@ -1,0 +1,676 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 201c64d..21d8e49 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -444,9 +444,44 @@ namespace Memoria.Netsync
+         // Sentinel law (as _exitRampSafeSince): 0 = not currently holding; delta read only when != 0.
+         private Int32 _dioramaStaleSince;
+         private Boolean _dioramaBlipHoldLogged;          // one "held through a blip" line per blip, never per frame
++                                                         // ([ff9mapkit netsync R3 s119] = this hold was logged: its resume line is owed)
+         private Boolean _dioramaBlipHoldGaveUpLogged;    // one "gave up after the cap" line per blip, never per frame
+         private Boolean _dioramaWatcherLeftFinal;        // s56: the pending teardown is a REAL leave -> stamp skip
+         private const Int32 DioramaBlipHoldMs = 8000;    // max hold while the transport is down before giving up to the spectate panel
++        // [ff9mapkit netsync R3 s119] THE HOLD KEYED ON THE PEER (studies/battle-coop/R3-SITTING-A-FIXES.md). Lever (a) above
++        // read `_socket.IsConnected` -- and behind the local bridge the game's hop stays connected through ANY upstream cut
++        // shorter than the bridge's 45 s redial cap, so the hold never ran: sitting A's 6 s cut read "stale + link UP = the fight
++        // is over", left within ~2 s and stamped the skip. THE LAW (every link-down test): PEER-ALIVE = IsConnected &&
++        // GetRemote().Valid, never IsConnected alone. The booted branch is now one pure step (DioramaWatchStep): a stale lane is
++        // GENUINELY OVER only when the peer is alive AND (the host is back on a field -- it sends field 0 throughout its battle --
++        // OR this boot's end block read TERMINAL while the lane was live: _dioramaTerminalNonce, latched because TryGetPeerEnd
++        // reads only the live view, which Pump nulls once the lane is stale). Every other stale frame is a HOLD: no Leave, the
++        // reconciler frozen at its last applied state, the s114 report still LIVE (same nonce, the live latch kept) -- so the
++        // host hands the slot back on resume (s118) and the stock menu re-serves. The cap is unchanged here (DioramaHoldCapMs:
++        // s120 replaces its body with the session grace); a leave past it is today's final leave (skip stamped).
++        // THE SETTLE (review S119-R1/R2): on a cut the battle lane goes stale up to one SampleMs (150) BEFORE GetRemote turns
++        // invalid -- the lane's freshness advances only on a new seq, while every 33 ms position re-send restamps the remote --
++        // so a cut's first stale frames still read the peer ALIVE. An over-verdict therefore needs the peer alive CONTINUOUSLY
++        // for DioramaSettleMs of the stale stretch (_dioramaPeerAliveSince; that also closes the resume race, a position frame
++        // landing between Pump's battle read and the watcher's remote read), and a hold is COUNTED and logged only once the
++        // stretch has been stale that long (_dioramaHoldCounted): a genuine end reads over by then, a sub-settle flicker is no
++        // hold, and the line names the peer's SETTLED state. A LEAVE_FINAL, once decided, stands until the lane is live on the
++        // booted fight again (_dioramaLeaveWhy): a peer going silent after saying "over" -- a deferred leave -- un-says nothing.
++        private Int32 _dioramaTerminalNonce = -1;        // the booted nonce whose end block read terminal while the lane was live
++        private Int32 _dioramaPeerAliveSince;            // sentinel 0: the stale stretch's first frame of the CURRENT alive run
++        private Boolean _dioramaHoldCounted;             // this stale stretch passed the settle as a HOLD: counted (resume/last_ms owed)
++        private Int32 _dioramaLeaveWhy = WatchWhyNone;   // the LEAVE_FINAL standing for this fight (cleared by a live frame on it)
++        private const Int32 DioramaSettleMs = 500;       // > SampleMs + frame jitter; the cost: a genuine end's watcher leave is 0.5 s later
++        private Int32 _dioramaWatchState = -1;           // the last DioramaWatchStep verdict for the booted wire diorama (-1 = none)
++        private Int32 _dioramaWatchWhy = WatchWhyNone;   // the last LEAVE_FINAL's reason (kept after the teardown until the next boot)
++        private Boolean _dioramaWatchPeerAlive;          // the last step's peer-alive read (harness)
++        private Int32 _dioramaWatchHostField = -1;       // ...and the host field it read (-1 = the peer is not alive)
++        private Int32 _dioramaHoldsThisBoot;             // log budget: DioramaHoldLogMax hold/resume line pairs per boot, then counts only
++        private const Int32 DioramaHoldLogMax = 3;
++        private static Int32 _dioramaHolds;              // harness `netsync.diorama.hold` counters, this process (monotonic, read DELTAS)
++        private static Int32 _dioramaHoldResumes;
++        private static Int32 _dioramaHoldGaveUp;
++        private static Int32 _dioramaHoldLastMs = -1;    // the last hold's length when it ended (a resume, a leave's teardown)
+         private Int32 _dioramaSeenNonce = -1;            // rising-edge diagnostic: one log line per peer battle
+         private Int32 _dioramaActionTick = Environment.TickCount - 10000;   // tick-baseline law: NEVER a bare 0 --
+                                                          // `now - 0 < 1000` is ALWAYS TRUE on a >24.86-day-uptime
+@@ -1235,6 +1270,10 @@ namespace Memoria.Netsync
+                         Boolean ctlOk = NetSyncBattle.ControlSelfTest(out ctlDetail);
+                         Log.Message("[NetSync] battle control selftest: "
+                                     + (ctlOk ? "OK (" + ctlDetail + ")" : "FAIL (" + ctlDetail + ")"));
++                        String watchDetail;              // [ff9mapkit netsync R3 s119] the diorama watcher's hold/leave step
++                        Boolean watchOk = DioramaWatchSelfTest(out watchDetail);
++                        Log.Message("[NetSync] diorama watcher selftest: "
++                                    + (watchOk ? "OK (" + watchDetail + ")" : "FAIL (" + watchDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+@@ -1487,6 +1526,8 @@ namespace Memoria.Netsync
+         // standing on a field; LEAVE when the lane goes stale (staleness IS the battle-over signal --
+         // the PEER-ALIVE LAW's shape: gate on lane freshness, never on IsConnected) or the nonce
+         // changes (a back-to-back battle: come home first, the next pass boots the new one).
++        // [ff9mapkit netsync R3 s119] ...and a stale lane is the battle-over signal only when the peer is ALIVE and says so (back
++        // on a field, or its end block read terminal while live); every other stale lane is a HOLD (DioramaWatchStep).
+         private void DioramaTick(Boolean onField)
+         {
+             // B3.6 FENCE 1 -- stranded-flags mop-up: a silently dropped boot Replace (the Boot fade
+@@ -1535,6 +1576,12 @@ namespace Memoria.Netsync
+             catch { }
+             if (!NetSyncDiorama.Booted && _dioramaWireNonce >= 0)
+             {
++                if (_dioramaHoldCounted && _dioramaStaleSince != 0)
++                    _dioramaHoldLastMs = Environment.TickCount - _dioramaStaleSince;   // [ff9mapkit netsync R3 s119] a hold the teardown ended
++                _dioramaWatchState = -1;             // [ff9mapkit netsync R3 s119] no wire diorama to step (`why` is kept)
++                _dioramaPeerAliveSince = 0;          // [ff9mapkit netsync R3 s119] ...and no stale stretch, counted hold or standing leave
++                _dioramaHoldCounted = false;
++                _dioramaLeaveWhy = WatchWhyNone;
+                 _dioramaStaleSince = 0;              // s56: any teardown ends the blip-hold clock
+                 _dioramaBlipHoldLogged = false;
+                 _dioramaBlipHoldGaveUpLogged = false;
+@@ -1619,49 +1666,118 @@ namespace Memoria.Netsync
+             {
+                 if (_dioramaWireNonce < 0)
+                     return;                              // an F6 manual diorama -- not ours to end
+-                // s56 BLIP-TOLERANCE: decide whether the lane going stale is a genuine end or a blip.
+-                //  - live + SAME nonce   -> keep reconciling (clear the hold clock).
+-                //  - live + a NEW nonce  -> a genuinely new battle: leave, come home, boot it next pass.
+-                //  - stale + link UP     -> the host's battle really ended (it stopped type-1 frames but
+-                //                           its 30 Hz position keepalive holds the link): leave.
+-                //  - stale + link DOWN   -> a transport blip: HOLD the diorama frozen (no Leave, no
+-                //                           churn) until the link resumes or the hold passes the hard
+-                //                           cap; the SAME fight then resumes with the reconnected frames
+-                //                           instead of tearing down and re-booting ("battles twice").
+-                Boolean transportUp = _socket != null && _socket.IsConnected;
+-                Boolean shouldLeave;
+-                if (live)
++                // s56 BLIP-TOLERANCE, [ff9mapkit netsync R3 s119] KEYED ON THE PEER (DioramaWatchStep): decide whether the
++                // lane going stale is a genuine end or a hold.
++                //  - live + SAME nonce        -> keep reconciling (a running hold RESUMES: the same fight, the same nonce).
++                //  - live + a NEW nonce       -> a genuinely new battle: leave, come home, boot it next pass.
++                //  - stale + the peer ALIVE for the settle + (the host back on a field, or this boot's end block read terminal
++                //                                while live) -> the host's battle really ended: leave.
++                //  - a leave already decided  -> stands (the peer going silent after saying "over" un-says nothing).
++                //  - every other stale frame  -> HOLD the diorama frozen (no Leave, no churn) -- a cut (the peer silent: its
++                //                                position lane stale too), or a host whose battle lane stalled with its writer
++                //                                alive (an alt-tab, a hang) -- until the lane resumes or the hold passes the
++                //                                cap; the SAME fight then resumes with the reconnected frames instead of
++                //                                tearing down and re-booting ("battles twice").
++                // NEVER `_socket.IsConnected` alone (the s56 predicate): behind the local bridge it stays true through any cut.
++                Int32 now = Environment.TickCount;
++                if (live && nonce == _dioramaWireNonce && _dioramaTerminalNonce != nonce)
++                    LatchDioramaTerminal(nonce);         // while live ONLY: TryGetPeerEnd reads the live view
++                Boolean peerAlive = false;
++                Int32 hostField = -1;
++                try
++                {
++                    if (_socket != null && _socket.IsConnected)
++                    {
++                        RemoteState prs = _socket.GetRemote();
++                        peerAlive = prs.Valid;               // the PEER-ALIVE LAW: the position lane's freshness, not the hop
++                        hostField = prs.Valid ? prs.Field : -1;
++                    }
++                }
++                catch
++                {
++                    peerAlive = false;                       // unreadable = not alive: a hold, never a leave
++                    hostField = -1;
++                }
++                // THE STALE STRETCH's two clocks (sentinel law: 0 = none; review S119-R1): _dioramaStaleSince from its first stale
++                // frame (the hold's age, the cap's), _dioramaPeerAliveSince from the first frame of the peer's CURRENT alive run
++                // inside it -- reset by every frame the peer reads silent, so a cut's first frames (the position lane outliving the
++                // battle lane by up to a sample) and a resume's first position frame never satisfy the settle.
++                if (!live)
++                {
++                    if (_dioramaStaleSince == 0)
++                        _dioramaStaleSince = now != 0 ? now : 1;
++                    if (!peerAlive)
++                        _dioramaPeerAliveSince = 0;
++                    else if (_dioramaPeerAliveSince == 0)
++                        _dioramaPeerAliveSince = now != 0 ? now : 1;
++                }
++                else
++                    _dioramaPeerAliveSince = 0;
++                Int32 staleMs = _dioramaStaleSince != 0 ? now - _dioramaStaleSince : 0;
++                Int32 aliveMs = _dioramaPeerAliveSince != 0 ? now - _dioramaPeerAliveSince : 0;
++                Int32 capMs = DioramaHoldCapMs;
++                Int32 watchWhy;
++                Int32 step = DioramaWatchStep(live, nonce, _dioramaWireNonce, peerAlive, hostField,
++                                              _dioramaTerminalNonce >= 0 && _dioramaTerminalNonce == _dioramaWireNonce,
++                                              staleMs, aliveMs, DioramaSettleMs, capMs, _dioramaLeaveWhy, out watchWhy);
++                _dioramaWatchState = step;
++                _dioramaWatchPeerAlive = peerAlive;
++                _dioramaWatchHostField = hostField;
++                if (step == WatchNothing)
+                 {
+-                    shouldLeave = nonce != _dioramaWireNonce;
++                    // a COUNTED hold ends on the same fight: a resume -- except a lane back inside a leave's fade (the watcher's
++                    // own cap leave, the user's ~ Leave), which is no resume (the teardown is coming either way) but still ends
++                    // the hold, so its length is recorded (review s119-R2). A sub-settle stale flicker was never a hold.
++                    if (_dioramaHoldCounted && _dioramaStaleSince != 0)
++                    {
++                        if (!NetSyncDiorama.LeaveRequestedRecently)
++                            NoteDioramaResume(nonce, now - _dioramaStaleSince);
++                        else
++                            _dioramaHoldLastMs = now - _dioramaStaleSince;
++                    }
+                     _dioramaStaleSince = 0;
++                    _dioramaPeerAliveSince = 0;
++                    _dioramaHoldCounted = false;
++                    _dioramaLeaveWhy = WatchWhyNone;     // live on the booted fight again: a decided leave no longer stands
+                     _dioramaBlipHoldLogged = false;
+                     _dioramaBlipHoldGaveUpLogged = false;
+                 }
+-                else if (transportUp)
++                else if (step == WatchHold)
+                 {
+-                    shouldLeave = true;                  // stale + link UP -> the fight is over
+-                    _dioramaStaleSince = 0;
++                    // the hold is COUNTED (and its line logged) once the stretch has been stale for the settle: by then a genuine
++                    // end reads over (an ordinary return logs no hold) and the peer's state the line names has settled. Never
++                    // while a Leave is in flight (the user's ~ Leave, the end-leave, our own): the teardown is coming either way.
++                    if (!_dioramaHoldCounted && staleMs >= DioramaSettleMs && !NetSyncDiorama.LeaveRequestedRecently)
++                    {
++                        _dioramaHoldCounted = true;      // a STALL = the peer alive through the whole settled stretch; else a cut
++                        NoteDioramaHold(peerAlive && aliveMs >= DioramaSettleMs, hostField, staleMs, capMs);
++                    }
+                 }
+                 else
+                 {
+-                    if (_dioramaStaleSince == 0)         // stale + link DOWN -> start the blip-hold (sentinel law)
++                    // LEAVE_FINAL. It STANDS for this fight (_dioramaLeaveWhy, until a live frame on the booted nonce): a leave the
++                    // gates below defer -- the end-leave's replay wait, a fade -- can never turn back into a hold (and its line)
++                    // when the peer then goes silent. The stale clock runs on until the teardown, which records a counted hold.
++                    Boolean firstWhy = _dioramaWatchWhy == WatchWhyNone;
++                    _dioramaWatchWhy = watchWhy;
++                    _dioramaLeaveWhy = watchWhy;
++                    if (watchWhy == WatchWhyHoldCap)
+                     {
+-                        _dioramaStaleSince = Environment.TickCount;
+-                        if (!_dioramaBlipHoldLogged)
++                        if (!_dioramaBlipHoldGaveUpLogged)
+                         {
+-                            _dioramaBlipHoldLogged = true;
+-                            Log.Message("[NetSync] diorama: mid-battle link blip -- holding the scene frozen (up to "
+-                                        + (DioramaBlipHoldMs / 1000) + "s) rather than leaving");
++                            _dioramaBlipHoldGaveUpLogged = true;
++                            _dioramaHoldGaveUp++;
++                            Log.Message("[NetSync] diorama: the host's battle lane is still silent after " + (capMs / 1000)
++                                        + "s (nonce " + _dioramaWireNonce + ", peer " + (peerAlive ? "alive on field " + hostField : "silent")
++                                        + ") -- leaving to the spectate panel");
+                         }
+                     }
+-                    shouldLeave = Environment.TickCount - _dioramaStaleSince > DioramaBlipHoldMs;
+-                    if (shouldLeave && !_dioramaBlipHoldGaveUpLogged)
+-                    {
+-                        _dioramaBlipHoldGaveUpLogged = true;
+-                        Log.Message("[NetSync] diorama: link still down after " + (DioramaBlipHoldMs / 1000)
+-                                    + "s -- leaving to the spectate panel");
+-                    }
++                    else if (firstWhy)
++                        Log.Message("[NetSync] diorama watcher: " + WatchWhyText(watchWhy, nonce, hostField) + " -- leaving (nonce "
++                                    + _dioramaWireNonce + (_dioramaHoldCounted ? ", after a " + staleMs + " ms hold" : "")
++                                    + "; logged once per boot)");
+                 }
++                Boolean shouldLeave = step == WatchLeaveFinal;
+                 if (shouldLeave &&
+                     Environment.TickCount - _dioramaActionTick > 1000)
+                 {
+@@ -1794,6 +1910,15 @@ namespace Memoria.Netsync
+                 _dioramaStaleSince = 0;                  // s56: a fresh boot starts with a clean hold clock
+                 _dioramaBlipHoldLogged = false;
+                 _dioramaBlipHoldGaveUpLogged = false;
++                _dioramaTerminalNonce = -1;              // [ff9mapkit netsync R3 s119] ...an unlatched end, and a fresh step record
++                _dioramaPeerAliveSince = 0;
++                _dioramaHoldCounted = false;
++                _dioramaLeaveWhy = WatchWhyNone;
++                _dioramaWatchState = -1;
++                _dioramaWatchWhy = WatchWhyNone;
++                _dioramaWatchPeerAlive = false;
++                _dioramaWatchHostField = -1;
++                _dioramaHoldsThisBoot = 0;
+                 // B3.5 (F3): the action lane needs the booted nonce INSIDE NetSyncDiorama to key each
+                 // frame against (Boot resets it to -1, so a manual F6 diorama drops all action frames).
+                 NetSyncDiorama.BootedWireNonce = nonce;
+@@ -1803,6 +1928,289 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync R3 s119] DioramaWatchStep's verdicts (DioramaTick's booted branch, one per frame) and why a LEAVE_FINAL
++        // leaves. The harness names them (WatchStateName / WatchWhyName: `netsync.diorama.hold.state` / `.why`).
++        internal const Int32 WatchNothing = 0;          // live, the same fight: keep reconciling
++        internal const Int32 WatchHold = 1;             // stale and not known over: frozen at the last applied state, no Leave
++        internal const Int32 WatchLeaveFinal = 2;       // leave; the teardown stamps the skip (the s56 final leave)
++        internal const Int32 WatchWhyNone = 0;
++        internal const Int32 WatchWhyNewNonce = 1;      // another battle went live
++        internal const Int32 WatchWhyTerminal = 2;      // the peer alive, and this boot's end block read terminal while live
++        internal const Int32 WatchWhyHostField = 3;     // the peer alive and back on a field
++        internal const Int32 WatchWhyHoldCap = 4;       // the hold passed its cap
++
++        // [ff9mapkit netsync R3 s119] THE HOLD CAP -- the ONE seam every reader of the hold's length goes through (the step, the
++        // hold and give-up lines, `netsync.diorama.hold.cap_ms`). s120 replaces this body with the session grace; nothing else
++        // has to change.
++        private static Int32 DioramaHoldCapMs { get { return DioramaBlipHoldMs; } }
++
++        /// <summary>[ff9mapkit netsync R3 s119] THE WATCHER'S STEP for a booted wire diorama (DioramaTick; the truth table is
++        /// DioramaWatchSelfTest). `live` = the host's battle lane is fresh (its seq advancing within NetSyncBattle.StaleMs),
++        /// `nonce` its battle nonce, `bootedNonce` the one this diorama booted; `peerAlive` = PEER-ALIVE (IsConnected &&
++        /// GetRemote().Valid -- never IsConnected alone: behind the local bridge the hop stays up through any cut), `hostField` its
++        /// position lane's field (0 throughout the host's battle, -1 when not alive); `terminalLatched` = this boot's end block
++        /// read terminal while the lane was live; `staleMs` = the stale stretch's age (0 on its first frame), `aliveMs` = how long
++        /// the peer has read alive WITHOUT a break inside it (0 on the first alive frame, and whenever it is not alive),
++        /// `settleMs` the alive run an over-verdict needs (review S119-R1: a cut's battle lane goes stale up to a sample before
++        /// its position lane, so its first stale frames read the peer alive), `capMs` the hold cap, and `leaveWhy` a LEAVE_FINAL
++        /// already decided for this fight (WatchWhyNone = none; DioramaTick clears it when the lane is live on the booted nonce).
++        /// Live: the same nonce is NOTHING, another is LEAVE_FINAL. Stale: a decided leave stands; GENUINELY OVER (LEAVE_FINAL)
++        /// only with the peer alive for the settle AND (the end latched terminal OR the host on a real field -- neither 0 nor
++        /// 65535); every other stale frame is a HOLD until staleMs passes capMs (LEAVE_FINAL, the cap). `why` names a
++        /// LEAVE_FINAL (WatchWhyNone otherwise). Pure.</summary>
++        internal static Int32 DioramaWatchStep(Boolean live, Int32 nonce, Int32 bootedNonce, Boolean peerAlive, Int32 hostField,
++                                               Boolean terminalLatched, Int32 staleMs, Int32 aliveMs, Int32 settleMs, Int32 capMs,
++                                               Int32 leaveWhy, out Int32 why)
++        {
++            why = WatchWhyNone;
++            if (live)
++            {
++                if (nonce == bootedNonce)
++                    return WatchNothing;
++                why = WatchWhyNewNonce;
++                return WatchLeaveFinal;
++            }
++            if (leaveWhy != WatchWhyNone)
++            {
++                why = leaveWhy;                          // the peer going silent after saying "over" (a deferred leave) un-says nothing
++                return WatchLeaveFinal;
++            }
++            if (peerAlive && aliveMs >= settleMs)
++            {
++                if (terminalLatched)
++                {
++                    why = WatchWhyTerminal;
++                    return WatchLeaveFinal;
++                }
++                if (hostField > 0 && hostField != 65535)
++                {
++                    why = WatchWhyHostField;
++                    return WatchLeaveFinal;
++                }
++            }
++            if (staleMs > capMs)
++            {
++                why = WatchWhyHoldCap;
++                return WatchLeaveFinal;
++            }
++            return WatchHold;
++        }
++
++        internal static String WatchStateName(Int32 state)
++        {
++            switch (state)
++            {
++                case WatchNothing: return "nothing";
++                case WatchHold: return "hold";
++                case WatchLeaveFinal: return "leave_final";
++                default: return null;
++            }
++        }
++
++        internal static String WatchWhyName(Int32 why)
++        {
++            switch (why)
++            {
++                case WatchWhyNewNonce: return "new_nonce";
++                case WatchWhyTerminal: return "terminal";
++                case WatchWhyHostField: return "host_field";
++                case WatchWhyHoldCap: return "cap";
++                default: return null;
++            }
++        }
++
++        private static String WatchWhyText(Int32 why, Int32 nonce, Int32 hostField)
++        {
++            switch (why)
++            {
++                case WatchWhyNewNonce: return "a new peer battle is live (nonce " + nonce + ")";
++                case WatchWhyTerminal: return "the host's fight is over (its end block read terminal while the lane was live)";
++                case WatchWhyHostField: return "the host's fight is over (the peer is alive and back on field " + hostField + ")";
++                case WatchWhyHoldCap: return "the hold passed its cap";
++                default: return "no reason";
++            }
++        }
++
++        // [ff9mapkit netsync R3 s119] THE TERMINAL LATCH: while the lane is live on the booted nonce, remember whether its end block
++        // reads terminal (NetSyncEnd.IsTerminal: an end kind, or the host on its result screen, at Game Over or at the title) --
++        // the stale-lane step needs that fact AFTER the lane dies, and TryGetPeerEnd serves only the live view. Never the selftest
++        // bench seam, never another battle's block. One read per frame until it latches (the caller skips it after). Never throws.
++        private void LatchDioramaTerminal(Int32 nonce)
++        {
++            try
++            {
++                NetSyncBattle.PeerEnd e;
++                if (NetSyncBattle.TryGetPeerEnd(out e) && !e.Bench && e.Nonce == nonce && NetSyncEnd.IsTerminal(e.Kind, e.Ui))
++                    _dioramaTerminalNonce = nonce;
++            }
++            catch { }
++        }
++
++        // [ff9mapkit netsync R3 s119] A hold is counted (DioramaTick: the stale stretch passed the settle, still not known over).
++        // Counted always; logged for the first DioramaHoldLogMax holds of a boot (a lane flapping at the 2 s staleness edge would
++        // otherwise log a hold/resume pair every few seconds), then one line saying the rest are counted only. The line names
++        // the peer's SETTLED state (review S119-R2): `stalled` = it read alive without a break for the whole settled stretch --
++        // a host whose battle lane stalled with its writer up; anything else is a cut (by the settle a cut has silenced the
++        // position lane too), so the T1 cut-vs-hang question reads the right way.
++        private void NoteDioramaHold(Boolean stalled, Int32 hostField, Int32 staleMs, Int32 capMs)
++        {
++            _dioramaHolds++;
++            _dioramaHoldsThisBoot++;
++            if (_dioramaHoldsThisBoot <= DioramaHoldLogMax)
++            {
++                _dioramaBlipHoldLogged = true;           // its resume line is owed (pairs stay paired)
++                Log.Message(stalled
++                            ? "[NetSync] diorama: the host's battle lane stalled mid-battle with the peer alive on field " + hostField
++                              + " (its position lane still flowing: a host stall, not a cut) -- holding the scene frozen at its last "
++                              + "applied state (nonce " + _dioramaWireNonce + "; stale " + staleMs + " ms; up to " + (capMs / 1000)
++                              + "s) rather than leaving; holds=" + _dioramaHolds
++                            : "[NetSync] diorama: peer silent mid-battle -- holding the scene frozen at its last applied state (nonce "
++                              + _dioramaWireNonce + "; the battle lane and the peer's position lane both silent, stale " + staleMs
++                              + " ms: a cut; up to " + (capMs / 1000) + "s) rather than leaving; holds=" + _dioramaHolds);
++            }
++            else if (_dioramaHoldsThisBoot == DioramaHoldLogMax + 1)
++                Log.Message("[NetSync] diorama: hold " + _dioramaHoldsThisBoot + " of this boot (nonce " + _dioramaWireNonce
++                            + ") -- further holds and resumes this boot are counted, not logged (netsync.diorama.hold)");
++        }
++
++        // [ff9mapkit netsync R3 s119] A hold ends on the SAME fight: the lane is live again on the booted nonce. The reconciler
++        // applies the next sample, the s114 report still reads LIVE (so the host hands the slot back -- s118), and the ready
++        // mirror re-serves its window on that sample.
++        private void NoteDioramaResume(Int32 nonce, Int32 heldMs)
++        {
++            _dioramaHoldResumes++;
++            _dioramaHoldLastMs = heldMs;
++            if (_dioramaBlipHoldLogged)
++            {
++                Log.Message("[NetSync] diorama: the host's battle lane is back on the same fight (nonce " + nonce + ") after a "
++                            + heldMs + " ms hold -- resuming; resumes=" + _dioramaHoldResumes);
++                NetSyncBattle.NoteDioramaResume();       // the ready mirror's SERVING line logs again when it re-serves
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s119] THE DIORAMA WATCHER SELFTEST (NetSyncClient's selftest proof block: "diorama watcher
++        /// selftest: OK|FAIL (...)"): DioramaWatchStep as a truth table -- sitting A's cut (the hop up, the position lane stale,
++        /// the battle lane stale, field 0, nothing terminal) HOLDS where the s56 predicate left; the cap's boundary; the peer alive
++        /// on field 0 (a stalled battle lane) holds; the genuinely-over pair (the peer alive for the settle AND terminal / back
++        /// on a real field) and its fences (field 65535, a dead peer's field, terminal with the peer silent, an alive run short
++        /// of the settle -- review S119-R1's cut whose position lane outlives its battle lane); a decided leave stands; live
++        /// always wins, a new nonce leaves; then four sequences -- a 6 s cut that resumes the same fight, a cut inside the result
++        /// screen that holds through its own first frames and its resume race, a cut spanning the victory that ends on the
++        /// host's field, and a genuine end that leaves at the settle. Each row discriminates one rule, so a mutant of that rule
++        /// fails it. Pure: touches no live state (WatchAt fixes the booted nonce, the settle and the cap).</summary>
++        internal static Boolean DioramaWatchSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                const Int32 N = WatchTestNonce;
++                const Int32 S = WatchTestSettle;
++                const Int32 Cap = WatchTestCap;
++                const Int32 None = WatchWhyNone;
++                Int32 w;
++                // WatchAt(live, nonce, peerAlive, aliveMs, hostField, terminal, staleMs, leaveWhy)
++                // --- live (the lane's own nonce input; `nonce` is 0 when stale -- TryGetPeerBattleOpen zeroes it)
++                WatchRow(WatchAt(true, N, true, 0, 0, false, 0, None, out w) == WatchNothing && w == WatchWhyNone,
++                         "live, the same fight", ref rows, ref fail);
++                WatchRow(WatchAt(true, N, false, 0, -1, true, Cap + 1, WatchWhyTerminal, out w) == WatchNothing,
++                         "live wins (a silent position lane, a terminal latch, a spent cap, a decided leave)", ref rows, ref fail);
++                WatchRow(WatchAt(true, N + 1, true, 0, 0, false, 0, None, out w) == WatchLeaveFinal && w == WatchWhyNewNonce,
++                         "live, a new battle leaves", ref rows, ref fail);
++                // --- stale: THE sitting-A row (IsConnected=1, the position lane stale, the battle lane stale, field 0, not terminal)
++                WatchRow(WatchAt(false, 0, false, 0, -1, false, 0, None, out w) == WatchHold && w == WatchWhyNone,
++                         "sitting A: a cut holds", ref rows, ref fail);
++                WatchRow(WatchAt(false, N + 1, false, 0, -1, false, 0, None, out w) == WatchHold,
++                         "a stale lane's nonce decides nothing (a new one included)", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, false, 0, -1, false, Cap, None, out w) == WatchHold,
++                         "a cut holds AT the cap", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, false, 0, -1, false, Cap + 1, None, out w) == WatchLeaveFinal && w == WatchWhyHoldCap,
++                         "a cut past the cap leaves", ref rows, ref fail);
++                // --- the peer alive, its battle lane stalled
++                WatchRow(WatchAt(false, 0, true, S, 0, false, S, None, out w) == WatchHold,
++                         "the peer alive on field 0 (a stalled battle lane) holds", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, true, Cap + 1, 0, false, Cap + 1, None, out w) == WatchLeaveFinal && w == WatchWhyHoldCap,
++                         "...and its cap leaves", ref rows, ref fail);
++                // --- over: the host back on a real field
++                WatchRow(WatchAt(false, 0, true, S, 250, false, S, None, out w) == WatchLeaveFinal && w == WatchWhyHostField,
++                         "the peer alive on a real field for the settle: over", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, true, S - 1, 250, false, S - 1, None, out w) == WatchHold,
++                         "...on a real field one ms short of the settle: hold", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, true, S, 65535, false, S, None, out w) == WatchHold,
++                         "field 65535 is not a field", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, false, S, 250, false, S, None, out w) == WatchHold,
++                         "a dead peer's field never ends it (whatever alive run is passed)", ref rows, ref fail);
++                // --- over: the end block latched terminal (review S119-R1: a cut's first stale frames still read the peer alive)
++                WatchRow(WatchAt(false, 0, true, S, 0, true, S, None, out w) == WatchLeaveFinal && w == WatchWhyTerminal,
++                         "terminal, the peer alive for the settle: over", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, true, 0, 0, true, 0, None, out w) == WatchHold,
++                         "terminal, a cut's first stale frame (its position lane still fresh): hold", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, true, 100, 0, true, 100, None, out w) == WatchHold,
++                         "...100 ms in: hold", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, true, S - 1, 0, true, S - 1, None, out w) == WatchHold,
++                         "...terminal one ms short of the settle: hold", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, false, S, -1, true, S, None, out w) == WatchHold,
++                         "terminal, the peer silent: hold", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, false, 0, -1, true, Cap + 1, None, out w) == WatchLeaveFinal && w == WatchWhyHoldCap,
++                         "...until the cap", ref rows, ref fail);
++                // --- a decided leave stands (review s119-R2: deferred by the end-leave's replay wait, then the peer goes silent)
++                WatchRow(WatchAt(false, 0, false, 0, -1, false, 100, WatchWhyTerminal, out w) == WatchLeaveFinal && w == WatchWhyTerminal,
++                         "a decided leave stands when the peer then goes silent", ref rows, ref fail);
++                // --- sequences: (1) the 6 s cut -- its first frames read the peer alive (field 0), then silent; live on the SAME
++                // nonce = a resume. (2) a cut inside the result screen (terminal latched) -- alive for 120 ms, silent, then the
++                // resume race (the first position frame read before the battle lane's) -- holds throughout. (3) a cut spanning the
++                // victory: the peer back on its field 250 = over once its alive run reaches the settle. (4) a genuine end: the peer
++                // alive on 250 from the first stale frame leaves at the settle, never sooner.
++                WatchRow(WatchAt(false, 0, true, 0, 0, false, 0, None, out w) == WatchHold
++                         && WatchAt(false, 0, true, 120, 0, false, 120, None, out w) == WatchHold
++                         && WatchAt(false, 0, false, 0, -1, false, 2000, None, out w) == WatchHold
++                         && WatchAt(false, 0, false, 0, -1, false, 6000, None, out w) == WatchHold
++                         && WatchAt(true, N, true, 0, 0, false, 6100, None, out w) == WatchNothing,
++                         "seq: a 6 s cut resumes the same fight", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, true, 0, 0, true, 0, None, out w) == WatchHold
++                         && WatchAt(false, 0, true, 120, 0, true, 120, None, out w) == WatchHold
++                         && WatchAt(false, 0, false, 0, -1, true, 200, None, out w) == WatchHold
++                         && WatchAt(false, 0, false, 0, -1, true, 5000, None, out w) == WatchHold
++                         && WatchAt(false, 0, true, 0, 0, true, 5100, None, out w) == WatchHold
++                         && WatchAt(true, N, true, 0, 0, true, 5120, None, out w) == WatchNothing,
++                         "seq: a cut in the result screen holds through its first frames and its resume race", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, false, 0, -1, false, 0, None, out w) == WatchHold
++                         && WatchAt(false, 0, false, 0, -1, false, 5000, None, out w) == WatchHold
++                         && WatchAt(false, 0, true, 0, 250, false, 7000, None, out w) == WatchHold
++                         && WatchAt(false, 0, true, S, 250, false, 7000 + S, None, out w) == WatchLeaveFinal && w == WatchWhyHostField,
++                         "seq: a cut spanning the victory ends on the host's field", ref rows, ref fail);
++                WatchRow(WatchAt(false, 0, true, 0, 250, false, 0, None, out w) == WatchHold
++                         && WatchAt(false, 0, true, S, 250, false, S, None, out w) == WatchLeaveFinal && w == WatchWhyHostField,
++                         "seq: a genuine end leaves at the settle", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
++        }
++
++        private static void WatchRow(Boolean ok, String name, ref Int32 rows, ref String fail)
++        {
++            rows++;
++            if (!ok && fail == null)
++                fail = name;
++        }
++
++        // the selftest's own constants (the table is pure: a retuned live settle or cap -- s120 -- never moves its rows)
++        private const Int32 WatchTestNonce = 0x41;
++        private const Int32 WatchTestSettle = 500;
++        private const Int32 WatchTestCap = 8000;
++
++        private static Int32 WatchAt(Boolean live, Int32 nonce, Boolean peerAlive, Int32 aliveMs, Int32 hostField, Boolean terminal,
++                                     Int32 staleMs, Int32 leaveWhy, out Int32 why)
++        {
++            return DioramaWatchStep(live, nonce, WatchTestNonce, peerAlive, hostField, terminal, staleMs, aliveMs,
++                                    WatchTestSettle, WatchTestCap, leaveWhy, out why);
++        }
++
+         // [ff9mapkit netsync R3 s114] The start-hold report's inputs, from the watcher's OWN predicates (DioramaTick above): watching
+         // = a following client on a field that may boot at all (a world-map battle reads NONE -- the watcher never boots off a
+         // field); uiFree = the UI the watcher waits on is free or clears by itself (FieldHUD, a fade, a follow warp) -- a durable
+@@ -3903,6 +4311,40 @@ namespace Memoria.Netsync
+             }
+         }
+         public static Int32 HarnessReplayLeft { get { NetSyncClient i = _instance; return i == null ? 0 : i._replay.Count - i._replayNext; } }
++        // [ff9mapkit netsync R3 s119] `netsync.diorama.hold` (HarnessAgent.AppendDioramaHold; still ADDED under protocol 5): the
++        // watcher's hold, keyed on the peer. `state` = the last DioramaWatchStep verdict for the booted wire diorama (null = none
++        // booted; "hold" from the stale stretch's first frame -- a hold is COUNTED in `holds` only once it passes `settle_ms`),
++        // `since_ms` = the stale stretch's age (-1 = the lane is not stale; it keeps running through a pending leave until the
++        // teardown), `cap_ms` = DioramaHoldCapMs, `settle_ms` = DioramaSettleMs, the process counters (monotonic: read DELTAS),
++        // `last_ms` = the last counted hold's length when it ended, the last step's inputs (kept after the teardown until the
++        // next boot), `terminal` = this boot's end block latched terminal, and `why` = the last LEAVE_FINAL's reason (kept until
++        // the next boot).
++        public static String HarnessHoldState { get { NetSyncClient i = _instance; return i == null ? null : WatchStateName(i._dioramaWatchState); } }
++        public static Int32 HarnessHoldSinceMs
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                return i == null || i._dioramaStaleSince == 0 ? -1 : Environment.TickCount - i._dioramaStaleSince;
++            }
++        }
++        public static Int32 HarnessHoldCapMs { get { return DioramaHoldCapMs; } }
++        public static Int32 HarnessHoldSettleMs { get { return DioramaSettleMs; } }
++        public static Int32 HarnessHolds { get { return _dioramaHolds; } }
++        public static Int32 HarnessHoldResumes { get { return _dioramaHoldResumes; } }
++        public static Int32 HarnessHoldGaveUp { get { return _dioramaHoldGaveUp; } }
++        public static Int32 HarnessHoldLastMs { get { return _dioramaHoldLastMs; } }
++        public static Boolean HarnessHoldPeerAlive { get { NetSyncClient i = _instance; return i != null && i._dioramaWatchPeerAlive; } }
++        public static Int32 HarnessHoldHostField { get { NetSyncClient i = _instance; return i == null ? -1 : i._dioramaWatchHostField; } }
++        public static Boolean HarnessHoldTerminal
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                return i != null && i._dioramaWireNonce >= 0 && i._dioramaTerminalNonce == i._dioramaWireNonce;
++            }
++        }
++        public static String HarnessHoldWhy { get { NetSyncClient i = _instance; return i == null ? null : WatchWhyName(i._dioramaWatchWhy); } }
+         internal static System.Collections.Generic.List<NetSyncDialog.KeyView> HarnessKeys(Int32 max)
+         {
+             NetSyncClient i = _instance;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+index b5236f2..c885eab 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+@@ -1126,6 +1126,9 @@ namespace Memoria.Netsync
+         // for the once-per-boot log line and the harness.
+         private const String WhyKnobOff = "the knob is off ([Netsync] GuestStockMenu=0)";
+         private const String WhyKnobOffBench = "the knob is off ([Netsync] GuestStockMenu=0, the bench override)";
++        // [ff9mapkit netsync R3 s119] the hold's stand-down reason -- the SAME text StockMenuOwns' `view == null` arm sets (left a
++        // literal there: an offline stack pin reads that line); NoteDioramaResume re-arms its once-per-boot key by this value
++        private const String WhyNoLane = "no live peer battle lane";
+         private static String _mirrorFaultReason;     // "the ready mirror faulted this boot (<why>)" -- built once, at the fault
+ 
+         private static Boolean StockMenuOwns(BattleView view, Boolean dioramaActive, out String why)
+@@ -1230,6 +1233,20 @@ namespace Memoria.Netsync
+             StopFeed("a new diorama booted");
+         }
+ 
++        // [ff9mapkit netsync R3 s119] The diorama watcher's hold just ended on the SAME fight (NetSyncClient.NoteDioramaResume, only
++        // when that hold was logged -- the watcher's per-boot budget bounds this). The hold's stand-down closed the mirror's windows
++        // (WhyNoLane: the lane went stale) and the first gate-open tick after the resume re-serves them by itself; this only re-arms
++        // the two once-per-boot lines, so the log shows the window going and coming back each logged hold. Never throws.
++        internal static void NoteDioramaResume()
++        {
++            try
++            {
++                _mirrorLogged.Remove("serving");
++                _mirrorLogged.Remove(WhyNoLane);
++            }
++            catch { }
++        }
++
+         /// <summary>
+         /// THE READY MIRROR'S TICK (design 4.6) -- NetSyncClient.Update, once per frame: the transport branch after
+         /// NetSyncDiorama.EndTick; the selftest branch after SelfTestPump and EndTick (an armed selftest bench feed runs first,
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index f8e5c84..21bbeb3 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -190,6 +190,12 @@ namespace Memoria.Harness
+         // `none` once an explicit state other than none was reported on this battle (`auto` never does).
+         // A driver checks for `netsync.battle.host.handback.refused_report` -- absent = an engine whose host hands a guest slot
+         // back on any control frame, whatever the guest's diorama reports.
++        // [ff9mapkit netsync R3 s119] (the diorama hold keyed on the peer; studies/battle-coop/R3-SITTING-A-FIXES.md), also
++        // additive under 5: `netsync.diorama` gains `hold` (see AppendDioramaHold), and the selftest proof block gains one line,
++        // "diorama watcher selftest: OK (N rows)" (NetSyncClient.DioramaWatchSelfTest); no new verb or op -- the watcher runs only
++        // on a real transport (the selftest role returns before it), so its bench is a wire replay. A driver checks for
++        // `netsync.diorama.hold` -- absent = an engine whose guest leaves a stale battle lane at once while its hop is connected
++        // (the s56 predicate: behind the local bridge, any cut reads "the fight is over").
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -3226,7 +3232,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3345,7 +3351,36 @@ namespace Memoria.Harness
+             Num(sb, "last_return_field", Memoria.Netsync.NetSyncDiorama.LastReturnField); sb.Append(",");
+             Bool(sb, "resuming", Memoria.Netsync.NetSyncDiorama.HarnessFieldResuming); sb.Append(",");
+             AppendDioramaIntro(sb); sb.Append(",");                                                     // [ff9mapkit netsync R3 s111]
+-            AppendDioramaLive(sb);                                                                      // [ff9mapkit netsync R3 s114]
++            AppendDioramaLive(sb); sb.Append(",");                                                      // [ff9mapkit netsync R3 s114]
++            AppendDioramaHold(sb);                                                                      // [ff9mapkit netsync R3 s119]
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync R3 s119] `netsync.diorama.hold` -- the diorama watcher's hold, keyed on the PEER (guest side;
++        // NetSyncClient.DioramaWatchStep). `state` (the last step for the booted wire diorama: "nothing" | "hold" | "leave_final";
++        // null = none booted -- a manual ~ diorama is never stepped), `since_ms` (the stale stretch's age; -1 = the lane is not
++        // stale -- it runs on through a pending leave until the teardown), `cap_ms` (the hold cap in force), `settle_ms` (the
++        // stale age at which a hold is COUNTED, and the unbroken peer-alive run an over-verdict needs), `holds` / `resumes` /
++        // `gaveup` (this process -- monotonic, read DELTAS: holds counted, holds that ended live on the SAME nonce, holds that hit
++        // the cap), `last_ms` (the last counted hold's length when it ended -- a resume or a leave's teardown; -1 = none), the last step's
++        // inputs `peer_alive` (IsConnected && GetRemote().Valid) and `host_field` (-1 = not alive), `terminal` (this boot's end
++        // block read terminal while the lane was live) and `why` (the last LEAVE_FINAL's reason: "new_nonce" | "terminal" |
++        // "host_field" | "cap"; null = none this boot). AppendNetsync's catch line carries the same keys at their sentinels.
++        private static void AppendDioramaHold(StringBuilder sb)
++        {
++            sb.Append("\"hold\":{");
++            Str(sb, "state", Memoria.Netsync.NetSyncClient.HarnessHoldState); sb.Append(",");
++            Num(sb, "since_ms", Memoria.Netsync.NetSyncClient.HarnessHoldSinceMs); sb.Append(",");
++            Num(sb, "cap_ms", Memoria.Netsync.NetSyncClient.HarnessHoldCapMs); sb.Append(",");
++            Num(sb, "settle_ms", Memoria.Netsync.NetSyncClient.HarnessHoldSettleMs); sb.Append(",");
++            Num(sb, "holds", Memoria.Netsync.NetSyncClient.HarnessHolds); sb.Append(",");
++            Num(sb, "resumes", Memoria.Netsync.NetSyncClient.HarnessHoldResumes); sb.Append(",");
++            Num(sb, "gaveup", Memoria.Netsync.NetSyncClient.HarnessHoldGaveUp); sb.Append(",");
++            Num(sb, "last_ms", Memoria.Netsync.NetSyncClient.HarnessHoldLastMs); sb.Append(",");
++            Bool(sb, "peer_alive", Memoria.Netsync.NetSyncClient.HarnessHoldPeerAlive); sb.Append(",");
++            Num(sb, "host_field", Memoria.Netsync.NetSyncClient.HarnessHoldHostField); sb.Append(",");
++            Bool(sb, "terminal", Memoria.Netsync.NetSyncClient.HarnessHoldTerminal); sb.Append(",");
++            Str(sb, "why", Memoria.Netsync.NetSyncClient.HarnessHoldWhy);
+             sb.Append("}");
+         }
+ 
