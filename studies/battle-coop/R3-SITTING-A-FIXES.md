@@ -403,7 +403,22 @@ The harness pass (branch claude/resume-r3-build-harness-5e5400) was run on the d
   - span: red G1, G2, K. RED: the sitting-A pair before the cut ends (the guest abandons the unseen victory).
   - s121: red G0, G1, G2, G4, G5; G3 and C1 green (the s38 drop keeps the menu shut; the control row opens MainMenu). RED: the press is silent.
 
-Next: deploy s118-s121 (owner decision; `build_memoria.py` backs up the DLL and auto-deploys, relaunch), then Phase 3: the same benches green, then each leg RED-only, then the 6.1 regression set.
+## Phase 3: s118-s121 deployed and solo-proven (2026-10-14/15, in game, solo)
+
+Deployed by `build_memoria.py` (backup set `20261014-230936`; Assembly-CSharp `685e76902524e207`). The full-file audit read 98 of 98 clone files byte-exact with the stack before the build. The four new proof lines are in-game: 'battle control selftest: OK (53 rows)', 'diorama watcher selftest: OK (24 rows)', 'session grace selftest: OK (31 rows)', 'main menu refusal selftest: OK (14 rows)'.
+
+- Selftest benches (`[Netsync] Enabled = 0` for the block, restored after): start hold 24/24 ('OK (53 rows)'); hand-back 18/18, COOP_CALIBRATE=1 19/19 (S18-CAL on the empty set).
+- The 6.1 regression set, all at the s117 baseline: intro 18/18, wait parity 12/12, flee/defeat 53/53, host gates 20/20, containment 23/23, stock menu 27/27, content 35/35, live 40/40, end host 23/23, end guest 49/49, result replay 50/51 (S9-C4L, not reachable solo, as on s117), hand-back 21/21, diorama return 22/22, talk relay 28/28, dialogue authority 147/147.
+- T2 on the s117 tape: cal 10/10 re-keyed to s121, then every leg GREEN:
+  - s119 12/12: a 6 s cut held the frozen diorama 4047 ms on nonce 1, resumed, 'ready mirror is SERVING' again.
+  - s120-battle 12/12: an 18 s cut, 'the host is back after 18015 ms -- inside the 30 s grace', the diorama held 16094 ms and resumed, still mirrored after the recorded victory.
+  - s120-long 10/10: a 40 s cut gave up at 30016 ms, then the ramp.
+  - s120-roam 11/11: the reconnecting overlay counted 24 -> 13 over 11.4 s, the ghost and mirror back within 3 s, story byte 1121 read the host's 0xA5 throughout.
+  - span 9/9: the cut over the victory held 12 s, then 'the host's fight is over (the peer is alive and back on field 250) -- leaving'.
+  - s121 13/13: one 'main menu suppressed (following guest) on field 250' line, count/lines 1/1 then 1/0, FieldHUD kept, the menu 'open' after the ramp.
+- Each leg with COOP_CALIBRATE=1: only <LEG>-RED red (the s117 defect no longer reproduces), every <LEG>-CAL PASS.
+
+Next: R3 sitting B, two machines, the real bridge + relay, T1 armed; retest A3, A5-as-pause, A6, A11, A12. Then group 2 (s122-s130). The s120-world leg (a hand-recorded world-map tape) is still unrun.
 
 ## Open unknowns
 
