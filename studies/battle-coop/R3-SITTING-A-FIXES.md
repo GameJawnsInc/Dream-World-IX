@@ -389,6 +389,22 @@ Count hangs per arm. RED on s117 only if the race reproduces; it is probabilisti
 - Re-spec R3 box A5 as 'guest paused (Backspace) at the host's encounter' and mark sitting-A A5 as 'not run -- precondition unreachable'. RECOMMENDED: yes.
 - Patch numbering. The new s118-s121 take the next free numbers (s117 is the last README row). The R3-DESIGN group-2 reservations s118-s126 (action replay + the guest's own field model) shift to s122-s130, including the wire-table 's118' references at R3-DESIGN.md:71-78. RECOMMENDED: yes, renumber in D1 before group-2 work starts.
 
+## Phase 1: every bench calibrated red on the deployed s117 (2026-10-14, in game, solo)
+
+The harness pass (branch claude/resume-r3-build-harness-5e5400) was run on the desktop against the DEPLOYED s117 DLL (`c5d521b7`). Run dirs are in that worktree's gitignored `.harness-runs/20261014-22*`. The tape is `<main repo>/.harness-runs/coop-tapes/20261014-224827-host250-s117.f9tape`.
+
+- coop_battle_start_hold: 24/24, B2 reading 'OK (33 rows)'. Needs `[Netsync] Enabled = 0`: the selftest role refuses a live host/client config ('refusing to override a real session'). An earlier launch stopped on a stray Pause mid-intro; the rerun was clean.
+- coop_handback_live: red exactly P0, PROOF, N2, D1-D3, L1, L2, B1, B2, S1, S2; green S0, P1, P2, PRE, N1, T1. S18-CAL PASS. s117 hands slot 1 back to a guest reporting DECLINED, BUSY, a stale LIVE or NONE-after-a-diorama: the sitting-A defect, in game.
+- coop_tape_record: 13/13. `battle 67 -1 rand` publishes as a real own battle; F1-F5 on a 12.2 MB tape; Memoria.ini restored byte-exact.
+- coop_cut_hold cal: 10/10. ANSWERS the T2 unknown below: a recorded host replayed into a guest-role desktop pairs on 250, arms the mirror, boots the diorama, goes LIVE on the same nonce and leaves by the end-leave (never the watcher).
+- Calibration legs (COOP_CALIBRATE=1), every <LEG>-CAL PASS, no unpredicted red:
+  - s119: red G1-G5, K. S119-RED: sitting A's pair ('diorama LEAVE requested', 'watcher-leave settled (nonce 1)') inside 1-4.5 s of a 6 s cut.
+  - s120-battle: red G1-G5, K. s120-long: red G1-G3, K. s120-roam: red G1-G5. Each RED: 'session ended -> reloading own autosave' 3.5-9 s after the cut.
+  - span: red G1, G2, K. RED: the sitting-A pair before the cut ends (the guest abandons the unseen victory).
+  - s121: red G0, G1, G2, G4, G5; G3 and C1 green (the s38 drop keeps the menu shut; the control row opens MainMenu). RED: the press is silent.
+
+Next: deploy s118-s121 (owner decision; `build_memoria.py` backs up the DLL and auto-deploys, relaunch), then Phase 3: the same benches green, then each leg RED-only, then the 6.1 regression set.
+
 ## Open unknowns
 
 - Which suspended thread held the lock that kept the host's managed world stopped. The candidates are NetSync-relay(-write), the SaXAudio/XAudio2 callback thread, the AudioEffectManager FileSystemWatcher thread, or Unity-internal. No dump exists: WER archived only July AppHang folders. This decides whether the hang is co-op exposure or stock.
@@ -398,7 +414,7 @@ Count hangs per arm. RED on s117 only if the race reproduces; it is probabilisti
 - Why a 6 s physical cut cost about 20 s end to end: bridge redial backoff, TCP RTO, Wi-Fi re-association, or the relay's stale-leg replace. Neither bridge console was captured and the bridge prints no timestamps; T1 fixes this.
 - Whether the host's slot 1 acted at all between the 10:37:27 hand-back and the 10:38:13 victory, and whether the owner saw the legacy digit panel on the laptop field.
 - Whether hold-through resume works in-game after a 20-30 s gap: the reconciler catching up on dead enemies, the stock menu re-serving, the s114 report reading LIVE. The s56 hold was never exercised on the bridge topology.
-- Whether T2's recorded-host replay boots a diorama faithfully on a guest-role desktop (the epoch, party sections, same-field kick). Its no-blackhole calibration run must pass before it judges s119-s121.
+- ~~Whether T2's recorded-host replay boots a diorama faithfully on a guest-role desktop~~ ANSWERED YES (Phase 1, cal 10/10 on s117).
 - Whether Unity's symbol server has symbols for the 5.2.3p2 x64 standalone player and its mono.dll, which affects how readable the T1 dump is.
 - Boxes not exercised in sitting A, to retest: A3 (Dali cold / back-to-back), A5-as-pause, A6 (cut during the swirl), A11/A12 (bumper flee, Zidane's Flee gil relay) and the s117 defeat presentation.
 
