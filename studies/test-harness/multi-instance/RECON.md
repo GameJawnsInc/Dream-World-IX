@@ -108,6 +108,18 @@ release gate.
   30602 has no background art, so the top ~52 rows are black and the 200 KB byte-sample reads blank (the frame shows Zidane, Vivi
   and props). Not done: the ini hot-reload touch.
 - The guest root is LEFT BUILT at C:\gd\ff9-inst\guest for P3. Remove it only with `py instance_root.py teardown <root>`.
+- **P3 -- STOPPED at its first surprise** (`p3_two_instances.py`; host root C:\gd\ff9-inst\host built + verified like the guest).
+  PROVEN: two FF9 instances run at once under the STOCK Session (only the pid probe path-scoped; `-single-instance` kept, its
+  mutex differs per exe path): host up in 6 s, guest in 4 s beside it, separate channels and sandboxes, the smoke's New Game +
+  warp 30602 + walk in each; both ticked ~60 fps side by side; a MINIMIZED instance kept ticking at ~33 fps (the other stayed
+  60). SetForegroundWindow from the driver is refused (Windows foreground lock), but ShowWindow(SW_RESTORE) after a minimize
+  brings that window to the front. Both logs: '[SaXAudio] Initialized'; no gamepad ('[ControllerWatcher] Couldn't connect
+  device'). THE SURPRISE: the HOST sat on the game's PAUSE screen from the first measurement on -- it entered Pause between
+  01:53:21 and 01:53:45, i.e. while the GUEST launched and booted, unattended -- so its warp to 250 was refused ('not on a field')
+  and the run ended before the field-250 screenshots and the memory reading. The foreground app during the legs was Discord.exe.
+  No managed code path enters Pause on focus loss (SceneDirector.hasFocus is never read; every ChangeUIState(Pause) is the Pause
+  CONTROL: Backspace via GetAsyncKeyState while that window is foreground, or a pad Start); the harness sends nothing across
+  instances. Same symptom as the unexplained mid-intro Pause in the 22:30 single-instance start-hold run. Cause UNKNOWN.
 
 ## Risks (beyond the teardown law)
 
