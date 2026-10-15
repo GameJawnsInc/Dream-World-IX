@@ -1,0 +1,1003 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 21d8e49..c2243a8 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -38,6 +38,11 @@ namespace Memoria.Netsync
+     //   StartHoldMs = 8000                  [ff9mapkit netsync R3 s114] (host side): my battle's gauges wait at most this long (ms)
+     //                                       for a guest whose diorama of it reports BOOTING (the start hold; released at once when
+     //                                       it goes live, declines, is busy or the link drops). 0 = off. Applies live.
++    //   SessionGraceMs = 30000              [ff9mapkit netsync R3 s120] (guest side): how long (ms) my session outlives a SILENT host
++    //                                       -- a booted diorama holds frozen and the story mirror stays armed (saving stays off)
++    //                                       while it lives, and the peer coming back resumes both; past it the diorama leaves and
++    //                                       my own autosave reloads. Clamped 5000-40000 (under the bridge's 45 s redial cap).
++    //                                       Applies live.
+     //
+     // THE COOP CELLS (V2 "[[coop]]" authoring, kit-reserved): while Enabled, every frame writes the
+     // peer's presence + walkmesh position into gEventGlobal bytes 2032-2039 (top of the kit's custom
+@@ -78,6 +83,7 @@ namespace Memoria.Netsync
+         private static String _cfgBehaviorSig = "";      // targetField|guestSlots|guestWait|ghostAs|followHost|selfTestOffset|dioramaSwirl
+                                                          // |autoTeleport|guestStockMenu ([ff9mapkit netsync B4] stage 8)
+                                                          // |dioramaSwirlFrames ([ff9mapkit netsync R3 s112])
++                                                         // |sessionGrace ([ff9mapkit netsync R3 s120])
+         private static Boolean _enabled;
+         private static String _role = "selftest";       // selftest | host | client
+         private static String _peer = "127.0.0.1";
+@@ -122,14 +128,20 @@ namespace Memoria.Netsync
+         // with the link UP, so those paths still despawn instantly. This smooths ONLY the rendered
+         // ghost -- the session-end verdict runs off its own separate 3s exit-ramp debounce, untouched.
+         // Tick-baseline law: pre-expired so a never-paired start never holds a (nonexistent) ghost.
++        // [ff9mapkit netsync R3 s120] on a GUEST "link DOWN" now reads PEER-ALIVE (IsConnected && GetRemote().Valid): behind the
++        // local bridge the hop never drops, so the IsConnected test never tripped and a cut vanished the ghost at once. A host
++        // keeps the transport test (unchanged with no guest or an old-DLL guest). The guest's session-end verdict is the
++        // session grace (SessionGraceMs), no longer a 3 s debounce.
+         private Int32 _ghostLastPairedTick = Environment.TickCount - 100000;
+         private const Int32 GhostGraceMs = 5000;
++        private Boolean _ghostHeld;                      // [ff9mapkit netsync R3 s120] the blip-grace held the ghost this frame (harness)
+ 
+         // On-screen status overlay -- the user-facing half of session setup: shows the session code +
+         // pairing state IN GAME (nobody digs through Memoria.ini/log mid-session), and disappears the
+         // moment the peer's ghost is up (the ghost itself is the "it works" signal).
+         private const Int32 OvlOff = 0, OvlElsewhere = 1, OvlNoCode = 2, OvlConnecting = 3, OvlWaiting = 4,
+-                            OvlPeerElsewhere = 5, OvlFollowing = 6, OvlPeerNoField = 7;
++                            OvlPeerElsewhere = 5, OvlFollowing = 6, OvlPeerNoField = 7,
++                            OvlReconnecting = 8;   // [ff9mapkit netsync R3 s120] the session grace's countdown (detail = s left)
+         private Int32 _ovlState = -1;
+         private Int32 _ovlDetail;                        // e.g. the peer's field id (recompose when it changes)
+         private String _ovlText;
+@@ -447,7 +459,9 @@ namespace Memoria.Netsync
+                                                          // ([ff9mapkit netsync R3 s119] = this hold was logged: its resume line is owed)
+         private Boolean _dioramaBlipHoldGaveUpLogged;    // one "gave up after the cap" line per blip, never per frame
+         private Boolean _dioramaWatcherLeftFinal;        // s56: the pending teardown is a REAL leave -> stamp skip
+-        private const Int32 DioramaBlipHoldMs = 8000;    // max hold while the transport is down before giving up to the spectate panel
++        // [ff9mapkit netsync R3 s120] DioramaBlipHoldMs (8000) is gone: the hold's cap IS the session grace (DioramaHoldCapMs ->
++        // _sessionGraceMs), so a booted diorama holds a silent peer exactly as long as the session lives (an alive one that says
++        // nothing: DioramaStallCapMs below).
+         // [ff9mapkit netsync R3 s119] THE HOLD KEYED ON THE PEER (studies/battle-coop/R3-SITTING-A-FIXES.md). Lever (a) above
+         // read `_socket.IsConnected` -- and behind the local bridge the game's hop stays connected through ANY upstream cut
+         // shorter than the bridge's 45 s redial cap, so the hold never ran: sitting A's 6 s cut read "stale + link UP = the fight
+@@ -472,6 +486,14 @@ namespace Memoria.Netsync
+         private Boolean _dioramaHoldCounted;             // this stale stretch passed the settle as a HOLD: counted (resume/last_ms owed)
+         private Int32 _dioramaLeaveWhy = WatchWhyNone;   // the LEAVE_FINAL standing for this fight (cleared by a live frame on it)
+         private const Int32 DioramaSettleMs = 500;       // > SampleMs + frame jitter; the cost: a genuine end's watcher leave is 0.5 s later
++        // [ff9mapkit netsync R3 s120] THE STALL CAP (review S120-R1): the session grace caps a hold while the peer is SILENT (a
++        // cut: the session's own outage). A peer ALIVE for the settle whose battle lane stays silent and who says nothing about
++        // being over is no outage -- a host whose battle lane stalled with its writer up, or a fight that ended unseen inside a
++        // cut (the host back on the world map or at the title sends field 0, and the terminal latch reads only a live lane) --
++        // so that stretch keeps s119's own bound: past this many ms of staleness it leaves final (why `stall_cap`), never
++        // sitting out the 30 s grace in a frozen battle while the host plays on. The settle guards a resume's race (the battle
++        // lane comes back within a sample of the position lane), so a long cut's resume on the same fight still resumes.
++        private const Int32 DioramaStallCapMs = 8000;
+         private Int32 _dioramaWatchState = -1;           // the last DioramaWatchStep verdict for the booted wire diorama (-1 = none)
+         private Int32 _dioramaWatchWhy = WatchWhyNone;   // the last LEAVE_FINAL's reason (kept after the teardown until the next boot)
+         private Boolean _dioramaWatchPeerAlive;          // the last step's peer-alive read (harness)
+@@ -497,12 +519,54 @@ namespace Memoria.Netsync
+         // never left playing the guest's story at the host's location (a state the base game can't reach).
+         private Boolean _storyMirroring;                 // live array currently holds the HOST's story
+         private Boolean _exitRampPending;                // session over -> autoload once free-standing
+-        private Int32 _exitRampSince;                    // link-drop debounce start (0 = link fine)
++        private Int32 _exitRampCause = RampCauseNone;    // [ff9mapkit netsync R3 s120] why the pending ramp armed (harness)
+         private Int32 _storyTick = Environment.TickCount - 1000;        // host: last snapshot-publish tick (throttle; tick-baseline law
+                                                          //  -- a 0 default would mean a long-uptime HOST never publishes
+                                                          //  TypeState and the story mirror never arms on any guest)
+         private Boolean _storyProofDone;                 // selftest: log the codec proof once
+-        private const Int32 ExitRampDebounceMs = 3000;   // a relay blip must not yank the guest to Continue
++        // [ff9mapkit netsync R3 s120] THE SESSION GRACE (studies/battle-coop/R3-SITTING-A-FIXES.md s120; owner decision: 30 s). ONE
++        // value, SessionGraceMs ([Netsync] SessionGraceMs, default 30000, clamped SessionGraceMinMs..SessionGraceMaxMs), is how long
++        // a guest's session outlives a SILENT peer. It replaces BOTH the old link-loss exit-ramp debounce (ExitRampDebounceMs 3000:
++        // sitting A's 6 s physical cut cost ~20 s end to end, so a guest that rode the cut in its diorama was still yanked to its
++        // autosave after the battle -- that pending ramp was never cancelled) AND the diorama hold cap (s119's seam,
++        // DioramaHoldCapMs) -- so the diorama holds a silent peer exactly as long as the session lives (a peer alive that says
++        // nothing keeps s119's 8 s: DioramaStallCapMs, review S120-R1). THE OUTAGE (SessionTick, guest only,
++        // keyed on PEER-ALIVE = IsConnected && GetRemote().Valid -- never IsConnected alone: behind the local bridge the hop stays
++        // up through any upstream cut) starts at the first not-alive frame of a session that read alive (one line), RESUMES when
++        // the peer returns inside the grace (one line: the session -- the mirror, the diorama, the ghost -- simply continues;
++        // the exit ramp that a debounce would have armed is cancelled, i.e. it never arms), and GIVES UP past it (one line):
++        // leave final (the diorama's cap), then the ramp, as before. The deliberate arms (ApplyConfigChange, ApplyBehaviorChange)
++        // stay immediate; LinkGraceMs (3 s) stays the dialogue lock's own. While the session lives the disk stays safe: the save
++        // gates key on _storyMirroring, which only the ramp clears, and a mirroring guest's own random encounters stay suppressed
++        // (no local battle on a mirrored story). Why 30 s: it covers sitting A's ~20 s restore and stays under the bridge's 45 s
++        // redial hard cap and the relay's 60 s rejoin grace. The cost: after a REAL host quit the guest stays mirrored (unable to
++        // save) for ~32 s (2 s of staleness + the grace) before its own autosave reloads.
++        internal const Int32 SessionGraceDefaultMs = 30000;
++        internal const Int32 SessionGraceMinMs = 5000;   // under this a Wi-Fi re-association reads as the session ending
++        internal const Int32 SessionGraceMaxMs = 40000;  // under the bridge's 45 s redial hard cap (and the relay's 60 s rejoin grace)
++        private static Int32 _sessionGraceMs = SessionGraceDefaultMs;   // the committed ini value (read per frame)
++        internal const Int32 SessionNone = 0;            // no session to lose (no live peer seen on this link yet, or not a guest)
++        internal const Int32 SessionLive = 1;            // the peer alive
++        internal const Int32 SessionGrace = 2;           // the peer silent, inside the grace: the session lives ("reconnecting")
++        internal const Int32 SessionEnded = 3;           // the peer silent past the grace: the session ended (leave final, the ramp)
++        internal const Int32 RampCauseNone = 0;
++        internal const Int32 RampCauseGrace = 1;         // the session grace ran out (SessionTick)
++        internal const Int32 RampCauseConfig = 2;        // a transport config edit (ApplyConfigChange): immediate
++        internal const Int32 RampCauseUnfollow = 3;      // FollowHost dropped mid-mirror (ApplyBehaviorChange): immediate
++        private Int32 _sessionState = SessionNone;       // the last SessionGraceStep verdict (the overlay, the encounter hold, harness)
++        private Boolean _sessionPeerAlive;               // the last SessionTick's PEER-ALIVE read (harness)
++        private Boolean _sessionSeenLive;                // this link has carried a live peer (an outage needs a session to lose)
++        private Int32 _sessionOutSince;                  // sentinel 0: the current outage's first not-alive frame (tick-baseline law)
++        private Boolean _sessionGaveUp;                  // this outage passed the grace (its give-up line is logged)
++        private Boolean _sessionOutLogged;               // this outage's start line was logged (its resume line is owed)
++        private Boolean _sessionLockLapsed;              // the dialogue lock's own 3 s ran out inside this outage (review S120-R3: the
++                                                         // resume line names it -- nothing re-syncs a copy the guest ran alone)
++        private Int32 _sessionOutagesThisLink;           // log budget: SessionLogMax outage/resume line pairs per link, then counts only
++        private const Int32 SessionLogMax = 20;
++        private static Int32 _sessionOutages;            // harness `netsync.session` counters, this process (monotonic, read DELTAS)
++        private static Int32 _sessionResumes;
++        private static Int32 _sessionGiveUps;
++        private static Int32 _sessionLastOutMs = -1;     // the last outage's length when it ended (the peer back -- inside the grace or not)
+         // s55 SETTLE DEFERRAL: don't fire the exit ramp on the FIRST raw field frame of a battle-return
+         // reload -- ExitMirrorToOwnSave's Autoload + ReplaceLoadMap would race the return's own load
+         // (the guest-crash seam). Wait until the field hands control back to the player; bounded so a
+@@ -818,6 +882,13 @@ namespace Memoria.Netsync
+                 }
+                 else if (shRaw.Length > 0)
+                     Log.Message("[NetSync] StartHoldMs '" + shRaw + "' malformed (want ms; 0 = off) -- keeping 8000");
++                // [ff9mapkit netsync R3 s120] SessionGraceMs, default 30000 (guest side): how long the session outlives a silent host --
++                // the diorama hold's cap and the link-loss exit ramp's wait, one value. A BEHAVIOUR key (in bsig below): read per frame,
++                // so an edit applies live (a running outage is judged against the new value). Quotes accepted; clamped (ParseSessionGrace).
++                String sgNote;
++                Int32 sessionGrace = ParseSessionGrace(ini.GetSetting("Netsync", "SessionGraceMs", "30000"), out sgNote);
++                if (sgNote != null)
++                    Log.Message("[NetSync] " + sgNote);
+                 String ghostAs = ini.GetSetting("Netsync", "GhostAs", "").Trim();
+                 Boolean followHost = ini.GetSetting("Netsync", "FollowHost", "0").Trim() == "1";
+                 Boolean autoTeleport = ini.GetSetting("Netsync", "AutoTeleport", "0").Trim() == "1";   // s55: default OFF
+@@ -896,7 +967,8 @@ namespace Memoria.Netsync
+                               "|" + (dioramaSwirl ? "1" : "0") + "|" + (autoTeleport ? "1" : "0") +
+                               "|" + (guestStockMenu ? "1" : "0") +                // [ff9mapkit netsync B4] stage 8
+                               "|" + swirlClamp +                                   // [ff9mapkit netsync R3 s112]
+-                              "|" + startHold;                                     // [ff9mapkit netsync R3 s114]
++                              "|" + startHold +                                    // [ff9mapkit netsync R3 s114]
++                              "|" + sessionGrace;                                  // [ff9mapkit netsync R3 s120]
+                 Boolean first = !_configLoaded;
+                 _configLoaded = true;
+                 Boolean tChanged = tsig != _cfgTransportSig;
+@@ -918,6 +990,7 @@ namespace Memoria.Netsync
+                 NetSyncBattle.GuestStockMenu = guestStockMenu;                      // [ff9mapkit netsync B4] stage 8: read per frame
+                 NetSyncDiorama.SwirlClampFrames = swirlClamp;                       // [ff9mapkit netsync R3 s112]: read per diorama swirl
+                 NetSyncBattle.StartHoldMs = startHold;                              // [ff9mapkit netsync R3 s114]: read per frame (the hold's getter)
++                _sessionGraceMs = sessionGrace;                                     // [ff9mapkit netsync R3 s120]: read per frame (SessionTick, the hold cap)
+                 NetSyncVisitor.Enabled = _enabled;                                  // the visitor lane's config mirror
+                 NetSyncVisitor.GhostAs = _ghostAs;
+                 NetSyncVisitor.FollowHost = _followHost;
+@@ -930,6 +1003,7 @@ namespace Memoria.Netsync
+                             (!guestStockMenu ? " guestStockMenu=0" : "") +                 // [ff9mapkit netsync B4] stage 8
+                             (swirlClamp != 0 ? " dioramaSwirlFrames=" + swirlClamp : "") +    // [ff9mapkit netsync R3 s112]
+                             (startHold != 8000 ? " startHoldMs=" + startHold : "") +          // [ff9mapkit netsync R3 s114]
++                            (sessionGrace != SessionGraceDefaultMs ? " sessionGraceMs=" + sessionGrace : "") +   // [ff9mapkit netsync R3 s120]
+                             (_selfTestDx != 250 || _selfTestDz != 0 ? " selfTestOffset=" + _selfTestDx + "," + _selfTestDz : "") +
+                             (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
+                                                   : " peer=" + _peer + ":" + _port));
+@@ -972,10 +1046,14 @@ namespace Memoria.Netsync
+             LastHostField = -1;            // F1: no stale host field may survive a reconfigure
+             ResetIntentAndL1State();       // F2: a NEW session on redial -- forget intent + L1 state
+             NetSyncField.ResetTeleportKey();
+-            if (_storyMirroring)
++            if (_storyMirroring && !_exitRampPending)
++            {
+                 _exitRampPending = true;   // deliberate config change ends the session NOW: ramp to the
+                                            // guest's own autosave at the next safe tick (no debounce);
+                                            // _storyMirroring stays true so the save-block stays armed
++                _exitRampCause = RampCauseConfig;   // [ff9mapkit netsync R3 s120] immediate: never the grace
++            }
++            ResetSessionGrace();           // [ff9mapkit netsync R3 s120] a NEW link on redial: no outage carries over
+             _ovlState = -1;
+             _ovlDetail = 0;
+             _ovlText = null;
+@@ -984,7 +1062,7 @@ namespace Memoria.Netsync
+         // A BEHAVIOR config edit landed while the game runs (play-style keys only: TargetField,
+         // GuestSlots, GuestWaitMs, GhostAs, FollowHost, SelfTestOffset, DioramaSwirl, AutoTeleport,
+         // GuestStockMenu -- [ff9mapkit netsync B4] stage 8; DioramaSwirlFrames -- [ff9mapkit netsync R3 s112]; StartHoldMs --
+-        // [ff9mapkit netsync R3 s114]): every consumer
++        // [ff9mapkit netsync R3 s114]; SessionGraceMs -- [ff9mapkit netsync R3 s120]): every consumer
+         // reads the committed statics per frame (dress/scope/slots pick the new value up on the next
+         // tick), so the transport and the mirrored session stay INTACT -- no teardown, no reconnect
+         // window with SuppressEncounters forced off, no exit ramp on a mere play-style tweak. The two
+@@ -996,11 +1074,14 @@ namespace Memoria.Netsync
+                                            // needs its one same-field kick (harmless otherwise -- the
+                                            // kick self-gates on !_storyMirroring + a host snapshot)
+             _sameFieldKickTries = 0;       // a deliberate config action re-funds the reload budget
+-            if (!_followHost && _storyMirroring)
++            if (!_followHost && _storyMirroring && !_exitRampPending)
++            {
+                 _exitRampPending = true;   // stopped FOLLOWING mid-mirror: that IS a session end for the
+                                            // mirror -- ramp to the guest's own autosave (same contract
+                                            // as ApplyConfigChange; _storyMirroring stays true so the
+                                            // save-block stays armed through the gap)
++                _exitRampCause = RampCauseUnfollow;   // [ff9mapkit netsync R3 s120] immediate: never the grace
++            }
+         }
+ 
+         // THE COOP CELLS (see the class comment): peer presence + walkmesh X/Z into gEventGlobal
+@@ -1117,8 +1198,12 @@ namespace Memoria.Netsync
+                 try
+                 {
+                     EventEngine e2 = PersistenSingleton<EventEngine>.Instance;
++                    // [ff9mapkit netsync R3 s120] ...and never while a diorama is booted (belt-and-braces: in the battle scene
++                    // fieldmap is null anyway, but the boot's swirl starts on the live field -- an Autoload + ReplaceLoadMap
++                    // there would race the diorama's own Replace). A Booted stranded on a live field is fence 1's to clear.
+                     safeToLoad = e2 != null && _followWarpPending < 0 &&
+-                                 ((e2.gMode == 1 && e2.fieldmap != null) || e2.gMode == 3);
++                                 ((e2.gMode == 1 && e2.fieldmap != null) || e2.gMode == 3) &&
++                                 !NetSyncDiorama.Booted;
+                     // s55: don't fire on the FIRST raw frame of a battle-return FIELD load -- the
+                     // Autoload + ReplaceLoadMap would race the battle-return's own load (the guest-
+                     // crash seam). Require the field to have handed control back to the player (the
+@@ -1154,7 +1239,7 @@ namespace Memoria.Netsync
+                         Log.Message("[NetSync] exit ramp: the field never returned control in "
+                                     + (ExitRampSettleMaxMs / 1000) + "s -- reloading the guest's own save anyway (fail-safe)");
+                     _exitRampPending = false;
+-                    _exitRampSince = 0;
++                    _exitRampCause = RampCauseNone; // [ff9mapkit netsync R3 s120] (the old debounce clock is gone: SessionTick)
+                     _exitRampSafeSince = 0;         // s55: re-arm the settle clock for any future session
+                     _storyMirroring = false;
+                     _sameFieldKickDone = false;    // the autoload may land the guest ON the host's field
+@@ -1201,17 +1286,22 @@ namespace Memoria.Netsync
+                 // lane, which the 30 Hz keepalive keeps fresh through the host's menus/battles and which
+                 // the socket layer stale-invalidates ~2s after the host actually dies. (A deliberate
+                 // config change arms the ramp immediately -- ApplyConfigChange.)
+-                Boolean sessionLive = _enabled && _followHost && _socket != null &&
+-                                      _socket.IsConnected && _socket.GetRemote().Valid;
+-                if (_storyMirroring && !_exitRampPending && !sessionLive)
++                // [ff9mapkit netsync R3 s120] ...no longer a 3 s debounce: THE SESSION GRACE. SessionTick runs the one outage clock
++                // (PEER-ALIVE, guest only) and the ramp arms only once the grace has run out (SessionRampArms); a peer back inside it
++                // arms nothing -- the mirror, the held diorama and the ghost just carry on. FollowHost dropped mid-mirror still arms
++                // at once (ApplyBehaviorChange does too; this is its fence).
++                Boolean sessionPeerAlive = false;
++                if (_role == "client" && _socket != null)
+                 {
+-                    if (_exitRampSince == 0)
+-                        _exitRampSince = Environment.TickCount;
+-                    else if (Environment.TickCount - _exitRampSince > ExitRampDebounceMs)
+-                        _exitRampPending = true;
++                    try { sessionPeerAlive = _socket.IsConnected && _socket.GetRemote().Valid; }
++                    catch { sessionPeerAlive = false; }   // unreadable = silent: the grace, never an instant end
++                }
++                SessionTick(sessionPeerAlive, Environment.TickCount);
++                if (SessionRampArms(_storyMirroring, _exitRampPending, _followHost, _sessionState))
++                {
++                    _exitRampPending = true;
++                    _exitRampCause = _followHost ? RampCauseGrace : RampCauseUnfollow;
+                 }
+-                else
+-                    _exitRampSince = 0;
+                 if (_role != "host" && _role != "client")
+                 {
+                     // "selftest": mirror the local player, offset beside it (solo sanity check).
+@@ -1274,6 +1364,10 @@ namespace Memoria.Netsync
+                         Boolean watchOk = DioramaWatchSelfTest(out watchDetail);
+                         Log.Message("[NetSync] diorama watcher selftest: "
+                                     + (watchOk ? "OK (" + watchDetail + ")" : "FAIL (" + watchDetail + ")"));
++                        String graceDetail;              // [ff9mapkit netsync R3 s120] the session grace's step, ramp arm and ini clamp
++                        Boolean graceOk = SessionGraceSelfTest(out graceDetail);
++                        Log.Message("[NetSync] session grace selftest: "
++                                    + (graceOk ? "OK (" + graceDetail + ")" : "FAIL (" + graceDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+@@ -1379,7 +1473,12 @@ namespace Memoria.Netsync
+                     _encounterGraceLogged = false;         // healthy link -> re-arm the one-shot for the next blip
+                 }
+                 Boolean withinGrace = Environment.TickCount - _lastConnectedTick < EncounterGraceMs;
+-                Boolean suppress = _followHost && (connected || withinGrace);
++                // [ff9mapkit netsync R3 s120] ...and while the SESSION lives: a mirroring guest (until the ramp reloads its own save)
++                // or an outage inside the session grace never boots a local battle -- the 5 s window above was sized for the old 3 s
++                // ramp, and the grace now keeps the host's story live for up to 30 s with the hop down (a direct link, a dead bridge).
++                // Only ever EXTENDS the pause (behind the bridge `connected` already holds it).
++                Boolean sessionHeld = _storyMirroring || _sessionState == SessionGrace;
++                Boolean suppress = _followHost && (connected || withinGrace || sessionHeld);
+                 if (suppress && !connected && !_encounterGraceLogged)
+                 {
+                     _encounterGraceLogged = true;          // once per blip, not per frame
+@@ -1388,6 +1487,11 @@ namespace Memoria.Netsync
+                 NetSyncVisitor.SuppressEncounters = suppress;
+ 
+                 RemoteState rs = _socket.GetRemote();                    // apply the peer
++                // [ff9mapkit netsync R3 s120] "the peer is lost" for the ghost blip-grace and the overlay below: on a GUEST, PEER-ALIVE
++                // (never IsConnected alone -- behind the local bridge the hop stays up through any cut); a HOST keeps the s56 transport
++                // test, so a host with no guest, or with an old-DLL guest, is behaviour-identical (review S120-R1).
++                Boolean peerLost = _role == "client" ? !(rs.Valid && _socket.IsConnected) : !_socket.IsConnected;
++                _ghostHeld = false;
+                 LastHostField = rs.Valid ? rs.Field : -1;                // F1: the gateway redirect's follow allowance
+                 if (_role == "client")
+                     ObserveHostDialog(_socket.GetRemoteState(), Environment.TickCount);   // [ff9mapkit netsync F3.3] section 7 FIRST: an epoch change resets the dedup nonces below
+@@ -1421,7 +1525,7 @@ namespace Memoria.Netsync
+                     }
+                     AutoTeleportTick(local, rs.Pos, false);    // F1: recover a separated guest (self-gated)
+                 }
+-                else if (onField && _ghost != null && _socket != null && !_socket.IsConnected &&
++                else if (onField && _ghost != null && peerLost &&                       // [ff9mapkit netsync R3 s120] a guest: PEER-ALIVE, was !IsConnected
+                          Environment.TickCount - _ghostLastPairedTick < GhostGraceMs)
+                 {
+                     // s56 GHOST BLIP-GRACE: a TRANSPORT drop (link DOWN) just zeroed the peer via
+@@ -1434,6 +1538,12 @@ namespace Memoria.Netsync
+                     // on stale data), and the overlay stays OFF (the held ghost is the status -- no
+                     // "connecting" flicker every blip). The session-end ramp is untouched (its own 3s
+                     // debounce, above).
++                    // [ff9mapkit netsync R3 s120] on a GUEST "link DOWN" = the peer not alive (a silent peer behind the bridge is a
++                    // drop too: its position lane goes stale with the hop up); a deliberate leave sends field 0 / another field as
++                    // DATA, so the peer stays alive and it still despawns at once. Past GhostGraceMs the ghost goes and the overlay
++                    // counts the session grace down ("reconnecting"); the session-end ramp is the grace's (SessionTick), not a
++                    // debounce. A host keeps the transport test (peerLost above).
++                    _ghostHeld = true;
+                     SetOverlay(OvlOff);
+                     WriteCoopCells(0, Vector3.zero);
+                     if (ee != null)
+@@ -1443,10 +1553,15 @@ namespace Memoria.Netsync
+                 {
+                     DespawnGhost();
+                     WriteCoopCells(0, Vector3.zero);       // not paired on this screen -> no presence
+-                    if (local == null)
++                    if (_sessionState == SessionGrace)
++                        SetOverlay(OvlReconnecting, SessionGraceLeftSec());   // [ff9mapkit netsync R3 s120] the session lives: count its
++                                                                               // grace down -- off-field too (a held diorama, the world map)
++                    else if (local == null)
+                         SetOverlay(onField && !inScope ? OvlElsewhere : OvlOff);   // wrong field (targeted mode)
+-                    else if (!_socket.IsConnected)
+-                        SetOverlay(OvlConnecting);
++                    else if (peerLost)
++                        SetOverlay(OvlConnecting, _role == "client" && _socket.IsConnected ? 1 : 0);   // [ff9mapkit netsync R3 s120] a guest:
++                                                                                    // PEER-ALIVE, was !IsConnected -- the hop up with no live
++                                                                                    // peer is no pairing (detail 1); a host: unchanged (0)
+                     else if (_followWarpPending >= 0)
+                         SetOverlay(OvlFollowing, _followWarpPending);    // following the friend to their field
+                     else if (rs.Valid && rs.Field > 0 && rs.Field != fld && _followHost &&
+@@ -1678,6 +1793,8 @@ namespace Memoria.Netsync
+                 //                                alive (an alt-tab, a hang) -- until the lane resumes or the hold passes the
+                 //                                cap; the SAME fight then resumes with the reconnected frames instead of
+                 //                                tearing down and re-booting ("battles twice").
++                //                                [ff9mapkit netsync R3 s120] the cap is the session grace (a silent peer); a
++                //                                peer alive for the settle that says nothing leaves at the stall cap (8 s stale).
+                 // NEVER `_socket.IsConnected` alone (the s56 predicate): behind the local bridge it stays true through any cut.
+                 Int32 now = Environment.TickCount;
+                 if (live && nonce == _dioramaWireNonce && _dioramaTerminalNonce != nonce)
+@@ -1719,7 +1836,8 @@ namespace Memoria.Netsync
+                 Int32 watchWhy;
+                 Int32 step = DioramaWatchStep(live, nonce, _dioramaWireNonce, peerAlive, hostField,
+                                               _dioramaTerminalNonce >= 0 && _dioramaTerminalNonce == _dioramaWireNonce,
+-                                              staleMs, aliveMs, DioramaSettleMs, capMs, _dioramaLeaveWhy, out watchWhy);
++                                              staleMs, aliveMs, DioramaSettleMs, capMs, DioramaStallCapMs,   // [ff9mapkit netsync R3 s120]
++                                              _dioramaLeaveWhy, out watchWhy);
+                 _dioramaWatchState = step;
+                 _dioramaWatchPeerAlive = peerAlive;
+                 _dioramaWatchHostField = hostField;
+@@ -1750,7 +1868,9 @@ namespace Memoria.Netsync
+                     if (!_dioramaHoldCounted && staleMs >= DioramaSettleMs && !NetSyncDiorama.LeaveRequestedRecently)
+                     {
+                         _dioramaHoldCounted = true;      // a STALL = the peer alive through the whole settled stretch; else a cut
+-                        NoteDioramaHold(peerAlive && aliveMs >= DioramaSettleMs, hostField, staleMs, capMs);
++                        Boolean stalled = peerAlive && aliveMs >= DioramaSettleMs;
++                        NoteDioramaHold(stalled, hostField, staleMs,                 // [ff9mapkit netsync R3 s120] a stall's own bound
++                                        stalled && DioramaStallCapMs < capMs ? DioramaStallCapMs : capMs);
+                     }
+                 }
+                 else
+@@ -1761,15 +1881,21 @@ namespace Memoria.Netsync
+                     Boolean firstWhy = _dioramaWatchWhy == WatchWhyNone;
+                     _dioramaWatchWhy = watchWhy;
+                     _dioramaLeaveWhy = watchWhy;
+-                    if (watchWhy == WatchWhyHoldCap)
++                    if (watchWhy == WatchWhyHoldCap || watchWhy == WatchWhyStallCap)   // [ff9mapkit netsync R3 s120] + the stall cap
+                     {
+                         if (!_dioramaBlipHoldGaveUpLogged)
+                         {
+                             _dioramaBlipHoldGaveUpLogged = true;
+                             _dioramaHoldGaveUp++;
+-                            Log.Message("[NetSync] diorama: the host's battle lane is still silent after " + (capMs / 1000)
+-                                        + "s (nonce " + _dioramaWireNonce + ", peer " + (peerAlive ? "alive on field " + hostField : "silent")
+-                                        + ") -- leaving to the spectate panel");
++                            if (watchWhy == WatchWhyStallCap)
++                                Log.Message("[NetSync] diorama: the host's battle lane is still silent after " + (DioramaStallCapMs / 1000)
++                                            + "s with the peer alive on field " + hostField + " (nonce " + _dioramaWireNonce
++                                            + ": its battle lane stalled, or its fight ended unseen inside a cut) -- leaving to the "
++                                            + "spectate panel");
++                            else
++                                Log.Message("[NetSync] diorama: the host's battle lane is still silent after " + (capMs / 1000)
++                                            + "s (nonce " + _dioramaWireNonce + ", peer " + (peerAlive ? "alive on field " + hostField : "silent")
++                                            + ") -- leaving to the spectate panel");
+                         }
+                     }
+                     else if (firstWhy)
+@@ -1938,11 +2064,15 @@ namespace Memoria.Netsync
+         internal const Int32 WatchWhyTerminal = 2;      // the peer alive, and this boot's end block read terminal while live
+         internal const Int32 WatchWhyHostField = 3;     // the peer alive and back on a field
+         internal const Int32 WatchWhyHoldCap = 4;       // the hold passed its cap
++        internal const Int32 WatchWhyStallCap = 5;      // [ff9mapkit netsync R3 s120] the peer alive, its battle lane silent past the stall cap
+ 
+         // [ff9mapkit netsync R3 s119] THE HOLD CAP -- the ONE seam every reader of the hold's length goes through (the step, the
+         // hold and give-up lines, `netsync.diorama.hold.cap_ms`). s120 replaces this body with the session grace; nothing else
+         // has to change.
+-        private static Int32 DioramaHoldCapMs { get { return DioramaBlipHoldMs; } }
++        // [ff9mapkit netsync R3 s120] ...and it has: a SILENT peer's hold lasts exactly as long as the session lives (SessionGraceMs,
++        // the same value the link-loss exit ramp waits out), not the old 8 s DioramaBlipHoldMs. A peer alive that says nothing is
++        // no outage -- its stretch keeps s119's 8 s (DioramaStallCapMs, the step's own rule; review S120-R1).
++        private static Int32 DioramaHoldCapMs { get { return _sessionGraceMs; } }
+ 
+         /// <summary>[ff9mapkit netsync R3 s119] THE WATCHER'S STEP for a booted wire diorama (DioramaTick; the truth table is
+         /// DioramaWatchSelfTest). `live` = the host's battle lane is fresh (its seq advancing within NetSyncBattle.StaleMs),
+@@ -1957,10 +2087,14 @@ namespace Memoria.Netsync
+         /// Live: the same nonce is NOTHING, another is LEAVE_FINAL. Stale: a decided leave stands; GENUINELY OVER (LEAVE_FINAL)
+         /// only with the peer alive for the settle AND (the end latched terminal OR the host on a real field -- neither 0 nor
+         /// 65535); every other stale frame is a HOLD until staleMs passes capMs (LEAVE_FINAL, the cap). `why` names a
+-        /// LEAVE_FINAL (WatchWhyNone otherwise). Pure.</summary>
++        /// LEAVE_FINAL (WatchWhyNone otherwise). Pure.
++        /// [ff9mapkit netsync R3 s120] `stallCapMs` (review S120-R1): with the peer alive for the settle and no over-signal, the
++        /// hold also leaves once staleMs passes stallCapMs (LEAVE_FINAL, the stall cap) -- capMs is now the session grace, which
++        /// bounds a SILENT peer; an alive one keeps s119's bound. Tested after the cap, so a stall cap at or above capMs changes
++        /// nothing (the s119 table's rows).</summary>
+         internal static Int32 DioramaWatchStep(Boolean live, Int32 nonce, Int32 bootedNonce, Boolean peerAlive, Int32 hostField,
+                                                Boolean terminalLatched, Int32 staleMs, Int32 aliveMs, Int32 settleMs, Int32 capMs,
+-                                               Int32 leaveWhy, out Int32 why)
++                                               Int32 stallCapMs, Int32 leaveWhy, out Int32 why)
+         {
+             why = WatchWhyNone;
+             if (live)
+@@ -1993,6 +2127,11 @@ namespace Memoria.Netsync
+                 why = WatchWhyHoldCap;
+                 return WatchLeaveFinal;
+             }
++            if (peerAlive && aliveMs >= settleMs && staleMs > stallCapMs)
++            {
++                why = WatchWhyStallCap;                  // [ff9mapkit netsync R3 s120] alive, silent, saying nothing: s119's bound
++                return WatchLeaveFinal;
++            }
+             return WatchHold;
+         }
+ 
+@@ -2015,6 +2154,7 @@ namespace Memoria.Netsync
+                 case WatchWhyTerminal: return "terminal";
+                 case WatchWhyHostField: return "host_field";
+                 case WatchWhyHoldCap: return "cap";
++                case WatchWhyStallCap: return "stall_cap";       // [ff9mapkit netsync R3 s120]
+                 default: return null;
+             }
+         }
+@@ -2027,6 +2167,7 @@ namespace Memoria.Netsync
+                 case WatchWhyTerminal: return "the host's fight is over (its end block read terminal while the lane was live)";
+                 case WatchWhyHostField: return "the host's fight is over (the peer is alive and back on field " + hostField + ")";
+                 case WatchWhyHoldCap: return "the hold passed its cap";
++                case WatchWhyStallCap: return "the hold passed its stall cap";   // [ff9mapkit netsync R3 s120]
+                 default: return "no reason";
+             }
+         }
+@@ -2207,8 +2348,335 @@ namespace Memoria.Netsync
+         private static Int32 WatchAt(Boolean live, Int32 nonce, Boolean peerAlive, Int32 aliveMs, Int32 hostField, Boolean terminal,
+                                      Int32 staleMs, Int32 leaveWhy, out Int32 why)
+         {
++            // [ff9mapkit netsync R3 s120] the stall cap = the cap here, so the s119 rows read exactly as they did (the stall cap is
++            // tested after the cap); SessionGraceSelfTest steps it apart (the grace vs DioramaStallCapMs)
+             return DioramaWatchStep(live, nonce, WatchTestNonce, peerAlive, hostField, terminal, staleMs, aliveMs,
+-                                    WatchTestSettle, WatchTestCap, leaveWhy, out why);
++                                    WatchTestSettle, WatchTestCap, WatchTestCap, leaveWhy, out why);
++        }
++
++        // ---------------------------------------------------------------- THE SESSION GRACE ([ff9mapkit netsync R3 s120])
++        /// <summary>[ff9mapkit netsync R3 s120] THE SESSION'S STEP (SessionTick; the truth table is SessionGraceSelfTest). `peerAlive` =
++        /// PEER-ALIVE (IsConnected && GetRemote().Valid -- never IsConnected alone), `seen` = there is a session to lose (this link
++        /// read a live peer, an outage is already running, or a mirror is armed outside a deliberate ramp), `outMs` = the outage's
++        /// age (0 on its first frame), `graceMs` = SessionGraceMs. The peer alive is LIVE (an outage inside the grace RESUMES);
++        /// nothing to lose is NONE; a silent peer is GRACE up to and AT graceMs, then ENDED. Pure.</summary>
++        internal static Int32 SessionGraceStep(Boolean peerAlive, Boolean seen, Int32 outMs, Int32 graceMs)
++        {
++            if (peerAlive)
++                return SessionLive;
++            if (!seen)
++                return SessionNone;
++            return outMs > graceMs ? SessionEnded : SessionGrace;
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s120] Does the link-loss exit ramp arm now? Only for a mirroring guest whose ramp is not
++        /// already pending, and only once the session has ENDED (the grace ran out) -- an outage inside the grace arms nothing, so
++        /// a peer back inside it leaves no ramp behind (the old 3 s debounce armed one that nothing ever cancelled). FollowHost off
++        /// mid-mirror arms at once (ApplyBehaviorChange's fence). The deliberate config arms are not this path. Pure.</summary>
++        internal static Boolean SessionRampArms(Boolean mirroring, Boolean pending, Boolean followHost, Int32 state)
++        {
++            return mirroring && !pending && (!followHost || state == SessionEnded);
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s120] [Netsync] SessionGraceMs -> the grace in force. Quotes accepted (GetSetting returns
++        /// them verbatim); malformed keeps SessionGraceDefaultMs; outside SessionGraceMinMs..SessionGraceMaxMs clamps (a 0 too: a
++        /// grace cannot be switched off -- the session would end on any Wi-Fi re-association). `note` = the line to log, or null.
++        /// Pure.</summary>
++        internal static Int32 ParseSessionGrace(String raw, out String note)
++        {
++            note = null;
++            String s = raw == null ? "" : raw.Trim();
++            if (s.Length >= 2 && s[0] == '"' && s[s.Length - 1] == '"')
++                s = s.Substring(1, s.Length - 2).Trim();
++            Int32 n;
++            if (!Int32.TryParse(s, out n))
++            {
++                if (s.Length > 0)
++                    note = "SessionGraceMs '" + s + "' malformed (want ms, " + SessionGraceMinMs + "-" + SessionGraceMaxMs + ") -- keeping "
++                           + SessionGraceDefaultMs;
++                return SessionGraceDefaultMs;
++            }
++            if (n < SessionGraceMinMs || n > SessionGraceMaxMs)
++            {
++                Int32 c = n < SessionGraceMinMs ? SessionGraceMinMs : SessionGraceMaxMs;
++                note = "SessionGraceMs " + n + " is outside " + SessionGraceMinMs + "-" + SessionGraceMaxMs + " -- clamped to " + c + " ms ("
++                       + (n < SessionGraceMinMs ? "a shorter grace ends the session on an ordinary Wi-Fi re-association"
++                                                : "the bridge gives up on its upstream at 45 s, the relay at 60 s") + ")";
++                return c;
++            }
++            return n;
++        }
++
++        internal static String SessionStateName(Int32 state)
++        {
++            switch (state)
++            {
++                case SessionNone: return "none";
++                case SessionLive: return "live";
++                case SessionGrace: return "grace";
++                case SessionEnded: return "ended";
++                default: return null;
++            }
++        }
++
++        internal static String RampCauseName(Int32 cause)
++        {
++            switch (cause)
++            {
++                case RampCauseGrace: return "grace";
++                case RampCauseConfig: return "config";
++                case RampCauseUnfollow: return "unfollow";
++                default: return null;
++            }
++        }
++
++        // [ff9mapkit netsync R3 s120] THE OUTAGE CLOCK (Update, every frame co-op is enabled, before the selftest branch): one step,
++        // one line per outage start / resume / give-up. Guest (client role) only -- a host or the selftest role has no session to
++        // hold (its state stays NONE). Never throws (Update's own try wraps it; every read here is a field).
++        private void SessionTick(Boolean peerAlive, Int32 now)
++        {
++            _sessionPeerAlive = peerAlive;
++            if (_role != "client")
++            {
++                if (_sessionState != SessionNone || _sessionSeenLive || _sessionOutSince != 0)
++                    ResetSessionGrace();
++                return;
++            }
++            // a session to lose: a live peer on this link, an outage already running, or a mirror armed outside a deliberate ramp
++            // (the old debounce armed on any not-live frame while mirroring, so a mirror must end through the grace too)
++            Boolean seen = _sessionSeenLive || _sessionOutSince != 0 || (_storyMirroring && !_exitRampPending);
++            Int32 outMs = _sessionOutSince != 0 ? now - _sessionOutSince : 0;
++            Int32 state = SessionGraceStep(peerAlive, seen, outMs, _sessionGraceMs);
++            if (state == SessionLive)
++            {
++                if (_sessionOutSince != 0)
++                    NoteSessionResume(outMs);
++                _sessionSeenLive = true;
++                _sessionOutSince = 0;
++                _sessionGaveUp = false;
++                _sessionOutLogged = false;
++                _sessionLockLapsed = false;
++            }
++            else if (state != SessionNone)
++            {
++                if (_sessionOutSince == 0)
++                {
++                    _sessionOutSince = now != 0 ? now : 1;   // sentinel law: 0 = no outage
++                    _sessionLockLapsed = false;
++                    NoteSessionOutage();
++                }
++                else if (state == SessionEnded && !_sessionGaveUp)
++                {
++                    _sessionGaveUp = true;
++                    NoteSessionGiveUp(outMs);
++                }
++            }
++            _sessionState = state;
++        }
++
++        // [ff9mapkit netsync R3 s120] A new link (ApplyConfigChange: the transport is torn down and redials) or a role that holds
++        // no session: forget the outage and the link's log budget (the process counters stay).
++        private void ResetSessionGrace()
++        {
++            _sessionState = SessionNone;
++            _sessionSeenLive = false;
++            _sessionOutSince = 0;
++            _sessionGaveUp = false;
++            _sessionOutLogged = false;
++            _sessionLockLapsed = false;
++            _sessionOutagesThisLink = 0;
++        }
++
++        // [ff9mapkit netsync R3 s120] The grace left in the current outage (ms; -1 = not inside one): the overlay's countdown, harness.
++        private Int32 SessionGraceLeftMs(Int32 now)
++        {
++            if (_sessionState != SessionGrace || _sessionOutSince == 0)
++                return -1;
++            Int32 left = _sessionGraceMs - (now - _sessionOutSince);
++            return left < 0 ? 0 : left;
++        }
++
++        private Int32 SessionGraceLeftSec()
++        {
++            Int32 ms = SessionGraceLeftMs(Environment.TickCount);
++            return ms <= 0 ? 0 : (ms + 999) / 1000;
++        }
++
++        // [ff9mapkit netsync R3 s120] An outage starts (counted always; its line for the first SessionLogMax per link, then one line
++        // saying the rest are counted only -- a link flapping at the 2 s staleness edge must not log a pair every few seconds).
++        private void NoteSessionOutage()
++        {
++            _sessionOutages++;
++            _sessionOutagesThisLink++;
++            _sessionOutLogged = _sessionOutagesThisLink <= SessionLogMax;
++            if (_sessionOutLogged)
++            {
++                Boolean hopUp = false;
++                try { hopUp = _socket != null && _socket.IsConnected; }
++                catch { }
++                // review S120-R4: a ramp already pending (FollowHost dropped, an earlier give-up's not yet fired) is named, never
++                // promised away -- it still reloads the guest's own autosave whatever this outage does
++                Log.Message("[NetSync] session: the host went silent (" + (hopUp ? "the hop is up: a cut or a stall upstream" : "the link is down")
++                            + ") -- holding the session for up to " + (_sessionGraceMs / 1000) + " s, reconnecting"
++                            + (_exitRampPending ? " (an exit ramp is already pending, cause " + RampCauseName(_exitRampCause)
++                                                  + ": it still reloads your own autosave; saving stays off until then)"
++                               : _storyMirroring ? " (the story mirror stays armed, saving stays off)" : "")
++                            + (NetSyncDiorama.Booted ? " (the diorama holds)" : "") + "; outages=" + _sessionOutages);
++            }
++            else if (_sessionOutagesThisLink == SessionLogMax + 1)
++                Log.Message("[NetSync] session: outage " + _sessionOutagesThisLink + " on this link -- further outages and resumes are "
++                            + "counted, not logged (netsync.session)");
++        }
++
++        // [ff9mapkit netsync R3 s120] The peer is back. Inside the grace: a RESUME -- nothing was armed, the session simply goes on (the
++        // held diorama resumes on its own nonce: DioramaTick). Past it (the give-up already logged): that session had ended -- the
++        // ramp it armed runs (or has run); the next session's mirror arms at a field load, as for any new pairing.
++        private void NoteSessionResume(Int32 outMs)
++        {
++            _sessionLastOutMs = outMs;
++            if (!_sessionGaveUp)
++            {
++                _sessionResumes++;
++                // review S120-R4: "no exit ramp" only when none is pending. Review S120-R3: the dialogue lock keeps its own 3 s
++                // (LinkGraceMs) and lapsed inside this outage -- a line the guest advanced alone meanwhile ran on its copy of the
++                // host's story (in memory only: the save gates hold); nothing re-syncs it here, the next field load re-applies it.
++                if (_sessionOutLogged)
++                    Log.Message("[NetSync] session: the host is back after " + outMs + " ms -- inside the " + (_sessionGraceMs / 1000)
++                                + " s grace, the session continues ("
++                                + (_exitRampPending ? "an earlier exit ramp, cause " + RampCauseName(_exitRampCause) + ", still runs"
++                                                    : "no exit ramp" + (_storyMirroring ? "; still mirroring" : "")) + ")"
++                                + (_sessionLockLapsed && _storyMirroring && !_exitRampPending
++                                   ? "; the dialogue lock lapsed during it -- lines opened meanwhile were local, and the host's story "
++                                     + "re-applies at the next field load"
++                                   : "")
++                                + "; resumes=" + _sessionResumes);
++            }
++            else
++                Log.Message("[NetSync] session: the host is back after " + outMs + " ms -- past the " + (_sessionGraceMs / 1000)
++                            + " s grace: that session had ended (" + (_exitRampPending ? "its exit ramp still runs" : "its exit ramp has run, if it had a mirror to undo")
++                            + ")");
++        }
++
++        // [ff9mapkit netsync R3 s120] The grace ran out (always logged: at most one per grace-long outage). The caller arms the ramp
++        // right after (SessionRampArms) and the held diorama's cap -- the same value -- leaves it final.
++        private void NoteSessionGiveUp(Int32 outMs)
++        {
++            _sessionGiveUps++;
++            Log.Message("[NetSync] session: the host has been silent for " + outMs + " ms, past the " + (_sessionGraceMs / 1000)
++                        + " s grace -- the session ended"
++                        + (_storyMirroring && !_exitRampPending ? "; the exit ramp reloads your own autosave once you are free-standing" : "")
++                        + (NetSyncDiorama.Booted ? " (the held diorama leaves first)" : "") + "; gaveup=" + _sessionGiveUps);
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s120] THE SESSION GRACE SELFTEST (NetSyncClient's selftest proof block: "session grace selftest:
++        /// OK|FAIL (...)"): SessionGraceStep, SessionRampArms and ParseSessionGrace as a truth table -- the grace's boundary, a resume
++        /// inside it arms nothing (the old 3 s debounce's moment included), a give-up arms once, the deliberate fences; then two
++        /// bench legs as sequences (sitting A's ~20 s restore, a 40 s blackhole bounded at the grace) and
++        /// THE ONE-VALUE LAW: the diorama's hold (DioramaWatchStep at a cut, capped by the grace) holds exactly while the session
++        /// lives; then THE STALL CAP (review S120-R1): a peer alive for the settle that says nothing leaves at DioramaStallCapMs,
++        /// not the grace -- its boundary, its two fences (a dead peer, the settle) and three sequences (a cut spanning an unseen
++        /// world-map victory, a 20 s cut's resume race, a 25 s cut whose fight ended unseen). Each row discriminates one rule,
++        /// so a mutant of that rule fails it. Pure: touches no live state.</summary>
++        internal static Boolean SessionGraceSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                const Int32 G = SessionGraceDefaultMs;
++                String note;
++                // --- the step
++                WatchRow(SessionGraceStep(true, false, 0, G) == SessionLive, "the peer alive is live (seen or not)", ref rows, ref fail);
++                WatchRow(SessionGraceStep(true, true, G + 1, G) == SessionLive, "the peer back past the grace is live again", ref rows, ref fail);
++                WatchRow(SessionGraceStep(false, false, 0, G) == SessionNone, "nothing seen: no session to lose", ref rows, ref fail);
++                WatchRow(SessionGraceStep(false, true, 0, G) == SessionGrace, "an outage's first frame: grace", ref rows, ref fail);
++                WatchRow(SessionGraceStep(false, true, 3001, G) == SessionGrace, "past the old 3 s debounce: still grace", ref rows, ref fail);
++                WatchRow(SessionGraceStep(false, true, G, G) == SessionGrace, "AT the grace: still grace", ref rows, ref fail);
++                WatchRow(SessionGraceStep(false, true, G + 1, G) == SessionEnded, "past the grace: ended", ref rows, ref fail);
++                // --- the ramp
++                WatchRow(SessionRampArms(true, false, true, SessionEnded), "mirroring + ended: the ramp arms", ref rows, ref fail);
++                WatchRow(!SessionRampArms(true, false, true, SessionGrace), "mirroring inside the grace: no ramp", ref rows, ref fail);
++                WatchRow(!SessionRampArms(true, false, true, SessionLive), "mirroring + live: no ramp", ref rows, ref fail);
++                WatchRow(!SessionRampArms(true, false, true, SessionNone), "mirroring, nothing to lose: no ramp", ref rows, ref fail);
++                WatchRow(!SessionRampArms(false, false, true, SessionEnded), "not mirroring: nothing to undo", ref rows, ref fail);
++                WatchRow(!SessionRampArms(true, true, true, SessionEnded), "a ramp already pending arms once", ref rows, ref fail);
++                WatchRow(SessionRampArms(true, false, false, SessionLive), "FollowHost off mid-mirror arms at once", ref rows, ref fail);
++                // --- the ini key
++                WatchRow(ParseSessionGrace("30000", out note) == 30000 && note == null, "30000", ref rows, ref fail);
++                WatchRow(ParseSessionGrace(" \"20000\" ", out note) == 20000 && note == null, "quoted 20000", ref rows, ref fail);
++                WatchRow(ParseSessionGrace("5000", out note) == 5000 && note == null
++                         && ParseSessionGrace("40000", out note) == 40000 && note == null, "the bounds are kept", ref rows, ref fail);
++                WatchRow(ParseSessionGrace("0", out note) == SessionGraceMinMs && note != null, "0 clamps up (no off switch)", ref rows, ref fail);
++                WatchRow(ParseSessionGrace("-1", out note) == SessionGraceMinMs && note != null, "negative clamps up", ref rows, ref fail);
++                WatchRow(ParseSessionGrace("99999", out note) == SessionGraceMaxMs && note != null, "past the bridge cap clamps down", ref rows, ref fail);
++                WatchRow(ParseSessionGrace("thirty", out note) == G && note != null, "malformed keeps the default, logged", ref rows, ref fail);
++                WatchRow(ParseSessionGrace("", out note) == G && note == null
++                         && ParseSessionGrace(null, out note) == G && note == null, "absent keeps the default, quietly", ref rows, ref fail);
++                // --- sequences: (1) sitting A's ~20 s restore (mid-battle or in free roam -- the step reads no scene): grace
++                // throughout, the peer back on the same session, no ramp at any frame. (2) a 40 s blackhole: ended past the grace
++                // (~32 s after the cut, with 2 s of staleness first), the ramp arms once.
++                WatchRow(SessionGraceStep(false, true, 0, G) == SessionGrace
++                         && !SessionRampArms(true, false, true, SessionGraceStep(false, true, 2000, G))
++                         && !SessionRampArms(true, false, true, SessionGraceStep(false, true, 18000, G))
++                         && SessionGraceStep(true, true, 18100, G) == SessionLive
++                         && !SessionRampArms(true, false, true, SessionLive),
++                         "seq: sitting A's ~20 s restore keeps the session", ref rows, ref fail);
++                WatchRow(!SessionRampArms(true, false, true, SessionGraceStep(false, true, G, G))
++                         && SessionRampArms(true, false, true, SessionGraceStep(false, true, G + 1, G))
++                         && !SessionRampArms(true, true, true, SessionGraceStep(false, true, 38000, G)),
++                         "seq: a 40 s blackhole ends at the grace, the ramp arms once", ref rows, ref fail);
++                // --- THE ONE-VALUE LAW: a cut (the peer silent, the battle lane stale, field 0, nothing terminal) holds the booted
++                // diorama exactly while the session is in its grace, and leaves final (the cap) exactly when it ends.
++                Int32 w;
++                Boolean lawOk = true;
++                Int32[] outs = { 0, 3001, 20000, G, G + 1, G + 5000 };
++                for (Int32 k = 0; k < outs.Length; k++)
++                {
++                    Int32 dio = DioramaWatchStep(false, 0, WatchTestNonce, false, -1, false, outs[k], 0, WatchTestSettle, G,
++                                                 DioramaStallCapMs, WatchWhyNone, out w);
++                    Boolean sessionLives = SessionGraceStep(false, true, outs[k], G) == SessionGrace;
++                    if ((dio == WatchHold) != sessionLives || (!sessionLives && w != WatchWhyHoldCap))
++                        lawOk = false;
++                }
++                WatchRow(lawOk, "the diorama holds exactly as long as the session lives", ref rows, ref fail);
++                // --- THE STALL CAP (review S120-R1): the law is the SILENT peer's. A peer alive for the settle whose battle lane stays
++                // silent and who says nothing (field 0, nothing terminal) keeps s119's bound (DioramaStallCapMs on the stale age),
++                // inside the grace; the settle still guards a long cut's resume race. (5) the reviewer's case: a 6 s cut spans
++                // the host's world-map victory unseen, the peer comes back on field 0 -- out at the stall cap, not the grace.
++                const Int32 St = DioramaStallCapMs;
++                const Int32 S = WatchTestSettle;
++                const Int32 N = WatchTestNonce;
++                const Int32 NoWhy = WatchWhyNone;
++                WatchRow(DioramaWatchStep(false, 0, N, true, 0, false, St + 1, St + 1, S, G, St, NoWhy, out w) == WatchLeaveFinal
++                         && w == WatchWhyStallCap, "the peer alive on field 0 past the stall cap leaves, inside the grace", ref rows, ref fail);
++                WatchRow(DioramaWatchStep(false, 0, N, true, 0, false, St, St, S, G, St, NoWhy, out w) == WatchHold,
++                         "...AT the stall cap: hold", ref rows, ref fail);
++                WatchRow(DioramaWatchStep(false, 0, N, false, -1, false, St + 1, S, S, G, St, NoWhy, out w) == WatchHold,
++                         "a dead peer never reaches the stall cap (whatever alive run is passed)", ref rows, ref fail);
++                WatchRow(DioramaWatchStep(false, 0, N, false, -1, false, 0, 0, S, G, St, NoWhy, out w) == WatchHold
++                         && DioramaWatchStep(false, 0, N, false, -1, false, 6000, 0, S, G, St, NoWhy, out w) == WatchHold
++                         && DioramaWatchStep(false, 0, N, true, 0, false, 6000, 0, S, G, St, NoWhy, out w) == WatchHold
++                         && DioramaWatchStep(false, 0, N, true, 0, false, 6000 + S, S, S, G, St, NoWhy, out w) == WatchHold
++                         && DioramaWatchStep(false, 0, N, true, 0, false, St + 1, St + 1 - 6000, S, G, St, NoWhy, out w) == WatchLeaveFinal
++                         && w == WatchWhyStallCap,
++                         "seq: a cut spanning an unseen world-map victory leaves at the stall cap, not the grace", ref rows, ref fail);
++                WatchRow(DioramaWatchStep(false, 0, N, false, -1, false, 20000, 0, S, G, St, NoWhy, out w) == WatchHold
++                         && DioramaWatchStep(false, 0, N, true, 0, false, 20000, 0, S, G, St, NoWhy, out w) == WatchHold
++                         && DioramaWatchStep(false, 0, N, true, 0, false, 20150, 150, S, G, St, NoWhy, out w) == WatchHold
++                         && DioramaWatchStep(true, N, N, true, 0, false, 20160, 0, S, G, St, NoWhy, out w) == WatchNothing,
++                         "seq: a 20 s cut resumes the same fight (its resume race inside the settle)", ref rows, ref fail);
++                WatchRow(DioramaWatchStep(false, 0, N, true, 0, false, 25000 + S - 1, S - 1, S, G, St, NoWhy, out w) == WatchHold
++                         && DioramaWatchStep(false, 0, N, true, 0, false, 25000 + S, S, S, G, St, NoWhy, out w) == WatchLeaveFinal
++                         && w == WatchWhyStallCap,
++                         "seq: a 25 s cut whose fight ended unseen leaves at the settle once the peer is back", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
+         }
+ 
+         // [ff9mapkit netsync R3 s114] The start-hold report's inputs, from the watcher's OWN predicates (DioramaTick above): watching
+@@ -3076,7 +3544,11 @@ namespace Memoria.Netsync
+                 {
+                     _liveArmed = false;              // spent: disarmed, so no uptime wrap can ever re-arm the grace
+                     if (sessionBase)
++                    {
+                         Log.Message("[NetSync] dialogue lock released -- the link has read dead for " + (NetSyncDialog.LinkGraceMs / 1000) + " s");
++                        if (_sessionOutSince != 0)
++                            _sessionLockLapsed = true;   // [ff9mapkit netsync R3 s120] inside a session outage (its resume line names it)
++                    }
+                 }
+                 Boolean session = sessionBase && (live || _liveArmed);
+                 if (!session)
+@@ -4345,6 +4817,75 @@ namespace Memoria.Netsync
+             }
+         }
+         public static String HarnessHoldWhy { get { NetSyncClient i = _instance; return i == null ? null : WatchWhyName(i._dioramaWatchWhy); } }
++        // [ff9mapkit netsync R3 s120] `netsync.session` (HarnessAgent.AppendSession; still ADDED under protocol 5): the session grace.
++        // `grace_ms` = SessionGraceMs in force (also the diorama hold's `cap_ms`), `state` = the last SessionGraceStep verdict ("none"
++        // | "live" | "grace" | "ended"; "none" on a host or the selftest role -- they hold no session -- and on a guest whose link
++        // has not yet carried a live peer; null = no NetSyncClient instance), `left_ms` = the grace left in this outage (-1 = not
++        // inside one), `out_ms` = the outage's age (-1 = none; it runs on past a give-up until the peer returns), the process
++        // counters `outages` / `resumes` (back inside the grace) / `gaveup` (monotonic: read DELTAS), `last_ms` = the last
++        // outage's length when the peer returned,
++        // `peer_alive` (the last PEER-ALIVE read), `seen_live` (this link carried a live peer), `mirroring` (IsMirroringStory: the
++        // story mirror armed -- the save gates hold), `ramp_pending` / `ramp_cause` (the exit ramp: "grace" | "config" | "unfollow";
++        // null = none pending), `overlay` (the status overlay's state: "off" | "elsewhere" | "no_code" | "connecting" | "waiting" |
++        // "peer_elsewhere" | "following" | "peer_no_field" | "reconnecting"; null = none composed yet), `overlay_detail` (the detail
++        // it was composed with: the seconds left for "reconnecting", 1 = the hop up for a guest's "connecting" (0 = the hop down; a
++        // host's is always 0), a field id for "peer_elsewhere" / "following" / "peer_no_field", 0 for an overlay with no detail;
++        // -1 = none composed yet, or no instance), `ghost` (the peer's ghost is spawned here) and `ghost_held` (the s56 blip-grace
++        // is holding it frozen this frame). The diorama's own `why` gains "stall_cap" (DioramaStallCapMs, review S120-R1).
++        public static Int32 HarnessSessionGraceMs { get { return _sessionGraceMs; } }
++        public static String HarnessSessionState { get { NetSyncClient i = _instance; return i == null ? null : SessionStateName(i._sessionState); } }
++        public static Int32 HarnessSessionLeftMs { get { NetSyncClient i = _instance; return i == null ? -1 : i.SessionGraceLeftMs(Environment.TickCount); } }
++        public static Int32 HarnessSessionOutMs
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                return i == null || i._sessionOutSince == 0 ? -1 : Environment.TickCount - i._sessionOutSince;
++            }
++        }
++        public static Int32 HarnessSessionOutages { get { return _sessionOutages; } }
++        public static Int32 HarnessSessionResumes { get { return _sessionResumes; } }
++        public static Int32 HarnessSessionGaveUp { get { return _sessionGiveUps; } }
++        public static Int32 HarnessSessionLastMs { get { return _sessionLastOutMs; } }
++        public static Boolean HarnessSessionPeerAlive { get { NetSyncClient i = _instance; return i != null && i._sessionPeerAlive; } }
++        public static Boolean HarnessSessionSeenLive { get { NetSyncClient i = _instance; return i != null && i._sessionSeenLive; } }
++        public static Boolean HarnessRampPending { get { NetSyncClient i = _instance; return i != null && i._exitRampPending; } }
++        public static String HarnessRampCause
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                return i == null || !i._exitRampPending ? null : RampCauseName(i._exitRampCause);
++            }
++        }
++        public static String HarnessOverlay { get { NetSyncClient i = _instance; return i == null ? null : OverlayName(i._ovlState); } }
++        public static Int32 HarnessOverlayDetail
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                return i == null || i._ovlState < 0 ? -1 : i._ovlDetail;
++            }
++        }
++        public static Boolean HarnessGhost { get { NetSyncClient i = _instance; return i != null && i._ghost != null; } }
++        public static Boolean HarnessGhostHeld { get { NetSyncClient i = _instance; return i != null && i._ghostHeld && i._ghost != null; } }
++
++        internal static String OverlayName(Int32 state)
++        {
++            switch (state)
++            {
++                case OvlOff: return "off";
++                case OvlElsewhere: return "elsewhere";
++                case OvlNoCode: return "no_code";
++                case OvlConnecting: return "connecting";
++                case OvlWaiting: return "waiting";
++                case OvlPeerElsewhere: return "peer_elsewhere";
++                case OvlFollowing: return "following";
++                case OvlPeerNoField: return "peer_no_field";
++                case OvlReconnecting: return "reconnecting";
++                default: return null;
++            }
++        }
+         internal static System.Collections.Generic.List<NetSyncDialog.KeyView> HarnessKeys(Int32 max)
+         {
+             NetSyncClient i = _instance;
+@@ -4758,7 +5299,16 @@ namespace Memoria.Netsync
+                                "Get the host's code, then run:  ff9mapkit coop join <code>";
+                     break;
+                 case OvlConnecting:
+-                    if (_relayUrl.Length > 0)
++                    // [ff9mapkit netsync R3 s120] detail 1 (a GUEST only) = the hop is UP (the local bridge, a LAN socket) but no
++                    // live peer on it (PEER-ALIVE): no pairing yet, or a session whose grace ran out -- the bridge is plainly
++                    // running, so the "bridge isn't running" hint below would mislead. Detail 0 = the hop itself is down (the old
++                    // texts; a host always composes these -- it keeps the s56 transport test).
++                    if (detail != 0 && _relayUrl.Length > 0)
++                        _ovlText = "FF9 co-op: the bridge is up -- waiting for the host's game (code " + code + ")\n" +
++                                   "if this never clears, check the host is in:  ff9mapkit coop host";
++                    else if (detail != 0)
++                        _ovlText = "FF9 co-op: linked to " + _peer + ":" + _port + " -- waiting for the host's game to answer";
++                    else if (_relayUrl.Length > 0)
+                         _ovlText = "FF9 co-op: connecting to the relay...\n" +
+                                    "If this never clears, the bridge isn't running:  ff9mapkit coop " +
+                                    (_role == "host" ? "host" : "join " + code) + "  (" + _relayUrl + ")";
+@@ -4783,6 +5333,12 @@ namespace Memoria.Netsync
+                     _ovlText = "FF9 co-op: your friend is on field " + detail + ", which this install doesn't have\n" +
+                                "(a custom field needs its mod on BOTH machines)";
+                     break;
++                case OvlReconnecting:
++                    // [ff9mapkit netsync R3 s120] the session grace counting down (detail = whole seconds left; recomposed as it ticks)
++                    _ovlText = "FF9 co-op: the host's game went silent -- reconnecting (" + detail + " s left)\n" +
++                               (_storyMirroring ? "the session waits for it; if it doesn't return, your own save reloads"
++                                                : "the session waits for it");
++                    break;
+                 default:
+                     _ovlText = null;
+                     break;
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 21bbeb3..2cfbbe3 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -196,6 +196,13 @@ namespace Memoria.Harness
+         // on a real transport (the selftest role returns before it), so its bench is a wire replay. A driver checks for
+         // `netsync.diorama.hold` -- absent = an engine whose guest leaves a stale battle lane at once while its hop is connected
+         // (the s56 predicate: behind the local bridge, any cut reads "the fight is over").
++        // [ff9mapkit netsync R3 s120] (the session grace; studies/battle-coop/R3-SITTING-A-FIXES.md), also additive under 5:
++        // `netsync` gains `session` (see AppendSession), `netsync.diorama.hold.cap_ms` now reads the grace (30000 by default, was
++        // 8000) and `netsync.diorama.hold.why` gains "stall_cap" (a peer alive with no over-signal keeps the 8 s bound), and the
++        // selftest proof block gains one line, "session grace selftest: OK (N rows)" (NetSyncClient.
++        // SessionGraceSelfTest); no new verb or op -- the outage clock needs a real transport, so its bench is a wire replay with
++        // a blackhole. A driver checks for `netsync.session.grace_ms` -- absent = an engine whose guest ends a mirrored session 3 s
++        // after its peer goes silent and caps a held diorama at 8 s.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -3228,11 +3235,12 @@ namespace Memoria.Harness
+                 Str(sb, "chip", Memoria.Netsync.NetSyncClient.HarnessDialogChip); sb.Append(",");
+                 AppendRing(sb); sb.Append(",");
+                 AppendDiorama(sb); sb.Append(",");
++                AppendSession(sb); sb.Append(",");                                                      // [ff9mapkit netsync R3 s120]
+                 AppendNetsyncBattle(sb);
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3366,6 +3374,9 @@ namespace Memoria.Harness
+         // inputs `peer_alive` (IsConnected && GetRemote().Valid) and `host_field` (-1 = not alive), `terminal` (this boot's end
+         // block read terminal while the lane was live) and `why` (the last LEAVE_FINAL's reason: "new_nonce" | "terminal" |
+         // "host_field" | "cap"; null = none this boot). AppendNetsync's catch line carries the same keys at their sentinels.
++        // [ff9mapkit netsync R3 s120] `cap_ms` now reads the session grace (it bounds a SILENT peer), and `why` gains "stall_cap"
++        // (a peer alive for the settle whose battle lane stayed silent, saying nothing, past NetSyncClient.DioramaStallCapMs --
++        // 8000, s119's bound; counted in `gaveup` like the cap).
+         private static void AppendDioramaHold(StringBuilder sb)
+         {
+             sb.Append("\"hold\":{");
+@@ -3384,6 +3395,43 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync R3 s120] `netsync.session` -- THE SESSION GRACE (guest side; NetSyncClient.SessionTick, keyed on PEER-ALIVE):
++        // `grace_ms` (SessionGraceMs in force -- the link-loss exit ramp's wait and the diorama hold's cap, one value), `state`
++        // ("none" | "live" | "grace" | "ended"; "none" on a host or the selftest role, which hold no session, and on a guest whose
++        // link has not yet carried a live peer; null = no NetSyncClient instance), `left_ms` (the grace left in this outage; -1 =
++        // not inside one), `out_ms` (the outage's age; -1 = none), `outages` / `resumes` / `gaveup` (this process -- monotonic,
++        // read DELTAS: outages
++        // started, peers back inside the grace, graces run out), `last_ms` (the last outage's length when the peer returned; -1 =
++        // none), `peer_alive` (IsConnected && GetRemote().Valid), `seen_live` (this link carried a live peer), `mirroring`
++        // (IsMirroringStory: the save gates hold), `ramp_pending` / `ramp_cause` ("grace" | "config" | "unfollow"; null = none
++        // pending), `overlay` / `overlay_detail` (the status overlay -- null = none composed yet: "reconnecting" counts the grace
++        // down in whole seconds; a guest's "connecting" reads 1 with the hop up but no live peer, 0 with the hop down -- a host's is
++        // always 0; a field id for "peer_elsewhere" / "following" / "peer_no_field"; 0 for an overlay with no detail; -1 = none
++        // composed yet) and `ghost` / `ghost_held` (the peer's ghost spawned here / held by the s56 blip-grace this frame).
++        // AppendNetsync's catch line carries the same keys at their sentinels.
++        private static void AppendSession(StringBuilder sb)
++        {
++            sb.Append("\"session\":{");
++            Num(sb, "grace_ms", Memoria.Netsync.NetSyncClient.HarnessSessionGraceMs); sb.Append(",");
++            Str(sb, "state", Memoria.Netsync.NetSyncClient.HarnessSessionState); sb.Append(",");
++            Num(sb, "left_ms", Memoria.Netsync.NetSyncClient.HarnessSessionLeftMs); sb.Append(",");
++            Num(sb, "out_ms", Memoria.Netsync.NetSyncClient.HarnessSessionOutMs); sb.Append(",");
++            Num(sb, "outages", Memoria.Netsync.NetSyncClient.HarnessSessionOutages); sb.Append(",");
++            Num(sb, "resumes", Memoria.Netsync.NetSyncClient.HarnessSessionResumes); sb.Append(",");
++            Num(sb, "gaveup", Memoria.Netsync.NetSyncClient.HarnessSessionGaveUp); sb.Append(",");
++            Num(sb, "last_ms", Memoria.Netsync.NetSyncClient.HarnessSessionLastMs); sb.Append(",");
++            Bool(sb, "peer_alive", Memoria.Netsync.NetSyncClient.HarnessSessionPeerAlive); sb.Append(",");
++            Bool(sb, "seen_live", Memoria.Netsync.NetSyncClient.HarnessSessionSeenLive); sb.Append(",");
++            Bool(sb, "mirroring", Memoria.Netsync.NetSyncClient.IsMirroringStory); sb.Append(",");
++            Bool(sb, "ramp_pending", Memoria.Netsync.NetSyncClient.HarnessRampPending); sb.Append(",");
++            Str(sb, "ramp_cause", Memoria.Netsync.NetSyncClient.HarnessRampCause); sb.Append(",");
++            Str(sb, "overlay", Memoria.Netsync.NetSyncClient.HarnessOverlay); sb.Append(",");
++            Num(sb, "overlay_detail", Memoria.Netsync.NetSyncClient.HarnessOverlayDetail); sb.Append(",");
++            Bool(sb, "ghost", Memoria.Netsync.NetSyncClient.HarnessGhost); sb.Append(",");
++            Bool(sb, "ghost_held", Memoria.Netsync.NetSyncClient.HarnessGhostHeld);
++            sb.Append("}");
++        }
++
+         // [ff9mapkit netsync R3 s114] `netsync.diorama.live` -- the start-hold report's LIVE latch (guest side), THIS boot only
+         // (sentinels between boots): `latched` (the boot's first steady frame -- PHASE_NORMAL, both load bits, the scene ours -- came
+         // with a host sample in hand: a live type-1 lane or the bench feed), `ms` (Boot -> that frame; normally `intro.normal_ms`;

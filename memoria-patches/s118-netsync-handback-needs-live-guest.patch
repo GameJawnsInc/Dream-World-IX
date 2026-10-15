@@ -1,0 +1,443 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 88cd06f..0c416cd 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -495,7 +495,21 @@ namespace Memoria.Netsync
+         // number for half the tick space, so on an ordinary positive-tick machine the "stale" check
+         // read FRESH before any control frame ever arrived -- a host's GuestSlots would skip their
+         // local menus with NO guest connected. "60s ago" is stale on every machine and wrap-safe.
++        // [ff9mapkit netsync R3 s118] This is now the OWNERSHIP stamp only: a frame earns it when it carries no report (an
++        // s110-s113 guest, as before) or reports the guest's diorama LIVE or BOOTING on THIS battle (GuestOwnsFromReport) --
++        // or NONE before any diorama report on it (a guest with no diorama path: FollowHost=0 or off a field, the panel-only
++        // co-op of every release so far). Sitting A: a guest that had LEFT its diorama (it reported DECLINED) kept sending
++        // frames, every one re-stamped this, and G3 handed it back a slot it could only reach through the digit panel on its
++        // field. Owner: the HOST keeps such a slot until a LIVE report returns. "Is a guest there at all" (the stall memory,
++        // the lane's age) is _ctlLaneTick.
+         private static Int32 _assistTick = Environment.TickCount - 60000;
++        private static Int32 _ctlLaneTick = Environment.TickCount - 60000;   // [ff9mapkit netsync R3 s118] any valid control frame
++        private static Boolean _rptDioramaSeen;       // [ff9mapkit netsync R3 s118] this own battle's guest reported a diorama state
++                                                      // (anything but NONE) about it: its NONE no longer owns (GuestOwnsStep)
++        private static Boolean _rptRefused;           // [ff9mapkit netsync R3 s118] the last valid frame's report kept the slots here
++        private static Boolean _rptRefusedCounted;    // ...this refusal episode is counted (an owning frame, a new battle re-arm it)
++        private static Boolean _rptRefusedLogged;     // ...this own battle's one line is spent
++        private static Int32 _rptRefusedCount;        // refusal episodes that reached the command phase -- monotonic (read DELTAS)
+ 
+         // selftest loopback state (stands in for the socket)
+         private static Byte[] _loopBattle;
+@@ -612,6 +626,10 @@ namespace Memoria.Netsync
+             AssistInputActive = false;
+             _remoteMenuFlag = false;
+             _assistTick = Environment.TickCount - 60000;   // "long ago", never MinValue (overflow -- see the declaration)
++            _ctlLaneTick = Environment.TickCount - 60000;  // [ff9mapkit netsync R3 s118] ...and the lane's own stamp, and a refusal
++            _rptRefused = false;
++            _rptRefusedCounted = false;
++            _rptDioramaSeen = false;
+             _pendingSlot = -1;
+             _wasInBattle = false;
+             _localBattleSong = 0xFFFF;             // B3.6: the falling-edge clear (never the rising edge)
+@@ -687,6 +705,10 @@ namespace Memoria.Netsync
+             _handbackEdge = false;
+             _handbackLogs = 0;
+             _lastG6Mask = -1;
++            _rptRefused = false;                   // [ff9mapkit netsync R3 s118] a refusal is counted and logged per own battle (the
++            _rptRefusedCounted = false;            // next refused frame of this battle starts its own episode)
++            _rptRefusedLogged = false;
++            _rptDioramaSeen = false;               // ...and a NONE owns again until the guest reports a diorama of THIS battle
+             NoteOwnIntro();                        // [ff9mapkit netsync R3 s111] the intro choice this battle publishes
+             _legacyCtlSeen = false;                // [ff9mapkit netsync R3 s113] `host.wait.legacy_seen` and the Wait-parity lines
+             _waitLogMask = 0;                      // re-arm per own battle (kept after it until the next one starts)
+@@ -901,6 +923,12 @@ namespace Memoria.Netsync
+         // unit, which only matters on the wire), nor does a guest's diorama (G2 reads IsGuestOwnedSlot false while Active, and
+         // Pump's host branch needs !Booted). Wire UNCHANGED (v14): the Ready bit's byte is today's, only its meaning tightens
+         // (design 6.2). Never throws into the engine.
++        // [ff9mapkit netsync R3 s118] "guest-owned AGAIN" now needs more than a live lane (studies/battle-coop/R3-SITTING-A-FIXES.md):
++        // the guest's s114 report must name THIS battle with its diorama LIVE or BOOTING (GuestOwnsFromReport; a trailer-less
++        // older guest owns as before, and so does a NONE before any diorama report on this battle -- a guest with no diorama
++        // path, whose digit panel is its designed control). While it reports DECLINED or BUSY, or NONE after a diorama report,
++        // the host's ready loop keeps the slot -- the capture line names the report, and one line per own battle says so
++        // (NoteRefusedReport) -- and G3 hands it back, root-only and unchanged, on the tick a LIVE report returns.
+         // SELFTEST CALIBRATION LEVER (harness `netsync bench handback 0`; cleared by every harness release through
+         // HarnessReleaseBench): true = the pre-stage host -- no G6, no hand-back, no hold-edge sample (the hold is still TRACKED
+         // and counted: the instrument stays on, so `captures` rising with `returns` flat is the lever's red). Read only through
+@@ -989,7 +1017,9 @@ namespace Memoria.Netsync
+             _handbackEdge = false;
+             Int32 was = _heldSlot;
+             Int32 now = Environment.TickCount;
+-            Boolean stall = (now - _assistTick) < StallMemoryMs;
++            // [ff9mapkit netsync R3 s118] the LANE's stamp (any valid frame), not the ownership one: a guest that is there but
++            // reports its diorama not live on this battle is no "no guest at all" -- its captures are logged, naming the report
++            Boolean stall = (now - _ctlLaneTick) < StallMemoryMs;
+             if (was >= 0 && stall)
+                 HandbackLog("[NetSync] hand-back: the host's window on guest slot " + was + " closed after " + (now - _heldSinceTick)
+                             + " ms by itself (the host's own pick, a KO, or the turn or the battle ending) -- nothing to hand back");
+@@ -999,10 +1029,13 @@ namespace Memoria.Netsync
+             {
+                 _heldSinceTick = now;
+                 _handbackCaptures++;
+-                Int32 silentMs = now - _assistTick;
++                Int32 silentMs = now - _ctlLaneTick;   // [ff9mapkit netsync R3 s118] the lane's silence (= _assistTick's before s118)
+                 if (stall)
+                     HandbackLog("[NetSync] hand-back: the host's local window holds guest slot " + held + " -- " + (silentMs >= MenuStaleMs
+                                 ? "the guest's control lane has been silent " + silentMs + " ms (a stall)"
++                                : _rptRefused                  // [ff9mapkit netsync R3 s118] a live lane whose report keeps the slot here
++                                ? "the guest's control lane is live but " + RefusedReportPhrase() + " (its diorama is not live on it: "
++                                  + "the host keeps the slot)"
+                                 : "the slot became a guest slot while the host's window held it (a GuestSlots change)") + (HandbackOn
+                                 ? "; its Ready bit is withheld while the host holds it (G6), and it is handed back at the command "
+                                   + "root once the guest is live again (G3)"
+@@ -1392,7 +1425,10 @@ namespace Memoria.Netsync
+                     // `bench ctl` lever) through the same codec; a `bench lapse ... reserve` re-serves its last frame first
+                     // [ff9mapkit netsync R3 s114] ...with its boot report (auto = NONE: this machine is no diorama guest here), unless
+                     // `bench boot silent|late` withholds the frame (BenchBootFrame), and the start hold right after the hand-back
+-                    ParseControl(BenchLapseFrame(BenchBootFrame(GuestControl(_peerView))));   // RemoteMenuOpen/RemoteMenuDeep through the codec too
++                    // [ff9mapkit netsync R3 s118] ...and under `bench boot auto` its stand-in NONE owns as before (ParseControl);
++                    // an explicit `bench boot` state meets the ownership rule a real guest's report does (`none` owns only until
++                    // an explicit state other than none was reported on this battle -- the latch, GuestOwnsStep)
++                    ParseControl(BenchLapseFrame(BenchBootFrame(GuestControl(_peerView))), BenchBoot < 0);   // RemoteMenuOpen/RemoteMenuDeep through the codec too
+                     NoteWaitCap();
+                     HandBackGuestSlot();
+                     StartHoldTick();
+@@ -2841,7 +2877,11 @@ namespace Memoria.Netsync
+             return frame;
+         }
+ 
+-        private static void ParseControl(Byte[] payload)
++        // [ff9mapkit netsync R3 s118] loopbackAuto: SelfTestPump's own loopback frame under `bench boot auto` -- that role has no
++        // watcher, so its report reads NONE as a stand-in (GuestBootFor), never a guest's word; it owns as before s118, so every
++        // earlier selftest bench keeps its loopback guest. Every explicit `bench boot` state, a `bctl` frame and a real peer's
++        // frame go through the ownership rule.
++        private static void ParseControl(Byte[] payload, Boolean loopbackAuto = false)
+         {
+             Int32 menuRead, rptNonce, rptBoot;
+             Boolean trailer;
+@@ -2856,7 +2896,22 @@ namespace Memoria.Netsync
+                     _ctlNullSeen = true;
+                 return;
+             }
+-            _assistTick = Environment.TickCount;   // any valid control frame = the guest is live + watching
++            // [ff9mapkit netsync R3 s118] two stamps: the LANE (any valid control frame -- a guest is there; the stall memory, the
++            // report's freshness, `guest.lane_ms`) and the OWNERSHIP stamp _assistTick (IsGuestOwnedSlot's one input), which a
++            // frame earns only through GuestOwnsStep -- no report at all (an s110-s113 guest: today's rule, exactly), a report
++            // that names THIS battle with the guest's diorama LIVE or BOOTING, or NONE on it before the guest reported any diorama
++            // of it (no diorama path: a FollowHost=0 guest, or one off a field -- the panel-only co-op, today's rule). DECLINED,
++            // BUSY, NONE after a diorama report, or another battle's report leave the guest's slots with the host's ready loop;
++            // its byte 1 then reads shut too, as DecodeControl's nonce gate already reads a report about another battle: a guest
++            // that commands no slot here never freezes the host's Wait gauges. The s114 start hold reads the report itself
++            // (rptThis/rptBoot below), so it is unaffected. (The step runs first, so the latch notes a loopback report too.)
++            Int32 now = Environment.TickCount;
++            Boolean owns = GuestOwnsStep(ref _rptDioramaSeen, trailer, rptNonce, rptBoot, _battleNonce) || loopbackAuto;
++            _ctlLaneTick = now;
++            if (owns)
++                _assistTick = now;                 // the guest is live + watching THIS battle (before s118: any valid control frame)
++            else
++                menuRead = CtlShut;
+             // [ff9mapkit netsync R3 s114] the trailer: the guest's report (rptThis = it names THIS battle -- StartHoldTick); byte 1
+             // came back shut if the report names another battle (DecodeControl's nonce gate)
+             _ctlTrailer = trailer;
+@@ -2866,9 +2921,18 @@ namespace Memoria.Netsync
+             {
+                 _rptNonce = rptNonce;
+                 _rptBoot = rptBoot;
+-                _rptTick = _assistTick;
++                _rptTick = now;                    // [ff9mapkit netsync R3 s118] the lane's tick (it was _assistTick's, the same tick)
+                 _guestR3Seen = true;
+             }
++            if (owns)
++            {
++                _rptRefused = false;               // [ff9mapkit netsync R3 s118] the refusal episode (if any) ends here
++                _rptRefusedCounted = false;
++            }
++            else
++            {
++                NoteRefusedReport();               // [ff9mapkit netsync R3 s118] counted + logged (reads the report stored just above)
++            }
+             if (!_hold.Decided || !_hold.Primed)
+                 _ctlNullSeen = false;              // a frame answers an earlier silence -- except while holding: that release is final
+             Byte menu = (Byte)menuRead;
+@@ -2892,6 +2956,72 @@ namespace Memoria.Netsync
+                 NoteWaitParity(menu);
+         }
+ 
++        /// <summary>[ff9mapkit netsync R3 s118] THE OWNERSHIP RULE for one valid control frame -- ParseControl stamps _assistTick
++        /// (IsGuestOwnedSlot's one input) only when this is true. A trailer-less frame (an s110-s113 guest, an unknown fmt, a
++        /// short trailer -- DecodeControl's trailer false) owns: no report, today's rule. A report owns only when it names THIS
++        /// battle (rptNonce == battleNonce, as StartHoldTick's rptThis) with the guest's diorama LIVE or BOOTING (BOOTING still
++        /// owns, so a normal start is unchanged) -- or NONE while dioramaSeen is false: a guest that has reported no diorama of
++        /// this battle at all has no diorama path (GuestBootState's NONE = not following, or off a field; a following guest on
++        /// a field with a live lane always watches, since the host's position lane runs through its battles), and its digit
++        /// panel is the designed control (`--guest-slots` without `--follow-host`, a world-map battle) -- today's rule. DECLINED,
++        /// BUSY, an unknown state, NONE once a diorama of this battle was reported (the sitting-A shape: the guest's diorama
++        /// went away), or any report about another battle keep the guest's slots with the host's ready loop -- a dropped, busy
++        /// or absent diorama can never orphan a party member, nor be handed one it cannot command (owner decision, sitting A).
++        /// Pure: ControlSelfTest pins it.</summary>
++        internal static Boolean GuestOwnsFromReport(Boolean trailer, Int32 rptNonce, Int32 rptBoot, Byte battleNonce,
++                                                    Boolean dioramaSeen)
++        {
++            if (!trailer)
++                return true;
++            if (rptNonce != battleNonce)
++                return false;
++            if (rptBoot == BootLive || rptBoot == BootBooting)
++                return true;
++            return rptBoot == BootNone && !dioramaSeen;
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s118] One valid control frame through the ownership rule, with this own battle's latch:
++        /// `seen` rises on the first report that names THIS battle with any state but NONE (BOOTING, LIVE, DECLINED, BUSY, an
++        /// unknown one) and stays up until the next own battle (NoteOwnBattleStart) -- from then on a NONE keeps the slots with
++        /// the host. A report about another battle never moves it. Pure (the caller owns the latch): ControlSelfTest runs
++        /// sequences through it.</summary>
++        internal static Boolean GuestOwnsStep(ref Boolean seen, Boolean trailer, Int32 rptNonce, Int32 rptBoot, Byte battleNonce)
++        {
++            if (trailer && rptNonce == battleNonce && rptBoot != BootNone)
++                seen = true;
++            return GuestOwnsFromReport(trailer, rptNonce, rptBoot, battleNonce, seen);
++        }
++
++        // [ff9mapkit netsync R3 s118] ParseControl, on every valid frame whose report keeps the slots here: the episode flag (the
++        // capture line and `handback.refused_now` read it), then -- only once it matters, i.e. with guest slots configured and
++        // the host's command phase open -- one count per episode and one line per own battle. The command-phase test keeps the
++        // end of every followed battle quiet: the guest's end-leave reads DECLINED after the host's phase has closed. Never throws.
++        private static void NoteRefusedReport()
++        {
++            _rptRefused = true;
++            if (_rptRefusedCounted || GuestSlots == 0 || !_hostPhaseOpen)
++                return;
++            _rptRefusedCounted = true;
++            _rptRefusedCount++;
++            if (_rptRefusedLogged)
++                return;
++            _rptRefusedLogged = true;
++            HandbackLog("[NetSync] hand-back: the guest's control lane is live but " + RefusedReportPhrase() + " -- its slots stay "
++                        + "with the host's window (the host's ready loop commands them; G3 hands them back at the command root once "
++                        + "it reports live or booting on this battle; logged once per own battle), refused_report=" + _rptRefusedCount);
++        }
++
++        // The refused report in words, from the report ParseControl stored (_rptNonce/_rptBoot -- a trailer-less frame always owns,
++        // so a refusal always has one): "it reports declined for this battle" | "it reports none for this battle after reporting
++        // a diorama of it" | "its report names another battle (nonce N, live)".
++        private static String RefusedReportPhrase()
++        {
++            String boot = BootName(_rptBoot) ?? "?";
++            if (_rptNonce == _battleNonce)
++                return "it reports " + boot + " for this battle" + (_rptBoot == BootNone ? " after reporting a diorama of it" : "");
++            return "its report names another battle (nonce " + _rptNonce + ", " + boot + ")";
++        }
++
+         // [ff9mapkit netsync R3 s113] What kind of guest the open byte shows -- one line per kind per own battle (an int compare
+         // after the first); a legacy 1 is also the `host.wait.legacy_seen` latch.
+         private static void NoteWaitParity(Byte menu)
+@@ -3092,8 +3222,9 @@ namespace Memoria.Netsync
+                     _holdWhy = NotArmedWhy(now, rptThis, out phrase);
+                     // only when a guest's control lane was live within StallMemoryMs (a host with no guest -- or whose guest left
+                     // long ago: _guestR3Seen latches for the process, observability only, review s114-R2 -- stays quiet), or on
+-                    // the bench. (A report stamps _assistTick too, so a recent report always counts.)
+-                    if (now - _assistTick < StallMemoryMs || NetSyncClient.IsSelfTestRole)
++                    // the bench. (A report stamps the lane too, so a recent report always counts -- [ff9mapkit netsync R3 s118] the
++                    // LANE's stamp, which every valid frame takes: a declined guest owns no slot, but its "not armed" line stays.)
++                    if (now - _ctlLaneTick < StallMemoryMs || NetSyncClient.IsSelfTestRole)
+                         Log.Message("[NetSync] start hold not armed for battle nonce " + _battleNonce + " -- " + phrase + " (a BOOTING "
+                                     + "report within " + LateArmMs + " ms still arms it)");
+                     return;
+@@ -3179,7 +3310,7 @@ namespace Memoria.Netsync
+                 phrase = "the guest's report names another battle (nonce " + _rptNonce + ")";
+                 return "stale nonce";
+             }
+-            if (_lastCtlLegacy && now - _assistTick < MenuStaleMs)
++            if (_lastCtlLegacy && now - _ctlLaneTick < MenuStaleMs)   // [ff9mapkit netsync R3 s118] (a legacy frame stamps both)
+             {
+                 phrase = "the guest's control frame carries no report (an older DLL): no hold";
+                 return "old guest";
+@@ -3193,8 +3324,11 @@ namespace Memoria.Netsync
+         /// (GuestBootState, the BUSY row included) and the host's decisions (StartHoldStep) as a truth table of sequences -- the
+         /// stale-nonce LIVE that releases nothing, the 2-byte frame that never holds, the unknown fmt that is ignored, the
+         /// released-then-paused battle that never re-arms, a late arm, the link and old-guest releases, silence that never
+-        /// primes -- and the getter's body (HoldGate), whose spent cap never re-holds. Each row discriminates one rule, so a mutant
+-        /// of that rule fails it. Pure: touches no live state.</summary>
++        /// primes -- and the getter's body (HoldGate), whose spent cap never re-holds. [ff9mapkit netsync R3 s118] Then the
++        /// ownership rule (GuestOwnsFromReport): no report owns, LIVE/BOOTING on this battle own, NONE owns only before any
++        /// diorama report on this battle, DECLINED/BUSY/unknown and any other battle's report keep the slot with the host, end to
++        /// end through DecodeControl -- and its per-battle latch as sequences (GuestOwnsStep). Each row discriminates one rule, so
++        /// a mutant of that rule fails it. Pure: touches no live state.</summary>
+         internal static Boolean ControlSelfTest(out String detail)
+         {
+             Int32 rows = 0;
+@@ -3294,6 +3428,47 @@ namespace Memoria.Netsync
+                     && !h.Released, "gate: a spent cap never re-holds", ref rows, ref fail);
+                 Row(StartHoldStep(ref h, 3200, true, 600000, true, true, BootBooting, false, false) == HoldRelCap && h.Released,
+                     "gate: the spent cap releases as cap", ref rows, ref fail);
++                // --- [ff9mapkit netsync R3 s118] the ownership rule (GuestOwnsFromReport: trailer, nonce, boot, battle nonce, seen):
++                // who commands a guest slot -- the guest while its diorama is LIVE or BOOTING on THIS battle, or while it reports
++                // NONE on it before any diorama report (no diorama path: the panel-only guest); no report = as before
++                Row(GuestOwnsFromReport(false, -1, -1, N, true), "own: no report (an older guest)", ref rows, ref fail);
++                Row(GuestOwnsFromReport(true, N, BootLive, N, true), "own: live", ref rows, ref fail);
++                Row(GuestOwnsFromReport(true, N, BootBooting, N, true), "own: booting", ref rows, ref fail);
++                Row(GuestOwnsFromReport(true, N, BootNone, N, false), "own: none before any diorama report (panel-only)", ref rows, ref fail);
++                Row(!GuestOwnsFromReport(true, N, BootNone, N, true), "own: none after a diorama report keeps", ref rows, ref fail);
++                Row(!GuestOwnsFromReport(true, N, BootDeclined, N, false), "own: declined keeps", ref rows, ref fail);
++                Row(!GuestOwnsFromReport(true, N, BootBusy, N, false), "own: busy keeps", ref rows, ref fail);
++                Row(!GuestOwnsFromReport(true, N, BootBusy + 1, N, false), "own: an unknown state keeps", ref rows, ref fail);
++                Row(!GuestOwnsFromReport(true, N - 1, BootLive, N, false), "own: another battle's live keeps", ref rows, ref fail);
++                Row(!GuestOwnsFromReport(true, N - 1, BootBooting, N, false), "own: another battle's booting keeps", ref rows, ref fail);
++                Row(!GuestOwnsFromReport(true, N - 1, BootNone, N, false), "own: another battle's none keeps", ref rows, ref fail);
++                Row(DecodeControl(new Byte[] { 0, CtlOpenRoot, 9, N, BootDeclined }, N, out m, out t, out n, out b)
++                    && GuestOwnsFromReport(t, n, b, N, true), "own: an unknown fmt is an older guest's frame", ref rows, ref fail);
++                Row(DecodeControl(BuildControl(CtlOpenRoot, N, BootDeclined), N, out m, out t, out n, out b)
++                    && !GuestOwnsFromReport(t, n, b, N, false) && DecodeControl(BuildControl(CtlOpenRoot, N, BootLive), N, out m, out t, out n, out b)
++                    && GuestOwnsFromReport(t, n, b, N, false), "own: the decoded report decides", ref rows, ref fail);
++                // ...and the per-battle latch through GuestOwnsStep (seen, trailer, nonce, boot, battle nonce): any state but NONE
++                // about THIS battle raises it, nothing else does
++                Boolean seen = false;
++                Row(GuestOwnsStep(ref seen, true, N, BootNone, N) && GuestOwnsStep(ref seen, true, N, BootNone, N) && !seen,
++                    "step: a panel-only guest's none owns all battle", ref rows, ref fail);
++                seen = false;
++                Row(GuestOwnsStep(ref seen, true, N, BootNone, N) && GuestOwnsStep(ref seen, true, N, BootBooting, N) && seen
++                    && !GuestOwnsStep(ref seen, true, N, BootNone, N), "step: none after booting keeps", ref rows, ref fail);
++                seen = false;
++                Row(GuestOwnsStep(ref seen, true, N, BootLive, N) && !GuestOwnsStep(ref seen, true, N, BootNone, N)
++                    && GuestOwnsStep(ref seen, true, N, BootLive, N), "step: live latches, live owns again", ref rows, ref fail);
++                seen = false;
++                Row(!GuestOwnsStep(ref seen, true, N, BootDeclined, N) && seen && !GuestOwnsStep(ref seen, true, N, BootNone, N),
++                    "step: declined latches (the sitting-A shape)", ref rows, ref fail);
++                seen = false;
++                Row(!GuestOwnsStep(ref seen, true, N, BootBusy, N) && seen, "step: busy latches", ref rows, ref fail);
++                seen = false;
++                Row(!GuestOwnsStep(ref seen, true, N - 1, BootLive, N) && !seen && GuestOwnsStep(ref seen, true, N, BootNone, N),
++                    "step: another battle's report never latches", ref rows, ref fail);
++                seen = false;
++                Row(GuestOwnsStep(ref seen, false, N, BootDeclined, N) && !seen, "step: a trailer-less frame never latches",
++                    ref rows, ref fail);
+             }
+             catch (Exception err)
+             {
+@@ -3630,7 +3805,11 @@ namespace Memoria.Netsync
+                 _remoteMenuFlag = false;
+                 _remoteMenuSeen = -1;              // [ff9mapkit netsync R3 s113]
+                 _assistTick = Environment.TickCount - 60000;   // "long ago", never MinValue (see the declaration)
+-                _ctlTrailer = false;               // [ff9mapkit netsync R3 s114] ...and the report a `bctl` trailer carried
++                _ctlLaneTick = Environment.TickCount - 60000;  // [ff9mapkit netsync R3 s118] ...the lane's stamp and a refusal too
++                _rptRefused = false;
++                _rptRefusedCounted = false;
++                _rptDioramaSeen = false;           // ...and the latch its reports raised
++                _ctlTrailer = false;              // [ff9mapkit netsync R3 s114] ...and the report a `bctl` trailer carried
+                 _lastCtlLegacy = false;
+                 _rptNonce = -1;
+                 _rptBoot = -1;
+@@ -3664,7 +3843,12 @@ namespace Memoria.Netsync
+             BenchStartHoldOff = false;
+             BenchStartHoldCapMs = -1;
+             if (BenchBoot >= 0)
++            {
+                 Log.Message("[NetSync] harness: bench boot back to auto (released with the harness)");
++                if (NetSyncClient.IsSelfTestRole)
++                    _rptDioramaSeen = false;       // [ff9mapkit netsync R3 s118] the lever's reports are forgotten with it (the latch;
++                                                   // only the selftest loopback ever reported them -- a real host keeps its guest's)
++            }
+             BenchBoot = -1;
+             BenchBootLateMs = 0;
+         }
+@@ -4006,7 +4190,7 @@ namespace Memoria.Netsync
+         {
+             get
+             {
+-                Int32 ms = Environment.TickCount - _assistTick;
++                Int32 ms = Environment.TickCount - _ctlLaneTick;   // [ff9mapkit netsync R3 s118] the lane's age, owning or not
+                 return ms >= 0 && ms < StallMemoryMs ? ms : -1;
+             }
+         }
+@@ -4177,7 +4361,10 @@ namespace Memoria.Netsync
+         // Unvalidated on purpose (a malformed frame is ParseControl's to refuse: it clears the menu flag, stamps nothing).
+         // A selftest own battle overwrites it on its next pump tick (SelfTestPump parses its own loopback frame every
+         // tick). Undone by every harness release. [ff9mapkit netsync R3 s113] byte 1 is the window's depth (0 shut, 1 legacy
+-        // open, 2 root, 3 below the root): `host.wait` reads it back.
++        // open, 2 root, 3 below the root): `host.wait` reads it back. [ff9mapkit netsync R3 s118] a 5-byte frame meets the
++        // ownership rule (GuestOwnsStep): one reporting declined/busy, none after a diorama report on this battle (the latch,
++        // `handback.diorama_seen`), or naming another nonce, stamps the lane but not the slots (`guest_owned` stays 0, byte 1
++        // reads shut, `handback.refused_now` true); a release forgets the latch a `bctl` frame raised.
+         public static Boolean HarnessControlFrame(Byte[] frame, out String why)
+         {
+             why = null;
+@@ -4221,6 +4408,18 @@ namespace Memoria.Netsync
+         public static Boolean HarnessLapseHold { get { return _lapseArmed && _lapseHold; } }
+         public static Int32 HarnessLapseCount { get { return _lapseCount; } }
+         public static Int32 HarnessLapseEndFrame { get { return _lapseEndFrame; } }
++        // [ff9mapkit netsync R3 s118] `handback.refused_report`: refusal episodes (a live lane whose report kept the guest's slots
++        // with the host's window) that reached the command phase with guest slots set -- monotonic per process, read DELTAS; and
++        // `handback.refused_now`: the refusal is current (the last valid frame's report was refused and the lane is fresh); and
++        // `handback.diorama_seen`: the guest reported a diorama state other than NONE on this own battle, so its NONE no longer
++        // owns (false = a NONE still owns: the panel-only guest; per own battle -- cleared when the next starts and by a lane
++        // Reset, which a selftest battle's end runs).
++        public static Int32 HarnessHandbackRefusedReport { get { return _rptRefusedCount; } }
++        public static Boolean HarnessHandbackRefusedNow
++        {
++            get { return _rptRefused && (Environment.TickCount - _ctlLaneTick) < MenuStaleMs; }
++        }
++        public static Boolean HarnessHandbackDioramaSeen { get { return _rptDioramaSeen; } }
+ 
+         // The held slot is the guest's again right now (a hand-back is DUE: it fires at the root, waits in a submenu, and under
+         // the `bench handback 0` lever never fires -- that lever's red reads `owed` true with `returns` flat).
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 9f5cae3..f8e5c84 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -181,6 +181,15 @@ namespace Memoria.Harness
+         // default 15); NetSyncEnd.SelfTest gains its `defeat` section (the detail ends "..., fleegil K, defeat D"); no new
+         // sub-verb. A driver checks for `netsync.battle.end.follow_msg` -- absent = an engine whose guest HOLDS the host's
+         // defeat (and which answers `endbench kill`/`phase-defeat` with "unknown op").
++        // [ff9mapkit netsync R3 s118] (the hand-back needs a live guest; studies/battle-coop/R3-SITTING-A-FIXES.md), also additive
++        // under 5: `netsync.battle.host.handback` gains `refused_report` (refusal episodes -- monotonic, read DELTAS),
++        // `refused_now` (the host keeps the guest's slots right now: its live lane reports declined/busy, none after a diorama
++        // report on this battle, or another battle) and `diorama_seen` (that per-battle latch: false = a NONE still owns, the
++        // panel-only guest), and the battle control selftest gains its ownership rows (the proof line reads "OK (53 rows)"); no
++        // new verb or op -- `bench boot declined|busy|stale` now also keep the loopback guest's slots with the host, and so does
++        // `none` once an explicit state other than none was reported on this battle (`auto` never does).
++        // A driver checks for `netsync.battle.host.handback.refused_report` -- absent = an engine whose host hands a guest slot
++        // back on any control frame, whatever the guest's diorama reports.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -3217,7 +3226,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false}},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1}},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3418,6 +3427,12 @@ namespace Memoria.Harness
+         // stall `netsync bench lapse`: active, hold, left_ms -- -1 = none or hold -- count, end_frame = the frame it ended,
+         // -1 = not yet). A hand-back's latency is `last.frame - lapse.end_frame`. [ff9mapkit netsync R3 s113] `lapse.reserve`: the
+         // running lapse was armed with `reserve` (its first 2000 ms re-serve the guest's last control frame; false = none running).
++        // [ff9mapkit netsync R3 s118] `refused_report` (refusal episodes: a live control lane whose report -- DECLINED, BUSY, NONE
++        // after a diorama report on this battle, or another battle's -- kept the guest's slots with my window, counted once each
++        // when it reached my command phase with guest slots set; monotonic, read DELTAS), `refused_now` (the last valid control
++        // frame's report was refused and the lane is fresh: the slots are mine until a LIVE/BOOTING report returns -- G3 then
++        // hands back, root-only) and `diorama_seen` (the guest reported a diorama state other than NONE on this own battle;
++        // false = its NONE still owns -- a guest with no diorama path, the panel-only co-op).
+         private static void AppendHandback(StringBuilder sb)
+         {
+             sb.Append("\"handback\":{");
+@@ -3450,7 +3465,11 @@ namespace Memoria.Harness
+             Num(sb, "count", Memoria.Netsync.NetSyncBattle.HarnessLapseCount); sb.Append(",");
+             Num(sb, "end_frame", Memoria.Netsync.NetSyncBattle.HarnessLapseEndFrame); sb.Append(",");
+             Bool(sb, "reserve", Memoria.Netsync.NetSyncBattle.HarnessLapseReserve);                  // [ff9mapkit netsync R3 s113]
+-            sb.Append("}}");
++            sb.Append("},");
++            Num(sb, "refused_report", Memoria.Netsync.NetSyncBattle.HarnessHandbackRefusedReport); sb.Append(",");   // [ff9mapkit netsync R3 s118]
++            Bool(sb, "refused_now", Memoria.Netsync.NetSyncBattle.HarnessHandbackRefusedNow); sb.Append(",");
++            Bool(sb, "diorama_seen", Memoria.Netsync.NetSyncBattle.HarnessHandbackDioramaSeen);
++            sb.Append("}");
+         }
+ 
+         // [ff9mapkit netsync R3 s111] `netsync.battle.host.cfg` + `netsync.battle.host.intro` -- the intro mirror's host half.
+@@ -3620,6 +3639,9 @@ namespace Memoria.Harness
+         //     bench feed gains `ctl`/`ctl_menu` (see AppendStockMirror) and `host.handback.lapse` gains `reserve`.
+         // [ff9mapkit netsync R3 s114] adds the start hold: `host.start_hold` (see AppendHostStartHold) and `menu.ctl`'s `nonce`/`boot`/
+         //     `boot_name` (the control trailer).
++        // [ff9mapkit netsync R3 s118] `host.handback` gains `refused_report`, `refused_now` and `diorama_seen` (a guest whose report
++        //     keeps its slots with my window; see AppendHandback); `start_hold.guest.lane_ms` now reads the lane's age off any
++        //     valid frame.
+         // [ff9mapkit netsync R3 s116] adds `host.flee_gil` (the host tap's receipt: the gil this own battle's stock escape tail
+         //     dropped -- kept after the battle until the next starts, -1 = none; what SHIPPED is `host.end.flee_gil`) and
+         //     `flee_gil` on both `host.end` and `peer.end` (see AppendEndBlock). `peer.trailer_skipped` now also counts a SHORT

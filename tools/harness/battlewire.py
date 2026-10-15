@@ -1672,3 +1672,359 @@ def encode_flee_record(flee_flags: int, gil_lost: int) -> bytes:
 #: `end.follow_msg`'s vocabulary (NetSyncDiorama's ShowFollowMessage names)
 FOLLOW_MSG_ANNIHILATED = "annihilated"
 FOLLOW_MSG_DROPPED_GIL = "dropped-gil"
+
+
+# ======================================================================================== [ff9mapkit netsync R3] s118-s121
+# THE SITTING-A FIX ROUND (studies/battle-coop/R3-SITTING-A-FIXES.md): s118 the host's hand-back keyed on the guest's
+# report, s119 the guest's diorama hold keyed on the PEER, s120 the one session grace, s121 the audible menu refusal.
+# THE LAW every link-down test keeps: PEER-ALIVE = IsConnected && GetRemote().Valid (:func:`peer_alive`), never
+# IsConnected alone -- behind the local bridge the game's hop stays up through any upstream cut. Each pure decision
+# below is its C# twin; test_harness_netsync.py EVALUATES the engine's own selftest rows against it (ControlSelfTest's
+# s118 block, DioramaWatchSelfTest, SessionGraceSelfTest, MenuRefusalSelfTest -- read off the stack), and pins the
+# constants by name (CS_OWN_CONSTANTS / CS_CLIENT_CONSTANTS / CS_FIELD_CONSTANTS).
+
+# ---- the selftest proof block (NetSyncClient's, logged once per process on the first in-scope selftest tick): the R3
+# lines' heads, in its order, and each line's row count -- "[NetSync] <head>OK (<rows> rows)"
+PROOF_CONTROL = "battle control selftest: "        # NetSyncBattle.ControlSelfTest (s114)
+PROOF_WATCH = "diorama watcher selftest: "         # NetSyncClient.DioramaWatchSelfTest (s119)
+PROOF_GRACE = "session grace selftest: "           # NetSyncClient.SessionGraceSelfTest (s120)
+PROOF_MENU = "main menu refusal selftest: "        # NetSyncField.MenuRefusalSelfTest (s121)
+CONTROL_SELFTEST_ROWS_S114 = 33                    # ControlSelfTest s114-s117
+CONTROL_SELFTEST_ROWS = 53                         # ...from s118 (+ its 20 ownership rows)
+WATCH_SELFTEST_ROWS = 24                           # s119; s120 leaves its rows alone (WatchAt passes stall cap = cap)
+GRACE_SELFTEST_ROWS = 31                           # s120: 25 + the six stall-cap rows of its review fix (NOT 25)
+MENU_SELFTEST_ROWS = 14                            # s121: 10 + the four route rows of its review fix (NOT 10)
+
+
+def proof_ok(head: str, rows: int) -> str:
+    """A proof-block line's OK text, ``"<head>OK (<rows> rows)"`` (the engine prefixes Memoria's stamp and ``[NetSync] ``)."""
+    return f"{head}OK ({int(rows)} rows)"
+
+
+def peer_alive(is_connected: bool, remote_valid: bool) -> bool:
+    """PEER-ALIVE (s119-s120, the law): the hop up AND the peer's position lane valid (GetRemote().Valid -- the socket layer
+    stale-invalidates it ~2 s after the peer's last frame). IsConnected alone is a liar behind the local bridge."""
+    return bool(is_connected) and bool(remote_valid)
+
+
+# ---- s118: THE HAND-BACK NEEDS A LIVE GUEST (NetSyncBattle.GuestOwnsFromReport / GuestOwnsStep, the host's ParseControl)
+def guest_owns_from_report(trailer: bool, rpt_nonce: int, rpt_boot: int, battle_nonce: int, diorama_seen: bool) -> bool:
+    """NetSyncBattle.GuestOwnsFromReport -- THE OWNERSHIP RULE for one valid control frame (ParseControl stamps the
+    ownership tick, IsGuestOwnedSlot's one input, only on True). A trailer-less frame (an s110-s113 guest, an unknown fmt, a
+    short trailer) owns: no report, the pre-s118 rule. A report owns only when it names THIS battle with the guest's diorama
+    LIVE or BOOTING -- or NONE while ``diorama_seen`` is down (no diorama report on this battle yet: the panel-only guest,
+    review S118-NONE-PANEL). DECLINED, BUSY, an unknown state, NONE after the latch, or any report about another battle
+    keep the guest's slots with the host's ready loop (owner decision, sitting A)."""
+    if not trailer:
+        return True
+    if int(rpt_nonce) != int(battle_nonce) & 0xFF:
+        return False
+    if rpt_boot in (BOOT_LIVE, BOOT_BOOTING):
+        return True
+    return rpt_boot == BOOT_NONE and not diorama_seen
+
+
+def new_own_latch() -> dict:
+    """The per-own-battle latch GuestOwnsStep advances, at rest (``_rptDioramaSeen`` false: NoteOwnBattleStart clears it,
+    and so does a harness release of a `bench boot` lever or a `bctl` stamp)."""
+    return {"seen": False}
+
+
+def guest_owns_step(latch: dict, trailer: bool, rpt_nonce: int, rpt_boot: int, battle_nonce: int) -> bool:
+    """NetSyncBattle.GuestOwnsStep -- one valid frame through :func:`guest_owns_from_report` WITH this own battle's latch,
+    advanced in place (:func:`new_own_latch`): ``seen`` rises on the first report naming THIS battle with any state but
+    NONE (BOOTING, LIVE, DECLINED, BUSY, an unknown one) and stays up until the next own battle; a report about another
+    battle, or a trailer-less frame, never moves it."""
+    if trailer and int(rpt_nonce) == int(battle_nonce) & 0xFF and rpt_boot != BOOT_NONE:
+        latch["seen"] = True
+    return guest_owns_from_report(trailer, rpt_nonce, rpt_boot, battle_nonce, latch["seen"])
+
+
+def parse_control_owned(frame, battle_nonce: int, latch: dict, loopback_auto: bool = False) -> dict | None:
+    """NetSyncBattle.ParseControl's s118 half on the HOST: :func:`decode_control`, then the ownership step (the latch
+    advanced in place even for the loopback; ``loopback_auto`` = SelfTestPump's own frame under ``bench boot auto``, whose
+    stand-in NONE owns as before s118) -> the decode plus ``owns``. A frame that does not own still stamps the LANE (the
+    caller's) but reads byte 1 SHUT: a guest that commands no slot here never freezes the host's Wait gauges. None =
+    malformed (nothing stamped, the latch unmoved)."""
+    d = decode_control(frame, battle_nonce)
+    if d is None:
+        return None
+    owns = guest_owns_step(latch, d["trailer"], d["nonce"], d["boot"], battle_nonce) or bool(loopback_auto)
+    d["owns"] = owns
+    if not owns:
+        d["menu"] = CTL_SHUT
+    return d
+
+
+def refused_report_phrase(rpt_nonce: int, rpt_boot: int, battle_nonce: int) -> str:
+    """NetSyncBattle.RefusedReportPhrase -- the refused report in words (the refusal line's, the capture line's): "it
+    reports declined for this battle" | "it reports none for this battle after reporting a diorama of it" | "its report
+    names another battle (nonce N, live)"."""
+    boot = boot_name(rpt_boot) or "?"
+    if int(rpt_nonce) == int(battle_nonce) & 0xFF:
+        return f"it reports {boot} for this battle" + (" after reporting a diorama of it" if rpt_boot == BOOT_NONE else "")
+    return f"its report names another battle (nonce {int(rpt_nonce)}, {boot})"
+
+
+HANDBACK_LOG_BUDGET = 8                  # hand-back lines per own battle (NetSyncBattle.HandbackLogBudget)
+
+
+# ---- s119: THE DIORAMA HOLD KEYED ON THE PEER (NetSyncClient.DioramaWatchStep -- the guest's DioramaTick, booted branch)
+WATCH_NOTHING, WATCH_HOLD, WATCH_LEAVE_FINAL = 0, 1, 2
+WATCH_WHY_NONE, WATCH_WHY_NEW_NONCE, WATCH_WHY_TERMINAL, WATCH_WHY_HOST_FIELD, WATCH_WHY_HOLD_CAP = 0, 1, 2, 3, 4
+WATCH_WHY_STALL_CAP = 5                  # [ff9mapkit netsync R3 s120] the peer alive, its battle lane silent past the stall cap
+#: `netsync.diorama.hold.state` / `.why` (WatchStateName / WatchWhyName; null = none)
+WATCH_STATE_NAMES = {WATCH_NOTHING: "nothing", WATCH_HOLD: "hold", WATCH_LEAVE_FINAL: "leave_final"}
+WATCH_WHY_NAMES = {WATCH_WHY_NEW_NONCE: "new_nonce", WATCH_WHY_TERMINAL: "terminal", WATCH_WHY_HOST_FIELD: "host_field",
+                   WATCH_WHY_HOLD_CAP: "cap", WATCH_WHY_STALL_CAP: "stall_cap"}
+DIORAMA_SETTLE_MS = 500                  # the unbroken peer-alive run an over-verdict needs (and when a hold is COUNTED)
+DIORAMA_HOLD_CAP_S119_MS = 8000          # s119's cap (the s56 DioramaBlipHoldMs); from s120 the cap IS the session grace
+DIORAMA_STALL_CAP_MS = 8000              # s120's stall cap: a peer ALIVE that says nothing keeps s119's bound
+DIORAMA_HOLD_LOG_MAX = 3                 # hold/resume line pairs per boot, then counted only
+NO_FIELD = 65535                         # a position lane's "no field" (never a real one)
+#: DioramaWatchSelfTest's own constants (WatchAt fixes the booted nonce, the settle and the cap -- and from s120 passes the
+#: stall cap = the cap, so the s119 rows read as before)
+WATCH_TEST_NONCE, WATCH_TEST_SETTLE, WATCH_TEST_CAP = 0x41, 500, 8000
+
+
+def diorama_watch_step(live: bool, nonce: int, booted_nonce: int, peer_alive_: bool, host_field: int,
+                       terminal_latched: bool, stale_ms: int, alive_ms: int, settle_ms: int, cap_ms: int,
+                       stall_cap_ms: int, leave_why: int) -> tuple[int, int]:
+    """NetSyncClient.DioramaWatchStep -> ``(verdict, why)``: THE WATCHER'S STEP for a booted wire diorama. Live: the same
+    nonce is NOTHING, another LEAVE_FINAL (new_nonce). Stale: a decided leave (``leave_why``) stands; GENUINELY OVER only
+    with the peer alive for ``settle_ms`` AND (the end latched terminal, or the host on a real field -- neither 0 nor
+    65535); past ``cap_ms`` of staleness LEAVE_FINAL (cap); [s120] then, the peer alive for the settle and saying nothing,
+    past ``stall_cap_ms`` LEAVE_FINAL (stall_cap) -- tested after the cap, so a stall cap at or above it changes nothing;
+    every other stale frame HOLDS (frozen at the last applied state, no Leave). ``why`` is WATCH_WHY_NONE unless leaving."""
+    if live:
+        return (WATCH_NOTHING, WATCH_WHY_NONE) if nonce == booted_nonce else (WATCH_LEAVE_FINAL, WATCH_WHY_NEW_NONCE)
+    if leave_why != WATCH_WHY_NONE:
+        return WATCH_LEAVE_FINAL, leave_why
+    settled = bool(peer_alive_) and alive_ms >= settle_ms
+    if settled:
+        if terminal_latched:
+            return WATCH_LEAVE_FINAL, WATCH_WHY_TERMINAL
+        if host_field > 0 and host_field != NO_FIELD:
+            return WATCH_LEAVE_FINAL, WATCH_WHY_HOST_FIELD
+    if stale_ms > cap_ms:
+        return WATCH_LEAVE_FINAL, WATCH_WHY_HOLD_CAP
+    if settled and stale_ms > stall_cap_ms:
+        return WATCH_LEAVE_FINAL, WATCH_WHY_STALL_CAP
+    return WATCH_HOLD, WATCH_WHY_NONE
+
+
+def s56_watch_step(live: bool, nonce: int, booted_nonce: int, transport_up: bool, stale_ms: int,
+                   cap_ms: int = DIORAMA_HOLD_CAP_S119_MS) -> int:
+    """The PRE-s119 booted branch (s56, removed by s119) -- the calibration's red: live = the same nonce NOTHING, a new one
+    LEAVE; stale with the hop UP = LEAVE at once ("stale + link UP -> the fight is over": behind the local bridge the hop
+    stays up through any cut, so sitting A's cut left within ~2 s); stale with the hop down HOLDS until ``cap_ms``."""
+    if live:
+        return WATCH_NOTHING if nonce == booted_nonce else WATCH_LEAVE_FINAL
+    if transport_up:
+        return WATCH_LEAVE_FINAL
+    return WATCH_LEAVE_FINAL if stale_ms > cap_ms else WATCH_HOLD
+
+
+def watch_state_name(state: int) -> str | None:
+    """NetSyncClient.WatchStateName -- `hold.state` (None = -1, no wire diorama stepped)."""
+    return WATCH_STATE_NAMES.get(int(state))
+
+
+def watch_why_name(why: int) -> str | None:
+    """NetSyncClient.WatchWhyName -- `hold.why` (None = no LEAVE_FINAL this boot)."""
+    return WATCH_WHY_NAMES.get(int(why))
+
+
+def hold_cap_ms(session_grace_ms: int | None) -> int:
+    """NetSyncClient.DioramaHoldCapMs -- THE ONE SEAM `hold.cap_ms` reads: s119's 8000, from s120 the session grace (pass
+    None for an s119 engine)."""
+    return DIORAMA_HOLD_CAP_S119_MS if session_grace_ms is None else int(session_grace_ms)
+
+
+# ---- s120: THE SESSION GRACE (NetSyncClient.SessionGraceStep / SessionRampArms / ParseSessionGrace -- guest only)
+SESSION_GRACE_DEFAULT_MS = 30000         # [Netsync] SessionGraceMs (owner decision: 30 s)
+SESSION_GRACE_MIN_MS = 5000              # under this a Wi-Fi re-association reads as the session ending
+SESSION_GRACE_MAX_MS = 40000             # under the bridge's 45 s redial hard cap (and the relay's 60 s rejoin grace)
+SESSION_NONE, SESSION_LIVE, SESSION_GRACE, SESSION_ENDED = 0, 1, 2, 3
+SESSION_STATE_NAMES = {SESSION_NONE: "none", SESSION_LIVE: "live", SESSION_GRACE: "grace", SESSION_ENDED: "ended"}
+RAMP_CAUSE_NONE, RAMP_CAUSE_GRACE, RAMP_CAUSE_CONFIG, RAMP_CAUSE_UNFOLLOW = 0, 1, 2, 3
+RAMP_CAUSE_NAMES = {RAMP_CAUSE_GRACE: "grace", RAMP_CAUSE_CONFIG: "config", RAMP_CAUSE_UNFOLLOW: "unfollow"}
+SESSION_LOG_MAX = 20                     # outage/resume line pairs per link, then counted only
+EXIT_RAMP_DEBOUNCE_S117_MS = 3000        # the link-loss ramp's debounce BEFORE s120 (ExitRampDebounceMs, removed)
+#: `netsync.session.overlay`'s vocabulary (NetSyncClient.OverlayName; null = none composed yet)
+OVERLAY_NAMES = ("off", "elsewhere", "no_code", "connecting", "waiting", "peer_elsewhere", "following", "peer_no_field",
+                 "reconnecting")
+
+
+def session_grace_step(peer_alive_: bool, seen: bool, out_ms: int, grace_ms: int) -> int:
+    """NetSyncClient.SessionGraceStep -- THE SESSION'S STEP: the peer alive (PEER-ALIVE) is LIVE (an outage inside the
+    grace RESUMES); nothing to lose (``seen`` false: no live peer on this link, no outage running, no mirror armed) is
+    NONE; a silent peer is GRACE up to and AT ``grace_ms`` of outage, then ENDED."""
+    if peer_alive_:
+        return SESSION_LIVE
+    if not seen:
+        return SESSION_NONE
+    return SESSION_ENDED if out_ms > grace_ms else SESSION_GRACE
+
+
+def session_ramp_arms(mirroring: bool, pending: bool, follow_host: bool, state: int) -> bool:
+    """NetSyncClient.SessionRampArms -- does the link-loss exit ramp arm now? Only for a mirroring guest whose ramp is not
+    already pending, and only once the session ENDED (FollowHost dropped mid-mirror arms at once): an outage inside the
+    grace arms nothing, so a peer back inside it leaves no ramp behind."""
+    return bool(mirroring) and not pending and (not follow_host or state == SESSION_ENDED)
+
+
+_INT32 = re.compile(r"[+-]?[0-9]+")
+
+
+def parse_session_grace(raw) -> tuple[int, str | None]:
+    """NetSyncClient.ParseSessionGrace -> ``(grace_ms, note)``: [Netsync] SessionGraceMs as the engine reads it. Quotes
+    accepted (trimmed inside too); empty or absent keeps the default quietly; malformed (not an Int32) keeps it with a
+    note; outside 5000-40000 -- a 0 too: the grace has no off switch -- clamps with a note. ``note`` = the line's text
+    after ``[NetSync] `` (None = nothing logged)."""
+    s = "" if raw is None else str(raw).strip()
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        s = s[1:-1].strip()
+    if not _INT32.fullmatch(s) or not -2 ** 31 <= int(s) < 2 ** 31:
+        note = None
+        if s:
+            note = (f"SessionGraceMs '{s}' malformed (want ms, {SESSION_GRACE_MIN_MS}-{SESSION_GRACE_MAX_MS}) -- keeping "
+                    f"{SESSION_GRACE_DEFAULT_MS}")
+        return SESSION_GRACE_DEFAULT_MS, note
+    n = int(s)
+    if n < SESSION_GRACE_MIN_MS or n > SESSION_GRACE_MAX_MS:
+        c = SESSION_GRACE_MIN_MS if n < SESSION_GRACE_MIN_MS else SESSION_GRACE_MAX_MS
+        why = ("a shorter grace ends the session on an ordinary Wi-Fi re-association" if n < SESSION_GRACE_MIN_MS
+               else "the bridge gives up on its upstream at 45 s, the relay at 60 s")
+        return c, (f"SessionGraceMs {n} is outside {SESSION_GRACE_MIN_MS}-{SESSION_GRACE_MAX_MS} -- clamped to {c} ms "
+                   f"({why})")
+    return n, None
+
+
+def session_state_name(state: int) -> str | None:
+    """NetSyncClient.SessionStateName -- `session.state` ("none" on a host / the selftest role; None = no instance)."""
+    return SESSION_STATE_NAMES.get(int(state))
+
+
+def ramp_cause_name(cause: int) -> str | None:
+    """NetSyncClient.RampCauseName -- `session.ramp_cause` (None = none pending)."""
+    return RAMP_CAUSE_NAMES.get(int(cause))
+
+
+def session_left_ms(state: int, out_ms: int, grace_ms: int) -> int:
+    """NetSyncClient.SessionGraceLeftMs -- the grace left in this outage (`session.left_ms`; -1 = not inside one: only
+    GRACE has a countdown), floored at 0."""
+    if state != SESSION_GRACE or out_ms < 0:
+        return -1
+    return max(0, int(grace_ms) - int(out_ms))
+
+
+def overlay_left_sec(left_ms: int) -> int:
+    """NetSyncClient.SessionGraceLeftSec -- the "reconnecting (N s left)" overlay's whole seconds, rounded UP (0 when none)."""
+    return 0 if left_ms <= 0 else (int(left_ms) + 999) // 1000
+
+
+# ---- s121: THE AUDIBLE MENU REFUSAL (NetSyncField.MenuKeyStep / MenuKeyRoute -- UIKeyTrigger's s38 gate, guest only)
+MENU_KEY_OPEN, MENU_KEY_STOCK_OFF, MENU_KEY_REFUSE_AUDIBLE, MENU_KEY_REFUSE_SILENT, MENU_KEY_DIALOG_PATH = 0, 1, 2, 3, 4
+#: `netsync.menu_refusal.now`'s vocabulary (NetSyncField.MenuKeyName; null = no UIManager)
+MENU_KEY_NAMES = {MENU_KEY_OPEN: "open", MENU_KEY_STOCK_OFF: "off", MENU_KEY_REFUSE_AUDIBLE: "audible",
+                  MENU_KEY_REFUSE_SILENT: "silent", MENU_KEY_DIALOG_PATH: "dialog"}
+MENU_REFUSAL_SFX = 102                   # FF9Sfx 102: the stock refusal buzz (the Alt+F2 / Alt+F5 / Alt+F9 gates' own)
+#: UIManager.GetSceneFromState's states WITH a scene (UIKeyTrigger's scene branch can run there). Folklore / Journal are
+#: null while their [Folklore] / [Journal] section is off; Initial, QuadMistBattle, Quit and PreEnding have none.
+UI_SCENE_STATES = frozenset(("FieldHUD", "WorldHUD", "BattleHUD", "Pause", "MainMenu", "Item", "Ability", "Equip",
+                             "Status", "Card", "Config", "Serialize", "Cloud", "Shop", "NameSetting", "PartySetting",
+                             "BattleResult", "Tutorial", "GameOver", "Title", "QuadMist", "Chocograph", "Ending",
+                             "EndGame", "Folklore", "Journal"))
+
+
+def menu_key_step(menu_control_enable: bool, mirroring: bool, state: str) -> int:
+    """NetSyncField.MenuKeyStep -- THE MENU KEY'S VERDICT at UIKeyTrigger's s38 gate: a scene's own MENUOFF
+    (IsMenuControlEnable false) is stock's silent refusal even on a mirroring guest; no mirror opens the main menu; a
+    mirroring guest is refused AUDIBLY on FieldHUD / WorldHUD and silently anywhere else (the diorama's BattleHUD above
+    all). ``state`` = the UIManager.UIState NAME."""
+    if not menu_control_enable:
+        return MENU_KEY_STOCK_OFF
+    if not mirroring:
+        return MENU_KEY_OPEN
+    return MENU_KEY_REFUSE_AUDIBLE if state in ("FieldHUD", "WorldHUD") else MENU_KEY_REFUSE_SILENT
+
+
+def menu_key_route(has_scene: bool, dialog_active: bool, paused: bool, verdict: int) -> int:
+    """NetSyncField.MenuKeyRoute (review S121-R1) -- where UIKeyTrigger sends the press: its scene branch (the s38 gate,
+    RefuseMainMenu) only with a scene for the state and no dialogue window -- or the pause screen up; otherwise the
+    DIALOGUE path, which s121 never sees (on a mirroring guest a silent drop counted nowhere)."""
+    return MENU_KEY_DIALOG_PATH if not has_scene or (dialog_active and not paused) else verdict
+
+
+def menu_key_name(verdict: int) -> str | None:
+    """NetSyncField.MenuKeyName -- `menu_refusal.now`."""
+    return MENU_KEY_NAMES.get(int(verdict))
+
+
+def menu_key_now(menu_control_enable: bool, mirroring: bool, state: str, dialog_active: bool, paused: bool,
+                 *, has_scene: bool | None = None) -> str | None:
+    """NetSyncField.HarnessMenuKeyNow -- what a Menu press would do RIGHT NOW (a bench gates its press on "audible", never
+    on ui_state FieldHUD: under a dialogue window it reads "dialog"). ``has_scene`` defaults to the state's
+    :data:`UI_SCENE_STATES` membership; ``paused`` is UIManager.IsPause."""
+    scene = state in UI_SCENE_STATES if has_scene is None else bool(has_scene)
+    return menu_key_name(menu_key_route(scene, dialog_active, paused, menu_key_step(menu_control_enable, mirroring, state)))
+
+
+def menu_refusal_place(state: str, fld_map_no: int, wld_map_no: int) -> int:
+    """RefuseMainMenu's place (review S121-R2): wldMapNo on WorldHUD -- no world-map code writes fldMapNo, which keeps the
+    field the party LEFT -- else fldMapNo (`menu_refusal.last_field`)."""
+    return int(wld_map_no) if state == "WorldHUD" else int(fld_map_no)
+
+
+def menu_refusal_latch(state: str) -> str:
+    """The DeclineOnce gate-class an audible refusal latches on: "main menu" on a field, "main menu (world map)" on
+    WorldHUD (DeclineOnceAt, its own class)."""
+    return "main menu (world map)" if state == "WorldHUD" else "main menu"
+
+
+def menu_refusal_line(state: str, place: int) -> str:
+    """The audible refusal's one line (DeclineOnce / DeclineOnceAt: once per process per (class, place), never cleared at
+    session end): "...on field N", or "...on world map W" on WorldHUD."""
+    where = f"world map {int(place)}" if state == "WorldHUD" else f"field {int(place)}"
+    return f"[NetSync] main menu suppressed (following guest) on {where}"
+
+
+# ---- the round's log needles: literal heads of stack lines a bench greps (test_harness_netsync.py pins each one)
+LOG_HANDBACK_CAPTURE = "[NetSync] hand-back: the host's local window holds guest slot "     # s110 (s118 names a report)
+LOG_HANDBACK_HANDED = " handed BACK to the guest -- "                                        # s110, after "guest slot N"
+LOG_HANDBACK_REFUSED = "[NetSync] hand-back: the guest's control lane is live but "          # s118, once per own battle
+LOG_DIORAMA_HOLD_CUT = "[NetSync] diorama: peer silent mid-battle -- holding the scene frozen"           # s119
+LOG_DIORAMA_HOLD_STALL = "[NetSync] diorama: the host's battle lane stalled mid-battle with the peer alive on field "
+LOG_DIORAMA_RESUME = "[NetSync] diorama: the host's battle lane is back on the same fight (nonce "
+LOG_DIORAMA_GAVE_UP = "[NetSync] diorama: the host's battle lane is still silent after "    # the cap / the stall cap
+LOG_SESSION_OUTAGE = "[NetSync] session: the host went silent ("                             # s120
+LOG_SESSION_BACK = "[NetSync] session: the host is back after "
+LOG_SESSION_GAVE_UP = "[NetSync] session: the host has been silent for "
+LOG_MENU_SUPPRESSED = "[NetSync] main menu suppressed (following guest) on "                 # s121
+#: the deployed s117's RED markers (sitting A's guest log, laptop-Memoria.log:155-166): a cut read as "the fight is over"
+LOG_RED_LEAVE_REQUESTED = "[NetSync] diorama LEAVE requested -> FieldMap"
+LOG_RED_WATCHER_SETTLED = "[NetSync] diorama watcher-leave settled (nonce "
+LOG_RED_SESSION_ENDED = "[NetSync] session ended -> reloading own autosave (Continue)"
+LOG_S56_BLIP_HOLD = "[NetSync] diorama: mid-battle link blip -- holding the scene frozen"    # s56's hold line (s119 removed it)
+
+#: NetSyncBattle's integer constants the s118 half reads by C# name (the rule itself reads s114's Boot* / Ctl*).
+CS_OWN_CONSTANTS = {"HandbackLogBudget": HANDBACK_LOG_BUDGET}
+#: NetSyncClient's s119-s120 integer constants, by C# name (the test reads them off the stack's NetSyncClient.cs).
+CS_CLIENT_CONSTANTS = {
+    "WatchNothing": WATCH_NOTHING, "WatchHold": WATCH_HOLD, "WatchLeaveFinal": WATCH_LEAVE_FINAL,
+    "WatchWhyNone": WATCH_WHY_NONE, "WatchWhyNewNonce": WATCH_WHY_NEW_NONCE, "WatchWhyTerminal": WATCH_WHY_TERMINAL,
+    "WatchWhyHostField": WATCH_WHY_HOST_FIELD, "WatchWhyHoldCap": WATCH_WHY_HOLD_CAP,
+    "WatchWhyStallCap": WATCH_WHY_STALL_CAP, "DioramaSettleMs": DIORAMA_SETTLE_MS,
+    "DioramaStallCapMs": DIORAMA_STALL_CAP_MS, "DioramaHoldLogMax": DIORAMA_HOLD_LOG_MAX,
+    "WatchTestNonce": WATCH_TEST_NONCE, "WatchTestSettle": WATCH_TEST_SETTLE, "WatchTestCap": WATCH_TEST_CAP,
+    "SessionGraceDefaultMs": SESSION_GRACE_DEFAULT_MS, "SessionGraceMinMs": SESSION_GRACE_MIN_MS,
+    "SessionGraceMaxMs": SESSION_GRACE_MAX_MS, "SessionNone": SESSION_NONE, "SessionLive": SESSION_LIVE,
+    "SessionGrace": SESSION_GRACE, "SessionEnded": SESSION_ENDED, "RampCauseNone": RAMP_CAUSE_NONE,
+    "RampCauseGrace": RAMP_CAUSE_GRACE, "RampCauseConfig": RAMP_CAUSE_CONFIG, "RampCauseUnfollow": RAMP_CAUSE_UNFOLLOW,
+    "SessionLogMax": SESSION_LOG_MAX,
+}
+#: NetSyncField's s121 integer constants, by C# name.
+CS_FIELD_CONSTANTS = {"MenuKeyOpen": MENU_KEY_OPEN, "MenuKeyStockOff": MENU_KEY_STOCK_OFF,
+                      "MenuKeyRefuseAudible": MENU_KEY_REFUSE_AUDIBLE, "MenuKeyRefuseSilent": MENU_KEY_REFUSE_SILENT,
+                      "MenuKeyDialogPath": MENU_KEY_DIALOG_PATH}

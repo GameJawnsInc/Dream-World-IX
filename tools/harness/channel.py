@@ -324,6 +324,18 @@ def _dio_prop(path: str, kind, doc: str) -> property:
     return property(get)
 
 
+def _ns_prop(path: str, kind, doc: str) -> property:
+    """[ff9mapkit netsync R3 s120/s121] One key of a TOP-LEVEL ``netsync`` block the battle round added (s120's
+    ``session``, s121's ``menu_refusal``) as a read-only :class:`State` property, carrying its dotted path under
+    ``netsync`` for the test's table (:attr:`State.NETSYNC_TOP_ACCESSORS`)."""
+    def get(self):
+        return self._ns_path(path, kind)
+    get.__doc__ = doc
+    get.__name__ = "ns_" + path.replace(".", "_")
+    get.ns_path = path
+    return property(get)
+
+
 class State:
     """One sample of the game's state, as published by the agent.
 
@@ -1525,6 +1537,58 @@ class State:
         """s117: the guest's defeat presentation (``end.follow_msg``; ``endbench kill`` / ``phase-defeat``)."""
         return self._nb_cap("end.follow_msg", str)
 
+    # [ff9mapkit netsync R3 s118-s121] THE SITTING-A FIX ROUND (studies/battle-coop/R3-SITTING-A-FIXES.md): no new verb or op
+    # -- each capability is its keys' PRESENCE, absent = None. s118 ``coop_handback_report``
+    # (``host.handback.refused_report``), s119 ``coop_diorama_hold`` (``netsync.diorama.hold``), s120 ``coop_session_grace``
+    # (``netsync.session.grace_ms``), s121 ``coop_menu_refusal`` (``netsync.menu_refusal.count``). s119-s121 are GUEST-side
+    # and need a real transport (the selftest role returns before the watcher, the outage clock and the story mirror): on
+    # the selftest role their blocks sit at rest -- a T2 wire replay is their bench.
+    @property
+    def coop_handback_report(self) -> bool | None:
+        """s118: the hand-back needs a live guest -- a guest slot is guest-owned again only while its s114 report names THIS
+        battle LIVE/BOOTING (``host.handback.refused_report``; no new op: ``bench boot declined|busy|stale``, and ``none``
+        after the latch, keep the loopback guest's slots with the host). False = an engine that hands a slot back on any
+        valid control frame."""
+        return self._nb_cap("host.handback.refused_report", int)
+
+    @property
+    def coop_diorama_hold(self) -> bool | None:
+        """s119: the diorama hold keyed on the PEER (``netsync.diorama.hold``). False = an engine whose guest leaves a stale
+        battle lane at once while its hop is connected (the s56 predicate: behind the bridge any cut reads "over")."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._dio_path("hold", dict) is not None
+
+    @property
+    def coop_session_grace(self) -> bool | None:
+        """s120: the session grace (``netsync.session.grace_ms``; ``hold.cap_ms`` reads it). False = an engine whose guest
+        ends a mirrored session 3 s after its peer goes silent and caps a held diorama at 8 s."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._ns_path("session.grace_ms", int) is not None
+
+    @property
+    def coop_menu_refusal(self) -> bool | None:
+        """s121: the audible menu refusal (``netsync.menu_refusal.count``). False = an engine whose mirroring guest drops
+        the Menu key silently."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._ns_path("menu_refusal.count", int) is not None
+
+    # ---- host: s118 the hand-back needs a live guest (inside s110's fixed ``handback`` block)
+    coop_handback_refused_report = _nb_prop("host.handback.refused_report", int,
+                                            "s118: refusal EPISODES -- a live control lane whose report (declined, busy, "
+                                            "none after a diorama report on this battle, another battle) kept the slots "
+                                            "here when the host's command phase was open with guest slots set -- "
+                                            "monotonic, read DELTAS.")
+    coop_handback_refused_now = _nb_prop("host.handback.refused_now", bool, "s118: the host keeps the guest's slots RIGHT "
+                                                                            "NOW: the last valid frame's report refused "
+                                                                            "and the lane is fresh (MenuStaleMs).")
+    coop_handback_diorama_seen = _nb_prop("host.handback.diorama_seen", bool, "s118: the per-own-battle latch -- the guest "
+                                                                              "reported a diorama state other than NONE "
+                                                                              "about THIS battle (false = its NONE still "
+                                                                              "owns: the panel-only guest).")
+
     # ---- host: s111 the intro mirror's host half
     coop_host_cfg = _nb_prop("host.cfg", dict, "s111: the whole ``cfg`` block, copied (LIVE reads).")
     coop_cfg_atb = _nb_prop("host.cfg.atb", int, "s111: cfg.atb -- 0 Active, 1 Wait (a ``bench cfg atb`` override shows "
@@ -1651,6 +1715,31 @@ class State:
                                                            "hand.")
     diorama_live_ms = _dio_prop("live.ms", int, "s114: Boot -> that frame; -1 = not yet.")
     diorama_live_nonce = _dio_prop("live.nonce", int, "s114: the host battle nonce of the sample in hand then; -1 = none.")
+    # ---- [ff9mapkit netsync R3 s119] the diorama watcher's hold, keyed on the PEER (guest side; s120: ``cap_ms`` is the
+    # session grace, ``why`` gains "stall_cap"). The watcher needs a real transport: on the selftest role ``state`` reads ""
+    diorama_hold = _dio_prop("hold", dict, "s119: the whole ``hold`` block, copied.")
+    diorama_hold_state = _dio_prop("hold.state", str, "s119: the last DioramaWatchStep verdict for the booted wire diorama "
+                                                      "-- 'nothing' | 'hold' | 'leave_final' ('' = none booted).")
+    diorama_hold_since_ms = _dio_prop("hold.since_ms", int, "s119: the stale stretch's age; -1 = the lane is not stale (it "
+                                                            "runs on through a pending leave until the teardown).")
+    diorama_hold_cap_ms = _dio_prop("hold.cap_ms", int, "s119: the hold cap in force (8000; from s120 the session grace, "
+                                                        "30000 by default) -- a LIVE read.")
+    diorama_hold_settle_ms = _dio_prop("hold.settle_ms", int, "s119: the stale age a hold is COUNTED at, and the unbroken "
+                                                              "peer-alive run an over-verdict needs (500) -- a LIVE read.")
+    diorama_hold_holds = _dio_prop("hold.holds", int, "s119: holds counted -- monotonic, read DELTAS.")
+    diorama_hold_resumes = _dio_prop("hold.resumes", int, "s119: holds that ended live on the SAME nonce -- monotonic.")
+    diorama_hold_gaveup = _dio_prop("hold.gaveup", int, "s119: holds that hit the cap (s120: or the stall cap) -- "
+                                                        "monotonic.")
+    diorama_hold_last_ms = _dio_prop("hold.last_ms", int, "s119: the last counted hold's length when it ended (a resume, a "
+                                                          "leave's teardown); -1 = none.")
+    diorama_hold_peer_alive = _dio_prop("hold.peer_alive", bool, "s119: the last step's PEER-ALIVE read (IsConnected && "
+                                                                 "GetRemote().Valid).")
+    diorama_hold_host_field = _dio_prop("hold.host_field", int, "s119: the host's position-lane field the last step read "
+                                                                "(0 throughout its battle; -1 = the peer is not alive).")
+    diorama_hold_terminal = _dio_prop("hold.terminal", bool, "s119: this boot's end block read terminal while the lane was "
+                                                             "live (the latch).")
+    diorama_hold_why = _dio_prop("hold.why", str, "s119: the last LEAVE_FINAL's reason -- 'new_nonce' | 'terminal' | "
+                                                  "'host_field' | 'cap' | (s120) 'stall_cap' ('' = none this boot).")
 
     # [ff9mapkit netsync R3 s111] s111/s112/s114 publish INSIDE ``netsync.diorama`` (the F3.3 block): ``intro`` (with s112's
     # ``swirl_clamp``) and ``live``. The same reading as ``_nb_key``, one block over.
@@ -1671,6 +1760,77 @@ class State:
         if kind is dict:
             return _json_copy(node) if isinstance(node, dict) else None
         raise TypeError(f"_dio_path: no reading for {kind!r}")
+
+    # [ff9mapkit netsync R3 s120/s121] two TOP-LEVEL `netsync` blocks (between ``diorama`` and ``battle``): ``session`` (s120)
+    # and ``menu_refusal`` (s121). The same reading again, from the ``netsync`` block itself.
+    def _ns_path(self, path: str, kind):
+        """``netsync.<path>`` read as ``kind`` (bool / int / str null -> "" / dict copied); None when any step is absent or
+        the type is wrong."""
+        node = self.netsync
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        if kind is bool:
+            return node if isinstance(node, bool) else None
+        if kind is int:
+            return node if isinstance(node, int) and not isinstance(node, bool) else None
+        if kind is str:
+            return "" if node is None else node if isinstance(node, str) else None
+        if kind is dict:
+            return _json_copy(node) if isinstance(node, dict) else None
+        raise TypeError(f"_ns_path: no reading for {kind!r}")
+
+    # ---- [ff9mapkit netsync R3 s120] THE SESSION GRACE (guest side; NetSyncClient.SessionTick, keyed on PEER-ALIVE). "none"
+    # on a host or the selftest role (they hold no session); the counters are per PROCESS -- read DELTAS
+    netsync_session = _ns_prop("session", dict, "s120: the whole ``session`` block, copied.")
+    session_grace_ms = _ns_prop("session.grace_ms", int, "s120: [Netsync] SessionGraceMs in force (the exit ramp's wait AND "
+                                                         "the diorama hold's cap -- one value) -- a LIVE read.")
+    session_state = _ns_prop("session.state", str, "s120: 'none' | 'live' | 'grace' | 'ended' ('' = no NetSyncClient "
+                                                   "instance).")
+    session_left_ms = _ns_prop("session.left_ms", int, "s120: the grace left in this outage; -1 = not inside one.")
+    session_out_ms = _ns_prop("session.out_ms", int, "s120: the outage's age; -1 = none (it runs on past a give-up until "
+                                                     "the peer returns).")
+    session_outages = _ns_prop("session.outages", int, "s120: outages started -- monotonic.")
+    session_resumes = _ns_prop("session.resumes", int, "s120: peers back INSIDE the grace -- monotonic.")
+    session_gaveup = _ns_prop("session.gaveup", int, "s120: graces run out -- monotonic.")
+    session_last_ms = _ns_prop("session.last_ms", int, "s120: the last outage's length when the peer returned; -1 = none.")
+    session_peer_alive = _ns_prop("session.peer_alive", bool, "s120: the last PEER-ALIVE read (IsConnected && "
+                                                              "GetRemote().Valid).")
+    session_seen_live = _ns_prop("session.seen_live", bool, "s120: this link carried a live peer (an outage needs a "
+                                                            "session to lose).")
+    session_mirroring = _ns_prop("session.mirroring", bool, "s120: IsMirroringStory -- the story mirror armed, the save "
+                                                            "gates hold.")
+    session_ramp_pending = _ns_prop("session.ramp_pending", bool, "s120: the exit ramp is pending.")
+    session_ramp_cause = _ns_prop("session.ramp_cause", str, "s120: 'grace' | 'config' | 'unfollow' ('' = none pending).")
+    session_overlay = _ns_prop("session.overlay", str, "s120: the status overlay -- 'off' | 'elsewhere' | 'no_code' | "
+                                                       "'connecting' | 'waiting' | 'peer_elsewhere' | 'following' | "
+                                                       "'peer_no_field' | 'reconnecting' ('' = none composed yet).")
+    session_overlay_detail = _ns_prop("session.overlay_detail", int, "s120: its detail -- the seconds left for "
+                                                                     "'reconnecting', 1 = a guest's hop up with no live "
+                                                                     "peer for 'connecting', a field id, 0 = no detail; "
+                                                                     "-1 = none composed yet.")
+    session_ghost = _ns_prop("session.ghost", bool, "s120: the peer's ghost is spawned here.")
+    session_ghost_held = _ns_prop("session.ghost_held", bool, "s120: the s56 blip-grace holds it frozen this frame.")
+    # ---- [ff9mapkit netsync R3 s121] THE AUDIBLE MENU REFUSAL (guest side; NetSyncField.RefuseMainMenu): gate a bench's
+    # press on ``menu_refusal_now`` == "audible", never on ui_state FieldHUD (under a dialogue window it reads "dialog")
+    netsync_menu_refusal = _ns_prop("menu_refusal", dict, "s121: the whole ``menu_refusal`` block, copied.")
+    menu_refusal_now = _ns_prop("menu_refusal.now", str, "s121: what a Menu press would do right now -- 'open' | 'off' | "
+                                                         "'audible' | 'silent' | 'dialog' ('' = no UIManager) -- a LIVE "
+                                                         "read.")
+    menu_refusal_count = _ns_prop("menu_refusal.count", int, "s121: audible refusals (SFX 102 each) -- monotonic.")
+    menu_refusal_lines = _ns_prop("menu_refusal.lines", int, "s121: of those, the ones that wrote the line -- a per-PROCESS "
+                                                             "latch per (class, place), never cleared at session end "
+                                                             "(count is the per-press signal) -- monotonic.")
+    menu_refusal_silent = _ns_prop("menu_refusal.silent", int, "s121: s38's silent drops (a mirroring guest off FieldHUD / "
+                                                               "WorldHUD) -- monotonic.")
+    menu_refusal_last_state = _ns_prop("menu_refusal.last_state", str, "s121: the UIState name of the last refused press, "
+                                                                       "either kind ('' = none yet).")
+    menu_refusal_last_field = _ns_prop("menu_refusal.last_field", int, "s121: the place it named -- fldMapNo, or wldMapNo "
+                                                                       "on WorldHUD; -1 = none yet.")
+    menu_refusal_age_ms = _ns_prop("menu_refusal.age_ms", int, "s121: ms since that press; -1 = none yet.")
+    menu_refusal_muted = _ns_prop("menu_refusal.muted", bool, "s121: FF9Sfx.muteSfx at the last audible refusal (the buzz "
+                                                              "was asked for, the engine muted it).")
 
     def unit_mot(self, slot: int) -> int | None:
         """[ff9mapkit netsync R3 s115] ``battle.units[].mot`` for btl ``slot``: the current clip as the unit's own motion
@@ -1991,9 +2151,14 @@ class State:
 State.NETSYNC_BATTLE_ACCESSORS = {p.fget.nb_path: name for name, p in vars(State).items()
                                   if isinstance(p, property) and hasattr(p.fget, "nb_path")}
 #: [ff9mapkit netsync R3 s111] Every ``netsync.diorama`` key path below the F3.3 block (s111 ``intro``, s112
-#: ``intro.swirl_clamp``, s114 ``live``) -> its State accessor -- held against the agent's keys the same way.
+#: ``intro.swirl_clamp``, s114 ``live``; [ff9mapkit netsync R3 s119] ``hold``) -> its State accessor -- held against the
+#: agent's keys the same way.
 State.NETSYNC_DIORAMA_ACCESSORS = {p.fget.dio_path: name for name, p in vars(State).items()
                                    if isinstance(p, property) and hasattr(p.fget, "dio_path")}
+#: [ff9mapkit netsync R3 s120/s121] Every key path of the top-level ``netsync.session`` (s120) and ``netsync.menu_refusal``
+#: (s121) blocks (dotted under ``netsync``) -> its State accessor -- held against the agent's keys the same way.
+State.NETSYNC_TOP_ACCESSORS = {p.fget.ns_path: name for name, p in vars(State).items()
+                               if isinstance(p, property) and hasattr(p.fget, "ns_path")}
 
 
 def _f(v) -> str:

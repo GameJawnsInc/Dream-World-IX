@@ -43,6 +43,17 @@ The default relay endpoint is baked in lightly obfuscated -- that only keeps
 the URL out of dumb GitHub string-scrapers, it is NOT a secret (the real
 access gate is the random per-session code in the URL path). Override it
 freely with --relay.
+
+**Timestamps + the hang sentinel (battle co-op R3, T1).** Every log line carries
+local wall-clock ms, and the CLI runs tee them to a per-run file under
+``%LOCALAPPDATA%\\ff9mapkit\\bridge-logs\\`` (``--log FILE`` overrides). Each hop
+keeps its own last-frame clock; when the game->bridge hop of an open game
+connection carries no frame for 10 s (``--hang-after``) the FF9 process has
+stopped sending -- the engine's WriteLoop runs >= 30 frames/s on its own thread
+even in menus and loads -- so the bridge logs one SILENT line, and a 'resumed'
+line if frames come back. With ``--hang-dump`` (or ``FF9_HANG_DUMP=1``; default
+OFF -- a dump is 1-3 GB) it also writes ONE full minidump of FF9.exe per run plus
+copies of its logs, on a worker thread (see ``hangdump.py``).
 """
 
 import argparse
@@ -55,6 +66,11 @@ import ssl
 import sys
 import threading
 import time
+
+try:
+    from . import hangdump
+except ImportError:                 # run as a bare script (python netsync_bridge.py): no package context
+    import hangdump                 # noqa: E402 -- the sibling module, found via the script's own dir
 
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -222,6 +238,25 @@ class _Activity:
         return time.monotonic() - self._last
 
 
+class _FrameClock:
+    """Per-DIRECTION last-frame clock (monotonic), stamped when a WHOLE frame has been read -- unlike the
+    shared _Activity clock, which any recv on either hop touches. The game->bridge one is what the hang
+    sentinel watches; both feed the session-close line. Single writer (the pump that owns it); a float
+    store is atomic under the GIL, so readers on other threads need no lock."""
+    __slots__ = ("last", "frames")
+
+    def __init__(self):
+        self.last = time.monotonic()
+        self.frames = 0
+
+    def stamp(self):
+        self.last = time.monotonic()
+        self.frames += 1
+
+    def age(self):
+        return time.monotonic() - self.last
+
+
 def _patient_sendall(dst, data, patience):
     """sendall that tolerates the poll-sized recv timeout the session's OTHER pump
     thread keeps on dst (settimeout is per-socket, not per-direction): short send
@@ -267,22 +302,44 @@ class _FramedConn:
     (touched on every recv) and stop event (set => reads raise _Closed so the pump unwinds promptly).
 
     Frames are returned verbatim (header + payload, including any 4-byte mask key + masked payload):
-    the reader inspects only the length header to find the boundary, it never unmasks or rewrites."""
+    the reader inspects only the length header to find the boundary, it never unmasks or rewrites.
 
-    __slots__ = ("sock", "buf", "activity", "stop")
+    Optional per-direction instruments (T1): `clock` (a _FrameClock) is stamped per WHOLE frame, and
+    `watch` (a hangdump.HangSentinel) hears on_frame() per frame and on_quiet() per poll timeout -- its
+    shorter `poll` then bounds the recv wait so the SILENT line lands within ~1 s of the threshold. A
+    watch error is swallowed (logged once): the instrument must never break forwarding."""
 
-    def __init__(self, sock, activity, stop):
+    __slots__ = ("sock", "buf", "activity", "stop", "clock", "watch", "_watch_err")
+
+    def __init__(self, sock, activity, stop, clock=None, watch=None):
         self.sock = sock
         self.buf = bytearray()
         self.activity = activity
         self.stop = stop
+        self.clock = clock
+        self.watch = watch
+        self._watch_err = False
 
     def replace(self, sock):
         self.sock = sock
         self.buf = bytearray()   # leftover belonged to the dead upstream connection -- discard
 
     def _poll(self):
-        return min(5.0, IDLE_TIMEOUT)
+        poll = min(5.0, IDLE_TIMEOUT)
+        if self.watch is not None:
+            poll = min(poll, self.watch.poll)
+        return poll
+
+    def _tell_watch(self, quiet):
+        try:
+            if quiet:
+                self.watch.on_quiet()
+            else:
+                self.watch.on_frame()
+        except Exception as err:            # noqa: BLE001 -- never let the instrument kill the pump
+            if not self._watch_err:
+                self._watch_err = True
+                log("hang sentinel error (ignored from now on): %r" % (err,))
 
     def _pull(self):
         """One recv with a poll-sized timeout. True if bytes arrived (and were buffered), False on
@@ -292,6 +349,8 @@ class _FramedConn:
         try:
             chunk = self.sock.recv(4096)
         except socket.timeout:
+            if self.watch is not None:
+                self._tell_watch(True)
             return False
         except OSError:
             raise _Closed(len(self.buf) > 0)
@@ -336,6 +395,10 @@ class _FramedConn:
         self._ensure(total)
         frame = bytes(self.buf[:total])
         del self.buf[:total]
+        if self.clock is not None:
+            self.clock.stamp()
+        if self.watch is not None:
+            self._tell_watch(False)
         return frame
 
 
@@ -439,14 +502,26 @@ class _Session:
     """Decoupled two-hop pump. The game<->bridge loopback hop stays alive across a bridge<->relay
     wobble: on an upstream failure the upstream->game reader redials while the game->upstream writer
     drops frames (harmless -- the wire is latest-state at ~30Hz). Only a game-side close, an upstream
-    hard cap, or a two-way idle timeout ends the whole session."""
+    hard cap, or a two-way idle timeout ends the whole session.
 
-    def __init__(self, game, upstream_sock, relay, path, insecure):
+    Each direction keeps its own last-frame clock (T1); `hang` (a hangdump.HangDumper, one per bridge
+    run) puts a HangSentinel on the game->bridge clock -- the game's WriteLoop never goes quiet on its
+    own, so a silent open game hop means the FF9 process stopped."""
+
+    def __init__(self, game, upstream_sock, relay, path, insecure, hang=None, target=None):
         self.game = game
         self.path = path
         self.activity = _Activity()
         self.stop = threading.Event()
         self.up = _Upstream(upstream_sock, relay, path, insecure, self.stop)
+        self.game_clock = _FrameClock()       # game->bridge whole frames
+        self.relay_clock = _FrameClock()      # relay->bridge whole frames
+        self.sentinel = None
+        if hang is not None:
+            try:
+                self.sentinel = hang.sentinel(self.game_clock, target)
+            except Exception as err:          # noqa: BLE001 -- no sentinel beats no session
+                log("hang sentinel unavailable for this session: %s" % err)
 
     def current_upstream(self):
         return self.up.snapshot()[0]
@@ -455,7 +530,9 @@ class _Session:
         newly = not self.stop.is_set()
         self.stop.set()
         if newly:
-            log("session %s closing: %s" % (self.path, why))
+            log("session %s closing: %s [last frame: game %.1fs ago (%d), relay %.1fs ago (%d)]"
+                % (self.path, why, self.game_clock.age(), self.game_clock.frames,
+                   self.relay_clock.age(), self.relay_clock.frames))
         # Unblock both readers' recv()s by shutting their sockets down.
         for s in (self.game, self.up.snapshot()[0]):
             if s is not None:
@@ -465,7 +542,7 @@ class _Session:
                     pass
 
     def _game_to_upstream(self):
-        conn = _FramedConn(self.game, self.activity, self.stop)
+        conn = _FramedConn(self.game, self.activity, self.stop, clock=self.game_clock, watch=self.sentinel)
         while not self.stop.is_set():
             try:
                 frame = conn.read_frame()
@@ -493,7 +570,7 @@ class _Session:
 
     def _upstream_to_game(self):
         sock, gen, _ = self.up.snapshot()
-        conn = _FramedConn(sock, self.activity, self.stop)
+        conn = _FramedConn(sock, self.activity, self.stop, clock=self.relay_clock)
         while not self.stop.is_set():
             try:
                 frame = conn.read_frame()
@@ -506,8 +583,8 @@ class _Session:
                 if isinstance(err, _ProtocolError):
                     log("upstream sent a malformed WS frame (relay->game): %s; redialing" % err)
                 else:
-                    log("upstream EOF %s (relay->game); redialing"
-                        % ("mid-frame" if err.mid_frame else "at boundary"))
+                    log("upstream EOF %s (relay->game, last relay frame %d ms ago); redialing"
+                        % ("mid-frame" if err.mid_frame else "at boundary", int(self.relay_clock.age() * 1000)))
                 sock, gen = self.up.redial(gen)
                 if sock is None:
                     if not self.stop.is_set():
@@ -540,7 +617,7 @@ def _refuse(client):
         pass
 
 
-def handle_client(client, addr, relay, insecure):
+def handle_client(client, addr, relay, insecure, hang=None):
     upstream = None
     sess = None
     try:
@@ -581,7 +658,15 @@ def handle_client(client, addr, relay, insecure):
         client.settimeout(None)
         log("relay connected, pumping")
 
-        sess = _Session(client, upstream, relay, path, insecure)
+        # The game's identity for a hang dump: its ephemeral port -> owning PID (resolved on a worker
+        # thread by the dumper, only when dumps are enabled -- never on this forwarding path).
+        target = None
+        if hang is not None:
+            try:
+                target = hang.arm(addr[1], client.getsockname()[1])
+            except Exception as err:          # noqa: BLE001 -- the instrument never costs a session
+                log("hang sentinel: could not arm for %s: %s" % (addr[0], err))
+        sess = _Session(client, upstream, relay, path, insecure, hang=hang, target=target)
         sess.run()
         log("session %s closed" % path)
     except Exception as err:
@@ -601,12 +686,94 @@ def handle_client(client, addr, relay, insecure):
                     pass
 
 
+# The per-run session log (T1): every log line is teed here once open_session_log() has run. Off by
+# default at import -- a library/test importer gets no file; the CLI entry points open it.
+_TEE_LOCK = threading.Lock()
+_TEE = None
+_TEE_PATH = None
+
+
 def log(msg):
-    print("[bridge] %s" % msg, flush=True)
+    """One bridge log line, stamped with local wall-clock ms ('[bridge] HH:MM:SS.mmm msg'), teed to the
+    session log when one is open. Never raises (it runs inside the pumps). A host may REBIND this name
+    (the Workspace routes it into its console), so every caller resolves it at call time."""
+    line = "[bridge] %s %s" % (hangdump.wallclock(), msg)
+    _tee(line)
+    try:
+        print(line, flush=True)
+    except (OSError, ValueError):       # a closed/broken console, or a codec that cannot print msg
+        pass
 
 
-def run_server(listen_host, listen_port, relay, insecure):
-    """Bind + return the listening socket and the accept-loop thread (for tests)."""
+def _tee(line):
+    global _TEE
+    with _TEE_LOCK:
+        f = _TEE
+        if f is None:
+            return
+        try:
+            f.write(line + "\n")
+        except (OSError, ValueError):   # disk full / file gone: stop teeing rather than fail the pump
+            _TEE = None
+            try:
+                f.close()
+            except (OSError, ValueError):
+                pass
+
+
+def _late_log(msg):
+    log(msg)        # resolves the module-global at call time, so a host's `nb.log = ...` rebind applies
+
+
+def open_session_log(path=None):
+    """Start teeing every log line to a file: `path`, or by default a fresh
+    %LOCALAPPDATA%\\ff9mapkit\\bridge-logs\\bridge-<YYYYmmdd-HHMMSS>.log (one per bridge run). Returns
+    the path, or None when it could not be opened (logged; the console keeps working)."""
+    global _TEE, _TEE_PATH
+    try:
+        if path:
+            path = os.path.abspath(path)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        else:
+            d = hangdump.default_log_dir()
+            os.makedirs(d, exist_ok=True)
+            path = hangdump.unique_path(d, "bridge-" + hangdump.file_stamp(), ".log")
+        f = open(path, "a", encoding="utf-8", errors="replace", buffering=1)   # line-buffered
+    except OSError as err:
+        log("session log disabled: could not open %s: %s" % (path or "the default bridge-logs dir", err))
+        return None
+    with _TEE_LOCK:
+        old, _TEE, _TEE_PATH = _TEE, f, path
+    if old is not None:
+        try:
+            old.close()
+        except (OSError, ValueError):
+            pass
+    return path
+
+
+def close_session_log():
+    global _TEE, _TEE_PATH
+    with _TEE_LOCK:
+        f, _TEE, _TEE_PATH = _TEE, None, None
+    if f is not None:
+        try:
+            f.close()
+        except (OSError, ValueError):
+            pass
+
+
+def session_log_path():
+    return _TEE_PATH
+
+
+def run_server(listen_host, listen_port, relay, insecure, hang=None):
+    """Bind + return the listening socket and the accept-loop thread (for tests).
+
+    `hang` is this run's hangdump.HangDumper; None builds the default one (dumps OFF unless the env
+    FF9_HANG_DUMP=1 arms them) -- so every caller, the Workspace included, gets the SILENT/resumed lines."""
+    if hang is None:
+        hang = hangdump.HangDumper.from_options(log=_late_log)
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((listen_host, listen_port))
@@ -637,7 +804,7 @@ def run_server(listen_host, listen_port, relay, insecure):
 
             def bridged(client=client, addr=addr):
                 try:
-                    handle_client(client, addr, relay, insecure)
+                    handle_client(client, addr, relay, insecure, hang=hang)
                 finally:
                     slots.release()
 
@@ -664,20 +831,58 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=49201, help="local port to listen on (default 49201)")
     ap.add_argument("--relay", default=None, help="relay URL override, ws:// or wss:// (default: built in)")
     ap.add_argument("--insecure", action="store_true", help="skip TLS certificate verification")
+    add_hang_arguments(ap, log_flag="--log")
     args = ap.parse_args(argv)
 
+    try:
+        hang = hang_dumper_from_args(args)
+    except ValueError as err:
+        ap.error(str(err))
     relay = args.relay or default_relay()
     secure, host, port = parse_ws_url(relay)
-    server, thread = run_server("127.0.0.1", args.port, relay, args.insecure)
-    log("listening on ws://127.0.0.1:%d" % args.port)
-    log("forwarding to %s://%s:%d" % ("wss" if secure else "ws", host, port))
-    log("point FF9 at it:  Memoria.ini [Netsync] RelayUrl = ws://127.0.0.1:%d" % args.port)
-    try:
-        thread.join()
-    except KeyboardInterrupt:
-        log("stopped")
-        server.close()
+    log_path = open_session_log(getattr(args, "log", None))
+    try:                                            # the session log closes on every way out, a failed bind included
+        server, thread = run_server("127.0.0.1", args.port, relay, args.insecure, hang=hang)
+        log("listening on ws://127.0.0.1:%d" % args.port)
+        log("forwarding to %s://%s:%d" % ("wss" if secure else "ws", host, port))
+        log("point FF9 at it:  Memoria.ini [Netsync] RelayUrl = ws://127.0.0.1:%d" % args.port)
+        if log_path:
+            log("session log: %s" % log_path)
+        log(hang.describe())
+        try:
+            thread.join()
+        except KeyboardInterrupt:
+            log("stopped")
+            server.close()
+    finally:
+        close_session_log()
     return 0
+
+
+def add_hang_arguments(ap, log_flag="--log"):
+    """The T1 options for this module's own CLI. `ff9mapkit coop` mirrors them inline in cli.py (as
+    --bridge-log for the log file); its subparser has a positional session code, which is why
+    --hang-dump is a plain switch -- an optional-value flag could swallow the code."""
+    ap.add_argument("--hang-dump", action="store_true",
+                    help="if the game stops sending for --hang-after seconds (a hung/suspended FF9), write ONE "
+                         "full minidump of FF9.exe (1-3 GB) + copies of its logs to "
+                         "%%LOCALAPPDATA%%\\ff9mapkit\\hangdumps. Default OFF (or set FF9_HANG_DUMP=1)")
+    ap.add_argument("--hang-dump-dir", default=None, metavar="DIR",
+                    help="write hang dumps here instead (implies --hang-dump)")
+    ap.add_argument("--hang-after", type=float, default=None, metavar="SECONDS",
+                    help="game-hop silence that counts as a hang (default %.0f)" % hangdump.HANG_AFTER_S)
+    ap.add_argument(log_flag, dest="log", default=None, metavar="FILE",
+                    help="tee the timestamped bridge log here (default: a new "
+                         "%%LOCALAPPDATA%%\\ff9mapkit\\bridge-logs\\bridge-<time>.log per run)")
+
+
+def hang_dumper_from_args(args):
+    """This run's HangDumper from parsed add_hang_arguments() options (+ FF9_HANG_DUMP). Raises
+    ValueError for a bad --hang-after."""
+    return hangdump.HangDumper.from_options(flag=getattr(args, "hang_dump", False),
+                                            dump_dir=getattr(args, "hang_dump_dir", None),
+                                            after_s=getattr(args, "hang_after", None),
+                                            log=_late_log)
 
 
 if __name__ == "__main__":

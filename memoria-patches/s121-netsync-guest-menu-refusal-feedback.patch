@@ -1,0 +1,316 @@
+diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+index 90b45a0..a69e556 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+@@ -698,6 +698,8 @@ public class UIKeyTrigger : MonoBehaviour
+                     sceneFromState.OnKeyMenu(activeButton);
+                 else if (PersistenSingleton<UIManager>.Instance.IsMenuControlEnable && !Memoria.Netsync.NetSyncClient.IsMirroringStory) // co-op: a FOLLOWING guest has no menu [ff9mapkit netsync spectator-field]
+                     sceneFromState.OnKeyMenu(activeButton);
++                else if (PersistenSingleton<UIManager>.Instance.IsMenuControlEnable && Memoria.Netsync.NetSyncClient.IsMirroringStory) // co-op: ...but its refusal speaks -- SFX 102 + one line on FieldHUD/WorldHUD, silent elsewhere [ff9mapkit netsync R3 s121]
++                    Memoria.Netsync.NetSyncField.RefuseMainMenu();
+                 return true;
+             }
+             if (PersistenSingleton<HonoInputManager>.Instance.IsInputDown(Control.Special) || keyCommand == Control.Special)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+index 6195288..92d9583 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+@@ -49,18 +49,212 @@ namespace Memoria.Netsync
+         // by construction).
+         private static readonly Dictionary<String, Int32> _lastDeclineField = new Dictionary<String, Int32>();
+ 
+-        public static void DeclineOnce(String what)
++        // [ff9mapkit netsync R3 s121] returns true when THIS call wrote the line (the menu refusal counts its lines); the
++        // older callers ignore it.
++        public static Boolean DeclineOnce(String what)
+         {
+             try
+             {
+                 Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
+-                Int32 last;
+-                if (_lastDeclineField.TryGetValue(what, out last) && last == fld)
++                return DeclineOnceAt(what, what, fld, "field " + fld);
++            }
++            catch { return false; }
++        }
++
++        // [ff9mapkit netsync R3 s121] DeclineOnce's latch and line for any place: `latch` is the gate-class key, `place` the
++        // id it latches on, `where` the line's tail. Review S121-R2: no world-map code writes fldMapNo (it keeps the field the
++        // party LEFT), so a refusal on WorldHUD latches its own class on wldMapNo and names the world map, instead of naming
++        // the departed field and being swallowed by that field's latch.
++        private static Boolean DeclineOnceAt(String latch, String what, Int32 place, String where)
++        {
++            Int32 last;
++            if (_lastDeclineField.TryGetValue(latch, out last) && last == place)
++                return false;
++            _lastDeclineField[latch] = place;
++            Log.Message("[NetSync] " + what + " suppressed (following guest) on " + where);
++            return true;
++        }
++
++        // [ff9mapkit netsync R3 s121] THE AUDIBLE MENU REFUSAL (studies/battle-coop/R3-SITTING-A-FIXES.md s121; owner decision:
++        // the guest's main menu stays blocked while mirroring -- s38 Road A -- but never silently). UIKeyTrigger's Menu-key
++        // branch has refused a mirroring guest's main menu since s38 (that menu reads the guest's OWN party/bag/gil while every
++        // field script answers from the host's), but it dropped the key with no sound and no line, unlike the Alt+F2 and
++        // Alt+F5/F9 gates beside it -- sitting A read it as a bug (box 4). Where the main menu would have opened, FieldHUD and
++        // WorldHUD, the refusal now speaks: the stock refusal buzz (FF9Sfx 102, those Alt gates' own) and DeclineOnce's one line
++        // per field ("main menu suppressed (following guest) on field N"; on WorldHUD "...on world map W", latched apart on
++        // wldMapNo -- DeclineOnceAt). Every other UI state keeps s38's silent drop --
++        // above all the diorama's BattleHUD, whose Menu key is B4-B5 stage 13b's own decision (B4-B5-DESIGN.md 845). The menu
++        // stays closed either way; the dialogue path's Menu key, the battle HUD and the save gates are untouched. Inert on
++        // vanilla, solo and a host: IsMirroringStory (a FOLLOWING guest's armed story mirror) is false there, and UIKeyTrigger
++        // reaches RefuseMainMenu only behind it.
++        public const Int32 MenuKeyOpen = 0;            // no mirror: stock opens the main menu (OnKeyMenu), as ever
++        public const Int32 MenuKeyStockOff = 1;        // IsMenuControlEnable false: stock refuses on its own, silently, as ever
++        public const Int32 MenuKeyRefuseAudible = 2;   // a mirroring guest on FieldHUD / WorldHUD: refused, SFX 102 + the line
++        public const Int32 MenuKeyRefuseSilent = 3;    // a mirroring guest anywhere else (BattleHUD, Pause, ...): s38's silent drop
++        public const Int32 MenuKeyDialogPath = 4;      // harness only (MenuKeyRoute): the press takes the DIALOGUE path, unseen by s121
++
++        /// <summary>[ff9mapkit netsync R3 s121] THE MENU KEY'S VERDICT at UIKeyTrigger's s38 gate (pure; the truth table is
++        /// MenuRefusalSelfTest). `menuControlEnable` = UIManager.IsMenuControlEnable, `mirroring` = NetSyncClient.IsMirroringStory,
++        /// `state` = the UI state the key lands in. A scene that has taken the menu away (MENUOFF, a fade) stays stock's silent
++        /// refusal even on a mirroring guest: co-op explains only what co-op refuses.</summary>
++        internal static Int32 MenuKeyStep(Boolean menuControlEnable, Boolean mirroring, UIManager.UIState state)
++        {
++            if (!menuControlEnable)
++                return MenuKeyStockOff;
++            if (!mirroring)
++                return MenuKeyOpen;
++            return state == UIManager.UIState.FieldHUD || state == UIManager.UIState.WorldHUD ? MenuKeyRefuseAudible : MenuKeyRefuseSilent;
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s121] WHERE UIKeyTrigger SENDS THE PRESS (pure; review S121-R1). Its scene branch -- the
++        /// s38 gate and RefuseMainMenu -- runs only with a scene for the UI state and either no dialogue window or the pause screen
++        /// up (`hasScene && (!dialogActive || paused)`, UIKeyTrigger.HandleMenuControlKeyPressCustomInput). Otherwise the press
++        /// takes the DIALOGUE path, whose own Menu arm stays untouched: it opens or refuses as ever, and a mirroring guest's press
++        /// there is s38's silent drop, counted nowhere. `verdict` = MenuKeyStep; the result is it, or MenuKeyDialogPath.</summary>
++        internal static Int32 MenuKeyRoute(Boolean hasScene, Boolean dialogActive, Boolean paused, Int32 verdict)
++        {
++            return !hasScene || (dialogActive && !paused) ? MenuKeyDialogPath : verdict;
++        }
++
++        // The refusal's harness observables (`netsync.menu_refusal`). Counters are monotonic per process -- read DELTAS.
++        public static Int32 HarnessMenuRefusals;            // audible refusals (SFX 102 asked for each time)
++        public static Int32 HarnessMenuRefusalLines;        // ...of which wrote the line (a per-process latch: one per field / world map)
++        public static Int32 HarnessMenuRefusalsSilent;      // s38's silent drops (a mirroring guest off FieldHUD / WorldHUD)
++        public static String HarnessMenuRefusalState;       // the UI state of the last refused press, either kind (null = none yet)
++        public static Int32 HarnessMenuRefusalField = -1;   // fldMapNo at that press, wldMapNo on WorldHUD (-1 = none yet)
++        public static Boolean HarnessMenuRefusalMuted;      // FF9Sfx.muteSfx at the last audible refusal (the buzz asked for, muted)
++        private static Boolean _menuRefusedArmed;           // the tick-baseline law: `age_ms` reads the tick only once it is armed
++        private static Int32 _menuRefusedTick;
++        private static Boolean _menuRefusalErrLogged;
++
++        // ms since the last refused press, either kind (-1 = none yet)
++        public static Int32 HarnessMenuRefusalAgeMs
++        {
++            get { return _menuRefusedArmed ? Environment.TickCount - _menuRefusedTick : -1; }
++        }
++
++        // what a Menu press would do right now: "open" | "off" | "audible" | "silent" | "dialog" (the dialogue path: s121 never
++        // sees it -- MenuKeyRoute); null = no UIManager
++        public static String HarnessMenuKeyNow
++        {
++            get
++            {
++                try
++                {
++                    UIManager ui = PersistenSingleton<UIManager>.Instance;
++                    if (ui == null)
++                        return null;
++                    UIManager.UIState state = ui.State;
++                    Int32 verdict = MenuKeyStep(ui.IsMenuControlEnable, NetSyncClient.IsMirroringStory, state);
++                    return MenuKeyName(MenuKeyRoute(ui.GetSceneFromState(state) != null,
++                        ui.Dialogs != null && ui.Dialogs.Activate, ui.IsPause, verdict));
++                }
++                catch { return null; }
++            }
++        }
++
++        private static String MenuKeyName(Int32 verdict)
++        {
++            switch (verdict)
++            {
++                case MenuKeyOpen: return "open";
++                case MenuKeyStockOff: return "off";
++                case MenuKeyRefuseAudible: return "audible";
++                case MenuKeyRefuseSilent: return "silent";
++                case MenuKeyDialogPath: return "dialog";
++                default: return null;
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s121] UIKeyTrigger's Menu-key branch, reached only when the s38 gate refused the key
++        /// to a mirroring guest (IsMenuControlEnable && IsMirroringStory). Opens nothing: on FieldHUD / WorldHUD it buzzes and
++        /// logs (MenuKeyStep), anywhere else it only counts. Never throws into the engine.</summary>
++        public static void RefuseMainMenu()
++        {
++            try
++            {
++                UIManager ui = PersistenSingleton<UIManager>.Instance;
++                if (ui == null)
+                     return;
+-                _lastDeclineField[what] = fld;
+-                Log.Message("[NetSync] " + what + " suppressed (following guest) on field " + fld);
++                UIManager.UIState state = ui.State;
++                Int32 verdict = MenuKeyStep(ui.IsMenuControlEnable, NetSyncClient.IsMirroringStory, state);
++                if (verdict != MenuKeyRefuseAudible && verdict != MenuKeyRefuseSilent)
++                    return;     // the caller's gate and the step disagree (not reachable today): the key is dropped, as s38 dropped it
++                Boolean world = state == UIManager.UIState.WorldHUD;   // review S121-R2: fldMapNo there is the field LEFT
++                Int32 place = world ? FF9StateSystem.Common.FF9.wldMapNo : FF9StateSystem.Common.FF9.fldMapNo;
++                HarnessMenuRefusalState = state.ToString();
++                HarnessMenuRefusalField = place;
++                _menuRefusedTick = Environment.TickCount;
++                _menuRefusedArmed = true;
++                if (verdict == MenuKeyRefuseSilent)
++                {
++                    HarnessMenuRefusalsSilent++;
++                    return;
++                }
++                HarnessMenuRefusals++;
++                HarnessMenuRefusalMuted = FF9Sfx.muteSfx;
++                FF9Sfx.FF9SFX_Play(102);    // the stock refusal buzz (the Alt+F2 / Alt+F5 / Alt+F9 gates' own)
++                if (world ? DeclineOnceAt("main menu (world map)", "main menu", place, "world map " + place) : DeclineOnce("main menu"))
++                    HarnessMenuRefusalLines++;
+             }
+-            catch { }
++            catch (Exception ex)
++            {
++                if (!_menuRefusalErrLogged)
++                {
++                    _menuRefusalErrLogged = true;   // once per process: never per-press error spam
++                    Log.Error("[NetSync] main menu refusal failed (the menu stays closed): " + ex);
++                }
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync R3 s121] THE MENU REFUSAL SELFTEST (NetSyncClient's selftest proof block: "main menu refusal
++        /// selftest: OK|FAIL (...)"): MenuKeyStep as a truth table -- vanilla opens everywhere it opened, a scene's own MENUOFF
++        /// stays stock's silent refusal, a mirroring guest is refused audibly on exactly FieldHUD and WorldHUD and silently
++        /// everywhere else (the diorama's BattleHUD above all); MenuKeyRoute sends a press under a dialogue window (not paused) or
++        /// with no scene to the dialogue path. Each row discriminates one rule, so a mutant of that rule fails it. Pure: touches
++        /// no live state.</summary>
++        internal static Boolean MenuRefusalSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                const UIManager.UIState Fld = UIManager.UIState.FieldHUD;
++                const UIManager.UIState Wld = UIManager.UIState.WorldHUD;
++                const UIManager.UIState Btl = UIManager.UIState.BattleHUD;
++                const UIManager.UIState Pau = UIManager.UIState.Pause;
++                MenuRow(MenuKeyStep(true, false, Fld) == MenuKeyOpen, "vanilla FieldHUD opens", ref rows, ref fail);
++                MenuRow(MenuKeyStep(true, false, Wld) == MenuKeyOpen, "vanilla WorldHUD opens", ref rows, ref fail);
++                MenuRow(MenuKeyStep(true, false, Btl) == MenuKeyOpen, "vanilla BattleHUD reaches OnKeyMenu as ever", ref rows, ref fail);
++                MenuRow(MenuKeyStep(false, false, Fld) == MenuKeyStockOff, "a scene's MENUOFF is stock's own refusal", ref rows, ref fail);
++                MenuRow(MenuKeyStep(false, true, Fld) == MenuKeyStockOff, "...even on a mirroring guest: no buzz under a scene", ref rows, ref fail);
++                MenuRow(MenuKeyStep(true, true, Fld) == MenuKeyRefuseAudible, "a mirroring guest on FieldHUD: audible", ref rows, ref fail);
++                MenuRow(MenuKeyStep(true, true, Wld) == MenuKeyRefuseAudible, "a mirroring guest on WorldHUD: audible", ref rows, ref fail);
++                MenuRow(MenuKeyStep(true, true, Btl) == MenuKeyRefuseSilent, "the diorama's BattleHUD stays silent (stage 13b's seat)", ref rows, ref fail);
++                MenuRow(MenuKeyStep(true, true, Pau) == MenuKeyRefuseSilent, "a mirroring guest's Pause stays silent", ref rows, ref fail);
++                MenuRow(MenuKeyName(MenuKeyOpen) == "open" && MenuKeyName(MenuKeyStockOff) == "off"
++                        && MenuKeyName(MenuKeyRefuseAudible) == "audible" && MenuKeyName(MenuKeyRefuseSilent) == "silent"
++                        && MenuKeyName(MenuKeyDialogPath) == "dialog" && MenuKeyName(-1) == null, "the harness names", ref rows, ref fail);
++                // MenuKeyRoute (review S121-R1): which UIKeyTrigger path the press takes
++                MenuRow(MenuKeyRoute(true, false, false, MenuKeyRefuseAudible) == MenuKeyRefuseAudible, "no window: the scene branch keeps the verdict", ref rows, ref fail);
++                MenuRow(MenuKeyRoute(true, true, false, MenuKeyRefuseAudible) == MenuKeyDialogPath, "a dialogue window up: the dialogue path", ref rows, ref fail);
++                MenuRow(MenuKeyRoute(true, true, true, MenuKeyRefuseSilent) == MenuKeyRefuseSilent, "a window under the pause screen: the scene branch", ref rows, ref fail);
++                MenuRow(MenuKeyRoute(false, false, false, MenuKeyOpen) == MenuKeyDialogPath, "no scene for the state: the dialogue path", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
++        }
++
++        private static void MenuRow(Boolean ok, String name, ref Int32 rows, ref String fail)
++        {
++            rows++;
++            if (!ok && fail == null)
++                fail = name;
+         }
+ 
+         // THE KEYON MASK (the Decision-4 closure, built when the FIRST playtest surfaced the hole:
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index c2243a8..0cc54ed 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1368,6 +1368,10 @@ namespace Memoria.Netsync
+                         Boolean graceOk = SessionGraceSelfTest(out graceDetail);
+                         Log.Message("[NetSync] session grace selftest: "
+                                     + (graceOk ? "OK (" + graceDetail + ")" : "FAIL (" + graceDetail + ")"));
++                        String menuDetail;               // [ff9mapkit netsync R3 s121] the Menu key's verdict at the s38 gate
++                        Boolean menuOk = NetSyncField.MenuRefusalSelfTest(out menuDetail);
++                        Log.Message("[NetSync] main menu refusal selftest: "
++                                    + (menuOk ? "OK (" + menuDetail + ")" : "FAIL (" + menuDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 2cfbbe3..a4f960e 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -203,6 +203,11 @@ namespace Memoria.Harness
+         // SessionGraceSelfTest); no new verb or op -- the outage clock needs a real transport, so its bench is a wire replay with
+         // a blackhole. A driver checks for `netsync.session.grace_ms` -- absent = an engine whose guest ends a mirrored session 3 s
+         // after its peer goes silent and caps a held diorama at 8 s.
++        // [ff9mapkit netsync R3 s121] (the guest's audible menu refusal; studies/battle-coop/R3-SITTING-A-FIXES.md), also additive
++        // under 5: `netsync` gains `menu_refusal` (see AppendMenuRefusal), and the selftest proof block gains one line, "main menu
++        // refusal selftest: OK (N rows)" (NetSyncField.MenuRefusalSelfTest); no new verb or op -- the refusal is the stock Menu
++        // key (`press menu`) on a guest whose story mirror is armed, which needs a real transport, so its bench is a wire replay.
++        // A driver checks for `netsync.menu_refusal.count` -- absent = an engine whose mirroring guest drops the Menu key silently.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -3236,11 +3241,12 @@ namespace Memoria.Harness
+                 AppendRing(sb); sb.Append(",");
+                 AppendDiorama(sb); sb.Append(",");
+                 AppendSession(sb); sb.Append(",");                                                      // [ff9mapkit netsync R3 s120]
++                AppendMenuRefusal(sb); sb.Append(",");                                                  // [ff9mapkit netsync R3 s121]
+                 AppendNetsyncBattle(sb);
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3432,6 +3438,34 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync R3 s121] `netsync.menu_refusal` -- THE AUDIBLE MENU REFUSAL (guest side; NetSyncField.RefuseMainMenu, from
++        // UIKeyTrigger's Menu-key branch when the s38 gate refuses a mirroring guest): `now` (what a Menu press would do right now --
++        // "open" stock's main menu | "off" stock's own refusal, IsMenuControlEnable false | "audible" a mirroring guest on FieldHUD
++        // or WorldHUD: refused with SFX 102 and the line | "silent" a mirroring guest anywhere else, the diorama's BattleHUD among
++        // them: s38's silent drop | "dialog" the press takes UIKeyTrigger's DIALOGUE path -- a dialogue window up and not paused,
++        // or no scene for the UI state (NetSyncField.MenuKeyRoute) -- which s121 never sees: on a mirroring guest a silent drop
++        // counted NOWHERE, so a bench gates its press on `now` == "audible", not on ui_state FieldHUD; null = no UIManager),
++        // `count` (audible refusals), `lines` (of those, the ones that wrote "main menu suppressed (following guest) on field N",
++        // or "...on world map W" on WorldHUD -- a per-process latch per (class, place), never cleared at session end, so a second
++        // leg on the same field reads `lines` +0) and `silent` (silent drops) -- all three monotonic per process, read DELTAS --
++        // then the last refused press of either kind: `last_state` (its UIManager.UIState name; null = none yet), `last_field`
++        // (the place the line names: fldMapNo, or wldMapNo when `last_state` is WorldHUD; -1 = none yet), `age_ms` (since it; -1 =
++        // none yet) and `muted` (FF9Sfx.muteSfx at the last audible refusal: the buzz was asked for but the engine muted it).
++        // AppendNetsync's catch line carries the same keys at their sentinels.
++        private static void AppendMenuRefusal(StringBuilder sb)
++        {
++            sb.Append("\"menu_refusal\":{");
++            Str(sb, "now", Memoria.Netsync.NetSyncField.HarnessMenuKeyNow); sb.Append(",");
++            Num(sb, "count", Memoria.Netsync.NetSyncField.HarnessMenuRefusals); sb.Append(",");
++            Num(sb, "lines", Memoria.Netsync.NetSyncField.HarnessMenuRefusalLines); sb.Append(",");
++            Num(sb, "silent", Memoria.Netsync.NetSyncField.HarnessMenuRefusalsSilent); sb.Append(",");
++            Str(sb, "last_state", Memoria.Netsync.NetSyncField.HarnessMenuRefusalState); sb.Append(",");
++            Num(sb, "last_field", Memoria.Netsync.NetSyncField.HarnessMenuRefusalField); sb.Append(",");
++            Num(sb, "age_ms", Memoria.Netsync.NetSyncField.HarnessMenuRefusalAgeMs); sb.Append(",");
++            Bool(sb, "muted", Memoria.Netsync.NetSyncField.HarnessMenuRefusalMuted);
++            sb.Append("}");
++        }
++
+         // [ff9mapkit netsync R3 s114] `netsync.diorama.live` -- the start-hold report's LIVE latch (guest side), THIS boot only
+         // (sentinels between boots): `latched` (the boot's first steady frame -- PHASE_NORMAL, both load bits, the scene ours -- came
+         // with a host sample in hand: a live type-1 lane or the bench feed), `ms` (Boot -> that frame; normally `intro.normal_ms`;

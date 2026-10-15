@@ -17,6 +17,8 @@ build order of section 4. Re-read the README before each emit, because concurren
 
 ---
 
+> **Renumbered 2026-10-14 after sitting A:** the fix round s118-s121 (`R3-SITTING-A-FIXES.md`) took the next numbers, so group 2 below is now **s122-s130** (was s118-s126).
+
 ## 1. What the owner asked, and the decisions already made
 
 ### 1.1 Reported after sitting 2 (both logs in hand)
@@ -68,14 +70,14 @@ replay lane for "action starts". This table is the single allocation. Each patch
 | | bit 2 (0x04) | s111 | the host skipped this battle's intro |
 | | bit 3 (0x08) | s111 | bit 2 is meaningful (an intro-mirror host) |
 | | bit 4 (0x10) | s114 | the host's start hold is holding now (observability only) |
-| | bit 5 (0x20) | s118 | `CapActionStarts`: this host sends action START/END frames and impact ids |
+| | bit 5 (0x20) | s122 | `CapActionStarts`: this host sends action START/END frames and impact ids |
 | | bits 6-7 | — | reserved |
 | type-3 control (guest→host), byte 1 | values 2, 3 | s113 | 2 = window at the command root (or a pick in flight); 3 = below the root |
 | type-3 control trailer | bytes 2-4 | s114 | `[fmt=1][host battle nonce][boot state 0-4]` |
-| type-5 state section | id 8 | s124 | `SectionDress`: `[model u16][charId u8]` |
-| type-6 action flags | bit 2 (0x04) | s118 | START record (old slots 0xFF) |
-| | bit 3 (0x08) | s118 | END record (old slots 0xFF) |
-| type-6 action payload | bytes 46+ | s118 | `0xA6` extension (impact id / START body / END id) |
+| type-5 state section | id 8 | s128 | `SectionDress`: `[model u16][charId u8]` |
+| type-6 action flags | bit 2 (0x04) | s122 | START record (old slots 0xFF) |
+| | bit 3 (0x08) | s122 | END record (old slots 0xFF) |
+| type-6 action payload | bytes 46+ | s122 | `0xA6` extension (impact id / START body / END id) |
 | type-1 0xB5 trailer | fmt 2 record | s116 (owner: build) | `[fleeFlags u8][gilLost u32]` |
 
 [V] Header bits 2-7 are unread by every s110 reader. `ParseView` takes the random bit and keeps the byte as
@@ -537,7 +539,7 @@ else if (_settled && _stamped < 0) {
     `trailer_skipped`.
   - A pre-s103 guest stops reading at `count` units (`NetSyncBattle.cs:1428-1454`).
 
-### 3.3 Action replay on the guest (s118-s122)
+### 3.3 Action replay on the guest (s122-s126)
 
 #### 3.3.1 Why the guest sees nothing today [V]
 
@@ -552,7 +554,7 @@ else if (_settled && _stamped < 0) {
   callers run only on the old engine or for `cur_cmd_list` commands (`btlseq.cs:531`, `btl_cmd.cs:1491`,
   `btl_vfx.cs:177`).
 
-#### 3.3.2 s118 — host action-start lane (AR1; host only, no visible change)
+#### 3.3.2 s122 — host action-start lane (AR1; host only, no visible change)
 
 **START.**
 - One site reaches every actor: `btl_cmd.cs:624`, just before `btl_vfx.SelectCommandVfx(cmd)`. It sits after both
@@ -627,14 +629,14 @@ clear isDebug (`Ff9mkDebugMenu.cs:537`), so selftest own battles emit. Plus the 
   and return at `NetSyncDiorama.cs:1791-1792` with no state, no motion and no log. Impacts behave exactly as today.
   Bit 5 is stored in `HostCaps` and never read.
 - **A new guest with an s110 host.** No START, END or extension arrives, so every impact takes the legacy route (the
-  s110 swing, then fallback A from s121). It logs once: "host predates action replay".
+  s110 swing, then fallback A from s125). It logs once: "host predates action replay".
 
 **Selftest loopback.**
 - Every parsed payload also goes to `ActLoopAudit`, which counts STARTs, ENDs and impacts with an extension, and
   checks pairing.
 - With `actbench tape rec` on, it records (tick, bytes), capped at 1024 frames.
 
-#### 3.3.3 s119 — guest action replay (AR2)
+#### 3.3.3 s123 — guest action replay (AR2)
 
 **New file `Memoria/Netsync/NetSyncDiorama.Replay.cs`.** `NetSyncDiorama` becomes `partial`. The prefix is `Act`,
 because `AbortReplay` and `ReplayArmTick` already belong to the result-screen replay.
@@ -709,7 +711,7 @@ replay would first wait out an idle loop.
 
 - `ActOnHit` returns true for any registered replay CMD_DATA, matched by reference, even on an internal exception.
   It returns false for null and for every real command.
-- In s119 it only counts hits, and for a **Change** replay it performs the presentation half. **(review replay F4)**
+- In s123 it only counts hits, and for a **Change** replay it performs the presentation half. **(review replay F4)**
   - [V] `SequenceChange.seq` moves the caster ±400 on `CasterRow`, then runs EffectPoint. The row switch lives in
     CalcMain's script 0055 → `btl_para.SwitchPlayerRow` (`btl_para.cs:336-341`).
   - So `ActOnHit` calls `SwitchPlayerRow(rc.regist)` once, which writes only the diorama BTL_DATA's row, base_pos and
@@ -719,7 +721,7 @@ replay would first wait out an idle loop.
 - [V] The diorama boots with `isDebug = true` (`NetSyncDiorama.cs:408`), so `SetDamage` and `SetMpDamage` skip their
   HP and MP writes (`btl_para.cs:153`, `:221`). An invariant snapshot after an Attack replay is therefore blind to a
   fall-through.
-- s119 counts CalcMain entries while booted, at the head of the 5-argument `SBattleCalculator.CalcMain`
+- s123 counts CalcMain entries while booted, at the head of the 5-argument `SBattleCalculator.CalcMain`
   (`SBattleCalculator.cs:35`): `if (NetSyncDiorama.Booted) NetSyncDiorama.NoteCalcWhileBooted();`. That is one static
   read per hit and never per frame. The count is published as `act.guest.calc_while_booted`.
 - A selftest-only lever, `actbench shortcircuit off`, makes `ActOnHit` return false for the next replay. This proves
@@ -778,7 +780,7 @@ guest.
   - transport: Pump → ActionTick → **ActTick** → DioramaTick → ReconcileTick → LiveTick → EndTick → StockMenuTick;
   - selftest: SelfTestPump → **ActionTickBench → ActTick** → EndTick → StockMenuTick → LiveTick.
 
-#### 3.3.4 s120 — numbers, flinch and death wait for the replay's hit (AR3)
+#### 3.3.4 s124 — numbers, flinch and death wait for the replay's hit (AR3)
 
 **On arrival** (`ApplyActionFrame`, after the stat-tick branch): if the impact's id pairs with a queued or running
 replay and the hold is on:
@@ -812,7 +814,7 @@ replay and the hold is on:
 `if ((_actLifeMask & (1 << u.Index)) != 0) return;`. A paired replay owns that slot's kill or revive until its hit.
 This skip is the only protection against the next post-horizon type-1 sample killing the target early.
 
-#### 3.3.5 s121 — fallback A: one stock clip per action (AR4)
+#### 3.3.5 s125 — fallback A: one stock clip per action (AR4)
 
 - This replaces the player-only MP_ATTACK swing (`NetSyncDiorama.cs:1845-1852`) for any impact no replay covers: an
   old host, a declined, stale or dropped START, or a guest without SFXRework.
@@ -827,7 +829,7 @@ This skip is the only protection against the next post-horizon type-1 sample kil
     (`BattleActionThread.cs:202-238`), cached per (scene, sub), and played through `btl_mot.setMotion(d, String)`.
     [V] An enemy's mot table has 6 entries, so an index would throw.
 
-#### 3.3.6 s122 — trance burst timing (AR5)
+#### 3.3.6 s126 — trance burst timing (AR5)
 
 - The host's SysTrans START is kind 3, with Activate or End resolved on the host.
 - The guest replays the burst. `ActOnHit` for a SysTrans replay calls `btl_vfx.SetTranceModel(actor, ...)` when the
@@ -835,7 +837,7 @@ This skip is the only protection against the next post-horizon type-1 sample kil
 - The reconciler's model check (`:1610-1615`) waits while that unit has a SysTrans replay that has not hit. With
   host bit 5 it also waits a 400 ms grace for the START, because type 1 and type 6 arrive in either order [I].
 
-### 3.4 The guest's own field model (s123-s126)
+### 3.4 The guest's own field model (s127-s130)
 
 #### 3.4.1 What exists [V]
 
@@ -849,7 +851,7 @@ This skip is the only protection against the next post-horizon type-1 sample kil
 - The guest learns the host's party at `ApplyStoryBeforeEvents`, before `StartEvents`
   (`HonoluluFieldMain.cs:148-149`; `NetSyncClient.cs:524-565`). It does not know its own slot. That is the one wire need.
 
-#### 3.4.2 s123 — instrument (M1, inert)
+#### 3.4.2 s127 — instrument (M1, inert)
 
 Harness keys only:
 - `player.{model, anim, geo, anim_geo, eye, uid, sid}` and `objects[i].model`;
@@ -858,7 +860,7 @@ Harness keys only:
 
 No behaviour changes on any role. Later benches can then go red on VALUES, not on missing keys.
 
-#### 3.4.3 s124 — host rule and section 8 (M2)
+#### 3.4.3 s128 — host rule and section 8 (M2)
 
 **Rig table** (`NetSyncVisitor.cs:34-53`).
 - Each row gains Eye, Inactive and footfall frames: Zidane eye 93, Vivi 61, Garnet 91, Steiner 104, Freya 94,
@@ -893,7 +895,7 @@ The selftest branch (`:1180`) gets the same guard. Both screens then agree in ev
 - Old guests skip it by id and length [V]: `ApplyStoryTo` applies id 0 only (`NetSyncState.cs:113-128`),
   `ParseSections` consumes 1-3 (`NetSyncParty.cs:224-245`), and `TryReadSection` stops at the first match.
 
-#### 3.4.4 s125 — the guest dresses itself (M3)
+#### 3.4.4 s129 — the guest dresses itself (M3)
 
 **Arming.**
 - `NetSyncSelfDress.ArmFromState` runs right after `ApplyStory` in `ApplyStoryImpl` (`NetSyncClient.cs:555`).
@@ -975,7 +977,7 @@ shortHair, `PosObj.cs:72-73`). Vanilla never sets them.
 **DefinePlayerCharacter (`:1043`).** `NoteControl` counts `confirmed` (control bound to the dressed body) and
 `ctl_elsewhere` (a co-actor binder).
 
-#### 3.4.5 s126 — polish (M4)
+#### 3.4.5 s130 — polish (M4)
 
 - **Lighting.** `fldmcf.cs:81` falls back to the `netDressSrc` row (98) when the worn model has no mapconfig row.
   This mirrors the ghost's fallback (`NetSyncClient.cs:~4366`).
@@ -998,7 +1000,7 @@ are taken in this order.
 **Renumbered after the owner's answers (2026-10-13).** The owner chose two sittings, the swirl clamp, and the gil relay.
 So the clamp and the gil relay move into group 1, next to the patches they belong with. Every patch number in this
 document already uses the new numbering. The lane designs (and the workflow journal) used the old numbers: old
-s126 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s125 -> s116, s115 -> s117, s116-s124 -> s118-s126.
+s130 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s129 -> s116, s115 -> s117, s116-s128 -> s122-s130.
 
 | # | Patch | Feature | Runs on | Solo bench |
 |---|---|---|---|---|
@@ -1010,15 +1012,15 @@ s126 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s125 -> s116, s115 -> s1
 | 6 | `s116-netsync-flee-gil-relay` | host's "Dropped N Gil" on the guest (owner: build it) | both | `coop_battle_flee_defeat.py` part c |
 | 7 | `s117-netsync-guest-defeat-presentation` | annihilation / var-34 / CLOSE rows; kill and phase-defeat ops | guest | `coop_battle_flee_defeat.py` part b |
 | -- | **two-machine sitting A** | | both | section 7 |
-| 8 | `s118-netsync-host-action-start-lane` | START/END, impact ids, header bit 5, loopback audit, tape | host | `coop_action_host.py` |
-| 9 | `s119-netsync-guest-action-replay` | standalone-CMD_DATA replay, short-circuit, hooks, tripwire | guest | `coop_action_replay.py` |
-| 10 | `s120-netsync-replay-hit-hold` | numbers, flinch and death wait for the hit; life-mask skip | guest | `coop_action_hold.py` |
-| 11 | `s121-netsync-replay-fallback-clip` | one stock clip per uncovered action | guest | `coop_action_fallback.py` |
-| 12 | `s122-netsync-replay-trance-timing` | trance burst + model swap at the hit | guest | `coop_action_trance.py` |
-| 13 | `s123-netsync-dress-instrument` | harness keys only | none (inert) | `coop_self_dress.py` leg I |
-| 14 | `s124-netsync-dress-host-rule` | rig rows, moogle, ResolveAuto, section 8, host ghost guard | host | `coop_self_dress.py` leg G |
-| 15 | `s125-netsync-guest-self-dress` | dress at SetModel, MapAnim + timeline, PosObj carry | guest | `coop_self_dress.py` legs S/W/X/N/T |
-| 16 | `s126-netsync-self-dress-polish` | lighting row, mesh-op drop, footfall map | guest | `coop_self_dress.py` leg F |
+| 8 | `s122-netsync-host-action-start-lane` | START/END, impact ids, header bit 5, loopback audit, tape | host | `coop_action_host.py` |
+| 9 | `s123-netsync-guest-action-replay` | standalone-CMD_DATA replay, short-circuit, hooks, tripwire | guest | `coop_action_replay.py` |
+| 10 | `s124-netsync-replay-hit-hold` | numbers, flinch and death wait for the hit; life-mask skip | guest | `coop_action_hold.py` |
+| 11 | `s125-netsync-replay-fallback-clip` | one stock clip per uncovered action | guest | `coop_action_fallback.py` |
+| 12 | `s126-netsync-replay-trance-timing` | trance burst + model swap at the hit | guest | `coop_action_trance.py` |
+| 13 | `s127-netsync-dress-instrument` | harness keys only | none (inert) | `coop_self_dress.py` leg I |
+| 14 | `s128-netsync-dress-host-rule` | rig rows, moogle, ResolveAuto, section 8, host ghost guard | host | `coop_self_dress.py` leg G |
+| 15 | `s129-netsync-guest-self-dress` | dress at SetModel, MapAnim + timeline, PosObj carry | guest | `coop_self_dress.py` legs S/W/X/N/T |
+| 16 | `s130-netsync-self-dress-polish` | lighting row, mesh-op drop, footfall map | guest | `coop_self_dress.py` leg F |
 | -- | **two-machine sitting B** | | both | section 7 |
 
 **Why this order.**
@@ -1035,7 +1037,7 @@ s126 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s125 -> s116, s115 -> s1
 - One change per in-game test.
 - Audit the shared clone's uncommitted stack before the first build.
 - Re-read `memoria-patches/README.md` before each emit, and add one README row per patch.
-- New `.cs` files (s119 `NetSyncDiorama.Replay.cs`, s125 `NetSyncSelfDress.cs`) need a csproj `<Compile Include>`.
+- New `.cs` files (s123 `NetSyncDiorama.Replay.cs`, s129 `NetSyncSelfDress.cs`) need a csproj `<Compile Include>`.
 
 ---
 
@@ -1063,27 +1065,27 @@ s126 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s125 -> s116, s115 -> s1
 | s114 | `bench boot auto\|none\|booting\|live\|declined\|busy\|stale\|silent\|late <ms>`; `bench starthold 1\|0\|cap <ms>` | `netsync.battle.host.start_hold {off, cap_ms, state, nonce, why, release, held_ms, late_ms, count, released{live, declined, link, oldguest, cap, ended}, guest{r3, lane_ms, fmt, nonce, boot, boot_name}}`; `menu.ctl` gains `nonce, boot, boot_name`; `netsync.diorama.live {latched, ms, nonce}` |
 | s115 | `endbench guest hold\|nor9b` | `netsync.battle.end.flee {r9b, bypassed, overload, ability_flag, gil_now, penalty}`; `end.action` gains `flee`; `end.end_leave.reverted` (-1 = none); `battle.units[]` gains `mot`, `disappear`, `z` |
 | s117 | `endbench kill [mask]`; `endbench phase-defeat` | `end.follow_msg`; `end.action` gains `annihilate`, `defeat` |
-| s118 | new sub-verb `netsync actbench`: `tape rec\|stop\|clear\|info`, `hoststarts on\|off` | `netsync.battle.act.host {on, lever_off, starts, ends, ext_impacts, noid_impacts, scripted, kinds{...}, last{...}, loop{starts, ends, impacts_ext, paired, orphans, caster_mismatch, no_end}, tape{state, frames, starts, ms}}` |
-| s119 | `actbench feed <hex>`, `feedat <ms> <hex>`, `tape play [pct]`, `replay on\|off`, `rework on\|off`, `shortcircuit on\|off`, `clear` | `netsync.battle.act.guest {on, why, rework, knob, host_caps, levers{...}, inbox, starts_rx, started, queued, running, declined, declined_why, stale, superseded, noop, aborted, abort_why, ended, faulted, hits, credits, swing_skipped, calc_while_booted, window{open, restores}, last{...}}`; `battle.units[]` gains `anim`, `anim_frame`, `away`, `rot_y`, `acting` |
-| s120 | `actbench hold on\|off`; `actbench lifeskip on\|off`; `actbench unit <slot> dead\|alive\|trance0\|trance1` (sample seq = the slot's gate seq + 1, so it is post-horizon) | `act.guest.hold {on, held_now, held, rel_hit, rel_late, rel_end, rel_hostdone, rel_timeout, rel_abort, superseded, life_mask, figs[16]}` |
-| s121 | `actbench fallback on\|off` | `act.guest.fallback {on, clips, deduped, last{actor, clip, cmd, sub, keyed_by}}` |
-| s122 | `actbench trancegrace on\|off` | `act.guest.trance {deferred, swaps_by_hit, swaps_by_grace}` |
-| s123 | — | `player.{model, anim, geo, anim_geo, eye, uid, sid}`, `objects[].model`, `dress.ghost{model, geo, clip, rig}`, `dress.party[4]` |
-| s124 | new sub-verb `netsync selfdress`: `ghost <mask>\|off`, `empty <slot>\|off`, `clear` | `dress.ghost.bench_mask`, `dress.ghost.empty_slot`, `dress.codec`, `dress.rig_idle_frames[9]` (each rig idle's frame count) |
-| s125 | `selfdress self <off\|auto [mask]\|zidane..amarant\|moogle>`; `selfdress gate 1\|0` | `dress.self {knob, armed, src, want_model, want_char, rig, why, uid, net_byte, from, confirmed, ctl_elsewhere, skip_npc, skip_second, remaps, timeline_kept, gate}` |
-| s126 | — | `dress.self.steps`, `steps_dropped`, `light_row`, `mesh_drops`, `attach_notes`; `player.meshflags` |
+| s122 | new sub-verb `netsync actbench`: `tape rec\|stop\|clear\|info`, `hoststarts on\|off` | `netsync.battle.act.host {on, lever_off, starts, ends, ext_impacts, noid_impacts, scripted, kinds{...}, last{...}, loop{starts, ends, impacts_ext, paired, orphans, caster_mismatch, no_end}, tape{state, frames, starts, ms}}` |
+| s123 | `actbench feed <hex>`, `feedat <ms> <hex>`, `tape play [pct]`, `replay on\|off`, `rework on\|off`, `shortcircuit on\|off`, `clear` | `netsync.battle.act.guest {on, why, rework, knob, host_caps, levers{...}, inbox, starts_rx, started, queued, running, declined, declined_why, stale, superseded, noop, aborted, abort_why, ended, faulted, hits, credits, swing_skipped, calc_while_booted, window{open, restores}, last{...}}`; `battle.units[]` gains `anim`, `anim_frame`, `away`, `rot_y`, `acting` |
+| s124 | `actbench hold on\|off`; `actbench lifeskip on\|off`; `actbench unit <slot> dead\|alive\|trance0\|trance1` (sample seq = the slot's gate seq + 1, so it is post-horizon) | `act.guest.hold {on, held_now, held, rel_hit, rel_late, rel_end, rel_hostdone, rel_timeout, rel_abort, superseded, life_mask, figs[16]}` |
+| s125 | `actbench fallback on\|off` | `act.guest.fallback {on, clips, deduped, last{actor, clip, cmd, sub, keyed_by}}` |
+| s126 | `actbench trancegrace on\|off` | `act.guest.trance {deferred, swaps_by_hit, swaps_by_grace}` |
+| s127 | — | `player.{model, anim, geo, anim_geo, eye, uid, sid}`, `objects[].model`, `dress.ghost{model, geo, clip, rig}`, `dress.party[4]` |
+| s128 | new sub-verb `netsync selfdress`: `ghost <mask>\|off`, `empty <slot>\|off`, `clear` | `dress.ghost.bench_mask`, `dress.ghost.empty_slot`, `dress.codec`, `dress.rig_idle_frames[9]` (each rig idle's frame count) |
+| s129 | `selfdress self <off\|auto [mask]\|zidane..amarant\|moogle>`; `selfdress gate 1\|0` | `dress.self {knob, armed, src, want_model, want_char, rig, why, uid, net_byte, from, confirmed, ctl_elsewhere, skip_npc, skip_second, remaps, timeline_kept, gate}` |
+| s130 | — | `dress.self.steps`, `steps_dropped`, `light_row`, `mesh_drops`, `attach_notes`; `player.meshflags` |
 | s116 | `endbench fleegil <n>\|none` | `host.end.flee_gil`, `peer.end.flee_gil`, `end.flee.msg_gil` |
 | s112 | `bench swirl local <frames>\|ini` | `netsync.diorama.intro.swirl_clamp` |
 
 ### 5.2 Driver, fake and tests (repo)
 
 - **`tools/harness/session.py`**
-  - `NETSYNC_SUBVERBS` appends `actbench` (s118), then `selfdress` (s124), in the agent's order.
+  - `NETSYNC_SUBVERBS` appends `actbench` (s122), then `selfdress` (s128), in the agent's order.
     `NETSYNC_AUTHORITY_SUBVERBS` gets both as well, so the capability gate runs BEFORE the step is spent
     **(review dress F6)**.
-  - `NETSYNC_BATTLE_SUBVERBS` gains `actbench` keyed on `netsync.battle.act` (s118). A new `NETSYNC_DRESS_SUBVERBS`
-    keys `selfdress` on `dress.ghost.bench_mask` (s124), and a per-op table puts `self` and `gate` on `dress.self`
-    (s125).
+  - `NETSYNC_BATTLE_SUBVERBS` gains `actbench` keyed on `netsync.battle.act` (s122). A new `NETSYNC_DRESS_SUBVERBS`
+    keys `selfdress` on `dress.ghost.bench_mask` (s128), and a per-op table puts `self` and `gate` on `dress.self`
+    (s129).
   - `NETSYNC_BENCH_OPS` gains:
     - `intro`, `cfg` → `netsync.diorama.intro` (s111);
     - `waitparity`, `ctl` → `netsync.battle.host.wait` (s113);
@@ -1093,8 +1095,8 @@ s126 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s125 -> s116, s115 -> s1
     `NETSYNC_ENDBENCH_OP_CAPS` entry. The `guest hold|nor9b` values are cap-gated on `netsync.battle.end.flee` (s115),
     and an s110 engine's answer `netsync endbench guest: needs on|off|settle` goes into
     `NETSYNC_ENDBENCH_OLD_ANSWERS`.
-  - Per-stage `actbench` op availability is keyed on `act.guest` (s119), `act.guest.hold` (s120),
-    `act.guest.fallback` (s121) and `act.guest.trance` (s122).
+  - Per-stage `actbench` op availability is keyed on `act.guest` (s123), `act.guest.hold` (s124),
+    `act.guest.fallback` (s125) and `act.guest.trance` (s126).
   - Helpers: `hold_window()`, `atb_flat()`, `ctl_byte()`, `netsync_actbench()`, `selfdress()`.
 - **`tools/harness/channel.py`**: State accessors for every new key. An absent key reads None.
 - **`tools/harness/battlewire.py`**:
@@ -1139,7 +1141,7 @@ s126 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s125 -> s116, s115 -> s1
     `coop_stock_menu_content`, `coop_stock_menu_live`, `coop_battle_end_host`, `coop_battle_end_guest`,
     `coop_battle_result_replay`, `coop_battle_handback`;
   - plus every earlier R3 scenario.
-  - The dress patches (s123-s126) may skip the battle set, except `coop_battle_end_guest` (warm return).
+  - The dress patches (s127-s130) may skip the battle set, except `coop_battle_end_guest` (warm return).
 - **Expected re-baselines** (each named in its patch's commit):
   - s111: own-battle caps gain 0x08 (+0x04). Scenario masks use `& 2` (`coop_battle_host_gates.py:272-273`). S8-A1's
     `caps == 2` reads the feed caps (`coop_stock_menu_live.py:379`, `StockMenu.cs:1555`), which are unchanged.
@@ -1148,7 +1150,7 @@ s126 -> s112, s112 -> s113, s113 -> s114, s114 -> s115, s125 -> s116, s115 -> s1
     during calibration.
   - s115: S5-B moves under `guest hold`, and S10-R0's regex is relaxed.
   - s117: S6-C1/C2 move under `guest hold`, and S6-D1 is strengthened.
-  - s118: own battles emit more type-6 frames; nothing else changes.
+  - s122: own battles emit more type-6 frames; nothing else changes.
 
 ### 6.2 s111 — `coop_battle_intro_mirror.py`
 
@@ -1242,7 +1244,7 @@ Regression in the same commit: `coop_battle_result_replay` S10-R0 with the relax
 | F (S6-D1) | `other 6`, **poll injected + close + local 6**, `ui 2` | stamp -1, `reverted == 6`, field 0 **(review end F5)** | s115 holds defeat kinds → never injected; the strengthened check reads red |
 | S | selftest | "..., flee M, defeat K)", mutants fail | detail ends at flee |
 
-### 6.7 s118 — `coop_action_host.py`
+### 6.7 s122 — `coop_action_host.py`
 
 Flow: `actbench tape rec`, then `battle 67`. Commands via `battlecmd`: Zidane Attack ×2, Vivi Fire (single) and Fira
 (all), Garnet Potion on self, plus a Defend. Let the enemies act; `fight` to finish; `tape stop`.
@@ -1263,9 +1265,9 @@ Flow: `actbench tape rec`, then `battle 67`. Commands via `battlecmd`: Zidane At
 - On s117: the `act` probe fails closed.
 - Lever `actbench hoststarts off`: starts 0, `ext_impacts` 0, caps bit 5 clear, every tape impact 46 bytes.
 
-### 6.8 s119 — `coop_action_replay.py`
+### 6.8 s123 — `coop_action_replay.py`
 
-Flow: s118's battle with `tape rec`, then back on 30602, `dioboot 67 <pat>`, wait for phase 4 and units loaded.
+Flow: s122's battle with `tape rec`, then back on 30602, `dioboot 67 <pat>`, wait for phase 4 and units loaded.
 Snapshot the invariants: gil, a marker item's count, exp and levels, kill counts, `ach_held`, `r9_refused`, every unit's
 `hp_raw` and mp. **Precondition:** `act.guest.calc_while_booted == 0` in this no-replay diorama.
 
@@ -1305,11 +1307,11 @@ Snapshot the invariants: gil, a marker item's count, exp and levels, kill counts
   comes within the same frame budget as the taped host's. **(review replay F7)**
 
 **RED:**
-- On s118: the probe fails closed.
+- On s122: the probe fails closed.
 - Lever `actbench replay off`: legs A/B/C red on started/acting/away/ended; F shows the swing.
 - Lever `actbench shortcircuit off` on one Leg-A replay: `calc_while_booted >= 1`, the tripwire's own red.
 
-### 6.9 s120 — `coop_action_hold.py`
+### 6.9 s124 — `coop_action_hold.py`
 
 - **Leg 1.** START + a non-lethal impact (4321): `hp_raw` follows within 1 frame. There is no 4321 figure until
   `first_hit_ms`, then one entry via "hit" within ±2 frames. The flinch comes only after the hit.
@@ -1329,10 +1331,10 @@ Snapshot the invariants: gil, a marker item's count, exp and levels, kill counts
 - **Leg 8, superseded.** A held revive, then a newer stat-tick frame for that slot: at the hit, the figure shows, the
   life change is skipped, and `superseded` + 1. **(review replay F9)**
 
-**RED:** on s119 the `guest.hold` probe is absent. With `actbench hold off`, leg 1 pops at arrival and leg 2 dies at
+**RED:** on s123 the `guest.hold` probe is absent. With `actbench hold off`, leg 1 pops at arrival and leg 2 dies at
 arrival.
 
-### 6.10 s121 — `coop_action_fallback.py`
+### 6.10 s125 — `coop_action_fallback.py`
 
 With `actbench replay off`, feed impacts:
 - Potion → `mot[MP_ITEM1]`; BlackMagic → MP_MAGIC; Attack → MP_ATTACK.
@@ -1341,10 +1343,10 @@ With `actbench replay off`, feed impacts:
 - A burst of 3 legacy impacts within 100 ms: `clips + 1`, `deduped + 2`. With one id: `+ 1`.
 - A lethal caster: no clip.
 
-**RED:** on s120, and with `actbench fallback off`: Item and Magic play MP_ATTACK, the enemy gets no clip, and the
+**RED:** on s124, and with `actbench fallback off`: Item and Magic play MP_ATTACK, the enemy gets no clip, and the
 counters are absent.
 
-### 6.11 s122 — `coop_action_trance.py`
+### 6.11 s126 — `coop_action_trance.py`
 
 Arm the stage-8 feed with **`bbench start 0x01` + `bbench caps 0x22`**, so the live peer view advertises bit 5.
 **(review replay F6)**
@@ -1352,29 +1354,29 @@ Arm the stage-8 feed with **`bbench start 0x01` + `bbench caps 0x22`**, so the l
 - A SysTrans START inside the grace: the model swaps exactly at `first_hit` (`swaps_by_hit` + 1).
 - Without a START: the swap comes by the grace at 400 ± 50 ms.
 
-**RED:** on s121, and with `actbench trancegrace off`: the swap is immediate. Calibrate also with caps 0x02, which
+**RED:** on s125, and with `actbench trancegrace off`: the swap is immediate. Calibrate also with caps 0x02, which
 must equal the lever red.
 
-### 6.12 s123-s126 — `coop_self_dress.py`
+### 6.12 s127-s130 — `coop_self_dress.py`
 
-**Leg I (s123), fields 250 then 30801:**
+**Leg I (s127), fields 250 then 30801:**
 - I1-I4: `player.model == 98`, `geo == "GEO_MAIN_F0_ZDN"`, `anim_geo == geo` at rest, `eye == -372`.
 - I5: walking → anim ∈ {25, 38}; at rest → 200.
 - I6: NPC models are published and none is 98.
 - I7: the ghost's model and clip mirror the player's.
 - I8: `party` has 4 entries.
-- RED on s122: key absent.
+- RED on s126: key absent.
 
-**Leg G (s124), field 250.** Read `dress.party` first.
+**Leg G (s128), field 250.** Read `dress.party` first.
 - G1: `selfdress ghost 2` → `ghost.model == Rigs[party[1]]`, `rig == party[1]`.
 - G2: `ghost 6` + `empty 1` → slot 2's member.
 - G3: `ghost 2` + `empty 1` → model 220, `GEO_NPC_F0_MOG`, `ANH_NPC_F0_MOG_*` clips.
 - G4: `dress.codec == "ok"`, plus the codec line.
 - G5 (control): `clear` → back to `player.model`.
-- G6: `rig_idle_frames` published for all 9 rows. This is the list s125's leg T judges.
-- RED on s123: the verb is refused before the step ("not reached") and the codec is absent. G5 is green.
+- G6: `rig_idle_frames` published for all 9 rows. This is the list s129's leg T judges.
+- RED on s127: the verb is refused before the step ("not reached") and the codec is absent. G5 is green.
 
-**Legs S/W/X/N/T (s125):**
+**Legs S/W/X/N/T (s129):**
 - **S1:** `selfdress self freya` + `warp 250` → model 192, `GEO_MAIN_F0_FRJ`, eye -376, `dress.self.uid == player.uid`,
   `confirmed >= 1`, one dress line.
 - **S2:** at rest 2556; walk 2553; run 2558; `anim_geo == geo` throughout.
@@ -1395,17 +1397,17 @@ must equal the lever red.
   **(review dress F1)**
 - **T2:** `effMapNo` checks see the raw id. Proven offline by a SelfTest row that `MapAnim` is applied after the
   special cases (the 2934 trigger itself is unbenchable solo).
-- **RED on s124:** the `self` op is refused ("not reached"); where reached, model 98. S4 and N1 are **"not reached"**
-  on s124, not green. **(review dress F6)**
+- **RED on s128:** the `self` op is refused ("not reached"); where reached, model 98. S4 and N1 are **"not reached"**
+  on s128, not green. **(review dress F6)**
 
-**Leg F (s126):**
+**Leg F (s130):**
 - F1: freya → steps {[2553,4], [2553,16], [2558,0], [2558,9]}.
 - F2: moogle → steps [], `steps_dropped == 12`.
 - F3 (control): off → {[25,4], [25,13], [38,0], [38,8]}.
 - F4: `light_row == 98`. **Before relying on the `_Color` half, read field 250's 98 row and its default row, and keep
   the color check only if they differ.** **(review dress F6)**
 - F5: the bench caller's HideObject(250,1) → `mesh_drops >= 1`, `player.meshflags == 0`.
-- RED on s125: F1/F2/F4/F5. F3 is green.
+- RED on s129: F1/F2/F4/F5. F3 is green.
 
 **Bench field.** `selfdress.field.toml`, a 30000-band scratch id. Read the live DictionaryPatch first, pass `--id`,
 relaunch once to register, and never pin the id in `.ff9deploy.toml`. It holds:
@@ -1419,7 +1421,7 @@ relaunch once to register, and never pin the id in `.ff9deploy.toml`. It holds:
   - G: `fleegil 77` + `escape` → `peer.end.flee_gil 77`, and after R9b `msg_gil 77`, gil unchanged. `none` → -1.
   - H: a real own battle with Zidane's Flee ability → `host.end.flee_gil` equals the gil lost.
   - K: codec SelfTest; a short fmt 2 record is skipped and the block kept.
-  - RED on s126: unknown op, keys absent.
+  - RED on s130: unknown op, keys absent.
 - **s112, leg S.**
   - `bench swirl local 115` + `DioramaSwirlFrames 0` + `dioboot` → SwirlScene dwell < 0.5 s.
   - `bench swirl ini` + `-1` → about 3.8 s.
@@ -1463,7 +1465,7 @@ relaunch once to register, and never pin the id in `.ff9deploy.toml`. It holds:
 | A19 | **Carried over: the F3.3 shop box** (`F3.2-DESIGN.md:927` box 9) | while the host shops, the guest's farewell line waits, locked; it closes on the host's farewell confirm |
 | A20 | (optional) mixed DLLs | new host + s110 laptop: no hold, the root freezes Wait, defeat/flee held as today. s110 host + new laptop: today's behaviour, no errors |
 
-### Sitting B — after s118-s126 (action replay and the guest's model)
+### Sitting B — after s122-s130 (action replay and the guest's model)
 
 **Replay** (side-by-side video):
 
@@ -1492,8 +1494,8 @@ relaunch once to register, and never pin the id in `.ff9deploy.toml`. It holds:
 
 | Box | What | Pass |
 |---|---|---|
-| B19 | After s124 only, the laptop still on s117 (old-guest box) | with 2+ members the host sees the slot-1 member; with 1 member a MOOGLE that walks, runs and turns; the laptop's own screen is unchanged |
-| B20 | Both on s126, field 250 | the laptop's body is the slot-1 character on both screens; one dress line per field load |
+| B19 | After s128 only, the laptop still on s117 (old-guest box) | with 2+ members the host sees the slot-1 member; with 1 member a MOOGLE that walks, runs and turns; the laptop's own screen is unchanged |
+| B20 | Both on s130, field 250 | the laptop's body is the slot-1 character on both screens; one dress line per field load |
 | B21 | 1-member party | the moogle on both screens; the speech bubble sits at moogle head height |
 | B22 | A host party change mid-field | the host's ghost re-dresses when the menu closes; the laptop changes at its next door; no frozen camera, no NRE in `output_log.txt` |
 | B23 | A talk relay whose scene animates the player (Dali/Lindblum) | the dressed body idles through the gestures; the scene ends on both machines |
@@ -1502,7 +1504,7 @@ relaunch once to register, and never pin the id in `.ff9deploy.toml`. It holds:
 | B26 | Session end | the exit ramp reloads the laptop's own save undressed |
 | B27 | `SelfDress=0` (live) | at the next load the laptop stays Zidane, and the host's ghost ALSO shows Zidane (the guard) |
 | B28 | A Steiner- or Dagger-led section, or a `ZDD` (532) field | both screens show the real body; nothing is dressed |
-| B29 | After s126 | the tree shadow on 250 darkens the dressed body; footsteps audible for humanoids, silent for the moogle; a dagger-draw cutscene leaves the dressed body intact |
+| B29 | After s130 | the tree shadow on 250 darkens the dressed body; footsteps audible for humanoids, silent for the moogle; a dagger-draw cutscene leaves the dressed body intact |
 | B30 | Every box | the host's own Zidane is never dressed |
 
 **Optional:** s116 (A12's figure on the laptop); s112 (the laptop's swirl as short as the desktop's, and A2's X
@@ -1557,7 +1559,7 @@ shorter).
     - hand-bone props land on the same-index bone;
     - two copies of a character are possible in party cutscenes;
     - collision and talk radius stay Zidane's.
-12. **The host's ghost changes for non-Zidane leaders.** The dress guard (s124) now shows a Steiner-led guest as
+12. **The host's ghost changes for non-Zidane leaders.** The dress guard (s128) now shows a Steiner-led guest as
     Steiner, where s110's slot dress showed the slot member. Intended: both screens agree.
 13. **Patch numbering and the shared clone.**
     - Builds auto-deploy.
@@ -1570,14 +1572,14 @@ shorter).
 
 ## 9. Owner questions — ANSWERED 2026-10-13: every default taken
 
-The owner answered all nine: two sittings (A after s117, B after s126); clamp the laptop's diorama swirl to the
+The owner answered all nine: two sittings (A after s117, B after s130); clamp the laptop's diorama swirl to the
 desktop's (build s112; the owner will read the laptop's `BattleSwirlFrames` for the record); a killing blow or revive
 holds the HP bar with the pose until the replay's hit (cap 2.5 s); the replay camera follows the host's Speed; all
 replay sounds and summon songs play; the v1 replay gaps are accepted; build s116 (the gil relay); the host's `GhostAs`
 also drives the guest's own look; dress only the plain Zidane body (model 98) in v1. The questions as asked:
 
 
-1. **Sitting cadence.** Two sittings, A after s117 and B after s126, or one sitting at the end?
+1. **Sitting cadence.** Two sittings, A after s117 and B after s130, or one sitting at the end?
    *Default: two.* Sitting A lands the start sync, Wait parity, flee and defeat, and the carried-over retests sooner.
    It also measures the laptop's boot time and swirl, which decides s112.
 2. **The laptop's `[Graphics] BattleSwirlFrames`.** Please read it from the laptop's Memoria.ini (or launcher). If it
@@ -1734,17 +1736,17 @@ Every finding was re-checked in the code (the citations are in the finding's fol
 - **Engine C#: about 5k lines.**
   - Start sync and Wait parity: about 0.7k.
   - Flee and defeat: about 0.5k.
-  - Action replay: about 2.0k (s119 alone about 1k).
+  - Action replay: about 2.0k (s123 alone about 1k).
   - Guest model: about 1.0k.
   - HarnessAgent: about 0.8k.
 - **Repo Python: about 2-2.5k lines.** Twelve new scenario files or parts, the codecs, session.py, fakegame.py,
   channel.py, and the pinned tests.
 - **Cadence.** 16 DLL rounds (the owner chose to build s112 and s116). Each round is one build, one calibrated
   solo bench and one patch. That is about 10-13 focused build sessions and two two-machine sittings.
-- **Adversarial review.** One review of the s114, s119 and s125 diffs before their deploys. This arc's history says a
+- **Adversarial review.** One review of the s114, s123 and s129 diffs before their deploys. This arc's history says a
   verify pass corrects most single-pass claims.
 - **Unknowns, settled only in game, in order:**
   1. The laptop's boot-to-live time and swirl (s111's log line; it decides s112).
-  2. Whether replays compose and look right over `BattleMapDebug` at Speed 5 (s119).
-  3. The real-link timing between the replay's hit and the host's impact frames (s120).
-  4. Dressed-body cutscene behaviour in stock story fields (s125).
+  2. Whether replays compose and look right over `BattleMapDebug` at Speed 5 (s123).
+  3. The real-link timing between the replay's hit and the host's impact frames (s124).
+  4. Dressed-body cutscene behaviour in stock story fields (s129).

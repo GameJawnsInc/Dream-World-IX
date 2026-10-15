@@ -8450,6 +8450,19 @@ def build_parser() -> argparse.ArgumentParser:
     co.add_argument("--new-code", action="store_true", help="host: mint a fresh session code instead of "
                                                             "reusing the saved one")
     co.add_argument("--insecure", action="store_true", help="skip TLS certificate verification (self-signed relays)")
+    # bridge hang sentinel (battle co-op R3 T1) -- mirrors netsync_bridge.add_hang_arguments, inline so
+    # building the CLI parser never imports the bridge (ssl et al.)
+    co.add_argument("--hang-dump", action="store_true",
+                    help="bridge: if the game stops sending for --hang-after seconds (a hung/suspended FF9), "
+                         "write ONE full minidump of FF9.exe (1-3 GB) + copies of its logs to "
+                         "%%LOCALAPPDATA%%\\ff9mapkit\\hangdumps. Default OFF (or set FF9_HANG_DUMP=1)")
+    co.add_argument("--hang-dump-dir", default=None, metavar="DIR",
+                    help="bridge: write hang dumps here instead (implies --hang-dump)")
+    co.add_argument("--hang-after", type=float, default=None, metavar="SECONDS",
+                    help="bridge: game-hop silence that counts as a hang (default 10)")
+    co.add_argument("--bridge-log", default=None, metavar="FILE",
+                    help="bridge: tee its timestamped log here (default: a new "
+                         "%%LOCALAPPDATA%%\\ff9mapkit\\bridge-logs\\bridge-<time>.log per run)")
     co.set_defaults(func=_cmd_coop)
 
     ds = sub.add_parser("disasm", help="disassemble a .eb field script")

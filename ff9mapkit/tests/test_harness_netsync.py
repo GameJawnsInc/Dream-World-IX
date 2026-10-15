@@ -890,10 +890,11 @@ def test_the_driver_and_the_stand_in_speak_the_bench_hosts_ops():
 
 
 def _dio_leaves(block: dict, prefix: str = "") -> dict:
-    """[ff9mapkit netsync R3] ``netsync.diorama``'s R3 sub-blocks (`intro`, `intro.swirl_clamp`, `live`) as path -> value."""
+    """[ff9mapkit netsync R3] ``netsync.diorama``'s R3 sub-blocks (`intro`, `intro.swirl_clamp`, `live`; [ff9mapkit netsync
+    R3 s119] `hold`) as path -> value."""
     out = {}
     for k, v in block.items():
-        if isinstance(v, dict) and (prefix or k in ("intro", "live")):
+        if isinstance(v, dict) and (prefix or k in ("intro", "live", "hold")):
             out.update(_dio_leaves(v, prefix + k + "."))
         elif prefix:
             out[prefix + k] = v
@@ -920,16 +921,21 @@ def test_a_fresh_stand_in_publishes_the_agents_f33_sentinels(game):
     assert net_lines("NetSyncField.cs", r"public static Int32 KeyTick;") and doc["key_tick"] == 0
     assert list(doc["diorama"]) == list(nothing["diorama"])
     # [ff9mapkit netsync R3 s111/s112] ...the diorama block's nested R3 keys at the agent's sentinels, except the four the
-    # agent reads LIVE off config with no client (each a live read in the agent, never the sentinel)
-    live = {"intro.swirl_frames": "HarnessSwirlFrames", "intro.swirl_clamp.ini": "HarnessSwirlClampIni",
-            "intro.swirl_clamp.clamp": "HarnessSwirlClamp", "intro.swirl_clamp.src": "HarnessSwirlClampSrc"}
+    # agent reads LIVE off config with no client (each a live read in the agent, never the sentinel) -- [ff9mapkit netsync
+    # R3 s119/s120] and s119's hold cap and settle, read off NetSyncClient's statics (the cap = s120's session grace)
+    live = {"intro.swirl_frames": "NetSyncDiorama.HarnessSwirlFrames",
+            "intro.swirl_clamp.ini": "NetSyncDiorama.HarnessSwirlClampIni",
+            "intro.swirl_clamp.clamp": "NetSyncDiorama.HarnessSwirlClamp",
+            "intro.swirl_clamp.src": "NetSyncDiorama.HarnessSwirlClampSrc",
+            "hold.cap_ms": "NetSyncClient.HarnessHoldCapMs", "hold.settle_ms": "NetSyncClient.HarnessHoldSettleMs"}
     got, want = _dio_leaves(doc["diorama"]), _dio_leaves(nothing["diorama"])
     assert list(got) == list(want)
     for path, value in want.items():
         if path not in live:
             assert got[path] == value, (path, got[path], value)
     for getter in live.values():
-        assert any("Netsync.NetSyncDiorama." + getter in ln for ln in _stack_text("HarnessAgent.cs")), getter
+        assert any("Netsync." + getter in ln for ln in _stack_text("HarnessAgent.cs")), getter
+    assert (got["hold.cap_ms"], got["hold.settle_ms"]) == (BW.SESSION_GRACE_DEFAULT_MS, BW.DIORAMA_SETTLE_MS)
 
 
 @pytest.mark.parametrize("caps,stem", [((), "s96"), (("diorama",), "s97"), (("diorama", "ring"), "s98")])
@@ -1962,7 +1968,8 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
         assert [v for v in verbs_now if v in prev_verbs] == list(prev_verbs), (patch, verbs_now)
         doc_now = _catch_doc_in(patch)
         new_top = [k for k in doc_now if k not in prev_doc]
-        assert new_top == (["battle"] if cap == "gates" else []), (patch, new_top)
+        # [ff9mapkit netsync R3 s120/s121] two top-level blocks join `battle`: `session`, then `menu_refusal`
+        assert new_top == (["battle"] if cap == "gates" else list(FG.NETSYNC_TOP_CAP_KEYS.get(cap, ()))), (patch, new_top)
         was, now = prev_doc.get("battle", {}), _battle_of(doc_now)
         added = {}
         for sub, keys in now.items():
@@ -2011,6 +2018,13 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(dio["intro"]) == FG.NETSYNC_DIORAMA_INTRO_KEYS
     assert tuple(dio["intro"]["swirl_clamp"]) == FG.NETSYNC_DIORAMA_SWIRL_KEYS
     assert tuple(dio["live"]) == FG.NETSYNC_DIORAMA_LIVE_KEYS
+    # [ff9mapkit netsync R3 s119-s121] the round's fixed blocks, in the agent's order, and the top-level order: `session` and
+    # `menu_refusal` sit between `diorama` and `battle` (AppendNetsync's own order)
+    assert tuple(dio["hold"]) == FG.NETSYNC_DIORAMA_HOLD_KEYS
+    assert tuple(prev_doc["session"]) == FG.NETSYNC_SESSION_KEYS
+    assert tuple(prev_doc["menu_refusal"]) == FG.NETSYNC_MENU_REFUSAL_KEYS
+    top = list(prev_doc)
+    assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
 
 
@@ -2171,7 +2185,7 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
 
 
 BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", "s107", "s108", "s109", "s110",
-                 "s111", "s112", "s113", "s114", "s115", "s116", "s117"]
+                 "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119", "s120", "s121"]
 
 
 @pytest.mark.parametrize("level", BATTLE_LEVELS)
@@ -2187,6 +2201,12 @@ def test_an_older_battle_stand_in_is_that_patchs_agent(game, level):
     assert set(doc) == set(want), set(doc) ^ set(want)
     assert set(_dio_leaves(doc["diorama"])) == set(_dio_leaves(want["diorama"])), level   # [ff9mapkit netsync R3]
     assert list(doc["diorama"]) == list(want["diorama"]), level
+    # [ff9mapkit netsync R3 s120/s121] ...and the blocks from `diorama` on in the agent's order (`session`, `menu_refusal`)
+    tail = [k for k in want if k in ("diorama", "session", "menu_refusal", "battle")]
+    assert [k for k in doc if k in tail] == tail, (level, list(doc))
+    for block in ("session", "menu_refusal"):
+        if block in want:
+            assert list(doc[block]) == list(want[block]), (level, block)
     if "battle" in want:
         assert set(_leaves(_battle_of(doc))) == set(_leaves(_battle_of(want))), \
             set(_leaves(_battle_of(doc))) ^ set(_leaves(_battle_of(want)))
@@ -2417,7 +2437,10 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
     caps = ("coop_host_gates", "coop_containment", "coop_stock_menu", "coop_end_trailer", "coop_presentation",
             "coop_exit_with_host", "coop_menu_content", "coop_ready_mirror", "coop_result_manifest", "coop_result_replay",
             "coop_slot_handback", "coop_intro_mirror", "coop_swirl_clamp", "coop_wait_parity", "coop_start_hold",
-            "coop_flee", "coop_flee_gil", "coop_defeat")
+            "coop_flee", "coop_flee_gil", "coop_defeat",
+            # [ff9mapkit netsync R3 s118-s121] the sitting-A round, one per patch
+            "coop_handback_report", "coop_diorama_hold", "coop_session_grace", "coop_menu_refusal")
+    assert len(caps) == len(BATTLE_LEVELS) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
     none = State({"frame": 1})
     assert all(getattr(none, c) is None for c in caps) and all(getattr(none, n) is None for n in table.values())
@@ -5241,12 +5264,12 @@ def test_state_reads_the_r3_keys_absent_as_cannot():
 
 
 def test_every_diorama_r3_key_has_an_accessor_and_every_accessor_a_key():
-    """The `netsync.diorama` R3 keys (s111 intro, s112 swirl_clamp, s114 live) the live agent publishes are exactly the
-    accessor table's paths (+ the three whole-block accessors)."""
+    """The `netsync.diorama` R3 keys (s111 intro, s112 swirl_clamp, s114 live; [ff9mapkit netsync R3 s119] hold) the live
+    agent publishes are exactly the accessor table's paths (+ the four whole-block accessors)."""
     nothing, _ = _agent_netsync_nothing()
     leaves = set(_dio_leaves(nothing["diorama"]))
     table = State.NETSYNC_DIORAMA_ACCESSORS
-    assert set(table) - leaves == {"intro", "intro.swirl_clamp", "live"}, sorted(set(table) ^ leaves)
+    assert set(table) - leaves == {"intro", "intro.swirl_clamp", "live", "hold"}, sorted(set(table) ^ leaves)
     assert leaves <= set(table)
 
 
@@ -5317,3 +5340,1073 @@ def test_the_start_hold_arms_late_ignores_a_stale_live_and_releases_on_the_link(
         st = g.wait_for(lambda s: s.coop_hold_release == "link", timeout=8.0, what="the link release")
         assert st.coop_hold_released_link == link + 1
         g.netsync("bench", "lapse", "end")
+
+
+# =========================================================================== [ff9mapkit netsync R3 s118-s121]
+# THE SITTING-A FIX ROUND (studies/battle-coop/R3-SITTING-A-FIXES.md): s118 the hand-back needs a live guest (HOST), s119
+# the diorama hold keyed on the PEER, s120 the session grace, s121 the audible menu refusal (GUEST). No new verb or op; the
+# harness stays at protocol 5 (additive keys, each capability told by its PRESENCE). Every pure decision's twin
+# (battlewire) EVALUATES the engine's OWN selftest rows, read off the stack in order (_cs_block + _run_cs_rows), so a
+# row's arguments, its verdict or its order changed on either side turns a test red; the deployed s117 is the stand-in with
+# FG.NETSYNC_SITTING_A_CAPS removed (S117_CAPS: the calibration's red).
+
+import inspect                                                          # noqa: E402
+
+S117_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_SITTING_A_CAPS)
+_CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def _new_side(file_name: str, patch_bytes: bytes) -> list:
+    """One patch's sections for ``file_name`` as NEW-side lines: ``(hunk, kind, stripped text)`` -- kind "+" (added) or
+    " " (context); removed lines dropped."""
+    out, hunk = [], 0
+    for path, sec in msr.sections(patch_bytes):
+        if not path or path.replace("\\", "/").rsplit("/", 1)[-1] != file_name:
+            continue
+        for ln in sec.decode("utf-8", "replace").splitlines():
+            if ln.startswith("@@"):
+                hunk += 1
+            elif ln[:1] in (" ", "+") and not ln.startswith("+++"):
+                out.append((hunk, ln[:1], ln[1:].strip()))
+    return out
+
+
+def _cs_block(file_name: str, start: str, stop: str = "catch (Exception err)") -> list:
+    """The NEW-side lines (stripped) of one block as the LAST live patch whose hunk holds ALL of it writes it: from a line
+    starting with ``start`` up to the first line equal to ``stop``, context and added lines in order, inside ONE hunk.
+    Then every line is checked against the live stack: an added line must be net-present and no line may be net-REMOVED
+    (a later patch that rewrote one, in a hunk that did not hold the whole block, leaves this read stale -- and red)."""
+    block = None
+    for name in msr.stack():
+        if name in msr.DEAD:
+            continue
+        new = _new_side(file_name, (msr.PATCHES / name).read_bytes())
+        for i, (hunk, _kind, text) in enumerate(new):
+            if not text.startswith(start):
+                continue
+            j = next((k for k in range(i, len(new)) if new[k][2] == stop and new[k][0] == hunk), None)
+            if j is not None and all(h == hunk for h, _k, _t in new[i:j]):
+                block = [(k, t) for _h, k, t in new[i:j]]
+    assert block, (file_name, start)
+    net = {}
+    for sign, text in _changed_lines(file_name):
+        net[text] = net.get(text, 0) + sign
+    # (a generic short line -- a brace, `ref rows, ref fail);` -- says nothing about WHICH block it sits in: skipped)
+    stale = [t for k, t in block if len(t) > 24 and (net.get(t, 0) < 0 or (k == "+" and net.get(t, 0) <= 0))]
+    assert not stale, stale
+    return [t for _k, t in block]
+
+
+def _changed_lines(file_name: str):
+    """Every (+1 | -1, stripped text) the live stack adds to / removes from ``file_name`` (removed lines included)."""
+    from ._patchstack import _changed
+    return _changed(file_name, r".", None)
+
+
+def _added_after(patch: str, file_name: str, before: str, mine: str) -> bool:
+    """In ONE patch's hunk, the line it ADDS containing ``mine`` comes after a line containing ``before`` (the patch put
+    its line right behind the earlier one: file order, read off the patch itself)."""
+    new = _new_side(file_name, _patch_bytes(patch))
+    for i, (hunk, kind, text) in enumerate(new):
+        if kind == "+" and mine in text:
+            return any(h == hunk and before in t for h, _k, t in new[:i])
+    return False
+
+
+def _strip_comment(line: str) -> str:
+    """A C# line without its trailing ``//`` comment (string literals kept whole)."""
+    out, i, quoted = [], 0, False
+    while i < len(line):
+        c = line[i]
+        if quoted:
+            out.append(c)
+            if c == "\\" and i + 1 < len(line):
+                out.append(line[i + 1])
+                i += 1
+            elif c == '"':
+                quoted = False
+        elif c == '"':
+            quoted = True
+            out.append(c)
+        elif line.startswith("//", i):
+            break
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out).strip()
+
+
+def _split_statements(code: str) -> list:
+    """``code`` split on its top-level ``;`` (string literals kept whole)."""
+    out, cur, quoted, i = [], [], False, 0
+    while i < len(code):
+        c = code[i]
+        cur.append(c)
+        if quoted:
+            if c == "\\" and i + 1 < len(code):
+                cur.append(code[i + 1])
+                i += 1
+            elif c == '"':
+                quoted = False
+        elif c == '"':
+            quoted = True
+        elif c == ";":
+            cur.pop()
+            out.append("".join(cur).strip())
+            cur = []
+        i += 1
+    if "".join(cur).strip():
+        out.append("".join(cur).strip())
+    return [s for s in out if s]
+
+
+def _balanced(text: str, at: int) -> int:
+    """The index just past the parenthesised group opening at ``text[at]`` (string literals already masked)."""
+    depth = 0
+    for k in range(at, len(text)):
+        depth += {"(": 1, ")": -1}.get(text[k], 0)
+        if depth == 0:
+            return k + 1
+    raise AssertionError(f"unbalanced: {text!r}")
+
+
+def _cs_expr(expr: str) -> str:
+    """One C# boolean / arithmetic expression of a selftest row as Python: string literals kept (C# escapes decoded),
+    ``ref``/``out`` arguments dropped (the twins' wrappers read and write them in the namespace), ``UIManager.UIState.X``
+    -> "X", ``new Byte[] { .. }`` -> bytes, an array initialiser -> a list, ``x.Length`` -> len(x), true/false/null, the
+    local const ``None`` -> ``NONE_``, && / || / ! (each ``!`` around its whole operand)."""
+    strings = []
+
+    def keep(m):
+        strings.append(repr(m.group(1).replace('\\"', '"').replace("\\\\", "\\")))
+        return f"__S{len(strings) - 1}__"
+
+    code = _CS_STRING.sub(keep, expr)
+    code = re.sub(r"\bUIManager\.UIState\.(\w+)", lambda m: repr(m.group(1)), code)
+    code = re.sub(r"\bnew Byte\[\]\s*\{([^{}]*)\}", r"bytes([\1])", code)
+    code = re.sub(r"^\{([^{}]*)\}$", r"[\1]", code.strip())
+    code = re.sub(r"\b(\w+)\.Length\b", r"len(\1)", code)
+    code = re.sub(r"\bref \w+,\s*", "", code)
+    code = re.sub(r",\s*out \w+", "", code)
+    code = re.sub(r"\bNone\b", "NONE_", code)
+    code = re.sub(r"\btrue\b", "True", code)
+    code = re.sub(r"\bfalse\b", "False", code)
+    code = re.sub(r"\bnull\b", "None", code)
+    code = code.replace("&&", " and ").replace("||", " or ")
+    while True:
+        m = re.search(r"!(?!=)", code)
+        if not m:
+            break
+        k = m.end()
+        while code[k] == " ":
+            k += 1
+        if code[k] == "(":
+            end = _balanced(code, k)
+        else:
+            w = re.match(r"[\w.]+", code[k:])
+            assert w, code
+            end = k + w.end()
+            if end < len(code) and code[end] == "(":
+                end = _balanced(code, end)
+        code = code[:m.start()] + "(not " + code[k:end] + ")" + code[end:]
+    for i, s in enumerate(strings):
+        code = code.replace(f"__S{i}__", s)
+    return code
+
+
+_DECL = re.compile(r"^(?:const )?(?:Int32|Boolean|String|Byte|UIManager\.UIState)(?:\[\])? (\w+)(?: = (.+))?$")
+_ROW = re.compile(r'^(?:Row|WatchRow|MenuRow)\((.*), "((?:[^"\\]|\\.)*)", ref rows, ref fail\)$', re.S)
+
+
+def _cs_program(lines: list) -> list:
+    """A selftest block's lines -> an ordered list of statements and ``("for", var, array, body)`` loops (the one loop
+    shape the selftests use: ``for (Int32 k = 0; k < arr.Length; k++) { .. }``). Comments, braces and ``try`` drop out."""
+    out, buf, i = [], [], 0
+    lines = [_strip_comment(ln) for ln in lines
+             if not re.match(r"(?:internal|private|public) static ", ln)]       # the method's own signature
+
+    def flush():
+        if buf:
+            out.extend(_split_statements(" ".join(buf)))
+            buf.clear()
+    while i < len(lines):
+        ln = lines[i]
+        m = re.fullmatch(r"for \(Int32 (\w+) = 0; \1 < (\w+)\.Length; \1\+\+\)", ln)
+        if m:
+            flush()
+            assert lines[i + 1] == "{", lines[i:i + 2]
+            depth, j = 1, i + 2
+            while depth:
+                depth += {"{": 1, "}": -1}.get(lines[j], 0)
+                j += 1
+            out.append(("for", m.group(1), m.group(2), _cs_program(lines[i + 2:j - 1])))
+            i = j
+            continue
+        if ln and ln not in ("{", "}", "try"):
+            buf.append(ln)
+        i += 1
+    flush()
+    return out
+
+
+def _run_cs_rows(program: list, ns: dict) -> list:
+    """Run a selftest program in ``ns`` (the twins and constants by their C# names): declarations and assignments
+    evaluate, each Row asserts its expression true for the twins; ``if (c) x = v`` and the one loop shape run as C#
+    would. Returns the row names in order."""
+    names = []
+    for item in program:
+        if isinstance(item, tuple):
+            _tag, var, arr, body = item
+            for k in range(len(ns[arr])):
+                ns[var] = k
+                names += _run_cs_rows(body, ns)
+            continue
+        st = " ".join(item.split())
+        m = _ROW.match(st)
+        if m:
+            got = eval(_cs_expr(m.group(1)), ns)                       # noqa: S307 -- the stack's own selftest rows
+            assert got is True, f"row {m.group(2)!r} ({' '.join(m.group(1).split())}) is {got!r} for the twin"
+            names.append(m.group(2))
+            continue
+        m = re.fullmatch(r"if \((.*)\) (\w+) = (.+)", st)
+        if m and _balanced(st, 3) == len("if (" + m.group(1) + ")"):
+            if eval(_cs_expr(m.group(1)), ns):                          # noqa: S307
+                ns[m.group(2)] = eval(_cs_expr(m.group(3)), ns)         # noqa: S307
+            continue
+        m = _DECL.match(st) or re.fullmatch(r"(\w+) = (.+)", st)
+        assert m, f"an unparsed selftest statement: {st!r}"
+        name = "NONE_" if m.group(1) == "None" else m.group(1)          # (the C# local const `None`, as _cs_expr spells it)
+        ns[name] = None if m.group(2) is None else eval(_cs_expr(m.group(2)), ns)   # noqa: S307
+    return names
+
+
+def _cs_params(file_name: str, method: str) -> list:
+    """A C# method's parameter names (``ref`` / ``out`` ones marked), read off its signature in the stack."""
+    sig = _cs_block(file_name, f"internal static {method}(", "{")
+    text = " ".join(sig)
+    inner = text[text.index("(") + 1:text.rindex(")")]
+    return [" ".join(p.split()[:-2] + [p.split()[-1]]) if p.split()[0] in ("ref", "out") else p.split()[-1]
+            for p in inner.split(",")]
+
+
+def _snake(name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def _twin_params(fn) -> list:
+    return [p.rstrip("_") for p in inspect.signature(fn).parameters]
+
+
+def test_the_sitting_a_twins_take_the_engines_parameters_in_its_order():
+    """Each twin's parameters ARE its C# method's, in order (camelCase -> snake_case; `ref seen` is the latch dict; an
+    `out` result is the twin's return): a parameter added or moved on either side turns this red."""
+    for file_name, method, fn, fix in (
+            ("NetSyncBattle.cs", "Boolean GuestOwnsFromReport", BW.guest_owns_from_report, {}),
+            ("NetSyncBattle.cs", "Boolean GuestOwnsStep", BW.guest_owns_step, {"ref seen": "latch"}),
+            ("NetSyncClient.cs", "Int32 DioramaWatchStep", BW.diorama_watch_step, {}),
+            ("NetSyncClient.cs", "Int32 SessionGraceStep", BW.session_grace_step, {}),
+            ("NetSyncClient.cs", "Boolean SessionRampArms", BW.session_ramp_arms, {}),
+            ("NetSyncClient.cs", "Int32 ParseSessionGrace", BW.parse_session_grace, {}),
+            ("NetSyncField.cs", "Int32 MenuKeyStep", BW.menu_key_step, {}),
+            ("NetSyncField.cs", "Int32 MenuKeyRoute", BW.menu_key_route, {})):
+        cs = [fix.get(p, fix.get(_snake(p), _snake(p))) for p in _cs_params(file_name, method)
+              if not p.startswith("out ")]
+        assert cs == _twin_params(fn), (method, cs, _twin_params(fn))
+
+
+# ---- s118: the ownership rule
+def test_guest_owns_twins_evaluate_every_s118_control_selftest_row_off_the_stack():
+    """GuestOwnsFromReport / GuestOwnsStep's twins against ControlSelfTest's OWN s118 block, EVALUATED in order: the 13
+    `own:` rows (the decoded-report rows through the codec twins) and the 7 `step:` sequences over the per-battle latch --
+    and the whole selftest is 53 rows (33 before s118), the proof line's count."""
+    assert _battle_text("const Byte N = 0x41;")
+    ns = dict(BW.CS_BATTLE_CONSTANTS, N=0x41, m=None, t=None, n=None, b=None, seen=False)
+
+    def owns_step(trailer, nonce, boot, battle):                     # GuestOwnsStep(ref seen, ...)
+        latch = {"seen": ns["seen"]}
+        out = BW.guest_owns_step(latch, trailer, nonce, boot, battle)
+        ns["seen"] = latch["seen"]
+        return out
+
+    def decode(frame, battle):                                       # DecodeControl(.., out m, out t, out n, out b)
+        d = BW.decode_control(frame, battle)
+        if d is None:
+            return False
+        ns.update(m=d["menu"], t=d["trailer"], n=d["nonce"], b=d["boot"])
+        return True
+
+    ns.update(GuestOwnsFromReport=BW.guest_owns_from_report, GuestOwnsStep=owns_step, DecodeControl=decode,
+              BuildControl=BW.encode_control)
+    names = _run_cs_rows(_cs_program(_cs_block("NetSyncBattle.cs", "// --- [ff9mapkit netsync R3 s118] the ownership rule")),
+                         ns)
+    assert len(names) == BW.CONTROL_SELFTEST_ROWS - BW.CONTROL_SELFTEST_ROWS_S114 == 20, names
+    assert sum(n.startswith("own: ") for n in names) == 13 and sum(n.startswith("step: ") for n in names) == 7
+    assert "step: declined latches (the sitting-A shape)" in names
+    rows = sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs"))
+    assert rows == BW.CONTROL_SELFTEST_ROWS == 53, rows
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s117"))) == \
+        BW.CONTROL_SELFTEST_ROWS_S114 == 33
+
+
+def test_the_ownership_rule_keeps_a_refused_frames_byte_one_shut():
+    """ParseControl's s118 half (parse_control_owned): an owning frame keeps its byte 1; a refused one (DECLINED, BUSY,
+    NONE after the latch, another battle) reads SHUT -- no Wait freeze from a guest that commands nothing -- and the
+    loopback under `bench boot auto` owns whatever it reports (its latch still moves); a 2-byte frame owns (an older
+    guest); a malformed frame is None and moves nothing."""
+    n = 0x41
+    latch = BW.new_own_latch()
+    d = BW.parse_control_owned(BW.encode_control(BW.CTL_DEEP, n, BW.BOOT_LIVE), n, latch)
+    assert d["owns"] and d["menu"] == BW.CTL_DEEP and latch["seen"]
+    d = BW.parse_control_owned(BW.encode_control(BW.CTL_DEEP, n, BW.BOOT_DECLINED), n, latch)
+    assert not d["owns"] and d["menu"] == BW.CTL_SHUT and d["boot"] == BW.BOOT_DECLINED
+    d = BW.parse_control_owned(BW.encode_control(BW.CTL_ROOT, n, BW.BOOT_NONE), n, latch)
+    assert not d["owns"] and d["menu"] == BW.CTL_SHUT                     # NONE after the latch
+    fresh = BW.new_own_latch()
+    assert BW.parse_control_owned(BW.encode_control(BW.CTL_ROOT, n, BW.BOOT_NONE), n, fresh)["owns"]   # the panel-only guest
+    d = BW.parse_control_owned(BW.encode_control(BW.CTL_ROOT, n, BW.BOOT_BUSY), n, fresh, loopback_auto=True)
+    assert d["owns"] and d["menu"] == BW.CTL_ROOT and fresh["seen"]        # the loopback owns; the latch still rose
+    assert BW.parse_control_owned(bytes([0, 2]), n, BW.new_own_latch())["owns"]
+    other = BW.new_own_latch()
+    d = BW.parse_control_owned(BW.encode_control(BW.CTL_ROOT, n - 1, BW.BOOT_LIVE), n, other)
+    assert not d["owns"] and not other["seen"]                            # another battle never latches
+    assert BW.parse_control_owned(bytes([1, 2]), n, other) is None and not other["seen"]
+    assert BW.refused_report_phrase(n, BW.BOOT_DECLINED, n) == "it reports declined for this battle"
+    assert BW.refused_report_phrase(n, BW.BOOT_NONE, n) == \
+        "it reports none for this battle after reporting a diorama of it"
+    assert BW.refused_report_phrase(n - 1, BW.BOOT_LIVE, n) == "its report names another battle (nonce 64, live)"
+    for piece in ('return "it reports " + boot + " for this battle" + (_rptBoot == BootNone ? " after reporting a diorama of '
+                  'it" : "");', 'return "its report names another battle (nonce " + _rptNonce + ", " + boot + ")";'):
+        assert _battle_text(piece), piece
+
+
+def test_parse_controls_s118_half_is_the_engines_statement_for_statement():
+    """[ff9mapkit netsync R3 s118] The ENGINE half the twin above mirrors -- the row evaluator covers GuestOwnsStep /
+    GuestOwnsFromReport only, so ParseControl's own s118 statements are pinned here, in order: the step's verdict OR the
+    loopback exemption, the lane stamp on every valid frame, the ownership stamp on an owning one only, byte 1 SHUT on a
+    refused one. And the exemption is the selftest pump's alone, under `bench boot auto` (BenchBoot < 0; an explicit
+    `bench boot none` meets the rule): a real peer's frame and a `bctl` stamp pass none -- the stand-in's loopback reads the
+    same test. Dropping `else menuRead = CtlShut;`, or moving the exemption's bound, turns this red."""
+    block = [ln.split("//")[0].strip() for ln in _cs_block("NetSyncBattle.cs", "Boolean owns = GuestOwnsStep(",
+                                                          "_ctlTrailer = trailer;")]
+    assert [ln for ln in block if ln] == [
+        "Boolean owns = GuestOwnsStep(ref _rptDioramaSeen, trailer, rptNonce, rptBoot, _battleNonce) || loopbackAuto;",
+        "_ctlLaneTick = now;", "if (owns)", "_assistTick = now;", "else", "menuRead = CtlShut;"], block
+    assert _battle_text("private static void ParseControl(Byte[] payload, Boolean loopbackAuto = false)")
+    calls = sorted({ln.split("//")[0].strip() for ln in _stack_text("NetSyncBattle.cs")
+                    if re.match(r"\s*ParseControl\(", ln.split("//")[0])})
+    assert calls == ["ParseControl(BenchLapseFrame(BenchBootFrame(GuestControl(_peerView))), BenchBoot < 0);",
+                     "ParseControl(frame);", "ParseControl(socket.GetRemoteControl());"], calls
+    assert BW.BENCH_BOOT["auto"] < 0 <= min(v for k, v in BW.BENCH_BOOT.items() if k != "auto")
+    assert "auto = nb.bench_boot < 0" in inspect.getsource(FakeGame._nb_loopback_control)
+
+
+# ---- s119: the diorama hold keyed on the peer
+def _watch_ns() -> dict:
+    """The namespace DioramaWatchSelfTest / SessionGraceSelfTest run in: the constants, and the twins under their C# names
+    -- WatchAt built from ITS OWN body on the stack (its parameters mapped onto DioramaWatchStep's arguments)."""
+    ns = dict(BW.CS_CLIENT_CONSTANTS, w=None, note=None)
+    head = " ".join(_cs_block("NetSyncClient.cs", "private static Int32 WatchAt(", "}"))
+    params = re.search(r"WatchAt\((.*?)\)\s*\{", head).group(1)
+    names = [p.split()[-1] for p in params.split(",") if not p.split()[0] == "out"]
+    call = re.search(r"return DioramaWatchStep\((.*), out why\);", head).group(1)
+    args = [a.strip() for a in call.split(",")]
+
+    def watch_step(*a):                                               # DioramaWatchStep(.., out w)
+        v, why = BW.diorama_watch_step(*a)
+        ns["w"] = why
+        return v
+
+    def watch_at(*vals):                                              # WatchAt(.., out w)
+        env = dict(BW.CS_CLIENT_CONSTANTS, **dict(zip(names, vals)))
+        return watch_step(*[eval(_cs_expr(x), env) for x in args])     # noqa: S307
+
+    def parse(raw):                                                   # ParseSessionGrace(raw, out note)
+        v, ns["note"] = BW.parse_session_grace(raw)
+        return v
+
+    ns.update(DioramaWatchStep=watch_step, WatchAt=watch_at, SessionGraceStep=BW.session_grace_step,
+              SessionRampArms=BW.session_ramp_arms, ParseSessionGrace=parse)
+    return ns
+
+
+def test_diorama_watch_step_evaluates_every_watcher_selftest_row_off_the_stack():
+    """DioramaWatchStep's twin against DioramaWatchSelfTest's OWN rows, EVALUATED in order through WatchAt (itself read off
+    the stack: from s120 it passes the stall cap = the cap, so the s119 rows read as before) -- sitting A's cut holds,
+    the cap's boundary, the stalled lane, the genuinely-over pair and its fences, the settle, a decided leave, live
+    wins, and the four sequences: 24 rows, the proof line's count."""
+    names = _run_cs_rows(_cs_program(_cs_block("NetSyncClient.cs", "internal static Boolean DioramaWatchSelfTest(")),
+                         _watch_ns())
+    assert len(names) == BW.WATCH_SELFTEST_ROWS == 24, names
+    assert names[3] == "sitting A: a cut holds" and len(set(names)) == len(names)
+
+
+def test_the_sitting_a_row_left_on_s56_and_holds_on_s119():
+    """THE CALIBRATING ROW (R3-SITTING-A-FIXES.md s119): IsConnected=1 (the local bridge's hop), the position lane stale
+    (GetRemote invalid: PEER-ALIVE false), the battle lane stale, host field 0, nothing terminal. The s56 predicate (stale
+    + link UP = over) LEAVES at once -- sitting A's ~2 s leave and stamped skip; the s119 step HOLDS, and keeps holding
+    to the cap (s119: 8 s; s120: the 30 s grace), then leaves on the cap. The genuine end -- the peer alive on its field
+    for the settle -- leaves on both."""
+    n, alive = 0x41, BW.peer_alive(True, False)
+    assert alive is False and BW.peer_alive(True, True) and not BW.peer_alive(False, True)
+    assert BW.s56_watch_step(False, 0, n, True, 0) == BW.WATCH_LEAVE_FINAL
+    s, c119, grace = BW.DIORAMA_SETTLE_MS, BW.hold_cap_ms(None), BW.hold_cap_ms(BW.SESSION_GRACE_DEFAULT_MS)
+    assert (c119, grace) == (8000, 30000)
+    for cap in (c119, grace):
+        step = lambda stale: BW.diorama_watch_step(False, 0, n, alive, -1, False, stale, 0, s, cap,    # noqa: E731
+                                                   BW.DIORAMA_STALL_CAP_MS, BW.WATCH_WHY_NONE)
+        assert step(0) == (BW.WATCH_HOLD, BW.WATCH_WHY_NONE) and step(6000) == (BW.WATCH_HOLD, BW.WATCH_WHY_NONE)
+        assert step(cap) == (BW.WATCH_HOLD, BW.WATCH_WHY_NONE)
+        assert step(cap + 1) == (BW.WATCH_LEAVE_FINAL, BW.WATCH_WHY_HOLD_CAP)
+    # the s56 predicate held only with the hop DOWN (to its 8 s), which behind the bridge never happens under a cut
+    assert BW.s56_watch_step(False, 0, n, False, 8000) == BW.WATCH_HOLD
+    assert BW.s56_watch_step(False, 0, n, False, 8001) == BW.WATCH_LEAVE_FINAL
+    assert BW.s56_watch_step(True, n, n, True, 0) == BW.WATCH_NOTHING and BW.s56_watch_step(True, 7, n, True, 0) == 2
+    assert BW.diorama_watch_step(False, 0, n, True, 250, False, s, s, s, grace, BW.DIORAMA_STALL_CAP_MS, 0) == \
+        (BW.WATCH_LEAVE_FINAL, BW.WATCH_WHY_HOST_FIELD)
+    # the s56 lines are gone from the live stack, the s119 predicate replaced them (read off the s119 patch)
+    assert net_lines("NetSyncClient.cs", re.escape("Boolean transportUp = _socket != null && _socket.IsConnected;"),
+                     _prefix("s118")) and not _battle_text("Boolean transportUp = _socket != null && _socket.IsConnected;")
+    assert not _battle_text(BW.LOG_S56_BLIP_HOLD)
+    assert any(BW.LOG_S56_BLIP_HOLD in ln for ln in net_lines("NetSyncClient.cs", r"mid-battle link blip", _prefix("s118")))
+
+
+# ---- s120: the session grace
+#: SessionGraceSelfTest's rows (s120: 25 + the six stall-cap rows of its review fix) -- the first and the last of each part
+GRACE_ROW_MARKS = ("the peer alive is live (seen or not)", "past the grace: ended", "mirroring + ended: the ramp arms",
+                   "FollowHost off mid-mirror arms at once", "30000", "absent keeps the default, quietly",
+                   "seq: sitting A's ~20 s restore keeps the session",
+                   "the diorama holds exactly as long as the session lives",
+                   "the peer alive on field 0 past the stall cap leaves, inside the grace",
+                   "seq: a 25 s cut whose fight ended unseen leaves at the settle once the peer is back")
+
+
+def test_session_grace_twins_evaluate_every_grace_selftest_row_off_the_stack():
+    """SessionGraceStep / SessionRampArms / ParseSessionGrace / DioramaWatchStep's twins against SessionGraceSelfTest's
+    OWN rows, EVALUATED in order -- the step, the ramp, the ini clamp, the two bench-leg sequences, THE ONE-VALUE LAW (its
+    loop run as C# runs it) and the stall cap's six rows: 31 rows (the corrected count -- NOT the implementer's 25)."""
+    names = _run_cs_rows(_cs_program(_cs_block("NetSyncClient.cs", "internal static Boolean SessionGraceSelfTest(")),
+                         _watch_ns())
+    assert len(names) == BW.GRACE_SELFTEST_ROWS == 31, names
+    assert all(mark in names for mark in GRACE_ROW_MARKS), set(GRACE_ROW_MARKS) - set(names)
+    # the proof block's two NetSyncClient selftests are every `ref rows, ref fail` row the file carries
+    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncClient.cs")) == \
+        BW.WATCH_SELFTEST_ROWS + BW.GRACE_SELFTEST_ROWS
+
+
+def test_the_session_grace_twins_hold_the_bench_legs():
+    """The s120 bench legs as the twins read them (R3-SITTING-A-FIXES.md s120): a 20 s blackhole is GRACE throughout and
+    arms no ramp (the old 3 s debounce's moment included), the peer back is LIVE; a 40 s blackhole ENDS just past the
+    grace and arms the ramp once; FollowHost dropped mid-mirror arms at once; the countdown and the overlay's seconds."""
+    g = BW.SESSION_GRACE_DEFAULT_MS
+    for out_ms in (0, BW.EXIT_RAMP_DEBOUNCE_S117_MS + 1, 20000, g):
+        st = BW.session_grace_step(False, True, out_ms, g)
+        assert st == BW.SESSION_GRACE and not BW.session_ramp_arms(True, False, True, st), out_ms
+    assert BW.session_grace_step(True, True, 20000, g) == BW.SESSION_LIVE
+    assert BW.session_grace_step(False, False, 0, g) == BW.SESSION_NONE
+    ended = BW.session_grace_step(False, True, g + 1, g)
+    assert ended == BW.SESSION_ENDED and BW.session_ramp_arms(True, False, True, ended)
+    assert not BW.session_ramp_arms(True, True, True, ended) and not BW.session_ramp_arms(False, False, True, ended)
+    assert BW.session_ramp_arms(True, False, False, BW.SESSION_LIVE)
+    assert BW.session_left_ms(BW.SESSION_GRACE, 2000, g) == 28000 and BW.session_left_ms(BW.SESSION_LIVE, 0, g) == -1
+    assert BW.session_left_ms(BW.SESSION_GRACE, g + 5, g) == 0
+    assert (BW.overlay_left_sec(28000), BW.overlay_left_sec(27001), BW.overlay_left_sec(0)) == (28, 28, 0)
+    assert [BW.session_state_name(s) for s in range(5)] == ["none", "live", "grace", "ended", None]
+    assert [BW.ramp_cause_name(c) for c in range(4)] == [None, "grace", "config", "unfollow"]
+
+
+def test_parse_session_grace_says_the_engines_words():
+    """ParseSessionGrace's notes ARE the engine's (its two literals, spliced): malformed keeps the default, outside
+    5000-40000 clamps with the reason; quotes are accepted, empty / absent is quiet; an Int32 overflow is malformed."""
+    assert BW.parse_session_grace("12345") == (12345, None)
+    assert BW.parse_session_grace(' "20000" ') == (20000, None)
+    v, note = BW.parse_session_grace("thirty")
+    assert v == 30000 and note == "SessionGraceMs 'thirty' malformed (want ms, 5000-40000) -- keeping 30000"
+    v, note = BW.parse_session_grace("0")
+    assert v == 5000 and note == ("SessionGraceMs 0 is outside 5000-40000 -- clamped to 5000 ms (a shorter grace ends "
+                                  "the session on an ordinary Wi-Fi re-association)")
+    v, note = BW.parse_session_grace("99999")
+    assert v == 40000 and note.endswith("clamped to 40000 ms (the bridge gives up on its upstream at 45 s, the relay at "
+                                        "60 s)")
+    assert BW.parse_session_grace("99999999999")[0] == 30000 and BW.parse_session_grace("1_000")[0] == 30000
+    assert BW.parse_session_grace("") == (30000, None) and BW.parse_session_grace(None) == (30000, None)
+    for piece in ('note = "SessionGraceMs \'" + s + "\' malformed (want ms, " + SessionGraceMinMs + "-" + SessionGraceMaxMs '
+                  '+ ") -- keeping "',
+                  'note = "SessionGraceMs " + n + " is outside " + SessionGraceMinMs + "-" + SessionGraceMaxMs + " -- '
+                  'clamped to " + c + " ms ("',
+                  '+ (n < SessionGraceMinMs ? "a shorter grace ends the session on an ordinary Wi-Fi re-association"',
+                  ': "the bridge gives up on its upstream at 45 s, the relay at 60 s") + ")";'):
+        assert _battle_text(piece), piece
+
+
+# ---- s121: the audible menu refusal
+def test_menu_key_twins_evaluate_every_menu_refusal_selftest_row_off_the_stack():
+    """MenuKeyStep / MenuKeyRoute / MenuKeyName's twins against MenuRefusalSelfTest's OWN rows, EVALUATED in order (the
+    UIState constants by name): the step's truth table, the names, the four route rows -- 14 rows (NOT the implementer's
+    10)."""
+    ns = dict(BW.CS_FIELD_CONSTANTS, MenuKeyStep=BW.menu_key_step, MenuKeyRoute=BW.menu_key_route,
+              MenuKeyName=BW.menu_key_name)
+    names = _run_cs_rows(_cs_program(_cs_block("NetSyncField.cs", "internal static Boolean MenuRefusalSelfTest(")), ns)
+    assert len(names) == BW.MENU_SELFTEST_ROWS == 14, names
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncField.cs", r".")) == 14
+    assert "a dialogue window up: the dialogue path" in names
+
+
+def test_menu_key_now_reads_the_route_the_press_takes():
+    """HarnessMenuKeyNow on the twin: "audible" on FieldHUD / WorldHUD for a mirroring guest, "silent" on the diorama's
+    BattleHUD and on Pause, "dialog" under a dialogue window (not paused) or with no scene for the state, "off" under a
+    scene's MENUOFF, "open" with no mirror; the place is wldMapNo on WorldHUD (review S121-R2) and the latch is its own
+    class there."""
+    now = BW.menu_key_now
+    assert now(True, True, "FieldHUD", False, False) == "audible" and now(True, True, "WorldHUD", False, False) == "audible"
+    assert now(True, True, "BattleHUD", False, False) == "silent" and now(True, True, "Pause", True, True) == "silent"
+    assert now(True, True, "FieldHUD", True, False) == "dialog" and now(True, True, "Initial", False, False) == "dialog"
+    assert now(True, False, "FieldHUD", True, False) == "dialog" and now(True, False, "Quit", False, False) == "dialog"
+    assert now(False, True, "FieldHUD", False, False) == "off" and now(True, False, "FieldHUD", False, False) == "open"
+    assert now(True, True, "FieldHUD", False, False, has_scene=False) == "dialog"
+    assert BW.menu_refusal_place("WorldHUD", 250, 9000) == 9000 and BW.menu_refusal_place("FieldHUD", 250, 9000) == 250
+    assert BW.menu_refusal_line("FieldHUD", 250) == "[NetSync] main menu suppressed (following guest) on field 250"
+    assert BW.menu_refusal_line("WorldHUD", 9000).endswith("on world map 9000")
+    assert BW.menu_refusal_latch("WorldHUD") != BW.menu_refusal_latch("FieldHUD") == "main menu"
+    # the pieces the engine splices the line from, and the scene table (UIManager.GetSceneFromState is stock code)
+    assert _battle_text('Log.Message("[NetSync] " + what + " suppressed (following guest) on " + where);') or \
+        net_lines("NetSyncField.cs", re.escape('Log.Message("[NetSync] " + what + " suppressed (following guest) on " + '
+                                               'where);'))
+    assert net_lines("NetSyncField.cs", re.escape('DeclineOnceAt("main menu (world map)", "main menu", place, "world '
+                                                  'map " + place)'))
+    assert net_lines("NetSyncField.cs", re.escape('return DeclineOnceAt(what, what, fld, "field " + fld);'))
+    assert {"FieldHUD", "WorldHUD", "BattleHUD", "Pause"} <= BW.UI_SCENE_STATES
+    assert not {"Initial", "QuadMistBattle", "Quit", "PreEnding"} & BW.UI_SCENE_STATES
+
+
+def test_the_sitting_a_constants_and_names_are_the_stacks():
+    """Every constant the round's twins mirror is the stack's by its C# name (NetSyncBattle / NetSyncClient /
+    NetSyncField), and every name a twin returns is a literal the stack returns -- the watch states and whys, the session
+    states, the ramp causes, the overlays, the menu key's names; the hold cap's seam reads the grace from s120 (8000
+    before it); the proof block's four R3 lines are logged in this order."""
+    for file_name, table in (("NetSyncBattle.cs", BW.CS_OWN_CONSTANTS), ("NetSyncClient.cs", BW.CS_CLIENT_CONSTANTS),
+                             ("NetSyncField.cs", BW.CS_FIELD_CONSTANTS)):
+        cs = _cs_int_consts(file_name)
+        for name, value in table.items():
+            if name in cs:
+                assert cs[name][0] == value, (file_name, name, cs[name], value)
+            else:                                           # (a declaration whose comment carries a `;`)
+                assert any(re.search(rf"\b{name} = {value}[,;]", ln) for ln in _stack_text(file_name)), (name, value)
+    groups = {"state": ("WatchNothing", "WatchHold", "WatchLeaveFinal"),
+              "why": ("WatchWhyNewNonce", "WatchWhyTerminal", "WatchWhyHostField", "WatchWhyHoldCap", "WatchWhyStallCap"),
+              "session": ("SessionNone", "SessionLive", "SessionGrace", "SessionEnded"),
+              "ramp": ("RampCauseGrace", "RampCauseConfig", "RampCauseUnfollow")}
+    for table, group in ((BW.WATCH_STATE_NAMES, "state"), (BW.WATCH_WHY_NAMES, "why"),
+                         (BW.SESSION_STATE_NAMES, "session"), (BW.RAMP_CAUSE_NAMES, "ramp")):
+        consts = {BW.CS_CLIENT_CONSTANTS[k]: k for k in groups[group]}
+        assert set(consts) == set(table), group
+        for value, name in table.items():
+            assert any(re.match(rf'case {re.escape(consts[value])}: return "{re.escape(name)}";', ln)
+                       for ln in _stack_text("NetSyncClient.cs")), (group, value, name)
+    assert {re.match(r'case Ovl\w+: return "(\w+)";', ln).group(1) for ln in _stack_text("NetSyncClient.cs")
+            if re.match(r'case Ovl\w+: return "(\w+)";', ln)} == set(BW.OVERLAY_NAMES)
+    field = {v: k for k, v in BW.CS_FIELD_CONSTANTS.items()}
+    for value, name in BW.MENU_KEY_NAMES.items():
+        assert net_lines("NetSyncField.cs", re.escape(f'case {field[value]}: return "{name}";')), name
+    assert _battle_text("private static Int32 DioramaHoldCapMs { get { return _sessionGraceMs; } }")
+    assert net_lines("NetSyncClient.cs", re.escape("private static Int32 DioramaHoldCapMs { get { return DioramaBlipHoldMs; "
+                                                   "} }"), _prefix("s119"))
+    assert _battle_text("FF9Sfx.FF9SFX_Play(102);") or net_lines("NetSyncField.cs", re.escape("FF9Sfx.FF9SFX_Play(102);"))
+    # the proof block's order: each round patch put its line right behind the previous one (read off its own hunk)
+    for patch, before, mine in (("s119", BW.PROOF_CONTROL, BW.PROOF_WATCH), ("s120", BW.PROOF_WATCH, BW.PROOF_GRACE),
+                                ("s121", BW.PROOF_GRACE, BW.PROOF_MENU)):
+        assert _added_after(patch, "NetSyncClient.cs", f'"[NetSync] {before}"', f'"[NetSync] {mine}"'), patch
+
+
+def test_the_rounds_log_needles_are_the_stacks_words():
+    """Each needle a bench greps is a literal head of a stack line (the s110 hand-back lines, s118's refusal line, s119's
+    hold / resume / give-up lines, s120's outage / resume / give-up lines); the s117 RED markers are still the stack's
+    (the same lines fire on a genuine end). Their order in the archived sitting-A log is the test below."""
+    for needle in (BW.LOG_HANDBACK_CAPTURE, BW.LOG_HANDBACK_HANDED, BW.LOG_HANDBACK_REFUSED, BW.LOG_DIORAMA_HOLD_CUT,
+                   BW.LOG_DIORAMA_HOLD_STALL, BW.LOG_DIORAMA_RESUME, BW.LOG_DIORAMA_GAVE_UP, BW.LOG_SESSION_OUTAGE,
+                   BW.LOG_SESSION_BACK, BW.LOG_SESSION_GAVE_UP, BW.LOG_RED_LEAVE_REQUESTED, BW.LOG_RED_WATCHER_SETTLED):
+        assert any(needle in lit for f in BATTLE_FILES for ln in _stack_text(f) for lit in _literals(ln)), needle
+    assert any(BW.LOG_RED_SESSION_ENDED in ln for ln in net_lines("NetSyncState.cs", r"session ended"))
+
+
+#: [ff9mapkit netsync R3] the archived sitting-A guest log -- the s117 engine's real output, the calibration source. It
+#: lives under the gitignored /.harness-runs/ (the coop-battle-r3 worktree's), so a fresh checkout, the main repo and the
+#: nightly gate do not have it: the test below SKIPS there, visibly, rather than passing on nothing.
+SITTING_A_GUEST_LOG = REPO / ".harness-runs" / "sittingA-20261014" / "laptop-Memoria.log"
+
+
+def test_the_sitting_a_guest_log_reads_the_red_markers_in_the_cuts_order():
+    """The calibration half of the needles above: in the archived sitting-A guest log the cut's episode is the one the
+    WATCHER settled (a LEAVE request also ends every genuine fight -- :155-166): a LEAVE request within the 6 lines before
+    the watcher-leave, the session-end reload within the 10 after it, and the s56 hold line nowhere (it never ran behind
+    the bridge)."""
+    if not SITTING_A_GUEST_LOG.exists():
+        pytest.skip(f"the archived sitting-A guest log is not in this checkout ({SITTING_A_GUEST_LOG}: /.harness-runs/ is "
+                    "gitignored) -- the s117 calibration of the round's log needles did NOT run")
+    lines = SITTING_A_GUEST_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
+    w = next(i for i, ln in enumerate(lines) if BW.LOG_RED_WATCHER_SETTLED in ln)
+    assert any(BW.LOG_RED_LEAVE_REQUESTED in ln for ln in lines[max(0, w - 6):w]), lines[w - 6:w + 1]
+    assert any(BW.LOG_RED_SESSION_ENDED in ln for ln in lines[w:w + 10]), lines[w:w + 10]
+    assert not any(BW.LOG_S56_BLIP_HOLD in ln for ln in lines)           # the s56 hold never ran behind the bridge
+
+
+# ---- the accessors and the stand-in's blocks
+def _top_leaves(doc: dict) -> dict:
+    """``netsync.session`` / ``netsync.menu_refusal`` as path -> value (the s120 / s121 top-level blocks)."""
+    return {f"{b}.{k}": v for b in ("session", "menu_refusal") if isinstance(doc.get(b), dict) for k, v in doc[b].items()}
+
+
+def test_every_top_r3_key_has_an_accessor_and_every_accessor_a_key():
+    """The s120 `session` and s121 `menu_refusal` keys the live agent publishes are exactly the accessor table's paths (+
+    the two whole-block accessors), and each accessor reads its sentinel's type (null = a string reads "")."""
+    nothing, _ = _agent_netsync_nothing()
+    leaves = _top_leaves(nothing)
+    table = State.NETSYNC_TOP_ACCESSORS
+    assert set(table) - set(leaves) == {"session", "menu_refusal"}, sorted(set(table) ^ set(leaves))
+    assert set(leaves) <= set(table)
+    st = State({"frame": 1, "netsync": nothing})
+    for path, name in table.items():
+        got = getattr(st, name)
+        sentinel = leaves.get(path, nothing.get(path))
+        if sentinel is None:
+            assert got == "", (path, got)
+        elif isinstance(sentinel, dict):
+            assert got == sentinel and got is not sentinel, path
+        else:
+            assert got == sentinel and type(got) is type(sentinel), (path, got, sentinel)
+
+
+def test_state_reads_the_sitting_a_keys_absent_as_cannot():
+    """On the deployed s117's catch block every s118-s121 accessor reads None ("this engine cannot") and each capability
+    False; on the live block they read their sentinels and True; no `netsync` block at all reads None."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s117")})
+    live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
+    caps = ("coop_handback_report", "coop_diorama_hold", "coop_session_grace", "coop_menu_refusal")
+    assert [getattr(old, c) for c in caps] == [False] * 4 and [getattr(live, c) for c in caps] == [True] * 4
+    assert [getattr(State({"frame": 1}), c) for c in caps] == [None] * 4
+    new = list(State.NETSYNC_TOP_ACCESSORS.values()) + [n for p, n in State.NETSYNC_DIORAMA_ACCESSORS.items()
+                                                        if p.startswith("hold")] + \
+        ["coop_handback_refused_report", "coop_handback_refused_now", "coop_handback_diorama_seen"]
+    for name in new:
+        assert getattr(old, name) is None, name
+        assert getattr(live, name) is not None, name
+    assert (live.coop_handback_refused_report, live.coop_handback_refused_now, live.diorama_hold_cap_ms,
+            live.session_grace_ms, live.menu_refusal_now) == (0, False, -1, -1, "")
+
+
+def test_a_fresh_stand_in_publishes_the_agents_session_and_menu_refusal_sentinels(game):
+    """With no client the stand-in's `session` and `menu_refusal` ARE the agent's catch-line blocks -- same keys, same
+    order, same sentinels -- except the two LIVE reads: `session.grace_ms` (the committed SessionGraceMs, a static) and
+    `menu_refusal.now` (the UIManager's answer for a Menu press now)."""
+    nothing, _ = _agent_netsync_nothing()
+    doc = FakeGame(game)._netsync_doc()
+    live = {"session.grace_ms": "NetSyncClient.HarnessSessionGraceMs", "menu_refusal.now": "NetSyncField.HarnessMenuKeyNow"}
+    for block in ("session", "menu_refusal"):
+        assert list(doc[block]) == list(nothing[block]), block
+    got, want = _top_leaves(doc), _top_leaves(nothing)
+    for path, value in want.items():
+        if path not in live:
+            assert got[path] == value, (path, got[path], value)
+    for getter in live.values():
+        assert any("Netsync." + getter in ln for ln in _stack_text("HarnessAgent.cs")), getter
+    assert got["session.grace_ms"] == BW.SESSION_GRACE_DEFAULT_MS and got["menu_refusal.now"] in BW.MENU_KEY_NAMES.values()
+    assert tuple(nothing["session"]) == FG.NETSYNC_SESSION_KEYS
+    assert tuple(nothing["menu_refusal"]) == FG.NETSYNC_MENU_REFUSAL_KEYS
+    assert tuple(nothing["diorama"]["hold"]) == FG.NETSYNC_DIORAMA_HOLD_KEYS
+    assert list(nothing["battle"]["host"]["handback"])[-3:] == ["refused_report", "refused_now", "diorama_seen"]
+
+
+@pytest.mark.parametrize("level,cap", [("s119", BW.DIORAMA_HOLD_CAP_S119_MS), ("s120", BW.SESSION_GRACE_DEFAULT_MS),
+                                       ("s121", BW.SESSION_GRACE_DEFAULT_MS)])
+def test_the_hold_cap_reads_8000_on_s119_and_the_grace_from_s120(game, level, cap):
+    """`netsync.diorama.hold.cap_ms` is the ONE seam's reading: s119's 8000, from s120 the session grace (30000 by
+    default, the ini's value through the engine's clamp); `settle_ms` 500 on both."""
+    fake = FakeGame(game)
+    fake.netsync_caps = _caps_at(level)
+    hold = fake._netsync_doc()["diorama"]["hold"]
+    assert (hold["cap_ms"], hold["settle_ms"]) == (cap, BW.DIORAMA_SETTLE_MS)
+    if level != "s119":
+        for raw, want in (("20000", 20000), (' "12000" ', 12000), ("0", 5000), ("99999", 40000), ("thirty", 30000)):
+            fake.ini_session_grace_ms = raw
+            doc = fake._netsync_doc()
+            assert doc["diorama"]["hold"]["cap_ms"] == doc["session"]["grace_ms"] == want, raw
+
+
+def test_the_session_block_sits_at_rest_on_the_selftest_role(game):
+    """s120 on the stand-in: the outage clock runs only on a GUEST with a transport, so the block sits at rest -- `state`
+    null with no client, "none" once the selftest role is up; the selftest tick composes the overlay "off" (detail 0) and
+    spawns the mirror beside the player on a field (`ghost`); `mirroring` is the stand-in's story-mirror knob; no outage,
+    no ramp, the counters 0."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        st = g.state
+        assert (st.session_state, st.session_overlay, st.session_overlay_detail, st.session_ghost) == ("", "", -1, False)
+        st = g.netsync("selftest", 1)
+        st = g.wait_for(lambda s: s.session_overlay == "off", timeout=4.0, what="the selftest overlay")
+        assert (st.session_state, st.session_overlay_detail, st.session_ghost, st.session_ghost_held) == ("none", 0, True,
+                                                                                                        False)
+        assert (st.session_left_ms, st.session_out_ms, st.session_outages, st.session_resumes, st.session_gaveup,
+                st.session_last_ms) == (-1, -1, 0, 0, 0, -1)
+        assert (st.session_peer_alive, st.session_seen_live, st.session_ramp_pending, st.session_ramp_cause) == \
+            (False, False, False, "")
+        assert st.session_mirroring is False and st.coop_session_grace is True
+        fake.story_mirroring = True
+        st = g.wait_for(lambda s: s.session_mirroring is True, timeout=4.0, what="the mirror knob")
+        assert st.diorama_hold_state == "" and st.diorama_hold_holds == 0 and st.diorama_hold_cap_ms == 30000
+
+
+def _proof_lines(fake) -> list:
+    if not fake.memoria_log.exists():
+        return []
+    return [ln for ln in fake.memoria_log.read_text(encoding="utf-8").splitlines() if "selftest: " in ln]
+
+
+@pytest.mark.parametrize("caps,want", [
+    ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14)]),
+    ("s119", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24)]),
+    ("s117", [BW.proof_ok(BW.PROOF_CONTROL, 33)]),
+    ("s113", [])])
+def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
+    """The stand-in's selftest proof block: once per PROCESS, on the first selftest tick on a field, the R3 lines its
+    engine carries, in the engine's order and in Memoria's line shape -- the deployed s117 logs only 'battle control
+    selftest: OK (33 rows)' (S14-B2 green, S18-PROOF red there); the s121 stack 53 / 24 / 31 / 14; an s113 engine none.
+    A second selftest role in the same process logs nothing more."""
+    fake = FakeGame(game)
+    fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS}.get(caps) or _caps_at(caps)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        g.wait_frames(10)
+        lines = _proof_lines(fake)
+        assert [ln.split("[NetSync] ", 1)[1] for ln in lines] == want, lines
+        assert all(re.match(r"^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2} \|M\| \[NetSync\] ", ln) for ln in lines)
+        g.netsync("selftest", 0)
+        g.netsync("selftest", 1)
+        g.wait_frames(10)
+        assert len(_proof_lines(fake)) == len(want)
+    assert all(_battle_text(f'Log.Message("[NetSync] {h}"') for h in (BW.PROOF_CONTROL, BW.PROOF_WATCH, BW.PROOF_GRACE)) \
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"'))
+
+
+def _mlog_lines(fake, needle: str) -> list:
+    if not fake.memoria_log.exists():
+        return []
+    return [ln for ln in fake.memoria_log.read_text(encoding="utf-8").splitlines() if needle in ln]
+
+
+def _spliced(line: str, *pieces: str) -> bool:
+    """The stand-in's ``line`` carries each of the engine's C# literals ``pieces`` IN ORDER -- every piece one literal of
+    the live stack (so a reworded engine line turns the stand-in's red)."""
+    at = 0
+    for piece in pieces:
+        assert _battle_text(f'"{piece}"'), piece
+        at = line.find(piece, at)
+        if at < 0:
+            return False
+        at += len(piece)
+    return True
+
+
+def _declined_leg(g, fake, refusal: str):
+    """`bench boot live` (the latch rises), `bench lapse hold` -> the host's window captures slot 1, then `bench boot
+    <refusal>` and `bench lapse end`: the state 60 frames on, and the returns / refused_report before it."""
+    g.netsync("bench", "boot", "live")
+    g.wait_for(lambda s: s.coop_handback_diorama_seen is not False, timeout=4.0, what="the latch (or no key)")
+    g.netsync("bench", "lapse", "hold")
+    st = g.wait_for(lambda s: s.turn_slot == 1, timeout=15.0, what="the capture")
+    returns, rr0 = st.coop_handback_returns, st.coop_handback_refused_report
+    g.netsync("bench", "boot", refusal)
+    g.netsync("bench", "lapse", "end")
+    g.wait_frames(60)
+    return g.state, returns, rr0
+
+
+@pytest.mark.parametrize("refusal,phrase", [("declined", "it reports declined for this battle"),
+                                            ("busy", "it reports busy for this battle"),
+                                            ("none", "it reports none for this battle after reporting a diorama of it"),
+                                            ("stale", "its report names another battle (nonce ")])
+def test_s118_a_guest_whose_diorama_is_not_live_keeps_its_slot_with_the_host(game, refusal, phrase):
+    """s118 on the stand-in (the S18 legs): after a LIVE report raised the latch, a stall captures slot 1; the guest comes
+    back reporting DECLINED (the sitting-A shape) / BUSY / NONE after the latch / a LIVE about another battle -- the host's
+    window KEEPS the slot (no hand-back, `owed` false), `refused_now` true, `refused_report` +1 and ONE 'its slots stay'
+    line naming the report; then `bench boot live` hands it back at the root, once. (Byte 1 is NOT judged here: while the
+    host's window holds slot 1, G6 withholds its Ready bit and the loopback guest sends 0 under either rule -- the shut
+    byte is read where it discriminates, in the test below.)"""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        st = _own_battle_two(g, fake)
+        assert st.coop_handback_report is True and st.coop_handback_diorama_seen is False
+        st, returns, rr0 = _declined_leg(g, fake, refusal)
+        assert st.turn_slot == 1 and st.coop_handback_returns == returns and st.coop_handback_owed is False, refusal
+        assert st.coop_handback_refused_now is True and st.coop_handback_refused_report == rr0 + 1
+        assert st.coop_handback_diorama_seen is True
+        stays = _mlog_lines(fake, BW.LOG_HANDBACK_REFUSED)
+        assert len(stays) == 1 and phrase in stays[0], stays
+        assert _spliced(stays[0], BW.LOG_HANDBACK_REFUSED, " -- its slots stay ",
+                        "with the host's window (the host's ready loop commands them; G3 hands them back at the command "
+                        "root once ", "it reports live or booting on this battle; logged once per own battle), "
+                        "refused_report="), stays[0]
+        cap = _mlog_lines(fake, BW.LOG_HANDBACK_CAPTURE)
+        assert len(cap) == 1 and _spliced(cap[0], BW.LOG_HANDBACK_CAPTURE, " -- ", "the guest's control lane has been silent ",
+                                           " ms (a stall)", "; its Ready bit is withheld while the host holds it (G6), and "
+                                           "it is handed back at the command ", "root once the guest is live again (G3)",
+                                           "; captures="), cap
+        g.netsync("bench", "boot", "live")
+        st = g.wait_for(lambda s: s.coop_handback_returns == returns + 1, timeout=8.0, what="LIVE hands it back")
+        assert st.turn_slot != 1 and st.coop_handback_last["why"] == "handed back" and st.coop_handback_refused_now is False
+        handed = _mlog_lines(fake, BW.LOG_HANDBACK_HANDED)
+        assert len(handed) == 1 and len(_mlog_lines(fake, BW.LOG_HANDBACK_REFUSED)) == 1, handed
+        assert _spliced(handed[0], "[NetSync] hand-back: guest slot ", " handed BACK to the guest -- its control lane is "
+                        "live again ", "and the host's window sat at the command root (held ", " ms); the host's window "
+                        "closed, the ", "slot's Ready bit returns (BTL-1), returns="), handed
+
+
+def test_s118_a_refused_frame_reads_byte_one_shut_where_slot_one_stands_ready(game):
+    """[ff9mapkit netsync R3 s118] ParseControl's shut byte, read where it DISCRIMINATES (coop_handback_live's L1 shape):
+    a LIVE report raises the latch and OWNS, with slot 1 Ready and unheld -- `host.wait.menu` reads the loopback guest's
+    own byte 2 (the root); then `bench boot none` with NO lapse (the lane stays live) is refused, and every publish from
+    the first that shows the NONE parsed (`start_hold.guest.boot` 0) up to the host's capture reads byte 1 SHUT: slot 1
+    is still Ready there, so the guest's own byte is still 2 and only the refusal shuts it. A stand-in that kept a
+    refused frame's byte (the pre-s118 byte rule) reads 2 there and turns this red."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _own_battle_two(g, fake)
+        g.netsync("bench", "boot", "live")
+        st = g.wait_for(lambda s: s.coop_handback_diorama_seen is True and s.coop_hold_guest_boot == BW.BOOT_LIVE
+                        and s.coop_wait_menu == BW.CTL_ROOT, timeout=4.0, what="LIVE owns: the guest's own byte 2")
+        assert st.turn_slot != 1 and st.coop_handback_held == -1 and st.coop_handback_refused_now is False
+        g.netsync("bench", "boot", "none")
+        samples = []
+        for _ in range(120):                                # MenuStaleMs (2.5 s) to the capture; 6 s of frames
+            g.wait_frames(3)
+            st = g.state
+            samples.append(st)
+            if st.turn_slot == 1:
+                break
+        assert st.turn_slot == 1 and st.coop_handback_held == 1, "no capture after the refused NONE"
+        parsed = [s for s in samples if s.coop_hold_guest_boot == BW.BOOT_NONE and s.coop_handback_held != 1]
+        assert parsed, [(s.coop_hold_guest_boot, s.coop_handback_held) for s in samples[:6]]
+        assert all(s.coop_wait_menu == BW.CTL_SHUT for s in parsed), [s.coop_wait_menu for s in parsed]
+        assert st.coop_handback_refused_now is True and _mlog_lines(fake, BW.LOG_HANDBACK_REFUSED)
+
+
+def test_s118_none_from_the_start_owns_and_the_deployed_s117_hands_a_declined_guest_back(game):
+    """The two controls: `bench boot none` from the battle's start (no diorama report on it: the panel-only guest, review
+    S118-NONE-PANEL) still owns -- the stall's hand-back fires, `diorama_seen` stays false, nothing refused; and the
+    deployed s117 (the stand-in without the sitting-A caps) hands a DECLINED guest its slot back within a few frames of
+    the stall's end -- THE CALIBRATION RED -- publishing none of the s118 keys."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _own_battle_two(g, fake)                            # (`bench boot auto`: the stand-in NONE never raises the latch)
+        st = g.netsync("bench", "boot", "none")
+        assert st.coop_handback_diorama_seen is False
+        g.netsync("bench", "lapse", "hold")
+        st = g.wait_for(lambda s: s.turn_slot == 1, timeout=15.0, what="the capture")
+        returns, rr0 = st.coop_handback_returns, st.coop_handback_refused_report
+        g.netsync("bench", "lapse", "end")
+        st = g.wait_for(lambda s: s.coop_handback_returns == returns + 1, timeout=8.0, what="NONE owns: handed back")
+        assert st.coop_handback_diorama_seen is False and st.coop_handback_refused_report == rr0
+        assert st.coop_handback_refused_now is False and not _mlog_lines(fake, BW.LOG_HANDBACK_REFUSED)
+    fake = FakeGame(game)
+    fake.netsync_caps = S117_CAPS
+    with session(game, fake) as g:
+        _own_battle_two(g, fake)
+        st, returns, _rr0 = _declined_leg(g, fake, "declined")
+        assert st.coop_handback_returns == returns + 1 and st.turn_slot != 1, "s117 kept a declined guest's slot"
+        assert st.coop_handback_report is False and st.coop_handback_refused_report is None
+        assert not _mlog_lines(fake, BW.LOG_HANDBACK_REFUSED) and _mlog_lines(fake, " handed BACK to the guest -- ")
+
+
+def test_s118_a_release_forgets_the_latch_the_lever_raised(game):
+    """The latch belongs to the reports that raised it: `bench boot declined` raises it (`diorama_seen` true), and the
+    harness release that puts the lever back to auto forgets it (HarnessReleaseBench: `bench boot` back to auto in the
+    selftest role)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        _own_battle_two(g, fake)
+        g.netsync("bench", "boot", "declined")
+        g.wait_for(lambda s: s.coop_handback_diorama_seen is True, timeout=4.0, what="the latch")
+        g.send("reset")
+        st = g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0, what="the release")
+        assert st.coop_handback_diorama_seen is False
+        assert fake._nb.own_latch["seen"] is False and fake._nb.bench_boot == -1
+    assert _battle_text("the lever's reports are forgotten with it (the latch;")
+
+
+def test_a_mirroring_guests_menu_key_is_refused_audibly_once_per_place(game):
+    """s121 on the stand-in (the T2 leg's shape): a guest whose story mirror is armed (the knob) on FieldHUD reads `now`
+    "audible"; `press menu` buzzes -- count +1, lines +1, ONE 'main menu suppressed (following guest) on field N' line,
+    ui_state stays FieldHUD; a second press on the same field: count +1, lines +0; under a dialogue window `now` reads
+    "dialog" and the press is counted nowhere; the control row (no mirror) reads "open"; a scene's MENUOFF reads "off"."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        st = g.state
+        assert st.menu_refusal_now == "open" and st.coop_menu_refusal is True
+        fake.story_mirroring = True
+        st = g.wait_for(lambda s: s.menu_refusal_now == "audible", timeout=4.0, what="audible")
+        c0, l0 = st.menu_refusal_count, st.menu_refusal_lines
+        st = g.press("menu", 2)
+        st = g.wait_for(lambda s: s.menu_refusal_count == c0 + 1, timeout=4.0, what="the refusal")
+        assert st.menu_refusal_lines == l0 + 1 and st.ui_state == "FieldHUD" and st.menu_refusal_last_state == "FieldHUD"
+        assert st.menu_refusal_last_field == FIELD and st.menu_refusal_age_ms >= 0 and st.menu_refusal_muted is False
+        g.press("menu", 2)
+        st = g.wait_for(lambda s: s.menu_refusal_count == c0 + 2, timeout=4.0, what="the second refusal")
+        assert st.menu_refusal_lines == l0 + 1 and st.menu_refusal_silent == 0
+        lines = _mlog_lines(fake, BW.LOG_MENU_SUPPRESSED)
+        assert len(lines) == 1 and lines[0].endswith("|M| " + BW.menu_refusal_line("FieldHUD", FIELD)), lines
+        assert fake._menu_refusal.buzzes == 2
+        fake.say("A line the host's script opened.")
+        st = g.wait_for(lambda s: s.menu_refusal_now == "dialog", timeout=4.0, what="dialog")
+        g.press("menu", 2)
+        st = stays(g, lambda s: s.menu_refusal_count == c0 + 2 and s.menu_refusal_silent == 0, frames=10,
+                   what="a press under a window counted")
+        fake.texts = []
+        fake.menu_control_enable = False
+        g.wait_for(lambda s: s.menu_refusal_now == "off", timeout=4.0, what="MENUOFF")
+        fake.menu_control_enable, fake.story_mirroring = True, False
+        g.wait_for(lambda s: s.menu_refusal_now == "open", timeout=4.0, what="the control row")
+
+
+def test_the_deployed_s117_drops_a_mirroring_guests_menu_key_silently(game):
+    """The s121 calibration red on the stand-in: without "menurefusal" no `menu_refusal` block is published and a
+    mirroring guest's Menu press is dropped -- no line, nothing counted; ui_state stays FieldHUD."""
+    fake = FakeGame(game)
+    fake.netsync_caps = S117_CAPS
+    fake.story_mirroring = True
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        st = g.press("menu", 2)
+        st = stays(g, lambda s: s.ui_state == "FieldHUD", frames=10, what="the menu stayed shut")
+        assert st.coop_menu_refusal is False and st.menu_refusal_count is None and st.menu_refusal_now is None
+        assert not _mlog_lines(fake, BW.LOG_MENU_SUPPRESSED)
+        assert fake._menu_refusal.count == 0 and fake._menu_refusal.buzzes == 0
+
+
+# ---- [ff9mapkit netsync R3 fix round 2] the R3 benches' own logic, off the game: the T2 helper's self-check and the
+# scenarios' calibration tables. Both ran only by hand (`py _coop_peer_bench.py`, a bench day), so an engine rewording
+# that broke a matcher, or a predicted-red table that drifted from its docstring, waited for the owner's next launch.
+# Collected here they run with the domain set and the nightly gate -- and still say nothing about the engine.
+import importlib.util                                                   # noqa: E402
+import os                                                               # noqa: E402
+import subprocess                                                       # noqa: E402
+
+SCENARIOS = REPO / "studies" / "test-harness" / "scenarios"
+
+
+@lru_cache(maxsize=None)
+def _peer_bench():
+    """studies/test-harness/scenarios/_coop_peer_bench.py, loaded from its file under a private name -- never by putting
+    the scenarios dir on this process's sys.path (~40 modules there a bare import could resolve to)."""
+    spec = importlib.util.spec_from_file_location("_coop_peer_bench_under_test", SCENARIOS / "_coop_peer_bench.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_t2_bench_helpers_self_check_reads_no_red_row(monkeypatch, tmp_path):
+    """The helper's own self-check, row by row: the ini guard, the matchers against the archived sitting-A guest log
+    (where this checkout has it), the windows, the knobs, the tape facts and the leg plans on synthetic tapes. MEMORIA_SRC
+    points NOWHERE: the shared clone moves with every session's in-flight engine work, so its wording rows would judge
+    this branch by someone else's edits -- the stack twin below pins the same fragments off memoria-patches/. A missing
+    source SKIPS its block as ONE row (never a pass of it, never a red here); every other row must run, and pass."""
+    pb = _peer_bench()
+    monkeypatch.setenv("MEMORIA_SRC", str(tmp_path / "no-clone"))
+    monkeypatch.delenv("COOP_TAPE", raising=False)
+    rows = pb._self_rows()
+    bad = [w for ok, w in rows if ok is False]
+    skipped = [w for ok, w in rows if ok is None]
+    assert not bad, bad
+    assert any("Memoria clone" in w for w in skipped), skipped           # the lever above took
+    assert len(skipped) == 1 + (not SITTING_A_GUEST_LOG.exists()), skipped
+    assert len(rows) - len(skipped) >= 50, f"only {len(rows) - len(skipped)} rows ran"   # 50 = neither source present
+
+
+def test_the_t2_bench_helpers_engine_fragments_are_the_stacks_words():
+    """Every GREEN matcher's literal pieces (_coop_peer_bench.FRAGMENTS, by C# file) are in a line the LIVE stack leaves
+    in that file -- the self-check's clone rows, read off memoria-patches/ instead -- and every GREEN-only matcher has
+    its pieces listed (a matcher with none could match words the engine no longer writes)."""
+    pb = _peer_bench()
+    assert set(pb.GREEN_ONLY) <= set(pb.FRAGMENTS) <= set(pb.MATCHERS), sorted(set(pb.GREEN_ONLY) ^ set(pb.FRAGMENTS))
+    missing = {name: [f for f in frags if not any(f in ln for ln in _stack_text(fname))]
+               for name, (fname, frags) in pb.FRAGMENTS.items()}
+    assert not any(missing.values()), {k: v for k, v in missing.items() if v}
+
+
+#: Run in a CHILD: each scenario puts its own dir on sys.path and reads its COOP_* knobs at import (a process-wide edit
+#: this suite must not inherit). Prints the tables as JSON.
+_SCENARIO_TABLES = r'''
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(scen, name + ".py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+hl, ch, sh, tr = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold", "coop_tape_record"))
+print(json.dumps({
+    "hl": {"catalog": sorted(hl._catalog(True)), "old": sorted(hl.OLD_PREDICTED), "capture_s": hl.CAPTURE_S},
+    "cut": {leg: {"catalog": sorted(ch._catalog(leg, True)),
+                  "pred": {str(s): [sorted(x) for x in ch._predicted(leg, s)] for s in (0, 117, 119, 120, 121)}}
+            for leg in ch.PFX},
+    "sh": {"catalog": sorted(sh._catalog(True)), "old": sorted(sh.OLD_PREDICTED), "lever": sorted(sh.LEVER_PREDICTED)},
+    "tr": sorted(tr.CATALOG)}))
+'''
+
+
+@lru_cache(maxsize=None)
+def _scenario_tables() -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _SCENARIO_TABLES, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks():
+    """The calibration tables COOP_CALIBRATE=1 judges against, pinned to what each docstring promises: coop_handback_live's
+    s117 red set (P0 PROOF N2 D1-D3 L1 L2 B1 B2 S1 S2; S0/P1/P2/PRE/N1/T1 green), coop_cut_hold's per-leg, per-engine
+    table, coop_battle_start_hold's two sets -- every predicted id one the leg's own catalog defines (a typo'd id is a
+    red that can never come, so the -CAL verdict would read it "unseen" forever). All four modules import with no knob."""
+    t = _scenario_tables()
+    hl = t["hl"]
+    assert set(hl["old"]) == {f"S18-{c}" for c in ("P0", "PROOF", "N2", "D1", "D2", "D3", "L1", "L2", "B1", "B2", "S1",
+                                                    "S2")}, hl["old"]
+    assert set(hl["old"]) < set(hl["catalog"]) and set(hl["catalog"]) - set(hl["old"]) == {
+        f"S18-{c}" for c in ("S0", "P1", "P2", "PRE", "N1", "T1", "CAL")}
+    assert hl["capture_s"] >= 9.0                                        # a loaded machine stretched 6 s (review F6)
+
+    def g(p, *n):
+        return sorted(f"{p}-{x}" for x in n)
+
+    want = {   # leg -> (the s117 reds, the s119 (reds, maybe)) -- s120/s121 read <P>-RED only (s121: from 121 on)
+        "s119": (g("S119", "G1", "G2", "G3", "G4", "G5", "K"), (g("S119", "RED"), [])),
+        "s120-battle": (g("S120B", "G1", "G2", "G3", "G4", "G5", "K"),
+                        (g("S120B", "G1", "G2", "G3", "G4", "G5", "K"), g("S120B", "RED"))),
+        "s120-long": (g("S120L", "G1", "G2", "G3", "K"), (g("S120L", "G1", "G2", "G3", "K"), [])),
+        "s120-roam": (g("S120R", "G1", "G2", "G3", "G4", "G5"), (g("S120R", "G1", "G2", "G3", "G4", "G5"), [])),
+        "span": (g("SPAN", "G1", "G2", "K"), (g("SPAN", "G1", "G2", "K"), g("SPAN", "RED"))),
+        "s121": (g("S121", "G0", "G1", "G2", "G4", "G5"), (g("S121", "G0", "G1", "G2", "G4", "G5"), [])),
+    }
+    cut = t["cut"]
+    assert set(cut) == set(want) | {"cal"}, sorted(cut)
+    assert all(cut["cal"]["pred"][s] == [[], []] for s in cut["cal"]["pred"]), cut["cal"]["pred"]
+    for leg, (old, s119) in want.items():
+        pred, catalog, p = cut[leg]["pred"], set(cut[leg]["catalog"]), old[0].split("-")[0]
+        assert pred["0"] == pred["117"] == [old, []], (leg, pred)
+        assert pred["119"] == [s119[0], s119[1]], (leg, pred["119"])
+        assert pred["121"] == [g(p, "RED"), []], (leg, pred["121"])
+        assert pred["120"] == ([g(p, "RED"), []] if leg != "s121" else [old, []]), (leg, pred["120"])
+        for reds, maybe in pred.values():
+            assert set(reds) | set(maybe) <= catalog, (leg, sorted(set(reds) | set(maybe) - catalog))
+    sh = t["sh"]
+    assert set(sh["old"]) < set(sh["catalog"]) and set(sh["lever"]) < set(sh["catalog"])
+    assert set(sh["catalog"]) - set(sh["old"]) == {"S14-S0", "S14-P1", "S14-A0", "S14-CAL"}
+    assert {"REC-INI", "REC-B", "REC-F1", "REC-F5"} <= set(t["tr"]), t["tr"]

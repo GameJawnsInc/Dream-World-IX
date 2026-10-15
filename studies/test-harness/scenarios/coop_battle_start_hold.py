@@ -65,9 +65,11 @@ WHAT IS PROVEN (S14-*; the plan's 6.4 ids in brackets):
   B1b [H-B1b, ctrl F2] `dioleave`, a fresh `dioboot` + `bbench start`: live.latched false / ms -1 on the new boot's first
       publish, the feed nonce +1, and the report reads 1 (never 2, latched never true) until the NEW boot's PHASE_NORMAL,
       then 2.
-  B2  [H-B2] the selftest proof block's line is exactly 'battle control selftest: OK (33 rows)' (ControlSelfTest: the
+  B2  [H-B2] the selftest proof block's line is exactly 'battle control selftest: OK (N rows)' (ControlSelfTest: the
       codec + byte-1 nonce gate, GuestBootState's BUSY row, StartHoldStep's stale-nonce LIVE / 2-byte frame / unknown fmt
-      / released-then-paused rows, HoldGate's spent cap) -- no FAIL line.
+      / released-then-paused rows, HoldGate's spent cap) -- no FAIL line. N = 33 on s114-s117; 53 from s118, which adds
+      the hand-back ownership rows (`own:` / `step:` -- coop_handback_live.py), told apart by s118's own key
+      (`netsync.battle.host.handback.refused_report`), so this pin stays green on both DLLs.
   C1  THE CLAMP (S114-LIVE-1): `bench starthold cap ini` -> cap_ms == the install's StartHoldMs as the engine parses it
       (quotes stripped; negative = 0 = off; absent / empty / malformed = 8000; past 60000 = 60000), off == (cap <= 0), the
       'cap back to [Netsync] StartHoldMs (N ms)' line -- and the '[NetSync] StartHoldMs N is past the ceiling -- clamped to
@@ -94,13 +96,23 @@ CALIBRATION -- a check that cannot fail is not a check.
     A4d, A4b, A4s, A5, A6, A7, A8 (state "off": nothing holds, nothing is decided, no line) -- A0, L1, the guest legs B1/
     B1L/B1b (the guest's report ignores the host's lever), B2, C1 (the lever goes back on first) and R stay green. S14-CAL
     judges that set (the run itself is red by design).
-  * MEASURED ON THE STAND-IN, the old-engine path only (tools/harness/fakegame.py pinned to its s110 rung, atb_gain 400):
-    S0, P1 and A0 green, the other 21 red -- the guest legs by their absent keys (no trailer, no `diorama.live`), the rest
-    "not reached". The stand-in models no start hold at writing, and the scenario has NOT been run in game: the first
-    live run is the calibration above.
+  * THE STAND-IN CANNOT CALIBRATE THIS BENCH (re-measured [ff9mapkit netsync R3 fix round], tools/harness/fakegame.py at
+    s117 and at s121 caps, atb_gain 400 -- at 6000 A0 reads red too, "an atb moves" being unobservable): green S0, P0,
+    B2, P1, A0, B1, B1b -- 7 of 24 on both -- and COOP_CALIBRATE=1 reads S14-CAL RED on both, unpredicted B1L, C1, L1, P2
+    and R. The cause is the stand-in, not this bench: it writes no start-hold line (ARMED / not armed / RELEASED, the
+    'harness: start hold ...' and 'bench boot back to auto' lever lines, the 'start hold report' / 'diorama LIVE' lines,
+    the StartHoldMs clamp line) and ignores `press start` in battle (A9) -- only the proof block's R3 lines, which is why
+    B2 reads 'OK (33 rows)' / 'OK (53 rows)' there as designed. So never read S14-CAL offline: the engine is the
+    calibration (the deployed s117 DLL ran this bench 24 of 24 green in game, .harness-runs/r3-green-s117.txt).
 
 RE-BASELINES this DLL brings to OTHER benches: none of their checks. Every selftest own battle now logs one "start hold not
 armed ... -- the guest has no diorama of it" line, and `menu.ctl.hex` / the feed's `ctl` are 5 bytes (byte 1 unchanged).
+WHAT LATER PATCHES MOVE HERE [ff9mapkit netsync R3 s118]: s118 moves B2's row count only (33 -> 53, keyed on its own key
+above). Its ownership rule is otherwise inert on this bench -- `guestslots 0` (IsGuestOwnedSlot and the refusal count need
+GuestSlots; the start hold reads the report itself) -- and its one other visible change, `host.wait.menu` reading 0 while a
+declined / busy / stale / none-after-a-diorama report arrives, is a key this bench never reads. s119-s121 never reach this
+bench: the selftest role runs neither the watcher's booted branch (DioramaTick, s119) nor the session clock (SessionTick
+returns for any role but client, s120), and s121 needs a mirroring guest's Menu press.
 
     py tools/play.py studies/test-harness/scenarios/coop_battle_start_hold.py --field 30602
     COOP_CALIBRATE=1 py tools/play.py studies/test-harness/scenarios/coop_battle_start_hold.py --field 30602
@@ -137,7 +149,13 @@ LINK_TOL_MS = 300
 CEILING_MS = 60000                         # NetSyncBattle.StartHoldMaxMs
 INI_DEFAULT_MS = 8000                      # [Netsync] StartHoldMs's default (and what a malformed value keeps)
 LIVE_TOL_MS = 100                          # B1L: diorama.live.ms ~ intro.normal_ms
-SELFTEST_ROWS = 33                         # NetSyncBattle.ControlSelfTest's rows
+# NetSyncBattle.ControlSelfTest's rows. RE-PINNED for memoria-patch s118 (the hand-back needs a live guest): it appends 20
+# ownership rows (GuestOwnsFromReport's `own:`, GuestOwnsStep's `step:` sequences), 33 -> 53 -- the s114 rows themselves
+# are unchanged. Keyed on s118's own key (S118_PROBE) rather than a bare 53, so B2 reads green on the deployed s117 AND
+# the s118 DLL, and this bench's COOP_CALIBRATE=1 red set stays exactly as documented on either.
+SELFTEST_ROWS = 53                         # s118+
+SELFTEST_ROWS_PRE_S118 = 33                # s114-s117
+S118_PROBE = "netsync.battle.host.handback.refused_report"
 FLAG_START_HOLD = 0x10                     # type-1 header flags bit 4
 BOOT_LIVE = 2
 
@@ -155,6 +173,7 @@ REL_HOLD = "harness: start hold back to [Netsync] StartHoldMs (released with the
 REL_BOOT = "harness: bench boot back to auto (released with the harness)"
 PROOF = "battle control selftest:"
 PROOF_OK = f"battle control selftest: OK ({SELFTEST_ROWS} rows)"
+PROOF_OK_PRE_S118 = f"battle control selftest: OK ({SELFTEST_ROWS_PRE_S118} rows)"
 LIVE_LINE = "diorama LIVE "
 REPORT = "start hold report: host battle nonce "
 
@@ -176,7 +195,8 @@ def _catalog(calibrate: bool) -> dict:
                    "OFF -- CALIBRATION' logged once" if calibrate else
                    "`bench starthold cap 8000` -> start_hold.cap_ms 8000, off false, state 'idle' between battles, the "
                    "'start hold cap 8000 ms for this process' line"),
-        "S14-B2": f"the selftest proof block's line reads exactly '{PROOF_OK}' -- no FAIL line",
+        "S14-B2": f"the selftest proof block's line reads exactly '{PROOF_OK}' on an s118+ engine ('{PROOF_OK_PRE_S118}' "
+                  f"on s114-s117: s118 added the ownership rows) -- no FAIL line",
         "S14-A0": "control (both DLLs): an own battle with NO lever (auto = NONE) -- some unit's atb moves within 0.5 s of "
                   "the first turn.enabled publish; no 'start hold ARMED' line; host.caps bit 4 never set",
         "S14-A1": "A1: `bench boot booting` + `battle 67` -> every unit's atb constant for >= 2.5 s from the first "
@@ -527,10 +547,14 @@ def _leg_b2(g, led: cb.Ledger) -> None:
     lines = [ln for ln in cb.log_lines(g) if PROOF in ln]
     last = lines[-1] if lines else ""
     failed = [ln for ln in lines if "battle control selftest: FAIL" in ln]
-    led.check("S14-B2", proof is not None and PROOF_OK in last and not failed,
+    # the row count follows the engine's stage (see SELFTEST_ROWS): s118 grew ControlSelfTest by its ownership rows
+    s118 = cb.has(g.state, S118_PROBE)
+    want = PROOF_OK if s118 else PROOF_OK_PRE_S118
+    led.check("S14-B2", proof is not None and want in last and not failed,
               (last.split("|", 2)[-1].strip()[-300:] if last else
                "no 'battle control selftest' line (an engine before s114 has no ControlSelfTest)")
-              + (f"; FAIL lines: {len(failed)}" if failed else ""))
+              + (f"; FAIL lines: {len(failed)}" if failed else "")
+              + f"; want '{want}' (`{S118_PROBE}` {'present' if s118 else 'absent'})")
 
 
 def _leg_a0(g, led: cb.Ledger, have: bool) -> str:
