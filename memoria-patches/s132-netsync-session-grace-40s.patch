@@ -1,0 +1,178 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 8ff2ba7..8473bb5 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -38,7 +38,7 @@ namespace Memoria.Netsync
+     //   StartHoldMs = 8000                  [ff9mapkit netsync R3 s114] (host side): my battle's gauges wait at most this long (ms)
+     //                                       for a guest whose diorama of it reports BOOTING (the start hold; released at once when
+     //                                       it goes live, declines, is busy or the link drops). 0 = off. Applies live.
+-    //   SessionGraceMs = 30000              [ff9mapkit netsync R3 s120] (guest side): how long (ms) my session outlives a SILENT host
++    //   SessionGraceMs = 40000              [ff9mapkit netsync R3 s120; default 40000 since s132] (guest side): how long (ms) my session outlives a SILENT host
+     //                                       -- a booted diorama holds frozen and the story mirror stays armed (saving stays off)
+     //                                       while it lives, and the peer coming back resumes both; past it the diorama leaves and
+     //                                       my own autosave reloads. Clamped 5000-40000 (under the bridge's 45 s redial cap).
+@@ -491,7 +491,7 @@ namespace Memoria.Netsync
+         // being over is no outage -- a host whose battle lane stalled with its writer up, or a fight that ended unseen inside a
+         // cut (the host back on the world map or at the title sends field 0, and the terminal latch reads only a live lane) --
+         // so that stretch keeps s119's own bound: past this many ms of staleness it leaves final (why `stall_cap`), never
+-        // sitting out the 30 s grace in a frozen battle while the host plays on. The settle guards a resume's race (the battle
++        // sitting out the whole grace in a frozen battle while the host plays on. The settle guards a resume's race (the battle
+         // lane comes back within a sample of the position lane), so a long cut's resume on the same fight still resumes.
+         private const Int32 DioramaStallCapMs = 8000;
+         private Int32 _dioramaWatchState = -1;           // the last DioramaWatchStep verdict for the booted wire diorama (-1 = none)
+@@ -541,7 +541,12 @@ namespace Memoria.Netsync
+         // (no local battle on a mirrored story). Why 30 s: it covers sitting A's ~20 s restore and stays under the bridge's 45 s
+         // redial hard cap and the relay's 60 s rejoin grace. The cost: after a REAL host quit the guest stays mirrored (unable to
+         // save) for ~32 s (2 s of staleness + the grace) before its own autosave reloads.
+-        internal const Int32 SessionGraceDefaultMs = 30000;
++        // [ff9mapkit netsync s132] THE DEFAULT IS THE MAXIMUM, 40 s (owner decision after sitting B). The real link's outage is the
++        // Wi-Fi cut plus 5-10 s (TCP backoff / the bridge's ~19 s give-up, then Wi-Fi re-association and DNS), so 30 s tolerated
++        // only a ~20-25 s drop (a 20 s field cut kept 2.8 s). 40000 is still under both caps (the bridge counts its 45 s from its
++        // own EOF, ~19 s into a cut); the cost grows to ~42 s mirrored after a real host quit. The default must never exceed
++        // SessionGraceMaxMs: ParseSessionGrace returns it UNCLAMPED for an absent or malformed key.
++        internal const Int32 SessionGraceDefaultMs = 40000;
+         internal const Int32 SessionGraceMinMs = 5000;   // under this a Wi-Fi re-association reads as the session ending
+         internal const Int32 SessionGraceMaxMs = 40000;  // under the bridge's 45 s redial hard cap (and the relay's 60 s rejoin grace)
+         private static Int32 _sessionGraceMs = SessionGraceDefaultMs;   // the committed ini value (read per frame)
+@@ -882,11 +887,11 @@ namespace Memoria.Netsync
+                 }
+                 else if (shRaw.Length > 0)
+                     Log.Message("[NetSync] StartHoldMs '" + shRaw + "' malformed (want ms; 0 = off) -- keeping 8000");
+-                // [ff9mapkit netsync R3 s120] SessionGraceMs, default 30000 (guest side): how long the session outlives a silent host --
++                // [ff9mapkit netsync R3 s120] SessionGraceMs, default SessionGraceDefaultMs (40000 since s132; guest side): how long the session outlives a silent host --
+                 // the diorama hold's cap and the link-loss exit ramp's wait, one value. A BEHAVIOUR key (in bsig below): read per frame,
+                 // so an edit applies live (a running outage is judged against the new value). Quotes accepted; clamped (ParseSessionGrace).
+                 String sgNote;
+-                Int32 sessionGrace = ParseSessionGrace(ini.GetSetting("Netsync", "SessionGraceMs", "30000"), out sgNote);
++                Int32 sessionGrace = ParseSessionGrace(ini.GetSetting("Netsync", "SessionGraceMs", SessionGraceDefaultMs.ToString()), out sgNote);
+                 if (sgNote != null)
+                     Log.Message("[NetSync] " + sgNote);
+                 String ghostAs = ini.GetSetting("Netsync", "GhostAs", "").Trim();
+@@ -1483,7 +1488,7 @@ namespace Memoria.Netsync
+                 Boolean withinGrace = Environment.TickCount - _lastConnectedTick < EncounterGraceMs;
+                 // [ff9mapkit netsync R3 s120] ...and while the SESSION lives: a mirroring guest (until the ramp reloads its own save)
+                 // or an outage inside the session grace never boots a local battle -- the 5 s window above was sized for the old 3 s
+-                // ramp, and the grace now keeps the host's story live for up to 30 s with the hop down (a direct link, a dead bridge).
++                // ramp, and the grace now keeps the host's story live for up to SessionGraceMs with the hop down (a direct link, a dead bridge).
+                 // Only ever EXTENDS the pause (behind the bridge `connected` already holds it).
+                 Boolean sessionHeld = _storyMirroring || _sessionState == SessionGrace;
+                 Boolean suppress = _followHost && (connected || withinGrace || sessionHeld);
+@@ -2574,112 +2579,114 @@ namespace Memoria.Netsync
+                         + " s grace -- the session ended"
+                         + (_storyMirroring && !_exitRampPending ? "; the exit ramp reloads your own autosave once you are free-standing" : "")
+                         + (NetSyncDiorama.Booted ? " (the held diorama leaves first)" : "") + "; gaveup=" + _sessionGiveUps);
+         }
+ 
+         /// <summary>[ff9mapkit netsync R3 s120] THE SESSION GRACE SELFTEST (NetSyncClient's selftest proof block: "session grace selftest:
+         /// OK|FAIL (...)"): SessionGraceStep, SessionRampArms and ParseSessionGrace as a truth table -- the grace's boundary, a resume
+         /// inside it arms nothing (the old 3 s debounce's moment included), a give-up arms once, the deliberate fences; then two
+         /// bench legs as sequences (sitting A's ~20 s restore, a 40 s blackhole bounded at the grace) and
+         /// THE ONE-VALUE LAW: the diorama's hold (DioramaWatchStep at a cut, capped by the grace) holds exactly while the session
+         /// lives; then THE STALL CAP (review S120-R1): a peer alive for the settle that says nothing leaves at DioramaStallCapMs,
+         /// not the grace -- its boundary, its two fences (a dead peer, the settle) and three sequences (a cut spanning an unseen
+         /// world-map victory, a 20 s cut's resume race, a 25 s cut whose fight ended unseen). Each row discriminates one rule,
+         /// so a mutant of that rule fails it. Pure: touches no live state.</summary>
+         internal static Boolean SessionGraceSelfTest(out String detail)
+         {
+             Int32 rows = 0;
+             String fail = null;
+             try
+             {
+                 const Int32 G = SessionGraceDefaultMs;
+                 String note;
+                 // --- the step
+                 WatchRow(SessionGraceStep(true, false, 0, G) == SessionLive, "the peer alive is live (seen or not)", ref rows, ref fail);
+                 WatchRow(SessionGraceStep(true, true, G + 1, G) == SessionLive, "the peer back past the grace is live again", ref rows, ref fail);
+                 WatchRow(SessionGraceStep(false, false, 0, G) == SessionNone, "nothing seen: no session to lose", ref rows, ref fail);
+                 WatchRow(SessionGraceStep(false, true, 0, G) == SessionGrace, "an outage's first frame: grace", ref rows, ref fail);
+                 WatchRow(SessionGraceStep(false, true, 3001, G) == SessionGrace, "past the old 3 s debounce: still grace", ref rows, ref fail);
+                 WatchRow(SessionGraceStep(false, true, G, G) == SessionGrace, "AT the grace: still grace", ref rows, ref fail);
+                 WatchRow(SessionGraceStep(false, true, G + 1, G) == SessionEnded, "past the grace: ended", ref rows, ref fail);
+                 // --- the ramp
+                 WatchRow(SessionRampArms(true, false, true, SessionEnded), "mirroring + ended: the ramp arms", ref rows, ref fail);
+                 WatchRow(!SessionRampArms(true, false, true, SessionGrace), "mirroring inside the grace: no ramp", ref rows, ref fail);
+                 WatchRow(!SessionRampArms(true, false, true, SessionLive), "mirroring + live: no ramp", ref rows, ref fail);
+                 WatchRow(!SessionRampArms(true, false, true, SessionNone), "mirroring, nothing to lose: no ramp", ref rows, ref fail);
+                 WatchRow(!SessionRampArms(false, false, true, SessionEnded), "not mirroring: nothing to undo", ref rows, ref fail);
+                 WatchRow(!SessionRampArms(true, true, true, SessionEnded), "a ramp already pending arms once", ref rows, ref fail);
+                 WatchRow(SessionRampArms(true, false, false, SessionLive), "FollowHost off mid-mirror arms at once", ref rows, ref fail);
+                 // --- the ini key
+                 WatchRow(ParseSessionGrace("30000", out note) == 30000 && note == null, "30000", ref rows, ref fail);
+                 WatchRow(ParseSessionGrace(" \"20000\" ", out note) == 20000 && note == null, "quoted 20000", ref rows, ref fail);
+                 WatchRow(ParseSessionGrace("5000", out note) == 5000 && note == null
+                          && ParseSessionGrace("40000", out note) == 40000 && note == null, "the bounds are kept", ref rows, ref fail);
+                 WatchRow(ParseSessionGrace("0", out note) == SessionGraceMinMs && note != null, "0 clamps up (no off switch)", ref rows, ref fail);
+                 WatchRow(ParseSessionGrace("-1", out note) == SessionGraceMinMs && note != null, "negative clamps up", ref rows, ref fail);
+                 WatchRow(ParseSessionGrace("99999", out note) == SessionGraceMaxMs && note != null, "past the bridge cap clamps down", ref rows, ref fail);
+                 WatchRow(ParseSessionGrace("thirty", out note) == G && note != null, "malformed keeps the default, logged", ref rows, ref fail);
+                 WatchRow(ParseSessionGrace("", out note) == G && note == null
+                          && ParseSessionGrace(null, out note) == G && note == null, "absent keeps the default, quietly", ref rows, ref fail);
+                 // --- sequences: (1) sitting A's ~20 s restore (mid-battle or in free roam -- the step reads no scene): grace
+-                // throughout, the peer back on the same session, no ramp at any frame. (2) a 40 s blackhole: ended past the grace
+-                // (~32 s after the cut, with 2 s of staleness first), the ramp arms once.
++                // throughout, the peer back on the same session, no ramp at any frame. (2) a blackhole that outlasts the grace: ended
++                // past it (2 s of staleness first), the ramp arms once -- [ff9mapkit netsync s132] its later frame is G + 8000, not
++                // s120's literal 38000 (past a 30 s grace, INSIDE a 40 s one: the pending-ramp half would have tested nothing).
+                 WatchRow(SessionGraceStep(false, true, 0, G) == SessionGrace
+                          && !SessionRampArms(true, false, true, SessionGraceStep(false, true, 2000, G))
+                          && !SessionRampArms(true, false, true, SessionGraceStep(false, true, 18000, G))
+                          && SessionGraceStep(true, true, 18100, G) == SessionLive
+                          && !SessionRampArms(true, false, true, SessionLive),
+                          "seq: sitting A's ~20 s restore keeps the session", ref rows, ref fail);
+                 WatchRow(!SessionRampArms(true, false, true, SessionGraceStep(false, true, G, G))
+                          && SessionRampArms(true, false, true, SessionGraceStep(false, true, G + 1, G))
+-                         && !SessionRampArms(true, true, true, SessionGraceStep(false, true, 38000, G)),
+-                         "seq: a 40 s blackhole ends at the grace, the ramp arms once", ref rows, ref fail);
++                         && SessionGraceStep(false, true, G + 8000, G) == SessionEnded
++                         && !SessionRampArms(true, true, true, SessionGraceStep(false, true, G + 8000, G)),
++                         "seq: a blackhole past the grace ends at it, the ramp arms once", ref rows, ref fail);
+                 // --- THE ONE-VALUE LAW: a cut (the peer silent, the battle lane stale, field 0, nothing terminal) holds the booted
+                 // diorama exactly while the session is in its grace, and leaves final (the cap) exactly when it ends.
+                 Int32 w;
+                 Boolean lawOk = true;
+                 Int32[] outs = { 0, 3001, 20000, G, G + 1, G + 5000 };
+                 for (Int32 k = 0; k < outs.Length; k++)
+                 {
+                     Int32 dio = DioramaWatchStep(false, 0, WatchTestNonce, false, -1, false, outs[k], 0, WatchTestSettle, G,
+                                                  DioramaStallCapMs, WatchWhyNone, out w);
+                     Boolean sessionLives = SessionGraceStep(false, true, outs[k], G) == SessionGrace;
+                     if ((dio == WatchHold) != sessionLives || (!sessionLives && w != WatchWhyHoldCap))
+                         lawOk = false;
+                 }
+                 WatchRow(lawOk, "the diorama holds exactly as long as the session lives", ref rows, ref fail);
+                 // --- THE STALL CAP (review S120-R1): the law is the SILENT peer's. A peer alive for the settle whose battle lane stays
+                 // silent and who says nothing (field 0, nothing terminal) keeps s119's bound (DioramaStallCapMs on the stale age),
+                 // inside the grace; the settle still guards a long cut's resume race. (5) the reviewer's case: a 6 s cut spans
+                 // the host's world-map victory unseen, the peer comes back on field 0 -- out at the stall cap, not the grace.
+                 const Int32 St = DioramaStallCapMs;
+                 const Int32 S = WatchTestSettle;
+                 const Int32 N = WatchTestNonce;
+                 const Int32 NoWhy = WatchWhyNone;
+                 WatchRow(DioramaWatchStep(false, 0, N, true, 0, false, St + 1, St + 1, S, G, St, NoWhy, out w) == WatchLeaveFinal
+                          && w == WatchWhyStallCap, "the peer alive on field 0 past the stall cap leaves, inside the grace", ref rows, ref fail);
+                 WatchRow(DioramaWatchStep(false, 0, N, true, 0, false, St, St, S, G, St, NoWhy, out w) == WatchHold,
+                          "...AT the stall cap: hold", ref rows, ref fail);
+                 WatchRow(DioramaWatchStep(false, 0, N, false, -1, false, St + 1, S, S, G, St, NoWhy, out w) == WatchHold,
+                          "a dead peer never reaches the stall cap (whatever alive run is passed)", ref rows, ref fail);
+                 WatchRow(DioramaWatchStep(false, 0, N, false, -1, false, 0, 0, S, G, St, NoWhy, out w) == WatchHold
+                          && DioramaWatchStep(false, 0, N, false, -1, false, 6000, 0, S, G, St, NoWhy, out w) == WatchHold
+                          && DioramaWatchStep(false, 0, N, true, 0, false, 6000, 0, S, G, St, NoWhy, out w) == WatchHold
+                          && DioramaWatchStep(false, 0, N, true, 0, false, 6000 + S, S, S, G, St, NoWhy, out w) == WatchHold
+                          && DioramaWatchStep(false, 0, N, true, 0, false, St + 1, St + 1 - 6000, S, G, St, NoWhy, out w) == WatchLeaveFinal
+                          && w == WatchWhyStallCap,
+                          "seq: a cut spanning an unseen world-map victory leaves at the stall cap, not the grace", ref rows, ref fail);
+                 WatchRow(DioramaWatchStep(false, 0, N, false, -1, false, 20000, 0, S, G, St, NoWhy, out w) == WatchHold
+                          && DioramaWatchStep(false, 0, N, true, 0, false, 20000, 0, S, G, St, NoWhy, out w) == WatchHold
+                          && DioramaWatchStep(false, 0, N, true, 0, false, 20150, 150, S, G, St, NoWhy, out w) == WatchHold
+                          && DioramaWatchStep(true, N, N, true, 0, false, 20160, 0, S, G, St, NoWhy, out w) == WatchNothing,
+                          "seq: a 20 s cut resumes the same fight (its resume race inside the settle)", ref rows, ref fail);
+                 WatchRow(DioramaWatchStep(false, 0, N, true, 0, false, 25000 + S - 1, S - 1, S, G, St, NoWhy, out w) == WatchHold
+                          && DioramaWatchStep(false, 0, N, true, 0, false, 25000 + S, S, S, G, St, NoWhy, out w) == WatchLeaveFinal
+                          && w == WatchWhyStallCap,
+                          "seq: a 25 s cut whose fight ended unseen leaves at the settle once the peer is back", ref rows, ref fail);
+             }
+             catch (Exception err)
+             {
+                 if (fail == null)
+                     fail = "threw " + err.GetType().Name;
+             }

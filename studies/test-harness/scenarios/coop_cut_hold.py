@@ -224,9 +224,11 @@ FORCE = pb.env_flag("COOP_CUT_FORCE")
 PORT = pb.env_int("COOP_PEER_PORT", pb.DEFAULT_PORT)
 CODE = pb.BENCH_CODE
 #: [ff9mapkit netsync R3 s120] the grace the ENGINE will run: COOP_GRACE_MS through ParseSessionGrace's twin (quotes, the
-#: 30000 default, the 5000-40000 clamp) -- the value written to Memoria.ini AND every window's, so the two never disagree
-#: (a raw 45000 written as-is would be clamped to 40000 by the engine and judged against 45 s here: a correct s120 red)
-GRACE_MS, GRACE_NOTE = pb.engine_grace(os.environ.get("COOP_GRACE_MS", ""))
+#: 5000-40000 clamp) -- the value written to Memoria.ini AND every window's, so the two never disagree (a raw 45000
+#: written as-is would be clamped to 40000 by the engine and judged against 45 s here: a correct s120 red).
+#: [ff9mapkit netsync s132] unset means the BENCH's 30000 (pb.BENCH_GRACE_MS), written explicitly -- never the engine's
+#: absent-key default, which s132 moved to 40000 (the s120-long leg's 40 s cut would no longer outlast it)
+GRACE_MS, GRACE_NOTE = pb.engine_grace(os.environ.get("COOP_GRACE_MS", str(pb.BENCH_GRACE_MS)))
 GRACE_S = GRACE_MS / 1000.0
 POLL_S = 0.1
 

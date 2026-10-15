@@ -842,8 +842,14 @@ def _f3_retired_text() -> str:
 
 def _catch_doc_in(stem: str) -> dict:
     """The `netsync` "nothing" document ONE patch's AppendNetsync catch line publishes (its two literals around the
-    F3 pin, which s96 introduced and no later patch touches)."""
-    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', [_patch_bytes(stem)])
+    F3 pin, which s96 introduced and no later patch touches). [ff9mapkit netsync s132] A patch that leaves the catch line
+    alone (s132 adds no key) publishes the newest earlier patch's -- so the agent AT that patch is still read exactly."""
+    pattern = r'outer\.Append\("\\"netsync\\":\{\\"enabled'
+    catch = []
+    for patch in reversed(_prefix(stem)):
+        catch = net_lines("HarnessAgent.cs", pattern, [patch])
+        if catch:
+            break
     assert len(catch) == 1 and ".Append(NetsyncF3Retired)" in catch[0], (stem, catch)
     a, b = _literals(catch[0])
     unescape = lambda s: s.replace('\\"', '"')                          # noqa: E731 -- the only escape in them
@@ -2190,7 +2196,10 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
 
 BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", "s107", "s108", "s109", "s110",
                  "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119", "s120", "s121",
-                 "s131"]                                      # [ff9mapkit netsync s131] (s122-s130: group 2's reservation)
+                 "s131", "s132"]                              # [ff9mapkit netsync s131] (s122-s130: group 2's reservation)
+#: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
+#: tells them -- s132 changed only an absent SessionGraceMs's default)
+BATTLE_KEYLESS_LEVELS = ("s132",)
 
 
 @pytest.mark.parametrize("level", BATTLE_LEVELS)
@@ -2447,14 +2456,18 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             "coop_handback_report", "coop_diorama_hold", "coop_session_grace", "coop_menu_refusal",
             # [ff9mapkit netsync s131] the expired seq
             "coop_peer_adopt")
-    assert len(caps) == len(BATTLE_LEVELS) - 1
+    keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
+    assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
     none = State({"frame": 1})
     assert all(getattr(none, c) is None for c in caps) and all(getattr(none, n) is None for n in table.values())
     assert none.coop_battle is None and none.coop_peer_end_manifest is None
     s99 = State({"frame": 1, "netsync": _battle_block("s99")})
     assert all(getattr(s99, c) is False for c in caps) and all(getattr(s99, n) is None for n in table.values())
-    for i, level in enumerate(BATTLE_LEVELS[1:]):
+    # [ff9mapkit netsync s132] a keyless stage publishes the previous one's block, so it reads every capability True
+    for level in BATTLE_KEYLESS_LEVELS:
+        assert _battle_block(level) == _battle_block(BATTLE_LEVELS[BATTLE_LEVELS.index(level) - 1]), level
+    for i, level in enumerate(keyed[1:]):
         st = State({"frame": 1, "netsync": _battle_block(level)})
         assert [getattr(st, c) for c in caps] == [True] * (i + 1) + [False] * (len(caps) - i - 1), level
         published = set(_leaves(_battle_of(_battle_block(level)))) | {
@@ -5357,12 +5370,16 @@ def test_the_start_hold_arms_late_ignores_a_stale_live_and_releases_on_the_link(
 # row's arguments, its verdict or its order changed on either side turns a test red; the deployed s117 is the stand-in with
 # FG.NETSYNC_SITTING_A_CAPS removed (S117_CAPS: the calibration's red). [ff9mapkit netsync s131] ...and s131's cap with
 # them (the ladder has no gaps); the DEPLOYED s121 -- s131's calibration red -- is the stand-in without FG.NETSYNC_S131_CAPS.
+# [ff9mapkit netsync s132] ...and every older stage drops s132's cap too; s131 -- s132's calibration red -- is the stand-in
+# without FG.NETSYNC_S132_CAPS.
 
 import inspect                                                          # noqa: E402
 
 S117_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_SITTING_A_CAPS
-                                              - FG.NETSYNC_S131_CAPS)
-S121_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_S131_CAPS)
+                                              - FG.NETSYNC_S131_CAPS - FG.NETSYNC_S132_CAPS)
+S121_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_S131_CAPS
+                                              - FG.NETSYNC_S132_CAPS)
+S131_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_S132_CAPS)
 _CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -5789,7 +5806,7 @@ def test_the_sitting_a_row_left_on_s56_and_holds_on_s119():
     assert alive is False and BW.peer_alive(True, True) and not BW.peer_alive(False, True)
     assert BW.s56_watch_step(False, 0, n, True, 0) == BW.WATCH_LEAVE_FINAL
     s, c119, grace = BW.DIORAMA_SETTLE_MS, BW.hold_cap_ms(None), BW.hold_cap_ms(BW.SESSION_GRACE_DEFAULT_MS)
-    assert (c119, grace) == (8000, 30000)
+    assert (c119, grace) == (8000, 40000)                              # [ff9mapkit netsync s132] the default grace
     for cap in (c119, grace):
         step = lambda stale: BW.diorama_watch_step(False, 0, n, alive, -1, False, stale, 0, s, cap,    # noqa: E731
                                                    BW.DIORAMA_STALL_CAP_MS, BW.WATCH_WHY_NONE)
@@ -5846,7 +5863,7 @@ def test_the_session_grace_twins_hold_the_bench_legs():
     assert ended == BW.SESSION_ENDED and BW.session_ramp_arms(True, False, True, ended)
     assert not BW.session_ramp_arms(True, True, True, ended) and not BW.session_ramp_arms(False, False, True, ended)
     assert BW.session_ramp_arms(True, False, False, BW.SESSION_LIVE)
-    assert BW.session_left_ms(BW.SESSION_GRACE, 2000, g) == 28000 and BW.session_left_ms(BW.SESSION_LIVE, 0, g) == -1
+    assert BW.session_left_ms(BW.SESSION_GRACE, 2000, g) == g - 2000 and BW.session_left_ms(BW.SESSION_LIVE, 0, g) == -1
     assert BW.session_left_ms(BW.SESSION_GRACE, g + 5, g) == 0
     assert (BW.overlay_left_sec(28000), BW.overlay_left_sec(27001), BW.overlay_left_sec(0)) == (28, 28, 0)
     assert [BW.session_state_name(s) for s in range(5)] == ["none", "live", "grace", "ended", None]
@@ -5859,6 +5876,8 @@ def test_parse_session_grace_says_the_engines_words():
     assert BW.parse_session_grace("12345") == (12345, None)
     assert BW.parse_session_grace(' "20000" ') == (20000, None)
     v, note = BW.parse_session_grace("thirty")
+    assert v == 40000 and note == "SessionGraceMs 'thirty' malformed (want ms, 5000-40000) -- keeping 40000"
+    v, note = BW.parse_session_grace_s120("thirty")                     # an s120-s131 engine's default
     assert v == 30000 and note == "SessionGraceMs 'thirty' malformed (want ms, 5000-40000) -- keeping 30000"
     v, note = BW.parse_session_grace("0")
     assert v == 5000 and note == ("SessionGraceMs 0 is outside 5000-40000 -- clamped to 5000 ms (a shorter grace ends "
@@ -5866,8 +5885,9 @@ def test_parse_session_grace_says_the_engines_words():
     v, note = BW.parse_session_grace("99999")
     assert v == 40000 and note.endswith("clamped to 40000 ms (the bridge gives up on its upstream at 45 s, the relay at "
                                         "60 s)")
-    assert BW.parse_session_grace("99999999999")[0] == 30000 and BW.parse_session_grace("1_000")[0] == 30000
-    assert BW.parse_session_grace("") == (30000, None) and BW.parse_session_grace(None) == (30000, None)
+    assert BW.parse_session_grace("99999999999")[0] == 40000 and BW.parse_session_grace("1_000")[0] == 40000
+    assert BW.parse_session_grace("") == (40000, None) and BW.parse_session_grace(None) == (40000, None)
+    assert BW.parse_session_grace_s120(None) == (30000, None) and BW.parse_session_grace_s120("99999")[0] == 40000
     for piece in ('note = "SessionGraceMs \'" + s + "\' malformed (want ms, " + SessionGraceMinMs + "-" + SessionGraceMaxMs '
                   '+ ") -- keeping "',
                   'note = "SessionGraceMs " + n + " is outside " + SessionGraceMinMs + "-" + SessionGraceMaxMs + " -- '
@@ -6054,17 +6074,19 @@ def test_a_fresh_stand_in_publishes_the_agents_session_and_menu_refusal_sentinel
     assert list(nothing["battle"]["host"]["handback"])[-3:] == ["refused_report", "refused_now", "diorama_seen"]
 
 
-@pytest.mark.parametrize("level,cap", [("s119", BW.DIORAMA_HOLD_CAP_S119_MS), ("s120", BW.SESSION_GRACE_DEFAULT_MS),
-                                       ("s121", BW.SESSION_GRACE_DEFAULT_MS)])
+@pytest.mark.parametrize("level,cap", [("s119", BW.DIORAMA_HOLD_CAP_S119_MS), ("s120", BW.SESSION_GRACE_DEFAULT_S120_MS),
+                                       ("s121", BW.SESSION_GRACE_DEFAULT_S120_MS),
+                                       ("s131", BW.SESSION_GRACE_DEFAULT_S120_MS), ("s132", BW.SESSION_GRACE_DEFAULT_MS)])
 def test_the_hold_cap_reads_8000_on_s119_and_the_grace_from_s120(game, level, cap):
-    """`netsync.diorama.hold.cap_ms` is the ONE seam's reading: s119's 8000, from s120 the session grace (30000 by
-    default, the ini's value through the engine's clamp); `settle_ms` 500 on both."""
+    """`netsync.diorama.hold.cap_ms` is the ONE seam's reading: s119's 8000, from s120 the session grace (by default
+    30000 on s120-s131, [ff9mapkit netsync s132] 40000 from s132; the ini's value through the engine's clamp);
+    `settle_ms` 500 on both."""
     fake = FakeGame(game)
     fake.netsync_caps = _caps_at(level)
     hold = fake._netsync_doc()["diorama"]["hold"]
     assert (hold["cap_ms"], hold["settle_ms"]) == (cap, BW.DIORAMA_SETTLE_MS)
     if level != "s119":
-        for raw, want in (("20000", 20000), (' "12000" ', 12000), ("0", 5000), ("99999", 40000), ("thirty", 30000)):
+        for raw, want in (("20000", 20000), (' "12000" ', 12000), ("0", 5000), ("99999", 40000), ("thirty", cap)):
             fake.ini_session_grace_ms = raw
             doc = fake._netsync_doc()
             assert doc["diorama"]["hold"]["cap_ms"] == doc["session"]["grace_ms"] == want, raw
@@ -6092,7 +6114,32 @@ def test_the_session_block_sits_at_rest_on_the_selftest_role(game):
         assert st.session_mirroring is False and st.coop_session_grace is True
         fake.story_mirroring = True
         st = g.wait_for(lambda s: s.session_mirroring is True, timeout=4.0, what="the mirror knob")
-        assert st.diorama_hold_state == "" and st.diorama_hold_holds == 0 and st.diorama_hold_cap_ms == 30000
+        assert st.diorama_hold_state == "" and st.diorama_hold_holds == 0 and \
+            st.diorama_hold_cap_ms == BW.SESSION_GRACE_DEFAULT_MS == 40000
+
+
+def test_s132_the_grace_default_is_its_maximum_and_s131_reads_30000(game):
+    """[ff9mapkit netsync s132] An ABSENT [Netsync] SessionGraceMs reads 40000 = SessionGraceMaxMs on the s132 stack and
+    30000 on s131 (the calibration red: the stand-in without FG.NETSYNC_S132_CAPS); an explicit value reads the same on
+    both, and a malformed one keeps THAT engine's default. Off the stack: the constant and the absent-key read (no
+    "30000" literal left), the default never above the max (ParseSessionGrace returns it unclamped)."""
+    const = "internal const Int32 SessionGraceDefaultMs = "
+    now = [ln for ln in _stack_text("NetSyncClient.cs") if ln.startswith(const)]
+    then = [ln for ln in net_lines("NetSyncClient.cs", re.escape(const), _prefix("s131")) if ln.startswith(const)]
+    assert now == [const + "40000;"] and then == [const + "30000;"], (now, then)
+    assert any(ln == "internal const Int32 SessionGraceMaxMs = 40000;  // under the bridge's 45 s redial hard cap (and the "
+               "relay's 60 s rejoin grace)" for ln in _stack_text("NetSyncClient.cs"))
+    assert BW.SESSION_GRACE_DEFAULT_MS == BW.SESSION_GRACE_MAX_MS == 40000 and BW.SESSION_GRACE_DEFAULT_S120_MS == 30000
+    assert _battle_text('ini.GetSetting("Netsync", "SessionGraceMs", SessionGraceDefaultMs.ToString())')
+    assert not _battle_text('"SessionGraceMs", "30000"')
+    for caps, want in ((None, 40000), (S131_CAPS, 30000)):
+        fake = FakeGame(game)
+        if caps is not None:
+            fake.netsync_caps = caps
+        for raw, got_want in ((None, want), ("30000", 30000), ("40000", 40000), ("thirty", want), ("99999", 40000)):
+            fake.ini_session_grace_ms = raw
+            doc = fake._netsync_doc()
+            assert doc["session"]["grace_ms"] == doc["diorama"]["hold"]["cap_ms"] == got_want, (caps, raw)
 
 
 def _proof_lines(fake) -> list:

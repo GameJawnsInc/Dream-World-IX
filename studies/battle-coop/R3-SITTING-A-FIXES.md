@@ -615,21 +615,24 @@ would have re-adopted. Each closed the stock menu once, and nothing re-opened be
 - A shorter cut never breaks the connection, so the bridge logs nothing. The restore then waits on TCP's own backoff plus the
   Wi-Fi re-association: a ~6 s cut read O = 13.7 s, and the swirl cut O = 13.5 s.
 - So the in-game outage is about the cut plus 5-10 s. The 30 s grace tolerates a Wi-Fi drop of only about 20-25 s: box 4 had
-  2.8 s to spare. Levers if the owner wants more margin: default `SessionGraceMs` to its 40000 maximum (the bridge's 45 s redial
-  cap and the relay's 60 s rejoin grace still bound it), or a bridge read-idle redial. The bridge already redials cheaply (the
-  ~150 ms boundary redials below), which would cut the short-cut TCP backoff. Tooling only, no DLL.
+  2.8 s to spare. OWNER DECISION: default `SessionGraceMs` to its 40000 maximum -> **s132** (captured + compile-checked,
+  memoria-patches README row; the bridge's 45 s redial cap counts from its own EOF ~19 s into a cut, and the relay's rejoin
+  grace is 60 s, so both still bound it). The T2 benches now write their own 30000 (`BENCH_GRACE_MS`) so every leg keeps its
+  timing. A bridge read-idle redial (the bridge already redials cheaply, the ~150 ms boundary redials below) would also cut the
+  short-cut TCP backoff; not built.
 - Boundary redials while frames flow: `upstream EOF at boundary (... last relay frame 0 ms ago); redialing`, restored on the
   first redial in 110-455 ms. Laptop 53 and desktop 11 over the 13 minutes. Each gap is far under every staleness window (2 s),
   and none surfaced in game. They are the relay closing streams; first seen because the bridge never logged before T1.
 - The desktop game's own 75 s relay `ReceiveTimeout` (NetSyncRelay.cs:164, dead-peer detection) closed and reopened its hop at
   13:02:33-36 desktop time, after 75 s with no guest frames during box 5. Benign, by design.
 
-**Not exercised: the desktop's take-over in boxes 1-3.** The laptop had its command menu up at all three cuts (`1 slot(s)
-drained`). The desktop logged no `holds guest slot` in nonce 1, though the slot reverts to local about 4.5 s into a cut
-(IsGuestOwnedSlot, MenuStaleMs 2500 on top of the transport's 2000 ms re-serve). The likely reason is the owner idling the
-desktop: its window sat on one of its own characters' turns for the whole cut, so the ready loop never reached slot 1
-(TrackHostHold logs a capture only when CurrentPlayerIndex lands on a guest slot). Box 9 shows the capture itself works.
-Unconfirmed. Also: G3 hands back on the guest's BOOTING report, not only LIVE (box 9: handed back about when the laptop logged
+**Not exercised in boxes 1-3, then OWNER-CONFIRMED: the desktop's take-over.** The laptop had its command menu up at all
+three cuts (`1 slot(s) drained`). The desktop logged no `holds guest slot` in nonce 1, though the slot reverts to local
+about 4.5 s into a cut (IsGuestOwnedSlot, MenuStaleMs 2500 on top of the transport's 2000 ms re-serve). The owner never
+sent a command on the desktop during those cuts, so its window sat on its own characters' turns and the ready loop never
+reached slot 1 (TrackHostHold logs a capture only when CurrentPlayerIndex lands on a guest slot). Retested by the owner after
+the sitting: the desktop takes Vivi when the guest disconnects and gives the slot back when the guest reconnects. Box 9
+logged the same capture and hand-back. Also: G3 hands back on the guest's BOOTING report, not only LIVE (box 9: handed back about when the laptop logged
 BOOTING, about 2 s before its LIVE). The sheet's item 3 said LIVE. That is code-consistent and only a sheet wording slip.
 
 **New small anomalies (open, none user-visible as reported).**
@@ -654,7 +657,7 @@ BOOTING, about 2 s before its LIVE). The sheet's item 3 said LIVE. That is code-
 - ~~Whether hold-through resume works in-game after a 20-30 s gap~~ ANSWERED YES (sitting B boxes 2-3: 23 s holds resumed on the same fight, the stock menu re-served).
 - ~~Whether T2's recorded-host replay boots a diorama faithfully on a guest-role desktop~~ ANSWERED YES (Phase 1, cal 10/10 on s117).
 - Whether Unity's symbol server has symbols for the 5.2.3p2 x64 standalone player and its mono.dll, which affects how readable the T1 dump is.
-- Boxes still not exercised after sitting B: A3's cold leg (re-spec: Dali 350 has no encounters), a clean back-to-back pair, A12 (Zidane's Flee gil relay), the s117 defeat presentation, the s121 menu refusal, and the desktop's take-over on a cut mid-turn (boxes 1-3 left it unreached). Sitting B ran A5-as-pause, A6 and A11 (all PASS).
+- Boxes still not exercised after sitting B: A3's cold leg (re-spec: Dali 350 has no encounters), a clean back-to-back pair, A12 (Zidane's Flee gil relay), the s117 defeat presentation and the s121 menu refusal. Sitting B ran A5-as-pause, A6 and A11 (all PASS); the owner confirmed the desktop's take-over on a cut mid-turn afterwards.
 
 ## Appendix: the four investigation lanes (summaries)
 
