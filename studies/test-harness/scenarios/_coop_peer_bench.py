@@ -43,6 +43,14 @@ What lives here, and why once:
     the reason a tape cannot carry a leg.
   * THE CAL SIDECAR (``<tape>.cal.json``): the CAL leg's verdict, keyed by the tape's sha256 -- every later leg reads it,
     and reads "not reached" until the instrument has passed on that tape.
+  * [ff9mapkit netsync s131] THE CUT'S TAIL (:func:`tape_tail`, :func:`tap_tail`) and THE HOLD RULE (:func:`hold_rule`,
+    :func:`readopt_reproduced`) -- R3-SITTING-A-FIXES.md "The hold-onset variance: the Pump null RE-ADOPT". The host
+    re-sends its sticky type-1 slot every ~33 ms write tick and advances the seq per ~150 ms sample, so the final pre-cut
+    seq's last receipt trails its first by 0/33/67/100/133 ms -- set by where the cut lands. A pre-s131 guest re-adopts
+    that frozen frame once its seq-keyed freshness runs out whenever the tail outlasts its Updates: the hold opens
+    ~(2000 - tail) ms late. So a hold is judged against the SAME run's outage plus THAT cut's tail -- never a nominal
+    window (s119's 6 s cut sat 9 ms inside the tail-0 class: its old 3000-5500 window was green by placement luck).
+    The tail comes off the tape at ``--blackhole-at`` (a T2 leg) or off the relay tap around a live cut (P5).
 
 Knobs (environment): COOP_PEER_PORT (default 49201, the game's RelayUrl port), COOP_TAPE (a tape path), COOP_TAPE_DIR
 (where tapes land; default <main repo>/.harness-runs/coop-tapes), COOP_BACKUP_DIR (where the Memoria.ini backups land;
@@ -50,6 +58,7 @@ default <main repo>/backups), MEMORIA_SRC (the Memoria clone the self-check read
 """
 from __future__ import annotations
 
+import bisect
 import datetime as _dt
 import hashlib
 import json
@@ -69,6 +78,12 @@ TOOLS = REPO / "tools"
 HARNESS_DIR = TOOLS / "harness"
 COOP_PEER = HARNESS_DIR / "coop_peer.py"
 SITTING_A = REPO / ".harness-runs" / "sittingA-20261014"
+#: [ff9mapkit netsync s131] the arc's measured runs (gitignored, per machine): the T2 tape every tail was read off (in the
+#: MAIN repo's coop-tapes), the no-engine-change confirmation (two T2 legs moved 70 ms on s121) and the live P5 cut
+ARC_TAPE_NAME = "20261014-224827-host250-s117.f9tape"
+CONFIRM_RUNS = {"s119": REPO / ".harness-runs" / "20261015-074620-confirm-s119",
+                "s120-battle": REPO / ".harness-runs" / "20261015-074825-confirm-s120-battle"}
+P5_RUN = REPO / ".harness-runs" / "20261015-043026-mi-p5-bridge"
 
 # ======================================================================================== the bench constants
 BENCH_FIELD = 250                            # Evil Forest/Trail: sitting A's meeting field (warm: Main_Reinit)
@@ -91,9 +106,10 @@ GRACE_DEFAULT_S = 30.0                       # [s120] SessionGraceDefaultMs (own
 SLACK_S = 1.0
 
 # The cut_hold legs (COOP_CUT_LEG), in the run order the docstrings give.
-LEGS = ("cal", "s119", "s120-battle", "s120-long", "s120-roam", "span", "s121")
+LEGS = ("cal", "s119", "readopt", "s120-battle", "s120-long", "s120-roam", "span", "s121")
 LEG_ALIASES = {"s120": "s120-battle", "s120-world": "span", "world": "span", "s120b": "s120-battle",
-               "s120l": "s120-long", "s120r": "s120-roam", "calibrate": "cal"}
+               "s120l": "s120-long", "s120r": "s120-roam", "calibrate": "cal",
+               "s131": "readopt", "re-adopt": "readopt"}                 # [ff9mapkit netsync s131]
 ROAM_LEAD_S = 15.0                           # a free-roam blackhole starts this long after the replay's first host frame
 S119_AT_S, S119_FOR_S = 10.0, 6.0            # the sitting-A row: 6 s, 10 s into the recorded battle (the plan's T2 bench)
 S120B_AT_S, S120B_FOR_S = 8.0, 20.0          # the plan's "20 s blackhole mid-battle"
@@ -102,6 +118,21 @@ ROAM_FOR_S = 20.0                            # the plan's "20 s blackhole in fre
 SPAN_LEAD_S, SPAN_TAIL_S = 4.0, 4.0          # a span cut starts this long before the end block turns terminal, ends after
 S121_STOP_S = 25.0                           # the S121 replay stops this long after its first host frame (presses first)
 RESUME_MARGIN_S = 6.0                        # tape room a leg needs after its blackhole before the next phase
+
+# [ff9mapkit netsync s131] THE CUT'S TAIL and THE HOLD RULE (R3-SITTING-A-FIXES.md "The hold-onset variance"), in ms.
+READOPT_TAIL_MS = 66.0                       # the re-adopt CLASS: a tail of two write ticks re-adopts at any Update rate
+                                             # (0 never does; 33 does when the guest's Updates are quick enough: a maybe)
+HOLD_RULE_MS = (-40.0, 70.0)                 # post-fix, a mid-fight resume: (hold - outage) in [tail - 40, tail + 70]
+LEAVE_RULE_MS = (-55.0, 85.0)                # ...a leave-ended hold (the over-verdict): (hold - settle - outage), a
+                                             # TickCount quantum wider (one more stamp in it)
+READOPT_WINDOW_MS = 2000.0                   # the phantom live window a pre-s131 re-adopt adds (NetSyncBattle.StaleMs)
+READOPT_RED_MS = (-35.0, 50.0)               # pre-s131, tail >= 66: (outage - hold) in [2000 - tail - 35, 2000 - tail + 50]
+EXPIRED_MS_SLACK = (100.0, 35.0)             # s131 `peer.expired.ms` = the tail less up to two Updates (30 fps) and a
+                                             # TickCount quantum: [tail - 100, tail + 35]
+MENU_CLOSES_MAX = 1                          # 'closed all (ready mirror: no live peer battle lane)' per cut: the re-adopt's
+                                             # second stale edge shuts the re-served menu again
+READOPT_AT_S = S119_AT_S                     # the readopt leg: the s119 cut moved to the nearest tail >= 66 placement at or
+READOPT_FOR_S = S119_FOR_S                   # after battle+10 s, the same 6 s long
 
 
 def env_flag(name: str) -> bool:
@@ -157,13 +188,15 @@ def has(x, dotted: str) -> bool:
 
 
 #: The guest-side capability ladder these benches read, by the KEY each patch added (protocol 5, additive).
-STAGE_KEYS = ((121, "netsync.menu_refusal"), (120, "netsync.session"), (119, "netsync.diorama.hold"),
-              (117, "netsync.battle.end.follow_msg"))
+#: [ff9mapkit netsync s131] `netsync.battle.peer.expired`: the guest that refuses the transport's repeats of its expired seq.
+PEER_EXPIRED_KEY = "netsync.battle.peer.expired"
+STAGE_KEYS = ((131, PEER_EXPIRED_KEY), (121, "netsync.menu_refusal"), (120, "netsync.session"),
+              (119, "netsync.diorama.hold"), (117, "netsync.battle.end.follow_msg"))
 
 
 def engine_stage(x) -> int:
-    """The newest of s117/s119/s120/s121 whose key this doc carries (0 = older than s117, or no netsync block). s118 is
-    host-side and adds nothing a guest bench reads."""
+    """The newest of s117/s119/s120/s121/s131 whose key this doc carries (0 = older than s117, or no netsync block). s118
+    is host-side and adds nothing a guest bench reads; s122-s130 are group 2's reservation (none captured)."""
     for stage, key in STAGE_KEYS:
         if has(x, key):
             return stage
@@ -718,11 +751,20 @@ MATCHERS = {
     # --- [ff9mapkit netsync R3 s121] the audible menu refusal --------------------------------------------- NetSyncField
     "menu_refused": re.compile(r"^\[NetSync\] main menu suppressed \(following guest\) on (field|world map) (-?\d+)$"),
     "menu_fault": re.compile(r"^\[NetSync\] main menu refusal failed \(the menu stays closed\): "),
+    # --- [ff9mapkit netsync s131] the expired seq -------------------------------------------- NetSyncBattle (any engine)
+    # the ready mirror's close-all when its lane reads dead (B4 stage 8, every engine since): ONE per cut on s131, TWO on a
+    # pre-s131 re-adopt with a guest slot Ready (the first stale frame, then the second stale edge after the phantom)
+    "menu_close_nolane": re.compile(r"^\[NetSync\] stock menu: closed all \(ready mirror: no live peer battle lane\) -- "),
+    # s131's refused re-adopt, one line per EPISODE (the first 3 of a host battle; NetSyncBattle.NoteRefusedReadopt)
+    "readopt_refused": re.compile(r"^\[NetSync\] battle lane: the host's last frame \(nonce (-?\d+), seq (-?\d+)\) ran out "
+                                  r"of freshness and the transport served it again -- not re-adopted: a repeat is never "
+                                  r"news, the lane stays stale until a new frame \(a fight's end, a cut or a stalled "
+                                  r"host\); refused=(\d+)$"),
 }
 
-#: The matchers only an s119+/s120+/s121 engine can satisfy -- none may match a line an s117 engine wrote.
+#: The matchers only an s119+/s120+/s121/s131 engine can satisfy -- none may match a line an s117 engine wrote.
 GREEN_ONLY = ("hold_cut", "hold_stall", "hold_resume", "hold_stall_cap", "watcher_why", "session_out", "session_back",
-              "session_back_late", "session_gaveup", "menu_refused", "menu_fault")
+              "session_back_late", "session_gaveup", "menu_refused", "menu_fault", "readopt_refused")
 
 #: Each GREEN matcher's LITERAL pieces as the engine's C# writes them (string literals, byte for byte), by source file
 #: under the Memoria clone's Assembly-CSharp/Memoria/Netsync/. The self-check looks every piece up in the source -- an
@@ -766,6 +808,16 @@ FRAGMENTS = {
         "\"[NetSync] \" + what + \" suppressed (following guest) on \" + where", "DeclineOnce(\"main menu\")",
         "\"field \" + fld", "\"world map \" + place")),
     "menu_fault": ("NetSyncField.cs", ("[NetSync] main menu refusal failed (the menu stays closed): ",)),
+    # [ff9mapkit netsync s131]
+    "readopt_refused": ("NetSyncBattle.cs", (
+        "[NetSync] battle lane: the host's last frame (nonce ", ", seq ", ") ran out of ",
+        "freshness and the transport served it again -- not re-adopted: a repeat is never news, the lane stays stale ",
+        "until a new frame (a fight's end, a cut or a stalled host); refused=")),
+    # not GREEN-only (B4 stage 8 wrote it first), pinned all the same: the hold rule counts it per cut
+    "menu_close_nolane": ("NetSyncBattle.StockMenu.cs", (
+        "\"[NetSync] stock menu: closed all (\" + why + \") -- \"",
+        "StockMenuCloseAll(\"ready mirror: \" + (owns ? \"waiting: \" + BenchMenuGateText(gate) : why));",
+        "why = \"no live peer battle lane\";")),
 }
 
 #: One hand-built line per GREEN matcher, composed exactly as the C# concatenates it (the variable parts filled in).
@@ -797,6 +849,10 @@ GREEN_SAMPLES = {
                       "the exit ramp reloads your own autosave once you are free-standing; gaveup=1",
     "menu_refused": "[NetSync] main menu suppressed (following guest) on field 250",
     "menu_fault": "[NetSync] main menu refusal failed (the menu stays closed): System.NullReferenceException",
+    "readopt_refused": "[NetSync] battle lane: the host's last frame (nonce 1, seq 63) ran out of freshness and the "
+                       "transport served it again -- not re-adopted: a repeat is never news, the lane stays stale until a "
+                       "new frame (a fight's end, a cut or a stalled host); refused=1",
+    "menu_close_nolane": "[NetSync] stock menu: closed all (ready mirror: no live peer battle lane) -- 1 slot(s) drained",
 }
 
 
@@ -932,7 +988,8 @@ def tape_facts(records, cp, *, field: int | None = BENCH_FIELD, marker=(MARKER_B
     ARMED', 'diorama BOOT', 'diorama LIVE' and the end-leave (each ``fN`` = {ok, why, ...}), plus the anchors the leg
     plans read. ``field`` None accepts any real first field."""
     frames = cp.host_frames(records)
-    facts = {"records": len(records), "host_frames": len(frames)}
+    facts = {"records": len(records), "host_frames": len(frames),
+             "rx": battle_receipts(records, cp)}     # [ff9mapkit netsync s131] the battle receipts every cut's tail reads
     if not frames:
         why = "the tape holds no host (dir 0) v14 frame"
         for k in ("f1", "f2", "f3", "f4", "f5"):
@@ -1048,6 +1105,135 @@ def facts_lines(facts: dict) -> list:
     return [f"{names[k]}: {'OK     ' if facts[k]['ok'] else 'MISSING'} -- {facts[k]['why']}" for k in names]
 
 
+# ======================================================================================== the cut's tail + the hold rule
+def battle_receipts(records, cp=None) -> list:
+    """[ff9mapkit netsync s131] ``[(t, nonce, seq)]`` of every HOST type-1 frame on a tape or relay tap (dir 0, the v14
+    codec's head), in receipt order -- what the cut's tail is read off."""
+    cp = cp or coop_peer_module()
+    out = []
+    for rec, wtype, payload in cp.host_frames(records):
+        if wtype != cp.TYPE_BATTLE:
+            continue
+        head = cp.parse_battle_head(payload)
+        if head is not None:
+            out.append((rec.t, head["nonce"], head["seq"]))
+    out.sort(key=lambda r: r[0])             # stable: a tap's two legs stamp under one lock, so this is a no-op there
+    return out
+
+
+def _tail_core(rx, ts, at: float):
+    """``(tail_ms, i, j)`` for a cut at ``at``: frame ``i`` = the last receipt with t < at, ``j`` = the FIRST receipt of
+    its (nonce, seq) run, walked back while contiguous (a seq number repeats across battles: never a global min) --
+    or None when no battle frame precedes ``at``."""
+    i = bisect.bisect_left(ts, at) - 1
+    if i < 0:
+        return None
+    key, j = rx[i][1:], i
+    while j > 0 and rx[j - 1][1:] == key:
+        j -= 1
+    return round((ts[i] - ts[j]) * 1000.0, 1), i, j
+
+
+def tail_at(rx, at: float, *, ts=None):
+    """[ff9mapkit netsync s131] THE CUT'S TAIL, in ms, of a replay blackhole at TAPE second ``at`` over the receipts ``rx``
+    (:func:`battle_receipts`): the final pre-cut seq's LAST receipt minus its FIRST. The replay drops ``at <= t`` (coop_peer
+    Replayer.in_blackhole), so the final pre-cut frame is the last with ``t < at``. None = no live battle lane at the cut
+    (no frame before it, or the last one already older than StaleMs: nothing for the guest's freshness to run out on)."""
+    ts = ts if ts is not None else [r[0] for r in rx]
+    got = _tail_core(rx, ts, at)
+    if got is None or at - ts[got[1]] > STALE_S:
+        return None
+    return got[0]
+
+
+def tape_tail(records, at: float, cp=None):
+    """[ff9mapkit netsync s131] The PURE helper: a T2 tape's records and a ``--blackhole-at`` (tape seconds) -> the cut's
+    tail in ms (None: no battle lane at the cut). The hold of THAT cut is judged against it (:func:`hold_rule`)."""
+    return tail_at(battle_receipts(records, cp), at)
+
+
+def tap_tail(records, header: dict, cut_start: _dt.datetime, cut_end: _dt.datetime, cp=None) -> tuple:
+    """[ff9mapkit netsync s131] The RELAY-TAP variant (multi-instance P5: a live cut, the host's bridge suspended from
+    ``cut_start`` to ``cut_end``, wall clock): ``(tail_ms | None, detail)``. A tap's ``t`` is seconds since its header's
+    ``started`` (wall clock, ms; its monotonic zero follows within the open); the cut point is the MIDDLE of the suspend
+    -- frames in flight at the suspend land within ms of it and a resumed bridge's backlog after the resume, so no
+    clock offset of a few ms moves a frame across it. The relay stamps the host leg's frames at the RELAY, not at the
+    guest; the tail is a DIFFERENCE of two receipts one hop apart, so the hop's latency cancels (its jitter does not:
+    a few ms on loopback)."""
+    try:
+        started = _dt.datetime.fromisoformat(str(header.get("started")))
+    except (TypeError, ValueError):
+        return None, f"the tap header has no usable 'started' ({header.get('started')!r})"
+    rx = battle_receipts(records, cp)
+    if not rx:
+        return None, "the tap holds no host battle frame"
+    ts = [r[0] for r in rx]
+    c0 = (cut_start - started).total_seconds()
+    c1 = (cut_end - started).total_seconds()
+    mid = (c0 + c1) / 2.0
+    got = _tail_core(rx, ts, mid)
+    if got is None:
+        return None, f"no host battle frame before the cut (tap {c0:.3f} s)"
+    tail, i, j = got
+    if c0 - ts[i] > STALE_S:
+        return None, (f"the host's battle lane was already silent {c0 - ts[i]:.2f} s before the cut (tap {c0:.3f} s): "
+                      "nothing for the guest's freshness to run out on")
+    nxt = ts[i + 1] - c1 if i + 1 < len(ts) else None
+    return tail, (f"tail {tail:.1f} ms: the final pre-cut seq {rx[i][2]} (nonce {rx[i][1]}) first at tap {ts[j]:.3f} s, "
+                  f"last at {ts[i]:.3f} s ({1000.0 * (c0 - ts[i]):+.1f} ms to the suspend at {c0:.3f} s); the next host "
+                  "battle frame " + (f"{1000.0 * nxt:+.1f} ms from the resume" if nxt is not None else "never came"))
+
+
+def tap_tail_file(tap_path, cut_start: _dt.datetime, cut_end: _dt.datetime) -> tuple:
+    """:func:`tap_tail` on a tap file (a live relay's tap reads fine: TapeWriter flushes every 0.5 s and read_tape drops a
+    torn last record) -> ``(tail_ms | None, detail)``; never raises."""
+    try:
+        cp = coop_peer_module()
+        header, records, torn = cp.read_tape(tap_path)
+    except Exception as err:                 # noqa: BLE001 -- the reason is the caller's check detail
+        return None, f"the relay tap does not read back ({tap_path}: {err})"
+    tail, why = tap_tail(records, header, cut_start, cut_end, cp)
+    return tail, why + (f" ({torn} B torn tail skipped)" if torn else "")
+
+
+def hold_rule(hold_ms, outage_ms, tail_ms, *, leave: bool = False) -> tuple:
+    """[ff9mapkit netsync s131] THE HOLD RULE (post-fix): ``(ok, d, (lo, hi))``. A mid-fight resume: d = hold - outage, in
+    [tail - 40, tail + 70] -- the hold opens at the battle lane's stale edge (L + StaleMs, L the final seq's FIRST receipt),
+    the outage at the position lane's (R + StaleMs, R ~ the LAST receipt), both end at the resume. A leave-ended hold
+    (the watcher's over-verdict, ``leave``): d = hold - SETTLE - outage, in [tail - 55, tail + 85]. A pre-s131 re-adopt
+    reads d ~ tail - 2000 (:func:`readopt_reproduced`). Any figure None (a line never came) -> not ok."""
+    if hold_ms is None or outage_ms is None or tail_ms is None:
+        return False, None, None
+    d = float(hold_ms) - float(outage_ms) - (SETTLE_S * 1000.0 if leave else 0.0)
+    lo, hi = LEAVE_RULE_MS if leave else HOLD_RULE_MS
+    win = (tail_ms + lo, tail_ms + hi)
+    return win[0] <= d <= win[1], d, win
+
+
+def readopt_reproduced(hold_ms, outage_ms, tail_ms) -> tuple:
+    """[ff9mapkit netsync s131] THE PRE-s131 DEFECT, characterised (a mid-fight resume, tail >= 66): ``(ok, d, (lo, hi))``
+    with d = outage - hold in [2000 - tail - 35, 2000 - tail + 50] -- the hold opened at the SECOND stale edge, after the
+    phantom 2000 ms of the re-adopted frame. Mutually exclusive with :func:`hold_rule` at any tail >= 66. A tail under
+    66 is not the re-adopt class (a tail-0 cut reads d in [-50, +35] on every engine) -> not ok."""
+    if hold_ms is None or outage_ms is None or tail_ms is None or tail_ms < READOPT_TAIL_MS:
+        return False, None, None
+    d = float(outage_ms) - float(hold_ms)
+    win = (READOPT_WINDOW_MS - tail_ms + READOPT_RED_MS[0], READOPT_WINDOW_MS - tail_ms + READOPT_RED_MS[1])
+    return win[0] <= d <= win[1], d, win
+
+
+def hold_rule_text(hold_ms, outage_ms, tail_ms, *, leave: bool = False) -> str:
+    """A check detail for :func:`hold_rule`: the figures, the window, and what a pre-s131 re-adopt would read."""
+    ok, d, win = hold_rule(hold_ms, outage_ms, tail_ms, leave=leave)
+    if d is None:
+        return (f"hold {hold_ms} ms, outage {outage_ms} ms, tail {tail_ms} ms -- a figure is missing (no resume / "
+                "over-verdict line, no 'the host is back after M ms' line (pre-s120), or no battle lane at the cut)")
+    settle = f" - {SETTLE_S * 1000.0:.0f} (the settle)" if leave else ""
+    return (f"hold {hold_ms} - outage {outage_ms}{settle} = {d:+.0f} ms against tail {tail_ms:.1f} ms: want "
+            f"{win[0]:+.0f}..{win[1]:+.0f}{'' if ok else ' -- OUTSIDE'} (a pre-s131 re-adopt reads ~"
+            f"{tail_ms - READOPT_WINDOW_MS:+.0f}: the hold opening at the SECOND stale edge)")
+
+
 # ======================================================================================== the leg plans
 def canon_leg(name: str) -> str | None:
     n = (name or "cal").strip().lower()
@@ -1055,12 +1241,48 @@ def canon_leg(name: str) -> str | None:
     return n if n in LEGS else None
 
 
+def readopt_placement(rx, lo: float, hi: float, *, min_tail: float = READOPT_TAIL_MS) -> tuple:
+    """[ff9mapkit netsync s131] THE READOPT LEG'S CUT: the nearest placement at or after tape ``lo`` (and no later than
+    ``hi``) whose tail (:func:`tail_at`) is >= ``min_tail`` -- scanned off the receipts ``rx``, stretch by stretch (a cut
+    anywhere in (t_k, t_k+1] drops the same frames: the replay drops ``at <= t``). -> ``(at | None, why)``: ``at`` is the
+    MIDDLE of the first such stretch (clamped to ``lo``; ms-rounded as --blackhole-at is written, then re-read through
+    :func:`tail_at`), so the rounding never lands it on an edge."""
+    ts = [r[0] for r in rx]
+    seen: dict = {}
+    k = max(bisect.bisect_left(ts, lo) - 1, 0)
+    while k < len(rx):
+        a_lo = ts[k]
+        a_hi = ts[k + 1] if k + 1 < len(ts) else a_lo + STALE_S
+        if a_lo >= hi:
+            break
+        if a_hi > lo:
+            got = _tail_core(rx, ts, a_lo + 1e-9)
+            tail = got[0] if got is not None else None
+            if tail is not None:
+                seen[round(tail)] = seen.get(round(tail), 0) + 1
+            if tail is not None and tail >= min_tail:
+                at = float(f"{max(lo, (a_lo + a_hi) / 2.0):.3f}")
+                if a_lo < at <= min(a_hi, hi) and tail_at(rx, at, ts=ts) == tail:
+                    return at, (f"tape {at:.3f} s, the nearest tail >= {min_tail:g} ms placement at or after "
+                                f"{lo:.3f} s ({1000.0 * (at - lo):+.0f} ms): tail {tail:.1f} ms, the final pre-cut seq "
+                                f"{rx[k][2]} (nonce {rx[k][1]}) last sent at {a_lo:.4f} s")
+        k += 1
+    census = ", ".join(f"{t} ms x{n}" for t, n in sorted(seen.items())) or "none (no battle frame there)"
+    return None, (f"no cut placement in tape {lo:.3f}..{hi:.3f} s has a tail >= {min_tail:g} ms (stretch tails seen: "
+                  f"{census}) -- a host that sends each seq once never re-adopts; record a real host's tape "
+                  "(coop_tape_record.py)")
+
+
 def plan_leg(leg: str, facts: dict, grace_s: float = GRACE_DEFAULT_S, *, world: bool = False) -> dict:
-    """One leg's replay plan in TAPE seconds: ``{leg, ok, why, bh: (at, for)|None, stop_at, start, expect}``. ``ok``
-    False (with ``why``) = this tape cannot carry the leg. ``world`` = the leg was asked as s120-world (a world-map
-    victory required)."""
+    """One leg's replay plan in TAPE seconds: ``{leg, ok, why, bh: (at, for)|None, stop_at, start, expect, tail_ms}``.
+    ``ok`` False (with ``why``) = this tape cannot carry the leg. ``world`` = the leg was asked as s120-world (a world-map
+    victory required). [ff9mapkit netsync s131] ``tail_ms`` = the cut's tail at its --blackhole-at as written (ms-rounded),
+    for every cut of a live battle lane (s119, readopt, s120-battle, span); None otherwise."""
     plan = {"leg": leg, "ok": False, "why": "", "bh": None, "stop_at": None, "start": facts.get("start"),
-            "expect": {}}
+            "expect": {}, "tail_ms": None}
+
+    def tail_of(at_):
+        return tail_at(facts.get("rx") or [], float(f"{at_:.3f}"))
     b = facts.get("battle")
     start = facts.get("start")
     if start is None:
@@ -1130,12 +1352,21 @@ def plan_leg(leg: str, facts: dict, grace_s: float = GRACE_DEFAULT_S, *, world: 
             plan["why"] = f"the span cut ({dur:.1f} s) does not fit inside the {grace_s:g} s grace"
             return plan
         plan["expect"] = {"why": "stall_cap" if after == 0 else "host_field", "after_field": after}
-        plan.update(ok=facts["f3"]["ok"], bh=(at_, dur), why="" if facts["f3"]["ok"] else facts["f3"]["why"])
+        plan.update(ok=facts["f3"]["ok"], bh=(at_, dur), why="" if facts["f3"]["ok"] else facts["f3"]["why"],
+                    tail_ms=tail_of(at_))
         return plan
     if leg == "s119":
         at_, dur = b["start"] + S119_AT_S, S119_FOR_S
     elif leg == "s120-battle":
         at_, dur = b["start"] + S120B_AT_S, S120B_FOR_S
+    elif leg == "readopt":
+        # [ff9mapkit netsync s131] the s119 cut moved to the nearest re-adopt-class placement (tail >= 66 ms)
+        dur = READOPT_FOR_S
+        at_, scan = readopt_placement(facts.get("rx") or [], b["start"] + READOPT_AT_S, live_end - dur - 3.0)
+        if at_ is None:
+            plan["why"] = scan
+            return plan
+        plan["expect"] = {"placement": scan}
     else:
         plan["why"] = f"unknown leg {leg!r}"
         return plan
@@ -1147,7 +1378,8 @@ def plan_leg(leg: str, facts: dict, grace_s: float = GRACE_DEFAULT_S, *, world: 
         plan["why"] = f"a {dur:g} s cut is not inside the {grace_s:g} s grace"
         return plan
     pre_ok = all(facts[k]["ok"] for k in ("f1", "f2", "f3"))
-    plan.update(ok=pre_ok, bh=(at_, dur), why="" if pre_ok else "a pairing/mirror/boot fact is missing")
+    plan.update(ok=pre_ok, bh=(at_, dur), why="" if pre_ok else "a pairing/mirror/boot fact is missing",
+                tail_ms=tail_of(at_))
     return plan
 
 
@@ -1232,10 +1464,12 @@ def write_cal(tape: Path, ok: bool, *, stage: int, detail: str, facts: dict | No
 
 # ======================================================================================== the self-check (no game)
 def synthetic_tape(cp, *, pre_s: float = 70.0, fight_s: float = 40.0, post_s: float = 30.0, field: int = BENCH_FIELD,
-                   nonce: int = 3, scene: int = BENCH_SCENE) -> list:
+                   nonce: int = 3, scene: int = BENCH_SCENE, resend: int = 1) -> list:
     """An in-memory host tape shaped like coop_tape_record.py's (10 Hz, not 30 -- the facts read edges, not rates):
     free roam on ``field`` with the story marker, a battle (fighting, a player Ready, then victory-pending -> victory ->
-    the result screen to Hide), the host back on ``field``."""
+    the result screen to Hide), the host back on ``field``. [ff9mapkit netsync s131] ``resend`` = how many times each
+    fighting seq goes out, one write tick (33 ms) apart -- the sticky slot's repeats a cut's tail is made of (1 = every
+    tail 0; 3 = the last third of each 100 ms seq reads tail 66)."""
     R = cp.Record
     recs = []
     story = bytearray(2048)
@@ -1262,7 +1496,8 @@ def synthetic_tape(cp, *, pre_s: float = 70.0, fight_s: float = 40.0, post_s: fl
     b0 = t
     while t < b0 + fight_s:
         seq += 1
-        recs += [R(t, 0, pos(0)), R(t, 0, battle_frame(4, seq, 0, 0, 0, t > b0 + 3.0))]
+        frame = battle_frame(4, seq, 0, 0, 0, t > b0 + 3.0)
+        recs += [R(t, 0, pos(0)), R(t, 0, frame)] + [R(t + k * 0.033, 0, frame) for k in range(1, resend)]
         t += 0.1
     for phase, result, ui, res, n in ((5, 0, 0, 0, 10), (6, 1, 0, 0, 20), (6, 1, 1, 0, 30), (6, 1, 1, 7, 5)):
         for _ in range(n):
@@ -1348,6 +1583,8 @@ def _self_rows() -> list:
             "s117 log: the config line (role=client, the relay code) at 29")
         m162 = MATCHERS["return"].search(by_no[162][2])
         row(m162 is not None and m162.group(1, 2) == ("warm", "250"), "s117 log: the warm RETURN at 162")
+        row(on("menu_close_nolane") == [156], f"s117 log: the ONE no-lane menu close is 156, sitting A's cut -- the "
+            f"'end injected' / 'waiting' closes (57/106/154) are not it (got {on('menu_close_nolane')})")
         green = {g: on(g) for g in GREEN_ONLY}
         row(not any(green.values()), f"s117 log: no s119-s121 GREEN matcher matches an s117 line ({green})")
         w = leg_windows(6.0)
@@ -1432,6 +1669,9 @@ def _self_rows() -> list:
     row(rw["overlay"][0] < rw["overlay"][1] and rw["resume"][0] > rw["out"][1], "windows: a 20 s roam cut has an overlay "
         "stretch, and its resume comes after its outage line")
     # --- engine_stage / marker
+    row(engine_stage({"netsync": {"menu_refusal": {}, "battle": {"peer": {"expired": {"count": 0}}}}}) == 131
+        and engine_stage({"netsync": {"menu_refusal": {}, "battle": {"peer": {"live": False}}}}) == 121,
+        "engine_stage: s131 = netsync.battle.peer.expired (a peer block without it is s121)")
     row(engine_stage({"netsync": {"menu_refusal": {}, "session": {}}}) == 121 and engine_stage(
         {"netsync": {"diorama": {"hold": {}}}}) == 119 and engine_stage({"netsync": {"battle": {"end": {"follow_msg": None}}}})
         == 117 and engine_stage({}) == 0, "engine_stage: the key ladder (a null value is still a key)")
@@ -1459,8 +1699,8 @@ def _self_rows() -> list:
     world = [r if not (r.dir == 0 and r.payload[2:3] == bytes([cp.TYPE_POS]) and r.t > f["battle"]["end"]) else
              cp.Record(r.t, 0, cp.build_pos_frame(0)) for r in good]     # the host stays on the world map (field 0)
     fw = tape_facts(world, cp)
-    plans = {leg: plan_leg(leg, f) for leg in LEGS}
-    row(all(p["ok"] for p in plans.values()), "plans: every leg fits the synthetic tape: "
+    plans = {leg: plan_leg(leg, f) for leg in LEGS if leg != "readopt"}
+    row(all(p["ok"] for p in plans.values()), "plans: every leg but readopt fits the synthetic tape: "
         + " | ".join(f"{k}:{p['why'] or 'ok'}" for k, p in plans.items()))
     b = f["battle"]
     row(abs(plans["s119"]["bh"][0] - (b["start"] + 10.0)) < 1e-6 and plans["s119"]["bh"][1] == 6.0,
@@ -1484,16 +1724,189 @@ def _self_rows() -> list:
         == f["start"] + S121_STOP_S, "plans: the 40 s / 20 s roam cuts and the S121 stop")
     args = plan_args(plans["s119"], port=49201, code=BENCH_CODE)
     row(args[:2] == ["--port", "49201"] and "--blackhole-at" in args and "--stop-at" not in args, "plans: replay args")
-    row(canon_leg("s120-world") == "span" and canon_leg("") == "cal" and canon_leg("nope") is None, "legs: aliases")
+    row(canon_leg("s120-world") == "span" and canon_leg("") == "cal" and canon_leg("nope") is None
+        and canon_leg("s131") == "readopt", "legs: aliases")
+    rows.extend(_tail_rows(cp, f, plans))
+    return rows
+
+
+def _tail_rows(cp, f: dict, plans: dict) -> list:
+    """[ff9mapkit netsync s131] THE CUT'S TAIL and THE HOLD RULE, off hand-built data (no file): every row runs."""
+    rows = []
+
+    def row(ok, what):
+        rows.append((bool(ok), what))
+
+    R = cp.Record
+
+    def bf(seq, nonce=1):
+        return cp.build_frame(cp.TYPE_BATTLE, struct.pack("<HHBBBBBHB", seq, BENCH_SCENE, 2, 0, 0, 0x03, nonce, 7, 0))
+
+    # seq 7 x3 (33 ms ticks), seq 8 x2, seq 9, seq 8 AGAIN (a wrapped u16), nonce 2's seq 8 x2; a position frame and a
+    # GUEST-dir battle frame between them (neither is the host's battle lane)
+    hand = [R(1.000, 0, bf(7)), R(1.010, 0, cp.build_pos_frame(0)), R(1.033, 0, bf(7)), R(1.066, 0, bf(7)),
+            R(1.100, 0, bf(8)), R(1.133, 0, bf(8)), R(1.140, 1, bf(99)), R(1.200, 0, bf(9)), R(1.300, 0, bf(8)),
+            R(1.333, 0, bf(8)), R(2.000, 0, bf(8, nonce=2)), R(2.033, 0, bf(8, nonce=2))]
+    want = {1.05: 33.0, 1.07: 66.0, 1.1: 66.0, 1.101: 0.0, 1.134: 33.0, 1.15: 33.0, 1.34: 33.0, 2.02: 0.0, 2.04: 33.0,
+            0.9: None, 4.1: None}
+    got = {at: tape_tail(hand, at, cp) for at in want}
+    row(got == want, f"tape_tail: the final pre-cut seq's last receipt minus its first, the replay's 'at <= t' drop "
+        f"(1.1 keeps 1.066), a contiguous (nonce, seq) run (a wrapped seq 8 at 1.30 is not 1.10's; nonce 2's seq 8 is "
+        f"its own), only the host's battle frames; None before the lane and 2 s past it ({got})")
+    started = _dt.datetime(2026, 10, 15, 4, 30, 0)
+    head = {"started": started.isoformat(timespec="milliseconds")}
+    tap = [R(10.000, 0, bf(5)), R(10.033, 0, bf(5)), R(10.066, 0, bf(5)), R(10.099, 0, bf(5)),
+           R(10.1004, 0, bf(5)), R(16.1002, 0, bf(6)), R(16.133, 0, bf(6))]
+    c0, c1 = started + _dt.timedelta(seconds=10.1), started + _dt.timedelta(seconds=16.1)
+    t1, why1 = tap_tail(tap, head, c0, c1, cp)
+    t2, why2 = tap_tail(tap[:1], head, c0 + _dt.timedelta(seconds=3), c1 + _dt.timedelta(seconds=3), cp)
+    t3, _w3 = tap_tail(tap, {"started": "?"}, c0, c1, cp)
+    row(t1 == 100.4 and "the next host battle frame +0.2 ms from the resume" in why1 and t2 is None
+        and "already silent" in why2 and t3 is None,
+        f"tap_tail: the cut point is the MIDDLE of the suspend (a frame in flight 0.4 ms after it counts, the resumed "
+        f"backlog does not); a lane silent before the cut and a bad header read None ({t1}: {why1[:120]} | {why2[:80]})")
+    # the plans: a tail-0 tape cannot carry the readopt leg; a re-sending host's can, at its nearest placement
+    no = plan_leg("readopt", f)
+    row(not no["ok"] and ">= 66 ms" in no["why"] and plans["s119"]["tail_ms"] == 0.0
+        and all(plans[k]["tail_ms"] is None for k in ("cal", "s120-long", "s120-roam", "s121")),
+        f"plans: readopt refuses a host that sends each seq once ({no['why'][:110]}); s119's tail 0.0; no tail off a "
+        "battle lane")
+    rs = synthetic_tape(cp, resend=3)
+    fr = tape_facts(rs, cp)
+    rp = plan_leg("readopt", fr)
+    lo = fr["battle"]["start"] + READOPT_AT_S
+    at_ = rp["bh"][0] if rp.get("bh") else None
+    ts = [r[0] for r in fr["rx"]]
+    k_at = _tail_core(fr["rx"], ts, at_)[1] if at_ else None
+    # a qualifying ms placement before `at` in an EARLIER stretch (the same stretch is the same frame set: `at` is its middle)
+    earlier = [x for x in (lo + k / 1000.0 for k in range(int((at_ - lo) * 1000) if at_ else 0))
+               if (tail_at(fr["rx"], x, ts=ts) or 0.0) >= READOPT_TAIL_MS and _tail_core(fr["rx"], ts, x)[1] != k_at]
+    args = plan_args(rp, port=DEFAULT_PORT, code=BENCH_CODE) if rp["ok"] else []
+    row(rp["ok"] and at_ >= lo and rp["tail_ms"] >= READOPT_TAIL_MS and tape_tail(rs, at_, cp) == rp["tail_ms"]
+        and not earlier and at_ - lo < 0.1 and rp["bh"][1] == READOPT_FOR_S and f"{at_:.3f}" in args,
+        f"plans: readopt = the s119 cut moved to the NEAREST tail >= 66 placement at or after battle+10 s (at "
+        f"{at_}, battle+10 = {lo:.3f}, tail {rp['tail_ms']}; qualifying placements in an earlier stretch: "
+        f"{len(earlier)}): "
+        f"{rp['why'] or rp['expect'].get('placement', '')[:90]}")
+    # THE HOLD RULE against every hold the arc measured (R3-SITTING-A-FIXES.md "The hold-onset variance"), and the
+    # pre-s131 characterisation; (hold, outage, tail, leave) -> (post-fix rule, pre-s131 re-adopt reproduced)
+    cases = {
+        "T2 s119 on s121 (tail 0), run 1": ((4047, 4031, 0.0, False), (True, False)),
+        "T2 s119 on s121 (tail 0), run 2": ((4032, 4032, 0.0, False), (True, False)),
+        "confirm s119 @81.66 on s121 (tail 67.3)": ((2094, 4032, 67.3, False), (False, True)),
+        "confirm s120-battle @79.66 on s121 (tail 0)": ((18047, 18015, 0.0, False), (True, False)),
+        "T2 s120-battle @79.59 on s121 (tail 66.5), run 1": ((16094, 18015, 66.5, False), (False, True)),
+        "T2 s120-battle @79.59 on s121 (tail 66.5), run 2": ((16078, 18031, 66.5, False), (False, True)),
+        "T2 span on s121 (leave-ended, tail 66.6), run 1": ((12015, 13453, 66.6, True), (False, None)),
+        "T2 span on s121 (leave-ended, tail 66.6), run 2": ((12000, 13453, 66.6, True), (False, None)),
+        "P5 live on s121 (tail 134.9)": ((2125, 4000, 134.9, False), (False, True)),
+        "s131 as predicted, tail 67.3": ((4032 + 67, 4032, 67.3, False), (True, False)),
+        "s131 as predicted, leave-ended, tail 66.6": ((13453 + 500 + 70, 13453, 66.6, True), (True, None)),
+    }
+    for name, ((h, o, t, lv), (want_rule, want_red)) in cases.items():
+        ok_rule = hold_rule(h, o, t, leave=lv)[0]
+        ok_red = readopt_reproduced(h, o, t)[0] if not lv else None
+        row(ok_rule == want_rule and ok_red == want_red, f"hold rule: {name} -> post-fix {ok_rule} (want {want_rule}), "
+            f"re-adopt reproduced {ok_red} (want {want_red}): {hold_rule_text(h, o, t, leave=lv)[:150]}")
+    both = [(t, h) for t in (66.0, 67.3, 100.0, 133.3) for h in range(0, 6001)
+            if hold_rule(h, 4000, t)[0] and readopt_reproduced(h, 4000, t)[0]]
+    row(not both and hold_rule(None, 4000, 0.0)[0] is False and readopt_reproduced(2000, 4000, 33.3)[0] is False,
+        f"hold rule: the post-fix window and the re-adopt window never overlap at a tail >= 66 ({both[:3]}); a missing "
+        "figure is never ok; a tail-33 cut is no re-adopt-class verdict")
+    return rows
+
+
+def _calibration_rows() -> list:
+    """[ff9mapkit netsync s131] THE TAIL AND THE HOLD RULE AGAINST THE ARC'S OWN RUNS (R3-SITTING-A-FIXES.md "The
+    hold-onset variance"): the T2 tape's tails at every placement the arc ran, the readopt leg's plan on it, the
+    no-engine-change confirmation (s119 at 81.66 -> red, s120-battle at 79.66 -> green, both on the deployed s121) and
+    the live P5 cut off its relay tap. Each source is a gitignored run artifact of THIS machine: a missing one SKIPS its
+    block as one row. Kept out of :func:`_self_rows` (the unit-test surface, which pins its own skip count): the
+    no-game self-check (``__main__``) runs both."""
+    rows = []
+
+    def row(ok, what):
+        rows.append((None if ok is SKIPPED else bool(ok), what))
+
+    try:
+        cp = coop_peer_module()
+    except Exception as err:                 # noqa: BLE001
+        row(False, f"coop_peer import: {err}")
+        return rows
+    tape = main_repo() / ".harness-runs" / "coop-tapes" / ARC_TAPE_NAME
+    records = None
+    if tape.exists():
+        _h, records, _torn = cp.read_tape(tape)
+        rx = battle_receipts(records, cp)
+        tails = {at: tail_at(rx, at) for at in (81.590, 81.633, 81.660, 79.590, 79.660, 115.359)}
+        row(tails[81.590] == 0.0 and 33.0 <= tails[81.633] <= 34.0 and 66.0 <= tails[81.660] <= 68.0
+            and 66.0 <= tails[79.590] <= 67.0 and tails[79.660] == 0.0 and 66.0 <= tails[115.359] <= 67.0,
+            f"arc tape: the tails the arc measured -- s119 81.59 -> 0, 81.633 -> 33, the confirmation's 81.66 -> ~67, "
+            f"s120-battle 79.59 -> 66.5, its confirmation 79.66 -> 0, span 115.359 -> 66.6 ({tails})")
+        facts = tape_facts(records, cp, field=None)
+        pl = {leg: plan_leg(leg, facts) for leg in ("s119", "readopt", "s120-battle", "span")}
+        ra = pl["readopt"]["bh"][0] if pl["readopt"].get("bh") else None
+        ts = [r[0] for r in rx]
+        same = ra is not None and _tail_core(rx, ts, ra)[1] == _tail_core(rx, ts, 81.660)[1]
+        row(pl["s119"]["tail_ms"] == 0.0 and (pl["s120-battle"]["tail_ms"] or 0) >= READOPT_TAIL_MS
+            and (pl["span"]["tail_ms"] or 0) >= READOPT_TAIL_MS and pl["readopt"]["ok"] and 81.59 < ra < 81.70
+            and pl["readopt"]["tail_ms"] >= READOPT_TAIL_MS and same,
+            f"arc tape: the plans' tails (s119 {pl['s119']['tail_ms']}, s120-battle {pl['s120-battle']['tail_ms']}, span "
+            f"{pl['span']['tail_ms']}); readopt at {ra} (tail {pl['readopt']['tail_ms']}) -- the confirmation's 81.66 "
+            f"stretch, the same frames: {same}")
+    else:
+        row(SKIPPED, f"the arc's T2 tape is not on this machine ({tape}) -- its tail rows did NOT run")
+    for leg, rd in CONFIRM_RUNS.items():
+        logs = sorted(rd.glob("Memoria-coop-cut-*.log")) if rd.is_dir() else []
+        peer = sorted(rd.glob("coop_peer-replay-*.log")) if rd.is_dir() else []
+        if not (logs and peer and records is not None):
+            row(SKIPPED, f"the confirmation run {rd.name} (or the arc tape) is not on this machine -- its row did NOT run")
+            continue
+        eng = [x for x in (parse_engine_line(ln) for ln in logs[0].read_text(encoding="utf-8", errors="replace")
+                           .splitlines()) if x is not None]
+        bh = [m for m in (PEER["bh_begin"].match(x[1]) for x in
+                          (parse_peer_line(ln, _dt.date.today()) for ln in peer[0].read_text(
+                              encoding="utf-8", errors="replace").splitlines()) if x is not None) if m]
+        at = float(bh[0].group(1)) if bh else None
+        tail = tape_tail(records, at, cp) if at is not None else None
+        res, back = hits(eng, "hold_resume"), hits(eng, "session_back")
+        held = int(res[0][2].group(2)) if res else None
+        om = int(back[0][2].group(1)) if back else None
+        rule, red = hold_rule(held, om, tail)[0], readopt_reproduced(held, om, tail)[0]
+        closes = hits(eng, "menu_close_nolane")
+        want = (False, True) if leg == "s119" else (True, False)
+        row((rule, red) == want and len(closes) <= MENU_CLOSES_MAX,
+            f"confirmation {leg} on s121 (blackhole at tape {at}, tail {tail}): post-fix rule {rule}, re-adopt reproduced "
+            f"{red} (want {want}) -- {hold_rule_text(held, om, tail)[:140]}; no-lane closes {len(closes)}")
+    pj, tap = P5_RUN / "p4.json", P5_RUN / "relay.tap"
+    if pj.exists() and tap.exists():
+        doc = json.loads(pj.read_text(encoding="utf-8"))
+        c0 = _dt.datetime.fromisoformat(doc["cut"]["start"])
+        c1 = _dt.datetime.fromisoformat(doc["cut"]["end"])
+        tail, why = tap_tail_file(tap, c0, c1)
+        day = c0.date()
+        eng = []
+        for ln in doc.get("guest_window") or []:
+            hh, mm, ss = (int(v) for v in ln[:8].split(":"))
+            eng.append((_dt.datetime.combine(day, _dt.time(hh, mm, ss)), "M", ln[9:]))
+        res, back, closes = hits(eng, "hold_resume"), hits(eng, "session_back"), hits(eng, "menu_close_nolane")
+        held = int(res[0][2].group(2)) if res else None
+        om = int(back[0][2].group(1)) if back else None
+        row(tail is not None and 130.0 <= tail <= 140.0 and (held, om) == (2125, 4000)
+            and not hold_rule(held, om, tail)[0] and readopt_reproduced(held, om, tail)[0] and len(closes) == 2,
+            f"P5 on s121 off its relay tap: {why[:120]}; {hold_rule_text(held, om, tail)[:120]}; no-lane closes "
+            f"{len(closes)} (K4 red twice over: the hold rule AND the second close)")
+    else:
+        row(SKIPPED, f"the P5 run is not on this machine ({P5_RUN}) -- its relay-tap row did NOT run")
     return rows
 
 
 def self_check(verbose: bool = True) -> str:
     """-> "OK" | "PARTIAL" | "FAIL". [ff9mapkit netsync R3 T2] PARTIAL = nothing failed but a calibration source was
-    missing (the archived sitting-A log is gitignored; the Memoria clone is per-machine) -- its rows did NOT run, so the
-    verdict is not a calibrated pass and the exit code says so (2)."""
+    missing (the archived sitting-A log is gitignored; the Memoria clone is per-machine; [s131] the arc's tape and runs
+    are run artifacts) -- its rows did NOT run, so the verdict is not a calibrated pass and the exit code says so (2)."""
     try:
-        rows = _self_rows()
+        rows = _self_rows() + _calibration_rows()
     except Exception as err:                 # noqa: BLE001 -- a row that throws is a red row, never a pass
         rows = [(False, f"the self-check itself raised {type(err).__name__}: {err}")]
     bad = [w for ok, w in rows if ok is False]

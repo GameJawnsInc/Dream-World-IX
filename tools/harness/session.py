@@ -8475,6 +8475,11 @@ class Session:
         host); s119-s121 are guest-side and need a real transport, so their benches are a T2 wire replay
         (``press menu`` is s121's stock key). Nothing here changes for them.
 
+        [ff9mapkit netsync s131] the expired seq adds NO verb, op or value either -- one key, told by its
+        presence (:attr:`State.coop_peer_adopt`, ``netsync.battle.peer.expired``): guest-side, its run-out
+        needs a real peer lane (the selftest loopback never runs out), so its bench is a T2 wire replay with a
+        blackhole. Nothing here changes for it.
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its

@@ -1830,13 +1830,15 @@ def _battle_of(doc: dict) -> dict:
 #: ``pending`` / ``feed``, ``host.manifest``, ``handback.last``, ``replay.screen`` / ``fp``) may be null: one leaf.
 FIXED_SUBOBJECTS = ("end_leave", "declined", "content_hits", "mirror", "handback", "lapse", "replay",
                     # [ff9mapkit netsync R3] s111-s115
-                    "cfg", "intro", "wait", "ctl", "start_hold", "released", "guest", "flee")
+                    "cfg", "intro", "wait", "ctl", "start_hold", "released", "guest", "flee",
+                    # [ff9mapkit netsync s131]
+                    "expired")
 #: ...and their paths (the accessor table holds a whole-block accessor for each as well as one per key)
 BATTLE_CONTAINERS = {"end.end_leave": "s105", "end.declined": "s105", "menu.content_hits": "s106", "menu.mirror": "s107",
                      "end.replay": "s109", "host.handback": "s110", "host.handback.lapse": "s110",
                      "host.cfg": "s111", "host.intro": "s111", "host.wait": "s113", "menu.ctl": "s113",
                      "host.start_hold": "s114", "host.start_hold.released": "s114", "host.start_hold.guest": "s114",
-                     "end.flee": "s115"}
+                     "end.flee": "s115", "peer.expired": "s131"}
 #: The records that may be published null (an accessor reads None for them either way).
 BATTLE_NULLABLE = ("host.end", "peer.end", "menu.captured", "menu.roster", "menu.bench_roster", "menu.pending",
                    "menu.feed", "host.manifest", "host.handback.last", "end.replay.screen", "end.replay.fp")
@@ -2023,6 +2025,8 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(dio["hold"]) == FG.NETSYNC_DIORAMA_HOLD_KEYS
     assert tuple(prev_doc["session"]) == FG.NETSYNC_SESSION_KEYS
     assert tuple(prev_doc["menu_refusal"]) == FG.NETSYNC_MENU_REFUSAL_KEYS
+    # [ff9mapkit netsync s131] `peer.expired`, the last key of `peer`
+    assert tuple(battle["peer"]["expired"]) == FG.NETSYNC_PEER_EXPIRED_KEYS and list(battle["peer"])[-1] == "expired"
     top = list(prev_doc)
     assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
@@ -2185,7 +2189,8 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
 
 
 BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", "s107", "s108", "s109", "s110",
-                 "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119", "s120", "s121"]
+                 "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119", "s120", "s121",
+                 "s131"]                                      # [ff9mapkit netsync s131] (s122-s130: group 2's reservation)
 
 
 @pytest.mark.parametrize("level", BATTLE_LEVELS)
@@ -2439,7 +2444,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             "coop_slot_handback", "coop_intro_mirror", "coop_swirl_clamp", "coop_wait_parity", "coop_start_hold",
             "coop_flee", "coop_flee_gil", "coop_defeat",
             # [ff9mapkit netsync R3 s118-s121] the sitting-A round, one per patch
-            "coop_handback_report", "coop_diorama_hold", "coop_session_grace", "coop_menu_refusal")
+            "coop_handback_report", "coop_diorama_hold", "coop_session_grace", "coop_menu_refusal",
+            # [ff9mapkit netsync s131] the expired seq
+            "coop_peer_adopt")
     assert len(caps) == len(BATTLE_LEVELS) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
     none = State({"frame": 1})
@@ -5348,11 +5355,14 @@ def test_the_start_hold_arms_late_ignores_a_stale_live_and_releases_on_the_link(
 # harness stays at protocol 5 (additive keys, each capability told by its PRESENCE). Every pure decision's twin
 # (battlewire) EVALUATES the engine's OWN selftest rows, read off the stack in order (_cs_block + _run_cs_rows), so a
 # row's arguments, its verdict or its order changed on either side turns a test red; the deployed s117 is the stand-in with
-# FG.NETSYNC_SITTING_A_CAPS removed (S117_CAPS: the calibration's red).
+# FG.NETSYNC_SITTING_A_CAPS removed (S117_CAPS: the calibration's red). [ff9mapkit netsync s131] ...and s131's cap with
+# them (the ladder has no gaps); the DEPLOYED s121 -- s131's calibration red -- is the stand-in without FG.NETSYNC_S131_CAPS.
 
 import inspect                                                          # noqa: E402
 
-S117_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_SITTING_A_CAPS)
+S117_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_SITTING_A_CAPS
+                                              - FG.NETSYNC_S131_CAPS)
+S121_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_S131_CAPS)
 _CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -5470,15 +5480,21 @@ def _balanced(text: str, at: int) -> int:
     raise AssertionError(f"unbalanced: {text!r}")
 
 
-def _cs_expr(expr: str) -> str:
+def _cs_expr(expr: str, out_names: bool = False) -> str:
     """One C# boolean / arithmetic expression of a selftest row as Python: string literals kept (C# escapes decoded),
     ``ref``/``out`` arguments dropped (the twins' wrappers read and write them in the namespace), ``UIManager.UIState.X``
     -> "X", ``new Byte[] { .. }`` -> bytes, an array initialiser -> a list, ``x.Length`` -> len(x), true/false/null, the
-    local const ``None`` -> ``NONE_``, && / || / ! (each ``!`` around its whole operand)."""
+    local const ``None`` -> ``NONE_``, && / || / ! (each ``!`` around its whole operand). [ff9mapkit netsync s131] A sole
+    ``ref`` argument drops too (``F(ref m)`` -> ``F()``), ``default(T)`` -> ``T()``, and with ``out_names`` each ``out x``
+    is passed BY NAME (the string ``'x'``: the wrapper writes ``ns['x']``) -- for a selftest whose out locals vary by call."""
     strings = []
 
     def keep(m):
         strings.append(repr(m.group(1).replace('\\"', '"').replace("\\\\", "\\")))
+        return f"__S{len(strings) - 1}__"
+
+    def keep_name(m):
+        strings.append(repr(m.group(1)))
         return f"__S{len(strings) - 1}__"
 
     code = _CS_STRING.sub(keep, expr)
@@ -5487,7 +5503,9 @@ def _cs_expr(expr: str) -> str:
     code = re.sub(r"^\{([^{}]*)\}$", r"[\1]", code.strip())
     code = re.sub(r"\b(\w+)\.Length\b", r"len(\1)", code)
     code = re.sub(r"\bref \w+,\s*", "", code)
-    code = re.sub(r",\s*out \w+", "", code)
+    code = re.sub(r"\(ref \w+\)", "()", code)                           # [ff9mapkit netsync s131] PeerLaneForget(ref m)
+    code = re.sub(r"\bout (\w+)", keep_name, code) if out_names else re.sub(r",\s*out \w+", "", code)
+    code = re.sub(r"\bdefault\((\w+)\)", r"\1()", code)                 # [ff9mapkit netsync s131] default(PeerLaneMemo)
     code = re.sub(r"\bNone\b", "NONE_", code)
     code = re.sub(r"\btrue\b", "True", code)
     code = re.sub(r"\bfalse\b", "False", code)
@@ -5514,8 +5532,13 @@ def _cs_expr(expr: str) -> str:
     return code
 
 
-_DECL = re.compile(r"^(?:const )?(?:Int32|Boolean|String|Byte|UIManager\.UIState)(?:\[\])? (\w+)(?: = (.+))?$")
+_DECL = re.compile(r"^(?:const )?(?:Int32|Boolean|String|Byte|UIManager\.UIState|PeerLaneMemo)(?:\[\])? (\w+)"
+                   r"(?: = (.+))?$")
 _ROW = re.compile(r'^(?:Row|WatchRow|MenuRow)\((.*), "((?:[^"\\]|\\.)*)", ref rows, ref fail\)$', re.S)
+#: [ff9mapkit netsync s131] several locals declared at once, uninitialised (``Int32 staleAt, reopenAt, refused``), and a
+#: bare call statement (its result dropped: its ref / out arguments are its effect -- ``PeerExpireStep(ref m, 5, N)``)
+_DECLS = re.compile(r"(?:Int32|Boolean|String|Byte) (\w+(?:, \w+)+)")
+_CALL = re.compile(r"\w+\(.*\)", re.S)
 
 
 def _cs_program(lines: list) -> list:
@@ -5552,8 +5575,10 @@ def _cs_program(lines: list) -> list:
 def _run_cs_rows(program: list, ns: dict) -> list:
     """Run a selftest program in ``ns`` (the twins and constants by their C# names): declarations and assignments
     evaluate, each Row asserts its expression true for the twins; ``if (c) x = v`` and the one loop shape run as C#
-    would. Returns the row names in order."""
+    would. Returns the row names in order. [ff9mapkit netsync s131] ``ns["__out_names__"]`` true passes every ``out x``
+    by name (:func:`_cs_expr`); a multi-local declaration and a bare call statement run too."""
     names = []
+    outs = bool(ns.get("__out_names__"))
     for item in program:
         if isinstance(item, tuple):
             _tag, var, arr, body = item
@@ -5564,19 +5589,26 @@ def _run_cs_rows(program: list, ns: dict) -> list:
         st = " ".join(item.split())
         m = _ROW.match(st)
         if m:
-            got = eval(_cs_expr(m.group(1)), ns)                       # noqa: S307 -- the stack's own selftest rows
+            got = eval(_cs_expr(m.group(1), outs), ns)                 # noqa: S307 -- the stack's own selftest rows
             assert got is True, f"row {m.group(2)!r} ({' '.join(m.group(1).split())}) is {got!r} for the twin"
             names.append(m.group(2))
             continue
         m = re.fullmatch(r"if \((.*)\) (\w+) = (.+)", st)
         if m and _balanced(st, 3) == len("if (" + m.group(1) + ")"):
-            if eval(_cs_expr(m.group(1)), ns):                          # noqa: S307
-                ns[m.group(2)] = eval(_cs_expr(m.group(3)), ns)         # noqa: S307
+            if eval(_cs_expr(m.group(1), outs), ns):                    # noqa: S307
+                ns[m.group(2)] = eval(_cs_expr(m.group(3), outs), ns)   # noqa: S307
+            continue
+        m = _DECLS.fullmatch(st)
+        if m:                                                           # [ff9mapkit netsync s131] Int32 a, b, c
+            ns.update({name: None for name in m.group(1).split(", ")})
+            continue
+        if _CALL.fullmatch(st) and _balanced(st, st.index("(")) == len(st):
+            eval(_cs_expr(st, outs), ns)                                # noqa: S307 -- [ff9mapkit netsync s131] a bare call
             continue
         m = _DECL.match(st) or re.fullmatch(r"(\w+) = (.+)", st)
         assert m, f"an unparsed selftest statement: {st!r}"
         name = "NONE_" if m.group(1) == "None" else m.group(1)          # (the C# local const `None`, as _cs_expr spells it)
-        ns[name] = None if m.group(2) is None else eval(_cs_expr(m.group(2)), ns)   # noqa: S307
+        ns[name] = None if m.group(2) is None else eval(_cs_expr(m.group(2), outs), ns)   # noqa: S307
     return names
 
 
@@ -5608,7 +5640,11 @@ def test_the_sitting_a_twins_take_the_engines_parameters_in_its_order():
             ("NetSyncClient.cs", "Boolean SessionRampArms", BW.session_ramp_arms, {}),
             ("NetSyncClient.cs", "Int32 ParseSessionGrace", BW.parse_session_grace, {}),
             ("NetSyncField.cs", "Int32 MenuKeyStep", BW.menu_key_step, {}),
-            ("NetSyncField.cs", "Int32 MenuKeyRoute", BW.menu_key_route, {})):
+            ("NetSyncField.cs", "Int32 MenuKeyRoute", BW.menu_key_route, {}),
+            # [ff9mapkit netsync s131] the expired seq: `ref m` is the memo dict
+            ("NetSyncBattle.cs", "Int32 PeerAdoptStep", BW.peer_adopt_step, {"ref m": "m"}),
+            ("NetSyncBattle.cs", "Boolean PeerExpireStep", BW.peer_expire_step, {"ref m": "m"}),
+            ("NetSyncBattle.cs", "void PeerLaneForget", BW.peer_lane_forget, {"ref m": "m"})):
         cs = [fix.get(p, fix.get(_snake(p), _snake(p))) for p in _cs_params(file_name, method)
               if not p.startswith("out ")]
         assert cs == _twin_params(fn), (method, cs, _twin_params(fn))
@@ -5642,8 +5678,11 @@ def test_guest_owns_twins_evaluate_every_s118_control_selftest_row_off_the_stack
     assert len(names) == BW.CONTROL_SELFTEST_ROWS - BW.CONTROL_SELFTEST_ROWS_S114 == 20, names
     assert sum(n.startswith("own: ") for n in names) == 13 and sum(n.startswith("step: ") for n in names) == 7
     assert "step: declined latches (the sitting-A shape)" in names
-    rows = sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs"))
+    # [ff9mapkit netsync s131] NetSyncBattle.cs carries a second selftest from s131 (PeerAdoptSelfTest, its 20 rows)
+    rows = sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s121")))
     assert rows == BW.CONTROL_SELFTEST_ROWS == 53, rows
+    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs")) == \
+        BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS == 73
     assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s117"))) == \
         BW.CONTROL_SELFTEST_ROWS_S114 == 33
 
@@ -6064,6 +6103,8 @@ def _proof_lines(fake) -> list:
 
 @pytest.mark.parametrize("caps,want", [
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20)]),
+    ("s121", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14)]),
     ("s119", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24)]),
     ("s117", [BW.proof_ok(BW.PROOF_CONTROL, 33)]),
@@ -6071,10 +6112,13 @@ def _proof_lines(fake) -> list:
 def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     """The stand-in's selftest proof block: once per PROCESS, on the first selftest tick on a field, the R3 lines its
     engine carries, in the engine's order and in Memoria's line shape -- the deployed s117 logs only 'battle control
-    selftest: OK (33 rows)' (S14-B2 green, S18-PROOF red there); the s121 stack 53 / 24 / 31 / 14; an s113 engine none.
-    A second selftest role in the same process logs nothing more."""
+    selftest: OK (33 rows)' (S14-B2 green, S18-PROOF red there); the s121 stack 53 / 24 / 31 / 14 ([ff9mapkit netsync
+    s131] the DEPLOYED s121: no 'peer adopt' line); the s131 stack adds 20 after them; an s113 engine none. A second
+    selftest role in the same process logs nothing more. [s131 fix] This pins the STAND-IN against its own caps: no
+    in-game bench reads the s119-s131 lines (S18-PROOF and S14-B2 read the control line alone, and coop_cut_hold's guest
+    never runs the selftest role), so the s121 'no peer adopt line' red is the stand-in's, never yet observed in game."""
     fake = FakeGame(game)
-    fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS}.get(caps) or _caps_at(caps)
+    fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS}.get(caps) or _caps_at(caps)
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6087,7 +6131,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
         g.netsync("selftest", 1)
         g.wait_frames(10)
         assert len(_proof_lines(fake)) == len(want)
-    assert all(_battle_text(f'Log.Message("[NetSync] {h}"') for h in (BW.PROOF_CONTROL, BW.PROOF_WATCH, BW.PROOF_GRACE)) \
+    assert all(_battle_text(f'Log.Message("[NetSync] {h}"') for h in (BW.PROOF_CONTROL, BW.PROOF_WATCH, BW.PROOF_GRACE,
+                                                                      BW.PROOF_ADOPT)) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"'))
 
 
@@ -6288,6 +6333,362 @@ def test_the_deployed_s117_drops_a_mirroring_guests_menu_key_silently(game):
         assert fake._menu_refusal.count == 0 and fake._menu_refusal.buzzes == 0
 
 
+# =========================================================================== [ff9mapkit netsync s131]
+# THE EXPIRED SEQ (studies/battle-coop/R3-SITTING-A-FIXES.md, "The hold-onset variance: the Pump null RE-ADOPT"): once the
+# host's battle view runs out of freshness, the guest's Pump refuses the transport's repeats of that (nonce, seq). No new
+# verb or op, wire v14, harness protocol 5: one additive key, `netsync.battle.peer.expired`, and one proof line. The twins
+# (battlewire) EVALUATE PeerAdoptSelfTest's OWN rows off the stack, each rule's mutant fails a row, and the DEPLOYED s121
+# -- s131's calibration red -- is the stand-in without FG.NETSYNC_S131_CAPS (S121_CAPS): every check below that reads the
+# key or the proof line reads "cannot" / nothing there.
+
+#: PeerAdoptSelfTest's rows the owner's fix shape names, the review's two re-written rows (S131-R1; their names are the
+#: harness brief's, verbatim -- row 2 and row 13 of 20) and the calibration row
+ADOPT_ROW_MARKS = ("a repeat of the expired seq after the null is NOT adopted",
+                   "a new seq after it IS adopted, and clears the memo",
+                   "a new nonce IS adopted (the same seq)",
+                   "the first view ever IS adopted (seq 0 of nonce 0 too: an empty memo matches no frame)",
+                   "Reset clears the memo",
+                   "the memo bites only with nothing in hand (seq 6 in hand: the expired 5 IS news, as any other seq)",
+                   "seq: a tail-67 cut re-opened the lane under the pre-s131 step (calibration)",
+                   "seq: a stalled host re-sending one seq stays stale 9 s on (the stall cap's case; was re-adopted)")
+
+
+class _CsStruct:
+    """A twin's dict read through its C# struct's field names (``m.Armed`` -> ``d["armed"]``) -- PeerLaneMemo as the
+    selftest's rows spell it."""
+
+    def __init__(self, d: dict) -> None:
+        self.d = d
+
+    def __getattr__(self, name):
+        try:
+            return self.d[_snake(name)]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+def _adopt_ns(step=BW.peer_adopt_step, expire=BW.peer_expire_step, forget=BW.peer_lane_forget) -> dict:
+    """The namespace PeerAdoptSelfTest runs in: the constants by C# name, PeerLaneMemo (``default(PeerLaneMemo)``) as a
+    fresh twin memo, and the twins under their C# names -- each ``ref m`` the local ``m`` (the test below checks it is the
+    only one), each ``out`` local passed by name (AdoptReplay's vary by call)."""
+    ns = dict(BW.CS_ADOPT_CONSTANTS, __out_names__=True, m=None)
+    ns["PeerLaneMemo"] = lambda: _CsStruct(BW.new_peer_lane_memo())
+
+    def replay(served, memo, stale_name, reopen_name):            # AdoptReplay(served, memo, out stale, out reopen)
+        refused, ns[stale_name], ns[reopen_name] = BW.adopt_replay(served, memo)
+        return refused
+
+    ns.update(PeerAdoptStep=lambda seq, nonce, cur: step(ns["m"].d, seq, nonce, cur),
+              PeerExpireStep=lambda cur, nonce: expire(ns["m"].d, cur, nonce),
+              PeerLaneForget=lambda: forget(ns["m"].d), AdoptReplay=replay, CutScript=BW.cut_script)
+    return ns
+
+
+def _adopt_program() -> list:
+    block = _cs_block("NetSyncBattle.cs", "internal static Boolean PeerAdoptSelfTest(")
+    refs = set(re.findall(r"\bref (\w+)", " ".join(_strip_comment(ln) for ln in block)))
+    assert refs == {"m", "rows", "fail"}, refs                          # (the wrappers bind `ref m` to the local `m`)
+    return _cs_program(block)
+
+
+def test_peer_adopt_twins_evaluate_every_adopt_selftest_row_off_the_stack():
+    """PeerAdoptStep / PeerExpireStep / PeerLaneForget / AdoptReplay / CutScript's twins against PeerAdoptSelfTest's OWN
+    rows, EVALUATED in order: the 15 step rows (the fix shape's 'a repeat of the expired seq after the null is NOT
+    adopted', 'a new seq after it IS', 'a new nonce IS', 'the first view ever IS', 'Reset clears' among them) and the 5
+    rows of Pump's lane order over served-frame scripts (tail 0, the tail-67 calibration under the pre-s131 step, tail 67,
+    the host back, a stalled writer) -- 20 rows, the proof line's count. Rows 2 and 13 are the review's re-written ones."""
+    names = _run_cs_rows(_adopt_program(), _adopt_ns())
+    assert len(names) == BW.ADOPT_SELFTEST_ROWS == 20, names
+    assert len(set(names)) == len(names) and all(mark in names for mark in ADOPT_ROW_MARKS), \
+        set(ADOPT_ROW_MARKS) - set(names)
+    assert names[1] == ADOPT_ROW_MARKS[3] and names[12] == ADOPT_ROW_MARKS[5], (names[1], names[12])
+    assert sum(not n.startswith("seq: ") for n in names) == 15 and sum(n.startswith("seq: ") for n in names) == 5
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", [_patch_bytes("s131")])) == 20
+
+
+def _mutant_step(rule: str):
+    """PeerAdoptStep with ONE rule broken (the twin's own body otherwise)."""
+    def step(m, seq, nonce, cur):
+        if seq < 0:
+            return BW.ADOPT_NONE
+        if cur >= 0 and seq == cur:
+            return BW.ADOPT_REPEAT
+        hit = {"no_in_hand_guard": m["armed"] and seq == m["seq"] and nonce == m["nonce"],
+               "no_armed": cur < 0 and seq == m["seq"] and nonce == m["nonce"],
+               "no_nonce": cur < 0 and m["armed"] and seq == m["seq"],
+               "no_seq": cur < 0 and m["armed"] and nonce == m["nonce"],
+               "pre_s131": False}.get(rule, cur < 0 and m["armed"] and seq == m["seq"] and nonce == m["nonce"])
+        if hit:
+            if rule != "no_count":
+                m["refused"] += 1
+            return BW.ADOPT_REFUSED
+        if rule != "no_clear":
+            BW.peer_lane_forget(m)
+        return BW.ADOPT_NEW
+    return step
+
+
+def _mutant_expire(m, cur_seq, cur_nonce):                            # a run-out that keeps the episode's count
+    if cur_seq < 0:
+        return False
+    m.update(armed=True, seq=cur_seq, nonce=cur_nonce)
+    return True
+
+
+def _mutant_expire_unguarded(m, cur_seq, cur_nonce):                  # a run-out that arms with nothing in hand
+    m.update(armed=True, seq=cur_seq, nonce=cur_nonce, refused=0)
+    return cur_seq >= 0
+
+
+@pytest.mark.parametrize("twins", [
+    {"step": _mutant_step("no_in_hand_guard")}, {"step": _mutant_step("no_armed")}, {"step": _mutant_step("no_nonce")},
+    {"step": _mutant_step("no_seq")}, {"step": _mutant_step("pre_s131")}, {"step": _mutant_step("no_clear")},
+    {"step": _mutant_step("no_count")}, {"expire": _mutant_expire}, {"expire": _mutant_expire_unguarded},
+    {"forget": lambda m: None}],
+    ids=["no-in-hand-guard", "no-armed", "no-nonce", "no-seq", "pre-s131", "no-clear", "no-count", "expire-keeps-count",
+         "expire-unguarded", "forget-no-op"])
+def test_each_adopt_rule_mutant_fails_a_selftest_row(twins):
+    """A CHECK THAT CANNOT FAIL is no check: each rule of the step / the run-out / Reset's forget, broken alone, fails one
+    of the engine's own rows (S131-R1's row catches the dropped in-hand guard, row 2 the dropped Armed test)."""
+    program = _adopt_program()                                          # (its own asserts outside the raises)
+    with pytest.raises(AssertionError, match=r"^row ['\"]"):
+        _run_cs_rows(program, _adopt_ns(**twins))
+
+
+def test_the_adopt_constants_proof_line_and_pump_statements_are_the_stacks():
+    """NetSyncBattle's s131 constants by C# name; the proof line logged RIGHT AFTER the menu refusal's (read off s131's own
+    hunk) in the selftest proof block's shape; and Pump's s131 statements in order -- the adopt through the step (a NEW
+    frame restamps, a REFUSED one is noted), and the run-out BEFORE the null (counted, its tick stamped) -- with the
+    getters each reading its static, the memo's only while armed."""
+    cs = _cs_int_consts("NetSyncBattle.cs")
+    for name, value in BW.CS_ADOPT_CONSTANTS.items():
+        assert name in cs and cs[name][0] == value, (name, cs.get(name), value)
+    assert _added_after("s131", "NetSyncClient.cs", f'"[NetSync] {BW.PROOF_MENU}"', f'"[NetSync] {BW.PROOF_ADOPT}"')
+    assert net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_ADOPT}"'))
+    assert net_lines("NetSyncClient.cs", re.escape('+ (adoptOk ? "OK (" + adoptDetail + ")" : "FAIL (" + adoptDetail + ")"));'))
+    assert _battle_text('detail = fail == null ? rows + " rows" : "row \'" + fail + "\' failed (" + rows + " rows run)";')
+    adopt = [ln.split("//")[0].strip() for ln in _cs_block("NetSyncBattle.cs", "Int32 adopt = PeerAdoptStep(",
+                                                             "Byte[] peerRoster = socket.GetRemoteRoster();")]
+    assert [ln for ln in adopt if ln] == [
+        "Int32 adopt = PeerAdoptStep(ref _peerLane, view != null ? view.Seq : -1, view != null ? view.Nonce : -1,",
+        "_peerView != null ? _peerView.Seq : -1);", "if (adopt == AdoptNew)", "{", "_peerView = view;",
+        "_peerViewTick = Environment.TickCount;", "NetSyncEnd.NotePeer(view.Nonce, view.End);", "}",
+        "else if (adopt == AdoptRefused)", "NoteRefusedReadopt();", "}"], adopt
+    runout = [ln.split("//")[0].strip() for ln in _cs_block("NetSyncBattle.cs", "if (!live)", "ResetUi();")]
+    assert [ln for ln in runout if ln] == [
+        "if (!live)", "{", "if (_peerView != null && PeerExpireStep(ref _peerLane, _peerView.Seq, _peerView.Nonce))", "{",
+        "_peerExpiries++;", "_peerExpiryTick = Environment.TickCount;", "}", "_peerView = null;", "_peerRoster = null;"], runout
+    note = [ln.split("//")[0].strip() for ln in _cs_block("NetSyncBattle.cs", "private static void NoteRefusedReadopt()",
+                                                            "_readoptLogged++;")]
+    assert [ln for ln in note if ln] == [
+        "private static void NoteRefusedReadopt()", "{", "_readoptFrames++;",
+        "_readoptMs = Environment.TickCount - _peerExpiryTick;", "if (_peerLane.Refused != 1)", "return;",
+        "_readoptEpisodes++;", "if (_peerLane.Nonce != _readoptLogNonce)", "{", "_readoptLogNonce = _peerLane.Nonce;",
+        "_readoptLogged = 0;", "}"], note
+    for piece in ("if (_readoptLogged <= ReadoptLogMax)", "else if (_readoptLogged == ReadoptLogMax + 1)",
+                  "PeerLaneForget(ref _peerLane);", "_readoptLogNonce = -1;",
+                  "public static Int32 HarnessPeerExpiredSeq { get { return _peerLane.Armed ? _peerLane.Seq : -1; } }",
+                  "public static Int32 HarnessPeerExpiredNonce { get { return _peerLane.Armed ? _peerLane.Nonce : -1; } }",
+                  "public static Int32 HarnessPeerExpiries { get { return _peerExpiries; } }",
+                  "public static Int32 HarnessPeerReadoptsRefused { get { return _readoptEpisodes; } }",
+                  "public static Int32 HarnessPeerReadoptFrames { get { return _readoptFrames; } }",
+                  "public static Int32 HarnessPeerReadoptMs { get { return _readoptMs; } }",
+                  "private static Int32 _readoptMs = -1;",
+                  "private static Int32 _peerExpiryTick = Environment.TickCount - 60000;"):
+        assert _battle_text(piece), piece
+    # Reset() forgets the memo and re-arms the budget -- and adds nothing else (the counters are per process)
+    new = _new_side("NetSyncBattle.cs", _patch_bytes("s131"))
+    hunk = next(h for h, _k, t in new if t == "public static void Reset()")
+    assert [t.split("//")[0].strip() for h, k, t in new if h == hunk and k == "+"] == \
+        ["PeerLaneForget(ref _peerLane);", "_readoptLogNonce = -1;", "_readoptLogged = 0;"]
+
+
+def test_the_pre_s131_test_is_the_line_s131_removed():
+    """THE CALIBRATION: the one line s131 removed is s37's null-reset under s40's seq guard -- net-present through s121,
+    gone from the live stack -- and :func:`BW.pre_s131_adopts` IS that test: with a fresh memo the s131 step adopts
+    exactly where it did (the defect needs the memo to show), and with the memo armed only the expired frame's repeat
+    with nothing in hand reads differently."""
+    old = "if (view != null && (_peerView == null || view.Seq != _peerView.Seq))"
+    assert net_lines("NetSyncBattle.cs", re.escape(old), _prefix("s121")) and not _battle_text(old)
+    assert any(ln.startswith("-") and old in ln for ln in _patch_bytes("s131").decode("utf-8").splitlines())
+    n = 0x41
+    for seq in (-1, 0, 4, 5, 6):
+        for cur in (-1, 0, 5, 6):
+            assert BW.pre_s131_adopts(seq, cur) == (BW.peer_adopt_step(BW.new_peer_lane_memo(), seq, n, cur)
+                                                    == BW.ADOPT_NEW), (seq, cur)
+            for nonce in (n, n + 1):
+                m = BW.new_peer_lane_memo()
+                BW.peer_expire_step(m, 5, n)
+                differs = BW.pre_s131_adopts(seq, cur) != (BW.peer_adopt_step(m, seq, nonce, cur) == BW.ADOPT_NEW)
+                assert differs == (seq == 5 and nonce == n and cur < 0), (seq, cur, nonce)
+
+
+def test_the_peer_lane_model_holds_the_bench_expectations():
+    """battlewire.PeerLane -- Pump's lane with s131's statics -- on the selftest's scripts (10 ms Updates): a tail-67 cut
+    reads count +1, refused +1, ms ~ the tail (less up to two Updates), one episode line, and the lane stays stale where
+    the pre-s131 lane re-opened for a phantom 2000 ms; a tail-0 cut reads count +1, refused +0 and no line; the host back
+    re-opens the lane at its first new seq (the memo cleared, the counters kept); a new nonce is news; a stalled writer
+    stays stale -- and only then does the diorama reach s120's stall cap (THE OWNER-ACCEPTED SIDE EFFECT)."""
+    n, f = BW.ADOPT_TEST_NONCE, BW.ADOPT_TEST_FRAME_MS
+    lane = BW.PeerLane()
+    live = lane.run(BW.cut_script(3000, 67, -1, 9000))
+    edges = [i * f for i in range(1, len(live)) if live[i] != live[i - 1]]
+    assert live[0] and edges == [5000], edges                          # live from the first frame, stale ONCE at 5000
+    assert lane.doc() == {"seq": 3000 // BW.ADOPT_TEST_SAMPLE_MS, "nonce": n, "count": 1, "refused": 1, "frames": 6,
+                          "ms": 60}
+    assert 67 - 2 * f <= lane.doc()["ms"] <= 67
+    assert lane.lines == [BW.readopt_line(n, 20, 1)] and lane.lines[0].startswith(BW.LOG_READOPT_REFUSED)
+    old = BW.PeerLane(memo=False)
+    phantom = old.run(BW.cut_script(3000, 67, -1, 9000))
+    assert phantom[501] is True and sum(phantom[501:]) == 200 and not old.lines   # 5010..6999 ms: the phantom 2000 ms
+    zero = BW.PeerLane()
+    assert sum(zero.run(BW.cut_script(3000, 0, -1, 9000))[501:]) == 0
+    assert (zero.doc()["count"], zero.doc()["refused"], zero.doc()["frames"], zero.doc()["ms"], zero.lines) == (1, 0, 0, -1, [])
+    back = BW.PeerLane()
+    flags = back.run(BW.cut_script(3000, 67, 9000, 12000))
+    assert flags.index(True, 501) == 900 and back.doc() == {"seq": -1, "nonce": -1, "count": 1, "refused": 1, "frames": 6,
+                                                             "ms": 60}
+    other = BW.PeerLane()
+    other.run(BW.cut_script(3000, 67, -1, 5020))                       # stale, the expired seq refused...
+    assert other.pump(5030, (20, n + 1)) is True and other.doc()["seq"] == -1   # ...but a new nonce IS news
+    stall = BW.PeerLane()
+    flags = stall.run(BW.cut_script(3000, -1, -1, 14000))
+    assert sum(flags[501:]) == 0 and stall.doc()["refused"] == 1 and stall.doc()["frames"] == 900
+    assert stall.doc()["ms"] == 14000 - 5000 and len(stall.lines) == 1
+    settle, cap, grace = BW.DIORAMA_SETTLE_MS, BW.DIORAMA_STALL_CAP_MS, BW.SESSION_GRACE_DEFAULT_MS
+
+    def watch(stale_ms):        # the stalled host: peer alive (its writer re-sends), still in its battle (field 0)
+        return BW.diorama_watch_step(False, 0, n, True, 0, False, stale_ms, settle, settle, grace, cap, BW.WATCH_WHY_NONE)
+    assert watch(cap) == (BW.WATCH_HOLD, BW.WATCH_WHY_NONE)
+    assert watch(cap + 1) == (BW.WATCH_LEAVE_FINAL, BW.WATCH_WHY_STALL_CAP)
+    stale = [i for i, x in enumerate(flags) if not x and i > 0]
+    assert (stale[-1] - stale[0]) * f > cap                            # s131: one unbroken stale stretch past the cap
+    pre = BW.PeerLane(memo=False).run(BW.cut_script(3000, -1, -1, 14000))
+    runs, run = [], 0
+    for x in pre[1:]:
+        run = 0 if x else run + 1
+        runs.append(run)
+    assert max(runs) * f < settle                                      # pre-s131: re-adopted every ~2 s, never settled
+
+
+def test_the_readopt_log_budget_is_three_episodes_per_host_battle():
+    """NoteRefusedReadopt's budget (review S131-R2): one line per EPISODE (its first refused repeat, never per frame), the
+    first READOPT_LOG_MAX of a host battle (its nonce), then ONE 'further ones ... counted, not logged' line, then nothing
+    -- the counters never stop; a new nonce opens a new budget, and Reset() re-arms it without touching the counters."""
+    n = BW.ADOPT_TEST_NONCE
+    lane = BW.PeerLane()
+    t = 0
+
+    def episode(seq, nonce, repeats=3):
+        nonlocal t
+        lane.pump(t, (seq, nonce))
+        t += BW.STALE_MS
+        assert lane.pump(t, None) is False                              # the run-out
+        for _ in range(repeats):
+            t += 10
+            assert lane.pump(t, (seq, nonce)) is False                  # refused, the lane stays stale
+        t += 10
+    for k in range(5):
+        episode(10 * k, n)
+    assert lane.doc()["refused"] == 5 and lane.doc()["frames"] == 15 and lane.doc()["count"] == 5
+    assert lane.lines == [BW.readopt_line(n, 0, 1), BW.readopt_line(n, 10, 2), BW.readopt_line(n, 20, 3),
+                          BW.readopt_muted_line(BW.READOPT_LOG_MAX + 1, n, 4)], lane.lines
+    episode(7, n + 1)
+    assert lane.lines[-1] == BW.readopt_line(n + 1, 7, 6)              # a new host battle: a new budget
+    lane.reset()
+    assert lane.doc()["seq"] == -1 and lane.doc()["refused"] == 6 and lane.doc()["count"] == 6
+    episode(50, n + 1)
+    assert lane.lines[-1] == BW.readopt_line(n + 1, 50, 7) and len(lane.lines) == 6
+
+
+def test_the_readopt_lines_are_the_engines_words():
+    """The episode line and the budget's line ARE the engine's: each C# literal of the stack, spliced in order around the
+    values (nonce, seq, the episode count; the episode number) -- the needles a bench greps are their heads."""
+    line = BW.readopt_line(65, 20, 1)
+    assert line == ("[NetSync] battle lane: the host's last frame (nonce 65, seq 20) ran out of freshness and the transport "
+                    "served it again -- not re-adopted: a repeat is never news, the lane stays stale until a new frame (a "
+                    "fight's end, a cut or a stalled host); refused=1")
+    assert _spliced(line, BW.LOG_READOPT_REFUSED, ", seq ", ") ran out of ",
+                    "freshness and the transport served it again -- not re-adopted: a repeat is never news, the lane "
+                    "stays stale ", "until a new frame (a fight's end, a cut or a stalled host); refused="), line
+    muted = BW.readopt_muted_line(4, 65, 4)
+    assert muted == ("[NetSync] battle lane: refused re-adopt 4 on the host's battle (nonce 65) -- further ones on it are "
+                     "counted, not logged (netsync.battle.peer.expired); refused=4")
+    assert _spliced(muted, BW.LOG_READOPT_MUTED, " on the host's battle (nonce ",
+                    ") -- further ones on it are counted, not logged (netsync.battle.peer.expired); refused="), muted
+    assert sum(BW.LOG_READOPT_REFUSED in lit for f in BATTLE_FILES for ln in _stack_text(f) for lit in _literals(ln)) == 1
+
+
+def test_the_expired_block_is_peers_last_key_at_the_catch_lines_sentinels():
+    """THE CATCH-LITERAL RE-PIN: `expired` sits in AppendNetsync's SECOND catch literal, right after `bench_manifest_note`
+    and before `menu`, at its sentinels; the live block's `peer` ends with it, in AppendPeerExpired's key order, each key
+    read through its getter; the harness protocol stays 5 (additive) and the wire v14."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1, catch
+    a, b = _literals(catch[0])
+    want = ('\\"bench_manifest_note\\":null,\\"expired\\":{\\"seq\\":-1,\\"nonce\\":-1,\\"count\\":0,\\"refused\\":0,'
+            '\\"frames\\":0,\\"ms\\":-1}},\\"menu\\":{')
+    assert want in b and "expired" not in a
+    peer = _battle_of(_agent_netsync_nothing()[0])["peer"]
+    assert list(peer)[-2:] == ["bench_manifest_note", "expired"] and peer["expired"] == BW.PEER_EXPIRED_SENTINELS
+    assert tuple(peer["expired"]) == FG.NETSYNC_PEER_EXPIRED_KEYS == ("seq", "nonce", "count", "refused", "frames", "ms")
+    body = _cs_block("HarnessAgent.cs", "private static void AppendPeerExpired(", "}")
+    nums = [re.match(r'Num\(sb, "(\w+)", Memoria\.Netsync\.NetSyncBattle\.(\w+)\);', ln) for ln in body]
+    assert [(m.group(1), m.group(2)) for m in nums if m] == [
+        ("seq", "HarnessPeerExpiredSeq"), ("nonce", "HarnessPeerExpiredNonce"), ("count", "HarnessPeerExpiries"),
+        ("refused", "HarnessPeerReadoptsRefused"), ("frames", "HarnessPeerReadoptFrames"), ("ms", "HarnessPeerReadoptMs")]
+    assert _added_after("s131", "HarnessAgent.cs", 'Str(sb, "bench_manifest_note"', "AppendPeerExpired(sb);")
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    assert _catch_doc_in("s131") == _agent_netsync_nothing()[0]       # s131 wrote the live catch line whole
+
+
+def test_state_reads_the_expired_block_absent_on_s121_as_cannot():
+    """On the deployed s121's catch block every `peer.expired` accessor reads None ("this engine cannot") and
+    `coop_peer_adopt` False; on the live block they read the sentinels and True; no `netsync` block reads None; a
+    published block reads its values (deltas are the caller's), a mistyped value None."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s121")})
+    live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
+    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items() if p.startswith("peer.expired")]
+    assert sorted(names) == sorted(["coop_peer_expired"] + [f"coop_peer_expired_{k}" for k in FG.NETSYNC_PEER_EXPIRED_KEYS])
+    assert (State({"frame": 1}).coop_peer_adopt, old.coop_peer_adopt, live.coop_peer_adopt) == (None, False, True)
+    assert all(getattr(old, n) is None for n in names) and all(getattr(live, n) is not None for n in names)
+    assert (live.coop_peer_expired_seq, live.coop_peer_expired_nonce, live.coop_peer_expired_count,
+            live.coop_peer_expired_refused, live.coop_peer_expired_frames, live.coop_peer_expired_ms) == (-1, -1, 0, 0, 0, -1)
+    doc = _agent_netsync_nothing()[0]
+    doc["battle"]["peer"]["expired"] = {"seq": 20, "nonce": 65, "count": 3, "refused": 2, "frames": 9, "ms": True}
+    st = State({"frame": 1, "netsync": doc})
+    assert (st.coop_peer_expired_seq, st.coop_peer_expired_count, st.coop_peer_expired_refused, st.coop_peer_expired_ms) \
+        == (20, 3, 2, None)                                            # (a bool is never an int)
+    got = st.coop_peer_expired
+    got["seq"] = 0
+    assert st.coop_peer_expired["seq"] == 20                           # a copy
+
+
+def test_a_fresh_stand_in_publishes_the_expired_sentinels_and_the_deployed_s121_none(game):
+    """The default stand-in (s131) publishes `peer.expired` at the agent's sentinels and keeps them through a selftest own
+    battle (the loopback writes the view directly: nothing runs out), its lane pumped by hand reads through the accessors;
+    the deployed s121 (S121_CAPS) publishes no key and no proof line -- the calibration's red for every check that reads
+    them."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        st = _own_battle_two(g, fake)
+        assert st.coop_peer_adopt is True and st.coop_peer_live is True
+        assert st.coop_peer_expired == BW.PEER_EXPIRED_SENTINELS
+        g.send("reset")
+        st = g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0, what="the release")
+        assert st.coop_peer_expired == BW.PEER_EXPIRED_SENTINELS
+    fake._peer_lane.run(BW.cut_script(3000, 67, -1, 9000))
+    st = State({"frame": 1, "netsync": fake._netsync_doc()})
+    assert (st.coop_peer_expired_count, st.coop_peer_expired_refused, st.coop_peer_expired_frames, st.coop_peer_expired_ms,
+            st.coop_peer_expired_seq, st.coop_peer_expired_nonce) == (1, 1, 6, 60, 20, BW.ADOPT_TEST_NONCE)
+    old = FakeGame(game)
+    old.netsync_caps = S121_CAPS
+    st = State({"frame": 1, "netsync": old._netsync_doc()})
+    assert st.coop_peer_adopt is False and st.coop_peer_expired is None and st.coop_peer_expired_refused is None
+    assert st.coop_menu_refusal is True and "expired" not in _battle_of(old._netsync_doc())["peer"]
+    assert set(_leaves(_battle_of(old._netsync_doc()))) == set(_leaves(_battle_of(_catch_doc_in("s121"))))
+
+
 # ---- [ff9mapkit netsync R3 fix round 2] the R3 benches' own logic, off the game: the T2 helper's self-check and the
 # scenarios' calibration tables. Both ran only by hand (`py _coop_peer_bench.py`, a bench day), so an engine rewording
 # that broke a matcher, or a predicted-red table that drifted from its docstring, waited for the owner's next launch.
@@ -6353,8 +6754,14 @@ hl, ch, sh, tr = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop
 print(json.dumps({
     "hl": {"catalog": sorted(hl._catalog(True)), "old": sorted(hl.OLD_PREDICTED), "capture_s": hl.CAPTURE_S},
     "cut": {leg: {"catalog": sorted(ch._catalog(leg, True)),
-                  "pred": {str(s): [sorted(x) for x in ch._predicted(leg, s)] for s in (0, 117, 119, 120, 121)}}
+                  "pred": {str(s): [sorted(x) for x in ch._predicted(leg, s)]
+                           for s in (0, 117, 119, 120, 121, 131)},
+                  "tail": {str(s): {str(tl): [sorted(x) for x in ch._predicted(leg, s, tl)] for tl in (0.0, 33.0, 67.0)}
+                           for s in (119, 120, 121, 131)}}
             for leg in ch.PFX},
+    "span_stall": {str(s): {str(tl): [sorted(x) for x in ch._predicted("span", s, tl, why="stall_cap")]
+                            for tl in (0.0, 33.0, 67.0)} for s in (119, 120, 121, 131)},
+    "hold_check": ch.HOLD_CHECK,
     "sh": {"catalog": sorted(sh._catalog(True)), "old": sorted(sh.OLD_PREDICTED), "lever": sorted(sh.LEVER_PREDICTED)},
     "tr": sorted(tr.CATALOG)}))
 '''
@@ -6374,7 +6781,10 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
     """The calibration tables COOP_CALIBRATE=1 judges against, pinned to what each docstring promises: coop_handback_live's
     s117 red set (P0 PROOF N2 D1-D3 L1 L2 B1 B2 S1 S2; S0/P1/P2/PRE/N1/T1 green), coop_cut_hold's per-leg, per-engine
     table, coop_battle_start_hold's two sets -- every predicted id one the leg's own catalog defines (a typo'd id is a
-    red that can never come, so the -CAL verdict would read it "unseen" forever). All four modules import with no knob."""
+    red that can never come, so the -CAL verdict would read it "unseen" forever). All four modules import with no knob.
+    [ff9mapkit netsync s131] coop_cut_hold's table now runs to s131 (RED only on every leg there: every G/K/X check
+    passes only with s131), gains the `readopt` leg (the deployed s121 reds its G3 and X) and THE TAIL ADDS paragraph,
+    whose one exception -- a stall_cap span's SPAN-G2, a maybe at any tail -- is pinned by hand [s131 fix]."""
     t = _scenario_tables()
     hl = t["hl"]
     assert set(hl["old"]) == {f"S18-{c}" for c in ("P0", "PROOF", "N2", "D1", "D2", "D3", "L1", "L2", "B1", "B2", "S1",
@@ -6394,6 +6804,11 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
         "s120-roam": (g("S120R", "G1", "G2", "G3", "G4", "G5"), (g("S120R", "G1", "G2", "G3", "G4", "G5"), [])),
         "span": (g("SPAN", "G1", "G2", "K"), (g("SPAN", "G1", "G2", "K"), g("SPAN", "RED"))),
         "s121": (g("S121", "G0", "G1", "G2", "G4", "G5"), (g("S121", "G0", "G1", "G2", "G4", "G5"), [])),
+        # [ff9mapkit netsync s131] the s119 cut moved to a tail >= 66 placement: s117 reds all of it (X and RED too: no
+        # outage line, no key); s119 G3, X and RED (G2 maybe); s120/s121 G3 and X (G2 maybe) -- RED GREEN there (the
+        # re-adopt reproduced: s121's defect); s131 RED only
+        "readopt": (g("READOPT", "G1", "G2", "G3", "G4", "G5", "K", "X", "RED"),
+                    (g("READOPT", "G3", "X", "RED"), g("READOPT", "G2"))),
     }
     cut = t["cut"]
     assert set(cut) == set(want) | {"cal"}, sorted(cut)
@@ -6402,10 +6817,48 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
         pred, catalog, p = cut[leg]["pred"], set(cut[leg]["catalog"]), old[0].split("-")[0]
         assert pred["0"] == pred["117"] == [old, []], (leg, pred)
         assert pred["119"] == [s119[0], s119[1]], (leg, pred["119"])
-        assert pred["121"] == [g(p, "RED"), []], (leg, pred["121"])
-        assert pred["120"] == ([g(p, "RED"), []] if leg != "s121" else [old, []]), (leg, pred["120"])
+        if leg == "readopt":
+            assert pred["120"] == pred["121"] == [g(p, "G3", "X"), g(p, "G2")], (leg, pred["120"], pred["121"])
+        else:
+            assert pred["121"] == [g(p, "RED"), []], (leg, pred["121"])
+            assert pred["120"] == ([g(p, "RED"), []] if leg != "s121" else [old, []]), (leg, pred["120"])
+        assert pred["131"] == [g(p, "RED"), []], (leg, pred["131"])    # [ff9mapkit netsync s131] RED only there too
         for reds, maybe in pred.values():
             assert set(reds) | set(maybe) <= catalog, (leg, sorted(set(reds) | set(maybe) - catalog))
+    # [ff9mapkit netsync s131] THE TAIL ADDS (the docstring's paragraph): on s120 / s121 -- and on s119 for the s119 leg --
+    # a cut with tail >= 66 adds the leg's hold check to its reds, a tail in (0, 66) adds it as a maybe; s131 never; a
+    # check already red stays as it was (readopt's G3, s119's gk)
+    assert t["hold_check"] == {"s119": "S119-G3", "readopt": "READOPT-G3", "s120-battle": "S120B-G4", "span": "SPAN-G2"}
+    for leg, body in cut.items():
+        hc = t["hold_check"].get(leg)
+        for s, by_tail in body["tail"].items():
+            base = by_tail["0.0"]
+            assert base == body["pred"][s], (leg, s)
+            adds = hc is not None and hc not in base[0] and (s in ("120", "121") or (s == "119" and leg == "s119"))
+            assert by_tail["67.0"] == ([sorted(base[0] + [hc]), base[1]] if adds else base), (leg, s, by_tail)
+            assert by_tail["33.0"] == ([base[0], sorted(set(base[1]) | {hc})] if adds else base), (leg, s, by_tail)
+    # [ff9mapkit netsync s131 fix] THE TAIL ADDS' one exception, pinned by hand (not by restating _predicted's condition):
+    # a stall_cap span (s120-world) prints no hold ms and leaves at the resume + the settle on either engine, so SPAN-G2
+    # reads the re-adopt only through the Ready-gated second close -- s120/s121 add it as a MAYBE at 33 AND 67, never a
+    # red; s119 already reds it (8 s cap), s131 adds nothing, tail 0 is the host_field row
+    span, tails = cut["span"]["pred"], ("0.0", "33.0", "67.0")
+    maybe_g2 = [g("SPAN", "RED"), g("SPAN", "G2")]
+    assert t["span_stall"] == {
+        "119": {tl: span["119"] for tl in tails},
+        "120": {"0.0": span["120"], "33.0": maybe_g2, "67.0": maybe_g2},
+        "121": {"0.0": span["121"], "33.0": maybe_g2, "67.0": maybe_g2},
+        "131": {tl: [g("SPAN", "RED"), []] for tl in tails},
+    }, t["span_stall"]
+    assert cut["span"]["tail"]["121"]["67.0"] == [g("SPAN", "G2", "RED"), []]     # host_field (the default): a red
+    # ...and the ONE call site (run()'s calibration verdict; no stand-in drives this scenario) hands it the plan's verdict
+    src = (SCENARIOS / "coop_cut_hold.py").read_text(encoding="utf-8")
+    assert re.findall(r"= _predicted\(([^)]*)\)", src) == ["leg, ctx.stage, tail, why"], re.findall(r"_predicted\(.*", src)
+    assert 'why = ((ctx.plan or {}).get("expect") or {}).get("why")' in src
+    # [ff9mapkit netsync s131] whatever legs the table grows: on the s131 engine a leg predicts at most its own <P>-RED (the
+    # s117-defect reproduction, red on every fixed engine) and nothing maybe -- every G/K check passes only with s131
+    for leg, body in cut.items():
+        reds, maybe = body["pred"]["131"]
+        assert all(r.endswith("-RED") and r in body["catalog"] for r in reds) and len(reds) <= 1 and not maybe, (leg, reds)
     sh = t["sh"]
     assert set(sh["old"]) < set(sh["catalog"]) and set(sh["lever"]) < set(sh["catalog"])
     assert set(sh["catalog"]) - set(sh["old"]) == {"S14-S0", "S14-P1", "S14-A0", "S14-CAL"}

@@ -44,15 +44,24 @@ reason when the tape cannot carry it):
                same fight (nonce N) after a M ms hold -- resuming' in the resume window, M ~ the cut minus StaleMs; G4 the
                reconcile resumes on the SAME nonce (netsync.battle.peer live, nonce N, a seq past the last pre-cut one) and
                the diorama never tore down; G5 the ready mirror re-serves ('ready mirror is SERVING' after the resume line);
-               K netsync.diorama.hold holds +1, resumes +1, gaveup +0.
+               K netsync.diorama.hold holds +1, resumes +1, gaveup +0. [s131] G3 judges M by THE HOLD RULE (below).
+  readopt      [ff9mapkit netsync s131] the s119 cut MOVED to the nearest placement at or after battle+10 s whose TAIL is
+               >= 66 ms (the re-adopt class: _coop_peer_bench.readopt_placement scans the tape and refuses, with the
+               reason, when none fits; the 2026-10-14 tape gives 81.65, the confirmation's 81.66 stretch). I, G1, G2, G4,
+               G5 and K as s119; G3 the hold by THE HOLD RULE (no nominal fallback); X the s131 key
+               netsync.battle.peer.expired across the cut: count +1, refused +1, frames >= 1, ms in [tail - 100, tail +
+               35] (the run-out to its last refused repeat), and one 'battle lane: the host's last frame (nonce N, seq S)
+               ran out of freshness ... not re-adopted' line on nonce N -- the key ABSENT reads red (an engine with the
+               defect).
   s120-battle  20 s at battle+8. I as s119. G1 no 'session ended -> reloading own autosave' from the cut through the
                post-victory window; G2 one 'session: the host went silent (the hop is up: a cut or a stall upstream) --
                holding the session for up to 30 s ... (the diorama holds); outages=K' in the outage window; G3 one 'the host
                is back after M ms -- inside the 30 s grace, the session continues (no exit ramp; still mirroring)' in the
                resume window, M ~ the cut minus StaleMs; G4 the diorama held through it on the same nonce (one hold line,
-               its resume line, no LEAVE / watcher-leave / give-up line in between); G5 after the recorded victory (the
-               end-leave's RETURN, before the tape's end) still mirrored: netsync.session.mirroring true, ramp_pending false,
-               state "live", and no 'session ended' line; K session outages +1, resumes +1, gaveup +0, hold resumes +1.
+               its resume line, no LEAVE / watcher-leave / give-up line in between) [s131] and its M ms by THE HOLD
+               RULE against G3's M; G5 after the recorded victory (the end-leave's RETURN, before the tape's end) still
+               mirrored: netsync.session.mirroring true, ramp_pending false, state "live", and no 'session ended' line;
+               K session outages +1, resumes +1, gaveup +0, hold resumes +1.
   s120-long    40 s in free roam (15 s after the tape's start). I paired/ARMED before it. G1 no 'session ended' before the
                grace runs out; G2 one outage line; G3 the give-up line 'silent for M ms, past the 30 s grace -- the session
                ended; the exit ramp reloads your own autosave ...' (M in [30000, 31500]) and then 'session ended -> reloading
@@ -69,9 +78,10 @@ reason when the tape cannot carry it):
                INSIDE THE CUT). I BOOT/LIVE before it. G1 no LEAVE / watcher-leave before the cut ends (the guest holds
                through the unseen victory); G2 at the resume the over-verdict for the tape's after-battle place -- a field
                tape: 'diorama watcher: the host's fight is over (the peer is alive and back on field 250) -- leaving (nonce
-               N, after a M ms hold ...)'; a WORLD-MAP tape (COOP_CUT_LEG=s120-world requires one): the stall-cap line
-               'still silent after 8s with the peer alive on field 0 ...' -- then 'diorama LEAVE requested', 'watcher-leave
-               settled (nonce N)' and a RETURN; K netsync.diorama.hold.why == "host_field" | "stall_cap".
+               N, after a M ms hold ...)' [s131] its M by THE HOLD RULE's leave-ended form; a WORLD-MAP tape
+               (COOP_CUT_LEG=s120-world requires one): the stall-cap line 'still silent after 8s with the peer alive on
+               field 0 ...' (it prints no hold ms: no rule) -- then 'diorama LEAVE requested', 'watcher-leave settled
+               (nonce N)' and a RETURN; K netsync.diorama.hold.why == "host_field" | "stall_cap".
   s121         the replay STOPS 25 s after its start (free roam only; --at-end hold: the host then goes silent). I paired/
                ARMED, the guest playable on FieldHUD. G0 before the press netsync.menu_refusal.now == "audible" (the press is
                gated on it when the key exists, never on ui_state); G1 press 1: menu_refusal.count +1, lines +1, last_state
@@ -87,25 +97,56 @@ AutoSaveOnlyAtMoogle off before the run, and no 'session ended, no autosave to r
 exit ramp's other branch: every "no session end" check reads BOTH lines, _coop_peer_bench.session_ends, so a guest with
 no autosave can never read green there); T2-INI (final) Memoria.ini restored byte-exact.
 
+THE HOLD RULE [ff9mapkit netsync s131] (R3-SITTING-A-FIXES.md "The hold-onset variance: the Pump null RE-ADOPT"). A hold
+length is judged against the SAME run's outage ('session: the host is back after M ms') plus THAT cut's TAIL -- the final
+pre-cut seq's last receipt minus its first, read off the tape at --blackhole-at (_coop_peer_bench.tape_tail: 0/33/67/
+100/133 ms, set by where the cut lands; the T2-TAPE line names it) -- never a nominal window: s119's 6 s cut sits 9 ms
+inside the tail-0 class, so the old 3000-5500 ms window was green by placement luck. Post-fix (s131): (hold - outage) in
+[tail - 40, tail + 70]; a leave-ended hold (span's over-verdict): (hold - 500 - outage) in [tail - 55, tail + 85]; and at
+most one 'stock menu: closed all (ready mirror: no live peer battle lane)' across the cut. A pre-s131 guest re-adopts the
+frozen frame whenever the tail outlasts its Updates, so its hold opens ~(2000 - tail) ms late (and a Ready slot's menu
+shuts twice): RED there at a tail >= 66, a maybe at 33, green at 0. The rule lives in S119-G3 (an engine with no outage
+line -- pre-s120 -- keeps the nominal window there), S120B-G4, SPAN-G2 (host_field only: a stall-cap verdict prints no
+hold ms) and READOPT-G3 (no fallback).
+THE CLOSE CLAUSE [s131 fix] bites only when the ready mirror HOLDS a slot at the cut (MirrorStandDown closes nothing
+otherwise). On the 2026-10-14 tape that is span's placement (2 closes on s121, 001818) and P5's K4 (2) -- never the
+mid-fight s119 / readopt / s120-battle placements, where every archived run logged 0 closes -- the runs that DID re-adopt
+included (confirm-s119 at 81.66, both s120-battle runs at 79.59: hold - outage -1938 / -1921 / -1953). There it is INERT
+on every engine: those checks read the re-adopt through the hold arithmetic alone; the clause is calibrated by span and
+K4 only.
+
 CALIBRATION (COOP_CALIBRATE=1 adds <LEG>-RED -- the s117 defect REPRODUCED, the instrument's proof it can see it -- and
 <LEG>-CAL, which judges the run against the predicted red set of the engine it FINDS by its published keys: s117 =
-netsync.battle.end.follow_msg, s119 = netsync.diorama.hold, s120 = netsync.session, s121 = netsync.menu_refusal). s117 has
-no hold/session/menu_refusal block: every GREEN check keys on an engine line or an observable state FIRST, and a key it
-also reads is ABSENT there -- read as None, never as a pass.
+netsync.battle.end.follow_msg, s119 = netsync.diorama.hold, s120 = netsync.session, s121 = netsync.menu_refusal, s131 =
+netsync.battle.peer.expired). s117 has no hold/session/menu_refusal block: every GREEN check keys on an engine line or an
+observable state FIRST, and a key it also reads is ABSENT there -- read as None, never as a pass.
   s119-RED     the sitting-A pair verbatim: 'diorama LEAVE requested -> FieldMap (mode 1)' and 'diorama watcher-leave
                settled (nonce N) -- the same fight won't re-boot on reconnect', both within ~2 s of the cut.
   s120*-RED    s117's 'session ended -> reloading own autosave (Continue)' at once (3 s after the lanes die).
   span-RED     the sitting-A pair, before the cut ends.
   s121-RED     s117's silence: press 1 gives no refusal line, and the menu stays shut.
-  Predicted reds, by the engine found:
+  READOPT-RED  [s131] the pre-s131 re-adopt reproduced: (outage - hold) in [2000 - tail - 35, 2000 - tail + 50] ms (the
+               hold opened at the SECOND stale edge, after the phantom 2000 ms) -- s121's defect, so GREEN on s119-s121.
+  Predicted reds, by the engine found, at a TAIL-0 cut (the tail adds below):
     cal          none, on every engine.
-    s119         s117: G1-G5, K.                          s119/s120/s121: RED only.
-    s120-battle  s117: G1-G5, K.   s119: G1-G5, K (RED maybe: its ramp waits for the field).   s120/s121: RED only.
-    s120-long    s117 and s119: G1-G3, K.                 s120/s121: RED only.
-    s120-roam    s117 and s119: G1-G5.                    s120/s121: RED only.
-    span         s117 and s119: G1, G2, K (s119's 8 s cap leaves inside a ~15-20 s span; RED maybe).  s120/s121: RED only.
+    s119         s117: G1-G5, K.                          s119/s120/s121/s131: RED only.
+    readopt      s117: G1-G5, K, X, RED.   s119: G3, X, RED (G2 maybe).   s120/s121: G3, X (G2 maybe: the hold line lands
+                 at the SECOND stale edge, ~4.4 s after the cut, at its window's edge).    s131: RED only.
+                 (the leg's tail is >= 66 by construction: the tail rule below never adds to it)
+    s120-battle  s117: G1-G5, K.   s119: G1-G5, K (RED maybe: its ramp waits for the field).   s120/s121/s131: RED only.
+    s120-long    s117 and s119: G1-G3, K.                 s120/s121/s131: RED only.
+    s120-roam    s117 and s119: G1-G5.                    s120/s121/s131: RED only.
+    span         s117 and s119: G1, G2, K (s119's 8 s cap leaves inside a ~15-20 s span; RED maybe).  s120/s121/s131: RED
+                 only.
     s121         s117-s120: G0, G1, G2, G4, G5 (G3 and C1 GREEN: the s38 drop keeps the menu shut, and the control row
-                 proves the press path itself).                                        s121: RED only.
+                 proves the press path itself).                                        s121/s131: RED only.
+  THE TAIL ADDS [s131] (_predicted's tail_ms = the plan's, off the tape): on s120 and s121 -- and on s119 for the s119 leg
+  (its nominal window catches a ~2 s-late hold) -- a cut with tail >= 66 adds the leg's hold check to its reds (S119-G3,
+  S120B-G4, SPAN-G2), a tail in (0, 66) adds it as a maybe; s131 never. On the 2026-10-14 tape: s119 0 (no change),
+  s120-battle 66.5 and span 66.6 -- so on the deployed s121 those two legs predict RED and their hold check.
+  [s131 fix] The ONE exception, a stall_cap span (s120-world: _predicted's `why`, the plan's expect.why): SPAN-G2 judges
+  no hold ms there and its verdict lands at the resume + the settle on either engine, so only the second no-lane close
+  can read the re-adopt -- and that needs a slot Ready at the cut (the tape's, not the tail's): a MAYBE at any tail > 0.
   The I checks, T2-* and CAL-* are never predicted red: a red there is the INSTRUMENT, and the leg's verdict is void.
   The one exception is the forced run: under COOP_CUT_FORCE=1 a red T2-CAL is the force itself (the world-map tape whose
   CAL leg cannot pair), so <LEG>-CAL allows it and judges the leg's own checks -- that run's instrument verdict is manual.
@@ -127,6 +168,16 @@ to that ONE launch, so no leg inherits the last one's:
      to pair on, so it runs FORCED -- T2-CAL red by design, <LEG>-CAL allows it, the instrument verdict is manual (the
      force acts only on a red T2-CAL: harmless if that tape's CAL did pass):
     COOP_CUT_FORCE=1 COOP_TAPE=<tape> COOP_CUT_LEG=s120-world py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
+  5. [ff9mapkit netsync s131] THE RE-ADOPT, calibrated red on the DEPLOYED s121 BEFORE s131 deploys (the hold rule made
+     step 4's "all green" a tail-0 claim: on s121, s120-battle and span now read their hold check red at the tape's
+     66.5 / 66.6 ms tails -- predicted, so each <LEG>-CAL passes):
+    COOP_CALIBRATE=1 COOP_CUT_LEG=readopt     py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
+    COOP_CALIBRATE=1 COOP_CUT_LEG=s119        py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
+    COOP_CALIBRATE=1 COOP_CUT_LEG=s120-battle py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
+    COOP_CALIBRATE=1 COOP_CUT_LEG=span        py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
+     (readopt: G3 and X red, G2 maybe, READOPT-RED GREEN -- the defect reproduced; s119 at tail 0: RED only; s120-battle:
+     RED + G4; span: RED + G2). After s131 deploys (the DLL rebuild auto-deploys): COOP_CUT_LEG=cal once more, then
+     readopt / s119 / s120-battle / span WITHOUT COOP_CALIBRATE (all green), then with it (each reads RED only).
   PowerShell has no per-launch form: a `$env:` value PERSISTS in that shell, so the next "normal" leg would run
   calibrated (or forced, or on another tape) without a word. Clear them after EVERY leg [ff9mapkit netsync R3 fix round 2]:
     $env:COOP_CALIBRATE='1'; $env:COOP_CUT_LEG='s119'; py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
@@ -176,8 +227,11 @@ GRACE_MS, GRACE_NOTE = pb.engine_grace(os.environ.get("COOP_GRACE_MS", ""))
 GRACE_S = GRACE_MS / 1000.0
 POLL_S = 0.1
 
-PFX = {"cal": "CAL", "s119": "S119", "s120-battle": "S120B", "s120-long": "S120L", "s120-roam": "S120R",
-       "span": "SPAN", "s121": "S121"}
+PFX = {"cal": "CAL", "s119": "S119", "readopt": "READOPT", "s120-battle": "S120B", "s120-long": "S120L",
+       "s120-roam": "S120R", "span": "SPAN", "s121": "S121"}
+#: [ff9mapkit netsync s131] the check that judges each leg's hold LENGTH by THE HOLD RULE (the docstring's): red on a
+#: pre-s131 engine at a tail >= 66 ms, a maybe in (0, 66), green at 0 -- _predicted adds it by the plan's tail
+HOLD_CHECK = {"s119": "S119-G3", "readopt": "READOPT-G3", "s120-battle": "S120B-G4", "span": "SPAN-G2"}
 
 GUEST_VALUES = {"Enabled": "1", "Role": "client", "RelayUrl": f"ws://127.0.0.1:{PORT}", "SessionCode": CODE,
                 "FollowHost": "1", "TargetField": "0", "GuestSlots": "0", "GuestStockMenu": "1",
@@ -212,11 +266,30 @@ LEG_CHECKS = {
         "S119-G2": "exactly one 'diorama: peer silent mid-battle -- holding ... (nonce N; ... a cut; ...)' in the hold window "
                    "(and no stall-variant line)",
         "S119-G3": "one 'diorama: the host's battle lane is back on the same fight (nonce N) after a M ms hold -- resuming' in "
-                   "the resume window, M ~ the cut minus StaleMs",
+                   "the resume window, M by THE HOLD RULE: M - the same run's outage in [tail - 40, tail + 70] and at most "
+                   "one no-lane menu close (THE CLOSE CLAUSE: inert unless a slot is Ready at the cut) (pre-s120, no "
+                   "outage line: M in the nominal cut-minus-StaleMs window)",
         "S119-G4": "the reconcile resumes the SAME nonce (netsync.battle.peer live, nonce N, a seq past the last pre-cut "
                    "one) and the diorama never tore down",
         "S119-G5": "the ready mirror re-serves: 'stock menu: the ready mirror is SERVING' after the resume line",
         "S119-K": "netsync.diorama.hold: holds +1, resumes +1, gaveup +0 across the leg",
+    },
+    "readopt": {                                             # [ff9mapkit netsync s131] the s119 cut at a tail >= 66 ms
+        "READOPT-I": "the instrument before the cut: paired, ARMED, BOOT (scene M), LIVE (nonce N) logged, the diorama "
+                     "booted -- at the plan's tail >= 66 ms placement",
+        "READOPT-G1": "no 'diorama LEAVE requested' and no 'watcher-leave settled (nonce N)' from the cut to the resume+3 s",
+        "READOPT-G2": "exactly one 'diorama: peer silent mid-battle -- holding ... (nonce N; ... a cut; ...)' in the hold "
+                      "window (and no stall-variant line)",
+        "READOPT-G3": "one same-nonce resume line in the resume window, its M by THE HOLD RULE: M - the same run's outage in "
+                      "[tail - 40, tail + 70] (no nominal fallback) and at most one no-lane menu close across the cut "
+                      "(THE CLOSE CLAUSE: inert unless a slot is Ready at the cut)",
+        "READOPT-G4": "the reconcile resumes the SAME nonce (netsync.battle.peer live, nonce N, a seq past the last pre-cut "
+                      "one) and the diorama never tore down",
+        "READOPT-G5": "the ready mirror re-serves: 'stock menu: the ready mirror is SERVING' after the resume line",
+        "READOPT-K": "netsync.diorama.hold: holds +1, resumes +1, gaveup +0 across the leg",
+        "READOPT-X": "netsync.battle.peer.expired across the cut: count +1, refused +1, frames >= 1, ms in [tail - 100, tail "
+                     "+ 35]; one 'battle lane: the host's last frame (nonce N, seq S) ran out of freshness ... not "
+                     "re-adopted' line (the key ABSENT = an engine that re-adopts)",
     },
     "s120-battle": {                                         # [ff9mapkit netsync R3 s120] (+ s119's hold under it)
         "S120B-I":"the instrument before the cut: paired, ARMED, BOOT (scene M), LIVE (nonce N) logged, the diorama booted",
@@ -226,7 +299,8 @@ LEG_CHECKS = {
         "S120B-G3": "one 'session: the host is back after M ms -- inside the G s grace, the session continues (no exit ramp; "
                     "still mirroring)' in the resume window, M ~ the cut minus StaleMs",
         "S120B-G4": "the diorama held on the same nonce: one hold line, its resume line (nonce N), no LEAVE / watcher-leave / "
-                    "give-up line between the cut and the resume",
+                    "give-up line between the cut and the resume; its M ms by THE HOLD RULE against G3's outage (at most "
+                    "one no-lane menu close: inert unless a slot is Ready at the cut)",
         "S120B-G5": "after the recorded victory (the end-leave's RETURN): still mirrored -- session.mirroring true, "
                     "ramp_pending false, state 'live' -- and no 'session ended' line",
         "S120B-K": "netsync.session outages +1, resumes +1, gaveup +0; netsync.diorama.hold resumes +1",
@@ -254,8 +328,9 @@ LEG_CHECKS = {
         "SPAN-G1": "no 'diorama LEAVE requested' / 'watcher-leave settled' before the cut ends (held through the unseen "
                    "victory)",
         "SPAN-G2": "at the resume the over-verdict for the tape's after-battle place (host_field: 'the host's fight is over "
-                   "(the peer is alive and back on field F)'; stall_cap: 'still silent after 8s with the peer alive on field "
-                   "0'), then LEAVE, 'watcher-leave settled (nonce N)' and a RETURN",
+                   "(the peer is alive and back on field F)', its 'after a M ms hold' by THE HOLD RULE's leave-ended form "
+                   "against the same run's outage, at most one no-lane menu close; stall_cap: 'still silent after 8s with "
+                   "the peer alive on field 0'), then LEAVE, 'watcher-leave settled (nonce N)' and a RETURN",
         "SPAN-K": "netsync.diorama.hold.why reads the expected reason ('host_field' | 'stall_cap')",
     },
     "s121": {                                                # [ff9mapkit netsync R3 s121]
@@ -279,6 +354,9 @@ RED_CLAIMS = {
     "s120-roam": "CALIBRATION: s117's 'session ended -> reloading own autosave (Continue)' at once (~3 s after the lanes die)",
     "span": "CALIBRATION: the sitting-A pair before the cut ends (the guest left the unseen victory at once)",
     "s121": "CALIBRATION: s117's silence -- press 1 gives no refusal line and the menu stays shut",
+    # [ff9mapkit netsync s131] the defect this leg exists for is s121's (not s117's): GREEN on s119-s121, red on s131
+    "readopt": "CALIBRATION: the pre-s131 re-adopt reproduced -- (outage - hold) in [2000 - tail - 35, 2000 - tail + 50] ms "
+               "(the hold opened at the SECOND stale edge, after the phantom 2000 ms of the re-adopted frame)",
 }
 
 
@@ -298,8 +376,11 @@ def _catalog(leg: str, calibrate: bool) -> dict:
     return cat
 
 
-def _predicted(leg: str, stage: int) -> tuple:
-    """(reds, maybe) for ``leg`` on the engine found (its guest stage)."""
+def _predicted(leg: str, stage: int, tail_ms: float | None = 0.0, why: str | None = None) -> tuple:
+    """(reds, maybe) for ``leg`` on the engine found (its guest stage), at a cut of ``tail_ms`` (the plan's; None = no
+    battle lane at the cut, read as 0). The docstring's table: the default is its tail-0 row. [ff9mapkit netsync s131 fix]
+    ``why`` = the plan's expected over-verdict (expect.why): a span's "stall_cap" judges no hold ms (THE TAIL ADDS' one
+    exception), None/"host_field" the hold rule's leave-ended form."""
     p = PFX[leg]
     red = {f"{p}-RED"}
     ids = list(LEG_CHECKS[leg])
@@ -308,13 +389,34 @@ def _predicted(leg: str, stage: int) -> tuple:
         return set(), set()
     if leg == "s121":
         return (red, set()) if stage >= 121 else ({f"{p}-G0", f"{p}-G1", f"{p}-G2", f"{p}-G4", f"{p}-G5"}, set())
+    if leg == "readopt":                                    # [ff9mapkit netsync s131] its tail is >= 66 by construction
+        if stage >= 131:
+            return red, set()
+        if stage >= 120:
+            return {f"{p}-G3", f"{p}-X"}, {f"{p}-G2"}
+        if stage == 119:
+            return {f"{p}-G3", f"{p}-X", f"{p}-RED"}, {f"{p}-G2"}
+        return gk | {f"{p}-X", f"{p}-RED"}, set()
     if leg == "s119":
-        return (red, set()) if stage >= 119 else (gk, set())
-    if stage >= 120:
-        return red, set()
-    if stage == 119 and leg in ("s120-battle", "span"):
-        return gk, red
-    return gk, set()
+        reds, maybe = (set(red), set()) if stage >= 119 else (set(gk), set())
+    elif stage >= 120:
+        reds, maybe = set(red), set()
+    elif stage == 119 and leg in ("s120-battle", "span"):
+        reds, maybe = set(gk), set(red)
+    else:
+        reds, maybe = set(gk), set()
+    # [ff9mapkit netsync s131] THE TAIL ADDS: a pre-s131 guest re-adopts the frozen frame on a tail > 0 cut, so the hold
+    # check reads ~(2000 - tail) ms off its rule -- on s120/s121 (the outage line exists), and on s119 for the s119 leg
+    # (its nominal window); s131 never
+    hc, tail = HOLD_CHECK.get(leg), float(tail_ms or 0.0)
+    if hc and hc not in reds and tail > 0.0 and (120 <= stage < 131 or (stage == 119 and leg == "s119")):
+        # [ff9mapkit netsync s131 fix] a stall_cap span (s120-world) has no hold ms to break, and its verdict lands at the
+        # resume + the settle on either engine (DioramaWatchStep: its stale age is past the 8 s cap long before): only the
+        # second no-lane close reads the re-adopt there, and that one needs a slot Ready at the cut (MirrorStandDown's
+        # `held`) -- the tape's, not the tail's: a maybe at ANY tail, never a predicted red
+        stall = leg == "span" and why == "stall_cap"
+        (reds if tail >= pb.READOPT_TAIL_MS and not stall else maybe).add(hc)
+    return reds, maybe
 
 
 class _Ctx:
@@ -357,7 +459,15 @@ def run(g, field: int | None = None):
         _teardown(g, led, ctx)
         if CALIBRATE and LEG is not None:
             ctx.stage = max(ctx.stage, _stage_now(g))       # the keys never vanish: the later read can only add one
-            reds, maybe = _predicted(leg, ctx.stage)
+            tail = (ctx.plan or {}).get("tail_ms")          # [ff9mapkit netsync s131] the table is the tail's
+            why = ((ctx.plan or {}).get("expect") or {}).get("why")    # [ff9mapkit netsync s131 fix] span: the verdict
+            reds, maybe = _predicted(leg, ctx.stage, tail, why)
+            if HOLD_CHECK.get(leg):
+                g.note(f"{PFX[leg]}-CAL: this cut's tail {tail} ms " + (
+                       "(a stall_cap span: no hold rule -- a pre-s131 engine reads SPAN-G2 a maybe at any tail > 0, red "
+                       "only with a slot Ready at the cut)" if leg == "span" and why == "stall_cap" else
+                       f"(THE HOLD RULE: a pre-s131 engine reads {HOLD_CHECK[leg]} red at >= {pb.READOPT_TAIL_MS:g}, maybe "
+                       "below, green at 0)"))
             if FORCE and leg != "cal" and led.done.get("T2-CAL") is False:
                 # [ff9mapkit netsync R3 T2] COOP_CUT_FORCE=1 ran past an untrusted instrument BY DESIGN (a world-map tape
                 # has no field for the CAL leg to pair on): its T2-CAL red is the force, not a finding -- this verdict
@@ -419,8 +529,12 @@ def _run(g, led: cb.Ledger, ctx: _Ctx, leg: str) -> None:
     f1, f3 = ctx.facts["f1"], ctx.facts["f3"]
     ctx.field = f1.get("field") or pb.BENCH_FIELD
     ctx.scene, ctx.nonce = f3.get("map"), f3.get("nonce")
-    cut = (f"cut at tape {ctx.plan['bh'][0]:.2f} s for {ctx.plan['bh'][1]:g} s" if ctx.plan.get("bh") else
+    tail = ctx.plan.get("tail_ms")                  # [ff9mapkit netsync s131] the cut's tail (THE HOLD RULE reads it)
+    cut = (f"cut at tape {ctx.plan['bh'][0]:.3f} s for {ctx.plan['bh'][1]:g} s"
+           + (f", tail {tail:.1f} ms" if tail is not None else "") if ctx.plan.get("bh") else
            f"stop at tape {ctx.plan['stop_at']:.2f} s" if ctx.plan.get("stop_at") is not None else "no cut")
+    if ctx.plan.get("expect", {}).get("placement"):
+        g.note(f"readopt placement: {ctx.plan['expect']['placement']}")
     torn_text = f", torn tail {torn} B" if torn else ""
     led.check("T2-TAPE", ctx.plan["ok"], f"{ctx.tape.name} ({len(records)} records{torn_text}): field {ctx.field}, scene "
               f"{ctx.scene}, nonce {ctx.nonce}; {leg}: " + (cut if ctx.plan["ok"] else "CANNOT -- " + ctx.plan["why"]))
@@ -507,8 +621,8 @@ def _run(g, led: cb.Ledger, ctx: _Ctx, leg: str) -> None:
         return
     ctx.anchors["start"] = start[0]
     # E. the leg
-    {"cal": _leg_cal, "s119": _leg_s119, "s120-battle": _leg_s120_battle, "s120-long": _leg_s120_long,
-     "s120-roam": _leg_s120_roam, "span": _leg_span, "s121": _leg_s121}[leg](g, led, ctx)
+    {"cal": _leg_cal, "s119": _leg_s119, "readopt": _leg_readopt, "s120-battle": _leg_s120_battle,
+     "s120-long": _leg_s120_long, "s120-roam": _leg_s120_roam, "span": _leg_span, "s121": _leg_s121}[leg](g, led, ctx)
 
 
 def _wait_config(g, ctx: _Ctx, first: float = 6.0, second: float = 10.0) -> list:
@@ -689,32 +803,90 @@ def _leg_cal(g, led: cb.Ledger, ctx: _Ctx) -> None:
         g.note(f"the CAL verdict could not be written: {err}")
 
 
+def _outage(lines, a, e):
+    """[ff9mapkit netsync s131] (the SAME run's outage ms | None, its lines): the ONE 'session: the host is back after M
+    ms' of this cut (s120+; none on an older engine -- never a zero)."""
+    backs = pb.hits(lines, "session_back", after=a, before=_t(e, 4.0))
+    return (int(backs[0][2].group(1)) if len(backs) == 1 else None), backs
+
+
+def _hold_rule(ctx: _Ctx, lines, held, om, a, until, *, leave: bool = False) -> tuple:
+    """[ff9mapkit netsync s131] THE HOLD RULE for one cut -> (ok, detail): the engine's hold ``held`` against the same
+    run's outage ``om`` plus the plan's tail (_coop_peer_bench.hold_rule; ``leave`` = a leave-ended hold), and at most
+    MENU_CLOSES_MAX 'closed all (ready mirror: no live peer battle lane)' lines in [a, until] -- THE CLOSE CLAUSE, which
+    can only fail when the ready mirror held a slot at the cut (the docstring's paragraph: inert mid-fight on the
+    2026-10-14 tape, calibrated by span and P5's K4) [ff9mapkit netsync s131 fix]."""
+    tail = ctx.plan.get("tail_ms")
+    closes = pb.hits(lines, "menu_close_nolane", after=a, before=until)
+    ok = pb.hold_rule(held, om, tail, leave=leave)[0] and len(closes) <= pb.MENU_CLOSES_MAX
+    eng = ("s131 (netsync.battle.peer.expired published)" if ctx.stage >= 131 else
+           f"pre-s131 (s{ctx.stage or '<117'})" + ("" if ok or not tail else ": a tail > 0 cut re-adopts the frozen "
+                                                    "frame -- this red is that defect (predicted: _predicted's tail)"))
+    return ok, (f"{pb.hold_rule_text(held, om, tail, leave=leave)}; no-lane menu closes across the cut {len(closes)} (want "
+                f"<= {pb.MENU_CLOSES_MAX})" + (f": {pb.show(closes)}" if len(closes) > pb.MENU_CLOSES_MAX else "")
+                + f"; engine {eng}")
+
+
 def _leg_s119(g, led: cb.Ledger, ctx: _Ctx) -> None:
-    p, N = "S119", ctx.nonce
+    _leg_mid_cut(g, led, ctx, "s119")
+
+
+def _leg_readopt(g, led: cb.Ledger, ctx: _Ctx) -> None:
+    """[ff9mapkit netsync s131] the s119 cut at the plan's tail >= 66 ms placement: s119's checks, G3 by THE HOLD RULE
+    with no nominal fallback, X the s131 key, READOPT-RED the pre-s131 re-adopt reproduced."""
+    _leg_mid_cut(g, led, ctx, "readopt")
+
+
+def _last_until(ctx: _Ctx, t) -> dict | None:
+    upto = [s for s in ctx.samples if s["t"] <= t]
+    return upto[-1] if upto else None
+
+
+def _expired(sample: dict | None):
+    """[ff9mapkit netsync s131] a sample's netsync.battle.peer.expired block -- None when ABSENT (pre-s131), never {}."""
+    peer = sample.get("peer") if isinstance(sample, dict) else None
+    x = peer.get("expired") if isinstance(peer, dict) else None
+    return x if isinstance(x, dict) else None
+
+
+def _leg_mid_cut(g, led: cb.Ledger, ctx: _Ctx, leg: str) -> None:
+    """A 6 s cut mid-battle (s119: at battle+10; readopt: moved to the nearest tail >= 66 placement)."""
+    p, N = PFX[leg], ctx.nonce
     a, e, dur = _cut_anchors(g, ctx, timeout=_span_s(ctx) + 60.0)
     if a is None or e is None:
-        led.unreached(list(LEG_CHECKS["s119"]), f"the replay never reached its blackhole edges ({ctx.peer.tail(3)})")
+        led.unreached(list(LEG_CHECKS[leg]), f"the replay never reached its blackhole edges ({ctx.peer.tail(3)})")
         return
     _until(g, ctx, lambda: _after(ctx, "bh_end", 12.0), 30.0)
     if not _gate(led, ctx, p, *_instrument(ctx, a, booted=True)):
         return
+    ctx.stage = max(ctx.stage, _stage_now(g))
     W = pb.leg_windows(dur, GRACE_S)
     lines = ctx.eng.lines()
     res = pb.hits(lines, "hold_resume", after=a, pred=lambda m: int(m.group(1)) == N)
     t_end = (res[0][0] if res else e) + _dt.timedelta(seconds=3)
     leaves = pb.hits(lines, "leave", after=a, before=t_end)
     settled = pb.hits(lines, "watcher_settled", after=a, before=t_end)
-    led.check("S119-G1", not leaves and not settled, f"LEAVE {pb.show(leaves)}; watcher-leave {pb.show(settled)}")
+    led.check(f"{p}-G1", not leaves and not settled, f"LEAVE {pb.show(leaves)}; watcher-leave {pb.show(settled)}")
     holds = pb.hits(lines, "hold_cut", after=a, before=_t(e, 2.0), pred=lambda m: int(m.group(1)) == N)
     stalls = pb.hits(lines, "hold_stall", after=a, before=_t(e, 2.0))
     inwin = [h for h in holds if pb.in_window(h[0], a, *W["hold"])]
-    led.check("S119-G2", len(holds) == 1 and len(inwin) == 1 and not stalls,
+    led.check(f"{p}-G2", len(holds) == 1 and len(inwin) == 1 and not stalls,
               f"cut holds {pb.show(holds)} (in window {len(inwin)}); stall holds {pb.show(stalls)}")
     held = int(res[0][2].group(2)) if res else None
-    led.check("S119-G3", len(res) == 1 and pb.in_window(res[0][0], a, *W["resume"])
-              and W["held_ms"][0] <= held <= W["held_ms"][1],
-              f"{pb.show(res)}; expected {W['held_ms'][0]:.0f}-{W['held_ms'][1]:.0f} ms within "
-              f"{W['resume'][0]:g}..{W['resume'][1]:g} s of the cut")
+    om, backs = _outage(lines, a, e)
+    in_resume = len(res) == 1 and pb.in_window(res[0][0], a, *W["resume"])
+    where = f"{pb.show(res, 1)} (within {W['resume'][0]:g}..{W['resume'][1]:g} s of the cut: {in_resume})"
+    if leg == "s119" and ctx.stage < 120:
+        # [ff9mapkit netsync s131] an engine with no session lines (pre-s120) has no outage to judge against: the s119-
+        # alone engine keeps the nominal window (a ~2 s-late re-adopted hold falls under it all the same)
+        closes = pb.hits(lines, "menu_close_nolane", after=a, before=t_end)
+        nominal = held is not None and W["held_ms"][0] <= held <= W["held_ms"][1]
+        led.check(f"{p}-G3", in_resume and nominal and len(closes) <= pb.MENU_CLOSES_MAX,
+                  f"{where}; pre-s120 (no outage line): expected {W['held_ms'][0]:.0f}-{W['held_ms'][1]:.0f} ms; no-lane "
+                  f"menu closes {len(closes)} (want <= {pb.MENU_CLOSES_MAX})")
+    else:
+        ok3, why3 = _hold_rule(ctx, lines, held, om, a, t_end)
+        led.check(f"{p}-G3", in_resume and ok3, f"{where}; outage {pb.show(backs, 1)}; {why3}")
     pre = [s for s in ctx.samples if s["t"] < a and isinstance(s["peer"], dict) and s["peer"].get("nonce") == N]
     seq0 = pre[-1]["peer"].get("seq") if pre else None
     post = _between(ctx, e, _t(e, 4.0))
@@ -722,20 +894,49 @@ def _leg_s119(g, led: cb.Ledger, ctx: _Ctx) -> None:
              and s["peer"].get("seq") != seq0]
     through = _between(ctx, a, _t(e, 3.0))
     torn = [s for s in through if not s.get("booted")]
-    led.check("S119-G4", seq0 is not None and bool(moved) and through and not torn,
+    led.check(f"{p}-G4", seq0 is not None and bool(moved) and through and not torn,
               f"pre-cut seq {seq0}; post-resume live samples on nonce {N} with a new seq: {len(moved)}"
               + (f" (seq {moved[0]['peer'].get('seq')})" if moved else "") + f"; samples across the cut {len(through)}, "
               f"booted false on {len(torn)}")
     serving = pb.hits(lines, "serving", after=res[0][0]) if res else []
-    led.check("S119-G5", bool(res) and bool(serving), f"SERVING after the resume: {pb.show(serving, 1)}")
+    led.check(f"{p}-G5", bool(res) and bool(serving), f"SERVING after the resume: {pb.show(serving, 1)}")
     h0 = (_before(ctx, a) or {}).get("hold")
     h1 = ctx.samples[-1].get("hold") if ctx.samples else None
     dh, dr, dg = _delta(h0, h1, "holds"), _delta(h0, h1, "resumes"), _delta(h0, h1, "gaveup")
-    led.check("S119-K", (dh, dr, dg) == (1, 1, 0),
+    led.check(f"{p}-K", (dh, dr, dg) == (1, 1, 0),
               f"netsync.diorama.hold {'ABSENT (pre-s119)' if h1 is None else ''} deltas holds {dh}, resumes {dr}, "
               f"gaveup {dg}; why {None if h1 is None else h1.get('why')!r}")
+    if leg == "readopt":
+        _readopt_x(led, ctx, lines, a, e, t_end)
     if CALIBRATE:
-        _red_pair(led, ctx, p, a, W, before=_t(a, W["red_leave"][1] + 1.0))
+        if leg == "readopt":
+            tail = ctx.plan.get("tail_ms")
+            ok, d, win = pb.readopt_reproduced(held, om, tail)
+            led.check(f"{p}-RED", ok, f"outage {om} - hold {held} = {d} ms against tail {tail} ms: the pre-s131 re-adopt "
+                                      f"reads {win[0]:.0f}..{win[1]:.0f}" if win else
+                                      f"outage {om}, hold {held}, tail {tail}: a figure is missing (no session line: "
+                                      "pre-s120; no resume line; or no battle lane at the cut)")
+        else:
+            _red_pair(led, ctx, p, a, W, before=_t(a, W["red_leave"][1] + 1.0))
+
+
+def _readopt_x(led: cb.Ledger, ctx: _Ctx, lines, a, e, t_end) -> None:
+    """[ff9mapkit netsync s131] READOPT-X: the s131 key across the cut -- ONE run-out (count +1), ONE refused re-adopt
+    episode (refused +1, frames >= 1) whose span (ms) is the tail less up to two Updates, and its one episode line on
+    the battle's nonce. The key ABSENT (s121 and older) reads None, never a pass."""
+    N, tail = ctx.nonce, ctx.plan.get("tail_ms")
+    x0, x1 = _expired(_before(ctx, a)), _expired(_last_until(ctx, _t(e, 4.0)))
+    dc, dr, df = _delta(x0, x1, "count"), _delta(x0, x1, "refused"), _delta(x0, x1, "frames")
+    ms = x1.get("ms") if x1 is not None else None
+    lo = (tail - pb.EXPIRED_MS_SLACK[0]) if tail is not None else None
+    hi = (tail + pb.EXPIRED_MS_SLACK[1]) if tail is not None else None
+    ms_ok = isinstance(ms, int) and ms >= 0 and lo is not None and lo <= ms <= hi
+    eps = pb.hits(lines, "readopt_refused", after=a, before=t_end, pred=lambda m: int(m.group(1)) == N)
+    led.check("READOPT-X", (dc, dr) == (1, 1) and df is not None and df >= 1 and ms_ok and len(eps) == 1,
+              f"netsync.battle.peer.expired {'ABSENT (pre-s131: the guest re-adopts) ' if x1 is None else ''}deltas "
+              f"count {dc}, refused {dr}, frames {df}; ms {ms} (want "
+              + (f"{lo:.0f}..{hi:.0f}" if lo is not None else "?") + f": the tail {tail} ms less up to two Updates); "
+              f"episode lines on nonce {N}: {len(eps)} ({pb.show(eps, 1)})")
 
 
 def _red_pair(led: cb.Ledger, ctx: _Ctx, p: str, a, W, *, before) -> None:
@@ -783,8 +984,7 @@ def _leg_s120_battle(g, led: cb.Ledger, ctx: _Ctx) -> None:
     out_ok = (len(outs) == 1 and pb.in_window(outs[0][0], a, *W["out"]) and outs[0][2].group(1).startswith("the hop is up")
               and int(outs[0][2].group(2)) == int(GRACE_S) and "(the diorama holds)" in outs[0][2].group(3))
     led.check("S120B-G2", out_ok, f"{pb.show(outs)} (window {W['out'][0]:g}..{W['out'][1]:g} s)")
-    backs = pb.hits(lines, "session_back", after=a, before=_t(e, 4.0))
-    om = int(backs[0][2].group(1)) if backs else None
+    om, backs = _outage(lines, a, e)
     back_ok = (len(backs) == 1 and pb.in_window(backs[0][0], a, *W["resume"]) and W["out_ms"][0] <= om <= W["out_ms"][1]
                and backs[0][2].group(3) == "no exit ramp; still mirroring")
     led.check("S120B-G3", back_ok, f"{pb.show(backs)}; expected {W['out_ms'][0]:.0f}-{W['out_ms'][1]:.0f} ms")
@@ -793,8 +993,10 @@ def _leg_s120_battle(g, led: cb.Ledger, ctx: _Ctx) -> None:
     t_res = res[0][0] if res else e
     bad = (pb.hits(lines, "leave", after=a, before=t_res) + pb.hits(lines, "watcher_settled", after=a, before=t_res)
            + pb.hits(lines, "hold_cap", after=a, before=t_res) + pb.hits(lines, "hold_stall_cap", after=a, before=t_res))
-    led.check("S120B-G4", len(holds) == 1 and len(res) == 1 and not bad,
-              f"hold {pb.show(holds, 1)}; resume {pb.show(res, 1)}; leave/give-up before it {pb.show(bad)}")
+    held = int(res[0][2].group(2)) if res else None
+    ok4, why4 = _hold_rule(ctx, lines, held, om, a, _t(t_res, 1.0))       # [ff9mapkit netsync s131]
+    led.check("S120B-G4", len(holds) == 1 and len(res) == 1 and not bad and ok4,
+              f"hold {pb.show(holds, 1)}; resume {pb.show(res, 1)}; leave/give-up before it {pb.show(bad)}; {why4}")
     post = _between(ctx, _t(t_ret, 1.0), _t(t_ret, 6.0)) if t_ret else []
     sess = [s.get("session") for s in post]
     mirrored = bool(post) and all(isinstance(x, dict) and x.get("mirroring") is True and x.get("ramp_pending") is False
@@ -934,9 +1136,21 @@ def _leg_span(g, led: cb.Ledger, ctx: _Ctx) -> None:
     lv = pb.hits(lines, "leave", after=verdict[0][0]) if verdict else []
     ws = pb.hits(lines, "watcher_settled", after=verdict[0][0], pred=lambda m: int(m.group(1)) == N) if verdict else []
     ret = pb.hits(lines, "return", after=verdict[0][0]) if verdict else []
-    led.check("SPAN-G2", v_ok and bool(lv) and bool(ws) and bool(ret),
+    # [ff9mapkit netsync s131] the over-verdict's 'after a M ms hold' by THE HOLD RULE's leave-ended form (the stall-cap
+    # verdict prints no hold ms: only its menu-close count is judged)
+    until = verdict[0][0] if verdict else _t(e, 1.0)
+    if want == "stall_cap":
+        closes = pb.hits(lines, "menu_close_nolane", after=a, before=until)
+        ok2 = len(closes) <= pb.MENU_CLOSES_MAX
+        why2 = (f"stall_cap prints no hold ms (no hold rule); no-lane menu closes across the cut {len(closes)} (want <= "
+                f"{pb.MENU_CLOSES_MAX})")
+    else:
+        mh = verdict[0][2].group(3) if verdict else None
+        om, _backs = _outage(lines, a, e)
+        ok2, why2 = _hold_rule(ctx, lines, int(mh) if mh else None, om, a, until, leave=True)
+    led.check("SPAN-G2", v_ok and bool(lv) and bool(ws) and bool(ret) and ok2,
               f"want {want}: verdict {pb.show(verdict, 1)} (window {W['span_leave'][0]:g}..{W['span_leave'][1]:g} s); "
-              f"LEAVE {pb.show(lv, 1)}; watcher-leave {pb.show(ws, 1)}; RETURN {pb.show(ret, 1)}")
+              f"LEAVE {pb.show(lv, 1)}; watcher-leave {pb.show(ws, 1)}; RETURN {pb.show(ret, 1)}; {why2}")
     whys = [s["hold"].get("why") for s in _between(ctx, e, _t(e, 14.0)) if isinstance(s.get("hold"), dict)]
     led.check("SPAN-K", want in whys, f"netsync.diorama.hold.why after the cut: {sorted(set(map(str, whys))) or 'ABSENT'}")
     if CALIBRATE:

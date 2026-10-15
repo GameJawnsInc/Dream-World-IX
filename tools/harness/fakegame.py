@@ -157,6 +157,10 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #:   "holdpeer"    -- s119, the diorama hold keyed on the peer (`netsync.diorama.hold`; the "diorama watcher" proof line);
 #:   "grace"       -- s120, the session grace (`netsync.session`; `hold.cap_ms` = the grace; the "session grace" line);
 #:   "menurefusal" -- s121, the audible menu refusal (`netsync.menu_refusal`; the "main menu refusal" line).
+#: [ff9mapkit netsync s131] THE EXPIRED SEQ (the Pump null re-adopt), no new sub-verb or op. The default stand-in is the
+#: s131 stack; dropping this cap (:data:`NETSYNC_S131_CAPS`) models the DEPLOYED s121 DLL (the calibration):
+#:   "expiredseq"  -- s131, the guest's peer adopt step (`netsync.battle.peer.expired`, at its sentinels here: the selftest
+#:                    role never runs a view out; the "peer adopt" proof line).
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -178,9 +182,14 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "ownreport": ("s118", ()),
                        "holdpeer": ("s119", ()),
                        "grace": ("s120", ()),
-                       "menurefusal": ("s121", ())}
-#: [ff9mapkit netsync R3 s118-s121] The four sitting-A caps: ``netsync_caps - NETSYNC_SITTING_A_CAPS`` is the deployed s117.
+                       "menurefusal": ("s121", ()),
+                       "expiredseq": ("s131", ())}
+#: [ff9mapkit netsync R3 s118-s121] The four sitting-A caps: ``netsync_caps - NETSYNC_SITTING_A_CAPS - NETSYNC_S131_CAPS``
+#: is the s117 the sitting-A round calibrated against.
 NETSYNC_SITTING_A_CAPS = frozenset(("ownreport", "holdpeer", "grace", "menurefusal"))
+#: [ff9mapkit netsync s131] The expired-seq cap: ``netsync_caps - NETSYNC_S131_CAPS`` is the DEPLOYED s121 (s131's
+#: calibration red).
+NETSYNC_S131_CAPS = frozenset(("expiredseq",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench")
@@ -226,6 +235,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "holdpeer": {},
     "grace": {},
     "menurefusal": {},
+    # [ff9mapkit netsync s131] the last key of `peer`, a FIXED sub-object (:data:`NETSYNC_PEER_EXPIRED_KEYS`)
+    "expiredseq": {"peer": ("expired",)},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -281,6 +292,8 @@ NETSYNC_SESSION_KEYS = ("grace_ms", "state", "left_ms", "out_ms", "outages", "re
                         "seen_live", "mirroring", "ramp_pending", "ramp_cause", "overlay", "overlay_detail", "ghost",
                         "ghost_held")
 NETSYNC_MENU_REFUSAL_KEYS = ("now", "count", "lines", "silent", "last_state", "last_field", "age_ms", "muted")
+#: [ff9mapkit netsync s131] `netsync.battle.peer.expired`, in AppendPeerExpired's order (battlewire.PeerLane.doc).
+NETSYNC_PEER_EXPIRED_KEYS = tuple(BW.PEER_EXPIRED_SENTINELS)
 #: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
 NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
 #: [ff9mapkit netsync B4] `bbench <op>` (NetSyncBattle.HarnessStockBench): s106's two, then s107's bench feed -- each
@@ -750,6 +763,10 @@ class FakeGame:
         self.mute_sfx = False
         #: [ff9mapkit netsync R3 s121] NetSyncField's refusal statics (:class:`_MenuRefusal`: per PROCESS)
         self._menu_refusal = _MenuRefusal()
+        #: [ff9mapkit netsync s131] NetSyncBattle's guest-lane statics (battlewire.PeerLane: per PROCESS) -- published as
+        #: `netsync.battle.peer.expired`. The stand-in has no transport and its selftest loopback writes the view directly
+        #: (as the engine's does), so nothing ever runs out and the block sits at its sentinels; a test may pump it by hand.
+        self._peer_lane = BW.PeerLane()
         #: [ff9mapkit netsync R3] the selftest proof block is logged once per process; s120's overlay is composed by the
         #: selftest role's first tick ("off", detail 0) and keeps that state after it
         self._proof_logged = False
@@ -4200,9 +4217,12 @@ class FakeGame:
         overlay "off" (SetOverlay(OvlOff) -- s120's `session.overlay`), and the FIRST tick in scope logs the proof block,
         once per PROCESS. The stand-in writes the R3 lines its capabilities carry, in the engine's order: "battle control
         selftest: OK (33 rows)" from s114 (53 from s118), "diorama watcher selftest: OK (24 rows)" (s119), "session grace
-        selftest: OK (31 rows)" (s120), "main menu refusal selftest: OK (14 rows)" (s121). NOT MODELLED: the five lines
-        before them (state-mirror, party-mirror, diorama containment, dialogue authority, battle end-block) -- their
-        details are save- and stage-dependent, so a bench that reads one stays red here as it always did."""
+        selftest: OK (31 rows)" (s120), "main menu refusal selftest: OK (14 rows)" (s121), [ff9mapkit netsync s131] "peer
+        adopt selftest: OK (20 rows)" (s131). NOT MODELLED: the five lines before them (state-mirror, party-mirror, diorama
+        containment, dialogue authority, battle end-block) -- their details are save- and stage-dependent, so a bench that
+        reads one stays red here as it always did. [ff9mapkit netsync s131 fix] NO IN-GAME READER of the s119-s131 lines:
+        coop_handback_live (S18-PROOF) and coop_battle_start_hold (S14-B2) read the control line alone, and a client-role
+        bench (coop_cut_hold's guest) never logs the block -- an older engine's missing line here is the stand-in's red."""
         if not self._nb_role():
             return
         self._ovl_composed = True
@@ -4220,6 +4240,8 @@ class FakeGame:
             rows.append((BW.PROOF_GRACE, BW.GRACE_SELFTEST_ROWS))
         if "menurefusal" in caps:
             rows.append((BW.PROOF_MENU, BW.MENU_SELFTEST_ROWS))
+        if "expiredseq" in caps:                            # [ff9mapkit netsync s131] right after the menu refusal's
+            rows.append((BW.PROOF_ADOPT, BW.ADOPT_SELFTEST_ROWS))
         for head, n in rows:
             self._mlog("[NetSync] " + BW.proof_ok(head, n))
 
@@ -4312,6 +4334,8 @@ class FakeGame:
                         manifest_rx=nb.manifest_rx,
                         bench_manifest=nb.manifest_preset if nb.template.get("manifest") is not None else 0,
                         bench_manifest_note=nb.manifest_note)
+        if "expiredseq" in caps:                            # [ff9mapkit netsync s131] AppendPeerExpired, `peer`'s last key
+            pdoc["expired"] = self._peer_lane.doc()
         if "handback" in caps:                              # [ff9mapkit netsync B4] s110
             host["handback"] = self._nb_handback_doc()
             if "waitparity" in caps:                        # [ff9mapkit netsync R3 s113]

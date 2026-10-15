@@ -13,6 +13,15 @@ install's ini is never touched). Checks, in order -- the leg STOPS at the first 
   guest 'state-mirror ARMED'   C7 the guest's story byte 1121 reads the HOST's 0xA5   C8 the host's own battle published
   ('battle intro:') and the guest 'diorama BOOT scene=67' + 'diorama LIVE' on its nonce. Informational: the host's s114 start
   hold lines (a REAL guest report now).
+P5 (--cut-for N, the bridge leg): K1 none of sitting A's lines (LEAVE requested / watcher-leave settled / session ended)
+  nor a cap leave   K2 one CUT-variant hold line   K3 one session outage line   K4 [ff9mapkit netsync s131] one
+  same-nonce resume whose hold obeys THE HOLD RULE (_coop_peer_bench.hold_rule; studies/battle-coop/R3-SITTING-A-FIXES.md
+  "The hold-onset variance"): hold - outage in [tail - 40, tail + 70], the outage K5's 'the host is back after M ms', the
+  TAIL read off relay.tap around the suspend (_coop_peer_bench.tap_tail: the final pre-cut seq's last receipt minus its
+  first), and at most one 'stock menu: closed all (ready mirror: no live peer battle lane)' across the cut -- never the
+  old nominal cut-minus-stale window. An engine before s131 re-adopts the frozen frame whenever the tail > 0, so K4 stops
+  the probe there (predicted: the 2026-10-15 P5 on s121 read tail 134.9, hold 2125 vs outage 4000, two closes); a tail-0
+  cut passes it on any engine. K5 the session back inside the grace.
 Prereqs: both roots built (instance_root.py), no FF9 running, no controller connected, nobody at the keyboard.
 """
 import argparse
@@ -124,7 +133,8 @@ def cut(a, res: dict, check, engs: dict, host_bridge) -> None:
     lo = t0 - _dt.timedelta(seconds=1)
     gl = engs["guest"].lines()
     found = {n: pb.hits(gl, n, after=lo) for n in ("leave", "watcher_settled", "ramp", "hold_cut", "hold_stall",
-                                                      "hold_resume", "session_out", "session_back", "hold_cap", "serving")}
+                                                      "hold_resume", "session_out", "session_back", "hold_cap", "serving",
+                                                      "menu_close_nolane")}
     window = [f"{d:%H:%M:%S} {m}" for d, _, m in gl if d >= lo and "[NetSync]" in m]
     res["guest_window"] = window
     hostw = [f"{d:%H:%M:%S} {m}" for d, _, m in engs["host"].lines() if d >= lo and "[NetSync]" in m]
@@ -147,12 +157,20 @@ def cut(a, res: dict, check, engs: dict, host_bridge) -> None:
           f"one CUT-variant hold line: {pb.show(found['hold_cut'])}; stall variant {len(found['hold_stall'])}")
     check("K3", len(found["session_out"]) == 1, f"one session outage line: {pb.show(found['session_out'])}")
     rs = found["hold_resume"]
-    held = int(rs[0][2].group(2)) if rs else -1
-    lo_ms, hi_ms = a.cut_for * 1000 - 3500, a.cut_for * 1000 + 500
-    check("K4", len(rs) == 1 and lo_ms <= held <= hi_ms,
-          f"one same-nonce resume, held {held} ms (want {lo_ms:.0f}..{hi_ms:.0f}: the cut minus the ~2 s stale "
-          f"detection): {pb.show(rs)}")
+    held = int(rs[0][2].group(2)) if rs else None
+    # [ff9mapkit netsync s131] THE HOLD RULE: the hold against THIS run's outage plus THIS cut's tail (off relay.tap) --
+    # a nominal window cannot tell a ~2 s-late (re-adopted) hold from a 6 s cut's (s119's T2 cut was green by placement)
     sb = found["session_back"]
+    om = int(sb[0][2].group(1)) if len(sb) == 1 else None
+    tail, twhy = pb.tap_tail_file(Path(res["run_dir"]) / "relay.tap", t0, t1)
+    closes = [h for h in found["menu_close_nolane"] if h[0] <= t1 + _dt.timedelta(seconds=4)]
+    rule, d, win = pb.hold_rule(held, om, tail)
+    res["k4"] = {"tail_ms": tail, "tail_why": twhy, "hold_ms": held, "outage_ms": om, "d_ms": d, "window": win,
+                 "menu_closes_nolane": len(closes), "readopt_reproduced": pb.readopt_reproduced(held, om, tail)[0]}
+    check("K4", len(rs) == 1 and rule and len(closes) <= pb.MENU_CLOSES_MAX,
+          f"one same-nonce resume ({pb.show(rs)}): {pb.hold_rule_text(held, om, tail)}; no-lane menu closes "
+          f"{len(closes)} (want <= {pb.MENU_CLOSES_MAX}); the tail off relay.tap: {twhy}"
+          + ("; the pre-s131 RE-ADOPT reproduced" if res["k4"]["readopt_reproduced"] else ""))
     check("K5", len(sb) == 1, f"the session back inside the grace: {pb.show(sb)}")
     res["serving_after_resume"] = pb.show(found["serving"]) if found["serving"] else None
     print(f"[p5] info: ready mirror SERVING after the resume: {res['serving_after_resume']}")
