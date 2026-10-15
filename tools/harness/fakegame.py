@@ -161,6 +161,10 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #: s131 stack; dropping this cap (:data:`NETSYNC_S131_CAPS`) models the DEPLOYED s121 DLL (the calibration):
 #:   "expiredseq"  -- s131, the guest's peer adopt step (`netsync.battle.peer.expired`, at its sentinels here: the selftest
 #:                    role never runs a view out; the "peer adopt" proof line).
+#: [ff9mapkit netsync s132] THE GRACE DEFAULT IS ITS MAXIMUM, no new key, verb or op. Dropping this cap
+#: (:data:`NETSYNC_S132_CAPS`) models s120-s131 (the calibration):
+#:   "grace40"     -- s132, an ABSENT [Netsync] SessionGraceMs reads 40000 (`netsync.session.grace_ms`, `hold.cap_ms`);
+#:                    30000 without it. An explicit value reads the same on both.
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -183,13 +187,17 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "holdpeer": ("s119", ()),
                        "grace": ("s120", ()),
                        "menurefusal": ("s121", ()),
-                       "expiredseq": ("s131", ())}
+                       "expiredseq": ("s131", ()),
+                       "grace40": ("s132", ())}
 #: [ff9mapkit netsync R3 s118-s121] The four sitting-A caps: ``netsync_caps - NETSYNC_SITTING_A_CAPS - NETSYNC_S131_CAPS``
 #: is the s117 the sitting-A round calibrated against.
 NETSYNC_SITTING_A_CAPS = frozenset(("ownreport", "holdpeer", "grace", "menurefusal"))
 #: [ff9mapkit netsync s131] The expired-seq cap: ``netsync_caps - NETSYNC_S131_CAPS`` is the DEPLOYED s121 (s131's
 #: calibration red).
 NETSYNC_S131_CAPS = frozenset(("expiredseq",))
+#: [ff9mapkit netsync s132] The grace-default cap: ``netsync_caps - NETSYNC_S132_CAPS`` is s131 (s132's calibration red:
+#: an absent SessionGraceMs reads 30000).
+NETSYNC_S132_CAPS = frozenset(("grace40",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench")
@@ -237,6 +245,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "menurefusal": {},
     # [ff9mapkit netsync s131] the last key of `peer`, a FIXED sub-object (:data:`NETSYNC_PEER_EXPIRED_KEYS`)
     "expiredseq": {"peer": ("expired",)},
+    # [ff9mapkit netsync s132] no key at all: the agent is s131's (only an absent SessionGraceMs reads differently)
+    "grace40": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -752,8 +762,9 @@ class FakeGame:
         self.ini_swirl_clamp = 0
         self.ini_start_hold_ms = BW.START_HOLD_MS
         #: [ff9mapkit netsync R3 s120] [Netsync] SessionGraceMs as Memoria.ini holds it (an int or the raw text: the engine's
-        #: ParseSessionGrace clamps it) -- `netsync.session.grace_ms` and, from s120, `netsync.diorama.hold.cap_ms`
-        self.ini_session_grace_ms = BW.SESSION_GRACE_DEFAULT_MS
+        #: ParseSessionGrace clamps it) -- `netsync.session.grace_ms` and, from s120, `netsync.diorama.hold.cap_ms`.
+        #: [ff9mapkit netsync s132] None = the key ABSENT: the engine's own default (40000 with cap `grace40`, else 30000)
+        self.ini_session_grace_ms = None
         #: [ff9mapkit netsync R3 s120/s121] NetSyncClient.IsMirroringStory -- a FOLLOWING guest's armed story mirror. The
         #: stand-in has no transport (the selftest role never mirrors), so a test sets this to stand in for 'state-mirror
         #: ARMED' (`netsync.session.mirroring`; s121's Menu-key refusal reads it, s38's silent drop before it)
@@ -4125,8 +4136,10 @@ class FakeGame:
 
     # -- [ff9mapkit netsync R3 s119-s121] the sitting-A round's guest blocks ------------------------------------------
     def _session_grace_ms(self) -> int:
-        """NetSyncClient._sessionGraceMs: [Netsync] SessionGraceMs through the engine's own parse and clamp."""
-        return BW.parse_session_grace(self.ini_session_grace_ms)[0]
+        """NetSyncClient._sessionGraceMs: [Netsync] SessionGraceMs through the engine's own parse and clamp -- an absent or
+        malformed key keeps THAT engine's default ([ff9mapkit netsync s132] 40000 with cap `grace40`, 30000 on s120-s131)."""
+        parse = BW.parse_session_grace if "grace40" in self._nb_caps() else BW.parse_session_grace_s120
+        return parse(self.ini_session_grace_ms)[0]
 
     def _diorama_hold_doc(self) -> dict:
         """[ff9mapkit netsync R3 s119] AppendDioramaHold. The watcher runs only for a FOLLOWING guest on a real transport

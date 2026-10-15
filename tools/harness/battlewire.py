@@ -1842,7 +1842,8 @@ def hold_cap_ms(session_grace_ms: int | None) -> int:
 
 
 # ---- s120: THE SESSION GRACE (NetSyncClient.SessionGraceStep / SessionRampArms / ParseSessionGrace -- guest only)
-SESSION_GRACE_DEFAULT_MS = 30000         # [Netsync] SessionGraceMs (owner decision: 30 s)
+SESSION_GRACE_DEFAULT_MS = 40000         # [Netsync] SessionGraceMs absent: [ff9mapkit netsync s132] the maximum (owner, sitting B)
+SESSION_GRACE_DEFAULT_S120_MS = 30000    # ...and on s120-s131 (s120's owner decision: 30 s)
 SESSION_GRACE_MIN_MS = 5000              # under this a Wi-Fi re-association reads as the session ending
 SESSION_GRACE_MAX_MS = 40000             # under the bridge's 45 s redial hard cap (and the relay's 60 s rejoin grace)
 SESSION_NONE, SESSION_LIVE, SESSION_GRACE, SESSION_ENDED = 0, 1, 2, 3
@@ -1881,7 +1882,16 @@ def parse_session_grace(raw) -> tuple[int, str | None]:
     """NetSyncClient.ParseSessionGrace -> ``(grace_ms, note)``: [Netsync] SessionGraceMs as the engine reads it. Quotes
     accepted (trimmed inside too); empty or absent keeps the default quietly; malformed (not an Int32) keeps it with a
     note; outside 5000-40000 -- a 0 too: the grace has no off switch -- clamps with a note. ``note`` = the line's text
-    after ``[NetSync] `` (None = nothing logged)."""
+    after ``[NetSync] `` (None = nothing logged). The live stack's default: [ff9mapkit netsync s132] 40000."""
+    return _parse_session_grace(raw, SESSION_GRACE_DEFAULT_MS)
+
+
+def parse_session_grace_s120(raw) -> tuple[int, str | None]:
+    """:func:`parse_session_grace` as an s120-s131 engine reads the key: the same clamp and notes, its default 30000."""
+    return _parse_session_grace(raw, SESSION_GRACE_DEFAULT_S120_MS)
+
+
+def _parse_session_grace(raw, default: int) -> tuple[int, str | None]:
     s = "" if raw is None else str(raw).strip()
     if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
         s = s[1:-1].strip()
@@ -1889,8 +1899,8 @@ def parse_session_grace(raw) -> tuple[int, str | None]:
         note = None
         if s:
             note = (f"SessionGraceMs '{s}' malformed (want ms, {SESSION_GRACE_MIN_MS}-{SESSION_GRACE_MAX_MS}) -- keeping "
-                    f"{SESSION_GRACE_DEFAULT_MS}")
-        return SESSION_GRACE_DEFAULT_MS, note
+                    f"{default}")
+        return default, note
     n = int(s)
     if n < SESSION_GRACE_MIN_MS or n > SESSION_GRACE_MAX_MS:
         c = SESSION_GRACE_MIN_MS if n < SESSION_GRACE_MIN_MS else SESSION_GRACE_MAX_MS

@@ -1763,7 +1763,7 @@ class State:
     diorama_hold_since_ms = _dio_prop("hold.since_ms", int, "s119: the stale stretch's age; -1 = the lane is not stale (it "
                                                             "runs on through a pending leave until the teardown).")
     diorama_hold_cap_ms = _dio_prop("hold.cap_ms", int, "s119: the hold cap in force (8000; from s120 the session grace, "
-                                                        "30000 by default) -- a LIVE read.")
+                                                        "by default 30000 on s120-s131, 40000 from s132) -- a LIVE read.")
     diorama_hold_settle_ms = _dio_prop("hold.settle_ms", int, "s119: the stale age a hold is COUNTED at, and the unbroken "
                                                               "peer-alive run an over-verdict needs (500) -- a LIVE read.")
     diorama_hold_holds = _dio_prop("hold.holds", int, "s119: holds counted -- monotonic, read DELTAS.")

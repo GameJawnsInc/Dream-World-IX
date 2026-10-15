@@ -102,7 +102,11 @@ OLD_RAMP_S = 3.0                             # [s117] ExitRampDebounceMs: the li
 OLD_HOLD_CAP_S = 8.0                         # [s119] DioramaBlipHoldMs (the s119-alone hold cap)
 STALL_CAP_S = 8.0                            # [s120] DioramaStallCapMs: a peer alive for the settle that says nothing
 GHOST_GRACE_S = 5.0                          # s56 GhostGraceMs: on a field the reconnecting overlay waits for the ghost hold
-GRACE_DEFAULT_S = 30.0                       # [s120] SessionGraceDefaultMs (owner decision)
+#: [ff9mapkit netsync s132] THE BENCH'S grace, WRITTEN explicitly to Memoria.ini: every leg's durations (s120-battle 20 s
+#: inside, s120-roam 20 s inside, s120-long 40 s past) were designed around 30 s. s132 moved the ENGINE's default to 40000,
+#: which a bench never reads -- so the legs time the same on s131 and s132 (COOP_GRACE_MS still overrides).
+BENCH_GRACE_MS = 30000
+GRACE_DEFAULT_S = BENCH_GRACE_MS / 1000.0    # [s120] the bench grace in seconds (plan_leg / leg_windows' default)
 SLACK_S = 1.0
 
 # The cut_hold legs (COOP_CUT_LEG), in the run order the docstrings give.
@@ -158,9 +162,10 @@ def env_int(name: str, default: int) -> int:
 
 def engine_grace(raw) -> tuple:
     """[ff9mapkit netsync R3 s120] a [Netsync] SessionGraceMs value as the ENGINE will read it -> ``(grace_ms, note)``:
-    battlewire.parse_session_grace, the twin of NetSyncClient.ParseSessionGrace (quotes trimmed; empty keeps 30000
-    quietly, malformed keeps it with a note; outside 5000-40000 -- a 0 too: the grace has no off switch -- clamped, with
-    the note the engine logs). A bench WRITES and JUDGES this value, never its raw knob: the engine's outage / give-up
+    battlewire.parse_session_grace, the twin of NetSyncClient.ParseSessionGrace (quotes trimmed; empty keeps the engine's
+    default quietly -- [ff9mapkit netsync s132] 40000; callers pass :data:`BENCH_GRACE_MS` instead of empty -- malformed
+    keeps it with a note; outside 5000-40000 -- a 0 too: the grace has no off switch -- clamped, with the note the engine
+    logs). A bench WRITES and JUDGES this value, never its raw knob: the engine's outage / give-up
     lines print the clamped grace, so windows built on a raw COOP_GRACE_MS=45000 would read a correct s120 as red."""
     if str(TOOLS) not in sys.path:
         sys.path.insert(0, str(TOOLS))
@@ -1642,9 +1647,14 @@ def _self_rows() -> list:
         row(SKIPPED, f"the Memoria clone is not at {src_dir} -- the engine-wording rows did NOT run")
     # --- [ff9mapkit netsync R3 T2] the knobs the engine reads its own way
     g45, g0, gdef, gbad = engine_grace("45000"), engine_grace("0"), engine_grace(""), engine_grace("thirty")
-    row(g45[0] == 40000 and "clamped to 40000 ms" in (g45[1] or "") and g0[0] == 5000 and gdef == (30000, None)
-        and gbad[0] == 30000 and gbad[1] and engine_grace(" \"20000\" ") == (20000, None),
-        f"engine_grace: 45000 -> {g45[0]}, 0 -> {g0[0]}, '' -> {gdef[0]}, 'thirty' -> {gbad[0]} (ParseSessionGrace's clamp)")
+    gbench = engine_grace(str(BENCH_GRACE_MS))
+    # [ff9mapkit netsync s132] '' / malformed keep the ENGINE's default (40000 since s132) -- which is why the bench writes
+    # its own 30000 (BENCH_GRACE_MS, = GRACE_DEFAULT_S) instead of leaving the key empty
+    row(g45[0] == 40000 and "clamped to 40000 ms" in (g45[1] or "") and g0[0] == 5000 and gdef == (40000, None)
+        and gbad[0] == 40000 and gbad[1] and engine_grace(" \"20000\" ") == (20000, None)
+        and gbench == (30000, None) and GRACE_DEFAULT_S == 30.0,
+        f"engine_grace: 45000 -> {g45[0]}, 0 -> {g0[0]}, '' -> {gdef[0]}, 'thirty' -> {gbad[0]}, the bench's "
+        f"{BENCH_GRACE_MS} -> {gbench[0]} (ParseSessionGrace's clamp)")
     row(ini_autosave_moogle_only("[SaveFile]\r\nAutoSaveOnlyAtMoogle = 1\r\n")
         and not ini_autosave_moogle_only("[SaveFile]\r\nAutoSaveOnlyAtMoogle = 0\r\n")
         and not ini_autosave_moogle_only("[Mod]\r\nX = 1\r\n")
