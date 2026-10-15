@@ -130,6 +130,22 @@ release gate.
   '[SaXAudio] Initialized'; both quit cleanly (no process left); Unity logs identical in kind to a single-instance run (the same
   9 'AssetBundle ... already loaded' lines every run has). LAW for unattended runs: no controller connected, or every instance's
   ini at AlwaysCaptureGamepad = 0 AND no human input while a game window is foreground.
+- **P4 -- PAIRING, BOTH TOPOLOGIES ALL GREEN** (`p4_pairing.py --leg relay|bridge`; a local `coop_peer relay` on 7787 with
+  --tap; for `bridge` one netsync_bridge PROCESS per player on 49211/49212; a fresh ff9-DUO code per run; each root's own ini set
+  through IniGuard and restored). Each leg, two REAL games: both config lines (role host / client, the leg's URL, the code); both
+  'relay connected ...?role=host|guest'; the guest 'paired on the host's field (250)'; a ghost on 250 in BOTH games in the same
+  second (the host sees the guest as Vivi -- ghostAs auto -- the guest sees the host as Zidane); 'state-mirror ARMED'; the
+  guest's story byte 1121 reads the HOST's 0xA5; the host's own battle published ('battle intro: PLAYED ... random 1'); the
+  guest 'diorama BOOT scene=67' the same second and 'diorama LIVE ~8.05 s after the boot (host battle nonce 1, booted from wire
+  nonce 1)'. And the FIRST s114 start hold judged by a REAL guest's report: 'ARMED ... the guest's diorama is BOOTING' ->
+  'RELEASED after ~1.2 s: live'. Both games ended in BattleHUD; inis restored, roots re-verified, relay + bridges stopped
+  cleanly (bridge-host: 1671 game frames / 752 relay frames), the owner's ini untouched. Two driver fixes on the way, both
+  instrument, not system: relay mode's banner is 'relay listening on ...' (not 'listening on'); a root booted with Netsync
+  Enabled=0 has no NetSyncClient polling its ini, so the role config lands only at a field load (`coop_tape_record._wait_config`'s
+  recipe: a short wait, then one same-field warp).
+- **Where this leaves the goal:** two real co-op clients on this desktop, harness-driven, over the sittings' own bridge + relay
+  path, with no DLL change and the real install untouched. Next: P5 (a bridge-suspend cut vs sitting A), then productionize
+  (instance.py, a Session multi-instance mode, duo.py, tests -- see "Harness changes").
 
 ## Risks (beyond the teardown law)
 
