@@ -87,6 +87,28 @@ release gate.
 - **P5** cut fidelity A/B (bridge suspend 6 s vs sitting A). **P6** deploys and rebuilds while an instance runs. **P7** replay
   1-2 sitting-A boxes and compare.
 
+## Probe results (2026-10-15)
+
+- **P0 -- 6/7, the one red IS the finding.** The live instance A was unaffected by both launches (kept ticking; Memoria.log and
+  output_log.txt never shrank). B (same root, no `-single-instance`) did NOT exit: its Unity log stops right after loading
+  Memoria.Prime.dll and it sat alive until killed at 20 s -- the Memoria.log clash HANGS a same-cwd second instance rather than
+  Exit(1)-ing it, so tooling must kill such a process. B2 (WITH the flag) hit A's path-keyed mutex: exit 0 in 0.43 s, no log.
+  Probe: `p0_second_process.py`.
+- **P1 -- pass.** `instance_root.py build C:\gd\ff9-inst\guest`: 13 junctions (StreamingAssets, root FF9_Data, the 7 FolderNames,
+  x64\FF9_Data\{Managed,Mono,Plugins,Resources}) + 66 copies (x64 exe/DLLs, 59 data files, Settings.ini) + the overlaid
+  Memoria.ini (exactly 3 lines differ: Netsync Enabled 0, AlwaysCaptureGamepad 0, SfxProbe Enabled 0); ~800 MB, 3 s. Teardown by
+  the law, then the install fingerprint (file count, bytes, newest mtime of every junction target + the ini sha) was IDENTICAL;
+  rebuild verified.
+- **P2 -- pass.** `py tools/play.py --smoke --field 30602 --game C:\gd\ff9-inst\guest` with the STOCK harness (no code change):
+  agent up in 6 s; 'ARMED -- channel at C:\gd\ff9-inst\guest\x64\ff9harness' and 'saves sandboxed to C:\gd\ff9-inst\guest\...'
+  (Application.dataPath follows the copied exe); '[SteamSdkWrapper] Initialized: False' (no Steam relaunch); all 7 mods loaded
+  through the junctions; the warp to 30602 and a walk worked; Memoria.log, FontList and output_log.txt landed in the root; the
+  NetSync config line read the root's own ini (enabled=False). The real install's Memoria.log, output_log.txt, ff9harness, ini and
+  FontList were untouched and its fingerprint identical. The smoke's one red ('NON-BLANK frame') is the check, not the instance:
+  30602 has no background art, so the top ~52 rows are black and the 200 KB byte-sample reads blank (the frame shows Zidane, Vivi
+  and props). Not done: the ini hot-reload touch.
+- The guest root is LEFT BUILT at C:\gd\ff9-inst\guest for P3. Remove it only with `py instance_root.py teardown <root>`.
+
 ## Risks (beyond the teardown law)
 
 Unarmed instance -> Steam relaunch of the real install; deploys or FF9_GAME_PATH must never point at a root (writes go through the
