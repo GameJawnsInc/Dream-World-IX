@@ -15,6 +15,7 @@ import ctypes
 import json
 import subprocess
 import sys
+import threading
 import time
 from ctypes import wintypes
 from pathlib import Path
@@ -88,6 +89,35 @@ def rates(gs: dict, secs: float = LEG_S) -> dict:
     return {k: round((f1[k] - f0[k]) / dt, 1) for k in gs}
 
 
+class Watcher(threading.Thread):
+    """Every 50 ms: the foreground process + each instance's ui_state, read straight off its channel's state.json (never
+    through a Session, which is not thread-safe). Logs only CHANGES, so a Pause shows exactly when and beside what."""
+
+    def __init__(self, roots: dict):
+        super().__init__(daemon=True)
+        self.roots, self.rows, self.stop = roots, [], threading.Event()
+
+    def _ui(self, root: Path):
+        try:
+            return json.loads((root / "x64" / "ff9harness" / "state.json").read_text(encoding="utf-8")).get("ui_state")
+        except (OSError, ValueError):
+            return None
+
+    def run(self) -> None:
+        prev = None
+        while not self.stop.is_set():
+            fg = fg_pid()
+            try:
+                name = Path(process_image_path(fg)).name
+            except OSError:
+                name = "?"
+            cur = (fg, name) + tuple(self._ui(r) for r in self.roots.values())
+            if cur != prev:
+                self.rows.append([round(time.time(), 2)] + list(cur))
+                prev = cur
+            time.sleep(0.05)
+
+
 def grep(path: Path, needles) -> list:
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -98,6 +128,22 @@ def grep(path: Path, needles) -> list:
 
 def main() -> int:
     res = {"roots": {"host": str(HOST), "guest": str(GUEST)}, "legs": [], "notes": []}
+    watch = Watcher({"host": HOST, "guest": GUEST})
+    watch.start()
+    out = WT / ".harness-runs" / f"mi-p3-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    try:
+        return _body(res)
+    finally:
+        watch.stop.set()
+        watch.join(2)
+        res["watch"] = watch.rows
+        out.write_text(json.dumps(res, indent=1, default=str), encoding="utf-8")
+        print(f"[p3] results + watcher log -> {out}")
+        for row in watch.rows:
+            print(f"[watch] {row}")
+
+
+def _body(res: dict) -> int:
     with contextlib.ExitStack() as stack:
         gs, pids = {}, {}
         for role, root in (("host", HOST), ("guest", GUEST)):
@@ -139,7 +185,12 @@ def main() -> int:
 
         res["shots"] = {}
         for role, g in gs.items():
-            g.warp(ART)
+            try:
+                g.warp(ART)
+            except Exception as e:                         # a refused warp is a FINDING (e.g. a Pause), not a crash
+                res["shots"][role] = {"warp_refused": str(e), "ui": g.state.ui_state}
+                print(f"[p3] {role} warp {ART} REFUSED at ui {g.state.ui_state}: {e}")
+                continue
             time.sleep(2.0)
             shot = g.shot(f"p3-{role}-{ART}")
             res["shots"][role] = {"path": str(shot), "bytes": shot.stat().st_size, "not_blank": play._png_is_not_blank(shot)}
@@ -151,10 +202,8 @@ def main() -> int:
             res[f"{role}_unity"] = grep(root / "x64" / "FF9_Data" / "output_log.txt",
                                         ["D3D", "device", "Failed", "Exception", "audio", "already"])
         res["run_dirs"] = {k: str(g.run_dir) for k, g in gs.items()}
-        out = Path(gs["host"].run_dir) / "p3.json"
-        out.write_text(json.dumps(res, indent=1, default=str), encoding="utf-8")
-        print(f"[p3] results -> {out}")
     still = {r: probe_for(p)() for r, p in (("host", HOST), ("guest", GUEST))}
+    res["left_after_exit"] = still
     print(f"[p3] after exit, processes left: {still}")
     return 0
 

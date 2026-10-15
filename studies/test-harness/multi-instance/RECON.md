@@ -120,6 +120,16 @@ release gate.
   No managed code path enters Pause on focus loss (SceneDirector.hasFocus is never read; every ChangeUIState(Pause) is the Pause
   CONTROL: Backspace via GetAsyncKeyState while that window is foreground, or a pad Start); the harness sends nothing across
   instances. Same symptom as the unexplained mid-intro Pause in the 22:30 single-instance start-hold run. Cause UNKNOWN.
+- **P3 RE-RUN -- PASS** (the owner had been PLAYING ANOTHER GAME with a controller connected; closed it and unplugged the pad;
+  the driver gained a 50 ms watcher of the foreground process + both ui_states read off each channel's state.json). Both up in
+  4.3 / 3.9 s; both ~60 fps side by side in every leg; a minimized instance ~33 fps, the other unaffected; NO Pause anywhere
+  though the foreground moved through Chrome, Explorer, Discord, Claude and both game windows -- focus loss alone does NOT pause
+  FF9 (consistent with the code). The first run's Pause was most likely that controller's input reaching a foreground FF9 window
+  (the 22:30 start-hold Pause ran on the live ini's AlwaysCaptureGamepad = 1, where a pad press reaches FF9 even unfocused).
+  Field 250 photographed with full art in BOTH (785 KB each); working set ~745 MB per instance at boot, ~800 MB at the end; both
+  '[SaXAudio] Initialized'; both quit cleanly (no process left); Unity logs identical in kind to a single-instance run (the same
+  9 'AssetBundle ... already loaded' lines every run has). LAW for unattended runs: no controller connected, or every instance's
+  ini at AlwaysCaptureGamepad = 0 AND no human input while a game window is foreground.
 
 ## Risks (beyond the teardown law)
 
