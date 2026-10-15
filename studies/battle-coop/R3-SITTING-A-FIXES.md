@@ -618,7 +618,8 @@ would have re-adopted. Each closed the stock menu once, and nothing re-opened be
   2.8 s to spare. OWNER DECISION: default `SessionGraceMs` to its 40000 maximum -> **s132**, DEPLOYED (Assembly-CSharp
   `048e237d`; in game an absent key reads 40000 and the grace selftest is OK; memoria-patches README row; the bridge's 45 s redial cap counts from its own EOF ~19 s into a cut, and the relay's rejoin
   grace is 60 s, so both still bound it). The T2 benches now write their own 30000 (`BENCH_GRACE_MS`) so every leg keeps its
-  timing. A bridge read-idle redial (the bridge already redials cheaply, the ~150 ms boundary redials below) would also cut the
+  timing. On s132: cal 10/10, s120-long 10/10 (gave up at 30015 ms on the bench's 30 s), s120-battle 12/12
+  (H - O = +78 ms, as on s131). A bridge read-idle redial (the bridge already redials cheaply, the ~150 ms boundary redials below) would also cut the
   short-cut TCP backoff; not built.
 - Boundary redials while frames flow: `upstream EOF at boundary (... last relay frame 0 ms ago); redialing`, restored on the
   first redial in 110-455 ms. Laptop 53 and desktop 11 over the 13 minutes. Each gap is far under every staleness window (2 s),
