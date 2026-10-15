@@ -420,6 +420,82 @@ Deployed by `build_memoria.py` (backup set `20261014-230936`; Assembly-CSharp `6
 
 Next: R3 sitting B, two machines, the real bridge + relay, T1 armed; retest A3, A5-as-pause, A6, A11, A12. Then group 2 (s122-s130). The s120-world leg (a hand-recorded world-map tape) is still unrun.
 
+## The hold-onset variance: the Pump null RE-ADOPT (a latent defect since s40)
+
+Found by the multi-instance P5 run (the live duo, a 6 s host-bridge suspend) and explained read-only by a 3-lane workflow plus two
+skeptics (code lens, timing lens; both "holds"). Evidence and scripts: the session scratch `onset\` (tails.py, mc2.py) and the run
+dirs named below.
+
+**Symptom.** Around a host-side cut, the s120 session outage opens ~2 s after the last host frame, and the s119 diorama hold should
+start with it. Instead the logged hold equals (outage minus an offset), and the offset repeats per cut placement:
+
+| Run | Hold vs outage (ms) | Offset |
+|---|---|---|
+| T2 s119, twice | 4047 / 4031, 4032 / 4032 | ~0 |
+| T2 s120-battle, twice | 16094 / 18015, 16078 / 18031 | ~1.9 s |
+| T2 span, twice (a leave-ended hold) | 12015 / 13453, 12000 / 13453 | ~1.44 s |
+| P5 live | 2125 / 4000 | 1.875 s |
+
+In P5 the guest's stock menu also closed TWICE for 'no live peer battle lane'.
+
+**Mechanism.**
+- The host re-sends its sticky type-1 slot every 33 ms write tick, and advances the seq only per sample (~150 ms). So each seq goes
+  out 4-5 times, and `tail` = (last receipt of the final pre-cut seq) - (its first receipt) is 0/33/67/100/133 ms, set by where the
+  cut lands.
+- The transport serves the cached frame until receipt + 2000 (NetSyncSocket.cs:397-414). The guest's lane clock is seq-keyed: Pump
+  restamps `_peerViewTick` only on a new seq OR when `_peerView == null` (NetSyncBattle.cs:1289). On the first stale frame
+  (L + 2000) Pump sets `_peerView = null` (:1321-1326).
+- So on the NEXT Update the same frozen frame, still served by the transport, is RE-ADOPTED through the null disjunct. The lane reads
+  live for a second full 2000 ms: the "stacked windows (~4 s decay)" that the comment at :1283-1288 names as the bug the seq key
+  prevents.
+- DioramaTick's WatchNothing resets `_dioramaStaleSince` on that phantom-live stretch, so the counted hold starts at the SECOND stale
+  edge (~L + 4000).
+- SessionTick (receipt-keyed PEER-ALIVE) never re-adopts, so the outage still opens at ~R + 2000.
+- Offset = 2000 x [re-adopt] - tail (+/- one Update and one TickCount quantum); subtract 500 for a leave-ended hold.
+- No re-adopt only when tail = 0. That covers s119's cut, which sits 9 ms inside that class: S119-G3 is green by placement luck.
+- Per-leg tails measured off the tape / relay tap: s119 0, s120-battle 66.5, span 66.6, P5 135. Census over battle 1: tail 0 ~21%,
+  so ~79% of cuts re-adopt.
+- The two menu closes: close 1 is the first stale frame (P5 :47, before the outage). MirrorServe then silently re-holds slot 1 on the
+  frozen Ready bit (SERVING is once-per-boot gated). Close 2 is the second stale edge = the hold onset (:50).
+- The guest's own type-3 control lane on the wire confirms the double window: it stops at cut + ~2 s in tail-0 runs and at
+  cut + ~4 s in re-adopt runs (all 7 runs).
+- Origins: the null-reset came in s37-netsync-battle.patch:772, the seq guard in s40-netsync-diorama.patch:1018. s118-s121 did not
+  introduce it.
+
+**Classification.** A DEFECT, medium severity. No crash, softlock, save or story risk in any measured cut: every cut still held and
+resumed on the same nonce, and sitting A's leave never recurred. Visible harm:
+- with a guest slot Ready at the cut, the stock command menu blinks shut ~1.9 s into the freeze, re-opens on the frozen state and
+  accepts input for ~1.9 s while nothing reaches the host, then shuts again until the resume;
+- the hold lines under-report the freeze by ~1.9 s.
+Inferred, unmeasured:
+- a host whose game thread stalls while its writer keeps re-sending would make the guest re-adopt every ~2 s forever (no hold, the
+  s120 stall cap unreachable, a menu blink every ~2 s);
+- a genuine battle end's watcher over-verdict trails by ~2 s in ~79% of ends (the B5 end-leave probably masks it);
+- the fate of a command picked in the phantom menu.
+
+**Fix shape (an engine patch -- OWNER DECISIONS).** In Pump's guest branch, remember the (nonce, seq) whose freshness ran out
+(`_peerExpiredSeq/_peerExpiredNonce`, set when the stale branch nulls `_peerView`, cleared on a real adopt and in Reset()), and never
+re-adopt a transport repeat of it; only a new seq re-opens the lane. Rejected alternative: re-keying freshness to receipt (it brings
+back s40's stacked windows). It changes PeerBattleLive for every consumer, so it ships as its own patch, with:
+- a pure adopt step + selftest rows ('a repeat of the expired seq after the null is NOT adopted'; 'a new seq IS');
+- a battlewire twin;
+- a T2 leg at a tail >= 66 placement, calibrated red on s121 first;
+- re-pinned hold checks.
+Decisions for the owner:
+1. The patch NUMBER. R3-DESIGN reserves s122-s130 for group 2, so the next free number collides with that reservation.
+2. THE SIDE EFFECT. With the fix, a host whose game thread stalls while its writer runs holds as 'stalled' and LEAVES FINAL at the
+   8 s stall cap with the skip stamped (NetSyncClient.cs:2132-2136). Today's defect accidentally tolerates that case with a blinking
+   menu.
+3. The DLL rebuild auto-deploys.
+
+**Calibration until then.** Do not widen K4 by the nominal cut length; judge the hold against the SAME run's outage plus that cut's
+tail. tail_ms comes from the relay tap or the tape at --blackhole-at.
+- Post-fix target: (hold - outage) in [tail - 40, tail + 70] (leave-ended: (hold - 500 - outage), one quantum wider);
+  outage in [gap - 2050, gap - 1950]; at most one 'closed all (no live peer battle lane)' per cut.
+- Characterising the unfixed s121: tail 0 -> (outage - hold) in [-50, +35]; tail >= 66 -> in [2000 - tail - 35, 2000 - tail + 50].
+- A no-engine-change confirmation: rerun s119 at --blackhole-at 81.66 (tail 67) -> hold ~2.05-2.10 s against outage ~4.03 s; and
+  s120-battle at 79.66 (tail 0) -> offset ~0. Judge it by hold vs outage only: the 'SHUT' line fires in only ~half the runs.
+
 ## Open unknowns
 
 - Which suspended thread held the lock that kept the host's managed world stopped. The candidates are NetSync-relay(-write), the SaXAudio/XAudio2 callback thread, the AudioEffectManager FileSystemWatcher thread, or Unity-internal. No dump exists: WER archived only July AppHang folders. This decides whether the hang is co-op exposure or stock.

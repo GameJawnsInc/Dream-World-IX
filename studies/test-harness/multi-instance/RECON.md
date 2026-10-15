@@ -154,8 +154,13 @@ release gate.
   stock menu closed for 'no live peer battle lane' TWICE (:47 and :50) -- as if the battle lane read live again briefly inside
   the cut and restarted the hold clock. The T2 legs disagree with each other the same way: s119 hold 4047 vs outage 4031 (same
   second); s120-battle hold 16094 vs outage 18015 (the hold line 2 s after the outage). So the hold's ONSET varies by ~2 s run to
-  run, live or replayed. Not a sitting-A regression (no leave, no ramp, same-nonce resume); cause UNKNOWN. K5 was not reached
-  by the driver, though its line is in the window above.
+  run, live or replayed. Not a sitting-A regression (no leave, no ramp, same-nonce resume). K5 was not reached by the driver,
+  though its line is in the window above. **CAUSE FOUND (read-only workflow + 2 skeptics, both "holds"):** a latent ENGINE defect
+  since s40 -- the guest's NetSyncBattle.Pump nulls its stale view, then RE-ADOPTS the transport's still-served frozen frame on the
+  next Update (NetSyncBattle.cs:1289's `_peerView == null` disjunct). The lane gets a second 2000 ms whenever the cut's 'tail' (the
+  final seq's re-sends before the cut) is > 0; the offset = 2000 - tail. Full write-up, per-run table, fix shape and recalibration
+  in studies/battle-coop/R3-SITTING-A-FIXES.md ("The hold-onset variance"). The duo found a bug the replay bench had passed by
+  placement luck.
 - **Where this leaves the goal:** two real co-op clients on this desktop, harness-driven, over the sittings' own bridge + relay
   path, with no DLL change and the real install untouched. Next: P5 (a bridge-suspend cut vs sitting A), then productionize
   (instance.py, a Session multi-instance mode, duo.py, tests -- see "Harness changes").
