@@ -495,6 +495,14 @@ tail. tail_ms comes from the relay tap or the tape at --blackhole-at.
 - Characterising the unfixed s121: tail 0 -> (outage - hold) in [-50, +35]; tail >= 66 -> in [2000 - tail - 35, 2000 - tail + 50].
 - A no-engine-change confirmation: rerun s119 at --blackhole-at 81.66 (tail 67) -> hold ~2.05-2.10 s against outage ~4.03 s; and
   s120-battle at 79.66 (tail 0) -> offset ~0. Judge it by hold vs outage only: the 'SHUT' line fires in only ~half the runs.
+- **CONFIRMED in game on s121, no engine change** (a wrapper shifting `S119_AT_S`/`S120B_AT_S` by +0.07 s;
+  run dirs `20261015-074620-confirm-s119`, `-074825-confirm-s120-battle`):
+  - s119 moved 81.59 -> 81.66 (tail 0 -> ~67): outage 4032 / hold 2094, offset 1938, inside the predicted 1898-1983. S119-G3
+    goes RED.
+  - s120-battle moved 79.59 -> 79.66 (tail 66 -> 0): outage 18015 / hold 18047, offset -32, inside the predicted -50..+35. Green.
+  - A 70 ms shift of the cut flips the defect on in one leg and off in the other: the mechanism is the cause.
+- **The fix is s131** (owner decision: the next free number after group 2's s122-s130 reservation). Its README row lists the
+  stall-cap side effect (owner decision: keep it).
 
 ## Open unknowns
 
