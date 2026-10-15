@@ -615,8 +615,8 @@ would have re-adopted. Each closed the stock menu once, and nothing re-opened be
 - A shorter cut never breaks the connection, so the bridge logs nothing. The restore then waits on TCP's own backoff plus the
   Wi-Fi re-association: a ~6 s cut read O = 13.7 s, and the swirl cut O = 13.5 s.
 - So the in-game outage is about the cut plus 5-10 s. The 30 s grace tolerates a Wi-Fi drop of only about 20-25 s: box 4 had
-  2.8 s to spare. OWNER DECISION: default `SessionGraceMs` to its 40000 maximum -> **s132** (captured + compile-checked,
-  memoria-patches README row; the bridge's 45 s redial cap counts from its own EOF ~19 s into a cut, and the relay's rejoin
+  2.8 s to spare. OWNER DECISION: default `SessionGraceMs` to its 40000 maximum -> **s132**, DEPLOYED (Assembly-CSharp
+  `048e237d`; in game an absent key reads 40000 and the grace selftest is OK; memoria-patches README row; the bridge's 45 s redial cap counts from its own EOF ~19 s into a cut, and the relay's rejoin
   grace is 60 s, so both still bound it). The T2 benches now write their own 30000 (`BENCH_GRACE_MS`) so every leg keeps its
   timing. A bridge read-idle redial (the bridge already redials cheaply, the ~150 ms boundary redials below) would also cut the
   short-cut TCP backoff; not built.
