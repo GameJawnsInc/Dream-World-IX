@@ -150,6 +150,13 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #:   "fleegil"     -- s116, the host's "Dropped N Gil" relayed (`host.flee_gil`, `end.flee.msg_gil`, `host.end`/`peer.end`
 #:                    `flee_gil`; `endbench fleegil`);
 #:   "defeat"      -- s117, the guest's defeat presentation (`end.follow_msg`; `endbench kill|phase-defeat`).
+#: [ff9mapkit netsync R3 s118-s121] the SITTING-A FIX ROUND (studies/battle-coop/R3-SITTING-A-FIXES.md), no new sub-verb or
+#: op. The default stand-in is the s121 stack; dropping these four caps models the deployed s117 DLL (the calibration):
+#:   "ownreport"   -- s118, the hand-back needs a live guest (`host.handback.refused_report|refused_now|diorama_seen`; the
+#:                    loopback guest's `bench boot declined|busy|stale` -- and `none` after the latch -- keep its slots);
+#:   "holdpeer"    -- s119, the diorama hold keyed on the peer (`netsync.diorama.hold`; the "diorama watcher" proof line);
+#:   "grace"       -- s120, the session grace (`netsync.session`; `hold.cap_ms` = the grace; the "session grace" line);
+#:   "menurefusal" -- s121, the audible menu refusal (`netsync.menu_refusal`; the "main menu refusal" line).
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -167,7 +174,13 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "starthold": ("s114", ()),
                        "flee": ("s115", ()),
                        "fleegil": ("s116", ()),
-                       "defeat": ("s117", ())}
+                       "defeat": ("s117", ()),
+                       "ownreport": ("s118", ()),
+                       "holdpeer": ("s119", ()),
+                       "grace": ("s120", ()),
+                       "menurefusal": ("s121", ())}
+#: [ff9mapkit netsync R3 s118-s121] The four sitting-A caps: ``netsync_caps - NETSYNC_SITTING_A_CAPS`` is the deployed s117.
+NETSYNC_SITTING_A_CAPS = frozenset(("ownreport", "holdpeer", "grace", "menurefusal"))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench")
@@ -207,6 +220,12 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "flee": {"end": ("flee",)},
     "fleegil": {"host": ("flee_gil",)},
     "defeat": {"end": ("follow_msg",)},
+    # [ff9mapkit netsync R3 s118-s121] nothing at this level: s118 keys INSIDE `host.handback`, s119 inside
+    # `netsync.diorama`, s120 / s121 add TOP-LEVEL `netsync` blocks (NETSYNC_TOP_CAP_KEYS)
+    "ownreport": {},
+    "holdpeer": {},
+    "grace": {},
+    "menurefusal": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -214,11 +233,15 @@ NETSYNC_BATTLE_NESTED_KEYS = {
     "starthold": {"menu.ctl": ("nonce", "boot", "boot_name")},
     "flee": {"end.end_leave": ("reverted",)},
     "fleegil": {"end.flee": ("msg_gil",)},
+    "ownreport": {"host.handback": ("refused_report", "refused_now", "diorama_seen")},   # [ff9mapkit netsync R3 s118]
 }
-#: [ff9mapkit netsync R3] The keys a battle capability adds to the F3.3 `netsync.diorama` block (s111 `intro`, s114 `live`)
-#: and inside it (s112 `intro.swirl_clamp`).
-NETSYNC_DIORAMA_CAP_KEYS = {"intro": ("intro",), "starthold": ("live",)}
+#: [ff9mapkit netsync R3] The keys a battle capability adds to the F3.3 `netsync.diorama` block (s111 `intro`, s114 `live`;
+#: [ff9mapkit netsync R3 s119] `hold`) and inside it (s112 `intro.swirl_clamp`).
+NETSYNC_DIORAMA_CAP_KEYS = {"intro": ("intro",), "starthold": ("live",), "holdpeer": ("hold",)}
 NETSYNC_DIORAMA_NESTED_KEYS = {"swirl": {"intro": ("swirl_clamp",)}}
+#: [ff9mapkit netsync R3 s120/s121] The TOP-LEVEL `netsync` blocks a battle capability adds, in the agent's order --
+#: between `diorama` and `battle` (AppendSession, AppendMenuRefusal).
+NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",)}
 NETSYNC_BATTLE_END_LEAVE_KEYS = ("trigger", "latched_ms", "tries", "deferred", "requested", "request_ms", "why", "settled",
                                  "via", "stamp", "stamp_host", "stamped", "stamped_was", "music_shut", "music_why",
                                  "wipe_lifted", "reverted")
@@ -232,7 +255,7 @@ NETSYNC_BATTLE_REPLAY_KEYS = ("mode", "armed", "pending", "opened", "live", "clo
                               "verdict", "why", "row_mask", "seated_mask", "manifest_rows", "host_state_at_arm", "bench",
                               "arm_ms", "open_ms", "close_ms", "exit_waited", "exit_wait_ms", "screen", "fp")
 NETSYNC_BATTLE_HANDBACK_KEYS = ("off", "held", "held_ms", "owed", "g6_mask", "captures", "returns", "deferred", "faults",
-                                "last", "lapse")
+                                "last", "lapse", "refused_report", "refused_now", "diorama_seen")   # (s118: the last 3)
 NETSYNC_BATTLE_LAPSE_KEYS = ("active", "hold", "left_ms", "count", "end_frame", "reserve")
 #: [ff9mapkit netsync R3] s111-s117's FIXED sub-objects (always published whole, in the agent's order): `host.cfg`,
 #: `host.intro`, `host.wait`, `menu.ctl`, `host.start_hold` (+ its `released` / `guest`), `end.flee`; and inside
@@ -250,6 +273,14 @@ NETSYNC_DIORAMA_INTRO_KEYS = ("wire", "applied", "own", "off", "calls", "normal_
 NETSYNC_DIORAMA_SWIRL_KEYS = ("ini", "clamp", "src", "bench_local", "diorama", "own", "used", "clamped", "dwell_ms",
                               "swirls", "dioramas", "clamps")
 NETSYNC_DIORAMA_LIVE_KEYS = ("latched", "ms", "nonce")
+#: [ff9mapkit netsync R3 s119-s121] the round's FIXED blocks, in the agent's order (AppendDioramaHold, AppendSession,
+#: AppendMenuRefusal).
+NETSYNC_DIORAMA_HOLD_KEYS = ("state", "since_ms", "cap_ms", "settle_ms", "holds", "resumes", "gaveup", "last_ms",
+                             "peer_alive", "host_field", "terminal", "why")
+NETSYNC_SESSION_KEYS = ("grace_ms", "state", "left_ms", "out_ms", "outages", "resumes", "gaveup", "last_ms", "peer_alive",
+                        "seen_live", "mirroring", "ramp_pending", "ramp_cause", "overlay", "overlay_detail", "ghost",
+                        "ghost_held")
+NETSYNC_MENU_REFUSAL_KEYS = ("now", "count", "lines", "silent", "last_state", "last_field", "age_ms", "muted")
 #: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
 NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
 #: [ff9mapkit netsync B4] `bbench <op>` (NetSyncBattle.HarnessStockBench): s106's two, then s107's bench feed -- each
@@ -707,6 +738,22 @@ class FakeGame:
         self.cfg_swirl_frames = 0
         self.ini_swirl_clamp = 0
         self.ini_start_hold_ms = BW.START_HOLD_MS
+        #: [ff9mapkit netsync R3 s120] [Netsync] SessionGraceMs as Memoria.ini holds it (an int or the raw text: the engine's
+        #: ParseSessionGrace clamps it) -- `netsync.session.grace_ms` and, from s120, `netsync.diorama.hold.cap_ms`
+        self.ini_session_grace_ms = BW.SESSION_GRACE_DEFAULT_MS
+        #: [ff9mapkit netsync R3 s120/s121] NetSyncClient.IsMirroringStory -- a FOLLOWING guest's armed story mirror. The
+        #: stand-in has no transport (the selftest role never mirrors), so a test sets this to stand in for 'state-mirror
+        #: ARMED' (`netsync.session.mirroring`; s121's Menu-key refusal reads it, s38's silent drop before it)
+        self.story_mirroring = False
+        #: [ff9mapkit netsync R3 s121] UIManager.IsMenuControlEnable (a scene's MENUOFF clears it) and FF9Sfx.muteSfx
+        self.menu_control_enable = True
+        self.mute_sfx = False
+        #: [ff9mapkit netsync R3 s121] NetSyncField's refusal statics (:class:`_MenuRefusal`: per PROCESS)
+        self._menu_refusal = _MenuRefusal()
+        #: [ff9mapkit netsync R3] the selftest proof block is logged once per process; s120's overlay is composed by the
+        #: selftest role's first tick ("off", detail 0) and keeps that state after it
+        self._proof_logged = False
+        self._ovl_composed = False
         self.battle_random = False
         #: [ff9mapkit netsync R3 s111] a skipped intro's length in frames (the plunge camera skipped: SkipCameraAnimation)
         self.battle_intro_skip_frames = 6
@@ -1394,17 +1441,19 @@ class FakeGame:
         ``catch (Exception err) { Log.Error(err); }`` -- all battle code, via
         ``HonoluluBattleMain.Update`` -- and lands in Memoria.log only, as timestamped ``|E|``
         lines. ``caught=False`` escaped a MonoBehaviour and lands in output_log.txt only, as an
-        untimestamped block. The BYTES are a real run's, terminators included: Memoria.log is LF,
-        and Unity ends every frame but the last with CR CR LF -- which a naive ``splitlines()``
-        reads as a blank line, so a stand-in that wrote plain CRLF would pass a reader the real
-        log breaks.
+        untimestamped block. The BYTES are a real run's, terminators included: Memoria.log is CRLF
+        on every line, its |E| lines too ([ff9mapkit netsync R3] re-measured over the archived
+        .harness-runs/*/Memoria.log: 233 logs, 0 bare LF; this said LF before, and :meth:`_mlog`
+        writes CRLF -- one stand-in log, one terminator), and Unity ends every frame but the last
+        with CR CR LF -- which a naive ``splitlines()`` reads as a blank line, so a stand-in that
+        wrote plain CRLF there would pass a reader the real log breaks.
         """
         tail = " [0x00000] in <filename unknown>:0 "
         if caught:
             stamp = time.strftime("%d.%m.%Y %H:%M:%S")
             lines = [f"{stamp} |E| System.{exc}: {message}"]
             lines += [f"{stamp} |E|   at {f}{tail}" for f in frames]
-            body, path = "".join(line + "\n" for line in lines), self.memoria_log
+            body, path = "".join(line + "\r\n" for line in lines), self.memoria_log
         else:
             trace = "\r\r\n".join(f"  at {f}{tail}" for f in frames)
             body = f"{exc}: {message}\r\n" + (trace + "\r\n" if trace else "")
@@ -1465,6 +1514,7 @@ class FakeGame:
                 self._step_machine("agent_last")
                 self._step_battle()
                 self._step_netsync_battle()  # [ff9mapkit netsync B4/B5] the own battle's pump, the diorama's EndTick
+                self._step_selftest_proof()  # [ff9mapkit netsync R3] the selftest overlay + the proof block's R3 lines
                 self._service_turn()        # s90: end, or cut, an in-place turn
                 self._step_netsync()        # s96: the F3.2 guest's dialogue lock (bench only)
                 self._step_script_poll()    # [ff9mapkit netsync F3.3] R5: the open polled line's script button-poll
@@ -2924,6 +2974,8 @@ class FakeGame:
                 self._close_battle_cursor()
 
     def _menu_step(self, button: str) -> None:
+        if AGENT_CONTROL.get(str(button).lower()) == "menu" and self._menu_key_press():
+            return      # [ff9mapkit netsync R3 s121] a mirroring guest's Menu key: s38's refusal (s121: audible on the HUDs)
         if button in GUEST_DIALOG_KEYS and self._guest_suppress():
             return      # s96: UIKeyTrigger swallows a following guest's dialogue keys under the lock (and the cursor holds)
         if button in ("confirm", "ok", "cancel", "back", "b") and self.dialog_inh and self._dialog_open():
@@ -3986,7 +4038,12 @@ class FakeGame:
                 doc.update(self._keys_doc())
             if self._cap("diorama"):
                 doc["diorama"] = self._diorama_doc()
-            if "gates" in self._nb_caps():
+            caps = self._nb_caps()
+            if "grace" in caps:
+                doc["session"] = self._session_doc()    # [ff9mapkit netsync R3 s120] between `diorama` and `battle`
+            if "menurefusal" in caps:
+                doc["menu_refusal"] = self._menu_refusal_doc()   # [ff9mapkit netsync R3 s121] ...after `session`
+            if "gates" in caps:
                 doc["battle"] = self._nb_doc()          # [ff9mapkit netsync B4] s100+
             return doc
         if ns["wait_armed"]:
@@ -4045,7 +4102,126 @@ class FakeGame:
             doc["intro"] = intro
         if "starthold" in caps:                             # [ff9mapkit netsync R3 s114] AppendDioramaLive
             doc["live"] = {"latched": nb.live_latched and d["booted"], "ms": nb.live_ms, "nonce": nb.live_nonce}
+        if "holdpeer" in caps:                              # [ff9mapkit netsync R3 s119] AppendDioramaHold
+            doc["hold"] = self._diorama_hold_doc()
         return doc
+
+    # -- [ff9mapkit netsync R3 s119-s121] the sitting-A round's guest blocks ------------------------------------------
+    def _session_grace_ms(self) -> int:
+        """NetSyncClient._sessionGraceMs: [Netsync] SessionGraceMs through the engine's own parse and clamp."""
+        return BW.parse_session_grace(self.ini_session_grace_ms)[0]
+
+    def _diorama_hold_doc(self) -> dict:
+        """[ff9mapkit netsync R3 s119] AppendDioramaHold. The watcher runs only for a FOLLOWING guest on a real transport
+        (the selftest role returns before DioramaTick): the stand-in has none, so its hold never steps -- `state` / `why`
+        null, the counters 0 -- and only the two LIVE reads move: `cap_ms` (DioramaHoldCapMs: s119's 8000, from s120 the
+        session grace) and `settle_ms`."""
+        grace = self._session_grace_ms() if "grace" in self._nb_caps() else None
+        return {"state": None, "since_ms": -1, "cap_ms": BW.hold_cap_ms(grace), "settle_ms": BW.DIORAMA_SETTLE_MS,
+                "holds": 0, "resumes": 0, "gaveup": 0, "last_ms": -1, "peer_alive": False, "host_field": -1,
+                "terminal": False, "why": None}
+
+    def _session_doc(self) -> dict:
+        """[ff9mapkit netsync R3 s120] AppendSession. The outage clock runs only on a GUEST with a transport (SessionTick
+        returns at once on a host or the selftest role): the stand-in has neither, so the block sits at rest -- `state`
+        "none" with a client instance (null without), no outage, the process counters 0 -- but for the LIVE reads
+        (`grace_ms`, `mirroring` = :attr:`story_mirroring`) and the selftest role's own overlay ("off", detail 0, from its
+        first tick) and ghost (the mirror beside the player on a field in scope)."""
+        inst = bool(self.netsync["instance"])
+        return {"grace_ms": self._session_grace_ms(), "state": "none" if inst else None, "left_ms": -1, "out_ms": -1,
+                "outages": 0, "resumes": 0, "gaveup": 0, "last_ms": -1, "peer_alive": False, "seen_live": False,
+                "mirroring": bool(self.story_mirroring), "ramp_pending": False, "ramp_cause": None,
+                "overlay": "off" if inst and self._ovl_composed else None,
+                "overlay_detail": 0 if inst and self._ovl_composed else -1,
+                "ghost": inst and self._nb_role() and self._selftest_in_scope(), "ghost_held": False}
+
+    def _selftest_in_scope(self) -> bool:
+        """NetSyncClient.Update's selftest `inScope` (approximated): on a field (gMode 1, its fieldmap up) -- not the
+        title, the world map or a battle."""
+        return self.field_id > 0 and not self.battle_active and self.ui_state not in ("Title", "WorldHUD")
+
+    def _menu_key_now(self) -> str | None:
+        """NetSyncField.HarnessMenuKeyNow: MenuKeyStep through MenuKeyRoute on the stand-in's UI -- "dialog" under an open
+        dialogue window (not paused) or a state with no scene (UIManager.GetSceneFromState)."""
+        return BW.menu_key_now(self.menu_control_enable, self.story_mirroring, self.ui_state, self._dialog_open(),
+                               self.ui_state == "Pause")
+
+    def _menu_refusal_doc(self) -> dict:
+        """[ff9mapkit netsync R3 s121] AppendMenuRefusal (`now` a LIVE read; the rest NetSyncField's process statics)."""
+        m = self._menu_refusal
+        return {"now": self._menu_key_now(), "count": m.count, "lines": m.lines, "silent": m.silent,
+                "last_state": m.last_state, "last_field": m.last_field,
+                "age_ms": int((self.rt - m.last_rt) * 1000) if m.armed else -1, "muted": m.muted}
+
+    def _menu_key_press(self) -> bool:
+        """[ff9mapkit netsync R3 s121] UIKeyTrigger's Menu key on a MIRRORING guest (s38 Road A: the main menu stays shut).
+        Only the scene branch sees it (MenuKeyRoute: under a dialogue window, not paused, the press takes the untouched
+        dialogue path); there s121's RefuseMainMenu -- on FieldHUD / WorldHUD the buzz (FF9Sfx 102), a count and ONE line
+        per place per process (DeclineOnce; WorldHUD latches its own class on wldMapNo), anywhere else a silent drop,
+        counted. An engine before s121 drops the key with no sound, no line and no count. True = the key is spent here; a
+        guest that is not mirroring (or a scene's MENUOFF: stock's own silent refusal) falls through to the stand-in."""
+        if not self.story_mirroring or not self.menu_control_enable:
+            return False
+        state = self.ui_state
+        if BW.menu_key_route(state in BW.UI_SCENE_STATES, self._dialog_open(), state == "Pause",
+                             BW.MENU_KEY_REFUSE_SILENT) == BW.MENU_KEY_DIALOG_PATH:
+            return False
+        if "menurefusal" not in self._nb_caps():
+            return True                                     # s38: dropped -- no buzz, no line, counted nowhere
+        verdict = BW.menu_key_step(self.menu_control_enable, True, state)
+        m = self._menu_refusal
+        place = BW.menu_refusal_place(state, self.field_id, self.world.get("id", -1))
+        m.last_state, m.last_field, m.last_rt, m.armed = state, place, self.rt, True
+        if verdict == BW.MENU_KEY_REFUSE_SILENT:
+            m.silent += 1
+            return True
+        m.count += 1
+        m.muted = bool(self.mute_sfx)
+        m.buzzes += 1                                       # FF9Sfx.FF9SFX_Play(102)
+        latch = BW.menu_refusal_latch(state)
+        if m.latch.get(latch) != place:
+            m.latch[latch] = place
+            m.lines += 1
+            self._mlog(BW.menu_refusal_line(state, place))
+        return True
+
+    def _mlog(self, msg: str) -> None:
+        """[ff9mapkit netsync R3] One Memoria.Prime.Log.Message line in the game root's Memoria.log: ``dd.MM.yyyy HH:mm:ss
+        |M| <msg>``, CRLF as the archived real logs read (.harness-runs/*/Memoria.log). The stand-in writes only the lines a
+        modelled R3 bench reads: the selftest proof block's R3 lines, the hand-back lines (s110 / s118) and s121's line."""
+        stamp = time.strftime("%d.%m.%Y %H:%M:%S")
+        path = self.memoria_log
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "ab") as f:
+            f.write(f"{stamp} |M| {msg}\r\n".encode("utf-8"))
+
+    def _step_selftest_proof(self) -> None:
+        """[ff9mapkit netsync R3] NetSyncClient's selftest branch, the two pieces the round reads: every tick composes the
+        overlay "off" (SetOverlay(OvlOff) -- s120's `session.overlay`), and the FIRST tick in scope logs the proof block,
+        once per PROCESS. The stand-in writes the R3 lines its capabilities carry, in the engine's order: "battle control
+        selftest: OK (33 rows)" from s114 (53 from s118), "diorama watcher selftest: OK (24 rows)" (s119), "session grace
+        selftest: OK (31 rows)" (s120), "main menu refusal selftest: OK (14 rows)" (s121). NOT MODELLED: the five lines
+        before them (state-mirror, party-mirror, diorama containment, dialogue authority, battle end-block) -- their
+        details are save- and stage-dependent, so a bench that reads one stays red here as it always did."""
+        if not self._nb_role():
+            return
+        self._ovl_composed = True
+        if self._proof_logged or not self._selftest_in_scope():
+            return
+        self._proof_logged = True
+        caps = self._nb_caps()
+        rows = []
+        if "starthold" in caps:
+            rows.append((BW.PROOF_CONTROL,
+                         BW.CONTROL_SELFTEST_ROWS if "ownreport" in caps else BW.CONTROL_SELFTEST_ROWS_S114))
+        if "holdpeer" in caps:
+            rows.append((BW.PROOF_WATCH, BW.WATCH_SELFTEST_ROWS))
+        if "grace" in caps:
+            rows.append((BW.PROOF_GRACE, BW.GRACE_SELFTEST_ROWS))
+        if "menurefusal" in caps:
+            rows.append((BW.PROOF_MENU, BW.MENU_SELFTEST_ROWS))
+        for head, n in rows:
+            self._mlog("[NetSync] " + BW.proof_ok(head, n))
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -4276,6 +4452,10 @@ class FakeGame:
             nb.bench_control = False
             nb.remote_menu = False
             nb.assist_rt = self.rt - 60.0
+            # [ff9mapkit netsync R3 s118] ...the lane's stamp and a refusal too, and the latch a `bctl` report raised
+            nb.lane_rt = self.rt - 60.0
+            nb.rpt_refused = nb.rpt_refused_counted = False
+            nb.own_latch["seen"] = False
         nb.capture_off_lever = False
         # [ff9mapkit netsync B4] s106-s107 HarnessReleaseStockMenu: the content lever, the bench roster, the feed, the knob
         nb.content_off_lever = 0
@@ -4302,6 +4482,8 @@ class FakeGame:
         nb.waitparity_off_lever = False
         nb.bench_ctl = -1
         nb.starthold_off_lever, nb.starthold_cap_bench = False, -1
+        if nb.bench_boot >= 0 and self._nb_role():
+            nb.own_latch["seen"] = False            # [ff9mapkit netsync R3 s118] the lever's reports are forgotten with it
         nb.bench_boot, nb.bench_boot_late_ms = -1, 0
         if nb.bench_guest_slots:
             nb.bench_guest_slots = False
@@ -4360,7 +4542,7 @@ class FakeGame:
             if "waitparity" in caps:
                 self._nb_parse_control(frame)               # [ff9mapkit netsync R3 s113/s114] the depth byte, the trailer
             elif BW.control_valid(frame):
-                nb.assist_rt = self.rt
+                nb.assist_rt = nb.lane_rt = self.rt
                 nb.remote_menu = frame[1] != 0
             else:
                 nb.remote_menu = False
@@ -5797,14 +5979,20 @@ class FakeGame:
         lapse_left = -1
         if nb.lapse_armed and not nb.lapse_hold:
             lapse_left = max(0, nb.lapse_ms - int((self.rt - nb.lapse_start_rt) * 1000))
-        return {"off": not self._nb_handback_on(), "held": nb.hb_held,
-                "held_ms": int((self.rt - nb.hb_held_rt) * 1000) if nb.hb_held >= 0 else -1,
-                "owed": nb.hb_held >= 0 and self._nb_guest_owned(nb.hb_held), "g6_mask": nb.g6_mask,
-                "captures": nb.hb_captures, "returns": nb.hb_returns, "deferred": nb.hb_deferred,
-                "faults": nb.hb_faults, "last": None if nb.hb_last is None else dict(nb.hb_last),
-                "lapse": {"active": nb.lapse_armed and (nb.lapse_hold or lapse_left > 0), "hold": nb.lapse_armed
-                          and nb.lapse_hold, "left_ms": lapse_left, "count": nb.lapse_count,
-                          "end_frame": nb.lapse_end_frame}}
+        doc = {"off": not self._nb_handback_on(), "held": nb.hb_held,
+               "held_ms": int((self.rt - nb.hb_held_rt) * 1000) if nb.hb_held >= 0 else -1,
+               "owed": nb.hb_held >= 0 and self._nb_guest_owned(nb.hb_held), "g6_mask": nb.g6_mask,
+               "captures": nb.hb_captures, "returns": nb.hb_returns, "deferred": nb.hb_deferred,
+               "faults": nb.hb_faults, "last": None if nb.hb_last is None else dict(nb.hb_last),
+               "lapse": {"active": nb.lapse_armed and (nb.lapse_hold or lapse_left > 0), "hold": nb.lapse_armed
+                         and nb.lapse_hold, "left_ms": lapse_left, "count": nb.lapse_count,
+                         "end_frame": nb.lapse_end_frame}}
+        if "ownreport" in self._nb_caps():
+            # [ff9mapkit netsync R3 s118] HarnessHandbackRefusedReport / RefusedNow (the episode on a FRESH lane) / DioramaSeen
+            doc.update(refused_report=nb.refused_report,
+                       refused_now=nb.rpt_refused and self.rt - nb.lane_rt < BW.MENU_STALE_MS / 1000.0,
+                       diorama_seen=nb.own_latch["seen"])
+        return doc
 
     def _nb_bench_named(self, op: str, args: list, arg, int_min: int, out_of_range) -> None:
         """`netsync bench lapse <1-600000 ms>|hold|end` / `netsync bench handback 1|0` (s110): the agent's parse (exactly
@@ -6090,21 +6278,31 @@ class FakeGame:
             b = BW.BOOT_NONE if booted_live is None else (BW.BOOT_LIVE if booted_live else BW.BOOT_BOOTING)
         return BW.encode_control(menu, nonce, b), src
 
-    def _nb_parse_control(self, frame) -> None:
+    def _nb_parse_control(self, frame, loopback_auto: bool = False) -> None:
         """NetSyncBattle.ParseControl on the HOST (s113 byte 1 = the depth; s114 the trailer behind the byte-1 nonce gate):
-        a valid frame stamps the lane; null (a stale socket / a lapse) and a malformed frame shut the menu flag."""
+        a valid frame stamps the lane; null (a stale socket / a lapse) and a malformed frame shut the menu flag.
+        [ff9mapkit netsync R3 s118] TWO stamps: the LANE (any valid frame) and the OWNERSHIP one (`assist_rt`, what
+        IsGuestOwnedSlot reads), which a frame earns only through GuestOwnsStep -- no report, LIVE / BOOTING on this
+        battle, or NONE before the per-battle latch (``loopback_auto``: SelfTestPump's own frame under `bench boot auto`
+        owns as before); a frame that does not own reads byte 1 shut and starts / continues a refusal episode."""
         nb, caps = self._nb, self._nb_caps()
         if frame is None:
             nb.remote_menu, nb.remote_seen = False, -1
             if nb.hold is not None and nb.hold["primed"] and not nb.hold["released"]:
                 nb.ctl_null_seen = True               # the transport's silence verdict while the hold is primed
             return
-        d = BW.decode_control(frame, nb.nonce) if "starthold" in caps else \
-            ({"menu": frame[1], "trailer": False, "nonce": -1, "boot": -1} if BW.control_valid(frame) else None)
+        owning = "ownreport" in caps
+        if owning:                                    # [ff9mapkit netsync R3 s118] the step runs first (the latch notes it)
+            d = BW.parse_control_owned(frame, nb.nonce, nb.own_latch, loopback_auto)
+        else:
+            d = BW.decode_control(frame, nb.nonce) if "starthold" in caps else \
+                ({"menu": frame[1], "trailer": False, "nonce": -1, "boot": -1} if BW.control_valid(frame) else None)
         if d is None:
             nb.remote_menu, nb.remote_seen = False, -1
             return
-        nb.assist_rt = self.rt
+        nb.lane_rt = self.rt
+        if d.get("owns", True):
+            nb.assist_rt = self.rt                    # (before s118: any valid control frame)
         nb.remote_byte, nb.remote_seen, nb.remote_menu = d["menu"], d["menu"], d["menu"] != 0
         if d["menu"] == BW.CTL_LEGACY:
             nb.legacy_seen = True
@@ -6117,22 +6315,56 @@ class FakeGame:
                 nb.last_ctl_legacy = False
             else:
                 nb.last_ctl_legacy = True
+        if owning:
+            if d["owns"]:
+                nb.rpt_refused = nb.rpt_refused_counted = False   # the refusal episode (if any) ends here
+            else:
+                self._nb_note_refused_report()
+
+    def _nb_note_refused_report(self) -> None:
+        """[ff9mapkit netsync R3 s118] NoteRefusedReport, on every valid frame whose report keeps the slots here: the
+        episode flag (`handback.refused_now`, the capture line); then, only with guest slots set and the host's command
+        phase open, one count per episode (`refused_report`) and one line per own battle (the end-leave stays quiet)."""
+        nb = self._nb
+        nb.rpt_refused = True
+        if nb.rpt_refused_counted or not nb.guest_slots or not nb.phase_open:
+            return
+        nb.rpt_refused_counted = True
+        nb.refused_report += 1
+        if nb.rpt_refused_logged:
+            return
+        nb.rpt_refused_logged = True
+        self._nb_handback_log(
+            BW.LOG_HANDBACK_REFUSED + BW.refused_report_phrase(nb.rpt_nonce, nb.rpt_boot, nb.nonce)
+            + " -- its slots stay with the host's window (the host's ready loop commands them; G3 hands them back at the "
+              "command root once it reports live or booting on this battle; logged once per own battle), refused_report="
+            + str(nb.refused_report))
+
+    def _nb_handback_log(self, line: str) -> None:
+        """HandbackLog: HandbackLogBudget hand-back lines per own battle, then silence (the last one says so)."""
+        nb = self._nb
+        if nb.hb_logs >= BW.HANDBACK_LOG_BUDGET:
+            return
+        nb.hb_logs += 1
+        self._mlog(line if nb.hb_logs < BW.HANDBACK_LOG_BUDGET
+                   else line + " (the last hand-back line this battle -- the harness counters keep counting)")
 
     def _nb_loopback_control(self, caps, ready: bool) -> None:
         """SelfTestPump's control lane in an own battle (s113+): the loopback guest's frame (GuestControl), a `bench lapse`
         (none -- or, `reserve`, the last pre-lapse frame for LAPSE_RESERVE_MS), then the HOST's ParseControl of it."""
         nb = self._nb
         frame, src = self._nb_guest_control(nb.nonce, ready)
+        auto = nb.bench_boot < 0                            # [ff9mapkit netsync R3 s118] ParseControl(..., BenchBoot < 0)
         if "handback" in caps and self._nb_lapse_tick():
             if nb.lapse_reserve and self.rt - nb.lapse_start_rt < BW.LAPSE_RESERVE_MS / 1000.0:
-                self._nb_parse_control(nb.lapse_last_ctl)
+                self._nb_parse_control(nb.lapse_last_ctl, auto)
             else:
                 self._nb_parse_control(None)
             return
         nb.ctl_out, nb.ctl_src = frame, src if frame is not None else None
         if frame is not None:
             nb.lapse_last_ctl = frame
-        self._nb_parse_control(frame)
+        self._nb_parse_control(frame, auto)
 
     def _nb_start_hold_tick(self) -> None:
         """NetSyncBattle.StartHoldTick (both pumps, after the control parse): one StartHoldStep, its counters and the
@@ -6167,7 +6399,7 @@ class FakeGame:
         fresh = self.rt - nb.rpt_rt < BW.MENU_STALE_MS / 1000.0
         if nb.ctl_trailer and fresh:
             return "stale nonce"
-        if nb.last_ctl_legacy and self.rt - nb.assist_rt < BW.MENU_STALE_MS / 1000.0:
+        if nb.last_ctl_legacy and self.rt - nb.lane_rt < BW.MENU_STALE_MS / 1000.0:   # (s118: the LANE's stamp)
             return "old guest"
         return "no word yet"
 
@@ -6187,7 +6419,7 @@ class FakeGame:
         cap = self._nb_start_hold_cap()
         h = nb.hold
         held = int(self.rt * 1000) - h["since_tick"] if h is not None and BW.hold_bit(h) else nb.hold_held_ms
-        lane = int((self.rt - nb.assist_rt) * 1000)
+        lane = int((self.rt - nb.lane_rt) * 1000)           # [ff9mapkit netsync R3 s118] the LANE's stamp (= assist's before)
         return {"off": cap <= 0, "cap_ms": cap, "state": BW.hold_state_name(h, cap), "nonce": nb.hold_nonce,
                 "why": nb.hold_why, "release": nb.hold_release, "held_ms": held, "late_ms": nb.hold_late_ms,
                 "count": nb.hold_count, "released": dict(nb.released),
@@ -6307,10 +6539,33 @@ class FakeGame:
             nb.handback_edge = False
             return
         nb.handback_edge = False
+        # [ff9mapkit netsync R3] its lines (HandbackLog), logged only for a STALL -- the lane fresh within StallMemoryMs (s118:
+        # the LANE's stamp, so a guest whose report keeps the slot is logged, naming the report)
+        stall = self.rt - nb.lane_rt < BW.STALL_MEMORY_MS / 1000.0
+        if nb.hb_held >= 0 and stall:
+            self._nb_handback_log(f"[NetSync] hand-back: the host's window on guest slot {nb.hb_held} closed after "
+                                  f"{int((self.rt - nb.hb_held_rt) * 1000)} ms by itself (the host's own pick, a KO, or "
+                                  f"the turn or the battle ending) -- nothing to hand back")
         nb.hb_held, nb.hb_defer_noted = held, False
         if held >= 0:
             nb.hb_held_rt = self.rt
             nb.hb_captures += 1
+            if stall:
+                silent_ms = int((self.rt - nb.lane_rt) * 1000)
+                if silent_ms >= BW.MENU_STALE_MS:
+                    why = f"the guest's control lane has been silent {silent_ms} ms (a stall)"
+                elif nb.rpt_refused and "ownreport" in self._nb_caps():
+                    why = ("the guest's control lane is live but "
+                           + BW.refused_report_phrase(nb.rpt_nonce, nb.rpt_boot, nb.nonce)
+                           + " (its diorama is not live on it: the host keeps the slot)")
+                else:
+                    why = "the slot became a guest slot while the host's window held it (a GuestSlots change)"
+                self._nb_handback_log(
+                    BW.LOG_HANDBACK_CAPTURE + f"{held} -- {why}"
+                    + ("; its Ready bit is withheld while the host holds it (G6), and it is handed back at the command "
+                       "root once the guest is live again (G3)" if self._nb_handback_on()
+                       else " -- hand-back lever OFF (calibration): no G6, no hand-back")
+                    + f"; captures={nb.hb_captures}")
 
     def _nb_hand_back(self) -> None:
         """HandBackGuestSlot (G3), level-triggered after ParseControl: a held slot the guest owns again goes back at the
@@ -6334,6 +6589,9 @@ class FakeGame:
                        "the host's command window is hidden, paused or disabled" if not group else
                        f"another UI holds the buttons ({group})")
                 nb.hb_last = {"slot": slot, "frame": self.frame, "held_ms": held_ms, "why": "deferred: " + why}
+                self._nb_handback_log(f"[NetSync] hand-back: guest slot {slot} is the guest's again, but the hand-back "
+                                      f"WAITS -- {why}; the host finishes its own pick (root-only, owner decision 4; logged "
+                                      f"once per hold), deferred={nb.hb_deferred}")
             return
         self.battle_turn = -1                               # SetIdle + SetPartySwapButtonActive(false)
         self._close_battle_cursor()
@@ -6341,6 +6599,9 @@ class FakeGame:
             nb.hb_held, nb.hb_defer_noted, nb.handback_edge = -1, False, True
         nb.hb_returns += 1
         nb.hb_last = {"slot": slot, "frame": self.frame, "held_ms": held_ms, "why": "handed back"}
+        self._nb_handback_log(f"[NetSync] hand-back: guest slot {slot}{BW.LOG_HANDBACK_HANDED}its control lane is live "
+                              f"again and the host's window sat at the command root (held {held_ms} ms); the host's "
+                              f"window closed, the slot's Ready bit returns (BTL-1), returns={nb.hb_returns}")
 
     # ---- the per-frame lane: an own battle's host gates (SelfTestPump) and a diorama's end presentation (EndTick)
     def _battle_phase_now(self) -> int:
@@ -6416,6 +6677,11 @@ class FakeGame:
             nb.bench_block = None
         nb.peer = None
         nb.hb_held, nb.hb_defer_noted, nb.handback_edge, nb.g6_mask = -1, False, False, -1   # [ff9mapkit netsync B4] s110
+        nb.hb_logs = 0                                      # ...and the hand-back lines' budget re-arms
+        # [ff9mapkit netsync R3 s118] a refusal is counted and logged per own battle, and a NONE owns again until the guest
+        # reports a diorama of THIS battle
+        nb.rpt_refused = nb.rpt_refused_counted = nb.rpt_refused_logged = False
+        nb.own_latch["seen"] = False
         # [ff9mapkit netsync R3 s113/s114] NoteOwnBattleStart: a fresh hold for this nonce, the edge's flags cleared (the
         # previous battle's why / release / held / late stay readable until now)
         nb.legacy_seen = False
@@ -6470,7 +6736,7 @@ class FakeGame:
             view = nb.peer
             self._nb_loopback_control(caps, bool(view is not None and view["ready"] & nb.guest_slots))
         elif not (handback and self._nb_lapse_tick()):
-            nb.assist_rt = self.rt                          # the loopback's own control frame stamps the lane every tick
+            nb.assist_rt = nb.lane_rt = self.rt             # the loopback's own control frame stamps the lane every tick
         if handback:                                        # ...a `bench lapse` sends none: ParseControl(null), a STALL
             self._nb_hand_back()                            # G3, right after ParseControl
         if "starthold" in caps:
@@ -8413,6 +8679,25 @@ class _BenchHost:
                 "ring": [dict(e) for e in self.ring]}
 
 
+# ======================================================================== [ff9mapkit netsync R3 s121] the menu refusal
+class _MenuRefusal:
+    """[ff9mapkit netsync R3 s121] NetSyncField's audible-refusal statics (`netsync.menu_refusal`): the counters are
+    monotonic per PROCESS (read DELTAS), and DeclineOnce's latch -- gate-class -> the LAST place it logged -- is never
+    cleared at session end, so a second leg on the same field writes no new line (`lines` +0)."""
+
+    def __init__(self) -> None:
+        self.count = 0                              # HarnessMenuRefusals: audible refusals (SFX 102 asked for each)
+        self.lines = 0                              # HarnessMenuRefusalLines: ...of which wrote the line
+        self.silent = 0                             # HarnessMenuRefusalsSilent: s38's silent drops, counted
+        self.last_state: str | None = None          # the last refused press's UIState name, either kind
+        self.last_field = -1                        # ...its place (fldMapNo, wldMapNo on WorldHUD)
+        self.last_rt = 0.0                          # ...its virtual time (`age_ms`; read only once `armed`)
+        self.armed = False                          # _menuRefusedArmed (the tick-baseline law)
+        self.muted = False                          # FF9Sfx.muteSfx at the last audible refusal
+        self.buzzes = 0                             # FF9Sfx 102 plays asked for (not published: the stand-in's own tally)
+        self.latch: dict = {}                       # DeclineOnce's _lastDeclineField for the menu's two gate-classes
+
+
 # ======================================================================== [ff9mapkit netsync B4/B5] the battle lane
 class _BattleLane:
     """[ff9mapkit netsync B4] [ff9mapkit netsync B5] The battle co-op lane's harness half on the stand-in (s100-s105,
@@ -8578,6 +8863,15 @@ class _BattleLane:
         self.lapse_start_rt = 0.0
         self.lapse_count = 0
         self.lapse_end_frame = -1
+        self.hb_logs = 0                            # _handbackLogs: hand-back lines this own battle (HandbackLogBudget)
+        # ---- [ff9mapkit netsync R3 s118] the hand-back needs a live guest: the LANE stamp beside the ownership one
+        # (assist_rt), the per-own-battle latch and the refusal episode
+        self.lane_rt = -1e9                         # _ctlLaneTick: ANY valid control frame (stall memory, `guest.lane_ms`)
+        self.own_latch = BW.new_own_latch()         # _rptDioramaSeen (GuestOwnsStep's latch)
+        self.rpt_refused = False                    # _rptRefused: the last valid frame's report kept the slots here
+        self.rpt_refused_counted = False            # ...this refusal episode is counted
+        self.rpt_refused_logged = False             # ...this own battle's one line is spent
+        self.refused_report = 0                     # _rptRefusedCount: refusal episodes -- monotonic
         # ---- [ff9mapkit netsync R3] s111: the intro mirror (NetSyncBattle / NetSyncDiorama statics)
         self.intro_off_lever = False                # BenchIntroOff (both halves)
         self.own_intro = -1                         # _ownIntro: this own battle's latch (1 skipped, 0 played, -1 none)

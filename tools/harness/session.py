@@ -8468,6 +8468,13 @@ class Session:
         (s115, its VALUES told by ``netsync.battle.end.flee``), ``endbench fleegil <n>|none`` (s116),
         ``endbench phase-defeat`` and ``endbench kill [mask]`` (s117).
 
+        [ff9mapkit netsync R3 s118-s121] the sitting-A round adds NO verb, op or value -- keys only, each told
+        by its presence (:attr:`State.coop_handback_report` / ``coop_diorama_hold`` / ``coop_session_grace`` /
+        ``coop_menu_refusal``): s118 reads the s114 ``bench boot`` values through its ownership rule (``declined
+        |busy|stale``, and ``none`` after the per-battle latch, now keep the loopback guest's slots with the
+        host); s119-s121 are guest-side and need a real transport, so their benches are a T2 wire replay
+        (``press menu`` is s121's stock key). Nothing here changes for them.
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
