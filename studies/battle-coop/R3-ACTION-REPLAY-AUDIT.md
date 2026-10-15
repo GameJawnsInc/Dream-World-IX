@@ -24,6 +24,9 @@ The design was written on 2026-10-13 against s95-s110. Since then s111-s121, s13
 
 ---
 
+
+> **Numbering (decided 2026-10-15):** group 2 was renumbered to s133-s141. The patch names below are the design's old ones: s122-s126 here are s133-s137 in the build.
+
 ## 1. Verdict
 
 The mechanism is sound, but the design cannot be built as written. Four things block it outright:
@@ -542,7 +545,7 @@ Everything else is an amendment the builder can make while building the patch it
   - (a) **Renumber group 2 to s133-s141 (recommended).** Number order then equals capture order, no test helper changes, and only design tables change (section 4 table, 5.1, the sittings).
   - (b) **Keep s122-s130.** Add a POSITION_AFTER chain (s122 after s132, s123 after s122, and so on). Replace every numeric level comparison with a stack-position helper. Order BATTLE_LEVELS and `NETSYNC_BATTLE_CAPS` by stack position. Land this as a test-only commit before s122 is emitted.
   - Either way, redefine the calibration stand-ins as ladder prefixes (for example `_all_caps_through("menurefusal")`) rather than subtractions, and add an S132 stand-in.
-  - Patch names in this document follow the design. Under (a) they become s133-s137.
+  - **DECIDED 2026-10-15: option (a).** This document keeps the design's OLD patch names throughout: s122 -> s133, s123 -> s134, s124 -> s135, s125 -> s136, s126 -> s137 (and the field model s127-s130 -> s138-s141).
 
 ### 3.2 End presentations
 

@@ -2196,7 +2196,7 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
 
 BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", "s107", "s108", "s109", "s110",
                  "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119", "s120", "s121",
-                 "s131", "s132"]                              # [ff9mapkit netsync s131] (s122-s130: group 2's reservation)
+                 "s131", "s132"]                              # [ff9mapkit netsync s131] (s122-s130 unused: group 2 is s133-s141)
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
