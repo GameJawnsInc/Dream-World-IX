@@ -34,6 +34,8 @@ import os
 import re
 import shutil
 import time
+import uuid
+import weakref
 from pathlib import Path
 
 #: The wire version this driver speaks. Bumped with every change to what ``state.json`` MEANS, not
@@ -95,6 +97,13 @@ ARM_CYCLE_TIMEOUT = 3.0
 #: How often the arm cycle reads state.json for the agent's disarm document -- a few times a frame at
 #: any render rate the harness has seen.
 ARM_CYCLE_POLL = 0.005
+
+#: Arm nonce -> the Channel object in THIS process that wrote it (weakly held). With ``sibling_guard`` (instance-root
+#: Sessions), an arm file naming this pid whose nonce maps to a channel still alive and still armed belongs to a live
+#: sibling Session (a mistake that pointed two Sessions of one driver at one root): claim() refuses it and disarm() leaves
+#: it. Any other same-pid arm -- a dead or collected Session object's leak, one written before nonces existed -- and every
+#: same-pid arm on an unguarded channel is taken over exactly as before.
+_LIVE_ARMS: "weakref.WeakValueDictionary" = weakref.WeakValueDictionary()
 
 #: A published document older than this is not a live game talking.
 STALE_AFTER = 5.0
@@ -2168,12 +2177,22 @@ def _f(v) -> str:
 class Channel:
     """The file-backed request/state channel. Owns the directory and the arming lock."""
 
-    def __init__(self, game_path: Path, *, label: str = "run", owner_pid: int | None = None):
+    def __init__(self, game_path: Path, *, label: str = "run", owner_pid: int | None = None,
+                 nonce: str | None = None, sibling_guard: bool = False):
         self.game_path = Path(game_path)
         self.dir = self.game_path / "x64" / "ff9harness"
         self.shots = self.dir / "shots"
         self.label = label
         self.owner_pid = os.getpid() if owner_pid is None else int(owner_pid)
+        #: This channel's own mark in the arm body, beside the pid. The pid alone cannot tell two Sessions of ONE process
+        #: apart -- a duo drives two from one driver -- so a claim or disarm that matched on the pid would let one of them
+        #: take or drop the other's arm. See :data:`_LIVE_ARMS` for why this changes nothing for a lone Session.
+        self.nonce = nonce or uuid.uuid4().hex[:16]
+        #: Whether claim() refuses, and disarm() leaves, a LIVE sibling's arm (same pid, another live armed Channel here).
+        #: Off by default -- a lone Session on the shared install takes over any same-pid arm exactly as it always did
+        #: (its own suite models a leaked arm that way) -- and on for an instance-root Session (harness.duo's two halves),
+        #: where the root's claim is the first guard and this the second.
+        self.sibling_guard = bool(sibling_guard)
         self._seq = 0
         self._armed_by_us = False
         #: Called with every State this channel successfully reads -- the ONE feed for the state
@@ -2227,6 +2246,12 @@ class Channel:
         if owner is None:
             return
         pid = int(owner.get("pid", -1) or -1)
+        if self.sibling_guard and self._live_sibling(owner):
+            raise HarnessError(
+                f"another Session in THIS process already has {self.dir} armed: label {owner.get('label')!r}, "
+                f"nonce {owner.get('nonce')}, started {owner.get('started')}. Two Sessions on one channel overwrite "
+                f"each other's requests and evidence -- a duo needs two instance roots, not one twice."
+            )
         if pid > 0 and pid != self.owner_pid and pid_alive(pid):
             raise HarnessError(
                 f"another harness run already has this install armed: pid {pid}, label "
@@ -2274,9 +2299,24 @@ class Channel:
             "label": self.label,
             "started": _dt.datetime.now().isoformat(timespec="seconds"),
             "tool": "tools/harness",
+            "nonce": self.nonce,
         }), encoding="utf-8")
         self._armed_by_us = True
+        _LIVE_ARMS[self.nonce] = self
         return seen
+
+    def _live_sibling(self, owner: dict) -> bool:
+        """Whether ``owner`` (an arm body) is another LIVE Channel of this very process -- same pid, a different nonce
+        that a Channel here still holds (:data:`_LIVE_ARMS`)."""
+        nonce = owner.get("nonce")
+        try:
+            pid = int(owner.get("pid", -1) or -1)
+        except (TypeError, ValueError):
+            return False
+        if pid != self.owner_pid or not nonce or nonce == self.nonce:
+            return False
+        other = _LIVE_ARMS.get(nonce)
+        return other is not None and other is not self and other._armed_by_us
 
     def _await_disarm(self, before: State | None) -> bool:
         """Read state.json until the agent's DISARM document is there -- ``"armed": false``, written after
@@ -2302,7 +2342,12 @@ class Channel:
             pid = int(owner.get("pid", -1) or -1)
             if pid > 0 and pid != self.owner_pid and pid_alive(pid):
                 return
+            if self.sibling_guard and self._live_sibling(owner):
+                _LIVE_ARMS.pop(self.nonce, None)
+                self._armed_by_us = False
+                return
         _unlink(self.arm_path)
+        _LIVE_ARMS.pop(self.nonce, None)
         self._armed_by_us = False
 
     @property

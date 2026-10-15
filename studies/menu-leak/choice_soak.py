@@ -61,9 +61,11 @@ def run(g) -> None:
     n_held = int(os.environ.get("SOAK_HELD", "10"))
     hold_s = float(os.environ.get("SOAK_HOLD_S", "10"))
     every = int(os.environ.get("SOAK_EVERY", "5"))
-    pids = ff9_pids()
-    assert len(pids) == 1, pids
-    pid = pids[0]
+    pid = g.pid                                          # THIS session's game, never 'the only FF9 running'
+    if pid is None:
+        pids = ff9_pids()
+        assert len(pids) == 1, pids
+        pid = pids[0]
 
     g.newgame()
     g.warp(R.FID)

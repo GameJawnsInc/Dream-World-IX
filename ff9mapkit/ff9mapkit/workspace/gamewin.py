@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as _wt
+import os
 import sys
 
 GAME_PROCESS = "FF9.exe"                           # the Steam FF9 launcher process (game_snap.ps1 parity)
@@ -50,6 +51,28 @@ def _game_pids() -> set[int]:
     return pids
 
 
+def _install_scoped(pids: set[int]) -> set[int]:
+    """With MORE than one FF9.exe up -- an instance root's game beside the install's (tools/harness/instance.py) -- the
+    window a deploy should raise is the INSTALL's, the game the deploy wrote to; an instance is a harness-driven copy.
+    One game: that one, wherever it runs from. Fail-soft: anything unreadable keeps the unfiltered set."""
+    if len(pids) <= 1:
+        return pids
+    try:
+        from ff9mapkit.config import find_game_path
+        from ff9mapkit.hangdump import process_image_path
+        root = os.path.normcase(os.path.abspath(str(find_game_path()))).rstrip("\\/") + os.sep
+    except Exception:                               # noqa: BLE001 -- fail-soft by contract (see module doc)
+        return pids
+    mine = set()
+    for pid in pids:
+        try:
+            if os.path.normcase(os.path.abspath(process_image_path(pid))).startswith(root):
+                mine.add(pid)
+        except Exception:                           # noqa: BLE001
+            pass
+    return mine or pids
+
+
 def _main_window(pids: set[int]):
     """The game's top-level window: visible, unowned, and belonging to one of ``pids`` (the same shape
     .NET's MainWindowHandle resolves for game_snap). None when the game has no window yet."""
@@ -78,7 +101,7 @@ def raise_game() -> bool:
     if sys.platform != "win32":
         return False
     try:
-        pids = _game_pids()
+        pids = _install_scoped(_game_pids())
         if not pids:
             return False
         hwnd = _main_window(pids)

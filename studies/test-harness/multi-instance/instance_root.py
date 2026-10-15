@@ -1,4 +1,8 @@
-"""Study builder for a multi-instance ROOT (probe P1) -- RECON.md design A. Not yet tools/harness/instance.py.
+"""Study builder for a multi-instance ROOT (probe P1) -- RECON.md design A.
+
+SUPERSEDED by tools/harness/instance.py (`py tools/harness/instance.py ensure|verify|teardown <root>`), which adopted the
+roots this built. Kept as the probe record: its `verify` knows only the old 3-key overlay, so it reports every refreshed
+root (whose [Netsync] is now parked off the owner's port and code) as drifted.
 
 !! TEAR A ROOT DOWN ONLY WITH `teardown` BELOW, never any other way: a recursive delete that follows the junctions (PowerShell
 !! 5.1's Remove-Item -Recurse is known to) deletes the REAL install's StreamingAssets and mod folders.

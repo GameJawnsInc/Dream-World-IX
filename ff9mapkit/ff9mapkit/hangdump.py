@@ -462,10 +462,15 @@ class HangDumper:
     hang skipped before writing (pid unresolved, not the game, disk too full) leaves the run armed.
 
     Every Windows call runs on a daemon worker thread and every failure is LOGGED, never raised.
-    ``writer``/``resolver`` are seams for tests (signatures of write_minidump / resolve_game_process)."""
+    ``writer``/``resolver`` are seams for tests (signatures of write_minidump / resolve_game_process).
+
+    ``pid`` (``--hang-pid``) names the game outright and skips the resolution: with two FF9s on one machine
+    (tools/harness/duo.py) "the only running FF9.exe" fallback has no answer, and a driver that launched the game
+    already knows which one this bridge serves. ``image_of`` is that path's seam (process_image_path)."""
 
     def __init__(self, enabled=False, dump_dir=None, *, after_s=HANG_AFTER_S, max_dumps=1,
-                 game_exe=GAME_EXE, log=None, writer=None, resolver=None, min_free=MIN_FREE_BYTES):
+                 game_exe=GAME_EXE, log=None, writer=None, resolver=None, min_free=MIN_FREE_BYTES,
+                 pid=None, image_of=None):
         self.enabled = bool(enabled)
         self.dump_dir = dump_dir or default_dump_dir()
         self.after_s = float(after_s)
@@ -475,22 +480,26 @@ class HangDumper:
         self.writer = writer or write_minidump
         self.resolver = resolver or resolve_game_process
         self.min_free = min_free
+        self.pid = int(pid) if pid else None
+        self.image_of = image_of or process_image_path
         self.dumps = []                     # paths of dumps written this run
         self.threads = []                   # worker threads (tests join them)
         self._lock = threading.Lock()
         self._claimed = 0
 
     @classmethod
-    def from_options(cls, flag=False, dump_dir=None, after_s=None, *, environ=None, log=None):
+    def from_options(cls, flag=False, dump_dir=None, after_s=None, *, environ=None, log=None, pid=None):
         """The CLI's view: dumps are ON when --hang-dump, --hang-dump-dir, or FF9_HANG_DUMP=1 says so.
-        Raises ValueError for an --hang-after under MIN_HANG_AFTER_S."""
+        Raises ValueError for an --hang-after under MIN_HANG_AFTER_S, or a --hang-pid that is not a positive pid."""
+        if pid is not None and not int(pid) > 0:
+            raise ValueError("--hang-pid must be a positive process id, got %r" % (pid,))
         after = HANG_AFTER_S if after_s is None else float(after_s)
         if not after >= MIN_HANG_AFTER_S:
             raise ValueError("--hang-after must be at least %.0f second(s), got %r" % (MIN_HANG_AFTER_S, after_s))
         enabled = bool(flag) or bool(dump_dir) or env_enabled(environ)
         # absolute now: the ON line names the real folder, and a later cwd change cannot move the dump
         return cls(enabled, os.path.abspath(dump_dir) if dump_dir else default_dump_dir(environ), after_s=after,
-                   log=log)
+                   log=log, pid=pid)
 
     # -- logging -------------------------------------------------------------------------------
 
@@ -504,7 +513,9 @@ class HangDumper:
     def describe(self):
         if self.enabled:
             return ("hang sentinel: game hop silent >= %.0f s is logged; hang dumps ON -> %s "
-                    "(one full dump of %s per bridge run, 1-3 GB)" % (self.after_s, self.dump_dir, self.game_exe))
+                    "(one full dump of %s per bridge run, 1-3 GB)%s" % (
+                        self.after_s, self.dump_dir, self.game_exe,
+                        "; the game is pid %d (--hang-pid)" % self.pid if self.pid else ""))
         return ("hang sentinel: game hop silent >= %.0f s is logged; hang dumps OFF "
                 "(--hang-dump or %s=1 to capture one)" % (self.after_s, ENV_ENABLE))
 
@@ -564,6 +575,16 @@ class HangDumper:
         if target is None:
             raise LookupError("no game connection to resolve")
         proc = target.proc
+        if proc is None and self.pid:
+            try:
+                image = self.image_of(self.pid)
+            except Exception as err:      # noqa: BLE001 -- reported in `how`; the dump still names the pid
+                image = None
+                how = "--hang-pid %d (image path unreadable: %s)" % (self.pid, err)
+            else:
+                how = "--hang-pid %d" % self.pid
+            proc = GameProcess(self.pid, image, os.path.basename(image) if image else self.game_exe, how)
+            target.proc = proc
         if proc is None:
             proc = self.resolver(target.client_port, target.server_port, self.game_exe)
             target.proc = proc

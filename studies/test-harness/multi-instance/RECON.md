@@ -145,12 +145,90 @@ release gate.
   recipe: a short wait, then one same-field warp).
 - **Where this leaves the goal:** two real co-op clients on this desktop, harness-driven, over the sittings' own bridge + relay
   path, with no DLL change and the real install untouched. Next: P5 (a bridge-suspend cut vs sitting A), then productionize
-  (instance.py, a Session multi-instance mode, duo.py, tests -- see "Harness changes").
+  (instance.py, a Session multi-instance mode, duo.py, tests -- see "Harness changes"). **Productionized: next section.**
+
+## Productionized (2026-10-15) -- the harness feature
+
+Two-role co-op benches now run on the desktop with one command, no laptop. What was built:
+
+- **`tools/harness/instance.py`** (from `instance_root.py`): `ensure` (build, else refresh) / `refresh` / `verify [--deep]` /
+  `teardown` / `pids` / `status`, as a CLI and as `Instance`. The teardown law is enforced in code. Every reparse point goes
+  first with `os.rmdir`, including junctions the plan never made (a since-unregistered folder, one buried deep). Its own
+  walker never enters a reparse point, because `DirEntry.is_dir()` is TRUE for a junction and `os.walk` would follow it.
+  Only once none are left does it delete the real files. A root carries `.ff9-instance.json`; nothing unmarked is torn
+  down. `ensure` adopted the two prototype roots. Before every launch, `refresh` re-checks every junction and copy against
+  the install as it is now: a new FolderNames entry gets linked, a wrong junction re-pointed, a drifted copy recopied (size
+  + mtime; `--deep` = sha256), and the ini regenerated as install + overlay. It refuses to replace a real directory where a
+  junction belongs. A **claim** (`.ff9-instance.claim`, atomic, pid + nonce) and a path-scoped probe refuse every mutation
+  while another run holds the root or its game runs. An FF9.exe whose image path cannot be read counts as maybe ours.
+- **The overlay now parks [Netsync]**: `RelayUrl = ws://127.0.0.1:9` and a per-root `ff9-I...` code. The first `verify`
+  found that both prototype roots still carried the owner's LIVE SessionCode and their bridge port 49201. They were safe
+  only while Enabled=0. Role values go in through `Instance.netsync` (the kit's `coop.write_netsync`), with the backup moved
+  into the run dir, and `restore_ini` puts the overlay back. Ini writes are retried, because `os.replace` onto a file
+  another process is reading fails with WinError 5 (a duo test caught it).
+- **`Session(instance=root)` / `play.py --instance <root>`**:
+  - a path-scoped pid probe (QueryFullProcessImageNameW via `hangdump`), which also governs attach and the arm's
+    force_cycle;
+  - the root claimed, refreshed and required to verify clean before the arm, and only verified when attaching;
+  - `-single-instance` kept unless its 30-char mutex key collides with the install's or a sibling root's;
+  - `[harness][<label>]` log lines and `Session.pid`;
+  - a nonce in every arm body. The channel's live-sibling guard is ON only in instance mode, because the default suite
+    models a leaked same-pid arm as a live object.
+
+  **A default run on the real install is unchanged**: the "any FF9" probe (it still refuses while an instance runs: the
+  owner's policy call, as below), the stock arguments, the bare `[harness]` prefix.
+- **`tools/harness/duo.py`**: two Sessions, a `coop_peer relay --tap`, and for `--topology bridge` (the default) one
+  `netsync_bridge` per player on 49211/49212 with `--hang-pid <its game>`. It mints a fresh `ff9-DUO` code (refused if it
+  equals the owner's), refuses port 49201, and checks every port free first. `Duo.pair()` is P4's recipe (config at field
+  load = a short wait, then one same-field warp). The helpers are `expect_line` / `expect_both` / `expect_parity` /
+  `expect_mirror`. Each verdict is recorded on the duo AND on the Session(s) it concerns. A strict run stops at the first
+  red, as the owner wants for probes. Teardown order: games (each archives both logs), then inis restored, then bridges and
+  relay, then `duo.json`. That file holds the checks, code, ports, pids, how each process ended, the roots' verify after,
+  and each game's `[ControllerWatcher]` lines. Scenarios expose `run_duo(d)` (+ an optional `PAIR` dict).
+- `tools/game_snap.ps1 -Id <pid>`. With several FF9 windows and no `-Id` it now names them instead of guessing.
+- `netsync_bridge --hang-pid` (`HangDumper(pid=)`): with two FF9s up, "the only running FF9.exe" fallback has no answer.
+  The menu-leak soaks use `g.pid`. The Workspace's raise-after-deploy prefers the INSTALL's FF9 when an instance runs
+  beside it. `ambient_splice` deliberately still refuses while ANY FF9 runs: instances read the mod folders through
+  junctions.
+- **The bridge now stops on Ctrl+C / CTRL_BREAK on Windows.** Its main thread sat in a bare `join()`, which never hears the
+  break. The first duo run had to TERMINATE both bridges. Now it joins in slices.
+- Offline tests: `test_harness_instance.py` and `test_harness_duo.py`.
+  - The teardown runs against a fake install tree and leaves every target byte-, size- and mtime-identical, extra and deep
+    junctions included. A mutation that lets the walker follow junctions turns both teardown tests red.
+  - Also covered: the claim, the probe, the mutex key, drift repair, and two FakeGames in two roots under one driver.
+  - A Duo pairs two FakeGames through their own inis against a simulated engine.
+  - The matchers are pinned to `_coop_peer_bench`'s, and ToolProc runs a real relay and a real bridge.
+
+**In game: `duo_p4.py` is P4 as a duo scenario.**
+
+    py tools/harness/duo.py studies/test-harness/multi-instance/duo_p4.py [--topology relay]
+
+The first run, over bridge + relay, was 17/17 green:
+- C0-C1: ports, relay, both bridges with `--hang-pid`.
+- C2: each config line. Both needed the one same-field warp.
+- C3-C6: both legs connected, paired on 250, a ghost both ways (Vivi on the host, Zidane on the guest), the mirror ARMED.
+- C7: the guest reads the host's 0xA5.
+- C8: the host's battle intro was PLAYED and published. The guest's diorama BOOTed scene 67 and went LIVE 8125 ms later.
+  The s114 start hold was ARMED, then RELEASED after 1312 ms by the real guest's LIVE report.
+- C9: both games in BattleHUD.
+- Both inis were restored and both roots verified clean, with no process left. Each boot took 4.3 s.
+
+Run dir `.harness-runs/20261015-030306-duo-p4-bridge` (gitignored). After the bridge fix, the bridge leg re-ran 17/17
+(`...-030542-duo-p4-bridge2`), and both bridges and the relay stopped cleanly. The relay-direct leg ran 15/15
+(`...-030653-duo-p4-relay`). Across all three runs, the install fingerprint was IDENTICAL before and after: every junction
+target's file count, bytes and newest mtime, plus the owner's Memoria.ini sha.
+
+**ControllerWatcher, a hypothesis for P3's first Pause (read from the engine source, not probed):**
+`ControllerWatcher.RefreshControllers` calls `OnKeyPause` when a device-change broadcast removes a controller and XInput
+sees the change. That fires whatever the window focus or AlwaysCaptureGamepad, so a wireless pad going to sleep pauses FF9.
+That fits the owner's connected controller during the first P3 run. `duo.json` now carries each game's ControllerWatcher
+lines, so the unattended law is read off the logs, not assumed.
 
 ## Risks (beyond the teardown law)
 
 Unarmed instance -> Steam relaunch of the real install; deploys or FF9_GAME_PATH must never point at a root (writes go through the
-junctions); drift (copied ini goes stale, new FolderNames need new junctions, a Steam verify breaks hardlinks); never rebuild the
+junctions); drift (copied ini goes stale, new FolderNames need new junctions, a Steam verify breaks hardlinks -- now repaired by
+the per-launch refresh, and roots hold copies, never hardlinks); never rebuild the
 engine while the duo runs; other worktrees' default harness refuses while any instance runs; state no directory split separates:
 PlayerPrefs (HKCU, incl. ff9mk_debug_*), the LocalLow and MyDocuments save paths before arm, the gamepad, the audio device, the
 window title; an unfocused boot skips Memoria's window placement + WndProc hook.

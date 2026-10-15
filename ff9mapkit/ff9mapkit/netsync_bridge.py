@@ -850,7 +850,8 @@ def main(argv=None):
             log("session log: %s" % log_path)
         log(hang.describe())
         try:
-            thread.join()
+            while thread.is_alive():                # in slices: a bare join() never hears Ctrl+C / CTRL_BREAK on Windows
+                thread.join(0.5)
         except KeyboardInterrupt:
             log("stopped")
             server.close()
@@ -871,6 +872,9 @@ def add_hang_arguments(ap, log_flag="--log"):
                     help="write hang dumps here instead (implies --hang-dump)")
     ap.add_argument("--hang-after", type=float, default=None, metavar="SECONDS",
                     help="game-hop silence that counts as a hang (default %.0f)" % hangdump.HANG_AFTER_S)
+    ap.add_argument("--hang-pid", type=int, default=None, metavar="PID",
+                    help="the FF9.exe process this bridge serves, named outright (default: the owner of the game's "
+                         "loopback socket, else the only running FF9.exe -- which has no answer with two games up)")
     ap.add_argument(log_flag, dest="log", default=None, metavar="FILE",
                     help="tee the timestamped bridge log here (default: a new "
                          "%%LOCALAPPDATA%%\\ff9mapkit\\bridge-logs\\bridge-<time>.log per run)")
@@ -882,7 +886,7 @@ def hang_dumper_from_args(args):
     return hangdump.HangDumper.from_options(flag=getattr(args, "hang_dump", False),
                                             dump_dir=getattr(args, "hang_dump_dir", None),
                                             after_s=getattr(args, "hang_after", None),
-                                            log=_late_log)
+                                            log=_late_log, pid=getattr(args, "hang_pid", None))
 
 
 if __name__ == "__main__":
