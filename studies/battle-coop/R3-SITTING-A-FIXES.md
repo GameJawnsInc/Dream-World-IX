@@ -520,8 +520,24 @@ tail. tail_ms comes from the relay tap or the tape at --blackhole-at.
   - THE TAIL-0 KNIFE EDGE IS REAL: s119 at tail 0 re-adopted once on s121 (run 20261015-102616: hold 2031 vs outage 4015) and
     not the next time (+0). So on pre-s131 engines a tail-0 hold check is a MAYBE, not a predicted green. The discriminating
     leg is `readopt`.
-- Next: deploy s131 (the DLL rebuild auto-deploys), then readopt / s119 / s120-battle / span green on s131, then the 6.1
-  regression set.
+- **s131 DEPLOYED + SOLO-PROVEN** (backup set `20261015-104556`, Assembly-CSharp `feb44ac8e0f37e02`). In game:
+  - 'peer adopt selftest: OK (20 rows)' logs beside the s118-s121 proof lines.
+  - Cut legs, GREEN after a fresh cal 10/10:
+
+    | Leg | Result | Hold - outage | Tail |
+    |---|---|---|---|
+    | readopt | 13/13 | +78 | 67.3 |
+    | s119 | 12/12 | +0 | 0 |
+    | s120-battle | 12/12 | +78 | 67.3 |
+    | span | 9/9 | -- | -- |
+
+    readopt logged ONE 'battle lane: the host's last frame (nonce 1, seq 64) ran out of freshness ... not re-adopted' line, with
+    peer.expired count +1 / refused +1 / frames 4 / ms 62. Each hold now runs the full outage plus the tail (one Update), where
+    it was ~2 s short before.
+  - Each of the four legs reads RED-only under COOP_CALIBRATE, every <LEG>-CAL passes.
+  - The 6.1 regression set is at the s117/s121 baseline: start hold 24/24, hand-back 18/18 (+ cal 19/19), the 15 scenarios,
+    result replay 50/51 (S9-C4L, not reachable solo).
+- Next: R3 sitting B on two machines. The laptop package must carry s131 now, not the s121 build packaged earlier. Then group 2.
 
 ## Open unknowns
 
