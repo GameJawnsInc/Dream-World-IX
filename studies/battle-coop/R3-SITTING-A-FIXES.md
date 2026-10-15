@@ -575,18 +575,86 @@ never installed on the laptop. Same recipe as Phase 4, hand-assembled (throwaway
 - Not proven: the H-vs-O agreement and the "about 4 cuts in 5" refusal rate are solo/replay results; the real link is first
   measured in sitting B.
 
+## Sitting B (2026-10-15 12:55-13:08, two machines, r3c / s131 on both)
+
+Desktop host (Speed 5, SFXRework 1, swirl 0). Laptop guest: `[Battle] Speed 4`, `SFXRework 1`, `BattleSwirlFrames 5`,
+battle-camera skip off, ATB Wait. Speed is host-only for these boxes. Swirl is clamped to 0 in co-op by `DioramaSwirlFrames`
+(every boot logged `swirl 0 frames (own 5, clamped ...)`). Session `ff9-0CA62LRC`, both bridges `--hang-dump`, armed on the right
+pid. Logs: `.harness-runs/sittingB-20261015/` (both Memoria.log, both output_log.txt, both bridge logs; gitignored run dir). The
+desktop's clock reads about 1.5-2 s behind the laptop's (the start-hold release vs the laptop's LIVE line, 4 fights). Times
+below are the laptop's unless marked. No hang, no SILENT line, no dump; nothing crashed.
+
+| Box | Owner's note | Verdict and evidence |
+|---|---|---|
+| 1. 6 s cut mid-battle | reconnected to the fight | PASS. O 13734 ms, H 13844 ms (+110). One menu close, one `not re-adopted` line (refused=1), resumed on nonce 1, menu re-served. Desktop take-over NOT exercised (see below). |
+| 2. 20 s cut mid-battle | overlay said 7 s left | PASS. O 23234, H 23343 (+109). refused=2. Same nonce, no autosave reload. |
+| 3. cut spanning the victory | back after the host was on 250, then went to 250 | PASS. O 23281, hold 23875 (leave-ended: -500 -O = +94). `the host's fight is over (the peer is alive and back on field 250) -- leaving`, warm return in place. |
+| 4. 20 s field cut | recovered with 3 s to spare | PASS, narrowly: O 27188 ms against the 30 s grace. Overlay, no reload, ghost back at the resume. |
+| 5. long field cut | recovered at 13:02, Continue not checked | PASS. Gave up at 30016 ms, `reloading own autosave`, landed on `Scenario counter: 0` (its own story; mirrored it read 7200). Re-paired by itself 90437 ms after the cut, mirror re-ARMED. |
+| 6. Menu refusal (s121) | not run | no `main menu suppressed` line. |
+| 7. Dali cold + back to back | "can't fight at Dali 350" | SPEC BUG: field 350 has no random encounters, so the cold leg cannot run as written. Back to back not cleanly run; every armed hold released on its own nonce. |
+| 8. guest PAUSED | boots after unpause | PASS. Laptop `BUSY`; desktop `not armed -- the guest is busy` and the s118 line `reports busy -- its slots stay with the host's window` (refused_report=1). Booted 22 s later, LIVE 1594 ms after the boot. |
+| 9. cut during the swirl | reconnected to the fight | PASS, "boots late". The cut beat the battle-start frame: desktop `start hold not armed -- no word yet from a guest`, its window took Vivi's turn (`holds guest slot 1`), held it 14125 ms, `handed BACK ... at the command root` when the lane returned. Laptop booted nonce 4 on the restore, LIVE in 2062 ms. No reload. First two-machine proof of the s118 capture + hand-back. |
+| 10. bumper flee | animations on the guest, both back to the field | PASS. `SEQ_MENU_OFF_ESCAPE`, R9b skipped (no gil penalty), `R8 ... phase 8 seq 1, result 4`, `btl_result 4 -> 4`, warm return. |
+| 11. Zidane's Flee | not run | |
+| 12. s117 defeat | not run | |
+| 13. plain fight | worked as usual | PASS (nonce 6): hold armed and released at 1375 ms, result replay opened write-nothing, stepped with the host, closed through its hide tail, writes 0. |
+
+Start hold over the sitting: nonces 1, 2, 5, 6 armed and released `live` at 1750 / 1672 / 1391 / 1375 ms (never the 8000 cap).
+Nonce 3 was not armed (guest busy) and nonce 4 was not armed (no word yet). Result replays (nonces 2, 3, 4, 6) were clean.
+
+**s131 on the real link: holds.** All three battle cuts logged exactly one `not re-adopted` line at the stale edge, where r3b
+would have re-adopted. Each closed the stock menu once, and nothing re-opened before the resume. H tracked O at +110 / +109
+(and +94 leave-ended), against the r3b's ~2 s short.
+
+**The real-link timing (first measurement; the T1 bridge logs).**
+- A cut of 19 s or more shows on the bridge as `upstream EOF ... last relay frame N ms ago` with N = 19174 / 19234 / 19207 /
+  19206 (four cuts, deterministic). This is consistent with the OS giving up on the bridge's unacknowledged upstream sends.
+  Redials then fail at DNS (`getaddrinfo`) every 2 s until the Wi-Fi is back. Last relay frame to restore: 25.2, 25.2, 29.2 s
+  on the three ~20 s cuts.
+- A shorter cut never breaks the connection, so the bridge logs nothing. The restore then waits on TCP's own backoff plus the
+  Wi-Fi re-association: a ~6 s cut read O = 13.7 s, and the swirl cut O = 13.5 s.
+- So the in-game outage is about the cut plus 5-10 s. The 30 s grace tolerates a Wi-Fi drop of only about 20-25 s: box 4 had
+  2.8 s to spare. Levers if the owner wants more margin: default `SessionGraceMs` to its 40000 maximum (the bridge's 45 s redial
+  cap and the relay's 60 s rejoin grace still bound it), or a bridge read-idle redial. The bridge already redials cheaply (the
+  ~150 ms boundary redials below), which would cut the short-cut TCP backoff. Tooling only, no DLL.
+- Boundary redials while frames flow: `upstream EOF at boundary (... last relay frame 0 ms ago); redialing`, restored on the
+  first redial in 110-455 ms. Laptop 53 and desktop 11 over the 13 minutes. Each gap is far under every staleness window (2 s),
+  and none surfaced in game. They are the relay closing streams; first seen because the bridge never logged before T1.
+- The desktop game's own 75 s relay `ReceiveTimeout` (NetSyncRelay.cs:164, dead-peer detection) closed and reopened its hop at
+  13:02:33-36 desktop time, after 75 s with no guest frames during box 5. Benign, by design.
+
+**Not exercised: the desktop's take-over in boxes 1-3.** The laptop had its command menu up at all three cuts (`1 slot(s)
+drained`). The desktop logged no `holds guest slot` in nonce 1, though the slot reverts to local about 4.5 s into a cut
+(IsGuestOwnedSlot, MenuStaleMs 2500 on top of the transport's 2000 ms re-serve). The likely reason is the owner idling the
+desktop: its window sat on one of its own characters' turns for the whole cut, so the ready loop never reached slot 1
+(TrackHostHold logs a capture only when CurrentPlayerIndex lands on a guest slot). Box 9 shows the capture itself works.
+Unconfirmed. Also: G3 hands back on the guest's BOOTING report, not only LIVE (box 9: handed back about when the laptop logged
+BOOTING, about 2 s before its LIVE). The sheet's item 3 said LIVE. That is code-consistent and only a sheet wording slip.
+
+**New small anomalies (open, none user-visible as reported).**
+- The R6 `dialogue: the host looks HUNG -- its heartbeat ... has not moved for 10 s on a live lane` fired at the resume of the
+  two cuts whose connection survived (12:57:31, 13:05:37). It was re-armed in the same second, never after a redialed cut. The
+  pre-cut heartbeat reaches a lane that is fresh again with its clock already over 10 s (NetSyncDialog.StallStep). The lock had
+  already been released by the link-dead rule, so it is cosmetic. Fix shape: re-baseline `_hbSince` when the lane comes back
+  from dead.
+- Two single `NullReferenceException at Memoria.SmoothFrameUpdater_Battle.Apply` (SceneDirector.Update) in the laptop's
+  output_log, at the end of the 2nd and 4th dioramas by scene-load order. None on the desktop, none earlier in battle-coop notes.
+- Doc only: the cap line `refused re-adopt N ... (netsync.battle.peer.expired)` fires on the 4th refused episode in one fight
+  (ReadoptLogMax 3). Nonce 1 had exactly 3, so none.
+
 ## Open unknowns
 
 - Which suspended thread held the lock that kept the host's managed world stopped. The candidates are NetSync-relay(-write), the SaXAudio/XAudio2 callback thread, the AudioEffectManager FileSystemWatcher thread, or Unity-internal. No dump exists: WER archived only July AppHang folders. This decides whether the hang is co-op exposure or stock.
 - The exact phase inside Unity 5.2's LoadLevel where it stopped: the Mono collection vs the liveness/MarkObjects pass. It is also unknown whether BattleSwirl.Awake (SEs 634-636) and the s112 SwirlFrames call had already run.
 - The hang's frequency: one in 4 swirls in sitting A versus none across many earlier two-machine battles. An A/B soak (host + fake guest vs Enabled=0) is needed to show whether netsync raises the odds.
 - Desktop/laptop clock offset (about ±1 s). It only affects how tightly the 'writer stopped within ~1 s of the main thread' coincidence is bounded.
-- Why a 6 s physical cut cost about 20 s end to end: bridge redial backoff, TCP RTO, Wi-Fi re-association, or the relay's stale-leg replace. Neither bridge console was captured and the bridge prints no timestamps; T1 fixes this.
+- ~~Why a 6 s physical cut cost about 20 s end to end~~ MEASURED in sitting B: the outage is about the cut plus 5-10 s (TCP backoff plus Wi-Fi re-association on a surviving connection; a 19.2 s TCP give-up then DNS-failing redials on a longer one). Still open: how the 5-10 s splits between the two.
 - Whether the host's slot 1 acted at all between the 10:37:27 hand-back and the 10:38:13 victory, and whether the owner saw the legacy digit panel on the laptop field.
-- Whether hold-through resume works in-game after a 20-30 s gap: the reconciler catching up on dead enemies, the stock menu re-serving, the s114 report reading LIVE. The s56 hold was never exercised on the bridge topology.
+- ~~Whether hold-through resume works in-game after a 20-30 s gap~~ ANSWERED YES (sitting B boxes 2-3: 23 s holds resumed on the same fight, the stock menu re-served).
 - ~~Whether T2's recorded-host replay boots a diorama faithfully on a guest-role desktop~~ ANSWERED YES (Phase 1, cal 10/10 on s117).
 - Whether Unity's symbol server has symbols for the 5.2.3p2 x64 standalone player and its mono.dll, which affects how readable the T1 dump is.
-- Boxes not exercised in sitting A, to retest: A3 (Dali cold / back-to-back), A5-as-pause, A6 (cut during the swirl), A11/A12 (bumper flee, Zidane's Flee gil relay) and the s117 defeat presentation.
+- Boxes still not exercised after sitting B: A3's cold leg (re-spec: Dali 350 has no encounters), a clean back-to-back pair, A12 (Zidane's Flee gil relay), the s117 defeat presentation, the s121 menu refusal, and the desktop's take-over on a cut mid-turn (boxes 1-3 left it unreached). Sitting B ran A5-as-pause, A6 and A11 (all PASS).
 
 ## Appendix: the four investigation lanes (summaries)
 
