@@ -53,7 +53,8 @@ reason when the tape cannot carry it):
                35] (the run-out to its last refused repeat), and one 'battle lane: the host's last frame (nonce N, seq S)
                ran out of freshness ... not re-adopted' line on nonce N -- the key ABSENT reads red (an engine with the
                defect).
-  s120-battle  20 s at battle+8. I as s119. G1 no 'session ended -> reloading own autosave' from the cut through the
+  s120-battle  20 s at the nearest re-adopt-class placement (tail >= 66) at or after battle+10 s [s131 cal: battle+8
+               raced the guest's 'diorama LIVE', ~8.0-8.3 s after its boot]. I as s119. G1 no 'session ended -> reloading own autosave' from the cut through the
                post-victory window; G2 one 'session: the host went silent (the hop is up: a cut or a stall upstream) --
                holding the session for up to 30 s ... (the diorama holds); outages=K' in the outage window; G3 one 'the host
                is back after M ms -- inside the 30 s grace, the session continues (no exit ramp; still mirroring)' in the
@@ -142,8 +143,10 @@ observable state FIRST, and a key it also reads is ABSENT there -- read as None,
                  proves the press path itself).                                        s121/s131: RED only.
   THE TAIL ADDS [s131] (_predicted's tail_ms = the plan's, off the tape): on s120 and s121 -- and on s119 for the s119 leg
   (its nominal window catches a ~2 s-late hold) -- a cut with tail >= 66 adds the leg's hold check to its reds (S119-G3,
-  S120B-G4, SPAN-G2), a tail in (0, 66) adds it as a maybe; s131 never. On the 2026-10-14 tape: s119 0 (no change),
-  s120-battle 66.5 and span 66.6 -- so on the deployed s121 those two legs predict RED and their hold check.
+  S120B-G4, SPAN-G2), a tail below 66 adds it as a maybe -- INCLUDING tail 0 [s131 cal]: a tail-0 cut sits on a
+  one-Update knife edge and still re-adopts when its two Updates share a TickCount quantum (MEASURED on s121: s119 @81.59
+  held 2031 vs outage 4015); s131 never. On the 2026-10-14 tape: s119 0 (a maybe), s120-battle 67.3 (its placement
+  81.650) and span 66.6 -- so on the deployed s121 those two legs predict RED and their hold check.
   [s131 fix] The ONE exception, a stall_cap span (s120-world: _predicted's `why`, the plan's expect.why): SPAN-G2 judges
   no hold ms there and its verdict lands at the resume + the settle on either engine, so only the second no-lane close
   can read the re-adopt -- and that needs a slot Ready at the cut (the tape's, not the tail's): a MAYBE at any tail > 0.
@@ -175,7 +178,7 @@ to that ONE launch, so no leg inherits the last one's:
     COOP_CALIBRATE=1 COOP_CUT_LEG=s119        py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
     COOP_CALIBRATE=1 COOP_CUT_LEG=s120-battle py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
     COOP_CALIBRATE=1 COOP_CUT_LEG=span        py tools/play.py studies/test-harness/scenarios/coop_cut_hold.py
-     (readopt: G3 and X red, G2 maybe, READOPT-RED GREEN -- the defect reproduced; s119 at tail 0: RED only; s120-battle:
+     (readopt: G3 and X red, G2 maybe, READOPT-RED GREEN -- the defect reproduced; s119 at tail 0: RED, G3 maybe; s120-battle:
      RED + G4; span: RED + G2). After s131 deploys (the DLL rebuild auto-deploys): COOP_CUT_LEG=cal once more, then
      readopt / s119 / s120-battle / span WITHOUT COOP_CALIBRATE (all green), then with it (each reads RED only).
   PowerShell has no per-launch form: a `$env:` value PERSISTS in that shell, so the next "normal" leg would run
@@ -409,11 +412,14 @@ def _predicted(leg: str, stage: int, tail_ms: float | None = 0.0, why: str | Non
     # check reads ~(2000 - tail) ms off its rule -- on s120/s121 (the outage line exists), and on s119 for the s119 leg
     # (its nominal window); s131 never
     hc, tail = HOLD_CHECK.get(leg), float(tail_ms or 0.0)
-    if hc and hc not in reds and tail > 0.0 and (120 <= stage < 131 or (stage == 119 and leg == "s119")):
+    if hc and hc not in reds and (120 <= stage < 131 or (stage == 119 and leg == "s119")):
         # [ff9mapkit netsync s131 fix] a stall_cap span (s120-world) has no hold ms to break, and its verdict lands at the
         # resume + the settle on either engine (DioramaWatchStep: its stale age is past the 8 s cap long before): only the
         # second no-lane close reads the re-adopt there, and that one needs a slot Ready at the cut (MirrorStandDown's
         # `held`) -- the tape's, not the tail's: a maybe at ANY tail, never a predicted red
+        # [ff9mapkit netsync s131 cal] and a TAIL-0 cut is a maybe too, not a green: it sits on a one-Update knife edge
+        # (the frame expires the Update after the first stale edge, so it re-adopts when those two Updates share a
+        # TickCount quantum) -- MEASURED on s121: run 20261015-102616 (s119 @81.59, tail 0) held 2031 vs outage 4015
         stall = leg == "span" and why == "stall_cap"
         (reds if tail >= pb.READOPT_TAIL_MS and not stall else maybe).add(hc)
     return reds, maybe

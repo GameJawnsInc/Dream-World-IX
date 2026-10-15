@@ -6784,7 +6784,9 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
     red that can never come, so the -CAL verdict would read it "unseen" forever). All four modules import with no knob.
     [ff9mapkit netsync s131] coop_cut_hold's table now runs to s131 (RED only on every leg there: every G/K/X check
     passes only with s131), gains the `readopt` leg (the deployed s121 reds its G3 and X) and THE TAIL ADDS paragraph,
-    whose one exception -- a stall_cap span's SPAN-G2, a maybe at any tail -- is pinned by hand [s131 fix]."""
+    whose one exception -- a stall_cap span's SPAN-G2, a maybe at any tail -- is pinned by hand [s131 fix]. [s131 cal] A
+    TAIL-0 cut is a maybe too, not a green: the one-Update knife edge re-adopted in game (s119 @81.59 on s121: hold 2031
+    vs outage 4015), so on s120/s121 (and s119 for the s119 leg) every leg's hold check is a maybe at tail 0."""
     t = _scenario_tables()
     hl = t["hl"]
     assert set(hl["old"]) == {f"S18-{c}" for c in ("P0", "PROOF", "N2", "D1", "D2", "D3", "L1", "L2", "B1", "B2", "S1",
@@ -6797,7 +6799,7 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
         return sorted(f"{p}-{x}" for x in n)
 
     want = {   # leg -> (the s117 reds, the s119 (reds, maybe)) -- s120/s121 read <P>-RED only (s121: from 121 on)
-        "s119": (g("S119", "G1", "G2", "G3", "G4", "G5", "K"), (g("S119", "RED"), [])),
+        "s119": (g("S119", "G1", "G2", "G3", "G4", "G5", "K"), (g("S119", "RED"), g("S119", "G3"))),   # [s131 cal] G3
         "s120-battle": (g("S120B", "G1", "G2", "G3", "G4", "G5", "K"),
                         (g("S120B", "G1", "G2", "G3", "G4", "G5", "K"), g("S120B", "RED"))),
         "s120-long": (g("S120L", "G1", "G2", "G3", "K"), (g("S120L", "G1", "G2", "G3", "K"), [])),
@@ -6820,14 +6822,17 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
         if leg == "readopt":
             assert pred["120"] == pred["121"] == [g(p, "G3", "X"), g(p, "G2")], (leg, pred["120"], pred["121"])
         else:
-            assert pred["121"] == [g(p, "RED"), []], (leg, pred["121"])
-            assert pred["120"] == ([g(p, "RED"), []] if leg != "s121" else [old, []]), (leg, pred["120"])
+            # [s131 cal] the tail-0 row (the default) carries the leg's hold check as a MAYBE on s120/s121
+            hc0 = {"s119": "S119-G3", "s120-battle": "S120B-G4", "span": "SPAN-G2"}.get(leg)
+            m0 = [hc0] if hc0 else []
+            assert pred["121"] == [g(p, "RED"), m0], (leg, pred["121"])
+            assert pred["120"] == ([g(p, "RED"), m0] if leg != "s121" else [old, []]), (leg, pred["120"])
         assert pred["131"] == [g(p, "RED"), []], (leg, pred["131"])    # [ff9mapkit netsync s131] RED only there too
         for reds, maybe in pred.values():
             assert set(reds) | set(maybe) <= catalog, (leg, sorted(set(reds) | set(maybe) - catalog))
     # [ff9mapkit netsync s131] THE TAIL ADDS (the docstring's paragraph): on s120 / s121 -- and on s119 for the s119 leg --
-    # a cut with tail >= 66 adds the leg's hold check to its reds, a tail in (0, 66) adds it as a maybe; s131 never; a
-    # check already red stays as it was (readopt's G3, s119's gk)
+    # a cut with tail >= 66 adds the leg's hold check to its reds, a tail below 66 -- 0 included [s131 cal: the knife
+    # edge] -- adds it as a maybe; s131 never; a check already red stays as it was (readopt's G3, s119's gk)
     assert t["hold_check"] == {"s119": "S119-G3", "readopt": "READOPT-G3", "s120-battle": "S120B-G4", "span": "SPAN-G2"}
     for leg, body in cut.items():
         hc = t["hold_check"].get(leg)
@@ -6835,8 +6840,13 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
             base = by_tail["0.0"]
             assert base == body["pred"][s], (leg, s)
             adds = hc is not None and hc not in base[0] and (s in ("120", "121") or (s == "119" and leg == "s119"))
-            assert by_tail["67.0"] == ([sorted(base[0] + [hc]), base[1]] if adds else base), (leg, s, by_tail)
-            assert by_tail["33.0"] == ([base[0], sorted(set(base[1]) | {hc})] if adds else base), (leg, s, by_tail)
+            if adds:
+                reds, maybe = base[0], sorted(set(base[1]) - {hc})
+                assert base == [reds, sorted(set(maybe) | {hc})], (leg, s, base)     # [s131 cal] tail 0: a maybe
+                assert by_tail["33.0"] == [reds, sorted(set(maybe) | {hc})], (leg, s, by_tail)
+                assert by_tail["67.0"] == [sorted(reds + [hc]), maybe], (leg, s, by_tail)
+            else:
+                assert by_tail["33.0"] == by_tail["67.0"] == base, (leg, s, by_tail)
     # [ff9mapkit netsync s131 fix] THE TAIL ADDS' one exception, pinned by hand (not by restating _predicted's condition):
     # a stall_cap span (s120-world) prints no hold ms and leaves at the resume + the settle on either engine, so SPAN-G2
     # reads the re-adopt only through the Ready-gated second close -- s120/s121 add it as a MAYBE at 33 AND 67, never a

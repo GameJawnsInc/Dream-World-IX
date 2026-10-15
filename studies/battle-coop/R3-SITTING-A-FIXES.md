@@ -503,6 +503,25 @@ tail. tail_ms comes from the relay tap or the tape at --blackhole-at.
   - A 70 ms shift of the cut flips the defect on in one leg and off in the other: the mechanism is the cause.
 - **The fix is s131** (owner decision: the next free number after group 2's s122-s130 reservation). Its README row lists the
   stall-cap side effect (owner decision: keep it).
+- **s131 captured** (compile-checked, NOT deployed) with its harness pass: every hold is judged against the same run's outage
+  plus the cut's tape tail; at most one no-lane menu close per cut; and the `readopt` leg.
+- **Calibrated in game on the unfixed s121** (COOP_CALIBRATE=1, every <LEG>-CAL PASS, 2026-10-15):
+
+  | Leg | Cut | Tail | Result on s121 |
+  |---|---|---|---|
+  | readopt | 81.650 | 67.3 | red exactly G3 + X (the defect reproduced) |
+  | s120-battle | 81.650 | 67.3 | red exactly G4; hold - outage = -1937 |
+  | span | 115.359 | 66.6 | red exactly G2 |
+  | s119 | 81.590 | 0 | 0 this run |
+
+  Two calibration lessons from those runs:
+  - s120-battle MOVED from battle+8: there it raced the guest's 'diorama LIVE' (~8.0-8.3 s after the boot); run
+    20261015-102824 lost the race, so S120B-I read red.
+  - THE TAIL-0 KNIFE EDGE IS REAL: s119 at tail 0 re-adopted once on s121 (run 20261015-102616: hold 2031 vs outage 4015) and
+    not the next time (+0). So on pre-s131 engines a tail-0 hold check is a MAYBE, not a predicted green. The discriminating
+    leg is `readopt`.
+- Next: deploy s131 (the DLL rebuild auto-deploys), then readopt / s119 / s120-battle / span green on s131, then the 6.1
+  regression set.
 
 ## Open unknowns
 

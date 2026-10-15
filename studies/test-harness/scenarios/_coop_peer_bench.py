@@ -112,7 +112,10 @@ LEG_ALIASES = {"s120": "s120-battle", "s120-world": "span", "world": "span", "s1
                "s131": "readopt", "re-adopt": "readopt"}                 # [ff9mapkit netsync s131]
 ROAM_LEAD_S = 15.0                           # a free-roam blackhole starts this long after the replay's first host frame
 S119_AT_S, S119_FOR_S = 10.0, 6.0            # the sitting-A row: 6 s, 10 s into the recorded battle (the plan's T2 bench)
-S120B_AT_S, S120B_FOR_S = 8.0, 20.0          # the plan's "20 s blackhole mid-battle"
+S120B_AT_S, S120B_FOR_S = 10.0, 20.0         # the plan's "20 s blackhole mid-battle"; [ff9mapkit netsync s131 cal] was 8.0,
+                                             # which RACED the guest's 'diorama LIVE' (~8.0-8.3 s after its boot: run
+                                             # 20261015-102824 lost it, S120B-I red); now the nearest re-adopt-class
+                                             # placement at or after battle+10 s, like readopt (a deterministic s121 red)
 LONG_FOR_S = 40.0                            # the plan's "40 s blackhole"
 ROAM_FOR_S = 20.0                            # the plan's "20 s blackhole in free roam"
 SPAN_LEAD_S, SPAN_TAIL_S = 4.0, 4.0          # a span cut starts this long before the end block turns terminal, ends after
@@ -1358,7 +1361,15 @@ def plan_leg(leg: str, facts: dict, grace_s: float = GRACE_DEFAULT_S, *, world: 
     if leg == "s119":
         at_, dur = b["start"] + S119_AT_S, S119_FOR_S
     elif leg == "s120-battle":
-        at_, dur = b["start"] + S120B_AT_S, S120B_FOR_S
+        # [ff9mapkit netsync s131 cal] past the guest's LIVE (S120B_AT_S) and in the re-adopt class (tail >= 66), so
+        # neither the instrument nor the s121 red is left to a race or the tail-0 knife edge
+        # -- this leg's JOB is the 20 s grace, not the re-adopt (that is readopt's), so a tape with no such placement (a host
+        # sending each seq once) falls back to battle+10 s as written, its hold check then a tail-0 maybe on s121
+        dur = S120B_FOR_S
+        at_, scan = readopt_placement(facts.get("rx") or [], b["start"] + S120B_AT_S, live_end - dur - 3.0)
+        if at_ is None:
+            at_, scan = b["start"] + S120B_AT_S, f"no re-adopt-class placement ({scan}) -- battle+{S120B_AT_S:g} s as written"
+        plan["expect"] = {"placement": scan}
     elif leg == "readopt":
         # [ff9mapkit netsync s131] the s119 cut moved to the nearest re-adopt-class placement (tail >= 66 ms)
         dur = READOPT_FOR_S
