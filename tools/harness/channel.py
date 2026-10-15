@@ -1598,6 +1598,37 @@ class State:
                                                                               "about THIS battle (false = its NONE still "
                                                                               "owns: the panel-only guest).")
 
+    # [ff9mapkit netsync s131] THE EXPIRED SEQ (studies/battle-coop/R3-SITTING-A-FIXES.md, "The hold-onset variance: the Pump
+    # null RE-ADOPT"): no new verb or op -- the capability is the key's PRESENCE, absent = None. GUEST-side and transport-
+    # only: the run-out needs a real peer lane (the selftest role's loopback writes the view directly and never runs out),
+    # so on the stand-in and the selftest role the block sits at its sentinels -- a wire replay with a blackhole is its
+    # bench. The counters are monotonic per PROCESS: read DELTAS across a cut.
+    @property
+    def coop_peer_adopt(self) -> bool | None:
+        """s131: the peer adopt step (``netsync.battle.peer.expired``) -- once the host's battle view runs out of freshness,
+        the transport's repeats of that (nonce, seq) are never adopted again. False = an engine whose guest RE-ADOPTS the
+        host's frozen last frame after the run-out (s121 and older: a phantom second 2000 ms of a live lane whenever the
+        cut's tail outlasts one Update, ~79% of cuts)."""
+        return self._nb_cap("peer.expired", dict)
+
+    # ---- peer: s131 the expired seq (the last key of ``peer``)
+    coop_peer_expired = _nb_prop("peer.expired", dict, "s131: the whole ``expired`` block, copied.")
+    coop_peer_expired_seq = _nb_prop("peer.expired.seq", int, "s131: the expired memo's seq -- the host frame whose "
+                                                              "freshness ran out, refused while the transport repeats it; "
+                                                              "-1 = none (no run-out since the last real adopt or a reset).")
+    coop_peer_expired_nonce = _nb_prop("peer.expired.nonce", int, "s131: ...its host battle nonce; -1 = none.")
+    coop_peer_expired_count = _nb_prop("peer.expired.count", int, "s131: freshness RUN-OUTS (Pump's stale branch nulled a "
+                                                                  "view) -- monotonic, read DELTAS: +1 per cut or battle "
+                                                                  "end, whatever its tail.")
+    coop_peer_expired_refused = _nb_prop("peer.expired.refused", int, "s131: refused re-adopt EPISODES (run-outs whose "
+                                                                      "frame the transport served again: the pre-s131 "
+                                                                      "phantom 2000 ms) -- monotonic, read DELTAS: +1 for "
+                                                                      "a tail >= ~one Update, +0 for a tail-0 cut.")
+    coop_peer_expired_frames = _nb_prop("peer.expired.frames", int, "s131: refused repeat FRAMES -- monotonic, read DELTAS.")
+    coop_peer_expired_ms = _nb_prop("peer.expired.ms", int, "s131: the last episode, its run-out to its last refused "
+                                                            "repeat (the cut's tail less up to two Updates); -1 = none "
+                                                            "yet.")
+
     # ---- host: s111 the intro mirror's host half
     coop_host_cfg = _nb_prop("host.cfg", dict, "s111: the whole ``cfg`` block, copied (LIVE reads).")
     coop_cfg_atb = _nb_prop("host.cfg.atb", int, "s111: cfg.atb -- 0 Active, 1 Wait (a ``bench cfg atb`` override shows "

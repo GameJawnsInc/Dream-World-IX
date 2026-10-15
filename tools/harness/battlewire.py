@@ -2028,3 +2028,235 @@ CS_CLIENT_CONSTANTS = {
 CS_FIELD_CONSTANTS = {"MenuKeyOpen": MENU_KEY_OPEN, "MenuKeyStockOff": MENU_KEY_STOCK_OFF,
                       "MenuKeyRefuseAudible": MENU_KEY_REFUSE_AUDIBLE, "MenuKeyRefuseSilent": MENU_KEY_REFUSE_SILENT,
                       "MenuKeyDialogPath": MENU_KEY_DIALOG_PATH}
+
+
+# ======================================================================================== [ff9mapkit netsync s131]
+# THE EXPIRED SEQ (studies/battle-coop/R3-SITTING-A-FIXES.md, "The hold-onset variance: the Pump null RE-ADOPT"). The
+# guest's Pump keys its battle lane's freshness to the HOST's seq (s40): `_peerViewTick` is restamped only when a new seq is
+# adopted, and the first stale frame nulls `_peerView`. The transport keeps serving the host's last frame until its own
+# last receipt + 2000 (the host re-sends each seq 4-5 times), so that frame outlives the run-out by the cut's "tail"
+# (0-133 ms) -- and before s131 the `_peerView == null` disjunct RE-ADOPTED it on the next Update: a phantom second 2000 ms
+# of "live" in ~79% of cuts (the s119 hold started ~1.9 s late). s131 remembers the expired (nonce, seq) and refuses the
+# transport's repeats of it; a new seq or a new nonce is adopted as before. Each function below is its C# twin in
+# NetSyncBattle; test_harness_netsync.py EVALUATES PeerAdoptSelfTest's own rows against them (read off the stack) and pins
+# the constants by name (CS_ADOPT_CONSTANTS). OWNER-ACCEPTED SIDE EFFECT: a host whose game thread stalls while its writer
+# keeps re-sending one seq now reads stale at 2000 ms and STAYS stale (a 'stalled' hold, then the s120 stall cap's final
+# leave) -- :class:`PeerLane` with ``tail_ms < 0`` scripts.
+PROOF_ADOPT = "peer adopt selftest: "              # NetSyncBattle.PeerAdoptSelfTest (s131), logged right after PROOF_MENU
+ADOPT_SELFTEST_ROWS = 20                           # 15 step rows + 5 rows of Pump's lane order over served-frame scripts
+ADOPT_NONE, ADOPT_REPEAT, ADOPT_NEW, ADOPT_REFUSED = 0, 1, 2, 3
+READOPT_LOG_MAX = 3                                # refused re-adopt EPISODES logged per host battle (its nonce), then one
+                                                   # 'further ones ... counted, not logged' line; Reset() re-arms the budget
+#: PeerAdoptSelfTest's own constants (the table is pure: a retuned live StaleMs never moves its rows)
+ADOPT_TEST_NONCE, ADOPT_TEST_STALE_MS, ADOPT_TEST_FRAME_MS, ADOPT_TEST_SAMPLE_MS = 0x41, 2000, 10, 150
+#: `netsync.battle.peer.expired` in AppendPeerExpired's key order, at AppendNetsync's catch-line sentinels: ``seq`` /
+#: ``nonce`` the expired memo (-1 = none), ``count`` run-outs, ``refused`` refused re-adopt EPISODES, ``frames`` refused
+#: repeat frames (the three monotonic per process: read DELTAS), ``ms`` the last episode's run-out to its last refused
+#: repeat (-1 = none yet). The key absent = an engine that still re-adopts (s121 and older).
+PEER_EXPIRED_SENTINELS = {"seq": -1, "nonce": -1, "count": 0, "refused": 0, "frames": 0, "ms": -1}
+#: the episode line's head (the first READOPT_LOG_MAX per host battle) and the budget's last line's head
+LOG_READOPT_REFUSED = "[NetSync] battle lane: the host's last frame (nonce "
+LOG_READOPT_MUTED = "[NetSync] battle lane: refused re-adopt "
+
+
+def new_peer_lane_memo() -> dict:
+    """NetSyncBattle.PeerLaneMemo at its default -- no memo (Reset's state, and the first view ever's): ``armed`` (a view's
+    freshness ran out and nothing was adopted since), ``seq`` / ``nonce`` (that view's), ``refused`` (the transport's
+    repeats of it refused since; 1 = this run-out's episode just opened)."""
+    return {"armed": False, "seq": 0, "nonce": 0, "refused": 0}
+
+
+def peer_adopt_step(m: dict, seq: int, nonce: int, cur_seq: int) -> int:
+    """NetSyncBattle.PeerAdoptStep -- THE ADOPT DECISION in Pump's guest branch, advancing the memo ``m`` in place.
+    ``seq`` / ``nonce`` = the frame the transport serves this tick (seq -1 = none, or it did not parse); ``cur_seq`` = the
+    seq of the view in hand (-1 = none: nulled, or never one). A view in hand yields only to a NEW seq (the s40 guard,
+    seq only: the same seq re-served is ADOPT_REPEAT); with none in hand any frame is ADOPT_NEW -- except a transport
+    repeat of the (nonce, seq) whose freshness ran out (``m`` armed by :func:`peer_expire_step`): ADOPT_REFUSED, counted in
+    ``m["refused"]``. Every adopt clears the memo."""
+    if seq < 0:
+        return ADOPT_NONE
+    if cur_seq >= 0 and seq == cur_seq:
+        return ADOPT_REPEAT
+    if cur_seq < 0 and m["armed"] and seq == m["seq"] and nonce == m["nonce"]:
+        m["refused"] += 1
+        return ADOPT_REFUSED
+    m.update(new_peer_lane_memo())
+    return ADOPT_NEW
+
+
+def peer_expire_step(m: dict, cur_seq: int, cur_nonce: int) -> bool:
+    """NetSyncBattle.PeerExpireStep -- THE RUN-OUT (Pump's stale branch, right before it nulls the view): the view in hand
+    (``cur_seq`` >= 0) becomes the expired frame, its episode not yet open (refused 0); nothing in hand leaves the memo as
+    it is. True = a view ran out (Pump counts it in ``count`` and stamps the run-out's tick)."""
+    if cur_seq < 0:
+        return False
+    m.update(armed=True, seq=int(cur_seq), nonce=int(cur_nonce), refused=0)
+    return True
+
+
+def peer_lane_forget(m: dict) -> None:
+    """NetSyncBattle.PeerLaneForget -- Reset's half: no expired frame (the first frame after it is adopted, whatever it
+    is)."""
+    m.update(new_peer_lane_memo())
+
+
+def pre_s131_adopts(seq: int, cur_seq: int) -> bool:
+    """The PRE-s131 adopt test (s37's null-reset under s40's seq guard, the one line s131 removed) -- the calibration's
+    red: ``view != null && (_peerView == null || view.Seq != _peerView.Seq)``. With nothing in hand ANY frame is adopted,
+    the expired one included: the phantom second 2000 ms."""
+    return seq >= 0 and (cur_seq < 0 or seq != cur_seq)
+
+
+def cut_script(last_ms: int, tail_ms: int, resume_ms: int, total_ms: int) -> list:
+    """NetSyncBattle.CutScript -- a served-frame script over ``total_ms`` (frame i at tick i * ADOPT_TEST_FRAME_MS; each
+    entry the seq the transport serves then, -1 = none): the host's seq advances every ADOPT_TEST_SAMPLE_MS up to its last
+    pre-cut seq (first served at ``last_ms``, a multiple of the cadence), which the transport serves until that seq's last
+    receipt (``last_ms + tail_ms``) + ADOPT_TEST_STALE_MS -- ``tail_ms`` < 0 = forever: a stalled host whose writer keeps
+    re-sending it -- then nothing; from ``resume_ms`` (>= 0) the host's new seqs."""
+    out = []
+    last = last_ms // ADOPT_TEST_SAMPLE_MS
+    for i in range(total_ms // ADOPT_TEST_FRAME_MS + 1):
+        t = i * ADOPT_TEST_FRAME_MS
+        if 0 <= resume_ms <= t:
+            out.append(last + 1 + (t - resume_ms) // ADOPT_TEST_SAMPLE_MS)
+        elif t < last_ms:
+            out.append(t // ADOPT_TEST_SAMPLE_MS)
+        elif tail_ms < 0 or t <= last_ms + tail_ms + ADOPT_TEST_STALE_MS:
+            out.append(last)
+        else:
+            out.append(-1)
+    return out
+
+
+def adopt_replay(served, memo: bool) -> tuple:
+    """NetSyncBattle.AdoptReplay -> ``(refused, stale_at, reopen_at)``: Pump's lane order over a served-frame script (frame
+    i at tick i * ADOPT_TEST_FRAME_MS) -- the adopt (a new frame restamps), the freshness test (ADOPT_TEST_STALE_MS), the
+    run-out (:func:`peer_expire_step`, then the null). ``memo`` False = the PRE-s131 step (the memo forgotten before every
+    adopt: the old ``_peerView == null`` disjunct). ``refused`` = the refused repeats; ``stale_at`` = the first
+    live->stale tick, ``reopen_at`` = the first stale->live tick after it (-1 = never)."""
+    m = new_peer_lane_memo()
+    cur, tick, refused, was_live, stale_at, reopen_at = -1, 0, 0, False, -1, -1
+    for i, seq in enumerate(served):
+        now = i * ADOPT_TEST_FRAME_MS
+        if not memo:
+            peer_lane_forget(m)
+        adopt = peer_adopt_step(m, seq, ADOPT_TEST_NONCE, cur)
+        if adopt == ADOPT_NEW:
+            cur, tick = seq, now
+        elif adopt == ADOPT_REFUSED:
+            refused += 1
+        live = cur >= 0 and now - tick < ADOPT_TEST_STALE_MS
+        if not live:
+            peer_expire_step(m, cur, ADOPT_TEST_NONCE)
+            cur = -1
+        if was_live and not live and stale_at < 0:
+            stale_at = now
+        elif not was_live and live and stale_at >= 0 and reopen_at < 0:
+            reopen_at = now
+        was_live = live
+    return refused, stale_at, reopen_at
+
+
+def readopt_line(nonce: int, seq: int, refused: int) -> str:
+    """NoteRefusedReadopt's episode line (logged on an episode's FIRST refused repeat, for the first READOPT_LOG_MAX
+    episodes of a host battle); ``refused`` = the episode count after it (`peer.expired.refused`)."""
+    return (f"{LOG_READOPT_REFUSED}{int(nonce)}, seq {int(seq)}) ran out of freshness and the transport served it again -- "
+            f"not re-adopted: a repeat is never news, the lane stays stale until a new frame (a fight's end, a cut or a "
+            f"stalled host); refused={int(refused)}")
+
+
+def readopt_muted_line(n: int, nonce: int, refused: int) -> str:
+    """NoteRefusedReadopt's budget line: episode ``n`` (= READOPT_LOG_MAX + 1) of a host battle, the last one logged."""
+    return (f"{LOG_READOPT_MUTED}{int(n)} on the host's battle (nonce {int(nonce)}) -- further ones on it are counted, not "
+            f"logged (netsync.battle.peer.expired); refused={int(refused)}")
+
+
+class PeerLane:
+    """[ff9mapkit netsync s131] The GUEST's battle lane as Pump runs it, with s131's statics: the memo, the run-out counter
+    and tick, the refused episodes / frames / span, the log budget -- `netsync.battle.peer.expired` is :meth:`doc`, and
+    every line NoteRefusedReadopt writes is appended to :attr:`lines`. Per PROCESS like the engine's statics: the counters
+    survive :meth:`reset` (NetSyncBattle.Reset: the memo forgotten, the view nulled, the log budget re-armed). ``memo``
+    False models the PRE-s131 engine (the memo forgotten before every adopt: the re-adopt, no refusals) -- its lane only:
+    that engine publishes no `expired` key. The selftest role never steps this (its loopback writes the view directly,
+    so nothing runs out): a wire replay with a cut is its bench."""
+
+    def __init__(self, memo: bool = True, stale_ms: int = STALE_MS) -> None:
+        self.memo_on = bool(memo)
+        self.stale_ms = int(stale_ms)
+        self.m = new_peer_lane_memo()               # _peerLane
+        self.view = None                            # _peerView as (seq, nonce); None = no view in hand
+        self.tick = 0                               # _peerViewTick (the adopt's tick)
+        self.live = False                           # PeerBattleLive
+        self.expiries = 0                           # _peerExpiries -- monotonic
+        self.expiry_tick = -60000                   # _peerExpiryTick (tick-baseline law: 60 s before the first pump)
+        self.episodes = 0                           # _readoptEpisodes -- monotonic
+        self.frames = 0                             # _readoptFrames -- monotonic
+        self.ms = -1                                # _readoptMs (-1 = none yet)
+        self.log_nonce = -1                         # _readoptLogNonce (-1 = none -- reset() re-arms it)
+        self.logged = 0                             # _readoptLogged
+        self.lines: list = []                       # the Log.Message lines, in order (each WITH its "[NetSync] " head)
+
+    def pump(self, now_ms: int, served=None) -> bool:
+        """One Pump tick at ``now_ms`` -> PeerBattleLive. ``served`` = the ``(seq, nonce)`` the transport serves this tick
+        (None = GetRemoteBattle null; a seq of -1 = a frame that did not parse). The adopt, then the freshness test, then
+        -- not live -- the run-out and the null (Pump's stale branch)."""
+        if served is not None:
+            seq, nonce = int(served[0]), int(served[1])
+            if not self.memo_on:
+                peer_lane_forget(self.m)
+            adopt = peer_adopt_step(self.m, seq, nonce, self.view[0] if self.view is not None else -1)
+            if adopt == ADOPT_NEW:
+                self.view, self.tick = (seq, nonce), int(now_ms)
+            elif adopt == ADOPT_REFUSED:
+                self._note_refused(int(now_ms))
+        live = self.view is not None and int(now_ms) - self.tick < self.stale_ms
+        if not live:
+            if self.view is not None and peer_expire_step(self.m, self.view[0], self.view[1]):
+                self.expiries += 1
+                self.expiry_tick = int(now_ms)
+            self.view = None
+        self.live = live
+        return live
+
+    def _note_refused(self, now_ms: int) -> None:
+        """NoteRefusedReadopt: every refused repeat counts a frame and the episode's span; the FIRST refused repeat of a
+        run-out counts one episode and writes its one line (the first READOPT_LOG_MAX of a host battle; then one budget
+        line; then nothing -- the counters never stop)."""
+        self.frames += 1
+        self.ms = now_ms - self.expiry_tick
+        if self.m["refused"] != 1:
+            return
+        self.episodes += 1
+        if self.m["nonce"] != self.log_nonce:
+            self.log_nonce, self.logged = self.m["nonce"], 0
+        self.logged += 1
+        if self.logged <= READOPT_LOG_MAX:
+            self.lines.append(readopt_line(self.m["nonce"], self.m["seq"], self.episodes))
+        elif self.logged == READOPT_LOG_MAX + 1:
+            self.lines.append(readopt_muted_line(self.logged, self.m["nonce"], self.episodes))
+
+    def reset(self) -> None:
+        """NetSyncBattle.Reset's s131 half (and its null of the view): the memo forgotten, the log budget re-armed; the
+        counters stay."""
+        self.view = None
+        self.live = False
+        peer_lane_forget(self.m)
+        self.log_nonce, self.logged = -1, 0
+
+    def run(self, served, *, nonce: int = ADOPT_TEST_NONCE, frame_ms: int = ADOPT_TEST_FRAME_MS, t0_ms: int = 0) -> list:
+        """Pump a served-seq script (:func:`cut_script`'s shape: -1 = nothing served) one tick per ``frame_ms`` from
+        ``t0_ms``, every frame of host battle ``nonce`` -> the PeerBattleLive flags, in order."""
+        return [self.pump(t0_ms + i * frame_ms, None if seq < 0 else (seq, nonce)) for i, seq in enumerate(served)]
+
+    def doc(self) -> dict:
+        """HarnessAgent.AppendPeerExpired -- `netsync.battle.peer.expired` (the memo's seq / nonce only while it is armed)."""
+        armed = self.m["armed"]
+        return {"seq": self.m["seq"] if armed else -1, "nonce": self.m["nonce"] if armed else -1, "count": self.expiries,
+                "refused": self.episodes, "frames": self.frames, "ms": self.ms}
+
+
+#: NetSyncBattle's s131 integer constants, by C# name (StaleMs / SampleMs: the live lane's, which the test table mirrors).
+CS_ADOPT_CONSTANTS = {"AdoptNone": ADOPT_NONE, "AdoptRepeat": ADOPT_REPEAT, "AdoptNew": ADOPT_NEW,
+                      "AdoptRefused": ADOPT_REFUSED, "ReadoptLogMax": READOPT_LOG_MAX, "AdoptTestNonce": ADOPT_TEST_NONCE,
+                      "AdoptTestStaleMs": ADOPT_TEST_STALE_MS, "AdoptTestFrameMs": ADOPT_TEST_FRAME_MS,
+                      "AdoptTestSampleMs": ADOPT_TEST_SAMPLE_MS, "StaleMs": STALE_MS, "SampleMs": SAMPLE_MS}

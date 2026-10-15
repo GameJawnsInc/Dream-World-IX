@@ -143,6 +143,24 @@ release gate.
   instrument, not system: relay mode's banner is 'relay listening on ...' (not 'listening on'); a root booted with Netsync
   Enabled=0 has no NetSyncClient polling its ini, so the role config lands only at a field load (`coop_tape_record._wait_config`'s
   recipe: a short wait, then one same-field warp).
+- **P5 -- STOPPED at its first surprise** (`p4_pairing.py --leg bridge --cut-for 6`: P4's pairing, the host battle, then
+  NtSuspendProcess on the HOST's bridge for 6.00 s, 10 s after the guest's LIVE). Every P4 check green again. Against sitting A
+  (laptop-Memoria.log 155-166, s117: 'diorama LEAVE requested', 'watcher-leave settled (nonce 3)', the warm return, then
+  'session ended -> reloading own autosave' 3 s later), the s121 guest did the OPPOSITE, as designed: K1 none of those lines; K2
+  one CUT-variant hold ('peer silent mid-battle -- holding ... a cut; up to 30s'); K3 one session outage ('the hop is up: a cut or
+  a stall upstream'); the resume 'back on the same fight (nonce 1) ... resuming', 'the host is back after 4000 ms -- inside the
+  30 s grace ... still mirroring', and 'the ready mirror is SERVING' again. THE SURPRISE (K4, the hold's length): 2125 ms, not
+  the ~4000 the T2 s119 leg measured (4047). The hold line came ~2 s AFTER the outage line (04:31:48 -> :50), and the guest's
+  stock menu closed for 'no live peer battle lane' TWICE (:47 and :50) -- as if the battle lane read live again briefly inside
+  the cut and restarted the hold clock. The T2 legs disagree with each other the same way: s119 hold 4047 vs outage 4031 (same
+  second); s120-battle hold 16094 vs outage 18015 (the hold line 2 s after the outage). So the hold's ONSET varies by ~2 s run to
+  run, live or replayed. Not a sitting-A regression (no leave, no ramp, same-nonce resume). K5 was not reached by the driver,
+  though its line is in the window above. **CAUSE FOUND (read-only workflow + 2 skeptics, both "holds"):** a latent ENGINE defect
+  since s40 -- the guest's NetSyncBattle.Pump nulls its stale view, then RE-ADOPTS the transport's still-served frozen frame on the
+  next Update (NetSyncBattle.cs:1289's `_peerView == null` disjunct). The lane gets a second 2000 ms whenever the cut's 'tail' (the
+  final seq's re-sends before the cut) is > 0; the offset = 2000 - tail. Full write-up, per-run table, fix shape and recalibration
+  in studies/battle-coop/R3-SITTING-A-FIXES.md ("The hold-onset variance"). The duo found a bug the replay bench had passed by
+  placement luck.
 - **Where this leaves the goal:** two real co-op clients on this desktop, harness-driven, over the sittings' own bridge + relay
   path, with no DLL change and the real install untouched. Next: P5 (a bridge-suspend cut vs sitting A), then productionize
   (instance.py, a Session multi-instance mode, duo.py, tests -- see "Harness changes"). **Productionized: next section.**
