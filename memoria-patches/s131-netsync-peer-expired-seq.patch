@@ -1,0 +1,436 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 0c416cd..03b59ed 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -466,6 +466,17 @@ namespace Memoria.Netsync
+ 
+         private static BattleView _peerView;
+         private static Int32 _peerViewTick;
++        // [ff9mapkit netsync s131] THE EXPIRED SEQ (see "the peer adopt step" above the pumps): the frame whose freshness ran
++        // out, whose transport repeats are never news again (Pump's guest branch; default = no memo -- Reset's state)
++        private static PeerLaneMemo _peerLane;
++        private static Int32 _peerExpiries;           // freshness run-outs (Pump's stale branch nulled a view) -- monotonic (read DELTAS)
++        private static Int32 _peerExpiryTick = Environment.TickCount - 60000;   // the last run-out's tick (tick-baseline law)
++        private static Int32 _readoptEpisodes;        // run-outs whose expired frame the transport served again (refused) -- monotonic
++        private static Int32 _readoptFrames;          // ...the refused repeat frames -- monotonic
++        private static Int32 _readoptMs = -1;         // the last episode: its run-out to its last refused repeat (-1 = none yet)
++        private static Int32 _readoptLogNonce = -1;   // the log budget's host battle (nonce; -1 = none -- Reset re-arms it)
++        private static Int32 _readoptLogged;          // ...its episodes so far: ReadoptLogMax logged, then one counted-only line
++        private const Int32 ReadoptLogMax = 3;
+         private static RosterView _peerRoster;
+         private static Int32 _lastSendTick = Environment.TickCount - 60000;   // assist-key cooldown (tick-baseline law:
+                                                    // a 0 default = keys swallowed FOREVER on a negative-tick machine)
+@@ -621,6 +632,9 @@ namespace Memoria.Netsync
+         public static void Reset()
+         {
+             _peerView = null;
++            PeerLaneForget(ref _peerLane);         // [ff9mapkit netsync s131] the expired frame forgotten (its counters stay)
++            _readoptLogNonce = -1;                 // [ff9mapkit netsync s131] ...and its log budget re-armed (a new session's nonces)
++            _readoptLogged = 0;
+             _peerRoster = null;
+             PeerBattleLive = false;
+             AssistInputActive = false;
+@@ -1170,6 +1184,101 @@ namespace Memoria.Netsync
+                         + " ms -- the loopback guest's control lane stamps again from the next selftest pump tick");
+         }
+ 
++        // ============================================================================ the peer adopt step (s131)
++        // [ff9mapkit netsync s131] THE EXPIRED SEQ (studies/battle-coop/R3-SITTING-A-FIXES.md, "The hold-onset variance: the Pump
++        // null RE-ADOPT"). The guest's lane clock is keyed to the HOST's seq (the s40 guard in Pump): _peerViewTick is restamped
++        // only when a new seq is adopted. On the first stale frame Pump nulls _peerView -- but the transport keeps serving the
++        // host's last frame until its own last receipt + 2000 (NetSyncSocket.GetBattle), and the host re-sends each seq 4-5 times
++        // (33 ms writes, ~150 ms samples), so that frame outlives the run-out by its "tail" (0-133 ms, set by where a cut lands).
++        // The old test's `_peerView == null` disjunct RE-ADOPTED it on the next Update: the lane read live for a phantom second
++        // 2000 ms in ~79% of cuts (the s119 hold started ~1.9 s late; with a guest slot Ready the stock menu blinked open on a
++        // frozen host), and at ~79% of genuine battle ends. Now the run-out REMEMBERS the view's (nonce, seq) and a transport
++        // repeat of it is never news again; a new seq or a new nonce is adopted as before, and every adopt clears the memo, as
++        // does Reset(). Freshness stays keyed to the seq: re-keying it to receipt (the rejected alternative) would bring back
++        // s40's stacked windows. OWNER-ACCEPTED SIDE EFFECT: a host whose game thread stalls while its writer keeps re-sending
++        // one seq now reads stale at 2000 ms and STAYS stale -- the diorama holds 'stalled' and leaves FINAL at the 8 s stall cap
++        // with the skip stamped (NetSyncClient.DioramaWatchStep) -- where the defect re-adopted it every ~2 s. Main thread only.
++        // The selftest role never arms the memo (SelfTestPump's loopback and the bench feed write _peerView directly, no run-out).
++        internal const Int32 AdoptNone = 0;           // nothing parsed this tick: nothing to adopt
++        internal const Int32 AdoptRepeat = 1;         // the view in hand served again (its seq): not news, no restamp
++        internal const Int32 AdoptNew = 2;            // a new frame: adopt it, restamp the lane's freshness
++        internal const Int32 AdoptRefused = 3;        // a transport repeat of the frame whose freshness ran out: refused
++
++        internal struct PeerLaneMemo                  // default = no memo (Reset's state, and the first view ever's)
++        {
++            public Boolean Armed;                     // a view's freshness ran out, and nothing was adopted since
++            public Int32 Seq, Nonce;                  // ...that view's seq and battle nonce
++            public Int32 Refused;                     // transport repeats of it refused since (1 = this run-out's episode opened)
++        }
++
++        /// <summary>[ff9mapkit netsync s131] THE ADOPT DECISION (Pump's guest branch; PeerAdoptSelfTest pins it). `seq`/`nonce` = the
++        /// frame the transport serves this tick (seq -1 = none, or it did not parse), `curSeq` = the seq of the view in hand (-1 =
++        /// none: the lane was nulled, or never had one). A view in hand yields only to a NEW seq (the s40 guard, seq only: the same
++        /// seq re-served is a repeat). With none in hand any frame is adopted -- except a transport repeat of the (nonce, seq)
++        /// whose freshness ran out (`m`, armed by PeerExpireStep), which is refused and counted in m.Refused. Every adopt clears
++        /// the memo. Pure apart from the memo it advances.</summary>
++        internal static Int32 PeerAdoptStep(ref PeerLaneMemo m, Int32 seq, Int32 nonce, Int32 curSeq)
++        {
++            if (seq < 0)
++                return AdoptNone;
++            if (curSeq >= 0 && seq == curSeq)
++                return AdoptRepeat;
++            if (curSeq < 0 && m.Armed && seq == m.Seq && nonce == m.Nonce)
++            {
++                m.Refused++;
++                return AdoptRefused;
++            }
++            m = default(PeerLaneMemo);
++            return AdoptNew;
++        }
++
++        /// <summary>[ff9mapkit netsync s131] THE RUN-OUT (Pump's stale branch, right before it nulls the view): the view in hand
++        /// (`curSeq` >= 0) becomes the expired frame, its episode not yet open (Refused 0). Nothing in hand (the lane already null)
++        /// leaves the memo as it is. True = a view ran out. Pure apart from the memo.</summary>
++        internal static Boolean PeerExpireStep(ref PeerLaneMemo m, Int32 curSeq, Int32 curNonce)
++        {
++            if (curSeq < 0)
++                return false;
++            m.Armed = true;
++            m.Seq = curSeq;
++            m.Nonce = curNonce;
++            m.Refused = 0;
++            return true;
++        }
++
++        /// <summary>[ff9mapkit netsync s131] Reset's half: no expired frame (the first frame after it is adopted, whatever it is).</summary>
++        internal static void PeerLaneForget(ref PeerLaneMemo m)
++        {
++            m = default(PeerLaneMemo);
++        }
++
++        // [ff9mapkit netsync s131] Pump, on each refused repeat: count the frame and keep the episode's span (its run-out to this
++        // repeat), and on the FIRST refused repeat of a run-out (m.Refused == 1) count one episode and write its one line -- never
++        // per frame. Counted always; logged for the first ReadoptLogMax episodes of a host battle (its nonce), then one line saying
++        // the rest are counted only (review S131-R2: s119's DioramaHoldLogMax treatment -- a host hitching at the 2 s edge would
++        // otherwise log a line every few seconds). Field arithmetic and one Log.Message: never throws.
++        private static void NoteRefusedReadopt()
++        {
++            _readoptFrames++;
++            _readoptMs = Environment.TickCount - _peerExpiryTick;
++            if (_peerLane.Refused != 1)
++                return;
++            _readoptEpisodes++;
++            if (_peerLane.Nonce != _readoptLogNonce)
++            {
++                _readoptLogNonce = _peerLane.Nonce;
++                _readoptLogged = 0;
++            }
++            _readoptLogged++;
++            if (_readoptLogged <= ReadoptLogMax)
++                Log.Message("[NetSync] battle lane: the host's last frame (nonce " + _peerLane.Nonce + ", seq " + _peerLane.Seq + ") ran out of "
++                            + "freshness and the transport served it again -- not re-adopted: a repeat is never news, the lane stays stale "
++                            + "until a new frame (a fight's end, a cut or a stalled host); refused=" + _readoptEpisodes);
++            else if (_readoptLogged == ReadoptLogMax + 1)
++                Log.Message("[NetSync] battle lane: refused re-adopt " + _readoptLogged + " on the host's battle (nonce " + _peerLane.Nonce
++                            + ") -- further ones on it are counted, not logged (netsync.battle.peer.expired); refused=" + _readoptEpisodes);
++        }
++
+         // ============================================================================ the pumps
+         // Real co-op, both directions. Called every frame from NetSyncClient.Update (main thread).
+         public static void Pump(INetTransport socket, EventEngine ee)
+@@ -1286,12 +1395,19 @@ namespace Memoria.Netsync
+                     // a diorama lingering twice as long as designed, and a spurious boot possible for
+                     // an already-over battle in the tail). Keyed to the seq, staleness tracks when the
+                     // HOST last sent, not when the transport last served.
+-                    if (view != null && (_peerView == null || view.Seq != _peerView.Seq))
++                    // [ff9mapkit netsync s131] ...and once the view's freshness has run out (the null below), the transport's
++                    // repeats of that same frame are never news again: PeerAdoptStep refuses them, where the old `_peerView ==
++                    // null` disjunct re-adopted them and stacked the windows after all (a phantom second 2000 ms of "live").
++                    Int32 adopt = PeerAdoptStep(ref _peerLane, view != null ? view.Seq : -1, view != null ? view.Nonce : -1,
++                                                _peerView != null ? _peerView.Seq : -1);
++                    if (adopt == AdoptNew)
+                     {
+                         _peerView = view;
+                         _peerViewTick = Environment.TickCount;
+                         NetSyncEnd.NotePeer(view.Nonce, view.End);   // [ff9mapkit netsync B5] stage 4: trail + transition log
+                     }
++                    else if (adopt == AdoptRefused)
++                        NoteRefusedReadopt();              // [ff9mapkit netsync s131] one line per episode, never per frame
+                 }
+                 Byte[] peerRoster = socket.GetRemoteRoster();
+                 if (peerRoster != null)
+@@ -1320,6 +1436,13 @@ namespace Memoria.Netsync
+                     _ctlSrc = null;
+                     if (!live)
+                     {
++                        // [ff9mapkit netsync s131] the view in hand ran out: remember its (nonce, seq), so the transport's repeats
++                        // of it (the cut's tail) stay refused instead of re-opening the lane above on the next Update
++                        if (_peerView != null && PeerExpireStep(ref _peerLane, _peerView.Seq, _peerView.Nonce))
++                        {
++                            _peerExpiries++;
++                            _peerExpiryTick = Environment.TickCount;
++                        }
+                         _peerView = null;
+                         _peerRoster = null;
+                         ResetUi();
+@@ -3479,6 +3602,160 @@ namespace Memoria.Netsync
+             return fail == null;
+         }
+ 
++        /// <summary>[ff9mapkit netsync s131] THE PEER ADOPT SELFTEST (NetSyncClient's selftest proof block: "peer adopt selftest:
++        /// OK|FAIL (...)"): PeerAdoptStep, PeerExpireStep and PeerLaneForget as a truth table -- nothing parsed adopts nothing,
++        /// the first view ever IS adopted, a view in hand yields only to a new seq, a run-out remembers the view's (nonce, seq),
++        /// a repeat of the expired seq after the null is NOT adopted (one episode however many repeats), a new seq or a new nonce
++        /// IS and clears the memo, Reset's forget clears it -- then Pump's lane order replayed over served-frame scripts
++        /// (AdoptReplay over CutScript): a tail-0 cut goes stale once; a tail-67 cut re-opened the lane under the pre-s131 step
++        /// (the defect, calibrated here) and no longer does; the host back with new seqs re-opens it at its first one; a stalled
++        /// host's writer re-sending one seq stays stale (the owner-accepted side effect). Each row discriminates one rule, so a
++        /// mutant of that rule fails it. Pure: touches no live state.</summary>
++        internal static Boolean PeerAdoptSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                const Int32 N = AdoptTestNonce;
++                PeerLaneMemo m = default(PeerLaneMemo);
++                // --- the step (memo, seq, nonce, the seq in hand)
++                Row(PeerAdoptStep(ref m, -1, -1, -1) == AdoptNone && PeerAdoptStep(ref m, -1, -1, 5) == AdoptNone,
++                    "nothing parsed adopts nothing", ref rows, ref fail);
++                Row(PeerAdoptStep(ref m, 0, 0, -1) == AdoptNew && PeerAdoptStep(ref m, 5, N, -1) == AdoptNew && !m.Armed,
++                    "the first view ever IS adopted (seq 0 of nonce 0 too: an empty memo matches no frame)", ref rows, ref fail);
++                Row(PeerAdoptStep(ref m, 5, N, 5) == AdoptRepeat, "the view in hand served again is a repeat", ref rows, ref fail);
++                Row(PeerAdoptStep(ref m, 6, N, 5) == AdoptNew, "a new seq over the view in hand IS adopted", ref rows, ref fail);
++                Row(PeerAdoptStep(ref m, 6, N + 1, 6) == AdoptRepeat, "a view in hand yields only to a new seq (s40, seq only)",
++                    ref rows, ref fail);
++                Row(!PeerExpireStep(ref m, -1, -1) && !m.Armed, "a run-out with nothing in hand remembers nothing", ref rows, ref fail);
++                Row(PeerExpireStep(ref m, 5, N) && m.Armed && m.Seq == 5 && m.Nonce == N && m.Refused == 0,
++                    "a run-out remembers the view's (nonce, seq)", ref rows, ref fail);
++                Row(PeerAdoptStep(ref m, 5, N, -1) == AdoptRefused && m.Armed && m.Refused == 1,
++                    "a repeat of the expired seq after the null is NOT adopted", ref rows, ref fail);
++                Row(PeerAdoptStep(ref m, 5, N, -1) == AdoptRefused && m.Refused == 2, "...nor its next repeat (one episode)",
++                    ref rows, ref fail);
++                Row(PeerAdoptStep(ref m, 6, N, -1) == AdoptNew && !m.Armed && m.Refused == 0,
++                    "a new seq after it IS adopted, and clears the memo", ref rows, ref fail);
++                m = default(PeerLaneMemo);
++                PeerExpireStep(ref m, 5, N);
++                Row(PeerAdoptStep(ref m, 5, N + 1, -1) == AdoptNew && !m.Armed, "a new nonce IS adopted (the same seq)", ref rows, ref fail);
++                PeerExpireStep(ref m, 5, N);
++                Row(PeerAdoptStep(ref m, 4, N, -1) == AdoptNew, "any other seq of that battle IS news", ref rows, ref fail);
++                PeerExpireStep(ref m, 5, N);
++                Row(PeerAdoptStep(ref m, 5, N, 5) == AdoptRepeat && m.Armed && m.Refused == 0   // (review S131-R1: the second
++                    && PeerAdoptStep(ref m, 5, N, 6) == AdoptNew && !m.Armed,                   // call reaches the curSeq < 0 guard)
++                    "the memo bites only with nothing in hand (seq 6 in hand: the expired 5 IS news, as any other seq)",
++                    ref rows, ref fail);
++                PeerExpireStep(ref m, 5, N);
++                PeerAdoptStep(ref m, 5, N, -1);
++                Row(PeerExpireStep(ref m, 9, N) && m.Seq == 9 && m.Refused == 0 && PeerAdoptStep(ref m, 5, N, -1) == AdoptNew,
++                    "a later run-out replaces the memo, its episode unopened", ref rows, ref fail);
++                PeerExpireStep(ref m, 5, N);
++                PeerAdoptStep(ref m, 5, N, -1);
++                PeerLaneForget(ref m);
++                Row(!m.Armed && m.Refused == 0 && PeerAdoptStep(ref m, 5, N, -1) == AdoptNew, "Reset clears the memo", ref rows, ref fail);
++                // --- Pump's lane order over scripts (the last pre-cut seq first served at 3000 ms, run out at 5000 ms)
++                Int32 staleAt, reopenAt, refused;
++                refused = AdoptReplay(CutScript(3000, 0, -1, 9000), true, out staleAt, out reopenAt);
++                Int32 lStale, lReopen;
++                AdoptReplay(CutScript(3000, 0, -1, 9000), false, out lStale, out lReopen);
++                Row(staleAt == 5000 && reopenAt == -1 && refused == 0 && lStale == 5000 && lReopen == -1,
++                    "seq: a tail-0 cut goes stale once at the run-out (the pre-s131 step too)", ref rows, ref fail);
++                AdoptReplay(CutScript(3000, 67, -1, 9000), false, out lStale, out lReopen);
++                Row(lStale == 5000 && lReopen == 5010, "seq: a tail-67 cut re-opened the lane under the pre-s131 step (calibration)",
++                    ref rows, ref fail);
++                refused = AdoptReplay(CutScript(3000, 67, -1, 9000), true, out staleAt, out reopenAt);
++                Row(staleAt == 5000 && reopenAt == -1 && refused == 6, "seq: a tail-67 cut's repeats are refused, the lane stays stale",
++                    ref rows, ref fail);
++                refused = AdoptReplay(CutScript(3000, 67, 9000, 12000), true, out staleAt, out reopenAt);
++                Row(staleAt == 5000 && reopenAt == 9000 && refused == 6, "seq: the host back after a 6 s cut re-opens it at its first new seq",
++                    ref rows, ref fail);
++                refused = AdoptReplay(CutScript(3000, -1, -1, 14000), true, out staleAt, out reopenAt);
++                AdoptReplay(CutScript(3000, -1, -1, 14000), false, out lStale, out lReopen);
++                Row(staleAt == 5000 && reopenAt == -1 && refused == 900 && lReopen == 5010,
++                    "seq: a stalled host re-sending one seq stays stale 9 s on (the stall cap's case; was re-adopted)", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
++        }
++
++        // the selftest's own constants (the table is pure: a retuned live StaleMs never moves its rows)
++        private const Int32 AdoptTestNonce = 0x41;
++        private const Int32 AdoptTestStaleMs = 2000;  // = StaleMs, and the transport's own re-serve window (NetSyncSocket)
++        private const Int32 AdoptTestFrameMs = 10;    // one guest Update
++        private const Int32 AdoptTestSampleMs = 150;  // the host's seq cadence (SampleMs)
++
++        // [ff9mapkit netsync s131] Pump's lane order over a served-frame script (frame i at tick i * AdoptTestFrameMs; served[i] =
++        // the seq the transport serves then, -1 = none): the adopt (PeerAdoptStep; a new frame restamps), the freshness test,
++        // and the run-out (PeerExpireStep, then the null). `memo` false = the pre-s131 step (the memo forgotten before every
++        // adopt: the old `_peerView == null` disjunct). Returns the refused repeats; `staleAt` = the first live->stale tick,
++        // `reopenAt` = the first stale->live tick after it (-1 = never).
++        private static Int32 AdoptReplay(Int32[] served, Boolean memo, out Int32 staleAt, out Int32 reopenAt)
++        {
++            PeerLaneMemo m = default(PeerLaneMemo);
++            Int32 cur = -1, tick = 0, refused = 0;
++            Boolean wasLive = false;
++            staleAt = -1;
++            reopenAt = -1;
++            for (Int32 i = 0; i < served.Length; i++)
++            {
++                Int32 now = i * AdoptTestFrameMs;
++                if (!memo)
++                    m = default(PeerLaneMemo);
++                Int32 adopt = PeerAdoptStep(ref m, served[i], AdoptTestNonce, cur);
++                if (adopt == AdoptNew)
++                {
++                    cur = served[i];
++                    tick = now;
++                }
++                else if (adopt == AdoptRefused)
++                {
++                    refused++;
++                }
++                Boolean live = cur >= 0 && now - tick < AdoptTestStaleMs;
++                if (!live)
++                {
++                    PeerExpireStep(ref m, cur, AdoptTestNonce);
++                    cur = -1;
++                }
++                if (wasLive && !live && staleAt < 0)
++                    staleAt = now;
++                else if (!wasLive && live && staleAt >= 0 && reopenAt < 0)
++                    reopenAt = now;
++                wasLive = live;
++            }
++            return refused;
++        }
++
++        // [ff9mapkit netsync s131] A served-frame script over totalMs: the host's seq advances every AdoptTestSampleMs up to its
++        // last pre-cut seq (first served at lastMs, a multiple of the cadence), which the transport serves until that seq's last
++        // receipt (lastMs + tailMs) + AdoptTestStaleMs -- tailMs < 0 = forever: a stalled host whose writer keeps re-sending it --
++        // then nothing; from resumeMs (>= 0) the host's new seqs.
++        private static Int32[] CutScript(Int32 lastMs, Int32 tailMs, Int32 resumeMs, Int32 totalMs)
++        {
++            Int32[] s = new Int32[totalMs / AdoptTestFrameMs + 1];
++            Int32 last = lastMs / AdoptTestSampleMs;
++            for (Int32 i = 0; i < s.Length; i++)
++            {
++                Int32 t = i * AdoptTestFrameMs;
++                if (resumeMs >= 0 && t >= resumeMs)
++                    s[i] = last + 1 + (t - resumeMs) / AdoptTestSampleMs;
++                else if (t < lastMs)
++                    s[i] = t / AdoptTestSampleMs;
++                else if (tailMs < 0 || t <= lastMs + tailMs + AdoptTestStaleMs)
++                    s[i] = last;
++                else
++                    s[i] = -1;
++            }
++            return s;
++        }
++
+         private static void Row(Boolean ok, String name, ref Int32 rows, ref String fail)
+         {
+             rows++;
+@@ -3710,6 +3987,19 @@ namespace Memoria.Netsync
+         internal static Int32 LivePeerNonce { get { return HarnessPeerNonce; } }   // [ff9mapkit netsync R3 s114] NetSyncDiorama.LatchLive
+         public static Int32 HarnessPeerCaps { get { BattleView v = LivePeerView(); return v != null ? v.HostCaps : -1; } }
+ 
++        // [ff9mapkit netsync s131] `netsync.battle.peer.expired` -- the expired seq (guest side, Pump's lane; see "the peer adopt
++        // step"): the memo's `seq` / `nonce` (-1 = none: no run-out since the last real adopt or a reset), and the monotonic
++        // per-process counters (read DELTAS) `count` (run-outs), `refused` (refused re-adopt EPISODES: run-outs whose frame the
++        // transport served again -- one line each, for the first ReadoptLogMax of a host battle) and `frames` (refused repeat
++        // frames), and `ms` (the last episode: its run-out to its last refused repeat -- that cut's tail, less up to two Updates;
++        // -1 = none yet).
++        public static Int32 HarnessPeerExpiredSeq { get { return _peerLane.Armed ? _peerLane.Seq : -1; } }
++        public static Int32 HarnessPeerExpiredNonce { get { return _peerLane.Armed ? _peerLane.Nonce : -1; } }
++        public static Int32 HarnessPeerExpiries { get { return _peerExpiries; } }
++        public static Int32 HarnessPeerReadoptsRefused { get { return _readoptEpisodes; } }
++        public static Int32 HarnessPeerReadoptFrames { get { return _readoptFrames; } }
++        public static Int32 HarnessPeerReadoptMs { get { return _readoptMs; } }
++
+         public static Int32 HarnessPeerReadyMask
+         {
+             get
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 0cc54ed..8ff2ba7 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1372,6 +1372,10 @@ namespace Memoria.Netsync
+                         Boolean menuOk = NetSyncField.MenuRefusalSelfTest(out menuDetail);
+                         Log.Message("[NetSync] main menu refusal selftest: "
+                                     + (menuOk ? "OK (" + menuDetail + ")" : "FAIL (" + menuDetail + ")"));
++                        String adoptDetail;              // [ff9mapkit netsync s131] the battle lane's adopt step (the expired seq)
++                        Boolean adoptOk = NetSyncBattle.PeerAdoptSelfTest(out adoptDetail);
++                        Log.Message("[NetSync] peer adopt selftest: "
++                                    + (adoptOk ? "OK (" + adoptDetail + ")" : "FAIL (" + adoptDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index a4f960e..d7fc060 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -208,6 +208,12 @@ namespace Memoria.Harness
+         // refusal selftest: OK (N rows)" (NetSyncField.MenuRefusalSelfTest); no new verb or op -- the refusal is the stock Menu
+         // key (`press menu`) on a guest whose story mirror is armed, which needs a real transport, so its bench is a wire replay.
+         // A driver checks for `netsync.menu_refusal.count` -- absent = an engine whose mirroring guest drops the Menu key silently.
++        // [ff9mapkit netsync s131] (the expired seq: the Pump null re-adopt; studies/battle-coop/R3-SITTING-A-FIXES.md), also
++        // additive under 5: `netsync.battle.peer` gains `expired` (see AppendPeerExpired), and the selftest proof block gains one
++        // line, "peer adopt selftest: OK (N rows)" (NetSyncBattle.PeerAdoptSelfTest); no new verb or op -- the run-out needs a
++        // real transport (the selftest role's loopback never runs out), so its bench is a wire replay with a blackhole. A driver
++        // checks for `netsync.battle.peer.expired` -- absent = an engine whose guest re-adopts the host's last frame after its
++        // freshness ran out (a phantom second 2000 ms of a live lane in ~79% of cuts and battle ends).
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -3246,7 +3252,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3763,6 +3769,7 @@ namespace Memoria.Harness
+         //     dropped -- kept after the battle until the next starts, -1 = none; what SHIPPED is `host.end.flee_gil`) and
+         //     `flee_gil` on both `host.end` and `peer.end` (see AppendEndBlock). `peer.trailer_skipped` now also counts a SHORT
+         //     fmt-2 body (the end block kept); a whole flee record is parsed, never counted.
++        // [ff9mapkit netsync s131] adds to `peer` the expired seq: `expired` (see AppendPeerExpired).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3826,7 +3833,8 @@ namespace Memoria.Harness
+             Num(sb, "manifest_nonce", Memoria.Netsync.NetSyncEnd.HarnessPeerManifestNonce); sb.Append(",");
+             Num(sb, "manifest_rx", Memoria.Netsync.NetSyncEnd.HarnessPeerManifestRx); sb.Append(",");
+             Num(sb, "bench_manifest", Memoria.Netsync.NetSyncEnd.HarnessBenchManifestPreset); sb.Append(",");
+-            Str(sb, "bench_manifest_note", Memoria.Netsync.NetSyncEnd.HarnessBenchManifestNote);
++            Str(sb, "bench_manifest_note", Memoria.Netsync.NetSyncEnd.HarnessBenchManifestNote); sb.Append(",");
++            AppendPeerExpired(sb);                                                                      // [ff9mapkit netsync s131]
+             sb.Append("},\"menu\":{");
+             AppendIntList(sb, "roster_slots", Memoria.Netsync.NetSyncBattle.HarnessRosterSlots()); sb.Append(",");
+             Num(sb, "r9_refused", Memoria.Netsync.NetSyncBattle.HarnessR9Refused); sb.Append(",");     // [ff9mapkit netsync B4] stage 2
+@@ -4404,6 +4412,26 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync s131] `netsync.battle.peer.expired` -- THE EXPIRED SEQ (guest side; NetSyncBattle's Pump lane: the
++        // host's last frame whose freshness ran out is never re-adopted from the transport's repeats): `seq` / `nonce` = that
++        // frame (the memo; -1 = none: no run-out since the last real adopt or a reset), `count` = freshness run-outs, `refused`
++        // = refused re-adopt EPISODES (run-outs whose frame the transport served again -- the pre-s131 phantom 2000 ms; one log
++        // line each for the first 3 of a host battle, then counted only), `frames` = refused repeat frames (all three monotonic
++        // per process: read DELTAS), `ms` = the last episode's run-out to its last refused repeat (that cut's tail, less up to
++        // two Updates; -1 = none yet). A tail-0 cut (or a tail inside one Update) counts a run-out and no episode.
++        // AppendNetsync's catch line carries the same keys at their sentinels.
++        private static void AppendPeerExpired(StringBuilder sb)
++        {
++            sb.Append("\"expired\":{");
++            Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerExpiredSeq); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessPeerExpiredNonce); sb.Append(",");
++            Num(sb, "count", Memoria.Netsync.NetSyncBattle.HarnessPeerExpiries); sb.Append(",");
++            Num(sb, "refused", Memoria.Netsync.NetSyncBattle.HarnessPeerReadoptsRefused); sb.Append(",");
++            Num(sb, "frames", Memoria.Netsync.NetSyncBattle.HarnessPeerReadoptFrames); sb.Append(",");
++            Num(sb, "ms", Memoria.Netsync.NetSyncBattle.HarnessPeerReadoptMs);
++            sb.Append("}");
++        }
++
+         private static void AppendEndFields(StringBuilder sb, Int32 kind, Int32 phase, Int32 seq, Int32 result, Int32 ui, Int32 state,
+                                             Boolean loading, Int32 flags, Int32 winPose, Int32 manifestLen, Int64 fleeGil)
+         {
