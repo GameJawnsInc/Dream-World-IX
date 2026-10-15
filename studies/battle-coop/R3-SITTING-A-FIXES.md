@@ -548,6 +548,33 @@ tail. tail_ms comes from the relay tap or the tape at --blackhole-at.
     result replay 50/51 (S9-C4L, not reachable solo).
 - Next: R3 sitting B on two machines. The laptop package must carry s131 now, not the s121 build packaged earlier. Then group 2.
 
+## Phase 5: the r3c package (2026-10-15, cut, NOT copied to the laptop)
+
+Package `Desktop\FF9Coop-laptop-update-20261015-r3c` (+ `.zip`, 4.8 MB; the OneDrive Desktop). It supersedes r3b, which was
+never installed on the laptop. Same recipe as Phase 4, hand-assembled (throwaway script, not committed).
+
+- Engine: Assembly-CSharp `feb44ac8e0f37e02` (s131; full `feb44ac8e0f37e029dfeeeb092eafb3bf8a2255db58ce1159cd251b26ff22fcc`) on
+  both arches, read from the LIVE install. Memoria.Prime `783384a3b83953eb` and UnityEngine.UI `690852b1a40db178` re-checked
+  against live: unchanged. Wire stays v14.
+- Bridge re-copied from master `482b8ff6`: `netsync_bridge.py` `99df0eb44bdcc897`, `hangdump.py` `d1d205ed94f49320` (CRLF
+  checkout copies, as in r3b). Both moved since r3b in the multi-instance commit `2a1ef5dd`: the bridge now stops on Ctrl+C (a
+  sliced join; r3b's ignored Ctrl+C/Ctrl+Break), and an optional `--hang-pid` names the dumped FF9.exe (not needed on the
+  laptop). Smoke-run as a bare script from the package: listens, sentinel armed.
+- `mod-overlay\` (field 30801's `.eb`, 7 languages): unchanged, byte-identical to the live desktop copy.
+- Sheet (README) changes vs r3b: s131 is item 6 (the guest never re-adopts an expired battle frame: no command-window blink,
+  the ~2 s hold-onset offset is gone) with its stalled-host side effect (the laptop leaves a frozen-but-sending desktop's
+  fight ~10 s in), also noted under "If a game freezes"; the bridge fix is item 7. Boxes 1-3 gain the s131 check: the
+  diorama hold (`after a H ms hold`) should match the session outage (`the host is back after O ms`) to within the cut's
+  tail, about 0.2 s (solo +0..+78 ms; r3b ran ~2 s short in most cuts). The return list asks for the laptop's
+  `battle lane: … not re-adopted` lines (the `netsync.battle.peer.expired` trace in Memoria.log; that name itself is a
+  harness key, the log carries it only in the cap line), per cut. Unchanged: the T1 procedure, the `[Netsync]` block
+  (`SessionGraceMs` 30000), the 13 boxes, the rest of the return list. Every hash in the sheet now reads `feb44ac8`.
+- Verified: live x64/x86 shas == package (all three DLLs per arch); the folder == `HASHES-full.txt` (15 listed, no extra or
+  missing; `HASHES.txt` is its 16-hex prefixes for the 8 DLL/bridge rows); all 18 files re-hashed from the zip (CRC test
+  clean, the zip's file set == the folder's).
+- Not proven: the H-vs-O agreement and the "about 4 cuts in 5" refusal rate are solo/replay results; the real link is first
+  measured in sitting B.
+
 ## Open unknowns
 
 - Which suspended thread held the lock that kept the host's managed world stopped. The candidates are NetSync-relay(-write), the SaXAudio/XAudio2 callback thread, the AudioEffectManager FileSystemWatcher thread, or Unity-internal. No dump exists: WER archived only July AppHang folders. This decides whether the hang is co-op exposure or stock.
