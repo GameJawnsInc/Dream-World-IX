@@ -260,8 +260,24 @@ class Session:
         save_dir: str | os.PathLike | None = None,
         state_ring: int = STATE_RING,
         repo_root: str | os.PathLike | None = None,
+        instance=None,
     ):
         self.window_size = window_size
+        #: MULTI-INSTANCE MODE (``instance=`` a root path or a :class:`harness.instance.Instance`): this Session drives
+        #: the FF9 of one instance ROOT (studies/test-harness/multi-instance/RECON.md) instead of the shared install --
+        #: its pid probe is path-scoped to the root's own exe (so another root's game, or the install's, neither blocks
+        #: it nor is attached to), the root is claimed and re-verified (repaired) before every launch, ``-single-instance``
+        #: is kept only while its mutex key cannot collide, and every log line carries the label. None (the default)
+        #: changes nothing: the real install, the "any FF9 at all" probe, the stock launch, the bare ``[harness]`` prefix.
+        self.instance = None
+        if instance is not None:
+            from .instance import Instance
+            self.instance = instance if isinstance(instance, Instance) else Instance(instance, label=label)
+            if game_path is not None and Path(game_path).resolve() != self.instance.root.resolve():
+                raise HarnessError(f"game_path {game_path} and instance {self.instance.root} disagree -- give one")
+            game_path = self.instance.root
+            if pid_probe is None:
+                pid_probe = self.instance.pids
         # ``pid_probe`` / ``launcher`` are the test seam. They exist so the offline suite can drive a
         # protocol stand-in without ever resolving, launching or killing the real shared install --
         # the same "pin the path through a seam, never read the real file" rule the deploy tooling
@@ -278,8 +294,11 @@ class Session:
         self.keep_open = keep_open
         self.boot_timeout = boot_timeout
         self.verbose = verbose
-        self.channel = Channel(self.game_path, label=label)
+        self.channel = Channel(self.game_path, label=label, sibling_guard=self.instance is not None)
         self.proc: subprocess.Popen | None = None
+        #: The pid of the game this session drives, once known (launched: the Popen; attached: the probe's) -- what a soak
+        #: measures and a hang dump names. Never ``ff9_pids()[0]``: with two instances up that is either game.
+        self._pid: int | None = None
         self._launched = False
         self.checks: list[dict] = []
         #: What the last fight() actually did -- turns taken, result, the epoch it fought.
@@ -393,13 +412,16 @@ class Session:
         # still documents the install it died against, and the DLL is hashed before the game opens it.
         self.write_env()
         running = self._pid_probe()
+        where = f" from {self.instance.root}" if self.instance is not None else ""
         if running and not self.attach:
             raise HarnessError(
-                f"FF9 is already running (pid {running[0]}). The harness will not race a session it "
+                f"FF9 is already running{where} (pid {running[0]}). The harness will not race a session it "
                 f"does not own -- close the game, or pass attach=True to drive the live one."
             )
         if not running and self.attach:
-            raise HarnessError("attach=True but no FF9 process is running.")
+            raise HarnessError(f"attach=True but no FF9 process is running{where}.")
+        if self.instance is not None:
+            self._prepare_instance(attaching=bool(running))
 
         self._backup_player_saves()
         # Refuse a shared channel BEFORE touching it: reset() deletes events.jsonl and every PNG, so
@@ -435,7 +457,7 @@ class Session:
             else:
                 if not exe.exists():
                     raise HarnessError(f"no FF9.exe at {exe}")
-                args = launch_args(*self.window_size)
+                args = self._launch_args()
                 self._log(f"launching {exe} {' '.join(args)}")
                 # CWD is the GAME ROOT, not x64. UiLauncherPlayButton.StartGameProcess never sets a
                 # WorkingDirectory, so the game inherits the launcher's -- the root, where Memoria.ini,
@@ -444,14 +466,59 @@ class Session:
                 # font lookup is relative to the working directory. Memoria.log lands here too.
                 self.proc = subprocess.Popen([str(exe), *args], cwd=str(self.game_path))
             self._launched = True
+            self._pid = getattr(self.proc, "pid", None)
         else:
             self._log(f"attaching to pid {running[0]}")
+            self._pid = int(running[0])
 
         self._await_agent()
         self._adopt_agent()
         self._boot_seconds = round(time.time() - self._boot_started, 1)
         self.write_env()                      # now with the engine's protocol and first state
         self._assert_save_sandbox()
+
+    # -- multi-instance ---------------------------------------------------------------------------
+    @property
+    def pid(self) -> int | None:
+        """The pid of THIS session's game: the process it launched, or the one it attached to (its own probe's). A soak
+        or a hang dump names this, never ``ff9_pids()[0]`` -- which, with an instance up, may be the other game."""
+        if self._pid is not None:
+            return self._pid
+        running = self._pid_probe()
+        return int(running[0]) if len(running) == 1 else None
+
+    def _prepare_instance(self, *, attaching: bool) -> None:
+        """Before the arm and the launch: claim the root (one run per root, across every worktree), then make it right.
+        Launching, the root is REFRESHED -- every junction and copy re-verified against the install as it is now, a new
+        ``[Mod] FolderNames`` entry linked, the ini regenerated (install + overlay) -- and must then verify clean.
+        Attaching to its live game, it is only VERIFIED (nothing may change under a running game) and any drift said."""
+        inst = self.instance
+        inst.claim(self.label)
+        self.write_env(instance={"root": str(inst.root), "install": str(inst.install), "exe": str(inst.exe)})
+        if attaching:
+            bad = inst.verify()
+            if bad:
+                self._log("!! attaching to an instance whose root has drifted (not repaired under a live game): "
+                          + "; ".join(bad))
+            return
+        done = inst.refresh(self.label)
+        if done:
+            self._log("instance root refreshed: " + "; ".join(done[:6]) + (" ..." if len(done) > 6 else ""))
+        bad = inst.verify()
+        if bad:
+            raise HarnessError(f"the instance root {inst.root} does not verify after a refresh: " + "; ".join(bad))
+
+    def _launch_args(self) -> list[str]:
+        """The stock :func:`launch_args`, and in instance mode without ``-single-instance`` when its mutex key (the exe
+        path's last 30 characters) would collide with the install's or another root's -- the second game would exit 0
+        on the first one's mutex. Kept otherwise: it turns a same-root double launch into a fast exit, not a hang."""
+        args = launch_args(*self.window_size)
+        if self.instance is not None:
+            clash = self.instance.single_instance_clash()
+            if clash:
+                self._log(f"dropping -single-instance: {self.instance.exe}'s mutex key collides with {clash}")
+                args = [a for a in args if a != "-single-instance"]
+        return args
 
     def _adopt_agent(self) -> None:
         """Reconcile the driver's sequence counter and protocol with the agent that actually answered.
@@ -631,6 +698,13 @@ class Session:
             if moved:
                 self._log("!! THIS RUN CHANGED THE PLAYER'S SAVE: " + ", ".join(moved)
                           + f" -- the pre-run copies are in {self.run_dir / 'saves-before'}")
+            if self.instance is not None:
+                # LAST: the game is gone (or kept open on purpose -- every refresh still refuses while it runs, by its
+                # own path-scoped probe), the channel disarmed, the artifacts collected.
+                try:
+                    self.instance.release()
+                except Exception as err:                           # noqa: BLE001 - never mask the run's own end
+                    self._log(f"teardown: could not release the instance claim ({err})")
             self._log(f"artifacts in {self.run_dir}")
 
     def _collect_log(self) -> None:
@@ -9333,7 +9407,10 @@ class Session:
 
     def _log(self, msg: str) -> None:
         if self.verbose:
-            print(f"[harness] {msg}", flush=True)
+            # Two Sessions in one driver (harness.duo) interleave on one console: the label says whose line it is. A
+            # lone Session on the real install keeps the bare prefix every reader and grep already knows.
+            tag = "[harness]" if self.instance is None else f"[harness][{self.label}]"
+            print(f"{tag} {msg}", flush=True)
 
 
 def _button(name: str) -> str:

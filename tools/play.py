@@ -6,6 +6,7 @@
     py tools/play.py --smoke --field 30810       # ... and can it warp to a slot and photograph it
     py tools/play.py scenarios/chest.py          # run a scenario file
     py tools/play.py scenarios/chest.py --attach # drive the game that is already running
+    py tools/play.py --smoke --field 30602 --instance C:\\gd\\ff9-inst\\guest   # drive an instance ROOT's FF9
 
 A scenario file is plain Python exposing ``run(g)``, where ``g`` is a
 :class:`~harness.session.Session` already booted and armed::
@@ -24,6 +25,10 @@ report.json) land in ``.harness-runs/<stamp>-<label>/``.
 
 !! THIS DRIVES THE REAL SHARED INSTALL. It refuses to start when an FF9 is already running (pass
 ``--attach`` to deliberately drive that one) and it only ever closes a game it launched itself.
+
+``--instance <root>`` drives the FF9 of an instance root instead (tools/harness/instance.py: a second game on this
+machine, junctioned to the install): only a game running FROM that root blocks it or is attached to, and the root is
+claimed and refreshed before the launch. Two at once, paired: tools/harness/duo.py.
 """
 from __future__ import annotations
 
@@ -187,7 +192,7 @@ def run_suite(args) -> int:
     # "which folder serves 30820" and "30601 is gone, here is the command" get answered, instead of
     # one warp() refusal at a time with a booted game idling behind them.
     from harness.session import find_game_path                              # noqa: E402
-    game_path = Path(args.game) if args.game else find_game_path()
+    game_path = Path(args.instance or args.game) if (args.instance or args.game) else find_game_path()
     pre = preflight_benches(game_path, scenarios)
     print(render_preflight(pre))
     if pre["missing"] and not args.allow_missing_benches:
@@ -199,7 +204,7 @@ def run_suite(args) -> int:
     started = time.time()
     try:
         with Session(label=f"suite-{label}", game_path=args.game, attach=args.attach,
-                     keep_open=args.keep_open, boot_timeout=args.timeout) as g:
+                     keep_open=args.keep_open, boot_timeout=args.timeout, instance=args.instance) as g:
             runner = SuiteRunner(g, scenarios, meta=meta)
             runner.run()
             passed, summary, run_dir = runner.passed, runner.summary(), runner.run_dir
@@ -215,6 +220,11 @@ def run_suite(args) -> int:
     print(summary)
     print(f"artifacts: {run_dir}")
     return 0 if passed else 1
+
+
+def _instance_pids(root) -> list[int]:
+    from harness.instance import Instance
+    return Instance(root).pids()
 
 
 def _tolerant_console() -> None:
@@ -252,6 +262,9 @@ def main(argv=None) -> int:
                     help="leave the game running when the scenario finishes")
     ap.add_argument("--label", default=None, help="run label (defaults to the scenario name)")
     ap.add_argument("--game", default=None, help="FF9 install path (default: auto-detect)")
+    ap.add_argument("--instance", default=None, metavar="ROOT",
+                    help="drive the FF9 of this instance root (tools/harness/instance.py) instead of the install: "
+                         "path-scoped process guard, the root claimed + refreshed before the launch")
     ap.add_argument("--timeout", type=float, default=240.0, help="seconds to wait for the agent")
     args = ap.parse_args(argv)
 
@@ -259,6 +272,8 @@ def main(argv=None) -> int:
         ap.error("give a scenario file, --suite <manifest.toml>, or --smoke")
     if args.suite and (args.scenario or args.smoke):
         ap.error("--suite runs its own list; do not combine it with a scenario or --smoke")
+    if args.instance and args.game:
+        ap.error("--instance names the root to run from; do not combine it with --game")
 
     if args.suite:
         return run_suite(args)
@@ -266,14 +281,15 @@ def main(argv=None) -> int:
     label = args.label or ("smoke" if args.smoke else Path(args.scenario).stem)
     scenario = load_scenario(Path(args.scenario)) if args.scenario else None
 
-    if args.attach and not ff9_pids():
-        print("!!! --attach given but no FF9 is running.", file=sys.stderr)
+    if args.attach and not (_instance_pids(args.instance) if args.instance else ff9_pids()):
+        print("!!! --attach given but no FF9 is running" + (f" from {args.instance}." if args.instance else "."),
+              file=sys.stderr)
         return 2
 
     started = time.time()
     try:
         with Session(label=label, game_path=args.game, attach=args.attach,
-                     keep_open=args.keep_open, boot_timeout=args.timeout) as g:
+                     keep_open=args.keep_open, boot_timeout=args.timeout, instance=args.instance) as g:
             if args.smoke:
                 smoke(g, args.field)
             if scenario is not None:

@@ -26,7 +26,7 @@ FID = 30488
 def run(g) -> None:
     seconds = float(os.environ.get("SOAK_SECONDS", "120"))
     every = float(os.environ.get("SOAK_EVERY_S", "10"))
-    pid = ff9_pids()[0]
+    pid = g.pid or ff9_pids()[0]                        # THIS session's game (an instance root's, too)
     g.newgame()
     g.warp(FID)
     g.wait_for(lambda s: s.field_id == FID and s.control, timeout=30, what="the bench")

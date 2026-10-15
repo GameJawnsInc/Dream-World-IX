@@ -5,10 +5,16 @@
 # PW_RENDERFULLCONTENT (Win8.1+) captures DirectX content even when partly covered; if it
 # fails we fall back to a screen-region copy (window must then be visible and uncovered).
 #
-#   powershell -File tools\game_snap.ps1 [-OutPath shot.png] [-ProcessName FF9]
+#   powershell -File tools\game_snap.ps1 [-OutPath shot.png] [-ProcessName FF9] [-Id <pid>]
+#
+# -Id picks ONE game by process id. With two FF9s up (an instance root's beside the install's, or a duo:
+# tools/harness/instance.py, tools/harness/duo.py) "the first FF9 with a window" is either one -- take the pid from
+# Session.pid or `py tools/harness/instance.py pids <root>`. Without -Id and with more than one candidate, the script
+# says so and names them instead of silently photographing whichever came first.
 param(
     [string]$OutPath = "$env:TEMP\ff9_snap.png",
-    [string]$ProcessName = "FF9"
+    [string]$ProcessName = "FF9",
+    [int]$Id = 0
 )
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
@@ -25,8 +31,19 @@ public class Win32Snap {
 "@
 [Win32Snap]::SetProcessDPIAware() | Out-Null
 
-$p = Get-Process -Name $ProcessName | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-if (-not $p) { throw "no '$ProcessName' process with a window found -- is the game running?" }
+if ($Id -gt 0) {
+    $p = Get-Process -Id $Id -ErrorAction SilentlyContinue
+    if (-not $p) { throw "no process with id $Id -- is that game still running?" }
+    if ($p.MainWindowHandle -eq 0) { throw "process $Id ($($p.ProcessName)) has no main window (yet)" }
+} else {
+    $cands = @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 })
+    if ($cands.Count -eq 0) { throw "no '$ProcessName' process with a window found -- is the game running?" }
+    if ($cands.Count -gt 1) {
+        $list = ($cands | ForEach-Object { "$($_.Id) $($_.Path)" }) -join "; "
+        throw "$($cands.Count) '$ProcessName' windows are up ($list) -- pass -Id <pid> to pick one"
+    }
+    $p = $cands[0]
+}
 $h = $p.MainWindowHandle
 if ([Win32Snap]::IsIconic($h)) { throw "the $ProcessName window is MINIMIZED -- restore it first (capture needs a rendered window)." }
 
