@@ -412,7 +412,7 @@ def test_netsync_refuses_an_unknown_sub_verb_before_spending_a_step(game):
         g.newgame(settle=0)
         seq = g.state.seq
         with pytest.raises(HarnessError, match=r"unknown sub-verb 'tape' \(selftest\|bench\|l1\|hostscene.*"
-                                               r"\|tap-record\|replay\|.*\|bmenu\|bbench\|endbench\)"):
+                                               r"\|tap-record\|replay\|.*\|bmenu\|bbench\|endbench\|actbench\)"):
             g.netsync("tape", 1)
         assert g.state.seq == seq and not any(s[:1] == ["netsync"] for s in fake.executed)
 
@@ -1831,32 +1831,35 @@ def _battle_of(doc: dict) -> dict:
     return b
 
 
-#: The FIXED sub-objects below host / peer / menu / end (always published whole): their keys are leaves of their own. Every
-#: other record (``host.end``, ``peer.end``, ``menu.captured``, s106-s110's ``menu.roster`` / ``bench_roster`` /
-#: ``pending`` / ``feed``, ``host.manifest``, ``handback.last``, ``replay.screen`` / ``fp``) may be null: one leaf.
-FIXED_SUBOBJECTS = ("end_leave", "declined", "content_hits", "mirror", "handback", "lapse", "replay",
-                    # [ff9mapkit netsync R3] s111-s115
-                    "cfg", "intro", "wait", "ctl", "start_hold", "released", "guest", "flee",
-                    # [ff9mapkit netsync s131]
-                    "expired")
-#: ...and their paths (the accessor table holds a whole-block accessor for each as well as one per key)
+#: The FIXED sub-objects below host / peer / menu / end / act (always published whole), BY PATH: their keys are leaves of
+#: their own (the accessor table holds a whole-block accessor for each as well as one per key). Every other record
+#: (``host.end``, ``peer.end``, ``menu.captured``, s106-s110's ``menu.roster`` / ``bench_roster`` / ``pending`` / ``feed``,
+#: ``host.manifest``, ``handback.last``, ``replay.screen`` / ``fp``) may be null: one leaf. [ff9mapkit netsync s133] The
+#: descent is keyed on the PATH, never a bare name (audit 4.2: `act.host` is a container where a bare "host" is one only at
+#: the top) -- a new container goes HERE, or :func:`_leaves` never sees inside it.
 BATTLE_CONTAINERS = {"end.end_leave": "s105", "end.declined": "s105", "menu.content_hits": "s106", "menu.mirror": "s107",
                      "end.replay": "s109", "host.handback": "s110", "host.handback.lapse": "s110",
                      "host.cfg": "s111", "host.intro": "s111", "host.wait": "s113", "menu.ctl": "s113",
                      "host.start_hold": "s114", "host.start_hold.released": "s114", "host.start_hold.guest": "s114",
-                     "end.flee": "s115", "peer.expired": "s131"}
+                     "end.flee": "s115", "peer.expired": "s131",
+                     # [ff9mapkit netsync s133] the fifth sub-object's `host` half and its fixed sub-objects
+                     "act.host": "s133", "act.host.kinds": "s133", "act.host.vfx": "s133", "act.host.loop": "s133",
+                     "act.host.tape": "s133"}
 #: The records that may be published null (an accessor reads None for them either way).
 BATTLE_NULLABLE = ("host.end", "peer.end", "menu.captured", "menu.roster", "menu.bench_roster", "menu.pending",
-                   "menu.feed", "host.manifest", "host.handback.last", "end.replay.screen", "end.replay.fp")
+                   "menu.feed", "host.manifest", "host.handback.last", "end.replay.screen", "end.replay.fp",
+                   # [ff9mapkit netsync s133]
+                   "act.host.last", "act.host.tape.page")
 
 
 def _leaves(block: dict, prefix: str = "") -> dict:
-    """``netsync.battle``'s key paths -> values, descending only into the FIXED sub-objects (host / peer / menu / end and
-    :data:`FIXED_SUBOBJECTS`); a record that may be null is one leaf."""
+    """``netsync.battle``'s key paths -> values, descending only into the FIXED sub-objects (host / peer / menu / end / act
+    and :data:`BATTLE_CONTAINERS`, BY PATH -- [ff9mapkit netsync s133] audit 4.2: `act.host` is a container where a bare
+    "host" is one only at the top); a record that may be null is one leaf."""
     out = {}
     for k, v in block.items():
         path = prefix + k
-        if isinstance(v, dict) and (prefix == "" or k in FIXED_SUBOBJECTS):
+        if isinstance(v, dict) and (prefix == "" or path in BATTLE_CONTAINERS):
             out.update(_leaves(v, path + "."))
         else:
             out[path] = v
@@ -1864,9 +1867,9 @@ def _leaves(block: dict, prefix: str = "") -> dict:
 
 
 def _all_caps_through(cap: str) -> frozenset:
-    """The stand-in capability set of the engine at battle capability ``cap`` (every F3.3 cap + the ladder up to it)."""
-    names = list(FG.NETSYNC_BATTLE_CAPS)
-    return frozenset(FG.NETSYNC_F33_CAPS) | frozenset(names[:names.index(cap) + 1])
+    """The stand-in capability set of the engine at battle capability ``cap`` (every F3.3 cap + the ladder up to it):
+    :func:`harness.fakegame.caps_through`, the one place a calibration engine is built (a ladder PREFIX, never a subtraction)."""
+    return FG.caps_through(cap)
 
 
 def _prefix(level: str) -> list:
@@ -2033,6 +2036,12 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(prev_doc["menu_refusal"]) == FG.NETSYNC_MENU_REFUSAL_KEYS
     # [ff9mapkit netsync s131] `peer.expired`, the last key of `peer`
     assert tuple(battle["peer"]["expired"]) == FG.NETSYNC_PEER_EXPIRED_KEYS and list(battle["peer"])[-1] == "expired"
+    # [ff9mapkit netsync s133] `act`, the FIFTH sub-object (after `end`), its `host` half and that half's fixed sub-objects
+    act = battle["act"]["host"]
+    assert list(battle) == ["host", "peer", "menu", "end", "act"] and list(battle["act"]) == ["host"]
+    assert tuple(act) == FG.NETSYNC_ACT_HOST_KEYS and tuple(act["kinds"]) == FG.NETSYNC_ACT_KINDS_KEYS
+    assert tuple(act["vfx"]) == FG.NETSYNC_ACT_VFX_KEYS and tuple(act["loop"]) == FG.NETSYNC_ACT_LOOP_KEYS
+    assert tuple(act["tape"]) == FG.NETSYNC_ACT_TAPE_KEYS
     top = list(prev_doc)
     assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
@@ -2063,7 +2072,9 @@ def test_each_battle_verbs_capability_key_is_one_its_patch_added():
         assert op in _endbench_ops_at(patch) and op not in _endbench_ops_at(f"s{int(patch[1:]) - 1}"), op
     # [ff9mapkit netsync B4] the `bbench` feed ops (s107) and the `bench` named ops (s110; [ff9mapkit netsync R3] s111-s114),
     # told the same way
-    for table, ops_of in ((Session.NETSYNC_BBENCH_OP_CAPS, FG.bbench_ops), (Session.NETSYNC_BENCH_OPS, None)):
+    # [ff9mapkit netsync s133] ...and `actbench`'s later ops (s134+: empty at s133 -- both of its ops came with the verb)
+    for table, ops_of in ((Session.NETSYNC_BBENCH_OP_CAPS, FG.bbench_ops), (Session.NETSYNC_BENCH_OPS, None),
+                          (Session.NETSYNC_ACTBENCH_OP_CAPS, FG.actbench_ops)):
         for op, (attr, key, patch, _what) in table.items():
             cap = next(c for c, (p, _vs) in FG.NETSYNC_BATTLE_CAPS.items() if p == patch)
             assert _key_is_the_patchs(key, cap), (op, key)
@@ -2164,7 +2175,9 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
             "host.cfg.atb": "HarnessCfgAtb", "host.cfg.skip_btl_camera": "HarnessCfgSkipCam",
             "host.cfg.speed": "HarnessCfgSpeed", "host.cfg.swirl_frames": "HarnessSwirlFrames",
             "host.start_hold.cap_ms": "HarnessStartHoldCapMs", "host.start_hold.state": "HarnessStartHoldState",
-            "end.flee.gil_now": "HarnessGilNow"}
+            "end.flee.gil_now": "HarnessGilNow",
+            # [ff9mapkit netsync s133] the action tape's state ("off" at rest; the catch line's null is "failed to build")
+            "act.host.tape.state": "HarnessActTapeState"}
     for sub in want:
         assert list(got[sub]) == list(want[sub]), (sub, list(got[sub]), list(want[sub]))
     for path in BATTLE_CONTAINERS:                       # the fixed sub-objects keep the agent's key order too
@@ -2196,7 +2209,8 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
 
 BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", "s107", "s108", "s109", "s110",
                  "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119", "s120", "s121",
-                 "s131", "s132"]                              # [ff9mapkit netsync s131] (s122-s130 unused: group 2 is s133-s141)
+                 "s131", "s132",                              # [ff9mapkit netsync s131] (s122-s130 unused: group 2 is s133-s141)
+                 "s133"]                                      # [ff9mapkit netsync s133] group 2's first
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2226,7 +2240,8 @@ def test_an_older_battle_stand_in_is_that_patchs_agent(game, level):
             set(_leaves(_battle_of(doc))) ^ set(_leaves(_battle_of(want)))
         for sub in _battle_of(want):                     # ...in the agent's order
             assert list(_battle_of(doc)[sub]) == list(_battle_of(want)[sub]), (level, sub)
-    lines = [p for p in ("s100", "s101", "s102", "s103", "s106") if int(p[1:]) <= int(level[1:])]
+    # (the patches that rewrite the "unknown sub-verb" line: s100-s103 and s106 -- [ff9mapkit netsync s133] and s133)
+    lines = [p for p in ("s100", "s101", "s102", "s103", "s106", "s133") if int(p[1:]) <= int(level[1:])]
     known = "|".join(_subverbs_in(lines[-1] if lines else "s99"))
     assert fake._netsync_subverbs() == tuple(known.split("|"))
     for cap in names[len(have):]:
@@ -2455,7 +2470,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync R3 s118-s121] the sitting-A round, one per patch
             "coop_handback_report", "coop_diorama_hold", "coop_session_grace", "coop_menu_refusal",
             # [ff9mapkit netsync s131] the expired seq
-            "coop_peer_adopt")
+            "coop_peer_adopt",
+            # [ff9mapkit netsync s133] the host action-start lane
+            "coop_act_host")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -5371,15 +5388,16 @@ def test_the_start_hold_arms_late_ignores_a_stale_live_and_releases_on_the_link(
 # FG.NETSYNC_SITTING_A_CAPS removed (S117_CAPS: the calibration's red). [ff9mapkit netsync s131] ...and s131's cap with
 # them (the ladder has no gaps); the DEPLOYED s121 -- s131's calibration red -- is the stand-in without FG.NETSYNC_S131_CAPS.
 # [ff9mapkit netsync s132] ...and every older stage drops s132's cap too; s131 -- s132's calibration red -- is the stand-in
-# without FG.NETSYNC_S132_CAPS.
+# without FG.NETSYNC_S132_CAPS. [ff9mapkit netsync s133] THE STAND-INS ARE LADDER PREFIXES now (audit 3.1 / 4.1: a
+# subtraction would silently take in every later cap -- s133's `actstart` included): each is every cap through its own
+# rung, and S132_CAPS -- s133's calibration red -- joins them.
 
 import inspect                                                          # noqa: E402
 
-S117_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_SITTING_A_CAPS
-                                              - FG.NETSYNC_S131_CAPS - FG.NETSYNC_S132_CAPS)
-S121_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_S131_CAPS
-                                              - FG.NETSYNC_S132_CAPS)
-S131_CAPS = frozenset(FG.NETSYNC_F33_CAPS) | (frozenset(FG.NETSYNC_BATTLE_CAPS) - FG.NETSYNC_S132_CAPS)
+S117_CAPS = _all_caps_through("defeat")
+S121_CAPS = _all_caps_through("menurefusal")
+S131_CAPS = _all_caps_through("expiredseq")
+S132_CAPS = _all_caps_through("grace40")
 _CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -5698,8 +5716,11 @@ def test_guest_owns_twins_evaluate_every_s118_control_selftest_row_off_the_stack
     # [ff9mapkit netsync s131] NetSyncBattle.cs carries a second selftest from s131 (PeerAdoptSelfTest, its 20 rows)
     rows = sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s121")))
     assert rows == BW.CONTROL_SELFTEST_ROWS == 53, rows
-    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs")) == \
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s132"))) == \
         BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS == 73
+    # [ff9mapkit netsync s133] ...and a third (ActionSelfTest, its 30 rows)
+    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs")) == \
+        BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS + BW.ACTION_SELFTEST_ROWS == 103
     assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s117"))) == \
         BW.CONTROL_SELFTEST_ROWS_S114 == 33
 
@@ -6150,6 +6171,9 @@ def _proof_lines(fake) -> list:
 
 @pytest.mark.parametrize("caps,want", [
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30)]),
+    # [ff9mapkit netsync s133] s132 (s133's calibration red): no 'action lane' line
+    ("s132", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20)]),
     ("s121", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14)]),
@@ -6165,7 +6189,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     in-game bench reads the s119-s131 lines (S18-PROOF and S14-B2 read the control line alone, and coop_cut_hold's guest
     never runs the selftest role), so the s121 'no peer adopt line' red is the stand-in's, never yet observed in game."""
     fake = FakeGame(game)
-    fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS}.get(caps) or _caps_at(caps)
+    fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS,
+                         "s132": S132_CAPS}.get(caps) or _caps_at(caps)
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6179,7 +6204,7 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
         g.wait_frames(10)
         assert len(_proof_lines(fake)) == len(want)
     assert all(_battle_text(f'Log.Message("[NetSync] {h}"') for h in (BW.PROOF_CONTROL, BW.PROOF_WATCH, BW.PROOF_GRACE,
-                                                                      BW.PROOF_ADOPT)) \
+                                                                      BW.PROOF_ADOPT, BW.PROOF_ACTION)) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"'))
 
 
@@ -6686,7 +6711,11 @@ def test_the_expired_block_is_peers_last_key_at_the_catch_lines_sentinels():
         ("refused", "HarnessPeerReadoptsRefused"), ("frames", "HarnessPeerReadoptFrames"), ("ms", "HarnessPeerReadoptMs")]
     assert _added_after("s131", "HarnessAgent.cs", 'Str(sb, "bench_manifest_note"', "AppendPeerExpired(sb);")
     assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
-    assert _catch_doc_in("s131") == _agent_netsync_nothing()[0]       # s131 wrote the live catch line whole
+    # s131 wrote the catch line whole; s132 left it alone; [ff9mapkit netsync s133] s133 added `act` after `end` and
+    # nothing else -- so the live line is s131's plus that one sub-object
+    live = _agent_netsync_nothing()[0]
+    assert _catch_doc_in("s131") == _catch_doc_in("s132") == {**live, "battle": {
+        k: v for k, v in live["battle"].items() if k != "act"}}
 
 
 def test_state_reads_the_expired_block_absent_on_s121_as_cannot():
@@ -6734,6 +6763,1189 @@ def test_a_fresh_stand_in_publishes_the_expired_sentinels_and_the_deployed_s121_
     assert st.coop_peer_adopt is False and st.coop_peer_expired is None and st.coop_peer_expired_refused is None
     assert st.coop_menu_refusal is True and "expired" not in _battle_of(old._netsync_doc())["peer"]
     assert set(_leaves(_battle_of(old._netsync_doc()))) == set(_leaves(_battle_of(_catch_doc_in("s121"))))
+
+
+# =========================================================================== [ff9mapkit netsync s133]
+# THE HOST ACTION-START LANE (studies/battle-coop/R3-DESIGN.md 3.3.2 as amended by R3-ACTION-REPLAY-AUDIT.md 2.1 -- the
+# design's "s122"; group 2 renumbered s133-s141). Host only, wire v14, harness protocol 5: one additive sub-object
+# (`netsync.battle.act.host`), one sub-verb (`actbench`), one proof line, type-1 caps bit 5. The codec's and the books'
+# twins (battlewire) EVALUATE ActionSelfTest's OWN 30 rows off the stack -- translated statement by statement, so a row's
+# arguments, verdict or order changed on either side turns a test red -- each rule's mutant fails a row, the constants are
+# pinned by name both ways (audit amendment 11), and s132 -- s133's calibration red -- is the ladder prefix through
+# `grace40` (S132_CAPS = FG.caps_through("grace40")): every check below that reads the key, the verb or the proof line reads
+# "cannot" there.
+
+#: ActionSelfTest's own helpers' bodies, pinned (the Python wrappers below implement exactly these)
+ACT_HELPER_LINES = (
+    "return EncodeActionStart(ActTestNonce, 1, id, actor, actorFlags, 1, 176, 0x10, 0, 0, 0, VfxKindSpecial, 100, -1, 5);",
+    "return new ActRecord { Id = id, Actor = 5, CmdNo = 1, SubNo = 176, Scripted = scripted };",
+    "return r != null ? r.Id : -1;",
+    "book.Feed(ref a, ReadActionExt(frame, ref a));",
+    "return TryParseAction(frame, out a) && ReadActionExt(frame, ref a) == ActExtReadBad && !a.HasExt;",
+    "return TryParseAction(cut, out a) && SameLegacy(ref a, ref whole) && ReadActionExt(cut, ref a) != ActExtReadOk && "
+    "!a.HasExt;",
+    "if (a == null || b == null || ao + n > a.Length || bo + n > b.Length)",
+)
+#: ActTestImpact's writes, in order (QueueActionFrame's 46-byte layout; every field a marker)
+ACT_TEST_IMPACT_WRITES = ["nonce", "seq", "caster", "target", "(UInt16)0x0011", "-123", "7", "(UInt16)0x0022", "45", "-6",
+                          "900u", "80u", "1200u", "60u", "flags", "(UInt16)1", "(UInt16)176"]
+#: SameLegacy compares exactly the 46-byte fields (PeerAction's names), every one
+ACT_SAME_LEGACY = ("Nonce", "SeqHorizon", "CasterSlot", "TargetSlot", "FigInfoT", "FigHpT", "FigMpT", "FigInfoC", "FigHpC",
+                   "FigMpC", "TgtHpRaw", "TgtMpRaw", "CastHpRaw", "CastMpRaw", "Flags", "CmdNo", "SubNo")
+_ACT_TYPES = ("Int32", "String", "Byte", "Byte[]", "Boolean", "UInt16", "PeerAction", "ActRecord", "ActLoopBook",
+              "Dictionary<System.Object, ActRecord>", "System.Object")
+_ACT_DECL = re.compile(r"^(?:const\s+)?(" + "|".join(re.escape(t) for t in _ACT_TYPES) + r")\s+([A-Za-z_]\w*\s*(?:=.*|,.*)?)$",
+                       re.S)
+
+
+def _act_region(start: str, stop: str, file_name: str = "NetSyncBattle.cs") -> list:
+    """s133's own hunks of ``file_name``: the code lines (comments stripped, blanks dropped) from the line starting with
+    ``start`` up to (not including) the next starting with ``stop`` -- s133's text, which no later patch rewrites."""
+    new = [t for _h, _k, t in _new_side(file_name, _patch_bytes("s133"))]
+    i = next(k for k, t in enumerate(new) if t.startswith(start))
+    j = next(k for k in range(i + 1, len(new)) if new[k].startswith(stop))
+    return [c for c in (_strip_comment(t) for t in new[i:j]) if c]
+
+
+def _act_scan(code: str, i: int, stop: str) -> int:
+    """The index of the first ``stop`` character at paren / brace depth 0 from ``i`` (string literals skipped)."""
+    depth, quoted = 0, False
+    while i < len(code):
+        c = code[i]
+        if quoted:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                quoted = False
+        elif c == '"':
+            quoted = True
+        elif depth == 0 and c == stop:
+            return i
+        elif c in "({":
+            depth += 1
+        elif c in ")}":
+            depth -= 1
+        i += 1
+    raise AssertionError(f"no {stop!r} at depth 0 in {code[i - 80:i]!r}")
+
+
+def _act_statements(code: str) -> list:
+    """C# statements -> [text | (``for`` | ``foreach``, header, body)]: `try` and bare block braces flattened, a loop's body a
+    braced block or its one statement."""
+    out, i = [], 0
+    while i < len(code):
+        while i < len(code) and code[i] in " \t\r\n{}":
+            i += 1
+        if i >= len(code):
+            break
+        if re.match(r"try\b", code[i:]):
+            i += 3
+            continue
+        m = re.match(r"(for|foreach)\s*\(", code[i:])
+        if m:
+            at = i + m.end() - 1
+            end = _balanced(code, at)
+            header = code[at + 1:end - 1].strip()
+            j = end
+            while code[j] in " \t\r\n":
+                j += 1
+            if code[j] == "{":
+                close = _act_scan(code, j + 1, "}")
+                body, i = _act_statements(code[j + 1:close]), close + 1
+            else:
+                semi = _act_scan(code, j, ";")
+                body, i = _act_statements(code[j:semi + 1]), semi + 1
+            out.append((m.group(1), header, body))
+            continue
+        semi = _act_scan(code, i, ";")
+        out.append(" ".join(code[i:semi].split()))
+        i = semi + 1
+    return out
+
+
+def _act_not(code: str) -> str:
+    """C#'s ``!`` -> ``(not ..)`` around its whole operand (``!=`` left alone)."""
+    while True:
+        m = re.search(r"!(?!=)", code)
+        if not m:
+            return code
+        k = m.end()
+        while code[k] == " ":
+            k += 1
+        if code[k] == "(":
+            end = _balanced(code, k)
+        else:
+            w = re.match(r"[\w.]+", code[k:])
+            assert w, code
+            end = k + w.end()
+            if end < len(code) and code[end] == "(":
+                end = _balanced(code, end)
+        code = code[:m.start()] + "(not " + code[k:end] + ")" + code[end:]
+
+
+def _act_expr(expr: str) -> str:
+    """One C# expression of ActionSelfTest as Python: string literals kept, ``new Byte[] {..}`` / ``new Byte[n]`` /
+    ``(Byte[])x.Clone()`` -> bytearray, ``new System.Object()`` / ``new Dictionary<..>()`` / ``new[] {..}`` / ``new T()``,
+    ``x.Length`` -> len, ``x.ContainsKey(k)`` -> ``k in x``, every ``ref`` / ``out`` argument BY NAME (the wrappers read
+    and write the namespace), ``local.Member`` -> ``__m(local, 'Member')`` (a twin's snake_case key or attribute),
+    true/false/null, && / || / !."""
+    strings = []
+
+    def keep(m):
+        strings.append(repr(m.group(1).replace('\\"', '"').replace("\\\\", "\\")))
+        return f"__S{len(strings) - 1}__"
+
+    code = _CS_STRING.sub(keep, expr)
+    code = re.sub(r"\bnew Byte\[\]\s*\{([^{}]*)\}", r"bytearray([\1])", code)
+    code = re.sub(r"\bnew Byte\[([^\[\]]+)\]", r"bytearray(\1)", code)
+    code = re.sub(r"\(Byte\[\]\)(\w+)\.Clone\(\)", r"bytearray(\1)", code)
+    code = re.sub(r"\bnew System\.Object\(\)", "object()", code)
+    code = re.sub(r"\bnew Dictionary<[^<>]*>\(\)", "{}", code)
+    code = re.sub(r"\bnew\[\]\s*\{([^{}]*)\}", r"[\1]", code)
+    code = re.sub(r"\bnew (\w+)\(\)", r"\1()", code)
+    code = re.sub(r"\bBuffer\.BlockCopy\(", "BlockCopy(", code)
+    code = re.sub(r"\b(\w+)\.Length\b", r"len(\1)", code)
+    code = re.sub(r"\b(\w+)\.ContainsKey\(", r"__contains(\1, ", code)
+    code = re.sub(r"\b(?:ref|out) (\w+)", r"'\1'", code)
+    code = re.sub(r"\b([a-z]\w*)\.([A-Z]\w*)", r"__m(\1, '\2')", code)
+    code = re.sub(r"\btrue\b", "True", code)
+    code = re.sub(r"\bfalse\b", "False", code)
+    code = re.sub(r"\bnull\b", "None", code)
+    code = _act_not(code.replace("&&", " and ").replace("||", " or "))
+    for i, s in enumerate(strings):
+        code = code.replace(f"__S{i}__", s)
+    return code
+
+
+def _act_python(stmts: list, pad: str = "") -> list:
+    """ActionSelfTest's statements as Python source lines: a Row -> ``__row(expr, name)``; a declaration -> its
+    assignments (an uninitialised local -> None); a ``for (Int32 n = a; cond; n++)`` -> a while loop; a ``foreach (T x in
+    xs)`` -> a for loop; anything else (an assignment, ``|=``, a call) as itself."""
+    out = []
+    for s in stmts:
+        if isinstance(s, tuple):
+            kind, header, body = s
+            if kind == "for":
+                init, cond, step = (p.strip() for p in header.split(";"))
+                m = re.fullmatch(r"Int32 (\w+) = (.+)", init)
+                assert m and step == m.group(1) + "++", header
+                out.append(f"{pad}{m.group(1)} = {_act_expr(m.group(2))}")
+                out.append(f"{pad}while {_act_expr(cond)}:")
+                out += _act_python(body, pad + "    ")
+                out.append(f"{pad}    {m.group(1)} += 1")
+            else:
+                m = re.fullmatch(r"\w+ (\w+) in (.+)", header)
+                assert m, header
+                out.append(f"{pad}for {m.group(1)} in {_act_expr(m.group(2))}:")
+                out += _act_python(body, pad + "    ")
+            continue
+        m = _ROW.match(s)
+        if m:
+            out.append(f"{pad}__row({_act_expr(m.group(1))}, {m.group(2)!r})")
+            continue
+        m = _ACT_DECL.match(s)
+        if m:
+            rest = re.sub(r"\bnew Dictionary<[^<>]*>\(\)", "{}", m.group(2))      # (its comma is no declarator's)
+            decls, at = [], 0
+            while at < len(rest):
+                try:
+                    comma = _act_scan(rest, at, ",")
+                except AssertionError:
+                    comma = len(rest)
+                decls.append(rest[at:comma].strip())
+                at = comma + 1
+            for d in decls:
+                name, _, value = d.partition("=")
+                out.append(f"{pad}{name.strip()} = {_act_expr(value.strip()) if value else 'None'}")
+            continue
+        out.append(pad + _act_expr(s))
+    return out
+
+
+def _act_program() -> str:
+    """ActionSelfTest, read off the stack (the hunk that holds it whole), as one Python program."""
+    block = _cs_block("NetSyncBattle.cs", "internal static Boolean ActionSelfTest(")
+    code = " ".join(_strip_comment(ln) for ln in block if not re.match(r"(?:internal|private|public) static ", ln))
+    return "\n".join(_act_python(_act_statements(code)))
+
+
+def _act_struct_default() -> dict:
+    """``default(PeerAction)``: every field zero (the extension's cleared)."""
+    return BW.clear_action_ext(BW._act_flag_props({f: 0 for f in BW.ACT_LEGACY_FIELDS}))
+
+
+def _act_ns(**twins) -> dict:
+    """The namespace ActionSelfTest runs in: the constants by C# name, the twins under their C# names (``twins`` replaces
+    one -- a mutant), its own helpers (the pinned bodies of ACT_HELPER_LINES / ACT_TEST_IMPACT_WRITES), each ``ref`` /
+    ``out`` local passed by NAME, and ``__row`` asserting each row."""
+    tw = dict(parse=BW.parse_action, read=BW.read_action_ext, ext=BW.with_impact_ext, start=BW.encode_action_start,
+              end=BW.encode_action_end, next_id=BW.act_next_id, step=BW.act_start_step, end_step=BW.act_end_step,
+              id_of=BW.act_id_of, verdict=BW.act_vfx_verdict, book=BW.ActLoopBook)
+    tw.update(twins)
+    ns = dict(BW.CS_ACTION_CONSTANTS)
+    names: list = []
+
+    def row(ok, name):
+        if ok is not True:
+            raise AssertionError(f"row {name!r} is {ok!r} for the twins")
+        names.append(name)
+
+    def member(obj, name):
+        return obj[_snake(name)] if isinstance(obj, dict) else getattr(obj, _snake(name))
+
+    def try_parse(frame, out):                                         # TryParseAction(p, out a)
+        a = tw["parse"](frame)
+        ns[out] = a if a is not None else _act_struct_default()
+        return a is not None
+
+    def read_ext(frame, ref):                                          # ReadActionExt(p, ref a)
+        return tw["read"](frame, ns[ref])
+
+    def same_legacy(x, y):                                             # SameLegacy(ref a, ref b)
+        return all(ns[x][_snake(f)] == ns[y][_snake(f)] for f in ACT_SAME_LEGACY)
+
+    def same_bytes(a, ao, b, bo, n):
+        if a is None or b is None or ao + n > len(a) or bo + n > len(b):
+            return False
+        return bytes(a[ao:ao + n]) == bytes(b[bo:bo + n])
+
+    def block_copy(src, so, dst, do, n):
+        dst[do:do + n] = bytes(src[so:so + n])
+
+    def cut_reads_no_ext(full, n, whole):                              # ActCutReadsNoExt(full, n, ref whole)
+        cut = bytes(full[:n])
+        a = tw["parse"](cut)
+        if a is None:
+            return False
+        ns["__cut"] = a
+        return same_legacy("__cut", whole) and tw["read"](cut, a) != BW.ACT_EXT_READ_OK and not a["has_ext"]
+
+    def bad_ext(frame):                                                # ActBadExt(frame)
+        a = tw["parse"](frame)
+        return a is not None and tw["read"](frame, a) == BW.ACT_EXT_READ_BAD and not a["has_ext"]
+
+    def next_id(ref):                                                  # ActNextId(ref last)
+        ns[ref] = tw["next_id"](ns[ref])
+        return ns[ref]
+
+    def start_step(live, scr, key, fresh, running, out):             # ActStartStep(.., out displaced)
+        verdict, ns[out] = tw["step"](live, scr, key, fresh, running)
+        return verdict
+
+    def test_impact(nonce, seq, caster, target, flags):              # ActTestImpact (ACT_TEST_IMPACT_WRITES)
+        return BW.encode_action_impact(nonce, seq, caster, target, fig_t=(0x0011, -123, 7), fig_c=(0x0022, 45, -6),
+                                       raws=(900, 80, 1200, 60), flags=flags, cmd_no=1, sub_no=176)
+
+    def test_feed(book, frame):                                        # ActTestFeed(book, frame)
+        a = tw["parse"](frame)
+        if a is not None:
+            book.feed(a, tw["read"](frame, a))
+
+    def test_end(live, key):                                           # ActTestEnd(live, key)
+        r = tw["end_step"](live, key)
+        return r["id"] if r is not None else -1
+
+    ns.update(__row=row, __m=member, __contains=lambda d, k: k in d, TryParseAction=try_parse, ReadActionExt=read_ext,
+              SameLegacy=same_legacy, SameBytes=same_bytes,
+              AllZero=lambda a, o, n: all(x == 0 for x in a[o:o + n]), BlockCopy=block_copy,
+              ActCutReadsNoExt=cut_reads_no_ext, ActBadExt=bad_ext, WithImpactExt=tw["ext"],
+              EncodeActionStart=tw["start"], EncodeActionEnd=tw["end"], ActNextId=next_id, ActStartStep=start_step,
+              ActEndStep=tw["end_step"], ActIdOf=tw["id_of"], ActVfxVerdict=tw["verdict"], ActLoopBook=tw["book"],
+              ActTestImpact=test_impact, ActTestFeed=test_feed, ActTestEnd=test_end,
+              ActTestStart=lambda i, actor, fl: tw["start"](BW.ACT_TEST_NONCE, 1, i, actor, fl, 1, 176, 0x10, 0, 0, 0,
+                                                             BW.VFX_KIND_SPECIAL, 100, -1, 5),
+              ActTestRec=lambda i, scripted: BW.new_act_record(i, 5, 1, 176, scripted),
+              __names__=names)
+    return ns
+
+
+def _run_act_selftest(**twins) -> list:
+    ns = _act_ns(**twins)
+    exec(compile(_act_program(), "<ActionSelfTest>", "exec"), ns)           # noqa: S102 -- the stack's own selftest rows
+    return ns["__names__"]
+
+
+#: ActionSelfTest's rows the audit's amendments name (their names are the engine's, verbatim)
+ACT_ROW_MARKS = ("impact: the 46 bytes unchanged, then A6 01 03 01 and the id (LE)",
+                 "START: 76 bytes at the design's offsets (hand-checked)",
+                 "START through the s110-s132 reader: slots 0xFF/0xFF, flags 0x04 only, no figures, the legacy identity",
+                 "every truncated START prefix (47..75 bytes) reads no extension, its 46 bytes intact",
+                 "an unknown fmt is skipped, never failing the frame",
+                 "book: StartBtlSeq over an open cmd[0] displaces its id for an END first; the sequence is never ENDed",
+                 "loop: a scripted START owes no END; an open CommandEngine START is no_end at a normal close, cut at a "
+                 "reset",
+                 "loop: a stat tick is never an impact; an id-0 impact is extended but no orphan; a 46-byte one is neither",
+                 "vfx: a CSV .seq's first use (special described, a text sequence ran) is drift; unknown always drifts")
+
+
+def test_the_action_twins_evaluate_every_action_selftest_row_off_the_stack():
+    """battlewire's s133 twins (the codec, the id books, the loopback audit, the describe verdict) against ActionSelfTest's
+    OWN rows, EVALUATED in order: 13 codec rows, 8 id-book rows, 6 loopback-audit rows, 3 describe-verdict rows -- 30, the
+    proof line's count. Its helpers are the pinned bodies (ACT_HELPER_LINES, ACT_TEST_IMPACT_WRITES, ACT_SAME_LEGACY)."""
+    names = _run_act_selftest()
+    assert len(names) == BW.ACTION_SELFTEST_ROWS == 30 and len(set(names)) == 30, names
+    assert all(mark in names for mark in ACT_ROW_MARKS), set(ACT_ROW_MARKS) - set(names)
+    prefix = lambda n: n.split(":", 1)[0]                                # noqa: E731
+    assert [sum(prefix(n) == p for n in names) for p in ("book", "loop", "vfx", "ids")] == [7, 6, 3, 1], names
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", [_patch_bytes("s133")])) == 30
+    for line in ACT_HELPER_LINES:
+        assert _battle_text(line), line
+    writes = [re.fullmatch(r"bw\.Write\((.+)\);", ln) for ln in _act_region("private static Byte[] ActTestImpact(",
+                                                                           "private static Byte[] ActTestStart(")]
+    assert [m.group(1) for m in writes if m] == ACT_TEST_IMPACT_WRITES
+    same = " ".join(_act_region("private static Boolean SameLegacy(", "private static Boolean SameBytes("))
+    assert re.findall(r"a\.(\w+) == b\.\1", same) == list(ACT_SAME_LEGACY), same
+
+
+def _mutant_read(rule: str):
+    """ReadActionExt with ONE rule broken (the twin's own body otherwise)."""
+    def read(payload, a):
+        p = bytes(payload)
+        if rule == "no_flag_agreement" and len(p) >= 52 and p[46] == BW.ACT_EXT_TAG and p[49] in (1, 2, 3):
+            fl = a["flags"]
+            a["flags"] = (fl & ~(BW.ACT_FLAG_START | BW.ACT_FLAG_END)) | {1: 0, 2: BW.ACT_FLAG_START,
+                                                                         3: BW.ACT_FLAG_END}[p[49]]
+            r = BW.read_action_ext(p, a)
+            a["flags"] = fl
+            return r
+        if rule == "short_ok" and 46 < len(p) < 52 and p[46] == BW.ACT_EXT_TAG:
+            BW.clear_action_ext(a)
+            a.update(has_ext=True, ext_kind=BW.ACT_EXT_IMPACT)
+            return BW.ACT_EXT_READ_OK
+        if rule == "fmt_bad" and len(p) >= 52 and p[46] == BW.ACT_EXT_TAG and p[47] != BW.ACT_EXT_FMT1:
+            BW.clear_action_ext(a)
+            return BW.ACT_EXT_READ_BAD
+        if rule == "id0_ok" and len(p) >= 52 and p[46] == BW.ACT_EXT_TAG and p[50] == p[51] == 0 and p[49] in (2, 3):
+            q = bytearray(p)
+            q[50] = 1
+            r = BW.read_action_ext(bytes(q), a)
+            if r == BW.ACT_EXT_READ_OK:
+                a["act_id"] = 0
+            return r
+        return BW.read_action_ext(p, a)
+    return read
+
+
+def _mutant_step(rule: str):
+    def step(live, scr, key, fresh, running):
+        if rule == "no_displace" and key in live:
+            live.pop(key)
+            (scr if fresh["scripted"] else live)[key] = fresh
+            return BW.ACT_STEP_NEW, None
+        if rule == "no_reentry":
+            return BW.act_start_step(live, scr, key, fresh, False)
+        if rule == "scripted_live" and fresh["scripted"]:
+            v, d = BW.act_start_step(live, scr, key, dict(fresh, scripted=False), running)
+            return (BW.ACT_STEP_TAKEOVER if v == BW.ACT_STEP_RESTART else v), d
+        return BW.act_start_step(live, scr, key, fresh, running)
+    return step
+
+
+class _BookStatAsImpact(BW.ActLoopBook):
+    def feed(self, a, ext_read):                                       # a stat tick counted as an impact
+        super().feed(dict(a, flags=a["flags"] & ~BW.ACT_FLAG_STAT_TICK), ext_read)
+
+
+class _BookNoCasterCheck(BW.ActLoopBook):
+    def feed(self, a, ext_read):
+        super().feed(dict(a, caster_slot=0xFF) if not a["is_start"] else a, ext_read)
+
+
+class _BookScriptedOwes(BW.ActLoopBook):
+    def feed(self, a, ext_read):
+        super().feed(dict(a, actor_flags=a["actor_flags"] & ~BW.ACTOR_SCRIPTED) if a["is_start"] else a, ext_read)
+
+
+@pytest.mark.parametrize("twins", [
+    {"read": _mutant_read("no_flag_agreement")}, {"read": _mutant_read("short_ok")}, {"read": _mutant_read("fmt_bad")},
+    {"read": _mutant_read("id0_ok")},
+    {"ext": lambda legacy, i: BW.with_impact_ext(legacy, i)[:49] + bytes([BW.ACT_EXT_END]) + BW.with_impact_ext(legacy, i)[50:]},
+    {"start": lambda *a: BW.encode_action_start(*a[:7], a[7], 0, *a[9:]) if a[8] else BW.encode_action_start(*a)},
+    {"end": lambda n, s, i, c, sub: BW.encode_action_end(n, s, i, c, sub)[:41] + bytes([0x0C])
+     + BW.encode_action_end(n, s, i, c, sub)[42:]},
+    {"next_id": lambda last: (last + 1) & 0xFFFF}, {"step": _mutant_step("no_displace")},
+    {"step": _mutant_step("no_reentry")}, {"step": _mutant_step("scripted_live")},
+    {"end_step": lambda live, key: live.get(key)}, {"id_of": lambda live, scr, key: (live.get(key) or {"id": 0})["id"]},
+    {"verdict": lambda kind, num, added, enemy, eff: added if kind != BW.VFX_KIND_NONE else not added},
+    {"verdict": lambda kind, num, added, enemy, eff: BW.act_vfx_verdict(kind, num, added, enemy, eff)
+     or (kind == BW.VFX_KIND_UNKNOWN and added)},
+    {"book": _BookStatAsImpact}, {"book": _BookNoCasterCheck}, {"book": _BookScriptedOwes}],
+    ids=["read-flag-agreement", "read-short-ok", "read-fmt-bad", "read-id0-ok", "ext-kind", "start-cursor", "end-flags",
+         "next-id-zero", "step-no-displace", "step-no-reentry", "step-scripted-live", "end-step-keeps", "id-of-live-only",
+         "verdict-kind-blind", "verdict-unknown-ok", "book-stat-impact", "book-no-caster", "book-scripted-owes"])
+def test_each_action_rule_mutant_fails_a_selftest_row(twins):
+    """A CHECK THAT CANNOT FAIL is no check: each rule of the codec, the books, the audit and the verdict, broken alone in
+    its twin, fails one of the engine's own rows."""
+    _act_program()                                                      # (its own parse outside the raises)
+    with pytest.raises(AssertionError, match=r"^row ['\"]"):
+        _run_act_selftest(**twins)
+
+
+def _cs_signature(file_name: str, start: str) -> list:
+    """A C# method's parameter names, read off its signature in the stack (generic-aware: a comma inside ``<..>`` does
+    not split); ``ref`` / ``out`` kept as a prefix."""
+    sig = " ".join(_cs_block(file_name, start, "{"))
+    inner = sig[sig.index("(") + 1:sig.rindex(")")]
+    params, depth, cur = [], 0, ""
+    for c in inner:
+        depth += {"<": 1, ">": -1}.get(c, 0)
+        if c == "," and depth == 0:
+            params.append(cur.strip())
+            cur = ""
+        else:
+            cur += c
+    params.append(cur.strip())
+    return [(p.split()[0] + " " if p.split()[0] in ("ref", "out") else "") + p.split()[-1] for p in params if p]
+
+
+def test_the_action_twins_take_the_engines_parameters_in_its_order():
+    """Each s133 twin's parameters ARE its C# method's, in order (camelCase -> snake_case; ``ref a`` is the struct dict, ``ref
+    last`` the value the caller stores back, an ``out`` the twin's (second) result)."""
+    for start, fn, fix in (
+            ("internal static Byte[] EncodeActionStart(", BW.encode_action_start, {}),
+            ("internal static Byte[] EncodeActionEnd(", BW.encode_action_end, {}),
+            ("internal static Byte[] WithImpactExt(", BW.with_impact_ext, {}),
+            ("internal static Int32 ReadActionExt(", BW.read_action_ext, {"ref a": "a", "p": "payload"}),
+            ("internal static UInt16 ActNextId(", BW.act_next_id, {"ref last": "last"}),
+            ("internal static Int32 ActStartStep(", BW.act_start_step, {}),
+            ("internal static ActRecord ActEndStep(", BW.act_end_step, {}),
+            ("internal static UInt16 ActIdOf(", BW.act_id_of, {}),
+            ("internal static Boolean ActVfxVerdict(", BW.act_vfx_verdict, {})):
+        cs = [fix.get(p, fix.get(_snake(p), _snake(p))) for p in _cs_signature("NetSyncBattle.cs", start)
+              if not p.startswith("out ")]
+        assert cs == _twin_params(fn), (start, cs, _twin_params(fn))
+
+
+def test_the_action_constants_are_the_stacks_both_ways():
+    """THE PIN (audit amendment 11): every CS_ACTION_CONSTANTS entry is NetSyncBattle's constant of that name and value,
+    and every integer constant s133's own hunk declares is in the table -- a constant added, renamed or retuned on either
+    side turns this red. ActionBufferCap (its comment hides it from the parser) stays 64 (audit D4)."""
+    cs = _cs_int_consts("NetSyncBattle.cs")
+    for name, value in BW.CS_ACTION_CONSTANTS.items():
+        assert name in cs and cs[name][0] == value, (name, cs.get(name), value)
+    mine = set()
+    for line in net_lines("NetSyncBattle.cs", r"const (?:Byte|Int32) ", [_patch_bytes("s133")]):
+        m = re.match(r"(?:public |private |internal )?const (?:Byte|Int32) (.*);", line)
+        mine |= {d.group(1) for d in (re.match(r"\s*(\w+) = (?:0x[0-9A-Fa-f]+|-?\d+)\s*$", x) for x in m.group(1).split(","))
+                 if d}                                               # (the selftest's local `const Byte N = ActTestNonce`: no)
+    assert mine == set(BW.CS_ACTION_CONSTANTS), sorted(mine ^ set(BW.CS_ACTION_CONSTANTS))
+    assert _battle_text("private const Int32 ActionBufferCap = 64;") and BW.ACTION_BUFFER_CAP == 64
+    assert (BW.CAP_ACTION_STARTS, BW.FLAG_START_HOLD, BW.CAP_INTRO_MIRROR, BW.FLAG_INTRO_SKIPPED) == (0x20, 0x10, 8, 4)
+    assert BW.CAP_ACTION_STARTS & 0x3C and not BW.CAP_ACTION_STARTS & ~0x3C      # the hostgates re-pin's mask covers it
+
+
+def test_the_action_codec_matches_the_designs_bytes_by_hand():
+    """The wire, checked by hand against design 3.3.2's offsets: an IMPACT is the unchanged 46 bytes + A6 01 03 01 id; a
+    START 76 bytes whose s110-s132 parse is slots 0xFF/0xFF, flags 0x04, no figures; an END 52 bytes, flags 0x08; every
+    truncated extension prefix reads no extension with its 46 bytes intact; an unknown fmt is skipped; a stat tick stays
+    46 bytes; the tape's hex reads back."""
+    legacy = BW.encode_action_impact(7, 0x1234, 1, 4, fig_t=(0, 33, 0), raws=(0, 0, 500, 0), flags=1 | 64, cmd_no=1,
+                                     sub_no=176)
+    impact = BW.encode_action_impact(7, 0x1234, 1, 4, fig_t=(0, 33, 0), raws=(0, 0, 500, 0), flags=1 | 64, cmd_no=1,
+                                     sub_no=176, act_id=0x0203)
+    assert len(legacy) == 46 and len(impact) == 52 and impact[:46] == legacy
+    assert impact[46:] == bytes([0xA6, 0x01, 0x03, 0x01, 0x03, 0x02])
+    assert BW.decode_action_legacy(impact) == BW.decode_action_legacy(legacy)
+    a = BW.decode_action(impact)
+    assert BW.classify_action(a) == "impact" and a["act_id"] == 0x0203 and a["caster_slot"] == 1 and a["fig_hp_t"] == 33
+    st = BW.encode_action_start(9, 0x0BCD, 0x0007, 2, BW.ACTOR_IS_PLAYER | BW.ACTOR_HOST_REWORK, 22, 0x00000011, 0x30, 2,
+                                BW.ACT_INFO_COVER, 0x0004, BW.VFX_KIND_SPECIAL, 0x0100, -1, 5)
+    assert len(st) == 76 and st[0] == 9 and st[1:3] == bytes([0xCD, 0x0B]) and st[3:5] == b"\xFF\xFF"
+    assert st[5:41] == bytes(36) and st[41] == 0x04 and st[42:46] == bytes([22, 0, 0x11, 0])
+    assert st[46:50] == bytes([0xA6, 1, 27, 2]) and st[50:52] == bytes([7, 0]) and st[52] == 2 and st[53] == 0x03
+    assert st[54:56] == bytes([22, 0]) and st[56:60] == bytes([0x11, 0, 0, 0]) and st[60:62] == bytes([0x30, 0])
+    assert st[62] == 2 and st[63] == 0x04 and st[64:66] == bytes([4, 0]) and st[66] == 3
+    assert st[67:71] == bytes([0, 1, 0, 0]) and st[71:75] == b"\xFF\xFF\xFF\xFF" and st[75] == 5
+    old = BW.decode_action_legacy(st)
+    assert (old["caster_slot"], old["target_slot"], old["flags"], old["fig_hp_t"], old["cmd_no"], old["sub_no"]) == \
+        (0xFF, 0xFF, BW.ACT_FLAG_START, 0, 22, 0x11)
+    s = BW.decode_action(st)
+    assert BW.classify_action(s) == "start" and (s["act_id"], s["actor_slot"], s["act_tar_id"], s["vfx_num"],
+                                                 s["act_patched_vfx"]) == (7, 2, 0x30, 0x100, -1)
+    en = BW.encode_action_end(9, 0x0BCE, 7, 22, 0x11)
+    assert len(en) == 52 and en[41] == 0x08 and en[46:] == bytes([0xA6, 1, 3, 3, 7, 0])
+    assert BW.classify_action(BW.decode_action(en)) == "end" and BW.decode_action_legacy(en)["caster_slot"] == 0xFF
+    for frame, n in ((st, 76), (impact, 52), (en, 52)):
+        whole = BW.decode_action_legacy(frame)
+        for k in range(47, n):
+            cut = BW.decode_action(frame[:k])
+            assert not cut["has_ext"] and cut["ext_read"] != BW.ACT_EXT_READ_OK, (n, k)
+            assert {f: cut[f] for f in BW.ACT_LEGACY_FIELDS} == {f: whole[f] for f in BW.ACT_LEGACY_FIELDS}, (n, k)
+    fmt2 = bytearray(st)
+    fmt2[47] = 2
+    assert BW.decode_action(bytes(fmt2))["ext_read"] == BW.ACT_EXT_READ_FMT
+    tick = BW.encode_action_impact(7, 1, 0xFF, 4, fig_t=(0, 12, 0), flags=BW.ACT_FLAG_STAT_TICK)
+    assert len(tick) == 46 and BW.classify_action(BW.decode_action(tick)) == "stat"
+    assert bytes.fromhex(BW.action_hex(st)) == st and BW.action_hex(en) == en.hex().upper()
+    imp7 = BW.with_impact_ext(bytes([9]) + legacy[1:], 7)                # the START's nonce: a lifecycle is (nonce, id)
+    assert BW.act_order_violations([st, imp7, en]) == []
+    assert BW.act_order_violations([st, BW.with_impact_ext(legacy, 7), en])                 # nonce 7's id 7: no START
+    assert BW.act_order_violations([imp7, st, en]) and BW.act_order_violations([st, en, imp7])
+    assert BW.action_text(st).startswith("START id 7 actor 2") and BW.action_text(legacy).endswith("a pre-s133 host)")
+
+
+#: DescribeCommandVfx, statement for statement (the s133 hunk of btl_vfx.cs): the twin's branches in the same order
+ACT_DESCRIBE_LINES = [
+    "public static Byte DescribeCommandVfx(CMD_DATA cmd, out Int32 num)", "{", "num = 0;", "try", "{",
+    "BTL_DATA regist = cmd.regist;", "if (Configuration.Battle.SFXRework)", "{",
+    "if (cmd.cmd_no != BattleCommandId.MagicCounter)", "{",
+    "Boolean beatrixFix = cmd.aa.Info.SequenceFile == null && regist != null && regist.bi.player == 0",
+    "&& regist.dms_geo_id == 427 && cmd.aa.Info.VfxIndex == 457;", "if (cmd.aa.Info.VfxAction != null || beatrixFix)",
+    "{", "num = cmd.aa.Info.VfxIndex;", "return Memoria.Netsync.NetSyncBattle.VfxKindSeq;", "}",
+    "if (regist != null && regist.bi.player == 0 && cmd.cmd_no != BattleCommandId.SysTrans)", "{", "num = cmd.sub_no;",
+    "return Memoria.Netsync.NetSyncBattle.VfxKindEnemy;", "}", "}", "}", "else", "{", "switch (cmd.cmd_no)", "{",
+    "case BattleCommandId.EnemyAtk:", "case BattleCommandId.EnemyCounter:", "case BattleCommandId.EnemyDying:",
+    "case BattleCommandId.EnemyReaction:", "num = cmd.sub_no;", "return Memoria.Netsync.NetSyncBattle.VfxKindEnemy;", "}",
+    "}", "SpecialEffect sfxNum = GetPlayerCommandSFX(cmd);", "if (sfxNum != SpecialEffect.Special_No_Effect)", "{",
+    "num = (Int32)sfxNum;", "return Memoria.Netsync.NetSyncBattle.VfxKindSpecial;", "}",
+    "if (cmd.cmd_no == BattleCommandId.Change || cmd.cmd_no == BattleCommandId.Defend)", "{", "num = (Int32)cmd.cmd_no;",
+    "return Memoria.Netsync.NetSyncBattle.VfxKindCommon;", "}", "return Memoria.Netsync.NetSyncBattle.VfxKindNone;", "}"]
+
+
+def test_describe_command_vfx_is_the_engines_mirror_and_its_hook_sites_are_the_audits():
+    """btl_vfx.DescribeCommandVfx (audit amendment 10: kind 1 keyed on VfxAction or the EVALUATED Beatrix predicate, never on
+    SequenceFile alone) read off the stack statement for statement, and its twin on every branch; the hook sites (D1: the
+    START right BEFORE SelectCommandVfx, the D2 check right after it; the END the first line of FinishCommand; the scripted
+    START in StartBtlSeq after IsShortRange) are the patch's lines, in that order."""
+    body = [c for c in (_strip_comment(ln) for ln in _cs_block("btl_vfx.cs", "public static Byte DescribeCommandVfx(",
+                                                               "catch")) if c]
+    assert body == ACT_DESCRIBE_LINES, body
+    d = BW.describe_command_vfx
+    assert d(rework=True, cmd_no=22, sub_no=1, player=True, vfx_action=True, vfx_index=55) == (BW.VFX_KIND_SEQ, 55)
+    assert d(rework=True, cmd_no=47, sub_no=9, player=False, beatrix=True, vfx_index=457) == (BW.VFX_KIND_SEQ, 457)
+    assert d(rework=True, cmd_no=47, sub_no=9, player=False) == (BW.VFX_KIND_ENEMY, 9)
+    assert d(rework=True, cmd_no=BW.CMD_SYS_TRANS, sub_no=9, player=False, special=600) == (BW.VFX_KIND_SPECIAL, 600)
+    assert d(rework=True, cmd_no=BW.CMD_MAGIC_COUNTER, sub_no=9, player=False, vfx_action=True,
+             special=7) == (BW.VFX_KIND_SPECIAL, 7)
+    assert d(rework=True, cmd_no=1, sub_no=176, player=True, special=19) == (BW.VFX_KIND_SPECIAL, 19)
+    assert d(rework=True, cmd_no=BW.CMD_DEFEND_ID, sub_no=0, player=True) == (BW.VFX_KIND_COMMON, BW.CMD_DEFEND_ID)
+    assert d(rework=True, cmd_no=BW.CMD_CHANGE_ID, sub_no=0, player=True) == (BW.VFX_KIND_COMMON, BW.CMD_CHANGE_ID)
+    assert d(rework=True, cmd_no=BW.CMD_ITEM_ID, sub_no=236, player=True) == (BW.VFX_KIND_NONE, 0)
+    assert d(rework=True, cmd_no=1, sub_no=0, player=None) == (BW.VFX_KIND_NONE, 0)       # no regist: never "enemy"
+    assert d(rework=False, cmd_no=47, sub_no=4, player=False, vfx_action=True) == (BW.VFX_KIND_ENEMY, 4)
+    assert d(rework=False, cmd_no=22, sub_no=4, player=True, vfx_action=True, special=31) == (BW.VFX_KIND_SPECIAL, 31)
+    assert d(rework=True, cmd_no=1, sub_no=0, player=True, throws=True) == (BW.VFX_KIND_UNKNOWN, 0)
+    cmd = [t for _h, _k, t in _new_side("btl_cmd.cs", _patch_bytes("s133"))]
+    i = cmd.index("Memoria.Netsync.NetSyncBattle.QueueActionStart(cmd, false);")
+    assert cmd[i + 1:i + 3] == ["btl_vfx.SelectCommandVfx(cmd);", "Memoria.Netsync.NetSyncBattle.CheckActionVfx(cmd);"]
+    assert "BattleVoice.TriggerOnBattleAct(caster, BattleVoice.BattleMoment.CommandPerform, cmd);" in cmd[i - 4:i]
+    j = cmd.index("public static void FinishCommand(FF9StateBattleSystem btlsys, CMD_DATA cmd)")
+    assert [t for t in cmd[j + 2:j + 6] if not t.startswith("//")][0] == "Memoria.Netsync.NetSyncBattle.QueueActionEnd(cmd);"
+    # the scripted START (review engine-1): on SFXRework right before Execute (which always registers the action); on the
+    # old engine only once EntrySequence took a slot -- with all four busy the sequence never runs, so it never STARTs
+    seq = [t for _h, _k, t in _new_side("btlseq.cs", _patch_bytes("s133")) if not t.startswith("//")]
+    sites = [k for k, t in enumerate(seq) if t == "Memoria.Netsync.NetSyncBattle.QueueActionStart(cmd_DATA, true);"]
+    assert len(sites) == 2 == len(net_lines("btlseq.cs", r"QueueActionStart\(cmd_DATA, true\);")), seq
+    assert seq[sites[0] - 1].startswith("UnifiedBattleSequencer.BattleAction action = new UnifiedBattleSequencer.")
+    assert seq[sites[0] + 1] == "action.Execute(cmd_DATA);"
+    assert seq[sites[1] - 2:sites[1]] == ["if ((seq_WORK = btlseq.EntrySequence(cmd_DATA)) == null)", "return;"]
+    assert seq[sites[1] + 1] == "seq_WORK.Flags.EventMode = true;"
+    for gate in ("if (!Enabled)", "if (!Enabled || _actIds.Count == 0)", "if (_actCheckCmd == null)"):
+        assert _battle_text(gate), gate                                  # one static read each when netsync is off
+
+
+def test_the_action_lane_lines_and_the_proof_line_are_the_stacks():
+    """The lane's log words (battlewire's LOG_ACT_*: each a C# literal of the stack, or its head) and the proof line logged
+    RIGHT AFTER the peer adopt's in the selftest proof block's shape."""
+    for head in (BW.LOG_ACT_CLOSED, BW.LOG_ACT_DRIFT, BW.LOG_ACT_CODEC_DRIFT, BW.LOG_ACT_DROP, BW.LOG_ACT_TAPE_REC,
+                 BW.LOG_ACT_TAPE_STOPPED, BW.LOG_ACT_TAPE_CLEARED, BW.LOG_ACT_TAPE_FULL, BW.LOG_ACT_TAPE_INFO,
+                 BW.LOG_ACT_TAPE_PAGE, BW.LOG_ACT_LEVER_RELEASED):
+        assert _battle_text('"' + head), head
+    for piece in (BW.LOG_ACT_NEVER_ENDED, BW.LOG_ACT_UNRESOLVED, BW.LOG_ACT_EDGE, "OFF -- CALIBRATION: the pre-s133 host "
+                  "(no START/END records, no impact ids, no caps bit 5)", '"[NetSync] harness: action STARTs "'):
+        assert _battle_text(piece), piece
+    assert BW.LOG_ACT_LEVER_OFF.startswith("[NetSync] harness: action STARTs ") and BW.LOG_ACT_LEVER_ON.endswith("ON")
+    assert _added_after("s133", "NetSyncClient.cs", f'"[NetSync] {BW.PROOF_ADOPT}"', f'"[NetSync] {BW.PROOF_ACTION}"')
+    assert net_lines("NetSyncClient.cs", re.escape('+ (actOk ? "OK (" + actDetail + ")" : "FAIL (" + actDetail + ")"));'))
+    lane = BW.ActHostLane()
+    lane.lines.clear()
+    lane.battle_start(4)
+    lane.start("k", scripted=False, actor_slot=0, actor_flags=1, cmd_no=1, sub_no=176, tar_id=16, nonce=4, seq=1,
+               enabled=True, selftest_role=True, vfx=(BW.VFX_KIND_SPECIAL, 100))
+    lane.check_vfx("k", added=None)
+    lane.close_battle(False)
+    drift, never, closed = lane.lines
+    assert _spliced(drift, "[NetSync] action lane: describe drift -- ", " (drift=", "; logged once per battle)")
+    assert _spliced(never, "[NetSync] action lane: ", " START(s) never ENDed at the own battle's ", "end -- no_end=",
+                    " (a normal end cannot orphan one: a defect)", "; ids ")
+    assert _spliced(closed, BW.LOG_ACT_CLOSED, ") closed -- ", " START(s) (", " scripted), ", " END(s), ",
+                    " impact(s) with an id (", " of them 0), dropped ", ", describe drift ")
+
+
+def test_the_act_block_is_the_fifth_sub_object_at_the_catch_lines_sentinels():
+    """THE CATCH-LITERAL RE-PIN (audit amendment 12): `act` sits in AppendNetsync's SECOND catch literal, right after
+    `end`'s close, at its sentinels; the line stays ONE line of exactly two literals around `.Append(NetsyncF3Retired)`;
+    AppendAct writes the keys in the catch line's order, each read through its NetSyncBattle getter; protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    a, b = _literals(catch[0])
+    assert '\\"follow_msg\\":null},\\"act\\":{\\"host\\":{\\"on\\":false,' in b and "act" not in a
+    nothing = _agent_netsync_nothing()[0]
+    assert _battle_of(nothing)["act"] == {"host": BW.ACT_HOST_SENTINELS}
+    assert _catch_doc_in("s133") == nothing                                # s133 wrote the live catch line whole
+    body = " ".join(_act_region("private static void AppendAct(", "// [ff9mapkit netsync B5] stage 5:", "HarnessAgent.cs"))
+    names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
+    host = BW.ACT_HOST_SENTINELS
+    flat = [k for k in host if not isinstance(host[k], dict) and k != "last"]
+    assert len(flat) == 18 and flat[9:11] == ["dropped", "wire_dropped"], flat
+    want = (flat + list(host["kinds"]) + list(host["vfx"]) + list(BW.ACT_LAST_FIELDS) + list(host["loop"])
+            + [k for k in host["tape"] if k != "page"] + list(BW.ACT_PAGE_KEYS[:3]) + list(BW.ACT_PAGE_FRAME_KEYS))
+    assert names == want, (names, want)
+    for key, getter in (("on", "HarnessActOn"), ("dropped", "HarnessActDropped"), ("wire_dropped", "HarnessActWireDropped"),
+                        ("edge_declined", "HarnessActEdgeDeclined"),
+                        ("state", "HarnessActTapeState"), ("why", "HarnessActVfxWhy")):
+        assert re.search(rf'(?:Bool|Num|Str)\(sb, "{key}", Memoria\.Netsync\.NetSyncBattle\.{getter}\)', body), key
+    assert _added_after("s133", "HarnessAgent.cs", "AppendBattleEnd(sb);", "AppendAct(sb);")
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    assert _battle_text("public static Boolean HarnessActOn { get { return Enabled && ActStartsOn; } }")
+    assert not _battle_text("IsSelfTestRole ? _act")                     # audit 3.6: published in EVERY role
+
+
+def test_state_reads_the_act_block_absent_on_s132_as_cannot():
+    """On s132's catch block (s133's calibration red) every `act.host` accessor reads None and `coop_act_host` False; on the
+    live block they read the sentinels and True; no `netsync` block reads None; a published block reads its values, a
+    mistyped one None, and the nullable records (`last`, `tape.page`) read None at null."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s132")})
+    live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
+    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items() if p.startswith("act.")]
+    assert len(names) == len(_leaves({"act": {"host": BW.ACT_HOST_SENTINELS}})) + 5 == 51, names   # + 5 whole blocks
+    assert (State({"frame": 1}).coop_act_host, old.coop_act_host, live.coop_act_host) == (None, False, True)
+    assert all(getattr(old, n) is None for n in names)
+    assert all(getattr(live, n) is not None for p, n in State.NETSYNC_BATTLE_ACCESSORS.items()
+               if p.startswith("act.") and p not in BATTLE_NULLABLE)
+    assert (live.coop_act_host_last, live.coop_act_host_tape_page, live.coop_act_host_tape_state) == (None, None, "")
+    doc = _agent_netsync_nothing()[0]
+    doc["battle"]["act"]["host"].update(starts=6, ends=6, on=True, nonce=3,
+                                        last={"id": 6, "actor": 4, "kind": 2, "num": 3, "sub": 3},
+                                        tape=dict(BW.ACT_HOST_SENTINELS["tape"], state="stopped", frames=True))
+    st = State({"frame": 1, "netsync": doc})
+    assert (st.coop_act_host_starts, st.coop_act_host_on, st.coop_act_host_nonce, st.coop_act_host_tape_state) == \
+        (6, True, 3, "stopped")
+    assert st.coop_act_host_tape_frames is None and st.coop_act_host_last["kind"] == 2   # (a bool is never an int)
+    got = st.coop_act_host_last
+    got["kind"] = 0
+    assert st.coop_act_host_last["kind"] == 2                            # a copy
+
+
+def test_a_fresh_stand_in_publishes_the_act_sentinels_and_s132_none(game):
+    """The default stand-in (s133) publishes `act.host` at the agent's sentinels with no client (the tape's state the live
+    "off"); the stand-in at s132 publishes no `act`, no `actbench` and no 'action lane' proof line, and answers `actbench`
+    "unknown sub-verb" in s132's words."""
+    want = dict(BW.ACT_HOST_SENTINELS, tape=dict(BW.ACT_HOST_SENTINELS["tape"], state="off"))
+    assert _battle_of(FakeGame(game)._netsync_doc())["act"] == {"host": want}
+    old = FakeGame(game)
+    old.netsync_caps = S132_CAPS
+    assert "act" not in _battle_of(old._netsync_doc()) and "actbench" not in old._netsync_subverbs()
+    assert set(_leaves(_battle_of(old._netsync_doc()))) == set(_leaves(_battle_of(_catch_doc_in("s132"))))
+    with pytest.raises(RuntimeError) as err:
+        old._netsync(["actbench", "tape", "rec"])
+    assert str(err.value) == f"netsync: unknown sub-verb 'actbench' ({'|'.join(_subverbs_in('s106'))})"
+
+
+#: (fragment the agent says -- ONE C# literal of the stack, or a piece of one -- the args, where)
+ACT_REFUSALS = [
+    ("netsync actbench: needs the selftest role (netsync selftest 1)", ["actbench", "tape", "rec"], None),
+    ("netsync actbench hoststarts: expected `hoststarts on|off`", ["actbench", "hoststarts", "maybe"], "selftest"),
+    ("netsync actbench: unknown op '", ["actbench", "tapes", "rec"], "selftest"),
+    ("' (tape|hoststarts)", ["actbench", "tapes", "rec"], "selftest"),
+    ("netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`",
+     ["actbench", "tape", "play"], "selftest"),
+    ("netsync actbench tape dump: the tape is empty (`actbench tape rec` first)", ["actbench", "tape", "dump", "0", "4"],
+     "selftest"),
+    ("netsync actbench tape dump: from ", ["actbench", "tape", "dump", "9", "4"], "tape"),
+    (" is past the tape's last frame (", ["actbench", "tape", "dump", "9", "4"], "tape"),
+]
+
+
+def _act_taped(fake, frames: int = 3):
+    """A selftest stand-in whose action tape holds ``frames`` frames (fed through the lane's loopback by hand)."""
+    _selftest(fake)._netsync(["actbench", "tape", "rec"])
+    for i in range(frames):
+        fake._act_lane.enqueue(BW.encode_action_impact(1, i, 0, 4))
+    fake._act_lane.loop_actions(1000)
+    return fake
+
+
+@pytest.mark.parametrize("fragment,args,where", ACT_REFUSALS, ids=[f"{r[0][:36]}-{i}" for i, r in enumerate(ACT_REFUSALS)])
+def test_the_stand_in_refuses_actbench_in_the_agents_words(game, fragment, args, where):
+    """Every `actbench` gate the stand-in models refuses with the engine's own words (each fragment a literal of the stack)."""
+    assert _battle_text(fragment), f"the live stack no longer says {fragment!r}"
+    fake = FakeGame(game)
+    if where == "selftest":
+        _selftest(fake)
+    elif where == "tape":
+        _act_taped(fake)
+    with pytest.raises(RuntimeError) as err:
+        fake._netsync(args)
+    assert fragment in str(err.value), str(err.value)
+
+
+@pytest.mark.parametrize("args,param", [(["actbench"], "netsync actbench"), (["actbench", "tape"], "netsync actbench"),
+                                        (["actbench", "tape", "rec", "x"], "netsync actbench"),
+                                        (["actbench", "tape", "dump", "0"], "netsync actbench tape dump"),
+                                        (["actbench", "tape", "dump", "-1", "4"], "netsync actbench tape dump"),
+                                        (["actbench", "tape", "dump", "0", "17"], "netsync actbench tape dump"),
+                                        (["actbench", "tape", "dump", "0", "0"], "netsync actbench tape dump")])
+def test_an_actbench_argument_refusal_has_the_engines_whole_shape_before_any_gate(game, args, param):
+    """The agent's `actbench` argument parse runs BEFORE HarnessActBench's role gate, as an ArgumentOutOfRangeException in
+    Mono's whole shape -- `tape dump`'s message the agent's two literals around ActTapePageMax."""
+    lines = net_lines("HarnessAgent.cs", r'ArgumentOutOfRangeException\("netsync actbench')
+    agent = {_literals(ln)[0]: _literals(ln)[1] for ln in lines}
+    assert set(agent) == {"netsync actbench", "netsync actbench tape dump"}, agent
+    assert net_lines("HarnessAgent.cs", r'\+ Memoria\.Netsync\.NetSyncBattle\.ActTapePageMax \+ "\)"\);')
+    message = agent[param] + (str(BW.ACT_TAPE_PAGE_MAX) + ")" if param.endswith("dump") else "")
+    with pytest.raises(RuntimeError) as err:
+        FakeGame(game)._netsync(args)                                   # no selftest role: the parse comes first
+    assert str(err.value) == f"{message}\r\nParameter name: {param}", repr(str(err.value))
+
+
+def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_step(game):
+    """`actbench <op>`: the driver's op list and tape values are the engine's (its refusals' own lists), the sub-verb's
+    capability key is `act.host` (audit amendment 13), and the driver refuses an unknown op / value before the step in the
+    engine's words -- on s132 it refuses the whole sub-verb naming s133 and the engine's would-be answer."""
+    ops = net_lines("NetSyncBattle.cs", r"netsync actbench: unknown op '")
+    assert len(ops) == 1 and tuple(re.search(r"\(([a-z|]+)\)\";", ops[0]).group(1).split("|")) == \
+        Session.NETSYNC_ACTBENCH_OPS == FG.NETSYNC_ACTBENCH_OPS == FG.actbench_ops(_all_caps_through("actstart"))
+    assert FG.actbench_ops(_all_caps_through("grace40")) == () and Session.NETSYNC_ACTBENCH_OP_CAPS == {}
+    tape = net_lines("NetSyncBattle.cs", r"netsync actbench tape: expected `tape ")
+    m = re.search(r"`tape ([a-z|]+)` or `tape dump <from> <count>`", tape[0]) if len(tape) == 1 else None
+    assert m and Session.NETSYNC_ACTBENCH_TAPE_OPS == FG.NETSYNC_ACTBENCH_TAPE_OPS == tuple(m.group(1).split("|")) + (
+        "dump",), tape
+    assert Session.NETSYNC_ACTBENCH_PAGE_MAX == BW.ACT_TAPE_PAGE_MAX
+    assert Session.NETSYNC_BATTLE_SUBVERBS["actbench"][:3] == ("coop_act_host", "netsync.battle.act.host", "s133")
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        usage = ("expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info` or `actbench tape dump "
+                 "<from> <count>`\r\nParameter name: netsync actbench")
+        for args, words in ((("tapes", "rec"), "netsync actbench: unknown op 'tapes' (tape|hoststarts)"),
+                            (("tape", "play"), "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump "
+                                               "<from> <count>`"),
+                            # [review harness-10] the hoststarts value, and the agent's argument parse (it runs FIRST)
+                            (("hoststarts", "maybe"), "netsync actbench hoststarts: expected `hoststarts on|off`"),
+                            ((), usage), (("tapes",), usage), (("hoststarts",), usage),
+                            (("tape", "rec", "now"), usage)):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *args])
+            assert str(err.value) == str(agent.value) == words, args
+        assert len(fake.executed) == n
+        assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE}");')
+        st = g.actbench("TAPE", "Rec")                                  # the agent lowercases both; so does the driver
+        assert st.coop_act_host_tape_state == "rec" and fake.executed[-1] == ["netsync", "actbench", "TAPE", "Rec"]
+    fake = FakeGame(game)
+    fake.netsync_caps = S132_CAPS
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        with pytest.raises(HarnessError, match=r"^netsync actbench: the deployed engine publishes no "
+                                               r"`netsync\.battle\.act\.host` .*\(memoria-patch s133\); it would answer "
+                                               r"\"netsync: unknown sub-verb 'actbench'\" only after the step"):
+            g.actbench("tape", "rec")
+        assert len(fake.executed) == n and g.state.coop_act_host is False
+
+
+def _act_own(g, fake, *, intro: int = 10):
+    """A selftest OWN battle on the stand-in that FIGHTS: two players and one enemy filling their gauges in 30 frames, the
+    enemy hitting for 5, each command resolving 5 frames after it is committed."""
+    fake.atb_gain = 200
+    fake.enemy_hit = 5
+    fake.cmd_resolve_frames = 5
+    fake.battle_intro_frames = intro
+    fake.start_battle(306, group=4, units=[dict(u) for u in BENCH_UNITS])
+    return g.wait_for(lambda s: s.commands_enabled and s.coop_act_host_nonce not in (None, -1), timeout=8.0,
+                      what="the own battle's rising edge")
+
+
+def test_an_own_battle_ships_starts_ends_and_impact_ids_through_the_loopback(game):
+    """The stand-in's model of the s133 host (battlewire.ActHostLane through its own battles): with `tape rec` armed, each
+    command's START precedes its impacts (each carrying its id) and its END follows them on the FIFO, the enemy's EnemyAtk
+    START is kind 2 with num == its sub, the loopback audit pairs every END (no orphan, no caster mismatch), caps bit 5 is
+    set, and the paged tape dump carries the bytes out -- the checks coop_action_host.py makes in game."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        st = g.actbench("tape", "rec")
+        assert st.coop_act_host_tape_state == "rec" and st.coop_act_host_on is True
+        st = _act_own(g, fake)
+        assert st.coop_host_caps & BW.CAP_ACTION_STARTS and st.coop_peer_caps & BW.CAP_ACTION_STARTS
+        for _ in range(2):
+            slot = g.wait_turn()
+            g.battle_command(slot, 1, sub=176, target=16)
+        g.wait_for(lambda s: (s.coop_act_host_kinds_special or 0) >= 2 and s.coop_act_host_kinds_enemy
+                   and s.coop_act_host_open == 0, timeout=8.0, what="two Attacks and an enemy action ENDed")
+        fake.atb_gain = 0                                               # nothing more acts: the counts hold still
+        g.wait_frames(10)
+        st = g.state
+        assert st.coop_act_host_starts == st.coop_act_host_loop_starts and st.coop_act_host_ends == st.coop_act_host_loop_ends
+        assert (st.coop_act_host_loop_orphans, st.coop_act_host_loop_caster_mismatch, st.coop_act_host_noid_impacts,
+                st.coop_act_host_open, st.coop_act_host_vfx_drift, st.coop_act_host_dropped) == (0, 0, 0, 0, 0, 0)
+        assert st.coop_act_host_loop_paired == st.coop_act_host_ends and st.coop_act_host_vfx_checked == st.coop_act_host_starts
+        st = g.actbench("tape", "stop")
+        frames = g.act_tape_frames(page=5)
+        assert [i for i, _ms, _b in frames] == list(range(st.coop_act_host_tape_frames)) and len(frames) > 5
+        tape = [b for _i, _ms, b in frames]
+        assert BW.act_order_violations(tape) == []
+        starts = [BW.decode_action(b) for b in tape if BW.classify_action(BW.decode_action(b)) == "start"]
+        assert len(starts) == st.coop_act_host_tape_starts == st.coop_act_host_starts
+        assert all(BW.decode_action_legacy(b)["caster_slot"] == 0xFF and BW.decode_action_legacy(b)["flags"] == 0x04
+                   for b in tape if len(b) == 76)
+        impacts = [b for b in tape if BW.classify_action(BW.decode_action(b)) == "impact"]
+        assert impacts and all(len(b) == 52 for b in impacts)
+        # [review wire-3 / harness-1 / wire-4] the offline judges S133-TAPE reads: clean here, red on one corrupted frame
+        assert BW.act_identity_violations(tape) == [] and BW.act_horizon_violations(tape) == []
+        assert all(BW.act_inert_head(BW.decode_action_legacy(b)) for b in tape if len(b) == 76 or b[41] & 0x08)
+        i = next(k for k, b in enumerate(tape) if BW.classify_action(BW.decode_action(b)) == "impact")
+        bad = list(tape)
+        bad[i] = tape[i][:42] + bytes([tape[i][42] ^ 0x01]) + tape[i][43:]
+        assert any("legacy cmd/sub" in v for v in BW.act_identity_violations(bad))
+        # [review harness-6] each impact CONSUMED the sample clock: the next sample is past every impact's horizon
+        horizons = [BW.decode_action_legacy(b)["seq_horizon"] for b in impacts]
+        assert len(set(horizons)) == len(horizons) and st.coop_peer_seq > max(horizons), (horizons, st.coop_peer_seq)
+        enemy = [s for s in starts if not s["actor_flags"] & BW.ACTOR_IS_PLAYER]
+        assert enemy and all(s["vfx_kind"] == BW.VFX_KIND_ENEMY and s["vfx_num"] == s["act_sub_no"] for s in enemy)
+        attacks = [s for s in starts if s["act_cmd_no"] == 1]
+        assert len({s["vfx_num"] for s in attacks if s["actor_slot"] == attacks[0]["actor_slot"]}) == 1
+        assert st.coop_act_host_last is not None and st.coop_act_host_last["id"] == starts[-1]["act_id"]
+        fake.end_battle(1)
+        st = g.wait_for(lambda s: s.coop_host_caps == -1, timeout=4.0, what="the falling edge")
+        assert st.coop_act_host_no_end == 0 and st.coop_act_host_nonce == starts[0]["nonce"]
+    assert _mlog_lines(fake, BW.LOG_ACT_CLOSED) and not _mlog_lines(fake, BW.LOG_ACT_CODEC_DRIFT)
+
+
+def test_hoststarts_off_is_the_pre_s133_host(game):
+    """THE CALIBRATION LEVER: `actbench hoststarts off` (the CALIBRATION line) -> no START or END, no impact id (every tape
+    impact 46 bytes), caps bit 5 clear, `on` false, `lever_off` true -- the s132 host on the s133 DLL; `on` again restores."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        g.actbench("hoststarts", "off")
+        st = g.actbench("tape", "rec")
+        assert (st.coop_act_host_on, st.coop_act_host_lever_off) == (False, True)
+        _act_own(g, fake)
+        g.battle_command(g.wait_turn(), 1, sub=176, target=16)
+        st = g.wait_for(lambda s: (s.coop_act_host_loop_impacts or 0) >= 2, timeout=8.0, what="impacts")
+        fake.atb_gain = 0
+        g.wait_frames(10)
+        g.actbench("tape", "stop")
+        assert (st.coop_act_host_starts, st.coop_act_host_ends, st.coop_act_host_ext_impacts) == (0, 0, 0)
+        assert not st.coop_host_caps & BW.CAP_ACTION_STARTS and st.coop_act_host_loop_impacts_ext == 0
+        tape = [b for _i, _ms, b in g.act_tape_frames()]
+        assert tape and all(len(b) == 46 for b in tape)
+        st = g.actbench("hoststarts", "on")
+        assert (st.coop_act_host_on, st.coop_act_host_lever_off) == (True, False)
+    assert _mlog_lines(fake, BW.LOG_ACT_LEVER_OFF) and _mlog_lines(fake, BW.LOG_ACT_LEVER_ON)
+
+
+def test_reset_releases_the_actbench_lever_and_the_tape(game):
+    """HarnessReleaseBench's s133 half (audit 4.5): `hoststarts off` and a recording tape left set, `reset` -> the two
+    'released with the harness' lines, and re-read WITH a fresh selftest role: lever_off false, tape off, 0 frames, no
+    page."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        g.actbench("hoststarts", "off")
+        g.actbench("tape", "rec")
+        fake._act_lane.enqueue(BW.encode_action_impact(1, 1, 0, 4))
+        fake._act_lane.loop_actions(500)
+        g.actbench("tape", "dump", 0, 1)
+        st = g.wait_for(lambda s: s.coop_act_host_tape_page is not None, timeout=4.0, what="the page")
+        assert st.coop_act_host_tape_frames == 1 and st.coop_act_host_lever_off is True
+        g.send("reset")
+        g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0, what="the release")
+        st = g.netsync("selftest", 1)
+        assert (st.coop_act_host_lever_off, st.coop_act_host_tape_state, st.coop_act_host_tape_frames,
+                st.coop_act_host_tape_page) == (False, "off", 0, None)
+    assert len(_mlog_lines(fake, BW.LOG_ACT_LEVER_RELEASED)) == 1
+    assert len(_mlog_lines(fake, "frame(s); released with the harness)")) == 1
+
+
+def test_the_action_lane_model_holds_the_engines_book_rules():
+    """battlewire.ActHostLane -- the stand-in's model of QueueActionStart / QueueActionEnd / the impact tail / the close --
+    on the rules the selftest rows cannot reach: the rising-edge decline (monotonic, logged once per process), an
+    unresolved actor (no START, no id, no END), a scripted takeover ENDing the displaced id first, the END sent even with
+    the lever pulled after the START, no_end vs cut, the 64-frame budget's drops, the 1024-frame tape's overflow, and the
+    paged dump's clipping and refusals."""
+    lane = BW.ActHostLane()
+    kw = dict(nonce=1, seq=7, enabled=True, selftest_role=True)
+    assert lane.start("k", scripted=False, actor_slot=0, actor_flags=1, cmd_no=1, sub_no=176, tar_id=16,
+                      was_in_battle=False, **kw) == 0
+    assert lane.start("k", scripted=True, actor_slot=4, actor_flags=0, cmd_no=47, sub_no=3, tar_id=1,
+                      was_in_battle=False, **kw) == 0
+    assert lane.edge_declined == 2 and sum(BW.LOG_ACT_EDGE in ln for ln in lane.lines) == 1
+    lane.battle_start(1)
+    assert lane.edge_declined == 2                                       # monotonic per process
+    assert lane.start("u", scripted=False, actor_slot=0xFF, actor_flags=0, cmd_no=1, sub_no=0, tar_id=0, **kw) == 0
+    assert (lane.unresolved, lane.starts, lane.ids) == (1, 0, {})
+    a = lane.start("k", scripted=False, actor_slot=4, actor_flags=0, cmd_no=47, sub_no=3, tar_id=1,
+                   vfx=(BW.VFX_KIND_ENEMY, 3), **kw)
+    b = lane.start("k", scripted=True, actor_slot=4, actor_flags=0, cmd_no=47, sub_no=9, tar_id=1, **kw)
+    assert (a, b, lane.takeovers, lane.ends, lane.scripted_starts) == (1, 2, 1, 1, 1)
+    kinds = [BW.classify_action(BW.decode_action(f)) for f in lane.out]
+    assert kinds == ["start", "end", "start"]                            # the displaced id's END goes FIRST
+    assert BW.decode_action(lane.out[1])["act_id"] == 1 and lane.end("k", nonce=1, seq=7, enabled=True) == 0
+    c = lane.start("p", scripted=False, actor_slot=0, actor_flags=1, cmd_no=1, sub_no=176, tar_id=16, **kw)
+    lane.lever_off = True
+    assert lane.impact("p", BW.encode_action_impact(1, 7, 0, 4), enabled=True, selftest_role=True) == \
+        BW.encode_action_impact(1, 7, 0, 4)                              # the lever: 46 bytes, no id
+    assert lane.end("p", nonce=1, seq=7, enabled=True) == c              # ...yet its START's END still goes
+    lane.lever_off = False
+    lane.start("q", scripted=False, actor_slot=1, actor_flags=1, cmd_no=1, sub_no=176, tar_id=16, **kw)
+    lane.loop_actions(100)
+    assert lane.loop.starts == 4 and lane.loop.ends == 2 and lane.loop.orphans == 0
+    lane.close_battle(False)
+    assert (lane.no_end, lane.cut, lane.loop.no_end) == (1, 0, 1) and lane.ids == {}
+    lane.close_battle(True)
+    assert lane.cut == 0                                                 # idempotent
+    lane.battle_start(2)
+    lane.start("r", scripted=False, actor_slot=1, actor_flags=1, cmd_no=1, sub_no=176, tar_id=16, **kw)
+    lane.close_battle(True)
+    assert (lane.no_end, lane.cut) == (0, 1)
+    lane.loop_actions(50)                                                # (Reset would clear the queue: drained here)
+    lane.battle_start(3)
+    for i in range(BW.ACTION_BUFFER_CAP + 3):
+        lane.impact("x", BW.encode_action_impact(3, i, 0, 4), enabled=True, selftest_role=True)
+    assert lane.dropped == 3 and len(lane.out) == BW.ACTION_BUFFER_CAP and lane.noid_impacts == BW.ACTION_BUFFER_CAP + 3
+    assert sum(BW.LOG_ACT_DROP in ln for ln in lane.lines) == 1
+    assert lane.bench("tape", "dump", 0, 1, selftest_role=True, now_ms=0) == (
+        False, "netsync actbench tape dump: the tape is empty (`actbench tape rec` first)")
+    lane.bench("tape", "rec", -1, -1, selftest_role=True, now_ms=1000)
+    lane.loop_actions(1500)                                              # the 64 queued frames reach the tape
+    assert len(lane.tape) == BW.ACTION_BUFFER_CAP and lane.tape[0][0] == 500 and lane.tape_overflow == 0
+    lane.tape = [(0, b"x")] * BW.ACT_TAPE_CAP                            # full, by hand
+    lane.enqueue(BW.encode_action_impact(3, 1, 0, 4))
+    lane.enqueue(BW.encode_action_impact(3, 2, 0, 4))
+    lane.loop_actions(2000)
+    assert (len(lane.tape), lane.tape_overflow) == (BW.ACT_TAPE_CAP, 2)
+    assert sum(BW.LOG_ACT_TAPE_FULL in ln for ln in lane.lines) == 1
+    lane.tape = lane.tape[:20]
+    ok, _ = lane.bench("tape", "dump", 16, 16, selftest_role=True, now_ms=0)
+    assert ok and (lane.tape_page["from"], lane.tape_page["count"], lane.tape_page["total"]) == (16, 4, 20)
+    assert lane.bench("tape", "dump", 20, 1, selftest_role=True, now_ms=0)[1] == (
+        "netsync actbench tape dump: from 20 is past the tape's last frame (20 frame(s))")
+    lane.release()
+    assert (lane.tape_state, lane.tape_page, lane.lever_off) == ("off", None, False)
+
+
+def _seq_law(patches) -> tuple:
+    """(the consuming `_seq` writes, the production START/END encoder calls) NetSyncBattle.cs carries over ``patches``."""
+    consuming = [_strip_comment(ln) for ln in net_lines("NetSyncBattle.cs", r"_seq\s*(?:\+\+|\+=|-=)|\+\+\s*_seq", patches)]
+    calls = [ln for ln in net_lines("NetSyncBattle.cs", r"EncodeAction(?:Start|End)\(_battleNonce\b", patches)]
+    return consuming, calls
+
+
+def test_a_start_or_end_stamps_the_sample_clock_without_consuming_it():
+    """THE STATE-WRITE<=>HORIZON LAW at its call sites (review wire-2): on the live stack exactly three writes CONSUME the
+    shared sample clock -- `bw.Write(_seq++)` in SampleOwnBattle, QueueActionFrame and QueueStatFrame -- and every production
+    EncodeActionStart / EncodeActionEnd call (the START, the displaced END, FinishCommand's END) passes the bare
+    `(_battleNonce, _seq, ` -- written, never consumed (ActionSelfTest's literal seqs are its own). The pin can fail: a
+    `_seq++` at the START site turns it red."""
+    def holds(patches):
+        consuming, calls = _seq_law(patches)
+        return (consuming == ["bw.Write(_seq++);"] * 3 and len(calls) == 3
+                and all(re.search(r"EncodeAction(?:Start|End)\(_battleNonce, _seq, ", ln) for ln in calls))
+
+    live = [(msr.PATCHES / n).read_bytes() for n in msr.stack() if n not in msr.DEAD]
+    assert holds(live), _seq_law(live)
+    s133 = _patch_bytes("s133")
+    assert s133.count(b"EncodeActionStart(_battleNonce, _seq, ") == 1 and s133.count(b"EncodeActionEnd(_battleNonce, _seq, ") == 2
+    for old, new in ((b"EncodeActionStart(_battleNonce, _seq, ", b"EncodeActionStart(_battleNonce, _seq++, "),
+                     (b"EncodeActionEnd(_battleNonce, _seq, rec.Id", b"EncodeActionEnd(_battleNonce, (UInt16)(_seq + 1), rec.Id")):
+        mutant = [s133.replace(old, new) if p == s133 else p for p in live]
+        assert not holds(mutant), new
+
+
+def _act_tape_model() -> list:
+    """A tape the lane model writes by the engine's own seq law: a Zidane Attack on two targets (START at the live clock,
+    each impact consuming it, the END at the clock after them), a sample tick in between, then an enemy EnemyAtk."""
+    lane, seq = BW.ActHostLane(), 10
+    lane.battle_start(7)
+    kw = dict(nonce=7, enabled=True, selftest_role=True)
+    lane.start("z", scripted=False, actor_slot=0, actor_flags=1, cmd_no=1, sub_no=176, tar_id=0x30, seq=seq,
+               vfx=(BW.VFX_KIND_SPECIAL, 100), **kw)
+    for tgt in (4, 5):
+        lane.impact("z", BW.encode_action_impact(7, seq, 0, tgt, cmd_no=1, sub_no=176), enabled=True, selftest_role=True)
+        seq += 1
+    lane.end("z", nonce=7, seq=seq, enabled=True)
+    seq += 1                                                             # a type-1 sample consumed one
+    lane.start("e", scripted=False, actor_slot=4, actor_flags=0, cmd_no=47, sub_no=3, tar_id=1, seq=seq,
+               vfx=(BW.VFX_KIND_ENEMY, 3), **kw)
+    lane.impact("e", BW.encode_action_impact(7, seq, 4, 0, cmd_no=47, sub_no=3), enabled=True, selftest_role=True)
+    lane.end("e", nonce=7, seq=seq + 1, enabled=True)
+    return list(lane.out)
+
+
+def _patched(frame: bytes, at: int, value: bytes) -> bytes:
+    return frame[:at] + value + frame[at + len(value):]
+
+
+def test_the_tape_judges_hold_on_the_lanes_tape_and_each_can_fail():
+    """The offline judges S133-TAPE reads (review wire-3, harness-1, wire-4): on a tape written by the engine's rules, no
+    identity, horizon or order violation and every START / END head INERT; then one corruption each -- every one a
+    violation naming itself (the old clause compared the 46-byte reader with itself and could never fail)."""
+    tape = _act_tape_model()
+    kinds = [BW.classify_action(BW.decode_action(b)) for b in tape]
+    assert kinds == ["start", "impact", "impact", "end", "start", "impact", "end"], kinds
+    assert (BW.act_identity_violations(tape), BW.act_horizon_violations(tape), BW.act_order_violations(tape)) == ([], [], [])
+    assert all(BW.act_inert_head(BW.decode_action_legacy(tape[i])) for i in (0, 3, 4, 6))
+    assert not BW.act_inert_head(BW.decode_action_legacy(tape[1])) and not BW.act_inert_head(None)
+
+    def ident(i, at, value, **kw):
+        t = list(tape)
+        t[i] = _patched(t[i], at, value)
+        return BW.act_identity_violations(t, **kw)
+
+    def horizon(i, seq):
+        t = list(tape)
+        t[i] = _patched(t[i], 1, seq.to_bytes(2, "little"))
+        return BW.act_horizon_violations(t)
+
+    assert any("legacy cmd/sub 2/176" in v for v in ident(1, 42, b"\x02\x00"))          # the impact's cmd_no
+    assert any("legacy cmd/sub 1/177" in v for v in ident(2, 44, b"\xB1\x00"))          # ...its sub_no
+    assert any("caster slot 2 != its START's actor 0" in v for v in ident(1, 3, b"\x02"))
+    assert any("no START on the tape carries it" in v for v in ident(5, 50, b"\x09\x00"))
+    assert any("id 0" in v for v in ident(5, 50, b"\x00\x00")) and ident(5, 50, b"\x00\x00", require_id=False) == []
+    assert any("slots 255/255" in v for v in ident(1, 3, b"\xFF\xFF"))                  # nothing a guest could apply
+    assert any("slots 9/4" in v for v in ident(1, 3, b"\x09"))
+    assert any(v.startswith("END 1 at frame 3: legacy cmd/sub") for v in ident(3, 42, b"\x05\x00"))
+    assert ident(1, 3, b"\xFF") == []                                                   # caster 0xFF: the target's own
+    assert any("consumes seq 10, not after" in v for v in horizon(2, 10))                 # a repeated horizon
+    assert any("START at frame 4 (nonce 7) stamps seq 0, not after" in v for v in horizon(4, 0))   # zeroed / stale
+    assert horizon(4, 13) == []                                          # the enemy START at the live clock: 13
+    assert any("START at frame 4 (nonce 7) stamps seq 14, past the next consumed 13" in v for v in horizon(4, 14))
+    assert any("END at frame 3 (nonce 7) stamps seq 11, not after" in v for v in horizon(3, 11))
+    assert horizon(0, 9) == [] and horizon(6, 40) == []                 # no consuming frame before / after: unbounded
+    wrap = [_patched(b, 1, ((BW.decode_action_legacy(b)["seq_horizon"] + 0xFFF0) & 0xFFFF).to_bytes(2, "little"))
+            for b in tape]
+    assert BW.act_horizon_violations(wrap) == []                         # wrap-aware across 0xFFFF -> 0
+    end = BW.decode_action_legacy(_patched(tape[3], 4, b"\x04"))
+    assert not BW.act_inert_head(end)                                    # an END a pre-s134 guest would apply as lethal
+    assert not BW.act_inert_head(BW.decode_action_legacy(_patched(tape[0], 25, b"\x01")))   # a raw on a START
+
+
+def test_lifecycles_are_keyed_by_nonce_and_id_across_battles():
+    """act_order_violations keys a lifecycle by (nonce, id) (review wire-6): ids restart at 1 every own battle, so a tape
+    or a recording that spans two battles is clean -- and a second START of one (nonce, id) is a violation."""
+    one = _act_tape_model()
+    two = [_patched(b, 0, b"\x08") for b in one]                       # battle 2: the same ids under nonce 8
+    assert BW.act_order_violations(one + two) == [] and BW.act_identity_violations(one + two) == []
+    assert BW.act_horizon_violations(one + two) == []                    # per nonce
+    again = BW.act_order_violations(one + [one[0]])
+    assert again and "START 1 (nonce 7) at frame 7 again (first at frame 0)" in again[0]
+    late = BW.act_order_violations(one + [one[1]])
+    assert late and "impact id 1 (nonce 7) at frame 7 after its END" in late[0]
+
+
+def test_the_tape_summary_counts_a_flagged_record_with_no_extension_as_bad():
+    """`tape info`'s buckets (ActTapeSummary and its twin) now sum to the frames (review wire-5): a frame flagged START or
+    END with NO extension at all is `bad` -- as ActLoopBook counts it `ext_bad` -- not in no bucket."""
+    bare = BW.encode_action_impact(7, 1, 0xFF, 0xFF, flags=BW.ACT_FLAG_END)            # 46 bytes, END flag, no extension
+    s = BW.act_tape_summary(_act_tape_model() + [bare])
+    assert (s["frames"], s["starts"], s["ends"], s["impacts"], s["stat"], s["bad"]) == (8, 2, 2, 3, 0, 1)
+    assert s["starts"] + s["ends"] + s["impacts"] + s["stat"] + s["bad"] == s["frames"]
+    book = BW.ActLoopBook()
+    a = BW.parse_action(bare)
+    book.feed(a, BW.read_action_ext(bare, a))
+    assert book.ext_bad == 1
+    body = " ".join(_act_region("private static String ActTapeSummary()", "return \"[NetSync] action tape: \""))
+    assert "else if (r == ActExtReadNone) bad++;" in body, body
+
+
+def test_wire_dropped_is_the_transports_drop_count_per_own_battle():
+    """`act.host.wire_dropped` (review engine-2 / wire-1): the drop-oldest point that fills on a stalled link is the
+    TRANSPORT's out-queue (NetSyncFrames.EnqueueAction, shared by NetSyncSocket and NetSyncRelay), so it counts there, under
+    its lock; INetTransport exposes it (and re-arms the once-per-link drop line); Pump takes the baseline at its own battle's
+    rising edge (right after NoteOwnBattleStart, whose ActBattleStart zeroes the count) and adds each flush's cost --
+    `dropped` stays _actionsOut's per-tick burst budget. The lane model and the sentinels carry it (0: no transport)."""
+    sock = net_lines("NetSyncSocket.cs", r".")
+    for line in ("Int32 ActionsDropped { get; }", "void RearmActionDropLog();",
+                 "_actionsDropped++;          // [ff9mapkit netsync s133] counted under the lock (`act.host.wire_dropped`)",
+                 "public Int32 ActionsDropped { get { lock (_lock) { return _actionsDropped; } } }",
+                 "public void RearmActionDropLog() { lock (_lock) { _actionDropLogged = false; } }"):
+        assert line in sock, line
+    for f in ("NetSyncSocket.cs", "NetSyncRelay.cs"):
+        assert "public Int32 ActionsDropped { get { return _frames.ActionsDropped; } }      // [ff9mapkit netsync s133]" in \
+            net_lines(f, r"ActionsDropped"), f
+    enq = _new_side("NetSyncSocket.cs", _patch_bytes("s133"))
+    k = next(i for i, (_h, _k, t) in enumerate(enq) if t.startswith("_actionsDropped++;"))
+    assert [t for _h, _k, t in enq[k - 2:k]] == ["{", "_outActions.Dequeue();"]
+    assert _added_after("s133", "NetSyncBattle.cs", "NoteOwnBattleStart();      // [ff9mapkit netsync B4] stage 1",
+                        "ActWireBattleStart(socket);")
+    assert _added_after("s133", "NetSyncBattle.cs", "socket.SendAction(_actionsOut[i]);", "ActWireNote(socket);")
+    assert _battle_text("_actWireDropped = 0;") and _battle_text("_actWireDropped += now - _actWireSeen;")
+    assert _battle_text("public static Int32 HarnessActWireDropped { get { return _actWireDropped; } }")
+    assert BW.ACT_HOST_SENTINELS["wire_dropped"] == 0 and BW.ActHostLane().doc(enabled=True, selftest_role=True)[
+        "wire_dropped"] == 0
+
+
+def test_the_selftest_falling_edge_discards_what_pump_discards(game):
+    """The loopback models the wire at the falling edge too (review engine-3): Pump clears _actionsOut there without
+    sending, so SelfTestPump's falling edge no longer loops it -- LoopActions runs only on in-battle ticks, and the stand-in
+    drops a frame left in the buffer at the edge (it never reaches the audit or the tape)."""
+    calls = [ln for ln in net_lines("NetSyncBattle.cs", r"\bLoopActions\(\);") if not ln.startswith("private static")]
+    assert len(calls) == 1 and calls[0].startswith("LoopActions();"), calls
+    assert _added_after("s133", "NetSyncBattle.cs", "if (_wasInBattle)", "ActCloseBattle(false);             // [ff9mapkit")
+    fake = _selftest(FakeGame(game))
+    fake._netsync(["actbench", "tape", "rec"])
+    fake._act_lane.battle_start(3)
+    fake._act_lane.enqueue(BW.encode_action_impact(3, 1, 0, 4))           # buffered after the last in-battle tick
+    fake._nb_own_end()
+    assert (fake._act_lane.out, fake._act_lane.tape, fake._act_lane.loop.impacts) == ([], [], 0)
+
+
+def test_the_reentry_test_matches_the_scripted_sequence_not_the_displaced_action():
+    """ScriptedSequenceRunning (review engine-7): the displaced CommandEngine action keeps the same CMD_DATA until it is
+    released, so the re-entry test matches the SCRIPTED sequence itself -- on SFXRework an EnemySequence of the scripted
+    record's number, on the old engine an EventMode slot (only StartBtlSeq sets EventMode)."""
+    assert _battle_text("Boolean seqRunning = !scripted && _actScripted.TryGetValue(cmd, out scr) && "
+                        "ScriptedSequenceRunning(btlsys, cmd, scr.SubNo);")
+    body = " ".join(_act_region("private static Boolean ScriptedSequenceRunning(", "catch"))
+    for piece in ("ReferenceEquals(a.cmd, cmd) && a.effectType == UnifiedBattleSequencer.EffectType.EnemySequence",
+                  "&& a.effectNum == seqNo", "ReferenceEquals(work[i].CmdPtr, cmd) && work[i].Flags.EventMode"):
+        assert piece in body, piece
+
+
+def test_the_describe_drift_and_the_lane_lines_name_the_command_by_number():
+    """The engine names a command by its NUMBER in `vfx.why` and the lane's lines (review harness-7: an enum concatenated
+    prints its name -- 'Attack sub 176' -- where the twin prints '1 sub 176'): every s133 concatenation casts, and one drift
+    `why` from the lane model reads exactly the engine's shape."""
+    s133 = [_patch_bytes("s133")]
+    assert net_lines("NetSyncBattle.cs", r"\+ cmd\.cmd_no \+", s133) == []
+    assert len(net_lines("NetSyncBattle.cs", r"\+ \(Int32\)cmd\.cmd_no \+", s133)) == 3
+    lane = BW.ActHostLane()
+    lane.battle_start(4)
+    lane.start("k", scripted=False, actor_slot=0, actor_flags=1, cmd_no=1, sub_no=176, tar_id=16, nonce=4, seq=1,
+               enabled=True, selftest_role=True, vfx=(BW.VFX_KIND_SPECIAL, 100))
+    lane.check_vfx("k", added=(False, 19))
+    assert lane.vfx_why == "id 1 slot 0 1 sub 176: described special 100, SelectCommandVfx added a SpecialEffect 19"
+    assert _battle_text('_actVfxWhy = "id " + _actCheckId + " slot " + _actCheckActor + " " + (Int32)cmd.cmd_no + " sub "')
+
+
+def test_the_stock_ids_the_lane_and_its_bench_name_are_the_engines_when_the_clone_is_here():
+    """battlewire's stock ids (CS_STOCK_IDS: BattleCommandId, BattleAbilityId.Attack, RegularItem.Potion,
+    SpecialEffect.Special_No_Effect) are not in the patch stack: read them off the shared Memoria clone when this machine has
+    it (review harness-8) -- a wrong id would leave the twin's branch tests green and the in-game checks red. The s133 bench
+    takes them from battlewire, never its own copies."""
+    root = pathlib.Path(r"C:\gd\FFIX\Memoria\Assembly-CSharp\Memoria\Data\Battle")
+    if not root.is_dir():
+        pytest.skip("the shared Memoria clone is not on this machine")
+    for name, value in BW.CS_STOCK_IDS.items():
+        enum, member = name.split(".")
+        text = (root / f"{enum}.cs").read_text(encoding="utf-8-sig", errors="replace")
+        m = re.search(rf"^\s*{member}\s*=\s*(-?\d+)\s*,?", text, re.M)
+        assert m and int(m.group(1)) == value, name
+    bench = (SCENARIOS / "coop_action_host.py").read_text(encoding="utf-8")
+    assert "CMD_ATTACK, ATTACK_SUB = BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID" in bench
+    assert "CMD_ITEM, POTION = BW.CMD_ITEM_ID, BW.ITEM_POTION_ID" in bench
 
 
 # ---- [ff9mapkit netsync R3 fix round 2] the R3 benches' own logic, off the game: the T2 helper's self-check and the
@@ -6797,7 +8009,8 @@ def load(name):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
-hl, ch, sh, tr = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold", "coop_tape_record"))
+hl, ch, sh, tr, ah = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold", "coop_tape_record",
+                                          "coop_action_host"))
 print(json.dumps({
     "hl": {"catalog": sorted(hl._catalog(True)), "old": sorted(hl.OLD_PREDICTED), "capture_s": hl.CAPTURE_S},
     "cut": {leg: {"catalog": sorted(ch._catalog(leg, True)),
@@ -6810,7 +8023,10 @@ print(json.dumps({
                             for tl in (0.0, 33.0, 67.0)} for s in (119, 120, 121, 131)},
     "hold_check": ch.HOLD_CHECK,
     "sh": {"catalog": sorted(sh._catalog(True)), "old": sorted(sh.OLD_PREDICTED), "lever": sorted(sh.LEVER_PREDICTED)},
-    "tr": sorted(tr.CATALOG)}))
+    "tr": sorted(tr.CATALOG),
+    "ah": {"catalog": sorted(ah._catalog(True)), "plain": sorted(ah._catalog(False)), "old": sorted(ah.OLD_PREDICTED),
+           "lever": sorted(ah.LEVER_PREDICTED), "lane": sorted(ah.LANE_CHECKS), "probe": ah.PROBE, "scene": ah.SCENE,
+           "group": ah.GROUP, "proof": ah.PROOF_OK, "doc": " ".join((ah.__doc__ or "").split())}}))
 '''
 
 
@@ -6920,3 +8136,85 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
     assert set(sh["old"]) < set(sh["catalog"]) and set(sh["lever"]) < set(sh["catalog"])
     assert set(sh["catalog"]) - set(sh["old"]) == {"S14-S0", "S14-P1", "S14-A0", "S14-CAL"}
     assert {"REC-INI", "REC-B", "REC-F1", "REC-F5"} <= set(t["tr"]), t["tr"]
+
+
+def test_the_s133_bench_predicts_its_reds_as_its_docstring_says():
+    """[ff9mapkit netsync s133] coop_action_host.py's calibration tables, pinned to its docstring: on s132 (and older) every
+    check is red but INI / S0 / PRE / B0 (the act probe fails closed: `actbench` never sent), 4 of 20 green; under its own
+    lever (`actbench hoststarts off` before battle 1) exactly ON, AT, EN, MT, POT, VFX, PAIR, TAPE, ORDER -- every id one
+    its catalog defines (a typo'd id is a red that never comes). Its probe is the driver's `actbench` key (audit amendment
+    13), its scene the multi-enemy 306 (amendment 15), its proof line the engine's."""
+    ah = _scenario_tables()["ah"]
+    g = lambda *n: sorted(f"S133-{x}" for x in n)                     # noqa: E731
+    assert set(ah["catalog"]) == set(ah["plain"]) | {"S133-CAL"} and len(ah["plain"]) == 20
+    assert ah["old"] == sorted(set(ah["plain"]) - set(g("INI", "S0", "PRE", "B0")))
+    assert ah["lever"] == g("ON", "AT", "EN", "MT", "POT", "VFX", "PAIR", "TAPE", "ORDER")
+    assert set(ah["lever"]) < set(ah["old"]) and set(ah["lane"]) <= set(ah["old"])
+    for piece in ("GREEN there, exactly: INI, S0, PRE, B0 -- 4 of 20.",
+                  "predicted reds, exactly: ON, AT, EN, MT, POT, VFX, PAIR, TAPE, ORDER (",
+                  "RED, exactly: P0, PROOF (no 'action lane' line), P1 (never sent), ON (no key; caps bit 5 never set), AT, "
+                  "EN, MT, POT, VFX, PAIR, TAPE, ORDER, DUMP, STOP, L1, R (not reached).",
+                  "Memoria.ini [Netsync] Enabled = 0 (or absent)"):
+        assert piece in ah["doc"], piece
+    assert ah["probe"] == Session.NETSYNC_BATTLE_SUBVERBS["actbench"][1] == "netsync.battle.act.host"
+    assert ah["scene"] == 306 and ah["group"] in (2, 4)
+    assert ah["proof"] == BW.proof_ok(BW.PROOF_ACTION, BW.ACTION_SELFTEST_ROWS)
+
+
+#: coop_action_host._judge_tape run on tapes passed in (JSON on stdin: name -> [hex]), its ledger checks read back
+_ACT_TAPE_JUDGE = r'''
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_host", os.path.join(scen, "coop_action_host.py"))
+ah = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ah)
+BW = ah.BW
+class Led:
+    def __init__(self):
+        self.checks = {}
+    def check(self, cid, ok, detail=""):
+        self.checks[cid] = [bool(ok), str(detail)]
+    def unreached(self, ids, why):
+        for c in ids:
+            self.checks[c] = [False, "unreached: " + why]
+out = {}
+for name, hexes in json.loads(sys.stdin.read()).items():
+    tape = [bytes.fromhex(h) for h in hexes]
+    decoded = [BW.decode_action(b) for b in tape]
+    kinds = [BW.classify_action(d) for d in decoded]
+    starts = [d for d, k in zip(decoded, kinds) if k == "start"]
+    led = Led()
+    nonce = BW.decode_action_legacy(tape[0])["nonce"]
+    ah._judge_tape(led, {"slots": {}, "plan": {}}, {"nonce": nonce, "starts": len(starts)},
+                   {"starts": len(starts), "overflow": 0}, tape, decoded, kinds, starts)
+    out[name] = {k: led.checks[k] for k in ("S133-TAPE", "S133-ORDER")}
+print(json.dumps(out))
+'''
+
+
+def test_the_s133_benchs_tape_judge_reds_each_corruption():
+    """coop_action_host's own S133-TAPE (review wire-3 / harness-1 / wire-4), run on a tape written by the engine's rules:
+    GREEN; then RED on each corruption the old clause could not see -- an impact's legacy cmd_no (its START's identity), an
+    END whose legacy target slot resolves (lethal to an s110-s132 guest), a raw on a START, a START stamping a stale seq."""
+    good = _act_tape_model()
+    tapes = {"good": good,
+             "impact_cmd": [_patched(b, 42, b"\x02\x00") if i == 1 else b for i, b in enumerate(good)],
+             "end_slot": [_patched(b, 4, b"\x04") if i == 3 else b for i, b in enumerate(good)],
+             "start_raw": [_patched(b, 25, b"\x01") if i == 0 else b for i, b in enumerate(good)],
+             "stale_start": [_patched(b, 1, (11).to_bytes(2, "little")) if i == 4 else b for i, b in enumerate(good)]}
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _ACT_TAPE_JUDGE, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         input=json.dumps({k: [b.hex() for b in v] for k, v in tapes.items()}), capture_output=True,
+                         text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["good"]["S133-TAPE"][0] and got["good"]["S133-ORDER"][0], got["good"]
+    for name, needle in (("impact_cmd", "identity: impact id 1 at frame 1: legacy cmd/sub 2/176"),
+                         ("end_slot", "END 52 B legacy c/t 255/4 inert False"),
+                         ("start_raw", "START 76 B legacy c/t 255/255 inert False"),
+                         ("stale_start", "horizon: START at frame 4 (nonce 7) stamps seq 11")):
+        ok, detail = got[name]["S133-TAPE"]
+        assert not ok and needle in detail, (name, detail)
+

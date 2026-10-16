@@ -8355,17 +8355,18 @@ class Session:
     #: (HarnessAgent `case "netsync"`, s96; [ff9mapkit netsync F3.3] + s97 `dioboot`/`dioleave`, s98 `host`,
     #: s99 `tap-record`/`replay`; [ff9mapkit netsync B4] + s100 `guestslots`/`bcmd`/`hostgates`, s101
     #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`; [ff9mapkit netsync B4] s106 INSERTS
-    #: `bbench` before `endbench`). Pinned to the patch stack by test_harness_netsync.py.
+    #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`). Pinned to the patch stack by
+    #: test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
-                        "endbench")
+                        "endbench", "actbench")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
-                                  "bctl", "bmenu", "bbench", "endbench")
+                                  "bctl", "bmenu", "bbench", "endbench", "actbench")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8395,6 +8396,9 @@ class Session:
         "bbench": ("coop_menu_content", "netsync.battle.menu.content_hits", "s106",
                    "the B4 roster-fed menu-content bench"),
         "endbench": ("coop_end_trailer", "netsync.battle.host.end_trail", "s103", "the B5 end-block bench"),
+        # [ff9mapkit netsync s133] keyed on `act.host`, never the bare `act` block (audit amendment 13: s134 adds `act.guest`)
+        "actbench": ("coop_act_host", "netsync.battle.act.host", "s133",
+                     "the s133 host action-start bench (the loopback tape and the `hoststarts` calibration lever)"),
     }
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
@@ -8472,6 +8476,19 @@ class Session:
         "starthold": ("coop_start_hold", "netsync.battle.host.start_hold", "s114",
                       "the R3 start-hold calibration lever and bench cap"),
     }
+    #: [ff9mapkit netsync s133] `actbench <op>` (NetSyncBattle.HarnessActBench), in the engine's order -- the list its
+    #: "unknown op" refusal prints -- and the `tape` op's values (`rec|stop|clear|info`, + `dump <from> <count>`, the paged
+    #: hex egress: at most :attr:`NETSYNC_ACTBENCH_PAGE_MAX` frames a page). Every op is selftest-role only, released by
+    #: HarnessReleaseBench. s134+ will add ops (`feed`, `replay`, ...) told by their own keys
+    #: (:attr:`NETSYNC_ACTBENCH_OP_CAPS`, empty at s133: both of its ops came with the sub-verb).
+    NETSYNC_ACTBENCH_OPS = ("tape", "hoststarts")
+    NETSYNC_ACTBENCH_TAPE_OPS = ("rec", "stop", "clear", "info", "dump")
+    NETSYNC_ACTBENCH_OP_CAPS: dict = {}
+    NETSYNC_ACTBENCH_PAGE_MAX = 16
+    #: the agent's own argument-parse refusal (HarnessAgent `case "actbench"`: every form but `tape dump` is three words) --
+    #: an ArgumentOutOfRangeException("netsync actbench", <this>), so it reads "<this>\r\nParameter name: netsync actbench"
+    NETSYNC_ACTBENCH_USAGE = ("expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info` or `actbench tape "
+                              "dump <from> <count>`")
     #: [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern]`'s trailing tokens (`[wire] [skip|play|own] [rand]`): an
     #: engine before s111 IGNORES them (a manual boot with the guest's own intro) -- a silent wrong action, never sent.
     NETSYNC_DIOBOOT_TOKENS = ("wire", "skip", "play", "own", "rand")
@@ -8553,6 +8570,15 @@ class Session:
         presence (:attr:`State.coop_peer_adopt`, ``netsync.battle.peer.expired``): guest-side, its run-out
         needs a real peer lane (the selftest loopback never runs out), so its bench is a T2 wire replay with a
         blackhole. Nothing here changes for it.
+
+        [ff9mapkit netsync s133] the host action-start lane adds ONE sub-verb, ``actbench`` (selftest role), told
+        by ``netsync.battle.act.host`` (:attr:`State.coop_act_host`; never the bare ``act`` block -- s134 adds
+        ``act.guest``): ``actbench hoststarts on|off`` (the calibration lever: off = the pre-s133 host -- no
+        START/END records, no impact ids, no caps bit 5), ``actbench tape rec|stop|clear|info`` (the selftest
+        loopback's tape of type-6 frames, up to 1024) and ``actbench tape dump <from> <count>`` (the paged hex
+        egress, count 1-16: ``act.host.tape.page``) -- :meth:`actbench`, :meth:`act_tape_page` and
+        :meth:`act_tape_frames` drive it. Its ops and the ``tape`` values are refused before the step in the
+        engine's words.
 
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
@@ -8648,6 +8674,27 @@ class Session:
                     f"netsync endbench {op}: the deployed engine publishes no `{cap[1]}` -- `endbench {op}` is {cap[3]} "
                     f"(memoria-patch {cap[2]}); it would answer \"{answer}\" only after the step. Rebuild the DLL, or "
                     f"update the driver.")
+        elif sub == "actbench":
+            # [ff9mapkit netsync s133] in the engine's order and words: the agent's argument parse first (every form but
+            # `tape dump` is exactly `actbench <op> <value>`; a malformed `tape dump` is still refused only after the step),
+            # then HarnessActBench, which lowercases the op and refuses one it lacks, a `tape` value and a `hoststarts` value
+            op = str(args[0]).strip().lower() if args else ""
+            value = str(args[1]).strip().lower() if len(args) > 1 else ""
+            if not (op == "tape" and value == "dump") and len(args) != 2:
+                raise HarnessError(f"{self.NETSYNC_ACTBENCH_USAGE}\r\nParameter name: netsync actbench")
+            if op not in self.NETSYNC_ACTBENCH_OPS:
+                raise HarnessError(f"netsync actbench: unknown op '{op}' ({'|'.join(self.NETSYNC_ACTBENCH_OPS)})")
+            cap = self.NETSYNC_ACTBENCH_OP_CAPS.get(op)
+            if cap is not None and not getattr(st, cap[0]):
+                raise HarnessError(
+                    f"netsync actbench {op}: the deployed engine publishes no `{cap[1]}` -- `actbench {op}` is {cap[3]} "
+                    f"(memoria-patch {cap[2]}); it would answer \"netsync actbench: unknown op '{op}'\" only after the "
+                    f"step. Rebuild the DLL, or update the driver.")
+            if op == "tape" and value not in self.NETSYNC_ACTBENCH_TAPE_OPS:
+                raise HarnessError("netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> "
+                                   "<count>`")
+            if op == "hoststarts" and value not in ("on", "off"):
+                raise HarnessError("netsync actbench hoststarts: expected `hoststarts on|off`")
         elif sub == "dioboot" and len(args) > 1:
             # [ff9mapkit netsync R3 s111] the trailing tokens start at args[1] when it is not an integer (no pattern), else
             # at args[2] -- the agent's own `dioTok`; an older engine boots WITHOUT them, so refuse before the step
@@ -8675,6 +8722,50 @@ class Session:
                     f"FIELD-GATE bench ON. Not sent. Rebuild the DLL, or update the driver.")
         self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
         return self.state
+
+    # -- [ff9mapkit netsync s133] the host action-start lane's bench --------------------------------------------------
+    def actbench(self, op: str, *args, timeout: float = 20.0) -> State:
+        """``netsync actbench <op> [args]`` (s133, selftest role): ``hoststarts on|off``, ``tape rec|stop|clear|info``,
+        ``tape dump <from> <count>`` -- through :meth:`netsync`'s gates. Returns a fresh state."""
+        return self.netsync("actbench", op, *args, timeout=timeout)
+
+    def act_tape_page(self, start: int, count: int = 16, *, timeout: float = 10.0) -> dict:
+        """``actbench tape dump <start> <count>`` and the page it publishes (``netsync.battle.act.host.tape.page``: ``from``,
+        ``count`` -- clipped at the tape's end --, ``total``, ``frames`` [{``i``, ``ms``, ``hex``}]), waited for by its
+        ``from`` and ``count``. Raises the engine's refusal (an empty tape, ``from`` past its end)."""
+        count = int(count)
+        if not 1 <= count <= self.NETSYNC_ACTBENCH_PAGE_MAX:
+            raise HarnessError(f"act_tape_page: count {count} is outside 1-{self.NETSYNC_ACTBENCH_PAGE_MAX} (the agent "
+                               f"refuses it as an argument)")
+        st = self.actbench("tape", "dump", int(start), count, timeout=timeout)
+        want = int(start)
+
+        def landed(s):
+            page = s.coop_act_host_tape_page
+            if page is None or page.get("from") != want:
+                return False
+            total = page.get("total")
+            return isinstance(total, int) and page.get("count") == min(count, total - want)
+
+        if not landed(st):
+            st = self.wait_for(landed, timeout=timeout, what=f"the action tape page from {want}")
+        return st.coop_act_host_tape_page
+
+    def act_tape_frames(self, *, page: int = 16, timeout: float = 10.0) -> list:
+        """The WHOLE action tape, paged out through ``tape dump`` (audit amendment 14: the only way its bytes leave the
+        engine) -> ``[(i, ms, bytes)]`` in tape order; [] for an empty tape (nothing is sent then)."""
+        total = self.state.coop_act_host_tape_frames
+        if not total:
+            return []
+        out = []
+        while len(out) < total:
+            p = self.act_tape_page(len(out), min(page, self.NETSYNC_ACTBENCH_PAGE_MAX), timeout=timeout)
+            frames = [(int(f["i"]), int(f["ms"]), bytes.fromhex(f["hex"])) for f in p.get("frames") or []]
+            if not frames:
+                break
+            out.extend(frames)
+            total = p.get("total", total)
+        return out
 
     # -- [ff9mapkit netsync R3] small reads the round-3 benches share ------------------------------------------------
     def ctl_byte(self) -> int | None:

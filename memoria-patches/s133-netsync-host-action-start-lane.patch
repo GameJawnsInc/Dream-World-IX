@@ -1,0 +1,2118 @@
+diff --git a/Assembly-CSharp/Global/btl_cmd.cs b/Assembly-CSharp/Global/btl_cmd.cs
+index df88dba..c99d39a 100644
+--- a/Assembly-CSharp/Global/btl_cmd.cs
++++ b/Assembly-CSharp/Global/btl_cmd.cs
+@@ -621,7 +621,12 @@ public class btl_cmd
+ 
+                     if (caster != null)
+                         BattleVoice.TriggerOnBattleAct(caster, BattleVoice.BattleMoment.CommandPerform, cmd);
++                    // [ff9mapkit netsync s133] THE ACTION START (host only): one START record per action, queued BEFORE the sequence so it
++                    // precedes every impact on the type-6 FIFO (both engines), after both target checks and the cover redirect; then the
++                    // describe check against what SelectCommandVfx actually ran. One static read each when netsync is off.
++                    Memoria.Netsync.NetSyncBattle.QueueActionStart(cmd, false);
+                     btl_vfx.SelectCommandVfx(cmd);
++                    Memoria.Netsync.NetSyncBattle.CheckActionVfx(cmd);
+ 
+                     if (caster != null && caster.bi.player != 0)
+                     {
+@@ -1283,6 +1288,9 @@ public class btl_cmd
+ 
+     public static void FinishCommand(FF9StateBattleSystem btlsys, CMD_DATA cmd)
+     {
++        // [ff9mapkit netsync s133] THE ACTION END (host only): the END of this command's START, if one is open (a command that failed
++        // inspection never STARTed; a scripted lifecycle is never ENDed). One static read when netsync is off.
++        Memoria.Netsync.NetSyncBattle.QueueActionEnd(cmd);
+         BattleUnit caster = cmd.regist == null ? null : new BattleUnit(cmd.regist);
+         BattleCommandId commandId = cmd.cmd_no;
+         Int32 tranceDelta = 0;
+diff --git a/Assembly-CSharp/Global/btlseq.cs b/Assembly-CSharp/Global/btlseq.cs
+index c337e1d..140a016 100644
+--- a/Assembly-CSharp/Global/btlseq.cs
++++ b/Assembly-CSharp/Global/btlseq.cs
+@@ -109,6 +109,10 @@ public class btlseq
+         if (Configuration.Battle.SFXRework)
+         {
+             UnifiedBattleSequencer.BattleAction action = new UnifiedBattleSequencer.BattleAction(UnifiedBattleSequencer.EffectType.EnemySequence, pSeqNo);
++            // [ff9mapkit netsync s133] THE SCRIPTED ACTION START (host only): a battle script's enemy sequence on cmd[0] -- never ENDed;
++            // one that takes over an open command ENDs the displaced id first. Right before Execute, which always registers the action
++            // (SeqData[pSeqNo] != 0 above). One static read when netsync is off.
++            Memoria.Netsync.NetSyncBattle.QueueActionStart(cmd_DATA, true);
+             action.Execute(cmd_DATA);
+         }
+         else
+@@ -116,6 +120,9 @@ public class btlseq
+             SEQ_WORK seq_WORK;
+             if ((seq_WORK = btlseq.EntrySequence(cmd_DATA)) == null)
+                 return;
++            // [ff9mapkit netsync s133] THE SCRIPTED ACTION START on the old engine: only once a sequence slot was taken (with all four
++            // busy the sequence never runs, so no START); EntrySequence emits no impact, so it still precedes them all on the FIFO.
++            Memoria.Netsync.NetSyncBattle.QueueActionStart(cmd_DATA, true);
+             seq_WORK.Flags.EventMode = true;
+         }
+     }
+diff --git a/Assembly-CSharp/Global/btl_vfx.cs b/Assembly-CSharp/Global/btl_vfx.cs
+index f0815c1..e12064d 100644
+--- a/Assembly-CSharp/Global/btl_vfx.cs
++++ b/Assembly-CSharp/Global/btl_vfx.cs
+@@ -181,6 +181,76 @@ public static class btl_vfx
+         }
+     }
+ 
++    // [ff9mapkit netsync s133] THE ACTION START's vfx description (studies/battle-coop/R3-DESIGN.md 3.3.2, R3-ACTION-REPLAY-AUDIT.md 2.1
++    // amendment 10): a PURE MIRROR of SelectCommandVfx just above, for this machine's own mode -- which branch it is about to take,
++    // as a kind (NetSyncBattle.VfxKind*) and a number. It never calls Execute, never loads, never rolls, never assigns, and any
++    // exception reads Unknown. (One side effect it shares with SelectCommandVfx: GetPlayerCommandSFX's item branch reaches
++    // ff9item.GetItemEffect, which logs an error for an item with no valid effect data -- such an item logs it twice on a netsync
++    // host, once here and once there; the outcome is the same.) Kind 1 (the ability's .seq) keys on a VfxAction already in hand --
++    // BTL_SCENE eagerly loads the VfxAction of every enemy attack that has a SequenceFile (stock enemies have none and read kind 2)
++    // -- or on the Beatrix fix's predicate, evaluated; never on SequenceFile alone: the lazy SequenceFile load at the
++    // head of the SFXRework branch is NOT mirrored, so a file that failed to load reads as the branch below it, exactly as the real
++    // path falls through, and a CSV SequenceFile not loaded yet (its first use) reads the same -- NetSyncBattle.CheckActionVfx counts
++    // that drift. num: kind 1 the ability's VfxIndex, kind 2 the enemy sequence (sub_no), kind 3 the SpecialEffect
++    // GetPlayerCommandSFX resolves (weapon serial, trance attack, SysTrans, item / Steal / Throw shapes, PatchedVfx, Vfx2 for
++    // ManyAny cursor 0, meteor_miss and the host-rolled short_summon), kind 4 the command (Defend / Change), else 0. Called by
++    // NetSyncBattle.QueueActionStart right BEFORE SelectCommandVfx (btl_cmd.CommandEngine), on a host only.
++    public static Byte DescribeCommandVfx(CMD_DATA cmd, out Int32 num)
++    {
++        num = 0;
++        try
++        {
++            BTL_DATA regist = cmd.regist;
++            if (Configuration.Battle.SFXRework)
++            {
++                if (cmd.cmd_no != BattleCommandId.MagicCounter)
++                {
++                    Boolean beatrixFix = cmd.aa.Info.SequenceFile == null && regist != null && regist.bi.player == 0
++                                         && regist.dms_geo_id == 427 && cmd.aa.Info.VfxIndex == 457;
++                    if (cmd.aa.Info.VfxAction != null || beatrixFix)
++                    {
++                        num = cmd.aa.Info.VfxIndex;
++                        return Memoria.Netsync.NetSyncBattle.VfxKindSeq;
++                    }
++                    if (regist != null && regist.bi.player == 0 && cmd.cmd_no != BattleCommandId.SysTrans)
++                    {
++                        num = cmd.sub_no;
++                        return Memoria.Netsync.NetSyncBattle.VfxKindEnemy;
++                    }
++                }
++            }
++            else
++            {
++                switch (cmd.cmd_no)
++                {
++                    case BattleCommandId.EnemyAtk:
++                    case BattleCommandId.EnemyCounter:
++                    case BattleCommandId.EnemyDying:
++                    case BattleCommandId.EnemyReaction:
++                        num = cmd.sub_no;
++                        return Memoria.Netsync.NetSyncBattle.VfxKindEnemy;
++                }
++            }
++            SpecialEffect sfxNum = GetPlayerCommandSFX(cmd);
++            if (sfxNum != SpecialEffect.Special_No_Effect)
++            {
++                num = (Int32)sfxNum;
++                return Memoria.Netsync.NetSyncBattle.VfxKindSpecial;
++            }
++            if (cmd.cmd_no == BattleCommandId.Change || cmd.cmd_no == BattleCommandId.Defend)
++            {
++                num = (Int32)cmd.cmd_no;
++                return Memoria.Netsync.NetSyncBattle.VfxKindCommon;
++            }
++            return Memoria.Netsync.NetSyncBattle.VfxKindNone;
++        }
++        catch
++        {
++            num = 0;
++            return Memoria.Netsync.NetSyncBattle.VfxKindUnknown;
++        }
++    }
++
+     public static void SetTranceModel(BTL_DATA btl, Boolean isTrance)
+     {
+         CharacterSerialNumber serialNo = btl_util.getSerialNumber(btl);
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index d7fc060..2ae7cd7 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -214,6 +214,14 @@ namespace Memoria.Harness
+         // real transport (the selftest role's loopback never runs out), so its bench is a wire replay with a blackhole. A driver
+         // checks for `netsync.battle.peer.expired` -- absent = an engine whose guest re-adopts the host's last frame after its
+         // freshness ran out (a phantom second 2000 ms of a live lane in ~79% of cuts and battle ends).
++        // [ff9mapkit netsync s133] (the host action-start lane; studies/battle-coop/R3-DESIGN.md 3.3.2 as amended by
++        // R3-ACTION-REPLAY-AUDIT.md 2.1), also additive under 5: `netsync.battle` gains a fifth sub-object, `act`, with its `host`
++        // half (see AppendAct), the selftest proof block gains one line, "action lane selftest: OK (N rows)"
++        // (NetSyncBattle.ActionSelfTest), and `netsync` gains one sub-verb, `actbench` (selftest role only): `actbench hoststarts
++        // on|off` (the calibration lever: off = the pre-s133 host -- no START/END records, no impact ids, no caps bit 5) and `actbench
++        // tape rec|stop|clear|info` + `actbench tape dump <from> <count>` (the loopback tape and its paged hex egress,
++        // `act.host.tape.page`; count 1-16). A driver checks for `netsync.battle.act.host` -- absent = an engine whose host ships no
++        // action STARTs (and which answers `netsync actbench` with "unknown sub-verb").
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1764,8 +1772,37 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync endbench refused");
+                             break;
+                         }
++                        case "actbench":
++                        {
++                            // [ff9mapkit netsync s133] -- the host action-start lane's bench (NetSyncBattle.HarnessActBench), selftest role only:
++                            //   `actbench hoststarts on|off`  the calibration lever (off = the pre-s133 host: no START/END records, no impact
++                            //       ids, no caps bit 5);
++                            //   `actbench tape rec|stop|clear|info`  the selftest loopback's tape of type-6 frames (rec starts a new one, up to
++                            //       1024 frames; info logs its summary);
++                            //   `actbench tape dump <from> <count>`  publish frames from..from+count-1 (count 1-16) as hex at
++                            //       `netsync.battle.act.host.tape.page` -- the tape's bytes leave the engine only this way.
++                            // Read back: `netsync.battle.act.host`. The lever and the tape are released on disarm/fault/reset.
++                            String aop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
++                            String aval = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
++                            Int32 afrom = -1, acount = -1;
++                            if (aop == "tape" && aval == "dump")
++                            {
++                                afrom = Arg(s, 3, -1);
++                                acount = Arg(s, 4, -1);
++                                if (s.Args.Length != 5 || afrom < 0 || acount < 1 || acount > Memoria.Netsync.NetSyncBattle.ActTapePageMax)
++                                    throw new ArgumentOutOfRangeException("netsync actbench tape dump", "expected `tape dump <from> <count>` (from >= 0, count 1-"
++                                                                          + Memoria.Netsync.NetSyncBattle.ActTapePageMax + ")");
++                            }
++                            else if (s.Args.Length != 3)
++                            {
++                                throw new ArgumentOutOfRangeException("netsync actbench", "expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info` or `actbench tape dump <from> <count>`");
++                            }
++                            if (!Memoria.Netsync.NetSyncBattle.HarnessActBench(aop, aval, afrom, acount, out why))
++                                throw new InvalidOperationException(why ?? "netsync actbench refused");
++                            break;
++                        }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench|actbench)");
+                     }
+                     Block(2);
+                     break;
+@@ -3252,7 +3289,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3770,6 +3807,8 @@ namespace Memoria.Harness
+         //     `flee_gil` on both `host.end` and `peer.end` (see AppendEndBlock). `peer.trailer_skipped` now also counts a SHORT
+         //     fmt-2 body (the end block kept); a whole flee record is parsed, never counted.
+         // [ff9mapkit netsync s131] adds to `peer` the expired seq: `expired` (see AppendPeerExpired).
++        // [ff9mapkit netsync s133] adds the fifth sub-object, `act` (action replay), with its `host` half: the host action-start lane
++        //     (see AppendAct).
+         // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
+         private static void AppendNetsyncBattle(StringBuilder sb)
+         {
+@@ -3858,9 +3897,140 @@ namespace Memoria.Harness
+             AppendMenuCtl(sb);                                                                          // [ff9mapkit netsync R3 s113]
+             sb.Append("},");
+             AppendBattleEnd(sb);                                                                        // [ff9mapkit netsync B5] stage 5
++            sb.Append(",");
++            AppendAct(sb);                                                                              // [ff9mapkit netsync s133]
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync s133] `netsync.battle.act` -- action replay (studies/battle-coop/R3-DESIGN.md 5.1 as amended by
++        // R3-ACTION-REPLAY-AUDIT.md 3.6 and 4.2); s133 publishes its `host` half: MY own battle's action-start lane (NetSyncBattle "the
++        // ACTION START lane"), in EVERY role -- `loop` and `tape` are fed only by the selftest loopback and read zero elsewhere. Per own
++        // battle (reset at its rising edge, kept after it until the next one starts) unless noted:
++        //   `on` (this host ships STARTs/ENDs and impact ids now: [Netsync] Enabled and not the lever), `lever_off` (the selftest
++        //   calibration lever `netsync actbench hoststarts off`), `nonce` (the own battle these counts belong to; -1 = none yet),
++        //   `starts` / `ends` (START / END records queued; `ends` includes a displaced id's), `ext_impacts` (impacts that carried the
++        //   id extension) / `noid_impacts` (of them, id 0), `scripted` (StartBtlSeq STARTs), `open` (END-eligible ids open now),
++        //   `dropped` (frames the 64-frame action buffer dropped, oldest first -- every type-6 kind; the PER-TICK burst budget only:
++        //   Pump flushes it every in-battle tick), `wire_dropped` (frames the TRANSPORT's 64-frame out-queue dropped, oldest first --
++        //   what a stalled or backlogged link lost on the wire; Pump only: the selftest loopback has no transport and reads 0),
++        //   `unresolved` (commands with no wire actor: no START), `scripted_takeover` (a StartBtlSeq that took over an open cmd[0]:
++        //   its END went first),
++        //   `scripted_reentry` (a CommandEngine START on a CMD_DATA whose scripted sequence still ran), `restarted` (a CommandEngine
++        //   START over its own open id), `no_end` / `cut` (END-eligible ids still open at the close: a normal end -- a defect -- / a
++        //   reset mid-battle or a mid-action teardown), `edge_declined` (STARTs before the own battle's rising edge -- monotonic per
++        //   process, read DELTAS), `kinds` (STARTs by vfx kind: `none`, `seq`, `enemy`, `special`, `common`, `unknown`), `vfx` (the
++        //   describe check, each CommandEngine START's kind against what SelectCommandVfx then ran: `checked`, `drift`, `unchecked`
++        //   -- the old engine -- and `why`, the last drift; null = none), `last` (the last START as shipped, decoded: `id`, `actor`,
++        //   `flags`, `cmd`, `sub`, `tar`, `cursor`, `info`, `magic`, `kind`, `num`, `patched`, `speed`; null = none this battle),
++        //   `loop` (the selftest loopback's audit: `starts`, `ends`, `impacts`, `impacts_ext`, `stat`, `ext_bad`, `paired`, `orphans`,
++        //   `caster_mismatch`, `no_end`, `cut`) and `tape` (`netsync actbench tape`, not per battle: `state` "off" | "rec" |
++        //   "stopped", `frames`, `starts`, `ms` (the last frame's offset from `tape rec`; -1 = none), `overflow` (frames past the
++        //   1024 cap) and `page`, the last `tape dump` -- `from`, `count`, `total`, `frames` [{`i`, `ms`, `hex`}] (compact uppercase
++        //   hex); null = none -- emptied by `tape rec`/`clear` and every harness release). AppendNetsync's catch line carries the same
++        //   keys at their sentinels, inside its SECOND literal.
++        private static void AppendAct(StringBuilder sb)
++        {
++            sb.Append("\"act\":{\"host\":{");
++            Bool(sb, "on", Memoria.Netsync.NetSyncBattle.HarnessActOn); sb.Append(",");
++            Bool(sb, "lever_off", Memoria.Netsync.NetSyncBattle.HarnessActLeverOff); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessActNonce); sb.Append(",");
++            Num(sb, "starts", Memoria.Netsync.NetSyncBattle.HarnessActStarts); sb.Append(",");
++            Num(sb, "ends", Memoria.Netsync.NetSyncBattle.HarnessActEnds); sb.Append(",");
++            Num(sb, "ext_impacts", Memoria.Netsync.NetSyncBattle.HarnessActExtImpacts); sb.Append(",");
++            Num(sb, "noid_impacts", Memoria.Netsync.NetSyncBattle.HarnessActNoIdImpacts); sb.Append(",");
++            Num(sb, "scripted", Memoria.Netsync.NetSyncBattle.HarnessActScripted); sb.Append(",");
++            Num(sb, "open", Memoria.Netsync.NetSyncBattle.HarnessActOpen); sb.Append(",");
++            Num(sb, "dropped", Memoria.Netsync.NetSyncBattle.HarnessActDropped); sb.Append(",");
++            Num(sb, "wire_dropped", Memoria.Netsync.NetSyncBattle.HarnessActWireDropped); sb.Append(",");
++            Num(sb, "unresolved", Memoria.Netsync.NetSyncBattle.HarnessActUnresolved); sb.Append(",");
++            Num(sb, "scripted_takeover", Memoria.Netsync.NetSyncBattle.HarnessActTakeovers); sb.Append(",");
++            Num(sb, "scripted_reentry", Memoria.Netsync.NetSyncBattle.HarnessActReentries); sb.Append(",");
++            Num(sb, "restarted", Memoria.Netsync.NetSyncBattle.HarnessActRestarted); sb.Append(",");
++            Num(sb, "no_end", Memoria.Netsync.NetSyncBattle.HarnessActNoEnd); sb.Append(",");
++            Num(sb, "cut", Memoria.Netsync.NetSyncBattle.HarnessActCut); sb.Append(",");
++            Num(sb, "edge_declined", Memoria.Netsync.NetSyncBattle.HarnessActEdgeDeclined); sb.Append(",");
++            sb.Append("\"kinds\":{");
++            Num(sb, "none", Memoria.Netsync.NetSyncBattle.HarnessActKind(0)); sb.Append(",");
++            Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessActKind(1)); sb.Append(",");
++            Num(sb, "enemy", Memoria.Netsync.NetSyncBattle.HarnessActKind(2)); sb.Append(",");
++            Num(sb, "special", Memoria.Netsync.NetSyncBattle.HarnessActKind(3)); sb.Append(",");
++            Num(sb, "common", Memoria.Netsync.NetSyncBattle.HarnessActKind(4)); sb.Append(",");
++            Num(sb, "unknown", Memoria.Netsync.NetSyncBattle.HarnessActKind(5));
++            sb.Append("},\"vfx\":{");
++            Num(sb, "checked", Memoria.Netsync.NetSyncBattle.HarnessActVfxChecked); sb.Append(",");
++            Num(sb, "drift", Memoria.Netsync.NetSyncBattle.HarnessActVfxDrift); sb.Append(",");
++            Num(sb, "unchecked", Memoria.Netsync.NetSyncBattle.HarnessActVfxUnchecked); sb.Append(",");
++            Str(sb, "why", Memoria.Netsync.NetSyncBattle.HarnessActVfxWhy);
++            sb.Append("},");
++            Memoria.Netsync.NetSyncBattle.PeerAction last;
++            if (!Memoria.Netsync.NetSyncBattle.HarnessActLast(out last))
++            {
++                sb.Append("\"last\":null,");
++            }
++            else
++            {
++                sb.Append("\"last\":{");
++                Num(sb, "id", last.ActId); sb.Append(",");
++                Num(sb, "actor", last.ActorSlot); sb.Append(",");
++                Num(sb, "flags", last.ActorFlags); sb.Append(",");
++                Num(sb, "cmd", last.ActCmdNo); sb.Append(",");
++                Num(sb, "sub", last.ActSubNo); sb.Append(",");
++                Num(sb, "tar", last.ActTarId); sb.Append(",");
++                Num(sb, "cursor", last.ActCursor); sb.Append(",");
++                Num(sb, "info", last.ActInfo); sb.Append(",");
++                Num(sb, "magic", last.ActMagicCaster); sb.Append(",");
++                Num(sb, "kind", last.VfxKind); sb.Append(",");
++                Num(sb, "num", last.VfxNum); sb.Append(",");
++                Num(sb, "patched", last.ActPatchedVfx); sb.Append(",");
++                Num(sb, "speed", last.HostSpeed);
++                sb.Append("},");
++            }
++            Memoria.Netsync.NetSyncBattle.ActLoopBook loop = Memoria.Netsync.NetSyncBattle.HarnessActLoop;
++            sb.Append("\"loop\":{");
++            Num(sb, "starts", loop.Starts); sb.Append(",");
++            Num(sb, "ends", loop.Ends); sb.Append(",");
++            Num(sb, "impacts", loop.Impacts); sb.Append(",");
++            Num(sb, "impacts_ext", loop.ImpactsExt); sb.Append(",");
++            Num(sb, "stat", loop.Stat); sb.Append(",");
++            Num(sb, "ext_bad", loop.ExtBad); sb.Append(",");
++            Num(sb, "paired", loop.Paired); sb.Append(",");
++            Num(sb, "orphans", loop.Orphans); sb.Append(",");
++            Num(sb, "caster_mismatch", loop.CasterMismatch); sb.Append(",");
++            Num(sb, "no_end", loop.NoEnd); sb.Append(",");
++            Num(sb, "cut", loop.Cut);
++            sb.Append("},\"tape\":{");
++            Str(sb, "state", Memoria.Netsync.NetSyncBattle.HarnessActTapeState); sb.Append(",");
++            Num(sb, "frames", Memoria.Netsync.NetSyncBattle.HarnessActTapeFrames); sb.Append(",");
++            Num(sb, "starts", Memoria.Netsync.NetSyncBattle.HarnessActTapeStarts); sb.Append(",");
++            Num(sb, "ms", Memoria.Netsync.NetSyncBattle.HarnessActTapeMs); sb.Append(",");
++            Num(sb, "overflow", Memoria.Netsync.NetSyncBattle.HarnessActTapeOverflow); sb.Append(",");
++            Memoria.Netsync.NetSyncBattle.ActTapePage page = Memoria.Netsync.NetSyncBattle.HarnessActTapePage;
++            if (page == null)
++            {
++                sb.Append("\"page\":null");
++            }
++            else
++            {
++                sb.Append("\"page\":{");
++                Num(sb, "from", page.From); sb.Append(",");
++                Num(sb, "count", page.Count); sb.Append(",");
++                Num(sb, "total", page.Total); sb.Append(",");
++                sb.Append("\"frames\":[");
++                for (Int32 i = 0; i < page.Hex.Count; i++)
++                {
++                    if (i > 0)
++                        sb.Append(",");
++                    sb.Append("{");
++                    Num(sb, "i", page.From + i); sb.Append(",");
++                    Num(sb, "ms", page.Ms[i]); sb.Append(",");
++                    Str(sb, "hex", page.Hex[i]);
++                    sb.Append("}");
++                }
++                sb.Append("]}");
++            }
++            sb.Append("}}}");
++        }
++
+         // [ff9mapkit netsync B5] stage 5: `netsync.battle.end` -- the GUEST'S end presentation on its battle diorama
+         // (NetSyncDiorama.EndTick / InjectEnd, R8, the watchdogs; studies/battle-coop/B4-B5-DESIGN.md 5.3). Per diorama boot:
+         // reset by each boot, kept after the teardown until the next one.
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 03b59ed..5e3b381 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -53,6 +53,11 @@ namespace Memoria.Netsync
+     // [ff9mapkit netsync R3 s114] THE START HOLD (see FlagStartHold below): the control frame grows a 3-byte trailer -- the
+     // guest's diorama boot state for the host's battle nonce -- and the host holds every gauge (BattleHUD.IsNativeEnableAtb)
+     // while that report reads BOOTING, capped, deciding once per battle. Additive bytes (older hosts read bytes 0-1): still v14.
++    //
++    // [ff9mapkit netsync s133] THE HOST ACTION-START LANE (see "the ACTION START lane" below; studies/battle-coop/R3-DESIGN.md 3.3.2
++    // as amended by R3-ACTION-REPLAY-AUDIT.md 2.1): every action my own battle runs now ships a START record before its first
++    // impact and an END after its last, each impact carries the action's id, and type-1 header flags bit 5 says so. Host only,
++    // no visible change (the guest's replay is s134). Additive type-6 bytes behind the 46-byte layout: still v14.
+     public static partial class NetSyncBattle
+     {
+         // --- config mirror (written by NetSyncClient on every config [re]load; main thread) ---
+@@ -675,6 +680,7 @@ namespace Memoria.Netsync
+             _actionsOut.Clear();
+             _actionDropLogged = false;
+             _actionParseLogged = false;
++            ActCloseBattle(true);                  // [ff9mapkit netsync s133] a reset mid-battle CUTS the open action lifecycles
+             NoteOwnBattleEnd();                    // [ff9mapkit netsync B4] stage 1 (the counters + the lever stay)
+             _assistSlot = -1;                      // [ff9mapkit netsync B4] stage 8: the digit panel serves nothing
+             _assistRoster = null;
+@@ -732,6 +738,7 @@ namespace Memoria.Netsync
+             _holdRelease = null;
+             _holdHeldMs = -1;
+             _holdLateMs = -1;
++            ActBattleStart();                      // [ff9mapkit netsync s133] the action id books and this battle's lane counters
+         }
+ 
+         // [ff9mapkit netsync R3 s114] NoteOwnBattleStart / NoteOwnBattleEnd (Reset reaches it there): the hold's per-battle state
+@@ -1304,6 +1311,7 @@ namespace Memoria.Netsync
+                         _battleNonce++;            // a NEW battle -- even the same map+pattern re-boots the peer's diorama
+                         _actionDropLogged = false; // re-arm the once-per-battle action-drop telemetry
+                         NoteOwnBattleStart();      // [ff9mapkit netsync B4] stage 1
++                        ActWireBattleStart(socket);   // [ff9mapkit netsync s133] the transport's drop baseline (`act.host.wire_dropped`)
+                     }
+                     Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1: an edge samples NOW
+                     Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4: so does an end-state change
+@@ -1338,6 +1346,7 @@ namespace Memoria.Netsync
+                         for (Int32 i = 0; i < _actionsOut.Count; i++)
+                             socket.SendAction(_actionsOut[i]);
+                         _actionsOut.Clear();
++                        ActWireNote(socket);               // [ff9mapkit netsync s133] what that flush cost the transport's out-queue
+                     }
+                 }
+                 else
+@@ -1349,6 +1358,8 @@ namespace Memoria.Netsync
+                         _lastRosterBytes = null;
+                         _localBattleSong = 0xFFFF;             // B3.6: falling edge (this block never calls
+                                                                // Reset) -- a swirl-less next battle ships unknown
++                        ActCloseBattle(false);                 // [ff9mapkit netsync s133] the own battle's close (no_end, or cut
++                                                               // when a command was still running: a mid-action teardown)
+                         NoteOwnBattleEnd();                    // [ff9mapkit netsync B4] stage 1
+                     }
+                     // F1 -- a PLAIN else, every tick, deliberately NOT the one-shot `_wasInBattle` edge
+@@ -1473,7 +1484,14 @@ namespace Memoria.Netsync
+                 if (!inBattle)
+                 {
+                     if (_wasInBattle)
++                    {
++                        ActCloseBattle(false);             // [ff9mapkit netsync s133] the own battle's close -- before Reset, which
++                                                           // would CUT. Frames buffered since the last in-battle tick are NOT looped:
++                                                           // Reset discards them unsent, as Pump's falling edge does (the loopback
++                                                           // models the wire; in practice none -- the scene unloads long after the
++                                                           // last command ends)
+                         Reset();
++                    }
+                     _wasInBattle = false;
+                     PeerBattleLive = false;
+                     AssistInputActive = false;
+@@ -1511,21 +1529,8 @@ namespace Memoria.Netsync
+                 // B3.5 loopback: my own CalcResult emits round-trip the action codec (buffer -> queue
+                 // -> TryParseAction -> discard; a selftest own-battle has no diorama to apply onto --
+                 // the same drain-and-discard a non-booted receiver does). Parse failure = codec drift.
+-                if (_actionsOut.Count > 0)
+-                {
+-                    for (Int32 i = 0; i < _actionsOut.Count; i++)
+-                        _loopActions.Enqueue(_actionsOut[i]);
+-                    _actionsOut.Clear();
+-                }
+-                while (_loopActions.Count > 0)
+-                {
+-                    PeerAction act;
+-                    if (!TryParseAction(_loopActions.Dequeue(), out act) && !_actionParseLogged)
+-                    {
+-                        _actionParseLogged = true;
+-                        Log.Message("[NetSync] selftest: an action frame failed to parse (codec drift)");
+-                    }
+-                }
++                // [ff9mapkit netsync s133] ...and every frame now also feeds the loopback audit (ActLoopBook) and the tape.
++                LoopActions();
+                 if (_loopBattle != null)
+                 {
+                     BattleView view = ParseView(_loopBattle);
+@@ -1643,6 +1648,10 @@ namespace Memoria.Netsync
+                 if (holdBit)
+                     flags |= FlagStartHold;
+                 _sampledHoldBit = holdBit;
++                // [ff9mapkit netsync s133] bit 5: this host sends action START/END frames and impact ids (every pre-s133 reader ignores
++                // it -- ParseView keeps the whole byte as HostCaps). Not under the `actbench hoststarts off` lever (the pre-s133 host).
++                if (ActStartsOn)
++                    flags |= CapActionStarts;
+                 Boolean commandPhase = !gated || HostCommandPhaseOpen(hud, btlsys);
+                 Int32 readyMask = 0;
+                 // [ff9mapkit netsync B4] stage 11 -- G6: the unit the host's OWN command window holds is not Ready on the wire
+@@ -2106,6 +2115,10 @@ namespace Memoria.Netsync
+         // never the normal figure/motion steps). DELIBERATELY NO DEATH BITS: on an ordinary killing
+         // blow Death is deferred past the emit point (btl_para defers Kill under dmg_mot != 0) -- the
+         // guest derives death from raw hp == 0, like the type-1 Alive bit.
++        // [ff9mapkit netsync s133] flags bit 2 = a START record, bit 3 = an END record (both: slots 0xFF/0xFF, every older
++        // reader resolves neither and returns), and bytes 46+ may carry the 0xA6 extension (an impact's action id, a START's
++        // body, an END's id) -- see "the ACTION START lane" below. TryParseAction still reads the 46 bytes only; ReadActionExt
++        // reads the extension into the fields after SubNo.
+         public struct PeerAction
+         {
+             public Byte Nonce;
+@@ -2122,6 +2135,20 @@ namespace Memoria.Netsync
+             public Boolean TargetIsPlayer { get { return (Flags & 32) != 0; } }
+             public Boolean CasterIsPlayer { get { return (Flags & 64) != 0; } }
+             public Boolean StatTick { get { return (Flags & 128) != 0; } }   // B3.6 (v10): tick-figure frame
++            // [ff9mapkit netsync s133] the 0xA6 extension (ReadActionExt; all zero / false = none, or a bad or unknown one)
++            public Boolean HasExt;
++            public Byte ExtKind;                             // ActExtImpact | ActExtStart | ActExtEnd
++            public UInt16 ActId;                             // the action lifecycle (0 = an impact outside any START)
++            public Byte ActorSlot, ActorFlags;               // START only from here on (ActorIsPlayer ... ActorDoubleCast)
++            public UInt16 ActCmdNo; public Int32 ActSubNo;   // the command, sub_no whole
++            public UInt16 ActTarId;                          // tar_id after the cover redirect
++            public Byte ActCursor, ActInfo;                  // info.cursor; ActInfoMeteorMiss | ActInfoShortSummon | ActInfoCover
++            public UInt16 ActMagicCaster;                    // magic_caster_id
++            public Byte VfxKind; public Int32 VfxNum;        // btl_vfx.DescribeCommandVfx (VfxKind*)
++            public Int32 ActPatchedVfx;                      // cmd.PatchedVfx
++            public Byte HostSpeed;                           // [Battle] Speed on the host
++            public Boolean IsStart { get { return HasExt && ExtKind == ActExtStart; } }
++            public Boolean IsEnd { get { return HasExt && ExtKind == ActExtEnd; } }
+         }
+ 
+         /// <summary>
+@@ -2154,6 +2181,7 @@ namespace Memoria.Netsync
+                 if (casterSlot == 0xFF && targetSlot == 0xFF)
+                     return;                                // nothing a guest could apply this to
+                 UInt16 cmdNo = 0, subNo = 0;
++                CMD_DATA cmdData = null;                   // [ff9mapkit netsync s133] (hoisted: the action id is keyed on it)
+                 try
+                 {
+                     CMD_DATA cmd = v.Command != null ? v.Command.Data : null;
+@@ -2161,9 +2189,20 @@ namespace Memoria.Netsync
+                     {
+                         cmdNo = (UInt16)cmd.cmd_no;
+                         subNo = (UInt16)cmd.sub_no;
++                        cmdData = cmd;
+                     }
+                 }
+                 catch { }
++                // [ff9mapkit netsync s133] the 6-byte id extension (bytes 46-51) unless the lever is pulled: the START this impact
++                // belongs to, looked up on the END-eligible book, then the scripted one; 0 = none (a nested CMD_DATA -- Phoenix,
++                // AngelSnack --, a declined START, a lifecycle already ENDed)
++                Boolean ext = ActStartsOn;
++                UInt16 actId = 0;
++                if (ext)
++                {
++                    try { actId = ActIdOf(_actIds, _actScripted, cmdData); }
++                    catch { }
++                }
+                 Byte flags = 0;
+                 if (dmgMot != 0) flags |= 1;
+                 if ((v.Context.Flags & BattleCalcFlags.Dodge) != 0) flags |= 2;
+@@ -2171,7 +2210,7 @@ namespace Memoria.Netsync
+                 if (target.bi.player != 0) flags |= 32;
+                 if (caster.bi.player != 0) flags |= 64;
+ 
+-                Byte[] payload = new Byte[46];
++                Byte[] payload = new Byte[ext ? ActIdRecordLen : ActLegacyLen];   // [ff9mapkit netsync s133] 52 with the id, else 46
+                 using (MemoryStream ms = new MemoryStream(payload))
+                 using (BinaryWriter bw = new BinaryWriter(ms))
+                 {
+@@ -2193,18 +2232,16 @@ namespace Memoria.Netsync
+                     bw.Write(flags);
+                     bw.Write(cmdNo);
+                     bw.Write(subNo);
++                    if (ext)
++                        WriteIdExt(bw, ActExtImpact, actId);   // [ff9mapkit netsync s133] bytes 46-51
+                 }
+-                if (_actionsOut.Count >= ActionBufferCap)
++                EnqueueActionPayload(payload);             // [ff9mapkit netsync s133] the shared drop-oldest enqueue
++                if (ext)
+                 {
+-                    _actionsOut.RemoveAt(0);               // drop-oldest; state self-heals via type-1
+-                    if (!_actionDropLogged)
+-                    {
+-                        _actionDropLogged = true;
+-                        Log.Message("[NetSync] action buffer hit its cap (" + ActionBufferCap
+-                                    + ") this battle -- oldest dropped (figures lost, state self-heals)");
+-                    }
++                    _actExtImpacts++;                      // [ff9mapkit netsync s133] `act.host.ext_impacts` / `noid_impacts`
++                    if (actId == 0)
++                        _actNoIdImpacts++;
+                 }
+-                _actionsOut.Add(payload);
+             }
+             catch
+             {
+@@ -2264,17 +2301,8 @@ namespace Memoria.Netsync
+                     bw.Write((UInt16)0);                   // cmdNo
+                     bw.Write((UInt16)0);                   // subNo
+                 }
+-                if (_actionsOut.Count >= ActionBufferCap)
+-                {
+-                    _actionsOut.RemoveAt(0);               // drop-oldest; state self-heals via type-1
+-                    if (!_actionDropLogged)
+-                    {
+-                        _actionDropLogged = true;
+-                        Log.Message("[NetSync] action buffer hit its cap (" + ActionBufferCap
+-                                    + ") this battle -- oldest dropped (figures lost, state self-heals)");
+-                    }
+-                }
+-                _actionsOut.Add(payload);
++                EnqueueActionPayload(payload);             // [ff9mapkit netsync s133] the shared drop-oldest enqueue (stat ticks stay
++                                                           // 46 bytes, identified by bit 7 -- audit D3)
+             }
+             catch
+             {
+@@ -2282,6 +2310,27 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        /// <summary>[ff9mapkit netsync s133] THE ONE drop-oldest enqueue (R3-ACTION-REPLAY-AUDIT.md 2.1 amendment 4: it replaces the
++        /// verbatim copies QueueActionFrame and QueueStatFrame each carried): impacts, stat ticks and the START/END records share the
++        /// 64-frame budget, and `act.host.dropped` counts what it dropped this own battle (amendment 9; the cap stays 64 -- D4).
++        /// The drop line stays once per battle, verbatim. This is the PER-TICK burst budget only (Pump flushes _actionsOut to the
++        /// transport every in-battle tick): what a stalled link drops is the transport out-queue's, `act.host.wire_dropped`.</summary>
++        private static void EnqueueActionPayload(Byte[] payload)
++        {
++            if (_actionsOut.Count >= ActionBufferCap)
++            {
++                _actionsOut.RemoveAt(0);               // drop-oldest; state self-heals via type-1
++                _actDropped++;
++                if (!_actionDropLogged)
++                {
++                    _actionDropLogged = true;
++                    Log.Message("[NetSync] action buffer hit its cap (" + ActionBufferCap
++                                + ") this battle -- oldest dropped (figures lost, state self-heals)");
++                }
++            }
++            _actionsOut.Add(payload);
++        }
++
+         // The DEFENSIVE slot scan + the engine's own slave->master idiom (SBattleCalculator :313).
+         // NEVER BattleUnit.GetIndex here: it is an unbounded `while (1 << index != btl_id)` loop --
+         // infinite on a slave/teardown unit whose btl_id is not a power of two.
+@@ -2336,6 +2385,1427 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // ============================================================================ the ACTION START lane (s133)
++        // [ff9mapkit netsync s133] THE HOST ACTION-START LANE (studies/battle-coop/R3-DESIGN.md 2 and 3.3.2, as amended by
++        // R3-ACTION-REPLAY-AUDIT.md 2.1 -- the design's "s122": group 2 was renumbered s133-s141). HOST ONLY, no visible change: the
++        // guest that replays these records is s134. Three additive records ride the one type-6 lane behind its 46 bytes:
++        //   IMPACT, 52 B: the unchanged 46 bytes, then [46] 0xA6 [47] fmt 1 [48] extLen 3 [49] kind 1 [50-51] actId -- the action
++        //       lifecycle the CalcResult belongs to (0 = none: a nested CMD_DATA such as Phoenix's, a declined START);
++        //   START, 76 B: [0] nonce [1-2] the host _seq, NOT consumed (no state rides a START: the STATE-WRITE<=>HORIZON-CONSUME law is
++        //       untouched) [3-4] 0xFF 0xFF (no caster, no target: every older reader resolves neither and returns) [5-40] zero
++        //       [41] flags 0x04 [42-45] cmd/sub (the legacy identity) [46] 0xA6 [47] 1 [48] 27 [49] kind 2 [50-51] actId [52] actor
++        //       slot [53] actor flags (b0 player, b1 host SFXRework, b2 host Speed >= 3, b3 scripted, b4 monster-transform, b5 the
++        //       counter slot cmd[1], b6 cmd[3]) [54-55] cmd_no [56-59] sub_no [60-61] tar_id (after the cover redirect) [62] cursor
++        //       [63] b0 meteor_miss, b1 short_summon, b2 cover [64-65] magic_caster_id [66] vfx kind [67-70] vfx num [71-74]
++        //       PatchedVfx [75] host Speed;
++        //   END, 52 B: the inert record with flags 0x08, then [49] kind 3 [50-51] actId.
++        // extLen is a u8 (audit D7) -- deliberately NOT the 0xB5 end trailer's u16 (NetSyncEnd): type-6 records are small and fixed.
++        // Stat ticks (bit 7) stay 46 bytes (D3). A reader takes an extension only at Length >= 52 && [46] == 0xA6, fmt 1, its kind
++        // agreeing with flags bits 2-3 and a START/END id non-zero; a longer fmt-1 extension reads its known fields.
++        // THE SITES: btl_cmd.CommandEngine's SELECT_VFX right BEFORE SelectCommandVfx (D1: after both ConfirmValidTarget checks and the
++        // cover redirect, so a START precedes every impact of its action on the FIFO -- the old engine's synchronous Defend impact
++        // included), CheckActionVfx right after it (D2), btlseq.StartBtlSeq (a scripted enemy sequence: right before its Execute, or on
++        // the old engine once EntrySequence took a slot -- a sequence that never runs never STARTs), and the END at the head of
++        // btl_cmd.FinishCommand. TWO ID BOOKS (design review F8): _actIds = the CommandEngine lifecycles, END-eligible; _actScripted =
++        // the StartBtlSeq ones, never ENDed and never read by QueueActionEnd (StartBtlSeq reuses cmd[0], and a later cmd[0] command
++        // that fails inspection reaches FinishCommand with no SELECT_VFX). A START takes its CMD_DATA out of the other book
++        // (ActStartStep): a StartBtlSeq over an OPEN CommandEngine id ENDs the displaced id first (amendment 6, `scripted_takeover`);
++        // a CommandEngine START on a CMD_DATA whose scripted sequence still runs is counted (`scripted_reentry`) and moves it back;
++        // one over its own open id ENDs the old one first (`restarted`). Ids are u16 per own battle, 0 never issued; both books clear
++        // at the own battle's rising edge and at its close. THE GATE: QueueActionFrame's (Enabled, !Booted, !isDebug -- harness
++        // battles clear isDebug, so selftest own battles emit) + the lever (ActStartsOn) + the rising edge (amendment 8: a START
++        // before the pump's edge would ride the previous battle's nonce -- declined, `edge_declined`); an actor with no wire slot (the
++        // CMD_DATA constructor's dummy BTL_DATA) sends no START, allocates no id and so never gets an END (amendment 5). Header flags
++        // bit 5 (CapActionStarts) advertises the lane. Nothing here throws. Wire stays v14: an s110-s132 guest parses the 46 bytes,
++        // resolves neither 0xFF slot of a START/END and returns; its impacts apply exactly as before.
++        public const Byte CapActionStarts = 0x20;     // type-1 header flags bit 5: this host sends action STARTs/ENDs and impact ids
++        public const Byte ActFlagStart = 0x04;        // type-6 flags bit 2: a START record
++        public const Byte ActFlagEnd = 0x08;          // type-6 flags bit 3: an END record
++        public const Byte ActFlagStatTick = 0x80;     // type-6 flags bit 7 (B3.6): a stat tick -- 46 bytes, never extended
++        public const Byte ActExtTag = 0xA6;           // byte 46: the extension's tag
++        public const Byte ActExtFmt1 = 1;             // byte 47: its format
++        public const Byte ActExtLenId = 3;            // byte 48 of an IMPACT or an END: the kind and the id
++        public const Byte ActExtLenStart = 27;        // byte 48 of a START: the kind, the id and the 24-byte body
++        public const Byte ActExtImpact = 1, ActExtStart = 2, ActExtEnd = 3;   // byte 49: the record's kind
++        public const Int32 ActLegacyLen = 46, ActIdRecordLen = 52, ActStartRecordLen = 76;
++        public const Byte VfxKindNone = 0, VfxKindSeq = 1, VfxKindEnemy = 2, VfxKindSpecial = 3, VfxKindCommon = 4, VfxKindUnknown = 0xFF;
++        public const Byte ActorIsPlayer = 0x01, ActorHostRework = 0x02, ActorHostFast = 0x04, ActorScripted = 0x08;
++        public const Byte ActorMonsterTransform = 0x10, ActorCounterSlot = 0x20, ActorDoubleCast = 0x40;
++        public const Byte ActInfoMeteorMiss = 0x01, ActInfoShortSummon = 0x02, ActInfoCover = 0x04;
++        public const Int32 ActTapeCap = 1024, ActTapePageMax = 16;
++        // ReadActionExt's answers and ActStartStep's verdicts (pure; ActionSelfTest pins both)
++        internal const Int32 ActExtReadNone = 0, ActExtReadOk = 1, ActExtReadBad = 2, ActExtReadFmt = 3;
++        internal const Int32 ActStepNew = 0, ActStepTakeover = 1, ActStepRestart = 2, ActStepReentry = 3, ActStepReuse = 4;
++
++        // SELFTEST CALIBRATION LEVER (harness `netsync actbench hoststarts off`; released by HarnessReleaseBench): true = the pre-s133
++        // host -- no START/END, no impact extension, no caps bit 5 -- so the stage's bench goes red on the very DLL it proves. Read
++        // only through ActStartsOn, which also needs the selftest role: a lever stranded across an ini edit never strips a real host.
++        public static Boolean BenchActStartsOff;
++        internal static Boolean ActStartsOn
++        {
++            get { return !(BenchActStartsOff && NetSyncClient.IsSelfTestRole); }
++        }
++
++        /// <summary>[ff9mapkit netsync s133] One START on the host's id books: its id, its actor's wire slot, the legacy identity its
++        /// END repeats, and which book it lives in.</summary>
++        internal sealed class ActRecord
++        {
++            public UInt16 Id;
++            public Byte Actor;
++            public UInt16 CmdNo, SubNo;
++            public Boolean Scripted;
++        }
++
++        // the two id books, keyed by CMD_DATA reference (CMD_DATA never overrides Equals); main-thread only, like _actionsOut
++        private static readonly Dictionary<System.Object, ActRecord> _actIds = new Dictionary<System.Object, ActRecord>();        // END-eligible
++        private static readonly Dictionary<System.Object, ActRecord> _actScripted = new Dictionary<System.Object, ActRecord>();   // never ENDed
++        private static UInt16 _actNextId;             // the last id issued this own battle (0 = none yet; 0 is never issued)
++        private static Boolean _actBattleOpen;        // ActBattleStart ran and ActCloseBattle has not (the close is idempotent)
++        // `netsync.battle.act.host` -- per own battle: reset at its rising edge, kept after it until the next one starts
++        private static Int32 _actNonce = -1;
++        private static Int32 _actStarts, _actEnds, _actScriptedStarts, _actExtImpacts, _actNoIdImpacts, _actDropped, _actUnresolved;
++        private static Int32 _actTakeovers, _actReentries, _actRestarted, _actNoEnd, _actCut;
++        // `act.host.wire_dropped` -- this own battle's type-6 frames the TRANSPORT's out-queue dropped (its 64-frame drop-oldest cap:
++        // a stalled or backlogged link; Pump only -- the selftest loopback has no transport, so it reads 0 there). `dropped` above
++        // is only _actionsOut's per-tick burst budget (Pump flushes it every in-battle tick); this is the wire's (audit 3.3).
++        private static Int32 _actWireDropped;
++        private static Int32 _actWireSeen;            // ...the transport's monotonic count when last read
++        private static INetTransport _actWireSocket;  // ...and the transport it was read from (a new one counts from its own 0)
++        private static readonly Int32[] _actKinds = new Int32[6];   // STARTs by vfx kind: none, seq, enemy, special, common, unknown
++        private static Int32 _actVfxChecked, _actVfxDrift, _actVfxUnchecked;
++        private static String _actVfxWhy;
++        private static Byte[] _actLastStart;          // the last START as shipped (`last`, decoded on read; null = none this battle)
++        private static Int32 _actLogMask;             // the once-per-battle lines already spent (ActLog*)
++        private const Int32 ActLogTakeover = 1, ActLogReentry = 2, ActLogRestart = 4, ActLogUnresolved = 8, ActLogDrift = 16;
++        private static Int32 _actEdgeDeclined;        // `edge_declined` -- monotonic per process (it lands between own battles)
++        private static Boolean _actEdgeLogged;        // ...one line per process
++        // the describe check (D2): armed by a CommandEngine START, spent by CheckActionVfx right after SelectCommandVfx
++        private static CMD_DATA _actCheckCmd;
++        private static Byte _actCheckKind;
++        private static Int32 _actCheckNum, _actCheckBase;
++        private static UInt16 _actCheckId;
++        private static Byte _actCheckActor;
++        // the selftest loopback's audit (`act.host.loop`)
++        private static readonly ActLoopBook _actLoop = new ActLoopBook();
++
++        /// <summary>[ff9mapkit netsync s133] THE START -- btl_cmd.CommandEngine right before SelectCommandVfx (scripted false) and
++        /// btlseq.StartBtlSeq (scripted true). The gate, the books and the record: see "the ACTION START lane" above. NEVER THROWS
++        /// (a throw would escape into CommandEngine's switch or a battle script). One static read on vanilla.</summary>
++        internal static void QueueActionStart(CMD_DATA cmd, Boolean scripted)
++        {
++            if (!Enabled)
++                return;
++            try
++            {
++                if (NetSyncDiorama.Booted || FF9StateSystem.Battle.isDebug || !ActStartsOn || cmd == null)
++                    return;
++                if (!_wasInBattle)
++                {
++                    NoteActEdgeDecline(cmd, scripted);   // amendment 8: before the pump's rising edge
++                    return;
++                }
++                FF9StateBattleSystem btlsys = FF9StateSystem.Battle.FF9Battle;
++                if (btlsys == null)
++                    return;
++                BTL_DATA actor = cmd.regist;
++                Byte actorSlot = actor != null ? ResolveWireSlot(btlsys, actor) : (Byte)0xFF;
++                if (actorSlot == 0xFF)
++                {
++                    _actUnresolved++;                  // amendment 5: no START, no id -- so never an END
++                    if ((_actLogMask & ActLogUnresolved) == 0)
++                    {
++                        _actLogMask |= ActLogUnresolved;
++                        Log.Message("[NetSync] action lane: " + (Int32)cmd.cmd_no + " (sub " + cmd.sub_no + ") has no wire actor -- no START, no id, "
++                                    + "no END (unresolved=" + _actUnresolved + "; logged once per battle)");
++                    }
++                    return;
++                }
++                Byte actorFlags = 0;
++                if (actor.bi.player != 0)
++                    actorFlags |= ActorIsPlayer;
++                if (Configuration.Battle.SFXRework)
++                    actorFlags |= ActorHostRework;
++                Int32 speed = Configuration.Battle.Speed;
++                if (speed >= 3)
++                    actorFlags |= ActorHostFast;
++                if (scripted)
++                    actorFlags |= ActorScripted;
++                if (actor.is_monster_transform)
++                    actorFlags |= ActorMonsterTransform;
++                if (actor.cmd != null && actor.cmd.Count > 3)
++                {
++                    if (ReferenceEquals(cmd, actor.cmd[1]))
++                        actorFlags |= ActorCounterSlot;
++                    if (ReferenceEquals(cmd, actor.cmd[3]))
++                        actorFlags |= ActorDoubleCast;
++                }
++                Byte info = 0;
++                if (cmd.info.meteor_miss != 0)
++                    info |= ActInfoMeteorMiss;
++                if (cmd.info.short_summon != 0)
++                    info |= ActInfoShortSummon;
++                if (cmd.info.cover != 0)
++                    info |= ActInfoCover;
++                Int32 vfxNum;
++                Byte vfxKind;
++                if (scripted)
++                {
++                    vfxKind = VfxKindEnemy;            // StartBtlSeq runs the enemy sequence pSeqNo (its sub_no) directly
++                    vfxNum = cmd.sub_no;
++                }
++                else
++                {
++                    vfxKind = btl_vfx.DescribeCommandVfx(cmd, out vfxNum);   // the pure mirror; Unknown on a throw
++                }
++                ActRecord scr;
++                Boolean seqRunning = !scripted && _actScripted.TryGetValue(cmd, out scr) && ScriptedSequenceRunning(btlsys, cmd, scr.SubNo);
++                // every regist dereference above has succeeded: only now an id (amendment 5)
++                ActRecord rec = new ActRecord
++                {
++                    Id = ActNextId(ref _actNextId), Actor = actorSlot, CmdNo = (UInt16)cmd.cmd_no, SubNo = (UInt16)cmd.sub_no, Scripted = scripted
++                };
++                Byte[] start = EncodeActionStart(_battleNonce, _seq, rec.Id, actorSlot, actorFlags, (UInt16)cmd.cmd_no, cmd.sub_no, cmd.tar_id,
++                                                 cmd.info.cursor, info, cmd.magic_caster_id, vfxKind, vfxNum, (Int32)cmd.PatchedVfx,
++                                                 (Byte)Math.Max(0, Math.Min(255, speed)));
++                ActRecord displaced;
++                Int32 step = ActStartStep(_actIds, _actScripted, cmd, rec, seqRunning, out displaced);
++                if (displaced != null)
++                {
++                    // the displaced lifecycle's END goes FIRST (FIFO), with its own legacy identity
++                    EnqueueActionPayload(EncodeActionEnd(_battleNonce, _seq, displaced.Id, displaced.CmdNo, displaced.SubNo));
++                    _actEnds++;
++                }
++                EnqueueActionPayload(start);
++                _actStarts++;
++                if (scripted)
++                    _actScriptedStarts++;
++                _actKinds[ActKindIndex(vfxKind)]++;
++                _actLastStart = start;
++                NoteActStep(step, rec, displaced);
++                if (!scripted)
++                {
++                    _actCheckCmd = cmd;                // CheckActionVfx, right after SelectCommandVfx (D2)
++                    _actCheckKind = vfxKind;
++                    _actCheckNum = vfxNum;
++                    _actCheckId = rec.Id;
++                    _actCheckActor = actorSlot;
++                    _actCheckBase = UnifiedBattleSequencer.runningActions.Count;
++                }
++            }
++            catch
++            {
++                // swallow everything -- the netsync fail-safe law
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s133] THE END -- the head of btl_cmd.FinishCommand: the END-eligible lifecycle of this CMD_DATA,
++        /// if one is open, gets its END (and leaves the book). A command that never STARTed (a failed inspection, a declined START)
++        /// and a scripted lifecycle get none. NEVER THROWS. One static read on vanilla.</summary>
++        internal static void QueueActionEnd(CMD_DATA cmd)
++        {
++            if (!Enabled || _actIds.Count == 0)
++                return;
++            try
++            {
++                ActRecord rec = ActEndStep(_actIds, cmd);
++                if (rec == null)
++                    return;
++                EnqueueActionPayload(EncodeActionEnd(_battleNonce, _seq, rec.Id, rec.CmdNo, rec.SubNo));
++                _actEnds++;
++            }
++            catch
++            {
++                // swallow everything -- the netsync fail-safe law
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s133] THE DESCRIBE CHECK (audit D2) -- btl_cmd.CommandEngine right after SelectCommandVfx: the
++        /// START's kind against the action SelectCommandVfx just added to runningActions (SFXRework; the old engine keeps no such
++        /// list: `unchecked`). A drift means btl_vfx.DescribeCommandVfx no longer mirrors SelectCommandVfx -- or, by design, a CSV
++        /// SequenceFile's first use (its lazy load is not mirrored): counted, named in `vfx.why`, logged once per battle. One static
++        /// read when nothing is armed (vanilla, a guest, a declined START). NEVER THROWS.</summary>
++        internal static void CheckActionVfx(CMD_DATA cmd)
++        {
++            if (_actCheckCmd == null)
++                return;
++            try
++            {
++                if (!ReferenceEquals(_actCheckCmd, cmd))
++                    return;
++                if (!Configuration.Battle.SFXRework)
++                {
++                    _actVfxUnchecked++;
++                    return;
++                }
++                UnifiedBattleSequencer.BattleAction added = null;
++                List<UnifiedBattleSequencer.BattleAction> run = UnifiedBattleSequencer.runningActions;
++                for (Int32 i = run.Count - 1; i >= 0 && i >= _actCheckBase; i--)
++                {
++                    if (ReferenceEquals(run[i].cmd, cmd))
++                    {
++                        added = run[i];
++                        break;
++                    }
++                }
++                Boolean enemySeq = added != null && added.effectType == UnifiedBattleSequencer.EffectType.EnemySequence;
++                Int32 effectNum = added != null ? added.effectNum : 0;
++                _actVfxChecked++;
++                if (ActVfxVerdict(_actCheckKind, _actCheckNum, added != null, enemySeq, effectNum))
++                    return;
++                _actVfxDrift++;
++                _actVfxWhy = "id " + _actCheckId + " slot " + _actCheckActor + " " + (Int32)cmd.cmd_no + " sub " + cmd.sub_no + ": described "
++                             + VfxKindName(_actCheckKind) + " " + _actCheckNum + ", SelectCommandVfx " + (added == null ? "added no action"
++                             : "added " + (enemySeq ? "an EnemySequence " : "a SpecialEffect ") + effectNum);
++                if ((_actLogMask & ActLogDrift) == 0)
++                {
++                    _actLogMask |= ActLogDrift;
++                    Log.Message("[NetSync] action lane: describe drift -- " + _actVfxWhy + " (drift=" + _actVfxDrift + "; logged once per battle)");
++                }
++            }
++            catch
++            {
++                // swallow everything -- the netsync fail-safe law
++            }
++            finally
++            {
++                _actCheckCmd = null;
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s133] The describe check's verdict (pure; ActionSelfTest pins it): NONE = SelectCommandVfx added
++        /// nothing; SEQ and COMMON = it added an action (a copied .seq may be either type); ENEMY = an EnemySequence of that sub_no;
++        /// SPECIAL = a SpecialEffect of that number; UNKNOWN (the describe threw) always drifts.</summary>
++        internal static Boolean ActVfxVerdict(Byte kind, Int32 num, Boolean added, Boolean enemySeq, Int32 effectNum)
++        {
++            switch (kind)
++            {
++                case VfxKindNone:
++                    return !added;
++                case VfxKindSeq:
++                case VfxKindCommon:
++                    return added;
++                case VfxKindEnemy:
++                    return added && enemySeq && effectNum == num;
++                case VfxKindSpecial:
++                    return added && !enemySeq && effectNum == num;
++                default:
++                    return false;
++            }
++        }
++
++        private static Int32 ActKindIndex(Byte kind)
++        {
++            return kind <= VfxKindCommon ? kind : 5;
++        }
++
++        private static String VfxKindName(Byte kind)
++        {
++            switch (kind)
++            {
++                case VfxKindNone: return "none";
++                case VfxKindSeq: return "seq";
++                case VfxKindEnemy: return "enemy";
++                case VfxKindSpecial: return "special";
++                case VfxKindCommon: return "common";
++                default: return "unknown";
++            }
++        }
++
++        // The START's book step, counted, and named once per battle per kind (all three are rare: scripted bosses, a re-inspected cmd).
++        private static void NoteActStep(Int32 step, ActRecord rec, ActRecord displaced)
++        {
++            switch (step)
++            {
++                case ActStepTakeover:
++                    _actTakeovers++;
++                    if ((_actLogMask & ActLogTakeover) == 0)
++                    {
++                        _actLogMask |= ActLogTakeover;
++                        Log.Message("[NetSync] action lane: a scripted sequence (StartBtlSeq, seq " + rec.SubNo + ") took over slot " + rec.Actor
++                                    + "'s open command (id " + displaced.Id + ") -- its END sent first; the sequence is id " + rec.Id
++                                    + ", never ENDed (scripted_takeover=" + _actTakeovers + "; logged once per battle)");
++                    }
++                    break;
++                case ActStepRestart:
++                    _actRestarted++;
++                    if ((_actLogMask & ActLogRestart) == 0)
++                    {
++                        _actLogMask |= ActLogRestart;
++                        Log.Message("[NetSync] action lane: slot " + rec.Actor + "'s command started again (id " + rec.Id + ") with id "
++                                    + displaced.Id + " still open (no FinishCommand) -- its END sent first (restarted=" + _actRestarted
++                                    + "; logged once per battle)");
++                    }
++                    break;
++                case ActStepReentry:
++                    _actReentries++;
++                    if ((_actLogMask & ActLogReentry) == 0)
++                    {
++                        _actLogMask |= ActLogReentry;
++                        Log.Message("[NetSync] action lane: slot " + rec.Actor + "'s command re-entered SELECT_VFX while its scripted sequence "
++                                    + "still runs -- the scripted id is retired, the command is id " + rec.Id + " (scripted_reentry="
++                                    + _actReentries + "; logged once per battle)");
++                    }
++                    break;
++            }
++        }
++
++        private static void NoteActEdgeDecline(CMD_DATA cmd, Boolean scripted)
++        {
++            _actEdgeDeclined++;
++            if (_actEdgeLogged)
++                return;
++            _actEdgeLogged = true;
++            Log.Message("[NetSync] action lane: a " + (scripted ? "scripted " : "") + "START before the own battle's rising edge declined ("
++                        + (Int32)cmd.cmd_no + ", sub " + cmd.sub_no + ") -- it would ride the previous battle's nonce; edge_declined="
++                        + _actEdgeDeclined + " (logged once per process)");
++        }
++
++        // A CMD_DATA's scripted sequence still runs (the re-entry test): on SFXRework an EnemySequence of the scripted record's number
++        // in runningActions, on the old engine an EventMode sequence slot (only StartBtlSeq sets EventMode) pointing at it -- never the
++        // displaced CommandEngine action, which keeps the same CMD_DATA until it is released (so a later START while only that one
++        // still plays is a silent reuse, not a re-entry). False on any doubt.
++        private static Boolean ScriptedSequenceRunning(FF9StateBattleSystem btlsys, CMD_DATA cmd, Int32 seqNo)
++        {
++            try
++            {
++                if (Configuration.Battle.SFXRework)
++                {
++                    foreach (UnifiedBattleSequencer.BattleAction a in UnifiedBattleSequencer.runningActions)
++                        if (ReferenceEquals(a.cmd, cmd) && a.effectType == UnifiedBattleSequencer.EffectType.EnemySequence
++                            && a.effectNum == seqNo)
++                            return true;
++                    return false;
++                }
++                SEQ_WORK[] work = btlsys.seq_work_set.SeqWork;
++                for (Int32 i = 0; i < work.Length; i++)
++                    if (work[i] != null && ReferenceEquals(work[i].CmdPtr, cmd) && work[i].Flags.EventMode)
++                        return true;
++            }
++            catch
++            {
++            }
++            return false;
++        }
++
++        // A command still in cur_cmd_list at the falling edge: the battle scene went away under it (a mid-action teardown).
++        private static Boolean MidActionTeardown()
++        {
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                return b != null && b.cur_cmd_list != null && b.cur_cmd_list.Count > 0;
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        // [ff9mapkit netsync s133] An own battle's rising edge (NoteOwnBattleStart, both pumps, after the nonce bump): the books and this
++        // battle's counters start clean (`edge_declined` and the tape are not per battle).
++        private static void ActBattleStart()
++        {
++            _actIds.Clear();
++            _actScripted.Clear();
++            _actNextId = 0;
++            _actBattleOpen = true;
++            _actNonce = _battleNonce;
++            _actStarts = 0;
++            _actEnds = 0;
++            _actScriptedStarts = 0;
++            _actExtImpacts = 0;
++            _actNoIdImpacts = 0;
++            _actDropped = 0;
++            _actUnresolved = 0;
++            _actTakeovers = 0;
++            _actReentries = 0;
++            _actRestarted = 0;
++            _actNoEnd = 0;
++            _actCut = 0;
++            _actWireDropped = 0;                       // (Pump's ActWireBattleStart takes the transport's baseline right after)
++            Array.Clear(_actKinds, 0, _actKinds.Length);
++            _actVfxChecked = 0;
++            _actVfxDrift = 0;
++            _actVfxUnchecked = 0;
++            _actVfxWhy = null;
++            _actLastStart = null;
++            _actLogMask = 0;
++            _actCheckCmd = null;
++            _actLoop.Reset();
++        }
++
++        // [ff9mapkit netsync s133] Pump's own-battle rising edge (after NoteOwnBattleStart): the transport out-queue's drop count is this
++        // battle's baseline, and its once-per-link drop line is re-armed (a real host's per-battle cap telemetry). Never throws.
++        private static void ActWireBattleStart(INetTransport socket)
++        {
++            try
++            {
++                _actWireSocket = socket;
++                _actWireSeen = socket.ActionsDropped;
++                socket.RearmActionDropLog();
++            }
++            catch
++            {
++                // swallow everything -- the netsync fail-safe law
++            }
++        }
++
++        // [ff9mapkit netsync s133] After each Pump flush of _actionsOut: what it cost the transport's out-queue (drop-oldest at 64) is
++        // added to `act.host.wire_dropped`. A transport swapped mid-battle counts from its own 0. Never throws.
++        private static void ActWireNote(INetTransport socket)
++        {
++            try
++            {
++                if (!ReferenceEquals(socket, _actWireSocket))
++                {
++                    _actWireSocket = socket;
++                    _actWireSeen = 0;
++                }
++                Int32 now = socket.ActionsDropped;
++                if (now > _actWireSeen)
++                    _actWireDropped += now - _actWireSeen;
++                _actWireSeen = now;
++            }
++            catch
++            {
++                // swallow everything -- the netsync fail-safe law
++            }
++        }
++
++        // [ff9mapkit netsync s133] An own battle's close -- Pump's falling edge and SelfTestPump's (cut false), Reset (cut true: a reset
++        // mid-battle). END-eligible ids still open are counted: `no_end` at a normal end (amendment 7: a normal end cannot orphan a
++        // CommandEngine START -- the end switch runs only with cur_cmd null, and FinishCommand is the only list removal -- so any is a
++        // defect), `cut` at a reset or a mid-action teardown (a command still in cur_cmd_list at the falling edge). They are never
++        // ENDed (no lane left to send them on). The loopback audit closes the same way; one summary line when the lane did anything.
++        // Idempotent. Never throws.
++        private static void ActCloseBattle(Boolean cut)
++        {
++            if (!_actBattleOpen)
++                return;
++            _actBattleOpen = false;
++            try
++            {
++                Boolean asCut = cut || MidActionTeardown();
++                Int32 open = _actIds.Count;
++                if (open > 0)
++                {
++                    StringBuilder ids = new StringBuilder();
++                    foreach (ActRecord r in _actIds.Values)
++                        ids.Append(ids.Length > 0 ? ", " : "").Append(r.Id).Append(" (slot ").Append(r.Actor).Append(')');
++                    if (asCut)
++                        _actCut += open;
++                    else
++                        _actNoEnd += open;
++                    Log.Message("[NetSync] action lane: " + open + " START(s) never ENDed at the own battle's " + (asCut
++                                ? "cut (a reset mid-battle or a mid-action teardown) -- cut=" + _actCut
++                                : "end -- no_end=" + _actNoEnd + " (a normal end cannot orphan one: a defect)") + "; ids " + ids);
++                }
++                Boolean looped = _actLoop.Fed;
++                _actLoop.Close(asCut);
++                if (_actStarts > 0 || _actExtImpacts > 0 || _actDropped > 0 || looped)
++                    Log.Message("[NetSync] action lane: own battle (nonce " + _actNonce + ") closed -- " + _actStarts + " START(s) ("
++                                + _actScriptedStarts + " scripted), " + _actEnds + " END(s), " + _actExtImpacts + " impact(s) with an id ("
++                                + _actNoIdImpacts + " of them 0), dropped " + _actDropped + ", describe drift " + _actVfxDrift
++                                + (looped ? "; loopback: " + _actLoop.Starts + " starts, " + _actLoop.Ends + " ends, " + _actLoop.Paired
++                                   + " paired, " + _actLoop.Orphans + " orphan(s), " + _actLoop.CasterMismatch + " caster mismatch(es), no_end "
++                                   + _actLoop.NoEnd + ", cut " + _actLoop.Cut : ""));
++            }
++            catch
++            {
++                // swallow everything -- the netsync fail-safe law
++            }
++            _actIds.Clear();
++            _actScripted.Clear();
++            _actCheckCmd = null;
++        }
++
++        // [ff9mapkit netsync s133] The selftest loopback (SelfTestPump, every in-battle tick -- where Pump flushes to the transport; at
++        // the falling edge neither sends): my own type-6 frames round-trip the codec -- the buffer, the queue, TryParseAction (a failure
++        // = codec drift, logged once per session), then the extension into the audit -- and the tape takes every frame as received.
++        private static void LoopActions()
++        {
++            if (_actionsOut.Count > 0)
++            {
++                for (Int32 i = 0; i < _actionsOut.Count; i++)
++                    _loopActions.Enqueue(_actionsOut[i]);
++                _actionsOut.Clear();
++            }
++            while (_loopActions.Count > 0)
++            {
++                Byte[] frame = _loopActions.Dequeue();
++                ActTapeRecord(frame);
++                PeerAction act;
++                if (!TryParseAction(frame, out act))
++                {
++                    if (!_actionParseLogged)
++                    {
++                        _actionParseLogged = true;
++                        Log.Message("[NetSync] selftest: an action frame failed to parse (codec drift)");
++                    }
++                    continue;
++                }
++                _actLoop.Feed(ref act, ReadActionExt(frame, ref act));
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s133] An id, issued: from 1, never 0 (a wrap skips it). Pure.</summary>
++        internal static UInt16 ActNextId(ref UInt16 last)
++        {
++            last++;
++            if (last == 0)
++                last = 1;
++            return last;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] THE BOOK STEP of a START on `key` (pure; ActionSelfTest pins it): the fresh record goes into
++        /// its own book (live = END-eligible, scripted = never ENDed) and the key leaves the other. An open END-eligible lifecycle on
++        /// the key is DISPLACED -- handed back for its END to be sent first -- as a takeover (a scripted START) or a restart (a
++        /// CommandEngine one); a scripted lifecycle is retired silently (a reuse), or as a re-entry when a CommandEngine START meets
++        /// it while its sequence still runs (seqRunning).</summary>
++        internal static Int32 ActStartStep(Dictionary<System.Object, ActRecord> live, Dictionary<System.Object, ActRecord> scripted, System.Object key,
++                                           ActRecord fresh, Boolean seqRunning, out ActRecord displaced)
++        {
++            displaced = null;
++            Int32 verdict = ActStepNew;
++            ActRecord old;
++            if (live.TryGetValue(key, out old))
++            {
++                live.Remove(key);
++                displaced = old;
++                verdict = fresh.Scripted ? ActStepTakeover : ActStepRestart;
++            }
++            else if (scripted.TryGetValue(key, out old))
++            {
++                scripted.Remove(key);
++                verdict = !fresh.Scripted && seqRunning ? ActStepReentry : ActStepReuse;
++            }
++            if (fresh.Scripted)
++                scripted[key] = fresh;
++            else
++                live[key] = fresh;
++            return verdict;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] THE END STEP (FinishCommand; pure): the END-eligible lifecycle on `key`, taken off its book;
++        /// null = none (never STARTed -- a failed inspection, a declined START -- or a scripted one, which no END reads).</summary>
++        internal static ActRecord ActEndStep(Dictionary<System.Object, ActRecord> live, System.Object key)
++        {
++            ActRecord r;
++            if (key == null || !live.TryGetValue(key, out r))
++                return null;
++            live.Remove(key);
++            return r;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] An impact's action id (pure): the END-eligible book first, then the scripted one; 0 = none.</summary>
++        internal static UInt16 ActIdOf(Dictionary<System.Object, ActRecord> live, Dictionary<System.Object, ActRecord> scripted, System.Object key)
++        {
++            ActRecord r;
++            if (key == null)
++                return 0;
++            if (live.TryGetValue(key, out r) || scripted.TryGetValue(key, out r))
++                return r.Id;
++            return 0;
++        }
++
++        // The inert 46-byte head of a START or an END: no caster, no target, no figures, no state; the host _seq NOT consumed.
++        private static void WriteInertHead(BinaryWriter bw, Byte nonce, UInt16 seq, Byte flags, UInt16 cmdNo, UInt16 subNo)
++        {
++            bw.Write(nonce);
++            bw.Write(seq);                             // NOT consumed: no state rides this record
++            bw.Write((Byte)0xFF);                      // casterSlot: none
++            bw.Write((Byte)0xFF);                      // targetSlot: none
++            bw.Write(new Byte[36]);                    // the two fig triples and the four raws: zero
++            bw.Write(flags);
++            bw.Write(cmdNo);                           // the legacy identity
++            bw.Write(subNo);
++        }
++
++        // The 6-byte id extension of an IMPACT or an END (bytes 46-51).
++        private static void WriteIdExt(BinaryWriter bw, Byte kind, UInt16 actId)
++        {
++            bw.Write(ActExtTag);
++            bw.Write(ActExtFmt1);
++            bw.Write(ActExtLenId);
++            bw.Write(kind);
++            bw.Write(actId);
++        }
++
++        /// <summary>[ff9mapkit netsync s133] A START record, 76 bytes (the layout above). Pure.</summary>
++        internal static Byte[] EncodeActionStart(Byte nonce, UInt16 seq, UInt16 actId, Byte actorSlot, Byte actorFlags, UInt16 cmdNo,
++                                                 Int32 subNo, UInt16 tarId, Byte cursor, Byte info, UInt16 magicCaster, Byte vfxKind,
++                                                 Int32 vfxNum, Int32 patchedVfx, Byte hostSpeed)
++        {
++            Byte[] p = new Byte[ActStartRecordLen];
++            using (MemoryStream ms = new MemoryStream(p))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                WriteInertHead(bw, nonce, seq, ActFlagStart, cmdNo, (UInt16)subNo);
++                bw.Write(ActExtTag);
++                bw.Write(ActExtFmt1);
++                bw.Write(ActExtLenStart);
++                bw.Write(ActExtStart);
++                bw.Write(actId);
++                bw.Write(actorSlot);
++                bw.Write(actorFlags);
++                bw.Write(cmdNo);
++                bw.Write(subNo);
++                bw.Write(tarId);
++                bw.Write(cursor);
++                bw.Write(info);
++                bw.Write(magicCaster);
++                bw.Write(vfxKind);
++                bw.Write(vfxNum);
++                bw.Write(patchedVfx);
++                bw.Write(hostSpeed);
++            }
++            return p;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] An END record, 52 bytes. Pure.</summary>
++        internal static Byte[] EncodeActionEnd(Byte nonce, UInt16 seq, UInt16 actId, UInt16 cmdNo, UInt16 subNo)
++        {
++            Byte[] p = new Byte[ActIdRecordLen];
++            using (MemoryStream ms = new MemoryStream(p))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                WriteInertHead(bw, nonce, seq, ActFlagEnd, cmdNo, subNo);
++                WriteIdExt(bw, ActExtEnd, actId);
++            }
++            return p;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] A 46-byte impact with the id extension appended (the selftest's encoder; QueueActionFrame
++        /// writes the same WriteIdExt bytes in place). Pure.</summary>
++        internal static Byte[] WithImpactExt(Byte[] legacy, UInt16 actId)
++        {
++            Byte[] p = new Byte[ActIdRecordLen];
++            Buffer.BlockCopy(legacy, 0, p, 0, ActLegacyLen);
++            using (MemoryStream ms = new MemoryStream(p))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                ms.Position = ActLegacyLen;
++                WriteIdExt(bw, ActExtImpact, actId);
++            }
++            return p;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] THE EXTENSION READER -- after TryParseAction, in its own try: fills the fields after SubNo
++        /// and answers ActExtRead*. Only at Length >= 52 with [46] == 0xA6: fmt 1 (another fmt is skipped -- ActExtReadFmt), extLen
++        /// >= 3 and inside the frame, the kind agreeing with flags bits 2-3 (an impact neither, a START bit 2, an END bit 3), a
++        /// START/END id non-zero, a START's extLen >= 27; anything else is ActExtReadBad. A bad or unknown extension leaves HasExt
++        /// false and the 46-byte fields untouched: it never fails the frame. A foreign byte 46 (or a 46-byte frame) is no
++        /// extension. Pure.</summary>
++        internal static Int32 ReadActionExt(Byte[] p, ref PeerAction a)
++        {
++            ClearActionExt(ref a);
++            if (p == null || p.Length <= ActLegacyLen || p[ActLegacyLen] != ActExtTag)
++                return ActExtReadNone;
++            try
++            {
++                if (p.Length < ActIdRecordLen)
++                    return ActExtReadBad;              // a truncated extension
++                if (p[47] != ActExtFmt1)
++                    return ActExtReadFmt;              // skipped, never failed
++                Int32 len = p[48];
++                if (len < ActExtLenId || 49 + len > p.Length)
++                    return ActExtReadBad;
++                Byte kind = p[49];
++                UInt16 id = ExtU16(p, 50);
++                Boolean fStart = (a.Flags & ActFlagStart) != 0, fEnd = (a.Flags & ActFlagEnd) != 0;
++                if (kind == ActExtImpact)
++                {
++                    if (fStart || fEnd)
++                        return ActExtReadBad;
++                }
++                else if (kind == ActExtEnd)
++                {
++                    if (!fEnd || fStart || id == 0)
++                        return ActExtReadBad;
++                }
++                else if (kind == ActExtStart)
++                {
++                    if (!fStart || fEnd || id == 0 || len < ActExtLenStart)
++                        return ActExtReadBad;
++                    a.ActorSlot = p[52];
++                    a.ActorFlags = p[53];
++                    a.ActCmdNo = ExtU16(p, 54);
++                    a.ActSubNo = ExtI32(p, 56);
++                    a.ActTarId = ExtU16(p, 60);
++                    a.ActCursor = p[62];
++                    a.ActInfo = p[63];
++                    a.ActMagicCaster = ExtU16(p, 64);
++                    a.VfxKind = p[66];
++                    a.VfxNum = ExtI32(p, 67);
++                    a.ActPatchedVfx = ExtI32(p, 71);
++                    a.HostSpeed = p[75];
++                }
++                else
++                {
++                    return ActExtReadBad;
++                }
++                a.HasExt = true;
++                a.ExtKind = kind;
++                a.ActId = id;
++                return ActExtReadOk;
++            }
++            catch
++            {
++                ClearActionExt(ref a);
++                return ActExtReadBad;
++            }
++        }
++
++        private static void ClearActionExt(ref PeerAction a)
++        {
++            a.HasExt = false;
++            a.ExtKind = 0;
++            a.ActId = 0;
++            a.ActorSlot = 0;
++            a.ActorFlags = 0;
++            a.ActCmdNo = 0;
++            a.ActSubNo = 0;
++            a.ActTarId = 0;
++            a.ActCursor = 0;
++            a.ActInfo = 0;
++            a.ActMagicCaster = 0;
++            a.VfxKind = 0;
++            a.VfxNum = 0;
++            a.ActPatchedVfx = 0;
++            a.HostSpeed = 0;
++        }
++
++        private static UInt16 ExtU16(Byte[] p, Int32 o)
++        {
++            return (UInt16)(p[o] | p[o + 1] << 8);
++        }
++
++        private static Int32 ExtI32(Byte[] p, Int32 o)
++        {
++            return p[o] | p[o + 1] << 8 | p[o + 2] << 16 | p[o + 3] << 24;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] THE LOOPBACK AUDIT (design 3.3.2's ActLoopAudit; `act.host.loop`): every type-6 frame the
++        /// selftest loopback receives, classified -- STARTs, ENDs, impacts (and of them the extended ones), stat ticks (bit 7, never
++        /// an impact), bad extensions -- and the pairing checked: an END that closes an open END-eligible START is `paired`; an END
++        /// with no open START (or naming a scripted one), an impact naming an id that is not open, and a second START on an open id
++        /// are `orphans`; an impact whose caster is not its START's actor is a `caster_mismatch`; at the own battle's close the
++        /// END-eligible STARTs still open are `no_end` (a normal end) or `cut` (a reset or a mid-action teardown) -- scripted STARTs
++        /// (actor flags b3) are never ENDed and never count (amendment 7). Pure: the selftest feeds it fabricated frames.</summary>
++        public sealed class ActLoopBook
++        {
++            public Int32 Starts, Ends, Impacts, ImpactsExt, Stat, ExtBad, Paired, Orphans, CasterMismatch, NoEnd, Cut;
++            private readonly Dictionary<UInt16, Int32> _open = new Dictionary<UInt16, Int32>();   // id -> actor slot | 0x100 scripted
++
++            public Boolean Fed
++            {
++                get { return Starts + Ends + Impacts + Stat + ExtBad > 0; }
++            }
++
++            public void Reset()
++            {
++                Starts = Ends = Impacts = ImpactsExt = Stat = ExtBad = Paired = Orphans = CasterMismatch = NoEnd = Cut = 0;
++                _open.Clear();
++            }
++
++            internal void Feed(ref PeerAction a, Int32 extRead)
++            {
++                if (extRead == ActExtReadBad || extRead == ActExtReadFmt)
++                    ExtBad++;
++                if ((a.Flags & ActFlagStatTick) != 0)
++                {
++                    Stat++;
++                    return;
++                }
++                if (a.IsStart)
++                {
++                    Starts++;
++                    if (_open.ContainsKey(a.ActId))
++                        Orphans++;
++                    else
++                        _open[a.ActId] = a.ActorSlot | ((a.ActorFlags & ActorScripted) != 0 ? 0x100 : 0);
++                    return;
++                }
++                if (a.IsEnd)
++                {
++                    Ends++;
++                    Int32 o;
++                    if (_open.TryGetValue(a.ActId, out o) && (o & 0x100) == 0)
++                    {
++                        Paired++;
++                        _open.Remove(a.ActId);
++                    }
++                    else
++                    {
++                        Orphans++;
++                    }
++                    return;
++                }
++                if ((a.Flags & (ActFlagStart | ActFlagEnd)) != 0)
++                {
++                    if (extRead == ActExtReadNone)
++                        ExtBad++;                      // a START/END record with no extension at all (a bad one is counted above)
++                    return;
++                }
++                Impacts++;
++                if (!a.HasExt)
++                    return;
++                ImpactsExt++;
++                if (a.ActId == 0)
++                    return;
++                Int32 open;
++                if (!_open.TryGetValue(a.ActId, out open))
++                    Orphans++;
++                else if (a.CasterSlot != 0xFF && a.CasterSlot != (open & 0xFF))
++                    CasterMismatch++;
++            }
++
++            public Int32 Close(Boolean cut)
++            {
++                Int32 n = 0;
++                foreach (Int32 o in _open.Values)
++                    if ((o & 0x100) == 0)
++                        n++;
++                if (cut)
++                    Cut += n;
++                else
++                    NoEnd += n;
++                _open.Clear();
++                return n;
++            }
++        }
++
++        // [ff9mapkit netsync s133] THE TAPE (`netsync actbench tape`, selftest): every type-6 frame the loopback receives, with its offset
++        // from `tape rec`, up to ActTapeCap (later ones are counted as overflow) -- and the bytes leave through `tape dump <from>
++        // <count>`: a page of up to ActTapePageMax frames published as `act.host.tape.page` (compact uppercase hex), so a bench checks
++        // them offline (audit amendment 14). Not per battle: `rec` starts a new tape, `stop` keeps it, `clear` and every harness
++        // release empty it.
++        private sealed class ActTapeFrame
++        {
++            public Int32 Ms;
++            public Byte[] Bytes;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] One `tape dump` page: frames From..From+Count-1 of Total, each with its ms and hex.</summary>
++        public sealed class ActTapePage
++        {
++            public Int32 From, Count, Total;
++            public readonly List<Int32> Ms = new List<Int32>();
++            public readonly List<String> Hex = new List<String>();
++        }
++
++        private static readonly List<ActTapeFrame> _tape = new List<ActTapeFrame>();
++        private static Boolean _tapeRec;
++        private static Int32 _tapeRecTick = Environment.TickCount - 60000;   // tick-baseline law
++        private static Int32 _tapeStarts, _tapeOverflow;
++        private static Boolean _tapeFullLogged;
++        private static ActTapePage _tapePage;
++
++        private static void ActTapeRecord(Byte[] frame)
++        {
++            if (!_tapeRec || frame == null)
++                return;
++            if (_tape.Count >= ActTapeCap)
++            {
++                _tapeOverflow++;
++                if (!_tapeFullLogged)
++                {
++                    _tapeFullLogged = true;
++                    Log.Message("[NetSync] action tape: full at " + ActTapeCap + " frames -- later frames are counted (overflow), not recorded");
++                }
++                return;
++            }
++            Byte[] copy = new Byte[frame.Length];
++            Buffer.BlockCopy(frame, 0, copy, 0, frame.Length);
++            _tape.Add(new ActTapeFrame { Ms = Environment.TickCount - _tapeRecTick, Bytes = copy });
++            if (copy.Length >= ActStartRecordLen && (copy[41] & ActFlagStart) != 0 && copy[ActLegacyLen] == ActExtTag && copy[49] == ActExtStart)
++                _tapeStarts++;
++        }
++
++        private static void ActTapeClear()
++        {
++            _tape.Clear();
++            _tapeRec = false;
++            _tapeStarts = 0;
++            _tapeOverflow = 0;
++            _tapeFullLogged = false;
++            _tapePage = null;
++        }
++
++        // `tape info`: the tape's summary line (a scan through the real codec)
++        private static String ActTapeSummary()
++        {
++            Int32 starts = 0, ends = 0, impacts = 0, ext = 0, stat = 0, bad = 0;
++            for (Int32 i = 0; i < _tape.Count; i++)
++            {
++                PeerAction a;
++                if (!TryParseAction(_tape[i].Bytes, out a))
++                {
++                    bad++;
++                    continue;
++                }
++                Int32 r = ReadActionExt(_tape[i].Bytes, ref a);
++                if (r == ActExtReadBad || r == ActExtReadFmt)
++                    bad++;
++                if (a.StatTick)
++                    stat++;
++                else if (a.IsStart)
++                    starts++;
++                else if (a.IsEnd)
++                    ends++;
++                else if ((a.Flags & (ActFlagStart | ActFlagEnd)) == 0)
++                {
++                    impacts++;
++                    if (a.HasExt)
++                        ext++;
++                }
++                else if (r == ActExtReadNone)
++                    bad++;                             // a START/END flag with no extension at all (ActLoopBook's ext_bad too)
++            }
++            return "[NetSync] action tape: " + HarnessActTapeState + ", " + _tape.Count + " frame(s) -- " + starts + " START(s), " + ends
++                   + " END(s), " + impacts + " impact(s) (" + ext + " with the id extension), " + stat + " stat tick(s), " + bad + " bad; "
++                   + HarnessActTapeMs + " ms, overflow " + _tapeOverflow;
++        }
++
++        // `tape dump <from> <count>`: publish one page (the bytes' only way out of the engine)
++        private static Boolean ActTapeDump(Int32 from, Int32 count, out String why)
++        {
++            why = null;
++            if (_tape.Count == 0)
++                why = "netsync actbench tape dump: the tape is empty (`actbench tape rec` first)";
++            else if (from < 0 || from >= _tape.Count)
++                why = "netsync actbench tape dump: from " + from + " is past the tape's last frame (" + _tape.Count + " frame(s))";
++            else if (count < 1 || count > ActTapePageMax)
++                why = "netsync actbench tape dump: count must be 1-" + ActTapePageMax;
++            if (why != null)
++                return false;
++            Int32 n = Math.Min(count, _tape.Count - from);
++            ActTapePage page = new ActTapePage { From = from, Count = n, Total = _tape.Count };
++            for (Int32 i = from; i < from + n; i++)
++            {
++                page.Ms.Add(_tape[i].Ms);
++                page.Hex.Add(BitConverter.ToString(_tape[i].Bytes).Replace("-", ""));
++            }
++            _tapePage = page;
++            Log.Message("[NetSync] harness: action tape frames " + from + ".." + (from + n - 1) + " of " + _tape.Count
++                        + " published (netsync.battle.act.host.tape.page)");
++            return true;
++        }
++
++        /// <summary>[ff9mapkit netsync s133] `netsync actbench` (selftest role only): `hoststarts on|off` -- the stage's calibration lever
++        /// (BenchActStartsOff); `tape rec|stop|clear|info` -- the loopback tape (rec starts a new one; info logs its summary); `tape
++        /// dump <from> <count>` -- frames from..from+count-1 (count 1-ActTapePageMax, clipped at the tape's end) published as
++        /// `act.host.tape.page`. False + why on a refusal.</summary>
++        public static Boolean HarnessActBench(String op, String value, Int32 from, Int32 count, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync actbench: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            op = (op ?? "").ToLowerInvariant();
++            value = (value ?? "").ToLowerInvariant();
++            if (op == "hoststarts")
++            {
++                if (value != "on" && value != "off")
++                {
++                    why = "netsync actbench hoststarts: expected `hoststarts on|off`";
++                    return false;
++                }
++                BenchActStartsOff = value == "off";
++                Log.Message("[NetSync] harness: action STARTs " + (BenchActStartsOff
++                            ? "OFF -- CALIBRATION: the pre-s133 host (no START/END records, no impact ids, no caps bit 5)" : "ON"));
++                return true;
++            }
++            if (op != "tape")
++            {
++                why = "netsync actbench: unknown op '" + op + "' (tape|hoststarts)";
++                return false;
++            }
++            switch (value)
++            {
++                case "rec":
++                    ActTapeClear();
++                    _tapeRec = true;
++                    _tapeRecTick = Environment.TickCount;
++                    Log.Message("[NetSync] harness: action tape RECORDING -- every type-6 frame the selftest loopback receives, up to "
++                                + ActTapeCap + " (a new tape)");
++                    return true;
++                case "stop":
++                    _tapeRec = false;
++                    Log.Message("[NetSync] harness: action tape stopped -- " + _tape.Count + " frame(s), " + _tapeStarts + " START(s), "
++                                + HarnessActTapeMs + " ms, overflow " + _tapeOverflow);
++                    return true;
++                case "clear":
++                    Log.Message("[NetSync] harness: action tape cleared (" + _tape.Count + " frame(s))");
++                    ActTapeClear();
++                    return true;
++                case "info":
++                    Log.Message(ActTapeSummary());
++                    return true;
++                case "dump":
++                    return ActTapeDump(from, count, out why);
++                default:
++                    why = "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`";
++                    return false;
++            }
++        }
++
++        // HarnessReleaseBench's s133 half: the lever back on, the tape stopped and emptied.
++        private static void ActHarnessRelease()
++        {
++            if (BenchActStartsOff)
++                Log.Message("[NetSync] harness: action STARTs back ON (released with the harness)");
++            BenchActStartsOff = false;
++            if (_tape.Count > 0 || _tapeRec || _tapePage != null)
++                Log.Message("[NetSync] harness: action tape cleared (" + _tape.Count + " frame(s); released with the harness)");
++            ActTapeClear();
++        }
++
++        // ============================================================================ harness surface (s133)
++        // [ff9mapkit netsync s133] `netsync.battle.act.host` (HarnessAgent.AppendAct): read-only, main-thread, never throw. Published in
++        // EVERY role (audit 3.6: no `IsSelfTestRole ? x : -1` getters) -- `loop` and `tape` are fed only by the selftest loopback and
++        // read zero elsewhere.
++        public static Boolean HarnessActOn { get { return Enabled && ActStartsOn; } }
++        public static Boolean HarnessActLeverOff { get { return BenchActStartsOff; } }
++        public static Int32 HarnessActNonce { get { return _actNonce; } }
++        public static Int32 HarnessActStarts { get { return _actStarts; } }
++        public static Int32 HarnessActEnds { get { return _actEnds; } }
++        public static Int32 HarnessActScripted { get { return _actScriptedStarts; } }
++        public static Int32 HarnessActExtImpacts { get { return _actExtImpacts; } }
++        public static Int32 HarnessActNoIdImpacts { get { return _actNoIdImpacts; } }
++        public static Int32 HarnessActOpen { get { return _actIds.Count; } }
++        public static Int32 HarnessActDropped { get { return _actDropped; } }
++        public static Int32 HarnessActWireDropped { get { return _actWireDropped; } }
++        public static Int32 HarnessActUnresolved { get { return _actUnresolved; } }
++        public static Int32 HarnessActTakeovers { get { return _actTakeovers; } }
++        public static Int32 HarnessActReentries { get { return _actReentries; } }
++        public static Int32 HarnessActRestarted { get { return _actRestarted; } }
++        public static Int32 HarnessActNoEnd { get { return _actNoEnd; } }
++        public static Int32 HarnessActCut { get { return _actCut; } }
++        public static Int32 HarnessActEdgeDeclined { get { return _actEdgeDeclined; } }
++        public static Int32 HarnessActVfxChecked { get { return _actVfxChecked; } }
++        public static Int32 HarnessActVfxDrift { get { return _actVfxDrift; } }
++        public static Int32 HarnessActVfxUnchecked { get { return _actVfxUnchecked; } }
++        public static String HarnessActVfxWhy { get { return _actVfxWhy; } }
++        public static ActLoopBook HarnessActLoop { get { return _actLoop; } }
++        public static String HarnessActTapeState { get { return _tapeRec ? "rec" : _tape.Count > 0 ? "stopped" : "off"; } }
++        public static Int32 HarnessActTapeFrames { get { return _tape.Count; } }
++        public static Int32 HarnessActTapeStarts { get { return _tapeStarts; } }
++        public static Int32 HarnessActTapeMs { get { return _tape.Count > 0 ? _tape[_tape.Count - 1].Ms : -1; } }
++        public static Int32 HarnessActTapeOverflow { get { return _tapeOverflow; } }
++        public static ActTapePage HarnessActTapePage { get { return _tapePage; } }
++
++        // STARTs this own battle by vfx kind: 0 none, 1 seq, 2 enemy, 3 special, 4 common, 5 unknown
++        public static Int32 HarnessActKind(Int32 index)
++        {
++            return index >= 0 && index < _actKinds.Length ? _actKinds[index] : 0;
++        }
++
++        // The last START as shipped, decoded through the real codec (false = none this battle)
++        public static Boolean HarnessActLast(out PeerAction a)
++        {
++            a = default(PeerAction);
++            Byte[] s = _actLastStart;
++            if (s == null)
++                return false;
++            try
++            {
++                return TryParseAction(s, out a) && ReadActionExt(s, ref a) == ActExtReadOk;
++            }
++            catch
++            {
++                a = default(PeerAction);
++                return false;
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s133] THE ACTION LANE SELFTEST (NetSyncClient's selftest proof block: "action lane selftest:
++        /// OK|FAIL (...)"). The codec: the impact's 6-byte id extension after 46 unchanged bytes, the START's 76 bytes at the design's
++        /// offsets and back, the END's 52, what an s110-s132 reader makes of a START (slots 0xFF/0xFF, flags 0x04), every truncated
++        /// extension prefix reading NO extension with its 46 bytes intact, an unknown fmt skipped, a foreign tag ignored, a kind that
++        /// disagrees with flags bits 2-3 (or a START/END id 0) refused, a longer fmt-1 START still read. The id books: ids from 1 and
++        /// never 0, a CommandEngine lifecycle ENDed once, a failed inspection never ENDed, a scripted takeover displacing the open id
++        /// for its END, a re-entry, a reuse, a restart, a scripted replace. The loopback audit: a clean pair, a caster mismatch, the
++        /// orphans, a scripted START owing no END, no_end against cut, a stat tick, an id-0 impact, a START cut short. The describe
++        /// check's verdict, the lazy-load drift included. Each row discriminates one rule. Pure: touches no live state.</summary>
++        internal static Boolean ActionSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                const Byte N = ActTestNonce;
++                // --- the codec
++                Byte[] legacy = ActTestImpact(N, 0x1234, 3, 5, 0);    // an s132 impact: caster 3, target 5
++                Byte[] impact = WithImpactExt(legacy, 0x0102);
++                PeerAction pl, pi;
++                Boolean okl = TryParseAction(legacy, out pl);
++                Boolean oki = TryParseAction(impact, out pi);
++                Row(impact.Length == ActIdRecordLen && SameBytes(impact, 0, legacy, 0, ActLegacyLen)
++                    && SameBytes(impact, ActLegacyLen, new Byte[] { 0xA6, 0x01, 0x03, 0x01, 0x02, 0x01 }, 0, 6),
++                    "impact: the 46 bytes unchanged, then A6 01 03 01 and the id (LE)", ref rows, ref fail);
++                Row(okl && oki && SameLegacy(ref pl, ref pi) && ReadActionExt(impact, ref pi) == ActExtReadOk && pi.HasExt
++                    && pi.ExtKind == ActExtImpact && pi.ActId == 0x0102 && !pi.IsStart && !pi.IsEnd,
++                    "impact: the 46-byte read is unchanged, the extension reads kind 1 and the id", ref rows, ref fail);
++                Row(ReadActionExt(legacy, ref pl) == ActExtReadNone && !pl.HasExt && pl.ActId == 0,
++                    "impact: a 46-byte frame (an s132 host) has no extension", ref rows, ref fail);
++                Byte[] st = EncodeActionStart(N, 0x0BCD, 0x0203, 5, 0x41, 0x0011, 0x00010203, 0x0030, 1, 0x05, 0x0010, VfxKindSpecial,
++                                              0x01020304, 0x0A0B0C0D, 5);
++                Row(st.Length == ActStartRecordLen && st[0] == N && st[1] == 0xCD && st[2] == 0x0B && st[3] == 0xFF && st[4] == 0xFF
++                    && AllZero(st, 5, 36) && st[41] == 0x04
++                    && SameBytes(st, 42, new Byte[] { 0x11, 0x00, 0x03, 0x02, 0xA6, 0x01, 0x1B, 0x02, 0x03, 0x02, 0x05, 0x41, 0x11, 0x00, 0x03,
++                                                      0x02, 0x01, 0x00, 0x30, 0x00, 0x01, 0x05, 0x10, 0x00, 0x03, 0x04, 0x03, 0x02, 0x01, 0x0D,
++                                                      0x0C, 0x0B, 0x0A, 0x05 }, 0, 34),
++                    "START: 76 bytes at the design's offsets (hand-checked)", ref rows, ref fail);
++                PeerAction ps;
++                Boolean oks = TryParseAction(st, out ps);
++                Row(oks && ReadActionExt(st, ref ps) == ActExtReadOk && ps.IsStart && ps.ActId == 0x0203 && ps.ActorSlot == 5
++                    && ps.ActorFlags == 0x41 && ps.ActCmdNo == 0x11 && ps.ActSubNo == 0x00010203 && ps.ActTarId == 0x30 && ps.ActCursor == 1
++                    && ps.ActInfo == 5 && ps.ActMagicCaster == 0x10 && ps.VfxKind == VfxKindSpecial && ps.VfxNum == 0x01020304
++                    && ps.ActPatchedVfx == 0x0A0B0C0D && ps.HostSpeed == 5,
++                    "START: the extension reads every body field back", ref rows, ref fail);
++                Row(oks && ps.CasterSlot == 0xFF && ps.TargetSlot == 0xFF && ps.Flags == ActFlagStart && !ps.StatTick && ps.FigHpT == 0
++                    && ps.TgtHpRaw == 0 && ps.CastHpRaw == 0 && ps.CmdNo == 0x11 && ps.SubNo == 0x0203 && ps.SeqHorizon == 0x0BCD,
++                    "START through the s110-s132 reader: slots 0xFF/0xFF, flags 0x04 only, no figures, the legacy identity", ref rows, ref fail);
++                Byte[] en = EncodeActionEnd(N, 0x0BCE, 0x0203, 0x11, 0x0203);
++                PeerAction pe;
++                Boolean oke = TryParseAction(en, out pe);
++                Row(en.Length == ActIdRecordLen && en[3] == 0xFF && en[4] == 0xFF && AllZero(en, 5, 36) && en[41] == ActFlagEnd
++                    && SameBytes(en, ActLegacyLen, new Byte[] { 0xA6, 0x01, 0x03, 0x03, 0x03, 0x02 }, 0, 6) && oke
++                    && ReadActionExt(en, ref pe) == ActExtReadOk && pe.IsEnd && pe.ActId == 0x0203 && !pe.StatTick,
++                    "END: 52 bytes, flags 0x08, A6 01 03 03 and the id", ref rows, ref fail);
++                Boolean cuts = true;
++                for (Int32 n = ActLegacyLen + 1; n < ActStartRecordLen && cuts; n++)
++                    cuts = ActCutReadsNoExt(st, n, ref ps);
++                Row(cuts, "every truncated START prefix (47..75 bytes) reads no extension, its 46 bytes intact", ref rows, ref fail);
++                cuts = true;
++                for (Int32 n = ActLegacyLen + 1; n < ActIdRecordLen && cuts; n++)
++                    cuts = ActCutReadsNoExt(impact, n, ref pi) && ActCutReadsNoExt(en, n, ref pe);
++                Row(cuts, "every truncated impact or END prefix (47..51 bytes) reads no extension, its 46 bytes intact", ref rows, ref fail);
++                Byte[] fmt2 = (Byte[])st.Clone();
++                fmt2[47] = 2;
++                PeerAction pf;
++                Row(TryParseAction(fmt2, out pf) && ReadActionExt(fmt2, ref pf) == ActExtReadFmt && !pf.HasExt && SameLegacy(ref pf, ref ps),
++                    "an unknown fmt is skipped, never failing the frame", ref rows, ref fail);
++                Byte[] foreign = (Byte[])impact.Clone();
++                foreign[ActLegacyLen] = 0xA7;
++                Row(TryParseAction(foreign, out pf) && ReadActionExt(foreign, ref pf) == ActExtReadNone && !pf.HasExt,
++                    "a byte 46 other than 0xA6 is no extension", ref rows, ref fail);
++                Byte[] noFlag = (Byte[])st.Clone();
++                noFlag[41] = 0;                        // a START body on a frame without bit 2
++                Byte[] flagged = (Byte[])impact.Clone();
++                flagged[41] |= ActFlagStart;           // an impact extension on a START-flagged frame
++                Row(ActBadExt(noFlag) && ActBadExt(flagged) && ActBadExt(EncodeActionEnd(N, 1, 0, 0, 0))
++                    && ActBadExt(EncodeActionStart(N, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
++                    "a kind that disagrees with flags bits 2-3, or a START/END with id 0, is refused", ref rows, ref fail);
++                Byte[] longer = new Byte[ActStartRecordLen + 3];
++                Buffer.BlockCopy(st, 0, longer, 0, ActStartRecordLen);
++                longer[48] = ActExtLenStart + 3;
++                PeerAction plong;
++                Row(TryParseAction(longer, out plong) && ReadActionExt(longer, ref plong) == ActExtReadOk && plong.IsStart
++                    && plong.ActId == 0x0203 && plong.VfxNum == 0x01020304 && plong.HostSpeed == 5,
++                    "a longer fmt-1 START (extLen 30) still reads its 27 bytes", ref rows, ref fail);
++                // --- the id books
++                UInt16 last = 0;
++                Boolean idsOk = ActNextId(ref last) == 1 && ActNextId(ref last) == 2;
++                last = 0xFFFF;
++                Row(idsOk && ActNextId(ref last) == 1, "ids: issued from 1, 0 skipped at the wrap", ref rows, ref fail);
++                Dictionary<System.Object, ActRecord> live = new Dictionary<System.Object, ActRecord>();
++                Dictionary<System.Object, ActRecord> scr = new Dictionary<System.Object, ActRecord>();
++                System.Object k1 = new System.Object(), k2 = new System.Object(), k3 = new System.Object(), k4 = new System.Object(), k5 = new System.Object();
++                ActRecord shown;
++                Row(ActStartStep(live, scr, k1, ActTestRec(1, false), false, out shown) == ActStepNew && shown == null
++                    && ActIdOf(live, scr, k1) == 1 && ActTestEnd(live, k1) == 1 && ActEndStep(live, k1) == null && ActIdOf(live, scr, k1) == 0,
++                    "book: a CommandEngine START is END-eligible, its impacts find it, FinishCommand ENDs it once", ref rows, ref fail);
++                Row(ActEndStep(live, k2) == null && ActIdOf(live, scr, k2) == 0,
++                    "book: a command that failed inspection (never STARTed) gets no END", ref rows, ref fail);
++                ActStartStep(live, scr, k1, ActTestRec(2, false), false, out shown);
++                Row(ActStartStep(live, scr, k1, ActTestRec(3, true), false, out shown) == ActStepTakeover && shown != null && shown.Id == 2
++                    && ActIdOf(live, scr, k1) == 3 && ActEndStep(live, k1) == null && scr.ContainsKey(k1),
++                    "book: StartBtlSeq over an open cmd[0] displaces its id for an END first; the sequence is never ENDed", ref rows, ref fail);
++                Row(ActStartStep(live, scr, k1, ActTestRec(4, false), true, out shown) == ActStepReentry && shown == null && !scr.ContainsKey(k1)
++                    && ActTestEnd(live, k1) == 4,
++                    "book: a CommandEngine START while the scripted sequence still runs is a re-entry, END-eligible again", ref rows, ref fail);
++                ActStartStep(live, scr, k3, ActTestRec(5, true), false, out shown);
++                Row(ActStartStep(live, scr, k3, ActTestRec(6, false), false, out shown) == ActStepReuse && shown == null && ActTestEnd(live, k3) == 6,
++                    "book: a CommandEngine START after the scripted sequence ended is a plain reuse", ref rows, ref fail);
++                ActStartStep(live, scr, k4, ActTestRec(7, false), false, out shown);
++                Row(ActStartStep(live, scr, k4, ActTestRec(8, false), false, out shown) == ActStepRestart && shown != null && shown.Id == 7
++                    && ActTestEnd(live, k4) == 8,
++                    "book: a CommandEngine START over its own open id (no FinishCommand) ENDs the old one first", ref rows, ref fail);
++                ActStartStep(live, scr, k5, ActTestRec(9, true), false, out shown);
++                Row(ActStartStep(live, scr, k5, ActTestRec(10, true), true, out shown) == ActStepReuse && shown == null
++                    && ActIdOf(live, scr, k5) == 10 && ActEndStep(live, k5) == null,
++                    "book: a second scripted START on the same cmd replaces the first, still never ENDed", ref rows, ref fail);
++                // --- the loopback audit
++                ActLoopBook bk = new ActLoopBook();
++                ActTestFeed(bk, ActTestStart(1, 5, ActorIsPlayer));
++                ActTestFeed(bk, WithImpactExt(ActTestImpact(N, 2, 5, 4, 0), 1));
++                ActTestFeed(bk, EncodeActionEnd(N, 3, 1, 1, 176));
++                bk.Close(false);
++                Row(bk.Starts == 1 && bk.Impacts == 1 && bk.ImpactsExt == 1 && bk.Ends == 1 && bk.Paired == 1 && bk.Orphans == 0
++                    && bk.CasterMismatch == 0 && bk.NoEnd == 0 && bk.Cut == 0 && bk.ExtBad == 0,
++                    "loop: a START, its impact and its END pair cleanly", ref rows, ref fail);
++                bk = new ActLoopBook();
++                ActTestFeed(bk, ActTestStart(2, 5, 0));
++                ActTestFeed(bk, WithImpactExt(ActTestImpact(N, 2, 6, 4, 0), 2));
++                Row(bk.CasterMismatch == 1 && bk.Orphans == 0, "loop: an impact whose caster is not its START's actor is a caster_mismatch",
++                    ref rows, ref fail);
++                bk = new ActLoopBook();
++                ActTestFeed(bk, EncodeActionEnd(N, 1, 9, 0, 0));                         // an END with no START
++                ActTestFeed(bk, ActTestStart(3, 5, 0));
++                ActTestFeed(bk, EncodeActionEnd(N, 2, 3, 1, 176));
++                ActTestFeed(bk, WithImpactExt(ActTestImpact(N, 3, 5, 4, 0), 3));        // an impact after its END
++                ActTestFeed(bk, ActTestStart(4, 5, 0));
++                ActTestFeed(bk, ActTestStart(4, 5, 0));                                  // a second START on an open id
++                Row(bk.Orphans == 3 && bk.Paired == 1 && bk.Starts == 3,
++                    "loop: an END with no START, an impact after its END and a duplicate START id are orphans", ref rows, ref fail);
++                bk = new ActLoopBook();
++                ActLoopBook bk2 = new ActLoopBook();
++                foreach (ActLoopBook b in new[] { bk, bk2 })
++                {
++                    ActTestFeed(b, ActTestStart(5, 5, ActorScripted));
++                    ActTestFeed(b, WithImpactExt(ActTestImpact(N, 2, 5, 4, 0), 5));
++                    ActTestFeed(b, ActTestStart(6, 6, 0));
++                }
++                bk.Close(false);
++                bk2.Close(true);
++                Row(bk.NoEnd == 1 && bk.Cut == 0 && bk2.Cut == 1 && bk2.NoEnd == 0 && bk.Orphans == 0 && bk.CasterMismatch == 0,
++                    "loop: a scripted START owes no END; an open CommandEngine START is no_end at a normal close, cut at a reset",
++                    ref rows, ref fail);
++                bk = new ActLoopBook();
++                ActTestFeed(bk, ActTestImpact(N, 1, 0xFF, 4, ActFlagStatTick));
++                ActTestFeed(bk, WithImpactExt(ActTestImpact(N, 2, 5, 4, 0), 0));
++                ActTestFeed(bk, ActTestImpact(N, 3, 5, 4, 0));
++                Row(bk.Stat == 1 && bk.Impacts == 2 && bk.ImpactsExt == 1 && bk.Orphans == 0,
++                    "loop: a stat tick is never an impact; an id-0 impact is extended but no orphan; a 46-byte one is neither",
++                    ref rows, ref fail);
++                bk = new ActLoopBook();
++                Byte[] shortStart = new Byte[60];
++                Buffer.BlockCopy(st, 0, shortStart, 0, 60);
++                ActTestFeed(bk, shortStart);
++                Row(bk.ExtBad == 1 && bk.Starts == 0 && bk.Impacts == 0, "loop: a START cut short is ext_bad, never a START or an impact",
++                    ref rows, ref fail);
++                // --- the describe check's verdict (D2)
++                Row(ActVfxVerdict(VfxKindNone, 0, false, false, 0) && !ActVfxVerdict(VfxKindNone, 0, true, false, 0)
++                    && ActVfxVerdict(VfxKindSeq, 7, true, true, 99) && !ActVfxVerdict(VfxKindSeq, 7, false, false, 0)
++                    && ActVfxVerdict(VfxKindCommon, 0, true, false, 0) && !ActVfxVerdict(VfxKindCommon, 0, false, false, 0),
++                    "vfx: none = nothing added; seq and common = an action added (either type)", ref rows, ref fail);
++                Row(ActVfxVerdict(VfxKindEnemy, 12, true, true, 12) && !ActVfxVerdict(VfxKindEnemy, 12, true, true, 13)
++                    && !ActVfxVerdict(VfxKindEnemy, 12, true, false, 12) && ActVfxVerdict(VfxKindSpecial, 100, true, false, 100)
++                    && !ActVfxVerdict(VfxKindSpecial, 100, true, true, 100) && !ActVfxVerdict(VfxKindSpecial, 100, false, false, 0),
++                    "vfx: enemy = an EnemySequence of that sub_no; special = a SpecialEffect of that number", ref rows, ref fail);
++                Row(!ActVfxVerdict(VfxKindSpecial, 100, true, false, 0) && !ActVfxVerdict(VfxKindUnknown, 0, true, false, 0)
++                    && !ActVfxVerdict(VfxKindUnknown, 0, false, false, 0),
++                    "vfx: a CSV .seq's first use (special described, a text sequence ran) is drift; unknown always drifts", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
++        }
++
++        // the selftest's own constant (the table is pure)
++        private const Byte ActTestNonce = 0x5A;
++
++        // A 46-byte impact in QueueActionFrame's layout, every field a marker (caster, target and flags chosen by the row).
++        private static Byte[] ActTestImpact(Byte nonce, UInt16 seq, Byte caster, Byte target, Byte flags)
++        {
++            Byte[] p = new Byte[ActLegacyLen];
++            using (MemoryStream ms = new MemoryStream(p))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                bw.Write(nonce);
++                bw.Write(seq);
++                bw.Write(caster);
++                bw.Write(target);
++                bw.Write((UInt16)0x0011);              // the target fig triple
++                bw.Write(-123);
++                bw.Write(7);
++                bw.Write((UInt16)0x0022);              // the caster fig triple
++                bw.Write(45);
++                bw.Write(-6);
++                bw.Write(900u);                        // the four raws
++                bw.Write(80u);
++                bw.Write(1200u);
++                bw.Write(60u);
++                bw.Write(flags);
++                bw.Write((UInt16)1);                   // Attack
++                bw.Write((UInt16)176);
++            }
++            return p;
++        }
++
++        private static Byte[] ActTestStart(UInt16 id, Byte actor, Byte actorFlags)
++        {
++            return EncodeActionStart(ActTestNonce, 1, id, actor, actorFlags, 1, 176, 0x10, 0, 0, 0, VfxKindSpecial, 100, -1, 5);
++        }
++
++        private static ActRecord ActTestRec(UInt16 id, Boolean scripted)
++        {
++            return new ActRecord { Id = id, Actor = 5, CmdNo = 1, SubNo = 176, Scripted = scripted };
++        }
++
++        private static Int32 ActTestEnd(Dictionary<System.Object, ActRecord> live, System.Object key)
++        {
++            ActRecord r = ActEndStep(live, key);
++            return r != null ? r.Id : -1;
++        }
++
++        private static void ActTestFeed(ActLoopBook book, Byte[] frame)
++        {
++            PeerAction a;
++            if (TryParseAction(frame, out a))
++                book.Feed(ref a, ReadActionExt(frame, ref a));
++        }
++
++        private static Boolean ActBadExt(Byte[] frame)
++        {
++            PeerAction a;
++            return TryParseAction(frame, out a) && ReadActionExt(frame, ref a) == ActExtReadBad && !a.HasExt;
++        }
++
++        private static Boolean ActCutReadsNoExt(Byte[] full, Int32 n, ref PeerAction whole)
++        {
++            Byte[] cut = new Byte[n];
++            Buffer.BlockCopy(full, 0, cut, 0, n);
++            PeerAction a;
++            return TryParseAction(cut, out a) && SameLegacy(ref a, ref whole) && ReadActionExt(cut, ref a) != ActExtReadOk && !a.HasExt;
++        }
++
++        // The 46-byte fields of two parses are equal.
++        private static Boolean SameLegacy(ref PeerAction a, ref PeerAction b)
++        {
++            return a.Nonce == b.Nonce && a.SeqHorizon == b.SeqHorizon && a.CasterSlot == b.CasterSlot && a.TargetSlot == b.TargetSlot
++                   && a.FigInfoT == b.FigInfoT && a.FigHpT == b.FigHpT && a.FigMpT == b.FigMpT && a.FigInfoC == b.FigInfoC
++                   && a.FigHpC == b.FigHpC && a.FigMpC == b.FigMpC && a.TgtHpRaw == b.TgtHpRaw && a.TgtMpRaw == b.TgtMpRaw
++                   && a.CastHpRaw == b.CastHpRaw && a.CastMpRaw == b.CastMpRaw && a.Flags == b.Flags && a.CmdNo == b.CmdNo
++                   && a.SubNo == b.SubNo;
++        }
++
++        private static Boolean SameBytes(Byte[] a, Int32 ao, Byte[] b, Int32 bo, Int32 n)
++        {
++            if (a == null || b == null || ao + n > a.Length || bo + n > b.Length)
++                return false;
++            for (Int32 i = 0; i < n; i++)
++                if (a[ao + i] != b[bo + i])
++                    return false;
++            return true;
++        }
++
++        private static Boolean AllZero(Byte[] a, Int32 o, Int32 n)
++        {
++            for (Int32 i = o; i < o + n; i++)
++                if (a[i] != 0)
++                    return false;
++            return true;
++        }
++
+         // ============================================================================ the diorama feed (B3.3)
+         // The guest-side watcher (NetSyncClient.DioramaTick) reads the peer's live boot block through
+         // this. True only while the peer's battle lane is FRESH -- the lane going stale IS the
+@@ -4141,6 +5611,7 @@ namespace Memoria.Netsync
+             }
+             BenchBoot = -1;
+             BenchBootLateMs = 0;
++            ActHarnessRelease();                   // [ff9mapkit netsync s133] the action-start lever back on, the action tape emptied
+         }
+ 
+         // ============================================================================ harness surface (R3 s111)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 8473bb5..f51457e 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1381,6 +1381,10 @@ namespace Memoria.Netsync
+                         Boolean adoptOk = NetSyncBattle.PeerAdoptSelfTest(out adoptDetail);
+                         Log.Message("[NetSync] peer adopt selftest: "
+                                     + (adoptOk ? "OK (" + adoptDetail + ")" : "FAIL (" + adoptDetail + ")"));
++                        String actDetail;                // [ff9mapkit netsync s133] the action-start codec, the id books, the loopback audit
++                        Boolean actOk = NetSyncBattle.ActionSelfTest(out actDetail);
++                        Log.Message("[NetSync] action lane selftest: "
++                                    + (actOk ? "OK (" + actDetail + ")" : "FAIL (" + actDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
+index 8b465d1..4400bd6 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
+@@ -145,6 +145,8 @@ namespace Memoria.Netsync
+         public Byte[] NextRemoteCommand() { return _frames.NextCommand(); }
+         public Byte[] NextRemoteAction() { return _frames.NextAction(); }
+         public Byte[] NextRemoteDialog() { return _frames.NextDialog(); }
++        public Int32 ActionsDropped { get { return _frames.ActionsDropped; } }      // [ff9mapkit netsync s133]
++        public void RearmActionDropLog() { _frames.RearmActionDropLog(); }          // [ff9mapkit netsync s133]
+ 
+         private void ConnectLoop()
+         {
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+index e7a19ca..7299784 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+@@ -49,6 +49,11 @@ namespace Memoria.Netsync
+         // bursts must all arrive, so this is FIFO like commands, never a latest-slot):
+         void SendAction(Byte[] payload);
+         Byte[] NextRemoteAction();             // dequeue the next pending action payload, or null
++        // [ff9mapkit netsync s133] the action lane's OUT-queue drops (drop-oldest at its 64-frame cap: the frames a stalled or
++        // backlogged link lost on the wire), monotonic per transport -- NetSyncBattle publishes each own battle's delta as
++        // `act.host.wire_dropped`; RearmActionDropLog re-arms the queue's once-per-link drop line (each own battle's rising edge).
++        Int32 ActionsDropped { get; }
++        void RearmActionDropLog();
+         // FIFO DIALOGUE lane (F3 dialogue L2 host->guest confirm/choice frames: one per confirm-driven
+         // window advance -- FIFO like actions so a burst of closing windows never collapses).
+         // [ff9mapkit netsync F3.3] v14: retired (the host's taps ride state section 7); kept compiled:
+@@ -266,6 +271,8 @@ namespace Memoria.Netsync
+                                                      // orphan rule (the C2 FIFO residual; C3's ring heals it).
+                                                      // [ff9mapkit netsync F3.3] v14: no longer fed by the host.)
+         private Boolean _actionDropLogged;      // once per link: cap-sizing telemetry, never per-frame spam
++                                                // ([ff9mapkit netsync s133] re-armed at each own battle's rising edge)
++        private Int32 _actionsDropped;          // [ff9mapkit netsync s133] every action frame the cap dropped, monotonic
+         private Boolean _dialogDropLogged;      // F3: once per link, never per-frame spam
+ 
+         // --- game thread: outgoing ---
+@@ -292,6 +299,7 @@ namespace Memoria.Netsync
+                 if (_outActions.Count >= MaxQueuedActions)
+                 {
+                     _outActions.Dequeue();
++                    _actionsDropped++;          // [ff9mapkit netsync s133] counted under the lock (`act.host.wire_dropped`)
+                     dropped = !_actionDropLogged;
+                     _actionDropLogged = true;
+                 }
+@@ -301,6 +309,10 @@ namespace Memoria.Netsync
+                 Log.Message("[NetSync] action queue hit its cap (" + MaxQueuedActions + ") -- oldest dropped; the type-1 lane self-heals the state, only figures are lost");
+         }
+ 
++        // [ff9mapkit netsync s133] the action out-queue's drops (monotonic) and the re-arm of its drop line (game thread)
++        public Int32 ActionsDropped { get { lock (_lock) { return _actionsDropped; } } }
++        public void RearmActionDropLog() { lock (_lock) { _actionDropLogged = false; } }
++
+         public void EnqueueDialog(Byte[] frame)
+         {
+             Boolean dropped = false;
+@@ -576,6 +588,8 @@ namespace Memoria.Netsync
+         public Byte[] NextRemoteCommand() { return _frames.NextCommand(); }
+         public Byte[] NextRemoteAction() { return _frames.NextAction(); }
+         public Byte[] NextRemoteDialog() { return _frames.NextDialog(); }
++        public Int32 ActionsDropped { get { return _frames.ActionsDropped; } }      // [ff9mapkit netsync s133]
++        public void RearmActionDropLog() { _frames.RearmActionDropLog(); }          // [ff9mapkit netsync s133]
+ 
+         private void HostLoop()
+         {

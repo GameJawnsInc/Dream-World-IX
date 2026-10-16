@@ -123,6 +123,9 @@ R3_PROBES = {
     115: "netsync.battle.end.flee",                 # the guest's flee presentation (`endbench guest hold|nor9b`)
     116: "netsync.battle.end.flee.msg_gil",         # the host's "Dropped N Gil" relayed (`endbench fleegil`)
     117: "netsync.battle.end.follow_msg",           # the guest's defeat presentation (`endbench kill|phase-defeat`)
+    # [ff9mapkit netsync s133] group 2 (renumbered s133-s141): the host action-start lane (`actbench`) -- keyed on
+    # `act.host`, never the bare `act` block (s134 adds `act.guest`; audit amendment 13)
+    133: "netsync.battle.act.host",
 }
 
 

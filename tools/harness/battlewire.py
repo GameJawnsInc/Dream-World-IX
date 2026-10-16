@@ -27,10 +27,16 @@ way the engine fabricates its bench end through the real ParseView.
     DecodeManifest, LevelAfter, LearnSchedule, CapLearns, the shape AppendManifest publishes; and s109's replay
     decisions -- ArmVerdict / ArmWhy, ValidRowMask, FollowVerdict / FollowWhy, ExitWaitsForReplay, SongVerdict / SongWhy,
     ReplayOverflow, ReplayLevel, LearnsDue and the write guard's FpMix.
+  * [ff9mapkit netsync s133] the HOST ACTION-START LANE (type 6, wire v14): the 0xA6 extension's IMPACT / START / END
+    records (EncodeActionStart / EncodeActionEnd / WithImpactExt / ReadActionExt, and decode_action_legacy -- what an
+    s110-s132 guest's 46-byte parse sees), the id books (ActNextId / ActStartStep / ActEndStep / ActIdOf), the describe
+    check (ActVfxVerdict, btl_vfx.DescribeCommandVfx), the selftest loopback's audit (ActLoopBook) and the lane with its
+    statics (ActHostLane: the stand-in's model, `netsync.battle.act.host`).
 """
 from __future__ import annotations
 
 import re
+import struct
 
 # ======================================================================================== stock constants
 # NOT in the patch stack (stock engine source -- the test reads them off the shared Memoria clone when it is present):
@@ -2270,3 +2276,1053 @@ CS_ADOPT_CONSTANTS = {"AdoptNone": ADOPT_NONE, "AdoptRepeat": ADOPT_REPEAT, "Ado
                       "AdoptRefused": ADOPT_REFUSED, "ReadoptLogMax": READOPT_LOG_MAX, "AdoptTestNonce": ADOPT_TEST_NONCE,
                       "AdoptTestStaleMs": ADOPT_TEST_STALE_MS, "AdoptTestFrameMs": ADOPT_TEST_FRAME_MS,
                       "AdoptTestSampleMs": ADOPT_TEST_SAMPLE_MS, "StaleMs": STALE_MS, "SampleMs": SAMPLE_MS}
+
+
+# ======================================================================================== [ff9mapkit netsync s133]
+# THE HOST ACTION-START LANE (studies/battle-coop/R3-DESIGN.md 2 and 3.3.2, as amended by R3-ACTION-REPLAY-AUDIT.md 2.1 --
+# the design's "s122": group 2 was renumbered s133-s141). HOST ONLY, no visible change: every action an own battle runs
+# ships a START record before its first impact and an END after its last, each impact carries the action's id, and type-1
+# header flags bit 5 says so. Three additive type-6 records ride behind the unchanged 46-byte layout (wire stays v14):
+#   IMPACT, 52 B: the 46 bytes, then [46] 0xA6 [47] fmt 1 [48] extLen 3 [49] kind 1 [50-51] actId (0 = no lifecycle);
+#   START,  76 B: an INERT head ([0] nonce [1-2] the host _seq NOT consumed [3-4] 0xFF 0xFF [5-40] zero [41] flags 0x04
+#                 [42-45] cmd/sub) + [46] 0xA6 [47] 1 [48] 27 [49] kind 2 [50-51] actId [52] actor slot [53] actor flags
+#                 [54-55] cmd_no [56-59] sub_no [60-61] tar_id [62] cursor [63] info [64-65] magic_caster_id [66] vfx kind
+#                 [67-70] vfx num [71-74] PatchedVfx [75] host Speed;
+#   END,    52 B: the inert head with flags 0x08 + [46] 0xA6 [47] 1 [48] 3 [49] kind 3 [50-51] actId.
+# extLen is a u8 (audit D7) -- NOT the 0xB5 end trailer's u16. Stat ticks (flags bit 7) stay 46 bytes (D3). Every function
+# below is its C# twin in NetSyncBattle (s133); test_harness_netsync.py EVALUATES ActionSelfTest's own 30 rows against them
+# (read off the stack, in order) and pins the constants by name (CS_ACTION_CONSTANTS, audit amendment 11) -- a drift on
+# either side turns a test red. :class:`ActHostLane` is the lane with its statics (the stand-in's model of it).
+CAP_ACTION_STARTS = 0x20                 # type-1 header flags bit 5: this host sends action STARTs/ENDs and impact ids
+ACT_FLAG_START = 0x04                    # type-6 flags bit 2: a START record (slots 0xFF/0xFF)
+ACT_FLAG_END = 0x08                      # type-6 flags bit 3: an END record (slots 0xFF/0xFF)
+ACT_FLAG_STAT_TICK = 0x80                # type-6 flags bit 7 (B3.6): a stat tick -- 46 bytes, never extended
+ACT_EXT_TAG = 0xA6                       # byte 46
+ACT_EXT_FMT1 = 1                         # byte 47
+ACT_EXT_LEN_ID = 3                       # byte 48 of an IMPACT or an END (kind + id)
+ACT_EXT_LEN_START = 27                   # byte 48 of a START (kind + id + the 24-byte body)
+ACT_EXT_IMPACT, ACT_EXT_START, ACT_EXT_END = 1, 2, 3       # byte 49
+ACT_LEGACY_LEN, ACT_ID_RECORD_LEN, ACT_START_RECORD_LEN = 46, 52, 76
+VFX_KIND_NONE, VFX_KIND_SEQ, VFX_KIND_ENEMY, VFX_KIND_SPECIAL, VFX_KIND_COMMON, VFX_KIND_UNKNOWN = 0, 1, 2, 3, 4, 0xFF
+#: `netsync.battle.act.host.kinds`, in AppendAct's order (HarnessActKind 0..5: unknown is index 5)
+VFX_KIND_KEYS = ("none", "seq", "enemy", "special", "common", "unknown")
+ACTOR_IS_PLAYER, ACTOR_HOST_REWORK, ACTOR_HOST_FAST, ACTOR_SCRIPTED = 0x01, 0x02, 0x04, 0x08
+ACTOR_MONSTER_TRANSFORM, ACTOR_COUNTER_SLOT, ACTOR_DOUBLE_CAST = 0x10, 0x20, 0x40
+ACT_INFO_METEOR_MISS, ACT_INFO_SHORT_SUMMON, ACT_INFO_COVER = 0x01, 0x02, 0x04
+ACT_TAPE_CAP, ACT_TAPE_PAGE_MAX = 1024, 16
+ACT_EXT_READ_NONE, ACT_EXT_READ_OK, ACT_EXT_READ_BAD, ACT_EXT_READ_FMT = 0, 1, 2, 3
+ACT_STEP_NEW, ACT_STEP_TAKEOVER, ACT_STEP_RESTART, ACT_STEP_REENTRY, ACT_STEP_REUSE = 0, 1, 2, 3, 4
+ACT_LOG_TAKEOVER, ACT_LOG_REENTRY, ACT_LOG_RESTART, ACT_LOG_UNRESOLVED, ACT_LOG_DRIFT = 1, 2, 4, 8, 16
+ACT_TEST_NONCE = 0x5A                    # ActionSelfTest's own nonce (the table is pure)
+ACTION_BUFFER_CAP = 64                   # the host's drop-oldest _actionsOut (unchanged by s133: audit D4)
+PROOF_ACTION = "action lane selftest: "  # NetSyncBattle.ActionSelfTest (s133), logged right after PROOF_ADOPT
+ACTION_SELFTEST_ROWS = 30                # 13 codec + 8 id-book + 6 loopback-audit + 3 describe-verdict rows
+#: the stock ids the lane's twins and the s133 bench name (BattleCommandId; BattleAbilityId.Attack; RegularItem.Potion;
+#: SpecialEffect.Special_No_Effect) -- stock enums, not in the patch stack: test_harness_netsync.py reads each off the
+#: shared Memoria clone when it is present (CS_STOCK_IDS: the C# name -> the value here)
+CMD_ATTACK_ID, CMD_DEFEND_ID, CMD_CHANGE_ID, CMD_ITEM_ID, CMD_BLACK_MAGIC_ID = 1, 4, 7, 14, 22
+CMD_ENEMY_ATK, CMD_MAGIC_COUNTER, CMD_ENEMY_COUNTER, CMD_ENEMY_DYING, CMD_ENEMY_REACTION = 47, 50, 53, 54, 55
+CMD_SYS_TRANS = 59
+SPECIAL_NO_EFFECT = -1
+ABILITY_ATTACK_ID = 176                  # BattleAbilityId.Attack: the Attack command's sub_no
+ITEM_POTION_ID = 236                     # RegularItem.Potion: an Item command's sub_no
+CS_STOCK_IDS = {
+    "BattleCommandId.Attack": CMD_ATTACK_ID, "BattleCommandId.Defend": CMD_DEFEND_ID,
+    "BattleCommandId.Change": CMD_CHANGE_ID, "BattleCommandId.Item": CMD_ITEM_ID,
+    "BattleCommandId.BlackMagic": CMD_BLACK_MAGIC_ID, "BattleCommandId.EnemyAtk": CMD_ENEMY_ATK,
+    "BattleCommandId.MagicCounter": CMD_MAGIC_COUNTER, "BattleCommandId.EnemyCounter": CMD_ENEMY_COUNTER,
+    "BattleCommandId.EnemyDying": CMD_ENEMY_DYING, "BattleCommandId.EnemyReaction": CMD_ENEMY_REACTION,
+    "BattleCommandId.SysTrans": CMD_SYS_TRANS, "SpecialEffect.Special_No_Effect": SPECIAL_NO_EFFECT,
+    "BattleAbilityId.Attack": ABILITY_ATTACK_ID, "RegularItem.Potion": ITEM_POTION_ID}
+
+#: `netsync.battle.act.host` at AppendNetsync's catch-line sentinels, in AppendAct's key order (counts 0, nonce / ms -1,
+#: bools false, strings and nullable records null, the fixed sub-objects written out whole). The live block differs at
+#: rest only where the agent reads a static: `tape.state` reads "off" (HarnessActTapeState), `on` reads Enabled && the lever.
+ACT_HOST_SENTINELS = {
+    "on": False, "lever_off": False, "nonce": -1, "starts": 0, "ends": 0, "ext_impacts": 0, "noid_impacts": 0,
+    "scripted": 0, "open": 0, "dropped": 0, "wire_dropped": 0, "unresolved": 0, "scripted_takeover": 0,
+    "scripted_reentry": 0,
+    "restarted": 0, "no_end": 0, "cut": 0, "edge_declined": 0,
+    "kinds": {k: 0 for k in VFX_KIND_KEYS},
+    "vfx": {"checked": 0, "drift": 0, "unchecked": 0, "why": None},
+    "last": None,
+    "loop": {"starts": 0, "ends": 0, "impacts": 0, "impacts_ext": 0, "stat": 0, "ext_bad": 0, "paired": 0, "orphans": 0,
+             "caster_mismatch": 0, "no_end": 0, "cut": 0},
+    "tape": {"state": None, "frames": 0, "starts": 0, "ms": -1, "overflow": 0, "page": None},
+}
+#: `act.host.last` (HarnessActLast: the last START as shipped, decoded) -> the PeerAction field it reads
+ACT_LAST_FIELDS = {"id": "act_id", "actor": "actor_slot", "flags": "actor_flags", "cmd": "act_cmd_no", "sub": "act_sub_no",
+                   "tar": "act_tar_id", "cursor": "act_cursor", "info": "act_info", "magic": "act_magic_caster",
+                   "kind": "vfx_kind", "num": "vfx_num", "patched": "act_patched_vfx", "speed": "host_speed"}
+#: `act.host.tape.page` (one `tape dump`) and each of its frames, in AppendAct's order
+ACT_PAGE_KEYS = ("from", "count", "total", "frames")
+ACT_PAGE_FRAME_KEYS = ("i", "ms", "hex")
+#: the engine's words (each a C# literal of the stack, or its head)
+LOG_ACT_CLOSED = "[NetSync] action lane: own battle (nonce "
+LOG_ACT_NEVER_ENDED = " START(s) never ENDed at the own battle's "
+LOG_ACT_DRIFT = "[NetSync] action lane: describe drift -- "
+LOG_ACT_UNRESOLVED = " has no wire actor -- no START, no id, "
+LOG_ACT_EDGE = "START before the own battle's rising edge declined ("
+LOG_ACT_CODEC_DRIFT = "[NetSync] selftest: an action frame failed to parse (codec drift)"
+LOG_ACT_DROP = "[NetSync] action buffer hit its cap ("
+LOG_ACT_LEVER_OFF = ("[NetSync] harness: action STARTs OFF -- CALIBRATION: the pre-s133 host (no START/END records, no "
+                     "impact ids, no caps bit 5)")
+LOG_ACT_LEVER_ON = "[NetSync] harness: action STARTs ON"
+LOG_ACT_LEVER_RELEASED = "[NetSync] harness: action STARTs back ON (released with the harness)"
+LOG_ACT_TAPE_REC = "[NetSync] harness: action tape RECORDING -- every type-6 frame the selftest loopback receives, up to "
+LOG_ACT_TAPE_STOPPED = "[NetSync] harness: action tape stopped -- "
+LOG_ACT_TAPE_CLEARED = "[NetSync] harness: action tape cleared ("
+LOG_ACT_TAPE_FULL = "[NetSync] action tape: full at "
+LOG_ACT_TAPE_INFO = "[NetSync] action tape: "
+LOG_ACT_TAPE_PAGE = "[NetSync] harness: action tape frames "
+
+_ACT_HEAD = struct.Struct("<BHBBHiiHiiIIIIBHH")          # the 46-byte type-6 layout (QueueActionFrame / TryParseAction)
+_ACT_START_BODY = struct.Struct("<BBBBHBBHiHBBHBiiB")     # bytes 46-75 of a START
+_ACT_ID_EXT = struct.Struct("<BBBBH")                     # bytes 46-51 of an IMPACT / END (WriteIdExt)
+#: the 46-byte fields, in TryParseAction's read order -- PeerAction's names, snake_cased
+ACT_LEGACY_FIELDS = ("nonce", "seq_horizon", "caster_slot", "target_slot", "fig_info_t", "fig_hp_t", "fig_mp_t",
+                     "fig_info_c", "fig_hp_c", "fig_mp_c", "tgt_hp_raw", "tgt_mp_raw", "cast_hp_raw", "cast_mp_raw",
+                     "flags", "cmd_no", "sub_no")
+#: the extension's fields (ReadActionExt / ClearActionExt), PeerAction's names snake_cased
+ACT_EXT_FIELDS = ("has_ext", "ext_kind", "act_id", "actor_slot", "actor_flags", "act_cmd_no", "act_sub_no", "act_tar_id",
+                  "act_cursor", "act_info", "act_magic_caster", "vfx_kind", "vfx_num", "act_patched_vfx", "host_speed")
+
+
+def _act_u8(v: int) -> int:
+    return int(v) & 0xFF
+
+
+def _act_u16(v: int) -> int:
+    return int(v) & 0xFFFF
+
+
+def _act_i32(v: int) -> int:
+    v = int(v) & 0xFFFFFFFF
+    return v - (1 << 32) if v & 0x80000000 else v
+
+
+def _act_u32(v: int) -> int:
+    return int(v) & 0xFFFFFFFF
+
+
+def vfx_kind_name(kind: int) -> str:
+    """NetSyncBattle.VfxKindName: none / seq / enemy / special / common, anything else "unknown"."""
+    return {VFX_KIND_NONE: "none", VFX_KIND_SEQ: "seq", VFX_KIND_ENEMY: "enemy", VFX_KIND_SPECIAL: "special",
+            VFX_KIND_COMMON: "common"}.get(int(kind), "unknown")
+
+
+def act_kind_index(kind: int) -> int:
+    """NetSyncBattle.ActKindIndex: the `kinds` slot of a vfx kind (0-4 as is, anything else 5 = unknown)."""
+    return int(kind) if 0 <= int(kind) <= VFX_KIND_COMMON else 5
+
+
+def _act_flag_props(a: dict) -> dict:
+    """PeerAction's computed flag properties (DmgMot .. StatTick), kept beside the Flags they read."""
+    f = int(a.get("flags", 0))
+    a.update(dmg_mot=bool(f & 1), dodge=bool(f & 2), is_drain=bool(f & 16), target_is_player=bool(f & 32),
+             caster_is_player=bool(f & 64), stat_tick=bool(f & ACT_FLAG_STAT_TICK))
+    return a
+
+
+def _act_ext_props(a: dict) -> dict:
+    """PeerAction.IsStart / IsEnd, kept beside HasExt + ExtKind."""
+    a.update(is_start=bool(a.get("has_ext")) and a.get("ext_kind") == ACT_EXT_START,
+             is_end=bool(a.get("has_ext")) and a.get("ext_kind") == ACT_EXT_END)
+    return a
+
+
+def decode_action_legacy(payload) -> dict | None:
+    """TryParseAction as EVERY reader reads it (s110-s132's guests too): the 46-byte fields, by PeerAction's names
+    snake_cased, plus its computed flag properties -- bytes past the 46th are never read. None under 46 bytes. What an
+    s110-s132 guest makes of a START or an END: caster and target 0xFF (it resolves neither and returns), flags 0x04 /
+    0x08 alone, no figures, the legacy cmd/sub."""
+    data = bytes(payload or b"")
+    if len(data) < ACT_LEGACY_LEN:
+        return None
+    return _act_flag_props(dict(zip(ACT_LEGACY_FIELDS, _ACT_HEAD.unpack_from(data))))
+
+
+def clear_action_ext(a: dict) -> dict:
+    """NetSyncBattle.ClearActionExt: every extension field at its default (none)."""
+    a.update({k: (False if k == "has_ext" else 0) for k in ACT_EXT_FIELDS})
+    return _act_ext_props(a)
+
+
+def parse_action(payload) -> dict | None:
+    """s133's TryParseAction: ``a = default(PeerAction)`` (the extension fields cleared), then the 46 bytes -- the struct
+    :func:`read_action_ext` fills in."""
+    a = decode_action_legacy(payload)
+    return None if a is None else clear_action_ext(a)
+
+
+def read_action_ext(payload, a: dict) -> int:
+    """NetSyncBattle.ReadActionExt -- THE EXTENSION READER, after the 46-byte parse, filling ``a`` in place and answering
+    ACT_EXT_READ_*: only at length >= 52 with byte 46 == 0xA6 (a 46-byte frame or a foreign byte 46: NONE); fmt 1 (another
+    fmt is skipped: FMT); extLen >= 3 and inside the frame; the kind agreeing with flags bits 2-3 (an impact neither, a
+    START bit 2, an END bit 3); a START/END id non-zero; a START's extLen >= 27; anything else BAD. A bad or unknown
+    extension leaves ``has_ext`` False and the 46-byte fields untouched -- it never fails the frame. A longer fmt-1
+    extension reads its known fields."""
+    clear_action_ext(a)
+    p = bytes(payload or b"")
+    if len(p) <= ACT_LEGACY_LEN or p[ACT_LEGACY_LEN] != ACT_EXT_TAG:
+        return ACT_EXT_READ_NONE
+    if len(p) < ACT_ID_RECORD_LEN:
+        return ACT_EXT_READ_BAD
+    if p[47] != ACT_EXT_FMT1:
+        return ACT_EXT_READ_FMT
+    ln = p[48]
+    if ln < ACT_EXT_LEN_ID or 49 + ln > len(p):
+        return ACT_EXT_READ_BAD
+    kind = p[49]
+    act_id = p[50] | (p[51] << 8)
+    flags = int(a.get("flags", 0))
+    f_start, f_end = bool(flags & ACT_FLAG_START), bool(flags & ACT_FLAG_END)
+    if kind == ACT_EXT_IMPACT:
+        if f_start or f_end:
+            return ACT_EXT_READ_BAD
+    elif kind == ACT_EXT_END:
+        if not f_end or f_start or act_id == 0:
+            return ACT_EXT_READ_BAD
+    elif kind == ACT_EXT_START:
+        if not f_start or f_end or act_id == 0 or ln < ACT_EXT_LEN_START:
+            return ACT_EXT_READ_BAD
+        (_tag, _fmt, _len, _kind, _id, actor, aflags, cmd, sub, tar, cursor, info, magic, vkind, vnum, patched,
+         speed) = _ACT_START_BODY.unpack_from(p, ACT_LEGACY_LEN)
+        a.update(actor_slot=actor, actor_flags=aflags, act_cmd_no=cmd, act_sub_no=sub, act_tar_id=tar, act_cursor=cursor,
+                 act_info=info, act_magic_caster=magic, vfx_kind=vkind, vfx_num=vnum, act_patched_vfx=patched,
+                 host_speed=speed)
+    else:
+        return ACT_EXT_READ_BAD
+    a.update(has_ext=True, ext_kind=kind, act_id=act_id)
+    _act_ext_props(a)
+    return ACT_EXT_READ_OK
+
+
+def decode_action(payload) -> dict | None:
+    """A whole type-6 record as an s133+ reader sees it: :func:`parse_action` + :func:`read_action_ext` (its answer as
+    ``ext_read``, the payload's length as ``len``). None when the 46-byte parse refuses it."""
+    a = parse_action(payload)
+    if a is None:
+        return None
+    a["ext_read"] = read_action_ext(payload, a)
+    a["len"] = len(bytes(payload or b""))
+    return a
+
+
+def classify_action(a: dict | None) -> str:
+    """One parsed record's class, as ActLoopBook and the tape's summary count it: "stat" (bit 7 -- never an impact),
+    "start", "end", "impact" (neither START nor END flag), "bad" (a START/END flag with no good extension), "unparsed"
+    (None: under 46 bytes)."""
+    if a is None:
+        return "unparsed"
+    if a.get("stat_tick"):
+        return "stat"
+    if a.get("is_start"):
+        return "start"
+    if a.get("is_end"):
+        return "end"
+    if not a["flags"] & (ACT_FLAG_START | ACT_FLAG_END):
+        return "impact"
+    return "bad"
+
+
+def encode_action_impact(nonce: int, seq: int, caster: int, target: int, *, fig_t=(0, 0, 0), fig_c=(0, 0, 0),
+                         raws=(0, 0, 0, 0), flags: int = 0, cmd_no: int = 0, sub_no: int = 0,
+                         act_id: int | None = None) -> bytes:
+    """QueueActionFrame's record: the 46 bytes (``fig_t`` / ``fig_c`` = (info u16, hp i32, mp i32); ``raws`` = the target's
+    then the caster's raw hp / mp, u32), and with ``act_id`` (not None) the 6-byte id extension -- 52 bytes, s133's impact."""
+    legacy = _ACT_HEAD.pack(_act_u8(nonce), _act_u16(seq), _act_u8(caster), _act_u8(target), _act_u16(fig_t[0]), _act_i32(fig_t[1]),
+                            _act_i32(fig_t[2]), _act_u16(fig_c[0]), _act_i32(fig_c[1]), _act_i32(fig_c[2]),
+                            *(_act_u32(r) for r in raws), _act_u8(flags), _act_u16(cmd_no), _act_u16(sub_no))
+    return legacy if act_id is None else with_impact_ext(legacy, act_id)
+
+
+def with_impact_ext(legacy, act_id: int) -> bytes:
+    """NetSyncBattle.WithImpactExt: a 46-byte impact with the id extension appended (WriteIdExt: A6 01 03 01 id LE)."""
+    return bytes(legacy)[:ACT_LEGACY_LEN] + _ACT_ID_EXT.pack(ACT_EXT_TAG, ACT_EXT_FMT1, ACT_EXT_LEN_ID, ACT_EXT_IMPACT,
+                                                              _act_u16(act_id))
+
+
+def _inert_head(nonce: int, seq: int, flags: int, cmd_no: int, sub_no: int) -> bytes:
+    """WriteInertHead: no caster, no target (0xFF/0xFF), no figures or raws (36 zero bytes), the flags, the legacy cmd/sub;
+    the host _seq written, NOT consumed."""
+    return struct.pack("<BHBB36sBHH", _act_u8(nonce), _act_u16(seq), 0xFF, 0xFF, bytes(36), _act_u8(flags), _act_u16(cmd_no), _act_u16(sub_no))
+
+
+def encode_action_start(nonce: int, seq: int, act_id: int, actor_slot: int, actor_flags: int, cmd_no: int, sub_no: int,
+                        tar_id: int, cursor: int, info: int, magic_caster: int, vfx_kind: int, vfx_num: int,
+                        patched_vfx: int, host_speed: int) -> bytes:
+    """NetSyncBattle.EncodeActionStart: a START record, 76 bytes (the layout above)."""
+    return _inert_head(nonce, seq, ACT_FLAG_START, cmd_no, sub_no) + _ACT_START_BODY.pack(
+        ACT_EXT_TAG, ACT_EXT_FMT1, ACT_EXT_LEN_START, ACT_EXT_START, _act_u16(act_id), _act_u8(actor_slot), _act_u8(actor_flags),
+        _act_u16(cmd_no), _act_i32(sub_no), _act_u16(tar_id), _act_u8(cursor), _act_u8(info), _act_u16(magic_caster), _act_u8(vfx_kind),
+        _act_i32(vfx_num), _act_i32(patched_vfx), _act_u8(host_speed))
+
+
+def encode_action_end(nonce: int, seq: int, act_id: int, cmd_no: int, sub_no: int) -> bytes:
+    """NetSyncBattle.EncodeActionEnd: an END record, 52 bytes (the inert head with flags 0x08 + A6 01 03 03 id LE)."""
+    return _inert_head(nonce, seq, ACT_FLAG_END, cmd_no, sub_no) + _ACT_ID_EXT.pack(
+        ACT_EXT_TAG, ACT_EXT_FMT1, ACT_EXT_LEN_ID, ACT_EXT_END, _act_u16(act_id))
+
+
+def action_hex(payload) -> str:
+    """A type-6 record as `act.host.tape.page.frames[].hex` publishes it (``BitConverter.ToString(..).Replace("-", "")``:
+    compact upper-case hex, no separators). ``bytes.fromhex`` reads it back."""
+    return bytes(payload).hex().upper()
+
+
+def action_text(payload) -> str:
+    """One type-6 record for a log or ``coop_peer dump``: ``START id 3 actor 0 ... kind special 100``, ``END id 3``,
+    ``impact 0->4 cmd 1/176 hp 33 id 3``, ``impact ... (46 B: no id -- a pre-s133 host)``, ``stat tick ->4``, ``bad ext``,
+    ``unparsed``."""
+    a = decode_action(payload)
+    if a is None:
+        return f"unparsed ({len(bytes(payload or b''))} B: under the 46-byte layout)"
+    kind = classify_action(a)
+    if kind == "start":
+        return (f"START id {a['act_id']} actor {a['actor_slot']} flags 0x{a['actor_flags']:02X} cmd {a['act_cmd_no']} "
+                f"sub {a['act_sub_no']} tar 0x{a['act_tar_id']:X} cursor {a['act_cursor']} info 0x{a['act_info']:02X} "
+                f"kind {vfx_kind_name(a['vfx_kind'])} {a['vfx_num']} speed {a['host_speed']}")
+    if kind == "end":
+        return f"END id {a['act_id']} (cmd {a['cmd_no']}/{a['sub_no']})"
+    if kind == "stat":
+        return f"stat tick ->{a['target_slot']} hp {a['fig_hp_t']} ({a['len']} B)"
+    if kind == "impact":
+        head = f"impact {a['caster_slot']}->{a['target_slot']} cmd {a['cmd_no']}/{a['sub_no']} hp {a['fig_hp_t']}"
+        if a["has_ext"]:
+            return head + f" id {a['act_id']}"
+        if a["len"] == ACT_LEGACY_LEN:
+            return head + " (46 B: no id -- a pre-s133 host)"
+        return head + f" (an extension not read: {('none', 'ok', 'bad', 'unknown fmt')[a['ext_read']]})"
+    return f"bad ext (flags 0x{a['flags']:02X}, ext read {a['ext_read']}, {a['len']} B)"
+
+
+# ---- the id books (NetSyncBattle._actIds END-eligible, _actScripted never ENDed; keyed by CMD_DATA reference)
+def new_act_record(act_id: int, actor: int, cmd_no: int, sub_no: int, scripted: bool) -> dict:
+    """NetSyncBattle.ActRecord: one START on the host's id books."""
+    return {"id": _act_u16(act_id), "actor": _act_u8(actor), "cmd_no": _act_u16(cmd_no), "sub_no": _act_u16(sub_no),
+            "scripted": bool(scripted)}
+
+
+def act_next_id(last: int) -> int:
+    """NetSyncBattle.ActNextId(ref last): the next id -- from 1, never 0 (a wrap skips it). The caller stores it back as
+    ``last`` (C#'s ref)."""
+    last = (int(last) + 1) & 0xFFFF
+    return last if last != 0 else 1
+
+
+def act_start_step(live: dict, scripted: dict, key, fresh: dict, seq_running: bool) -> tuple:
+    """NetSyncBattle.ActStartStep -> ``(verdict, displaced)``: the fresh record goes into its own book (live = END-
+    eligible, scripted = never ENDed) and the key leaves the other. An open END-eligible lifecycle on the key is DISPLACED
+    (handed back for its END to be sent first): a TAKEOVER for a scripted START (audit amendment 6), a RESTART for a
+    CommandEngine one; a scripted lifecycle is retired silently (REUSE), or as a REENTRY when a CommandEngine START meets
+    it while its sequence still runs (``seq_running``)."""
+    displaced, verdict = None, ACT_STEP_NEW
+    if key in live:
+        displaced = live.pop(key)
+        verdict = ACT_STEP_TAKEOVER if fresh["scripted"] else ACT_STEP_RESTART
+    elif key in scripted:
+        scripted.pop(key)
+        verdict = ACT_STEP_REENTRY if not fresh["scripted"] and seq_running else ACT_STEP_REUSE
+    (scripted if fresh["scripted"] else live)[key] = fresh
+    return verdict, displaced
+
+
+def act_end_step(live: dict, key) -> dict | None:
+    """NetSyncBattle.ActEndStep (FinishCommand): the END-eligible lifecycle on ``key``, taken off its book; None = none
+    (never STARTed -- a failed inspection, a declined START -- or a scripted one, which no END reads)."""
+    if key is None or key not in live:
+        return None
+    return live.pop(key)
+
+
+def act_id_of(live: dict, scripted: dict, key) -> int:
+    """NetSyncBattle.ActIdOf: an impact's action id -- the END-eligible book first, then the scripted one; 0 = none."""
+    if key is None:
+        return 0
+    rec = live.get(key) or scripted.get(key)
+    return rec["id"] if rec is not None else 0
+
+
+def act_vfx_verdict(kind: int, num: int, added: bool, enemy_seq: bool, effect_num: int) -> bool:
+    """NetSyncBattle.ActVfxVerdict -- the describe check (audit D2): the START's kind against the action SelectCommandVfx
+    added. NONE = nothing added; SEQ and COMMON = an action added (a copied .seq may be either type); ENEMY = an
+    EnemySequence of that sub_no; SPECIAL = a SpecialEffect of that number; UNKNOWN (the describe threw) always drifts."""
+    if kind == VFX_KIND_NONE:
+        return not added
+    if kind in (VFX_KIND_SEQ, VFX_KIND_COMMON):
+        return bool(added)
+    if kind == VFX_KIND_ENEMY:
+        return bool(added and enemy_seq and effect_num == num)
+    if kind == VFX_KIND_SPECIAL:
+        return bool(added and not enemy_seq and effect_num == num)
+    return False
+
+
+def describe_command_vfx(*, rework: bool, cmd_no: int, sub_no: int, player: bool | None, vfx_action: bool = False,
+                         beatrix: bool = False, vfx_index: int = 0, special: int = SPECIAL_NO_EFFECT,
+                         throws: bool = False) -> tuple:
+    """btl_vfx.DescribeCommandVfx -> ``(kind, num)``: the PURE MIRROR of SelectCommandVfx for this machine's own mode
+    (``rework`` = [Battle] SFXRework). ``player`` = the caster's ``bi.player != 0`` (None = no regist); ``vfx_action`` =
+    ``aa.Info.VfxAction != null`` already (BTL_SCENE loads every enemy attack's eagerly); ``beatrix`` = the Beatrix fix's
+    predicate (SequenceFile null, an enemy, dms_geo_id 427, VfxIndex 457) EVALUATED; ``special`` = what
+    GetPlayerCommandSFX resolves (SPECIAL_NO_EFFECT = none); ``throws`` = the describe threw (UNKNOWN, num 0). Kind 1 is
+    never keyed on SequenceFile alone (audit amendment 10): a CSV .seq not yet loaded reads as the branch below it."""
+    if throws:
+        return VFX_KIND_UNKNOWN, 0
+    if rework:
+        if cmd_no != CMD_MAGIC_COUNTER:
+            if vfx_action or beatrix:
+                return VFX_KIND_SEQ, int(vfx_index)
+            if player is False and cmd_no != CMD_SYS_TRANS:
+                return VFX_KIND_ENEMY, int(sub_no)
+    elif cmd_no in (CMD_ENEMY_ATK, CMD_ENEMY_COUNTER, CMD_ENEMY_DYING, CMD_ENEMY_REACTION):
+        return VFX_KIND_ENEMY, int(sub_no)
+    if special != SPECIAL_NO_EFFECT:
+        return VFX_KIND_SPECIAL, int(special)
+    if cmd_no in (CMD_CHANGE_ID, CMD_DEFEND_ID):
+        return VFX_KIND_COMMON, int(cmd_no)
+    return VFX_KIND_NONE, 0
+
+
+class ActLoopBook:
+    """[ff9mapkit netsync s133] NetSyncBattle.ActLoopBook -- THE LOOPBACK AUDIT (`act.host.loop`): every type-6 frame the
+    selftest loopback receives, classified -- STARTs, ENDs, impacts (and of them the extended ones), stat ticks (bit 7,
+    never an impact), bad extensions -- with the pairing checked: an END that closes an open END-eligible START is
+    ``paired``; an END with no open START (or naming a scripted one), an impact naming an id that is not open, and a second
+    START on an open id are ``orphans``; an impact whose caster is not its START's actor is a ``caster_mismatch``; at the
+    own battle's close the END-eligible STARTs still open are ``no_end`` (a normal end) or ``cut`` (a reset or a mid-action
+    teardown) -- a scripted START (actor flags b3) owes no END (audit amendment 7)."""
+
+    KEYS = ("starts", "ends", "impacts", "impacts_ext", "stat", "ext_bad", "paired", "orphans", "caster_mismatch", "no_end",
+            "cut")
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        for k in self.KEYS:
+            setattr(self, k, 0)
+        self._open = {}                              # id -> actor slot | 0x100 scripted
+
+    @property
+    def fed(self) -> bool:
+        return self.starts + self.ends + self.impacts + self.stat + self.ext_bad > 0
+
+    def feed(self, a: dict, ext_read: int) -> None:
+        """Feed(ref a, extRead): one parsed record and ReadActionExt's answer for it."""
+        if ext_read in (ACT_EXT_READ_BAD, ACT_EXT_READ_FMT):
+            self.ext_bad += 1
+        if a["flags"] & ACT_FLAG_STAT_TICK:
+            self.stat += 1
+            return
+        if a["is_start"]:
+            self.starts += 1
+            if a["act_id"] in self._open:
+                self.orphans += 1
+            else:
+                self._open[a["act_id"]] = a["actor_slot"] | (0x100 if a["actor_flags"] & ACTOR_SCRIPTED else 0)
+            return
+        if a["is_end"]:
+            self.ends += 1
+            o = self._open.get(a["act_id"])
+            if o is not None and not o & 0x100:
+                self.paired += 1
+                del self._open[a["act_id"]]
+            else:
+                self.orphans += 1
+            return
+        if a["flags"] & (ACT_FLAG_START | ACT_FLAG_END):
+            if ext_read == ACT_EXT_READ_NONE:
+                self.ext_bad += 1                    # a START/END record with no extension at all
+            return
+        self.impacts += 1
+        if not a["has_ext"]:
+            return
+        self.impacts_ext += 1
+        if a["act_id"] == 0:
+            return
+        o = self._open.get(a["act_id"])
+        if o is None:
+            self.orphans += 1
+        elif a["caster_slot"] != 0xFF and a["caster_slot"] != (o & 0xFF):
+            self.caster_mismatch += 1
+
+    def close(self, cut: bool) -> int:
+        """Close(cut): the END-eligible STARTs still open, counted as ``cut`` or ``no_end``; the book is emptied."""
+        n = sum(1 for o in self._open.values() if not o & 0x100)
+        if cut:
+            self.cut += n
+        else:
+            self.no_end += n
+        self._open.clear()
+        return n
+
+    def doc(self) -> dict:
+        """`netsync.battle.act.host.loop`, in AppendAct's order."""
+        return {k: getattr(self, k) for k in self.KEYS}
+
+
+def act_tape_summary(frames) -> dict:
+    """ActTapeSummary's scan of a tape (each frame's bytes) through the real codec: ``starts``, ``ends``, ``impacts``
+    (``ext`` of them with the id extension), ``stat``, ``bad`` (an unparsed frame, a bad / unknown-fmt extension, or a
+    START/END flag with no extension at all -- ActLoopBook's ``ext_bad`` rule)."""
+    out = {"frames": 0, "starts": 0, "ends": 0, "impacts": 0, "ext": 0, "stat": 0, "bad": 0}
+    for frame in frames:
+        out["frames"] += 1
+        a = parse_action(frame)
+        if a is None:
+            out["bad"] += 1
+            continue
+        r = read_action_ext(frame, a)
+        if r in (ACT_EXT_READ_BAD, ACT_EXT_READ_FMT):
+            out["bad"] += 1
+        if a["stat_tick"]:
+            out["stat"] += 1
+        elif a["is_start"]:
+            out["starts"] += 1
+        elif a["is_end"]:
+            out["ends"] += 1
+        elif not a["flags"] & (ACT_FLAG_START | ACT_FLAG_END):
+            out["impacts"] += 1
+            if a["has_ext"]:
+                out["ext"] += 1
+        elif r == ACT_EXT_READ_NONE:
+            out["bad"] += 1                          # a START/END flag with no extension at all
+    return out
+
+
+def act_tape_info_line(state: str, frames, last_ms: int, overflow: int) -> str:
+    """`actbench tape info`'s summary line (ActTapeSummary), with its ``[NetSync] `` head."""
+    s = act_tape_summary(frames)
+    return (f"{LOG_ACT_TAPE_INFO}{state}, {s['frames']} frame(s) -- {s['starts']} START(s), {s['ends']} END(s), "
+            f"{s['impacts']} impact(s) ({s['ext']} with the id extension), {s['stat']} stat tick(s), {s['bad']} bad; "
+            f"{last_ms} ms, overflow {overflow}")
+
+
+def act_tape_page_frames(page: dict | None) -> list:
+    """`act.host.tape.page` -> ``[(i, ms, bytes)]`` (each frame's compact hex read back); [] for a null page."""
+    if not isinstance(page, dict):
+        return []
+    return [(int(f["i"]), int(f["ms"]), bytes.fromhex(f["hex"])) for f in page.get("frames") or []]
+
+
+def act_order_violations(frames) -> list:
+    """THE FIFO PROMISE over a tape (each frame's bytes, in arrival order): every impact naming id k arrives AFTER START k
+    and BEFORE END k, and every END after its START. -> the violations, as text (empty = the promise held). Stat ticks and
+    id-0 impacts name no lifecycle. A lifecycle is (nonce, id) -- ids restart at 1 every own battle (ActBattleStart), and a
+    tape or a coop_peer recording may span battles -- and a second START of one is a violation (ActLoopBook's orphan)."""
+    started, ended, out = {}, {}, []
+    for i, frame in enumerate(frames):
+        a = decode_action(frame)
+        kind = classify_action(a)
+        if kind not in ("start", "end", "impact"):
+            continue
+        k = (a["nonce"], a["act_id"])
+        if kind == "start":
+            if k in started:
+                out.append(f"START {k[1]} (nonce {k[0]}) at frame {i} again (first at frame {started[k]})")
+            else:
+                started[k] = i
+        elif kind == "end":
+            if k not in started:
+                out.append(f"END {k[1]} (nonce {k[0]}) at frame {i} before any START {k[1]}")
+            ended.setdefault(k, i)
+        elif a["has_ext"] and a["act_id"]:
+            if k not in started:
+                out.append(f"impact id {k[1]} (nonce {k[0]}) at frame {i} before its START")
+            elif k in ended:
+                out.append(f"impact id {k[1]} (nonce {k[0]}) at frame {i} after its END (frame {ended[k]})")
+    return out
+
+
+#: the 46-byte head's figure and raw fields: zero on an INERT head (a START or an END -- WriteInertHead)
+ACT_INERT_ZERO_FIELDS = ("fig_info_t", "fig_hp_t", "fig_mp_t", "fig_info_c", "fig_hp_c", "fig_mp_c", "tgt_hp_raw",
+                         "tgt_mp_raw", "cast_hp_raw", "cast_mp_raw")
+
+
+def act_inert_head(legacy: dict | None) -> bool:
+    """A START's or an END's 46-byte head as EVERY reader reads it (:func:`decode_action_legacy`) is INERT, byte for byte:
+    caster and target 0xFF/0xFF (an s110-s132 guest resolves neither and returns -- a resolvable slot's zero raws would
+    read as LETHAL there: ``lethalT = a.TgtHpRaw == 0``) and every figure and raw 0."""
+    return (legacy is not None and legacy["caster_slot"] == 0xFF and legacy["target_slot"] == 0xFF
+            and all(legacy[f] == 0 for f in ACT_INERT_ZERO_FIELDS))
+
+
+def _seq_after(a: int, b: int) -> bool:
+    """``a`` strictly after ``b`` on the u16 sample clock (wrap-aware: within half the ring)."""
+    return 1 <= ((a - b) & 0xFFFF) <= 0x7FFF
+
+
+def act_horizon_violations(frames) -> list:
+    """THE STATE-WRITE<=>HORIZON law over a tape (each frame's bytes, in FIFO order), per nonce: every CONSUMING frame (an
+    impact or a stat tick -- ``bw.Write(_seq++)``) stamps a seq strictly after the previous consuming frame's (wrap-aware);
+    every START and END stamps the live clock WITHOUT consuming it -- strictly after the previous consuming frame's seq and
+    at or before the next one's -- so a stale, zeroed or replayed seq on a START/END is caught (a START/END that CONSUMED
+    the clock cannot be told from a type-1 sample in between: test_harness_netsync.py pins that at the call sites). -> the
+    violations, as text."""
+    out, rows = [], []
+    for i, frame in enumerate(frames):
+        a = decode_action(frame)
+        kind = classify_action(a)
+        if kind in ("impact", "stat", "start", "end"):
+            rows.append((i, kind, a["nonce"], a["seq_horizon"]))
+    for nonce in dict.fromkeys(r[2] for r in rows):
+        mine = [r for r in rows if r[2] == nonce]
+        consuming = [(i, seq) for i, kind, _n, seq in mine if kind in ("impact", "stat")]
+        for (i0, s0), (i1, s1) in zip(consuming, consuming[1:]):
+            if not _seq_after(s1, s0):
+                out.append(f"frame {i1} (nonce {nonce}) consumes seq {s1}, not after frame {i0}'s {s0}")
+        for i, kind, _n, seq in mine:
+            if kind not in ("start", "end"):
+                continue
+            prev = [s for j, s in consuming if j < i]
+            nxt = [s for j, s in consuming if j > i]
+            if prev and not _seq_after(seq, prev[-1]):
+                out.append(f"{kind.upper()} at frame {i} (nonce {nonce}) stamps seq {seq}, not after the last consumed "
+                           f"{prev[-1]} (stale or zeroed)")
+            if nxt and seq != nxt[0] and not _seq_after(nxt[0], seq):
+                out.append(f"{kind.upper()} at frame {i} (nonce {nonce}) stamps seq {seq}, past the next consumed "
+                           f"{nxt[0]}")
+    return out
+
+
+def act_identity_violations(frames, *, require_id: bool = True) -> list:
+    """What the 46-byte reader cannot vouch for itself, checked on a tape against each lifecycle's own START (keyed (nonce,
+    id)): every IMPACT's legacy head is an impact's (flags bits 2-3 clear, each slot < 8 or 0xFF, at least one < 8), it
+    carries the id extension and names an id (``require_id``: never 0 -- a bench whose `noid_impacts` must read 0) that a
+    START on the tape carries, repeats that START's legacy identity (cmd_no and sub_no as QueueActionFrame writes them,
+    u16) and is cast by that START's actor or 0xFF (the offline twin of `loop.caster_mismatch`); every END repeats its
+    START's legacy cmd/sub. -> the violations, as text."""
+    decoded = [(i, decode_action(frame)) for i, frame in enumerate(frames)]
+    starts, out = {}, []
+    for _i, a in decoded:
+        if classify_action(a) == "start":
+            starts.setdefault((a["nonce"], a["act_id"]), a)
+    for i, a in decoded:
+        kind = classify_action(a)
+        if kind == "end":
+            s = starts.get((a["nonce"], a["act_id"]))
+            if s is not None and (a["cmd_no"], a["sub_no"]) != (s["act_cmd_no"] & 0xFFFF, s["act_sub_no"] & 0xFFFF):
+                out.append(f"END {a['act_id']} at frame {i}: legacy cmd/sub {a['cmd_no']}/{a['sub_no']} != its START's "
+                           f"{s['act_cmd_no']}/{s['act_sub_no']}")
+            continue
+        if kind != "impact":
+            continue
+        c, t = a["caster_slot"], a["target_slot"]
+        if a["flags"] & (ACT_FLAG_START | ACT_FLAG_END) or not all(x < 8 or x == 0xFF for x in (c, t)) or min(c, t) >= 8:
+            out.append(f"impact at frame {i}: legacy head flags 0x{a['flags']:02X} slots {c}/{t}")
+        if not a["has_ext"]:
+            out.append(f"impact at frame {i}: no id extension")
+            continue
+        if not a["act_id"]:
+            if require_id:
+                out.append(f"impact at frame {i}: id 0")
+            continue
+        s = starts.get((a["nonce"], a["act_id"]))
+        if s is None:
+            out.append(f"impact id {a['act_id']} at frame {i}: no START on the tape carries it")
+            continue
+        if (a["cmd_no"], a["sub_no"]) != (s["act_cmd_no"] & 0xFFFF, s["act_sub_no"] & 0xFFFF):
+            out.append(f"impact id {a['act_id']} at frame {i}: legacy cmd/sub {a['cmd_no']}/{a['sub_no']} != its START's "
+                       f"{s['act_cmd_no']}/{s['act_sub_no']}")
+        if c != 0xFF and c != s["actor_slot"]:
+            out.append(f"impact id {a['act_id']} at frame {i}: caster slot {c} != its START's actor {s['actor_slot']}")
+    return out
+
+
+class ActHostLane:
+    """[ff9mapkit netsync s133] The HOST's action-start lane as NetSyncBattle runs it, with s133's statics: QueueActionStart
+    (:meth:`start`), CheckActionVfx (:meth:`check_vfx`), QueueActionFrame's tail (:meth:`impact`), QueueStatFrame
+    (:meth:`stat_tick`), QueueActionEnd (:meth:`end`), the shared drop-oldest EnqueueActionPayload (:meth:`enqueue`),
+    ActBattleStart / ActCloseBattle (:meth:`battle_start` / :meth:`close_battle`), the selftest loopback's LoopActions
+    (:meth:`loop_actions`: the tape and the audit), HarnessActBench (:meth:`bench`) and ActHarnessRelease (:meth:`release`)
+    -- `netsync.battle.act.host` is :meth:`doc`, and every Log.Message line lands in :attr:`lines` (each WITH its
+    "[NetSync] " head). Per own battle like the engine's counters (reset at the rising edge, kept after the battle until
+    the next one starts); ``edge_declined``, the lever and the tape are per PROCESS. The caller supplies what the engine
+    reads off the battle (the gate's inputs, the actor's wire slot and flags, the describe's kind and number, what
+    SelectCommandVfx added) -- this model owns only the lane's own decisions, through the twins above."""
+
+    def __init__(self) -> None:
+        self.lever_off = False                       # BenchActStartsOff
+        self.edge_declined = 0                       # monotonic per process
+        self._edge_logged = False
+        self.tape: list = []                         # [(ms, bytes)]
+        self.tape_rec = False
+        self._tape_rec_ms = -60000                   # the tick-baseline law
+        self.tape_starts = 0
+        self.tape_overflow = 0
+        self._tape_full_logged = False
+        self.tape_page = None
+        self.out: list = []                          # _actionsOut (impacts, stat ticks, STARTs, ENDs)
+        self._drop_logged = False
+        self._parse_logged = False
+        self.lines: list = []
+        self.battle_open = False
+        self.nonce = -1
+        self._battle_reset()
+
+    def _battle_reset(self) -> None:
+        self.ids: dict = {}
+        self.scripted: dict = {}
+        self.next_id = 0
+        self.starts = self.ends = self.scripted_starts = self.ext_impacts = self.noid_impacts = 0
+        self.dropped = self.unresolved = self.takeovers = self.reentries = self.restarted = 0
+        self.wire_dropped = 0                        # `wire_dropped`: the transport out-queue's (Pump only -- the stand-in
+                                                     # and the selftest loopback have no transport: always 0 here)
+        self.no_end = self.cut = 0
+        self.kinds = [0] * 6
+        self.vfx_checked = self.vfx_drift = self.vfx_unchecked = 0
+        self.vfx_why = None
+        self.last_start = None
+        self.log_mask = 0
+        self._check = None
+        self.loop = ActLoopBook()
+
+    def _log(self, text: str) -> None:
+        self.lines.append(text)
+
+    # -- the gate and the budget
+    def starts_on(self, selftest_role: bool) -> bool:
+        """ActStartsOn: the lever bites only under the selftest role (a lever stranded across an ini edit never strips a
+        real host)."""
+        return not (self.lever_off and selftest_role)
+
+    def enqueue(self, payload: bytes) -> None:
+        """EnqueueActionPayload -- THE ONE drop-oldest enqueue (audit amendment 4): impacts, stat ticks and the START/END
+        records share the 64-frame budget; ``dropped`` counts it this own battle; the drop line once per battle."""
+        if len(self.out) >= ACTION_BUFFER_CAP:
+            self.out.pop(0)
+            self.dropped += 1
+            if not self._drop_logged:
+                self._drop_logged = True
+                self._log(f"{LOG_ACT_DROP}{ACTION_BUFFER_CAP}) this battle -- oldest dropped (figures lost, state self-heals)")
+        self.out.append(bytes(payload))
+
+    # -- the own battle's edges
+    def battle_start(self, nonce: int) -> None:
+        """ActBattleStart (NoteOwnBattleStart, after the nonce bump): the books and this battle's counters start clean."""
+        self._battle_reset()
+        self.battle_open = True
+        self.nonce = int(nonce)
+        self._drop_logged = False
+
+    def close_battle(self, cut: bool, mid_action: bool = False) -> None:
+        """ActCloseBattle: idempotent. Open END-eligible ids count as ``cut`` (a Reset, or ``mid_action``: a command still
+        in cur_cmd_list at the falling edge) or ``no_end`` (a normal end -- a defect); the loopback audit closes the same
+        way; one summary line when the lane did anything."""
+        if not self.battle_open:
+            return
+        self.battle_open = False
+        as_cut = cut or mid_action
+        n_open = len(self.ids)
+        if n_open:
+            ids = ", ".join(f"{r['id']} (slot {r['actor']})" for r in self.ids.values())
+            if as_cut:
+                self.cut += n_open
+                tail = f"cut (a reset mid-battle or a mid-action teardown) -- cut={self.cut}"
+            else:
+                self.no_end += n_open
+                tail = f"end -- no_end={self.no_end} (a normal end cannot orphan one: a defect)"
+            self._log(f"[NetSync] action lane: {n_open}{LOG_ACT_NEVER_ENDED}{tail}; ids {ids}")
+        looped = self.loop.fed
+        self.loop.close(as_cut)
+        if self.starts > 0 or self.ext_impacts > 0 or self.dropped > 0 or looped:
+            lp = self.loop
+            self._log(f"{LOG_ACT_CLOSED}{self.nonce}) closed -- {self.starts} START(s) ({self.scripted_starts} scripted), "
+                      f"{self.ends} END(s), {self.ext_impacts} impact(s) with an id ({self.noid_impacts} of them 0), "
+                      f"dropped {self.dropped}, describe drift {self.vfx_drift}"
+                      + (f"; loopback: {lp.starts} starts, {lp.ends} ends, {lp.paired} paired, {lp.orphans} orphan(s), "
+                         f"{lp.caster_mismatch} caster mismatch(es), no_end {lp.no_end}, cut {lp.cut}" if looped else ""))
+        self.ids.clear()
+        self.scripted.clear()
+        self._check = None
+
+    # -- the records
+    def start(self, key, *, scripted: bool, actor_slot: int, actor_flags: int, cmd_no: int, sub_no: int, tar_id: int,
+              nonce: int, seq: int, enabled: bool, selftest_role: bool, booted: bool = False, is_debug: bool = False,
+              was_in_battle: bool = True, cursor: int = 0, info: int = 0, magic_caster: int = 0,
+              vfx: tuple = (VFX_KIND_NONE, 0), patched_vfx: int = 0, host_speed: int = 5,
+              seq_running: bool = False) -> int:
+        """QueueActionStart. ``actor_flags`` = every bit but SCRIPTED (added here for a scripted START); ``vfx`` = the
+        describe's (kind, num) -- a scripted START ignores it (kind 2, num = sub_no). Returns the id issued (0 = no
+        START)."""
+        if not enabled:
+            return 0
+        if booted or is_debug or not self.starts_on(selftest_role) or key is None:
+            return 0
+        if not was_in_battle:
+            self.edge_declined += 1
+            if not self._edge_logged:
+                self._edge_logged = True
+                self._log(f"[NetSync] action lane: a {'scripted ' if scripted else ''}{LOG_ACT_EDGE}{cmd_no}, sub {sub_no}) "
+                          f"-- it would ride the previous battle's nonce; edge_declined={self.edge_declined} (logged once "
+                          f"per process)")
+            return 0
+        if _act_u8(actor_slot) == 0xFF:
+            self.unresolved += 1
+            if not self.log_mask & ACT_LOG_UNRESOLVED:
+                self.log_mask |= ACT_LOG_UNRESOLVED
+                self._log(f"[NetSync] action lane: {cmd_no} (sub {sub_no}){LOG_ACT_UNRESOLVED}no END (unresolved="
+                          f"{self.unresolved}; logged once per battle)")
+            return 0
+        flags = _act_u8(actor_flags) | (ACTOR_SCRIPTED if scripted else 0)
+        kind, num = (VFX_KIND_ENEMY, int(sub_no)) if scripted else (int(vfx[0]), int(vfx[1]))
+        running = (not scripted) and key in self.scripted and seq_running
+        self.next_id = act_next_id(self.next_id)
+        rec = new_act_record(self.next_id, actor_slot, cmd_no, sub_no, scripted)
+        record = encode_action_start(nonce, seq, rec["id"], actor_slot, flags, cmd_no, sub_no, tar_id, cursor, info,
+                                     magic_caster, kind, num, patched_vfx, max(0, min(255, int(host_speed))))
+        step, displaced = act_start_step(self.ids, self.scripted, key, rec, running)
+        if displaced is not None:
+            self.enqueue(encode_action_end(nonce, seq, displaced["id"], displaced["cmd_no"], displaced["sub_no"]))
+            self.ends += 1
+        self.enqueue(record)
+        self.starts += 1
+        if scripted:
+            self.scripted_starts += 1
+        self.kinds[act_kind_index(kind)] += 1
+        self.last_start = record
+        self._note_step(step, rec, displaced)
+        if not scripted:
+            self._check = (key, kind, num, rec["id"], _act_u8(actor_slot), cmd_no, sub_no)
+        return rec["id"]
+
+    def _note_step(self, step: int, rec: dict, displaced: dict | None) -> None:
+        if step == ACT_STEP_TAKEOVER:
+            self.takeovers += 1
+            if not self.log_mask & ACT_LOG_TAKEOVER:
+                self.log_mask |= ACT_LOG_TAKEOVER
+                self._log(f"[NetSync] action lane: a scripted sequence (StartBtlSeq, seq {rec['sub_no']}) took over slot "
+                          f"{rec['actor']}'s open command (id {displaced['id']}) -- its END sent first; the sequence is id "
+                          f"{rec['id']}, never ENDed (scripted_takeover={self.takeovers}; logged once per battle)")
+        elif step == ACT_STEP_RESTART:
+            self.restarted += 1
+            if not self.log_mask & ACT_LOG_RESTART:
+                self.log_mask |= ACT_LOG_RESTART
+                self._log(f"[NetSync] action lane: slot {rec['actor']}'s command started again (id {rec['id']}) with id "
+                          f"{displaced['id']} still open (no FinishCommand) -- its END sent first (restarted="
+                          f"{self.restarted}; logged once per battle)")
+        elif step == ACT_STEP_REENTRY:
+            self.reentries += 1
+            if not self.log_mask & ACT_LOG_REENTRY:
+                self.log_mask |= ACT_LOG_REENTRY
+                self._log(f"[NetSync] action lane: slot {rec['actor']}'s command re-entered SELECT_VFX while its scripted "
+                          f"sequence still runs -- the scripted id is retired, the command is id {rec['id']} "
+                          f"(scripted_reentry={self.reentries}; logged once per battle)")
+
+    def check_vfx(self, key, *, rework: bool = True, added: tuple | None = None) -> None:
+        """CheckActionVfx, right after SelectCommandVfx: ``added`` = ``(enemy_seq, effect_num)`` of the action it added to
+        runningActions since the START (None = none added); the old engine (``rework`` False) is ``unchecked``."""
+        chk, self._check = self._check, None
+        if chk is None or chk[0] != key:
+            return
+        _key, kind, num, act_id, actor, cmd_no, sub_no = chk
+        if not rework:
+            self.vfx_unchecked += 1
+            return
+        self.vfx_checked += 1
+        enemy_seq, effect_num = (bool(added[0]), int(added[1])) if added is not None else (False, 0)
+        if act_vfx_verdict(kind, num, added is not None, enemy_seq, effect_num):
+            return
+        self.vfx_drift += 1
+        self.vfx_why = (f"id {act_id} slot {actor} {cmd_no} sub {sub_no}: described {vfx_kind_name(kind)} {num}, "
+                        f"SelectCommandVfx " + ("added no action" if added is None else
+                                                "added " + ("an EnemySequence " if enemy_seq else "a SpecialEffect ")
+                                                + str(effect_num)))
+        if not self.log_mask & ACT_LOG_DRIFT:
+            self.log_mask |= ACT_LOG_DRIFT
+            self._log(f"{LOG_ACT_DRIFT}{self.vfx_why} (drift={self.vfx_drift}; logged once per battle)")
+
+    def end(self, key, *, nonce: int, seq: int, enabled: bool) -> int:
+        """QueueActionEnd (the head of FinishCommand): the END of an open END-eligible lifecycle -- even with the lever
+        pulled after its START (an id exists only if its START was sent). Returns the id ENDed (0 = none)."""
+        if not enabled or not self.ids:
+            return 0
+        rec = act_end_step(self.ids, key)
+        if rec is None:
+            return 0
+        self.enqueue(encode_action_end(nonce, seq, rec["id"], rec["cmd_no"], rec["sub_no"]))
+        self.ends += 1
+        return rec["id"]
+
+    def impact(self, key, legacy: bytes, *, enabled: bool, selftest_role: bool, booted: bool = False,
+               is_debug: bool = False) -> bytes | None:
+        """QueueActionFrame's tail: a 46-byte impact (caster AND target 0xFF: nothing sent) gets the id extension unless
+        the lever is pulled -- the id of ``key``'s lifecycle, 0 for none. Returns the frame queued (None = none)."""
+        if not enabled or booted or is_debug:
+            return None
+        legacy = bytes(legacy)[:ACT_LEGACY_LEN]
+        if legacy[3] == 0xFF and legacy[4] == 0xFF:
+            return None
+        ext = self.starts_on(selftest_role)
+        act_id = act_id_of(self.ids, self.scripted, key) if ext else 0
+        frame = with_impact_ext(legacy, act_id) if ext else legacy
+        self.enqueue(frame)
+        if ext:
+            self.ext_impacts += 1
+            if act_id == 0:
+                self.noid_impacts += 1
+        return frame
+
+    def stat_tick(self, legacy: bytes, *, enabled: bool, booted: bool = False, is_debug: bool = False) -> None:
+        """QueueStatFrame: a 46-byte bit-7 frame through the same budget (never extended: audit D3)."""
+        if enabled and not booted and not is_debug:
+            self.enqueue(bytes(legacy)[:ACT_LEGACY_LEN])
+
+    # -- the selftest loopback and its tape
+    def loop_actions(self, now_ms: int) -> None:
+        """LoopActions: every queued frame round-trips the codec -- the tape takes it as received, then TryParseAction (a
+        failure is codec drift, logged once), then the extension into the audit."""
+        frames, self.out = self.out, []
+        for frame in frames:
+            self._tape_record(frame, now_ms)
+            a = parse_action(frame)
+            if a is None:
+                if not self._parse_logged:
+                    self._parse_logged = True
+                    self._log(LOG_ACT_CODEC_DRIFT)
+                continue
+            self.loop.feed(a, read_action_ext(frame, a))
+
+    def _tape_record(self, frame: bytes, now_ms: int) -> None:
+        if not self.tape_rec:
+            return
+        if len(self.tape) >= ACT_TAPE_CAP:
+            self.tape_overflow += 1
+            if not self._tape_full_logged:
+                self._tape_full_logged = True
+                self._log(f"{LOG_ACT_TAPE_FULL}{ACT_TAPE_CAP} frames -- later frames are counted (overflow), not recorded")
+            return
+        self.tape.append((int(now_ms) - self._tape_rec_ms, bytes(frame)))
+        if (len(frame) >= ACT_START_RECORD_LEN and frame[41] & ACT_FLAG_START and frame[ACT_LEGACY_LEN] == ACT_EXT_TAG
+                and frame[49] == ACT_EXT_START):
+            self.tape_starts += 1
+
+    def _tape_clear(self) -> None:
+        self.tape = []
+        self.tape_rec = False
+        self.tape_starts = self.tape_overflow = 0
+        self._tape_full_logged = False
+        self.tape_page = None
+
+    @property
+    def tape_state(self) -> str:
+        """HarnessActTapeState: "rec", "stopped" (frames kept) or "off"."""
+        return "rec" if self.tape_rec else "stopped" if self.tape else "off"
+
+    @property
+    def tape_ms(self) -> int:
+        """HarnessActTapeMs: the last frame's offset from `tape rec` (-1 = none)."""
+        return self.tape[-1][0] if self.tape else -1
+
+    def bench(self, op: str, value: str, frm: int, count: int, *, selftest_role: bool, now_ms: int) -> tuple:
+        """HarnessActBench -> ``(ok, why)``, in the engine's words (the agent's argument parse runs before it)."""
+        if not selftest_role:
+            return False, "netsync actbench: needs the selftest role (netsync selftest 1)"
+        op, value = (op or "").lower(), (value or "").lower()
+        if op == "hoststarts":
+            if value not in ("on", "off"):
+                return False, "netsync actbench hoststarts: expected `hoststarts on|off`"
+            self.lever_off = value == "off"
+            self._log(LOG_ACT_LEVER_OFF if self.lever_off else LOG_ACT_LEVER_ON)
+            return True, None
+        if op != "tape":
+            return False, f"netsync actbench: unknown op '{op}' (tape|hoststarts)"
+        if value == "rec":
+            self._tape_clear()
+            self.tape_rec = True
+            self._tape_rec_ms = int(now_ms)
+            self._log(f"{LOG_ACT_TAPE_REC}{ACT_TAPE_CAP} (a new tape)")
+            return True, None
+        if value == "stop":
+            self.tape_rec = False
+            self._log(f"{LOG_ACT_TAPE_STOPPED}{len(self.tape)} frame(s), {self.tape_starts} START(s), {self.tape_ms} ms, "
+                      f"overflow {self.tape_overflow}")
+            return True, None
+        if value == "clear":
+            self._log(f"{LOG_ACT_TAPE_CLEARED}{len(self.tape)} frame(s))")
+            self._tape_clear()
+            return True, None
+        if value == "info":
+            self._log(act_tape_info_line(self.tape_state, [f for _ms, f in self.tape], self.tape_ms, self.tape_overflow))
+            return True, None
+        if value == "dump":
+            return self._dump(frm, count)
+        return False, "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`"
+
+    def _dump(self, frm: int, count: int) -> tuple:
+        """ActTapeDump: one page (at most ACT_TAPE_PAGE_MAX frames, clipped at the tape's end) published."""
+        if not self.tape:
+            return False, "netsync actbench tape dump: the tape is empty (`actbench tape rec` first)"
+        if frm < 0 or frm >= len(self.tape):
+            return False, (f"netsync actbench tape dump: from {frm} is past the tape's last frame ({len(self.tape)} "
+                           f"frame(s))")
+        if count < 1 or count > ACT_TAPE_PAGE_MAX:
+            return False, f"netsync actbench tape dump: count must be 1-{ACT_TAPE_PAGE_MAX}"
+        n = min(count, len(self.tape) - frm)
+        self.tape_page = {"from": frm, "count": n, "total": len(self.tape),
+                          "frames": [{"i": frm + k, "ms": self.tape[frm + k][0], "hex": action_hex(self.tape[frm + k][1])}
+                                     for k in range(n)]}
+        self._log(f"{LOG_ACT_TAPE_PAGE}{frm}..{frm + n - 1} of {len(self.tape)} published "
+                  f"(netsync.battle.act.host.tape.page)")
+        return True, None
+
+    def release(self) -> None:
+        """ActHarnessRelease (HarnessReleaseBench's s133 half): the lever back on, the tape stopped and emptied."""
+        if self.lever_off:
+            self._log(LOG_ACT_LEVER_RELEASED)
+        self.lever_off = False
+        if self.tape or self.tape_rec or self.tape_page is not None:
+            self._log(f"{LOG_ACT_TAPE_CLEARED}{len(self.tape)} frame(s); released with the harness)")
+        self._tape_clear()
+
+    def last_doc(self) -> dict | None:
+        """HarnessActLast: the last START as shipped, decoded through the codec (None = none this battle)."""
+        if self.last_start is None:
+            return None
+        a = decode_action(self.last_start)
+        if a is None or a["ext_read"] != ACT_EXT_READ_OK:
+            return None
+        return {k: a[f] for k, f in ACT_LAST_FIELDS.items()}
+
+    def doc(self, *, enabled: bool, selftest_role: bool) -> dict:
+        """HarnessAgent.AppendAct's `host` half -- published in EVERY role (audit 3.6)."""
+        page = self.tape_page
+        return {"on": bool(enabled) and self.starts_on(selftest_role), "lever_off": self.lever_off, "nonce": self.nonce,
+                "starts": self.starts, "ends": self.ends, "ext_impacts": self.ext_impacts,
+                "noid_impacts": self.noid_impacts, "scripted": self.scripted_starts, "open": len(self.ids),
+                "dropped": self.dropped, "wire_dropped": self.wire_dropped, "unresolved": self.unresolved,
+                "scripted_takeover": self.takeovers,
+                "scripted_reentry": self.reentries, "restarted": self.restarted, "no_end": self.no_end, "cut": self.cut,
+                "edge_declined": self.edge_declined, "kinds": dict(zip(VFX_KIND_KEYS, self.kinds)),
+                "vfx": {"checked": self.vfx_checked, "drift": self.vfx_drift, "unchecked": self.vfx_unchecked,
+                        "why": self.vfx_why},
+                "last": self.last_doc(), "loop": self.loop.doc(),
+                "tape": {"state": self.tape_state, "frames": len(self.tape), "starts": self.tape_starts, "ms": self.tape_ms,
+                         "overflow": self.tape_overflow,
+                         "page": None if page is None else {"from": page["from"], "count": page["count"],
+                                                            "total": page["total"],
+                                                            "frames": [dict(f) for f in page["frames"]]}}}
+
+
+#: NetSyncBattle's s133 integer constants, by C# name (audit amendment 11). ActionBufferCap's comment carries a `;`, so
+#: the test reads it as its one literal line instead.
+CS_ACTION_CONSTANTS = {
+    "CapActionStarts": CAP_ACTION_STARTS, "ActFlagStart": ACT_FLAG_START, "ActFlagEnd": ACT_FLAG_END,
+    "ActFlagStatTick": ACT_FLAG_STAT_TICK, "ActExtTag": ACT_EXT_TAG, "ActExtFmt1": ACT_EXT_FMT1,
+    "ActExtLenId": ACT_EXT_LEN_ID, "ActExtLenStart": ACT_EXT_LEN_START, "ActExtImpact": ACT_EXT_IMPACT,
+    "ActExtStart": ACT_EXT_START, "ActExtEnd": ACT_EXT_END, "ActLegacyLen": ACT_LEGACY_LEN,
+    "ActIdRecordLen": ACT_ID_RECORD_LEN, "ActStartRecordLen": ACT_START_RECORD_LEN, "VfxKindNone": VFX_KIND_NONE,
+    "VfxKindSeq": VFX_KIND_SEQ, "VfxKindEnemy": VFX_KIND_ENEMY, "VfxKindSpecial": VFX_KIND_SPECIAL,
+    "VfxKindCommon": VFX_KIND_COMMON, "VfxKindUnknown": VFX_KIND_UNKNOWN, "ActorIsPlayer": ACTOR_IS_PLAYER,
+    "ActorHostRework": ACTOR_HOST_REWORK, "ActorHostFast": ACTOR_HOST_FAST, "ActorScripted": ACTOR_SCRIPTED,
+    "ActorMonsterTransform": ACTOR_MONSTER_TRANSFORM, "ActorCounterSlot": ACTOR_COUNTER_SLOT,
+    "ActorDoubleCast": ACTOR_DOUBLE_CAST, "ActInfoMeteorMiss": ACT_INFO_METEOR_MISS,
+    "ActInfoShortSummon": ACT_INFO_SHORT_SUMMON, "ActInfoCover": ACT_INFO_COVER, "ActTapeCap": ACT_TAPE_CAP,
+    "ActTapePageMax": ACT_TAPE_PAGE_MAX, "ActExtReadNone": ACT_EXT_READ_NONE, "ActExtReadOk": ACT_EXT_READ_OK,
+    "ActExtReadBad": ACT_EXT_READ_BAD, "ActExtReadFmt": ACT_EXT_READ_FMT, "ActStepNew": ACT_STEP_NEW,
+    "ActStepTakeover": ACT_STEP_TAKEOVER, "ActStepRestart": ACT_STEP_RESTART, "ActStepReentry": ACT_STEP_REENTRY,
+    "ActStepReuse": ACT_STEP_REUSE, "ActLogTakeover": ACT_LOG_TAKEOVER, "ActLogReentry": ACT_LOG_REENTRY,
+    "ActLogRestart": ACT_LOG_RESTART, "ActLogUnresolved": ACT_LOG_UNRESOLVED, "ActLogDrift": ACT_LOG_DRIFT,
+    "ActTestNonce": ACT_TEST_NONCE}

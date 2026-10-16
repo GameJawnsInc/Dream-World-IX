@@ -205,7 +205,9 @@ def control_text(ctl: dict) -> str:
 
 
 def describe_frame(wtype: int, payload) -> str:
-    """A short human reading of one NetSyncWire frame (``dump``, the logs)."""
+    """A short human reading of one NetSyncWire frame (``dump``, the logs). [ff9mapkit netsync s133] A type-6 action
+    record is decoded through battlewire (audit D5): an s133+ host's START / END / id-carrying impact, a pre-s133 host's
+    46-byte impact, a stat tick."""
     name = TYPE_NAMES.get(wtype, f"type{wtype}")
     if wtype == TYPE_POS:
         p = parse_pos_payload(payload)
@@ -226,7 +228,23 @@ def describe_frame(wtype: int, payload) -> str:
         if c:
             return (f"{name} slot {c['slot']} action {c['action']} menu {c['menu']} id {c['id']} "
                     f"mask 0x{c['mask']:04X} cursor {c['cursor']}")
+    elif wtype == TYPE_ACTION:
+        return f"{name} {BW.action_text(payload)}"            # [ff9mapkit netsync s133]
     return f"{name} {len(bytes(payload or b''))} B"
+
+
+def tape_actions(records) -> dict:
+    """[ff9mapkit netsync s133] The HOST's type-6 action records on a tape, counted through battlewire's codec
+    (battlewire.act_tape_summary: ``starts``, ``ends``, ``impacts`` -- ``ext`` of them with the id extension --, ``stat``,
+    ``bad``): an s133+ host's tape carries STARTs; a pre-s133 host's, 46-byte impacts only."""
+    frames = []
+    for r in records:
+        if r.dir != DIR_HOST:
+            continue
+        got = parse_frame(r.payload)
+        if got is not None and got[0] == TYPE_ACTION:
+            frames.append(got[1])
+    return BW.act_tape_summary(frames)
 
 
 # ======================================================================================== WebSocket framing (RFC 6455)
@@ -1949,6 +1967,11 @@ def tape_info(path) -> list:
                        + (f"  ~{n / span:.0f}/s" if span >= 1.0 else ""))
     for d, n in foreign.items():
         out.append(f"  {d:5} NOT v14  {n:7d} message(s) (the engine would drop these)")
+    acts = tape_actions(records)
+    if acts["frames"]:                                     # [ff9mapkit netsync s133] what the host's action lane carried
+        out.append(f"host action records: {acts['starts']} START(s), {acts['ends']} END(s), {acts['impacts']} impact(s) "
+                   f"({acts['ext']} with an action id), {acts['stat']} stat tick(s), {acts['bad']} bad"
+                   + ("" if acts["starts"] else " -- no START: a pre-s133 host (or its `actbench hoststarts off`)"))
     out.append("host field edges:")
     for t, f in tape_fields(records):
         out.append(f"  tape {t:9.2f}  field {_field_text(f)}")

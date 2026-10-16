@@ -106,9 +106,10 @@ CALIBRATION -- a check that cannot fail is not a check.
   * THE STAND-IN (tools/harness/fakegame.py) models s110's capture/hand-back, s114's `bench boot` AND s118 (the
     "ownreport" cap: the lane and ownership stamps, the per-battle latch, the refusal episode's count and its one line per
     own battle, the shut byte), and writes the engine's own hand-back, refusal and proof lines into its Memoria.log
-    (CRLF, Memoria's line shape; HandbackLog's 8-line budget). Its s117 is the stand-in with FG.NETSYNC_SITTING_A_CAPS
-    removed. MEASURED [ff9mapkit netsync R3 fix round]: s121 caps -- all 18 green, COOP_CALIBRATE=1 S18-CAL PASS on the
-    empty set; s117 caps -- red exactly P0, PROOF, N2, D1, D2, D3, L1, L2, B1, B2, S1, S2 (N1 and T1 green on the
+    (CRLF, Memoria's line shape; HandbackLog's 8-line budget). Its s117 is the ladder prefix FG.caps_through("defeat")
+    (never the default stand-in minus a rung set: that keeps every later rung). MEASURED [ff9mapkit netsync R3 fix
+    round]: s121 caps -- all 18 green, COOP_CALIBRATE=1 S18-CAL PASS on the empty set; s117 caps -- red exactly P0,
+    PROOF, N2, D1, D2, D3, L1, L2, B1, B2, S1, S2 (N1 and T1 green on the
     stand-in's own s117 hand-back lines), COOP_CALIBRATE=1 S18-CAL PASS with no unpredicted red. A seeded stand-in that
     keeps a refused frame's byte 1 turns L1 alone red. It is a calibration aid for THIS scenario's logic, never a proof
     of the engine: the first in-game run is the s117 calibration above.

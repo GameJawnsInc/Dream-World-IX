@@ -77,6 +77,11 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs",
     "Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs",
     "Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs",
+    # [ff9mapkit netsync s133] the battle hook sites: btl_cmd.cs (s101's containment backstop; s133's START / describe check /
+    # END) and btlseq.cs / btl_vfx.cs (s133's scripted START and DescribeCommandVfx) -- so the default diag checks them too
+    "Assembly-CSharp/Global/btl_cmd.cs",
+    "Assembly-CSharp/Global/btlseq.cs",
+    "Assembly-CSharp/Global/btl_vfx.cs",
 ]
 
 # Same-number ties, pinned explicitly.
