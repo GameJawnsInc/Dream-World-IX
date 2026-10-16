@@ -90,5 +90,10 @@ defect one of them exposed):
 - An adversarial review of those fixes found a latent false green in D0 and test conjuncts that could not fail; both
   fixed (four mutants now each turn the D0 test red).
 
+**★ OWNER-CONFIRMED in a two-window duo on the desktop (2026-10-16):** a host instance fought scripted battles
+(Steiner's and Zidane's attacks, Garnet's Cure, Vivi's Fire) and the paired guest instance replayed them -- "both
+windows had battle animations". The guest seated the host's real party (not the selftest stand-in). The laptop
+still needs a package carrying s133-s134 for a two-machine look.
+
 **Known v1 gaps (risk 8):** a Change replay toggles the row (no absolute row on the wire); Defend's pose is not
 mirrored; reflect bounces use the guest's statuses; numbers, flinch and death still land at impact ARRIVAL (s135).
