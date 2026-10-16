@@ -8,7 +8,7 @@ stack replays by number:
 |---|---|---|---|
 | s133 | s122 | host action-start lane (START/END records, impact ids, header bit 5) | ★ deployed, solo-proven |
 | s134 | s123 | guest action replay | ★ deployed, solo-proven (solo + T2 tape leg) |
-| s135 | s124 | numbers, flinch and death wait for the replay's hit | next |
+| s135 | s124 | numbers, flinch and death wait for the replay's hit | captured, calibrated on s134; deploy pending |
 | s136 | s125 | fallback A: one stock clip per uncovered action | |
 | s137 | s126 | trance burst timing | |
 | s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | after action replay |
@@ -97,3 +97,31 @@ still needs a package carrying s133-s134 for a two-machine look.
 
 **Known v1 gaps (risk 8):** a Change replay toggles the row (no absolute row on the wire); Defend's pose is not
 mirrored; reflect bounces use the guest's statuses; numbers, flinch and death still land at impact ARRIVAL (s135).
+
+## s135: numbers, flinch and death wait for the replay's hit (2026-10-16)
+
+**What it does.** On a booted diorama, an impact that names a running or pending replay's START is HELD. Its HP/MP bars
+still follow the host at arrival (the owner's rule), but the number, the flinch and any kill or revive wait for the
+replay's own hit (EffectPoint; the figure shows at the sequence's Figure point). Fallback releases: `late` (the hit came
+first), `end`, `hostdone` (the host's END + 1500 ms), `timeout` (2.5 s of battle time), `abort`, `replaced`, `declined`,
+and `end-inject`, which flushes every held kill BEFORE AllPlayersDown is read (audit amendment 2). Frames behind a held
+life change queue on that slot. A per-slot LIFE MASK makes the reconciler skip a held slot's record, so a sample cannot
+kill or revive ahead of the hit; the skipped record is re-applied on release and at the end-inject flush. Keys
+`netsync.battle.act.guest.hold{...}` (counters, the life mask, the real-link lag key, figs[16]).
+
+**Built** by a workflow: engine, harness, a 4-lens review (life/death, stock-code safety, timing, harness) with two
+skeptics per finding, a fix pass (20 findings: among them a queued frame that could stand a corpse up, the end-inject
+flush missing the skipped samples, a queue drain inside EffectPoint's bracket, a hit's number lost on an abort), a
+re-review and a second fix pass (the timer legs judged on the engine's release line, not a figure the summon can hide;
+a stand-in that could never fail the flush-before-AllPlayersDown order). 5 files, 36 hunks, +1744/-25; 'action hold
+selftest: OK (28 rows)'; the stack replays 29/29 byte-exact; 762 domain tests pass.
+
+**Calibrated on s134 first** (the live DLL `c93a249cbb8e596c`): the tape leg on the recorded s133 host tape went red in
+exactly every hold check (S135T-CAL green, no unpredicted reds), and the solo bench under `COOP_CALIBRATE=1` went red in
+exactly the probe-absent set, 22 of 28 (S135-CAL green). The owner's ini came back byte-exact (`efaebbf47c36e752`).
+
+**The amendment-14 freeze, as built** (the one exception to "the bars follow the host"): a slot is in the life mask for
+its own held kill or revive, and for any frame held or queued behind an older life change or queued frame on that slot,
+so a living unit can be masked too. While masked, the reconciler skips that unit's whole record (current and max HP/MP,
+hide, trance, ATB). Each change waits at most 2.5 s of battle time from its own arrival; overlapping frames chain the
+wait. On release the last skipped record is re-applied at once.
