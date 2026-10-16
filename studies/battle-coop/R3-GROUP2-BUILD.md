@@ -8,7 +8,7 @@ stack replays by number:
 |---|---|---|---|
 | s133 | s122 | host action-start lane (START/END records, impact ids, header bit 5) | ★ deployed, solo-proven |
 | s134 | s123 | guest action replay | ★ deployed, solo-proven (solo + T2 tape leg) |
-| s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven (solo + T2 tape leg) |
+| s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven, owner-confirmed |
 | s136 | s125 | fallback A: one stock clip per uncovered action | next |
 | s137 | s126 | trance burst timing | |
 | s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | after action replay |
@@ -149,3 +149,12 @@ wait. On release the last skipped record is re-applied at once.
 **Known v1 (README row):** the amendment-14 freeze above; a lost lethal impact is not protected (S135-LOST); anything
 still held when the end injects lands at once. Not proven in game: a triple's caster figure, the hidden-target guard, a
 held revive's freeze, WhiteDraw/DragonBreath extra CalcResults, slave-part keys.
+
+**★ OWNER-CONFIRMED in a two-window duo on the desktop (2026-10-16):** the same demo as s134's, with the guest's
+`act.guest.hold` block printed after each fight -- "looks good". The guest's log for fight 1 (Fang x2, 10 actions): 10
+impacts held; both of Garnet's Cures released at the replay's hit (375 ms and 1547 ms after their numbers arrived), the
+8 physical attacks released `late` -- the guest's replayed swing landed 15-375 ms (median 297) BEFORE the host's impact
+arrived, so those numbers show on arrival, just after the swing. The tape leg showed the same shape (8 of 12 late,
+median -234 ms). **Candidate follow-up (after group 2, with s142):** find where the host's ~300 ms goes between its own
+hit and the impact frame reaching the guest on a local link (its send point or cadence), or bound-wait the replay's
+EffectPoint for its paired impact so every number lands exactly on the swing.
