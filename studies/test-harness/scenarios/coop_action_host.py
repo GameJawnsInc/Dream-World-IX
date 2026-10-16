@@ -29,15 +29,17 @@ PRECONDITIONS -- THE OPERATOR'S JOB (this bench writes NOTHING; it checks and re
 THE BENCH. Field 30602 (cb.FIELD), the forced selftest role, `stateevery 1`. Battle 1 (the GREEN battle): `actbench tape
 rec`, then `battle 306 <COOP_ACT_GROUP, default 4>` -- group 4 is Fang x2 (136 HP), group 2 Goblin + Fang: multi-enemy
 (audit amendment 15: battle 67 is ONE enemy, so a multi-target `tar` can never span two). The command plan, by the turns
-the game asks (wait_turn): Zidane Attack x2 -- the first on the first enemy, the second on ANOTHER standing enemy (the
-damage spread, so no enemy falls to him alone before Vivi casts); Vivi the many-target spell on ALL enemies (cursor group
-2) at her FIRST prompt while two enemies stand (a split cast cannot one-shot a 68 HP Fang), then Fire on one; Garnet a
+the game asks (wait_turn): Zidane Attack x2 on the sturdiest standing PARTY member (an Attack's START does not depend on
+its target, and the enemies' HP is kept for MT / EN -- the first in-game run's short fight ended before his second turn);
+Vivi the many-target spell on ALL enemies (cursor group 2) once Zidane has attacked twice and Garnet has used her
+Potion -- the spell can end the fight, so it goes LAST, while both enemies still stand (nothing else hurt them) -- then
+Fire on one if any stands; Garnet a
 Potion on herself; then a Defend from whoever is asked next (Steiner, or anyone); every other prompt Defends (so the
 enemies act) until the plan is done; then `fight` to the victory. `actbench tape stop`, the tape paged out (`tape dump <i>
 16`) and judged OFFLINE through tools/harness/battlewire.py. Battle 2 (the lever, L1): `hoststarts off` + a new tape,
 Attack to the victory, the tape paged out; `hoststarts on`.
 A SHORT FIGHT (the dice; there is no HP lever -- audit amendment 15) can leave a planned action's check red with no engine
-verdict in it: MT (fewer than two enemies standing at Vivi's first prompt), AT (Zidane asked fewer than twice), POT (Garnet
+verdict in it: MT (fewer than two enemies standing when Vivi casts), AT (Zidane asked fewer than twice), POT (Garnet
 never asked), EN (no enemy acted before the end). Each names the plan's progress in its detail; B0 stays green.
 
 WHAT IS PROVEN (S133-*):
@@ -182,7 +184,7 @@ def _catalog(calibrate: bool) -> dict:
         "S133-EN": "an enemy START (no player bit) of kind 2 (enemy) whose num == its sub (a short fight can leave it red: "
                    "no enemy acted)",
         "S133-MT": "the many-target cast's START (Vivi, its sub) has a tar spanning 2+ enemy bits (a short fight can leave "
-                   "it red: fewer than two enemies at her first prompt)",
+                   "it red: fewer than two enemies standing when she casts)",
         "S133-POT": "Garnet's Potion START (the cmd/sub sent; stock 14/236) is kind 3 (special) (a short fight can leave it "
                     "red: Garnet never asked)",
         "S133-VFX": "the describe check: vfx.checked + unchecked == starts - scripted > 0, drift 0, why null, kinds sum to "
@@ -273,6 +275,14 @@ def _living_enemies(x) -> list:
     return [u for u in cb.units(x, player=False) if u.get("alive") and u.get("targetable", True)]
 
 
+def _sturdiest_ally(x, but: int) -> int | None:
+    """The standing party member (not slot ``but``) with the most HP -- Zidane's Attack target. An Attack's START does not
+    depend on its target (kind 3, the weapon serial), and hitting a party member leaves the enemies' HP for the checks
+    that need them standing (MT, EN): the first in-game run's short fight ended before Zidane's second turn."""
+    allies = [u for u in cb.units(x, player=True) if u.get("alive") and int(u.get("slot", -1)) != but]
+    return int(max(allies, key=lambda u: int(u.get("hp") or 0))["slot"]) if allies else None
+
+
 # ------------------------------------------------------------------------------------------------- acting
 def _act_verb(g, *args) -> tuple:
     """`netsync actbench <args>` -- (the state after it or None, why-not). The caller probes `act.host` first."""
@@ -345,9 +355,9 @@ def _commit(g, slot: int, cmd: int, sub: int, tar: int, cursor: int) -> None:
 
 
 def _plan(g, ctx: dict, samples: list) -> str:
-    """Battle 1's command plan, turn by turn (the game's own asks): Zidane Attack x2 (the first on the first enemy, the
-    second on ANOTHER standing one -- the damage spread), Vivi's many-target spell on every enemy at her first prompt while
-    two stand, then Fire; Garnet a Potion on herself; then one Defend; every other prompt Defends. Each prompt's state is
+    """Battle 1's command plan, turn by turn (the game's own asks): Zidane Attack x2, both on the sturdiest standing ally
+    (the enemies' HP kept), Vivi's many-target spell on every enemy LAST (after both Attacks and the Potion: it can end
+    the fight) while two stand, then Fire if any stands; Garnet a Potion on herself; then one Defend; every other prompt Defends. Each prompt's state is
     sampled for ON; each `act` records the cmd/sub it sent (AT / POT filter by them). Returns why it stopped early ('' = the
     plan ran)."""
     st = g.state
@@ -371,15 +381,14 @@ def _plan(g, ctx: dict, samples: list) -> str:
             target_slot = int(live[0].get("slot"))
         try:
             if z is not None and slot == int(z["slot"]) and done["attacks"] < 2:
-                aim = target_slot
-                if done["attacks"] == 1:                  # the second on ANOTHER standing enemy: the damage spread
-                    other = [u for u in live if int(u.get("slot", -1)) != ctx.get("attack_target")]
-                    aim = int(other[0]["slot"]) if other else target_slot
+                ally = _sturdiest_ally(s, slot)           # an ally: the enemies' HP is kept for MT / EN / the Fire
+                aim = ally if ally is not None else target_slot
                 sent = g.act("Attack", slot=slot, target=aim)
                 done["attacks"] += 1
                 ctx.setdefault("attack_target", aim)
                 ctx.setdefault("attack_sent", (int(sent["id"]), int(sent["sub"])))
-            elif v is not None and slot == int(v["slot"]) and not done["many"] and not ctx.get("no_many"):
+            elif (v is not None and slot == int(v["slot"]) and not done["many"] and not ctx.get("no_many")
+                  and done["attacks"] >= 2 and done["potion"]):   # the spell can end the fight: it goes LAST
                 menu = g.menus(slot)
                 spell = _many_target(menu)
                 if spell is None or len(live) < 2:
@@ -395,7 +404,7 @@ def _plan(g, ctx: dict, samples: list) -> str:
                     done["many"] = True
                     ctx["many"] = dict(spell, mask=mask)
             elif (v is not None and slot == int(v["slot"]) and (done["many"] or ctx.get("no_many"))
-                  and not done["fire"] and not ctx.get("no_fire") and live):
+                  and not done["fire"] and not ctx.get("no_fire") and live and done["attacks"] >= 2):
                 spell = _single_fire(g.menus(slot))
                 if spell is None:
                     ctx["no_fire"] = True
