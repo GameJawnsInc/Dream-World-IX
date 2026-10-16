@@ -1848,7 +1848,9 @@ BATTLE_CONTAINERS = {"end.end_leave": "s105", "end.declined": "s105", "menu.cont
                      "act.host.tape": "s133",
                      # [ff9mapkit netsync s134] its `guest` half and that half's fixed sub-objects
                      "act.guest": "s134", "act.guest.levers": "s134", "act.guest.grace": "s134",
-                     "act.guest.window": "s134", "act.guest.aborts": "s134", "act.guest.discarded": "s134"}
+                     "act.guest.window": "s134", "act.guest.aborts": "s134", "act.guest.discarded": "s134",
+                     # [ff9mapkit netsync s135] the replay hit hold, the LAST key of `act.guest`, and its `lag`
+                     "act.guest.hold": "s135", "act.guest.hold.lag": "s135"}
 #: The records that may be published null (an accessor reads None for them either way).
 BATTLE_NULLABLE = ("host.end", "peer.end", "menu.captured", "menu.roster", "menu.bench_roster", "menu.pending",
                    "menu.feed", "host.manifest", "host.handback.last", "end.replay.screen", "end.replay.fp",
@@ -2055,6 +2057,9 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(guest["window"]) == FG.NETSYNC_ACT_GUEST_WINDOW_KEYS
     assert tuple(guest["aborts"]) == FG.NETSYNC_ACT_GUEST_ABORTS_KEYS == BW.ACT_ABORTS_KEYS
     assert tuple(guest["discarded"]) == FG.NETSYNC_ACT_GUEST_DISCARDED_KEYS == ("pending", "running")
+    # [ff9mapkit netsync s135] `act.guest.hold`, the LAST key of `act.guest`, and its fixed `lag`
+    assert list(guest)[-1] == "hold" and tuple(guest["hold"]) == FG.NETSYNC_ACT_GUEST_HOLD_KEYS
+    assert tuple(guest["hold"]["lag"]) == FG.NETSYNC_ACT_GUEST_HOLD_LAG_KEYS == BW.ACT_HOLD_LAG_KEYS
     top = list(prev_doc)
     assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
@@ -2194,7 +2199,9 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
             # [ff9mapkit netsync s134] the replay's levers at rest: the ini's ActionReplay (1) and this machine's SFXRework
             # -- `on` true, `rework` true, `knob` 1 (the catch line's false / false / -1 is "the block failed to build")
             "act.guest.on": "HarnessActGuestOn", "act.guest.rework": "HarnessActGuestRework",
-            "act.guest.knob": "HarnessActGuestKnob"}
+            "act.guest.knob": "HarnessActGuestKnob",
+            # [ff9mapkit netsync s135] the hold's levers at rest (`on` / `lifeskip` true; the catch line's false = "failed")
+            "act.guest.hold.on": "HarnessHoldOn", "act.guest.hold.lifeskip": "HarnessHoldLifeSkip"}
     for sub in want:
         assert list(got[sub]) == list(want[sub]), (sub, list(got[sub]), list(want[sub]))
     for path in BATTLE_CONTAINERS:                       # the fixed sub-objects keep the agent's key order too
@@ -2228,7 +2235,8 @@ BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", 
                  "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119", "s120", "s121",
                  "s131", "s132",                              # [ff9mapkit netsync s131] (s122-s130 unused: group 2 is s133-s141)
                  "s133",                                      # [ff9mapkit netsync s133] group 2's first
-                 "s134"]                                      # [ff9mapkit netsync s134] the guest action replay
+                 "s134",                                      # [ff9mapkit netsync s134] the guest action replay
+                 "s135"]                                      # [ff9mapkit netsync s135] the replay hit hold
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2492,7 +2500,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s133] the host action-start lane
             "coop_act_host",
             # [ff9mapkit netsync s134] the guest action replay
-            "coop_act_guest")
+            "coop_act_guest",
+            # [ff9mapkit netsync s135] the replay hit hold
+            "coop_act_hold")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -5419,6 +5429,7 @@ S121_CAPS = _all_caps_through("menurefusal")
 S131_CAPS = _all_caps_through("expiredseq")
 S132_CAPS = _all_caps_through("grace40")
 S133_CAPS = _all_caps_through("actstart")                              # [ff9mapkit netsync s134] s134's calibration red
+S134_CAPS = _all_caps_through("actreplay")                             # [ff9mapkit netsync s135] s135's calibration red
 _CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -6193,6 +6204,10 @@ def _proof_lines(fake) -> list:
 @pytest.mark.parametrize("caps,want", [
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28)]),
+    # [ff9mapkit netsync s135] s134 (s135's calibration red): no 'action hold' line
+    ("s134", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
               BW.proof_ok(BW.PROOF_REPLAY, 34)]),
     # [ff9mapkit netsync s134] s133 (s134's calibration red): no 'action replay' line
     ("s133", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
@@ -6215,7 +6230,7 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     never runs the selftest role), so the s121 'no peer adopt line' red is the stand-in's, never yet observed in game."""
     fake = FakeGame(game)
     fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS,
-                         "s132": S132_CAPS, "s133": S133_CAPS}.get(caps) or _caps_at(caps)
+                         "s132": S132_CAPS, "s133": S133_CAPS, "s134": S134_CAPS}.get(caps) or _caps_at(caps)
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6230,7 +6245,7 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
         assert len(_proof_lines(fake)) == len(want)
     assert all(_battle_text(f'Log.Message("[NetSync] {h}"') for h in (BW.PROOF_CONTROL, BW.PROOF_WATCH, BW.PROOF_GRACE,
                                                                       BW.PROOF_ADOPT, BW.PROOF_ACTION,
-                                                                      BW.PROOF_REPLAY)) \
+                                                                      BW.PROOF_REPLAY, BW.PROOF_HOLD)) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"'))
 
 
@@ -7532,12 +7547,18 @@ def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_st
     engine's words -- on s132 it refuses the whole sub-verb naming s133 and the engine's would-be answer. [ff9mapkit
     netsync s134] The guest ops (Session.NETSYNC_ACTBENCH_OP_CAPS) leave s133's "unknown op" list alone, and s134 REWROTE
     the agent's usage line: each engine's words are judged against a stand-in at THAT engine (s133's off s133's own
-    patch), the guest forms by the s134 tests below."""
+    patch), the guest forms by the s134 tests below. [ff9mapkit netsync s135] s135 rewrote the usage line again (the hold
+    ops): s134's is read off s134's own patch; the hold forms by the s135 tests below."""
     ops = net_lines("NetSyncBattle.cs", r"netsync actbench: unknown op '")
     assert len(ops) == 1 and tuple(re.search(r"\(([a-z|]+)\)\";", ops[0]).group(1).split("|")) == \
         Session.NETSYNC_ACTBENCH_OPS == FG.NETSYNC_ACTBENCH_OPS == FG.actbench_ops(_all_caps_through("actstart"))
     assert FG.actbench_ops(_all_caps_through("grace40")) == ()
-    assert tuple(Session.NETSYNC_ACTBENCH_OP_CAPS) == FG.NETSYNC_ACTBENCH_GUEST_OPS == BW.ACT_GUEST_BENCH_OPS
+    # (each later patch's ops by their own patch: [ff9mapkit netsync s135] the hold's `hold|lifeskip|unit` after s134's)
+    later = {}
+    for op, (_attr, _key, patch, _what) in Session.NETSYNC_ACTBENCH_OP_CAPS.items():
+        later.setdefault(patch, []).append(op)
+    assert tuple(later["s134"]) == FG.NETSYNC_ACTBENCH_GUEST_OPS == BW.ACT_GUEST_BENCH_OPS
+    assert tuple(later["s135"]) == FG.NETSYNC_ACTBENCH_HOLD_OPS == BW.ACT_HOLD_BENCH_OPS and set(later) == {"s134", "s135"}
     tape = net_lines("NetSyncBattle.cs", r"netsync actbench tape: expected `tape ")
     m = re.search(r"`tape ([a-z|]+)` or `tape dump <from> <count>`", tape[0]) if len(tape) == 1 else None
     assert m and Session.NETSYNC_ACTBENCH_TAPE_OPS == FG.NETSYNC_ACTBENCH_TAPE_OPS == tuple(m.group(1).split("|")) + (
@@ -7548,11 +7569,17 @@ def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_st
     s133_usage = [_literals(ln)[1] for ln in net_lines("HarnessAgent.cs", r'ArgumentOutOfRangeException\("netsync actbench", ',
                                                         [_patch_bytes("s133")])]
     assert s133_usage == [Session.NETSYNC_ACTBENCH_USAGE] == [FG.NETSYNC_ACTBENCH_USAGE_S133]
-    assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE_S134}");')
-    assert Session.NETSYNC_ACTBENCH_USAGE_S134 == FG.NETSYNC_ACTBENCH_USAGE_S134
-    assert not _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE}");')     # s134 rewrote it
+    # [ff9mapkit netsync s135] s134's usage off its own patch (the line s135 rewrote), s135's off the live stack
+    s134_usage = [_literals(ln)[1] for ln in net_lines("HarnessAgent.cs", r'ArgumentOutOfRangeException\("netsync actbench", ',
+                                                        [_patch_bytes("s134")])]
+    assert s134_usage == [Session.NETSYNC_ACTBENCH_USAGE_S134] == [FG.NETSYNC_ACTBENCH_USAGE_S134]
+    assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE_S135}");')
+    assert Session.NETSYNC_ACTBENCH_USAGE_S135 == FG.NETSYNC_ACTBENCH_USAGE_S135
+    for old in (Session.NETSYNC_ACTBENCH_USAGE, Session.NETSYNC_ACTBENCH_USAGE_S134):         # s134, then s135, rewrote it
+        assert not _battle_text(f'"netsync actbench", "{old}");')
     tape_words = "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`"
-    for caps, text in ((S133_CAPS, Session.NETSYNC_ACTBENCH_USAGE), (None, Session.NETSYNC_ACTBENCH_USAGE_S134)):
+    for caps, text in ((S133_CAPS, Session.NETSYNC_ACTBENCH_USAGE), (S134_CAPS, Session.NETSYNC_ACTBENCH_USAGE_S134),
+                       (None, Session.NETSYNC_ACTBENCH_USAGE_S135)):
         fake = FakeGame(game)
         if caps is not None:
             fake.netsync_caps = caps
@@ -8518,13 +8545,16 @@ def test_the_act_guest_block_sits_after_host_at_the_catch_lines_sentinels():
     assert '\\"page\\":null}},\\"guest\\":{\\"on\\":false,' in b and "guest" not in a.split("diorama")[0]
     nothing = _agent_netsync_nothing()[0]
     assert _battle_of(nothing)["act"] == {"host": BW.ACT_HOST_SENTINELS, "guest": BW.ACT_GUEST_SENTINELS}
-    assert _catch_doc_in("s134") == nothing                                # s134 wrote the live catch line whole
+    # s134 wrote the catch line whole; [ff9mapkit netsync s135] s135 added `act.guest.hold` (its last key) and nothing else
+    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "hold"}
+    assert _catch_doc_in("s134") == {**nothing, "battle": {**nothing["battle"], "act": {
+        "host": BW.ACT_HOST_SENTINELS, "guest": s134_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134"))]
     i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuest("))
     j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
     body = " ".join(_strip_comment(t) for t in new[i:j])
     names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
-    g = BW.ACT_GUEST_SENTINELS
+    g = s134_guest                                                      # (`hold`: s135's own test)
     want = []
     for k, v in g.items():
         if k == "last":
@@ -8549,8 +8579,11 @@ def test_state_reads_the_act_guest_block_absent_on_s133_as_cannot():
     None at null, and the unit accessors read the seven keys (None without them)."""
     old = State({"frame": 1, "netsync": _catch_doc_in("s133")})
     live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
-    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items() if p.startswith("act.guest")]
-    assert len(names) == len(_leaves({"act": {"guest": BW.ACT_GUEST_SENTINELS}})) + 6 == 63, names   # + 6 whole blocks
+    # ([ff9mapkit netsync s135] `act.guest.hold` is s135's: its own test below)
+    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items()
+             if p.startswith("act.guest") and p != "act.guest.hold" and not p.startswith("act.guest.hold.")]
+    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "hold"}
+    assert len(names) == len(_leaves({"act": {"guest": s134_guest}})) + 6 == 63, names   # + 6 whole blocks
     assert (State({"frame": 1}).coop_act_guest, old.coop_act_guest, live.coop_act_guest) == (None, False, True)
     assert old.coop_act_host is True                                    # (s133's own block is there)
     assert all(getattr(old, n) is None for n in names)
@@ -8577,7 +8610,8 @@ def test_a_fresh_stand_in_publishes_the_act_guest_block_and_s133_none(game):
     """The default stand-in (s134) publishes `act.guest` at the agent's sentinels with no client -- but `on` / `rework`
     / `knob` the live reads at rest (true / true / 1); the stand-in at s133 publishes no `act.guest`, no 'action replay'
     proof line, and answers the guest forms in s133's words."""
-    want = dict(BW.ACT_GUEST_SENTINELS, on=True, rework=True, knob=1)
+    want = dict(BW.ACT_GUEST_SENTINELS, on=True, rework=True, knob=1,       # ([ff9mapkit netsync s135] + `hold`, its two
+                hold=dict(BW.ACT_GUEST_HOLD_SENTINELS, on=True, lifeskip=True))   # levers the live reads at rest)
     assert _battle_of(FakeGame(game)._netsync_doc())["act"]["guest"] == want
     old = _selftest(FakeGame(game))
     old.netsync_caps = S133_CAPS
@@ -8674,6 +8708,8 @@ def test_the_guest_ops_are_the_agents_and_the_driver_gates_them_by_act_guest(gam
     assert _added_after("s134", "HarnessAgent.cs", 'String aval = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";',
                         "if (Memoria.Netsync.NetSyncDiorama.IsActGuestBenchOp(aop, aval))")
     for op, (attr, key, patch, _what) in Session.NETSYNC_ACTBENCH_OP_CAPS.items():
+        if op in BW.ACT_HOLD_BENCH_OPS:                                 # ([ff9mapkit netsync s135] the hold's: below)
+            continue
         assert (attr, key, patch) == ("coop_act_guest", "netsync.battle.act.guest", "s134"), op
     for op, words in Session.NETSYNC_ACTBENCH_GUEST_USAGE.items():
         assert _battle_text(words) or (op in ("replay", "rework", "shortcircuit") and _battle_text(": expected `")) \
@@ -9253,6 +9289,1030 @@ def test_the_action_replay_knob_is_a_behaviour_key_and_its_config_suffix_parses(
     assert m and m.group(2) == "client" and m.group(6) == "ff9-T2BENCH1" and "actionReplay=0" in m.group(4)
 
 
+# =========================================================================== [ff9mapkit netsync s135]
+# THE REPLAY HIT HOLD (studies/battle-coop/R3-DESIGN.md 3.3.4 as amended by R3-ACTION-REPLAY-AUDIT.md 2.3 -- amendments 1-15,
+# decisions D01-D12; the audit's "s124"). Guest only, wire v14, harness protocol 5: one additive sub-object
+# (`netsync.battle.act.guest.hold`, the LAST key of `act.guest`), the `actbench` hold ops (no new sub-verb), one proof
+# line. battlewire's twins of the PURE rules (ActHoldVerdict ... ActCreditTake) EVALUATE ActHoldSelfTest's OWN 28 rows
+# off the stack -- translated statement by statement (its initializers, its for loop, its ternaries) -- each rule's mutant
+# fails a row, the constants are pinned by name both ways, and s134 -- s135's calibration red -- is the ladder prefix
+# through `actreplay` (S134_CAPS): every check below that reads the key, the ops or the proof line reads "cannot" there.
+HOLD_ROW_MARKS = ("verdict: `hold off` is the pre-s135 guest -- every frame applies on arrival",
+                  "superseded: a deferred lane applies only if newer than the slot's last applied frame (wrap-safe)",
+                  "revive: decided at release -- not lethal, and dead here NOW",
+                  "reconciler: a masked slot's whole record skips -- the `lifeskip off` lever lets it through",
+                  "release: a replaced START's impacts go `replaced`, an abort-all's `abort`, any other decline `declined`",
+                  "hit: the oldest HELD impact of that replay (by reference) on that master target; never a queued one; none "
+                  "= a credit",
+                  "credits: bounded per replay (32)",
+                  # [s135 fix pass] the five rows the review's findings added
+                  "deferred: a queued lane applies only if newer than the slot's last applied state (a reconciler sample "
+                  "stamps too) -- and never revives through a lane that was no life lane when it queued",
+                  "queue: a hit inside EffectPoint's bracket defers the drain to the next tick; outside it the queue drains "
+                  "at once",
+                  "catch-up: a skipped record re-applies once its slot leaves the life mask; a still-masked slot's waits",
+                  "figure: a hit figure its Figure point never showed is shown at once when the replay is cut -- never at "
+                  "its natural end",
+                  "grace: a player's released kill on an enemy arms the death-attack grace -- never from a backlog, at the "
+                  "end injection, or once no replay can follow")
+
+
+class _CsList(list):
+    """A C# List<T> as ActHoldSelfTest reads one (``.Count``)."""
+
+    @property
+    def Count(self):                                                    # noqa: N802 -- C#'s name
+        return len(self)
+
+
+class _CsArray(tuple):
+    """A C# array as ActHoldSelfTest reads one (``.Length``, ``[i]``)."""
+
+    @property
+    def Length(self):                                                   # noqa: N802 -- C#'s name
+        return len(self)
+
+
+def _hold_init(code: str) -> str:
+    """C#'s initializers (strings masked) -> Python: ``new List<T>()`` -> ``[]``, ``new List<T> { a, b }`` -> ``[a, b]``,
+    ``new T { A = x, B = y }`` -> ``T(A=x, B=y)`` (nested, inner first)."""
+    code = re.sub(r"\bnew List<\w+>\(\)", "[]", code)
+    while True:
+        m = re.search(r"\bnew (List<\w+>|\w+)\s*\{", code)
+        if not m:
+            return code
+        at = m.end() - 1
+        close = _rep_close(code, at, "{", "}")
+        inner = _hold_init(code[at + 1:close])
+        if m.group(1).startswith("List<"):
+            rep = "[" + inner + "]"
+        else:
+            parts = [p for p in _rep_split(inner, ",") if p]
+            kws = []
+            for p in parts:
+                k, eq, v = p.partition("=")
+                assert eq and re.fullmatch(r"\s*[A-Z]\w*\s*", k), p
+                kws.append(f"{k.strip()}={v.strip()}")
+            rep = f"{m.group(1)}(" + ", ".join(kws) + ")"
+        code = code[:m.start()] + rep + code[close + 1:]
+
+
+_HOLD_DECL = re.compile(r"(?:ActRec|Int32|String|Boolean|List<\w+>) (\w+ = .+)", re.S)
+_HOLD_FOR = re.compile(r"Int32 (\w+) = (.+?); \1 < (.+?); \1\+\+")
+
+
+def _hold_python(stmts: list, indent: str = "") -> list:
+    """ActHoldSelfTest's statements as Python source lines: a Row -> ``__row(expr, name)``; a declaration (several
+    declarators too, initializers translated) -> assignments; a ``for (Int32 i = a; i < b; i++)`` -> ``for i in range``;
+    anything else (a call) as itself."""
+    out = []
+    for s in stmts:
+        if not isinstance(s, str):
+            kind, header, body = s
+            m = _HOLD_FOR.fullmatch(header)
+            assert kind == "for" and m, s
+            out.append(f"{indent}for {m.group(1)} in range({_rep_expr(m.group(2))}, {_rep_expr(m.group(3))}):")
+            out += _hold_python(body, indent + "    ")
+            continue
+        masked, strings = _rep_mask(s)
+        masked = _hold_init(masked)
+
+        def back(code):
+            for i, lit in enumerate(strings):
+                code = code.replace(f"__S{i}__", lit)
+            return code
+        m = re.fullmatch(r"Row\((.*)\)", masked, re.S)
+        if m:
+            args = _rep_split(m.group(1), ",")
+            assert len(args) == 4 and args[2:] == ["ref rows", "ref fail"], args
+            name = " + ".join(f"str({_rep_expr(part, strings)})" for part in _rep_split(args[1], "+"))
+            out.append(indent + back(f"__row({_rep_expr(args[0], strings)}, {name})"))
+            continue
+        m = _HOLD_DECL.fullmatch(masked)
+        if m:
+            for d in _rep_split(m.group(1), ","):
+                name, _, value = d.partition("=")
+                out.append(indent + back(f"{name.strip()} = {_rep_expr(value.strip(), strings)}"))
+            continue
+        out.append(indent + back(_rep_expr(masked, strings)))
+    return out
+
+
+def _hold_program() -> str:
+    """ActHoldSelfTest, read off the stack (the hunk that holds it whole), as one Python program."""
+    block = _cs_block(REPLAY_FILE, "internal static Boolean ActHoldSelfTest(")
+    code = " ".join(_strip_comment(ln) for ln in block if not re.match(r"(?:internal|private|public) static ", ln))
+    return "\n".join(_hold_python(_act_statements(code)))
+
+
+def _hold_ns(**twins) -> dict:
+    """The namespace ActHoldSelfTest runs in: the constants by C# name (s134's and s135's; NetSyncEnd's kinds as an
+    attribute holder), the twins under their C# names (``twins`` replaces one -- a mutant), ActTestRec (s134's pinned
+    helper), ``new ActHeld {..}`` as BW.ActHeld, C#'s List / array reads, and ``__row`` asserting each row."""
+    tw = dict(verdict=BW.act_hold_verdict, life=BW.act_lane_is_life, applies=BW.act_held_applies,
+              revive=BW.act_revive_at_release, timer=BW.act_held_timer_why, blocked=BW.act_queue_blocked,
+              lifemask=BW.act_life_mask_of, busymask=BW.act_busy_mask_of, skips=BW.act_life_skips, via=BW.act_decline_via,
+              flushes=BW.act_end_inject_flushes, figpath=BW.act_hit_fig_path, flinch=BW.act_release_flinches,
+              figvalue=BW.act_fig_value, p50=BW.act_lag_p50, pick=BW.act_pick_oldest, cadd=BW.act_credit_add,
+              cfind=BW.act_credit_find, ctake=BW.act_credit_take, vias=BW.ACT_HOLD_VIAS,
+              deferred=BW.act_deferred_applies, catchup=BW.act_catch_up_slots, drains=BW.act_drains_at_hit,
+              pending=BW.act_shows_pending_at, grace=BW.act_release_arms_grace)
+    tw.update(twins)
+    ns = dict(BW.CS_REPLAY_CONSTANTS)
+    ns.update(BW.CS_HOLD_CONSTANTS)
+    names: list = []
+
+    def row(ok, name):
+        if ok is not True:
+            raise AssertionError(f"row {name!r} is {ok!r} for the twins")
+        names.append(name)
+
+    def member(obj, name):
+        v = obj[_snake(name)] if isinstance(obj, dict) else getattr(obj, _snake(name))
+        return _CsList(v) if isinstance(v, list) else v
+
+    def held(**kw):                                                     # `new ActHeld { Ord = .., Rec = .. }`
+        return BW.ActHeld(**{_snake(k): v for k, v in kw.items()})
+
+    ns.update(__row=row, __m=member, __names__=names,
+              NetSyncEnd=SimpleNamespace(**{k: v for k, v in BW.CS_CONSTANTS.items() if re.fullmatch(r"K[A-Z]\w*", k)}),
+              Array=SimpleNamespace(IndexOf=lambda arr, x: list(arr).index(x) if x in arr else -1),
+              ActHeld=held, ActHoldVias=_CsArray(tw["vias"]),
+              ActHoldVerdict=tw["verdict"], ActLaneIsLife=tw["life"], ActHeldApplies=tw["applies"],
+              ActReviveAtRelease=tw["revive"], ActHeldTimerWhy=tw["timer"], ActQueueBlocked=tw["blocked"],
+              ActLifeMaskOf=tw["lifemask"], ActBusyMaskOf=tw["busymask"], ActLifeSkips=tw["skips"],
+              ActDeclineVia=tw["via"], ActEndInjectFlushes=tw["flushes"], ActHitFigPath=tw["figpath"],
+              ActReleaseFlinches=tw["flinch"], ActFigValue=tw["figvalue"], ActLagP50=tw["p50"],
+              ActPickOldest=tw["pick"], ActCreditAdd=tw["cadd"], ActCreditFind=tw["cfind"], ActCreditTake=tw["ctake"],
+              ActDeferredApplies=tw["deferred"], ActCatchUpSlots=tw["catchup"], ActDrainsAtHit=tw["drains"],
+              ActShowsPendingAt=tw["pending"], ActReleaseArmsGrace=tw["grace"],
+              ActTestRec=lambda i, actor: BW.ActRec(i, BW.ACT_REPLAY_TEST_NONCE, actor, BW.ACTOR_IS_PLAYER,
+                                                    cmd_no=BW.CMD_ATTACK_ID, vfx_kind=BW.VFX_KIND_SPECIAL,
+                                                    state=BW.ACT_ST_REGISTERED))
+    return ns
+
+
+def _run_hold_selftest(**twins) -> list:
+    ns = _hold_ns(**twins)
+    exec(compile(_hold_program(), "<ActHoldSelfTest>", "exec"), ns)              # noqa: S102 -- the stack's own rows
+    return ns["__names__"]
+
+
+def test_the_hold_twins_evaluate_every_hold_selftest_row_off_the_stack():
+    """battlewire's s135 twins (the verdict, the lanes, the superseded guard, the revive, the clocks, the queue, the masks,
+    the reconciler's skip, the release mapping, the end-inject trigger, the figure path, the flinch, the value, the median,
+    the pick, the credits -- and the fix pass's queued-lane release, deferred drain, catch-up, cut figure and grace)
+    against ActHoldSelfTest's OWN rows, EVALUATED in order: 28, the proof line's count. Its helper ActTestRec is s134's
+    pinned body (REP_HELPER_BLOCKS)."""
+    names = _run_hold_selftest()
+    assert len(names) == BW.HOLD_SELFTEST_ROWS == 28 and len(set(names)) == 28, names
+    assert all(mark in names for mark in HOLD_ROW_MARKS), set(HOLD_ROW_MARKS) - set(names)
+    prefix = lambda n: n.split(":", 1)[0]                                # noqa: E731
+    assert [sum(prefix(n) == p for n in names) for p in ("verdict", "release", "credits", "figure", "lag", "queue",
+                                                         "deferred", "catch-up", "grace")] \
+        == [6, 3, 2, 2, 1, 2, 1, 1, 1], names
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines(REPLAY_FILE, r".", [_patch_bytes("s135")])) == 28
+    body = REP_HELPER_BLOCKS["private static ActRec ActTestRec(UInt16 id, Byte actor)"]
+    got = [c for c in (_strip_comment(t) for t in _cs_block(REPLAY_FILE, "private static ActRec ActTestRec(", "}")) if c][2:]
+    assert got[:len(body)] == body, got
+
+
+def _verdict_with(**changes):
+    """ActHoldVerdict with ONE rule broken (the twin's own body otherwise)."""
+    def verdict(hold_on, stat_tick, paired_state, target_resolved, credit, masked, room):
+        if changes.get("stat_ticks_pair") and hold_on and stat_tick and paired_state == BW.ACT_ST_RUNNING and room:
+            return BW.ACT_HOLD_HOLD                                     # a stat tick held for a hit it never gets
+        if changes.get("ended_holds") and hold_on and paired_state == BW.ACT_ST_ENDED and not credit and room:
+            return BW.ACT_HOLD_HOLD                                     # an ended replay holds (it will never hit)
+        if changes.get("credit_never_queues") and hold_on and credit and masked and room:
+            return BW.ACT_HOLD_LATE                                     # a late frame jumps an older change
+        if changes.get("full_drops") and hold_on and not room:
+            return BW.ACT_HOLD_QUEUE                                    # a full list keeps more (the cap ignored)
+        if changes.get("unpaired_ignores_busy") and hold_on and paired_state < 0 and masked:
+            return BW.ACT_HOLD_APPLY                                    # amendment 5 dropped
+        if changes.get("declined_holds") and hold_on and paired_state == BW.ACT_ST_DECLINED and target_resolved and room:
+            return BW.ACT_HOLD_HOLD
+        return BW.act_hold_verdict(hold_on, stat_tick, paired_state, target_resolved, credit, masked, room)
+    return verdict
+
+
+@pytest.mark.parametrize("twins", [
+    {"verdict": lambda *a: BW.act_hold_verdict(True, *a[1:])},
+    {"verdict": _verdict_with(stat_ticks_pair=True)}, {"verdict": _verdict_with(ended_holds=True)},
+    {"verdict": _verdict_with(credit_never_queues=True)}, {"verdict": _verdict_with(full_drops=True)},
+    {"verdict": _verdict_with(unpaired_ignores_busy=True)}, {"verdict": _verdict_with(declined_holds=True)},
+    {"life": lambda lethal, dead, busy: bool(lethal or dead)},
+    {"applies": lambda seq, seen, stamp: not seen or seq > stamp},
+    {"applies": lambda seq, seen, stamp: not seen or BW._i16(seq - stamp) >= 0},
+    {"revive": lambda lethal, dead: bool(dead)},
+    {"timer": lambda ended, end_ms, arrive, now: "timeout" if now - arrive >= BW.ACT_HOLD_TIMEOUT_MS else
+        "hostdone" if ended and now - end_ms >= BW.ACT_HOLD_HOST_DONE_MS else None},
+    {"timer": lambda ended, end_ms, arrive, now: "hostdone" if ended and now - end_ms > BW.ACT_HOLD_HOST_DONE_MS else
+        "timeout" if now - arrive > BW.ACT_HOLD_TIMEOUT_MS else None},
+    {"blocked": lambda slots, held, queued: (slots & held) != 0},
+    {"lifemask": lambda held, queued: BW.act_life_mask_of(held, [])},
+    {"busymask": lambda held, queued: BW.act_life_mask_of(held, queued)},
+    {"skips": lambda mask, index, on: 0 <= index < 8 and (mask & (1 << index)) != 0},
+    {"via": lambda why: "abort" if why in ("r8", "w3", "leave", "clear", "superseded") else "declined"},
+    {"via": lambda why: "replaced" if why == "superseded" else "declined"},
+    {"flushes": lambda ours, kind: bool(ours) and kind != BW.K_FIGHTING},
+    {"flushes": lambda ours, kind: BW.is_end_kind(kind)},
+    {"figpath": lambda hidden, bracket: BW.ACT_FIG_BRACKET if bracket else BW.ACT_FIG_DIRECT},
+    {"flinch": lambda dmg, lethal, revive, hidden, can: bool(dmg) and not lethal and not hidden and bool(can)},
+    {"figvalue": lambda hp, mp: hp},
+    {"p50": lambda s: sorted(s)[len(s) // 2] if s else -1},
+    {"pick": lambda held, rec, unit: next((i for i, h in enumerate(held) if h.rec is rec and h.unit_id == unit), -1)},
+    {"pick": lambda held, rec, unit: min((i for i, h in enumerate(held) if h.rec is rec and h.unit_id == unit),
+                                         key=lambda i: held[i].ord, default=-1)},
+    {"cfind": lambda r, unit: (len(r.hold_credit_units) - 1 - r.hold_credit_units[::-1].index(unit))
+        if r.hold_credit_units and unit in r.hold_credit_units else -1},
+    {"cadd": lambda r, unit, ms: (setattr(r, "hold_credit_units", (r.hold_credit_units or []) + [unit]),
+                                 setattr(r, "hold_credit_ms", (r.hold_credit_ms or []) + [ms]))},
+    {"vias": ("hit", "late", "end", "hostdone", "timeout", "abort", "declined", "replaced", "end-inject")},
+    {"deferred": lambda d, rv, life, seq, seen, stamp: not d or BW.act_held_applies(seq, seen, stamp)},
+    {"deferred": lambda d, rv, life, seq, seen, stamp: not (rv and not life) and (not d or BW.act_held_applies(seq, seen,
+                                                                                                             stamp))},
+    {"deferred": lambda d, rv, life, seq, seen, stamp: not d or (not (rv and not life))},
+    {"catchup": lambda skipped, mask: skipped},
+    {"drains": lambda bracket: True},
+    {"pending": lambda via: True}, {"pending": lambda via: via == "abort"},
+    {"grace": lambda lethal, cp, tp, backlog, via, no_replay: bool(lethal) and bool(cp) and not tp and not backlog},
+    {"grace": lambda lethal, cp, tp, backlog, via, no_replay: bool(lethal) and bool(cp) and not tp and not backlog
+        and via != "end-inject"}],
+    ids=["verdict-no-lever", "verdict-stat-tick-pairs", "verdict-ended-holds", "verdict-credit-jumps-queue",
+         "verdict-full-keeps", "verdict-unpaired-ignores-busy", "verdict-declined-holds", "life-busy-ignored",
+         "applies-no-wrap", "applies-equal-applies", "revive-lethal-revives", "timer-timeout-first",
+         "timer-strict-gt", "blocked-older-queued-ignored", "lifemask-queued-ignored", "busymask-life-only",
+         "skips-no-lever", "via-superseded-aborts", "via-abort-all-declines", "flushes-event-too",
+         "flushes-not-ours", "figpath-hidden-shows", "flinch-revive-flinches", "figvalue-hp-only", "p50-upper-median",
+         "pick-first-not-oldest", "pick-queued-picked", "credit-newest-first", "credit-uncapped", "vias-order",
+         "deferred-revives-a-free-lane", "deferred-guards-the-arrival", "deferred-ignores-the-stamp", "catchup-masked-too",
+         "drains-inside-the-bracket", "pending-at-a-natural-end", "pending-abort-only", "grace-at-the-end-inject",
+         "grace-with-no-replay"])
+def test_each_hold_rule_mutant_fails_a_selftest_row(twins):
+    """A CHECK THAT CANNOT FAIL is no check: each rule of the verdict, the lanes, the guard, the clocks, the queue, the
+    masks, the release mapping, the figures and the credits, broken alone in its twin, fails one of the engine's own rows."""
+    _hold_program()                                                     # (its own parse outside the raises)
+    with pytest.raises(AssertionError, match=r"^row ['\"]"):
+        _run_hold_selftest(**twins)
+
+
+def test_the_hold_twins_take_the_engines_parameters_in_its_order():
+    """Each s135 twin's parameters ARE its C# method's, in order (camelCase -> snake_case)."""
+    for start, fn in (("internal static Int32 ActHoldVerdict(", BW.act_hold_verdict),
+                      ("internal static Boolean ActLaneIsLife(", BW.act_lane_is_life),
+                      ("internal static Boolean ActHeldApplies(", BW.act_held_applies),
+                      ("internal static Boolean ActReviveAtRelease(", BW.act_revive_at_release),
+                      ("internal static String ActHeldTimerWhy(", BW.act_held_timer_why),
+                      ("internal static Boolean ActQueueBlocked(", BW.act_queue_blocked),
+                      ("internal static Boolean ActLifeSkips(", BW.act_life_skips),
+                      ("internal static String ActDeclineVia(", BW.act_decline_via),
+                      ("internal static Boolean ActEndInjectFlushes(", BW.act_end_inject_flushes),
+                      ("internal static Int32 ActHitFigPath(", BW.act_hit_fig_path),
+                      ("internal static Boolean ActReleaseFlinches(", BW.act_release_flinches),
+                      ("internal static Int32 ActFigValue(", BW.act_fig_value),
+                      ("internal static Int32 ActLagP50(", BW.act_lag_p50),
+                      ("internal static Int32 ActPickOldest(", BW.act_pick_oldest),
+                      ("internal static void ActCreditAdd(", BW.act_credit_add),
+                      ("internal static Int32 ActCreditFind(", BW.act_credit_find),
+                      ("internal static Int32 ActCreditTake(", BW.act_credit_take),
+                      ("internal static Int32 ActBusyMaskOf(", BW.act_busy_mask_of),
+                      ("internal static Int32 ActLifeMaskOf(", BW.act_life_mask_of),
+                      ("internal static Boolean ActDeferredApplies(", BW.act_deferred_applies),
+                      ("internal static Int32 ActCatchUpSlots(", BW.act_catch_up_slots),
+                      ("internal static Boolean ActDrainsAtHit(", BW.act_drains_at_hit),
+                      ("internal static Boolean ActShowsPendingAt(", BW.act_shows_pending_at),
+                      ("internal static Boolean ActReleaseArmsGrace(", BW.act_release_arms_grace)):
+        cs = [_snake(p) for p in _cs_signature(REPLAY_FILE, start)]
+        assert cs == _twin_params(fn), (start, cs, _twin_params(fn))
+    # ActHeld's fields, in the class's order (the twin's constructor parameters; `A` is the frame, `a`)
+    cls = " ".join(_cs_block(REPLAY_FILE, "internal sealed class ActHeld", "}"))
+    fields = [f for decl in re.findall(r"public [\w.]+ ([^;=]+)(?:=[^;]*)?;", cls) for f in decl.replace(" ", "").split(",")]
+    assert [_snake(f) for f in fields] == _twin_params(BW.ActHeld.__init__)[1:], fields
+
+
+def _hold_consts() -> dict:
+    """Every `internal const Int32` the s135 patch declares (comments stripped) -> its value."""
+    out = {}
+    for line in net_lines(REPLAY_FILE, r"internal const Int32 ", [_patch_bytes("s135")]):
+        m = re.fullmatch(r"internal const Int32 (.*);", _strip_comment(line))
+        assert m, line
+        for decl in m.group(1).split(","):
+            d = re.fullmatch(r"\s*(\w+) = (0x[0-9A-Fa-f]+|-?\d+)\s*", decl)
+            assert d, decl
+            out[d.group(1)] = int(d.group(2), 0)
+    return out
+
+
+def test_the_hold_constants_are_the_stacks_both_ways():
+    """THE PIN: every CS_HOLD_CONSTANTS entry is NetSyncDiorama.Replay.cs's constant of that name and value, and every
+    `internal const Int32` the s135 patch declares is in the table -- a constant added, renamed or retuned on either side
+    turns this red. ActViaArrival and the nine ActHoldVias are pinned by value, in the `rel_*` order."""
+    cs = _hold_consts()
+    assert cs == BW.CS_HOLD_CONSTANTS, sorted(set(cs.items()) ^ set(BW.CS_HOLD_CONSTANTS.items()))
+    assert (cs["ActHoldTimeoutMs"], cs["ActHoldHostDoneMs"], cs["ActHoldCap"]) == (2500, 1500, 64)
+    assert _battle_text(f'internal const String ActViaArrival = "{BW.ACT_VIA_ARRIVAL}";')
+    vias = next(ln for ln in _stack_text(REPLAY_FILE) if "internal static readonly String[] ActHoldVias" in ln)
+    assert tuple(re.findall(r'"([\w-]+)"', vias)) == BW.ACT_HOLD_VIAS
+    assert BW.ACT_HOLD_REL_KEYS == tuple("rel_" + v.replace("-", "_") for v in BW.ACT_HOLD_VIAS)
+    assert set(BW.ACT_FIG_VIAS) == {BW.ACT_VIA_ARRIVAL, "queued", *BW.ACT_HOLD_VIAS}
+
+
+def test_the_hold_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s135: `act.guest.hold` in AppendNetsync's SECOND catch literal, right after `last`,
+    at its sentinels; the line stays ONE line of two literals; AppendActGuestHold writes the keys in the catch line's order
+    (the lag's, then one figs entry's), each through its NetSyncDiorama getter (`rel_<via>` through HarnessHoldRelBy of
+    that via); AppendActGuest calls it after `last`; published in every role; protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    a, b = _literals(catch[0])
+    assert '\\"last\\":null,\\"hold\\":{\\"on\\":false,\\"lifeskip\\":false,' in b and "lifeskip" not in a
+    nothing = _agent_netsync_nothing()[0]
+    assert _battle_of(nothing)["act"]["guest"]["hold"] == BW.ACT_GUEST_HOLD_SENTINELS
+    assert list(_battle_of(nothing)["act"]["guest"])[-2:] == ["last", "hold"]
+    assert _catch_doc_in("s135") == nothing                                # s135 wrote the live catch line whole
+    new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s135"))]
+    i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestHold("))
+    j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
+    body = " ".join(_strip_comment(t) for t in new[i:j])
+    names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
+    top = [k for k in BW.ACT_GUEST_HOLD_SENTINELS if k not in ("lag", "figs")]
+    assert names == top + list(BW.ACT_HOLD_LAG_KEYS) + list(BW.ACT_HOLD_FIG_KEYS), names
+    rel = re.findall(r'Num\(sb, "(\w+)", Memoria\.Netsync\.NetSyncDiorama\.HarnessHoldRelBy\("([\w-]+)"\)\)', body)
+    assert rel == list(zip(BW.ACT_HOLD_REL_KEYS, BW.ACT_HOLD_VIAS)), rel
+    for k in [k for k in top if k not in BW.ACT_HOLD_REL_KEYS]:
+        assert re.search(rf'(?:Bool|Num)\(sb, "{k}", Memoria\.Netsync\.NetSyncDiorama\.HarnessHold\w+\)', body), k
+    assert '"lag":{' in body.replace("\\", "") and '"figs":[' in body.replace("\\", "")
+    assert _added_after("s135", "HarnessAgent.cs", 'Num(sb, "hits", lhits);', "AppendActGuestHold(sb);")
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    assert not _battle_text("IsSelfTestRole ? _hold") and not _battle_text("IsSelfTestRole ? _actLifeMask")
+    assert _battle_text("internal static Boolean HarnessHoldOn { get { return ActHoldOn; } }")
+    assert _battle_text("internal static Int32 HarnessHoldLifeMask { get { return _actLifeMask; } }")
+
+
+def test_state_reads_the_hold_block_absent_on_s134_as_cannot():
+    """On s134's catch block (s135's calibration red) every `act.guest.hold` accessor reads None and `coop_act_hold`
+    False; on the live block they read the sentinels and True; a published block reads its values (a copy), a mistyped one
+    None, and `figs` a list of copies."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s134")})
+    live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
+    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items() if p == "act.guest.hold" or p.startswith("act.guest.hold.")]
+    assert len(names) == len(_leaves({"act": {"guest": {"hold": BW.ACT_GUEST_HOLD_SENTINELS}}})) + 2 == 27, names
+    assert (State({"frame": 1}).coop_act_hold, old.coop_act_hold, live.coop_act_hold) == (None, False, True)
+    assert old.coop_act_guest is True                                   # (s134's own block is there)
+    assert all(getattr(old, n) is None for n in names)
+    assert all(getattr(live, n) is not None for n in names)
+    assert (live.coop_act_hold_figs, live.coop_act_hold_lag_p50, live.coop_act_hold_on) == ([], -1, False)
+    doc = _agent_netsync_nothing()[0]
+    doc["battle"]["act"]["guest"]["hold"].update(
+        held=3, rel_hit=2, life_mask="16", on=True,
+        figs=[{"slot": 4, "value": 4321, "via": "hit", "arrival_ms": 100, "release_ms": 612}],
+        lag={"n": 2, "min": -40, "p50": -40, "max": 512})
+    st = State({"frame": 1, "netsync": doc})
+    assert (st.coop_act_hold_held, st.coop_act_hold_rel_hit, st.coop_act_hold_life_mask, st.coop_act_hold_on) == \
+        (3, 2, None, True)
+    assert (st.coop_act_hold_lag_n, st.coop_act_hold_lag_min, st.coop_act_hold_lag_max) == (2, -40, 512)
+    figs = st.coop_act_hold_figs
+    figs[0]["value"] = 0
+    assert st.coop_act_hold_figs[0]["value"] == 4321                    # a copy
+    assert BW.act_hold_released(doc["battle"]["act"]["guest"]["hold"]) == 2 and BW.act_hold_released(None) is None
+
+
+def test_a_fresh_stand_in_publishes_the_hold_block_and_s134_none(game):
+    """The default stand-in (s135) publishes `act.guest.hold` at the agent's sentinels with no client -- but `on` /
+    `lifeskip` the live reads at rest (true / true); the stand-in at s134 publishes no `hold`, no 'action hold' proof
+    line, and answers the hold forms in s134's words (its usage for a 4-word form, its "unknown op" for a 3-word one)."""
+    want = dict(BW.ACT_GUEST_HOLD_SENTINELS, on=True, lifeskip=True)
+    assert _battle_of(FakeGame(game)._netsync_doc())["act"]["guest"]["hold"] == want
+    old = _selftest(FakeGame(game))
+    old.netsync_caps = S134_CAPS
+    assert "hold" not in _battle_of(old._netsync_doc())["act"]["guest"]
+    assert set(_leaves(_battle_of(old._netsync_doc()))) == set(_leaves(_battle_of(_catch_doc_in("s134"))))
+    usage = f"{FG.NETSYNC_ACTBENCH_USAGE_S134}\r\nParameter name: netsync actbench"
+    for args, words in ((["actbench", "hold", "off"], "netsync actbench: unknown op 'hold' (tape|hoststarts)"),
+                        (["actbench", "lifeskip", "on"], "netsync actbench: unknown op 'lifeskip' (tape|hoststarts)"),
+                        (["actbench", "unit", "4", "dead"], usage), (["actbench", "hold"], usage)):
+        with pytest.raises(RuntimeError) as err:
+            old._netsync(args)
+        assert str(err.value) == words, args
+
+
+HOLD_REFUSALS = [
+    # (a fragment the agent says -- ONE C# literal of the stack, or a piece --, the args, where: None / selftest / dio)
+    ("netsync actbench: needs the selftest role (netsync selftest 1)", ["actbench", "hold", "off"], None),
+    (": expected `", ["actbench", "hold", "maybe"], "selftest"),
+    (" on|off`", ["actbench", "lifeskip"], "selftest"),
+    (BW.HOLD_UNIT_USAGE, ["actbench", "unit", "8", "dead"], "selftest"),
+    (BW.HOLD_UNIT_USAGE, ["actbench", "unit", "x", "dead"], "selftest"),
+    (BW.HOLD_UNIT_USAGE, ["actbench", "unit", "4", "undead"], "selftest"),
+    (BW.HOLD_UNIT_USAGE, ["actbench", "unit", "4"], "selftest"),
+    (BW.HOLD_UNIT_STEADY, ["actbench", "unit", "4", "dead"], "selftest"),
+    (BW.HOLD_UNIT_NO_UNIT, ["actbench", "unit", "6", "dead"], "dio"),
+    (" has no local unit", ["actbench", "unit", "6", "dead"], "dio"),
+]
+
+
+@pytest.mark.parametrize("fragment,args,where", HOLD_REFUSALS, ids=[f"{r[0][:30]}-{i}" for i, r in enumerate(HOLD_REFUSALS)])
+def test_the_stand_in_refuses_the_hold_ops_in_the_agents_words(game, fragment, args, where):
+    """Every hold `actbench` gate the stand-in models refuses with the engine's own words (each fragment a literal of the
+    stack: HarnessActGuestBench's role gate, HarnessActHoldBench's parse, its steady gate, its resolve)."""
+    assert _battle_text(fragment), f"the live stack no longer says {fragment!r}"
+    fake = FakeGame(game)
+    if where == "selftest":
+        _selftest(fake)
+    elif where == "dio":
+        _dio_fake(fake)
+    with pytest.raises(RuntimeError) as err:
+        fake._netsync(args)
+    assert fragment in str(err.value), str(err.value)
+    if args[1] in ("hold", "lifeskip") and where == "selftest":
+        # the spliced refusal, WHOLE (the fragment alone would pass a stand-in that answered another op's refusal)
+        assert str(err.value) == f"netsync actbench {args[1]}: expected `{args[1]} on|off`", str(err.value)
+
+
+def test_the_hold_ops_are_the_agents_and_the_driver_gates_them_by_act_guest_hold(game):
+    """The hold ops are IsActGuestBenchOp's (case by case) and HarnessActGuestBench's (routed to HarnessActHoldBench); the
+    driver keys each on `act.guest.hold` (s135), refuses a malformed form before the step in the engine's words (`hold` /
+    `lifeskip` splice their op), and on an s134 engine refuses every hold form naming s135 and what s134 would answer."""
+    # (s135's hunks add three cases to s134's switches: read off s135's own patch, in order)
+    new = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(REPLAY_FILE, _patch_bytes("s135"))) if c]
+    for site in (['case "teardown":', *(f'case "{op}":' for op in BW.ACT_HOLD_BENCH_OPS), "return true;", 'case "tape":',
+                  'return value == "play";'],
+                 [*(f'case "{op}":' for op in BW.ACT_HOLD_BENCH_OPS), "return HarnessActHoldBench(args, op, val, out why);",
+                  "default:"]):
+        assert any(new[k:k + len(site)] == site for k in range(len(new))), site
+    for op in BW.ACT_HOLD_BENCH_OPS:
+        attr, key, patch, _what = Session.NETSYNC_ACTBENCH_OP_CAPS[op]
+        assert (attr, key, patch) == ("coop_act_hold", "netsync.battle.act.guest.hold", "s135"), op
+    assert _battle_text('why = "netsync actbench " + op + ": expected `" + op + " on|off`";')
+    assert Session.NETSYNC_ACTBENCH_HOLD_USAGE["unit"] == BW.HOLD_UNIT_USAGE and _battle_text(BW.HOLD_UNIT_USAGE)
+    assert Session.NETSYNC_ACTBENCH_UNIT_STATES == BW.ACT_HOLD_UNIT_STATES
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        for args in (("hold",), ("hold", "maybe"), ("lifeskip", "on", "x"), ("unit", "4"), ("unit", "9", "dead"),
+                     ("unit", "x", "dead"), ("unit", "4", "zombie"), ("unit", "4", "dead", "now")):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *args])
+            assert str(err.value) == str(agent.value), (args, str(err.value), str(agent.value))
+        assert len(fake.executed) == n
+        st = g.act_hold(False)                                          # a well-made form goes to the engine
+        assert st.coop_act_hold_on is False and st.coop_act_hold_lifeskip is True
+        st = g.actbench("LIFESKIP", "Off")                              # the agent lowercases both; so does the driver
+        assert st.coop_act_hold_lifeskip is False and fake.executed[-1] == ["netsync", "actbench", "LIFESKIP", "Off"]
+        with pytest.raises(HarnessError, match=r"in its steady state \(PHASE_NORMAL, the units latched\) \(steps="):
+            g.act_unit(4, "dead")                                       # (sent: the AGENT refuses it -- no diorama)
+    fake = FakeGame(game)
+    fake.netsync_caps = S134_CAPS
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        for args in (("hold", "off"), ("lifeskip", "on"), ("unit", 4, "dead")):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *(str(a) for a in args)])
+            assert str(err.value).startswith(f"netsync actbench {args[0]}: the deployed engine publishes no "
+                                             f"`netsync.battle.act.guest.hold`"), str(err.value)
+            assert f"(memoria-patch s135); it would answer \"{agent.value}\" only after the step" in str(err.value), \
+                (args, str(err.value), str(agent.value))
+        assert len(fake.executed) == n and g.state.coop_act_hold is False and g.state.coop_act_guest is True
+
+
+def test_the_hold_log_lines_are_the_engines():
+    """Every LOG_HOLD_* the stand-in writes and the bench reads is the stack's own words (one C# literal, or a piece the
+    engine splices): a reworded engine line turns this red before a bench silently stops matching it."""
+    for whole in (BW.LOG_HOLD_FURTHER, BW.LOG_HOLD_LEVERS_BACK, BW.HOLD_UNIT_USAGE, BW.HOLD_UNIT_STEADY,
+                  BW.LOG_HOLD_UNIT_SKIPPED, BW.LOG_HOLD_UNIT_APPLIED, BW.LOG_HOLD_HIT_FIRST, BW.LOG_HOLD_SUPERSEDED,
+                  BW.LOG_HOLD_RELEASED_VIA, BW.LOG_HOLD_DISCARDED, BW.LOG_HOLD_FAULTED, BW.HOLD_UNIT_NO_UNIT,
+                  BW.LOG_HOLD_MASK_SKIP, BW.LOG_HOLD_FLUSH, BW.LOG_HOLD_CATCH_UP, BW.LOG_HOLD_CATCH_UP_PIECE,
+                  BW.LOG_HOLD_CATCH_UP_TAIL.split(" -- ", 1)[1]):
+        assert _battle_text(whole), whole
+    # the spliced words, pinned as the C# EXPRESSION that writes them -- a bare 'held impact' is in ~20 comment lines of
+    # the patch, so a reworded literal would never turn a bare-word pin red (fix pass: harness-8)
+    head = lambda c: c.split("hold: ")[1]                               # noqa: E731
+    for quoted in (f'(queued ? "{head(BW.LOG_HOLD_QUEUED_FRAME)}" : "{head(BW.LOG_HOLD_HELD_IMPACT)}")',
+                   f'+ "{BW.LOG_HOLD_RELEASED_VIA}" + via +',
+                   f'(h.Queued ? "{head(BW.LOG_HOLD_FIRST_QUEUED)}" : "{head(BW.LOG_HOLD_FIRST_HELD)}")',
+                   f'(superseded ? "{BW.LOG_HOLD_SUPERSEDED}" : "")',
+                   f'+ "{BW.LOG_HOLD_CATCH_UP_PIECE}" + _actSkippedSeq[i] + ") re-applied at "',
+                   # [fix pass: rtiming-1] the release line battlewire.parse_hold_release reads, piece by piece in order
+                   '(r != null ? " of id " + r.Id : "")',
+                   f'+ " on wire slot " + slot + "{BW.LOG_HOLD_RELEASED_VIA}" + via + " after " + heldMs + " ms of battle '
+                   f'time"',
+                   '+ (lag != Int32.MinValue ? " (lag " + lag + " ms"'):
+        assert _battle_text(quoted), quoted
+    # ...and the parser reads the line exactly as the engine (and the stand-in's twin) writes it, Memoria.log prefix kept
+    line = (f"16.10.2026 12:00:00 |M| {BW.LOG_HOLD_HELD_IMPACT} of id 12 on wire slot 5{BW.LOG_HOLD_RELEASED_VIA}timeout "
+            f"after 2516 ms of battle time{BW.LOG_HOLD_SUPERSEDED}")
+    assert BW.parse_hold_release(line) == {"queued": False, "id": 12, "slot": 5, "via": "timeout", "held_ms": 2516,
+                                           "lag": None, "superseded": True}
+    assert BW.parse_hold_release(f"{BW.LOG_HOLD_QUEUED_FRAME} on wire slot 0{BW.LOG_HOLD_RELEASED_VIA}end-inject after 0 ms "
+                                 f"of battle time") == {"queued": True, "id": None, "slot": 0, "via": "end-inject",
+                                                        "held_ms": 0, "lag": None, "superseded": False}
+    assert BW.parse_hold_release(f"{BW.LOG_HOLD_HELD_IMPACT} of id 3 on wire slot 4{BW.LOG_HOLD_RELEASED_VIA}late after 0 "
+                                 f"ms of battle time (lag -40 ms{BW.LOG_HOLD_HIT_FIRST})")["lag"] == -40
+    assert BW.parse_hold_release(BW.LOG_HOLD_FLUSH + "1 held impact(s)") is None and BW.parse_hold_release("") is None
+    # the spliced ones: each piece one literal (the engine's own line breaks)
+    for pieces in (("OFF -- CALIBRATION: the pre-s135 guest (numbers, the flinch and ", "deaths land when the host's "
+                    "impact ARRIVES)"),
+                   ("[NetSync] harness: action replay life-mask skip ", "OFF -- CALIBRATION: the reconciler applies a held "),
+                   (BW.LOG_HOLD_FIRST_TAIL[:BW.LOG_HOLD_FIRST_TAIL.index(" the bars")],),
+                   ("frame(s) at once (the legacy path: every kill lands before the end presentation reads the party; "
+                    "logged once per boot)",)):
+        for piece in pieces:
+            assert _battle_text(piece), piece
+    assert _battle_text('"[NetSync] harness: action replay hold " + (off ? "OFF -- CALIBRATION: the pre-s135 guest ('
+                        'numbers, the flinch and "')
+    assert BW.LOG_HOLD_ON.endswith("hold ON") and BW.LOG_LIFESKIP_ON.endswith("skip ON")
+
+
+#: the s135 hook sites (a file, then the lines in order inside s135's own patch: code lines, comments dropped)
+HOLD_HOOKS = {
+    "UnifiedBattleSequencer.cs": [("if (!btl2dParam.TryGetValue(btl, out Btl2dParam figParam))", "continue;",
+                                   "if (Memoria.Netsync.NetSyncDiorama.ActLive)",
+                                   "Memoria.Netsync.NetSyncDiorama.ActNoteFigure(cmd, btl, figParam);",
+                                   "btl2d.Btl2dReq(btl, figParam);")],
+    "NetSyncDiorama.cs": [
+        ("Array.Clear(_gateSeq, 0, _gateSeq.Length);", "ActHoldClear();", "ActHoldResetCounters();"),
+        ("Array.Clear(_gateSeq, 0, _gateSeq.Length);", "ActHoldClear();", "BootedWireNonce = -1;"),
+        ("Array.Clear(_gateSeq, 0, _gateSeq.Length);", "ActHoldClearSeq();"),
+        ("_gated[u.Index] = false;", "}", "if (_actLifeMask != 0 && ActLifeSkipNow(ref u, seq))", "return;",
+         "BTL_DATA d = ResolveWireUnit(b, u.Index, u.IsPlayer);"),
+        ('LogUnresolvedWireUnit(u.Index, "reconcile");', "return;", "}", "ActSampleApplied(u.Index, seq);",
+         "Boolean hasDeath = (d.stat.cur & BattleStatus.Death) != 0;"),
+        ("Boolean covered = paired != null && paired.CoversSwing;", "if (paired != null)", "{", "_actPaired++;"),
+        ("if (ActHoldIntake(b, ref a, dT, dC, selfCast, paired, backlog))", "return;",
+         "ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, ActViaArrival, _actNowMs, false, 0);", "}"),
+        ("if (ActEndInjectFlushes(ours, e.Kind))", 'ActHoldFlush("end-inject");',
+         "Boolean allDown = e.Kind == NetSyncEnd.KDefeat && AllPlayersDown(b);"),
+        ("private static void InjectEnd(FF9StateBattleSystem b, NetSyncBattle.PeerEnd e, Int32 action, Boolean allDown)",
+         "{", 'ActHoldFlush("end-inject");'),
+        ("if (applyT && ActReleaseArmsGrace(lethalT, a.CasterIsPlayer, a.TargetIsPlayer, backlog, via,",
+         "deferred && (EndHudOff || LeaveRequestedRecently)))", 'ActArmDeathGrace(dT, true, "impact");')],
+    "NetSyncDiorama.Replay.cs": [
+        ('Log.Error("[NetSync] action replay tick failed (logged once per boot; the teardown still discards every '
+         'replay): " + ex);', "}", "}", "ActHoldTick();", "}"),
+        ("ActRecomputeLive();", 'ActHoldReleaseRec(r, "end");'),
+        ("ActHoldReleaseRec(r, ActDeclineVia(why));",),
+        ('ActHoldReleaseRec(r, "declined");',),
+        ("ActRecomputeLive();", 'ActHoldReleaseRec(r, "abort");', "_actAborted++;"),
+        ("internal static void ActDiscardAll(String why)", "{", "ActHoldDiscardAll(why);"),
+        ("if (master != null)", "ActHoldOnHit(r, master, target, sfxThread != null && !r.NoShortCircuit);",
+         "return !r.NoShortCircuit;"),
+        ("_benchHoldOff = false;", "_benchLifeSkipOff = false;")],
+    "NetSyncClient.cs": [("Boolean holdOk = NetSyncDiorama.ActHoldSelfTest(out holdDetail);",)],
+}
+
+
+def test_the_hold_hooks_sit_at_the_audits_sites():
+    """Each s135 hook at its audited site, read off s135's own patch (code lines, comments dropped, in order): the one
+    stock edit -- EffectPoint's Figure tap, read-only behind ActLive, right before the stock Btl2dReq -- and nothing else
+    in a stock file; the three B3.5 reset sites (the boot block with the counters, Boot's catch, ForceDisarm's seqs);
+    ApplyUnit's life-mask skip AFTER the horizon gate and BEFORE the resolve (the whole record, D04); the paired accounting
+    BEFORE the intake; EndTick's flush at the injection branch's head BEFORE AllPlayersDown (amendment 2) and InjectEnd's
+    head; the death grace only for an APPLIED lane (and only while a replay can follow: the fix pass); ActTick's hold step
+    LAST and OUTSIDE its try (the fix pass); ApplyUnit's stamp right after the resolve (the fix pass); the record releases;
+    the teardown's discard FIRST; the hit release inside ActOnHit's own short-circuit; the levers in ActBenchRelease; the
+    proof line."""
+    s135 = _patch_bytes("s135")
+    for file_name, sites in HOLD_HOOKS.items():
+        new = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(file_name, s135)) if c]
+        for site in sites:
+            at = next((k for k in range(len(new)) if new[k:k + len(site)] == list(site)), None)
+            assert at is not None, (file_name, site[0])
+    files = {p.replace("\\", "/").rsplit("/", 1)[-1] for p, _sec in msr.sections(s135) if p}
+    assert files == {"UnifiedBattleSequencer.cs", "HarnessAgent.cs", "NetSyncClient.cs", "NetSyncDiorama.Replay.cs",
+                     "NetSyncDiorama.cs"}, files
+    ubs = [c for c in (_strip_comment(t) for _h, k, t in _new_side("UnifiedBattleSequencer.cs", s135) if k == "+") if c]
+    assert ubs == ["if (Memoria.Netsync.NetSyncDiorama.ActLive)",
+                   "Memoria.Netsync.NetSyncDiorama.ActNoteFigure(cmd, btl, figParam);"], ubs
+    assert all(any(d.endswith("/" + f) for d in msr.DEFAULT_FILES) for f in files), files   # (no new file to replay)
+    # D01: the per-slot array is _actAppliedSeq (never the reconciler's scalar _lastAppliedSeq, which it would collide with)
+    assert _battle_text("private static readonly UInt16[] _actAppliedSeq = new UInt16[8];")
+    assert not any("_lastAppliedSeq[" in ln for ln in _stack_text(REPLAY_FILE) + _stack_text("NetSyncDiorama.cs"))
+    # amendment 12: the mask is cleared FIRST in the discard (before any list is touched)
+    disc = _cs_block(REPLAY_FILE, "private static void ActHoldDiscardAll(", "}")
+    assert [c for c in (_strip_comment(t) for t in disc) if c][2] == "_actLifeMask = 0;", disc
+
+
+# ---- [ff9mapkit netsync s135] the hold's model: the stand-in end to end through the driver, then battlewire.ActHoldLane on
+# the rules no stand-in battle reaches (a lane rig: eight units, the bench feed, the stand-in's tick order)
+def _hold_impact(act_id, *, caster: int = 0, target: int = 4, fig: int = 4321, hp: int = 300, mp: int = 0,
+                 cast_hp: int = 420, cast_mp: int = 30, player_caster: bool = True, player_target: bool = False,
+                 dmg: bool = True, seq: int = 5, fig_c: int = 0, stat_tick: bool = False, nonce: int = 0x77) -> bytes:
+    """An impact naming ``act_id`` (None = a 46-byte old-host one): an HP figure with its info bit (EffectPoint collects
+    info != 0 only), the host's raws, DmgMot when ``dmg``."""
+    flags = (1 if dmg else 0) | (32 if player_target else 0) | (64 if player_caster else 0) | (
+        BW.ACT_FLAG_STAT_TICK if stat_tick else 0)
+    return BW.encode_action_impact(nonce, seq, caster, target, fig_t=(1 if fig else 0, fig, 0),
+                                   fig_c=(1 if fig_c else 0, fig_c, 0), raws=(hp, mp, cast_hp, cast_mp), flags=flags,
+                                   cmd_no=BW.CMD_ATTACK_ID, sub_no=BW.ABILITY_ATTACK_ID, act_id=act_id)
+
+
+def _hold_dio(game):
+    """A stand-in for the hold's end-to-end tests: s134's diorama rig with the replay's hit LATER (60 of 90 frames -- the
+    lane's frames are the stand-in's shapes), so the driver reads the held state before the hit."""
+    fake = _rep_dio(game)
+    fake._act_guest.HIT_FRAME, fake._act_guest.REPLAY_FRAMES = 60, 90
+    return fake
+
+
+def test_the_stand_in_holds_an_impacts_figure_and_flinch_for_its_replays_hit(game):
+    """Leg 1 on the stand-in: a START and a non-lethal impact naming it in ONE feed -- the target's raw HP follows the
+    host at once (the owner's rule: the bars), the impact HELD (held_now 1), NO figure and no flinch until the replay's
+    hit; at the hit it releases `hit` (lag >= 0), the figure shown at the Figure point (figs[] via "hit", at the display),
+    the flinch after; `hold off` = the pre-s135 guest (the figure via "arrival" and the flinch at once)."""
+    fake = _hold_dio(game)
+    with session(game, fake) as g:
+        st = _dio(g, fake)
+        assert st.coop_act_hold_on is True and st.coop_act_hold_held_now == 0
+        st = g.act_feed([_rep_start(1), _hold_impact(1, hp=300)])
+        st = _rep_until(g, lambda s: s.coop_act_hold_held_now == 1, "the impact held")
+        assert st.unit("Masked Man")["hp_raw"] == 300 and st.coop_act_hold_figs == [] and st.unit_mot(4) != BW.MP_DAMAGE1
+        assert st.coop_act_guest_last["first_hit_ms"] < 0 and st.coop_act_hold_life_mask == 0
+        st = _rep_until(g, lambda s: s.coop_act_hold_rel_hit == 1, "the hit release")
+        hit_ms = st.coop_act_guest_last["first_hit_ms"]
+        assert hit_ms >= 0 and st.coop_act_hold_held_now == 0 and st.coop_act_hold_lag_n == 1
+        assert st.coop_act_hold_lag_min >= 0 and st.unit_mot(4) == BW.MP_DAMAGE1             # the flinch: AFTER the hit
+        st = _rep_until(g, lambda s: s.coop_act_hold_figs, "the Figure point")
+        (fig,) = st.coop_act_hold_figs
+        assert (fig["slot"], fig["value"], fig["via"]) == (4, 4321, "hit") and fig["release_ms"] >= hit_ms
+        assert BW.act_hold_at_rest(_rep_until(g, lambda s: s.coop_act_guest_running == 0, "the end").coop_act_hold_block)
+        g.act_hold(False)
+        g.act_feed([_rep_start(2), _hold_impact(2, hp=250, fig=5135)])
+        st = _rep_until(g, lambda s: len(s.coop_act_hold_figs) == 2, "the arrival figure")
+        assert st.coop_act_hold_figs[-1]["via"] == BW.ACT_VIA_ARRIVAL and st.coop_act_guest_last["first_hit_ms"] < 0
+        assert st.coop_act_hold_held == 1 and st.unit_mot(4) == BW.MP_DAMAGE1                # at ARRIVAL: the red
+    assert _mlog_lines(fake, BW.LOG_HOLD_FIRST_HELD) and _mlog_lines(fake, f"{BW.LOG_HOLD_RELEASED_VIA}hit after ")
+    assert _mlog_lines(fake, BW.LOG_HOLD_OFF)
+
+
+def test_the_stand_in_masks_a_held_kill_from_the_reconciler_until_the_hit(game):
+    """Leg 2 on the stand-in: a held LETHAL impact sets the life mask; `unit 4 dead` (a post-horizon type-1 record through
+    ApplyUnit) is SKIPPED -- alive until the hit, then dead, the mask 0; with `lifeskip off` the same record kills AT THE
+    OP (the life-skip's own red), while the impact is still held."""
+    for lifeskip in (True, False):
+        fake = _hold_dio(game)
+        with session(game, fake) as g:
+            _dio(g, fake)
+            if not lifeskip:
+                g.actbench("lifeskip", "off")
+            g.act_feed([_rep_start(1), _hold_impact(1, hp=0)])
+            st = _rep_until(g, lambda s: s.coop_act_hold_life_mask == 0x10, "the held kill")
+            assert st.unit("Masked Man")["alive"] is True and st.coop_act_hold_held_now == 1
+            st = g.act_unit(4, "dead")
+            if lifeskip:
+                assert st.unit("Masked Man")["alive"] is True and st.coop_act_hold_mask_skips == 1
+                st = _rep_until(g, lambda s: s.coop_act_hold_rel_hit == 1, "the hit")
+                assert st.unit("Masked Man")["alive"] is False and st.unit_die_seq(4) == 5 and st.coop_act_hold_life_mask == 0
+            else:
+                assert st.unit("Masked Man")["alive"] is False and st.coop_act_hold_mask_skips == 0
+                assert st.coop_act_hold_held_now == 1 and st.coop_act_guest_last["first_hit_ms"] < 0
+        words = BW.LOG_HOLD_UNIT_SKIPPED if lifeskip else BW.LOG_HOLD_UNIT_APPLIED
+        assert _mlog_lines(fake, words), lifeskip
+    assert _mlog_lines(fake, BW.LOG_LIFESKIP_OFF)
+
+
+def test_the_end_injection_releases_a_held_kill_before_the_party_is_read(game):
+    """Amendment 2 on the stand-in, the VICTORY half: a held lethal impact on the diorama's ENEMY, then the host's
+    victory: EndTick's injection branch releases it `end-inject` (rel_end_inject 1, the 'end injection released' line)
+    before the injection -- nothing held survives it, the mask 0. (A victory never reads AllPlayersDown, so this test
+    cannot see the flush's ORDER: the defeat test below pins it -- review rharness-1.)"""
+    fake = _hold_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.act_feed([_rep_start(1), _hold_impact(1, hp=0)])
+        _rep_until(g, lambda s: s.coop_act_hold_life_mask == 0x10, "the held kill")
+        g.netsync("endbench", "victory")
+        st = _rep_until(g, lambda s: s.coop_act_hold_rel_end_inject == 1, "the end-inject release")
+        assert st.unit("Masked Man")["alive"] is False and st.coop_act_hold_life_mask == 0
+        assert st.coop_act_hold_held_now == 0
+    assert len(_mlog_lines(fake, BW.LOG_HOLD_FLUSH)) == 1
+
+
+def _hold_defeat_run(game, *, hold: bool = True) -> tuple:
+    """The stand-in's DEF shape (review rharness-1): Vivi down on ARRIVAL (an impact naming NO START -- nothing held, the
+    arrival path), then the enemy's replay on Zidane -- the LAST player standing -- with a LETHAL impact (held while the
+    hold is on: the mask has his bit, he still stands), then `endbench phase-defeat` (the host's PHASE_DEFEAT). -> (the
+    injected state, the Memoria.log lines THIS run wrote -- the log is the game dir's, shared by every run here)."""
+    fake = _hold_dio(game)
+    log = lambda: fake.memoria_log.read_text(encoding="utf-8").splitlines() if fake.memoria_log.exists() else []  # noqa: E731
+    before = len(log())
+    with session(game, fake) as g:
+        _dio(g, fake)
+        if not hold:
+            g.act_hold(False)
+        g.act_feed(_hold_impact(99, caster=4, target=1, fig=0, hp=0, mp=0, cast_hp=11200, cast_mp=0, player_caster=False,
+                                player_target=True, seq=5))
+        st = _rep_until(g, lambda s: s.unit("Vivi")["alive"] is False, "Vivi down on arrival")
+        assert (st.coop_act_hold_held, st.coop_act_hold_queued, st.unit("Zidane")["alive"]) == (0, 0, True)
+        g.act_feed([_rep_start(1, actor=4, player=False, tar=0x01),
+                    _hold_impact(1, caster=4, target=0, fig=5149, hp=0, mp=0, cast_hp=11200, cast_mp=0,
+                                 player_caster=False, player_target=True, seq=6)])
+        if hold:
+            st = _rep_until(g, lambda s: s.coop_act_hold_life_mask == 0x01, "the held kill on the last player")
+            assert st.unit("Zidane")["alive"] is True and st.coop_act_hold_held_now == 1
+            assert st.coop_act_guest_last["first_hit_ms"] < 0              # (the replay's hit is 60 frames out)
+        else:
+            st = _rep_until(g, lambda s: s.unit("Zidane")["alive"] is False, "the kill at ARRIVAL")
+        g.netsync("endbench", "phase-defeat")
+        st = g.wait_for(lambda s: s.coop_present_injected, timeout=4.0, what="the injection")
+    lines = log()
+    return st, (lines[before:] if len(lines) >= before else lines)
+
+
+def test_the_end_inject_flush_lands_a_held_kill_before_all_players_down_is_read(game, monkeypatch):
+    """Amendment 2's ORDER on the stand-in (review rharness-1; the bench's DEF). A held kill on the last player standing,
+    then the host's PHASE_DEFEAT: EndTick's flush releases it `end-inject` BEFORE AllPlayersDown reads the party, so the
+    party reads DOWN -- "annihilate" WITH the stock settle (MENU_OFF / SEQ_MENU_OFF_DEFEAT), rel_end_inject 1, Zidane dead,
+    nothing held. It CAN fail: with EndTick's flush gone -- the flush moved below the AllPlayersDown read, InjectEnd's head
+    then the ONLY flush (an InjectEnd-only path: it still releases the kill `end-inject`, the party dead after it) -- EndTick
+    read Zidane STANDING and passed that to InjectEnd, so the same run injects the defeat TAIL (PHASE_DEFEAT / SEQ_DEFEAT
+    CLOSE_FADEOUT: the settle skipped); and under `hold off` the kill lands at arrival (the settle again, but held 0 and
+    rel_end_inject 0: a different red)."""
+    flushes = lambda lines: [ln for ln in lines if BW.LOG_HOLD_FLUSH in ln]          # noqa: E731
+    st, lines = _hold_defeat_run(game)
+    assert (st.coop_present_action, st.coop_present_inject_phase, st.coop_present_inject_seq) == (
+        "annihilate", BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_DEFEAT)
+    assert (st.coop_act_hold_held, st.coop_act_hold_rel_end_inject, st.coop_act_hold_held_now,
+            st.coop_act_hold_life_mask) == (1, 1, 0, 0)
+    assert st.unit("Zidane")["alive"] is False and st.unit("Vivi")["alive"] is False
+    assert st.coop_act_hold_rel_hit == 0 and st.coop_act_guest_last["first_hit_ms"] < 0   # released BY the injection
+    released = [p for p in map(BW.parse_hold_release, lines) if p is not None]
+    assert len(flushes(lines)) == 1 and [(p["id"], p["slot"], p["via"], p["queued"]) for p in released] == [
+        (1, 0, "end-inject", False)], released
+    # THE MUTANT: the flush below the AllPlayersDown read (EndTick's gone; InjectEnd's head the only flush)
+    with monkeypatch.context() as m:
+        m.setattr(BW, "act_end_inject_flushes", lambda ours, kind: False)
+        st, lines = _hold_defeat_run(game)
+    assert (st.coop_present_action, st.coop_present_inject_phase, st.coop_present_inject_seq) == (
+        "annihilate", BW.PHASE_DEFEAT, BW.SEQ_DEFEATCLOSE_FADEOUT), "the order red never came"
+    assert (st.coop_act_hold_held, st.coop_act_hold_rel_end_inject, st.coop_act_hold_held_now,
+            st.coop_act_hold_life_mask) == (1, 1, 0, 0)                # InjectEnd's own flush released it
+    assert st.unit("Zidane")["alive"] is False and len(flushes(lines)) == 1
+    # `hold off`: the pre-s135 guest -- the kill at arrival (the settle), nothing held, nothing released at the end
+    st, lines = _hold_defeat_run(game, hold=False)
+    assert (st.coop_present_action, st.coop_present_inject_phase, st.coop_present_inject_seq) == (
+        "annihilate", BW.PHASE_MENU_OFF, BW.SEQ_MENU_OFF_DEFEAT)
+    assert (st.coop_act_hold_held, st.coop_act_hold_rel_end_inject) == (0, 0) and not flushes(lines)
+
+
+def test_reset_releases_the_hold_levers(game):
+    """HarnessReleaseBench's s135 half (audit 4.5): `hold off` and `lifeskip off` left set, then `reset`: the 'hold levers
+    back' line once, and re-read WITH a fresh selftest role both levers at rest -- while s134's levers come back too."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        for args in (("hold", "off"), ("lifeskip", "off"), ("replay", "off")):
+            g.actbench(*args)
+        st = g.state
+        assert (st.coop_act_hold_on, st.coop_act_hold_lifeskip, st.coop_act_guest_why) == (False, False, "lever")
+        g.send("reset")
+        g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=10.0, what="the release")
+        st = g.netsync("selftest", 1)
+        assert (st.coop_act_hold_on, st.coop_act_hold_lifeskip, st.coop_act_guest_on) == (True, True, True)
+    assert len(_mlog_lines(fake, BW.LOG_HOLD_LEVERS_BACK)) == 1 and len(_mlog_lines(fake, BW.LOG_REPLAY_LEVERS_BACK)) == 1
+
+
+class _HoldRig(_LaneRig):
+    """s134's lane rig with the hold on (an s135 lane) and units that carry raw HP / MP."""
+
+    def __init__(self, frames: int = 10 ** 6):
+        units = [dict(u, hp_raw=500, hp=500, hp_max=600, hp_max_raw=600, mp=10) for u in _lane_units()]
+        super().__init__(units, frames)
+        self.lane.with_hold_fn = True
+
+    @property
+    def hold(self) -> dict:
+        return self.lane.doc(role=True, booted=True)["hold"]
+
+    def unit(self, slot: int) -> dict:
+        return next(u for u in self.units if u["slot"] == slot)
+
+
+def test_the_hold_lane_releases_each_impact_by_one_reason():
+    """battlewire.ActHoldLane on the releases no stand-in battle reaches, each through the engine's own path: `end` (the
+    replay ended without hitting that target), `timeout` (2500 ms), `hostdone` (the END + 1500 ms, first), `late` (the
+    replay's credit: at once, a negative lag), `abort` (an abort-all), `replaced` (a newer START superseded the parked one,
+    amendment 9), `declined` (a NOOP START); every held impact counted once (act_hold_at_rest)."""
+    rig = _HoldRig(frames=30)                                           # ends: the replay hits its caster only
+    rig.step()
+    rig.feed(_rep_start(1, tar=0x01), _hold_impact(1, fig=11))
+    rig.step(40)
+    h = rig.hold
+    assert (h["rel_end"], h["figs"][-1]["via"], h["figs"][-1]["value"]) == (1, "end", 11) and BW.act_hold_at_rest(h)
+    rig = _HoldRig()                                                    # never ends: the timeout
+    rig.step()
+    rig.feed(_rep_start(1, tar=0x01), _hold_impact(1, fig=12))
+    rig.step(BW.ACT_HOLD_TIMEOUT_MS // 33)
+    assert rig.hold["held_now"] == 1
+    rig.step(2)
+    f = rig.hold["figs"][-1]
+    assert rig.hold["rel_timeout"] == 1 and f["via"] == "timeout" and BW.ACT_HOLD_TIMEOUT_MS <= f["release_ms"] - \
+        f["arrival_ms"] <= BW.ACT_HOLD_TIMEOUT_MS + 33
+    rig = _HoldRig()                                                    # the host's END first: host-done
+    rig.step()
+    rig.feed(_rep_start(1, tar=0x01), _hold_impact(1, fig=13))
+    rig.step(3)
+    rig.feed(BW.encode_action_end(0x77, 9, 1, BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID))
+    rig.step(BW.ACT_HOLD_HOST_DONE_MS // 33 + 2)
+    f = rig.hold["figs"][-1]
+    assert rig.hold["rel_hostdone"] == 1 and f["via"] == "hostdone" and f["release_ms"] - f["arrival_ms"] < 1700
+    rig = _HoldRig()                                                    # late: the hit first, then the impact
+    rig.step()
+    rig.feed(_rep_start(1))
+    rig.step(20)
+    assert rig.lane.hits == 1
+    rig.feed(_hold_impact(1, fig=14))
+    rig.step()
+    h = rig.hold
+    assert (h["rel_late"], h["held"], h["figs"][-1]["via"]) == (1, 1, "late") and h["lag"]["min"] < 0
+    rig.lane.abort_all("clear", ctx=rig.ctx())
+    rig.feed(_rep_start(2), _hold_impact(2, fig=15, hp=0, seq=6))      # abort: an abort-all hard-releases (a NEWER seq)
+    rig.step()
+    assert rig.hold["life_mask"] == 0x10
+    rig.lane.abort_all("leave", ctx=rig.ctx())
+    h = rig.hold
+    assert (h["rel_abort"], h["life_mask"], rig.unit(4)["alive"]) == (1, 0, False) and h["figs"][-1]["via"] == "abort"
+    rig = _HoldRig()                                                    # replaced: A runs, B parks, C supersedes B
+    rig.step()
+    rig.feed(_rep_start(1))
+    rig.step()
+    rig.feed(_rep_start(2), _hold_impact(2, target=5, fig=16))
+    rig.step()
+    assert rig.hold["held_now"] == 1 and rig.lane.book.queue[0].state == BW.ACT_ST_WAITING
+    rig.feed(_rep_start(3))
+    rig.step()
+    h = rig.hold
+    assert (h["rel_replaced"], h["held_now"], h["figs"][-1]["via"], rig.lane.superseded) == (1, 0, "replaced", 1)
+    rig = _HoldRig()                                                    # declined: a NOOP START's impacts apply now
+    rig.step()
+    rig.feed(_rep_start(1, kind=BW.VFX_KIND_NONE, num=0), _hold_impact(1, fig=17))
+    rig.step()
+    h = rig.hold
+    assert (h["rel_declined"], rig.lane.noop, h["figs"][-1]["via"]) == (1, 1, "declined") and BW.act_hold_at_rest(h)
+
+
+def test_the_hold_lane_supersedes_an_older_kill_and_queues_behind_a_held_change():
+    """THE SUPERSEDED GUARD as amendment 6 rewrote Leg 8: an older held kill and a newer held change on one slot; the newer
+    replay hits first (stamping the slot), so the kill's later timeout release is SKIPPED (superseded 1, its figure
+    shown, the unit alive). AMENDMENT 5: a stat tick and an unpaired impact on a slot with a held life change QUEUE behind
+    it (FIFO; an unrelated slot applies at once) and release after the hit, `queued`; the teardown DISCARDS what is held."""
+    rig = _HoldRig()
+    rig.step()
+    rig.feed(_rep_start(1, actor=1, tar=0x20), _rep_start(2, tar=0x10),
+             _hold_impact(1, caster=1, fig=21, hp=0, seq=10), _hold_impact(2, fig=22, hp=333, seq=11, dmg=False))
+    rig.step()
+    h = rig.hold
+    assert (h["held_now"], h["life_mask"]) == (2, 0x10)                 # the newer change waits too: its slot is busy
+    rig.step(20)                                                        # replay 2's hit on 4 (replay 1 hits 5 only)
+    assert rig.hold["rel_hit"] == 1 and rig.unit(4)["hp_raw"] == 333 and rig.unit(4)["alive"]
+    rig.step(BW.ACT_HOLD_TIMEOUT_MS // 33)
+    h = rig.hold
+    assert (h["rel_timeout"], h["superseded"], rig.unit(4)["alive"]) == (1, 1, True)
+    assert [f["via"] for f in h["figs"] if f["value"] in (21, 22)] == ["hit", "timeout"]
+    rig = _HoldRig()
+    rig.step()
+    tick = BW.encode_action_impact(0x77, 13, 0xFF, 4, fig_t=(1, 7, 0), raws=(480, 0, 0, 0), flags=BW.ACT_FLAG_STAT_TICK)
+    rig.feed(_rep_start(1), _hold_impact(1, fig=31, hp=0, seq=12), tick,
+             _hold_impact(99, target=5, fig=32, hp=444, seq=14), _hold_impact(98, target=4, fig=33, hp=470, seq=15))
+    rig.step()
+    h = rig.hold
+    assert (h["held_now"], h["queued_now"], h["queued"], rig.unit(5)["hp_raw"]) == (1, 2, 2, 444)
+    assert [f["value"] for f in h["figs"]] == [32] and h["life_mask"] == 0x10
+    rig.step(20)
+    h = rig.hold
+    assert (h["rel_hit"], h["rel_queued"], h["queued_now"]) == (1, 2, 0) and BW.act_hold_at_rest(h)
+    # the kill at the hit (its figure at the Figure point, four frames on), then the queue in arrival order: the tick (a
+    # newer frame: it applies -- standing the unit up at 480) and the impact behind it (newer still: 470)
+    assert [(f["value"], f["via"]) for f in h["figs"]] == [(32, "arrival"), (7, "queued"), (33, "queued"), (31, "hit")]
+    assert rig.unit(4)["hp_raw"] == 470 and rig.unit(4)["alive"] is True and h["superseded"] == 0
+    rig = _HoldRig()
+    rig.step()
+    rig.feed(_rep_start(1), _hold_impact(1, fig=41, hp=0), _hold_impact(97, fig=42, hp=10, seq=30))
+    rig.step()
+    rig.lane.discard_all("teardown (bench)")
+    h = rig.hold
+    assert (h["discarded"], h["life_mask"], h["held_now"], h["queued_now"], rig.unit(4)["alive"]) == (2, 0, 0, 0, True)
+    assert not [f for f in h["figs"] if f["value"] in (41, 42)]
+
+
+def test_the_hold_lane_keeps_its_caps_and_the_full_list_applies():
+    """The caps: a full hold list (ACT_HOLD_CAP) applies a frame on arrival (never dropped); figs[] keeps the last 16;
+    the release lines stop at ACT_HOLD_LOG_MAX with one 'further releases' line; the credits cap per replay; the first
+    hold logs once per boot."""
+    rig = _HoldRig()
+    rig.step()
+    for k in range(BW.ACT_HOLD_CAP + 3):                                # one record: 67 impacts on it
+        rig.feed(*([_rep_start(1)] if k == 0 else []), _hold_impact(1, target=4 + k % 4, fig=100 + k, dmg=False))
+    rig.step()
+    h = rig.hold
+    over = list(range(100 + BW.ACT_HOLD_CAP, 100 + BW.ACT_HOLD_CAP + 3))      # past the cap: applied on ARRIVAL
+    assert h["held_now"] == BW.ACT_HOLD_CAP and [(f["value"], f["via"]) for f in h["figs"]] == [
+        (v, BW.ACT_VIA_ARRIVAL) for v in over]
+    rig.lane.abort_all("clear", ctx=rig.ctx())
+    h = rig.hold
+    assert h["rel_abort"] == BW.ACT_HOLD_CAP and BW.act_hold_at_rest(h) and len(h["figs"]) == BW.ACT_HOLD_FIGS_MAX == 16
+    assert [f["value"] for f in h["figs"]] == list(range(100 + BW.ACT_HOLD_CAP - 16, 100 + BW.ACT_HOLD_CAP))
+    lines = [ln for ln in rig.lane.lines if ln.startswith(BW.LOG_HOLD)]
+    assert sum(BW.LOG_HOLD_RELEASED_VIA in ln for ln in lines) == BW.ACT_HOLD_LOG_MAX
+    assert sum(ln == BW.LOG_HOLD_FURTHER for ln in lines) == 1
+    assert sum(ln.startswith(BW.LOG_HOLD_FIRST_HELD) for ln in lines) == 1
+    r = BW.ActRec(1, 0x77, 0)
+    for i in range(BW.ACT_HOLD_CREDIT_CAP + 5):
+        BW.act_credit_add(r, 0x10, i)
+    assert len(r.hold_credit_units) == BW.ACT_HOLD_CREDIT_CAP and BW.act_credit_take(r, BW.act_credit_find(r, 0x10)) == 0
+    assert BW.act_lag_p50([9, -3, 4, 120]) == 4 and BW.act_lag_p50([]) == -1
+
+
+def test_the_hold_lane_s134_shape_is_untouched_without_the_rung():
+    """An s134 lane (with_hold False, the stand-in below `acthold`) keeps s134's model exactly: no `hold` key, nothing
+    held, no state write, no figure -- the calibration engine is never the new one minus a key."""
+    rig = _HoldRig()
+    rig.lane.with_hold_fn = False
+    rig.step()
+    rig.feed(_rep_start(1), _hold_impact(1, hp=0))
+    rig.step(20)
+    doc = rig.lane.doc(role=True, booted=True)
+    assert "hold" not in doc and rig.unit(4)["alive"] is True and rig.unit(4)["hp_raw"] == 500
+    assert doc["paired"] == 1 and doc["swing_skipped"] == 1 and rig.lane.hold.held == []
+
+
+def _unit_op(rig, slot: int, state: str) -> None:
+    ok, why = rig.lane.bench(["actbench", "unit", str(slot), state], booted=True, role=True, ctx=rig.ctx())
+    assert ok, why
+
+
+def test_the_hold_lane_fix_pass_never_stands_up_a_corpse_and_catches_up_on_what_the_mask_skipped():
+    """[s135 fix pass] battlewire.ActHoldLane on the review's findings. LIFE-1 / TIMING-2: a QUEUED frame's free caster lane
+    whose unit a post-horizon record killed while it waited (`unit 1 dead`: not masked -- it STAMPS the slot) is
+    SUPERSEDED at the drain: the unit stays dead, the queued release's line says so. STOCK-1: a hit inside EffectPoint's
+    bracket leaves the queue for the next tick (the drain is due). LIFE-2: a held revive's dead record is SKIPPED and
+    CACHED -- the end-inject flush revives, then re-applies it (dead before the party is read); a slot that leaves the mask
+    by its hit catches up in the same steady tick. TIMING-1: a replay cut between its hit and its Figure point shows the
+    collected figure at once (via `abort`)."""
+    rig = _HoldRig()
+    rig.step()
+    rig.feed(_rep_start(1), _hold_impact(1, fig=51, hp=0, seq=10),
+             _hold_impact(77, caster=1, fig=0, hp=0, cast_hp=444, seq=11, dmg=False))
+    rig.step()
+    h, hold = rig.hold, rig.lane.hold
+    assert (h["held_now"], h["queued_now"], h["life_mask"]) == (1, 1, 0x10)     # the caster's slot 1: no life lane
+    _unit_op(rig, 1, "dead")                                            # not masked: it kills AND stamps slot 1
+    assert rig.unit(1)["alive"] is False and rig.hold["mask_skips"] == 0
+    hold.on_hit(hold.held[0].rec, rig.unit(4), True)                    # the hit, INSIDE the bracket
+    assert rig.hold["queued_now"] == 1 and hold.drain_due and rig.unit(4)["alive"] is False
+    hold.tick(rig.ctx())                                                # the next tick: the drain
+    h = rig.hold
+    assert (h["queued_now"], h["rel_queued"], h["superseded"], rig.unit(1)["alive"]) == (0, 1, 1, False), h
+    assert any(ln.startswith(BW.LOG_HOLD_QUEUED_FRAME) and ln.endswith(BW.LOG_HOLD_SUPERSEDED) for ln in rig.lane.lines)
+    # LIFE-2 at the flush: dead player 2, a held revive (an enemy's START on her), her dead record skipped and cached
+    for at_flush in (True, False):
+        rig = _HoldRig()
+        rig.unit(2).update(alive=False, hp_raw=0, hp=0)
+        rig.step()
+        rig.feed(_rep_start(1, actor=4, player=False, tar=0x04),
+                 _hold_impact(1, caster=4, target=2, player_caster=False, player_target=True, hp=300, fig=61, dmg=False))
+        rig.step()
+        assert rig.hold["life_mask"] == 0x04 and rig.unit(2)["alive"] is False
+        _unit_op(rig, 2, "dead")
+        assert rig.hold["mask_skips"] == 1 and rig.lane.hold.skipped == {2: ("dead", 6)}
+        if at_flush:
+            rig.lane.hold.flush("end-inject", rig.ctx())
+            why = "the end injection"
+            assert rig.hold["rel_end_inject"] == 1
+        else:
+            for _ in range(40):
+                rig.step()
+                if rig.hold["rel_hit"]:
+                    break
+            why = "its release"
+            assert rig.hold["rel_hit"] == 1
+        assert rig.unit(2)["alive"] is False and rig.lane.hold.skipped == {} and rig.hold["life_mask"] == 0, why
+        caught = [ln for ln in rig.lane.lines if ln.startswith(BW.LOG_HOLD_CATCH_UP) and BW.LOG_HOLD_CATCH_UP_PIECE in ln]
+        assert caught == [f"{BW.LOG_HOLD_CATCH_UP}2{BW.LOG_HOLD_CATCH_UP_PIECE}6) re-applied at {why}"
+                          f"{BW.LOG_HOLD_CATCH_UP_TAIL}"], caught
+    # TIMING-1: a hit's figure collected, then the replay CUT before its Figure point -- shown at once, via `abort`
+    rig = _HoldRig()
+    rig.step()
+    rig.feed(_rep_start(1), _hold_impact(1, fig=71, hp=480))
+    for _ in range(40):
+        rig.step()
+        if rig.lane.hits:
+            break
+    assert rig.hold["rel_hit"] == 1 and rig.lane.hold.fig_pending and rig.hold["figs"] == []
+    rig.lane.abort_all("clear", ctx=rig.ctx())
+    assert [(f["value"], f["via"]) for f in rig.hold["figs"]] == [(71, "abort")] and not rig.lane.hold.fig_pending
+
+
 # ---- [ff9mapkit netsync R3 fix round 2] the R3 benches' own logic, off the game: the T2 helper's self-check and the
 # scenarios' calibration tables. Both ran only by hand (`py _coop_peer_bench.py`, a bench day), so an engine rewording
 # that broke a matcher, or a predicted-red table that drifted from its docstring, waited for the owner's next launch.
@@ -9314,8 +10374,9 @@ def load(name):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
-hl, ch, sh, tr, ah, ar = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold",
-                                              "coop_tape_record", "coop_action_host", "coop_action_replay"))
+hl, ch, sh, tr, ah, ar, hd = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold",
+                                                  "coop_tape_record", "coop_action_host", "coop_action_replay",
+                                                  "coop_action_hold"))
 print(json.dumps({
     "hl": {"catalog": sorted(hl._catalog(True)), "old": sorted(hl.OLD_PREDICTED), "capture_s": hl.CAPTURE_S},
     "cut": {leg: {"catalog": sorted(ch._catalog(leg, True)),
@@ -9339,7 +10400,15 @@ print(json.dumps({
            "tape": sorted(ar._tape_catalog(True)), "tape_plain": sorted(ar._tape_catalog(False)),
            "tape_act": sorted(ar.TAPE_ACT), "tape_old": sorted(ar._tape_predicted(False)),
            "tape_knob": sorted(ar._tape_predicted(True)), "tape_dir": str(ar.act_tape_dir()),
-           "values": ar.GUEST_VALUES, "doc": " ".join((ar.__doc__ or "").split())}}))
+           "values": ar.GUEST_VALUES, "doc": " ".join((ar.__doc__ or "").split())},
+    "hd": {"catalog": sorted(hd._solo_catalog(True)), "plain": sorted(hd._solo_catalog(False)),
+           "old": sorted(hd.OLD_PREDICTED), "lever": sorted(hd.LEVER_PREDICTED), "maybe": sorted(hd.LEVER_MAYBE),
+           "hold": sorted(hd.HOLD_CHECKS), "probe": hd.PROBE, "guest_probe": hd.GUEST_PROBE, "scene": hd.SCENE,
+           "group": hd.GROUP, "proof": hd.PROOF_OK, "leg": hd.LEG, "legs": list(hd.LEGS), "nonce": hd.NONCE,
+           "replay_nonce": ar.NONCE, "figs": sorted(hd.FIG.values()), "boot1": list(hd.BOOT_1_LEGS),
+           "tape": sorted(hd._tape_catalog(True)), "tape_plain": sorted(hd._tape_catalog(False)),
+           "tape_hold": sorted(hd.TAPE_HOLD), "tape_old": sorted(hd._tape_predicted(False)),
+           "tape_knob": sorted(hd._tape_predicted(True)), "doc": " ".join((hd.__doc__ or "").split())}}))
 '''
 
 
@@ -9884,3 +10953,243 @@ def test_the_s133_benchs_tape_judge_reds_each_corruption():
         ok, detail = got[name]["S133-TAPE"]
         assert not ok and needle in detail, (name, detail)
 
+
+def test_the_s135_bench_predicts_its_reds_as_its_docstring_says():
+    """[ff9mapkit netsync s135] coop_action_hold.py's calibration tables, pinned to its docstring: on s134 (and older)
+    every check is red but INI / S0 / PRE / TAPE / INV (the act.guest.hold probe fails closed: no hold op ever sent);
+    under its own lever (`actbench hold off` before boot 1) exactly the LEVER set -- L4N and LOST in it too (the fix pass:
+    each check's in-run red, a sibling leg where the hold acted, never comes there) -- every id one its catalog
+    defines; the fix pass's QSUP and CATCH legs each on a boot of their own. Its tape leg: on an s134 guest every hold check, under ActionReplay=0
+    exactly HELD / LAG / FIG / LOG. Its probe is the s135 key, its scene and tape the s134 bench's, its nonce and figures
+    its own MARKERS, its proof line the engine's, the four s134 lessons and amendment 15 in its docstring -- and it never
+    sends `endbench kill` (amendment 15: KillUnit bypasses the life mask)."""
+    hd = _scenario_tables()["hd"]
+    g = lambda *n: sorted(f"S135-{x}" for x in n)                     # noqa: E731
+    assert set(hd["catalog"]) == set(hd["plain"]) | {"S135-CAL"} and len(hd["plain"]) == 27
+    assert hd["old"] == sorted(set(hd["plain"]) - set(g("INI", "S0", "PRE", "TAPE", "INV")))
+    assert hd["lever"] == g("L1", "L1F", "L5", "L3", "L4", "L4N", "L7", "REP", "DSK", "L8", "TD", "L2", "L2R", "LOST", "L6",
+                            "QSUP", "DEF", "CATCH")
+    assert hd["maybe"] == [] and set(hd["lever"]) < set(hd["old"]) and set(hd["hold"]) <= set(hd["plain"])
+    assert set(hd["plain"]) - set(hd["lever"]) == set(g("INI", "S0", "P0", "PROOF", "PRE", "TAPE", "BOOT", "INV", "R"))
+    for piece in ("RED, exactly: every check but INI, S0, PRE, TAPE, INV (nothing booted, nothing to change)",
+                  "Predicted reds, exactly: L1, L1F, L5, L3, L4, L4N, L7, REP, DSK, L8, TD, L2, L2R, LOST, L6, QSUP, DEF, "
+                  "CATCH (", "GREEN: INI, S0, P0, PROOF, PRE, TAPE, BOOT, INV, R.",
+                  "ITS IN-RUN RED", "the caster lane's figure on a hit release",
+                  "RED exactly P0, HELD, REST, LAG, FIG, LOG (fails closed)", "RED exactly HELD, LAG, FIG, LOG (REST is green",
+                  "s134 LESSON 1", "s134 LESSON 2", "s134 LESSON 3", "s134 LESSON 4", "NEVER `endbench kill`: amendment 15",
+                  "amendment 14", "Memoria.ini [Netsync] Enabled = 0 (or absent)", "THE REAL-LINK LAG (amendment 10)"):
+        assert piece in hd["doc"], piece
+    assert hd["probe"] == "netsync.battle.act.guest.hold" == Session.NETSYNC_ACTBENCH_OP_CAPS["hold"][1]
+    assert hd["guest_probe"] == Session.NETSYNC_ACTBENCH_OP_CAPS["feed"][1]
+    assert hd["scene"] == 306 and hd["group"] in (2, 4) and hd["leg"] == "solo" and hd["legs"] == ["solo", "tape"]
+    assert hd["proof"] == BW.proof_ok(BW.PROOF_HOLD, BW.HOLD_SELFTEST_ROWS)
+    assert hd["nonce"] == 0x5D != hd["replay_nonce"] and len(set(hd["figs"])) == len(hd["figs"]) == 17
+    assert all(5135 <= f <= 5151 for f in hd["figs"])
+    assert hd["boot1"][0] == "S135-BOOT" and hd["boot1"][-2:] == ["S135-L8", "S135-TD"]    # nothing kills before them
+    assert not set(hd["boot1"]) & set(g("L2", "L2R", "LOST", "L6", "QSUP", "DEF", "CATCH"))   # the killers: own boots
+    t = lambda *n: sorted(f"S135T-{x}" for x in n)                    # noqa: E731
+    assert set(hd["tape"]) == set(hd["tape_plain"]) | {"S135T-CAL"}
+    assert set(hd["tape_plain"]) == set(hd["tape_hold"]) | {"S135T-I", "T2-TAPE", "T2-CAL", "T2-PEER", "T2-SAVE", "T2-INI"}
+    assert hd["tape_old"] == hd["tape_hold"] == t("P0", "HELD", "REST", "LAG", "FIG", "LOG")
+    assert hd["tape_knob"] == t("HELD", "LAG", "FIG", "LOG")
+    src = (SCENARIOS / "coop_action_hold.py").read_text(encoding="utf-8")
+    code = "\n".join(ln for ln in src.split('"""', 2)[2].splitlines() if not ln.lstrip().startswith("#"))
+    assert '"kill"' not in code and "endbench kill" not in code.replace("never `endbench kill`", "")
+    # [s135 fix pass] each follow-up that must land before a replay's own hit rides the feed's OWN request (timing-3):
+    # DEF's and CATCH's `endbench phase-defeat`, QSUP's `unit` -- never a lone try_ns after a poll
+    assert "try_ns(g, \"endbench\", \"phase-defeat\")" not in code
+    assert code.count('"netsync endbench phase-defeat"') == 2 and "leave=False" not in code and "cb.FIELD\n" not in code
+    # [s135 fix pass: rtiming-1] a release on a unit the long summon hides (THE HIDE WINDOW) is judged on its counter and
+    # the engine's own release line, never on figs[]: L4 / L7 / L8 / L6 each call judge_timer_release with their reason
+    # and never judge_release; L4N is fed only once L4's summon is at rest
+    for leg, via in (("_leg_l4", '"timeout"'), ("_leg_l7", '"hostdone"'), ("_leg_l8", '"timeout"'),
+                     ("_legs_lost_l6", '"abort"')):
+        body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
+        call = body.split("judge_timer_release(", 1)[1].split(")", 1)[0] if "judge_timer_release(" in body else ""
+        assert via in call and "judge_release(" not in body.replace("judge_timer_release(", ""), (leg, call)
+    l4 = code.split("def _leg_l4(", 1)[1].split("\ndef ", 1)[0]
+    assert l4.index("_wait_rest(g, base)") < l4.index("orphan = _impact(")
+    for piece in ("TIMING RISKS", "THE HIDE WINDOW", "IsDisappear=True", "THE FREEZE (amendment 14 as built"):
+        assert piece in hd["doc"], piece
+
+
+#: coop_action_hold's pure judges and its tape reader, run on synthetic inputs (JSON on stdin), the verdicts read back
+_ACT_HOLD_JUDGE = r"""
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_hold", os.path.join(scen, "coop_action_hold.py"))
+hd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hd)
+BW = hd.BW
+class Led:
+    def __init__(self):
+        self.checks = {}
+    def check(self, cid, ok, detail=""):
+        self.checks[cid] = [bool(ok), str(detail)]
+    def unreached(self, ids, why):
+        for c in ids:
+            self.checks.setdefault(c, [False, "unreached: " + why])
+doc = json.loads(sys.stdin.read())
+out = {"wait": {k: list(hd.judge_figure_waits(c["samples"], c["value"], c.get("slot"), c.get("via", "hit")))
+                for k, c in doc["wait"].items()},
+       "release": {k: list(hd.judge_release(c["figs"], c["value"], c["via"], c["lo"], c["hi"]))
+                   for k, c in doc["release"].items()},
+       "flinch": {k: list(hd.judge_flinch([tuple(m) for m in c["mots"]], c["hit"])) for k, c in doc["flinch"].items()},
+       "tape": {}}
+for name, run in doc["tape"].items():
+    led = Led()
+    hd.judge_hold_tape(led, run["samples"], run["messages"])
+    out["tape"][name] = led.checks
+frames = [(i, 10 * i, bytes.fromhex(h)) for i, h in enumerate(doc["frames"])]
+out["read_tape"] = hd.read_tape(frames, {"zidane_wire": 0, "garnet_wire": 2})
+out["lost"] = {k: hd.lost_pred(**c) for k, c in doc["lost"].items()}
+out["arrival"] = {k: hd.arrival_pred(c["figs"], c["value"], c["held0"], c["held1"]) for k, c in doc["arrival"].items()}
+out["union"] = hd.figs_union(doc["union"])
+out["timer"] = {k: list(hd.judge_timer_release(c["lines"], c["id"], c["slot"], c["via"], c["lo"], c["hi"], c.get("sup")))
+                for k, c in doc["timer"].items()}
+out["needle"] = hd.release_needle(7, 1)
+print(json.dumps(out))
+"""
+
+
+def _hd_fig(value, via, arrival, release, slot=4) -> dict:
+    return {"slot": slot, "value": value, "via": via, "arrival_ms": arrival, "release_ms": release}
+
+
+def _hd_tape_run(**over) -> dict:
+    """A synthetic tape-leg run: the guest's `act.guest` samples (with `hold`) and the engine's lines."""
+    h = dict(BW.ACT_GUEST_HOLD_SENTINELS, on=True, lifeskip=True, held=5, rel_hit=4, rel_end=1,
+             lag={"n": 4, "min": -20, "p50": 30, "max": 120},
+             figs=[_hd_fig(26, "hit", 100, 230), _hd_fig(20, "hit", 900, 1010), _hd_fig(0, "arrival", 50, 50)])
+    h.update(over.get("hold", {}))
+    samples = [{"booted": True, "guest": {"running": 1, "hold": dict(h, held_now=1, rel_hit=h["rel_hit"] - 1)}},
+               {"booted": True, "guest": {"running": 0, "hold": h}}]
+    if over.get("no_hold"):
+        samples = [{"booted": True, "guest": {"running": 0}}]
+    messages = over.get("messages", [
+        f"{BW.LOG_HOLD_FIRST_HELD} (id 11) on wire slot 4{BW.LOG_HOLD_FIRST_TAIL}",
+        f"{BW.LOG_HOLD_HELD_IMPACT} of id 11 on wire slot 4{BW.LOG_HOLD_RELEASED_VIA}hit after 130 ms of battle time (lag 130 ms)"])
+    return {"samples": samples, "messages": messages}
+
+
+def test_the_s135_benchs_pure_judges_read_each_engine_and_can_fail():
+    """coop_action_hold's judges, PURE, on synthetic runs -- each one GREEN on the s135 shape and RED on every shape it
+    exists to catch: judge_figure_waits (amendment 8: a figure shown at ARRIVAL -- the `hold off` red --, shown twice,
+    via the wrong reason, released before the hit, never hit, in another slot), judge_release (out of its window, the wrong
+    reason, absent), judge_flinch (a flinch before the hit, none after), judge_hold_tape (an s134 guest fails closed; the
+    knob -- nothing held -- is red on exactly HELD / LAG / FIG / LOG; a slot still held at rest, an unknown via, a hit
+    figure released before its arrival, a fault line: each its own red), and read_tape (a Defend START found, a NOOP one
+    skipped)."""
+    hit = [{"figs": [], "first_hit_ms": -1}, {"figs": [], "first_hit_ms": 400},
+           {"figs": [_hd_fig(5135, "hit", 0, 520)], "first_hit_ms": 400}]
+    wait = {"green": {"samples": hit, "value": 5135, "slot": 4},
+            "arrival": {"samples": [{"figs": [_hd_fig(5135, "arrival", 0, 0)], "first_hit_ms": -1},
+                                    {"figs": [_hd_fig(5135, "arrival", 0, 0)], "first_hit_ms": 400}], "value": 5135},
+            "twice": {"samples": hit[:2] + [{"figs": [_hd_fig(5135, "hit", 0, 520)] * 2, "first_hit_ms": 400}],
+                      "value": 5135},
+            "via": {"samples": hit[:2] + [{"figs": [_hd_fig(5135, "timeout", 0, 2500)], "first_hit_ms": 400}],
+                    "value": 5135},
+            "before": {"samples": hit[:2] + [{"figs": [_hd_fig(5135, "hit", 0, 300)], "first_hit_ms": 400}],
+                       "value": 5135},
+            "nohit": {"samples": [{"figs": [], "first_hit_ms": -1}], "value": 5135},
+            "slot": {"samples": hit, "value": 5135, "slot": 5}}
+    release = {"green": {"figs": [_hd_fig(5138, "timeout", 100, 2620)], "value": 5138, "via": "timeout", "lo": 2500,
+                         "hi": 2750},
+               "late": {"figs": [_hd_fig(5138, "timeout", 100, 2900)], "value": 5138, "via": "timeout", "lo": 2500,
+                        "hi": 2750},
+               "reason": {"figs": [_hd_fig(5138, "end", 100, 2620)], "value": 5138, "via": "timeout", "lo": 2500,
+                          "hi": 2750},
+               "absent": {"figs": [], "value": 5138, "via": "timeout", "lo": 2500, "hi": 2750}}
+    flinch = {"green": {"mots": [[0, -1, 0], [400, 400, BW.MP_DAMAGE1], [450, 400, 0]], "hit": 400},
+              "early": {"mots": [[0, -1, BW.MP_DAMAGE1], [400, 400, BW.MP_DAMAGE1]], "hit": 400},
+              "none": {"mots": [[0, -1, 0], [400, 400, 0]], "hit": 400}}
+    knob = {"held": 0, "rel_hit": 0, "rel_end": 0, "lag": {"n": 0, "min": -1, "p50": -1, "max": -1}, "figs": []}
+    tape = {"green": _hd_tape_run(), "old": _hd_tape_run(no_hold=True),
+            "knob": _hd_tape_run(hold=knob, messages=[]),
+            "unrest": _hd_tape_run(hold={"held_now": 1}),
+            "unknown": _hd_tape_run(hold={"figs": [_hd_fig(26, "hit", 100, 230), _hd_fig(3, "magic", 5, 5)]}),
+            "order": _hd_tape_run(hold={"figs": [_hd_fig(26, "hit", 300, 230)]}),
+            "fault": _hd_tape_run(messages=_hd_tape_run()["messages"] + [f"{BW.LOG_HOLD_FAULTED}NullReferenceException"]),
+            # [s135 fix pass] a teardown's discard keeps the WHOLE account (harness-1): held 6 + queued 0 == 4 hit + 1 end +
+            # 1 discarded -- green; a release counted twice beside a discard -- red (it read green before the fix)
+            "discard": _hd_tape_run(hold={"held": 6, "discarded": 1}),
+            "discard_double": _hd_tape_run(hold={"held": 6, "rel_hit": 5, "discarded": 1}),
+            # the FIG judge reads the UNION of the samples' rings (harness-7): a hit shown early, evicted by the tail
+            "evicted": {"samples": [{"booted": True, "guest": {"running": 1, "hold": dict(
+                            BW.ACT_GUEST_HOLD_SENTINELS, on=True, lifeskip=True, held=1, held_now=1,
+                            figs=[_hd_fig(26, "hit", 100, 230)])}},
+                        {"booted": True, "guest": {"running": 0, "hold": dict(
+                            BW.ACT_GUEST_HOLD_SENTINELS, on=True, lifeskip=True, held=1, rel_hit=1,
+                            lag={"n": 1, "min": -1, "p50": -1, "max": -1},
+                            figs=[_hd_fig(9000 + k, "arrival", 300 + k, 300 + k) for k in range(16)])}}],
+                        "messages": _hd_tape_run()["messages"]}}
+    # LOST's and L4N's predicates and their in-run reds (harness-3): green on their own shape, False on the sibling's
+    lost = {"green": {"alive": False, "first_hit": -1, "held_now": 0, "mask_skips": 3, "base_skips": 3},
+            "l2_op": {"alive": True, "first_hit": -1, "held_now": 1, "mask_skips": 4, "base_skips": 3},
+            "hold_off_l2": {"alive": False, "first_hit": -1, "held_now": 0, "mask_skips": 3, "base_skips": 3}}
+    arrival = {"green": {"figs": [_hd_fig(5139, "arrival", 10, 10)], "value": 5139, "held0": 2, "held1": 2},
+               "l4": {"figs": [_hd_fig(5138, "timeout", 100, 2610)], "value": 5138, "held0": 1, "held1": 2},
+               "hold_off_l4": {"figs": [_hd_fig(5138, "arrival", 100, 100)], "value": 5138, "held0": 1, "held1": 1}}
+    union = [{"figs": [_hd_fig(1, "hit", 0, 5), _hd_fig(2, "arrival", 1, 1)]},
+             {"figs": [_hd_fig(2, "arrival", 1, 1), _hd_fig(3, "late", 2, 2)]}, {"no": "figs"}, "junk"]
+    # [fix pass: rtiming-1] judge_timer_release: the engine's own release line, never figs[] (a hidden unit shows none)
+    rl = lambda i, slot, via, ms, tail="", head=BW.LOG_HOLD_HELD_IMPACT: (                       # noqa: E731
+        f"16.10.2026 12:00:00 |M| {head} of id {i} on wire slot {slot}{BW.LOG_HOLD_RELEASED_VIA}{via} after {ms} ms of "
+        f"battle time{tail}")
+    tw = {"id": 7, "slot": 1, "via": "timeout", "lo": 2500, "hi": 2750}
+    timer = {"green": dict(tw, lines=["noise", rl(8, 1, "timeout", 2510), rl(7, 2, "timeout", 2510),
+                                      rl(7, 1, "timeout", 2610)]),
+             "late": dict(tw, lines=[rl(7, 1, "timeout", 2900)]),
+             "early": dict(tw, lines=[rl(7, 1, "timeout", 2400)]),
+             "via": dict(tw, lines=[rl(7, 1, "end", 2610)]),
+             "absent": dict(tw, lines=[]),
+             "twice": dict(tw, lines=[rl(7, 1, "timeout", 2610)] * 2),
+             "queued": dict(tw, lines=[rl(7, 1, "timeout", 2610, head=BW.LOG_HOLD_QUEUED_FRAME)]),
+             "sup_green": dict(tw, sup=True, lines=[rl(7, 1, "timeout", 2610, BW.LOG_HOLD_SUPERSEDED)]),
+             "sup_missing": dict(tw, sup=True, lines=[rl(7, 1, "timeout", 2610)]),
+             "sup_unwanted": dict(tw, sup=False, lines=[rl(7, 1, "timeout", 2610, BW.LOG_HOLD_SUPERSEDED)])}
+    dfd = BW.encode_action_start(7, 1, 3, 0, BW.ACTOR_IS_PLAYER, BW.CMD_DEFEND_ID, 179, 0x01, 0, 0, 0, BW.VFX_KIND_COMMON,
+                                 4, -1, 5)
+    noop = BW.encode_action_start(7, 1, 2, 1, BW.ACTOR_IS_PLAYER, BW.CMD_DEFEND_ID, 179, 0x02, 0, 0, 0, BW.VFX_KIND_NONE,
+                                  0, -1, 5)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _ACT_HOLD_JUDGE, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         input=json.dumps({"wait": wait, "release": release, "flinch": flinch, "tape": tape,
+                                           "frames": [noop.hex(), dfd.hex()], "lost": lost, "arrival": arrival,
+                                           "union": union, "timer": timer}),
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["wait"]["green"][0], got["wait"]["green"]
+    for name, needle in (("arrival", "BEFORE the replay's hit"), ("twice", "2 time(s)"), ("via", "want via 'hit'"),
+                         ("before", "released at/after first_hit_ms 400"), ("nohit", "never hit"), ("slot", "slot 5")):
+        ok, detail = got["wait"][name]
+        assert not ok and needle in detail, (name, detail)
+    assert [got["release"][k][0] for k in ("green", "late", "reason", "absent")] == [True, False, False, False]
+    assert [got["flinch"][k][0] for k in ("green", "early", "none")] == [True, False, False]
+    hold = ("S135T-P0", "S135T-HELD", "S135T-REST", "S135T-LAG", "S135T-FIG", "S135T-LOG")
+    red = lambda name: sorted(c for c, (ok, _d) in got["tape"][name].items() if not ok)   # noqa: E731
+    assert set(got["tape"]["green"]) == set(hold) and red("green") == [], got["tape"]["green"]
+    assert red("old") == sorted(hold) and all("unreached" in d for _ok, d in got["tape"]["old"].values())
+    assert red("knob") == sorted(("S135T-HELD", "S135T-LAG", "S135T-FIG", "S135T-LOG"))
+    assert red("unrest") == ["S135T-REST"] and red("unknown") == ["S135T-FIG"] and red("order") == ["S135T-FIG"]
+    assert red("fault") == ["S135T-LOG"] and "THE REAL-LINK MEASURE" in got["tape"]["green"]["S135T-LAG"][1]
+    assert got["read_tape"]["defend"] == {"kind": BW.VFX_KIND_COMMON, "num": 4, "sub": 179}
+    # [s135 fix pass] the discard's whole account; the union; a -1 ms lag is a measurement, never the sentinel
+    assert red("discard") == [] and red("discard_double") == ["S135T-REST"], (got["tape"]["discard"],
+                                                                            got["tape"]["discard_double"])
+    assert red("evicted") == [] and "17 figure(s) shown over 2 sample(s), 1 via 'hit'" in got["tape"]["evicted"]["S135T-FIG"][1]
+    assert BW.act_hold_at_rest(dict(BW.ACT_GUEST_HOLD_SENTINELS, held=2, rel_abort=1, discarded=1))
+    assert not BW.act_hold_at_rest(dict(BW.ACT_GUEST_HOLD_SENTINELS, held=2, rel_abort=2, discarded=1))
+    assert not BW.act_hold_at_rest(dict(BW.ACT_GUEST_HOLD_SENTINELS, held=3, queued=1, rel_abort=1, discarded=2))
+    assert got["lost"] == {"green": True, "l2_op": False, "hold_off_l2": True}       # (`hold off`: no in-run red comes)
+    assert got["arrival"] == {"green": True, "l4": False, "hold_off_l4": True}
+    assert [(e["value"], e["via"]) for e in got["union"]] == [(1, "hit"), (2, "arrival"), (3, "late")]
+    tm = {k: v[0] for k, v in got["timer"].items()}
+    assert tm == {"green": True, "late": False, "early": False, "via": False, "absent": False, "twice": False,
+                  "queued": False, "sup_green": True, "sup_missing": False, "sup_unwanted": False}, got["timer"]
+    assert "released via 'timeout' after 2610 ms" in got["timer"]["green"][1]
+    assert "0 release line(s)" in got["timer"]["queued"][1] and "2 release line(s)" in got["timer"]["twice"][1]
+    assert got["needle"] == f"{BW.LOG_HOLD_HELD_IMPACT} of id 7 on wire slot 1{BW.LOG_HOLD_RELEASED_VIA}"

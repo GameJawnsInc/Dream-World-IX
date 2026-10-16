@@ -38,6 +38,12 @@ way the engine fabricates its bench end through the real ParseView.
     (ActBattleDelta), ActAbortWhy, ActPendingAbortDue, ActRestoreScope, ActEndHoldStep, ActGraceArms, ActCmdStatusFor,
     ActMapMaskWith, the bench's hex parse, and the lane with its statics (ActGuestLane: the stand-in's model,
     `netsync.battle.act.guest`).
+  * [ff9mapkit netsync s135] THE REPLAY HIT HOLD's pure rules (NetSyncDiorama.Replay.cs's ActHoldSelfTest twins): the
+    arrival verdict (ActHoldVerdict), the life lanes, the superseded guard (ActHeldApplies, wrap-safe), the revive at
+    release, the host-done / timeout clocks, the queue's FIFO block, the life and busy masks, the reconciler's skip, the
+    decline-to-release mapping, the end-inject trigger, the hit's figure path, the flinch, figs[]' value, the lag's median,
+    the hit's pick and the credits -- and the hold with its statics (ActHoldLane, owned by ActGuestLane:
+    `netsync.battle.act.guest.hold`).
 """
 from __future__ import annotations
 
@@ -3698,6 +3704,10 @@ class ActRec:
         self.frames = 0                          # (the stand-in's model: frames since its launch)
         self.actor = None                        # (the stand-in's model: the resolved actor unit)
         self.targets = []                        # (the stand-in's model: the resolved target units)
+        # [ff9mapkit netsync s135] the hold's CREDITS (ActRec.HoldCreditUnits / HoldCreditMs, null until the first): one per
+        # hit on a master target that released no held impact -- its btl_id and the battle ms of the hit, oldest first
+        self.hold_credit_units = None
+        self.hold_credit_ms = None
 
     @classmethod
     def from_start(cls, a: dict) -> "ActRec":
@@ -3851,13 +3861,24 @@ class ActGuestLane:
     `nosequence` (every kind 1-4 runs), no fault, no zombie, no SFX loader, no hold-through, no run-away hold (`end_held`) and
     no hold break, no pre-injection restore, no death-attack grace (no
     AttackOnDeath enemy: `grace` stays 0), no `var_refused`, no transport (`rx_dropped` -1); an applied impact's figures,
-    flinch and HP/MP writes are not modelled (its pairing is)."""
+    flinch and HP/MP writes are not modelled (its pairing is).
+    [ff9mapkit netsync s135] With :attr:`with_hold` true (the stand-in's `acthold` rung) the lane carries THE REPLAY HIT
+    HOLD (:class:`ActHoldLane`, :attr:`hold`): ApplyActionFrame's intake, the releases at the hit (ActOnHit), at the natural
+    end, the abort, a decline / noop, the timers, the end injection and the teardown's discard -- and from that rung on the
+    arrival path's state writes, figures (`figs[]`) and flinch ARE modelled (an s134 lane keeps s134's model: pairing
+    only). A hit's figure is DISPLAYED :attr:`FIGURE_FRAMES` frames after the hit (the sequence's Figure point)."""
 
     REPLAY_FRAMES = 30
     HIT_FRAME = 15
     AWAY_PEAK = 600.0
+    FIGURE_FRAMES = 4                            # [ff9mapkit netsync s135] the hit -> its Figure point (audit amendment 8)
 
     def __init__(self) -> None:
+        #: [ff9mapkit netsync s135] the replay hit hold (its state and levers; ``with_hold`` decides whether it RUNS)
+        self.hold = ActHoldLane(self)
+        #: [ff9mapkit netsync s135] True, or a callable answering it (the stand-in: its `acthold` rung) -- False = s134
+        self.with_hold_fn = False
+        self.ctx_last: dict = {}                 # the last ctx a drain / tick / bench passed (the hold's releases resolve by it)
         self.action_replay = True                # [Netsync] ActionReplay (the ini's; default 1)
         self.sfx_rework = True                   # this machine's [Battle] SFXRework
         self.bench_replay_off = False
@@ -3932,6 +3953,16 @@ class ActGuestLane:
         self.declined_why = self.abort_why = None
         self.old_host = False
         self.rx_dropped = -1
+        # [ff9mapkit netsync s135] the boot block's ActHoldClear + ActHoldResetCounters (the mask, the applied seqs, the held
+        # and queued frames; the counters, figs[] and the lag)
+        self.hold.clear()
+        self.hold.reset_counters()
+
+    @property
+    def with_hold(self) -> bool:
+        """[ff9mapkit netsync s135] The replay hit hold runs (an s135+ engine; the stand-in's `acthold` rung)."""
+        fn = self.with_hold_fn
+        return bool(fn()) if callable(fn) else bool(fn)
 
     @property
     def live(self) -> bool:
@@ -3940,17 +3971,23 @@ class ActGuestLane:
 
     # -- the bench (HarnessActGuestBench)
     @staticmethod
-    def is_bench_op(op: str, value: str) -> bool:
-        """NetSyncDiorama.IsActGuestBenchOp."""
-        return op in ACT_GUEST_BENCH_OPS or (op == "tape" and value == "play")
+    def is_bench_op(op: str, value: str, hold: bool = False) -> bool:
+        """NetSyncDiorama.IsActGuestBenchOp. [ff9mapkit netsync s135] ``hold``: the engine has the replay hit hold (its
+        `hold|lifeskip|unit` ops route here too)."""
+        return op in ACT_GUEST_BENCH_OPS or (op == "tape" and value == "play") or (bool(hold) and op in ACT_HOLD_BENCH_OPS)
 
-    def bench(self, args: list, *, booted: bool, role: bool, tape=None) -> tuple:
+    def bench(self, args: list, *, booted: bool, role: bool, tape=None, ctx: dict | None = None) -> tuple:
         """HarnessActGuestBench(args) -> ``(ok, why)`` in the engine's words; ``args`` the verb's whole list (args[0] =
-        "actbench"); ``tape`` = the host lane's tape [(ms, bytes)] (NetSyncBattle.ActTapeCopy) for `tape play`."""
+        "actbench"); ``tape`` = the host lane's tape [(ms, bytes)] (NetSyncBattle.ActTapeCopy) for `tape play`.
+        [ff9mapkit netsync s135] ``ctx`` (the tick's) for `unit` (HarnessActHoldBench: the steady gate, the resolve)."""
         if not role:
             return False, "netsync actbench: needs the selftest role (netsync selftest 1)"
         op = str(args[1]).lower() if len(args) > 1 else ""
         val = str(args[2]).lower() if len(args) > 2 else ""
+        if self.with_hold and op in ACT_HOLD_BENCH_OPS:
+            if ctx is not None:
+                self.ctx_last = ctx
+            return self.hold.bench(args, op, val, booted=booted, role=role, ctx=ctx or self.ctx_last)
         if op in ("feed", "feedat"):
             ms = 0
             if op == "feed":
@@ -4036,6 +4073,7 @@ class ActGuestLane:
             self._log(LOG_REPLAY_LEVERS_BACK)
         self.bench_replay_off = self.bench_rework_off = self.bench_short_off = False
         self.bench_knob = -1
+        self.hold.release()                      # [ff9mapkit netsync s135] the hold's levers back (its own line first)
         if self.inbox:
             self._log(f"{LOG_REPLAY_INBOX_EMPTIED}{len(self.inbox)} frame(s); released with the harness)")
         self.inbox = []
@@ -4073,6 +4111,7 @@ class ActGuestLane:
         """ActionTickBench: ``ctx`` = {booted, role, steady, normal_latched, live_latched, ...} (see :meth:`route`)."""
         if not ctx.get("booted"):
             return
+        self.ctx_last = ctx
         edge, self.bench_edge = self.bench_edge, False
         if not self.inbox:
             return
@@ -4110,7 +4149,7 @@ class ActGuestLane:
             rec = self.book.find(ActBook.key_of(a["nonce"], a["act_id"]))
         elif ext == ACT_EXT_READ_NONE and not a["stat_tick"] and not a["flags"] & (ACT_FLAG_START | ACT_FLAG_END):
             self._note_old_host()
-        self._apply(a, rec, ctx)
+        self._apply(a, rec, ctx, backlog)
 
     def _register_start(self, a: dict, backlog: bool, bench: bool, ctx: dict) -> None:
         self.starts_rx += 1
@@ -4135,13 +4174,27 @@ class ActGuestLane:
             self.old_host_logged = True
             self._log(LOG_REPLAY_OLD_HOST)
 
-    def _apply(self, a: dict, rec: ActRec | None, ctx: dict) -> None:
+    def _apply(self, a: dict, rec: ActRec | None, ctx: dict, backlog: bool = False) -> None:
         """ApplyActionFrame's s134 half: a paired impact counts (`paired`) and marks its target for the credits; the
         player-only MP_ATTACK swing is SKIPPED (counted) when a replay covers it -- else it plays (the stand-in: the
-        caster's `mot` reads MP_ATTACK for a few frames). Figures, flinch and HP / MP are not modelled."""
+        caster's `mot` reads MP_ATTACK for a few frames). Figures, flinch and HP / MP are not modelled.
+        [ff9mapkit netsync s135] With the hold (:attr:`with_hold`): the paired accounting first, then ActHoldIntake --
+        held, released late or queued -- else the arrival path (ApplyActionFrameNow: the state writes, the figures into
+        figs[] "arrival", the flinch, the swing), all modelled from this rung on."""
         resolve = ctx.get("resolve") or (lambda i, p: None)
         dc = resolve(a["caster_slot"], a["caster_is_player"]) if a["caster_slot"] != 0xFF else None
         dt = resolve(a["target_slot"], a["target_is_player"]) if a["target_slot"] != 0xFF else None
+        if self.with_hold:
+            covered = rec is not None and rec.covers_swing
+            if rec is not None:
+                self.paired += 1
+                if dt is not None:
+                    rec.impact_mask |= int(dt.get("id", 0))
+            self_cast = dt is not None and dt is dc
+            if self.hold.intake(a, dt, dc, self_cast, rec, bool(backlog), covered, ctx):
+                return
+            self.hold.apply_now(a, dt, dc, self_cast, covered, bool(backlog), ACT_VIA_ARRIVAL, self.now_ms, False, ctx)
+            return
         if a["stat_tick"]:
             return
         covered = rec is not None and rec.covers_swing
@@ -4189,6 +4242,8 @@ class ActGuestLane:
             self.stale += 1
         elif why == "backlog":
             self.backlog += 1
+        if self.with_hold:                       # [ff9mapkit netsync s135] it never launches: its held impacts go now
+            self.hold.release_rec(r, act_decline_via(why))
         if why in self.decline_logged or len(self.decline_logged) >= 16:
             return
         self.decline_logged.append(why)
@@ -4202,6 +4257,8 @@ class ActGuestLane:
         self.noop += 1
         self.declined += 1
         self.declined_why = "noop"
+        if self.with_hold:                       # [ff9mapkit netsync s135] nothing will hit: its held impacts apply now
+            self.hold.release_rec(r, "declined")
         if "noop" in self.decline_logged:
             return
         self.decline_logged.append("noop")
@@ -4288,6 +4345,10 @@ class ActGuestLane:
             self.rows[slot] = 1 - self.rows.get(slot, 1)
         if r.no_short_circuit:
             self.note_calc_while_booted()
+        if self.with_hold:
+            # [ff9mapkit netsync s135] THE HIT RELEASE (ActHoldOnHit; the stand-in has no slave parts: the master is the
+            # target): inside EffectPoint's bracket unless the replay falls through the short-circuit
+            self.hold.on_hit(r, target, not r.no_short_circuit)
 
     def note_calc_while_booted(self) -> None:
         """NoteCalcWhileBooted -- THE TRIPWIRE (the stand-in: a fall-through hit)."""
@@ -4308,6 +4369,8 @@ class ActGuestLane:
                 if r.frames == self.HIT_FRAME:
                     for t in r.targets:
                         self._hit(r, t)
+                if r.frames == self.HIT_FRAME + self.FIGURE_FRAMES and self.with_hold:
+                    self.hold.figure_point(r)    # [ff9mapkit netsync s135] the sequence's Figure point: the hit's figures
                 if r.frames >= self.REPLAY_FRAMES:
                     self._finish_ended(r)
                     continue
@@ -4321,11 +4384,15 @@ class ActGuestLane:
         self.ended += 1
         if r in self.running:
             self.running.remove(r)
+        if self.with_hold:                       # [ff9mapkit netsync s135] what it never hit: the legacy path, now
+            self.hold.release_rec(r, "end")
 
     def _abort(self, r: ActRec, why: str, ctx: dict) -> None:
         r.state, r.why, r.end_ms = ACT_ST_ABORTED, why, self.now_ms
         if r in self.running:
             self.running.remove(r)
+        if self.with_hold:                       # [ff9mapkit netsync s135] its hit will never come: the legacy path, now
+            self.hold.release_rec(r, "abort")
         self.aborted += 1
         self.abort_why = why
         if why in self.aborts_by:
@@ -4361,7 +4428,9 @@ class ActGuestLane:
     def discard_all(self, why: str) -> None:
         """ActDiscardAll (ForceDisarm; `actbench teardown`): every record dropped, NOTHING applied or restored -- counted
         apart (`discarded`: neither started / declined nor aborted); the summary line; then the state's per-boot reset (the
-        counters stay)."""
+        counters stay). [ff9mapkit netsync s135] Its first statement is ActHoldDiscardAll: the life mask cleared FIRST, every
+        held / queued frame dropped (`act.guest.hold.discarded`), nothing applied."""
+        self.hold.discard_all(why)
         running = len(self.running)
         queued = sum(1 for r in self.book.queue if r.pending)
         for r in self.running:
@@ -4410,10 +4479,12 @@ class ActGuestLane:
             return
         paused = bool(ctx.get("paused"))
         self.clock(int(ctx.get("now_ms", 0)), paused)
+        self.ctx_last = ctx
         for slot in list(self.swings):
             self.swings[slot] -= 1
             if self.swings[slot] <= 0:
                 del self.swings[slot]
+        self.hold.age_flinches()                 # [ff9mapkit netsync s135] (the stand-in's flinch shapes)
         if ctx.get("end_injected") and self.end_inject_ms < 0:
             self.end_inject_ms = self.now_ms
         live = bool(self.running) or bool(self.book.queue)
@@ -4425,6 +4496,8 @@ class ActGuestLane:
         self._window_check(ctx)
         self._decide_queue(ctx, paused)
         self._window_check(ctx)
+        if self.with_hold:
+            self.hold.tick(ctx)                  # [ff9mapkit netsync s135] ActHoldTick, last (PHASE_NORMAL only)
 
     # -- the published block and the units' observables
     def acting_record(self, unit: dict) -> ActRec | None:
@@ -4474,7 +4547,9 @@ class ActGuestLane:
                 "end_held": self.end_held, "rx_dropped": self.rx_dropped, "battle_ms": self.now_ms if booted else -1,
                 "paused_ms": self.paused_ms,
                 "window": {"open": self.window_open, "restores": self.restores, "limited": self.restores_limited},
-                "last": self.last_doc()}
+                "last": self.last_doc(),
+                # [ff9mapkit netsync s135] AppendActGuestHold, the LAST key (an s134 lane publishes none)
+                **({"hold": self.hold.doc(role=role)} if self.with_hold else {})}
 
 
 def _cs_int(text) -> int | None:
@@ -4531,3 +4606,1043 @@ CS_REPLAY_CONSTANTS = {
     "ActEndNoHold": ACT_END_NO_HOLD, "ActEndHold": ACT_END_HOLD, "ActEndAbortThenInject": ACT_END_ABORT_THEN_INJECT,
     "ActRestoreNone": ACT_RESTORE_NONE, "ActRestoreFull": ACT_RESTORE_FULL, "ActRestoreLimited": ACT_RESTORE_LIMITED,
     "ActSfxKeep": ACT_SFX_KEEP, "ActSfxCancel": ACT_SFX_CANCEL, "ActSfxUnlock": ACT_SFX_UNLOCK}
+
+
+# ======================================================================================== [ff9mapkit netsync s135]
+# THE REPLAY HIT HOLD (studies/battle-coop/R3-DESIGN.md 3.3.4 as amended by R3-ACTION-REPLAY-AUDIT.md 2.3 -- amendments 1-15,
+# decisions D01-D12 -- and section 3; the audit's "s124": group 2 was renumbered s133-s141). Numbers, the flinch and deaths
+# on the guest wait for the action replay's OWN hit instead of landing when the host's impact frame ARRIVES (the owner's
+# rule, 2026-10-13: the numbers wait for the replay's hit; the HP and MP bars still follow the host). THE CONTAINMENT LAW
+# holds: the hold only DELAYS applying the host's own values. Everything below is the C# twin of a PURE rule of
+# NetSyncDiorama.Replay.cs's hold (each method of the same name, its parameters in its order); test_harness_netsync.py
+# EVALUATES ActHoldSelfTest's own 28 rows against them (read off the stack, in order) and pins the constants by name both
+# ways (CS_HOLD_CONSTANTS). :class:`ActHoldLane` is the stand-in's model of the hold with its statics (its docstring says
+# what it models and what it cannot).
+ACT_HOLD_TIMEOUT_MS = 2500                # a held impact never waits longer than this (battle ms from its arrival)
+ACT_HOLD_HOST_DONE_MS = 1500              # ...nor longer than this after its host's END (keyed on the action id)
+ACT_HOLD_CAP = 64                         # held + queued at most: past it a frame takes the arrival path (never dropped)
+ACT_HOLD_LOG_MAX = 48                     # release lines per boot (then one "further releases" line, then counted)
+ACT_HOLD_FIGS_MAX = 16                    # figs[]: the last displays
+ACT_HOLD_LAG_CAP = 512                    # lag samples kept per boot for the median (n counts on past it)
+ACT_HOLD_CREDIT_CAP = 32                  # credits kept per replay
+ACT_HOLD_APPLY, ACT_HOLD_HOLD, ACT_HOLD_LATE, ACT_HOLD_QUEUE = 0, 1, 2, 3   # ActHoldVerdict's answers
+ACT_FIG_NONE, ACT_FIG_BRACKET, ACT_FIG_DIRECT = 0, 1, 2                    # ActHitFigPath's answers
+ACT_VIA_ARRIVAL = "arrival"               # ActViaArrival: the arrival path's figs[] reason
+#: ActHoldVias: every release reason of a HELD impact, in `act.guest.hold.rel_*` order
+ACT_HOLD_VIAS = ("hit", "late", "end", "hostdone", "timeout", "abort", "replaced", "declined", "end-inject")
+#: `act.guest.hold`'s per-reason keys (`rel_<via>`, `-` as `_`), in AppendActGuestHold's order
+ACT_HOLD_REL_KEYS = tuple("rel_" + v.replace("-", "_") for v in ACT_HOLD_VIAS)
+#: every `figs[].via` the engine writes: the arrival path, a held impact's nine reasons, a queued frame's release
+ACT_FIG_VIAS = (ACT_VIA_ARRIVAL,) + ACT_HOLD_VIAS + ("queued",)
+#: the releases that PAIR (their lag is kept: hit_ms - arrival_ms, negative for a credit)
+ACT_HOLD_PAIRED_VIAS = ("hit", "late")
+INT32_MIN = -(1 << 31)                    # Int32.MinValue: ActHeld.CreditMs's "none", ActHoldLog's "no lag"
+PROOF_HOLD = "action hold selftest: "     # NetSyncDiorama.ActHoldSelfTest (s135), logged right after PROOF_REPLAY
+HOLD_SELFTEST_ROWS = 28                   # 6 verdict + 3 lane / guard / revive + 1 clock + 3 queue / masks / skip + 3 release
+#                                           + 4 figure / flinch / value / lag + 3 pick / credits -- and the fix pass's 5: a
+#                                           queued lane's release, the deferred drain, the catch-up, a cut replay's pending
+#                                           figure, the release's grace
+#: `actbench <op>` -- the replay hit hold's ops (HarnessActHoldBench, routed through the guest bench: IsActGuestBenchOp)
+ACT_HOLD_BENCH_OPS = ("hold", "lifeskip", "unit")
+#: `actbench unit <slot 0-7> <state>`'s states
+ACT_HOLD_UNIT_STATES = ("dead", "alive", "trance0", "trance1")
+#: `act.guest.hold.lag` and one `figs[]` entry, in AppendActGuestHold's order
+ACT_HOLD_LAG_KEYS = ("n", "min", "p50", "max")
+ACT_HOLD_FIG_KEYS = ("slot", "value", "via", "arrival_ms", "release_ms")
+#: `netsync.battle.act.guest.hold` at AppendNetsync's catch-line sentinels, in AppendActGuestHold's order -- the LAST key of
+#: `act.guest`. The live block differs at rest only where the agent reads a static: `on` / `lifeskip` (true with no lever).
+ACT_GUEST_HOLD_SENTINELS = {
+    "on": False, "lifeskip": False, "held_now": 0, "held": 0, "queued_now": 0, "queued": 0,
+    **dict.fromkeys(ACT_HOLD_REL_KEYS, 0),
+    "rel_queued": 0, "superseded": 0, "discarded": 0, "life_mask": 0, "mask_skips": 0,
+    "lag": {"n": 0, "min": -1, "p50": -1, "max": -1}, "figs": [],
+}
+ACT_GUEST_SENTINELS["hold"] = ACT_GUEST_HOLD_SENTINELS      # (after `last`: s135's key, the last of act.guest)
+#: the engine's words (each a C# literal of the stack, or its head)
+LOG_HOLD = "[NetSync] action replay hold: "
+LOG_HOLD_FIRST_HELD = "[NetSync] action replay hold: an impact HELD for its replay's hit"
+LOG_HOLD_FIRST_QUEUED = "[NetSync] action replay hold: a frame QUEUED behind a held life change"
+LOG_HOLD_FIRST_TAIL = (" -- numbers, the flinch and deaths wait for the replay's own hit; the bars follow the host (logged "
+                       "once per boot)")
+LOG_HOLD_HELD_IMPACT = "[NetSync] action replay hold: held impact"
+LOG_HOLD_QUEUED_FRAME = "[NetSync] action replay hold: queued frame"
+LOG_HOLD_RELEASED_VIA = " released via "
+LOG_HOLD_HIT_FIRST = ": the replay's hit came first"
+LOG_HOLD_SUPERSEDED = " -- its life change SUPERSEDED by a newer frame (the figure and the flinch only)"
+LOG_HOLD_FURTHER = "[NetSync] action replay hold: further releases this boot are counted, not logged (act.guest.hold)"
+#: [fix pass: rtiming-1] ActHoldLog's per-release line, parsed anywhere in a log line (Memoria.log's prefix kept): "<held
+#: impact|queued frame>[ of id N] on wire slot S released via V after M ms of battle time[ (lag L ms...)][<superseded>]"
+_HOLD_RELEASE_RX = re.compile(
+    "(" + re.escape(LOG_HOLD_HELD_IMPACT) + "|" + re.escape(LOG_HOLD_QUEUED_FRAME) + r")(?: of id (\d+))? on wire slot (\d+)"
+    + re.escape(LOG_HOLD_RELEASED_VIA) + r"([a-z-]+) after (-?\d+) ms of battle time(?: \(lag (-?\d+) ms)?")
+
+
+def parse_hold_release(line: str) -> dict | None:
+    """One ActHoldLog release line -> {queued, id (None for a frame naming no record), slot (the TARGET's wire slot),
+    via, held_ms (battle time from its arrival), lag (None unless a paired release), superseded}; None for any other
+    line. The line is written at the RELEASE whether or not its figure showed (btl2d drops a figure on a unit the
+    replay's own sequence hid), so a timer release is judged on it, never on figs[] (fix pass: rtiming-1)."""
+    m = _HOLD_RELEASE_RX.search(line or "")
+    if m is None:
+        return None
+    return {"queued": m.group(1) == LOG_HOLD_QUEUED_FRAME, "id": int(m.group(2)) if m.group(2) else None,
+            "slot": int(m.group(3)), "via": m.group(4), "held_ms": int(m.group(5)),
+            "lag": int(m.group(6)) if m.group(6) else None, "superseded": LOG_HOLD_SUPERSEDED in line}
+
+
+LOG_HOLD_MASK_SKIP = "[NetSync] action replay hold: the reconciler skips wire slot "
+#: [fix pass: life-2] the catch-up's once-per-boot line: "<head><slot><piece><seq>) re-applied at <why><tail>"
+LOG_HOLD_CATCH_UP = "[NetSync] action replay hold: wire slot "
+LOG_HOLD_CATCH_UP_PIECE = "'s skipped record (seq "
+LOG_HOLD_CATCH_UP_TAIL = " -- the reconciler's sample the life mask kept off it lands now (logged once per boot)"
+LOG_HOLD_FLUSH = "[NetSync] action replay hold: the end injection released "
+LOG_HOLD_FLUSH_TAIL = (" queued frame(s) at once (the legacy path: every kill lands before the end presentation reads the "
+                       "party; logged once per boot)")
+LOG_HOLD_DISCARDED = " held / queued frame(s) DISCARDED ("
+LOG_HOLD_FAULTED = ("[NetSync] action replay hold faulted (logged once per boot; the frame or release in hand fell back as "
+                    "best it could): ")
+LOG_HOLD_OFF = ("[NetSync] harness: action replay hold OFF -- CALIBRATION: the pre-s135 guest (numbers, the flinch and deaths "
+                "land when the host's impact ARRIVES)")
+LOG_HOLD_ON = "[NetSync] harness: action replay hold ON"
+LOG_LIFESKIP_OFF = ("[NetSync] harness: action replay life-mask skip OFF -- CALIBRATION: the reconciler applies a held slot's "
+                    "sample (a dead one kills before the replay's hit)")
+LOG_LIFESKIP_ON = "[NetSync] harness: action replay life-mask skip ON"
+LOG_HOLD_UNIT = "[NetSync] harness: action replay bench -- a type-1 record for wire slot "
+LOG_HOLD_UNIT_SKIPPED = "met the life mask: SKIPPED (its kill or revive waits for the replay's hit)"
+LOG_HOLD_UNIT_APPLIED = "went through the reconciler's ApplyUnit"
+LOG_HOLD_LEVERS_BACK = ("[NetSync] harness: action replay hold levers back (the hold ON, the life-mask skip ON; released with "
+                        "the harness)")
+#: the hold's refusals (HarnessActHoldBench; `hold` / `lifeskip` splice their op: "netsync actbench <op>: expected `<op>
+#: on|off`")
+HOLD_UNIT_USAGE = "netsync actbench unit: expected `unit <slot 0-7> dead|alive|trance0|trance1`"
+HOLD_UNIT_STEADY = ("netsync actbench unit: needs a booted battle diorama in its steady state (PHASE_NORMAL, the units "
+                    "latched)")
+HOLD_UNIT_NO_UNIT = "netsync actbench unit: wire slot "      # + slot + " has no local unit"
+
+
+def _i16(v: int) -> int:
+    """C#'s (Int16) cast of an int: the low 16 bits, signed."""
+    v = int(v) & 0xFFFF
+    return v - 0x10000 if v & 0x8000 else v
+
+
+# ---- the pure rules (each NetSyncDiorama's method of the same name, its parameters in its order)
+def act_hold_verdict(hold_on: bool, stat_tick: bool, paired_state: int, target_resolved: bool, credit: bool, masked: bool,
+                     room: bool) -> int:
+    """NetSyncDiorama.ActHoldVerdict -- THE ARRIVAL VERDICT. ``hold_on`` false = the pre-s135 arrival path. A frame PAIRS
+    when it is not a stat tick, its target resolved, and its record is queued / waiting / running -- or ended with a credit
+    for that target. A pairing frame without a credit is HELD (a full list applies it now); with a credit it releases LATE
+    -- unless a slot it touches is busy (masked): then it QUEUES behind the older change, as does every other frame on a
+    busy slot (a full list applies it now). Anything else applies now."""
+    if not hold_on:
+        return ACT_HOLD_APPLY
+    live = paired_state in (ACT_ST_REGISTERED, ACT_ST_WAITING, ACT_ST_RUNNING)
+    pairs = not stat_tick and bool(target_resolved) and (live or (paired_state == ACT_ST_ENDED and bool(credit)))
+    if pairs and not credit:
+        return ACT_HOLD_HOLD if room else ACT_HOLD_APPLY
+    if masked:
+        return ACT_HOLD_QUEUE if room else ACT_HOLD_APPLY
+    return ACT_HOLD_LATE if pairs else ACT_HOLD_APPLY
+
+
+def act_lane_is_life(lethal: bool, dead_now: bool, slot_busy: bool) -> bool:
+    """NetSyncDiorama.ActLaneIsLife: a held lane's state waits for the release when it is a LIFE change -- lethal (raw wire
+    HP 0), a unit dead here now (its revive is decided at release, amendment 11), or a slot an older frame still holds."""
+    return bool(lethal or dead_now or slot_busy)
+
+
+def act_held_applies(seq: int, seen: bool, stamp: int) -> bool:
+    """NetSyncDiorama.ActHeldApplies -- THE SUPERSEDED GUARD: a deferred lane's state applies only if no NEWER frame already
+    applied that slot -- ``(Int16)(seq - stamp) > 0`` (UInt16 operands: wrap-safe); a slot nothing stamped this boot always
+    applies."""
+    return not seen or _i16((int(seq) & 0xFFFF) - (int(stamp) & 0xFFFF)) > 0
+
+
+def act_deferred_applies(deferred: bool, revive: bool, life_at_queue: bool, seq: int, seen: bool, stamp: int) -> bool:
+    """NetSyncDiorama.ActDeferredApplies (the s135 fix pass: life-1, timing-2) -- a lane's state in ApplyActionFrameNow: an
+    arrival or a late release always applies; a DEFERRED (queued) frame's lane only if no newer state applied that slot
+    (the superseded guard -- the reconciler's samples stamp too) and never a REVIVE through a lane that was not a life
+    lane when the frame queued."""
+    if not deferred:
+        return True
+    if revive and not life_at_queue:
+        return False
+    return act_held_applies(seq, seen, stamp)
+
+
+def act_catch_up_slots(skipped: int, mask: int) -> int:
+    """NetSyncDiorama.ActCatchUpSlots (fix pass: life-2): the skipped records due for their catch-up -- every cached slot
+    that has left the life mask."""
+    return int(skipped) & ~int(mask)
+
+
+def act_drains_at_hit(bracket: bool) -> bool:
+    """NetSyncDiorama.ActDrainsAtHit (fix pass: stock-1): a hit release drains the queue at once only OUTSIDE EffectPoint's
+    bracket; inside it the drain waits for the next ActHoldTick."""
+    return not bracket
+
+
+def act_shows_pending_at(via: str) -> bool:
+    """NetSyncDiorama.ActShowsPendingAt (fix pass: timing-1): a hit figure its Figure point has not shown yet is shown at
+    once when its replay is released ``via`` -- any cut, never a natural `end`."""
+    return via != "end"
+
+
+def act_release_arms_grace(lethal: bool, caster_is_player: bool, target_is_player: bool, backlog: bool, via: str,
+                           no_replay: bool) -> bool:
+    """NetSyncDiorama.ActReleaseArmsGrace (fix pass: timing-4): a released kill arms the death-attack grace -- a PLAYER
+    caster's lethal blow on an enemy, not a backlog frame, and only while an EnemyDying replay can still follow (never at
+    `end-inject`, never once the end is presented or a Leave is in flight)."""
+    return bool(lethal) and bool(caster_is_player) and not target_is_player and not backlog and via != "end-inject" \
+        and not no_replay
+
+
+def act_revive_at_release(lethal: bool, dead_now: bool) -> bool:
+    """NetSyncDiorama.ActReviveAtRelease (amendment 11, D11): not lethal, and the unit dead here NOW."""
+    return not lethal and bool(dead_now)
+
+
+def act_held_timer_why(host_ended: bool, host_end_ms: int, arrive_ms: int, now_ms: int) -> str | None:
+    """NetSyncDiorama.ActHeldTimerWhy: `hostdone` once its host's END is ACT_HOLD_HOST_DONE_MS old, `timeout` once its own
+    arrival is ACT_HOLD_TIMEOUT_MS old (battle ms; host-done first when both); None = it waits on."""
+    if host_ended and now_ms - host_end_ms >= ACT_HOLD_HOST_DONE_MS:
+        return "hostdone"
+    if now_ms - arrive_ms >= ACT_HOLD_TIMEOUT_MS:
+        return "timeout"
+    return None
+
+
+def act_queue_blocked(slots: int, older_held_life: int, older_queued: int) -> bool:
+    """NetSyncDiorama.ActQueueBlocked: a queued frame stays queued while an OLDER held frame's life lane, or an older
+    queued frame, touches one of its slots (FIFO per slot)."""
+    return (int(slots) & (int(older_held_life) | int(older_queued))) != 0
+
+
+def act_life_skips(mask: int, index: int, skip_on: bool) -> bool:
+    """NetSyncDiorama.ActLifeSkips: ApplyUnit's skip -- the slot is in the life mask and the skip is in force (the
+    `lifeskip off` lever is its calibration red)."""
+    return bool(skip_on) and 0 <= int(index) < 8 and (int(mask) & (1 << int(index))) != 0
+
+
+def act_decline_via(why: str) -> str:
+    """NetSyncDiorama.ActDeclineVia: which release a decline of a pending START gives its held impacts -- `replaced` for a
+    newer START that took its pending slot (amendment 9), `abort` for an abort-all's drop (r8, w3, leave, clear), else
+    `declined`."""
+    if why == "superseded":
+        return "replaced"
+    if why in ("r8", "w3", "leave", "clear"):
+        return "abort"
+    return "declined"
+
+
+def act_end_inject_flushes(ours: bool, kind: int) -> bool:
+    """NetSyncDiorama.ActEndInjectFlushes -- EndTick's release trigger (amendment 2, D02): THIS boot's battle shows an END
+    kind (NetSyncEnd.IsEndKind)."""
+    return bool(ours) and is_end_kind(kind)
+
+
+def act_hit_fig_path(hidden: bool, bracket: bool) -> int:
+    """NetSyncDiorama.ActHitFigPath: none for a unit hidden here (amendment 3); inside EffectPoint's bracket the fig write (a
+    hit through the sequencer's own call, the short-circuit in force); else the direct Btl2dReq."""
+    if hidden:
+        return ACT_FIG_NONE
+    return ACT_FIG_BRACKET if bracket else ACT_FIG_DIRECT
+
+
+def act_release_flinches(dmg_mot: bool, lethal: bool, revive: bool, hidden: bool, can_play: bool) -> bool:
+    """NetSyncDiorama.ActReleaseFlinches (F5): the host's DmgMot, not lethal, not a revive, not hidden, and a unit that may
+    play a cosmetic motion."""
+    return bool(dmg_mot) and not lethal and not revive and not hidden and bool(can_play)
+
+
+def act_fig_value(hp: int, mp: int) -> int:
+    """NetSyncDiorama.ActFigValue: figs[]' value -- the HP figure, else the MP one."""
+    return int(hp) if int(hp) != 0 else int(mp)
+
+
+def act_lag_p50(samples) -> int:
+    """NetSyncDiorama.ActLagP50: the lag's LOWER median (``s[(n - 1) / 2]`` of the sorted samples); -1 for none."""
+    if not samples:
+        return -1
+    s = sorted(int(x) for x in samples)
+    return s[(len(s) - 1) // 2]
+
+
+class ActHeld:
+    """NetSyncDiorama.ActHeld -- one host frame the hold keeps: HELD for its replay's hit, or QUEUED behind an older held
+    life change (the whole frame deferred). ``a`` is the parsed frame (:func:`decode_action`'s dict) -- the C# PeerAction."""
+
+    def __init__(self, ord: int = 0, a: dict | None = None, rec=None, queued: bool = False,     # noqa: A002 (C#'s Ord)
+                 life_t: bool = False, life_c: bool = False, self_cast: bool = False, covered: bool = False,
+                 backlog: bool = False, unit_id: int = 0, slots: int = 0, life_slots: int = 0, arrive_ms: int = 0,
+                 credit_ms: int = INT32_MIN):
+        self.ord = int(ord)                      # arrival ordinal: one FIFO across the held and the queued
+        self.a = a
+        self.rec = rec                           # the replay it waits for (queued: the record it named, or None)
+        self.queued = bool(queued)
+        self.life_t, self.life_c = bool(life_t), bool(life_c)
+        self.self_cast, self.covered, self.backlog = bool(self_cast), bool(covered), bool(backlog)
+        self.unit_id = int(unit_id)              # the master target's btl_id: the hit key with ``rec`` (0 = none)
+        self.slots, self.life_slots = int(slots), int(life_slots)
+        self.arrive_ms = int(arrive_ms)
+        self.credit_ms = int(credit_ms)          # a LATE frame queued behind a blocker: its credit's hit (INT32_MIN = none)
+
+
+def act_busy_mask_of(held, queued) -> int:
+    """NetSyncDiorama.ActBusyMaskOf: the intake's BUSY slots -- every held frame's LIFE lanes and every queued frame's slots
+    (a held frame's non-life lanes already applied: they order nothing)."""
+    m = 0
+    for h in held:
+        m |= int(h.life_slots)
+    for q in queued:
+        m |= int(q.slots)
+    return m
+
+
+def act_life_mask_of(held, queued) -> int:
+    """NetSyncDiorama.ActLifeMaskOf -- THE LIFE MASK: the life lanes of every held and queued frame."""
+    m = 0
+    for h in held:
+        m |= int(h.life_slots)
+    for q in queued:
+        m |= int(q.life_slots)
+    return m
+
+
+def act_pick_oldest(held, rec, unit_id: int) -> int:
+    """NetSyncDiorama.ActPickOldest -- the hit's pick: the index of the OLDEST held (never queued) impact of ``rec`` (BY
+    REFERENCE) on the master target ``unit_id``; -1 = none (the hit is a credit)."""
+    best = -1
+    for i, h in enumerate(held):
+        if h.queued or h.rec is not rec or h.unit_id != int(unit_id):
+            continue
+        if best < 0 or h.ord < held[best].ord:
+            best = i
+    return best
+
+
+def act_credit_add(r, unit_id: int, ms: int) -> None:
+    """NetSyncDiorama.ActCreditAdd: a hit that released nothing adds a credit for that master target (at most
+    ACT_HOLD_CREDIT_CAP per replay)."""
+    if r.hold_credit_units is None:
+        r.hold_credit_units, r.hold_credit_ms = [], []
+    if len(r.hold_credit_units) >= ACT_HOLD_CREDIT_CAP:
+        return
+    r.hold_credit_units.append(int(unit_id))
+    r.hold_credit_ms.append(int(ms))
+
+
+def act_credit_find(r, unit_id: int) -> int:
+    """NetSyncDiorama.ActCreditFind: the index of the OLDEST credit for that master target; -1 = none."""
+    if r.hold_credit_units is None:
+        return -1
+    return r.hold_credit_units.index(int(unit_id)) if int(unit_id) in r.hold_credit_units else -1
+
+
+def act_credit_take(r, index: int) -> int:
+    """NetSyncDiorama.ActCreditTake: that credit removed; its hit ms returned (the late release's lag)."""
+    ms = r.hold_credit_ms[index]
+    del r.hold_credit_units[index]
+    del r.hold_credit_ms[index]
+    return ms
+
+
+class ActHoldLane:
+    """[ff9mapkit netsync s135] THE REPLAY HIT HOLD as NetSyncDiorama.Replay.cs runs it, with its statics -- the stand-in's
+    model, owned by an :class:`ActGuestLane` (its battle clock, its log, its records). MODELLED, through the twins above:
+    ApplyActionFrame's intake (ActHoldIntake: the verdict, the life lanes, the non-life lanes applied at arrival -- the bars
+    follow the host --, the horizon gate stamped, the credit taken for a late frame), the arrival path (ApplyActionFrameNow:
+    raw HP / MP, the kill and the revive, the figures into figs[] at the display, the flinch, the swing; deferred for a
+    queued frame: the superseded guard per lane), the hit release (ActHoldOnHit: the oldest held impact of the replay on
+    that target, its figures into the hit's pending list -- DISPLAYED at the replay's Figure point,
+    ActGuestLane.FIGURE_FRAMES after the hit, only for a unit whose collected fig.info is non-zero: EffectPoint's own
+    collect rule --, or a credit), the record releases (ActHoldReleaseRec: end / abort / replaced / declined), the timers
+    (ActHoldTick: host-done, timeout -- only in the steady phase), the queue's FIFO drain, the end-inject flush
+    (ActHoldFlush), the teardown's discard (ActHoldDiscardAll: the mask first), the per-boot reset, the levers
+    (`hold|lifeskip on|off`, their role gate, ActBenchRelease's half), the bench's `unit <slot> <state>` through a model of
+    the reconciler's ApplyUnit (the life-mask skip, the kill, the revive -- a dead enemy holds dead: the stand-in's dead
+    enemies are fully faded --, trance), every counter, figs[], the lag and every Log.Message line -- and the s135 fix
+    pass: the reconciler's stamp of THE SUPERSEDED GUARD (a record really applied), the skipped-record cache and its
+    catch-up (a slot leaving the mask in the steady tick; the end-inject flush), a hit's drain deferred to the next tick,
+    a cut replay's pending hit figure shown at once (never at a natural `end`), and a queued lane that was no life lane at
+    queue time never reviving (ActDeferredApplies).
+    NOT MODELLED: slave parts (the master is the target), the hidden mask (the stand-in hides nothing: ctx ``hidden_mask``
+    0 -- the twin's rule is pinned by the selftest row), the death-attack grace at a release (no AttackOnDeath enemy), the
+    crit shove, a fault (the 'hold faulted' line), the reconciler's other lanes (max HP/MP, hide, ATB: only a `unit` op
+    reaches it) and the transport (ActionTick's drain: only the bench inbox feeds the intake)."""
+
+    FLINCH_FRAMES = 12                           # (the stand-in's flinch: the unit's `mot` reads MP_DAMAGE1 this long)
+
+    def __init__(self, lane) -> None:
+        self.lane = lane
+        self.bench_hold_off = False              # `hold off`: the pre-s135 guest (harness-scoped, never per boot)
+        self.bench_lifeskip_off = False          # `lifeskip off`: ApplyUnit ignores the life mask
+        self.clear()
+        self.reset_counters()
+
+    # -- the levers (their getters need the selftest role, as the engine's)
+    def hold_on(self, role: bool) -> bool:
+        """ActHoldOn / HarnessHoldOn."""
+        return not (self.bench_hold_off and bool(role))
+
+    def lifeskip_on(self, role: bool) -> bool:
+        """ActLifeSkipOn / HarnessHoldLifeSkip."""
+        return not (self.bench_lifeskip_off and bool(role))
+
+    def release(self) -> None:
+        """ActBenchRelease's s135 half: both levers back (one line when either was pulled)."""
+        if self.bench_hold_off or self.bench_lifeskip_off:
+            self._log(LOG_HOLD_LEVERS_BACK)
+        self.bench_hold_off = self.bench_lifeskip_off = False
+
+    # -- the per-boot state
+    def clear(self) -> None:
+        """ActHoldClear (the boot block): the mask FIRST, the applied seqs, the held, queued and pending-figure lists (and
+        the stand-in's unit shapes of a boot)."""
+        self.clear_seq()
+        self.held: list = []
+        self.queued: list = []
+        self.fig_pending: list = []
+        self.flinches: dict = {}
+        self.trance: dict = {}
+
+    def clear_seq(self) -> None:
+        """ActHoldClearSeq (ForceDisarm's half): the life mask and every slot's applied seq -- and the stand-in's horizon
+        gate seqs (the engine's _gateSeq, cleared at the same sites)."""
+        self.life_mask = 0
+        self.applied_seq = [0] * 8
+        self.applied_seen = [False] * 8
+        self.gate_seq = [0] * 8
+        self.skipped: dict = {}                  # [fix pass: life-2] slot -> (state, seq): the latest record the mask skipped
+        self.drain_due = False                   # [fix pass: stock-1] a hit's drain, deferred to the next tick
+
+    def reset_counters(self) -> None:
+        """ActHoldResetCounters (the boot block): the counters, figs[] and the lag -- kept after a teardown until the next
+        boot."""
+        self.ord = 0
+        self.held_count = self.queued_count = self.rel_queued = self.superseded = self.discarded = self.mask_skips = 0
+        self.rel_by = dict.fromkeys(ACT_HOLD_VIAS, 0)
+        self.figs: list = []
+        self.lag: list = []
+        self.lag_n = self.lag_min = self.lag_max = 0
+        self.logged = 0
+        self.first_logged = self.mask_logged = self.flush_logged = self.catch_up_logged = False
+
+    # -- helpers
+    def _log(self, text: str) -> None:
+        self.lane._log(text)
+
+    @property
+    def now(self) -> int:
+        return self.lane.now_ms
+
+    def _ctx(self, ctx: dict | None) -> dict:
+        return ctx if ctx and ctx.get("resolve") else (self.lane.ctx_last or ctx or {})
+
+    def _resolve(self, ctx: dict | None, index: int, is_player: bool):
+        if index is None or index < 0 or index > 7:
+            return None
+        resolve = self._ctx(ctx).get("resolve")
+        return resolve(index, is_player) if resolve else None
+
+    @staticmethod
+    def _dead(u) -> bool:
+        return u is not None and not u.get("alive", True)
+
+    @staticmethod
+    def _can_play(u) -> bool:
+        """CanPlayCosmeticMotion, as the stand-in models it: a living unit (no Petrify / Stop seated here)."""
+        return u is not None and bool(u.get("alive", True))
+
+    @staticmethod
+    def _hidden(ctx: dict, slot: int, is_player: bool) -> bool:
+        """ActHiddenNow: an ENEMY wire slot in the hidden mask (re-read at every release: amendment 3)."""
+        return not is_player and 0 <= slot <= 7 and bool(int(ctx.get("hidden_mask", 0) or 0) & (1 << slot))
+
+    def _disappeared(self, u, ctx: dict | None) -> bool:
+        fn = self._ctx(ctx).get("disappeared")
+        return bool(fn(u)) if callable(fn) else False
+
+    def busy_mask(self) -> int:
+        return act_busy_mask_of(self.held, self.queued)
+
+    def recompute_mask(self) -> None:
+        self.life_mask = act_life_mask_of(self.held, self.queued)
+
+    def stamp(self, slot: int, seq: int) -> None:
+        """ActStampApplied: THE SUPERSEDED GUARD's stamp (a frame's state applied to that wire slot)."""
+        if 0 <= slot <= 7:
+            self.applied_seq[slot] = int(seq) & 0xFFFF
+            self.applied_seen[slot] = True
+
+    def gate(self, slot: int, seq: int) -> None:
+        """The horizon gate's stamp (_gated / _gateSeq): a type-1 sample older than this frame skips the slot."""
+        if 0 <= slot <= 7:
+            self.gate_seq[slot] = int(seq) & 0xFFFF
+
+    def applies(self, slot: int, seq: int) -> bool:
+        return act_held_applies(seq, self.applied_seen[slot], self.applied_seq[slot]) if 0 <= slot <= 7 else True
+
+    def deferred_applies(self, deferred: bool, revive: bool, life_slots: int, slot: int, seq: int) -> bool:
+        """ActDeferredApplies for one lane (``life_slots``: the queued frame's life lanes at queue time)."""
+        if not 0 <= slot <= 7:
+            return True
+        return act_deferred_applies(deferred, revive, bool(int(life_slots) & (1 << slot)), seq, self.applied_seen[slot],
+                                    self.applied_seq[slot])
+
+    @staticmethod
+    def apply_state(u: dict, slot: int, lethal: bool, revive: bool, hp_raw: int, mp_raw: int) -> None:
+        """ApplyActionState, as the stand-in models it: raw HP / MP against raw max (the logical `hp` follows by the unit's
+        own offset), the kill (lethal) or the revive."""
+        offset = max(0, int(u.get("hp_max_raw", 0) or 0) - int(u.get("hp_max", 0) or 0))
+        u["hp_raw"] = 0 if lethal else int(hp_raw)
+        if "hp" in u:
+            u["hp"] = max(0, u["hp_raw"] - offset)
+        u["mp"] = int(mp_raw)
+        if lethal:
+            u["alive"] = False
+        elif revive:
+            u["alive"] = True
+
+    def flinch(self, u) -> None:
+        """SetDamageMotion(unit, null), as the stand-in shows it: the unit's `mot` reads MP_DAMAGE1 for FLINCH_FRAMES."""
+        self.flinches[int(u.get("slot", -1))] = self.FLINCH_FRAMES
+
+    def age_flinches(self) -> None:
+        for slot in list(self.flinches):
+            self.flinches[slot] -= 1
+            if self.flinches[slot] <= 0:
+                del self.flinches[slot]
+
+    def record_fig(self, slot: int, value: int, via: str, arrive_ms: int, release_ms: int) -> None:
+        """ActFigRecord: one figure DISPLAYED (figs[]: the last ACT_HOLD_FIGS_MAX, oldest first)."""
+        self.figs.append({"slot": int(slot), "value": int(value), "via": via, "arrival_ms": int(arrive_ms),
+                          "release_ms": int(release_ms)})
+        del self.figs[:-ACT_HOLD_FIGS_MAX]
+
+    def show_figure(self, u, slot: int, hp: int, mp: int, via: str, arrive_ms: int, ctx: dict | None) -> None:
+        """ActShowFigure / ActShowStatFigure: figs[] at the display (bi.disappear 0: btl2d's own gate), then the stock
+        request (the stand-in draws nothing)."""
+        if not self._disappeared(u, ctx):
+            self.record_fig(slot, act_fig_value(hp, mp), via, arrive_ms, self.now)
+
+    def add_lag(self, lag: int) -> None:
+        """ActHoldLag: n, min, max over every paired release; the samples (capped) for the median."""
+        if self.lag_n == 0 or lag < self.lag_min:
+            self.lag_min = int(lag)
+        if self.lag_n == 0 or lag > self.lag_max:
+            self.lag_max = int(lag)
+        self.lag_n += 1
+        if len(self.lag) < ACT_HOLD_LAG_CAP:
+            self.lag.append(int(lag))
+
+    def count(self, via: str) -> None:
+        if via in self.rel_by:
+            self.rel_by[via] += 1
+
+    def log_release(self, r, slot: int, via: str, held_ms: int, lag: int, superseded: bool, queued: bool) -> None:
+        """ActHoldLog: ONE line per release (amendment 10), capped per boot."""
+        if self.logged > ACT_HOLD_LOG_MAX:
+            return
+        self.logged += 1
+        if self.logged > ACT_HOLD_LOG_MAX:
+            self._log(LOG_HOLD_FURTHER)
+            return
+        self._log((LOG_HOLD_QUEUED_FRAME if queued else LOG_HOLD_HELD_IMPACT) + (f" of id {r.id}" if r is not None else "")
+                  + f" on wire slot {slot}{LOG_HOLD_RELEASED_VIA}{via} after {held_ms} ms of battle time"
+                  + ((f" (lag {lag} ms" + (LOG_HOLD_HIT_FIRST if lag < 0 else "") + ")") if lag != INT32_MIN else "")
+                  + (LOG_HOLD_SUPERSEDED if superseded else ""))
+
+    def note_first(self, h: ActHeld) -> None:
+        if self.first_logged:
+            return
+        self.first_logged = True
+        self._log((LOG_HOLD_FIRST_QUEUED if h.queued else LOG_HOLD_FIRST_HELD)
+                  + (f" (id {h.rec.id})" if h.rec is not None else "") + f" on wire slot {h.a['target_slot']}"
+                  + (f", life mask 0x{self.life_mask:02X}" if h.life_slots else "") + LOG_HOLD_FIRST_TAIL)
+
+    # -- the arrival (ActHoldIntake) and the arrival path (ApplyActionFrameNow)
+    def intake(self, a: dict, dt, dc, self_cast: bool, rec, backlog: bool, covered: bool, ctx: dict) -> bool:
+        """ActHoldIntake: True = the hold took the frame (held, released late, or queued); False = the arrival path applies
+        it now, as before."""
+        role = self._ctx(ctx).get("role", False)
+        if not self.hold_on(role) or (rec is None and not self.held and not self.queued):
+            return False
+        has_c = dc is not None and not self_cast
+        bit_t = (1 << a["target_slot"]) if dt is not None else 0
+        bit_c = (1 << a["caster_slot"]) if dc is not None else 0
+        slots = bit_t | bit_c
+        busy = self.busy_mask()
+        masked = (slots & busy) != 0
+        credit = act_credit_find(rec, int(dt.get("id", 0))) if rec is not None and dt is not None and not a["stat_tick"] \
+            else -1
+        room = len(self.held) + len(self.queued) < ACT_HOLD_CAP
+        verdict = act_hold_verdict(True, a["stat_tick"], rec.state if rec is not None else -1, dt is not None, credit >= 0,
+                                   masked, room)
+        if verdict == ACT_HOLD_APPLY:
+            return False
+        credit_ms = INT32_MIN
+        if credit >= 0 and verdict != ACT_HOLD_HOLD:
+            credit_ms = act_credit_take(rec, credit)
+        if verdict == ACT_HOLD_LATE:
+            # the replay already hit that target: at once, through the legacy path (no older change on its slots)
+            self.apply_now(a, dt, dc, self_cast, covered, backlog, "late", self.now, False, ctx)
+            self.held_count += 1
+            self.count("late")
+            self.add_lag(credit_ms - self.now)
+            self.log_release(rec, a["target_slot"], "late", 0, credit_ms - self.now, False, False)
+            return True
+        self.ord += 1
+        h = ActHeld(ord=self.ord, a=a, rec=rec, queued=verdict == ACT_HOLD_QUEUE, self_cast=self_cast, covered=covered,
+                    backlog=backlog, unit_id=int(dt.get("id", 0)) if dt is not None else 0, slots=slots,
+                    arrive_ms=self.now, credit_ms=credit_ms)
+        h.life_t = dt is not None and act_lane_is_life(a["tgt_hp_raw"] == 0, self._dead(dt), bool(bit_t & busy))
+        h.life_c = has_c and act_lane_is_life(a["cast_hp_raw"] == 0, self._dead(dc), bool(bit_c & busy))
+        h.life_slots = (bit_t if h.life_t else 0) | (bit_c if h.life_c else 0)
+        if not h.queued:
+            # HELD: the non-life lanes apply NOW (the bars follow the host) and stamp their slots; the life lanes, the
+            # figures and the flinch wait for the release
+            self.held.append(h)
+            self.held_count += 1
+            if dt is not None and not h.life_t:
+                self.apply_state(dt, a["target_slot"], False, False, a["tgt_hp_raw"], a["tgt_mp_raw"])
+                self.stamp(a["target_slot"], a["seq_horizon"])
+            if has_c and not h.life_c:
+                self.apply_state(dc, a["caster_slot"], False, False, a["cast_hp_raw"], a["cast_mp_raw"])
+                self.stamp(a["caster_slot"], a["seq_horizon"])
+            if covered and has_c and a["caster_is_player"] and a["cast_hp_raw"] != 0 and self._can_play(dc):
+                self.lane.swing_skipped += 1     # the legacy player swing is the replay's
+        else:
+            self.queued.append(h)
+            self.queued_count += 1
+        if dt is not None:                       # THE HORIZON GATE, now (both slots)
+            self.gate(a["target_slot"], a["seq_horizon"])
+        if dc is not None:
+            self.gate(a["caster_slot"], a["seq_horizon"])
+        self.recompute_mask()
+        self.note_first(h)
+        return True
+
+    def apply_now(self, a: dict, dt, dc, self_cast: bool, covered: bool, backlog: bool, via: str, arrive_ms: int,
+                  deferred: bool, ctx: dict | None, life_slots: int = 0) -> None:
+        """ApplyActionFrameNow -- steps c-h of the arrival path (an arrival, a late release, a queued frame's release:
+        ``deferred`` = each lane's state only if no newer state applied that slot -- a reconciler record included -- and
+        never a revive through a lane that was not a life lane when it queued (``life_slots``, the fix pass); its gate
+        stamped on arrival)."""
+        ctx = self._ctx(ctx)
+        lethal_t, lethal_c = a["tgt_hp_raw"] == 0, a["cast_hp_raw"] == 0
+        revive_t = dt is not None and not lethal_t and self._dead(dt)
+        revive_c = dc is not None and not lethal_c and self._dead(dc)
+        hidden_t = dt is not None and self._hidden(ctx, a["target_slot"], a["target_is_player"])
+        hidden_c = dc is not None and self._hidden(ctx, a["caster_slot"], a["caster_is_player"])
+        seq = a["seq_horizon"]
+        apply_t = dt is not None and self.deferred_applies(deferred, revive_t, life_slots, a["target_slot"], seq)
+        apply_c = dc is not None and not self_cast and self.deferred_applies(deferred, revive_c, life_slots,
+                                                                           a["caster_slot"], seq)
+        if (dt is not None and not apply_t) or (dc is not None and not self_cast and not apply_c):
+            self.superseded += 1                 # ActHoldNoteSuperseded
+        if a["stat_tick"]:
+            if dt is not None and not hidden_t and (a["fig_hp_t"] or a["fig_mp_t"]):
+                self.show_figure(dt, a["target_slot"], a["fig_hp_t"], a["fig_mp_t"], via, arrive_ms, ctx)
+            if dt is not None:
+                if apply_t:
+                    self.apply_state(dt, a["target_slot"], a["tgt_hp_raw"] == 0, revive_t, a["tgt_hp_raw"],
+                                     a["tgt_mp_raw"])
+                    self.stamp(a["target_slot"], seq)
+                if not deferred:
+                    self.gate(a["target_slot"], seq)
+            return
+        if dt is not None and not hidden_t and (a["fig_info_t"] or a["fig_hp_t"] or a["fig_mp_t"]):
+            self.show_figure(dt, a["target_slot"], a["fig_hp_t"], a["fig_mp_t"], via, arrive_ms, ctx)
+        if dc is not None and not self_cast and not hidden_c and (a["fig_info_c"] or a["fig_hp_c"] or a["fig_mp_c"]):
+            self.show_figure(dc, a["caster_slot"], a["fig_hp_c"], a["fig_mp_c"], via, arrive_ms, ctx)
+        if dt is not None and a["dmg_mot"] and not lethal_t and not revive_t and not hidden_t and self._can_play(dt):
+            self.flinch(dt)
+        if dc is not None and not self_cast and a["caster_is_player"] and not lethal_c and not revive_c and not hidden_c \
+                and self._can_play(dc):
+            if covered:
+                self.lane.swing_skipped += 1
+            else:
+                self.lane.swings[int(dc.get("slot", -1))] = 20
+        if apply_t:
+            self.apply_state(dt, a["target_slot"], lethal_t, revive_t, a["tgt_hp_raw"], a["tgt_mp_raw"])
+            self.stamp(a["target_slot"], seq)
+        if apply_c:
+            self.apply_state(dc, a["caster_slot"], lethal_c, revive_c, a["cast_hp_raw"], a["cast_mp_raw"])
+            self.stamp(a["caster_slot"], seq)
+        if deferred:
+            return
+        if dt is not None:
+            self.gate(a["target_slot"], seq)
+        if dc is not None:
+            self.gate(a["caster_slot"], seq)
+
+    # -- the releases
+    def on_hit(self, r, master: dict, bracket: bool) -> None:
+        """ActHoldOnHit: the oldest held impact of ``r`` on ``master`` is released `hit` (its figures into the hit's
+        pending list when ``bracket``, else shown at once), then the queue drains; none held = a CREDIT (while the hold is
+        on)."""
+        if master is None:
+            return
+        i = act_pick_oldest(self.held, r, int(master.get("id", 0)))
+        if i < 0:
+            if self.hold_on(self._ctx(None).get("role", False)):
+                act_credit_add(r, int(master.get("id", 0)), self.now)
+            return
+        self.release_held(self.held[i], "hit", bracket, master)
+        if act_drains_at_hit(bracket):
+            self.drain_queue()
+        elif self.queued:
+            self.drain_due = True                # [fix pass: stock-1] never inside EffectPoint's bracket: the next tick
+
+    def release_rec(self, r, via: str) -> None:
+        """ActHoldReleaseRec: every held impact of ``r`` released ``via`` (oldest first), then the queue drains; its hit
+        figures still waiting for a Figure point are forgotten (that point never comes)."""
+        if r is None:
+            return
+        if act_shows_pending_at(via):
+            self.show_pending(r, via)            # [fix pass: timing-1] a cut replay's collected hit figures: shown NOW
+        self.fig_pending = [e for e in self.fig_pending if e["rec"] is not r]
+        if not self.held:
+            return
+        released = False
+        for h in list(self.held):
+            if h.rec is not r:
+                continue
+            self.release_held(h, via, False, None)
+            released = True
+        if released:
+            self.drain_queue()
+
+    def release_held(self, h: ActHeld, via: str, bracket: bool, hit, ctx: dict | None = None) -> None:
+        """ActReleaseHeld -- ONE held impact released ``via``: its figures (the hidden guard re-read), the flinch (wire
+        lethality first, the revive decided NOW), each LIFE lane's kill or revive -- only if no newer frame applied that slot
+        (the superseded guard) --, the lag (a hit), the count, one line."""
+        if h in self.held:
+            self.held.remove(h)
+        ctx = self._ctx(ctx)
+        a = h.a
+        dt = self._resolve(ctx, a["target_slot"], a["target_is_player"])
+        dc = self._resolve(ctx, a["caster_slot"], a["caster_is_player"]) if not h.self_cast else None
+        hidden_t = dt is not None and self._hidden(ctx, a["target_slot"], a["target_is_player"])
+        hidden_c = dc is not None and self._hidden(ctx, a["caster_slot"], a["caster_is_player"])
+        lethal_t, lethal_c = a["tgt_hp_raw"] == 0, a["cast_hp_raw"] == 0
+        revive_t = h.life_t and dt is not None and act_revive_at_release(lethal_t, self._dead(dt))
+        revive_c = h.life_c and dc is not None and act_revive_at_release(lethal_c, self._dead(dc))
+        if dt is not None and (a["fig_info_t"] or a["fig_hp_t"] or a["fig_mp_t"]):
+            self.figure(h, hit if hit is not None and bracket else dt, a["target_slot"], a["fig_info_t"], a["fig_hp_t"],
+                        a["fig_mp_t"], act_hit_fig_path(hidden_t, bracket), via, ctx)
+        if dc is not None and (a["fig_info_c"] or a["fig_hp_c"] or a["fig_mp_c"]):
+            self.figure(h, dc, a["caster_slot"], a["fig_info_c"], a["fig_hp_c"], a["fig_mp_c"],
+                        act_hit_fig_path(hidden_c, bracket), via, ctx)
+        if dt is not None and act_release_flinches(a["dmg_mot"], lethal_t, revive_t, hidden_t, self._can_play(dt)):
+            self.flinch(dt)
+        superseded = False
+        seq = a["seq_horizon"]
+        if h.life_t and dt is not None:
+            if self.applies(a["target_slot"], seq):
+                self.apply_state(dt, a["target_slot"], lethal_t, revive_t, a["tgt_hp_raw"], a["tgt_mp_raw"])
+                self.stamp(a["target_slot"], seq)
+            else:
+                superseded = True
+        if h.life_c and dc is not None:
+            if self.applies(a["caster_slot"], seq):
+                self.apply_state(dc, a["caster_slot"], lethal_c, revive_c, a["cast_hp_raw"], a["cast_mp_raw"])
+                self.stamp(a["caster_slot"], seq)
+            else:
+                superseded = True
+        if superseded:
+            self.superseded += 1
+        lag = INT32_MIN
+        if via == "hit":
+            lag = self.now - h.arrive_ms
+            self.add_lag(lag)
+        self.count(via)
+        self.log_release(h.rec, a["target_slot"], via, self.now - h.arrive_ms, lag, superseded, False)
+        self.recompute_mask()
+
+    def figure(self, h: ActHeld, u, slot: int, info: int, hp: int, mp: int, path: int, via: str, ctx: dict) -> None:
+        """ActHoldFigure: none (hidden), the fig write inside EffectPoint's bracket (pending: figs[] at the Figure
+        point), or the direct display (figs[] now)."""
+        if path == ACT_FIG_NONE:
+            return
+        if path == ACT_FIG_BRACKET:
+            if h.rec is None or u is None:
+                return
+            if len(self.fig_pending) >= 32:
+                del self.fig_pending[0]
+            self.fig_pending.append({"rec": h.rec, "unit": u, "slot": int(slot), "arrive_ms": h.arrive_ms,
+                                     "info": int(info), "hp": int(hp), "mp": int(mp)})
+            return
+        self.show_figure(u, slot, hp, mp, via, h.arrive_ms, ctx)
+
+    def show_pending(self, r, via: str) -> None:
+        """ActHoldShowPending (fix pass: timing-1): each unit's collected hit figure of ``r`` that no Figure point showed --
+        its pending writes summed; never collected when its fig.info sums to 0 (EffectPoint's `info != 0`) -- shown
+        directly ``via`` (figs[] at the display), its arrival the oldest pending; none for a unit hidden here."""
+        ctx = self._ctx(None)
+        units: list = []
+        for e in self.fig_pending:
+            if e["rec"] is r and not any(e["unit"] is u for u in units):
+                units.append(e["unit"])
+        for u in units:
+            mine = [e for e in self.fig_pending if e["rec"] is r and e["unit"] is u]
+            info, hp, mp = 0, 0, 0
+            for e in mine:
+                info, hp, mp = info | e["info"], hp + e["hp"], mp + e["mp"]
+            if info == 0 or self._hidden(ctx, mine[0]["slot"], bool(u.get("player"))):
+                continue
+            self.show_figure(u, mine[0]["slot"], hp, mp, via, min(e["arrive_ms"] for e in mine), ctx)
+
+    def figure_point(self, r) -> None:
+        """EffectPoint's Figure half for replay ``r`` (ActNoteFigure): each unit's collected figure -- its pending writes
+        summed; a unit whose fig.info sums to 0 is never collected (EffectPoint's `info != 0`), so never shown -- recorded
+        in figs[] "hit" at the DISPLAY (amendment 8), its arrival the oldest pending."""
+        units: list = []
+        for e in self.fig_pending:
+            if e["rec"] is r and not any(e["unit"] is u for u in units):
+                units.append(e["unit"])
+        for u in units:
+            mine = [e for e in self.fig_pending if e["rec"] is r and e["unit"] is u]
+            info, hp, mp = 0, 0, 0
+            for e in mine:
+                info, hp, mp = info | e["info"], hp + e["hp"], mp + e["mp"]
+            if info == 0:
+                continue
+            self.fig_pending = [e for e in self.fig_pending if not any(e is m for m in mine)]
+            if not self._disappeared(u, None):
+                self.record_fig(mine[0]["slot"], act_fig_value(hp, mp), "hit", min(e["arrive_ms"] for e in mine), self.now)
+
+    def release_queued(self, q: ActHeld, via: str, ctx: dict | None = None) -> None:
+        """ActReleaseQueued: the whole frame through the arrival path's own steps, DEFERRED."""
+        if q in self.queued:
+            self.queued.remove(q)
+        ctx = self._ctx(ctx)
+        a = q.a
+        dt = self._resolve(ctx, a["target_slot"], a["target_is_player"])
+        dc = self._resolve(ctx, a["caster_slot"], a["caster_is_player"])
+        superseded0 = self.superseded
+        if dt is not None or dc is not None:
+            self.apply_now(a, dt, dc, dt is not None and dt is dc, q.covered, q.backlog, via, q.arrive_ms, True, ctx,
+                           q.life_slots)
+        lag = INT32_MIN
+        if q.credit_ms != INT32_MIN:
+            lag = q.credit_ms - q.arrive_ms                  # a LATE frame a blocker kept: still a paired release
+            self.add_lag(lag)
+        self.rel_queued += 1
+        self.log_release(q.rec, a["target_slot"], via, self.now - q.arrive_ms, lag, self.superseded != superseded0, True)
+        self.recompute_mask()
+
+    def drain_queue(self) -> None:
+        """ActHoldDrainQueue: every queued frame whose blockers are gone, in arrival order (FIFO per slot)."""
+        older_queued, i = 0, 0
+        while i < len(self.queued):
+            q = self.queued[i]
+            older_held = 0
+            for h in self.held:
+                if h.ord < q.ord:
+                    older_held |= h.life_slots
+            if act_queue_blocked(q.slots, older_held, older_queued):
+                older_queued |= q.slots
+                i += 1
+                continue
+            self.release_queued(q, "queued")         # removes q: the same index is the next frame
+        self.recompute_mask()
+
+    def tick(self, ctx: dict) -> None:
+        """ActHoldTick (ActTick's last step, outside its try): a hit's deferred drain first (any phase); then -- only in the
+        steady phase (PHASE_NORMAL, the scene ours: D12) -- host-done and timeout of every held impact (battle time), the
+        queue's drain and its own timeouts, and the catch-up of every skipped record whose slot left the mask."""
+        if self.drain_due:
+            self.drain_due = False
+            self.drain_queue()
+        if not self.held and not self.queued and not self.skipped:
+            return
+        if not ctx.get("steady"):
+            return
+        for h in list(self.held):
+            why = act_held_timer_why(h.rec is not None and h.rec.host_ended,
+                                     h.rec.host_end_ms if h.rec is not None else 0, h.arrive_ms, self.now)
+            if why is not None and h in self.held:
+                self.release_held(h, why, False, None, ctx)
+        self.drain_queue()
+        for q in list(self.queued):
+            if act_held_timer_why(False, 0, q.arrive_ms, self.now) is not None and q in self.queued:
+                self.release_queued(q, "timeout", ctx)
+        if self.skipped:
+            self.catch_up(ctx, "its release")
+
+    def catch_up(self, ctx: dict | None, why: str) -> None:
+        """ActHoldCatchUp (fix pass: life-2): every skipped record whose slot left the life mask (act_catch_up_slots)
+        through the reconciler's ApplyUnit at its own seq -- once (its cache entry dropped first); one line per boot."""
+        ctx = self._ctx(ctx)
+        mask = 0
+        for slot in self.skipped:
+            mask |= 1 << slot
+        due = act_catch_up_slots(mask, self.life_mask)
+        for slot in range(8):
+            if not due & (1 << slot) or slot not in self.skipped:
+                continue
+            state, seq = self.skipped.pop(slot)
+            d = self._resolve(ctx, slot, slot < 4)
+            if d is None:
+                continue
+            self.apply_unit(d, slot, state, seq, bool(ctx.get("role", False)))
+            if not self.catch_up_logged:
+                self.catch_up_logged = True
+                self._log(f"{LOG_HOLD_CATCH_UP}{slot}{LOG_HOLD_CATCH_UP_PIECE}{seq}) re-applied at {why}"
+                          f"{LOG_HOLD_CATCH_UP_TAIL}")
+
+    def flush(self, via: str, ctx: dict | None = None) -> None:
+        """ActHoldFlush -- THE END-INJECT RELEASE (amendment 2, D02): every held impact and every queued frame, in arrival
+        order, through the legacy path; the lists emptied, the mask 0. A no-op when nothing is held."""
+        if not self.held and not self.queued:
+            if self.skipped:
+                self.catch_up(ctx, "the end injection")
+            return
+        held, queued = len(self.held), len(self.queued)
+        for e in sorted(self.held + self.queued, key=lambda x: x.ord):
+            if e.queued:
+                if e in self.queued:
+                    self.release_queued(e, via, ctx)
+            elif e in self.held:
+                self.release_held(e, via, False, None, ctx)
+        if not self.flush_logged:
+            self.flush_logged = True
+            self._log(f"{LOG_HOLD_FLUSH}{held} held impact(s) and {queued}{LOG_HOLD_FLUSH_TAIL}")
+        self.held, self.queued = [], []
+        self.life_mask = 0
+        self.drain_due = False
+        if self.skipped:                         # [fix pass: life-2] what the mask skipped lands before the party is read
+            self.catch_up(ctx, "the end injection")
+
+    def discard_all(self, why: str) -> None:
+        """ActHoldDiscardAll (ActDiscardAll's first statement): the life mask FIRST, then every held and queued frame
+        DROPPED, counted (`discarded`) -- nothing applied, nothing shown."""
+        self.life_mask = 0
+        self.skipped, self.drain_due = {}, False
+        n = len(self.held) + len(self.queued)
+        self.discarded += n
+        self.held, self.queued, self.fig_pending = [], [], []
+        if n > 0:
+            self._log(f"{LOG_HOLD}{n}{LOG_HOLD_DISCARDED}{why}) -- nothing applied, nothing shown")
+
+    # -- the reconciler's skip and the bench (HarnessActHoldBench)
+    def apply_unit(self, d: dict, slot: int, state: str, seq: int, role: bool) -> None:
+        """ApplyUnit for one bench record (the stand-in's model): the horizon gate passes (post-horizon by construction),
+        THE LIFE MASK skips the whole record (counted, one line per boot; the fix pass CACHES it for its catch-up), else --
+        the record really applied: the slot's cache dropped, THE SUPERSEDED GUARD stamped when newer (the fix pass) -- the
+        death lane (a kill), the revive (a dead enemy is fully faded here: it holds dead), trance."""
+        if self.life_mask != 0 and act_life_skips(self.life_mask, slot, self.lifeskip_on(role)):
+            self.skipped[slot] = (state, int(seq) & 0xFFFF)   # [fix pass: life-2] the latest skipped record, for its catch-up
+            self.mask_skips += 1
+            if not self.mask_logged:
+                self.mask_logged = True
+                self._log(f"{LOG_HOLD_MASK_SKIP}{slot}'s record -- its kill or revive waits for the replay's hit (life mask "
+                          f"0x{self.life_mask:02X}; logged once per boot)")
+            return
+        self.skipped.pop(slot, None)             # [fix pass: life-1] a record really applied: it overtakes the skipped one
+        if self.applies(slot, seq):              # ...and stamps THE SUPERSEDED GUARD when newer
+            self.stamp(slot, seq)
+        dead = self._dead(d)
+        alive = (state == "alive") if state in ("dead", "alive") else not dead
+        if not alive:
+            if not dead:                             # KillUnit
+                d["alive"] = False
+                d["hp_raw"] = 0
+                if "hp" in d:
+                    d["hp"] = 0
+            return                                   # dead: the death lane owns everything
+        if dead:
+            if not d.get("player"):
+                return                               # "revive requested for a fully-faded enemy -- holding dead"
+            d["alive"] = True
+            if int(d.get("hp_raw", 0) or 0) == 0:
+                d["hp_raw"] = 1
+                if "hp" in d:
+                    d["hp"] = 1
+        if state in ("trance0", "trance1"):
+            self.trance[int(d.get("slot", -1))] = state == "trance1"
+
+    def bench(self, args: list, op: str, val: str, *, booted: bool, role: bool, ctx: dict | None) -> tuple:
+        """HarnessActHoldBench (after HarnessActGuestBench's role gate) -> ``(ok, why)`` in the engine's words."""
+        if op in ("hold", "lifeskip"):
+            if len(args) != 3 or val not in ("on", "off"):
+                return False, f"netsync actbench {op}: expected `{op} on|off`"
+            off = val == "off"
+            if op == "hold":
+                self.bench_hold_off = off
+                self._log(LOG_HOLD_OFF if off else LOG_HOLD_ON)
+            else:
+                self.bench_lifeskip_off = off
+                self._log(LOG_LIFESKIP_OFF if off else LOG_LIFESKIP_ON)
+            return True, None
+        state = str(args[3]).lower() if len(args) > 3 else ""
+        slot = _cs_int(args[2]) if len(args) > 2 else None
+        if len(args) != 4 or slot is None or not 0 <= slot <= 7 or state not in ACT_HOLD_UNIT_STATES:
+            return False, HOLD_UNIT_USAGE
+        ctx = ctx or {}
+        if not booted or not ctx.get("steady"):
+            return False, HOLD_UNIT_STEADY
+        d = self._resolve(ctx, slot, slot < 4)
+        if d is None:
+            return False, f"{HOLD_UNIT_NO_UNIT}{slot} has no local unit"
+        seq = (self.gate_seq[slot] + 1) & 0xFFFF
+        masked = act_life_skips(self.life_mask, slot, self.lifeskip_on(role))
+        self.apply_unit(d, slot, state, seq, role)
+        self._log(f"{LOG_HOLD_UNIT}{slot} ({state}, seq {seq}, post-horizon) "
+                  + (LOG_HOLD_UNIT_SKIPPED if masked else LOG_HOLD_UNIT_APPLIED))
+        return True, None
+
+    # -- the published block
+    def doc(self, *, role: bool) -> dict:
+        """HarnessAgent.AppendActGuestHold -- `act.guest.hold`, in every role."""
+        n = self.lag_n
+        return {"on": self.hold_on(role), "lifeskip": self.lifeskip_on(role), "held_now": len(self.held),
+                "held": self.held_count, "queued_now": len(self.queued), "queued": self.queued_count,
+                **{k: self.rel_by[v] for k, v in zip(ACT_HOLD_REL_KEYS, ACT_HOLD_VIAS)},
+                "rel_queued": self.rel_queued, "superseded": self.superseded, "discarded": self.discarded,
+                "life_mask": self.life_mask, "mask_skips": self.mask_skips,
+                "lag": {"n": n, "min": self.lag_min if n else -1, "p50": act_lag_p50(self.lag) if n else -1,
+                        "max": self.lag_max if n else -1},
+                "figs": [dict(f) for f in self.figs]}
+
+
+def act_hold_released(block: dict | None) -> int | None:
+    """The held impacts an `act.guest.hold` block says were released this boot (the sum of its nine `rel_*`); None for an
+    absent or malformed block."""
+    if not isinstance(block, dict):
+        return None
+    try:
+        return sum(int(block[k]) for k in ACT_HOLD_REL_KEYS)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def act_hold_at_rest(block: dict | None) -> bool:
+    """`act.guest.hold` AT REST: nothing held or queued now, the life mask 0, and every frame that entered the hold left
+    it exactly once -- with no teardown discard this boot, every held impact by exactly one reason (held == sum of rel_*)
+    and every queued frame released (queued == rel_queued); with a discard (its held / queued split is not published), the
+    whole account: held + queued == sum of rel_* + rel_queued + discarded (a double-counted or a lost release is red).
+    False for an absent block."""
+    rel = act_hold_released(block)
+    if rel is None:
+        return False
+    try:
+        if int(block["held_now"]) or int(block["queued_now"]) or int(block["life_mask"]):
+            return False
+        if int(block["discarded"]):
+            return int(block["held"]) + int(block["queued"]) == rel + int(block["rel_queued"]) + int(block["discarded"])
+        return int(block["held"]) == rel and int(block["queued"]) == int(block["rel_queued"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+#: NetSyncDiorama.Replay.cs's s135 integer constants, by C# name (the pin, both ways -- test_harness_netsync.py reads every
+#: `internal const Int32` the s135 patch declares, comments stripped); ActViaArrival and ActHoldVias are pinned by value.
+CS_HOLD_CONSTANTS = {
+    "ActHoldTimeoutMs": ACT_HOLD_TIMEOUT_MS, "ActHoldHostDoneMs": ACT_HOLD_HOST_DONE_MS, "ActHoldCap": ACT_HOLD_CAP,
+    "ActHoldLogMax": ACT_HOLD_LOG_MAX, "ActHoldFigsMax": ACT_HOLD_FIGS_MAX, "ActHoldLagCap": ACT_HOLD_LAG_CAP,
+    "ActHoldCreditCap": ACT_HOLD_CREDIT_CAP, "ActHoldApply": ACT_HOLD_APPLY, "ActHoldHold": ACT_HOLD_HOLD,
+    "ActHoldLate": ACT_HOLD_LATE, "ActHoldQueue": ACT_HOLD_QUEUE, "ActFigNone": ACT_FIG_NONE,
+    "ActFigBracket": ACT_FIG_BRACKET, "ActFigDirect": ACT_FIG_DIRECT}

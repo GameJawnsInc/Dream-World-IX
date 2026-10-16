@@ -8496,6 +8496,17 @@ class Session:
             ("knob", "the s134 process-local [Netsync] ActionReplay"),
             ("clear", "the s134 guest replay bench's clear (every replay aborted, the inbox emptied)"),
             ("teardown", "the s134 guest replay bench's teardown step (ActDiscardAll, no Leave first)"))}
+    #: [ff9mapkit netsync s135] THE REPLAY HIT HOLD's ops (NetSyncDiorama.HarnessActHoldBench, routed with the guest ops),
+    #: each told by `netsync.battle.act.guest.hold`: `hold on|off` (off = the pre-s135 guest: numbers, the flinch and deaths
+    #: at the impact's ARRIVAL), `lifeskip on|off` (off = the reconciler ignores the life mask), `unit <slot 0-7>
+    #: dead|alive|trance0|trance1` (one post-horizon type-1 record through the reconciler's own ApplyUnit)
+    NETSYNC_ACTBENCH_OP_CAPS.update({
+        op: ("coop_act_hold", "netsync.battle.act.guest.hold", "s135", what) for op, what in (
+            ("hold", "the s135 replay hit hold's calibration lever (off = the pre-s135 guest: numbers, the flinch and "
+                     "deaths at the impact's arrival)"),
+            ("lifeskip", "the s135 life-mask skip's calibration lever (off = the reconciler applies a held slot's "
+                         "sample)"),
+            ("unit", "the s135 replay hit hold's unit-sample seam (one post-horizon type-1 record through ApplyUnit)"))})
     #: [ff9mapkit netsync s134] a later VALUE of an older op, told by its own key: `tape play [pct]` (s133 knew `tape` with
     #: rec|stop|clear|info|dump) -- (the accessor, the key, the patch, what it is)
     NETSYNC_ACTBENCH_VALUE_CAPS = {
@@ -8512,6 +8523,12 @@ class Session:
                                    "`actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, "
                                    "`actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear` "
                                    "or `actbench teardown`")
+    #: [ff9mapkit netsync s135] ...as s135 rewrote it (an s135 engine says this for every non-guest form)
+    NETSYNC_ACTBENCH_USAGE_S135 = ("expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, "
+                                   "`actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, "
+                                   "`actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear`, "
+                                   "`actbench teardown`, `actbench hold|lifeskip on|off` or `actbench unit <slot> "
+                                   "dead|alive|trance0|trance1`")
     #: [ff9mapkit netsync s134] each guest op's own refusal of a malformed form (HarnessActGuestBench, after its role gate)
     NETSYNC_ACTBENCH_GUEST_USAGE = {
         "feed": "netsync actbench feed: expected `feed <hex[,hex...]>`",
@@ -8524,6 +8541,15 @@ class Session:
         "clear": "netsync actbench clear: takes no argument",
         "teardown": "netsync actbench teardown: takes no argument",
     }
+    #: [ff9mapkit netsync s135] each replay-hit-hold op's own refusal of a malformed form (HarnessActHoldBench, after the guest
+    #: bench's role gate; `hold` / `lifeskip` splice their op into one literal head)
+    NETSYNC_ACTBENCH_HOLD_USAGE = {
+        "hold": "netsync actbench hold: expected `hold on|off`",
+        "lifeskip": "netsync actbench lifeskip: expected `lifeskip on|off`",
+        "unit": "netsync actbench unit: expected `unit <slot 0-7> dead|alive|trance0|trance1`",
+    }
+    #: [ff9mapkit netsync s135] `actbench unit <slot> <state>`'s states
+    NETSYNC_ACTBENCH_UNIT_STATES = ("dead", "alive", "trance0", "trance1")
     #: [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern]`'s trailing tokens (`[wire] [skip|play|own] [rand]`): an
     #: engine before s111 IGNORES them (a manual boot with the guest's own intro) -- a silent wrong action, never sent.
     NETSYNC_DIOBOOT_TOKENS = ("wire", "skip", "play", "own", "rand")
@@ -8623,6 +8649,12 @@ class Session:
         reach the calculator: the tripwire's red), ``knob 0|1|ini`` (a process-local [Netsync] ActionReplay),
         ``clear`` and ``teardown`` -- :meth:`act_feed` / :meth:`act_tape_play`. On an s133 engine each is refused
         before the step, naming what s133 would answer; a malformed form in HarnessActGuestBench's words.
+
+        [ff9mapkit netsync s135] the replay hit hold adds NO sub-verb either: ``actbench`` gains ``hold on|off`` (off =
+        the pre-s135 guest, the calibration lever), ``lifeskip on|off`` (off = the reconciler ignores the life mask) and
+        ``unit <slot 0-7> dead|alive|trance0|trance1`` (one post-horizon type-1 record through ApplyUnit), each told by
+        ``netsync.battle.act.guest.hold`` (:attr:`State.coop_act_hold`) -- :meth:`act_hold` / :meth:`act_unit`. On an
+        s134 (or older) engine each is refused before the step, naming what that engine would answer.
 
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
@@ -8741,7 +8773,8 @@ class Session:
                     raise HarnessError(why)
                 self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
                 return self.state
-            usage = self.NETSYNC_ACTBENCH_USAGE_S134 if st.coop_act_guest else self.NETSYNC_ACTBENCH_USAGE
+            usage = (self.NETSYNC_ACTBENCH_USAGE_S135 if st.coop_act_hold else          # [ff9mapkit netsync s135]
+                     self.NETSYNC_ACTBENCH_USAGE_S134 if st.coop_act_guest else self.NETSYNC_ACTBENCH_USAGE)
             if not (op == "tape" and value == "dump") and len(args) != 2:
                 raise HarnessError(f"{usage}\r\nParameter name: netsync actbench")
             if op not in self.NETSYNC_ACTBENCH_OPS:
@@ -8784,7 +8817,9 @@ class Session:
         """``netsync actbench <op> [args]`` (s133, selftest role): ``hoststarts on|off``, ``tape rec|stop|clear|info``,
         ``tape dump <from> <count>`` -- through :meth:`netsync`'s gates. Returns a fresh state. [ff9mapkit netsync s134]
         ...and the guest half: ``feed <hex[,hex...]>``, ``feedat <ms> <hex[,hex...]>``, ``tape play [pct]``, ``replay|
-        rework|shortcircuit on|off``, ``knob 0|1|ini``, ``clear``, ``teardown`` (:meth:`act_feed`, :meth:`act_tape_play`)."""
+        rework|shortcircuit on|off``, ``knob 0|1|ini``, ``clear``, ``teardown`` (:meth:`act_feed`, :meth:`act_tape_play`).
+        [ff9mapkit netsync s135] ...and the replay hit hold's: ``hold|lifeskip on|off``, ``unit <slot> dead|alive|trance0|
+        trance1`` (:meth:`act_hold`, :meth:`act_unit`)."""
         return self.netsync("actbench", op, *args, timeout=timeout)
 
     # -- [ff9mapkit netsync s134] the guest action replay's bench ---------------------------------------------------
@@ -8805,6 +8840,18 @@ class Session:
             return self.actbench("feed", arg, timeout=timeout)
         return self.actbench("feedat", int(at_ms), arg, timeout=timeout)
 
+    def act_hold(self, on: bool, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s135] ``actbench hold on|off``: the replay hit hold's calibration lever (off = the pre-s135
+        guest -- numbers, the flinch and deaths land when the host's impact ARRIVES). Released with the harness."""
+        return self.actbench("hold", "on" if on else "off", timeout=timeout)
+
+    def act_unit(self, slot: int, state: str, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s135] ``actbench unit <slot> dead|alive|trance0|trance1``: one type-1 unit record for that WIRE
+        slot (the unit's own state with that one change) through the reconciler's own ApplyUnit at its gate seq + 1
+        (post-horizon) -- a slot in the life mask SKIPS it (``act.guest.hold.mask_skips``) unless ``lifeskip off``. Needs a
+        steady booted selftest diorama."""
+        return self.actbench("unit", int(slot), str(state), timeout=timeout)
+
     def act_tape_play(self, pct: int | None = None, *, timeout: float = 20.0) -> State:
         """``actbench tape play [pct]``: s133's loopback tape into the bench inbox at its recorded offsets (pct 1-1000 of
         real speed; default 100)."""
@@ -8813,9 +8860,11 @@ class Session:
     def _actbench_s133_answer(self, st: State, op: str, args) -> str:
         """[ff9mapkit netsync s134] What an s133 engine answers a guest form (no IsActGuestBenchOp there): its argument
         parse first (anything but three words is its usage), then HarnessActBench -- the role, an unknown op, a `tape`
-        value it lacks."""
+        value it lacks. [ff9mapkit netsync s135] ...and what an s134 engine answers a replay-hit-hold form (its guest
+        router lacks `hold|lifeskip|unit`: the same s133 parse, its usage s134's text)."""
         if len(args) != 2:
-            return f"{self.NETSYNC_ACTBENCH_USAGE}\r\nParameter name: netsync actbench"
+            usage = self.NETSYNC_ACTBENCH_USAGE_S134 if st.coop_act_guest else self.NETSYNC_ACTBENCH_USAGE
+            return f"{usage}\r\nParameter name: netsync actbench"
         if not (st.netsync or {}).get("selftest"):
             return "netsync actbench: needs the selftest role (netsync selftest 1)"
         if op == "tape":
@@ -8847,6 +8896,13 @@ class Session:
             return usage[op]
         if op == "knob" and (n != 2 or value not in ("0", "1", "ini")):
             return usage["knob"]
+        if op in ("hold", "lifeskip") and (n != 2 or value not in ("on", "off")):     # [ff9mapkit netsync s135]
+            return self.NETSYNC_ACTBENCH_HOLD_USAGE[op]
+        if op == "unit":
+            slot = _cs_int_arg(args[1]) if n > 1 else None
+            state = str(args[2]).strip().lower() if n > 2 else ""
+            if n != 3 or slot is None or not 0 <= slot <= 7 or state not in self.NETSYNC_ACTBENCH_UNIT_STATES:
+                return self.NETSYNC_ACTBENCH_HOLD_USAGE["unit"]
         if op in ("clear", "teardown") and n != 1:
             return usage[op]
         return None
@@ -9688,6 +9744,16 @@ def _nearest_on_seg(p, a, b) -> tuple[float, float]:
     n = dx * dx + dz * dz
     t = 0.0 if n == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / n))
     return (a[0] + t * dx, a[1] + t * dz)
+
+
+def _cs_int_arg(text) -> int | None:
+    """[ff9mapkit netsync s135] Int32.TryParse's integer (whitespace, an optional sign, digits) -> int; None when the engine
+    would refuse it."""
+    t = str(text).strip()
+    if not re.fullmatch(r"[+-]?\d+", t):
+        return None
+    v = int(t)
+    return v if -(1 << 31) <= v < (1 << 31) else None
 
 
 def _into_zone(here, zone, depth: float) -> tuple[float, float]:
