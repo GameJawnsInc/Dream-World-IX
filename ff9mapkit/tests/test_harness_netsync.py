@@ -9619,6 +9619,214 @@ def test_the_s134_tape_legs_judge_reads_each_engine_and_refuses_a_pre_s133_tape(
     assert not f["other"]["ok"] and f["other"]["all_frames"] == 1                # (a START, but of another battle)
 
 
+#: coop_action_replay's diorama cast (`_who`) and D0's batched boot (`_boot_and_leave`), on synthetic inputs
+_ACT_REPLAY_CAST = r"""
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_replay", os.path.join(scen, "coop_action_replay.py"))
+ar = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ar)
+def st(*names):
+    us = [{"slot": i, "name": n, "player": True, "alive": True} for i, n in enumerate(names)]
+    us += [{"slot": 4, "name": "Fang", "player": False}, {"slot": 5, "name": "Fang", "player": False}]
+    return {"battle": {"units": us}}
+def cast(x, ctx):
+    w = ar._who(x, ctx)
+    return {k: [None if u is None else u["slot"], wire] for k, (u, wire) in w.items()}
+ctx = {"zidane_wire": 0, "vivi_wire": 1, "garnet_wire": 2}
+out = {"battle1": cast(st("Zidane", "Vivi", "Dagger", "Steiner"), ctx),
+       "diorama": cast(st("BENCH", "Vivi", "Dagger", "Steiner"), ctx),
+       "no_ctx": cast(st("BENCH", "Vivi", "Dagger", "Steiner"), None),
+       "impostor_unnamed": cast(st("Freya", "Vivi", "Dagger", "Steiner"), ctx)}
+class G:
+    def __init__(self, refuse):
+        self.sent, self.refuse = [], refuse
+    def send(self, *steps, timeout=60.0):
+        self.sent.append(list(steps))
+        if self.refuse:
+            raise ar.HarnessError(self.refuse)
+for name, refuse in (("deferred", "the game refused a step: netsync: netsync dioleave: deferred -- a scene fade is in "
+                                  "flight; retry"), ("left", None)):
+    g = G(refuse)
+    ok, why = ar._boot_and_leave(g)
+    out[name] = {"sent": g.sent, "ok": ok, "deferred": ar.LEAVE_DEFERRED in why}
+print(json.dumps(out))
+"""
+
+
+def test_the_s134_benchs_diorama_zidane_is_the_bench_stand_in_and_d0_leaves_inside_the_boots_request():
+    """[s134 solo run 1] coop_action_replay's diorama cast: every selftest `dioboot` seats the selftest mirror's stand-in
+    (NetSyncParty.SelfTestMirror: name "BENCH") in party slot 0, so no diorama unit is named Zidane -- 'Zidane' there is
+    the unit at Zidane's battle-1 WIRE, taken ONLY when it is that stand-in (an unnamed impostor at the seat is never
+    taken: not reached, never a wrong actor). Battle 1's real Zidane wins by name; Vivi / Garnet keep their names.
+    D0's `dioleave` rides the boot's OWN request (one send, dioboot first): LeaveFrom defers only while the swirl's fade
+    is in flight (the boot's frame + 2), and a separate request landed past it -- where the selftest path strands the
+    boot -- in the first in-game run."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _ACT_REPLAY_CAST, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["battle1"]["zidane"] == [0, 0] and got["battle1"]["vivi"] == [1, 1] and got["battle1"]["garnet"] == [2, 2]
+    assert got["diorama"]["zidane"] == [0, 0] and got["diorama"]["vivi"] == [1, 1] and got["diorama"]["garnet"] == [2, 2]
+    assert got["diorama"]["fang1"] == [4, 4] and got["diorama"]["fang2"] == [5, 5]
+    assert got["no_ctx"]["zidane"] == [None, None]                               # never by seat without the taped wire
+    assert got["impostor_unnamed"]["zidane"] == [None, None]                     # never a unit that is not the stand-in
+    want = [["netsync dioboot 306 4", "netsync dioleave"]]
+    assert got["deferred"] == {"sent": want, "ok": False, "deferred": True}
+    assert got["left"] == {"sent": want, "ok": True, "deferred": False}
+
+
+#: coop_action_replay's boot 3 (`_boot_3` + its pure `_judge_boot_3`) driven on a stub game: a Memoria.log the request
+#: appends to, the agent's per-step 'error' events, the request's refusal latch (its LAST step's), the state before/after
+_ACT_REPLAY_BOOT3 = r"""
+import importlib.util, json, os, sys, tempfile
+from pathlib import Path
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_replay", os.path.join(scen, "coop_action_replay.py"))
+ar = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ar)
+ar.LOG_WAIT_S = 0.0
+T = "16.10.2026 03:06:13 |M| "
+BOOT = T + ar.BOOT_LINE + "start=BTL_START_NORMAL_ATTACK intro=own swirl=0 clamp=0"
+DEFER = T + "[NetSync] diorama leave deferred: a fade is in flight; press Leave again."
+LEFT = T + "[NetSync] diorama LEAVE requested -> FieldMap (mode 1)"
+REFUSED = "16.10.2026 03:06:13 |W| [NetSync] diorama boot REFUSED: the field is not free (a dialog is open)"
+DEFERRED = "netsync dioleave: deferred -- a scene fade is in flight; retry"
+NONE = "netsync dioleave: no diorama is booted"
+class St:
+    def __init__(self, booted, aborted=0):
+        self.raw = {"netsync": {"diorama": {"booted": booted}, "battle": {"act": {"guest": {"aborted": aborted}}}}}
+        self.scene, self.frame = None, 1
+class Chan:
+    def __init__(self):
+        self.ev = [{"kind": "error", "op": "netsync", "message": "netsync dioboot: an OLDER request's refusal"}]
+    def events(self):
+        return list(self.ev)
+class G:
+    def __init__(self, log, before, after, lines, errors):
+        self.log, self.channel = log, Chan()
+        self.state, self.after, self.lines, self.errors = before, after, lines, errors
+        self.sent, self.notes = [], []
+        # lines BEFORE the mark (a previous boot's): never boot 3's witnesses
+        log.write_text(T + ar.BOOT_LINE + "(a previous boot)\n" + DEFER + "\n", encoding="utf-8")
+    def engine_log(self):
+        return self.log
+    def netsync(self, *a, **k):
+        return self.state
+    def wait_for(self, pred, timeout=0, what=""):
+        if pred(self.state):
+            return self.state
+        raise ar.HarnessError("timed out: " + what)
+    def wait_frames(self, n):
+        pass
+    def note(self, t):
+        self.notes.append(t)
+    def send(self, *steps, timeout=60.0):
+        self.sent.append(list(steps))
+        with self.log.open("a", encoding="utf-8") as f:
+            f.writelines(ln + "\n" for ln in self.lines)
+        self.channel.ev += [{"kind": "error", "op": "netsync", "message": m} for m in self.errors]
+        self.state = self.after
+        if self.errors:                                   # the latch: the LAST refused step's only
+            raise ar.HarnessError("the game refused a step: netsync: " + self.errors[-1])
+class Led:
+    def __init__(self):
+        self.checks, self.done = {}, {}
+    def check(self, cid, ok, detail=""):
+        self.checks.setdefault(cid, [bool(ok), str(detail)])
+        self.done[cid] = bool(ok)
+    def unreached(self, ids, why):
+        for c in ids:
+            if c not in self.done:
+                self.check(c, False, "not reached: " + why)
+outs = []
+ar._out = lambda g, field: outs.append(field)
+cases = {
+    "refused": (St(False), St(False), [REFUSED],
+                ["netsync dioboot: refused (Memoria.log names why: [NetSync] diorama boot REFUSED)", NONE]),
+    "norole": (St(False), St(False), [], ["netsync dioboot: needs the selftest role (netsync selftest 1)", NONE]),
+    "stale": (St(True), St(True), [DEFER], ["netsync dioboot: a diorama is already booted", DEFERRED]),
+    "left": (St(False), St(True), [BOOT, LEFT], []),
+    "deferred": (St(False), St(True), [BOOT, DEFER], [DEFERRED]),
+    "one_witness": (St(False), St(True), [BOOT], [DEFERRED]),
+    "engine_only": (St(False), St(True), [BOOT, DEFER], []),
+    "unbooted": (St(False), St(False), [BOOT, DEFER], [DEFERRED]),
+    "aborted": (St(False), St(True, aborted=1), [BOOT, DEFER], [DEFERRED]),
+    "boot_and_refused": (St(False), St(False), [BOOT, REFUSED], [NONE]),
+    "boot_failed": (St(False), St(False), [BOOT, T + "[NetSync] diorama boot failed: NullReferenceException"],
+                    ["netsync dioboot: refused (Memoria.log names why)", NONE]),
+}
+out = {}
+with tempfile.TemporaryDirectory() as td:
+    for name, (before, after, lines, errors) in cases.items():
+        g = G(Path(td) / (name + ".log"), before, after, lines, errors)
+        led = Led()
+        ar._boot_3(g, led, 30602, {})
+        out[name] = {"sent": g.sent, "checks": led.checks}
+out["judge_stale"] = list(ar._judge_boot_3(False, "the game refused a step: netsync: " + DEFERRED, [DEFER],
+                                           ["netsync dioboot: a diorama is already booted", DEFERRED], True, 0))
+out["outs"] = len(outs)
+print(json.dumps(out))
+"""
+
+
+def test_the_s134_benchs_d0_judges_only_a_fresh_boot_on_two_witnesses_never_the_latch_alone():
+    """[s134 solo review 1/5] D0 (`_boot_3`) never trusts the request's refusal latch alone: the agent catches each step's
+    refusal and runs the next, so the latch keeps only the LAST -- a refused `dioboot` is overwritten by the batched
+    `dioleave`'s, and against a stale diorama that leave's 'deferred' is not boot 3's. A boot refused (by Boot's own
+    REFUSED line, or before Boot: only its step event names why) is NOT REACHED with the boot's reason; a diorama up
+    before boot 3 is never sent to (not reached, never green -- and the judge alone, fed a stale diorama's request, has
+    no fresh BOOT line: not reached either); a Leave ACCEPTED is D0's red; GREEN needs a fresh BOOT line after the mark
+    AND both witnesses of the deferral (the agent's refusal, LeaveFrom's line) with the diorama still booted -- one
+    witness is red. Lines and events from before the mark never count. Every path leaves the field (`_out`)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _ACT_REPLAY_BOOT3, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    one = [["netsync dioboot 306 4", "netsync dioleave"]]
+    d0 = lambda name: got[name]["checks"]["S134-D0"]                    # noqa: E731
+    e1 = lambda name: got[name]["checks"]["S134-E1"]                    # noqa: E731
+    # refused by Boot: not reached, with the boot's OWN reason (its REFUSED line, its step), never the leave's as its
+    for name, why in (("refused", "the field is not free (a dialog is open)"), ("norole", "needs the selftest role")):
+        assert got[name]["sent"] == one
+        for ok, detail in (d0(name), e1(name)):
+            assert not ok and detail.startswith("not reached: boot 3 did not boot") and why in detail, detail
+            assert "the batched dioleave's, never the boot's" in detail and "OLDER request" not in detail
+    # a stale diorama: nothing sent, not reached -- never green, though its leave would have said 'deferred'
+    assert got["stale"]["sent"] == []
+    for ok, detail in (d0("stale"), e1("stale")):
+        assert not ok and detail.startswith("not reached: a diorama is already booted before boot 3"), detail
+    assert got["judge_stale"][0] is None and got["judge_stale"][1] is False and "no fresh BOOT line" in got["judge_stale"][2]
+    # a Leave accepted: D0's red (reached), E1 not reached on a boot that is gone
+    assert d0("left")[0] is False and "LEFT (accepted)" in d0("left")[1] and not d0("left")[1].startswith("not reached")
+    assert not e1("left")[0] and "the leave was ACCEPTED" in e1("left")[1]
+    # deferred, both witnesses, still booted: D0 green (E1 then waits on the steady latch the stub never reaches)
+    assert d0("deferred")[0] is True and "LeaveFrom's deferral line logged" in d0("deferred")[1]
+    assert not e1("deferred")[0] and "steady latch" in e1("deferred")[1]
+    # the agent's refusal alone (no LeaveFrom line after the mark): red
+    assert d0("one_witness")[0] is False and "LeaveFrom's deferral line ABSENT" in d0("one_witness")[1]
+    assert not e1("one_witness")[0] and "not proven deferred" in e1("one_witness")[1]
+    # [review 2/2] each conjunct of the green can fail on its own: LeaveFrom's line alone (the leave accepted) is red;
+    # both witnesses but the diorama gone is red ("not proven deferred"); both witnesses but an abort is red (E1 still
+    # runs: the boot is up); a REFUSED line after a BOOT line, or a boot that FAILED after it, is "did not boot"
+    assert d0("engine_only")[0] is False and "LEFT (accepted)" in d0("engine_only")[1]
+    assert "LeaveFrom's deferral line logged" in d0("engine_only")[1]
+    assert d0("unbooted")[0] is False and not d0("unbooted")[1].startswith("not reached")
+    assert not e1("unbooted")[0] and "not proven deferred" in e1("unbooted")[1]
+    assert d0("aborted")[0] is False and "aborted 1" in d0("aborted")[1]
+    assert not e1("aborted")[0] and "steady latch" in e1("aborted")[1]
+    for name, why in (("boot_and_refused", "a REFUSED line"), ("boot_failed", "a 'diorama boot failed' line")):
+        for ok, detail in (d0(name), e1(name)):
+            assert not ok and detail.startswith("not reached: boot 3 did not boot (" + why), detail
+    assert got["outs"] == 11
+
+
 #: coop_action_host._judge_tape run on tapes passed in (JSON on stdin: name -> [hex]), its ledger checks read back
 _ACT_TAPE_JUDGE = r'''
 import importlib.util, json, os, sys

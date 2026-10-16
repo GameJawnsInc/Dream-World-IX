@@ -37,6 +37,14 @@ out (`tape dump`) and read OFFLINE: Zidane's Attack START (its vfx num, its STAR
 START (its num), an enemy START (its actor, sub, num). Then THE INVARIANTS (cb.fingerprint: gil, the bag, levels, exp, AP,
 kill counters) and eight diorama boots, each `dioboot 306 <group>` on 30602 (the tape's scene and group), the legs below.
 Every fed START carries the bench's own nonce byte (0x5C, MARKER: nothing else in the process names it) and a fresh id.
+"ZIDANE" IN A DIORAMA. Every selftest `dioboot` seats the selftest mirror's stand-in in party slot 0 (NetSyncParty.
+SelfTestMirror: an IMPOSTOR CharacterId named "BENCH", Lv 99 -- "diorama party BENCH: armed (slot 0: Zidane -> ...)"),
+so no diorama unit is named Zidane. A START names a WIRE actor, and Zidane's battle-1 wire (0) resolves there to that
+stand-in: every leg's "Zidane" below is the unit seated at Zidane's battle-1 wire, taken only when it is the stand-in
+(BENCH_NAME) -- the actor the replay animates. Vivi and Garnet keep their own names and seats. So A1, A2, M and G
+measure Zidane's SEAT (wire 0: the selftest BENCH stand-in, another character's model -- Freya's at writing) playing
+Zidane's taped Attack, and Leg M's timing is CROSS-MODEL: that unit's launch -> hit against the taped Zidane's (a real
+guest diorama seats the host's own party: only the tape leg exercises that).
 
 WHAT IS PROVEN (S134-*):
   INI   precondition: [Netsync] Enabled reads 0 / absent (READ-ONLY) -- else NOTHING runs.
@@ -52,14 +60,16 @@ WHAT IS PROVEN (S134-*):
         calc_while_booted 0 -- the no-replay diorama -- and battle_ms counting.
   -- boot 1: the fabricated legs --
   A1    Leg A, a player replay (Zidane, Attack on a Fang, kind 3, the taped num, the TAPED host Speed -- the camera path
-        the host taped): within 15 frames of the feed started +1 and units[Zidane].acting.
-  A2    ...its `anim` leaves the idle clip, `away` peaks above 400, then falls below 10.
+        the host taped): within 15 frames of the feed started +1 and Zidane's seat (wire 0: the selftest BENCH
+        stand-in) `acting`.
+  A2    ...that seat's `anim` leaves the idle clip, `away` peaks above 400, then falls below 10.
   A3    ...it ENDS naturally: ended +1, hits >= 1, last.state "ended", running 0.
   A4    ...presentation only: every unit's hp_raw / mp unchanged, menu.r9_refused and end.ach_held unchanged, the units
         with a cmd_busy unchanged, calc_while_booted unchanged (0).
-  M     Leg M, the stance (audit amendment 17): Zidane's `mot` reads MP_IDLE_CMD (9) or MP_SET (20) between the launch and
-        the first hit, and last.first_hit_ms - launch_ms is within one IDLE_CMD loop (1000 ms) of the taped host's START ->
-        first impact.
+  M     Leg M, the stance (audit amendment 17): Zidane's seat's (the stand-in's) `mot` reads MP_IDLE_CMD (9) or MP_SET
+        (20) between the launch and the first hit, and last.first_hit_ms - launch_ms is within one IDLE_CMD loop (1000
+        ms) of the taped host's START -> first impact -- CROSS-MODEL: the stand-in's model timed against the taped
+        Zidane, inside the unchanged tolerance.
   AH    Leg A-H, the heal leg (review F1): Garnet's Potion START on the most damaged ally, NO impact: that ally's hp_raw
         unchanged after the replay ENDS (SetRecover is not isDebug-gated: a fall-through would heal). It needs an ally
         BELOW its max HP (a full one cannot show a heal): with none, AH reads "not reached: no damaged ally" (red).
@@ -69,7 +79,7 @@ WHAT IS PROVEN (S134-*):
   F     Leg F, pairing: a START and an impact naming its id (figure 4321, the target's raws unchanged) in ONE feed:
         paired +1, swing_skipped +1 (the replay is the clip), the replay ran.
   G     Leg G, an old host: a 46-byte impact (no extension) from Zidane: old_host true, the 'host predates action replay'
-        line once, swing_skipped unchanged, Zidane's mot reads MP_ATTACK (23: the legacy swing).
+        line once, swing_skipped unchanged, Zidane's seat's (the stand-in's) mot reads MP_ATTACK (23: the legacy swing).
   J     Leg J, stale (review F6): a START and its END in ONE feed: declined "stale" (stale +1), started unchanged.
   L     Leg L, Change (review F4): a Change START (kind 4) for Vivi: after its hit her `row` has flipped, and `away` < 10
         at its end (from the NEW base_pos).
@@ -94,10 +104,18 @@ WHAT IS PROVEN (S134-*):
   BL    the boot backlog (audit amendment 5): a START fed during boot 2's intro (before the steady latch) declines
         "backlog".
   D     Leg D: boot 2, a running replay, `dioleave` -> aborted +1 "leave", back on the field, running 0.
-  D0    a SMOKE check of the deferred Leave: boot 3, `dioleave` during the boot's swirl is refused "deferred" and the
-        boot stays usable for E1 (aborted 0). It does NOT prove audit amendment 12 (a deferred Leave aborts nothing): no
-        replay can run or park during the swirl (the drain waits for PHASE_NORMAL), so ActAbortAll's place before or after
-        LeaveFrom's fade check cannot show here -- amendment 12 is not benched.
+  D0    a SMOKE check of the deferred Leave: boot 3, a `dioleave` INSIDE the boot's swirl fade (batched into the boot's
+        own request: the agent runs it Block(2) frames after `dioboot`) is refused "deferred", the diorama still booted,
+        and the boot stays usable for E1 (aborted 0). Judged only on a FRESH boot -- NetSyncDiorama.Boot's 'diorama BOOT
+        scene=306' line after a mark taken before the send, no 'diorama boot REFUSED' line -- and on BOTH witnesses of the
+        deferral: the agent's 'dioleave: deferred' refusal and LeaveFrom's 'leave deferred: a fade is in flight' line (the
+        request's refusal latch keeps only its LAST step's refusal, so it never stands alone). A diorama already up
+        before boot 3 is never sent to: D0 and E1 not reached. It does NOT prove audit amendment 12 (a deferred Leave
+        aborts nothing): no replay can run or park during the swirl (the drain waits for PHASE_NORMAL), so ActAbortAll's
+        place before or after LeaveFrom's fade check cannot show here -- amendment 12 is not benched. LeaveFrom defers
+        only while SceneDirector.IsFading, which the swirl clears at the END of the boot's frame + 2: the batched leave
+        lands inside it by ONE frame (_boot_and_leave's frame account). A `dioleave` later in the swirl is ACCEPTED --
+        the selftest strand below (NOT PROVEN): D0 cannot see it.
   E1    Leg E, victory (audit 3.2: the trailing loop's SFX wait exists only in MENU_OFF): boot 3, a running replay, then
         `endbench victory` -> injected, the phase reads MENU_OFF (5) on every sample while the replay runs, VICTORY (6)
         only after it ended.
@@ -129,7 +147,16 @@ cannot delay them -- audit 4.9), hold-through (`hold_through`: a real cut), the 
 DIE_ATK_SCENES yet), audit amendment 12 (D0 is a smoke check), the run-away hold's BREAK on a real host (the host's
 CLOSE+ESCAPE or its stale lane while a replay acts: the tape leg's host never flees), the Defend pose (IdleDefend is
 never mirrored: risk 8), reflect bounces, a monster-transform command (declined by design), numbers held to the hit
-(s135), fallback clips (s136), trance timing (s137).
+(s135), fallback clips (s136), trance timing (s137), Leg M like for like (the stand-in replays Zidane's taped Attack
+under another model: "ZIDANE" IN A DIORAMA above).
+THE SELFTEST-ROLE STRAND (pre-existing since B3.6, not an s134 regression; the engine fix is a separate follow-up): a
+selftest Leave ACCEPTED in SwirlScene's not-fading window (the swirl has cleared IsFading, the battle scene is not loaded
+yet) is never torn down. ForceDisarm's callers are HonoluluBattleMain.OnDestroy (that scene never loaded) and the
+watcher's fence 1, which runs only in the transport branch's DioramaTick -- never on the selftest path. Booted then stays
+true for the process: every later `dioboot` refused 'a diorama is already booted', `reset` holding the role, autosaves
+gated off. The ~ menu's Leave on a selftest machine can still strand it. D0 times its leave INSIDE the fade, so it cannot
+see the strand, and no check here asserts it (one would stay red until the engine fix): a green run says nothing about
+a Leave in that window.
 
 CALIBRATION -- a check that cannot fail is not a check.
   * THE DEPLOYED DLL AT WRITING (s133) -- and any engine before s134: `act.guest` is absent, so P0 is RED and no guest op
@@ -271,18 +298,22 @@ def _solo_catalog(calibrate: bool) -> dict:
         "S134-TAPE": "battle 1's s133 tape carries Zidane's Attack START (kind 3, an impact naming it), Garnet's Potion "
                      "START and an enemy START (kind 2, num == sub), matched by wire actor",
         "S134-BOOT": "boot 1 steady with act.guest at rest: starts_rx 0, running 0, calc_while_booted 0, battle_ms counting",
-        "S134-A1": "Leg A: within 15 frames of the feed, started +1 and Zidane `acting`",
-        "S134-A2": "Leg A: Zidane's anim leaves its idle clip, `away` peaks above 400 then falls below 10",
+        "S134-A1": "Leg A: within 15 frames of the feed, started +1 and Zidane's seat (wire 0: the selftest BENCH "
+                   "stand-in) `acting`",
+        "S134-A2": "Leg A: Zidane's seat (wire 0: the selftest BENCH stand-in): its anim leaves its idle clip, `away` "
+                   "peaks above 400 then falls below 10",
         "S134-A3": "Leg A: it ends naturally -- ended +1, hits >= 1, last.state 'ended', running 0",
         "S134-A4": "Leg A: presentation only -- every hp_raw / mp, r9_refused, ach_held, the cmd_busy units unchanged; "
                    "calc 0",
-        "S134-M": "Leg M: MP_IDLE_CMD / MP_SET between the launch and the hit; first_hit - launch within 1000 ms of the "
-                  "taped host's START -> first impact",
+        "S134-M": "Leg M: Zidane's seat (wire 0: the selftest BENCH stand-in) in MP_IDLE_CMD / MP_SET between the "
+                  "launch and the hit; first_hit - launch within 1000 ms of the taped host's START -> first impact "
+                  "(CROSS-MODEL: the stand-in's model timed against the taped Zidane)",
         "S134-AH": "Leg A-H: a Potion START (no impact) on a DAMAGED ally (below max HP) -- its hp_raw unchanged after "
                    "the end",
         "S134-B": "Leg B: an enemy replay (kind 2) -- the enemy acting, its anim changes (the clip), the end, no flinch",
         "S134-F": "Leg F: START + an impact naming its id in one feed -- paired +1, swing_skipped +1, the replay ran",
-        "S134-G": "Leg G: a 46-byte impact -- old_host true, its line once, swing_skipped +0, Zidane's mot MP_ATTACK",
+        "S134-G": "Leg G: a 46-byte impact -- old_host true, its line once, swing_skipped +0, Zidane's seat (wire 0: "
+                  "the selftest BENCH stand-in) mot MP_ATTACK",
         "S134-J": "Leg J: START + its END in one feed -- declined 'stale' (stale +1), started +0",
         "S134-L": "Leg L: a Change START for Vivi -- her row flipped after its hit, away < 10 at its end",
         "S134-H": "Leg H: `rework off` -> declined 'rework' (the NO SFXRework line); `rework on`",
@@ -297,7 +328,9 @@ def _solo_catalog(calibrate: bool) -> dict:
                    "normal leave",
         "S134-BL": "the boot backlog: a START fed during boot 2's intro declines 'backlog'",
         "S134-D": "Leg D: a running replay, `dioleave` -> aborted +1 'leave', back on the field",
-        "S134-D0": "SMOKE: `dioleave` during boot 3's swirl refused 'deferred', the boot usable (amendment 12 not benched)",
+        "S134-D0": "SMOKE: `dioleave` inside boot 3's swirl fade (batched into the boot's request, Block(2) frames on) "
+                   "refused 'deferred', the diorama still booted, aborted 0 (a fresh BOOT line, the engine's deferral line; "
+                   "amendment 12 not benched)",
         "S134-E1": "Leg E victory: MENU_OFF while the replay runs, VICTORY only after it ended",
         "S134-E2": "the run-away hold: `endbench escape` NOT injected while a replay acts (end_held +1, its line), "
                    "injected 'flee' after",
@@ -315,7 +348,7 @@ def _solo_catalog(calibrate: bool) -> dict:
     }
     if calibrate:
         c["S134-CAL"] = ("CALIBRATION: exactly the predicted checks are red -- on an engine without `act.guest` every check "
-                         "but INI/S0/PRE/TAPE/INV; on the s134 DLL under `replay off` the LEVER set (K maybe)")
+                         "but INI/S0/PRE/TAPE/INV; on the s134 DLL under `replay off` the LEVER set (K pinned green)")
     return c
 
 
@@ -432,11 +465,23 @@ def _wire_of(x, unit: dict | None) -> int | None:
 
 
 NAMES = {"zidane": ("zidane",), "vivi": ("vivi",), "garnet": ("garnet", "dagger")}
+#: The selftest mirror's seat-0 stand-in (NetSyncParty.SelfTestMirror: MARKER A, an IMPOSTOR CharacterId in party slot 0;
+#: MARKER B, the name "BENCH" + Lv 99 -- a value that exists nowhere else in the process). EVERY selftest `dioboot` seats
+#: it ("diorama party BENCH: armed (slot 0: Zidane -> <impostor>, name BENCH, lv99)"), so a selftest diorama has NO unit
+#: named Zidane: the unit a START naming Zidane's battle-1 wire animates is this stand-in, seated at that wire.
+BENCH_NAME = "BENCH"
 
 
 def _unit_named(x, name: str) -> dict | None:
     want = NAMES.get(name, (name,))
     return next((u for u in cb.units(x, player=True) if str(u.get("name") or "").strip().lower() in want), None)
+
+
+def _seat(x, wire: int | None) -> dict | None:
+    """The player seated at a WIRE index (the compacted party rank NetSyncDiorama.ResolveWireUnit resolves a START's actor
+    by), or None."""
+    slots = cb.player_slots(x)
+    return cb.unit(x, slots[wire]) if isinstance(wire, int) and 0 <= wire < len(slots) else None
 
 
 def _invariants(x) -> dict:
@@ -647,6 +692,7 @@ def _battle_1(g, led: cb.Ledger, field: int, ctx: dict) -> None:
               f"{[(u.get('slot'), u.get('name'), u.get('id')) for u in foes]}")
     ctx["slots"] = {k: (int(u["slot"]) if u else None) for k, u in names.items()}
     ctx["zidane_wire"] = _wire_of(st, names["zidane"])
+    ctx["vivi_wire"] = _wire_of(st, names["vivi"])
     ctx["garnet_wire"] = _wire_of(st, names["garnet"])
     ctx["fang1_wire"] = _who(st)["fang1"][1]
     done, extra = {"attack": False, "potion": False}, 0
@@ -790,11 +836,18 @@ def _out(g, field: int) -> None:
     cb.try_ns(g, "endbench", "clear")
 
 
-def _who(x) -> dict:
-    """The diorama's cast by WIRE index: zidane / vivi / garnet (players), fang1 / fang2 (the first two enemies)."""
+def _who(x, ctx: dict | None = None) -> dict:
+    """The diorama's cast by WIRE index: zidane / vivi / garnet (players), fang1 / fang2 (the first two enemies).
+    A character absent by name is the unit seated at its battle-1 wire (``ctx["<name>_wire"]``) ONLY when that unit is
+    the selftest mirror's stand-in (BENCH_NAME, MARKER B): the actor a START naming that wire animates -- never any other
+    unit that happens to sit there."""
     out = {}
     for name in ("zidane", "vivi", "garnet"):
         u = _unit_named(x, name)
+        if u is None and ctx is not None:
+            seat = _seat(x, ctx.get(f"{name}_wire"))
+            if seat is not None and str(seat.get("name") or "").strip() == BENCH_NAME:
+                u = seat
         out[name] = (u, _wire_of(x, u))
     foes = sorted(cb.units(x, player=False), key=lambda u: int(u.get("slot", 99)))
     for k, name in enumerate(("fang1", "fang2")):
@@ -812,7 +865,7 @@ def _leg_a_start(x, ctx: dict, *, speed: int | None = None) -> tuple:
     taped -- UseCamera / PlayCamera follow a replay's host Speed; 5 when the tape named none: [s134 review timing-07]) --
     the wires read off this diorama, else (a START fed before its units are published: the boot backlog) battle 1's, the
     same scene and group. (id, bytes) or (None, why)."""
-    who = _who(x)
+    who = _who(x, ctx)
     (zu, zw), (fu, fw) = who["zidane"], who["fang1"]
     zw = zw if zw is not None else ctx.get("zidane_wire")
     fw = fw if fw is not None else ctx.get("fang1_wire")
@@ -887,7 +940,7 @@ def _legs_a(g, led: cb.Ledger, ctx: dict) -> None:
     if act_id is None:
         led.unreached(("S134-A1", "S134-A2", "S134-A3", "S134-A4", "S134-M"), frame)
         return
-    zw_slot = _who(st)["zidane"][0]["slot"]
+    zw_slot = _who(st, ctx)["zidane"][0]["slot"]
     idle = _unit(st, zw_slot).get("anim")
     f0 = cb.frame_of(st)
     samples, end, why = _replay(g, frame, _ended(base))
@@ -919,7 +972,9 @@ def _legs_a(g, led: cb.Ledger, ctx: dict) -> None:
     on = "on an ENEMY" if att.get("on_enemy") else "on an ALLY: the run-out differs"
     led.check("S134-M", stance and host_ms is not None and mine is not None and abs(mine - host_ms) <= LOOP_TOL_MS,
               f"mots before the hit {mots[:12]}; the guest's launch -> hit {mine} ms vs the taped host's START -> impact "
-              f"{host_ms} ms (tolerance {LOOP_TOL_MS}; the taped Attack {on}, host speed {att.get('speed')})")
+              f"{host_ms} ms ({'CROSS-MODEL' if _unit(st, zw_slot).get('name') == BENCH_NAME else 'same model'}: the "
+              f"seat's unit {_unit(st, zw_slot).get('name')!r} vs the taped Zidane; "
+              f"tolerance {LOOP_TOL_MS}; the taped Attack {on}, host speed {att.get('speed')})")
 
 
 def _damaged(u: dict | None) -> bool:
@@ -932,7 +987,7 @@ def _leg_ah(g, led: cb.Ledger, ctx: dict) -> None:
     names: the legacy route, no old-host note) from Fang 1 lowers that ally's raw HP by 100 -- and with still none, AH
     reads "not reached: no damaged ally"."""
     st = g.state
-    who = _who(st)
+    who = _who(st, ctx)
     (gu, gw) = who["garnet"]
     pot = (ctx.get("tape") or {}).get("potion")
     allies = [u for u in cb.units(st, player=True) if u.get("alive")]
@@ -974,12 +1029,13 @@ def _leg_ah(g, led: cb.Ledger, ctx: dict) -> None:
 
 def _leg_b(g, led: cb.Ledger, ctx: dict) -> None:
     st = g.state
-    who = _who(st)
+    who = _who(st, ctx)
     en = (ctx.get("tape") or {}).get("enemy")
     zu, zw = who["zidane"]
     foe = cb.unit(st, en["actor"]) if en else None
     if en is None or foe is None or zw is None:
-        led.check("S134-B", False, f"not reached: taped enemy START {en}, its unit here {foe is not None}")
+        led.check("S134-B", False, f"not reached: taped enemy START {en}, its unit here {foe is not None}, Zidane's "
+                                   f"seat (its target) {zw}")
         return
     base = _base(st)
     anim0 = foe.get("anim")
@@ -998,7 +1054,7 @@ def _leg_b(g, led: cb.Ledger, ctx: dict) -> None:
 
 def _leg_f(g, led: cb.Ledger, ctx: dict) -> None:
     st = g.state
-    who = _who(st)
+    who = _who(st, ctx)
     (zu, zw), (fu, fw) = who["zidane"], who["fang1"]
     act_id, frame = _leg_a_start(st, ctx)
     if act_id is None:
@@ -1019,7 +1075,7 @@ def _leg_f(g, led: cb.Ledger, ctx: dict) -> None:
 
 def _leg_g(g, led: cb.Ledger, ctx: dict) -> None:
     st = g.state
-    who = _who(st)
+    who = _who(st, ctx)
     (zu, zw), (fu, fw) = who["zidane"], who["fang1"]
     if zw is None or fw is None:
         led.check("S134-G", False, "not reached: no Zidane / Fang 1")
@@ -1058,7 +1114,7 @@ def _leg_j(g, led: cb.Ledger, ctx: dict) -> None:
 
 def _leg_l(g, led: cb.Ledger, ctx: dict) -> None:
     st = g.state
-    vu, vw = _who(st)["vivi"]
+    vu, vw = _who(st, ctx)["vivi"]
     if vw is None:
         led.check("S134-L", False, "not reached: no Vivi in the diorama")
         return
@@ -1184,7 +1240,7 @@ def _leg_trip(g, led: cb.Ledger, ctx: dict) -> None:
 
 def _leg_tripst(g, led: cb.Ledger, ctx: dict) -> None:
     st = g.state
-    zu, zw = _who(st)["zidane"]
+    zu, zw = _who(st, ctx)["zidane"]
     if zw is None:
         led.check("S134-TRIPST", False, "not reached: no Zidane")
         return
@@ -1271,23 +1327,110 @@ def _boot_2(g, led: cb.Ledger, field: int, ctx: dict) -> None:
 
 
 # ---- boot 3: the deferred Leave, then victory
+#: the agent's `dioleave` refusal while a scene fade is in flight (HarnessAgent `dioleave`)
+LEAVE_DEFERRED = "dioleave: deferred"
+#: [s134 solo review 1] boot 3's ENGINE witnesses, read after a mark taken before the send. The request's refusal latch
+#: never stands alone: HarnessAgent.DrainQueue catches each step's refusal and runs the next, and the latch keeps only the
+#: LAST -- a refused `dioboot` (thrown before its Block(2)) is overwritten by the batched `dioleave`'s refusal in the same
+#: frame, and against a stale diorama that leave's 'deferred' would read as boot 3's. NetSyncDiorama.Boot's line for a
+#: fresh boot of THIS scene and group, and LeaveFrom's deferral line:
+BOOT_LINE = f"[NetSync] diorama BOOT scene={SCENE} pattern={GROUP} "
+LEAVE_DEFERRED_LINE = "[NetSync] diorama leave deferred: a fade is in flight"
+LOG_WAIT_S = 2.0                           # (Memoria.log flushes every line before the ack: this bounds a slow read only)
+
+
+def _boot_and_leave(g) -> tuple:
+    """D0's boot: `dioboot` and `dioleave` in ONE agent request -- (sent whole, the request's refusal text or '').
+
+    WHY ONE REQUEST -- THE FRAME ACCOUNT. NetSyncDiorama.LeaveFrom defers only while SceneDirector.IsFading. The boot
+    (frame F) starts SceneDirector._Swirl, which sets IsFading synchronously (its third statement); the coroutine then yields two
+    WaitForEndOfFrame (the ends of F and F+1 -- 9 with a dialog up, 2 x FastForwardFactor under fast-forward: only ever
+    longer), a yield null (F+2: LoadLevel SwirlScene) and a FINAL WaitForEndOfFrame, after which it clears IsFading: the
+    fade ends at the END of F+2. The agent runs a request's next step Block(2) frames after a `netsync` verb -- at F+2,
+    before that end of frame: inside the fade, by ONE frame. A `dioleave` sent as its OWN request lands frames later (the
+    driver's round trip: F+4 in the first runs), in SwirlScene's IsFading==false window, where the engine ACCEPTS it and
+    no teardown runs on the selftest path (the strand -- the docstring's NOT PROVEN: every later `dioboot` refused 'a
+    diorama is already booted', the role held through `reset`, autosaves gated off by Booted).
+    THE ONE-FRAME MARGIN: should Block(2) or _Swirl ever change, the leave lands past the fade. D0 then reads red and says
+    why -- 'LEFT', no 'leave deferred' line after the mark (the second witness _judge_boot_3 requires) -- never green."""
+    try:
+        g.send(f"netsync dioboot {SCENE} {GROUP}", "netsync dioleave", timeout=20.0)
+        return True, ""
+    except HarnessError as err:
+        return False, str(err)[:400]
+
+
+def _events(g) -> list:
+    """The agent's event rows (events.jsonl), or [] when the channel keeps none."""
+    try:
+        return list(g.channel.events())
+    except (AttributeError, OSError, TypeError):
+        return []
+
+
+def _judge_boot_3(lok: bool, lwhy: str, lines: list, errors: list, booted: bool, aborted: int) -> tuple:
+    """D0's verdict off boot 3's batched request (pure: test_harness_netsync.py runs it on synthetic inputs) -- ``lines``
+    the Memoria.log lines after the mark, ``errors`` the agent's per-step refusals since it (one 'error' event per refused
+    step: a step the latch overwrote still names its own reason there). (verdict, deferred, detail): verdict None = D0 and
+    E1 NOT REACHED, else D0's bool; ``deferred`` = the boot is still up and usable (E1 may run on it).
+
+    Judged ONLY on a FRESH boot: BOOT_LINE after the mark and no 'diorama boot REFUSED' line -- else not reached, with
+    the boot's OWN reason (its step's refusal, the REFUSED line), never the batched dioleave's read as the boot's. GREEN
+    needs both witnesses of the deferral -- the agent's 'dioleave: deferred' refusal AND LeaveFrom's 'leave deferred: a
+    fade is in flight' line -- with the diorama still booted and aborted 0."""
+    refused = cb.grep(lines, cb.BOOT_REFUSED, limit=240)
+    failed = cb.grep(lines, "diorama boot failed", limit=240)
+    boot_err = next((e for e in errors if "dioboot" in e), "")
+    if cb.count(lines, BOOT_LINE) == 0 or refused or failed or boot_err:
+        # a boot that FAILED after its BOOT line (Boot's catch clears _booted, the agent refuses the step) did not boot
+        # either -- never a reached red blaming the leave
+        why = ("a REFUSED line" if refused else "a 'diorama boot failed' line" if failed
+               else "no fresh BOOT line" if cb.count(lines, BOOT_LINE) == 0 else "the boot's step refused")
+        return None, False, (f"boot 3 did not boot ({why} after the mark): the boot's own step: "
+                             f"{boot_err or 'no refusal event'}; log: {refused or failed or 'no REFUSED line'}; the "
+                             f"request's last refusal (the batched dioleave's, never the boot's): {lwhy or 'none'}")
+    agent = not lok and LEAVE_DEFERRED in lwhy
+    engine = cb.count(lines, LEAVE_DEFERRED_LINE) >= 1
+    deferred = agent and engine and booted
+    said = "deferred" if agent else ("LEFT (accepted)" if lok else lwhy)
+    return deferred and aborted == 0, deferred, (
+        f"SMOKE (amendment 12 is not benched: no replay can run or park in the swirl): a fresh BOOT, then dioleave inside "
+        f"the swirl's fade (the boot's request, Block(2) frames on): {said}; LeaveFrom's deferral line "
+        f"{'logged' if engine else 'ABSENT'}; booted {booted}; aborted {aborted} (reset per boot)")
+
+
 def _boot_3(g, led: cb.Ledger, field: int, ctx: dict) -> None:
     cb.try_ns(g, "endbench", "clear")
+    # [s134 solo review 1] a diorama still up is never sent to: its `dioboot` is refused 'already booted' and the batched
+    # `dioleave` would land on the STALE diorama -- a real Leave of it, or (a fade in flight) a 'deferred' that would read
+    # as boot 3's
+    if cb.poll(g, lambda s: cb.dio(s).get("booted") is not True, 3.0, "no diorama up before boot 3") is None:
+        led.unreached(("S134-D0", "S134-E1"), f"a diorama is already booted before boot 3 (a stale boot the legs before "
+                                              f"left up): nothing was sent; {_brief(g.state)}")
+        _out(g, field)
+        return
     base = _base(g.state)
-    ok, why = cb.try_ns(g, "dioboot", SCENE, GROUP)
-    if not ok:
-        led.unreached(("S134-D0", "S134-E1"), f"boot 3 refused: {why}")
+    at, ev0 = cb.mark(g), len(_events(g))
+    lok, lwhy = _boot_and_leave(g)
+    lines = cb.wait_log(g, at, BOOT_LINE, LOG_WAIT_S)
+    if not lok and LEAVE_DEFERRED in lwhy:
+        lines = cb.wait_log(g, at, LEAVE_DEFERRED_LINE, LOG_WAIT_S)
+    errors = [str(e.get("message") or "") for e in _events(g)[ev0:] if e.get("kind") == "error"]
+    x = g.state
+    verdict, deferred, detail = _judge_boot_3(lok, lwhy, lines, errors, cb.dio(x).get("booted") is True,
+                                              _gv(x, "aborted"))
+    if verdict is None:
+        led.unreached(("S134-D0", "S134-E1"), detail)
+        _out(g, field)
         return
     try:
-        lok, lwhy = cb.try_ns(g, "dioleave")
-        deferred = not lok and "deferred" in lwhy
-        x = g.state
-        led.check("S134-D0", deferred and _gv(x, "aborted") == 0,
-                  f"SMOKE (amendment 12 is not benched: no replay can run or park in the swirl): dioleave during the "
-                  f"swirl: {'deferred' if deferred else ('LEFT' if lok else lwhy)}; aborted {_gv(x, 'aborted')} (base "
-                  f"{base['aborted']}, reset per boot)")
+        led.check("S134-D0", verdict, f"{detail} (base {base['aborted']})")
         if not deferred:
-            led.unreached(("S134-E1",), "the leave was not deferred (the swirl had ended): this boot is gone")
+            led.unreached(("S134-E1",), ("the leave was ACCEPTED (it landed past the swirl's fade): this boot is gone -- "
+                                         "and on the selftest path a Leave accepted mid-swirl is never torn down (no "
+                                         "fence 1): the boots after this one may be refused") if lok else
+                          f"the leave was not proven deferred (both witnesses, the diorama still booted): E1 does not "
+                          f"run on that boot -- {lwhy or 'no refusal'}")
             return
         st = cb.poll(g, lambda s: cb.steady(s) and (_num(cb.path(s, "netsync.diorama.intro.normal_ms")) or -1) >= 0,
                      cb.STEADY_S, "boot 3's steady latch")
@@ -1330,7 +1473,7 @@ def _boot_e(g, led: cb.Ledger, field: int, ctx: dict, leg: str) -> None:
         led.check(cid, False, f"not reached: {why}")
         return
     try:
-        who = _who(st)
+        who = _who(st, ctx)
         if leg in ("E3", "E4"):                            # [s134 review timing-02 / harness-04] E4 too: a replay that
             gu, gw = who["garnet"]                         # outlives the close fade (~2.2 s at 15 TPS) before R8
             foes = [_wire_of(st, u) for u in cb.units(st, player=False)]
@@ -1408,7 +1551,7 @@ def _boot_k(g, led: cb.Ledger, field: int, ctx: dict) -> None:
         latched = cb.poll(g, lambda s: _guest(s).get("bit5") is True, 3.0, "the bit-5 latch")
         g.wait_frames(10)                                  # (the feed's lane edge marks the next bench drain a backlog)
         st = g.state
-        who = _who(st)
+        who = _who(st, ctx)
         (zu, zw), (fu, fw) = who["zidane"], who["fang1"]
         if latched is None or zw is None or fw is None:
             led.check("S134-K", False, f"not reached: bit5 {_guest(st).get('bit5')!r} (bbench {a} {b}); zidane {zw} fang {fw}")
