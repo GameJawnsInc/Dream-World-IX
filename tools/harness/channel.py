@@ -1720,6 +1720,115 @@ class State:
                                                                    "total, frames: [{i, ms, hex}]} -- compact upper-case "
                                                                    "hex); None = none.")
 
+    # [ff9mapkit netsync s134] THE GUEST ACTION REPLAY (studies/battle-coop/R3-DESIGN.md 3.3.3 as amended by
+    # R3-ACTION-REPLAY-AUDIT.md 2.2 and section 3): `netsync.battle.act.guest` -- an s133 host's action STARTs replayed on this
+    # guest's battle diorama as the real clips, presentation only (the hit short-circuit; THE TRIPWIRE `calc_while_booted`).
+    # The capability is the block's PRESENCE (absent = None per key, False for :attr:`coop_act_guest`): an s133 engine
+    # answers the guest `actbench` ops "unknown op" / its usage. Published in EVERY role (audit 3.6). Counters are per
+    # diorama BOOT (reset by each boot, kept after its teardown until the next) unless marked; `levers` are harness-scoped;
+    # `rx_dropped` is monotonic per transport (read DELTAS). starts_rx == started + declined + queued + waiting +
+    # discarded.pending; at rest ended + aborted + discarded.running == started (battlewire.act_guest_invariant /
+    # act_guest_ends_balance).
+    @property
+    def coop_act_guest(self) -> bool | None:
+        """s134: the guest action replay (``netsync.battle.act.guest``; `actbench feed|feedat|tape play|replay|rework|
+        shortcircuit|knob|clear|teardown`). False = an engine whose guest replays no action (s133 and older)."""
+        return self._nb_cap("act.guest", dict)
+
+    coop_act_guest_block = _nb_prop("act.guest", dict, "s134: the whole ``act.guest`` block, copied.")
+    coop_act_guest_on = _nb_prop("act.guest.on", bool, "s134: this guest would replay a START now ([Netsync] ActionReplay, "
+                                                       "no `replay off` lever, SFXRework).")
+    coop_act_guest_why = _nb_prop("act.guest.why", str, "s134: why not -- \"knob\" | \"lever\" | \"rework\" (\"\" = on).")
+    coop_act_guest_rework = _nb_prop("act.guest.rework", bool, "s134: SFXRework as the replay sees it (after the "
+                                                               "`rework off` lever).")
+    coop_act_guest_knob = _nb_prop("act.guest.knob", int, "s134: the effective [Netsync] ActionReplay (1 / 0; a `knob` "
+                                                          "lever wins in the selftest role).")
+    coop_act_guest_host_caps = _nb_prop("act.guest.host_caps", int, "s134: the booted host's last header flags byte; -1 = "
+                                                                    "none this boot.")
+    coop_act_guest_bit5 = _nb_prop("act.guest.bit5", bool, "s134: the per-boot latch -- the booted host ships action "
+                                                           "STARTs (CapActionStarts); never cleared by a null view.")
+    coop_act_guest_levers = _nb_prop("act.guest.levers", dict, "s134: the selftest levers, copied.")
+    coop_act_guest_lever_replay_off = _nb_prop("act.guest.levers.replay_off", bool, "s134: `actbench replay off` (the "
+                                                                                    "pre-s134 guest).")
+    coop_act_guest_lever_rework_off = _nb_prop("act.guest.levers.rework_off", bool, "s134: `actbench rework off`.")
+    coop_act_guest_lever_shortcircuit_off = _nb_prop("act.guest.levers.shortcircuit_off", bool,
+                                                     "s134: `actbench shortcircuit off`, armed for the NEXT replay "
+                                                     "(one-shot).")
+    coop_act_guest_lever_knob = _nb_prop("act.guest.levers.knob", int, "s134: `actbench knob 0|1` (-1 = the ini's).")
+    coop_act_guest_inbox = _nb_prop("act.guest.inbox", int, "s134: bench frames waiting in the inbox.")
+    coop_act_guest_starts_rx = _nb_prop("act.guest.starts_rx", int, "s134: START records received this boot.")
+    coop_act_guest_ends_rx = _nb_prop("act.guest.ends_rx", int, "s134: END records received this boot.")
+    coop_act_guest_started = _nb_prop("act.guest.started", int, "s134: replays launched this boot.")
+    coop_act_guest_queued = _nb_prop("act.guest.queued", int, "s134: STARTs registered and undecided now.")
+    coop_act_guest_waiting = _nb_prop("act.guest.waiting", int, "s134: STARTs parked in an actor's pending slot now.")
+    coop_act_guest_running = _nb_prop("act.guest.running", int, "s134: replays in the sequencer now.")
+    coop_act_guest_declined = _nb_prop("act.guest.declined", int, "s134: STARTs that never launched (every reason, noop "
+                                                                  "and superseded included).")
+    coop_act_guest_declined_why = _nb_prop("act.guest.declined_why", str, "s134: the last decline's reason (\"\" = none).")
+    coop_act_guest_stale = _nb_prop("act.guest.stale", int, "s134: ...of them `stale` (the END came first).")
+    coop_act_guest_backlog = _nb_prop("act.guest.backlog", int, "s134: ...`backlog`.")
+    coop_act_guest_superseded = _nb_prop("act.guest.superseded", int, "s134: ...`superseded` (a newer START of the actor).")
+    coop_act_guest_noop = _nb_prop("act.guest.noop", int, "s134: ...`noop` (kind none: no clip).")
+    coop_act_guest_dropped = _nb_prop("act.guest.dropped", int, "s134: ...parked STARTs an abort-all declined (r8 / w3 / "
+                                                                "leave / clear).")
+    coop_act_guest_aborted = _nb_prop("act.guest.aborted", int, "s134: hard releases this boot.")
+    coop_act_guest_abort_why = _nb_prop("act.guest.abort_why", str, "s134: the LAST abort's reason (\"\" = none) -- judge "
+                                                                    "every abort by :attr:`coop_act_guest_aborts`.")
+    coop_act_guest_aborts = _nb_prop("act.guest.aborts", dict, "s134: every abort this boot by its reason, copied ({pending, "
+                                                               "host_end, cap, actor, fault, leave, w3, r8, clear}).")
+    coop_act_guest_aborts_pending = _nb_prop("act.guest.aborts.pending", int, "s134: aborts `pending` (a parked START's "
+                                                                              "1500 ms).")
+    coop_act_guest_aborts_host_end = _nb_prop("act.guest.aborts.host_end", int, "s134: aborts `host-end` (the host's END "
+                                                                                "+ 6 s).")
+    coop_act_guest_aborts_cap = _nb_prop("act.guest.aborts.cap", int, "s134: aborts `cap` (the 90 s wall cap).")
+    coop_act_guest_aborts_actor = _nb_prop("act.guest.aborts.actor", int, "s134: aborts `actor` (the actor gone).")
+    coop_act_guest_aborts_fault = _nb_prop("act.guest.aborts.fault", int, "s134: aborts `fault` (a sequencer throw).")
+    coop_act_guest_aborts_leave = _nb_prop("act.guest.aborts.leave", int, "s134: aborts `leave` (a Leave of the diorama).")
+    coop_act_guest_aborts_w3 = _nb_prop("act.guest.aborts.w3", int, "s134: aborts `w3` (an injected end + 4 s, or the "
+                                                                    "run-away hold's bound / break).")
+    coop_act_guest_aborts_r8 = _nb_prop("act.guest.aborts.r8", int, "s134: aborts `r8` (the end's fade at black).")
+    coop_act_guest_aborts_clear = _nb_prop("act.guest.aborts.clear", int, "s134: aborts `clear` (`actbench clear`).")
+    coop_act_guest_discarded = _nb_prop("act.guest.discarded", dict, "s134: what a teardown's ActDiscardAll dropped, copied "
+                                                                     "({pending, running}) -- apart from started / declined "
+                                                                     "/ aborted.")
+    coop_act_guest_discarded_pending = _nb_prop("act.guest.discarded.pending", int, "s134: parked STARTs a teardown "
+                                                                                    "dropped.")
+    coop_act_guest_discarded_running = _nb_prop("act.guest.discarded.running", int, "s134: running replays a teardown "
+                                                                                    "dropped.")
+    coop_act_guest_ended = _nb_prop("act.guest.ended", int, "s134: natural ends this boot.")
+    coop_act_guest_faulted = _nb_prop("act.guest.faulted", int, "s134: sequencer throws (each an abort `fault`).")
+    coop_act_guest_hits = _nb_prop("act.guest.hits", int, "s134: short-circuited hits (ActOnHit).")
+    coop_act_guest_credits = _nb_prop("act.guest.credits", int, "s134: ...on a target no impact of that action had reached "
+                                                                "yet.")
+    coop_act_guest_paired = _nb_prop("act.guest.paired", int, "s134: impacts that named a record.")
+    coop_act_guest_swing_skipped = _nb_prop("act.guest.swing_skipped", int, "s134: legacy player swings a replay replaced.")
+    coop_act_guest_calc_while_booted = _nb_prop("act.guest.calc_while_booted", int,
+                                                "s134: THE TRIPWIRE -- battle calculations while a diorama is booted (0 in "
+                                                "every healthy boot).")
+    coop_act_guest_var_refused = _nb_prop("act.guest.var_refused", int, "s134: a replay's btl_seq / cmd_status writes "
+                                                                        "filtered.")
+    coop_act_guest_old_host = _nb_prop("act.guest.old_host", bool, "s134: an impact without the action id arrived (the host "
+                                                                   "predates action replay).")
+    coop_act_guest_grace = _nb_prop("act.guest.grace", dict, "s134: the death-attack grace, copied.")
+    coop_act_guest_grace_armed = _nb_prop("act.guest.grace.armed", int, "s134: graces armed this boot.")
+    coop_act_guest_grace_mask = _nb_prop("act.guest.grace.mask", int, "s134: the btl_ids inside one now.")
+    coop_act_guest_hold_through = _nb_prop("act.guest.hold_through", int, "s134: diorama holds a replay ran through.")
+    coop_act_guest_end_held = _nb_prop("act.guest.end_held", int, "s134: end injections held for an acting replay.")
+    coop_act_guest_rx_dropped = _nb_prop("act.guest.rx_dropped", int, "s134: the transport's inbound type-6 drops -- "
+                                                                      "monotonic per transport, read DELTAS; -1 = none "
+                                                                      "read.")
+    coop_act_guest_battle_ms = _nb_prop("act.guest.battle_ms", int, "s134: the battle clock (ms since the boot, paused spans "
+                                                                    "skipped); -1 = not booted.")
+    coop_act_guest_paused_ms = _nb_prop("act.guest.paused_ms", int, "s134: the paused spans the clock skipped.")
+    coop_act_guest_window = _nb_prop("act.guest.window", dict, "s134: the busy window, copied.")
+    coop_act_guest_window_open = _nb_prop("act.guest.window.open", bool, "s134: a replay's busy window is open.")
+    coop_act_guest_window_restores = _nb_prop("act.guest.window.restores", int, "s134: full restores (after an abort).")
+    coop_act_guest_window_limited = _nb_prop("act.guest.window.limited", int, "s134: shared-lanes-only restores (after an "
+                                                                              "end injection).")
+    coop_act_guest_last = _nb_prop("act.guest.last", dict, "s134: the last START received ({id, actor, cmd, sub, kind, num, "
+                                                           "speed, state, why, arrive_ms, launch_ms, first_hit_ms, end_ms, "
+                                                           "hits}); None = none this boot.")
+
     # ---- host: s111 the intro mirror's host half
     coop_host_cfg = _nb_prop("host.cfg", dict, "s111: the whole ``cfg`` block, copied (LIVE reads).")
     coop_cfg_atb = _nb_prop("host.cfg.atb", int, "s111: cfg.atb -- 0 Active, 1 Wait (a ``bench cfg atb`` override shows "
@@ -1975,6 +2084,44 @@ class State:
     def unit_z(self, slot: int) -> float | None:
         """[ff9mapkit netsync R3 s115] ``battle.units[].z`` (pos.z: falls while a runner runs; None = unreadable)."""
         return self._unit_num(slot, "z", float)
+
+    # [ff9mapkit netsync s134] the action replay made readable (after `z`, before `status`); None = no such unit / before s134
+    def unit_anim(self, slot: int) -> str | None:
+        """[ff9mapkit netsync s134] ``battle.units[].anim``: the current clip's NAME (an enemy sequence clip has no motion
+        index); "" = none."""
+        for u in self.battle.get("units", []):
+            if isinstance(u, dict) and u.get("slot") == slot:
+                v = u.get("anim", 0)
+                return "" if v is None else v if isinstance(v, str) else None
+        return None
+
+    def unit_anim_frame(self, slot: int) -> int | None:
+        """[ff9mapkit netsync s134] ``battle.units[].anim_frame`` (evt.animFrame)."""
+        return self._unit_num(slot, "anim_frame", int)
+
+    def unit_away(self, slot: int) -> float | None:
+        """[ff9mapkit netsync s134] ``battle.units[].away`` (|pos - base_pos|: an attacker's run out and back)."""
+        return self._unit_num(slot, "away", float)
+
+    def unit_rot_y(self, slot: int) -> float | None:
+        """[ff9mapkit netsync s134] ``battle.units[].rot_y`` (rot's yaw, degrees)."""
+        return self._unit_num(slot, "rot_y", float)
+
+    def unit_acting(self, slot: int) -> bool | None:
+        """[ff9mapkit netsync s134] ``battle.units[].acting``: a co-op guest's running action replay acts with this unit."""
+        for u in self.battle.get("units", []):
+            if isinstance(u, dict) and u.get("slot") == slot:
+                v = u.get("acting")
+                return v if isinstance(v, bool) else None
+        return None
+
+    def unit_die_seq(self, slot: int) -> int | None:
+        """[ff9mapkit netsync s134] ``battle.units[].die_seq`` (0 = none, 5+ = faded)."""
+        return self._unit_num(slot, "die_seq", int)
+
+    def unit_row(self, slot: int) -> int | None:
+        """[ff9mapkit netsync s134] ``battle.units[].row`` (bi.row: a Change flips it)."""
+        return self._unit_num(slot, "row", int)
 
     def _unit_num(self, slot: int, key: str, kind):
         for u in self.battle.get("units", []):

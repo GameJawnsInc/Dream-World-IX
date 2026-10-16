@@ -1788,7 +1788,8 @@ from functools import lru_cache                                        # noqa: E
 from harness import battlewire as BW                                   # noqa: E402
 
 BATTLE_FILES = ("HarnessAgent.cs", "NetSyncBattle.cs", "NetSyncBattle.StockMenu.cs", "NetSyncEnd.cs",
-                "NetSyncDiorama.cs", "NetSyncClient.cs", "BattleHUD.Scene.cs")
+                "NetSyncDiorama.cs", "NetSyncClient.cs", "BattleHUD.Scene.cs",
+                "NetSyncDiorama.Replay.cs")                     # [ff9mapkit netsync s134] the guest action replay
 #: A bench party for the stand-in's own battles: two players who can act (the default units' slot 1 is KO) and one
 #: enemy in btl slot 4 (id 0x10) with HP to spare.
 BENCH_UNITS = [
@@ -1844,12 +1845,17 @@ BATTLE_CONTAINERS = {"end.end_leave": "s105", "end.declined": "s105", "menu.cont
                      "end.flee": "s115", "peer.expired": "s131",
                      # [ff9mapkit netsync s133] the fifth sub-object's `host` half and its fixed sub-objects
                      "act.host": "s133", "act.host.kinds": "s133", "act.host.vfx": "s133", "act.host.loop": "s133",
-                     "act.host.tape": "s133"}
+                     "act.host.tape": "s133",
+                     # [ff9mapkit netsync s134] its `guest` half and that half's fixed sub-objects
+                     "act.guest": "s134", "act.guest.levers": "s134", "act.guest.grace": "s134",
+                     "act.guest.window": "s134", "act.guest.aborts": "s134", "act.guest.discarded": "s134"}
 #: The records that may be published null (an accessor reads None for them either way).
 BATTLE_NULLABLE = ("host.end", "peer.end", "menu.captured", "menu.roster", "menu.bench_roster", "menu.pending",
                    "menu.feed", "host.manifest", "host.handback.last", "end.replay.screen", "end.replay.fp",
                    # [ff9mapkit netsync s133]
-                   "act.host.last", "act.host.tape.page")
+                   "act.host.last", "act.host.tape.page",
+                   # [ff9mapkit netsync s134]
+                   "act.guest.last")
 
 
 def _leaves(block: dict, prefix: str = "") -> dict:
@@ -2038,10 +2044,17 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(battle["peer"]["expired"]) == FG.NETSYNC_PEER_EXPIRED_KEYS and list(battle["peer"])[-1] == "expired"
     # [ff9mapkit netsync s133] `act`, the FIFTH sub-object (after `end`), its `host` half and that half's fixed sub-objects
     act = battle["act"]["host"]
-    assert list(battle) == ["host", "peer", "menu", "end", "act"] and list(battle["act"]) == ["host"]
+    assert list(battle) == ["host", "peer", "menu", "end", "act"] and list(battle["act"]) == ["host", "guest"]
     assert tuple(act) == FG.NETSYNC_ACT_HOST_KEYS and tuple(act["kinds"]) == FG.NETSYNC_ACT_KINDS_KEYS
     assert tuple(act["vfx"]) == FG.NETSYNC_ACT_VFX_KEYS and tuple(act["loop"]) == FG.NETSYNC_ACT_LOOP_KEYS
     assert tuple(act["tape"]) == FG.NETSYNC_ACT_TAPE_KEYS
+    # [ff9mapkit netsync s134] `act.guest`, after `host`, and its fixed sub-objects
+    guest = battle["act"]["guest"]
+    assert tuple(guest) == FG.NETSYNC_ACT_GUEST_KEYS and tuple(guest["levers"]) == FG.NETSYNC_ACT_GUEST_LEVERS_KEYS
+    assert tuple(guest["grace"]) == FG.NETSYNC_ACT_GUEST_GRACE_KEYS
+    assert tuple(guest["window"]) == FG.NETSYNC_ACT_GUEST_WINDOW_KEYS
+    assert tuple(guest["aborts"]) == FG.NETSYNC_ACT_GUEST_ABORTS_KEYS == BW.ACT_ABORTS_KEYS
+    assert tuple(guest["discarded"]) == FG.NETSYNC_ACT_GUEST_DISCARDED_KEYS == ("pending", "running")
     top = list(prev_doc)
     assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
@@ -2177,7 +2190,11 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
             "host.start_hold.cap_ms": "HarnessStartHoldCapMs", "host.start_hold.state": "HarnessStartHoldState",
             "end.flee.gil_now": "HarnessGilNow",
             # [ff9mapkit netsync s133] the action tape's state ("off" at rest; the catch line's null is "failed to build")
-            "act.host.tape.state": "HarnessActTapeState"}
+            "act.host.tape.state": "HarnessActTapeState",
+            # [ff9mapkit netsync s134] the replay's levers at rest: the ini's ActionReplay (1) and this machine's SFXRework
+            # -- `on` true, `rework` true, `knob` 1 (the catch line's false / false / -1 is "the block failed to build")
+            "act.guest.on": "HarnessActGuestOn", "act.guest.rework": "HarnessActGuestRework",
+            "act.guest.knob": "HarnessActGuestKnob"}
     for sub in want:
         assert list(got[sub]) == list(want[sub]), (sub, list(got[sub]), list(want[sub]))
     for path in BATTLE_CONTAINERS:                       # the fixed sub-objects keep the agent's key order too
@@ -2210,7 +2227,8 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
 BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", "s107", "s108", "s109", "s110",
                  "s111", "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119", "s120", "s121",
                  "s131", "s132",                              # [ff9mapkit netsync s131] (s122-s130 unused: group 2 is s133-s141)
-                 "s133"]                                      # [ff9mapkit netsync s133] group 2's first
+                 "s133",                                      # [ff9mapkit netsync s133] group 2's first
+                 "s134"]                                      # [ff9mapkit netsync s134] the guest action replay
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2472,7 +2490,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s131] the expired seq
             "coop_peer_adopt",
             # [ff9mapkit netsync s133] the host action-start lane
-            "coop_act_host")
+            "coop_act_host",
+            # [ff9mapkit netsync s134] the guest action replay
+            "coop_act_guest")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -5398,6 +5418,7 @@ S117_CAPS = _all_caps_through("defeat")
 S121_CAPS = _all_caps_through("menurefusal")
 S131_CAPS = _all_caps_through("expiredseq")
 S132_CAPS = _all_caps_through("grace40")
+S133_CAPS = _all_caps_through("actstart")                              # [ff9mapkit netsync s134] s134's calibration red
 _CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -6171,6 +6192,10 @@ def _proof_lines(fake) -> list:
 
 @pytest.mark.parametrize("caps,want", [
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34)]),
+    # [ff9mapkit netsync s134] s133 (s134's calibration red): no 'action replay' line
+    ("s133", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30)]),
     # [ff9mapkit netsync s133] s132 (s133's calibration red): no 'action lane' line
     ("s132", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
@@ -6190,7 +6215,7 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     never runs the selftest role), so the s121 'no peer adopt line' red is the stand-in's, never yet observed in game."""
     fake = FakeGame(game)
     fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS,
-                         "s132": S132_CAPS}.get(caps) or _caps_at(caps)
+                         "s132": S132_CAPS, "s133": S133_CAPS}.get(caps) or _caps_at(caps)
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6204,7 +6229,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
         g.wait_frames(10)
         assert len(_proof_lines(fake)) == len(want)
     assert all(_battle_text(f'Log.Message("[NetSync] {h}"') for h in (BW.PROOF_CONTROL, BW.PROOF_WATCH, BW.PROOF_GRACE,
-                                                                      BW.PROOF_ADOPT, BW.PROOF_ACTION)) \
+                                                                      BW.PROOF_ADOPT, BW.PROOF_ACTION,
+                                                                      BW.PROOF_REPLAY)) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"'))
 
 
@@ -7381,8 +7407,9 @@ def test_the_act_block_is_the_fifth_sub_object_at_the_catch_lines_sentinels():
     a, b = _literals(catch[0])
     assert '\\"follow_msg\\":null},\\"act\\":{\\"host\\":{\\"on\\":false,' in b and "act" not in a
     nothing = _agent_netsync_nothing()[0]
-    assert _battle_of(nothing)["act"] == {"host": BW.ACT_HOST_SENTINELS}
-    assert _catch_doc_in("s133") == nothing                                # s133 wrote the live catch line whole
+    assert _battle_of(nothing)["act"]["host"] == BW.ACT_HOST_SENTINELS
+    # s133 wrote the catch line whole; [ff9mapkit netsync s134] s134 added `act.guest` after `act.host` and nothing else
+    assert _catch_doc_in("s133") == {**nothing, "battle": {**nothing["battle"], "act": {"host": BW.ACT_HOST_SENTINELS}}}
     body = " ".join(_act_region("private static void AppendAct(", "// [ff9mapkit netsync B5] stage 5:", "HarnessAgent.cs"))
     names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
     host = BW.ACT_HOST_SENTINELS
@@ -7407,12 +7434,12 @@ def test_state_reads_the_act_block_absent_on_s132_as_cannot():
     mistyped one None, and the nullable records (`last`, `tape.page`) read None at null."""
     old = State({"frame": 1, "netsync": _catch_doc_in("s132")})
     live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
-    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items() if p.startswith("act.")]
+    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items() if p.startswith("act.host")]   # (s134: `act.guest`)
     assert len(names) == len(_leaves({"act": {"host": BW.ACT_HOST_SENTINELS}})) + 5 == 51, names   # + 5 whole blocks
     assert (State({"frame": 1}).coop_act_host, old.coop_act_host, live.coop_act_host) == (None, False, True)
     assert all(getattr(old, n) is None for n in names)
     assert all(getattr(live, n) is not None for p, n in State.NETSYNC_BATTLE_ACCESSORS.items()
-               if p.startswith("act.") and p not in BATTLE_NULLABLE)
+               if p.startswith("act.host") and p not in BATTLE_NULLABLE)
     assert (live.coop_act_host_last, live.coop_act_host_tape_page, live.coop_act_host_tape_state) == (None, None, "")
     doc = _agent_netsync_nothing()[0]
     doc["battle"]["act"]["host"].update(starts=6, ends=6, on=True, nonce=3,
@@ -7432,7 +7459,7 @@ def test_a_fresh_stand_in_publishes_the_act_sentinels_and_s132_none(game):
     "off"); the stand-in at s132 publishes no `act`, no `actbench` and no 'action lane' proof line, and answers `actbench`
     "unknown sub-verb" in s132's words."""
     want = dict(BW.ACT_HOST_SENTINELS, tape=dict(BW.ACT_HOST_SENTINELS["tape"], state="off"))
-    assert _battle_of(FakeGame(game)._netsync_doc())["act"] == {"host": want}
+    assert _battle_of(FakeGame(game)._netsync_doc())["act"]["host"] == want      # ([ff9mapkit netsync s134] + `guest`)
     old = FakeGame(game)
     old.netsync_caps = S132_CAPS
     assert "act" not in _battle_of(old._netsync_doc()) and "actbench" not in old._netsync_subverbs()
@@ -7449,7 +7476,7 @@ ACT_REFUSALS = [
     ("netsync actbench: unknown op '", ["actbench", "tapes", "rec"], "selftest"),
     ("' (tape|hoststarts)", ["actbench", "tapes", "rec"], "selftest"),
     ("netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`",
-     ["actbench", "tape", "play"], "selftest"),
+     ["actbench", "tape", "bogus"], "selftest"),               # ([ff9mapkit netsync s134] `tape play` is the guest's now)
     ("netsync actbench tape dump: the tape is empty (`actbench tape rec` first)", ["actbench", "tape", "dump", "0", "4"],
      "selftest"),
     ("netsync actbench tape dump: from ", ["actbench", "tape", "dump", "9", "4"], "tape"),
@@ -7502,40 +7529,52 @@ def test_an_actbench_argument_refusal_has_the_engines_whole_shape_before_any_gat
 def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_step(game):
     """`actbench <op>`: the driver's op list and tape values are the engine's (its refusals' own lists), the sub-verb's
     capability key is `act.host` (audit amendment 13), and the driver refuses an unknown op / value before the step in the
-    engine's words -- on s132 it refuses the whole sub-verb naming s133 and the engine's would-be answer."""
+    engine's words -- on s132 it refuses the whole sub-verb naming s133 and the engine's would-be answer. [ff9mapkit
+    netsync s134] The guest ops (Session.NETSYNC_ACTBENCH_OP_CAPS) leave s133's "unknown op" list alone, and s134 REWROTE
+    the agent's usage line: each engine's words are judged against a stand-in at THAT engine (s133's off s133's own
+    patch), the guest forms by the s134 tests below."""
     ops = net_lines("NetSyncBattle.cs", r"netsync actbench: unknown op '")
     assert len(ops) == 1 and tuple(re.search(r"\(([a-z|]+)\)\";", ops[0]).group(1).split("|")) == \
         Session.NETSYNC_ACTBENCH_OPS == FG.NETSYNC_ACTBENCH_OPS == FG.actbench_ops(_all_caps_through("actstart"))
-    assert FG.actbench_ops(_all_caps_through("grace40")) == () and Session.NETSYNC_ACTBENCH_OP_CAPS == {}
+    assert FG.actbench_ops(_all_caps_through("grace40")) == ()
+    assert tuple(Session.NETSYNC_ACTBENCH_OP_CAPS) == FG.NETSYNC_ACTBENCH_GUEST_OPS == BW.ACT_GUEST_BENCH_OPS
     tape = net_lines("NetSyncBattle.cs", r"netsync actbench tape: expected `tape ")
     m = re.search(r"`tape ([a-z|]+)` or `tape dump <from> <count>`", tape[0]) if len(tape) == 1 else None
     assert m and Session.NETSYNC_ACTBENCH_TAPE_OPS == FG.NETSYNC_ACTBENCH_TAPE_OPS == tuple(m.group(1).split("|")) + (
         "dump",), tape
     assert Session.NETSYNC_ACTBENCH_PAGE_MAX == BW.ACT_TAPE_PAGE_MAX
     assert Session.NETSYNC_BATTLE_SUBVERBS["actbench"][:3] == ("coop_act_host", "netsync.battle.act.host", "s133")
-    fake = FakeGame(game)
-    with session(game, fake) as g:
-        g.newgame(settle=0)
-        g.netsync("selftest", 1)
-        n = len(fake.executed)
-        usage = ("expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info` or `actbench tape dump "
-                 "<from> <count>`\r\nParameter name: netsync actbench")
-        for args, words in ((("tapes", "rec"), "netsync actbench: unknown op 'tapes' (tape|hoststarts)"),
-                            (("tape", "play"), "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump "
-                                               "<from> <count>`"),
-                            # [review harness-10] the hoststarts value, and the agent's argument parse (it runs FIRST)
-                            (("hoststarts", "maybe"), "netsync actbench hoststarts: expected `hoststarts on|off`"),
-                            ((), usage), (("tapes",), usage), (("hoststarts",), usage),
-                            (("tape", "rec", "now"), usage)):
-            with pytest.raises(HarnessError) as err:
-                g.netsync("actbench", *args)
-            with pytest.raises(RuntimeError) as agent:
-                fake._netsync(["actbench", *args])
-            assert str(err.value) == str(agent.value) == words, args
-        assert len(fake.executed) == n
-        assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE}");')
-        st = g.actbench("TAPE", "Rec")                                  # the agent lowercases both; so does the driver
-        assert st.coop_act_host_tape_state == "rec" and fake.executed[-1] == ["netsync", "actbench", "TAPE", "Rec"]
+    # the agent's usage line, per engine: s133's off its own patch (the line s134 removed), s134's off the live stack
+    s133_usage = [_literals(ln)[1] for ln in net_lines("HarnessAgent.cs", r'ArgumentOutOfRangeException\("netsync actbench", ',
+                                                        [_patch_bytes("s133")])]
+    assert s133_usage == [Session.NETSYNC_ACTBENCH_USAGE] == [FG.NETSYNC_ACTBENCH_USAGE_S133]
+    assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE_S134}");')
+    assert Session.NETSYNC_ACTBENCH_USAGE_S134 == FG.NETSYNC_ACTBENCH_USAGE_S134
+    assert not _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE}");')     # s134 rewrote it
+    tape_words = "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`"
+    for caps, text in ((S133_CAPS, Session.NETSYNC_ACTBENCH_USAGE), (None, Session.NETSYNC_ACTBENCH_USAGE_S134)):
+        fake = FakeGame(game)
+        if caps is not None:
+            fake.netsync_caps = caps
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.netsync("selftest", 1)
+            n = len(fake.executed)
+            usage = f"{text}\r\nParameter name: netsync actbench"
+            for args, words in ((("tapes", "rec"), "netsync actbench: unknown op 'tapes' (tape|hoststarts)"),
+                                (("tape", "bogus"), tape_words),
+                                # [review harness-10] the hoststarts value, and the agent's argument parse (it runs FIRST)
+                                (("hoststarts", "maybe"), "netsync actbench hoststarts: expected `hoststarts on|off`"),
+                                ((), usage), (("tapes",), usage), (("hoststarts",), usage),
+                                (("tape", "rec", "now"), usage)):
+                with pytest.raises(HarnessError) as err:
+                    g.netsync("actbench", *args)
+                with pytest.raises(RuntimeError) as agent:
+                    fake._netsync(["actbench", *args])
+                assert str(err.value) == str(agent.value) == words, (caps is None, args)
+            assert len(fake.executed) == n
+            st = g.actbench("TAPE", "Rec")                              # the agent lowercases both; so does the driver
+            assert st.coop_act_host_tape_state == "rec" and fake.executed[-1] == ["netsync", "actbench", "TAPE", "Rec"]
     fake = FakeGame(game)
     fake.netsync_caps = S132_CAPS
     with session(game, fake) as g:
@@ -7948,6 +7987,1272 @@ def test_the_stock_ids_the_lane_and_its_bench_name_are_the_engines_when_the_clon
     assert "CMD_ITEM, POTION = BW.CMD_ITEM_ID, BW.ITEM_POTION_ID" in bench
 
 
+# =========================================================================== [ff9mapkit netsync s134]
+# THE GUEST ACTION REPLAY (studies/battle-coop/R3-DESIGN.md 3.3.3 as amended by R3-ACTION-REPLAY-AUDIT.md 2.2 and section 3
+# -- the audit's "s123"; group 2 renumbered s133-s141). Guest only, wire v14, harness protocol 5: one additive sub-object
+# (`netsync.battle.act.guest`), seven unit keys, the `actbench` guest ops (no new sub-verb), one proof line, the
+# [Netsync] ActionReplay behaviour key. battlewire's twins of the PURE decisions (NetSyncDiorama.Replay.cs) EVALUATE
+# ActReplaySelfTest's OWN 30 rows off the stack -- translated statement by statement (its lambdas, its book, its ternary
+# mask resolver included), so a row's arguments, verdict or order changed on either side turns a test red -- each rule's
+# mutant fails a row, the constants are pinned by name both ways, and s133 -- s134's calibration red -- is the ladder
+# prefix through `actstart` (S133_CAPS): every check below that reads the key, the ops or the proof line reads "cannot"
+# there.
+from types import SimpleNamespace                                       # noqa: E402
+
+REPLAY_FILE = "NetSyncDiorama.Replay.cs"
+#: ActReplaySelfTest's own helpers' bodies, pinned (the namespace below implements exactly these)
+REP_HELPER_BLOCKS = {
+    "private static ActDecideIn ActTestDecideBase()": [
+        "ActDecideIn d = new ActDecideIn();", "d.ActorLinked = true;", "d.CmdNo = (Int32)BattleCommandId.Attack;",
+        "d.Kind = NetSyncBattle.VfxKindSpecial;", "d.MappedTar = 0x10;", "return d;"],
+    "private static Int32 ActTestDecide(ActTestEditBoxed edit)": [
+        "ActDecideIn d = ActTestDecideBase();", "ActDecideBox box = new ActDecideBox { D = d };", "edit(box);",
+        "d = box.D;", "return ActDecide(ref d);"],
+    "private static ActRec ActTestRec(UInt16 id, Byte actor)": [
+        "return new ActRec", "{",
+        "Key = ActBook.KeyOf(ActTestNonce, id), Id = id, Nonce = ActTestNonce, ActorSlot = actor, ActorFlags = "
+        "NetSyncBattle.ActorIsPlayer,", "CmdNo = (UInt16)BattleCommandId.Attack, VfxKind = NetSyncBattle.VfxKindSpecial, "
+                                        "State = ActStRegistered", "};"],
+}
+
+
+def _rep_mask(code: str) -> tuple:
+    """C# string literals -> ``__S<n>__`` placeholders (their Python reprs kept aside)."""
+    strings = []
+
+    def keep(m):
+        strings.append(repr(m.group(1).replace('\\"', '"').replace("\\\\", "\\")))
+        return f"__S{len(strings) - 1}__"
+    return _CS_STRING.sub(keep, code), strings
+
+
+def _rep_split(code: str, sep: str) -> list:
+    """``code`` (strings masked) split at its depth-0 ``sep``."""
+    out, depth, cur = [], 0, ""
+    for c in code:
+        if c in "({[":
+            depth += 1
+        elif c in ")}]":
+            depth -= 1
+        if c == sep and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += c
+    out.append(cur.strip())
+    return out
+
+
+def _rep_close(code: str, at: int, opener: str, closer: str) -> int:
+    """The index of the ``closer`` matching ``code[at] == opener``."""
+    depth = 0
+    for k in range(at, len(code)):
+        depth += 1 if code[k] == opener else -1 if code[k] == closer else 0
+        if depth == 0:
+            return k
+    raise AssertionError(f"unbalanced {opener}: {code!r}")
+
+
+def _rep_tern(code: str) -> str:
+    """C#'s right-associative ``c ? a : b`` (depth 0) -> Python's ``(a if c else b)``."""
+    depth, q = 0, -1
+    for k, c in enumerate(code):
+        depth += 1 if c in "([" else -1 if c in ")]" else 0
+        if c == "?" and depth == 0:
+            q = k
+            break
+    if q < 0:
+        return code
+    depth, nest = 0, 0
+    for k in range(q + 1, len(code)):
+        c = code[k]
+        depth += 1 if c in "([" else -1 if c in ")]" else 0
+        if depth:
+            continue
+        if c == "?":
+            nest += 1
+        elif c == ":":
+            if nest == 0:
+                return (f"(({_rep_tern(code[q + 1:k].strip())}) if ({code[:q].strip()}) else "
+                        f"({_rep_tern(code[k + 1:].strip())}))")
+            nest -= 1
+    raise AssertionError(f"a ? with no : in {code!r}")
+
+
+def _rep_not(code: str) -> str:
+    """C#'s ``!`` (never ``!=``) -> ``(not <operand>)``: an identifier chain with its calls and member reads, or a
+    parenthesised group."""
+    while True:
+        m = re.search(r"!(?!=)", code)
+        if not m:
+            return code
+        k = m.end()
+        while code[k] == " ":
+            k += 1
+        if code[k] == "(":
+            end = _rep_close(code, k, "(", ")") + 1
+        else:
+            w = re.match(r"[\w.]+", code[k:])
+            assert w, code
+            end = k + w.end()
+        while end < len(code) and code[end] in "(.":
+            if code[end] == "(":
+                end = _rep_close(code, end, "(", ")") + 1
+            else:
+                w = re.match(r"\.[\w]+", code[end:])
+                end += w.end()
+        code = code[:m.start()] + "(not " + code[k:end] + ")" + code[end:]
+
+
+def _rep_expr(expr: str, strings: list | None = None) -> str:
+    """One C# expression of ActReplaySelfTest as Python: lambdas (``d => d.X = v`` / ``d => { d.X = v; ... }`` -> a
+    Python lambda that sets the snake_cased fields; ``i => <expr>`` -> a lambda), right-associative ternaries, casts
+    dropped, ``ref`` / ``out`` locals by NAME, ``new T()`` -> ``T()``, ``local.Member`` -> ``__m(local, 'Member')``,
+    true/false/null, && / || / !. ``strings`` = the caller's masked literals (else masked here)."""
+    own = strings is None
+    if own:
+        expr, strings = _rep_mask(expr)
+    lambdas: list = []
+    while True:
+        m = re.search(r"\b([a-z]\w*) => ", expr)
+        if not m:
+            break
+        var, j = m.group(1), m.end()
+        if expr[j] == "{":
+            close = _rep_close(expr, j, "{", "}")
+            sets = []
+            for st in [s for s in _rep_split(expr[j + 1:close], ";") if s]:
+                a = re.fullmatch(rf"{var}\.(\w+) = (.+)", st, re.S)
+                assert a, st
+                sets.append(f"__set({var}, {a.group(1)!r}, {_rep_expr(a.group(2), strings)})")
+            py, stop = f"(lambda {var}: [{', '.join(sets)}])", close + 1
+        else:
+            depth, stop = 0, len(expr)
+            for k in range(j, len(expr)):
+                depth += 1 if expr[k] in "([" else -1 if expr[k] in ")]" else 0
+                if depth < 0 or (depth == 0 and expr[k] == ","):
+                    stop = k
+                    break
+            body = expr[j:stop].strip()
+            a = re.fullmatch(rf"{var}\.(\w+) = (.+)", body, re.S)
+            py = (f"(lambda {var}: [__set({var}, {a.group(1)!r}, {_rep_expr(a.group(2), strings)})])" if a else
+                  f"(lambda {var}: {_rep_expr(body, strings)})")
+        lambdas.append(py)
+        expr = expr[:m.start()] + f"__L{len(lambdas) - 1}__" + expr[stop:]
+    code = _rep_tern(expr)
+    code = re.sub(r"\((?:Int32|UInt16|Byte|UInt32|Int64)\)", "", code)
+    code = re.sub(r"\b(?:ref|out) (\w+)", r"'\1'", code)
+    code = re.sub(r"\bnew (\w+)\(\)", r"\1()", code)
+    code = re.sub(r"\b([a-z]\w*)\.([A-Z]\w*)", r"__m(\1, '\2')", code)
+    code = re.sub(r"\btrue\b", "True", code)
+    code = re.sub(r"\bfalse\b", "False", code)
+    code = re.sub(r"\bnull\b", "None", code)
+    code = _rep_not(code.replace("&&", " and ").replace("||", " or "))
+    for i, py in enumerate(lambdas):
+        code = code.replace(f"__L{i}__", py)
+    if own:
+        for i, s in enumerate(strings):
+            code = code.replace(f"__S{i}__", s)
+    return code
+
+
+_REP_DECL = re.compile(r"(?:ActDecideIn|ActBook|ActRec|Int32|String|Boolean) (\w+ = .+)", re.S)
+
+
+def _rep_python(stmts: list) -> list:
+    """ActReplaySelfTest's statements as Python source lines: a Row -> ``__row(expr, name)`` (its name a C# concatenation,
+    evaluated); a declaration (several declarators too) -> its assignments; ``local.Member = v`` -> ``__set``; anything
+    else (a call) as itself."""
+    out = []
+    for s in stmts:
+        assert isinstance(s, str), s                                   # (no loop in this selftest)
+        masked, strings = _rep_mask(s)
+
+        def back(code):
+            for i, lit in enumerate(strings):
+                code = code.replace(f"__S{i}__", lit)
+            return code
+        m = re.fullmatch(r"Row\((.*)\)", masked, re.S)
+        if m:
+            args = _rep_split(m.group(1), ",")
+            assert len(args) == 4 and args[2:] == ["ref rows", "ref fail"], args
+            name = " + ".join(f"str({_rep_expr(part, strings)})" for part in _rep_split(args[1], "+"))
+            out.append(back(f"__row({_rep_expr(args[0], strings)}, {name})"))
+            continue
+        m = _REP_DECL.fullmatch(masked)
+        if m:
+            for d in _rep_split(m.group(1), ","):
+                name, _, value = d.partition("=")
+                out.append(back(f"{name.strip()} = {_rep_expr(value.strip(), strings)}"))
+            continue
+        m = re.fullmatch(r"([a-z]\w*)\.([A-Z]\w*) = (.+)", masked, re.S)
+        if m:
+            out.append(back(f"__set({m.group(1)}, {m.group(2)!r}, {_rep_expr(m.group(3), strings)})"))
+            continue
+        out.append(back(_rep_expr(masked, strings)))
+    return out
+
+
+def _rep_program() -> str:
+    """ActReplaySelfTest, read off the stack (the hunk that holds it whole), as one Python program."""
+    block = _cs_block(REPLAY_FILE, "internal static Boolean ActReplaySelfTest(")
+    code = " ".join(_strip_comment(ln) for ln in block if not re.match(r"(?:internal|private|public) static ", ln))
+    return "\n".join(_rep_python(_act_statements(code)))
+
+
+def _rep_ns(**twins) -> dict:
+    """The namespace ActReplaySelfTest runs in: the constants by C# name (NetSyncBattle's and BattleCommandId's as
+    attribute holders), the twins under their C# names (``twins`` replaces one -- a mutant), its own helpers (the pinned
+    bodies of REP_HELPER_BLOCKS), ``ref`` locals by NAME, and ``__row`` asserting each row."""
+    tw = dict(decide=BW.act_decide, dead=BW.act_dead_may_run, stance=BW.act_stance_gate, motion=BW.act_cmd_motion_filter,
+              pending=BW.act_pending_abort_due, transport=BW.act_backlog_transport, bench=BW.act_backlog_bench,
+              delta=BW.act_battle_delta, abort=BW.act_abort_why, restore=BW.act_restore_scope, hold=BW.act_end_hold_step,
+              grace=BW.act_grace_arms, status=BW.act_cmd_status_for, masks=BW.act_map_mask_with, book=BW.ActBook,
+              cursor=BW.act_cursor_bit_after, disappear=BW.act_restores_disappear, preinject=BW.act_pre_inject_mask,
+              holdbreak=BW.act_end_hold_breaks, sfx=BW.act_sfx_drop_plan)
+    tw.update(twins)
+    ns = dict(BW.CS_REPLAY_CONSTANTS)
+    names: list = []
+
+    def row(ok, name):
+        if ok is not True:
+            raise AssertionError(f"row {name!r} is {ok!r} for the twins")
+        names.append(name)
+
+    def member(obj, name):
+        return obj[_snake(name)] if isinstance(obj, dict) else getattr(obj, _snake(name))
+
+    def set_member(obj, name, value):
+        if isinstance(obj, dict):
+            assert _snake(name) in obj, name
+            obj[_snake(name)] = value
+        else:
+            setattr(obj, _snake(name), value)
+
+    book_cls = tw["book"]
+
+    class _Book:                                                       # `new ActBook()` and `ActBook.KeyOf(..)`
+        KeyOf = staticmethod(book_cls.key_of)
+
+        def __new__(cls):
+            return book_cls()
+
+    def decide_base():                                                 # ActTestDecideBase
+        return BW.act_decide_in(actor_linked=True, cmd_no=BW.CMD_ATTACK_ID, kind=BW.VFX_KIND_SPECIAL, mapped_tar=0x10)
+
+    def test_decide(edit):                                             # ActTestDecide(edit)
+        d = decide_base()
+        edit(d)
+        return tw["decide"](d)
+
+    ns.update(__row=row, __m=member, __set=set_member, __names__=names,
+              NetSyncBattle=SimpleNamespace(**BW.CS_ACTION_CONSTANTS),
+              BattleCommandId=SimpleNamespace(**{k.split(".", 1)[1]: v for k, v in BW.CS_STOCK_IDS.items()
+                                                 if k.startswith("BattleCommandId.")}),
+              ActTestNonce=BW.ACT_REPLAY_TEST_NONCE, ActBook=_Book, ReferenceEquals=lambda a, b: a is b,
+              ActDecide=lambda name: tw["decide"](ns[name]), ActDeadMayRun=tw["dead"], ActStanceGate=tw["stance"],
+              ActCmdMotionFilter=tw["motion"], ActPendingAbortDue=tw["pending"], ActBacklogTransport=tw["transport"],
+              ActBacklogBench=tw["bench"], ActBattleDelta=tw["delta"], ActAbortWhy=tw["abort"],
+              ActRestoreScope=tw["restore"], ActEndHoldStep=tw["hold"], ActGraceArms=tw["grace"],
+              ActCmdStatusFor=tw["status"], ActMapMaskWith=tw["masks"], ActCursorBitAfter=tw["cursor"],
+              ActRestoresDisappear=tw["disappear"], ActPreInjectMask=tw["preinject"], ActEndHoldBreaks=tw["holdbreak"],
+              ActSfxDropPlan=tw["sfx"], ActTestDecideBase=decide_base,
+              ActTestDecide=test_decide,
+              ActTestRec=lambda i, actor: BW.ActRec(i, BW.ACT_REPLAY_TEST_NONCE, actor, BW.ACTOR_IS_PLAYER,
+                                                    cmd_no=BW.CMD_ATTACK_ID, vfx_kind=BW.VFX_KIND_SPECIAL,
+                                                    state=BW.ACT_ST_REGISTERED))
+    return ns
+
+
+def _run_rep_selftest(**twins) -> list:
+    ns = _rep_ns(**twins)
+    exec(compile(_rep_program(), "<ActReplaySelfTest>", "exec"), ns)           # noqa: S102 -- the stack's own rows
+    return ns["__names__"]
+
+
+#: ActReplaySelfTest's rows the audit's amendments name (their names are the engine's, verbatim)
+REP_ROW_MARKS = ("decide: an END before the launch declines `stale`, ahead of `backlog`",
+                 "decide: a dying caster's EnemyDying runs while die_seq < 5 and linked (review F3)",
+                 "stance: MP_IDLE_CMD for a player's <= RushAttack or > 99 command only (no Sys*, no enemy, no transform)",
+                 "motion: the stock filter -- a Sys* replay holds no command motion unless includeSysCmd",
+                 "drain: a START and its END in one drain -> stale; a START without its END is not",
+                 "backlog: before LIVE, on a stale lane, or at its stale->live edge; never in a steady live lane",
+                 "clock: battle time skips only a span between two paused reads; a negative delta counts nothing",
+                 "restore: nothing after a natural end; the full restore after an abort; the shared lanes only after an "
+                 "injection",
+                 "grace: bit 5, a replaying guest, a player caster's lethal hit on a living AttackOnDeath enemy -- nothing "
+                 "less",
+                 "setvariable: a replay's cmd_status changes bit 1 only (the high byte kept)",
+                 # [s134 review] contain-restore-gaps / timing-02 / timing-01 / contain-abort-sfx-loader-lock / harness-5
+                 "restore: the full restore puts the cursor bit back (the limited one leaves InjectEnd's); a dead enemy stays "
+                 "faded, a dead player shows",
+                 "restore: right before an injection, the units of replays aborted before it that no running replay acts with",
+                 "end: a hold the host's block moved past, or whose lane went stale, injects what it held at once",
+                 "abort: an unplayed SFX is cancelled, a camera load holding the loader unlocked too; a playing one is the "
+                 "release's",
+                 "decide: the replay lever declines `lever`, ahead of `rework` and `backlog`")
+
+
+def test_the_replay_twins_evaluate_every_replay_selftest_row_off_the_stack():
+    """battlewire's s134 twins (the decision, the book, the backlog verdicts, the clock, the abort / restore / end-hold /
+    grace rules, the cmd_status filter, the mask mapping; the review's cursor-bit / disappear / pre-injection restore, hold
+    break and SFX drop) against ActReplaySelfTest's OWN rows, EVALUATED in order: 34, the proof line's count. Its helpers
+    are the pinned bodies (REP_HELPER_BLOCKS)."""
+    names = _run_rep_selftest()
+    assert len(names) == BW.REPLAY_SELFTEST_ROWS == 34 and len(set(names)) == 34, names
+    assert all(mark in names for mark in REP_ROW_MARKS), set(REP_ROW_MARKS) - set(names)
+    prefix = lambda n: n.split(":", 1)[0]                                # noqa: E731
+    assert [sum(prefix(n) == p for n in names) for p in ("decide", "drain", "pending", "backlog", "backlog (bench)")] \
+        == [14, 3, 2, 1, 1], names
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines(REPLAY_FILE, r".", [_patch_bytes("s134")])) == 34
+    for start, body in REP_HELPER_BLOCKS.items():
+        got = [c for c in (_strip_comment(t) for t in _cs_block(REPLAY_FILE, start, "}")) if c][2:]
+        assert got[:len(body)] == body, (start, got)
+    assert _battle_text("private const Byte ActTestNonce = 0x5B;") and BW.ACT_REPLAY_TEST_NONCE == 0x5B
+
+
+class _BookStaleOnlyRegistered(BW.ActBook):
+    def host_end(self, key, now):                                       # a PARKED record never turns stale
+        r = self.by_id.get(key)
+        if r is not None and r.state == BW.ACT_ST_WAITING:
+            r.host_ended, r.host_end_ms = True, now
+            return r
+        return super().host_end(key, now)
+
+
+class _BookStaleRunning(BW.ActBook):
+    def host_end(self, key, now):                                       # a RUNNING record turns stale too
+        r = super().host_end(key, now)
+        if r is not None:
+            r.stale = True
+        return r
+
+
+class _BookDuplicates(BW.ActBook):
+    def register_start(self, r):                                        # a duplicate key registers again
+        self.by_id[r.key] = r
+        self.queue.append(r)
+        return True
+
+
+class _BookKeyNoShift(BW.ActBook):
+    @staticmethod
+    def key_of(nonce, act_id):                                          # the nonce OR'd in, not shifted
+        return (nonce & 0xFF) | (act_id & 0xFFFF)
+
+
+class _BookNoSupersede(BW.ActBook):
+    def park(self, r, now):
+        super().park(r, now)
+        return None
+
+
+class _BookAnyActor(BW.ActBook):
+    def park(self, r, now):                                             # any waiting record is superseded
+        older = next((q for q in self.queue if q is not r and q.state == BW.ACT_ST_WAITING), None)
+        r.state, r.wait_since_ms = BW.ACT_ST_WAITING, now
+        return older
+
+
+#: ActDecide's reasons before `stale` in its order (an order mutant moves `stale` / `backlog` ahead of some of them)
+_EARLY = ("knob_off", "lever_off", "no_rework", "end_presented")
+
+
+def _decide_with(**changes):
+    """ActDecide with ONE rule broken (the twin's own body otherwise)."""
+    def decide(d):
+        if changes.get("backlog_first") and d["backlog"] and not any(d[k] for k in _EARLY + ("leaving",)):
+            return BW.ACT_WHY_BACKLOG                                   # backlog ahead of stale
+        if changes.get("stale_first") and d["stale"]:
+            return BW.ACT_WHY_STALE                                     # stale ahead of every reason (knob too)
+        if changes.get("stale_before_leave") and d["stale"] and not any(d[k] for k in _EARLY):
+            return BW.ACT_WHY_STALE                                     # stale ahead of leave
+        if changes.get("busy_gt") and d["running"] == BW.ACT_MAX_RUNNING and d["kind"] != BW.VFX_KIND_NONE:
+            return BW.act_decide(dict(d, running=0))                    # `>` for `>=` at the running cap
+        if changes.get("noop_first") and d["kind"] == BW.VFX_KIND_NONE and not d["knob_off"]:
+            return BW.ACT_NOOP                                          # noop ahead of target
+        if changes.get("busy_before_noop") and d["kind"] == BW.VFX_KIND_NONE and d["running"] >= BW.ACT_MAX_RUNNING:
+            return BW.ACT_WHY_BUSY                                      # the running cap ahead of noop
+        if changes.get("lever_before_knob") and d["lever_off"]:
+            return BW.ACT_WHY_LEVER                                     # lever ahead of knob (S134-I's premise)
+        if changes.get("rework_before_lever") and d["no_rework"] and not d["knob_off"]:
+            return BW.ACT_WHY_REWORK                                    # rework ahead of lever
+        if changes.get("backlog_before_lever") and d["backlog"] and not d["knob_off"]:
+            return BW.ACT_WHY_BACKLOG                                   # backlog ahead of lever (J / BL / H's premise)
+        return BW.act_decide(d)
+    return decide
+
+
+@pytest.mark.parametrize("twins", [
+    {"decide": _decide_with(backlog_first=True)}, {"decide": _decide_with(stale_first=True)},
+    {"decide": _decide_with(stale_before_leave=True)}, {"decide": _decide_with(busy_gt=True)},
+    {"decide": _decide_with(noop_first=True)}, {"decide": _decide_with(busy_before_noop=True)},
+    {"decide": lambda d: BW.act_decide(dict(d, die_seq=0))},
+    {"decide": lambda d: BW.act_decide(dict(d, actor_linked=True))},
+    {"decide": lambda d: BW.ACT_GO if d["dead_or_dying"] and d["cmd_no"] == BW.CMD_ENEMY_COUNTER and not any(
+        d[k] for k in ("knob_off", "lever_off", "no_rework", "end_presented", "leaving", "stale", "backlog")) else
+        BW.act_decide(d)},
+    {"stance": lambda p, mt, c: bool(p) and not mt and (c <= BW.CMD_SYS_TRANS or c > BW.CMD_BOUNDARY_UPPER_CHECK)},
+    {"stance": lambda p, mt, c: bool(p) and (c <= BW.CMD_RUSH_ATTACK or c > BW.CMD_BOUNDARY_UPPER_CHECK)},
+    {"motion": lambda inc, c: c <= BW.CMD_ENEMY_REACTION or c >= BW.CMD_SCRIPT_COUNTER1},
+    {"book": _BookStaleOnlyRegistered}, {"book": _BookStaleRunning}, {"book": _BookDuplicates},
+    {"book": _BookKeyNoShift}, {"book": _BookNoSupersede}, {"book": _BookAnyActor},
+    {"pending": lambda since, now: now - since > BW.ACT_PENDING_ABORT_MS},
+    {"transport": lambda live, now, prev: not live or not now},
+    {"bench": lambda normal, live, edge: not normal and not live},
+    {"bench": lambda normal, live, edge: not normal or not live or edge},
+    {"delta": lambda delta, prev, now: max(0, delta)},
+    {"delta": lambda delta, prev, now: 0 if delta <= 0 or prev or now else delta},
+    {"abort": lambda gone, ended, end_ms, now, wall: "actor" if gone else "host-end" if ended and now - end_ms >=
+        BW.ACT_HOST_END_ABORT_MS else "cap" if wall > BW.ACT_WALL_CAP_MS else None},
+    {"restore": lambda aborted, injected: BW.ACT_RESTORE_FULL if aborted else BW.ACT_RESTORE_NONE},
+    {"hold": lambda kind, acting, held: BW.ACT_END_HOLD if kind and acting else BW.ACT_END_NO_HOLD},
+    {"grace": lambda bit5, can, caster, tgt, die, dead: bool(bit5 and can and not tgt and die and not dead)},
+    {"status": lambda cur, want: want & 0xFFFF},
+    {"status": lambda cur, want: ((cur & ~2) | (want & 2)) & 0xFF},
+    {"masks": lambda wire, resolve: wire & 0xFFFF},
+    {"decide": _decide_with(lever_before_knob=True)}, {"decide": _decide_with(rework_before_lever=True)},
+    {"decide": _decide_with(backlog_before_lever=True)},
+    {"cursor": lambda cur, snap, limited: ((cur & ~2) | (snap & 2)) & 0xFFFF},
+    {"cursor": lambda cur, snap, limited: cur & 0xFFFF},
+    {"disappear": lambda player, dead: not dead},
+    {"disappear": lambda player, dead: True},
+    {"preinject": lambda aborted, running: aborted},
+    {"holdbreak": lambda holding, block, kind: bool(holding) and not kind},
+    {"holdbreak": lambda holding, block, kind: bool(holding) and not block},
+    {"sfx": lambda running, cur, cam, ended: BW.ACT_SFX_CANCEL if running == 0 else BW.ACT_SFX_KEEP},
+    {"sfx": lambda running, cur, cam, ended: BW.ACT_SFX_CANCEL | (BW.ACT_SFX_UNLOCK if cur and cam and ended else 0)},
+    {"sfx": lambda running, cur, cam, ended: 0 if running else BW.ACT_SFX_CANCEL | (BW.ACT_SFX_UNLOCK if cur and cam
+                                                                                   else 0)}],
+    ids=["decide-backlog-first", "decide-stale-before-knob", "decide-stale-before-leave", "decide-busy-gt",
+         "decide-noop-first", "decide-busy-before-noop", "dead-no-dieseq", "dead-no-link", "dead-enemycounter",
+         "stance-sys", "stance-transform", "motion-ignores-include", "book-park-not-stale", "book-running-stale",
+         "book-duplicates", "book-key-no-shift", "book-no-supersede", "book-any-actor", "pending-gt",
+         "transport-no-prev", "bench-no-edge", "bench-either-latch", "delta-counts-pause", "delta-one-paused",
+         "abort-host-end-ge", "restore-full-after-inject", "hold-no-w3", "grace-no-caster", "status-every-bit",
+         "status-high-byte", "masks-no-resolve", "decide-lever-before-knob", "decide-rework-before-lever",
+         "decide-backlog-before-lever", "cursor-limited-too", "cursor-never", "disappear-dead-player-hidden",
+         "disappear-always", "preinject-running-too", "holdbreak-no-stale", "holdbreak-no-move-on", "sfx-no-unlock",
+         "sfx-playing-cancelled", "sfx-unlock-unloaded"])
+def test_each_replay_rule_mutant_fails_a_selftest_row(twins):
+    """A CHECK THAT CANNOT FAIL is no check: each rule of the decision, the book, the verdicts, the clock and the rules,
+    broken alone in its twin, fails one of the engine's own rows."""
+    _rep_program()                                                      # (its own parse outside the raises)
+    with pytest.raises(AssertionError, match=r"^row ['\"]"):
+        _run_rep_selftest(**twins)
+
+
+def test_the_replay_twins_take_the_engines_parameters_in_its_order():
+    """Each s134 twin's parameters ARE its C# method's, in order (camelCase -> snake_case; ``ref d`` is the ActDecideIn
+    dict)."""
+    for start, fn, fix in (
+            ("internal static Int32 ActBattleDelta(", BW.act_battle_delta, {}),
+            ("internal static Boolean ActBacklogTransport(", BW.act_backlog_transport, {}),
+            ("internal static Boolean ActBacklogBench(", BW.act_backlog_bench, {}),
+            ("internal static Int32 ActDecide(", BW.act_decide, {"ref d": "d"}),
+            ("internal static Boolean ActDeadMayRun(", BW.act_dead_may_run, {}),
+            ("internal static Boolean ActStanceGate(", BW.act_stance_gate, {}),
+            ("internal static Boolean ActCmdMotionFilter(", BW.act_cmd_motion_filter, {}),
+            ("internal static String ActAbortWhy(", BW.act_abort_why, {}),
+            ("internal static Boolean ActPendingAbortDue(", BW.act_pending_abort_due, {}),
+            ("internal static Int32 ActRestoreScope(", BW.act_restore_scope, {}),
+            ("internal static Int32 ActEndHoldStep(", BW.act_end_hold_step, {}),
+            ("internal static Boolean ActGraceArms(", BW.act_grace_arms, {}),
+            ("internal static UInt16 ActCmdStatusFor(", BW.act_cmd_status_for, {}),
+            ("internal static UInt16 ActMapMaskWith(", BW.act_map_mask_with, {}),
+            ("internal static UInt16 ActCursorBitAfter(", BW.act_cursor_bit_after, {}),
+            ("internal static Boolean ActRestoresDisappear(", BW.act_restores_disappear, {}),
+            ("internal static Int32 ActPreInjectMask(", BW.act_pre_inject_mask, {}),
+            ("internal static Boolean ActEndHoldBreaks(", BW.act_end_hold_breaks, {}),
+            ("internal static Int32 ActSfxDropPlan(", BW.act_sfx_drop_plan, {})):
+        cs = [fix.get(p, fix.get(_snake(p), _snake(p))) for p in _cs_signature(REPLAY_FILE, start)]
+        assert cs == _twin_params(fn), (start, cs, _twin_params(fn))
+    # ActDecideIn's fields, in the struct's order (the twin's dict keys)
+    struct = " ".join(_cs_block(REPLAY_FILE, "internal struct ActDecideIn", "}"))
+    fields = [f for decl in re.findall(r"public (?:Boolean|Int32) ([^;]+);", struct) for f in decl.replace(" ", "").split(",")]
+    assert [_snake(f) for f in fields] == list(BW.ACT_DECIDE_FIELDS), fields
+
+
+def _replay_int_consts() -> dict:
+    """Every `internal const Int32` the s134 file declares (comments stripped: ActW3Ms's carries a `;`) -> its value."""
+    out = {}
+    for line in net_lines(REPLAY_FILE, r"internal const Int32 ", [_patch_bytes("s134")]):
+        m = re.fullmatch(r"internal const Int32 (.*);", _strip_comment(line))
+        assert m, line
+        for decl in m.group(1).split(","):
+            d = re.fullmatch(r"\s*(\w+) = (0x[0-9A-Fa-f]+|-?\d+)\s*", decl)
+            assert d, decl
+            out[d.group(1)] = int(d.group(2), 0)
+    return out
+
+
+def test_the_replay_constants_are_the_stacks_both_ways():
+    """THE PIN: every CS_REPLAY_CONSTANTS entry is NetSyncDiorama.Replay.cs's constant of that name and value, and every
+    `internal const Int32` the s134 file declares is in the table -- a constant added, renamed or retuned on either side
+    turns this red. ActW3Ms (its comment carries a `;`) is read like every other."""
+    cs = _replay_int_consts()
+    assert cs == BW.CS_REPLAY_CONSTANTS, sorted(set(cs.items()) ^ set(BW.CS_REPLAY_CONSTANTS.items()))
+    assert cs["ActW3Ms"] == BW.ACT_W3_MS == 4000 and cs["ActMaxRunning"] == 6
+    assert len(BW.ACT_DECLINE_REASONS) == len(set(BW.ACT_DECLINE_REASONS))
+    assert {BW.act_why_name(v) for k, v in BW.CS_REPLAY_CONSTANTS.items() if k.startswith("ActWhy")} <= \
+        set(BW.ACT_DECLINE_REASONS)
+    for why, name in BW.ACT_WHY_NAMES.items():                         # ActWhyName, case by case
+        const = next(k for k, v in BW.CS_REPLAY_CONSTANTS.items() if v == why and (k.startswith("ActWhy") or k == "ActNoop"))
+        assert _battle_text(f'case {const}: return "{name}";'), (const, name)
+    for why, detail in BW.ACT_WHY_DETAILS.items():                     # ActWhyDetail's words (the busy one splices)
+        const = next(k for k, v in BW.CS_REPLAY_CONSTANTS.items() if v == why and k.startswith("ActWhy"))
+        if why == BW.ACT_WHY_BUSY:
+            assert _battle_text(f'case {const}: return ActMaxRunning + " replays are already running";')
+        else:
+            assert _battle_text(f'case {const}: return "{detail}";'), const
+
+
+def test_the_act_guest_block_sits_after_host_at_the_catch_lines_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s134: `act.guest` in AppendNetsync's SECOND catch literal, right after `act.host`'s
+    close, at its sentinels; the line stays ONE line of two literals; AppendActGuest writes the keys in the catch line's
+    order, each through its NetSyncDiorama getter (the `last` record's fields in ACT_GUEST_LAST_KEYS' order); AppendAct
+    closes `host` and calls it; published in every role; protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    a, b = _literals(catch[0])
+    assert '\\"page\\":null}},\\"guest\\":{\\"on\\":false,' in b and "guest" not in a.split("diorama")[0]
+    nothing = _agent_netsync_nothing()[0]
+    assert _battle_of(nothing)["act"] == {"host": BW.ACT_HOST_SENTINELS, "guest": BW.ACT_GUEST_SENTINELS}
+    assert _catch_doc_in("s134") == nothing                                # s134 wrote the live catch line whole
+    new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134"))]
+    i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuest("))
+    j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
+    body = " ".join(_strip_comment(t) for t in new[i:j])
+    names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
+    g = BW.ACT_GUEST_SENTINELS
+    want = []
+    for k, v in g.items():
+        if k == "last":
+            want += list(BW.ACT_GUEST_LAST_KEYS)
+        elif isinstance(v, dict):
+            want += list(v)
+        else:
+            want.append(k)
+    assert names == want, (names, want)
+    for k in [k for k in g if not isinstance(g[k], dict) and k != "last"]:
+        assert re.search(rf'(?:Bool|Num|Str)\(sb, "{k}", Memoria\.Netsync\.NetSyncDiorama\.HarnessAct\w+\)', body), k
+    assert _added_after("s134", "HarnessAgent.cs", 'sb.Append("}},");', "AppendActGuest(sb);")
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    assert not _battle_text("IsSelfTestRole ? _act")                     # audit 3.6: published in EVERY role
+    assert _battle_text("internal static Boolean HarnessActGuestOn { get { return ActCanReplay; } }")
+    assert _battle_text("internal static Int32 HarnessActBattleMs { get { return _booted ? _actNowMs : -1; } }")
+
+
+def test_state_reads_the_act_guest_block_absent_on_s133_as_cannot():
+    """On s133's catch block (s134's calibration red) every `act.guest` accessor reads None and `coop_act_guest` False; on
+    the live block they read the sentinels and True; a published block reads its values, a mistyped one None, `last`
+    None at null, and the unit accessors read the seven keys (None without them)."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s133")})
+    live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
+    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items() if p.startswith("act.guest")]
+    assert len(names) == len(_leaves({"act": {"guest": BW.ACT_GUEST_SENTINELS}})) + 6 == 63, names   # + 6 whole blocks
+    assert (State({"frame": 1}).coop_act_guest, old.coop_act_guest, live.coop_act_guest) == (None, False, True)
+    assert old.coop_act_host is True                                    # (s133's own block is there)
+    assert all(getattr(old, n) is None for n in names)
+    assert all(getattr(live, n) is not None for p, n in State.NETSYNC_BATTLE_ACCESSORS.items()
+               if p.startswith("act.guest") and p not in BATTLE_NULLABLE)
+    assert (live.coop_act_guest_last, live.coop_act_guest_why, live.coop_act_guest_rx_dropped) == (None, "", -1)
+    doc = _agent_netsync_nothing()[0]
+    doc["battle"]["act"]["guest"].update(started=3, running=True, declined_why="stale",
+                                         last={"id": 7, "state": "running", "first_hit_ms": 412})
+    st = State({"frame": 1, "netsync": doc})
+    assert (st.coop_act_guest_started, st.coop_act_guest_running, st.coop_act_guest_declined_why) == (3, None, "stale")
+    got = st.coop_act_guest_last
+    got["id"] = 0
+    assert st.coop_act_guest_last["id"] == 7                            # a copy
+    unit = State({"frame": 1, "battle": {"units": [
+        {"slot": 0, "anim": "ANH_MAIN_B0_011", "anim_frame": 4, "away": 512.5, "rot_y": 180, "acting": True, "die_seq": 0,
+         "row": 1}, {"slot": 4, "anim": None, "acting": 1}]}})
+    assert (unit.unit_anim(0), unit.unit_anim_frame(0), unit.unit_away(0), unit.unit_rot_y(0), unit.unit_acting(0),
+            unit.unit_die_seq(0), unit.unit_row(0)) == ("ANH_MAIN_B0_011", 4, 512.5, 180.0, True, 0, 1)
+    assert (unit.unit_anim(4), unit.unit_acting(4), unit.unit_away(4), unit.unit_anim(2)) == ("", None, None, None)
+
+
+def test_a_fresh_stand_in_publishes_the_act_guest_block_and_s133_none(game):
+    """The default stand-in (s134) publishes `act.guest` at the agent's sentinels with no client -- but `on` / `rework`
+    / `knob` the live reads at rest (true / true / 1); the stand-in at s133 publishes no `act.guest`, no 'action replay'
+    proof line, and answers the guest forms in s133's words."""
+    want = dict(BW.ACT_GUEST_SENTINELS, on=True, rework=True, knob=1)
+    assert _battle_of(FakeGame(game)._netsync_doc())["act"]["guest"] == want
+    old = _selftest(FakeGame(game))
+    old.netsync_caps = S133_CAPS
+    assert list(_battle_of(old._netsync_doc())["act"]) == ["host"]
+    assert set(_leaves(_battle_of(old._netsync_doc()))) == set(_leaves(_battle_of(_catch_doc_in("s133"))))
+    start = BW.act_feed_arg([_rep_start(1)])
+    for args, words in ((["actbench", "feed", start], "netsync actbench: unknown op 'feed' (tape|hoststarts)"),
+                        (["actbench", "replay", "off"], "netsync actbench: unknown op 'replay' (tape|hoststarts)"),
+                        (["actbench", "tape", "play"], "netsync actbench tape: expected `tape rec|stop|clear|info` or "
+                                                       "`tape dump <from> <count>`"),
+                        (["actbench", "clear"], f"{FG.NETSYNC_ACTBENCH_USAGE_S133}\r\nParameter name: netsync actbench"),
+                        (["actbench", "feedat", "10", start],
+                         f"{FG.NETSYNC_ACTBENCH_USAGE_S133}\r\nParameter name: netsync actbench")):
+        with pytest.raises(RuntimeError) as err:
+            old._netsync(args)
+        assert str(err.value) == words, args
+
+
+@pytest.mark.parametrize("level", ["s133", "s134"])
+def test_the_stand_ins_units_grow_the_replay_keys_after_z_at_s134(game, level):
+    """`battle.units[]` gains `anim`, `anim_frame`, `away`, `rot_y`, `acting`, `die_seq`, `row` at s134 -- after s115's
+    `z`, before `status` (AppendBattleUnits; audit amendment 18), each line read off s134's patch, in that order; the
+    stand-in publishes them exactly from s134 on."""
+    s134 = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134"))]
+    z = s134.index('Num(sb, "z", Try(() => unit.Data.pos.z, Single.NaN)); sb.Append(",");')
+    keys = [re.match(r'(?:Num|Str|Bool)\(sb, "(\w+)", Try\(\(\) => ', t) for t in s134[z + 1:z + 30]]
+    keys = [m.group(1) for m in keys if m]
+    assert keys[:len(BW.UNIT_ACT_KEYS) + 1] == list(BW.UNIT_ACT_KEYS) + ["status"], keys
+    fake = _dio_fake(FakeGame(game))
+    fake.netsync_caps = S133_CAPS if level == "s133" else fake.netsync_caps
+    unit = fake._battle_doc()["units"][0]
+    tail = list(unit)[list(unit).index("cmd_busy") + 1:]
+    assert tail == ["mot", "disappear", "z"] + (list(BW.UNIT_ACT_KEYS) if level == "s134" else []) + ["status"], tail
+
+
+def _rep_start(act_id: int, *, actor: int = 0, player: bool = True, cmd: int = BW.CMD_ATTACK_ID,
+               sub: int = BW.ABILITY_ATTACK_ID, tar: int = 0x10, kind: int = BW.VFX_KIND_SPECIAL, num: int = 100,
+               nonce: int = 0x77) -> bytes:
+    """A bench START (s133's 76-byte record): by default Zidane's (wire 0) Attack on the enemy in wire slot 4."""
+    flags = (BW.ACTOR_IS_PLAYER if player else 0) | BW.ACTOR_HOST_REWORK
+    return BW.encode_action_start(nonce, 1, act_id, actor, flags, cmd, sub, tar, 0, 0, 0, kind, num, -1, 5)
+
+
+ACT_GUEST_REFUSALS = [
+    # (a fragment the agent says -- ONE C# literal of the stack, or a piece --, the args, where: None / selftest / dio)
+    ("netsync actbench: needs the selftest role (netsync selftest 1)", ["actbench", "feed", "00" * 46], None),
+    ("netsync actbench feed: expected `feed <hex[,hex...]>`", ["actbench", "feed"], "selftest"),
+    ("netsync actbench feedat: expected `feedat <ms 0-600000> <hex[,hex...]>`", ["actbench", "feedat", "600001", "00" * 46],
+     "selftest"),
+    (": needs a booted battle diorama (`netsync dioboot <scene>`)", ["actbench", "feed", "00" * 46], "selftest"),
+    ("netsync actbench feed: each frame is an even run of 92-8192 hex digits (46-4096 bytes)", ["actbench", "feed", "00"],
+     "dio"),
+    ("netsync actbench feed: '", ["actbench", "feed", "zz" * 46], "dio"),
+    ("' is not hex", ["actbench", "feed", "zz" * 46], "dio"),
+    ("netsync actbench tape play: expected `tape play [pct 1-1000]`", ["actbench", "tape", "play", "0"], "selftest"),
+    ("netsync actbench tape play: needs a booted battle diorama (`netsync dioboot <scene>`)", ["actbench", "tape", "play"],
+     "selftest"),
+    ("netsync actbench tape play: the tape is empty (`actbench tape rec` during an own battle first)",
+     ["actbench", "tape", "play", "50"], "dio"),
+    (": expected `", ["actbench", "shortcircuit", "maybe"], "selftest"),
+    (" on|off`", ["actbench", "rework"], "selftest"),
+    ("netsync actbench knob: expected `knob 0|1|ini`", ["actbench", "knob", "2"], "selftest"),
+    (": takes no argument", ["actbench", "teardown", "now"], "selftest"),
+    (": needs a booted battle diorama", ["actbench", "clear"], "selftest"),
+    (": the bench inbox holds at most ", ["actbench", "feed", ",".join(["00" * 46] * (BW.ACT_INBOX_CAP + 1))], "dio"),
+]
+
+
+@pytest.mark.parametrize("fragment,args,where", ACT_GUEST_REFUSALS,
+                         ids=[f"{r[0][:36]}-{i}" for i, r in enumerate(ACT_GUEST_REFUSALS)])
+def test_the_stand_in_refuses_the_guest_actbench_ops_in_the_agents_words(game, fragment, args, where):
+    """Every guest `actbench` gate the stand-in models refuses with the engine's own words (each fragment a literal of
+    the stack: HarnessActGuestBench / ActParseHexFrames)."""
+    assert _battle_text(fragment), f"the live stack no longer says {fragment!r}"
+    fake = FakeGame(game)
+    if where == "selftest":
+        _selftest(fake)
+    elif where == "dio":
+        _dio_fake(fake)
+    with pytest.raises(RuntimeError) as err:
+        fake._netsync(args)
+    assert fragment in str(err.value), str(err.value)
+
+
+def test_the_guest_ops_are_the_agents_and_the_driver_gates_them_by_act_guest(game):
+    """The guest ops are IsActGuestBenchOp's (case by case) and HarnessActGuestBench's; the driver keys each on
+    `act.guest` (s134), refuses a malformed form before the step in HarnessActGuestBench's words, and on an s133 engine
+    refuses every guest form naming s134 and what s133 would answer (its usage, its unknown op, its `tape` refusal)."""
+    body = " ".join(_cs_block(REPLAY_FILE, "internal static Boolean IsActGuestBenchOp(", "}"))
+    cases = re.findall(r'case "(\w+)":', " ".join(_cs_block(REPLAY_FILE, "internal static Boolean IsActGuestBenchOp(",
+                                                           "default:")))
+    assert tuple(c for c in cases if c != "tape") == BW.ACT_GUEST_BENCH_OPS and "tape" in cases, (cases, body)
+    assert _battle_text('return value == "play";')
+    assert _added_after("s134", "HarnessAgent.cs", 'String aval = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";',
+                        "if (Memoria.Netsync.NetSyncDiorama.IsActGuestBenchOp(aop, aval))")
+    for op, (attr, key, patch, _what) in Session.NETSYNC_ACTBENCH_OP_CAPS.items():
+        assert (attr, key, patch) == ("coop_act_guest", "netsync.battle.act.guest", "s134"), op
+    for op, words in Session.NETSYNC_ACTBENCH_GUEST_USAGE.items():
+        assert _battle_text(words) or (op in ("replay", "rework", "shortcircuit") and _battle_text(": expected `")) \
+            or (op in ("clear", "teardown") and _battle_text(": takes no argument")), (op, words)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        for args in (("feed",), ("feedat", "x", "00"), ("feedat", "600001", "00"), ("tape", "play", "0"),
+                     ("tape", "play", "5", "6"), ("replay", "maybe"), ("rework",), ("shortcircuit", "on", "x"),
+                     ("knob", "2"), ("clear", "x"), ("teardown", "now")):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *args])
+            assert str(err.value) == str(agent.value), (args, str(err.value), str(agent.value))
+        assert len(fake.executed) == n
+        st = g.actbench("replay", "off")                                # a well-made form goes to the engine
+        assert st.coop_act_guest_lever_replay_off is True and st.coop_act_guest_why == "lever"
+        g.actbench("replay", "on")
+        # (audit 4.3) the two `clear`s stay distinct: `tape clear` is s133's value, top-level `clear` the guest op
+        g.actbench("tape", "rec")
+        st = g.actbench("tape", "clear")
+        assert st.coop_act_host_tape_state == "off" and fake.executed[-1] == ["netsync", "actbench", "tape", "clear"]
+        with pytest.raises(HarnessError, match=r"netsync actbench clear: needs a booted battle diorama \(steps="):
+            g.actbench("clear")                                         # (the guest op, sent: the AGENT refuses it)
+    fake = FakeGame(game)
+    fake.netsync_caps = S133_CAPS
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        start = BW.act_feed_arg([_rep_start(1)])
+        for args in (("feed", start), ("clear",), ("tape", "play"), ("knob", "0"), ("feedat", "10", start)):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *args])
+            form = f"{args[0]} {args[1]}" if args[0] == "tape" else args[0]
+            assert str(err.value).startswith(f"netsync actbench {form}: the deployed engine publishes no "
+                                             f"`netsync.battle.act.guest`"), str(err.value)
+            assert f"(memoria-patch s134); it would answer \"{agent.value}\" only after the step" in str(err.value), \
+                (args, str(err.value), str(agent.value))
+        assert len(fake.executed) == n and g.state.coop_act_guest is False
+
+
+def _rep_dio(game, *, caps=None, intro: int = 0):
+    """A stand-in + session in a steady selftest diorama (scene 67: Zidane wire 0, the enemy in wire slot 4 / id 0x10)."""
+    fake = FakeGame(game)
+    if caps is not None:
+        fake.netsync_caps = caps
+    fake.battle_intro_frames = intro
+    return fake
+
+
+def _rep_until(g, pred, what: str, timeout: float = 6.0):
+    return g.wait_for(pred, timeout=timeout, what=what)
+
+
+def test_a_fed_start_replays_as_presentation_only_and_ends(game):
+    """The stand-in's model of the s134 guest: a START fed into a steady selftest diorama registers, launches (ActDecide
+    go), ACTS (its actor's `acting`, `anim` off idle, `away` up and back), hits its mapped target once (hits / credits),
+    ENDS naturally -- `last.state` "ended", running 0, the book's identity, the TRIPWIRE 0, no HP touched -- and the
+    'started id' line lands; a second START of the same actor while it runs PARKS (waiting) and a third SUPERSEDES it.
+    The park is the STAND-IN'S SHAPE of the engine rule (ActGuestLane._motion_holder: any running replay of the actor holds
+    it -- the engine parks only while the replay still holds its command motion, released at its sequence's Anim Idle);
+    the supersede rule itself (one pending START per actor) is the engine's, pinned by ActReplaySelfTest's pending rows."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        st = _dio(g, fake)
+        hp = [(u["slot"], u["hp_raw"]) for u in st.units()]
+        st = g.act_feed(_rep_start(1))
+        assert st.coop_act_guest_inbox in (0, 1)
+        st = _rep_until(g, lambda s: s.coop_act_guest_running == 1 and s.unit_acting(0), "the replay acting")
+        assert st.coop_act_guest_started == 1 and st.unit_anim(0).startswith("ACT_3_100") and not st.unit_acting(4)
+        peak = _rep_until(g, lambda s: (s.unit_away(0) or 0) > 300, "the run out").unit_away(0)
+        st = _rep_until(g, lambda s: s.coop_act_guest_ended == 1, "the natural end")
+        assert (st.coop_act_guest_hits, st.coop_act_guest_credits, st.coop_act_guest_running) == (1, 1, 0)
+        assert st.coop_act_guest_last["state"] == "ended" and st.coop_act_guest_last["first_hit_ms"] >= 0 and peak > 300
+        assert st.unit_away(0) == 0 and st.unit_anim(0) == "IDLE" and st.coop_act_guest_calc_while_booted == 0
+        assert BW.act_guest_invariant(st.coop_act_guest_block)
+        assert [(u["slot"], u["hp_raw"]) for u in st.units()] == hp       # presentation only
+        g.act_feed(_rep_start(2))
+        _rep_until(g, lambda s: s.coop_act_guest_running == 1, "the second replay")
+        g.act_feed(_rep_start(3))
+        st = _rep_until(g, lambda s: s.coop_act_guest_waiting == 1, "the third START parked")
+        g.act_feed(_rep_start(4))
+        st = _rep_until(g, lambda s: s.coop_act_guest_superseded == 1, "the fourth START superseding the third")
+        assert st.coop_act_guest_declined_why == "superseded" and st.coop_act_guest_waiting == 1
+        st = _rep_until(g, lambda s: s.coop_act_guest_started == 3 and s.coop_act_guest_running == 0, "both ended")
+        assert BW.act_guest_invariant(st.coop_act_guest_block) and st.coop_act_guest_ended == 3
+    assert _mlog_lines(fake, BW.LOG_REPLAY_STARTED) and _mlog_lines(fake, "declined superseded -- id 3")
+
+
+@pytest.mark.parametrize("lever,args,why", [("replay", ("replay", "off"), "lever"), ("rework", ("rework", "off"), "rework"),
+                                           ("knob", ("knob", "0"), "knob")])
+def test_each_replay_lever_declines_its_reason_and_releases(game, lever, args, why):
+    """The calibration levers, each alone: `replay off` -> every START declines `lever` (the pre-s134 guest), `rework off`
+    -> `rework`, `knob 0` -> `knob` (Memoria.ini untouched); each logged, `on` / `why` say so, and back on a START
+    launches again."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        st = g.actbench(*args)
+        assert st.coop_act_guest_on is False and st.coop_act_guest_why == why
+        st = g.act_feed(_rep_start(1))
+        st = _rep_until(g, lambda s: s.coop_act_guest_declined == 1, f"the {why} decline")
+        assert st.coop_act_guest_declined_why == why and st.coop_act_guest_started == 0 and not st.unit_acting(0)
+        g.actbench(args[0], "ini" if lever == "knob" else "on")
+        g.act_feed(_rep_start(2))
+        st = _rep_until(g, lambda s: s.coop_act_guest_started == 1, "a launch after the lever")
+    words = {"replay": BW.LOG_REPLAY_OFF, "rework": BW.LOG_REPLAY_REWORK_OFF, "knob": BW.LOG_REPLAY_KNOB + "0 for this "
+             "process (Memoria.ini untouched)"}[lever]
+    assert _mlog_lines(fake, words) and _mlog_lines(fake, f"declined {why} -- id 1")
+
+
+def test_a_start_and_its_end_in_one_feed_is_stale_and_a_boot_backlog_declines(game):
+    """THE TWO-STEP DRAIN (audit amendment 4): a START and its END in ONE feed -> the record turns stale before ActTick
+    decides -> declined `stale` (stale 1, started 0). THE BOOT BACKLOG (amendment 5): a START fed during the boot's intro
+    is drained on the first steady frame, before the steady latch -> declined `backlog`."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        st = g.act_feed([_rep_start(1), BW.encode_action_end(0x77, 2, 1, BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID)])
+        st = _rep_until(g, lambda s: s.coop_act_guest_stale == 1, "the stale decline")
+        assert (st.coop_act_guest_started, st.coop_act_guest_ends_rx, st.coop_act_guest_declined_why) == (0, 1, "stale")
+    fake = _rep_dio(game, intro=90)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        fake.player, fake.control = [10.0, 0.0, 20.0], True
+        g.netsync("dioboot", 67)
+        st = g.act_feed(_rep_start(1))
+        assert st.battle_phase != BW.PHASE_NORMAL, "fed after the intro: no backlog to see"
+        st = _rep_until(g, lambda s: s.coop_act_guest_declined == 1, "the backlog decline")
+        assert st.coop_act_guest_backlog == 1 and st.coop_act_guest_declined_why == "backlog"
+
+
+def test_shortcircuit_off_reds_the_tripwire_and_clear_and_teardown_drop_replays(game):
+    """`shortcircuit off` (one-shot): the NEXT replay's hit falls through -> calc_while_booted 1, the TRIPWIRE line, the
+    CALIBRATION line; the lever re-reads off. `clear` aborts a running replay (`clear`, the window's full restore);
+    `teardown` discards one (ActDiscardAll, nothing restored, nothing counted aborted); a noop START (kind none) declines
+    `noop`."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.actbench("shortcircuit", "off")
+        g.act_feed(_rep_start(1))
+        st = _rep_until(g, lambda s: s.coop_act_guest_ended == 1, "the fall-through replay's end")
+        assert st.coop_act_guest_calc_while_booted == 1 and st.coop_act_guest_lever_shortcircuit_off is False
+        g.act_feed(_rep_start(2))
+        _rep_until(g, lambda s: s.coop_act_guest_running == 1, "a replay to clear")
+        st = g.actbench("clear")
+        st = _rep_until(g, lambda s: s.coop_act_guest_aborted == 1, "the clear")
+        assert st.coop_act_guest_abort_why == "clear" and st.coop_act_guest_window_restores == 1
+        g.act_feed(_rep_start(3))
+        _rep_until(g, lambda s: s.coop_act_guest_running == 1, "a replay to tear down")
+        st = g.actbench("teardown")
+        st = _rep_until(g, lambda s: s.coop_act_guest_running == 0, "the teardown")
+        assert st.coop_act_guest_aborted == 1 and not st.unit_acting(0)
+        g.act_feed(_rep_start(4, kind=BW.VFX_KIND_NONE, num=0))
+        st = _rep_until(g, lambda s: s.coop_act_guest_noop == 1, "the noop")
+        assert st.coop_act_guest_declined_why == "noop"
+    for line in (BW.LOG_REPLAY_TRIPWIRE, BW.LOG_REPLAY_NO_SHORT, BW.LOG_REPLAY_SHORT_OFF, BW.LOG_REPLAY_CLEARED,
+                 BW.LOG_REPLAY_DISCARD + "teardown (bench)) -- 1 running replay(s)", BW.LOG_REPLAY_WINDOW,
+                 BW.LOG_REPLAY_NOOP):
+        assert _mlog_lines(fake, line), line
+
+
+def test_a_paired_impact_skips_the_swing_and_an_old_hosts_impact_swings(game):
+    """ApplyActionFrame's s134 half: an impact naming a running replay's id pairs (`paired` 1) and its player swing is
+    SKIPPED (`swing_skipped` 1: the replay is the clip); a 46-byte impact (no 0xA6 extension) is an old host's -- `old_host`
+    true, the line once, and the legacy MP_ATTACK swing shows on the caster."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.act_feed(_rep_start(1))
+        _rep_until(g, lambda s: s.coop_act_guest_running == 1, "the replay")
+        impact = BW.encode_action_impact(0x77, 3, 0, 4, fig_t=(0, 4321, 0), raws=(11200, 0, 420, 30),
+                                         flags=1 | 64, cmd_no=1, sub_no=176, act_id=1)
+        st = g.act_feed(impact)
+        st = _rep_until(g, lambda s: s.coop_act_guest_paired == 1, "the pairing")
+        assert st.coop_act_guest_swing_skipped == 1 and st.coop_act_guest_old_host is False
+        old = BW.encode_action_impact(0x77, 4, 0, 4, fig_t=(0, 4321, 0), raws=(11200, 0, 420, 30), flags=1 | 64,
+                                      cmd_no=1, sub_no=176)
+        g.act_feed(old)
+        st = _rep_until(g, lambda s: s.coop_act_guest_old_host is True and s.unit_mot(0) == BW.MP_ATTACK,
+                        "the old host's legacy swing")
+        assert st.coop_act_guest_swing_skipped == 1
+    assert len(_mlog_lines(fake, BW.LOG_REPLAY_OLD_HOST)) == 1
+
+
+def test_feedat_and_tape_play_ride_the_battle_clock_and_a_pause_launches_nothing(game):
+    """`feedat <ms>` is due after that much BATTLE time; while paused nothing launches and the clock skips the span
+    (`paused_ms` grows, `battle_ms` does not); `tape play` puts s133's own loopback tape into the inbox at its offsets --
+    every taped START received."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        st = _dio(g, fake)
+        t0 = g.state.coop_act_guest_battle_ms
+        g.act_feed(_rep_start(1), at_ms=500)
+        st = _rep_until(g, lambda s: s.coop_act_guest_starts_rx == 1, "the feedat frame due")
+        assert st.coop_act_guest_battle_ms - t0 >= 500
+        fake.battle_paused = True
+        g.act_feed(_rep_start(2, actor=1))
+        g.wait_frames(40)
+        st = g.state
+        assert st.coop_act_guest_paused_ms > 0 and st.coop_act_guest_started <= 1 and not st.unit_acting(1)
+        frozen = st.coop_act_guest_battle_ms
+        g.wait_frames(10)
+        assert g.state.coop_act_guest_battle_ms == frozen
+        fake.battle_paused = False
+        st = _rep_until(g, lambda s: s.coop_act_guest_started == 2, "the launch after the unpause")
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        g.actbench("tape", "rec")
+        _act_own(g, fake)
+        g.battle_command(g.wait_turn(), 1, sub=176, target=16)
+        g.wait_for(lambda s: (s.coop_act_host_ends or 0) >= 1, timeout=8.0, what="a command ENDed")
+        fake.atb_gain = 0
+        g.wait_frames(10)
+        st = g.actbench("tape", "stop")
+        starts = st.coop_act_host_tape_starts
+        fake.end_battle(1)
+        g.wait_for(lambda s: s.coop_host_caps == -1, timeout=4.0, what="the falling edge")
+        fake.battle_intro_frames = 0
+        _dio(g, fake, fresh=False)
+        st = g.act_tape_play(200)
+        st = _rep_until(g, lambda s: s.coop_act_guest_starts_rx == starts and s.coop_act_guest_inbox == 0,
+                        "the whole tape drained")
+        assert starts >= 1 and st.coop_act_guest_paired >= 1
+    assert _mlog_lines(fake, "plays into the inbox at 200% speed")
+
+
+def test_a_leave_aborts_a_running_replay_and_the_next_boot_starts_clean(game):
+    """LeaveFrom past its fade check runs ActAbortAll("leave") (aborted 1, `leave`), ForceDisarm's ActDiscardAll drops
+    what is left, and the next boot reads every per-boot counter at rest (the levers are harness-scoped)."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.act_feed(_rep_start(1))
+        _rep_until(g, lambda s: s.coop_act_guest_running == 1, "the replay")
+        g.netsync("dioleave")
+        st = _rep_until(g, lambda s: s.coop_act_guest_aborted == 1, "the leave's abort")
+        assert st.coop_act_guest_abort_why == "leave"
+        _rep_until(g, lambda s: not (s.diorama or {}).get("booted"), "the teardown", timeout=10.0)
+        st = _dio(g, fake, fresh=False)
+        assert (st.coop_act_guest_aborted, st.coop_act_guest_starts_rx, st.coop_act_guest_last) == (0, 0, None)
+
+
+def test_reset_releases_every_replay_lever_and_the_inbox(game):
+    """HarnessReleaseBench's s134 half (audit 4.5): `replay off`, `rework off`, `shortcircuit off`, `knob 0` and an inbox
+    frame left set -- with s133's `hoststarts off` and a recording tape -- then `reset`: the 'levers back' line once, the
+    inbox emptied (by the release, or -- the harness's diorama leaving first -- by the teardown's ActDiscardAll, which names
+    it), and re-read WITH a fresh selftest role every lever at rest."""
+    fake = _rep_dio(game, intro=200)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        for args in (("replay", "off"), ("rework", "off"), ("shortcircuit", "off"), ("knob", "0"), ("hoststarts", "off"),
+                     ("tape", "rec")):
+            g.actbench(*args)
+        fake.player, fake.control = [10.0, 0.0, 20.0], True
+        g.netsync("dioboot", 67)
+        st = g.act_feed(_rep_start(1), at_ms=600000)
+        assert st.coop_act_guest_inbox == 1 and st.coop_act_guest_levers == {"replay_off": True, "rework_off": True,
+                                                                             "shortcircuit_off": True, "knob": 0}
+        g.send("reset")
+        g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"] and not (s.diorama or {}).get("booted"),
+                   timeout=10.0, what="the release")
+        st = g.netsync("selftest", 1)
+        assert st.coop_act_guest_levers == {"replay_off": False, "rework_off": False, "shortcircuit_off": False, "knob": -1}
+        assert (st.coop_act_guest_on, st.coop_act_guest_inbox, st.coop_act_host_lever_off) == (True, 0, False)
+    assert len(_mlog_lines(fake, BW.LOG_REPLAY_LEVERS_BACK)) == 1
+    assert len(_mlog_lines(fake, BW.LOG_REPLAY_INBOX_EMPTIED)) + len(
+        _mlog_lines(fake, "parked START(s) and 1 inbox frame(s) dropped")) == 1
+
+
+def _lane_units() -> list:
+    """Eight units, one per wire slot: players in btl slots 0-3, enemies in 4-7 (ids 1 << slot)."""
+    return [{"slot": s, "id": 1 << s, "player": s < 4, "alive": True} for s in range(8)]
+
+
+class _LaneRig:
+    """A battlewire.ActGuestLane driven off the game: its bench feed and the stand-in's tick order (drain, then tick)."""
+
+    def __init__(self, units=None, frames: int = 10 ** 6):
+        self.lane = BW.ActGuestLane()
+        self.lane.REPLAY_FRAMES = frames
+        self.units = units if units is not None else _lane_units()
+        self.ms = 0
+
+    def ctx(self, **kw) -> dict:
+        c = {"booted": True, "role": True, "steady": True, "normal_latched": True, "live_latched": False, "paused": False,
+             "now_ms": self.ms, "wall_ms": self.ms, "end_injected": False, "r8_hits": 0, "end_presented": False,
+             "leaving": False, "hidden_mask": 0, "units": self.units,
+             "resolve": lambda i, p: next((u for u in self.units if u["slot"] == i and u["player"] == p), None),
+             "linked": lambda u: any(u is x for x in self.units)}
+        c.update(kw)
+        return c
+
+    def step(self, n: int = 1, **kw) -> None:
+        for _ in range(n):
+            self.ms += 33
+            self.lane.drain_bench(self.ctx(**kw))
+            self.lane.tick(self.ctx(**kw))
+
+    def feed(self, *frames) -> None:
+        ok, why = self.lane.bench(["actbench", "feed", BW.act_feed_arg(frames)], booted=True, role=True)
+        assert ok, why
+
+
+def test_the_replay_lane_model_holds_the_engines_rules_off_the_game():
+    """battlewire.ActGuestLane on the rules no stand-in battle reaches: the host's END + 6 s abort (battle time) and its
+    full restore, a pending START's 1500 ms hard abort of its actor's replay, the 6 s parked timeout (no steady frame), an
+    unknown actor, an unmapped target, a duplicate id, the running cap (`busy`), the R8 abort after an injection (the
+    LIMITED restore), the 90 s WALL cap, the bit-5 latch (never cleared by a null view; reset per boot) and ActDiscardAll
+    keeping the counters."""
+    rig = _LaneRig()
+    lane = rig.lane
+    rig.step()
+    rig.feed(_rep_start(1))
+    rig.step()
+    assert lane.started == 1 and lane.running
+    rig.feed(BW.encode_action_end(0x77, 2, 1, BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID))
+    rig.step(2)
+    assert lane.running and lane.running[0].host_ended and lane.ends_rx == 1
+    rig.step(BW.ACT_HOST_END_ABORT_MS // 33 + 2)
+    assert (lane.aborted, lane.abort_why, lane.restores, lane.running) == (1, "host-end", 1, [])
+    rig.feed(_rep_start(2))
+    rig.step()
+    rig.feed(_rep_start(3))                                              # the same actor: it parks behind replay 2
+    rig.step()
+    assert lane.book.queue and lane.book.queue[0].state == BW.ACT_ST_WAITING
+    rig.step(BW.ACT_PENDING_ABORT_MS // 33 + 2)
+    assert lane.abort_why == "pending" and lane.started == 3 and [r.id for r in lane.running] == [3]
+    rig.feed(_rep_start(4))                                              # parks behind 3 -- and no steady frame comes
+    rig.step()
+    rig.step(BW.ACT_WAIT_MAX_MS // 33 + 2, steady=False)
+    assert lane.declined_why == "timeout" and [r.id for r in lane.running] == [3]
+    lane.abort_all("clear", ctx=rig.ctx())
+    for start, why in ((_rep_start(5, actor=3, tar=0x10), "actor"),     # (wire 3 is a player slot with no unit here)
+                       (_rep_start(6, tar=0x00), "target"), (_rep_start(6), "duplicate")):
+        rig.units[:] = [u for u in rig.units if u["slot"] != 3] if why == "actor" else rig.units
+        rig.feed(start)
+        rig.step()
+        assert lane.declined_why == why, (why, lane.declined_why)
+    busy = _LaneRig()
+    for k in range(BW.ACT_MAX_RUNNING + 1):                              # seven actors at once: the running cap
+        busy.feed(_rep_start(10 + k, actor=k, player=k < 4, tar=0x01))
+    busy.step()
+    assert len(busy.lane.running) == BW.ACT_MAX_RUNNING and busy.lane.declined_why == "busy"
+    busy.step(1, r8_hits=1, end_injected=True)
+    assert busy.lane.abort_why == "r8" and not busy.lane.running and busy.lane.restores_limited == 1
+    busy.lane.latch_caps(0x22, True)
+    busy.lane.lane_tick(False, True)                                     # a null view clears nothing
+    assert busy.lane.bit5 and busy.lane.host_caps == 0x22
+    busy.lane.reset_for_boot(True)
+    assert not busy.lane.bit5 and busy.lane.started == 0
+    lane.discard_all("teardown")
+    assert lane.started == 3 and lane.running == [] and lane.book.queue == [] and lane.aborted == 3
+    wall = _LaneRig()
+    wall.feed(_rep_start(1))
+    wall.step()
+    wall.lane.tick(wall.ctx(wall_ms=wall.ms + BW.ACT_WALL_CAP_MS + 1))
+    assert wall.lane.abort_why == "cap"
+
+
+#: the stock hook sites s134 adds (a file, then the lines in order inside ONE patch's new side) -- audit 2.2's live map
+REP_HOOKS = {
+    "btl_cmd.cs": [("public static void ExecVfxCommand(BTL_DATA target, CMD_DATA cmd = null, BattleActionThread sfxThread = "
+                    "null)", "{", "if (Memoria.Netsync.NetSyncDiorama.ActLive && Memoria.Netsync.NetSyncDiorama.ActOnHit("
+                                  "target, cmd, sfxThread))", "return;", "if (cmd == null)"),
+                   ("case BattleCommandId.SysTrans:", "{", "if (Memoria.Netsync.NetSyncDiorama.Booted)",
+                    "Memoria.Netsync.NetSyncDiorama.NoteCalcWhileBooted();")],
+    "SBattleCalculator.cs": [("public static void CalcMain(BTL_DATA caster, BTL_DATA target, BattleCommand command, Int32 "
+                              "scriptId, BattleActionThread sfxThread)", "{", "if (Memoria.Netsync.NetSyncDiorama.Booted)",
+                              "Memoria.Netsync.NetSyncDiorama.NoteCalcWhileBooted();", "try")],
+    "btl_util.cs": [("if (cmdUsed == null && Memoria.Netsync.NetSyncDiorama.ActLive)",
+                     "cmdUsed = Memoria.Netsync.NetSyncDiorama.ActCommandMotionOf(btl, includeSysCmd);",
+                     "return cmdUsed != null;"),
+                    ("if (Memoria.Netsync.NetSyncDiorama.ActBusy && Memoria.Netsync.NetSyncDiorama.ActIsBusy(btl, "
+                     "(Int32)mode))", "return true;", "return false;")],
+    "UnifiedBattleSequencer.cs": [("if (Memoria.Netsync.NetSyncDiorama.ActLive ? Memoria.Netsync.NetSyncDiorama."
+                                   "ActExecuteLoop(runningActions[i]) : runningActions[i].ExecuteLoop())",),
+                                  ("code.TrySetVariable(extraVar, cmd);",)],
+    "NetSyncDiorama.cs": [("AbortReplay(\"the diorama tore down\");", "try { ActDiscardAll(\"teardown\"); }",
+                           "catch { }", "Disarm();"),
+                          ("Boot(battleMapIndex, patternIndex, start, isRandomEncounter);", "ActLatchCaps(hostCaps);"),
+                          ("try { ActAbortAll(\"leave\"); }", "catch { }")],
+    "NetSyncClient.cs": [("NetSyncBattle.SelfTestPump(ee);", "NetSyncDiorama.ActionTickBench();", "NetSyncDiorama.ActTick();"),
+                         ("NetSyncDiorama.ActionTick(_socket);", "NetSyncDiorama.ActTick();")],
+}
+# [s134 review] contain-abort-sfx-loader-lock (LoadLoop's guard, both halves), timing-01 (EndTick's stale-lane break and the
+# hold's refs), timing-06 (no grace in a backlog drain), stock-05 (the stock TrySetVariable signature kept, forwarding)
+REP_HOOKS["SFXData.cs"] = [("if (LoadCur.useCamera)", "{", "if (LoadCur.replayDropped)", "{", "LoadCur.loadHasEnded = true;",
+                            "LoadCur = null;", "continue;", "}",
+                            "if (SFXDataMesh.Raw.RenderingCount > 0 || SFXData.sfxLoadedNotPlayed.Count > 0)"),
+                           ("LoadCur.loadHasEnded = true;", "if (!LoadCur.replayDropped)",
+                            "SFXData.sfxLoadedNotPlayed.Add(LoadCur);", "LoadCur = null;")]
+REP_HOOKS["NetSyncDiorama.cs"] = REP_HOOKS["NetSyncDiorama.cs"] + [
+    ("if (!any)", "{", "if (ActEndHoldStaleInject(b))", "return;"),
+    ("String actHold = ActEndHoldWhy(ref e, ref action, ref allDown);",),
+    ("if (dT != null && lethalT && a.CasterIsPlayer && !a.TargetIsPlayer && !backlog)", 'ActArmDeathGrace(dT, true, "impact");')]
+REP_HOOKS["BattleActionCode.cs"] = [("public Boolean TrySetVariable(Dictionary<String, Int32> extraVar)", "{",
+                                     "return TrySetVariable(extraVar, null);", "}",
+                                     "public Boolean TrySetVariable(Dictionary<String, Int32> extraVar, CMD_DATA cmd)")]
+
+
+def test_the_replay_hooks_sit_at_the_audits_sites():
+    """Each s134 hook at its audited site, read off s134's own patch (code lines, comments dropped, in order): the hit
+    short-circuit is ExecVfxCommand's FIRST statement and the tripwire heads CalcMain and the SysTrans case (each behind one
+    static read); the command-motion hook rides the OUT overload after the stock Find (D01); IsBtlBusy's before its `return
+    false`; the guarded loop; SetVariable's command; ForceDisarm's discard between AbortReplay and Disarm; BootFromWire's
+    latch right after Boot; LeaveFrom's abort; ActTick right after both drains. The new file is compiled (csproj)."""
+    for file_name, sites in REP_HOOKS.items():
+        new = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(file_name, _patch_bytes("s134"))) if c]
+        for site in sites:
+            at = next((k for k in range(len(new)) if new[k:k + len(site)] == list(site)), None)
+            assert at is not None, (file_name, site[0])
+    assert _added_after("s134", "NetSyncDiorama.cs", 'AbortReplay(via == "end-leave"', 'try { ActAbortAll("leave"); }')
+    proj = [t for _h, k, t in _new_side("Assembly-CSharp.csproj", _patch_bytes("s134")) if k == "+"]
+    assert proj == ['<Compile Include="Memoria\\Netsync\\NetSyncDiorama.Replay.cs" />'], proj
+    assert "Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs" in msr.DEFAULT_FILES
+    assert _battle_text("internal static void ReleaseRunningAction(Int32 index)") or any(
+        "internal static void ReleaseRunningAction(Int32 index)" in t for _h, _k, t in
+        _new_side("UnifiedBattleSequencer.cs", _patch_bytes("s134")))
+
+
+#: ActDecide's conditions (C#, as its if-chain writes them) -> the ActDecideIn edit that sets exactly that reason on the
+#: base START (an Attack, kind 3, a mapped target): a condition the chain gains or rewrites turns the test below red until it
+#: is named here
+REP_DECIDE_EDITS = {
+    "d.KnobOff": {"knob_off": True}, "d.LeverOff": {"lever_off": True}, "d.NoRework": {"no_rework": True},
+    "d.EndPresented": {"end_presented": True}, "d.Leaving": {"leaving": True}, "d.Stale": {"stale": True},
+    "d.Backlog": {"backlog": True}, "d.ActorMissing": {"actor_missing": True}, "d.ActorHidden": {"actor_hidden": True},
+    "d.DeadOrDying && !ActDeadMayRun(d.CmdNo, d.DieSeq, d.ActorLinked)": {"dead_or_dying": True},
+    "d.Kind > NetSyncBattle.VfxKindCommon": {"kind": BW.VFX_KIND_UNKNOWN},
+    "d.MonsterTransform": {"monster_transform": True}, "d.MappedTar == 0": {"mapped_tar": 0},
+    "d.Kind == NetSyncBattle.VfxKindNone": {"kind": BW.VFX_KIND_NONE},
+    "d.Running >= ActMaxRunning": {"running": BW.ACT_MAX_RUNNING}}
+
+
+def _rep_decide_chain() -> list:
+    """ActDecide's if-chain off the stack, in order: [(condition, the verdict's C# name)]."""
+    body = " ".join(_strip_comment(t) for t in _cs_block(REPLAY_FILE, "internal static Int32 ActDecide(", "}"))
+    return re.findall(r"if \((.+?)\) return (\w+);", body)
+
+
+def _rep_chain_violations(decide) -> list:
+    """Every single reason and every PAIR of reasons set together (on different fields) that ``decide`` answers otherwise
+    than the C# chain: the earlier condition's verdict wins."""
+    chain = _rep_decide_chain()
+    base = dict(actor_linked=True, cmd_no=BW.CMD_ATTACK_ID, kind=BW.VFX_KIND_SPECIAL, mapped_tar=0x10)
+    bad = [("base", decide(BW.act_decide_in(**base)))] if decide(BW.act_decide_in(**base)) != BW.ACT_GO else []
+    for i, (ci, wi) in enumerate(chain):
+        want = BW.CS_REPLAY_CONSTANTS[wi]
+        got = decide(BW.act_decide_in(**dict(base, **REP_DECIDE_EDITS[ci])))
+        if got != want:
+            bad.append((ci, got))
+        for cj, _wj in chain[i + 1:]:
+            if set(REP_DECIDE_EDITS[ci]) & set(REP_DECIDE_EDITS[cj]):
+                continue                                                # (one field: never set together)
+            got = decide(BW.act_decide_in(**dict(base, **REP_DECIDE_EDITS[ci], **REP_DECIDE_EDITS[cj])))
+            if got != want:
+                bad.append((ci, cj, got))
+    return bad
+
+
+def test_the_decide_twins_order_is_the_engines_if_chain_pair_by_pair():
+    """[s134 review harness-5] The bench's calibration table rests on ActDecide's ORDER (I green under `replay off` because
+    knob is ahead of the lever; J / BL / H red because they decline `lever` first). The chain is read off the stack, every
+    condition is a known one, and for every PAIR of reasons set together the twin answers the earlier one -- and a twin with
+    two reasons swapped is caught (a check that cannot fail is no check)."""
+    chain = _rep_decide_chain()
+    assert [c for c, _w in chain] == list(REP_DECIDE_EDITS), chain
+    assert chain[-1] == ("d.Running >= ActMaxRunning", "ActWhyBusy")
+    assert not _rep_chain_violations(BW.act_decide)
+    for swapped in ({"lever_before_knob": True}, {"rework_before_lever": True}, {"backlog_before_lever": True},
+                    {"stale_before_leave": True}, {"noop_first": True}):
+        assert _rep_chain_violations(_decide_with(**swapped)), swapped
+    hidden_first = lambda d: BW.ACT_WHY_HIDDEN if d["actor_hidden"] else BW.act_decide(d)    # noqa: E731
+    transform_first = lambda d: BW.ACT_WHY_TRANSFORM if d["monster_transform"] else BW.act_decide(d)   # noqa: E731
+    end_after_leave = lambda d: BW.ACT_WHY_LEAVE if d["leaving"] and not any(                 # noqa: E731
+        d[k] for k in ("knob_off", "lever_off", "no_rework")) else BW.act_decide(d)
+    for mutant in (hidden_first, transform_first, end_after_leave):
+        assert _rep_chain_violations(mutant)
+
+
+def test_the_review_pass_keeps_every_replay_contained_and_restored():
+    """[s134 review] the fixes, at their lines on the live stack: an abort drops the replay's unplayed SFX (camera loads
+    unlocked) and unregisters it only once the sequencer let go -- else a ZOMBIE stays short-circuited and ActLive; the
+    busy window snapshots and restores the weapons and the cursor bit, the disappear restore spares only a dead ENEMY;
+    the units of a replay aborted before an end injection are restored right before it; a nosequence launch leaves no
+    command stance; the counters every abort / drop / discard by its reason."""
+    for line in ("Boolean outOfLoop = ActReleaseHard(r.Action, release);", "if (!outOfLoop)", "ActZombie(r);",
+                 "UnifiedBattleSequencer.runningActions.Remove(a);",
+                 "return _actZombies.Count > 0 && _actZombies.ContainsKey(cmd);",
+                 "ActLive = _actByCmd.Count > 0 || _actZombies.Count > 0;",
+                 "s.DropForReplay((plan & ActSfxUnlock) != 0);", "WeaponMeshFlags = n.weaponMeshFlags,",
+                 "d.weaponMeshFlags = s.WeaponMeshFlags;", "_actWindowCursorBit = b.cmd_status & 2;",
+                 "b.cmd_status = ActCursorBitAfter(b.cmd_status, _actWindowCursorBit, limited);",
+                 "if (ActRestoresDisappear(d.bi.player != 0, dead) && d.bi.disappear != s.Disappear)",
+                 "_actWindowAbortMask |= ActUnitsOf(r);", "Int32 mask = ActPreInjectMask(aborted, running);",
+                 "try { btl_mot.SetDefaultIdle(actor); }", "_actAbortsBy[k]++;", "_actDropped++;",
+                 "_actDiscardedPending += queued;", "_actDiscardedRunning += running;",
+                 "InjectEnd(b, _actHeldEnd, _actHeldAction, _actHeldAllDown);"):
+        assert _battle_text(line), line
+    assert any("internal void DropForReplay(Boolean unlock)" in t for _h, _k, t in _new_side("SFXData.cs", _patch_bytes("s134")))
+    assert tuple(BW.ACT_ABORT_REASONS) == tuple(re.findall(r'"([\w-]+)"', next(
+        ln for ln in _stack_text(REPLAY_FILE) if "internal static readonly String[] ActAbortReasons" in ln)))
+    # every ActAbort reason is published under its key, in that order
+    body = " ".join(t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134")))
+    got = re.findall(r'Num\(sb, "(\w+)", Memoria\.Netsync\.NetSyncDiorama\.HarnessActAbortsBy\("([\w-]+)"\)\)', body)
+    assert got == list(zip(BW.ACT_ABORTS_KEYS, BW.ACT_ABORT_REASONS)), got
+
+
+def test_the_replay_lane_counts_every_abort_drop_and_discard_by_reason():
+    """[s134 review timing-04 / harness-9 / timing-08 / harness-12] the stand-in's counters: an abort under its reason
+    (`aborts`), a parked START an abort-all declines (`dropped`), a teardown's drops apart from started / declined /
+    aborted (`discarded`) -- both identities hold after it; the aborts are judged while PAUSED too (the wall cap), the
+    sequencer frame is not; a teardown keeps a Change replay's row (the engine never touches a unit row there)."""
+    rig = _LaneRig()
+    lane = rig.lane
+    rig.step()
+    rig.feed(_rep_start(1))
+    rig.step()
+    rig.feed(_rep_start(2))                                              # parks behind 1
+    rig.step()
+    rig.step(BW.ACT_PENDING_ABORT_MS // 33 + 2)
+    assert lane.aborts_by["pending"] == 1 and lane.abort_why == "pending"
+    rig.feed(_rep_start(3))                                              # parks behind 2
+    rig.step()
+    lane.abort_all("r8", ctx=rig.ctx())
+    doc = lane.doc(role=True, booted=True)
+    assert doc["aborts"] == dict(dict.fromkeys(BW.ACT_ABORTS_KEYS, 0), pending=1, r8=1) and doc["dropped"] == 1
+    assert doc["declined"] == doc["dropped"] and BW.act_guest_invariant(doc) and BW.act_guest_ends_balance(doc)
+    rig.feed(_rep_start(4))
+    rig.step()
+    rig.feed(_rep_start(5))                                              # parks behind 4
+    rig.step()
+    lane.rows[0] = 0                                                     # (a Change replay's flipped row)
+    lane.discard_all("teardown (bench)")
+    doc = lane.doc(role=True, booted=True)
+    assert doc["discarded"] == {"pending": 1, "running": 1} and doc["aborted"] == 2 and lane.rows == {0: 0}
+    assert BW.act_guest_invariant(doc) and BW.act_guest_ends_balance(doc)
+    assert not BW.act_guest_invariant(dict(doc, discarded={"pending": 0, "running": 1}))
+    assert not BW.act_guest_ends_balance(dict(doc, discarded={"pending": 1, "running": 0}))
+    paused = _LaneRig()
+    paused.feed(_rep_start(1))
+    paused.step(3)
+    rec = paused.lane.running[0]
+    f0 = rec.frames
+    paused.lane.tick(paused.ctx(paused=True))                            # paused: no sequencer frame
+    assert rec.frames == f0 >= 1 and paused.lane.running == [rec]
+    paused.lane.tick(paused.ctx(paused=True, wall_ms=paused.ms + BW.ACT_WALL_CAP_MS + 1))
+    assert paused.lane.abort_why == "cap" and paused.lane.aborts_by["cap"] == 1 and rec.frames == f0
+
+
+def test_the_action_replay_knob_is_a_behaviour_key_and_its_config_suffix_parses():
+    """[Netsync] ActionReplay (default 1, quotes accepted) joins the behaviour signature (bsig) and the config line names
+    ' actionReplay=0' only when off -- and the T2 benches' config matcher still reads such a line."""
+    for piece in ('String arRaw = ini.GetSetting("Netsync", "ActionReplay", "1").Trim();', 'Boolean actionReplay = arRaw != "0";',
+                  '"|" + (actionReplay ? "1" : "0");', 'NetSyncDiorama.ActionReplay = actionReplay;',
+                  '(!actionReplay ? " actionReplay=0" : "") +'):
+        assert any(piece in ln for ln in _stack_text("NetSyncClient.cs")), piece
+    pb = _peer_bench()
+    line = ("[NetSync] config enabled=True role=client field=0 actionReplay=0 relay=ws://127.0.0.1:49201 "
+            "code=ff9-T2BENCH1")
+    m = pb.MATCHERS["config"].match(line)
+    assert m and m.group(2) == "client" and m.group(6) == "ff9-T2BENCH1" and "actionReplay=0" in m.group(4)
+
+
 # ---- [ff9mapkit netsync R3 fix round 2] the R3 benches' own logic, off the game: the T2 helper's self-check and the
 # scenarios' calibration tables. Both ran only by hand (`py _coop_peer_bench.py`, a bench day), so an engine rewording
 # that broke a matcher, or a predicted-red table that drifted from its docstring, waited for the owner's next launch.
@@ -8009,8 +9314,8 @@ def load(name):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
-hl, ch, sh, tr, ah = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold", "coop_tape_record",
-                                          "coop_action_host"))
+hl, ch, sh, tr, ah, ar = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold",
+                                              "coop_tape_record", "coop_action_host", "coop_action_replay"))
 print(json.dumps({
     "hl": {"catalog": sorted(hl._catalog(True)), "old": sorted(hl.OLD_PREDICTED), "capture_s": hl.CAPTURE_S},
     "cut": {leg: {"catalog": sorted(ch._catalog(leg, True)),
@@ -8026,7 +9331,15 @@ print(json.dumps({
     "tr": sorted(tr.CATALOG),
     "ah": {"catalog": sorted(ah._catalog(True)), "plain": sorted(ah._catalog(False)), "old": sorted(ah.OLD_PREDICTED),
            "lever": sorted(ah.LEVER_PREDICTED), "lane": sorted(ah.LANE_CHECKS), "probe": ah.PROBE, "scene": ah.SCENE,
-           "group": ah.GROUP, "proof": ah.PROOF_OK, "doc": " ".join((ah.__doc__ or "").split())}}))
+           "group": ah.GROUP, "proof": ah.PROOF_OK, "doc": " ".join((ah.__doc__ or "").split())},
+    "ar": {"catalog": sorted(ar._solo_catalog(True)), "plain": sorted(ar._solo_catalog(False)),
+           "old": sorted(ar.OLD_PREDICTED), "lever": sorted(ar.LEVER_PREDICTED), "maybe": sorted(ar.LEVER_MAYBE),
+           "guest": sorted(ar.GUEST_CHECKS), "probe": ar.PROBE, "host_probe": ar.HOST_PROBE, "scene": ar.SCENE,
+           "group": ar.GROUP, "proof": ar.PROOF_OK, "leg": ar.LEG, "legs": list(ar.LEGS),
+           "tape": sorted(ar._tape_catalog(True)), "tape_plain": sorted(ar._tape_catalog(False)),
+           "tape_act": sorted(ar.TAPE_ACT), "tape_old": sorted(ar._tape_predicted(False)),
+           "tape_knob": sorted(ar._tape_predicted(True)), "tape_dir": str(ar.act_tape_dir()),
+           "values": ar.GUEST_VALUES, "doc": " ".join((ar.__doc__ or "").split())}}))
 '''
 
 
@@ -8159,6 +9472,359 @@ def test_the_s133_bench_predicts_its_reds_as_its_docstring_says():
     assert ah["probe"] == Session.NETSYNC_BATTLE_SUBVERBS["actbench"][1] == "netsync.battle.act.host"
     assert ah["scene"] == 306 and ah["group"] in (2, 4)
     assert ah["proof"] == BW.proof_ok(BW.PROOF_ACTION, BW.ACTION_SELFTEST_ROWS)
+
+
+def test_the_s134_bench_predicts_its_reds_as_its_docstring_says():
+    """[ff9mapkit netsync s134] coop_action_replay.py's calibration tables, pinned to its docstring: on s133 (and older)
+    every check is red but INI / S0 / PRE / TAPE / INV (the act.guest probe fails closed: no guest op ever sent); under its
+    own lever (`actbench replay off` before boot 1) exactly the LEVER set, K green (its expectation pinned per scene: no
+    grace on scene 306 either way -- the review pass) -- every id one its catalog defines.
+    Its tape leg (COOP_ACT_LEG=tape): on an s133 guest every act check, under ActionReplay=0 exactly RUN / ACT / PAIR /
+    DECL / END / LOG. Its probe is the s134 key, its scene the s133 bench's, its proof line the engine's, its tape dir
+    beside coop-tapes/ (never moving coop_cut_hold's latest.json), and the default leg the solo one."""
+    ar = _scenario_tables()["ar"]
+    g = lambda *n: sorted(f"S134-{x}" for x in n)                     # noqa: E731
+    assert set(ar["catalog"]) == set(ar["plain"]) | {"S134-CAL"} and len(ar["plain"]) == 35
+    assert ar["old"] == sorted(set(ar["plain"]) - set(g("INI", "S0", "PRE", "TAPE", "INV")))
+    assert ar["lever"] == g("A1", "A2", "A3", "M", "AH", "B", "F", "J", "L", "H", "PAUSE", "TRIP", "TRIPST", "D2", "BL",
+                            "D", "E1", "E2", "E3", "E4", "C")
+    assert ar["maybe"] == [] and "MAYBE" not in ar["doc"]
+    assert set(ar["lever"]) < set(ar["old"]) and set(ar["guest"]) <= set(ar["plain"])
+    assert set(ar["plain"]) - set(ar["lever"]) == set(g("INI", "S0", "P0", "PROOF", "PRE", "TAPE", "BOOT", "A4", "G", "I",
+                                                         "D0", "K", "INV", "R"))
+    for piece in ("RED, exactly: every check but INI, S0, PRE, TAPE, INV (nothing booted, nothing to change)",
+                  "Predicted reds, exactly: A1, A2, A3, M, AH, B, F, J, L, H, PAUSE, TRIP, TRIPST, D2, BL, D, E1, E2, E3, "
+                  "E4, C (", "GREEN: INI, S0, P0, PROOF, PRE, TAPE, BOOT, A4, G, I (knob is ahead of the lever), D0, K "
+                  "(scene 306: no AttackOnDeath, no grace either way), INV, R.", "Memoria.ini [Netsync] Enabled = 0 (or absent)",
+                  "a SMOKE check of the deferred Leave", "amendment 12 is not benched",
+                  "RED exactly P0, B5, RX, RUN, ACT, PAIR, DECL, END, TRIP, LOG (fails closed)",
+                  "RED exactly RUN, ACT, PAIR, DECL, END, LOG (every START declines `knob`)",
+                  "the leg refuses cleanly (\"no s133 tape\""):
+        assert piece in ar["doc"], piece
+    assert ar["probe"] == "netsync.battle.act.guest" == Session.NETSYNC_ACTBENCH_OP_CAPS["feed"][1]
+    assert ar["host_probe"] == Session.NETSYNC_BATTLE_SUBVERBS["actbench"][1]
+    assert ar["scene"] == 306 and ar["group"] in (2, 4) and ar["leg"] == "solo" and ar["legs"] == ["solo", "tape"]
+    assert ar["proof"] == BW.proof_ok(BW.PROOF_REPLAY, BW.REPLAY_SELFTEST_ROWS)
+    t = lambda *n: sorted(f"S134T-{x}" for x in n)                    # noqa: E731
+    assert set(ar["tape"]) == set(ar["tape_plain"]) | {"S134T-CAL"}
+    assert set(ar["tape_plain"]) == set(ar["tape_act"]) | {"S134T-I", "T2-TAPE", "T2-CAL", "T2-PEER", "T2-SAVE", "T2-INI"}
+    assert ar["tape_old"] == ar["tape_act"] == t("P0", "B5", "RX", "RUN", "ACT", "PAIR", "DECL", "END", "TRIP", "LOG")
+    assert ar["tape_knob"] == t("RUN", "ACT", "PAIR", "DECL", "END", "LOG")
+    assert ar["tape_dir"].replace("\\", "/").endswith(".harness-runs/coop-tapes/act-s133")
+    # the tape leg's guest is coop_cut_hold's (+ ActionReplay, written per run)
+    cut = (SCENARIOS / "coop_cut_hold.py").read_text(encoding="utf-8")
+    for k, v in ar["values"].items():
+        assert f'"{k}"' in cut, k
+    assert "ActionReplay" not in ar["values"]
+
+
+#: coop_action_replay's tape-leg judge and its tape reader, run on synthetic inputs (JSON on stdin), the checks read back
+_ACT_REPLAY_JUDGE = r"""
+import importlib.util, json, os, sys, types
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_replay", os.path.join(scen, "coop_action_replay.py"))
+ar = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ar)
+BW = ar.BW
+class Led:
+    def __init__(self):
+        self.checks = {}
+    def check(self, cid, ok, detail=""):
+        self.checks[cid] = [bool(ok), str(detail)]
+    def unreached(self, ids, why):
+        for c in ids:
+            self.checks.setdefault(c, [False, "unreached: " + why])
+doc = json.loads(sys.stdin.read())
+out = {}
+for name, run in doc["runs"].items():
+    led = Led()
+    ar.judge_tape(led, run["samples"], run["messages"], {"starts": run["tape_starts"]})
+    out[name] = led.checks
+cp = types.SimpleNamespace(tape_action_frames=lambda recs: [(0.0, bytes.fromhex(h)) for h in recs])
+out["facts"] = {k: ar.tape_act_facts(v, cp, 7) for k, v in doc["tapes"].items()}
+print(json.dumps(out))
+"""
+
+
+def _ar_run(**over) -> dict:
+    """A synthetic tape-leg run: the guest's `act.guest` samples (booted, then after the return) and the engine's lines."""
+    g = dict(BW.ACT_GUEST_SENTINELS, on=True, rework=True, knob=1, bit5=True, host_caps=0x22, starts_rx=3, ends_rx=3,
+             started=3, ended=3, hits=4, credits=3, paired=5, swing_skipped=2, rx_dropped=0, battle_ms=9000)
+    g.update(over.get("guest", {}))
+    acting = over.get("acting", True)
+    samples = [{"booted": True, "guest": dict(g, running=1, ended=g["ended"] - 1 if g["ended"] else 0),
+                "units": [[0, acting, "ANH_A"], [4, False, "ANH_B"]]},
+               {"booted": True, "guest": g, "units": [[0, False, "ANH_I"]]},
+               {"booted": False, "guest": dict(g, battle_ms=-1), "units": []}]
+    if over.get("trip"):
+        samples[1]["guest"] = dict(g, calc_while_booted=1)
+    if over.get("no_guest"):
+        samples = [{"booted": True, "guest": None, "units": []}]
+    messages = over.get("messages", [
+        f"{BW.LOG_REPLAY_STARTED}1 slot 0 (player) cmd 1 sub 176 kind 3 num 100 tar 0x10 host speed 5 -- presentation only",
+        f"{BW.LOG_REPLAY_SUMMARY}teardown) -- {g['starts_rx']} START(s) received, {g['started']} started, 0 declined"])
+    return {"samples": samples, "messages": messages, "tape_starts": over.get("tape_starts", 3)}
+
+
+def test_the_s134_tape_legs_judge_reads_each_engine_and_refuses_a_pre_s133_tape():
+    """coop_action_replay.judge_tape (the T2 leg's verdict, pure) on synthetic runs: a healthy s134 guest GREEN on all ten;
+    the knob (every START declined `knob`) red on exactly TAPE_KNOB_PREDICTED; an s133 guest (no `act.guest`) red on every
+    act check; a fired tripwire red on TRIP alone; a non-end abort red on END -- [s134 review timing-04] judged by its
+    reason (`aborts`), so an early `pending` MASKED by a later R8 abort_why is red too, and a block without `aborts` fails
+    closed; [harness-9] a START the end's abort-all dropped is no DECL red; [harness-05] rx_dropped is judged ABSOLUTE
+    (a fresh transport): a constant nonzero count (boot-backlog drops already in the first read) is an RX red, and so is
+    a counter never read (-1 throughout). tape_act_facts: a tape with STARTs on the battle's nonce is an s133 tape, one
+    with 46-byte impacts only (or STARTs on ANOTHER nonce) is "no s133 tape"."""
+    start = BW.encode_action_start(7, 1, 3, 0, BW.ACTOR_IS_PLAYER, 1, 176, 0x10, 0, 0, 0, BW.VFX_KIND_SPECIAL, 100, -1, 5)
+    other = BW.encode_action_start(8, 1, 3, 0, BW.ACTOR_IS_PLAYER, 1, 176, 0x10, 0, 0, 0, BW.VFX_KIND_SPECIAL, 100, -1, 5)
+    old = BW.encode_action_impact(7, 1, 0, 4, fig_t=(0, 33, 0), flags=65, cmd_no=1, sub_no=176)
+    knob = {"started": 0, "declined": 3, "declined_why": "knob", "ended": 0, "hits": 0, "credits": 0, "swing_skipped": 0}
+    runs = {"green": _ar_run(), "knob": _ar_run(guest=knob, acting=False, messages=[
+                f"{BW.LOG_REPLAY_SUMMARY}teardown) -- 3 START(s) received, 0 started, 3 declined"]),
+            "old": _ar_run(no_guest=True), "trip": _ar_run(trip=True),
+            "abort": _ar_run(guest={"ended": 2, "aborted": 1, "abort_why": "host-end",
+                                    "aborts": dict(BW.ACT_GUEST_SENTINELS["aborts"], host_end=1)}),
+            "masked": _ar_run(guest={"ended": 1, "aborted": 2, "abort_why": "r8",
+                                     "aborts": dict(BW.ACT_GUEST_SENTINELS["aborts"], pending=1, r8=1)}),
+            "endabort": _ar_run(guest={"ended": 2, "aborted": 1, "abort_why": "r8",
+                                       "aborts": dict(BW.ACT_GUEST_SENTINELS["aborts"], r8=1)}),
+            "dropped": _ar_run(guest={"starts_rx": 4, "declined": 1, "declined_why": "leave", "dropped": 1},
+                               tape_starts=4),
+            "unaccounted": _ar_run(guest={"starts_rx": 4, "declined": 1, "declined_why": "leave"}, tape_starts=4),
+            "noaborts": _ar_run(guest={"aborts": None}),
+            "bootdrops": _ar_run(guest={"rx_dropped": 2}), "unread": _ar_run(guest={"rx_dropped": -1})}
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _ACT_REPLAY_JUDGE, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         input=json.dumps({"runs": runs, "tapes": {"s133": [start.hex(), old.hex()], "pre": [old.hex()],
+                                                                   "other": [other.hex()]}}),
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    act = ("S134T-P0", "S134T-B5", "S134T-RX", "S134T-RUN", "S134T-ACT", "S134T-PAIR", "S134T-DECL", "S134T-END",
+           "S134T-TRIP", "S134T-LOG")
+    red = lambda name: sorted(c for c, (ok, _d) in got[name].items() if not ok)   # noqa: E731
+    assert set(got["green"]) == set(act) and red("green") == [], got["green"]
+    assert red("knob") == sorted(("S134T-RUN", "S134T-ACT", "S134T-PAIR", "S134T-DECL", "S134T-END", "S134T-LOG"))
+    assert red("old") == sorted(act) and all("unreached" in d for _ok, d in got["old"].values())
+    assert red("trip") == ["S134T-TRIP"] and red("abort") == ["S134T-END"] and red("masked") == ["S134T-END"]
+    assert red("endabort") == [] and red("dropped") == [] and red("unaccounted") == ["S134T-DECL"]
+    assert red("noaborts") == ["S134T-END"] and "fails closed" in got["noaborts"]["S134T-END"][1]
+    assert red("bootdrops") == ["S134T-RX"] and "boot backlog" in got["bootdrops"]["S134T-RX"][1]
+    assert red("unread") == ["S134T-RX"] and "never read" in got["unread"]["S134T-RX"][1]
+    f = got["facts"]
+    assert f["s133"]["ok"] and f["s133"]["starts"] == 1 and f["s133"]["impacts"] == 1
+    assert not f["pre"]["ok"] and f["pre"]["why"].startswith("no s133 tape: no START on battle nonce 7")
+    assert not f["other"]["ok"] and f["other"]["all_frames"] == 1                # (a START, but of another battle)
+
+
+#: coop_action_replay's diorama cast (`_who`) and D0's batched boot (`_boot_and_leave`), on synthetic inputs
+_ACT_REPLAY_CAST = r"""
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_replay", os.path.join(scen, "coop_action_replay.py"))
+ar = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ar)
+def st(*names):
+    us = [{"slot": i, "name": n, "player": True, "alive": True} for i, n in enumerate(names)]
+    us += [{"slot": 4, "name": "Fang", "player": False}, {"slot": 5, "name": "Fang", "player": False}]
+    return {"battle": {"units": us}}
+def cast(x, ctx):
+    w = ar._who(x, ctx)
+    return {k: [None if u is None else u["slot"], wire] for k, (u, wire) in w.items()}
+ctx = {"zidane_wire": 0, "vivi_wire": 1, "garnet_wire": 2}
+out = {"battle1": cast(st("Zidane", "Vivi", "Dagger", "Steiner"), ctx),
+       "diorama": cast(st("BENCH", "Vivi", "Dagger", "Steiner"), ctx),
+       "no_ctx": cast(st("BENCH", "Vivi", "Dagger", "Steiner"), None),
+       "impostor_unnamed": cast(st("Freya", "Vivi", "Dagger", "Steiner"), ctx)}
+class G:
+    def __init__(self, refuse):
+        self.sent, self.refuse = [], refuse
+    def send(self, *steps, timeout=60.0):
+        self.sent.append(list(steps))
+        if self.refuse:
+            raise ar.HarnessError(self.refuse)
+for name, refuse in (("deferred", "the game refused a step: netsync: netsync dioleave: deferred -- a scene fade is in "
+                                  "flight; retry"), ("left", None)):
+    g = G(refuse)
+    ok, why = ar._boot_and_leave(g)
+    out[name] = {"sent": g.sent, "ok": ok, "deferred": ar.LEAVE_DEFERRED in why}
+print(json.dumps(out))
+"""
+
+
+def test_the_s134_benchs_diorama_zidane_is_the_bench_stand_in_and_d0_leaves_inside_the_boots_request():
+    """[s134 solo run 1] coop_action_replay's diorama cast: every selftest `dioboot` seats the selftest mirror's stand-in
+    (NetSyncParty.SelfTestMirror: name "BENCH") in party slot 0, so no diorama unit is named Zidane -- 'Zidane' there is
+    the unit at Zidane's battle-1 WIRE, taken ONLY when it is that stand-in (an unnamed impostor at the seat is never
+    taken: not reached, never a wrong actor). Battle 1's real Zidane wins by name; Vivi / Garnet keep their names.
+    D0's `dioleave` rides the boot's OWN request (one send, dioboot first): LeaveFrom defers only while the swirl's fade
+    is in flight (the boot's frame + 2), and a separate request landed past it -- where the selftest path strands the
+    boot -- in the first in-game run."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _ACT_REPLAY_CAST, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["battle1"]["zidane"] == [0, 0] and got["battle1"]["vivi"] == [1, 1] and got["battle1"]["garnet"] == [2, 2]
+    assert got["diorama"]["zidane"] == [0, 0] and got["diorama"]["vivi"] == [1, 1] and got["diorama"]["garnet"] == [2, 2]
+    assert got["diorama"]["fang1"] == [4, 4] and got["diorama"]["fang2"] == [5, 5]
+    assert got["no_ctx"]["zidane"] == [None, None]                               # never by seat without the taped wire
+    assert got["impostor_unnamed"]["zidane"] == [None, None]                     # never a unit that is not the stand-in
+    want = [["netsync dioboot 306 4", "netsync dioleave"]]
+    assert got["deferred"] == {"sent": want, "ok": False, "deferred": True}
+    assert got["left"] == {"sent": want, "ok": True, "deferred": False}
+
+
+#: coop_action_replay's boot 3 (`_boot_3` + its pure `_judge_boot_3`) driven on a stub game: a Memoria.log the request
+#: appends to, the agent's per-step 'error' events, the request's refusal latch (its LAST step's), the state before/after
+_ACT_REPLAY_BOOT3 = r"""
+import importlib.util, json, os, sys, tempfile
+from pathlib import Path
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_replay", os.path.join(scen, "coop_action_replay.py"))
+ar = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ar)
+ar.LOG_WAIT_S = 0.0
+T = "16.10.2026 03:06:13 |M| "
+BOOT = T + ar.BOOT_LINE + "start=BTL_START_NORMAL_ATTACK intro=own swirl=0 clamp=0"
+DEFER = T + "[NetSync] diorama leave deferred: a fade is in flight; press Leave again."
+LEFT = T + "[NetSync] diorama LEAVE requested -> FieldMap (mode 1)"
+REFUSED = "16.10.2026 03:06:13 |W| [NetSync] diorama boot REFUSED: the field is not free (a dialog is open)"
+DEFERRED = "netsync dioleave: deferred -- a scene fade is in flight; retry"
+NONE = "netsync dioleave: no diorama is booted"
+class St:
+    def __init__(self, booted, aborted=0):
+        self.raw = {"netsync": {"diorama": {"booted": booted}, "battle": {"act": {"guest": {"aborted": aborted}}}}}
+        self.scene, self.frame = None, 1
+class Chan:
+    def __init__(self):
+        self.ev = [{"kind": "error", "op": "netsync", "message": "netsync dioboot: an OLDER request's refusal"}]
+    def events(self):
+        return list(self.ev)
+class G:
+    def __init__(self, log, before, after, lines, errors):
+        self.log, self.channel = log, Chan()
+        self.state, self.after, self.lines, self.errors = before, after, lines, errors
+        self.sent, self.notes = [], []
+        # lines BEFORE the mark (a previous boot's): never boot 3's witnesses
+        log.write_text(T + ar.BOOT_LINE + "(a previous boot)\n" + DEFER + "\n", encoding="utf-8")
+    def engine_log(self):
+        return self.log
+    def netsync(self, *a, **k):
+        return self.state
+    def wait_for(self, pred, timeout=0, what=""):
+        if pred(self.state):
+            return self.state
+        raise ar.HarnessError("timed out: " + what)
+    def wait_frames(self, n):
+        pass
+    def note(self, t):
+        self.notes.append(t)
+    def send(self, *steps, timeout=60.0):
+        self.sent.append(list(steps))
+        with self.log.open("a", encoding="utf-8") as f:
+            f.writelines(ln + "\n" for ln in self.lines)
+        self.channel.ev += [{"kind": "error", "op": "netsync", "message": m} for m in self.errors]
+        self.state = self.after
+        if self.errors:                                   # the latch: the LAST refused step's only
+            raise ar.HarnessError("the game refused a step: netsync: " + self.errors[-1])
+class Led:
+    def __init__(self):
+        self.checks, self.done = {}, {}
+    def check(self, cid, ok, detail=""):
+        self.checks.setdefault(cid, [bool(ok), str(detail)])
+        self.done[cid] = bool(ok)
+    def unreached(self, ids, why):
+        for c in ids:
+            if c not in self.done:
+                self.check(c, False, "not reached: " + why)
+outs = []
+ar._out = lambda g, field: outs.append(field)
+cases = {
+    "refused": (St(False), St(False), [REFUSED],
+                ["netsync dioboot: refused (Memoria.log names why: [NetSync] diorama boot REFUSED)", NONE]),
+    "norole": (St(False), St(False), [], ["netsync dioboot: needs the selftest role (netsync selftest 1)", NONE]),
+    "stale": (St(True), St(True), [DEFER], ["netsync dioboot: a diorama is already booted", DEFERRED]),
+    "left": (St(False), St(True), [BOOT, LEFT], []),
+    "deferred": (St(False), St(True), [BOOT, DEFER], [DEFERRED]),
+    "one_witness": (St(False), St(True), [BOOT], [DEFERRED]),
+    "engine_only": (St(False), St(True), [BOOT, DEFER], []),
+    "unbooted": (St(False), St(False), [BOOT, DEFER], [DEFERRED]),
+    "aborted": (St(False), St(True, aborted=1), [BOOT, DEFER], [DEFERRED]),
+    "boot_and_refused": (St(False), St(False), [BOOT, REFUSED], [NONE]),
+    "boot_failed": (St(False), St(False), [BOOT, T + "[NetSync] diorama boot failed: NullReferenceException"],
+                    ["netsync dioboot: refused (Memoria.log names why)", NONE]),
+}
+out = {}
+with tempfile.TemporaryDirectory() as td:
+    for name, (before, after, lines, errors) in cases.items():
+        g = G(Path(td) / (name + ".log"), before, after, lines, errors)
+        led = Led()
+        ar._boot_3(g, led, 30602, {})
+        out[name] = {"sent": g.sent, "checks": led.checks}
+out["judge_stale"] = list(ar._judge_boot_3(False, "the game refused a step: netsync: " + DEFERRED, [DEFER],
+                                           ["netsync dioboot: a diorama is already booted", DEFERRED], True, 0))
+out["outs"] = len(outs)
+print(json.dumps(out))
+"""
+
+
+def test_the_s134_benchs_d0_judges_only_a_fresh_boot_on_two_witnesses_never_the_latch_alone():
+    """[s134 solo review 1/5] D0 (`_boot_3`) never trusts the request's refusal latch alone: the agent catches each step's
+    refusal and runs the next, so the latch keeps only the LAST -- a refused `dioboot` is overwritten by the batched
+    `dioleave`'s, and against a stale diorama that leave's 'deferred' is not boot 3's. A boot refused (by Boot's own
+    REFUSED line, or before Boot: only its step event names why) is NOT REACHED with the boot's reason; a diorama up
+    before boot 3 is never sent to (not reached, never green -- and the judge alone, fed a stale diorama's request, has
+    no fresh BOOT line: not reached either); a Leave ACCEPTED is D0's red; GREEN needs a fresh BOOT line after the mark
+    AND both witnesses of the deferral (the agent's refusal, LeaveFrom's line) with the diorama still booted -- one
+    witness is red. Lines and events from before the mark never count. Every path leaves the field (`_out`)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _ACT_REPLAY_BOOT3, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    one = [["netsync dioboot 306 4", "netsync dioleave"]]
+    d0 = lambda name: got[name]["checks"]["S134-D0"]                    # noqa: E731
+    e1 = lambda name: got[name]["checks"]["S134-E1"]                    # noqa: E731
+    # refused by Boot: not reached, with the boot's OWN reason (its REFUSED line, its step), never the leave's as its
+    for name, why in (("refused", "the field is not free (a dialog is open)"), ("norole", "needs the selftest role")):
+        assert got[name]["sent"] == one
+        for ok, detail in (d0(name), e1(name)):
+            assert not ok and detail.startswith("not reached: boot 3 did not boot") and why in detail, detail
+            assert "the batched dioleave's, never the boot's" in detail and "OLDER request" not in detail
+    # a stale diorama: nothing sent, not reached -- never green, though its leave would have said 'deferred'
+    assert got["stale"]["sent"] == []
+    for ok, detail in (d0("stale"), e1("stale")):
+        assert not ok and detail.startswith("not reached: a diorama is already booted before boot 3"), detail
+    assert got["judge_stale"][0] is None and got["judge_stale"][1] is False and "no fresh BOOT line" in got["judge_stale"][2]
+    # a Leave accepted: D0's red (reached), E1 not reached on a boot that is gone
+    assert d0("left")[0] is False and "LEFT (accepted)" in d0("left")[1] and not d0("left")[1].startswith("not reached")
+    assert not e1("left")[0] and "the leave was ACCEPTED" in e1("left")[1]
+    # deferred, both witnesses, still booted: D0 green (E1 then waits on the steady latch the stub never reaches)
+    assert d0("deferred")[0] is True and "LeaveFrom's deferral line logged" in d0("deferred")[1]
+    assert not e1("deferred")[0] and "steady latch" in e1("deferred")[1]
+    # the agent's refusal alone (no LeaveFrom line after the mark): red
+    assert d0("one_witness")[0] is False and "LeaveFrom's deferral line ABSENT" in d0("one_witness")[1]
+    assert not e1("one_witness")[0] and "not proven deferred" in e1("one_witness")[1]
+    # [review 2/2] each conjunct of the green can fail on its own: LeaveFrom's line alone (the leave accepted) is red;
+    # both witnesses but the diorama gone is red ("not proven deferred"); both witnesses but an abort is red (E1 still
+    # runs: the boot is up); a REFUSED line after a BOOT line, or a boot that FAILED after it, is "did not boot"
+    assert d0("engine_only")[0] is False and "LEFT (accepted)" in d0("engine_only")[1]
+    assert "LeaveFrom's deferral line logged" in d0("engine_only")[1]
+    assert d0("unbooted")[0] is False and not d0("unbooted")[1].startswith("not reached")
+    assert not e1("unbooted")[0] and "not proven deferred" in e1("unbooted")[1]
+    assert d0("aborted")[0] is False and "aborted 1" in d0("aborted")[1]
+    assert not e1("aborted")[0] and "steady latch" in e1("aborted")[1]
+    for name, why in (("boot_and_refused", "a REFUSED line"), ("boot_failed", "a 'diorama boot failed' line")):
+        for ok, detail in (d0(name), e1(name)):
+            assert not ok and detail.startswith("not reached: boot 3 did not boot (" + why), detail
+    assert got["outs"] == 11
 
 
 #: coop_action_host._judge_tape run on tapes passed in (JSON on stdin: name -> [hex]), its ledger checks read back

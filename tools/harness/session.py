@@ -8479,16 +8479,51 @@ class Session:
     #: [ff9mapkit netsync s133] `actbench <op>` (NetSyncBattle.HarnessActBench), in the engine's order -- the list its
     #: "unknown op" refusal prints -- and the `tape` op's values (`rec|stop|clear|info`, + `dump <from> <count>`, the paged
     #: hex egress: at most :attr:`NETSYNC_ACTBENCH_PAGE_MAX` frames a page). Every op is selftest-role only, released by
-    #: HarnessReleaseBench. s134+ will add ops (`feed`, `replay`, ...) told by their own keys
-    #: (:attr:`NETSYNC_ACTBENCH_OP_CAPS`, empty at s133: both of its ops came with the sub-verb).
+    #: HarnessReleaseBench. Later ops are told by their own keys (:attr:`NETSYNC_ACTBENCH_OP_CAPS`: both of s133's ops came
+    #: with the sub-verb; [ff9mapkit netsync s134] the guest ops by `act.guest`).
     NETSYNC_ACTBENCH_OPS = ("tape", "hoststarts")
     NETSYNC_ACTBENCH_TAPE_OPS = ("rec", "stop", "clear", "info", "dump")
-    NETSYNC_ACTBENCH_OP_CAPS: dict = {}
+    #: [ff9mapkit netsync s134] the GUEST ops (NetSyncDiorama.IsActGuestBenchOp, routed BEFORE s133's HarnessActBench --
+    #: whose "unknown op" list still prints s133's two), each told by `netsync.battle.act.guest`: `feed <hex[,hex...]>`,
+    #: `feedat <ms> <hex[,hex...]>`, `replay|rework|shortcircuit on|off`, `knob 0|1|ini`, `clear`, `teardown`
+    NETSYNC_ACTBENCH_OP_CAPS: dict = {
+        op: ("coop_act_guest", "netsync.battle.act.guest", "s134", what) for op, what in (
+            ("feed", "the s134 guest replay bench's inbox (type-6 frames, due now)"),
+            ("feedat", "the s134 guest replay bench's inbox (type-6 frames, due after <ms> of battle time)"),
+            ("replay", "the s134 guest replay's calibration lever (off = the pre-s134 guest)"),
+            ("rework", "the s134 guest replay's SFXRework lever (off = a guest without it)"),
+            ("shortcircuit", "the s134 tripwire's calibration lever (off = the NEXT replay's hits reach the calculator)"),
+            ("knob", "the s134 process-local [Netsync] ActionReplay"),
+            ("clear", "the s134 guest replay bench's clear (every replay aborted, the inbox emptied)"),
+            ("teardown", "the s134 guest replay bench's teardown step (ActDiscardAll, no Leave first)"))}
+    #: [ff9mapkit netsync s134] a later VALUE of an older op, told by its own key: `tape play [pct]` (s133 knew `tape` with
+    #: rec|stop|clear|info|dump) -- (the accessor, the key, the patch, what it is)
+    NETSYNC_ACTBENCH_VALUE_CAPS = {
+        ("tape", "play"): ("coop_act_guest", "netsync.battle.act.guest", "s134",
+                           "the s134 guest replay bench's tape play (the host lane's tape into the inbox at its offsets)"),
+    }
     NETSYNC_ACTBENCH_PAGE_MAX = 16
     #: the agent's own argument-parse refusal (HarnessAgent `case "actbench"`: every form but `tape dump` is three words) --
     #: an ArgumentOutOfRangeException("netsync actbench", <this>), so it reads "<this>\r\nParameter name: netsync actbench"
     NETSYNC_ACTBENCH_USAGE = ("expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info` or `actbench tape "
                               "dump <from> <count>`")
+    #: [ff9mapkit netsync s134] ...as s134 rewrote it (an s134 engine says this for every non-guest form)
+    NETSYNC_ACTBENCH_USAGE_S134 = ("expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, "
+                                   "`actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, "
+                                   "`actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear` "
+                                   "or `actbench teardown`")
+    #: [ff9mapkit netsync s134] each guest op's own refusal of a malformed form (HarnessActGuestBench, after its role gate)
+    NETSYNC_ACTBENCH_GUEST_USAGE = {
+        "feed": "netsync actbench feed: expected `feed <hex[,hex...]>`",
+        "feedat": "netsync actbench feedat: expected `feedat <ms 0-600000> <hex[,hex...]>`",
+        "play": "netsync actbench tape play: expected `tape play [pct 1-1000]`",
+        "replay": "netsync actbench replay: expected `replay on|off`",
+        "rework": "netsync actbench rework: expected `rework on|off`",
+        "shortcircuit": "netsync actbench shortcircuit: expected `shortcircuit on|off`",
+        "knob": "netsync actbench knob: expected `knob 0|1|ini`",
+        "clear": "netsync actbench clear: takes no argument",
+        "teardown": "netsync actbench teardown: takes no argument",
+    }
     #: [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern]`'s trailing tokens (`[wire] [skip|play|own] [rand]`): an
     #: engine before s111 IGNORES them (a manual boot with the guest's own intro) -- a silent wrong action, never sent.
     NETSYNC_DIOBOOT_TOKENS = ("wire", "skip", "play", "own", "rand")
@@ -8579,6 +8614,15 @@ class Session:
         egress, count 1-16: ``act.host.tape.page``) -- :meth:`actbench`, :meth:`act_tape_page` and
         :meth:`act_tape_frames` drive it. Its ops and the ``tape`` values are refused before the step in the
         engine's words.
+
+        [ff9mapkit netsync s134] the guest action replay adds NO sub-verb: ``actbench`` gains the guest ops
+        (selftest role, a booted diorama), each told by ``netsync.battle.act.guest`` (:attr:`State.coop_act_guest`)
+        -- ``feed <hex[,hex...]>`` / ``feedat <ms> <hex[,hex...]>`` (type-6 frames into the bench inbox; one feed
+        is one drain), ``tape play [pct]`` (a later VALUE of s133's ``tape``), ``replay on|off`` (off = the pre-s134
+        guest, the calibration lever), ``rework on|off``, ``shortcircuit on|off`` (off = the NEXT replay's hits
+        reach the calculator: the tripwire's red), ``knob 0|1|ini`` (a process-local [Netsync] ActionReplay),
+        ``clear`` and ``teardown`` -- :meth:`act_feed` / :meth:`act_tape_play`. On an s133 engine each is refused
+        before the step, naming what s133 would answer; a malformed form in HarnessActGuestBench's words.
 
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
@@ -8680,16 +8724,28 @@ class Session:
             # then HarnessActBench, which lowercases the op and refuses one it lacks, a `tape` value and a `hoststarts` value
             op = str(args[0]).strip().lower() if args else ""
             value = str(args[1]).strip().lower() if len(args) > 1 else ""
+            # [ff9mapkit netsync s134] a GUEST form (an op of NETSYNC_ACTBENCH_OP_CAPS, or `tape play`) is routed to
+            # HarnessActGuestBench before s133's parse -- told by `act.guest`; on an s133 engine it never gets there, and
+            # the driver quotes what s133 would answer instead
+            vcap = self.NETSYNC_ACTBENCH_VALUE_CAPS.get((op, value))
+            cap = self.NETSYNC_ACTBENCH_OP_CAPS.get(op) or vcap
+            if cap is not None:
+                if not getattr(st, cap[0]):
+                    form = f"{op} {value}" if vcap is not None else op
+                    raise HarnessError(
+                        f"netsync actbench {form}: the deployed engine publishes no `{cap[1]}` -- `actbench {form}` is "
+                        f"{cap[3]} (memoria-patch {cap[2]}); it would answer \"{self._actbench_s133_answer(st, op, args)}\" "
+                        f"only after the step. Rebuild the DLL, or update the driver.")
+                why = self._actbench_guest_refusal(op, value, args)
+                if why is not None:
+                    raise HarnessError(why)
+                self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
+                return self.state
+            usage = self.NETSYNC_ACTBENCH_USAGE_S134 if st.coop_act_guest else self.NETSYNC_ACTBENCH_USAGE
             if not (op == "tape" and value == "dump") and len(args) != 2:
-                raise HarnessError(f"{self.NETSYNC_ACTBENCH_USAGE}\r\nParameter name: netsync actbench")
+                raise HarnessError(f"{usage}\r\nParameter name: netsync actbench")
             if op not in self.NETSYNC_ACTBENCH_OPS:
                 raise HarnessError(f"netsync actbench: unknown op '{op}' ({'|'.join(self.NETSYNC_ACTBENCH_OPS)})")
-            cap = self.NETSYNC_ACTBENCH_OP_CAPS.get(op)
-            if cap is not None and not getattr(st, cap[0]):
-                raise HarnessError(
-                    f"netsync actbench {op}: the deployed engine publishes no `{cap[1]}` -- `actbench {op}` is {cap[3]} "
-                    f"(memoria-patch {cap[2]}); it would answer \"netsync actbench: unknown op '{op}'\" only after the "
-                    f"step. Rebuild the DLL, or update the driver.")
             if op == "tape" and value not in self.NETSYNC_ACTBENCH_TAPE_OPS:
                 raise HarnessError("netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> "
                                    "<count>`")
@@ -8726,8 +8782,74 @@ class Session:
     # -- [ff9mapkit netsync s133] the host action-start lane's bench --------------------------------------------------
     def actbench(self, op: str, *args, timeout: float = 20.0) -> State:
         """``netsync actbench <op> [args]`` (s133, selftest role): ``hoststarts on|off``, ``tape rec|stop|clear|info``,
-        ``tape dump <from> <count>`` -- through :meth:`netsync`'s gates. Returns a fresh state."""
+        ``tape dump <from> <count>`` -- through :meth:`netsync`'s gates. Returns a fresh state. [ff9mapkit netsync s134]
+        ...and the guest half: ``feed <hex[,hex...]>``, ``feedat <ms> <hex[,hex...]>``, ``tape play [pct]``, ``replay|
+        rework|shortcircuit on|off``, ``knob 0|1|ini``, ``clear``, ``teardown`` (:meth:`act_feed`, :meth:`act_tape_play`)."""
         return self.netsync("actbench", op, *args, timeout=timeout)
+
+    # -- [ff9mapkit netsync s134] the guest action replay's bench ---------------------------------------------------
+    def act_feed(self, frames, *, at_ms: int | None = None, timeout: float = 20.0) -> State:
+        """``actbench feed <hex[,hex...]>`` (or ``feedat <at_ms> ...``): ``frames`` (bytes, or one bytes) into the bench
+        inbox as ONE feed -- drained in one drain (a START and its END together: the stale leg). Each frame 46-4096
+        bytes (:func:`harness.battlewire.encode_action_start` / ``encode_action_end`` / ``encode_action_impact`` compose
+        them). Needs a booted selftest diorama -- the engine's refusal comes back otherwise."""
+        from . import battlewire as BW
+        frames = [frames] if isinstance(frames, (bytes, bytearray)) else list(frames)
+        if not frames:
+            raise HarnessError("act_feed: no frame to feed")
+        for f in frames:
+            if not BW.ACT_LEGACY_LEN <= len(f) <= BW.ACT_HEX_MAX // 2:
+                raise HarnessError(f"act_feed: a {len(f)}-byte frame is outside 46-4096 bytes (the agent refuses it)")
+        arg = BW.act_feed_arg(frames)
+        if at_ms is None:
+            return self.actbench("feed", arg, timeout=timeout)
+        return self.actbench("feedat", int(at_ms), arg, timeout=timeout)
+
+    def act_tape_play(self, pct: int | None = None, *, timeout: float = 20.0) -> State:
+        """``actbench tape play [pct]``: s133's loopback tape into the bench inbox at its recorded offsets (pct 1-1000 of
+        real speed; default 100)."""
+        return self.actbench("tape", "play", *(() if pct is None else (int(pct),)), timeout=timeout)
+
+    def _actbench_s133_answer(self, st: State, op: str, args) -> str:
+        """[ff9mapkit netsync s134] What an s133 engine answers a guest form (no IsActGuestBenchOp there): its argument
+        parse first (anything but three words is its usage), then HarnessActBench -- the role, an unknown op, a `tape`
+        value it lacks."""
+        if len(args) != 2:
+            return f"{self.NETSYNC_ACTBENCH_USAGE}\r\nParameter name: netsync actbench"
+        if not (st.netsync or {}).get("selftest"):
+            return "netsync actbench: needs the selftest role (netsync selftest 1)"
+        if op == "tape":
+            return "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`"
+        return f"netsync actbench: unknown op '{op}' ({'|'.join(self.NETSYNC_ACTBENCH_OPS)})"
+
+    def _actbench_guest_refusal(self, op: str, value: str, args) -> str | None:
+        """[ff9mapkit netsync s134] HarnessActGuestBench's own refusal of a malformed guest form, in its words (None = the
+        form is well made; the role, a booted diorama, the hex and the inbox cap stay the agent's)."""
+        n = len(args)
+        usage = self.NETSYNC_ACTBENCH_GUEST_USAGE
+        if op == "feed" and n != 2:
+            return usage["feed"]
+        if op == "feedat":
+            try:
+                ms = int(str(args[1]).strip()) if n == 3 else -1
+            except ValueError:
+                ms = -1
+            if n != 3 or not 0 <= ms <= 600000:
+                return usage["feedat"]
+        if op == "tape":
+            try:
+                pct = int(str(args[2]).strip()) if n == 3 else 100
+            except ValueError:
+                pct = 0
+            if n > 3 or not 1 <= pct <= 1000:
+                return usage["play"]
+        if op in ("replay", "rework", "shortcircuit") and (n != 2 or value not in ("on", "off")):
+            return usage[op]
+        if op == "knob" and (n != 2 or value not in ("0", "1", "ini")):
+            return usage["knob"]
+        if op in ("clear", "teardown") and n != 1:
+            return usage[op]
+        return None
 
     def act_tape_page(self, start: int, count: int = 16, *, timeout: float = 10.0) -> dict:
         """``actbench tape dump <start> <count>`` and the page it publishes (``netsync.battle.act.host.tape.page``: ``from``,

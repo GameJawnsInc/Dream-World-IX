@@ -82,6 +82,18 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Global/btl_cmd.cs",
     "Assembly-CSharp/Global/btlseq.cs",
     "Assembly-CSharp/Global/btl_vfx.cs",
+    # [ff9mapkit netsync s134] the guest action replay: its new file (NetSyncDiorama.Replay.cs, a created file -- the replay starts it
+    # from /dev/null) and the csproj that compiles it, plus its stock hook sites -- btl_util.cs (the busy / command-motion hooks),
+    # UnifiedBattleSequencer.cs (the guarded loop, the camera parity, the song note, SetVariable's command), BattleActionCode.cs
+    # (SetVariable's replay filter), SBattleCalculator.cs (the tripwire) and SFXData.cs (an aborted replay's dropped SFX:
+    # LoadLoop's guard, DropForReplay)
+    "Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs",
+    "Assembly-CSharp/Assembly-CSharp.csproj",
+    "Assembly-CSharp/FF9/btl_util.cs",
+    "Assembly-CSharp/Memoria/Battle/SFX/UnifiedBattleSequencer.cs",
+    "Assembly-CSharp/Memoria/Battle/SFX/BattleActionCode.cs",
+    "Assembly-CSharp/Memoria/Battle/Calculator/SBattleCalculator.cs",
+    "Assembly-CSharp/Memoria/Battle/SFX/SFXData.cs",
 ]
 
 # Same-number ties, pinned explicitly.

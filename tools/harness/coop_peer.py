@@ -237,14 +237,20 @@ def tape_actions(records) -> dict:
     """[ff9mapkit netsync s133] The HOST's type-6 action records on a tape, counted through battlewire's codec
     (battlewire.act_tape_summary: ``starts``, ``ends``, ``impacts`` -- ``ext`` of them with the id extension --, ``stat``,
     ``bad``): an s133+ host's tape carries STARTs; a pre-s133 host's, 46-byte impacts only."""
-    frames = []
+    return BW.act_tape_summary([p for _t, p in tape_action_frames(records)])
+
+
+def tape_action_frames(records) -> list:
+    """[ff9mapkit netsync s134] The HOST's type-6 action records on a tape, in order -> ``[(t, payload bytes)]``: what a
+    replay-host sends the guest's action lane (the s134 tape leg judges what the guest replayed against them)."""
+    out = []
     for r in records:
         if r.dir != DIR_HOST:
             continue
         got = parse_frame(r.payload)
         if got is not None and got[0] == TYPE_ACTION:
-            frames.append(got[1])
-    return BW.act_tape_summary(frames)
+            out.append((r.t, bytes(got[1])))
+    return out
 
 
 # ======================================================================================== WebSocket framing (RFC 6455)

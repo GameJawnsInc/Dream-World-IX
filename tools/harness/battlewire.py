@@ -32,6 +32,12 @@ way the engine fabricates its bench end through the real ParseView.
     s110-s132 guest's 46-byte parse sees), the id books (ActNextId / ActStartStep / ActEndStep / ActIdOf), the describe
     check (ActVfxVerdict, btl_vfx.DescribeCommandVfx), the selftest loopback's audit (ActLoopBook) and the lane with its
     statics (ActHostLane: the stand-in's model, `netsync.battle.act.host`).
+  * [ff9mapkit netsync s134] the GUEST ACTION REPLAY's pure decisions (NetSyncDiorama.Replay.cs): the two-step drain's
+    book (ActRec / ActBook: RegisterStart / HostEnd / Park), ActDecide and its amended order, ActDeadMayRun,
+    ActStanceGate, ActCmdMotionFilter, the backlog verdicts (ActBacklogTransport / ActBacklogBench), the battle clock
+    (ActBattleDelta), ActAbortWhy, ActPendingAbortDue, ActRestoreScope, ActEndHoldStep, ActGraceArms, ActCmdStatusFor,
+    ActMapMaskWith, the bench's hex parse, and the lane with its statics (ActGuestLane: the stand-in's model,
+    `netsync.battle.act.guest`).
 """
 from __future__ import annotations
 
@@ -3326,3 +3332,1202 @@ CS_ACTION_CONSTANTS = {
     "ActStepReuse": ACT_STEP_REUSE, "ActLogTakeover": ACT_LOG_TAKEOVER, "ActLogReentry": ACT_LOG_REENTRY,
     "ActLogRestart": ACT_LOG_RESTART, "ActLogUnresolved": ACT_LOG_UNRESOLVED, "ActLogDrift": ACT_LOG_DRIFT,
     "ActTestNonce": ACT_TEST_NONCE}
+
+
+# ======================================================================================== [ff9mapkit netsync s134]
+# THE GUEST ACTION REPLAY (studies/battle-coop/R3-DESIGN.md 3.3.3 as amended by R3-ACTION-REPLAY-AUDIT.md 2.2 and section 3
+# -- the audit's "s123"; group 2 was renumbered s133-s141). The s133 host ships a START before every action and an END
+# after it; an s134 guest REPLAYS each START on its battle diorama: a standalone CMD_DATA, never enqueued, runs through the
+# stock SFXRework sequencer, presentation only (THE CONTAINMENT LAW: btl_cmd.ExecVfxCommand's first statement short-circuits
+# every replay hit; CalcMain's head and the SysTrans case count a fall-through -- `act.guest.calc_while_booted`, THE
+# TRIPWIRE). Everything below is the C# twin of a PURE decision in NetSyncDiorama.Replay.cs (the two-step drain's book, the
+# decision and its order, the backlog verdicts, the battle clock, the abort / restore / end-hold / grace rules, the
+# cmd_status filter, the mask mapping); test_harness_netsync.py EVALUATES ActReplaySelfTest's own 34 rows against them (read
+# off the stack, in order) and pins the constants by name (CS_REPLAY_CONSTANTS). :class:`ActGuestLane` is the stand-in's
+# model of the lane with its statics -- the decisions through these twins, the sequencer NOT (see its docstring).
+ACT_MAX_RUNNING = 6                      # "six replays already running" declines `busy`
+ACT_PENDING_ABORT_MS = 1500              # a parked START hard-aborts its actor's command-motion replay after this (battle time)
+ACT_DEATH_GRACE_MS = 1500                # the death-attack grace (battle time from the lethal impact)
+ACT_HOST_END_ABORT_MS = 6000             # a replay still running this long after the host's END is aborted (battle time)
+ACT_WALL_CAP_MS = 90000                  # the one WALL-clock timer: no replay outlives this
+ACT_W3_MS = 4000                         # W3: an injected end + this; also the run-away hold's bound (battle time)
+ACT_WAIT_MAX_MS = 6000                   # a parked START never waits longer than this (battle time)
+ACT_INBOX_CAP = 2048                     # the selftest bench inbox
+ACT_BOOK_CAP = 512                       # records kept per boot (finished ones trimmed first)
+ACT_START_LOG_MAX = 4                    # "started" lines per boot
+ACT_ABORT_LOG_MAX = 8                    # "ABORTED" lines per boot
+ACT_ST_REGISTERED, ACT_ST_WAITING, ACT_ST_RUNNING, ACT_ST_ENDED, ACT_ST_DECLINED, ACT_ST_ABORTED, ACT_ST_NOOP = range(7)
+ACT_GO, ACT_NOOP = 0, 1
+ACT_WHY_KNOB, ACT_WHY_LEVER, ACT_WHY_REWORK, ACT_WHY_END, ACT_WHY_STALE, ACT_WHY_BACKLOG = 10, 11, 12, 13, 14, 15
+ACT_WHY_ACTOR, ACT_WHY_HIDDEN, ACT_WHY_DEAD, ACT_WHY_KIND, ACT_WHY_TRANSFORM, ACT_WHY_TARGET = 16, 17, 18, 19, 20, 21
+ACT_WHY_BUSY, ACT_WHY_LEAVE = 22, 23
+ACT_END_NO_HOLD, ACT_END_HOLD, ACT_END_ABORT_THEN_INJECT = 0, 1, 2
+ACT_RESTORE_NONE, ACT_RESTORE_FULL, ACT_RESTORE_LIMITED = 0, 1, 2
+ACT_SFX_KEEP, ACT_SFX_CANCEL, ACT_SFX_UNLOCK = 0, 1, 2   # ActSfxDropPlan's bits (one SFX of an aborted replay)
+ACT_REPLAY_TEST_NONCE = 0x5B             # ActReplaySelfTest's own nonce (NetSyncDiorama's private ActTestNonce; s133's is 0x5A)
+ACT_FEEDAT_MAX_MS = 600000               # `actbench feedat <ms 0-600000>`
+ACT_PLAY_PCT_MIN, ACT_PLAY_PCT_MAX = 1, 1000   # `actbench tape play [pct 1-1000]`
+ACT_HEX_MIN, ACT_HEX_MAX = ACT_LEGACY_LEN * 2, 8192   # one fed frame: an even run of 92-8192 hex digits (46-4096 bytes)
+PROOF_REPLAY = "action replay selftest: "   # NetSyncDiorama.ActReplaySelfTest (s134), logged right after PROOF_ACTION
+REPLAY_SELFTEST_ROWS = 34                # 14 decision + 2 stance/motion + 3 drain + 2 pending + 2 backlog + 1 clock + 10 rule
+#: the stock ids s134's twins and bench name beyond s133's (BattleCommandId; SpecialEffect) -- read off the shared clone by
+#: test_harness_netsync.py when it is present, as CS_STOCK_IDS already is
+CMD_SUMMON_GARNET, CMD_RUSH_ATTACK, CMD_SYS_PHANTOM, CMD_SYS_LAST_PHOENIX, CMD_SCRIPT_COUNTER1 = 16, 52, 57, 58, 63
+CMD_BOUNDARY_UPPER_CHECK = 99
+ABILITY_LEVIATHAN_ID = 60                # BattleAbilityId.Leviathan (a SummonGarnet sub_no)
+SPECIAL_LEVIATHAN_FULL = 179             # SpecialEffect.Leviathan__Full: a LONG summon (the W3 leg's replay)
+SPECIAL_TRANCE_ACTIVATE = 257            # SpecialEffect.Special_Trance_Activate (the SysTrans tripwire leg)
+CS_STOCK_IDS.update({
+    "BattleCommandId.SummonGarnet": CMD_SUMMON_GARNET, "BattleCommandId.RushAttack": CMD_RUSH_ATTACK,
+    "BattleCommandId.SysPhantom": CMD_SYS_PHANTOM, "BattleCommandId.SysLastPhoenix": CMD_SYS_LAST_PHOENIX,
+    "BattleCommandId.ScriptCounter1": CMD_SCRIPT_COUNTER1, "BattleCommandId.BoundaryUpperCheck": CMD_BOUNDARY_UPPER_CHECK,
+    "BattleAbilityId.Leviathan": ABILITY_LEVIATHAN_ID, "SpecialEffect.Leviathan__Full": SPECIAL_LEVIATHAN_FULL,
+    "SpecialEffect.Special_Trance_Activate": SPECIAL_TRANCE_ACTIVATE})
+#: BattlePlayerCharacter.PlayerMotionIndex values the s134 bench reads off `battle.units[].mot` (a player's own motion index)
+MP_IDLE_NORMAL, MP_DAMAGE1, MP_DAMAGE2, MP_IDLE_CMD, MP_SET, MP_ATTACK = 0, 2, 3, 9, 20, 23
+
+#: `netsync.battle.act.guest` at AppendNetsync's catch-line sentinels, in AppendActGuest's key order (counts 0, ids / ms /
+#: knob / host_caps / rx_dropped / battle_ms -1, booleans false, strings and `last` null, the fixed sub-objects written out
+#: whole). The live block differs at rest only where the agent reads a static: `on` / `rework` / `knob` (the ini's
+#: ActionReplay, this machine's SFXRework: true / true / 1 with no lever pulled).
+ACT_GUEST_SENTINELS = {
+    "on": False, "why": None, "rework": False, "knob": -1, "host_caps": -1, "bit5": False,
+    "levers": {"replay_off": False, "rework_off": False, "shortcircuit_off": False, "knob": -1},
+    "inbox": 0, "starts_rx": 0, "ends_rx": 0, "started": 0, "queued": 0, "waiting": 0, "running": 0, "declined": 0,
+    "declined_why": None, "stale": 0, "backlog": 0, "superseded": 0, "noop": 0, "dropped": 0, "aborted": 0,
+    "abort_why": None, "aborts": {"pending": 0, "host_end": 0, "cap": 0, "actor": 0, "fault": 0, "leave": 0, "w3": 0, "r8": 0,
+                                  "clear": 0},
+    "discarded": {"pending": 0, "running": 0}, "ended": 0, "faulted": 0, "hits": 0, "credits": 0, "paired": 0, "swing_skipped": 0, "calc_while_booted": 0,
+    "var_refused": 0, "old_host": False, "grace": {"armed": 0, "mask": 0}, "hold_through": 0, "end_held": 0,
+    "rx_dropped": -1, "battle_ms": -1, "paused_ms": 0, "window": {"open": False, "restores": 0, "limited": 0},
+    "last": None,
+}
+#: `act.guest.last` (HarnessActLast: the last START received this boot), in AppendActGuest's order
+ACT_GUEST_LAST_KEYS = ("id", "actor", "cmd", "sub", "kind", "num", "speed", "state", "why", "arrive_ms", "launch_ms",
+                       "first_hit_ms", "end_ms", "hits")
+#: `battle.units[]`'s s134 keys, in AppendBattleUnits' order (after s115's `z`, before `status`)
+UNIT_ACT_KEYS = ("anim", "anim_frame", "away", "rot_y", "acting", "die_seq", "row")
+#: ActStateName: a record's state as `last.state` reads it
+ACT_STATE_NAMES = {ACT_ST_REGISTERED: "queued", ACT_ST_WAITING: "waiting", ACT_ST_RUNNING: "running",
+                   ACT_ST_ENDED: "ended", ACT_ST_DECLINED: "declined", ACT_ST_ABORTED: "aborted", ACT_ST_NOOP: "noop"}
+#: ActWhyName: a verdict's decline reason (anything else "go")
+ACT_WHY_NAMES = {ACT_WHY_KNOB: "knob", ACT_WHY_LEVER: "lever", ACT_WHY_REWORK: "rework", ACT_WHY_END: "end",
+                 ACT_WHY_LEAVE: "leave", ACT_WHY_STALE: "stale", ACT_WHY_BACKLOG: "backlog", ACT_WHY_ACTOR: "actor",
+                 ACT_WHY_HIDDEN: "hidden", ACT_WHY_DEAD: "dead", ACT_WHY_KIND: "kind", ACT_WHY_TRANSFORM: "transform",
+                 ACT_WHY_TARGET: "target", ACT_WHY_BUSY: "busy", ACT_NOOP: "noop"}
+#: ActWhyDetail: each early / decided decline's detail in the "declined" line ("" = none)
+ACT_WHY_DETAILS = {
+    ACT_WHY_KNOB: "[Netsync] ActionReplay=0 (or `actbench knob 0`)",
+    ACT_WHY_LEVER: "the `actbench replay off` lever: the pre-s134 guest",
+    ACT_WHY_REWORK: "this machine has no [Battle] SFXRework (the sequencer's Loop returns at once without it)",
+    ACT_WHY_END: "the end is already being presented",
+    ACT_WHY_LEAVE: "a Leave of the diorama is in flight",
+    ACT_WHY_STALE: "its END arrived before it launched -- the host already finished it",
+    ACT_WHY_BACKLOG: "drained in a backlog Update (before the boot's LIVE latch, or around a stale battle lane)",
+    ACT_WHY_ACTOR: "its actor has no local unit",
+    ACT_WHY_HIDDEN: "its actor is hidden here",
+    ACT_WHY_DEAD: "its actor is dead or dying and stock would not run this command",
+    ACT_WHY_KIND: "an unknown vfx kind",
+    ACT_WHY_TRANSFORM: "a monster-transform command",
+    ACT_WHY_TARGET: "its target mask maps to no local unit",
+    ACT_WHY_BUSY: f"{ACT_MAX_RUNNING} replays are already running",
+}
+#: the decline reasons a START can end on (`declined_why`): ActDecide's, then the lane's own
+ACT_DECLINE_REASONS = ("knob", "lever", "rework", "end", "leave", "stale", "backlog", "actor", "hidden", "dead", "kind",
+                       "transform", "target", "busy", "noop", "superseded", "timeout", "nosequence", "duplicate", "fault",
+                       "clear", "w3", "r8")
+#: the abort reasons (`abort_why`), in NetSyncDiorama.ActAbortReasons' order -- `act.guest.aborts` counts each under its key
+ACT_ABORT_REASONS = ("pending", "host-end", "cap", "actor", "fault", "leave", "w3", "r8", "clear")
+#: `act.guest.aborts`' keys (AppendActGuest's order: each reason, `-` as `_`)
+ACT_ABORTS_KEYS = tuple(r.replace("-", "_") for r in ACT_ABORT_REASONS)
+#: the aborts an END presentation owns (R8, W3 or its hold's break, a Leave) -- every other reason is a mid-battle timing
+#: failure (`pending` / `host-end` / `cap`) or a defect (`actor` / `fault`); `clear` is the bench's own
+ACT_END_ABORTS = ("r8", "w3", "leave")
+#: `actbench <op>` -- the GUEST half's ops (NetSyncDiorama.IsActGuestBenchOp, routed BEFORE s133's HarnessActBench); `tape`
+#: is one only with the value `play`
+ACT_GUEST_BENCH_OPS = ("feed", "feedat", "replay", "rework", "shortcircuit", "knob", "clear", "teardown")
+#: the engine's words (each a C# literal of the stack, or its head)
+LOG_REPLAY = "[NetSync] action replay: "
+LOG_REPLAY_OLD_HOST = ("[NetSync] action replay: host predates action replay -- its impacts carry no action id (no 0xA6 "
+                       "extension), so every impact takes the legacy route (numbers, the flinch, the player MP_ATTACK swing; "
+                       "logged once per boot)")
+LOG_REPLAY_DECLINED = "[NetSync] action replay: declined "
+LOG_REPLAY_NOOP = "[NetSync] action replay: noop -- id "
+LOG_REPLAY_STARTED = "[NetSync] action replay: started id "
+LOG_REPLAY_ABORTED = "[NetSync] action replay: ABORTED id "
+LOG_REPLAY_WINDOW = "[NetSync] action replay: busy window closed after an abort -- "
+LOG_REPLAY_DISCARD = "[NetSync] action replay: ActDiscardAll ("
+LOG_REPLAY_SUMMARY = "[NetSync] action replay: boot summary ("
+LOG_REPLAY_TRIPWIRE = ("[NetSync] action replay: TRIPWIRE -- the battle calculator ran while a diorama is booted "
+                       "(calc_while_booted=")
+LOG_REPLAY_FAULTED = " faulted in the sequencer -- released and aborted (`fault`; logged once per boot): "
+LOG_REPLAY_TICK_FAILED = ("[NetSync] action replay tick failed (logged once per boot; the teardown still discards every "
+                          "replay): ")
+LOG_REPLAY_END_WAITS = " acting replay(s) -- the stock tail would hide or settle a unit mid-replay; held at most "
+LOG_REPLAY_NO_SHORT = (" runs WITHOUT the short-circuit -- CALIBRATION: its hits reach the battle calculator (the tripwire's "
+                       "red; the selftest save only)")
+LOG_REPLAY_BENCH = "[NetSync] harness: action replay bench -- "
+LOG_REPLAY_OFF = ("[NetSync] harness: action replay OFF -- CALIBRATION: the pre-s134 guest (every START declines `lever`, "
+                  "impacts take the legacy route)")
+LOG_REPLAY_ON = "[NetSync] harness: action replay ON"
+LOG_REPLAY_REWORK_OFF = "[NetSync] harness: action replay sees NO SFXRework -- every START declines `rework`"
+LOG_REPLAY_REWORK_ON = "[NetSync] harness: action replay sees this machine's own [Battle] SFXRework"
+LOG_REPLAY_SHORT_OFF = ("[NetSync] harness: action replay short-circuit OFF for the NEXT replay -- CALIBRATION: its hits reach "
+                        "the battle calculator (the tripwire's red; the selftest save only)")
+LOG_REPLAY_SHORT_ON = "[NetSync] harness: action replay short-circuit ON"
+LOG_REPLAY_KNOB = "[NetSync] harness: action replay knob "
+LOG_REPLAY_CLEARED = "[NetSync] harness: action replay bench cleared ("
+LOG_REPLAY_LEVERS_BACK = ("[NetSync] harness: action replay levers back (replay ON, the machine's own SFXRework, the "
+                          "short-circuit ON, the ini's ActionReplay; released with the harness)")
+LOG_REPLAY_INBOX_EMPTIED = "[NetSync] harness: action replay inbox emptied ("
+
+
+# ---- the pure decisions (each NetSyncDiorama's method of the same name, its parameters in its order)
+def act_battle_delta(delta: int, paused_prev: bool, paused_now: bool) -> int:
+    """NetSyncDiorama.ActBattleDelta -- THE BATTLE CLOCK's step (audit 3.5): ``delta`` wall ms since the previous read count
+    unless BOTH reads were paused (the EndWatchdogs rule: a span is skipped only between two paused reads, never
+    inflated); a negative delta counts nothing."""
+    if delta <= 0 or (paused_prev and paused_now):
+        return 0
+    return int(delta)
+
+
+def act_backlog_transport(live_latched: bool, lane_live_now: bool, lane_live_prev: bool) -> bool:
+    """NetSyncDiorama.ActBacklogTransport (audit amendment 5): the transport drain's Update is a BACKLOG before the boot's
+    LIVE latch, while the battle lane is stale, or in the Update the lane went stale -> live."""
+    return not live_latched or not lane_live_now or not lane_live_prev
+
+
+def act_backlog_bench(normal_latched: bool, live_latched: bool, bench_edge: bool) -> bool:
+    """NetSyncDiorama.ActBacklogBench: the selftest bench drain's backlog -- before the boot's steady (or LIVE) latch, or
+    the Update after a bench-feed lane edge."""
+    return (not normal_latched and not live_latched) or bool(bench_edge)
+
+
+#: ActDecideIn's fields (snake_cased), the struct ActDecide reads
+ACT_DECIDE_FIELDS = ("knob_off", "lever_off", "no_rework", "end_presented", "leaving", "stale", "backlog", "actor_missing",
+                     "actor_hidden", "dead_or_dying", "actor_linked", "monster_transform", "cmd_no", "die_seq", "kind",
+                     "mapped_tar", "running")
+
+
+def act_decide_in(**kw) -> dict:
+    """``new ActDecideIn()`` -- every field at its default (false / 0), then ``kw`` (snake_cased field names)."""
+    d = {f: (0 if f in ("cmd_no", "die_seq", "kind", "mapped_tar", "running") else False) for f in ACT_DECIDE_FIELDS}
+    bad = set(kw) - set(d)
+    if bad:
+        raise KeyError(f"act_decide_in: no field {sorted(bad)}")
+    d.update(kw)
+    return d
+
+
+def act_dead_may_run(cmd_no: int, die_seq: int, linked: bool) -> bool:
+    """NetSyncDiorama.ActDeadMayRun (review F3): stock lets a Death-status caster run cmd_no 54-99 (EnemyDying,
+    EnemyReaction, the Sys* ids); the replay mirrors that while die_seq < 5 and the actor is still linked."""
+    return CMD_ENEMY_COUNTER < int(cmd_no) <= CMD_BOUNDARY_UPPER_CHECK and int(die_seq) < 5 and bool(linked)
+
+
+def act_decide(d: dict) -> int:
+    """NetSyncDiorama.ActDecide -- THE DECISION, in the amended order: knob, lever, rework, end, leave, stale, backlog,
+    actor, hidden, dead (unless stock would run it), kind, transform, target; then NOOP for kind none; then the running
+    cap; else go."""
+    if d["knob_off"]:
+        return ACT_WHY_KNOB
+    if d["lever_off"]:
+        return ACT_WHY_LEVER
+    if d["no_rework"]:
+        return ACT_WHY_REWORK
+    if d["end_presented"]:
+        return ACT_WHY_END
+    if d["leaving"]:
+        return ACT_WHY_LEAVE
+    if d["stale"]:
+        return ACT_WHY_STALE
+    if d["backlog"]:
+        return ACT_WHY_BACKLOG
+    if d["actor_missing"]:
+        return ACT_WHY_ACTOR
+    if d["actor_hidden"]:
+        return ACT_WHY_HIDDEN
+    if d["dead_or_dying"] and not act_dead_may_run(d["cmd_no"], d["die_seq"], d["actor_linked"]):
+        return ACT_WHY_DEAD
+    if d["kind"] > VFX_KIND_COMMON:
+        return ACT_WHY_KIND
+    if d["monster_transform"]:
+        return ACT_WHY_TRANSFORM
+    if d["mapped_tar"] == 0:
+        return ACT_WHY_TARGET
+    if d["kind"] == VFX_KIND_NONE:
+        return ACT_NOOP
+    if d["running"] >= ACT_MAX_RUNNING:
+        return ACT_WHY_BUSY
+    return ACT_GO
+
+
+def act_why_name(why: int) -> str:
+    """NetSyncDiorama.ActWhyName."""
+    return ACT_WHY_NAMES.get(int(why), "go")
+
+
+def act_stance_gate(player: bool, monster_transform: bool, cmd_no: int) -> bool:
+    """NetSyncDiorama.ActStanceGate (audit amendment 2): MP_IDLE_CMD at the launch for a player, not monster-transformed,
+    whose cmd_no <= RushAttack or > BoundaryUpperCheck -- the host's SELECT_VFX gate (no Sys* stance)."""
+    return bool(player) and not monster_transform and (int(cmd_no) <= CMD_RUSH_ATTACK
+                                                       or int(cmd_no) > CMD_BOUNDARY_UPPER_CHECK)
+
+
+def act_cmd_motion_filter(include_sys_cmd: bool, cmd_no: int) -> bool:
+    """NetSyncDiorama.ActCmdMotionFilter: btl_util.IsBtlUsingCommandMotion's stock cmd_no filter (audit amendment 1)."""
+    return bool(include_sys_cmd) or int(cmd_no) <= CMD_ENEMY_REACTION or int(cmd_no) >= CMD_SCRIPT_COUNTER1
+
+
+def act_abort_why(actor_gone: bool, host_ended: bool, host_end_ms: int, now_ms: int, wall_ms: int) -> str | None:
+    """NetSyncDiorama.ActAbortWhy: a running replay is aborted when its actor is gone, at the host's END + 6 s (battle
+    time), or past the 90 s WALL cap; None = it runs on."""
+    if actor_gone:
+        return "actor"
+    if host_ended and now_ms - host_end_ms > ACT_HOST_END_ABORT_MS:
+        return "host-end"
+    if wall_ms > ACT_WALL_CAP_MS:
+        return "cap"
+    return None
+
+
+def act_pending_abort_due(wait_since_ms: int, now_ms: int) -> bool:
+    """NetSyncDiorama.ActPendingAbortDue: a parked START hard-aborts its actor's command-motion replay once it waited
+    1500 ms of battle time."""
+    return now_ms - wait_since_ms >= ACT_PENDING_ABORT_MS
+
+
+def act_restore_scope(aborted: bool, end_injected: bool) -> int:
+    """NetSyncDiorama.ActRestoreScope (audit 3.2 / amendment 9): nothing after a natural end; the full restore after an
+    abort; only the shared lanes once an end was injected."""
+    if not aborted:
+        return ACT_RESTORE_NONE
+    return ACT_RESTORE_LIMITED if end_injected else ACT_RESTORE_FULL
+
+
+def act_end_hold_step(hold_kind: bool, acting: bool, held_ms: int) -> int:
+    """NetSyncDiorama.ActEndHoldStep (audit D02): the run-away / the annihilation's MENU_OFF settle waits while a replay
+    acts, at most W3 of battle time; past it every replay is aborted and the end injects."""
+    if not hold_kind or not acting:
+        return ACT_END_NO_HOLD
+    return ACT_END_ABORT_THEN_INJECT if held_ms >= ACT_W3_MS else ACT_END_HOLD
+
+
+def act_cursor_bit_after(current: int, snap_bit: int, limited: bool) -> int:
+    """NetSyncDiorama.ActCursorBitAfter: the FULL restore puts back cmd_status bit 1 as the busy window opened with it (an
+    abort between a sequence's `&65533` and its `|2` would strand the target pointers hidden); the LIMITED restore leaves
+    it (InjectEnd cleared it on purpose)."""
+    return int(current) & 0xFFFF if limited else ((int(current) & ~2) | (int(snap_bit) & 2)) & 0xFFFF
+
+
+def act_restores_disappear(player: bool, dead: bool) -> bool:
+    """NetSyncDiorama.ActRestoresDisappear: the full restore's disappear -- every unit's but an ENEMY that died during the
+    window (its fade stays); a dead player's body is shown again."""
+    return bool(player) or not dead
+
+
+def act_pre_inject_mask(aborted: int, running: int) -> int:
+    """NetSyncDiorama.ActPreInjectMask: right before an end injection, the units of replays aborted before it that no
+    still-running replay acts with are restored."""
+    return int(aborted) & ~int(running)
+
+
+def act_end_hold_breaks(holding: bool, block_now: bool, hold_kind_now: bool) -> bool:
+    """NetSyncDiorama.ActEndHoldBreaks: a waiting hold whose host block is gone (a stale lane) or no longer asks for a
+    holding presentation (a flee's CLOSE+ESCAPE) injects what it HELD at once."""
+    return bool(holding) and (not block_now or not hold_kind_now)
+
+
+def act_sfx_drop_plan(running: int, is_load_cur: bool, use_camera: bool, load_has_ended: bool) -> int:
+    """NetSyncDiorama.ActSfxDropPlan: one SFX of a hard-aborted replay -- a playing one is the release's (keep); any other
+    is cancelled, and a camera SFX that is LoadCur with its load ended (it holds SFXData.lockLoading) is unlocked too."""
+    if int(running) > 0:
+        return ACT_SFX_KEEP
+    return ACT_SFX_CANCEL | (ACT_SFX_UNLOCK if is_load_cur and use_camera and load_has_ended else ACT_SFX_KEEP)
+
+
+def act_grace_arms(bit5: bool, can_replay: bool, caster_is_player: bool, target_is_player: bool, die_atk: bool,
+                   already_dead: bool) -> bool:
+    """NetSyncDiorama.ActGraceArms (amendment 8, D10): the host advertised bit 5, this guest can replay, a lethal impact
+    from a PLAYER caster on an AttackOnDeath enemy that is not dead yet -- nothing less."""
+    return bool(bit5 and can_replay and caster_is_player and not target_is_player and die_atk and not already_dead)
+
+
+def act_cmd_status_for(current: int, wanted: int) -> int:
+    """NetSyncDiorama.ActCmdStatusFor: a replay's SetVariable may change only bit 1 of cmd_status (UInt16)."""
+    return ((int(current) & ~2) | (int(wanted) & 2)) & 0xFFFF
+
+
+def act_map_mask_with(wire: int, resolve) -> int:
+    """NetSyncDiorama.ActMapMaskWith: a host wire mask (bits 0-3 its compacted players, 4-7 its enemy slots) onto local
+    btl_ids through ``resolve`` (wire index -> local btl_id, 0 = none)."""
+    m = 0
+    for i in range(8):
+        if int(wire) & (1 << i):
+            m |= int(resolve(i))
+    return m & 0xFFFF
+
+
+class ActRec:
+    """NetSyncDiorama.ActRec -- one START, from its arrival to its end (the fields the book, the decision and the stand-in
+    read; the CMD_DATA / sequencer half is the engine's alone)."""
+
+    def __init__(self, act_id: int, nonce: int, actor_slot: int, actor_flags: int = ACTOR_IS_PLAYER, *,
+                 cmd_no: int = CMD_ATTACK_ID, sub_no: int = 0, tar_id: int = 0, cursor: int = 0, info: int = 0,
+                 magic_caster: int = 0, vfx_kind: int = VFX_KIND_SPECIAL, vfx_num: int = 0, patched_vfx: int = -1,
+                 host_speed: int = 5, host_seq: int = 0, state: int = ACT_ST_REGISTERED):
+        self.id = _act_u16(act_id)
+        self.nonce = _act_u8(nonce)
+        self.key = ActBook.key_of(self.nonce, self.id)
+        self.host_seq = _act_u16(host_seq)
+        self.actor_slot, self.actor_flags = _act_u8(actor_slot), _act_u8(actor_flags)
+        self.cmd_no, self.sub_no, self.tar_id = _act_u16(cmd_no), int(sub_no), _act_u16(tar_id)
+        self.cursor, self.info, self.magic_caster = _act_u8(cursor), _act_u8(info), _act_u16(magic_caster)
+        self.vfx_kind, self.vfx_num, self.patched_vfx = _act_u8(vfx_kind), int(vfx_num), int(patched_vfx)
+        self.host_speed = _act_u8(host_speed)
+        self.state = state
+        self.why = None
+        self.stale = self.backlog = self.bench = self.host_ended = self.faulted = False
+        self.no_short_circuit = self.row_switched = False
+        self.arrive_ms, self.wait_since_ms, self.launch_ms, self.first_hit_ms = 0, -1, -1, -1
+        self.end_ms = self.host_end_ms = -1
+        self.launch_wall = 0
+        self.hits = self.credits = 0
+        self.impact_mask = 0
+        self.frames = 0                          # (the stand-in's model: frames since its launch)
+        self.actor = None                        # (the stand-in's model: the resolved actor unit)
+        self.targets = []                        # (the stand-in's model: the resolved target units)
+
+    @classmethod
+    def from_start(cls, a: dict) -> "ActRec":
+        """ActRegisterStart's record: a parsed START (:func:`decode_action` / :func:`read_action_ext`)."""
+        return cls(a["act_id"], a["nonce"], a["actor_slot"], a["actor_flags"], cmd_no=a["act_cmd_no"],
+                   sub_no=a["act_sub_no"], tar_id=a["act_tar_id"], cursor=a["act_cursor"], info=a["act_info"],
+                   magic_caster=a["act_magic_caster"], vfx_kind=a["vfx_kind"], vfx_num=a["vfx_num"],
+                   patched_vfx=a["act_patched_vfx"], host_speed=a["host_speed"], host_seq=a["seq_horizon"])
+
+    @property
+    def is_player(self) -> bool:
+        return bool(self.actor_flags & ACTOR_IS_PLAYER)
+
+    @property
+    def scripted(self) -> bool:
+        return bool(self.actor_flags & ACTOR_SCRIPTED)
+
+    @property
+    def monster_transform(self) -> bool:
+        return bool(self.actor_flags & ACTOR_MONSTER_TRANSFORM)
+
+    @property
+    def pending(self) -> bool:
+        return self.state in (ACT_ST_REGISTERED, ACT_ST_WAITING)
+
+    @property
+    def covers_swing(self) -> bool:
+        """An impact of this action skips the legacy swing: a replay is, was or will be its clip -- or none at all (NOOP)."""
+        return self.state in (ACT_ST_REGISTERED, ACT_ST_WAITING, ACT_ST_RUNNING, ACT_ST_ENDED, ACT_ST_NOOP)
+
+
+class ActBook:
+    """NetSyncDiorama.ActBook -- THE BOOK (pure; the selftest drives fresh ones): every record of this boot by key, and
+    the records not yet decided or launched, in arrival order. ``register_start`` / ``host_end`` are the two-step drain's
+    first step; ``park`` is the per-actor pending slot."""
+
+    def __init__(self) -> None:
+        self.by_id: dict = {}
+        self.queue: list = []
+        self._order: list = []
+
+    @staticmethod
+    def key_of(nonce: int, act_id: int) -> int:
+        """ActBook.KeyOf(Byte nonce, UInt16 id): ``(nonce << 16) | id``."""
+        return (_act_u8(nonce) << 16) | _act_u16(act_id)
+
+    def register_start(self, r: ActRec) -> bool:
+        """Step one of the drain for a START: False = a duplicate key (not registered)."""
+        if r.key in self.by_id:
+            return False
+        self._trim()
+        self.by_id[r.key] = r
+        self._order.append(r.key)
+        self.queue.append(r)
+        return True
+
+    def host_end(self, key: int, now: int) -> ActRec | None:
+        """Step one of the drain for an END: a record not yet launched turns STALE; a running one is marked host-ended at
+        ``now`` (the END + 6 s abort). None = no such START this boot."""
+        r = self.by_id.get(key)
+        if r is None:
+            return None
+        if r.pending:
+            r.stale = True
+        if not r.host_ended:
+            r.host_ended = True
+            r.host_end_ms = int(now)
+        return r
+
+    def find(self, key: int) -> ActRec | None:
+        return self.by_id.get(key)
+
+    def park(self, r: ActRec, now: int) -> ActRec | None:
+        """The per-actor pending slot: ``r`` waits from ``now``; an older WAITING record of the same actor (slot and side)
+        is SUPERSEDED -- returned for its decline."""
+        older = next((q for q in self.queue if q is not r and q.state == ACT_ST_WAITING and q.actor_slot == r.actor_slot
+                      and q.is_player == r.is_player), None)
+        r.state = ACT_ST_WAITING
+        r.wait_since_ms = int(now)
+        return older
+
+    def settle(self, r: ActRec) -> None:
+        if r in self.queue:
+            self.queue.remove(r)
+
+    def clear(self) -> None:
+        self.by_id.clear()
+        self.queue.clear()
+        self._order.clear()
+
+    def _trim(self) -> None:
+        """At most ACT_BOOK_CAP records: the oldest FINISHED ones go first (a live one is never dropped)."""
+        i = 0
+        while len(self.by_id) >= ACT_BOOK_CAP and i < len(self._order):
+            r = self.by_id.get(self._order[i])
+            if r is not None and (r.pending or r.state == ACT_ST_RUNNING):
+                i += 1
+                continue
+            self.by_id.pop(self._order[i], None)
+            del self._order[i]
+
+
+def act_parse_hex_frames(text) -> tuple:
+    """NetSyncDiorama.ActParseHexFrames: ``hex[,hex...]`` -> ``(frames, why)`` -- each frame an even run of 92-8192 hex
+    digits (46-4096 bytes); why = the engine's refusal (None = parsed)."""
+    frames = []
+    for raw in str(text or "").split(","):
+        h = raw.strip()
+        if len(h) < ACT_HEX_MIN or len(h) > ACT_HEX_MAX or len(h) & 1:
+            return [], "netsync actbench feed: each frame is an even run of 92-8192 hex digits (46-4096 bytes)"
+        for i in range(0, len(h), 2):
+            pair = h[i:i + 2]
+            if any(c not in "0123456789abcdefABCDEF" for c in pair):
+                return [], f"netsync actbench feed: '{pair}' is not hex"
+        frames.append(bytes.fromhex(h))
+    return frames, None
+
+
+def act_feed_arg(frames) -> str:
+    """The ``hex[,hex...]`` argument of `actbench feed|feedat` for ``frames`` (one feed = one drain)."""
+    return ",".join(action_hex(f) for f in frames)
+
+
+def act_tape_play_due(offsets, now_ms: int, pct: int = 100) -> list:
+    """`actbench tape play [pct]`'s due times: each frame's offset from the FIRST, scaled by 100 / pct (C#'s Int64 product
+    and integer division), from ``now_ms``."""
+    if not offsets:
+        return []
+    base = offsets[0]
+    return [int(now_ms) + int((int(ms) - base) * 100 // int(pct)) for ms in offsets]
+
+
+class ActGuestLane:
+    """[ff9mapkit netsync s134] The GUEST's action replay as NetSyncDiorama.Replay.cs runs it, with its statics -- the
+    stand-in's model. MODELLED, through the twins above: the per-boot reset (ActResetForBoot), the selftest levers and their
+    role gate (`replay|rework|shortcircuit on|off`, `knob 0|1|ini`; ActBenchRelease), the bench inbox (`feed|feedat|tape
+    play`, ActParseHexFrames, the 2048 cap), the bench drain (ActionTickBench: the steady gate, the backlog verdict) and its
+    route (ActRouteFrame: a START registers -- the early declines --, an END marks its record stale / host-ended, an impact
+    pairs with the record its id names: `paired`, `swing_skipped`, an old host's 46-byte impact: `old_host`), the battle
+    clock (ActBattleDelta over the caller's clock and pause), the tick (ActTick: the R8 / W3 aborts, the running replays'
+    natural end / END+6 s / the 90 s cap / a gone actor, the queue's decide / park / supersede / timeout / pending abort /
+    launch), the busy window's close (ActRestoreScope; the restore itself is counted, not performed), ActAbortAll,
+    ActDiscardAll, the counters (each abort by its reason -- `aborts` --, the parked STARTs an abort-all drops -- `dropped`
+    --, a teardown's drops -- `discarded`) and `last`, and every Log.Message line (each with its "[NetSync] " head, in
+    :attr:`lines`). The aborts are judged every tick, paused too (the engine's ActCheckRunning); the sequencer frame is not.
+    NOT MODELLED -- the stand-in has no sequencer, no SFX and no BTL_DATA motion: a launched replay RUNS
+    :attr:`REPLAY_FRAMES` frames and HITS each of its mapped targets once at :attr:`HIT_FRAME` (ActOnHit's counts and
+    credits; a Change replay flips its actor's row there; a `shortcircuit off` replay's hits fall through to the
+    tripwire, `calc_while_booted` +1 each); its actor's `anim` is a SHAPE (``ACT_<kind>_<num>`` while acting, ``IDLE``
+    otherwise), `away` a triangle peaking at :attr:`AWAY_PEAK` at the hit for a player's short-range Attack; no
+    `nosequence` (every kind 1-4 runs), no fault, no zombie, no SFX loader, no hold-through, no run-away hold (`end_held`) and
+    no hold break, no pre-injection restore, no death-attack grace (no
+    AttackOnDeath enemy: `grace` stays 0), no `var_refused`, no transport (`rx_dropped` -1); an applied impact's figures,
+    flinch and HP/MP writes are not modelled (its pairing is)."""
+
+    REPLAY_FRAMES = 30
+    HIT_FRAME = 15
+    AWAY_PEAK = 600.0
+
+    def __init__(self) -> None:
+        self.action_replay = True                # [Netsync] ActionReplay (the ini's; default 1)
+        self.sfx_rework = True                   # this machine's [Battle] SFXRework
+        self.bench_replay_off = False
+        self.bench_rework_off = False
+        self.bench_short_off = False
+        self.bench_knob = -1
+        self.inbox: list = []                    # [[due_ms, bytes]]
+        self.lines: list = []
+        self.last = None
+        self.restores = self.restores_limited = 0
+        self.rows: dict = {}                     # (the stand-in's model: a Change replay's row flips, by unit slot)
+        self.swings: dict = {}                   # (the stand-in's model: a legacy swing's frames left, by unit slot)
+        self.reset_for_boot(True)
+
+    # -- the role-gated levers (ActLeverOff / ActReworkOn / ActKnobOn / ActCanReplay)
+    def knob_on(self, role: bool) -> bool:
+        return self.bench_knob != 0 if (self.bench_knob >= 0 and role) else bool(self.action_replay)
+
+    def lever_off(self, role: bool) -> bool:
+        return self.bench_replay_off and bool(role)
+
+    def rework_on(self, role: bool) -> bool:
+        return bool(self.sfx_rework) and not (self.bench_rework_off and role)
+
+    def can_replay(self, role: bool) -> bool:
+        return self.knob_on(role) and not self.lever_off(role) and self.rework_on(role)
+
+    def why_not(self, role: bool) -> str | None:
+        """HarnessActGuestWhy."""
+        return "knob" if not self.knob_on(role) else "lever" if self.lever_off(role) else \
+            "rework" if not self.rework_on(role) else None
+
+    def _log(self, text: str) -> None:
+        self.lines.append(text)
+
+    # -- the per-boot reset
+    def reset_for_boot(self, counters: bool) -> None:
+        """ActResetForBoot: the boot block (``counters`` true), Boot's catch and ActDiscardAll (false: the counters stay
+        readable after the teardown). The levers are harness-scoped, never per boot."""
+        self.book = ActBook()
+        self.running: list = []
+        self.inbox = []
+        self.decline_logged: list = []
+        self.last = None if counters else self.last
+        self.now_ms = 0
+        self.clock_last = None
+        self.clock_paused = False
+        self.bit5 = False
+        self.host_caps = -1
+        self.lane_seen = False
+        self.bench_edge = False
+        self.grace_mask = 0
+        self.end_inject_ms = -1
+        self.end_hold_since = -1
+        self.window_open = self.window_aborted = False
+        self.window_row_mask = 0
+        self.start_logged = self.abort_logged = 0
+        self.old_host_logged = self.trip_logged = False
+        if not counters:
+            return
+        # (the stand-in's unit shapes: a diorama BOOT's new units -- ActDiscardAll / `actbench teardown` keeps them, as the
+        # engine's ActResetForBoot never touches a unit row)
+        self.rows = {}
+        self.swings = {}
+        self.paused_ms = 0
+        self.aborts_by = dict.fromkeys(ACT_ABORT_REASONS, 0)
+        self.dropped = self.discarded_pending = self.discarded_running = 0
+        self.starts_rx = self.ends_rx = self.started = self.declined = self.stale = self.backlog = 0
+        self.superseded = self.noop = self.aborted = self.ended = self.faulted = self.hits = self.credits = 0
+        self.paired = self.swing_skipped = self.calc_while_booted = self.grace_armed = self.hold_through = 0
+        self.end_held = self.restores = self.restores_limited = self.var_refused = 0
+        self.declined_why = self.abort_why = None
+        self.old_host = False
+        self.rx_dropped = -1
+
+    @property
+    def live(self) -> bool:
+        """ActLive: a replay CMD_DATA is registered."""
+        return bool(self.running)
+
+    # -- the bench (HarnessActGuestBench)
+    @staticmethod
+    def is_bench_op(op: str, value: str) -> bool:
+        """NetSyncDiorama.IsActGuestBenchOp."""
+        return op in ACT_GUEST_BENCH_OPS or (op == "tape" and value == "play")
+
+    def bench(self, args: list, *, booted: bool, role: bool, tape=None) -> tuple:
+        """HarnessActGuestBench(args) -> ``(ok, why)`` in the engine's words; ``args`` the verb's whole list (args[0] =
+        "actbench"); ``tape`` = the host lane's tape [(ms, bytes)] (NetSyncBattle.ActTapeCopy) for `tape play`."""
+        if not role:
+            return False, "netsync actbench: needs the selftest role (netsync selftest 1)"
+        op = str(args[1]).lower() if len(args) > 1 else ""
+        val = str(args[2]).lower() if len(args) > 2 else ""
+        if op in ("feed", "feedat"):
+            ms = 0
+            if op == "feed":
+                if len(args) != 3:
+                    return False, "netsync actbench feed: expected `feed <hex[,hex...]>`"
+                text = args[2]
+            else:
+                ms = _cs_int(args[2]) if len(args) == 4 else None
+                if ms is None or ms < 0 or ms > ACT_FEEDAT_MAX_MS:
+                    return False, "netsync actbench feedat: expected `feedat <ms 0-600000> <hex[,hex...]>`"
+                text = args[3]
+            if not booted:
+                return False, f"netsync actbench {op}: needs a booted battle diorama (`netsync dioboot <scene>`)"
+            frames, why = act_parse_hex_frames(text)
+            if why is not None:
+                return False, why
+            if len(self.inbox) + len(frames) > ACT_INBOX_CAP:
+                return False, (f"netsync actbench {op}: the bench inbox holds at most {ACT_INBOX_CAP} frames "
+                               f"({len(self.inbox)} queued)")
+            for f in frames:
+                self.inbox.append([self.now_ms + ms, f])
+            self._log(f"{LOG_REPLAY_BENCH}{len(frames)} frame(s) into the inbox, due "
+                      + ("now" if ms == 0 else f"in {ms} ms of battle time") + f" ({len(self.inbox)} queued)")
+            return True, None
+        if op == "tape":
+            pct = _cs_int(args[3]) if len(args) == 4 else 100
+            if val != "play" or len(args) > 4 or pct is None or (len(args) == 4 and not
+                                                                  ACT_PLAY_PCT_MIN <= pct <= ACT_PLAY_PCT_MAX):
+                return False, "netsync actbench tape play: expected `tape play [pct 1-1000]`"
+            if not booted:
+                return False, "netsync actbench tape play: needs a booted battle diorama (`netsync dioboot <scene>`)"
+            tape = list(tape or [])
+            if not tape:
+                return False, "netsync actbench tape play: the tape is empty (`actbench tape rec` during an own battle first)"
+            if len(self.inbox) + len(tape) > ACT_INBOX_CAP:
+                return False, (f"netsync actbench tape play: the bench inbox holds at most {ACT_INBOX_CAP} frames "
+                               f"({len(self.inbox)} queued)")
+            dues = act_tape_play_due([ms for ms, _f in tape], self.now_ms, pct)
+            for due, (_ms, f) in zip(dues, tape):
+                self.inbox.append([due, bytes(f)])
+            self._log(f"{LOG_REPLAY_BENCH}the action tape ({len(tape)} frame(s), {tape[-1][0] - tape[0][0]} ms) plays "
+                      f"into the inbox at {pct}% speed")
+            return True, None
+        if op in ("replay", "rework", "shortcircuit"):
+            if len(args) != 3 or val not in ("on", "off"):
+                return False, f"netsync actbench {op}: expected `{op} on|off`"
+            off = val == "off"
+            if op == "replay":
+                self.bench_replay_off = off
+                self._log(LOG_REPLAY_OFF if off else LOG_REPLAY_ON)
+            elif op == "rework":
+                self.bench_rework_off = off
+                self._log(LOG_REPLAY_REWORK_OFF if off else LOG_REPLAY_REWORK_ON)
+            else:
+                self.bench_short_off = off
+                self._log(LOG_REPLAY_SHORT_OFF if off else LOG_REPLAY_SHORT_ON)
+            return True, None
+        if op == "knob":
+            if len(args) != 3 or val not in ("0", "1", "ini"):
+                return False, "netsync actbench knob: expected `knob 0|1|ini`"
+            self.bench_knob = -1 if val == "ini" else 1 if val == "1" else 0
+            self._log(LOG_REPLAY_KNOB + (f"back to [Netsync] ActionReplay ({1 if self.action_replay else 0})"
+                                         if val == "ini" else f"{val} for this process (Memoria.ini untouched)"))
+            return True, None
+        if op in ("clear", "teardown"):
+            if len(args) != 2:
+                return False, f"netsync actbench {op}: takes no argument"
+            if not booted:
+                return False, f"netsync actbench {op}: needs a booted battle diorama"
+            if op == "clear":
+                n = len(self.inbox)
+                self.inbox = []
+                self.abort_all("clear", booted=True)
+                self._log(f"{LOG_REPLAY_CLEARED}{n} inbox frame(s) dropped; every replay aborted)")
+            else:
+                self.discard_all("teardown (bench)")
+            return True, None
+        return False, f"netsync actbench: unknown op '{op}'"
+
+    def release(self) -> None:
+        """ActBenchRelease (HarnessReleaseBench's s134 half): every lever back, the inbox emptied."""
+        if self.bench_replay_off or self.bench_rework_off or self.bench_short_off or self.bench_knob >= 0:
+            self._log(LOG_REPLAY_LEVERS_BACK)
+        self.bench_replay_off = self.bench_rework_off = self.bench_short_off = False
+        self.bench_knob = -1
+        if self.inbox:
+            self._log(f"{LOG_REPLAY_INBOX_EMPTIED}{len(self.inbox)} frame(s); released with the harness)")
+        self.inbox = []
+
+    # -- the clock, the latch, the lane edge
+    def clock(self, now_ms: int, paused: bool) -> None:
+        """ActTick's clock: the caller's monotonic ms (the stand-in's virtual one) through ActBattleDelta."""
+        if self.clock_last is None:
+            self.clock_last, self.clock_paused = int(now_ms), bool(paused)
+            return
+        delta = int(now_ms) - self.clock_last
+        self.now_ms += act_battle_delta(delta, self.clock_paused, paused)
+        if self.clock_paused and paused and delta > 0:
+            self.paused_ms += delta
+        self.clock_last, self.clock_paused = int(now_ms), bool(paused)
+
+    def latch_caps(self, caps: int, booted: bool) -> None:
+        """ActLatchCaps: OR the host's header flags into this boot's latch (never cleared by a null view)."""
+        if caps is None or caps < 0 or not booted:
+            return
+        self.host_caps = int(caps) & 0xFF
+        if caps & CAP_ACTION_STARTS:
+            self.bit5 = True
+
+    def lane_tick(self, live: bool, role: bool, caps: int = -1, booted: bool = True) -> None:
+        """ActLaneTick (LiveTick's half): the latch from a live view, and the lane edge the bench drain reads."""
+        if live:
+            self.latch_caps(caps, booted)
+        if live and not self.lane_seen and role:
+            self.bench_edge = True
+        self.lane_seen = bool(live)
+
+    # -- the drain (ActionTickBench + ActRouteFrame)
+    def drain_bench(self, ctx: dict) -> None:
+        """ActionTickBench: ``ctx`` = {booted, role, steady, normal_latched, live_latched, ...} (see :meth:`route`)."""
+        if not ctx.get("booted"):
+            return
+        edge, self.bench_edge = self.bench_edge, False
+        if not self.inbox:
+            return
+        if not ctx.get("role"):
+            self.inbox = []
+            return
+        if not ctx.get("steady"):
+            return
+        backlog = act_backlog_bench(ctx.get("normal_latched", False), ctx.get("live_latched", False), edge)
+        i = 0
+        while i < len(self.inbox):
+            due, frame = self.inbox[i]
+            if due > self.now_ms:
+                i += 1
+                continue
+            del self.inbox[i]
+            a = parse_action(frame)
+            if a is None:
+                continue
+            self.route(frame, a, backlog, True, ctx)
+
+    def route(self, payload: bytes, a: dict, backlog: bool, bench: bool, ctx: dict) -> None:
+        """ActRouteFrame: the extension read; a START registers, an END marks its record, anything else applies with the
+        record its id names (``ctx["resolve"](wire_index, is_player)`` -> a unit dict or None)."""
+        ext = read_action_ext(payload, a)
+        if a["is_start"]:
+            self._register_start(a, backlog, bench, ctx)
+            return
+        if a["is_end"]:
+            self.ends_rx += 1
+            self.book.host_end(ActBook.key_of(a["nonce"], a["act_id"]), self.now_ms)
+            return
+        rec = None
+        if a["has_ext"] and a["ext_kind"] == ACT_EXT_IMPACT and a["act_id"] != 0:
+            rec = self.book.find(ActBook.key_of(a["nonce"], a["act_id"]))
+        elif ext == ACT_EXT_READ_NONE and not a["stat_tick"] and not a["flags"] & (ACT_FLAG_START | ACT_FLAG_END):
+            self._note_old_host()
+        self._apply(a, rec, ctx)
+
+    def _register_start(self, a: dict, backlog: bool, bench: bool, ctx: dict) -> None:
+        self.starts_rx += 1
+        r = ActRec.from_start(a)
+        r.backlog, r.bench, r.arrive_ms = bool(backlog), bool(bench), self.now_ms
+        self.last = r
+        if not self.book.register_start(r):
+            self._decline(r, "duplicate", "a second START with the same id this boot")
+            return
+        role = ctx.get("role", False)
+        d = act_decide_in(knob_off=not self.knob_on(role), lever_off=self.lever_off(role),
+                          no_rework=not self.rework_on(role), end_presented=bool(ctx.get("end_presented")),
+                          leaving=bool(ctx.get("leaving")), backlog=bool(backlog), actor_linked=True, cmd_no=r.cmd_no,
+                          kind=VFX_KIND_SPECIAL, mapped_tar=1)
+        early = act_decide(d)
+        if early != ACT_GO:
+            self._decline(r, act_why_name(early), ACT_WHY_DETAILS.get(early, ""))
+
+    def _note_old_host(self) -> None:
+        self.old_host = True
+        if not self.old_host_logged:
+            self.old_host_logged = True
+            self._log(LOG_REPLAY_OLD_HOST)
+
+    def _apply(self, a: dict, rec: ActRec | None, ctx: dict) -> None:
+        """ApplyActionFrame's s134 half: a paired impact counts (`paired`) and marks its target for the credits; the
+        player-only MP_ATTACK swing is SKIPPED (counted) when a replay covers it -- else it plays (the stand-in: the
+        caster's `mot` reads MP_ATTACK for a few frames). Figures, flinch and HP / MP are not modelled."""
+        resolve = ctx.get("resolve") or (lambda i, p: None)
+        dc = resolve(a["caster_slot"], a["caster_is_player"]) if a["caster_slot"] != 0xFF else None
+        dt = resolve(a["target_slot"], a["target_is_player"]) if a["target_slot"] != 0xFF else None
+        if a["stat_tick"]:
+            return
+        covered = rec is not None and rec.covers_swing
+        if rec is not None:
+            self.paired += 1
+            if dt is not None:
+                rec.impact_mask |= int(dt.get("id", 0))
+        if dc is not None and dc is not dt and a["caster_is_player"] and dc.get("alive", True):
+            if covered:
+                self.swing_skipped += 1
+            else:
+                self.swings[int(dc.get("slot", -1))] = 20
+
+    # -- the decisions (ActDecideNow), the queue, the launch
+    def _decide_now(self, r: ActRec, ctx: dict) -> tuple:
+        role = ctx.get("role", False)
+        resolve = ctx.get("resolve") or (lambda i, p: None)
+        actor = resolve(r.actor_slot, r.is_player) if r.actor_slot <= 7 else None
+        d = act_decide_in(knob_off=not self.knob_on(role), lever_off=self.lever_off(role),
+                          no_rework=not self.rework_on(role), end_presented=bool(ctx.get("end_presented")),
+                          leaving=bool(ctx.get("leaving")), stale=r.stale, backlog=r.backlog, cmd_no=r.cmd_no,
+                          kind=r.vfx_kind, monster_transform=r.monster_transform, running=len(self.running),
+                          actor_missing=actor is None)
+        tar = 0
+        if actor is not None:
+            d["actor_hidden"] = not r.is_player and bool(int(ctx.get("hidden_mask", 0)) & (1 << r.actor_slot))
+            dead = not actor.get("alive", True)
+            d["dead_or_dying"] = dead
+            d["die_seq"] = 5 if dead else 0
+            d["actor_linked"] = True
+
+            def unit_id(i):
+                u = resolve(i, i < 4)
+                return int(u.get("id", 0)) if u is not None else 0
+            tar = act_map_mask_with(r.tar_id, unit_id)
+        d["mapped_tar"] = tar
+        return act_decide(d), actor, tar
+
+    def _decline(self, r: ActRec, why: str, detail: str) -> None:
+        r.state, r.why, r.end_ms = ACT_ST_DECLINED, why, self.now_ms
+        self.book.settle(r)
+        self.declined += 1
+        self.declined_why = why
+        if why == "stale":
+            self.stale += 1
+        elif why == "backlog":
+            self.backlog += 1
+        if why in self.decline_logged or len(self.decline_logged) >= 16:
+            return
+        self.decline_logged.append(why)
+        self._log(f"{LOG_REPLAY_DECLINED}{why} -- id {r.id} slot {r.actor_slot} cmd {r.cmd_no} sub {r.sub_no}"
+                  + (f" ({detail})" if detail else "") + f"; its impacts take the legacy route (logged once per boot per "
+                  f"reason; declined={self.declined})")
+
+    def _mark_noop(self, r: ActRec) -> None:
+        r.state, r.why, r.end_ms = ACT_ST_NOOP, "noop", self.now_ms
+        self.book.settle(r)
+        self.noop += 1
+        self.declined += 1
+        self.declined_why = "noop"
+        if "noop" in self.decline_logged:
+            return
+        self.decline_logged.append("noop")
+        self._log(f"{LOG_REPLAY_NOOP}{r.id} slot {r.actor_slot} cmd {r.cmd_no} has no vfx (kind none): nothing to replay, "
+                  "its impacts apply at once (logged once per boot)")
+
+    def _motion_holder(self, actor) -> ActRec | None:
+        """ActMotionHolder: the actor's running replay still holding its command motion. A STAND-IN SHAPE, not the engine's
+        rule: the stand-in has no sequencer, so ANY running replay of the actor holds it (the engine releases the hold at
+        the sequence's Anim Idle -- UnifiedBattleSequencer.cs's cmd_motion clear -- so a park there can launch sooner)."""
+        return next((x for x in self.running if x.actor is actor), None)
+
+    def _launch(self, r: ActRec, actor: dict, tar: int, ctx: dict) -> None:
+        self._window_check(ctx)
+        if not self.running:
+            self._window_open()
+        r.actor = actor
+        resolve = ctx.get("resolve") or (lambda i, p: None)
+        r.targets = [u for u in (resolve(i, i < 4) for i in range(8) if r.tar_id & (1 << i)) if u is not None]
+        if self.bench_short_off and ctx.get("role"):
+            self.bench_short_off = False         # one-shot: THIS replay's hits fall through
+            r.no_short_circuit = True
+            self._log(f"[NetSync] harness: action replay id {r.id}{LOG_REPLAY_NO_SHORT}")
+        self.running.append(r)
+        r.state, r.launch_ms, r.launch_wall, r.frames = ACT_ST_RUNNING, self.now_ms, int(ctx.get("wall_ms", 0)), 0
+        self.book.settle(r)
+        self.started += 1
+        if self.start_logged >= ACT_START_LOG_MAX:
+            return
+        self.start_logged += 1
+        self._log(f"{LOG_REPLAY_STARTED}{r.id} slot {r.actor_slot} {'(player)' if r.is_player else '(enemy)'} cmd {r.cmd_no} "
+                  f"sub {r.sub_no} kind {r.vfx_kind} num {r.vfx_num} tar 0x{tar & 0xFFFF:02X} host speed {r.host_speed}"
+                  + (" scripted" if r.scripted else "") + " -- " + (
+                      "presentation only (the short-circuit owns every hit)" if self.start_logged < ACT_START_LOG_MAX
+                      else "further starts this boot are counted, not logged"))
+
+    def _decide_queue(self, ctx: dict, paused: bool) -> None:
+        steady = bool(ctx.get("steady"))
+        for r in list(self.book.queue):
+            if not r.pending:
+                self.book.settle(r)
+                continue
+            verdict, actor, tar = self._decide_now(r, ctx)
+            if verdict == ACT_NOOP:
+                self._mark_noop(r)
+                continue
+            if verdict != ACT_GO:
+                self._decline(r, act_why_name(verdict), ACT_WHY_DETAILS.get(verdict, ""))
+                continue
+            if r.state == ACT_ST_REGISTERED:
+                older = self.book.park(r, self.now_ms)
+                if older is not None:
+                    self.superseded += 1
+                    self._decline(older, "superseded", f"a newer START of the same actor (id {r.id}) replaced it in the "
+                                                       "actor's pending slot")
+            if self.now_ms - r.wait_since_ms > ACT_WAIT_MAX_MS:
+                self._decline(r, "timeout", f"it waited {ACT_WAIT_MAX_MS} ms of battle time without a launch")
+                continue
+            if not steady or paused:
+                continue
+            holder = self._motion_holder(actor)
+            if holder is not None:
+                if not act_pending_abort_due(r.wait_since_ms, self.now_ms):
+                    continue
+                self._abort(holder, "pending", ctx)
+                self._window_check(ctx)
+            self._launch(r, actor, tar, ctx)
+
+    # -- the running replays, the aborts, the window
+    def _hit(self, r: ActRec, target: dict) -> None:
+        """ActOnHit: the hit counted, a credit when no impact of this action had reached that target yet; a Change replay
+        switches its actor's row once; a `shortcircuit off` replay falls through (the tripwire counts it)."""
+        r.hits += 1
+        self.hits += 1
+        if r.first_hit_ms < 0:
+            r.first_hit_ms = self.now_ms
+        if not r.impact_mask & int(target.get("id", 0)):
+            r.credits += 1
+            self.credits += 1
+        if r.cmd_no == CMD_CHANGE_ID and not r.row_switched and r.actor is not None and r.actor.get("player"):
+            r.row_switched = True
+            slot = int(r.actor.get("slot", -1))
+            self.window_row_mask |= int(r.actor.get("id", 0))
+            self.rows[slot] = 1 - self.rows.get(slot, 1)
+        if r.no_short_circuit:
+            self.note_calc_while_booted()
+
+    def note_calc_while_booted(self) -> None:
+        """NoteCalcWhileBooted -- THE TRIPWIRE (the stand-in: a fall-through hit)."""
+        self.calc_while_booted += 1
+        if not self.trip_logged:
+            self.trip_logged = True
+            self._log(f"{LOG_REPLAY_TRIPWIRE}{self.calc_while_booted}): a replay fell through the short-circuit or a stock "
+                      "path computed in the diorama (logged once per boot)")
+
+    def _check_running(self, ctx: dict, paused: bool = False) -> None:
+        """ActCheckRunning: the stand-in's sequencer frame (the hit, the natural end) advances only while BattleMain runs --
+        never paused -- but the aborts are judged EVERY tick, paused too (the engine's ActCheckRunning runs each ActTick: the
+        WALL cap and a gone actor fire in a pause; the END + 6 s rides battle time, which a pause does not advance)."""
+        linked = ctx.get("linked") or (lambda u: True)
+        for r in list(self.running):
+            if not paused:
+                r.frames += 1
+                if r.frames == self.HIT_FRAME:
+                    for t in r.targets:
+                        self._hit(r, t)
+                if r.frames >= self.REPLAY_FRAMES:
+                    self._finish_ended(r)
+                    continue
+            why = act_abort_why(r.actor is None or not linked(r.actor), r.host_ended, r.host_end_ms, self.now_ms,
+                                int(ctx.get("wall_ms", 0)) - r.launch_wall)
+            if why is not None:
+                self._abort(r, why, ctx)
+
+    def _finish_ended(self, r: ActRec) -> None:
+        r.state, r.end_ms = ACT_ST_ENDED, self.now_ms
+        self.ended += 1
+        if r in self.running:
+            self.running.remove(r)
+
+    def _abort(self, r: ActRec, why: str, ctx: dict) -> None:
+        r.state, r.why, r.end_ms = ACT_ST_ABORTED, why, self.now_ms
+        if r in self.running:
+            self.running.remove(r)
+        self.aborted += 1
+        self.abort_why = why
+        if why in self.aborts_by:
+            self.aborts_by[why] += 1
+        if why == "fault":
+            self.faulted += 1
+        self.window_aborted = True
+        if self.abort_logged >= ACT_ABORT_LOG_MAX:
+            return
+        self.abort_logged += 1
+        injected = bool(ctx.get("end_injected"))
+        self._log(f"{LOG_REPLAY_ABORTED}{r.id} slot {r.actor_slot} cmd {r.cmd_no} ({why}) after "
+                  + (f"{self.now_ms - r.launch_ms} ms of battle time" if r.launch_ms >= 0 else "no launch")
+                  + f", {r.hits} hit(s) -- a hard release"
+                  + (" (the end presentation owns the units: no per-unit restore)" if injected else
+                     " plus the busy-window restore")
+                  + ("; further aborts this boot are counted, not logged" if self.abort_logged == ACT_ABORT_LOG_MAX
+                     else ""))
+
+    def abort_all(self, why: str, *, booted: bool = True, ctx: dict | None = None) -> None:
+        """ActAbortAll: every running replay hard-released, every parked START declined ``why``; the window closes."""
+        if not booted:
+            return
+        ctx = ctx or {}
+        for r in list(self.running):
+            self._abort(r, why, ctx)
+        for r in list(self.book.queue):
+            if r.pending:
+                self.dropped += 1
+                self._decline(r, why, f"dropped by {why} before it launched")
+        self._window_check(ctx)
+
+    def discard_all(self, why: str) -> None:
+        """ActDiscardAll (ForceDisarm; `actbench teardown`): every record dropped, NOTHING applied or restored -- counted
+        apart (`discarded`: neither started / declined nor aborted); the summary line; then the state's per-boot reset (the
+        counters stay)."""
+        running = len(self.running)
+        queued = sum(1 for r in self.book.queue if r.pending)
+        for r in self.running:
+            r.state, r.why = ACT_ST_ABORTED, why
+        self.discarded_pending += queued
+        self.discarded_running += running
+        if running or queued or self.inbox:
+            self._log(f"{LOG_REPLAY_DISCARD}{why}) -- {running} running replay(s) dropped ({running} released from the "
+                      f"sequencer), {queued} parked START(s) and {len(self.inbox)} inbox frame(s) dropped; nothing applied, "
+                      "nothing restored")
+        if self.starts_rx or self.old_host or self.calc_while_booted:
+            self._log(f"{LOG_REPLAY_SUMMARY}{why}) -- {self.starts_rx} START(s) received, {self.started} started, "
+                      f"{self.declined} declined ({self.stale} stale, {self.backlog} backlog, {self.noop} noop, "
+                      f"{self.superseded} superseded), {self.ended} ended, {self.aborted} aborted ({self.faulted} faulted), "
+                      f"{self.hits} hit(s), {self.swing_skipped} swing(s) skipped; calc_while_booted="
+                      f"{self.calc_while_booted}" + ("; the host predates action replay" if self.old_host else ""))
+        self.reset_for_boot(False)
+
+    def _window_open(self) -> None:
+        self.window_open, self.window_aborted, self.window_row_mask = True, False, 0
+
+    def _window_check(self, ctx: dict) -> None:
+        if not self.window_open or self.running:
+            return
+        self.window_open = False
+        scope = act_restore_scope(self.window_aborted, bool(ctx.get("end_injected")))
+        self.window_aborted = False
+        if scope == ACT_RESTORE_NONE:
+            return
+        limited = scope == ACT_RESTORE_LIMITED
+        units = 0 if limited else len(ctx.get("units") or [])
+        if limited:
+            self.restores_limited += 1
+        else:
+            self.restores += 1
+        self._log(LOG_REPLAY_WINDOW + (
+            "the shared lanes released only (bbg intensity, the world shift, the camera; the end presentation owns the units)"
+            if limited else f"{units} unit(s) restored (rot, scale, meshes, weapons, row, base_pos, pos = base_pos, the default "
+                            "idle) and the shared lanes released (the cursor bit too)"))
+
+    # -- the tick (ActTick)
+    def tick(self, ctx: dict) -> None:
+        """ActTick: ``ctx`` = {booted, role, steady, paused, now_ms (the caller's clock), wall_ms, end_injected, r8_hits,
+        end_presented, leaving, hidden_mask, resolve, linked, units}."""
+        if not ctx.get("booted"):
+            return
+        paused = bool(ctx.get("paused"))
+        self.clock(int(ctx.get("now_ms", 0)), paused)
+        for slot in list(self.swings):
+            self.swings[slot] -= 1
+            if self.swings[slot] <= 0:
+                del self.swings[slot]
+        if ctx.get("end_injected") and self.end_inject_ms < 0:
+            self.end_inject_ms = self.now_ms
+        live = bool(self.running) or bool(self.book.queue)
+        if live and int(ctx.get("r8_hits", 0)) > 0:
+            self.abort_all("r8", ctx=ctx)
+        elif live and ctx.get("end_injected") and self.now_ms - self.end_inject_ms > ACT_W3_MS:
+            self.abort_all("w3", ctx=ctx)
+        self._check_running(ctx, paused)         # (the stand-in's sequencer stops while BattleMain is paused; aborts do not)
+        self._window_check(ctx)
+        self._decide_queue(ctx, paused)
+        self._window_check(ctx)
+
+    # -- the published block and the units' observables
+    def acting_record(self, unit: dict) -> ActRec | None:
+        return next((r for r in self.running if r.actor is unit), None)
+
+    def unit_doc(self, unit: dict) -> dict:
+        """`battle.units[]`'s s134 keys for one stand-in unit (see the class docstring: shapes, not engine clips)."""
+        r = self.acting_record(unit)
+        slot = int(unit.get("slot", -1))
+        player = bool(unit.get("player"))
+        away = 0.0
+        if r is not None and player and r.cmd_no == CMD_ATTACK_ID:
+            k = r.frames
+            away = self.AWAY_PEAK * (k / self.HIT_FRAME if k <= self.HIT_FRAME else
+                                     max(0.0, (self.REPLAY_FRAMES - k) / (self.REPLAY_FRAMES - self.HIT_FRAME)))
+        dead = not unit.get("alive", True)
+        return {"anim": f"ACT_{r.vfx_kind}_{r.vfx_num}" if r is not None else ("DISABLE" if dead else "IDLE"),
+                "anim_frame": r.frames if r is not None else 0, "away": float(round(away, 3)),
+                "rot_y": 0.0 if player else 180.0, "acting": r is not None, "die_seq": 5 if dead else 0,
+                "row": self.rows.get(slot, 1) if player else 0}
+
+    def last_doc(self) -> dict | None:
+        r = self.last
+        if r is None:
+            return None
+        return {"id": r.id, "actor": r.actor_slot, "cmd": r.cmd_no, "sub": r.sub_no, "kind": r.vfx_kind, "num": r.vfx_num,
+                "speed": r.host_speed, "state": ACT_STATE_NAMES.get(r.state, "?"), "why": r.why, "arrive_ms": r.arrive_ms,
+                "launch_ms": r.launch_ms, "first_hit_ms": r.first_hit_ms, "end_ms": r.end_ms, "hits": r.hits}
+
+    def doc(self, *, role: bool, booted: bool) -> dict:
+        """HarnessAgent.AppendActGuest -- published in EVERY role (audit 3.6)."""
+        return {"on": self.can_replay(role), "why": self.why_not(role), "rework": self.rework_on(role),
+                "knob": 1 if self.knob_on(role) else 0, "host_caps": self.host_caps, "bit5": self.bit5,
+                "levers": {"replay_off": self.bench_replay_off, "rework_off": self.bench_rework_off,
+                           "shortcircuit_off": self.bench_short_off, "knob": self.bench_knob},
+                "inbox": len(self.inbox), "starts_rx": self.starts_rx, "ends_rx": self.ends_rx, "started": self.started,
+                "queued": sum(1 for r in self.book.queue if r.state == ACT_ST_REGISTERED),
+                "waiting": sum(1 for r in self.book.queue if r.state == ACT_ST_WAITING), "running": len(self.running),
+                "declined": self.declined, "declined_why": self.declined_why, "stale": self.stale,
+                "backlog": self.backlog, "superseded": self.superseded, "noop": self.noop, "dropped": self.dropped,
+                "aborted": self.aborted, "abort_why": self.abort_why,
+                "aborts": {k: self.aborts_by[r] for k, r in zip(ACT_ABORTS_KEYS, ACT_ABORT_REASONS)},
+                "discarded": {"pending": self.discarded_pending, "running": self.discarded_running}, "ended": self.ended, "faulted": self.faulted, "hits": self.hits,
+                "credits": self.credits, "paired": self.paired, "swing_skipped": self.swing_skipped,
+                "calc_while_booted": self.calc_while_booted, "var_refused": self.var_refused, "old_host": self.old_host,
+                "grace": {"armed": self.grace_armed, "mask": self.grace_mask}, "hold_through": self.hold_through,
+                "end_held": self.end_held, "rx_dropped": self.rx_dropped, "battle_ms": self.now_ms if booted else -1,
+                "paused_ms": self.paused_ms,
+                "window": {"open": self.window_open, "restores": self.restores, "limited": self.restores_limited},
+                "last": self.last_doc()}
+
+
+def _cs_int(text) -> int | None:
+    """Int32.TryParse's integer (an optional sign, digits) -> int, None when it would refuse."""
+    s = str(text).strip()
+    if not re.fullmatch(r"[+-]?\d+", s):
+        return None
+    v = int(s)
+    return v if -(1 << 31) <= v < (1 << 31) else None
+
+
+def act_guest_invariant(block: dict | None) -> bool:
+    """The `act.guest` book's identity: every START received is started, declined, queued, waiting -- or dropped by a
+    teardown's ActDiscardAll (starts_rx == started + declined + queued + waiting + discarded.pending) -- False for an absent
+    block."""
+    if not isinstance(block, dict):
+        return False
+    try:
+        disc = block.get("discarded")
+        pend = int(disc["pending"]) if isinstance(disc, dict) else 0
+        return int(block["starts_rx"]) == (int(block["started"]) + int(block["declined"]) + int(block["queued"])
+                                           + int(block["waiting"]) + pend)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def act_guest_ends_balance(block: dict | None) -> bool:
+    """The `act.guest` runs' identity AT REST (running 0): every launched replay ended, was aborted, or was dropped by a
+    teardown (ended + aborted + discarded.running == started) -- False for an absent block or one still running."""
+    if not isinstance(block, dict):
+        return False
+    try:
+        disc = block.get("discarded")
+        run = int(disc["running"]) if isinstance(disc, dict) else 0
+        return int(block["running"]) == 0 and int(block["ended"]) + int(block["aborted"]) + run == int(block["started"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+#: NetSyncDiorama.Replay.cs's integer constants, by C# name (the pin, both ways -- test_harness_netsync.py reads every
+#: `internal const` the s134 file declares, comments stripped). The selftest's private ActTestNonce is ACT_REPLAY_TEST_NONCE.
+CS_REPLAY_CONSTANTS = {
+    "ActMaxRunning": ACT_MAX_RUNNING, "ActPendingAbortMs": ACT_PENDING_ABORT_MS, "ActDeathGraceMs": ACT_DEATH_GRACE_MS,
+    "ActHostEndAbortMs": ACT_HOST_END_ABORT_MS, "ActWallCapMs": ACT_WALL_CAP_MS, "ActW3Ms": ACT_W3_MS,
+    "ActWaitMaxMs": ACT_WAIT_MAX_MS, "ActInboxCap": ACT_INBOX_CAP, "ActBookCap": ACT_BOOK_CAP,
+    "ActStartLogMax": ACT_START_LOG_MAX, "ActAbortLogMax": ACT_ABORT_LOG_MAX,
+    "ActStRegistered": ACT_ST_REGISTERED, "ActStWaiting": ACT_ST_WAITING, "ActStRunning": ACT_ST_RUNNING,
+    "ActStEnded": ACT_ST_ENDED, "ActStDeclined": ACT_ST_DECLINED, "ActStAborted": ACT_ST_ABORTED, "ActStNoop": ACT_ST_NOOP,
+    "ActGo": ACT_GO, "ActNoop": ACT_NOOP, "ActWhyKnob": ACT_WHY_KNOB, "ActWhyLever": ACT_WHY_LEVER,
+    "ActWhyRework": ACT_WHY_REWORK, "ActWhyEnd": ACT_WHY_END, "ActWhyStale": ACT_WHY_STALE,
+    "ActWhyBacklog": ACT_WHY_BACKLOG, "ActWhyActor": ACT_WHY_ACTOR, "ActWhyHidden": ACT_WHY_HIDDEN,
+    "ActWhyDead": ACT_WHY_DEAD, "ActWhyKind": ACT_WHY_KIND, "ActWhyTransform": ACT_WHY_TRANSFORM,
+    "ActWhyTarget": ACT_WHY_TARGET, "ActWhyBusy": ACT_WHY_BUSY, "ActWhyLeave": ACT_WHY_LEAVE,
+    "ActEndNoHold": ACT_END_NO_HOLD, "ActEndHold": ACT_END_HOLD, "ActEndAbortThenInject": ACT_END_ABORT_THEN_INJECT,
+    "ActRestoreNone": ACT_RESTORE_NONE, "ActRestoreFull": ACT_RESTORE_FULL, "ActRestoreLimited": ACT_RESTORE_LIMITED,
+    "ActSfxKeep": ACT_SFX_KEEP, "ActSfxCancel": ACT_SFX_CANCEL, "ActSfxUnlock": ACT_SFX_UNLOCK}
