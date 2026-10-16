@@ -8,8 +8,8 @@ stack replays by number:
 |---|---|---|---|
 | s133 | s122 | host action-start lane (START/END records, impact ids, header bit 5) | ★ deployed, solo-proven |
 | s134 | s123 | guest action replay | ★ deployed, solo-proven (solo + T2 tape leg) |
-| s135 | s124 | numbers, flinch and death wait for the replay's hit | captured, calibrated on s134; deploy pending |
-| s136 | s125 | fallback A: one stock clip per uncovered action | |
+| s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven (solo + T2 tape leg) |
+| s136 | s125 | fallback A: one stock clip per uncovered action | next |
 | s137 | s126 | trance burst timing | |
 | s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | after action replay |
 
@@ -125,3 +125,27 @@ its own held kill or revive, and for any frame held or queued behind an older li
 so a living unit can be masked too. While masked, the reconciler skips that unit's whole record (current and max HP/MP,
 hide, trance, ATB). Each change waits at most 2.5 s of battle time from its own arrival; overlapping frames chain the
 wait. On release the last skipped record is re-applied at once.
+
+**Deployed** 2026-10-16 (`build_memoria.py`, backup `20261016-131006`; Assembly-CSharp `8258b7bb3ae0f606`).
+
+**Proven solo on s135:**
+- The T2 TAPE LEG 12/12: the recorded s133 host replayed into the desktop as a guest through the real transport --
+  impacts held for their replay's hit, every one released by exactly one reason, figures released by the hit, the
+  real-link lag key populated. RED-only under ActionReplay=0 (S135T-CAL: exactly HELD, LAG, FIG, LOG).
+- The solo bench 27/27 on its first in-game run (seven diorama boots, no debug round needed), and RED-only under
+  `hold off` (S135-CAL: exactly the 18-check lever set). 'action hold selftest: OK (28 rows)' in game.
+- The 6.1 regression set at baseline, incl. coop_action_replay 35/35 and its tape leg 16/16, coop_action_host 20/20,
+  dialogue authority 147/147 and result replay 50/51 (S9-C4L, unreachable solo). The T2 cut legs: cal 10/10, readopt
+  13/13 (+63 vs tail 67.3), s119 12/12 (+15 vs 0.0), s120-battle 12/12 (+63 vs 67.3), span 9/9.
+
+**Two first-run flakes, both green on a rerun (neither touches s135's code):**
+- s134's Leg M compares the guest's launch -> hit (859-906 ms over five runs) with the HOST's START -> impact for
+  Zidane's Attack on battle 1, read off the in-engine tape. That reference read 2063 ms once, against 813-1156 on every
+  other run; battle 1 is a normal fight where s135's only sequencer hook is a static `ActLive` read (false). A single
+  host sample is a noisy yardstick -- if it flakes again, judge against a median of the taped attacks.
+- Stock menu S3-L3: the command root opened with its cursor on Jump instead of Attack, so the walk to Item missed it.
+  The rerun opened on Attack.
+
+**Known v1 (README row):** the amendment-14 freeze above; a lost lethal impact is not protected (S135-LOST); anything
+still held when the end injects lands at once. Not proven in game: a triple's caster figure, the hidden-target guard, a
+held revive's freeze, WhiteDraw/DragonBreath extra CalcResults, slave-part keys.
