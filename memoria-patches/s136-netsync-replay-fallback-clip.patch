@@ -1,0 +1,1698 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 3a4737b..096628d 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -2224,6 +2224,8 @@ namespace Memoria.Netsync
+         // [ff9mapkit netsync s135] + THE REPLAY HIT HOLD: after the resolve, ActHoldIntake may keep the frame (a paired impact waits
+         // for its replay's hit; a frame for a slot with an older held life change queues behind it); steps c-h are
+         // ApplyActionFrameNow, shared with the hold's legacy releases.
++        // [ff9mapkit netsync s136] + FALLBACK A: the record goes on to ApplyActionFrameNow, whose motion step plays one stock clip for
++        // an impact no replay covers (NetSyncDiorama.Replay.cs ActFallbackAtImpact) where the s110 player-only swing played.
+         private static void ApplyActionFrame(FF9StateBattleSystem b, ref NetSyncBattle.PeerAction a, ActRec paired, Boolean backlog)
+         {
+             // (b) RESOLVE -- the reconciler's exact resolution; an unresolvable unit is skipped, the
+@@ -2261,7 +2263,7 @@ namespace Memoria.Netsync
+             // never runs, the `hold off` lever -- applies now, exactly as before.
+             if (ActHoldIntake(b, ref a, dT, dC, selfCast, paired, backlog))
+                 return;
+-            ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, ActViaArrival, _actNowMs, false, 0);
++            ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, ActViaArrival, _actNowMs, false, 0, paired);   // [ff9mapkit netsync s136] + paired
+         }
+ 
+         // [ff9mapkit netsync s135] Steps c-h of the arrival path, split out of ApplyActionFrame unchanged for an arrival -- and the hold's
+@@ -2273,8 +2275,12 @@ namespace Memoria.Netsync
+         // the arrival and late paths): a deferred lane applies through ActDeferredApplies -- the superseded guard, which the
+         // reconciler's samples now stamp too, and NO revive through a lane that was not a life lane at queue time (a unit Doom,
+         // a script or a lost lethal impact killed while the frame waited stays dead: no corpse stand-up, no second death).
++        // [ff9mapkit netsync s136] + rec: the action replay record the frame's id names (null = none), read by FALLBACK A's covered rule
++        // at THIS step -- the arrival, a late release, a queued frame's release (its record's state now, so a queued sibling of a
++        // replayed action never plays a clip, and the 500 ms window compares its own arrival: it never doubles one).
+         private static void ApplyActionFrameNow(FF9StateBattleSystem b, ref NetSyncBattle.PeerAction a, BTL_DATA dT, BTL_DATA dC, Boolean selfCast,
+-                                                Boolean covered, Boolean backlog, String via, Int32 arriveMs, Boolean deferred, Int32 lifeSlots)
++                                                Boolean covered, Boolean backlog, String via, Int32 arriveMs, Boolean deferred, Int32 lifeSlots,
++                                                ActRec rec)
+         {
+             // (c) DERIVE from RAW wire hp only -- never from wire status bits.
+             // [ff9mapkit netsync s135] (a deferred frame derives here too, at its release: a revive is decided NOW -- amendment 11)
+@@ -2354,19 +2360,27 @@ namespace Memoria.Netsync
+             // would index out of range; enemy attack anims exist only as per-scene SEQ data.
+             // [ff9mapkit netsync s134] ...skipped (counted) when a replay covers this impact: the replay plays the real clip.
+             // [ff9mapkit netsync s135] (`covered` and the paired count are decided on arrival, in ApplyActionFrame)
+-            if (dC != null && !selfCast && a.CasterIsPlayer && !lethalC && !reviveC && !hiddenC && CanPlayCosmeticMotion(dC))
++            // [ff9mapkit netsync s136] FALLBACK A replaces the swing (NetSyncDiorama.Replay.cs ActFallbackAtImpact): one stock clip per
++            // action no replay covers -- MP_ITEM1 / MP_MAGIC / MP_ATTACK / none for a player, its sequence's first non-Idle clip for an
++            // enemy -- at most once per action, behind THIS call site's own guards (amendment 6: lethal, revive, hidden, self-cast with a
++            // DmgMot) and CanPlayCosmeticMotion; swing_skipped counts exactly as before. `actbench fallback off` (the calibration lever)
++            // is the pre-s136 guest: the swing below, verbatim.
++            Boolean s110Swing = dC != null && !selfCast && a.CasterIsPlayer && !lethalC && !reviveC && !hiddenC && CanPlayCosmeticMotion(dC);
++            if (s110Swing && covered)
+             {
+-                if (covered)
+-                {
+-                    _actSwingSkipped++;
+-                }
+-                else
++                _actSwingSkipped++;
++            }
++            else if (!ActFallbackOn)
++            {
++                if (s110Swing)
+                 {
+                     btl_mot.setMotion(dC, BattlePlayerCharacter.PlayerMotionIndex.MP_ATTACK);
+                     dC.evt.animFrame = 0;   // MANDATORY after setMotion: a stale frame counter can end the
+                                             // clip on the first DispCharacter and skip the visible swing
+                 }
+             }
++            if (ActFallbackOn)
++                ActFallbackAtImpact(ref a, dC, selfCast, lethalC, reviveC, hiddenC, rec, backlog, via, arriveMs);
+ 
+             // [ff9mapkit netsync s134] the death-attack grace, BEFORE the kill below (DeathStatusScript decides die_seq inside it):
+             // a lethal impact from a PLAYER caster on an AttackOnDeath enemy (audit amendment 8) -- never in a backlog drain
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
+index 28ac02e..f515591 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
+@@ -415,6 +415,7 @@ namespace Memoria.Netsync
+             try { _actHoldsSeen = NetSyncClient.HarnessHolds; } catch { _actHoldsSeen = 0; }
+             ActPruneZombies();
+             ActRecomputeLive();                      // false, unless a zombie is still in the sequencer
++            ActFallbackReset(counters);              // [ff9mapkit netsync s136] fallback A's keys and sequence cache (its counters with ours)
+             if (!counters)
+                 return;
+             _actPausedMs = 0;
+@@ -986,6 +987,7 @@ namespace Memoria.Netsync
+                 ActWindowCheck(b);                        // an abort above restores BEFORE a launch below opens the next window
+                 ActDecideQueue(b, paused);
+                 ActWindowCheck(b);
++                ActFallbackDeferredTick();                // [ff9mapkit netsync s136] [fix pass: cover-2] a deferred clip whose caster is free now
+             }
+             catch (Exception ex)
+             {
+@@ -1365,6 +1367,7 @@ namespace Memoria.Netsync
+             ActStopSongs(r);
+             if (!_endInjected)
+                 _actWindowAbortMask |= ActUnitsOf(r);   // restored before an injection, should one come before the window closes
++            _fbPostAbortMask &= ~ActUnitsOf(r);         // [ff9mapkit netsync s136] [fix pass 2: rtiming-1] a clip written before THIS abort is cut
+             r.State = ActStAborted;
+             r.Why = why;
+             r.EndMs = _actNowMs;
+@@ -1476,6 +1479,22 @@ namespace Memoria.Netsync
+         /// W3, Leave (past its fade check), `actbench clear`, the run-away hold's bound (or its break). The restore follows at once
+         /// (the window closes). Per-record try/catch: the caller's next step (a scene Replace) is always reached.</summary>
+         internal static void ActAbortAll(String why)
++        {
++            // [ff9mapkit netsync s136] [fix pass: timing-1] fallback A plays no clip inside an abort-all (ActFallbackEndBlocks): the
++            // frames its releases unblock belong to the end or a Leave -- a Leave's abort-all runs BEFORE LeaveFrom stamps _leaveTick
++            Boolean was = _actAbortingAll;
++            _actAbortingAll = true;
++            try
++            {
++                ActAbortAllNow(why);
++            }
++            finally
++            {
++                _actAbortingAll = was;
++            }
++        }
++
++        private static void ActAbortAllNow(String why)
+         {
+             if (!_booted)
+                 return;
+@@ -1541,6 +1560,8 @@ namespace Memoria.Netsync
+                                 + " released from the sequencer), " + queued + " parked START(s) and " + _actInbox.Count + " inbox frame(s) dropped; "
+                                 + "nothing applied, nothing restored");
+                 ActLogSummary(why);
++                ActFallbackDropDeferred();               // [ff9mapkit netsync s136] [fix pass: cover-2] a deferred impact still waiting: `guarded`
++                ActFallbackLogSummary(why);              // [ff9mapkit netsync s136] fallback A's line (only when it did anything)
+             }
+             catch { }
+             finally
+@@ -1569,6 +1590,7 @@ namespace Memoria.Netsync
+             _actWindowAborted = false;
+             _actWindowRowMask = 0;
+             _actWindowAbortMask = 0;
++            _fbPostAbortMask = 0;                       // [ff9mapkit netsync s136] [fix pass 2: rtiming-1]
+             _actWindowCamTarget = false;
+             _actWindowCursorBit = 2;
+             if (b == null)
+@@ -1598,7 +1620,10 @@ namespace Memoria.Netsync
+             if (!_actWindowOpen || _actRunning.Count > 0)
+                 return;
+             _actWindowOpen = false;
++            Int32 abortedUnits = _actWindowAbortMask;   // [ff9mapkit netsync s136] [fix pass: timing-2] the aborted replays' units
+             _actWindowAbortMask = 0;
++            Int32 postAbort = _fbPostAbortMask;         // [ff9mapkit netsync s136] [fix pass 2: rtiming-1] ...whose clip came after it
++            _fbPostAbortMask = 0;
+             Int32 scope = ActRestoreScope(_actWindowAborted, _endInjected);
+             Boolean camTarget = _actWindowCamTarget;
+             _actWindowAborted = false;
+@@ -1608,7 +1633,7 @@ namespace Memoria.Netsync
+                 _actSnap.Clear();
+                 return;
+             }
+-            ActRestore(b, scope == ActRestoreLimited, camTarget);
++            ActRestore(b, scope == ActRestoreLimited, camTarget, abortedUnits, postAbort);   // [ff9mapkit netsync s136] + abortedUnits, postAbort
+             _actSnap.Clear();
+         }
+ 
+@@ -1617,13 +1642,15 @@ namespace Memoria.Netsync
+         // CameraNo follows the stock Loop rule (FULL only): back to 0 only when an aborted replay had run a targeted PlayCamera
+         // (camTarget: useCameraTarget -- never set for a replay whose host Speed skipped its PlayCamera) and only in PHASE_NORMAL;
+         // otherwise the battle's own idle camera (HonoluluBattleMain's pick) stays, as on the host.
+-        private static void ActRestore(FF9StateBattleSystem b, Boolean limited, Boolean camTarget)
++        // [ff9mapkit netsync s136] + abortedUnits (btl_ids of the replays aborted this window: ActRestoreUnit's fallback-clip rule)
++        // [fix pass 2: rtiming-1] + postAbort (btl_ids whose fallback clip was written AFTER the abort that touched them)
++        private static void ActRestore(FF9StateBattleSystem b, Boolean limited, Boolean camTarget, Int32 abortedUnits, Int32 postAbort)
+         {
+             Int32 units = 0;
+             if (!limited)
+             {
+                 foreach (ActUnitSnap s in _actSnap)
+-                    if (ActRestoreUnit(b, s))
++                    if (ActRestoreUnit(b, s, abortedUnits, postAbort))
+                         units++;
+             }
+             try
+@@ -1665,7 +1692,18 @@ namespace Memoria.Netsync
+         // never for an ENEMY that died during the window (a bystander that faded stays faded; a dead player's body is shown again --
+         // ActRestoresDisappear); no pose for a unit in its die sequence; a Change actor keeps its new row and base_pos; bi.def_idle
+         // and tar_bone are host stance writes and stay. True = restored. Never throws.
++        // [ff9mapkit netsync s136] [fix pass: timing-2] ...and the POSE (animFlag, animSpeed, the default idle) stays on a unit that
++        // still shows its fallback clip and was none of the aborted replays' units (ActFallbackKeepsPose; abortedUnits = their
++        // btl_ids): a clip written on a bystander while another replay ran is never cut to idle by that replay's abort. The
++        // two-argument form (ActBeforeInject: the aborted units only) restores every pose, as before.
++        // [fix pass 2: rtiming-1] ...and on an aborted replay's unit whose clip was written AFTER that abort (postAbort: the order,
++        // not the membership, decides -- ActFallbackKeepsPose's clipAfterAbort).
+         private static Boolean ActRestoreUnit(FF9StateBattleSystem b, ActUnitSnap s)
++        {
++            return ActRestoreUnit(b, s, -1, 0);
++        }
++
++        private static Boolean ActRestoreUnit(FF9StateBattleSystem b, ActUnitSnap s, Int32 abortedUnits, Int32 postAbort)
+         {
+             BTL_DATA d = s.Unit;
+             try
+@@ -1684,8 +1722,13 @@ namespace Memoria.Netsync
+                     d.base_pos = s.BasePos;
+                     d.bi.row = s.Row;
+                 }
+-                d.animFlag = s.AnimFlag;
+-                d.animSpeed = s.AnimSpeed;
++                Boolean keepPose = ActFallbackKeepsPose((abortedUnits & d.btl_id) != 0, (postAbort & d.btl_id) != 0,
++                                                        ActFallbackShowing(d));   // [ff9mapkit netsync s136] [fix pass 2: rtiming-1] + postAbort
++                if (!keepPose)
++                {
++                    d.animFlag = s.AnimFlag;
++                    d.animSpeed = s.AnimSpeed;
++                }
+                 if (ActRestoresDisappear(d.bi.player != 0, dead) && d.bi.disappear != s.Disappear)
+                     d.SetDisappear(s.Disappear != 0, s.Disappear != 0 ? s.Disappear : (Byte)255);
+                 if (d.bi.shadow != s.Shadow)
+@@ -1697,7 +1740,8 @@ namespace Memoria.Netsync
+                 if (d.die_seq == 0)
+                 {
+                     d.pos = d.base_pos;
+-                    btl_mot.SetDefaultIdle(d);
++                    if (!keepPose)                      // [ff9mapkit netsync s136] the fallback clip plays on
++                        btl_mot.SetDefaultIdle(d);
+                 }
+                 return true;
+             }
+@@ -2570,7 +2614,7 @@ namespace Memoria.Netsync
+                 if (verdict == ActHoldLate)
+                 {
+                     // the replay already hit that target: at once, through the legacy path -- in order (no older change on its slots)
+-                    ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, "late", _actNowMs, false, 0);
++                    ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, "late", _actNowMs, false, 0, paired);   // [ff9mapkit netsync s136] + paired
+                     _holdHeld++;
+                     ActHoldCount("late");
+                     ActHoldLag(creditMs - _actNowMs);
+@@ -2829,7 +2873,7 @@ namespace Memoria.Netsync
+         /// that slot (the superseded guard; the death-attack grace armed right before a kill -- [fix pass: timing-4] only while a
+         /// replay can still follow). Lag, count, one log line. The caller drains the queue. [fix pass: stock-2] The figure step and
+         /// the flinch step each run in their own try (a throw in the stock display or motion never drops the life lanes), and a
+-        /// unit with no model gets neither. Never throws (the mask is recomputed whatever happens).</summary>
++        /// unit with no model gets neither. [ff9mapkit netsync s136] So does fallback A's step between them and the life lanes. Never throws (the mask is recomputed whatever happens).</summary>
+         private static void ActReleaseHeld(ActHeld h, String via, Boolean bracket, BTL_DATA hit)
+         {
+             _actHeld.Remove(h);
+@@ -2869,6 +2913,26 @@ namespace Memoria.Netsync
+                 {
+                     ActHoldErr(ex);
+                 }
++                // [ff9mapkit netsync s136] FALLBACK A at a held release, after the flinch and before the life lanes (the arrival path's
++                // order): covered for every release of a replayed action (hit, late, end, hostdone, timeout, abort, replaced -- nothing
++                // shown); a held impact whose replay then DECLINED (stale, dead, busy, nosequence...) is uncovered and plays its action's
++                // one clip now. The caster's guards are read here, at the release (a self-cast's caster is the target). [fix pass:
++                // stock-3] Its own try, as the figure and flinch steps: a throw evaluating its arguments never drops the life lanes.
++                try
++                {
++                    if (ActFallbackOn)
++                    {
++                        BTL_DATA fC = h.SelfCast ? dT : dC;
++                        Boolean fLethal = h.SelfCast ? lethalT : lethalC;
++                        ActFallbackAtImpact(ref a, fC, h.SelfCast, fLethal,
++                                            fC != null && ActReviveAtRelease(fLethal, (fC.stat.cur & BattleStatus.Death) != 0),
++                                            h.SelfCast ? hiddenT : hiddenC, h.Rec, h.Backlog, via, h.ArriveMs);
++                    }
++                }
++                catch (Exception ex)
++                {
++                    ActHoldErr(ex);
++                }
+                 // THE LIFE LANES (the superseded guard; a hidden unit's life change still applies)
+                 Boolean superseded = false;
+                 if (h.LifeT && dT != null)
+@@ -2951,7 +3015,8 @@ namespace Memoria.Netsync
+                 BTL_DATA dC = b != null && a.CasterSlot <= 7 ? ResolveWireUnit(b, a.CasterSlot, a.CasterIsPlayer) : null;
+                 Int32 superseded0 = _holdSuperseded;
+                 if (dT != null || dC != null)
+-                    ApplyActionFrameNow(b, ref a, dT, dC, ReferenceEquals(dT, dC), q.Covered, q.Backlog, via, q.ArriveMs, true, q.LifeSlots);
++                    ApplyActionFrameNow(b, ref a, dT, dC, ReferenceEquals(dT, dC), q.Covered, q.Backlog, via, q.ArriveMs, true, q.LifeSlots,
++                                        q.Rec);          // [ff9mapkit netsync s136] + the record it named (fallback A's covered rule, read now)
+                 Int32 lag = Int32.MinValue;
+                 if (q.CreditMs != Int32.MinValue)
+                 {
+@@ -3524,6 +3589,7 @@ namespace Memoria.Netsync
+                 case "hold":                             // [ff9mapkit netsync s135] the replay hit hold's levers and its unit-sample seam
+                 case "lifeskip":
+                 case "unit":
++                case "fallback":                         // [ff9mapkit netsync s136] fallback A's lever
+                     return true;
+                 case "tape":
+                     return value == "play";
+@@ -3542,6 +3608,7 @@ namespace Memoria.Netsync
+         ///   `clear` -- ActAbortAll("clear") and the inbox emptied; `teardown` -- ActDiscardAll("teardown (bench)"), the teardown's own
+         ///       step with no Leave first (review F2's leg D2), the diorama left booted and contained;
+         ///   [ff9mapkit netsync s135] `hold on|off`, `lifeskip on|off`, `unit &lt;slot&gt; dead|alive|trance0|trance1` (HarnessActHoldBench).
++        ///   [ff9mapkit netsync s136] `fallback on|off` (HarnessActFallbackBench).
+         /// args = the verb's whole argument list (args[0] = "actbench"). False + why on a refusal.</summary>
+         internal static Boolean HarnessActGuestBench(String[] args, out String why)
+         {
+@@ -3701,6 +3768,8 @@ namespace Memoria.Netsync
+                 case "lifeskip":
+                 case "unit":
+                     return HarnessActHoldBench(args, op, val, out why);   // [ff9mapkit netsync s135]
++                case "fallback":
++                    return HarnessActFallbackBench(args, val, out why);   // [ff9mapkit netsync s136]
+                 default:
+                     why = "netsync actbench: unknown op '" + op + "'";
+                     return false;
+@@ -3763,6 +3832,10 @@ namespace Memoria.Netsync
+                     Log.Message("[NetSync] harness: action replay hold levers back (the hold ON, the life-mask skip ON; released with the harness)");
+                 _benchHoldOff = false;
+                 _benchLifeSkipOff = false;
++                // [ff9mapkit netsync s136] fallback A's lever back too (fallback A ON)
++                if (_benchFallbackOff)
++                    Log.Message("[NetSync] harness: action fallback lever back (fallback A ON; released with the harness)");
++                _benchFallbackOff = false;
+                 if (_actInbox.Count > 0)
+                     Log.Message("[NetSync] harness: action replay inbox emptied (" + _actInbox.Count + " frame(s); released with the harness)");
+                 _actInbox.Clear();
+@@ -4240,5 +4313,1239 @@ namespace Memoria.Netsync
+             if (!ok)
+                 fail = name;
+         }
++
++        // ===========================================================================================================================
++        // [ff9mapkit netsync s136] FALLBACK A -- ONE STOCK CLIP PER UNCOVERED ACTION (studies/battle-coop/R3-DESIGN.md 3.3.5 as amended by
++        // R3-ACTION-REPLAY-AUDIT.md 2.4 -- amendments 1-6, decisions D-a/D-b/D-c -- and 3.5; the design's and the audit's "s125": group 2
++        // was renumbered s133-s141). Until s136 an impact no replay covered showed only the s110 player-only MP_ATTACK swing, and an
++        // enemy's nothing at all. Now such an impact plays ONE stock clip chosen by its ACTION, at most once per action:
++        //   a PLAYER caster -- Item / AutoPotion / Throw -> MP_ITEM1 (btl_util.GetCommandTypeSafe, checked FIRST: GetCommandMainActionIndex
++        //       reads Void for an item -- amendment 3); Defend / Change -> none; magic -> MP_MAGIC (AbilityCategory & 16 of a scratch
++        //       CMD_DATA {regist, cmd_no, sub_no} after SetAAData(GetCommandAction) -- ActLaunch's idiom; a support ability's override
++        //       of the host's live category is not mirrored: the clip is cosmetic); any other command -> MP_ATTACK; a monster-
++        //       transformed caster -> none (its mot table is the monster's: a player index would throw);
++        //   an ENEMY caster (EnemyAtk / EnemyCounter / EnemyDying / EnemyReaction: sub_no IS the scene sequence's number; [fix pass 2:
++        //       rstock-1] the AI's Loop moves ScriptCounter1-3, whose sub_no is the attack number as EnemyAtk's, and a battle script's
++        //       scripted sequence -- btlseq.RunSequence on cmd[0]: cmd None, sub_no its pSeqNo) -> the FIRST
++        //       NON-IDLE caster PlayAnimation of that sequence (amendment 2, D-a: "Idle" -- byte 255, or the PlayAnimation END appends
++        //       to every sequence -- names no clip and would freeze the unit; none = play nothing). The sequence is PARSED through
++        //       BattleActionThread.LoadFromBtlSeq, NEVER EXECUTED (the btlseq reader and opcode it borrows are put back; no text is
++        //       fetched), cached per (scene, sub) for the boot; a parse failure is logged once per boot and plays nothing. Played by
++        //       NAME (btl_mot.setMotion(d, String)): an enemy's mot table has 6 entries, an index would throw.
++        // Every clip: stock's defensive attach (btlseq.SeqExecAnim -- a clip missing from the unit's Animation is added from its own
++        // folder), the name, then evt.animFrame = 0 (amendment 1: else the anim-end test can end the clip on its first update).
++        // [fix pass: stock-1] A clip the attach could not put on the unit (a name of fewer than four '_' tokens, a missing asset --
++        // mod content) is REFUSED, as stock's own PlayAnimation refuses it (BattleActionCode.TryGetArgAnimation): a name no clip
++        // answers would freeze the unit (geoAnimGetNumFrames reads 65535, the anim-end branch never runs, PlayAnim samples
++        // nothing). It counts `none` (the key is already spent: the action plays nothing, once), one line per boot, and the
++        // (unit, clip) pair is remembered for the boot so the asset search and its log line never repeat.
++        //
++        // COVERED vs UNCOVERED (ActFallbackCovered; the selftest pins every state and reason). An impact is COVERED -- no clip,
++        // counted `covered` -- when its action id names a record of this boot whose replay LAUNCHED (running, ended, or aborted
++        // after its launch) or may still launch (queued, waiting), a NOOP (kind none: nothing to show, design 3.3.3), a pending START
++        // a newer START of the same actor REPLACED (that actor's replay plays its turn) or one an abort-all dropped (r8, w3, leave,
++        // clear: the end presentation or a Leave owns the units then) -- these last two never launched: a DELIBERATE widening of
++        // "covered" (the newer replay, the end or the Leave presents those units; the acting, end and Leave guards would refuse
++        // most such clips anyway). So every s135 legacy release of a held impact whose action
++        // replays -- `late`, `end`, `hostdone`, `timeout`, `abort`, `replaced` -- and every queued frame of such an action shows
++        // nothing new (the queued one is judged by its record's state at its release). It is UNCOVERED when no replay of that action
++        // ever launched: an old host (no id), an id-0 impact, a START never received (dropped, truncated) or one DECLINED for any
++        // other reason (knob, lever, rework, stale, backlog, actor, hidden, dead, kind, transform, target, busy, timeout,
++        // nosequence...) -- including a HELD impact released `declined` (s135 kept it for a replay that then declined).
++        // [fix pass 2: rcover-2] Covered ONLY because its record is still PENDING (queued, waiting) is no verdict: that START may yet
++        // decline uncovered -- `target` above all (ActMapMask resolves its TarId as the impact's target is resolved, so every
++        // impact of a START declined `target` has no resolved target and is never HELD) -- and an impact the hold did not keep
++        // (no resolved target, no room, the `hold off` lever, a fault, a queued frame released or a held one timed out while its
++        // START still waits) is never looked at again. Such an impact WAITS for its record's decision (ActFallbackAwaitsRecord;
++        // its key unspent, no counter yet), at any call site, then decides again (ActFallbackRecordStep): a launch, a NOOP or a
++        // covered decline counts `covered`, an uncovered decline plays the action's clip (via "declined", every guard re-read but
++        // the call site's own lethal and revive, kept). Still pending past ActFallbackDeferMaxMs (a START may wait up to
++        // ActWaitMaxMs) -- or dropped by the cap or the teardown -- it keeps its arrival verdict: `covered`.
++        //
++        // ONCE PER ACTION (ActFallbackBook): an impact with an action id is keyed (nonce, actId); one without (an old host, id 0) by
++        // (caster, cmd, sub) within ActFallbackWindowMs = 500 ms of BATTLE time (audit 3.5) between ARRIVALS -- a queued sibling
++        // released later compares its own arrival, so it never doubles a clip. A key is spent by a clip, by a "none" choice and by a
++        // backlog impact; a guard refusal spends nothing (a sibling may still play the action's clip). [fix pass: cover-5,
++        // timing-5, timing-6] The window SLIDES: a deduped sibling moves the key's arrival up to its own (an id-less multi-hit
++        // sequence whose hits span 500 ms or more stays ONE action -- no windup replayed mid-attack), and an OLDER arrival (a queued
++        // frame released late) never moves it back (a newer action's sibling would otherwise play a second clip).
++        // THE GUARDS are the CALL SITE's (amendment 6 -- CanPlayCosmeticMotion checks only die_seq, stop_anim, Death and the frozen
++        // statuses): not lethal, not a revive, not hidden (the motion step's own lethalC / reviveC / hiddenC); self-cast only when the
++        // impact has no DmgMot (amendment 4, D-b: a Potion on self plays its clip; a self-hit's flinch owns the unit); then
++        // CanPlayCosmeticMotion, a unit with a model, [fix pass: stock-2] stock's own btl_mot.IsAnimationFrozen (a SLAVE part -- it
++        // shares its master's gameObject and is never displayed --, a unit a replay froze with afFreeze, stop_anim) and a unit not
++        // bi.disappear (BattleMainLoop does not animate it: the clip would wait and play when it reappears) -- s136 is the first guest
++        // code that writes an ENEMY's motion directly; the caster not acting in a running replay -- [fix pass: timing-8] or a ZOMBIE
++        // the sequencer still holds -- (a clip would cut the replay's own); and nothing once the end is presented or injected, at the
++        // end-inject flush, while a Leave is in flight, [fix pass: timing-1] while the s115 run-away / annihilation-settle hold waits
++        // (the injection that follows would hide the runners mid-clip) or inside an abort-all (a Leave's own: it runs before the
++        // Leave is stamped; the frames its releases unblock would otherwise play unguarded).
++        // [fix pass: cover-2] THE DEFERRAL: an impact WITH an action id whose ONLY failing guard is "acting" -- the guest-lag case: a
++        // START parked Waiting behind its actor's previous replay, its END arrives, it declines `stale` (or `busy`) and s135
++        // releases every held impact of it `declined` in one loop while that replay still runs -- is NOT refused: it waits (its key
++        // unspent) until its caster's replay ends, then decides with via "deferred" (every guard re-read then). Dropped (counted
++        // `guarded`) when a NEWER replay of the actor owns its turn (one launched, or a START of it pending), after
++        // ActFallbackDeferMaxMs of battle time, past ActFallbackDeferCap entries, and at the teardown. An id-0 impact is never
++        // deferred: a nested command (Phoenix, AngelSnack) emits id 0 under the replay that already presents it.
++        // NO CLIP for an impact drained in a BACKLOG Update (amendment 5, D-c): its figures and state still apply; its key is spent.
++        // COUNTED WHEN WRITTEN: several clips on one actor in one frame collapse to the last one written (setMotion overwrites the
++        // name): `clips` counts one per actor per frame, each overwritten one counts `collapsed`. Every impact that reaches the
++        // motion step with a resolved caster counts exactly one of covered | deduped | backlog | guarded | none | clips | collapsed
++        // (none, clips and collapsed: once per action) -- a deferred one when it decides or is dropped.
++        // [fix pass: timing-2] A clip OUTLIVES the busy window: a FULL restore after an abort leaves the pose (animFlag, animSpeed,
++        // the default idle) of a unit that still shows its fallback clip and was none of the aborted replays' units
++        // (ActFallbackKeepsPose; rot, scale, meshes, row and pos are restored as before). [fix pass 2: rtiming-1] ...or was one, but
++        // got that clip AFTER its replay aborted (_fbPostAbortMask: set by the write on a unit already in the window's abort mask,
++        // cleared again by a later abort that touches the unit) -- a deferred clip on the actor whose replay just aborted, or a
++        // target of an aborted replay casting its own uncovered action, while another replay keeps the window open.
++        // THE CONTAINMENT LAW: presentation only -- a clip writes the diorama unit's motion (currentAnimationName, animSpeed,
++        // animFlag, animEndFrame, evt.animFrame) and may attach a stock clip to its Animation. No figure, no HP / MP / status, no
++        // calculation; the sequence is parsed, never executed.
++        // THE LEVER `actbench fallback off` (selftest role only; released with the harness) is the pre-s136 guest: the s110 player-
++        // only MP_ATTACK swing for an impact s134's CoversSwing does not cover, nothing at a held release.
++        // Vanilla, solo and the host never reach any of it: ApplyActionFrameNow and ActReleaseHeld run only on a booted diorama.
++        // ===========================================================================================================================
++        internal const Int32 ActFallbackWindowMs = 500;    // the old-host / id-0 key's window (battle ms between arrivals)
++        internal const Int32 ActFallbackIdCap = 4096;      // spent (nonce, actId) keys kept per boot (then the set restarts)
++        internal const Int32 ActFallbackWinCap = 512;      // spent (caster, cmd, sub) keys kept per boot (then the map restarts)
++        internal const Int32 ActFallbackSeqCacheCap = 256; // parsed (scene, sub) sequences kept per boot
++        internal const Int32 ActFallbackLogMax = 8;        // clip lines per boot (then counted, not logged)
++        internal const Int32 ActFallbackDeferMaxMs = 4000; // [fix pass: cover-2] a deferred clip waits at most this long after its arrival
++        internal const Int32 ActFallbackDeferCap = 16;     // [fix pass: cover-2] deferred impacts kept (the oldest dropped first)
++        // the clip an action chose
++        internal const Int32 ActFbNone = 0, ActFbAttack = 1, ActFbMagic = 2, ActFbItem = 3, ActFbEnemy = 4;
++        // ActFallbackVerdict's answers
++        internal const Int32 ActFbDecide = 0, ActFbCovered = 1, ActFbDeduped = 2, ActFbBacklog = 3, ActFbGuarded = 4;
++        // [fix pass: cover-2] ActFallbackDeferStep's answers ([fix pass 2: rcover-2] and ActFallbackRecordStep's: + ActFbDeferCovered)
++        internal const Int32 ActFbDeferWait = 0, ActFbDeferPlay = 1, ActFbDeferDrop = 2, ActFbDeferCovered = 3;
++        internal const String ActViaDeferred = "deferred";  // [fix pass: cover-2] `last.via` of a deferred impact's clip
++
++        /// <summary>[ff9mapkit netsync s136] THE ONCE-PER-ACTION BOOK (pure: the selftest drives fresh ones): the (nonce, actId) keys spent
++        /// this boot, and the (caster, cmd, sub) keys with the newest arrival of the action that spent each.</summary>
++        internal sealed class ActFallbackBook
++        {
++            private readonly HashSet<Int32> _ids = new HashSet<Int32>();
++            private readonly Dictionary<Int64, Int32> _win = new Dictionary<Int64, Int32>();
++
++            /// <summary>The action already had its decision: its id key spent, or its window key spent within 500 ms of this arrival.</summary>
++            public Boolean Seen(Boolean byId, Int32 idKey, Int64 winKey, Int32 arriveMs)
++            {
++                if (byId)
++                    return _ids.Contains(idKey);
++                Int32 at;
++                return _win.TryGetValue(winKey, out at) && ActFallbackWithinWindow(at, arriveMs);
++            }
++
++            /// <summary>Spend the action's key (a clip, a "none" choice, a backlog impact): the window key keeps the NEWER of its arrival
++            /// and this one ([fix pass: timing-6] a queued frame's older arrival never rewinds a newer action's).</summary>
++            public void Note(Boolean byId, Int32 idKey, Int64 winKey, Int32 arriveMs)
++            {
++                if (byId)
++                {
++                    if (_ids.Count >= ActFallbackIdCap)
++                        _ids.Clear();
++                    _ids.Add(idKey);
++                    return;
++                }
++                Int32 at;
++                if (_win.TryGetValue(winKey, out at))
++                {
++                    _win[winKey] = Math.Max(at, arriveMs);
++                    return;
++                }
++                if (_win.Count >= ActFallbackWinCap)
++                    _win.Clear();
++                _win[winKey] = arriveMs;
++            }
++
++            /// <summary>[fix pass: cover-5, timing-5] A deduped sibling of a window-keyed action SLIDES the window to its own arrival
++            /// (never back): a chain of hits each under 500 ms after the last stays one action. A key never spent stays unspent.</summary>
++            public void Slide(Int64 winKey, Int32 arriveMs)
++            {
++                Int32 at;
++                if (_win.TryGetValue(winKey, out at) && arriveMs > at)
++                    _win[winKey] = arriveMs;
++            }
++
++            public void Clear()
++            {
++                _ids.Clear();
++                _win.Clear();
++            }
++        }
++
++        // one parsed enemy sequence: its first non-Idle caster clip (null = none) and why it could not be read (null = it could)
++        private sealed class ActFbSeq
++        {
++            public String Clip;
++            public String Fail;
++        }
++
++        // [fix pass: cover-2] one DEFERRED impact: its frame (whole), the caster and the replay that held it, its record, its arrival
++        // [fix pass 2: rcover-2] ...or one waiting for its PENDING record's decision (OnRecord: no Holder), with the call site's own
++        // lethal / revive and backlog -- the conjuncts no later read can recover
++        private sealed class ActFbDeferred
++        {
++            public NetSyncBattle.PeerAction A;
++            public BTL_DATA Caster;
++            public CMD_DATA Holder;                    // the CMD_DATA of the replay (or zombie) the caster was acting in
++            public Boolean SelfCast;
++            public ActRec Rec;
++            public Int32 ArriveMs;
++            public Boolean OnRecord;                   // [fix pass 2: rcover-2] waits for Rec's decision (Rec.Pending)
++            public Boolean Lethal, Revive, Backlog;    // [fix pass 2: rcover-2] the call site's, for OnRecord's decision
++        }
++
++        // ---------------------------------------------------------------------------------------------------- fallback A's state (per boot)
++        private static readonly ActFallbackBook _fbBook = new ActFallbackBook();
++        private static readonly Dictionary<Int64, ActFbSeq> _fbSeqCache = new Dictionary<Int64, ActFbSeq>();
++        private static Int32 _fbFrame = -1;              // Time.frameCount of the clips written this frame
++        private static Int32 _fbFrameMask;               // btl_ids that got a clip this frame (the collapse)
++        // [fix pass: cover-2] the deferred impacts, in arrival order (ActFallbackDeferredTick)
++        private static readonly List<ActFbDeferred> _fbDeferred = new List<ActFbDeferred>(4);
++        // [fix pass: timing-2] the last fallback clip written per btl index (the busy-window restore keeps a unit that still shows it)
++        private static readonly String[] _fbClipOn = new String[8];
++        // [fix pass 2: rtiming-1] btl_ids whose fallback clip was written AFTER a replay that touched them aborted in the open busy
++        // window (the restore keeps them too); a later abort touching one takes it back. Cleared at the window's open and close.
++        private static Int32 _fbPostAbortMask;
++        // [fix pass: stock-1] (btl_id, clip) pairs the defensive attach could not put on the unit this boot (never searched again)
++        private static readonly HashSet<String> _fbMissing = new HashSet<String>();
++        // `act.guest.fallback` counters (per boot: reset by the boot block, kept after the teardown until the next boot)
++        private static Int32 _fbClips, _fbDeduped, _fbCovered, _fbNone, _fbGuarded, _fbBacklog, _fbCollapsed, _fbParseFailed;
++        private static Int32 _fbLogged;
++        private static Boolean _fbNoneLogged, _fbParseLogged, _fbErrLogged, _fbMissingLogged, _fbDeferLogged;
++        private static Boolean _fbAwaitLogged;           // [fix pass 2: rcover-2] the record deferral's line (once per boot)
++        // `last`: the last clip written this boot
++        private static Boolean _fbLastSet;
++        private static Int32 _fbLastActor, _fbLastCmd, _fbLastSub, _fbLastKind, _fbLastId, _fbLastMs;
++        private static String _fbLastClip, _fbLastKeyedBy, _fbLastVia;
++        // SELFTEST LEVER (`actbench fallback on|off`; released by ActBenchRelease, never per boot): read through ActFallbackOn, which
++        // also needs the selftest role -- a lever stranded across an ini edit never changes a real guest
++        private static Boolean _benchFallbackOff;      // `fallback off`: the pre-s136 guest (the s110 player-only MP_ATTACK swing)
++        // [fix pass: timing-1] true while ActAbortAll runs (its releases' unblocked frames play no clip: the end or a Leave owns the
++        // units -- a Leave's abort-all runs BEFORE LeaveFrom stamps _leaveTick)
++        private static Boolean _actAbortingAll;
++
++        private static Boolean ActFallbackOn { get { return !(_benchFallbackOff && NetSyncClient.IsSelfTestRole); } }
++
++        // Per boot (ActResetForBoot): the spent keys, the sequence cache and the frame's collapse mask always; the counters, the log
++        // budgets and `last` with the boot block's counters (kept after the teardown until the next boot). Never throws.
++        private static void ActFallbackReset(Boolean counters)
++        {
++            try
++            {
++                _fbBook.Clear();
++                _fbSeqCache.Clear();
++                _fbDeferred.Clear();                     // (ActDiscardAll counted them `guarded` first: ActFallbackDropDeferred)
++                _fbMissing.Clear();
++                Array.Clear(_fbClipOn, 0, _fbClipOn.Length);
++            }
++            catch { }
++            _fbFrame = -1;
++            _fbFrameMask = 0;
++            _fbPostAbortMask = 0;                        // [fix pass 2: rtiming-1]
++            if (!counters)
++                return;
++            _fbClips = _fbDeduped = _fbCovered = _fbNone = _fbGuarded = _fbBacklog = _fbCollapsed = _fbParseFailed = 0;
++            _fbLogged = 0;
++            _fbNoneLogged = _fbParseLogged = _fbErrLogged = _fbMissingLogged = _fbDeferLogged = false;
++            _fbAwaitLogged = false;                      // [fix pass 2: rcover-2]
++            _fbLastSet = false;
++            _fbLastActor = _fbLastCmd = _fbLastSub = _fbLastKind = _fbLastId = _fbLastMs = -1;
++            _fbLastClip = _fbLastKeyedBy = _fbLastVia = null;
++        }
++
++        // ============================================================================================ fallback A: pure rules
++        /// <summary>[ff9mapkit netsync s136] COVERED (pure; ActFallbackSelfTest pins every state and reason): true = a replay covers the
++        /// impact's action -- it launched (running, ended, aborted after its launch), may still launch (queued, waiting), is a NOOP,
++        /// was REPLACED by a newer START of its actor, or was dropped by an abort-all (r8, w3, leave, clear). False = no replay of it
++        /// ever launched: no record (state -1: an old host, id 0, a START never received) or any other decline.</summary>
++        internal static Boolean ActFallbackCovered(Int32 state, String why)
++        {
++            switch (state)
++            {
++                case ActStRegistered:
++                case ActStWaiting:
++                case ActStRunning:
++                case ActStEnded:
++                case ActStAborted:
++                case ActStNoop:
++                    return true;
++                case ActStDeclined:
++                    return why == "superseded" || ActDeclineVia(why) == "abort";
++                default:
++                    return false;
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s136] The key (pure): an impact with the s133 extension and a non-zero action id is keyed (nonce,
++        /// actId); any other (an old host's 46 bytes, id 0) by (caster, cmd, sub) within the 500 ms window.</summary>
++        internal static Boolean ActFallbackKeyedById(Boolean hasExt, Byte extKind, UInt16 actId)
++        {
++            return hasExt && extKind == NetSyncBattle.ActExtImpact && actId != 0;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] The window key (pure): the caster's wire slot and side, the command and its sub (16 bits each,
++        /// as the impact's 46-byte head carries them).</summary>
++        internal static Int64 ActFallbackWindowKey(Int32 casterSlot, Boolean casterIsPlayer, Int32 cmdNo, Int32 subNo)
++        {
++            return ((Int64)(casterSlot & 0xFF) << 40) | ((Int64)(casterIsPlayer ? 1 : 0) << 32) | ((Int64)(cmdNo & 0xFFFF) << 16) | (Int64)(subNo & 0xFFFF);
++        }
++
++        /// <summary>[ff9mapkit netsync s136] Two arrivals of one (caster, cmd, sub) are one action when they lie less than 500 ms of battle
++        /// time apart, either way round (a queued sibling arrived first and is released later). Pure.</summary>
++        internal static Boolean ActFallbackWithinWindow(Int32 spentMs, Int32 arriveMs)
++        {
++            Int64 d = (Int64)arriveMs - spentMs;
++            return (d < 0 ? -d : d) < ActFallbackWindowMs;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] THE CALL-SITE GUARDS (pure; amendment 6): self-cast only without a DmgMot (amendment 4, D-b),
++        /// not lethal, not a revive, not hidden, a unit free to move (CanPlayCosmeticMotion, a model, [fix pass: stock-2] not frozen
++        /// by stock's own rule -- a slave, afFreeze, stop_anim -- and not bi.disappear), not acting in a running replay (or a
++        /// zombie), and no end presentation / end-inject flush / Leave / run-away hold / abort-all in flight.</summary>
++        internal static Boolean ActFallbackGuard(Boolean selfCast, Boolean dmgMot, Boolean lethal, Boolean revive, Boolean hidden, Boolean canPlay,
++                                                 Boolean acting, Boolean endOrLeave)
++        {
++            return (!selfCast || !dmgMot) && !lethal && !revive && !hidden && canPlay && !acting && !endOrLeave;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] No clip once the end is presented or injected, at the end-inject flush (it runs BEFORE the
++        /// injection sets either), or while a Leave of the diorama is in flight -- [fix pass: timing-1] nor while the s115 run-away /
++        /// annihilation-settle hold waits (endHeld: the injection that follows hides the runners), nor inside an abort-all
++        /// (abortingAll: a Leave's own runs before its stamp; the queued frames its releases unblock). Pure.</summary>
++        internal static Boolean ActFallbackEndBlocks(Boolean endPresented, Boolean endHeld, Boolean abortingAll, Boolean leaving, String via)
++        {
++            return endPresented || endHeld || abortingAll || leaving || via == "end-inject";
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass: cover-2] THE DEFERRAL (pure): an impact keyed by its action id whose ONLY failing
++        /// guard is "acting" (guardIdle: every guard with acting false) waits for its caster's replay instead of being refused. An
++        /// id-0 / old-host impact never does (a nested command's impact rides the replay that presents it).</summary>
++        internal static Boolean ActFallbackDefers(Boolean byId, Boolean guardIdle, Boolean acting)
++        {
++            return byId && acting && guardIdle;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass: cover-2] A deferred impact's step each tick (pure): dropped once it is older than
++        /// ActFallbackDeferMaxMs; while its caster acts, it waits on the replay that held it -- another one acting = a NEWER replay
++        /// owns the turn (dropped); once free, a pending START of the actor owns the turn (dropped); else it plays.</summary>
++        internal static Int32 ActFallbackDeferStep(Boolean expired, Boolean acting, Boolean holderActing, Boolean pendingTurn)
++        {
++            if (expired)
++                return ActFbDeferDrop;
++            if (acting)
++                return holderActing ? ActFbDeferWait : ActFbDeferDrop;
++            if (pendingTurn)
++                return ActFbDeferDrop;
++            return ActFbDeferPlay;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass 2: rcover-2] An impact COVERED only because its record is still PENDING (queued,
++        /// waiting) has no verdict yet (pure): it waits for that record's decision -- a START that then declines uncovered (`target`,
++        /// stale, busy...) would otherwise leave its action with no clip at all. A decided record's verdict stands.</summary>
++        internal static Boolean ActFallbackAwaitsRecord(Boolean covered, Boolean recPending)
++        {
++            return covered && recPending;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass 2: rcover-2] A record-deferred impact's step each tick (pure): once its record is
++        /// decided it decides again (ActFbDeferPlay: `covered`, or the action's clip); while the record stays pending it waits, and
++        /// past ActFallbackDeferMaxMs it keeps its arrival verdict (ActFbDeferCovered: a replay of it may still launch).</summary>
++        internal static Int32 ActFallbackRecordStep(Boolean expired, Boolean recPending)
++        {
++            if (!recPending)
++                return ActFbDeferPlay;
++            return expired ? ActFbDeferCovered : ActFbDeferWait;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass: timing-2] The busy window's FULL restore keeps a unit's pose (animFlag, animSpeed,
++        /// the default idle) when it still shows its fallback clip and was none of the aborted replays' units (pure). [fix pass 2:
++        /// rtiming-1] ...or was one but got that clip AFTER the abort (clipAfterAbort: _fbPostAbortMask, ORDER-aware: a later abort
++        /// touching the unit takes it back) -- the restore undoes the replay's displacement, never a clip written once it was gone.</summary>
++        internal static Boolean ActFallbackKeepsPose(Boolean abortedUnit, Boolean clipAfterAbort, Boolean showsClip)
++        {
++            return (!abortedUnit || clipAfterAbort) && showsClip;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass: stock-1] A clip is written only onto a unit whose Animation holds it after the
++        /// defensive attach (pure) -- stock's PlayAnimation refuses the same (BattleActionCode.TryGetArgAnimation).</summary>
++        internal static Boolean ActFallbackClipPlayable(Boolean hasAnim, Boolean hasClip)
++        {
++            return hasAnim && hasClip;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] THE VERDICT (pure), in its order: covered, then an action already decided (deduped), then a
++        /// backlog drain (no clip, the key spent), then the guards (nothing spent); else the action decides its clip.</summary>
++        internal static Int32 ActFallbackVerdict(Boolean covered, Boolean seen, Boolean backlog, Boolean guardOk)
++        {
++            if (covered)
++                return ActFbCovered;
++            if (seen)
++                return ActFbDeduped;
++            if (backlog)
++                return ActFbBacklog;
++            if (!guardOk)
++                return ActFbGuarded;
++            return ActFbDecide;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] THE PLAYER CLIP (pure): a monster-transformed caster none; Item / AutoPotion / Throw MP_ITEM1
++        /// FIRST (amendment 3); Defend / Change none; magic (category &amp; 16) MP_MAGIC; anything else MP_ATTACK.</summary>
++        internal static Int32 ActFallbackPlayerClip(Boolean itemOrThrow, Boolean defendOrChange, Boolean monsterTransform, Int32 category)
++        {
++            if (monsterTransform)
++                return ActFbNone;
++            if (itemOrThrow)
++                return ActFbItem;
++            if (defendOrChange)
++                return ActFbNone;
++            if ((category & 16) != 0)
++                return ActFbMagic;
++            return ActFbAttack;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] An item command by its type (pure): GetCommandTypeSafe's Item (Item, AutoPotion, a mod item
++        /// command) or Throw.</summary>
++        internal static Boolean ActFallbackItemOrThrow(CharacterCommandType t)
++        {
++            return t == CharacterCommandType.Item || t == CharacterCommandType.Throw;
++        }
++
++        internal static Boolean ActFallbackDefendOrChange(Int32 cmdNo)
++        {
++            return cmdNo == (Int32)BattleCommandId.Defend || cmdNo == (Int32)BattleCommandId.Change;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] An enemy command whose sub_no names a scene sequence (pure): btlseq's own four (the legacy
++        /// SelectCommandVfx branch: EnemyAtk, EnemyCounter, EnemyDying, EnemyReaction) -- [fix pass 2: rstock-1] and the AI's Loop
++        /// moves ScriptCounter1-3 (btl_scrp.SetEnemyCommand with the attack number as sub_no; btl_cmd, btl_util and btl_mot group
++        /// them with EnemyAtk) and a battle script's scripted sequence (btlseq.RunSequence on cmd[0]: cmd None, sub_no its pSeqNo).
++        /// A whitelist of the commands whose sub_no IS a sequence number, not SFXRework's wider rule (btl_vfx plays EnemySequence(sub_no)
++        /// for EVERY enemy command but SysTrans and MagicCounter -- DescribeCommandVfx's kind 2): any other enemy command's sub_no
++        /// is an ability or item id, and reading it as a sequence would play an unrelated clip.</summary>
++        internal static Boolean ActFallbackEnemySeqCmd(Int32 cmdNo)
++        {
++            return cmdNo == (Int32)BattleCommandId.EnemyAtk || cmdNo == (Int32)BattleCommandId.EnemyCounter
++                || cmdNo == (Int32)BattleCommandId.EnemyDying || cmdNo == (Int32)BattleCommandId.EnemyReaction
++                || cmdNo == (Int32)BattleCommandId.ScriptCounter1 || cmdNo == (Int32)BattleCommandId.ScriptCounter2
++                || cmdNo == (Int32)BattleCommandId.ScriptCounter3 || cmdNo == (Int32)BattleCommandId.None;
++        }
++
++        internal static BattlePlayerCharacter.PlayerMotionIndex ActFallbackMotion(Int32 kind)
++        {
++            switch (kind)
++            {
++                case ActFbItem: return BattlePlayerCharacter.PlayerMotionIndex.MP_ITEM1;
++                case ActFbMagic: return BattlePlayerCharacter.PlayerMotionIndex.MP_MAGIC;
++                default: return BattlePlayerCharacter.PlayerMotionIndex.MP_ATTACK;
++            }
++        }
++
++        internal static String ActFallbackKindName(Int32 kind)
++        {
++            switch (kind)
++            {
++                case ActFbAttack: return "attack";
++                case ActFbMagic: return "magic";
++                case ActFbItem: return "item";
++                case ActFbEnemy: return "enemy";
++                default: return "none";
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s136] THE ENEMY CLIP (pure over a parsed sequence; amendment 2, D-a): the first PlayAnimation with
++        /// Char=Caster whose Anim is a real clip -- "Idle" and an empty name skipped -- in the main thread, then the sub-threads in
++        /// their order; null = none (play nothing).</summary>
++        internal static String ActFallbackFirstClip(List<BattleActionThread> threads)
++        {
++            if (threads == null)
++                return null;
++            for (Int32 t = 0; t < threads.Count; t++)
++            {
++                BattleActionThread th = threads[t];
++                if (th == null || th.code == null)
++                    continue;
++                foreach (BattleActionCode c in th.code)
++                {
++                    if (c == null || c.operation != "PlayAnimation" || c.argument == null)
++                        continue;
++                    String who, anim;
++                    if (!c.argument.TryGetValue("Char", out who) || who != "Caster")
++                        continue;
++                    if (!c.argument.TryGetValue("Anim", out anim) || String.IsNullOrEmpty(anim) || anim == "Idle")
++                        continue;
++                    return anim;
++                }
++            }
++            return null;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] Several clips on one actor in one frame collapse to the last one written (pure): this unit
++        /// already got one this frame.</summary>
++        internal static Boolean ActFallbackCollapses(Int32 frameMask, Int32 btlId)
++        {
++            return btlId != 0 && (frameMask & btlId) != 0;
++        }
++
++        // ============================================================================================ fallback A: the motion step
++        /// <summary>[ff9mapkit netsync s136] FALLBACK A at one impact's motion step -- ApplyActionFrameNow step (e) (the arrival, a late
++        /// release, a queued frame's release) and ActReleaseHeld after its flinch: covered, deduped, backlog, guarded, or the action
++        /// decides its one clip (none, or written). `caster` is the resolved caster (the target itself on a self-cast); lethal /
++        /// revive / hidden are THE CALL SITE's own conjuncts (amendment 6); `rec` the record the impact's id names (null = none);
++        /// `arriveMs` the impact's own arrival (battle ms: the window compares arrivals). [fix pass: cover-2] An id-keyed impact whose
++        /// only failing guard is "acting" is DEFERRED (ActFallbackDefer: no counter until it decides or is dropped). [fix pass 2:
++        /// rcover-2] So is one covered only by a PENDING record, at every call site (ActFallbackDeferOnRecord: it decides again
++        /// once the record is decided). Presentation only. Never throws.</summary>
++        private static void ActFallbackAtImpact(ref NetSyncBattle.PeerAction a, BTL_DATA caster, Boolean selfCast, Boolean lethal, Boolean revive,
++                                                Boolean hidden, ActRec rec, Boolean backlog, String via, Int32 arriveMs)
++        {
++            if (caster == null || a.StatTick)
++                return;
++            try
++            {
++                Boolean covered = ActFallbackCovered(rec != null ? rec.State : -1, rec != null ? rec.Why : null);
++                Boolean byId = ActFallbackKeyedById(a.HasExt, a.ExtKind, a.ActId);
++                Int32 idKey = byId ? ActBook.KeyOf(a.Nonce, a.ActId) : 0;
++                Int64 winKey = ActFallbackWindowKey(a.CasterSlot, a.CasterIsPlayer, a.CmdNo, a.SubNo);
++                Boolean seen = !covered && _fbBook.Seen(byId, idKey, winKey, arriveMs);
++                // [fix pass: stock-2] a unit free to move by stock's own rule too (a slave part, afFreeze, stop_anim) and not hidden by
++                // bi.disappear; [fix pass: timing-8] acting = a running replay's actor OR a zombie's; [fix pass: timing-1] the end
++                // blocks while the run-away hold waits and inside an abort-all too
++                Boolean canPlay = caster.gameObject != null && CanPlayCosmeticMotion(caster) && !btl_mot.IsAnimationFrozen(caster)
++                                  && caster.bi.disappear == 0;
++                Boolean acting = ActFallbackActing(caster);
++                Boolean endBlocks = ActFallbackEndBlocks(EndHudOff || _endInjected, _actEndHoldSince >= 0, _actAbortingAll,
++                                                         LeaveRequestedRecently, via);
++                Boolean guardOk = !covered && !seen && !backlog
++                                  && ActFallbackGuard(selfCast, a.DmgMot, lethal, revive, hidden, canPlay, acting, endBlocks);
++                switch (ActFallbackVerdict(covered, seen, backlog, guardOk))
++                {
++                    case ActFbCovered:
++                        // [fix pass 2: rcover-2] covered ONLY by a still-PENDING record is no verdict yet: it waits for the decision
++                        if (rec != null && ActFallbackAwaitsRecord(covered, rec.Pending))
++                        {
++                            ActFallbackDeferOnRecord(ref a, caster, selfCast, lethal, revive, rec, backlog, arriveMs);
++                            return;
++                        }
++                        _fbCovered++;
++                        return;
++                    case ActFbDeduped:
++                        if (!byId)
++                            _fbBook.Slide(winKey, arriveMs);     // [fix pass: cover-5, timing-5] the window follows the action's hits
++                        _fbDeduped++;
++                        return;
++                    case ActFbBacklog:
++                        _fbBook.Note(byId, idKey, winKey, arriveMs);
++                        _fbBacklog++;
++                        return;
++                    case ActFbGuarded:
++                        // [fix pass: cover-2] refused ONLY because its caster acts in a replay: it waits for that replay, never dropped
++                        if (ActFallbackDefers(byId, ActFallbackGuard(selfCast, a.DmgMot, lethal, revive, hidden, canPlay, false, endBlocks), acting)
++                            && ActFallbackDefer(ref a, caster, selfCast, rec, arriveMs))
++                            return;
++                        _fbGuarded++;
++                        return;
++                }
++                Int32 kind;
++                String why;
++                String clip = ActFallbackClipFor(caster, ref a, out kind, out why);
++                _fbBook.Note(byId, idKey, winKey, arriveMs);
++                if (clip == null)
++                {
++                    _fbNone++;
++                    if (!_fbNoneLogged)
++                    {
++                        _fbNoneLogged = true;
++                        ActFallbackNoneLine(ref a, why);
++                    }
++                    return;
++                }
++                ActFallbackWrite(caster, clip, kind, ref a, byId, via);
++            }
++            catch (Exception ex)
++            {
++                if (_fbErrLogged)
++                    return;
++                _fbErrLogged = true;
++                try { Log.Error("[NetSync] action fallback faulted (logged once per boot; the impact's figures and state still applied): " + ex); }
++                catch { }
++            }
++        }
++
++        // The `none` line (once per boot per cause: an action that chose nothing, a clip refused by the write).
++        private static void ActFallbackNoneLine(ref NetSyncBattle.PeerAction a, String why)
++        {
++            Log.Message("[NetSync] action fallback: no clip for wire slot " + a.CasterSlot + " cmd " + a.CmdNo + " sub " + a.SubNo + " ("
++                        + (why ?? "none") + ") -- the action plays nothing (logged once per boot; `none` counts the rest)");
++        }
++
++        // [fix pass: timing-8] The CMD_DATA `c` acts in (null = none): a running replay whose actor it is (ActIsCaster's rule), else a
++        // ZOMBIE whose CMD_DATA it registered (an aborted replay the sequencer would not release: it still drives its PlayAnimation).
++        // Fallback A's own predicate -- s134's ActIsCaster hook keeps its semantics. Never throws.
++        private static CMD_DATA ActFallbackHolderOf(BTL_DATA c)
++        {
++            try
++            {
++                for (Int32 i = 0; i < _actRunning.Count; i++)
++                    if (ReferenceEquals(_actRunning[i].Actor, c) && ActRunningNow(_actRunning[i]))
++                        return _actRunning[i].Cmd;
++                if (_actZombies.Count > 0)
++                    foreach (CMD_DATA z in _actZombies.Keys)
++                        if (z != null && ReferenceEquals(z.regist, c))
++                            return z;
++            }
++            catch { }
++            return null;
++        }
++
++        private static Boolean ActFallbackActing(BTL_DATA c)
++        {
++            return c != null && ActFallbackHolderOf(c) != null;
++        }
++
++        // the replay (or zombie) `cmd` still acts
++        private static Boolean ActFallbackCmdActing(CMD_DATA cmd)
++        {
++            if (cmd == null)
++                return false;
++            try
++            {
++                for (Int32 i = 0; i < _actRunning.Count; i++)
++                    if (ReferenceEquals(_actRunning[i].Cmd, cmd) && ActRunningNow(_actRunning[i]))
++                        return true;
++                return _actZombies.Count > 0 && _actZombies.ContainsKey(cmd);
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        // a START of that actor is still pending (queued or waiting): its replay owns the actor's next turn
++        private static Boolean ActFallbackPendingTurn(Int32 slot, Boolean isPlayer)
++        {
++            try
++            {
++                foreach (ActRec r in _actBook.Queue)
++                    if (r != null && r.Pending && r.ActorSlot == slot && r.IsPlayer == isPlayer)
++                        return true;
++            }
++            catch { }
++            return false;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass: cover-2] Park one impact refused only because its caster acts in a replay: the
++        /// frame (whole), the caster, the replay that holds it, its record and its arrival; its key stays unspent. Past
++        /// ActFallbackDeferCap the oldest is dropped (`guarded`). False = nothing holds the caster after all (the caller counts it
++        /// `guarded`). One line per boot.</summary>
++        private static Boolean ActFallbackDefer(ref NetSyncBattle.PeerAction a, BTL_DATA caster, Boolean selfCast, ActRec rec, Int32 arriveMs)
++        {
++            CMD_DATA holder = ActFallbackHolderOf(caster);
++            if (holder == null)
++                return false;
++            ActFallbackPark(new ActFbDeferred { A = a, Caster = caster, Holder = holder, SelfCast = selfCast, Rec = rec, ArriveMs = arriveMs });
++            if (!_fbDeferLogged)
++            {
++                _fbDeferLogged = true;
++                Log.Message("[NetSync] action fallback: wire slot " + a.CasterSlot + " acts in a running replay -- its uncovered action (cmd "
++                            + a.CmdNo + " sub " + a.SubNo + ", id " + a.ActId + ") waits for that replay's end, at most " + ActFallbackDeferMaxMs
++                            + " ms of battle time (logged once per boot)");
++            }
++            return true;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass 2: rcover-2] Park one impact covered only by its still-PENDING record: the frame
++        /// (whole), the caster, the record, the call site's own lethal / revive and backlog, its arrival; its key stays unspent, no
++        /// counter moves until it decides (ActFallbackDeferredTick) or is dropped (`covered`: its arrival verdict). One line per
++        /// boot.</summary>
++        private static void ActFallbackDeferOnRecord(ref NetSyncBattle.PeerAction a, BTL_DATA caster, Boolean selfCast, Boolean lethal,
++                                                     Boolean revive, ActRec rec, Boolean backlog, Int32 arriveMs)
++        {
++            ActFallbackPark(new ActFbDeferred { A = a, Caster = caster, SelfCast = selfCast, Rec = rec, ArriveMs = arriveMs, OnRecord = true,
++                                                Lethal = lethal, Revive = revive, Backlog = backlog });
++            if (_fbAwaitLogged)
++                return;
++            _fbAwaitLogged = true;
++            Log.Message("[NetSync] action fallback: wire slot " + a.CasterSlot + "'s action (cmd " + a.CmdNo + " sub " + a.SubNo + ", id "
++                        + a.ActId + ") waits for its START's decision (" + ActStateName(rec.State)
++                        + ") -- a launch covers it, a decline plays its clip; at most " + ActFallbackDeferMaxMs
++                        + " ms of battle time (logged once per boot)");
++        }
++
++        // [fix pass 2: rcover-2] one deferral in, past ActFallbackDeferCap the oldest out (ActFallbackDropEntry)
++        private static void ActFallbackPark(ActFbDeferred e)
++        {
++            if (_fbDeferred.Count >= ActFallbackDeferCap)
++            {
++                ActFallbackDropEntry(_fbDeferred[0]);
++                _fbDeferred.RemoveAt(0);
++            }
++            _fbDeferred.Add(e);
++        }
++
++        // [fix pass 2: rcover-2] a deferral dropped undecided (the cap, the teardown) counts its verdict when it was parked: `covered`
++        // for one that waited on its pending record, `guarded` for one that waited on its caster's replay
++        private static void ActFallbackDropEntry(ActFbDeferred e)
++        {
++            if (e != null && e.OnRecord)
++                _fbCovered++;
++            else
++                _fbGuarded++;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] [fix pass: cover-2] ActTick's fallback step (after the queue): each deferred impact waits
++        /// while the replay that held its caster acts; once free -- and no newer replay owns the actor's turn -- it decides with via
++        /// "deferred" (ActFallbackAtImpact: the record, the key and every guard re-read NOW; it applied its life lanes already, so
++        /// neither lethal nor a revive); dropped (`guarded`) past ActFallbackDeferMaxMs or when a newer replay owns the turn.
++        /// [fix pass 2: rcover-2] A record-deferred one waits while its record is pending (ActFallbackRecordStep), then decides again
++        /// -- the record's state NOW: a launch, a NOOP or a covered decline counts `covered`, an uncovered decline plays the clip
++        /// (via its decline's, "declined"; the call site's lethal / revive / backlog kept, the rest re-read); still pending past
++        /// ActFallbackDeferMaxMs it counts `covered`. Never throws.</summary>
++        private static void ActFallbackDeferredTick()
++        {
++            if (_fbDeferred.Count == 0)
++                return;
++            try
++            {
++                ActFbDeferred[] ds = _fbDeferred.ToArray();
++                for (Int32 i = 0; i < ds.Length; i++)
++                {
++                    ActFbDeferred e = ds[i];
++                    if (e.OnRecord)
++                    {
++                        Int32 rstep = ActFallbackRecordStep(_actNowMs - e.ArriveMs > ActFallbackDeferMaxMs, e.Rec != null && e.Rec.Pending);
++                        if (rstep == ActFbDeferWait)
++                            continue;
++                        _fbDeferred.Remove(e);
++                        if (rstep == ActFbDeferCovered)
++                        {
++                            _fbCovered++;
++                            continue;
++                        }
++                        NetSyncBattle.PeerAction ra = e.A;
++                        ActFallbackAtImpact(ref ra, e.Caster, e.SelfCast, e.Lethal, e.Revive, ActHiddenNow(ra.CasterSlot, ra.CasterIsPlayer), e.Rec,
++                                            e.Backlog, ActDeclineVia(e.Rec != null ? e.Rec.Why : null), e.ArriveMs);
++                        continue;
++                    }
++                    Boolean acting = ActFallbackActing(e.Caster);
++                    Int32 step = ActFallbackDeferStep(_actNowMs - e.ArriveMs > ActFallbackDeferMaxMs, acting, ActFallbackCmdActing(e.Holder),
++                                                      !acting && ActFallbackPendingTurn(e.A.CasterSlot, e.A.CasterIsPlayer));
++                    if (step == ActFbDeferWait)
++                        continue;
++                    _fbDeferred.Remove(e);
++                    if (step == ActFbDeferDrop)
++                    {
++                        _fbGuarded++;
++                        continue;
++                    }
++                    NetSyncBattle.PeerAction a = e.A;
++                    ActFallbackAtImpact(ref a, e.Caster, e.SelfCast, false, false, ActHiddenNow(a.CasterSlot, a.CasterIsPlayer), e.Rec, false,
++                                        ActViaDeferred, e.ArriveMs);
++                }
++            }
++            catch (Exception ex)
++            {
++                if (_fbErrLogged)
++                    return;
++                _fbErrLogged = true;
++                try { Log.Error("[NetSync] action fallback faulted (logged once per boot; the impact's figures and state still applied): " + ex); }
++                catch { }
++            }
++        }
++
++        // [fix pass: cover-2] the teardown (ActDiscardAll, before the summary): every deferred impact dropped, counted `guarded`
++        // ([fix pass 2: rcover-2] one that waited on its pending record `covered`: ActFallbackDropEntry)
++        private static void ActFallbackDropDeferred()
++        {
++            foreach (ActFbDeferred e in _fbDeferred)
++                ActFallbackDropEntry(e);
++            _fbDeferred.Clear();
++        }
++
++        // [fix pass: timing-2] `d` still shows the fallback clip last written on it (the busy-window restore keeps its pose)
++        private static Boolean ActFallbackShowing(BTL_DATA d)
++        {
++            Int32 i = ActBtlIndex(d.btl_id);
++            return i >= 0 && _fbClipOn[i] != null && d.currentAnimationName == _fbClipOn[i];
++        }
++
++        // The action's clip on `d` (null + why = none): the player table by the action, or the enemy's scene sequence by name.
++        private static String ActFallbackClipFor(BTL_DATA d, ref NetSyncBattle.PeerAction a, out Int32 kind, out String why)
++        {
++            kind = ActFbNone;
++            why = null;
++            if (d.bi.player != 0)
++            {
++                Boolean itemOrThrow = ActFallbackItemOrThrow(btl_util.GetCommandTypeSafe((BattleCommandId)a.CmdNo));
++                Boolean defendOrChange = ActFallbackDefendOrChange(a.CmdNo);
++                Boolean transformed = d.is_monster_transform;
++                Int32 category = itemOrThrow || defendOrChange || transformed ? 0 : ActFallbackCategory(d, a.CmdNo, a.SubNo);
++                kind = ActFallbackPlayerClip(itemOrThrow, defendOrChange, transformed, category);
++                if (kind == ActFbNone)
++                {
++                    why = transformed ? "a monster-transformed caster" : "Defend / Change";
++                    return null;
++                }
++                Int32 idx = (Int32)ActFallbackMotion(kind);
++                if (d.mot == null || idx >= d.mot.Length || String.IsNullOrEmpty(d.mot[idx]))
++                {
++                    why = "the unit's motion table has no " + ActFallbackMotion(kind);
++                    kind = ActFbNone;
++                    return null;
++                }
++                return d.mot[idx];
++            }
++            if (!ActFallbackEnemySeqCmd(a.CmdNo))
++            {
++                why = "enemy cmd " + a.CmdNo + " names no scene sequence";
++                return null;
++            }
++            String clip = ActFallbackEnemyClip(a.SubNo, out why);
++            if (clip == null)
++                return null;
++            kind = ActFbEnemy;
++            return clip;
++        }
++
++        // A player action's AbilityCategory: a scratch CMD_DATA {regist, cmd_no, sub_no} with SetAAData(GetCommandAction) -- ActLaunch's
++        // idiom (amendment 3); 0 when the action cannot be read (the clip is then MP_ATTACK, the s110 default).
++        private static Int32 ActFallbackCategory(BTL_DATA caster, Int32 cmdNo, Int32 subNo)
++        {
++            try
++            {
++                CMD_DATA rc = new CMD_DATA();
++                btl_cmd.ClearCommand(rc);
++                rc.regist = caster;
++                rc.cmd_no = (BattleCommandId)cmdNo;
++                rc.sub_no = subNo;
++                rc.SetAAData(btl_util.GetCommandAction(rc));
++                return rc.aa != null ? rc.AbilityCategory : 0;
++            }
++            catch
++            {
++                return 0;
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s136] An enemy sequence's first non-Idle caster clip, cached per (scene, sub) for the boot (null + why
++        /// = none). PARSED through the stock BattleActionThread.LoadFromBtlSeq -- the same parse the sequencer's EnemySequence runs --
++        /// and NEVER EXECUTED: the btlseq instance's reader and current opcode it overwrites are put back, and no battle text is
++        /// fetched. A sequence this scene does not have, or a parse that throws, is a parse failure: counted, logged once per boot,
++        /// played as nothing.</summary>
++        private static String ActFallbackEnemyClip(Int32 sub, out String why)
++        {
++            Int32 scene = FF9StateSystem.Battle.battleMapIndex;
++            Int64 key = ((Int64)scene << 32) | (UInt32)sub;
++            ActFbSeq e;
++            if (!_fbSeqCache.TryGetValue(key, out e))
++            {
++                e = new ActFbSeq();
++                btlseq.btlseqinstance seq = btlseq.instance;
++                System.IO.BinaryReader keepReader = seq != null ? seq.sequenceReader : null;
++                Int32 keepCode = seq != null ? seq.wSeqCode : 0;
++                try
++                {
++                    FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                    e.Fail = ActFallbackSeqMissing(b, seq, sub);
++                    if (e.Fail == null)
++                        e.Clip = ActFallbackFirstClip(BattleActionThread.LoadFromBtlSeq(b.btl_scene, seq, ActFallbackNoText, sub));
++                }
++                catch (Exception ex)
++                {
++                    e.Clip = null;
++                    e.Fail = "its parse threw " + ex.GetType().Name;
++                }
++                finally
++                {
++                    if (seq != null)
++                    {
++                        seq.sequenceReader = keepReader;
++                        seq.wSeqCode = keepCode;
++                    }
++                }
++                if (_fbSeqCache.Count >= ActFallbackSeqCacheCap)
++                    _fbSeqCache.Clear();
++                _fbSeqCache[key] = e;
++                if (e.Fail != null)
++                {
++                    _fbParseFailed++;
++                    if (!_fbParseLogged)
++                    {
++                        _fbParseLogged = true;
++                        Log.Message("[NetSync] action fallback: enemy sequence " + sub + " of scene " + scene + " could not be parsed (" + e.Fail
++                                    + ") -- played as nothing (logged once per boot; `parse_failed` counts the rest)");
++                    }
++                }
++            }
++            why = e.Fail != null ? "sequence " + sub + ": " + e.Fail : e.Clip == null ? "sequence " + sub + " plays only Idle" : null;
++            return e.Clip;
++        }
++
++        // why the scene's sequence `sub` cannot be parsed here (null = it can): LoadFromBtlSeq's own bounds, checked first (its
++        // warning would otherwise log per parse), and the arrays it reads
++        private static String ActFallbackSeqMissing(FF9StateBattleSystem b, btlseq.btlseqinstance seq, Int32 sub)
++        {
++            if (b == null || b.btl_scene == null)
++                return "no battle scene";
++            if (seq == null || seq.data == null || seq.seq_work_set == null || seq.seq_work_set.SeqData == null
++                || seq.seq_work_set.AnmOfsList == null || seq.seq_work_set.AnmAddrList == null)
++                return "no battle sequence data";
++            if (sub < 0 || sub >= seq.seq_work_set.SeqData.Length || sub >= seq.seq_work_set.AnmOfsList.Length || seq.seq_work_set.SeqData[sub] == 0)
++                return "the scene has no sequence " + sub;
++            return null;
++        }
++
++        // the parse's battle text: none is fetched (a clip needs no message)
++        private static String ActFallbackNoText(Int32 id)
++        {
++            return String.Empty;
++        }
++
++        /// <summary>[ff9mapkit netsync s136] Write one clip: stock's defensive attach, setMotion by NAME, evt.animFrame = 0 (amendment 1);
++        /// counted when written -- one per actor per frame (`clips`), the rest `collapsed` -- and `last` recorded. Logged up to
++        /// ActFallbackLogMax lines per boot. [fix pass: stock-1] A clip the unit still lacks after the attach is REFUSED (`none`, one
++        /// line per boot; the pair remembered for the boot: no second asset search) -- a name no clip answers would freeze the
++        /// unit. [fix pass: timing-2] The clip is recorded per btl index (the busy-window restore keeps a unit that still shows it).
++        /// [fix pass 2: rtiming-1] ...and, on a unit the open window's aborts already touched, in _fbPostAbortMask (kept too).</summary>
++        private static void ActFallbackWrite(BTL_DATA d, String clip, Int32 kind, ref NetSyncBattle.PeerAction a, Boolean byId, String via)
++        {
++            // stock's defensive attach (btlseq.SeqExecAnim): a clip outside the unit's own model folder (the Wraith remap, a mod clip).
++            // AddAnimWithAnimatioName reads the name's '_' tokens: a name it cannot split throws, a missing asset leaves it absent
++            UnityEngine.Animation anim = null;
++            Boolean hasClip = false;
++            String missKey = d.btl_id + ":" + clip;
++            try
++            {
++                anim = d.gameObject.GetComponent<UnityEngine.Animation>();
++                if (anim != null && anim.GetClip(clip) == null && !_fbMissing.Contains(missKey))
++                {
++                    try { AnimationFactory.AddAnimWithAnimatioName(d.gameObject, clip); }
++                    catch { }
++                }
++                hasClip = anim != null && anim.GetClip(clip) != null;
++            }
++            catch { }
++            if (!ActFallbackClipPlayable(anim != null, hasClip))
++            {
++                // stock's own refusal (BattleActionCode.TryGetArgAnimation: attach, then no clip = no setMotion): the action plays
++                // nothing -- its key is spent already, so exactly once
++                if (_fbMissing.Count < 64)
++                    _fbMissing.Add(missKey);
++                _fbNone++;
++                if (!_fbMissingLogged)
++                {
++                    _fbMissingLogged = true;
++                    ActFallbackNoneLine(ref a, "clip " + clip + " is not on the unit -- refused: a name no clip answers would freeze it");
++                }
++                return;
++            }
++            Int32 frame = UnityEngine.Time.frameCount;
++            if (frame != _fbFrame)
++            {
++                _fbFrame = frame;
++                _fbFrameMask = 0;
++            }
++            Boolean collapsed = ActFallbackCollapses(_fbFrameMask, d.btl_id);
++            btl_mot.setMotion(d, clip);
++            d.evt.animFrame = 0;                     // MANDATORY after setMotion (amendment 1): a stale frame counter ends the clip at once
++            _fbFrameMask |= d.btl_id;
++            Int32 at = ActBtlIndex(d.btl_id);
++            if (at >= 0)
++                _fbClipOn[at] = clip;                // [fix pass: timing-2] what the busy-window restore leaves playing
++            // [fix pass 2: rtiming-1] a clip on a unit a replay of this open window already ABORTED with: written after that abort, so
++            // the window's restore keeps it (a later abort touching the unit takes it back: ActAbort)
++            if (_actWindowOpen && (_actWindowAbortMask & d.btl_id) != 0)
++                _fbPostAbortMask |= d.btl_id;
++            if (collapsed)
++                _fbCollapsed++;
++            else
++                _fbClips++;
++            _fbLastSet = true;
++            _fbLastActor = a.CasterSlot;
++            _fbLastClip = clip;
++            _fbLastKind = kind;
++            _fbLastCmd = a.CmdNo;
++            _fbLastSub = a.SubNo;
++            _fbLastKeyedBy = byId ? "id" : "caster";
++            _fbLastId = byId ? a.ActId : 0;
++            _fbLastVia = via;
++            _fbLastMs = _actNowMs;
++            if (_fbLogged >= ActFallbackLogMax)
++                return;
++            _fbLogged++;
++            Log.Message("[NetSync] action fallback: " + ActFallbackKindName(kind) + " clip " + clip + " on wire slot " + a.CasterSlot + " (cmd "
++                        + a.CmdNo + " sub " + a.SubNo + ", " + (byId ? "keyed by id " + a.ActId : "keyed by caster, cmd and sub within "
++                        + ActFallbackWindowMs + " ms") + ", via " + via + ") at battle ms " + _actNowMs
++                        + (collapsed ? " -- collapsed onto this frame's earlier clip on that unit" : " -- one stock clip for an action no replay covers")
++                        + (_fbLogged == ActFallbackLogMax ? "; further clips this boot are counted, not logged" : ""));
++        }
++
++        // One line per boot at its end (ActDiscardAll), only when fallback A did anything.
++        private static void ActFallbackLogSummary(String why)
++        {
++            if (_fbClips + _fbCollapsed + _fbDeduped + _fbNone + _fbGuarded + _fbBacklog + _fbParseFailed == 0)
++                return;
++            Log.Message("[NetSync] action fallback: boot summary (" + why + ") -- " + _fbClips + " clip(s), " + _fbCollapsed + " collapsed, "
++                        + _fbDeduped + " deduped, " + _fbCovered + " covered, " + _fbNone + " none, " + _fbGuarded + " guarded, " + _fbBacklog
++                        + " backlog, " + _fbParseFailed + " parse failure(s)");
++        }
++
++        // ============================================================================================ fallback A: bench and harness surface
++        /// <summary>[ff9mapkit netsync s136] `netsync actbench fallback on|off` (selftest role only -- HarnessActGuestBench checked it): off
++        /// = the pre-s136 guest, the calibration lever (the s110 player-only MP_ATTACK swing for an impact no replay covers; nothing at
++        /// a held release; enemies nothing). Released with the harness (ActBenchRelease). False + why on a refusal.</summary>
++        private static Boolean HarnessActFallbackBench(String[] args, String val, out String why)
++        {
++            why = null;
++            if (args.Length != 3 || (val != "on" && val != "off"))
++            {
++                why = "netsync actbench fallback: expected `fallback on|off`";
++                return false;
++            }
++            _benchFallbackOff = val == "off";
++            Log.Message("[NetSync] harness: action fallback " + (_benchFallbackOff ? "OFF -- CALIBRATION: the pre-s136 guest (an impact no replay "
++                        + "covers gets the s110 player-only MP_ATTACK swing; enemies nothing)" : "ON"));
++            return true;
++        }
++
++        // `netsync.battle.act.guest.fallback` (HarnessAgent.AppendActGuestFallback) -- read-only, main thread, never throw, every role.
++        internal static Boolean HarnessFallbackOn { get { return ActFallbackOn; } }
++        internal static Int32 HarnessFallbackClips { get { return _fbClips; } }
++        internal static Int32 HarnessFallbackDeduped { get { return _fbDeduped; } }
++        internal static Int32 HarnessFallbackCovered { get { return _fbCovered; } }
++        internal static Int32 HarnessFallbackNone { get { return _fbNone; } }
++        internal static Int32 HarnessFallbackGuarded { get { return _fbGuarded; } }
++        internal static Int32 HarnessFallbackBacklog { get { return _fbBacklog; } }
++        internal static Int32 HarnessFallbackCollapsed { get { return _fbCollapsed; } }
++        internal static Int32 HarnessFallbackParseFailed { get { return _fbParseFailed; } }
++
++        /// <summary>[ff9mapkit netsync s136] `act.guest.fallback.last`: the last clip written this boot (false = none).</summary>
++        internal static Boolean HarnessFallbackLast(out Int32 actor, out String clip, out Int32 cmd, out Int32 sub, out String keyedBy,
++                                                    out String kind, out Int32 id, out String via, out Int32 ms)
++        {
++            actor = cmd = sub = id = ms = -1;
++            clip = keyedBy = kind = via = null;
++            if (!_fbLastSet)
++                return false;
++            actor = _fbLastActor;
++            clip = _fbLastClip;
++            cmd = _fbLastCmd;
++            sub = _fbLastSub;
++            keyedBy = _fbLastKeyedBy;
++            kind = ActFallbackKindName(_fbLastKind);
++            id = _fbLastId;
++            via = _fbLastVia;
++            ms = _fbLastMs;
++            return true;
++        }
++
++        // ============================================================================================ fallback A: the selftest
++        /// <summary>[ff9mapkit netsync s136] THE FALLBACK A SELFTEST (NetSyncClient's selftest proof block: "action fallback selftest:
++        /// OK|FAIL (...)", after the hold's line). The pure rules: the player clip per category (Item / Throw first, magic, Defend /
++        /// Change, a transformed caster), the item and command predicates, the enemy sequence commands, the enemy clip (the first
++        /// NON-IDLE caster PlayAnimation -- Idle skipped, an Idle-only sequence none, the main thread first), the key (id vs the
++        /// window), the once-per-action book (by id; by (caster, cmd, sub) within 500 ms either way round; [fix pass] the window
++        /// sliding with a deduped sibling, never back), covered vs uncovered for every record state and decline reason, the
++        /// verdict's order (backlog: no clip), the call-site guards (self-cast, lethal, revive, hidden, frozen, acting, the end, a
++        /// Leave, [fix pass] the run-away hold and an abort-all), the collapse, and [fix pass] the deferral (cover-2), the restore's
++        /// kept pose (timing-2) and the write's refusal (stock-1); [fix pass 2] the record deferral (rcover-2), the Loop and scripted
++        /// enemy commands (rstock-1) and the ORDER-aware kept pose (rtiming-1). Each row discriminates one rule. Pure: touches no live
++        /// state.</summary>
++        internal static Boolean ActFallbackSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                // --- the player clip (amendment 3: Item / Throw FIRST)
++                Row(ActFallbackPlayerClip(true, false, false, 0) == ActFbItem && ActFallbackPlayerClip(true, false, false, 16) == ActFbItem
++                    && ActFallbackPlayerClip(true, false, false, 8) == ActFbItem,
++                    "clip: a player's Item / AutoPotion / Throw plays MP_ITEM1 -- before the category (an item reads Void's)", ref rows, ref fail);
++                Row(ActFallbackPlayerClip(false, false, false, 16) == ActFbMagic && ActFallbackPlayerClip(false, false, false, 16 | 8 | 1) == ActFbMagic
++                    && ActFallbackPlayerClip(false, false, false, 0) == ActFbAttack && ActFallbackPlayerClip(false, false, false, 8) == ActFbAttack
++                    && ActFallbackPlayerClip(false, false, false, 32 | 1) == ActFbAttack,
++                    "clip: a player's magic (category & 16) plays MP_MAGIC; any other command MP_ATTACK", ref rows, ref fail);
++                Row(ActFallbackPlayerClip(false, true, false, 0) == ActFbNone && ActFallbackPlayerClip(false, true, false, 16) == ActFbNone
++                    && ActFallbackPlayerClip(true, false, true, 0) == ActFbNone && ActFallbackPlayerClip(false, false, true, 16) == ActFbNone,
++                    "clip: Defend / Change -- and a monster-transformed caster -- play nothing", ref rows, ref fail);
++                Row(ActFallbackItemOrThrow(btl_util.GetCommandTypeSafe(BattleCommandId.Item))
++                    && ActFallbackItemOrThrow(btl_util.GetCommandTypeSafe(BattleCommandId.AutoPotion))
++                    && ActFallbackItemOrThrow(btl_util.GetCommandTypeSafe(BattleCommandId.Throw)) && !ActFallbackItemOrThrow(CharacterCommandType.Normal)
++                    && ActFallbackDefendOrChange((Int32)BattleCommandId.Defend) && ActFallbackDefendOrChange((Int32)BattleCommandId.Change)
++                    && !ActFallbackDefendOrChange((Int32)BattleCommandId.Attack) && !ActFallbackDefendOrChange((Int32)BattleCommandId.Item),
++                    "clip: Item, AutoPotion and Throw read as items through GetCommandTypeSafe; Defend and Change by their command", ref rows, ref fail);
++                Row(ActFallbackMotion(ActFbItem) == BattlePlayerCharacter.PlayerMotionIndex.MP_ITEM1
++                    && ActFallbackMotion(ActFbMagic) == BattlePlayerCharacter.PlayerMotionIndex.MP_MAGIC
++                    && ActFallbackMotion(ActFbAttack) == BattlePlayerCharacter.PlayerMotionIndex.MP_ATTACK
++                    && ActFallbackKindName(ActFbEnemy) == "enemy" && ActFallbackKindName(ActFbNone) == "none" && ActFallbackKindName(ActFbItem) == "item",
++                    "clip: the three player motions and the kind names", ref rows, ref fail);
++                // [fix pass 2: rstock-1] + the AI's Loop moves (ScriptCounter1-3) and a script's scripted sequence (cmd None = 0)
++                Row(ActFallbackEnemySeqCmd((Int32)BattleCommandId.EnemyAtk) && ActFallbackEnemySeqCmd((Int32)BattleCommandId.EnemyCounter)
++                    && ActFallbackEnemySeqCmd((Int32)BattleCommandId.EnemyDying) && ActFallbackEnemySeqCmd((Int32)BattleCommandId.EnemyReaction)
++                    && ActFallbackEnemySeqCmd((Int32)BattleCommandId.ScriptCounter1) && ActFallbackEnemySeqCmd((Int32)BattleCommandId.ScriptCounter2)
++                    && ActFallbackEnemySeqCmd((Int32)BattleCommandId.ScriptCounter3) && ActFallbackEnemySeqCmd(0)
++                    && !ActFallbackEnemySeqCmd((Int32)BattleCommandId.Attack) && !ActFallbackEnemySeqCmd((Int32)BattleCommandId.SysTrans)
++                    && !ActFallbackEnemySeqCmd((Int32)BattleCommandId.MagicCounter) && !ActFallbackEnemySeqCmd((Int32)BattleCommandId.Item),
++                    "clip: an enemy's attack, counter, dying, reaction and Loop moves -- and a script's sequence (cmd None) -- name a scene "
++                    + "sequence (sub = its number); nothing else does", ref rows, ref fail);
++                // --- the enemy clip: the first NON-IDLE caster PlayAnimation (amendment 2, D-a)
++                Row(ActFallbackFirstClip(ActTestThreads(ActTestThread(ActTestCode("Wait", null), ActTestCode("PlayAnimation", "Idle"),
++                                                                      ActTestCode("PlayAnimation", "ANH_MON_T1"), ActTestCode("PlayAnimation", "ANH_MON_T2"))))
++                    == "ANH_MON_T1"
++                    && ActFallbackFirstClip(ActTestThreads(ActTestThread(ActTestCode("PlayAnimation", "ANH_MON_T3"), ActTestCode("PlayAnimation", "Idle"))))
++                    == "ANH_MON_T3",
++                    "enemy: the first caster PlayAnimation that is not Idle -- an earlier Idle is skipped, a later clip is not taken", ref rows, ref fail);
++                Row(ActFallbackFirstClip(ActTestThreads(ActTestThread(ActTestCode("WaitAnimation", null), ActTestCode("PlayAnimation", "Idle"),
++                                                                      ActTestCode("WaitTurn", null)))) == null
++                    && ActFallbackFirstClip(ActTestThreads(ActTestThread())) == null && ActFallbackFirstClip(new List<BattleActionThread>()) == null
++                    && ActFallbackFirstClip(null) == null
++                    && ActFallbackFirstClip(ActTestThreads(ActTestThread(ActTestCode("PlayAnimation", ""), ActTestCode("PlayAnimation", "Idle")))) == null,
++                    "enemy: an Idle-only sequence (END's appended Idle), an empty one or an empty name plays nothing", ref rows, ref fail);
++                BattleActionThread tgt = ActTestThread(ActTestCode("PlayAnimation", "ANH_TGT"));
++                foreach (BattleActionCode c in tgt.code)
++                    c.argument["Char"] = "AllTargets";
++                Row(ActFallbackFirstClip(ActTestThreads(tgt, ActTestThread(ActTestCode("PlayAnimation", "ANH_SUB")))) == "ANH_SUB"
++                    && ActFallbackFirstClip(ActTestThreads(ActTestThread(ActTestCode("PlayAnimation", "ANH_MAIN")),
++                                                           ActTestThread(ActTestCode("PlayAnimation", "ANH_SUB")))) == "ANH_MAIN"
++                    && ActFallbackFirstClip(ActTestThreads(ActTestThread(ActTestCode("PlayAnimation", "Idle")),
++                                                           ActTestThread(ActTestCode("PlayAnimation", "ANH_SUB")))) == "ANH_SUB",
++                    "enemy: only a CASTER PlayAnimation counts; the main thread is read before the sub-threads", ref rows, ref fail);
++                // --- the key and the once-per-action book
++                Row(ActFallbackKeyedById(true, NetSyncBattle.ActExtImpact, 7) && !ActFallbackKeyedById(true, NetSyncBattle.ActExtImpact, 0)
++                    && !ActFallbackKeyedById(false, NetSyncBattle.ActExtImpact, 7) && !ActFallbackKeyedById(true, NetSyncBattle.ActExtStart, 7),
++                    "key: an impact with the extension and a non-zero id keys (nonce, actId); an old host's or an id-0 impact the window", ref rows, ref fail);
++                ActFallbackBook bk = new ActFallbackBook();
++                Int32 k7 = ActBook.KeyOf(ActTestNonce, 7), k8 = ActBook.KeyOf(ActTestNonce, 8), k7n = ActBook.KeyOf((Byte)(ActTestNonce + 1), 7);
++                Boolean first = bk.Seen(true, k7, 0, 100);
++                bk.Note(true, k7, 0, 100);
++                Row(!first && bk.Seen(true, k7, 0, 100) && bk.Seen(true, k7, 0, 90000) && !bk.Seen(true, k8, 0, 100) && !bk.Seen(true, k7n, 0, 100),
++                    "once: an action id plays once a boot (a burst of one id: one clip); another id or another nonce is another action", ref rows, ref fail);
++                Int64 wa = ActFallbackWindowKey(4, false, (Int32)BattleCommandId.EnemyAtk, 2), wb = ActFallbackWindowKey(5, false, (Int32)BattleCommandId.EnemyAtk, 2);
++                ActFallbackBook bw = new ActFallbackBook();
++                Boolean wFirst = bw.Seen(false, 0, wa, 1000);
++                bw.Note(false, 0, wa, 1000);
++                Row(!wFirst && bw.Seen(false, 0, wa, 1000) && bw.Seen(false, 0, wa, 1499) && !bw.Seen(false, 0, wa, 1500) && bw.Seen(false, 0, wa, 501)
++                    && !bw.Seen(false, 0, wa, 500) && !bw.Seen(false, 0, wb, 1000) && ActFallbackWindowMs == 500,
++                    "once: an old host's (caster, cmd, sub) plays once within 500 ms of battle time between arrivals, either way round", ref rows, ref fail);
++                bw.Note(false, 0, wa, 1500);
++                Row(bw.Seen(false, 0, wa, 1999) && !bw.Seen(false, 0, wa, 2000) && ActFallbackWithinWindow(1000, 1000) && !ActFallbackWithinWindow(0, 600),
++                    "once: a new decision after the window re-spends the key from its own arrival", ref rows, ref fail);
++                ActFallbackBook bs = new ActFallbackBook();
++                bs.Note(false, 0, wa, 1000);
++                bs.Slide(wa, 1400);
++                Boolean slid = bs.Seen(false, 0, wa, 1899) && !bs.Seen(false, 0, wa, 1900);
++                bs.Slide(wa, 300);
++                bs.Note(false, 0, wa, 200);
++                bs.Slide(wb, 5000);
++                Row(slid && bs.Seen(false, 0, wa, 1899) && !bs.Seen(false, 0, wa, 1900) && !bs.Seen(false, 0, wb, 5000),
++                    "once: a deduped sibling slides the window to its own arrival; an older arrival never moves it back; an unspent key stays so",
++                    ref rows, ref fail);
++                Row(wa != wb && ActFallbackWindowKey(4, false, 1, 2) != ActFallbackWindowKey(4, false, 1, 3)
++                    && ActFallbackWindowKey(4, false, 1, 2) != ActFallbackWindowKey(4, false, 2, 2)
++                    && ActFallbackWindowKey(4, false, 1, 2) != ActFallbackWindowKey(4, true, 1, 2)
++                    && ActFallbackWindowKey(0, true, 1, 0x10002) == ActFallbackWindowKey(0, true, 1, 2),
++                    "once: the window key is the caster's slot and side, the command and its 16-bit sub", ref rows, ref fail);
++                // --- covered vs uncovered
++                Row(ActFallbackCovered(ActStRegistered, null) && ActFallbackCovered(ActStWaiting, null) && ActFallbackCovered(ActStRunning, null)
++                    && ActFallbackCovered(ActStEnded, null) && ActFallbackCovered(ActStAborted, "pending") && ActFallbackCovered(ActStAborted, "fault")
++                    && ActFallbackCovered(ActStNoop, "noop"),
++                    "covered: a replay that launched (running, ended, aborted after it) or may still launch (queued, waiting), or a NOOP -- no clip",
++                    ref rows, ref fail);
++                Row(ActFallbackCovered(ActStDeclined, "superseded") && ActFallbackCovered(ActStDeclined, "r8") && ActFallbackCovered(ActStDeclined, "w3")
++                    && ActFallbackCovered(ActStDeclined, "leave") && ActFallbackCovered(ActStDeclined, "clear"),
++                    "covered: a START a newer one of its actor replaced, or an abort-all dropped -- no clip", ref rows, ref fail);
++                Row(!ActFallbackCovered(ActStDeclined, "stale") && !ActFallbackCovered(ActStDeclined, "backlog") && !ActFallbackCovered(ActStDeclined, "knob")
++                    && !ActFallbackCovered(ActStDeclined, "lever") && !ActFallbackCovered(ActStDeclined, "rework") && !ActFallbackCovered(ActStDeclined, "actor")
++                    && !ActFallbackCovered(ActStDeclined, "dead") && !ActFallbackCovered(ActStDeclined, "busy") && !ActFallbackCovered(ActStDeclined, "timeout")
++                    && !ActFallbackCovered(ActStDeclined, "nosequence") && !ActFallbackCovered(ActStDeclined, "kind")
++                    && !ActFallbackCovered(ActStDeclined, "transform") && !ActFallbackCovered(ActStDeclined, "target")
++                    && !ActFallbackCovered(ActStDeclined, "duplicate") && !ActFallbackCovered(ActStDeclined, null),
++                    "uncovered: a START declined for any other reason -- stale, backlog, knob, lever, rework, actor, dead, busy, ... -- plays the clip",
++                    ref rows, ref fail);
++                Row(!ActFallbackCovered(-1, null) && !ActFallbackCovered(-1, "superseded"),
++                    "uncovered: no record (an old host, id 0, a START dropped, truncated or never received) plays the clip", ref rows, ref fail);
++                // --- the verdict's order (amendment 5, D-c: a backlog drain plays nothing)
++                Row(ActFallbackVerdict(true, true, true, false) == ActFbCovered && ActFallbackVerdict(false, true, true, false) == ActFbDeduped
++                    && ActFallbackVerdict(false, false, true, true) == ActFbBacklog && ActFallbackVerdict(false, false, false, false) == ActFbGuarded
++                    && ActFallbackVerdict(false, false, false, true) == ActFbDecide,
++                    "verdict: covered, then deduped, then a backlog drain (no clip), then the guards; else the action decides", ref rows, ref fail);
++                // --- the call-site guards (amendments 4 and 6)
++                Row(ActFallbackGuard(false, true, false, false, false, true, false, false) && ActFallbackGuard(true, false, false, false, false, true, false, false)
++                    && !ActFallbackGuard(true, true, false, false, false, true, false, false),
++                    "guard: a hit's caster plays; a self-cast plays only without a DmgMot (a Potion on self: its flinch owns a self-hit)", ref rows, ref fail);
++                Row(!ActFallbackGuard(false, false, true, false, false, true, false, false) && !ActFallbackGuard(false, false, false, true, false, true, false, false)
++                    && !ActFallbackGuard(false, false, false, false, true, true, false, false) && !ActFallbackGuard(false, false, false, false, false, false, false, false)
++                    && !ActFallbackGuard(false, false, false, false, false, true, true, false) && !ActFallbackGuard(false, false, false, false, false, true, false, true),
++                    "guard: never a lethal or reviving caster, a hidden one, one not free to move, one acting in a replay, or at the end / a Leave",
++                    ref rows, ref fail);
++                Row(!ActFallbackEndBlocks(false, false, false, false, ActViaArrival) && !ActFallbackEndBlocks(false, false, false, false, "declined")
++                    && !ActFallbackEndBlocks(false, false, false, false, ActViaDeferred) && ActFallbackEndBlocks(true, false, false, false, ActViaArrival)
++                    && ActFallbackEndBlocks(false, true, false, false, ActViaArrival) && ActFallbackEndBlocks(false, false, true, false, "queued")
++                    && ActFallbackEndBlocks(false, false, false, true, "queued") && ActFallbackEndBlocks(false, false, false, false, "end-inject"),
++                    "guard: the end presented or injected, the run-away hold, an abort-all, the end-inject flush or a Leave in flight blocks every clip",
++                    ref rows, ref fail);
++                // --- counted when written: one per actor per frame
++                Row(!ActFallbackCollapses(0, 0x10) && ActFallbackCollapses(0x10, 0x10) && !ActFallbackCollapses(0x01, 0x10) && ActFallbackCollapses(0x11, 0x01)
++                    && !ActFallbackCollapses(0xFF, 0),
++                    "collapse: a second clip on one actor in one frame overwrites the first -- counted once", ref rows, ref fail);
++                // --- [fix pass: cover-2] the deferral: an action refused ONLY for its caster's running replay waits for it
++                Row(ActFallbackDefers(true, true, true) && !ActFallbackDefers(false, true, true) && !ActFallbackDefers(true, false, true)
++                    && !ActFallbackDefers(true, true, false),
++                    "defer: an id-keyed impact refused only for its caster's running replay waits; an id-0 one, another refusal or a free caster never",
++                    ref rows, ref fail);
++                Row(ActFallbackDeferStep(false, true, true, false) == ActFbDeferWait && ActFallbackDeferStep(false, true, false, false) == ActFbDeferDrop
++                    && ActFallbackDeferStep(false, false, false, false) == ActFbDeferPlay && ActFallbackDeferStep(false, false, false, true) == ActFbDeferDrop
++                    && ActFallbackDeferStep(true, true, true, false) == ActFbDeferDrop && ActFallbackDeferStep(true, false, false, false) == ActFbDeferDrop
++                    && ActFallbackDeferMaxMs == 4000,
++                    "defer: it waits on the replay that held it, plays once the caster is free, and drops when a newer replay owns the turn or it is stale",
++                    ref rows, ref fail);
++                // --- [fix pass 2: rcover-2] covered ONLY by a pending record: no verdict until the record is decided
++                Row(ActFallbackAwaitsRecord(true, true) && !ActFallbackAwaitsRecord(true, false) && !ActFallbackAwaitsRecord(false, true)
++                    && !ActFallbackAwaitsRecord(false, false),
++                    "defer: an impact covered only by a PENDING record (queued, waiting) waits for its decision; a decided record's verdict stands",
++                    ref rows, ref fail);
++                Row(ActFallbackRecordStep(false, true) == ActFbDeferWait && ActFallbackRecordStep(false, false) == ActFbDeferPlay
++                    && ActFallbackRecordStep(true, false) == ActFbDeferPlay && ActFallbackRecordStep(true, true) == ActFbDeferCovered
++                    && ActFbDeferCovered != ActFbDeferDrop,
++                    "defer: it decides again once its record is decided (a decline plays the clip); still pending past the bound it stays covered",
++                    ref rows, ref fail);
++                // --- [fix pass: timing-2] the busy window's FULL restore ([fix pass 2: rtiming-1] ORDER-aware), [fix pass: stock-1] the write's
++                // refusal
++                Row(ActFallbackKeepsPose(false, false, true) && !ActFallbackKeepsPose(true, false, true) && ActFallbackKeepsPose(true, true, true)
++                    && !ActFallbackKeepsPose(false, false, false) && !ActFallbackKeepsPose(true, false, false) && !ActFallbackKeepsPose(true, true, false),
++                    "restore: an abort's restore leaves a fallback clip playing on a bystander or one written AFTER its unit's abort; an aborted "
++                    + "unit's earlier clip and an idle unit are restored", ref rows, ref fail);
++                Row(ActFallbackClipPlayable(true, true) && !ActFallbackClipPlayable(true, false) && !ActFallbackClipPlayable(false, false)
++                    && !ActFallbackClipPlayable(false, true),
++                    "write: a clip the unit lacks after stock's defensive attach is refused (a name no clip answers would freeze it)", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
++        }
++
++        // the selftest's sequences: synthetic threads of BattleActionCode (no scene read, nothing executed)
++        private static BattleActionCode ActTestCode(String op, String anim)
++        {
++            return anim == null ? new BattleActionCode(op, "Char", "Caster") : new BattleActionCode(op, "Char", "Caster", "Anim", anim);
++        }
++
++        private static BattleActionThread ActTestThread(params BattleActionCode[] codes)
++        {
++            BattleActionThread t = new BattleActionThread();
++            foreach (BattleActionCode c in codes)
++                t.code.AddLast(c);
++            return t;
++        }
++
++        private static List<BattleActionThread> ActTestThreads(params BattleActionThread[] threads)
++        {
++            return new List<BattleActionThread>(threads);
++        }
+     }
+ }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 3f0acb5..daec5d9 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1411,6 +1411,10 @@ namespace Memoria.Netsync
+                         Boolean holdOk = NetSyncDiorama.ActHoldSelfTest(out holdDetail);
+                         Log.Message("[NetSync] action hold selftest: "
+                                     + (holdOk ? "OK (" + holdDetail + ")" : "FAIL (" + holdDetail + ")"));
++                        String fallbackDetail;           // [ff9mapkit netsync s136] fallback A's pure rules (clip choice, the keys, covered)
++                        Boolean fallbackOk = NetSyncDiorama.ActFallbackSelfTest(out fallbackDetail);
++                        Log.Message("[NetSync] action fallback selftest: "
++                                    + (fallbackOk ? "OK (" + fallbackDetail + ")" : "FAIL (" + fallbackDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 16eefb0..6bdd3b4 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -238,6 +238,13 @@ namespace Memoria.Harness
+         // dead|alive|trance0|trance1` (one post-horizon type-1 record for that wire slot through the reconciler's own ApplyUnit). A
+         // driver checks for `netsync.battle.act.guest.hold` -- absent = an engine whose guest shows numbers, the flinch and deaths
+         // when the host's impact arrives (an s134 engine answers those ops with "unknown op" / "expected ...").
++        // [ff9mapkit netsync s136] (fallback A, one stock clip per uncovered action; studies/battle-coop/R3-DESIGN.md 3.3.5 as amended by
++        // R3-ACTION-REPLAY-AUDIT.md 2.4), also additive under 5: `netsync.battle.act.guest` gains `fallback` as its last key (after
++        // `hold`; see AppendActGuestFallback), the selftest proof block gains one line, "action fallback selftest: OK (N rows)"
++        // (NetSyncDiorama.ActFallbackSelfTest), and `actbench` gains one guest op (selftest role only): `fallback on|off` (the
++        // calibration lever: off = the pre-s136 guest, the s110 player-only MP_ATTACK swing for an impact no replay covers). A driver
++        // checks for `netsync.battle.act.guest.fallback` -- absent = an engine whose guest swings only player casters' MP_ATTACK for an
++        // uncovered impact (an s135 engine answers `actbench fallback` with "unknown op").
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1810,6 +1817,9 @@ namespace Memoria.Harness
+                             // impact's arrival), `lifeskip on|off` (off = the reconciler ignores the life mask), `unit <slot 0-7>
+                             // dead|alive|trance0|trance1` (one post-horizon type-1 record through the reconciler's ApplyUnit). Read back:
+                             // `netsync.battle.act.guest.hold`. The levers are released on disarm/fault/reset.
++                            // [ff9mapkit netsync s136] -- and fallback A's (NetSyncDiorama.HarnessActFallbackBench, routed through the guest
++                            // bench), selftest role only: `fallback on|off` (off = the pre-s136 guest: the s110 player-only MP_ATTACK swing
++                            // for an impact no replay covers). Read back: `netsync.battle.act.guest.fallback`. Released on disarm/fault/reset.
+                             String aop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             String aval = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
+                             if (Memoria.Netsync.NetSyncDiorama.IsActGuestBenchOp(aop, aval))
+@@ -1829,7 +1839,7 @@ namespace Memoria.Harness
+                             }
+                             else if (s.Args.Length != 3)
+                             {
+-                                throw new ArgumentOutOfRangeException("netsync actbench", "expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, `actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, `actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear`, `actbench teardown`, `actbench hold|lifeskip on|off` or `actbench unit <slot> dead|alive|trance0|trance1`");
++                                throw new ArgumentOutOfRangeException("netsync actbench", "expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, `actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, `actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear`, `actbench teardown`, `actbench hold|lifeskip on|off`, `actbench unit <slot> dead|alive|trance0|trance1` or `actbench fallback on|off`");
+                             }
+                             if (!Memoria.Netsync.NetSyncBattle.HarnessActBench(aop, aval, afrom, acount, out why))
+                                 throw new InvalidOperationException(why ?? "netsync actbench refused");
+@@ -3334,7 +3344,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]}}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null}}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -4109,6 +4119,7 @@ namespace Memoria.Harness
+         //   "noop"), `why`, `arrive_ms`, `launch_ms`, `first_hit_ms`, `end_ms` (battle ms; -1 = not yet), `hits`; null = none). Sentinels
+         //   in AppendNetsync's catch line, inside its SECOND literal.
+         // [ff9mapkit netsync s135] + `hold` after `last` (the replay hit hold; see AppendActGuestHold).
++        // [ff9mapkit netsync s136] + `fallback` after `hold` (fallback A; see AppendActGuestFallback).
+         private static void AppendActGuest(StringBuilder sb)
+         {
+             sb.Append("\"guest\":{");
+@@ -4205,6 +4216,8 @@ namespace Memoria.Harness
+             }
+             sb.Append(",");                                                                             // [ff9mapkit netsync s135]
+             AppendActGuestHold(sb);                                                                     // [ff9mapkit netsync s135]
++            sb.Append(",");                                                                             // [ff9mapkit netsync s136]
++            AppendActGuestFallback(sb);                                                                 // [ff9mapkit netsync s136]
+             sb.Append("}");
+         }
+ 
+@@ -4278,6 +4291,67 @@ namespace Memoria.Harness
+             sb.Append("]}");
+         }
+ 
++        // [ff9mapkit netsync s136] `netsync.battle.act.guest.fallback` -- FALLBACK A, one stock clip per action no replay covers
++        // (NetSyncDiorama.Replay.cs; studies/battle-coop/R3-DESIGN.md 3.3.5 and 5.1 as amended by R3-ACTION-REPLAY-AUDIT.md 2.4), the LAST
++        // key of `act.guest`, in EVERY role. Per diorama boot (reset by each boot, kept after the teardown until the next) unless noted.
++        // Every impact that reaches the motion step with a resolved caster counts exactly one of the first seven counters after `on`
++        // (none, clips and collapsed once per action):
++        //   `on` (fallback A is in force: false = the selftest lever `actbench fallback off`, the pre-s136 s110 player-only MP_ATTACK
++        //   swing -- not per boot), `clips` (clips WRITTEN -- one per actor per frame), `deduped` (impacts of an action that already had
++        //   its decision: keyed (nonce, actId), or for an old host / id 0 by (caster, cmd, sub) within 500 ms of battle time between
++        //   arrivals), `covered` (impacts a replay covers: it launched, may still launch, a NOOP, a replaced or abort-all-dropped START
++        //   -- no clip; [fix pass 2: rcover-2] an impact covered only by a still-PENDING START waits for its decision and is counted
++        //   then -- here on a launch, a NOOP or a covered decline, or still pending after 4 s, the cap or the teardown; an uncovered
++        //   decline decides its clip, "declined"), `none` (actions that chose no clip: Defend / Change, an Idle-only or unparsable
++        //   enemy sequence, a non-sequence enemy command, a monster-transformed caster, a clip the unit lacks after stock's attach),
++        //   `guarded` (impacts the call-site guards refused: lethal, revive, hidden, self-cast with a DmgMot, a unit not free to
++        //   move -- frozen, a slave part,
++        //   bi.disappear --, a caster acting in a replay, the end, the run-away hold, an abort-all or a Leave -- nothing spent; an
++        //   id-keyed impact refused only for its caster's replay is DEFERRED until that replay ends and counted when it decides, or
++        //   here when it is dropped: a newer replay's turn, stale, the teardown),
++        //   `backlog` (impacts drained in a backlog Update: no clip, the key spent), `collapsed` (clips overwritten by a later one on the
++        //   same actor in the same frame -- not in `clips`), `parse_failed` (enemy sequences that could not be parsed, played as
++        //   nothing) and `last` (the last clip written: `actor` (the caster's wire slot), `clip` (the clip name), `cmd`, `sub`,
++        //   `keyed_by` ("id" | "caster"), `kind` ("attack" | "magic" | "item" | "enemy"), `id` (the action id; 0 = keyed by caster),
++        //   `via` (the step: "arrival" | "late" | "queued" | "timeout" | a held release's reason, "declined" being the one that plays |
++        //   "deferred": a deferred impact once its caster's replay ended),
++        //   `ms` (battle ms of the write); null = none). Sentinels in AppendNetsync's catch line, inside its SECOND literal.
++        private static void AppendActGuestFallback(StringBuilder sb)
++        {
++            sb.Append("\"fallback\":{");
++            Bool(sb, "on", Memoria.Netsync.NetSyncDiorama.HarnessFallbackOn); sb.Append(",");
++            Num(sb, "clips", Memoria.Netsync.NetSyncDiorama.HarnessFallbackClips); sb.Append(",");
++            Num(sb, "deduped", Memoria.Netsync.NetSyncDiorama.HarnessFallbackDeduped); sb.Append(",");
++            Num(sb, "covered", Memoria.Netsync.NetSyncDiorama.HarnessFallbackCovered); sb.Append(",");
++            Num(sb, "none", Memoria.Netsync.NetSyncDiorama.HarnessFallbackNone); sb.Append(",");
++            Num(sb, "guarded", Memoria.Netsync.NetSyncDiorama.HarnessFallbackGuarded); sb.Append(",");
++            Num(sb, "backlog", Memoria.Netsync.NetSyncDiorama.HarnessFallbackBacklog); sb.Append(",");
++            Num(sb, "collapsed", Memoria.Netsync.NetSyncDiorama.HarnessFallbackCollapsed); sb.Append(",");
++            Num(sb, "parse_failed", Memoria.Netsync.NetSyncDiorama.HarnessFallbackParseFailed); sb.Append(",");
++            Int32 factor, fcmd, fsub, fid, fms;
++            String fclip, fkeyed, fkind, fvia;
++            if (!Memoria.Netsync.NetSyncDiorama.HarnessFallbackLast(out factor, out fclip, out fcmd, out fsub, out fkeyed, out fkind, out fid,
++                                                                   out fvia, out fms))
++            {
++                sb.Append("\"last\":null");
++            }
++            else
++            {
++                sb.Append("\"last\":{");
++                Num(sb, "actor", factor); sb.Append(",");
++                Str(sb, "clip", fclip); sb.Append(",");
++                Num(sb, "cmd", fcmd); sb.Append(",");
++                Num(sb, "sub", fsub); sb.Append(",");
++                Str(sb, "keyed_by", fkeyed); sb.Append(",");
++                Str(sb, "kind", fkind); sb.Append(",");
++                Num(sb, "id", fid); sb.Append(",");
++                Str(sb, "via", fvia); sb.Append(",");
++                Num(sb, "ms", fms);
++                sb.Append("}");
++            }
++            sb.Append("}");
++        }
++
+         // [ff9mapkit netsync B5] stage 5: `netsync.battle.end` -- the GUEST'S end presentation on its battle diorama
+         // (NetSyncDiorama.EndTick / InjectEnd, R8, the watchdogs; studies/battle-coop/B4-B5-DESIGN.md 5.3). Per diorama boot:
+         // reset by each boot, kept after the teardown until the next one.

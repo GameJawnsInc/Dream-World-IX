@@ -44,6 +44,12 @@ way the engine fabricates its bench end through the real ParseView.
     decline-to-release mapping, the end-inject trigger, the hit's figure path, the flinch, figs[]' value, the lag's median,
     the hit's pick and the credits -- and the hold with its statics (ActHoldLane, owned by ActGuestLane:
     `netsync.battle.act.guest.hold`).
+  * [ff9mapkit netsync s136] FALLBACK A's pure rules (NetSyncDiorama.Replay.cs's ActFallbackSelfTest twins): the player clip
+    (ActFallbackPlayerClip, Item / Throw first), the command predicates, the enemy clip (ActFallbackFirstClip: the first
+    NON-IDLE caster PlayAnimation), the key (by id, or (caster, cmd, sub) within 500 ms of battle time between arrivals),
+    the once-per-action book (ActFallbackBook), COVERED vs UNCOVERED (ActFallbackCovered), the verdict's order, the call-site
+    guards and the per-frame collapse -- and fallback A with its statics (ActFallbackLane, owned by ActGuestLane:
+    `netsync.battle.act.guest.fallback`).
 """
 from __future__ import annotations
 
@@ -3866,7 +3872,10 @@ class ActGuestLane:
     HOLD (:class:`ActHoldLane`, :attr:`hold`): ApplyActionFrame's intake, the releases at the hit (ActOnHit), at the natural
     end, the abort, a decline / noop, the timers, the end injection and the teardown's discard -- and from that rung on the
     arrival path's state writes, figures (`figs[]`) and flinch ARE modelled (an s134 lane keeps s134's model: pairing
-    only). A hit's figure is DISPLAYED :attr:`FIGURE_FRAMES` frames after the hit (the sequence's Figure point)."""
+    only). A hit's figure is DISPLAYED :attr:`FIGURE_FRAMES` frames after the hit (the sequence's Figure point).
+    [ff9mapkit netsync s136] With :attr:`with_fallback` true (the stand-in's `actfallback` rung; it needs the hold's) the
+    lane carries FALLBACK A (:class:`ActFallbackLane`, :attr:`fallback`): ApplyActionFrameNow's motion step and
+    ActReleaseHeld's fallback step play one stock clip per action no replay covers -- an s135 lane keeps the s110 swing."""
 
     REPLAY_FRAMES = 30
     HIT_FRAME = 15
@@ -3878,6 +3887,12 @@ class ActGuestLane:
         self.hold = ActHoldLane(self)
         #: [ff9mapkit netsync s135] True, or a callable answering it (the stand-in: its `acthold` rung) -- False = s134
         self.with_hold_fn = False
+        #: [ff9mapkit netsync s136] fallback A (its state and lever; ``with_fallback`` decides whether it RUNS)
+        self.fallback = ActFallbackLane(self)
+        #: [ff9mapkit netsync s136] True, or a callable answering it (the stand-in: its `actfallback` rung) -- False = s135
+        self.with_fallback_fn = False
+        #: [ff9mapkit netsync s136] [fix pass: timing-1] true while :meth:`abort_all` runs (fallback A's end block)
+        self.aborting_all = False
         self.ctx_last: dict = {}                 # the last ctx a drain / tick / bench passed (the hold's releases resolve by it)
         self.action_replay = True                # [Netsync] ActionReplay (the ini's; default 1)
         self.sfx_rework = True                   # this machine's [Battle] SFXRework
@@ -3935,8 +3950,12 @@ class ActGuestLane:
         self.end_hold_since = -1
         self.window_open = self.window_aborted = False
         self.window_row_mask = 0
+        self.window_abort_mask = 0               # [ff9mapkit netsync s136] [fix pass 2: rtiming-1] _actWindowAbortMask
         self.start_logged = self.abort_logged = 0
         self.old_host_logged = self.trip_logged = False
+        # [ff9mapkit netsync s136] ActFallbackReset(counters), before the counters' own early return: the spent keys, the
+        # sequence cache and the frame's collapse mask always; its counters, log budgets and `last` with the boot's
+        self.fallback.reset(counters)
         if not counters:
             return
         # (the stand-in's unit shapes: a diorama BOOT's new units -- ActDiscardAll / `actbench teardown` keeps them, as the
@@ -3965,16 +3984,29 @@ class ActGuestLane:
         return bool(fn()) if callable(fn) else bool(fn)
 
     @property
+    def with_fallback(self) -> bool:
+        """[ff9mapkit netsync s136] Fallback A exists (an s136+ engine; the stand-in's `actfallback` rung -- the ladder puts
+        it after `acthold`: a lane without the hold has no ApplyActionFrameNow to carry it)."""
+        fn = self.with_fallback_fn
+        return (bool(fn()) if callable(fn) else bool(fn)) and self.with_hold
+
+    def fallback_on(self, role: bool) -> bool:
+        """[ff9mapkit netsync s136] ActFallbackOn: fallback A exists and its lever is not pulled (`actbench fallback off`
+        needs the selftest role to bite, as the engine's getter)."""
+        return self.with_fallback and self.fallback.on(role)
+
+    @property
     def live(self) -> bool:
         """ActLive: a replay CMD_DATA is registered."""
         return bool(self.running)
 
     # -- the bench (HarnessActGuestBench)
     @staticmethod
-    def is_bench_op(op: str, value: str, hold: bool = False) -> bool:
+    def is_bench_op(op: str, value: str, hold: bool = False, fallback: bool = False) -> bool:
         """NetSyncDiorama.IsActGuestBenchOp. [ff9mapkit netsync s135] ``hold``: the engine has the replay hit hold (its
-        `hold|lifeskip|unit` ops route here too)."""
-        return op in ACT_GUEST_BENCH_OPS or (op == "tape" and value == "play") or (bool(hold) and op in ACT_HOLD_BENCH_OPS)
+        `hold|lifeskip|unit` ops route here too). [ff9mapkit netsync s136] ``fallback``: ...and fallback A (`fallback`)."""
+        return op in ACT_GUEST_BENCH_OPS or (op == "tape" and value == "play") or (bool(hold) and op in ACT_HOLD_BENCH_OPS) \
+            or (bool(fallback) and op in ACT_FALLBACK_BENCH_OPS)
 
     def bench(self, args: list, *, booted: bool, role: bool, tape=None, ctx: dict | None = None) -> tuple:
         """HarnessActGuestBench(args) -> ``(ok, why)`` in the engine's words; ``args`` the verb's whole list (args[0] =
@@ -3988,6 +4020,8 @@ class ActGuestLane:
             if ctx is not None:
                 self.ctx_last = ctx
             return self.hold.bench(args, op, val, booted=booted, role=role, ctx=ctx or self.ctx_last)
+        if self.with_fallback and op in ACT_FALLBACK_BENCH_OPS:
+            return self.fallback.bench(args, val)           # [ff9mapkit netsync s136] HarnessActFallbackBench
         if op in ("feed", "feedat"):
             ms = 0
             if op == "feed":
@@ -4074,6 +4108,7 @@ class ActGuestLane:
         self.bench_replay_off = self.bench_rework_off = self.bench_short_off = False
         self.bench_knob = -1
         self.hold.release()                      # [ff9mapkit netsync s135] the hold's levers back (its own line first)
+        self.fallback.release()                  # [ff9mapkit netsync s136] fallback A's lever back (its own line)
         if self.inbox:
             self._log(f"{LOG_REPLAY_INBOX_EMPTIED}{len(self.inbox)} frame(s); released with the harness)")
         self.inbox = []
@@ -4193,7 +4228,8 @@ class ActGuestLane:
             self_cast = dt is not None and dt is dc
             if self.hold.intake(a, dt, dc, self_cast, rec, bool(backlog), covered, ctx):
                 return
-            self.hold.apply_now(a, dt, dc, self_cast, covered, bool(backlog), ACT_VIA_ARRIVAL, self.now_ms, False, ctx)
+            self.hold.apply_now(a, dt, dc, self_cast, covered, bool(backlog), ACT_VIA_ARRIVAL, self.now_ms, False, ctx,
+                                rec=rec)         # [ff9mapkit netsync s136] + the record (fallback A's covered rule)
             return
         if a["stat_tick"]:
             return
@@ -4387,7 +4423,19 @@ class ActGuestLane:
         if self.with_hold:                       # [ff9mapkit netsync s135] what it never hit: the legacy path, now
             self.hold.release_rec(r, "end")
 
+    def _units_of(self, r: ActRec) -> int:
+        """ActUnitsOf: the btl_ids a replay acts with -- its actor and its mapped targets (the stand-in: no reflect, no magic
+        caster)."""
+        m = int(r.actor.get("id", 0)) if getattr(r, "actor", None) is not None else 0
+        for t in getattr(r, "targets", None) or ():
+            m |= int(t.get("id", 0))
+        return m
+
     def _abort(self, r: ActRec, why: str, ctx: dict) -> None:
+        units = self._units_of(r)
+        if not ctx.get("end_injected"):
+            self.window_abort_mask |= units      # [ff9mapkit netsync s136] [fix pass 2: rtiming-1] (s134's mask, modelled)
+        self.fallback.post_abort_mask &= ~units  # [ff9mapkit netsync s136] [fix pass 2: rtiming-1] a clip before THIS abort
         r.state, r.why, r.end_ms = ACT_ST_ABORTED, why, self.now_ms
         if r in self.running:
             self.running.remove(r)
@@ -4413,17 +4461,24 @@ class ActGuestLane:
                      else ""))
 
     def abort_all(self, why: str, *, booted: bool = True, ctx: dict | None = None) -> None:
-        """ActAbortAll: every running replay hard-released, every parked START declined ``why``; the window closes."""
-        if not booted:
-            return
-        ctx = ctx or {}
-        for r in list(self.running):
-            self._abort(r, why, ctx)
-        for r in list(self.book.queue):
-            if r.pending:
-                self.dropped += 1
-                self._decline(r, why, f"dropped by {why} before it launched")
-        self._window_check(ctx)
+        """ActAbortAll: every running replay hard-released, every parked START declined ``why``; the window closes.
+        [ff9mapkit netsync s136] [fix pass: timing-1] :attr:`aborting_all` holds while it runs (fallback A plays no clip for
+        the frames its releases unblock)."""
+        was = self.aborting_all
+        self.aborting_all = True
+        try:
+            if not booted:
+                return
+            ctx = ctx or {}
+            for r in list(self.running):
+                self._abort(r, why, ctx)
+            for r in list(self.book.queue):
+                if r.pending:
+                    self.dropped += 1
+                    self._decline(r, why, f"dropped by {why} before it launched")
+            self._window_check(ctx)
+        finally:
+            self.aborting_all = was
 
     def discard_all(self, why: str) -> None:
         """ActDiscardAll (ForceDisarm; `actbench teardown`): every record dropped, NOTHING applied or restored -- counted
@@ -4447,20 +4502,28 @@ class ActGuestLane:
                       f"{self.superseded} superseded), {self.ended} ended, {self.aborted} aborted ({self.faulted} faulted), "
                       f"{self.hits} hit(s), {self.swing_skipped} swing(s) skipped; calc_while_booted="
                       f"{self.calc_while_booted}" + ("; the host predates action replay" if self.old_host else ""))
+        self.fallback.drop_deferred()            # [ff9mapkit netsync s136] [fix pass: cover-2] still waiting: `guarded`
+        self.fallback.log_summary(why)           # [ff9mapkit netsync s136] fallback A's line (only when it did anything)
         self.reset_for_boot(False)
 
     def _window_open(self) -> None:
         self.window_open, self.window_aborted, self.window_row_mask = True, False, 0
+        self.window_abort_mask = 0               # [ff9mapkit netsync s136] [fix pass 2: rtiming-1]
+        self.fallback.post_abort_mask = 0
 
     def _window_check(self, ctx: dict) -> None:
         if not self.window_open or self.running:
             return
         self.window_open = False
+        aborted_units, self.window_abort_mask = self.window_abort_mask, 0          # [fix pass 2: rtiming-1]
+        post_abort, self.fallback.post_abort_mask = self.fallback.post_abort_mask, 0
         scope = act_restore_scope(self.window_aborted, bool(ctx.get("end_injected")))
         self.window_aborted = False
         if scope == ACT_RESTORE_NONE:
             return
         limited = scope == ACT_RESTORE_LIMITED
+        if not limited and self.with_fallback:
+            self.fallback.restore_cut(aborted_units, post_abort)   # [ff9mapkit netsync s136] the clip half of ActRestoreUnit
         units = 0 if limited else len(ctx.get("units") or [])
         if limited:
             self.restores_limited += 1
@@ -4485,6 +4548,7 @@ class ActGuestLane:
             if self.swings[slot] <= 0:
                 del self.swings[slot]
         self.hold.age_flinches()                 # [ff9mapkit netsync s135] (the stand-in's flinch shapes)
+        self.fallback.age()                      # [ff9mapkit netsync s136] (the stand-in's clip shapes)
         if ctx.get("end_injected") and self.end_inject_ms < 0:
             self.end_inject_ms = self.now_ms
         live = bool(self.running) or bool(self.book.queue)
@@ -4496,6 +4560,8 @@ class ActGuestLane:
         self._window_check(ctx)
         self._decide_queue(ctx, paused)
         self._window_check(ctx)
+        if self.with_fallback:
+            self.fallback.deferred_tick(ctx)     # [ff9mapkit netsync s136] [fix pass: cover-2] ActFallbackDeferredTick
         if self.with_hold:
             self.hold.tick(ctx)                  # [ff9mapkit netsync s135] ActHoldTick, last (PHASE_NORMAL only)
 
@@ -4514,7 +4580,9 @@ class ActGuestLane:
             away = self.AWAY_PEAK * (k / self.HIT_FRAME if k <= self.HIT_FRAME else
                                      max(0.0, (self.REPLAY_FRAMES - k) / (self.REPLAY_FRAMES - self.HIT_FRAME)))
         dead = not unit.get("alive", True)
-        return {"anim": f"ACT_{r.vfx_kind}_{r.vfx_num}" if r is not None else ("DISABLE" if dead else "IDLE"),
+        clip = self.fallback.clip_on.get(slot) if r is None and not dead else None   # [ff9mapkit netsync s136]
+        return {"anim": f"ACT_{r.vfx_kind}_{r.vfx_num}" if r is not None else (
+                    clip["clip"] if clip is not None else "DISABLE" if dead else "IDLE"),
                 "anim_frame": r.frames if r is not None else 0, "away": float(round(away, 3)),
                 "rot_y": 0.0 if player else 180.0, "acting": r is not None, "die_seq": 5 if dead else 0,
                 "row": self.rows.get(slot, 1) if player else 0}
@@ -4548,8 +4616,10 @@ class ActGuestLane:
                 "paused_ms": self.paused_ms,
                 "window": {"open": self.window_open, "restores": self.restores, "limited": self.restores_limited},
                 "last": self.last_doc(),
-                # [ff9mapkit netsync s135] AppendActGuestHold, the LAST key (an s134 lane publishes none)
-                **({"hold": self.hold.doc(role=role)} if self.with_hold else {})}
+                # [ff9mapkit netsync s135] AppendActGuestHold, after `last` (an s134 lane publishes none)
+                **({"hold": self.hold.doc(role=role)} if self.with_hold else {}),
+                # [ff9mapkit netsync s136] AppendActGuestFallback, the LAST key (an s135 lane publishes none)
+                **({"fallback": self.fallback.doc(role=role)} if self.with_fallback else {})}
 
 
 def _cs_int(text) -> int | None:
@@ -5186,7 +5256,8 @@ class ActHoldLane:
             credit_ms = act_credit_take(rec, credit)
         if verdict == ACT_HOLD_LATE:
             # the replay already hit that target: at once, through the legacy path (no older change on its slots)
-            self.apply_now(a, dt, dc, self_cast, covered, backlog, "late", self.now, False, ctx)
+            # [ff9mapkit netsync s136] + the record (fallback A's covered rule, read at this step)
+            self.apply_now(a, dt, dc, self_cast, covered, backlog, "late", self.now, False, ctx, rec=rec)
             self.held_count += 1
             self.count("late")
             self.add_lag(credit_ms - self.now)
@@ -5224,11 +5295,13 @@ class ActHoldLane:
         return True
 
     def apply_now(self, a: dict, dt, dc, self_cast: bool, covered: bool, backlog: bool, via: str, arrive_ms: int,
-                  deferred: bool, ctx: dict | None, life_slots: int = 0) -> None:
+                  deferred: bool, ctx: dict | None, life_slots: int = 0, rec=None) -> None:
         """ApplyActionFrameNow -- steps c-h of the arrival path (an arrival, a late release, a queued frame's release:
         ``deferred`` = each lane's state only if no newer state applied that slot -- a reconciler record included -- and
         never a revive through a lane that was not a life lane when it queued (``life_slots``, the fix pass); its gate
-        stamped on arrival)."""
+        stamped on arrival). [ff9mapkit netsync s136] ``rec``: the record the frame's id names (None = none) -- step (e)'s
+        motion is FALLBACK A (:class:`ActFallbackLane`) where the s110 player-only swing played; `fallback off` (or an s135
+        lane) keeps the swing verbatim."""
         ctx = self._ctx(ctx)
         lethal_t, lethal_c = a["tgt_hp_raw"] == 0, a["cast_hp_raw"] == 0
         revive_t = dt is not None and not lethal_t and self._dead(dt)
@@ -5258,12 +5331,18 @@ class ActHoldLane:
             self.show_figure(dc, a["caster_slot"], a["fig_hp_c"], a["fig_mp_c"], via, arrive_ms, ctx)
         if dt is not None and a["dmg_mot"] and not lethal_t and not revive_t and not hidden_t and self._can_play(dt):
             self.flinch(dt)
-        if dc is not None and not self_cast and a["caster_is_player"] and not lethal_c and not revive_c and not hidden_c \
-                and self._can_play(dc):
-            if covered:
-                self.lane.swing_skipped += 1
-            else:
+        # [ff9mapkit netsync s136] the s110 swing's guard, kept whole: swing_skipped counts exactly as before; with fallback A
+        # in force the action's ONE stock clip replaces the swing (ActFallbackAtImpact, behind the call site's own guards)
+        s110_swing = dc is not None and not self_cast and a["caster_is_player"] and not lethal_c and not revive_c \
+            and not hidden_c and self._can_play(dc)
+        fb_on = self.lane.fallback_on(ctx.get("role", False))
+        if s110_swing and covered:
+            self.lane.swing_skipped += 1
+        elif not fb_on:
+            if s110_swing:
                 self.lane.swings[int(dc.get("slot", -1))] = 20
+        if fb_on:
+            self.lane.fallback.at_impact(a, dc, self_cast, lethal_c, revive_c, hidden_c, rec, backlog, via, arrive_ms, ctx)
         if apply_t:
             self.apply_state(dt, a["target_slot"], lethal_t, revive_t, a["tgt_hp_raw"], a["tgt_mp_raw"])
             self.stamp(a["target_slot"], seq)
@@ -5337,6 +5416,15 @@ class ActHoldLane:
                         act_hit_fig_path(hidden_c, bracket), via, ctx)
         if dt is not None and act_release_flinches(a["dmg_mot"], lethal_t, revive_t, hidden_t, self._can_play(dt)):
             self.flinch(dt)
+        # [ff9mapkit netsync s136] FALLBACK A at a held release, after the flinch and before the life lanes (the arrival path's
+        # order): covered for every release of a replayed action; a held impact whose START then DECLINED plays its action's
+        # one clip now. The caster's guards are read HERE (a self-cast's caster is the target: its wire lethality, its revive)
+        if self.lane.fallback_on(ctx.get("role", False)):
+            fc = dt if h.self_cast else dc
+            f_lethal = lethal_t if h.self_cast else lethal_c
+            self.lane.fallback.at_impact(a, fc, h.self_cast, f_lethal,
+                                         fc is not None and act_revive_at_release(f_lethal, self._dead(fc)),
+                                         hidden_t if h.self_cast else hidden_c, h.rec, h.backlog, via, h.arrive_ms, ctx)
         superseded = False
         seq = a["seq_horizon"]
         if h.life_t and dt is not None:
@@ -5424,7 +5512,7 @@ class ActHoldLane:
         superseded0 = self.superseded
         if dt is not None or dc is not None:
             self.apply_now(a, dt, dc, dt is not None and dt is dc, q.covered, q.backlog, via, q.arrive_ms, True, ctx,
-                           q.life_slots)
+                           q.life_slots, rec=q.rec)     # [ff9mapkit netsync s136] + the record it named (read now)
         lag = INT32_MIN
         if q.credit_ms != INT32_MIN:
             lag = q.credit_ms - q.arrive_ms                  # a LATE frame a blocker kept: still a paired release
@@ -5646,3 +5734,769 @@ CS_HOLD_CONSTANTS = {
     "ActHoldCreditCap": ACT_HOLD_CREDIT_CAP, "ActHoldApply": ACT_HOLD_APPLY, "ActHoldHold": ACT_HOLD_HOLD,
     "ActHoldLate": ACT_HOLD_LATE, "ActHoldQueue": ACT_HOLD_QUEUE, "ActFigNone": ACT_FIG_NONE,
     "ActFigBracket": ACT_FIG_BRACKET, "ActFigDirect": ACT_FIG_DIRECT}
+
+
+# ======================================================================================== [ff9mapkit netsync s136]
+# FALLBACK A -- ONE STOCK CLIP PER UNCOVERED ACTION (studies/battle-coop/R3-DESIGN.md 3.3.5 as amended by
+# R3-ACTION-REPLAY-AUDIT.md 2.4 -- amendments 1-6, decisions D-a / D-b / D-c -- and 3.5; the audit's "s125": group 2 was
+# renumbered s133-s141). Until s136 an impact NO action replay covers (an old host without bit 5, a declined / stale /
+# dropped / never-received START, ActionReplay=0, a guest without SFXRework) showed only the s110 player-only MP_ATTACK
+# swing, and an enemy's nothing. s136 plays ONE stock clip chosen by the ACTION, at most once per action: a player's Item /
+# AutoPotion / Throw -> MP_ITEM1, magic (category & 16) -> MP_MAGIC, Defend / Change -> none, anything else -> MP_ATTACK;
+# an ENEMY -> the first NON-IDLE caster PlayAnimation of its scene sequence (parsed, never executed). THE CONTAINMENT LAW
+# holds: a clip is presentation only (no figure, no HP / MP / status, no calculation). Everything below is the C# twin of
+# a PURE rule of NetSyncDiorama.Replay.cs's fallback A (each method of the same name, its parameters in its order);
+# test_harness_netsync.py EVALUATES ActFallbackSelfTest's own 30 rows against them (read off the stack, in order) and pins
+# the constants by name both ways (CS_FALLBACK_CONSTANTS). :class:`ActFallbackLane` is the stand-in's model of fallback A
+# with its statics (its docstring says what it models and what it cannot). [fix pass] + the deferral (cover-2), the sliding
+# window (cover-5 / timing-5 / timing-6), the run-away hold and abort-all end blocks (timing-1), the restore's kept pose
+# (timing-2) and the write's refusal of a clip the unit lacks (stock-1). [fix pass 2] + the RECORD deferral (rcover-2: an
+# impact covered only by a still-pending START waits for its decision), the Loop and scripted enemy commands (rstock-1) and
+# the ORDER-aware kept pose (rtiming-1: a clip written after its unit's abort survives the window's restore).
+ACT_FALLBACK_WINDOW_MS = 500              # the old-host / id-0 key's window (battle ms between ARRIVALS, either way round)
+ACT_FALLBACK_ID_CAP = 4096                # spent (nonce, actId) keys kept per boot (then the set restarts)
+ACT_FALLBACK_WIN_CAP = 512                # spent (caster, cmd, sub) keys kept per boot (then the map restarts)
+ACT_FALLBACK_SEQ_CACHE_CAP = 256          # parsed (scene, sub) sequences kept per boot
+ACT_FALLBACK_LOG_MAX = 8                  # clip lines per boot (then counted, not logged)
+ACT_FALLBACK_DEFER_MAX_MS = 4000          # [fix pass: cover-2] a deferred clip waits at most this long after its arrival
+ACT_FALLBACK_DEFER_CAP = 16               # [fix pass: cover-2] deferred impacts kept (the oldest dropped first)
+ACT_FB_NONE, ACT_FB_ATTACK, ACT_FB_MAGIC, ACT_FB_ITEM, ACT_FB_ENEMY = 0, 1, 2, 3, 4          # the clip an action chose
+ACT_FB_DECIDE, ACT_FB_COVERED, ACT_FB_DEDUPED, ACT_FB_BACKLOG, ACT_FB_GUARDED = 0, 1, 2, 3, 4   # ActFallbackVerdict
+ACT_FB_DEFER_WAIT, ACT_FB_DEFER_PLAY, ACT_FB_DEFER_DROP = 0, 1, 2                             # ActFallbackDeferStep
+ACT_FB_DEFER_COVERED = 3                  # [fix pass 2: rcover-2] ActFallbackRecordStep: still pending past the bound
+ACT_VIA_DEFERRED = "deferred"             # ActViaDeferred: `last.via` of a deferred impact's clip (cover-2)
+#: ActFallbackKindName, by kind (anything else "none")
+ACT_FB_KIND_NAMES = {ACT_FB_ATTACK: "attack", ACT_FB_MAGIC: "magic", ACT_FB_ITEM: "item", ACT_FB_ENEMY: "enemy"}
+PROOF_FALLBACK = "action fallback selftest: "   # NetSyncDiorama.ActFallbackSelfTest (s136), logged right after PROOF_HOLD
+FALLBACK_SELFTEST_ROWS = 30               # 6 clip + 3 enemy + 6 once/key + 4 covered + 1 verdict + 3 guard + 1 collapse
+                                          # + 2 defer + 1 restore + 1 write (the fix pass) + 2 defer (fix pass 2: rcover-2)
+#: `actbench <op>` -- fallback A's op (HarnessActFallbackBench, routed through the guest bench: IsActGuestBenchOp)
+ACT_FALLBACK_BENCH_OPS = ("fallback",)
+#: `act.guest.fallback.last` (HarnessFallbackLast: the last clip written this boot), in AppendActGuestFallback's order
+ACT_FALLBACK_LAST_KEYS = ("actor", "clip", "cmd", "sub", "keyed_by", "kind", "id", "via", "ms")
+#: `act.guest.fallback`'s buckets: every impact that reaches the motion step with a resolved caster counts exactly one
+#: (none, clips and collapsed once per ACTION -- deduped, covered, guarded and backlog per impact)
+ACT_FALLBACK_BUCKETS = ("clips", "deduped", "covered", "none", "guarded", "backlog", "collapsed")
+#: `netsync.battle.act.guest.fallback` at AppendNetsync's catch-line sentinels, in AppendActGuestFallback's order -- the
+#: LAST key of `act.guest`. The live block differs at rest only where the agent reads a static: `on` (true, no lever).
+ACT_GUEST_FALLBACK_SENTINELS = {
+    "on": False, "clips": 0, "deduped": 0, "covered": 0, "none": 0, "guarded": 0, "backlog": 0, "collapsed": 0,
+    "parse_failed": 0, "last": None,
+}
+ACT_GUEST_SENTINELS["fallback"] = ACT_GUEST_FALLBACK_SENTINELS      # (after `hold`: s136's key, the last of act.guest)
+#: BattlePlayerCharacter.PlayerMotionIndex: the two fallback A adds to s134's (MP_ATTACK 23 is there)
+MP_MAGIC, MP_ITEM1 = 28, 31
+#: [fix pass: harness-06] the three fallback motions by their enum NAMES (ActFallbackClipFor's "has no <MP_...>" reason)
+MP_MOTION_NAMES = {MP_ATTACK: "MP_ATTACK", MP_MAGIC: "MP_MAGIC", MP_ITEM1: "MP_ITEM1"}
+#: the stock ids fallback A's twins and bench name beyond s134's (BattleCommandId; BattleAbilityId) -- read off the shared
+#: clone by test_harness_netsync.py when it is present, as CS_STOCK_IDS already is
+CMD_THROW_ID, CMD_AUTO_POTION = 15, 51
+ABILITY_FIRE_ID = 25                      # BattleAbilityId.Fire: a BlackMagic sub_no (Actions.csv category 19: magic)
+#: [fix pass 2: rstock-1] the enemy AI's Loop moves (btl_scrp.SetEnemyCommand: sub_no the attack number) and
+#: BattleCommandId.None (btlseq.RunSequence's cmd[0]: a battle script's scripted sequence, sub_no its pSeqNo -- `None` is
+#: no name a Python row can use: the selftest row writes 0)
+CMD_SCRIPT_COUNTER1, CMD_SCRIPT_COUNTER2, CMD_SCRIPT_COUNTER3 = 63, 64, 65
+CMD_NONE_ID = 0
+CS_STOCK_IDS.update({"BattleCommandId.Throw": CMD_THROW_ID, "BattleCommandId.AutoPotion": CMD_AUTO_POTION,
+                     "BattleAbilityId.Fire": ABILITY_FIRE_ID, "BattleCommandId.ScriptCounter1": CMD_SCRIPT_COUNTER1,
+                     "BattleCommandId.ScriptCounter2": CMD_SCRIPT_COUNTER2,
+                     "BattleCommandId.ScriptCounter3": CMD_SCRIPT_COUNTER3})
+#: CharacterCommandType (Memoria/Data/Characters/CharacterCommandType.cs): GetCommandTypeSafe's answers
+CMD_TYPE_NORMAL, CMD_TYPE_ABILITY, CMD_TYPE_ITEM, CMD_TYPE_THROW, CMD_TYPE_INSTANT = 0, 1, 2, 3, 4
+#: the engine's words (each a C# literal of the stack, or its head)
+LOG_FALLBACK = "[NetSync] action fallback: "
+LOG_FALLBACK_CLIP_TAIL = " -- one stock clip for an action no replay covers"
+LOG_FALLBACK_COLLAPSED = " -- collapsed onto this frame's earlier clip on that unit"
+LOG_FALLBACK_FURTHER = "; further clips this boot are counted, not logged"
+LOG_FALLBACK_BY_CASTER = "keyed by caster, cmd and sub within "
+LOG_FALLBACK_NONE = "[NetSync] action fallback: no clip for wire slot "
+LOG_FALLBACK_NONE_TAIL = ") -- the action plays nothing (logged once per boot; `none` counts the rest)"
+LOG_FALLBACK_PARSE = "[NetSync] action fallback: enemy sequence "
+LOG_FALLBACK_PARSE_TAIL = ") -- played as nothing (logged once per boot; `parse_failed` counts the rest)"
+LOG_FALLBACK_SUMMARY = "[NetSync] action fallback: boot summary ("
+LOG_FALLBACK_FAULTED = ("[NetSync] action fallback faulted (logged once per boot; the impact's figures and state still "
+                        "applied): ")
+LOG_FALLBACK_OFF = ("[NetSync] harness: action fallback OFF -- CALIBRATION: the pre-s136 guest (an impact no replay covers "
+                    "gets the s110 player-only MP_ATTACK swing; enemies nothing)")
+LOG_FALLBACK_ON = "[NetSync] harness: action fallback ON"
+LOG_FALLBACK_LEVER_BACK = "[NetSync] harness: action fallback lever back (fallback A ON; released with the harness)"
+#: HarnessActFallbackBench's refusal of a malformed form (after the guest bench's role gate)
+FALLBACK_USAGE = "netsync actbench fallback: expected `fallback on|off`"
+#: the none line's reasons (ActFallbackClipFor / ActFallbackEnemyClip), each a piece the engine splices
+FALLBACK_NONE_DEFEND = "Defend / Change"
+FALLBACK_NONE_TRANSFORM = "a monster-transformed caster"
+FALLBACK_NONE_IDLE = " plays only Idle"            # "sequence <sub>" + this
+FALLBACK_NONE_MISSING = " is not on the unit -- refused: a name no clip answers would freeze it"   # "clip <name>" + this
+#: [fix pass: cover-2] the deferral's line (once per boot): its head and its piece after the action
+LOG_FALLBACK_DEFER = "[NetSync] action fallback: wire slot "
+LOG_FALLBACK_DEFER_MID = " acts in a running replay -- its uncovered action (cmd "
+LOG_FALLBACK_DEFER_TAIL = " ms of battle time (logged once per boot)"
+#: [fix pass 2: rcover-2] the RECORD deferral's line (once per boot): LOG_FALLBACK_DEFER's head, these pieces, its tail
+LOG_FALLBACK_AWAIT_MID = "'s action (cmd "
+LOG_FALLBACK_AWAIT_WAITS = ") waits for its START's decision ("
+LOG_FALLBACK_AWAIT_TAIL = ") -- a launch covers it, a decline plays its clip; at most "
+#: ActFallbackWrite's clip line, parsed anywhere in a log line (Memoria.log's prefix kept)
+_FALLBACK_CLIP_RX = re.compile(
+    re.escape(LOG_FALLBACK) + r"(attack|magic|item|enemy) clip (\S+) on wire slot (\d+) \(cmd (\d+) sub (\d+), "
+    r"(?:keyed by id (\d+)|" + re.escape(LOG_FALLBACK_BY_CASTER) + r"\d+ ms), via ([a-z-]+)\) at battle ms (-?\d+)")
+
+
+def parse_fallback_clip(line: str) -> dict | None:
+    """One ActFallbackWrite clip line -> {kind, clip, slot (the CASTER's wire slot), cmd, sub, keyed_by ("id" |
+    "caster"), id (0 when keyed by caster), via, ms (battle ms of the write), collapsed}; None for any other line."""
+    m = _FALLBACK_CLIP_RX.search(line or "")
+    if m is None:
+        return None
+    return {"kind": m.group(1), "clip": m.group(2), "slot": int(m.group(3)), "cmd": int(m.group(4)),
+            "sub": int(m.group(5)), "keyed_by": "id" if m.group(6) else "caster",
+            "id": int(m.group(6)) if m.group(6) else 0, "via": m.group(7), "ms": int(m.group(8)),
+            "collapsed": LOG_FALLBACK_COLLAPSED in line}
+
+
+# ---- the pure rules (each NetSyncDiorama's method of the same name, its parameters in its order)
+def act_fallback_covered(state: int, why: str | None) -> bool:
+    """NetSyncDiorama.ActFallbackCovered -- COVERED vs UNCOVERED, read at the impact's motion step: True = a replay covers
+    the impact's action -- it launched (running, ended, aborted after its launch), may still launch (queued, waiting), is a
+    NOOP, was REPLACED by a newer START of its actor, or an abort-all (r8, w3, leave, clear) dropped it. False = no replay
+    of it ever launched: no record (state -1: an old host, id 0, a START never received) or any other decline."""
+    if state in (ACT_ST_REGISTERED, ACT_ST_WAITING, ACT_ST_RUNNING, ACT_ST_ENDED, ACT_ST_ABORTED, ACT_ST_NOOP):
+        return True
+    if state == ACT_ST_DECLINED:
+        return why == "superseded" or act_decline_via(why) == "abort"
+    return False
+
+
+def act_fallback_keyed_by_id(has_ext: bool, ext_kind: int, act_id: int) -> bool:
+    """NetSyncDiorama.ActFallbackKeyedById: an impact with the s133 extension and a non-zero action id is keyed (nonce,
+    actId); any other (an old host's 46 bytes, id 0) by (caster, cmd, sub) within the 500 ms window."""
+    return bool(has_ext) and int(ext_kind) == ACT_EXT_IMPACT and int(act_id) != 0
+
+
+def act_fallback_window_key(caster_slot: int, caster_is_player: bool, cmd_no: int, sub_no: int) -> int:
+    """NetSyncDiorama.ActFallbackWindowKey: the caster's wire slot and side, the command and its sub (16 bits each, as the
+    impact's 46-byte head carries them)."""
+    return ((int(caster_slot) & 0xFF) << 40) | ((1 if caster_is_player else 0) << 32) | ((int(cmd_no) & 0xFFFF) << 16) \
+        | (int(sub_no) & 0xFFFF)
+
+
+def act_fallback_within_window(spent_ms: int, arrive_ms: int) -> bool:
+    """NetSyncDiorama.ActFallbackWithinWindow: two arrivals of one (caster, cmd, sub) are one action when they lie LESS
+    than 500 ms of battle time apart, either way round (a queued sibling arrived first and is released later)."""
+    return abs(int(arrive_ms) - int(spent_ms)) < ACT_FALLBACK_WINDOW_MS
+
+
+def act_fallback_guard(self_cast: bool, dmg_mot: bool, lethal: bool, revive: bool, hidden: bool, can_play: bool,
+                       acting: bool, end_or_leave: bool) -> bool:
+    """NetSyncDiorama.ActFallbackGuard -- THE CALL-SITE GUARDS (amendment 6): self-cast only without a DmgMot (amendment 4,
+    D-b), not lethal, not a revive, not hidden, a unit free to move (CanPlayCosmeticMotion, a model), not acting in a
+    running replay, and no end presentation / end-inject flush / Leave in flight."""
+    return (not self_cast or not dmg_mot) and not lethal and not revive and not hidden and bool(can_play) \
+        and not acting and not end_or_leave
+
+
+def act_fallback_end_blocks(end_presented: bool, end_held: bool, aborting_all: bool, leaving: bool, via: str) -> bool:
+    """NetSyncDiorama.ActFallbackEndBlocks: no clip once the end is presented or injected, at the end-inject flush (it runs
+    BEFORE the injection sets either), or while a Leave of the diorama is in flight -- [fix pass: timing-1] nor while the
+    s115 run-away / annihilation-settle hold waits (``end_held``), nor inside an abort-all (``aborting_all``: a Leave's own
+    runs before its stamp)."""
+    return bool(end_presented) or bool(end_held) or bool(aborting_all) or bool(leaving) or via == "end-inject"
+
+
+def act_fallback_defers(by_id: bool, guard_idle: bool, acting: bool) -> bool:
+    """NetSyncDiorama.ActFallbackDefers -- [fix pass: cover-2] THE DEFERRAL: an impact keyed by its action id whose ONLY
+    failing guard is "acting" (``guard_idle``: every guard with acting false) waits for its caster's replay; an id-0 /
+    old-host impact never does."""
+    return bool(by_id) and bool(acting) and bool(guard_idle)
+
+
+def act_fallback_defer_step(expired: bool, acting: bool, holder_acting: bool, pending_turn: bool) -> int:
+    """NetSyncDiorama.ActFallbackDeferStep -- [fix pass: cover-2] a deferred impact's step each tick: dropped once stale;
+    while its caster acts it waits on the replay that held it (another one acting: a NEWER replay owns the turn -- dropped);
+    once free, a pending START of the actor owns the turn (dropped); else it plays."""
+    if expired:
+        return ACT_FB_DEFER_DROP
+    if acting:
+        return ACT_FB_DEFER_WAIT if holder_acting else ACT_FB_DEFER_DROP
+    if pending_turn:
+        return ACT_FB_DEFER_DROP
+    return ACT_FB_DEFER_PLAY
+
+
+def act_fallback_awaits_record(covered: bool, rec_pending: bool) -> bool:
+    """NetSyncDiorama.ActFallbackAwaitsRecord -- [fix pass 2: rcover-2] an impact COVERED only because its record is still
+    PENDING (queued, waiting) has no verdict yet: it waits for that record's decision (a START that then declines uncovered
+    -- `target`, stale, busy... -- would otherwise leave its action with no clip). A decided record's verdict stands."""
+    return bool(covered) and bool(rec_pending)
+
+
+def act_fallback_record_step(expired: bool, rec_pending: bool) -> int:
+    """NetSyncDiorama.ActFallbackRecordStep -- [fix pass 2: rcover-2] a record-deferred impact's step each tick: once its
+    record is decided it decides again (PLAY: `covered`, or the action's clip); while the record stays pending it waits, and
+    past ActFallbackDeferMaxMs it keeps its arrival verdict (COVERED)."""
+    if not rec_pending:
+        return ACT_FB_DEFER_PLAY
+    return ACT_FB_DEFER_COVERED if expired else ACT_FB_DEFER_WAIT
+
+
+def act_fallback_keeps_pose(aborted_unit: bool, clip_after_abort: bool, shows_clip: bool) -> bool:
+    """NetSyncDiorama.ActFallbackKeepsPose -- [fix pass: timing-2] the busy window's FULL restore keeps the pose of a unit
+    that still shows its fallback clip and was none of the aborted replays' units -- [fix pass 2: rtiming-1] or was one but
+    got that clip AFTER the abort (ORDER-aware: a later abort touching the unit takes it back)."""
+    return (not aborted_unit or bool(clip_after_abort)) and bool(shows_clip)
+
+
+def act_fallback_clip_playable(has_anim: bool, has_clip: bool) -> bool:
+    """NetSyncDiorama.ActFallbackClipPlayable -- [fix pass: stock-1] a clip is written only onto a unit whose Animation
+    holds it after the defensive attach (stock's TryGetArgAnimation refuses the same)."""
+    return bool(has_anim) and bool(has_clip)
+
+
+def act_fallback_verdict(covered: bool, seen: bool, backlog: bool, guard_ok: bool) -> int:
+    """NetSyncDiorama.ActFallbackVerdict -- THE VERDICT, in its order: covered, then an action already decided (deduped),
+    then a backlog drain (no clip, the key spent: D-c), then the guards (nothing spent); else the action decides."""
+    if covered:
+        return ACT_FB_COVERED
+    if seen:
+        return ACT_FB_DEDUPED
+    if backlog:
+        return ACT_FB_BACKLOG
+    if not guard_ok:
+        return ACT_FB_GUARDED
+    return ACT_FB_DECIDE
+
+
+def act_fallback_player_clip(item_or_throw: bool, defend_or_change: bool, monster_transform: bool, category: int) -> int:
+    """NetSyncDiorama.ActFallbackPlayerClip -- THE PLAYER CLIP: a monster-transformed caster none; Item / AutoPotion /
+    Throw MP_ITEM1 FIRST (amendment 3: an item's category reads Void's); Defend / Change none; magic (category & 16)
+    MP_MAGIC; anything else MP_ATTACK."""
+    if monster_transform:
+        return ACT_FB_NONE
+    if item_or_throw:
+        return ACT_FB_ITEM
+    if defend_or_change:
+        return ACT_FB_NONE
+    if int(category) & 16:
+        return ACT_FB_MAGIC
+    return ACT_FB_ATTACK
+
+
+def command_type_safe(cmd_no: int, commands: dict | None = None) -> int:
+    """btl_util.GetCommandTypeSafe (stock): Item / AutoPotion -> Item, Throw -> Throw, else the command table's type
+    (``commands``: {cmd_no: CharacterCommandType}; the stand-in has none: Normal)."""
+    if int(cmd_no) in (CMD_ITEM_ID, CMD_AUTO_POTION):
+        return CMD_TYPE_ITEM
+    if int(cmd_no) == CMD_THROW_ID:
+        return CMD_TYPE_THROW
+    return int((commands or {}).get(int(cmd_no), CMD_TYPE_NORMAL))
+
+
+def act_fallback_item_or_throw(t: int) -> bool:
+    """NetSyncDiorama.ActFallbackItemOrThrow: an item command by its type -- GetCommandTypeSafe's Item (Item, AutoPotion, a
+    mod item command) or Throw."""
+    return int(t) in (CMD_TYPE_ITEM, CMD_TYPE_THROW)
+
+
+def act_fallback_defend_or_change(cmd_no: int) -> bool:
+    """NetSyncDiorama.ActFallbackDefendOrChange."""
+    return int(cmd_no) in (CMD_DEFEND_ID, CMD_CHANGE_ID)
+
+
+def act_fallback_enemy_seq_cmd(cmd_no: int) -> bool:
+    """NetSyncDiorama.ActFallbackEnemySeqCmd: an enemy command whose sub_no names a scene sequence -- btlseq's own four
+    (EnemyAtk, EnemyCounter, EnemyDying, EnemyReaction), [fix pass 2: rstock-1] the AI's Loop moves ScriptCounter1-3 and a
+    battle script's scripted sequence (cmd None: btlseq.RunSequence). A whitelist, not SFXRework's wider rule."""
+    return int(cmd_no) in (CMD_ENEMY_ATK, CMD_ENEMY_COUNTER, CMD_ENEMY_DYING, CMD_ENEMY_REACTION, CMD_SCRIPT_COUNTER1,
+                           CMD_SCRIPT_COUNTER2, CMD_SCRIPT_COUNTER3, CMD_NONE_ID)
+
+
+def act_fallback_motion(kind: int) -> int:
+    """NetSyncDiorama.ActFallbackMotion: the player motion of a kind (MP_ITEM1, MP_MAGIC, else MP_ATTACK)."""
+    return MP_ITEM1 if kind == ACT_FB_ITEM else MP_MAGIC if kind == ACT_FB_MAGIC else MP_ATTACK
+
+
+def act_fallback_kind_name(kind: int) -> str:
+    """NetSyncDiorama.ActFallbackKindName (`last.kind`)."""
+    return ACT_FB_KIND_NAMES.get(kind, "none")
+
+
+class ActCode:
+    """A BattleActionCode as fallback A reads one: its ``operation`` and its ``argument`` dictionary (name -> value)."""
+
+    def __init__(self, operation: str, *pairs) -> None:
+        self.operation = operation
+        self.argument = {str(pairs[i]): str(pairs[i + 1]) for i in range(0, len(pairs) - 1, 2)}
+
+
+class ActThread:
+    """A BattleActionThread as fallback A reads one: its ``code`` (a list of :class:`ActCode`)."""
+
+    def __init__(self, *codes) -> None:
+        self.code = list(codes)
+
+
+def act_fallback_first_clip(threads) -> str | None:
+    """NetSyncDiorama.ActFallbackFirstClip -- THE ENEMY CLIP (amendment 2, D-a): the first PlayAnimation with Char=Caster
+    whose Anim is a real clip -- "Idle" and an empty name skipped -- in the main thread, then the sub-threads in their order;
+    None = none (play nothing)."""
+    if threads is None:
+        return None
+    for th in threads:
+        if th is None or getattr(th, "code", None) is None:
+            continue
+        for c in th.code:
+            if c is None or c.operation != "PlayAnimation" or c.argument is None:
+                continue
+            if c.argument.get("Char") != "Caster":
+                continue
+            anim = c.argument.get("Anim")
+            if not anim or anim == "Idle":
+                continue
+            return anim
+    return None
+
+
+def act_fallback_collapses(frame_mask: int, btl_id: int) -> bool:
+    """NetSyncDiorama.ActFallbackCollapses: several clips on one actor in one frame collapse to the last one written -- this
+    unit already got one this frame."""
+    return int(btl_id) != 0 and (int(frame_mask) & int(btl_id)) != 0
+
+
+class ActFallbackBook:
+    """NetSyncDiorama.ActFallbackBook -- THE ONCE-PER-ACTION BOOK (pure: the selftest drives fresh ones): the (nonce, actId)
+    keys spent this boot, and the (caster, cmd, sub) keys with the arrival that spent each."""
+
+    #: the window rule the book reads (ActFallbackWithinWindow -- a class seam, so a test's mutant of the rule reaches the
+    #: book exactly as the engine's static does)
+    within = staticmethod(act_fallback_within_window)
+
+    def __init__(self) -> None:
+        self.ids: set = set()
+        self.win: dict = {}
+
+    def seen(self, by_id: bool, id_key: int, win_key: int, arrive_ms: int) -> bool:
+        """The action already had its decision: its id key spent, or its window key spent within 500 ms of this arrival."""
+        if by_id:
+            return int(id_key) in self.ids
+        at = self.win.get(int(win_key))
+        return at is not None and self.within(at, arrive_ms)
+
+    def note(self, by_id: bool, id_key: int, win_key: int, arrive_ms: int) -> None:
+        """Spend the action's key (a clip, a "none" choice, a backlog impact): the window key keeps the NEWER of its arrival
+        and this one ([fix pass: timing-6] a queued frame's older arrival never rewinds a newer action's)."""
+        if by_id:
+            if len(self.ids) >= ACT_FALLBACK_ID_CAP:
+                self.ids.clear()
+            self.ids.add(int(id_key))
+            return
+        at = self.win.get(int(win_key))
+        if at is not None:
+            self.win[int(win_key)] = max(at, int(arrive_ms))
+            return
+        if len(self.win) >= ACT_FALLBACK_WIN_CAP:
+            self.win.clear()
+        self.win[int(win_key)] = int(arrive_ms)
+
+    def slide(self, win_key: int, arrive_ms: int) -> None:
+        """[fix pass: cover-5, timing-5] A deduped sibling of a window-keyed action SLIDES the window to its own arrival
+        (never back); a key never spent stays unspent."""
+        at = self.win.get(int(win_key))
+        if at is not None and int(arrive_ms) > at:
+            self.win[int(win_key)] = int(arrive_ms)
+
+    def clear(self) -> None:
+        self.ids.clear()
+        self.win.clear()
+
+
+def act_seq_threads(anims) -> list:
+    """A scene sequence as BattleActionThread.LoadFromBtlSeq parses it, for fallback A's read (the stand-in's model and the
+    benches' offline oracle share it): one main thread, a PlayAnimation Char=Caster per case-5 op in order (``None`` -- the
+    anim byte 255 -- reads the literal "Idle"), then END's WaitAnimation + PlayAnimation Anim=Idle (the Idle that END
+    appends to EVERY sequence)."""
+    main = ActThread(*[ActCode("PlayAnimation", "Char", "Caster", "Anim", "Idle" if a is None else str(a))
+                       for a in anims or ()])
+    main.code.append(ActCode("WaitAnimation", "Char", "Caster"))
+    main.code.append(ActCode("PlayAnimation", "Char", "Caster", "Anim", "Idle"))
+    return [main]
+
+
+class ActFallbackLane:
+    """[ff9mapkit netsync s136] FALLBACK A as NetSyncDiorama.Replay.cs runs it, with its statics -- the stand-in's model,
+    owned by an :class:`ActGuestLane` (its battle clock, its log, its records). MODELLED, through the twins above:
+    ActFallbackAtImpact at the arrival path's motion step and at a held release (the covered rule on the record's state AT
+    THAT STEP, the key -- by id, else the (caster, cmd, sub) window between ARRIVALS --, the verdict's order, the call-site
+    guards: self-cast with a DmgMot, lethal, revive, hidden, a unit free to move -- the stand-in's alive --, the caster
+    acting in a running replay, the end / end-inject / a Leave), the clip choice (the player table by the action: Item /
+    AutoPotion / Throw through GetCommandTypeSafe's hard-coded ids FIRST, Defend / Change, the category, a transformed
+    caster; the enemy's scene sequence by its sub, parsed once per (scene, sub) a boot, a sequence the scene lacks a parse
+    failure), the per-frame collapse (ctx ``frame``), every counter, `last`, the lever (`fallback on|off`, its role gate,
+    ActBenchRelease's half), the per-boot reset and every Log.Message line. [fix pass] + THE DEFERRAL (cover-2: an id-keyed
+    impact refused only for its caster's running replay waits, decides at :meth:`deferred_tick` with via "deferred", or is
+    dropped `guarded` -- a newer replay's turn, stale, the cap, the teardown), the sliding window (cover-5 / timing-5 /
+    timing-6), the end blocks of the run-away hold (ctx ``end_held``) and an abort-all (the lane's ``aborting_all``), a unit
+    hidden by bi.disappear (ctx ``disappeared``), and a motion table without the motion (harness-06: ``mot_names`` given).
+    [fix pass 2] + THE RECORD DEFERRAL (rcover-2: an impact covered only by a still-PENDING record waits -- at any call
+    site -- and decides again once the record is decided: a launch / NOOP / covered decline `covered`, an uncovered decline
+    its clip via "declined"; still pending past the bound, the cap or the teardown `covered`), the Loop and scripted enemy
+    commands (rstock-1), and the busy window's ORDER-aware kept pose (rtiming-1: :meth:`restore_cut` -- at a FULL restore
+    a clip on an aborted replay's unit is cut to idle unless it was written AFTER that abort).
+    NOT MODELLED -- shapes, not engine data: a player's motion table is the unit's ``mot_names`` (else
+    ``ANH_FAKE_P<slot>_<index>``), a unit's category is :attr:`categories` (else 16 for the stand-in's magic commands
+    16-23, 0 otherwise -- a support ability's override is not mirrored in the engine either), the scene's sequences are
+    :attr:`scene_seqs` ({sub: anims for :func:`act_seq_threads`, or None = no sequence}), the stock clip attach and its
+    refusal of a clip the unit lacks (the stand-in has no Animation: ActFallbackClipPlayable is pinned by its selftest row),
+    the slave / afFreeze / stop_anim freeze (no such units here), a zombie (no sequencer), the restore of any pose but a
+    fallback clip's (the stand-in restores no other unit pose), the clip's own length (a clip reads on the unit for
+    :attr:`CLIP_FRAMES` frames, then idle), and a fault (the 'faulted' line)."""
+
+    CLIP_FRAMES = 24                             # (the stand-in's clip: the unit's anim / mot read it this long)
+    #: the stand-in's scene sequences: sub -> case-5 anims (None = byte 255, "Idle"); sub 1 and 4 hold only END
+    FAKE_SCENE_SEQS = {0: ("ANH_MON_FAKE_001_010", "ANH_MON_FAKE_001_011"), 1: (), 2: (None, "ANH_MON_FAKE_001_030"),
+                       3: ("ANH_MON_FAKE_002_010",), 4: ()}
+    #: the stand-in's magic commands (SummonGarnet .. DoubleBlackMagic): category 16 unless :attr:`categories` says
+    FAKE_MAGIC_CMDS = tuple(range(16, 24))
+
+    def __init__(self, lane) -> None:
+        self.lane = lane
+        self.bench_off = False                   # `fallback off`: the pre-s136 guest (harness-scoped, never per boot)
+        self.scene_seqs: dict = dict(self.FAKE_SCENE_SEQS)
+        self.categories: dict = {(CMD_BLACK_MAGIC_ID, ABILITY_FIRE_ID): 19}
+        self.commands: dict = {}                 # GetCommandTypeSafe's table (the stand-in has none: Normal)
+        self.book = ActFallbackBook()
+        self.seq_cache: dict = {}
+        self.clip_on: dict = {}
+        self.deferred: list = []                 # [fix pass: cover-2] the deferred impacts, in arrival order
+        self.reset(True)
+
+    # -- the lever (its getter needs the selftest role, as the engine's)
+    def on(self, role: bool) -> bool:
+        """ActFallbackOn / HarnessFallbackOn (the rung's presence is the owner's)."""
+        return not (self.bench_off and bool(role))
+
+    def release(self) -> None:
+        """ActBenchRelease's s136 half: the lever back (one line when it was pulled)."""
+        if self.bench_off:
+            self._log(LOG_FALLBACK_LEVER_BACK)
+        self.bench_off = False
+
+    def bench(self, args: list, val: str) -> tuple:
+        """HarnessActFallbackBench (after HarnessActGuestBench's role gate) -> ``(ok, why)`` in the engine's words."""
+        if len(args) != 3 or val not in ("on", "off"):
+            return False, FALLBACK_USAGE
+        self.bench_off = val == "off"
+        self._log(LOG_FALLBACK_OFF if self.bench_off else LOG_FALLBACK_ON)
+        return True, None
+
+    # -- the per-boot state
+    def reset(self, counters: bool) -> None:
+        """ActFallbackReset: the spent keys, the sequence cache and the frame's collapse mask always; the counters, the log
+        budgets and `last` with the boot block's counters (kept after the teardown until the next boot)."""
+        self.book.clear()
+        self.seq_cache.clear()
+        self.deferred = []                       # (discard_all counted them `guarded` first: drop_deferred)
+        self.frame, self.frame_mask = -1, 0
+        self.post_abort_mask = 0                 # [fix pass 2: rtiming-1] _fbPostAbortMask
+        if not counters:
+            return
+        self.clips = self.deduped = self.covered = self.none = self.guarded = self.backlog = self.collapsed = 0
+        self.parse_failed = 0
+        self.logged = 0
+        self.none_logged = self.parse_logged = self.defer_logged = False
+        self.await_logged = False                # [fix pass 2: rcover-2] the record deferral's line
+        self.last = None
+        self.clip_on = {}                        # (the stand-in's unit shapes: a boot's new units)
+
+    def _log(self, text: str) -> None:
+        self.lane._log(text)
+
+    def age(self) -> None:
+        for slot in list(self.clip_on):
+            self.clip_on[slot]["frames"] -= 1
+            if self.clip_on[slot]["frames"] <= 0:
+                del self.clip_on[slot]
+
+    # -- the motion step (ActFallbackAtImpact)
+    def at_impact(self, a: dict, caster, self_cast: bool, lethal: bool, revive: bool, hidden: bool, rec, backlog: bool,
+                  via: str, arrive_ms: int, ctx: dict | None) -> None:
+        """ActFallbackAtImpact: covered, deduped, backlog, guarded, or the action decides its one clip (none, or written).
+        ``caster`` the resolved caster (the target itself on a self-cast); lethal / revive / hidden the CALL SITE's own;
+        ``rec`` the record the impact's id names (None = none); ``arrive_ms`` the impact's own arrival. [fix pass: cover-2]
+        An id-keyed impact refused ONLY because its caster acts in a running replay is DEFERRED (no counter yet). [fix pass
+        2: rcover-2] So is one covered only by a still-PENDING record (:meth:`defer_on_record`)."""
+        if caster is None or a["stat_tick"]:
+            return
+        ctx = ctx or {}
+        covered = act_fallback_covered(rec.state if rec is not None else -1, rec.why if rec is not None else None)
+        by_id = act_fallback_keyed_by_id(a["has_ext"], a["ext_kind"], a["act_id"])
+        id_key = ActBook.key_of(a["nonce"], a["act_id"]) if by_id else 0
+        win_key = act_fallback_window_key(a["caster_slot"], a["caster_is_player"], a["cmd_no"], a["sub_no"])
+        seen = not covered and self.book.seen(by_id, id_key, win_key, arrive_ms)
+        vanished = ctx.get("disappeared")
+        can_play = bool(caster.get("alive", True)) and not (callable(vanished) and vanished(caster))   # [fix pass: stock-2]
+        acting = self.lane.acting_record(caster) is not None
+        end_blocks = act_fallback_end_blocks(bool(ctx.get("end_presented")) or bool(ctx.get("end_injected")),
+                                             bool(ctx.get("end_held")), bool(self.lane.aborting_all),
+                                             bool(ctx.get("leaving")), via)            # [fix pass: timing-1]
+        guard_ok = not covered and not seen and not backlog and act_fallback_guard(
+            self_cast, a["dmg_mot"], lethal, revive, hidden, can_play, acting, end_blocks)
+        verdict = act_fallback_verdict(covered, seen, backlog, guard_ok)
+        if verdict == ACT_FB_COVERED:
+            # [fix pass 2: rcover-2] covered ONLY by a still-PENDING record is no verdict yet: it waits for the decision
+            if rec is not None and act_fallback_awaits_record(covered, rec.pending):
+                self.defer_on_record(a, caster, self_cast, lethal, revive, rec, backlog, arrive_ms)
+                return
+            self.covered += 1
+            return
+        if verdict == ACT_FB_DEDUPED:
+            if not by_id:
+                self.book.slide(win_key, arrive_ms)     # [fix pass: cover-5, timing-5] the window follows the action's hits
+            self.deduped += 1
+            return
+        if verdict == ACT_FB_BACKLOG:
+            self.book.note(by_id, id_key, win_key, arrive_ms)
+            self.backlog += 1
+            return
+        if verdict == ACT_FB_GUARDED:
+            idle = act_fallback_guard(self_cast, a["dmg_mot"], lethal, revive, hidden, can_play, False, end_blocks)
+            if act_fallback_defers(by_id, idle, acting) and self.defer(a, caster, self_cast, rec, arrive_ms):
+                return                                  # [fix pass: cover-2] it waits for its caster's replay
+            self.guarded += 1
+            return
+        clip, kind, why = self.clip_for(caster, a, ctx)
+        self.book.note(by_id, id_key, win_key, arrive_ms)
+        if clip is None:
+            self.none += 1
+            if not self.none_logged:
+                self.none_logged = True
+                self._log(f"{LOG_FALLBACK_NONE}{a['caster_slot']} cmd {a['cmd_no']} sub {a['sub_no']} ({why or 'none'}"
+                          f"{LOG_FALLBACK_NONE_TAIL}")
+            return
+        self.write(caster, clip, kind, a, by_id, via, ctx)
+
+    # -- [fix pass: cover-2] the deferral (ActFallbackDefer, ActFallbackDeferredTick, ActFallbackDropDeferred)
+    def defer(self, a: dict, caster: dict, self_cast: bool, rec, arrive_ms: int) -> bool:
+        """ActFallbackDefer: park the impact (its key unspent) with the replay holding its caster; past the cap the oldest
+        is dropped (`guarded`). False = nothing holds the caster (the caller counts `guarded`). One line per boot."""
+        holder = self.lane.acting_record(caster)
+        if holder is None:
+            return False
+        self.park({"a": a, "caster": caster, "holder": holder, "self_cast": bool(self_cast), "rec": rec,
+                   "arrive_ms": int(arrive_ms), "on_record": False})
+        if not self.defer_logged:
+            self.defer_logged = True
+            self._log(f"{LOG_FALLBACK_DEFER}{a['caster_slot']}{LOG_FALLBACK_DEFER_MID}{a['cmd_no']} sub {a['sub_no']}, id "
+                      f"{a['act_id']}) waits for that replay's end, at most {ACT_FALLBACK_DEFER_MAX_MS}"
+                      f"{LOG_FALLBACK_DEFER_TAIL}")
+        return True
+
+    def defer_on_record(self, a: dict, caster: dict, self_cast: bool, lethal: bool, revive: bool, rec, backlog: bool,
+                        arrive_ms: int) -> None:
+        """ActFallbackDeferOnRecord -- [fix pass 2: rcover-2] park an impact covered only by its still-PENDING record: the
+        frame, the caster, the record, the call site's own lethal / revive and backlog, its arrival; its key unspent, no
+        counter until it decides or drops. One line per boot."""
+        self.park({"a": a, "caster": caster, "holder": None, "self_cast": bool(self_cast), "rec": rec,
+                   "arrive_ms": int(arrive_ms), "on_record": True, "lethal": bool(lethal), "revive": bool(revive),
+                   "backlog": bool(backlog)})
+        if self.await_logged:
+            return
+        self.await_logged = True
+        self._log(f"{LOG_FALLBACK_DEFER}{a['caster_slot']}{LOG_FALLBACK_AWAIT_MID}{a['cmd_no']} sub {a['sub_no']}, id "
+                  f"{a['act_id']}{LOG_FALLBACK_AWAIT_WAITS}{ACT_STATE_NAMES.get(rec.state, '?')}{LOG_FALLBACK_AWAIT_TAIL}"
+                  f"{ACT_FALLBACK_DEFER_MAX_MS}{LOG_FALLBACK_DEFER_TAIL}")
+
+    def park(self, e: dict) -> None:
+        """ActFallbackPark -- [fix pass 2: rcover-2] one deferral in; past ActFallbackDeferCap the oldest out
+        (:meth:`drop_entry`)."""
+        if len(self.deferred) >= ACT_FALLBACK_DEFER_CAP:
+            self.drop_entry(self.deferred.pop(0))
+        self.deferred.append(e)
+
+    def drop_entry(self, e: dict) -> None:
+        """ActFallbackDropEntry -- [fix pass 2: rcover-2] a deferral dropped undecided counts its verdict when parked:
+        `covered` for one that waited on its pending record, `guarded` for one that waited on its caster's replay."""
+        if e.get("on_record"):
+            self.covered += 1
+        else:
+            self.guarded += 1
+
+    def deferred_tick(self, ctx: dict | None) -> None:
+        """ActFallbackDeferredTick (ActTick, after the queue): each deferred impact waits while the replay that held its
+        caster runs; once free -- no newer replay of the actor running or pending -- it decides with via "deferred" (every
+        guard re-read; neither lethal nor a revive: its life lanes applied); dropped `guarded` when stale or a newer
+        replay owns the turn. [fix pass 2: rcover-2] A record-deferred one waits while its record is pending, then decides
+        again on the record's state NOW (via its decline's: "declined"; the call site's lethal / revive / backlog kept);
+        still pending past the bound it counts `covered`."""
+        if not self.deferred:
+            return
+        ctx = ctx or {}
+        hidden_mask = int(ctx.get("hidden_mask", 0))
+        for e in list(self.deferred):
+            a = e["a"]
+            if e.get("on_record"):
+                rec = e["rec"]
+                rstep = act_fallback_record_step(self.lane.now_ms - e["arrive_ms"] > ACT_FALLBACK_DEFER_MAX_MS,
+                                                 rec is not None and rec.pending)
+                if rstep == ACT_FB_DEFER_WAIT:
+                    continue
+                self.deferred.remove(e)
+                if rstep == ACT_FB_DEFER_COVERED:
+                    self.covered += 1
+                    continue
+                hidden = not a["caster_is_player"] and bool(hidden_mask & (1 << a["caster_slot"]))
+                self.at_impact(a, e["caster"], e["self_cast"], e["lethal"], e["revive"], hidden, rec, e["backlog"],
+                               act_decline_via(rec.why if rec is not None else None), e["arrive_ms"], ctx)
+                continue
+            now = self.lane.acting_record(e["caster"])
+            acting = now is not None
+            pending = not acting and any(r.pending and r.actor_slot == a["caster_slot"]
+                                         and r.is_player == bool(a["caster_is_player"]) for r in self.lane.book.queue)
+            step = act_fallback_defer_step(self.lane.now_ms - e["arrive_ms"] > ACT_FALLBACK_DEFER_MAX_MS, acting,
+                                           e["holder"] in self.lane.running, pending)
+            if step == ACT_FB_DEFER_WAIT:
+                continue
+            self.deferred.remove(e)
+            if step == ACT_FB_DEFER_DROP:
+                self.guarded += 1
+                continue
+            hidden = not a["caster_is_player"] and bool(hidden_mask & (1 << a["caster_slot"]))
+            self.at_impact(a, e["caster"], e["self_cast"], False, False, hidden, e["rec"], False, ACT_VIA_DEFERRED,
+                           e["arrive_ms"], ctx)
+
+    def drop_deferred(self) -> None:
+        """ActFallbackDropDeferred (the teardown, before the summary): every deferred impact counted `guarded` ([fix pass 2:
+        rcover-2] one that waited on its pending record `covered`: drop_entry)."""
+        for e in self.deferred:
+            self.drop_entry(e)
+        self.deferred = []
+
+    def restore_cut(self, aborted_units: int, post_abort: int) -> None:
+        """ActRestoreUnit's fallback half at the busy window's FULL restore (the stand-in's only unit pose: a clip) -- [fix
+        pass: timing-2] a clip on an aborted replay's unit is cut to idle, a bystander's plays on; [fix pass 2: rtiming-1]
+        ORDER-aware: one written AFTER that abort (``post_abort``) plays on too (ActFallbackKeepsPose)."""
+        for slot, e in list(self.clip_on.items()):
+            uid = int(e.get("id", 0))
+            if not act_fallback_keeps_pose(bool(aborted_units & uid), bool(post_abort & uid), True):
+                del self.clip_on[slot]
+
+    def clip_for(self, d: dict, a: dict, ctx: dict) -> tuple:
+        """ActFallbackClipFor: (clip | None, kind, why) -- the player table by the action, or the enemy's scene sequence."""
+        if d.get("player"):
+            item_or_throw = act_fallback_item_or_throw(command_type_safe(a["cmd_no"], self.commands))
+            defend_or_change = act_fallback_defend_or_change(a["cmd_no"])
+            transformed = bool(d.get("monster_transform"))
+            category = 0 if item_or_throw or defend_or_change or transformed else self.category(a["cmd_no"], a["sub_no"])
+            kind = act_fallback_player_clip(item_or_throw, defend_or_change, transformed, category)
+            if kind == ACT_FB_NONE:
+                return None, ACT_FB_NONE, FALLBACK_NONE_TRANSFORM if transformed else FALLBACK_NONE_DEFEND
+            idx = act_fallback_motion(kind)
+            names = d.get("mot_names")
+            if not isinstance(names, (list, tuple)):                    # (no table given: the stand-in's own clip names)
+                return f"ANH_FAKE_P{int(d.get('slot', -1))}_{idx:03d}", kind, None
+            # [fix pass: harness-06] a table given is the engine's d.mot: too short, or an empty name, plays NOTHING
+            if idx >= len(names) or not names[idx]:
+                return None, ACT_FB_NONE, f"the unit's motion table has no {MP_MOTION_NAMES.get(idx, idx)}"
+            return names[idx], kind, None
+        if not act_fallback_enemy_seq_cmd(a["cmd_no"]):
+            return None, ACT_FB_NONE, f"enemy cmd {a['cmd_no']} names no scene sequence"
+        clip, why = self.enemy_clip(int(a["sub_no"]), ctx)
+        return (clip, ACT_FB_ENEMY, None) if clip is not None else (None, ACT_FB_NONE, why)
+
+    def category(self, cmd_no: int, sub_no: int) -> int:
+        """The scratch CMD_DATA's AbilityCategory, as the stand-in models it (:attr:`categories`, else the magic rule)."""
+        return int(self.categories.get((int(cmd_no), int(sub_no)), 16 if int(cmd_no) in self.FAKE_MAGIC_CMDS else 0))
+
+    def enemy_clip(self, sub: int, ctx: dict) -> tuple:
+        """ActFallbackEnemyClip: (clip | None, why), cached per (scene, sub) for the boot; a sequence the scene lacks is a
+        parse failure (counted, logged once per boot, played as nothing)."""
+        scene = int(ctx.get("scene", -1))
+        key = (scene, int(sub))
+        e = self.seq_cache.get(key)
+        if e is None:
+            anims = self.scene_seqs.get(int(sub)) if int(sub) >= 0 else None
+            if anims is None:
+                e = {"clip": None, "fail": f"the scene has no sequence {sub}"}
+            else:
+                e = {"clip": act_fallback_first_clip(act_seq_threads(anims)), "fail": None}
+            if len(self.seq_cache) >= ACT_FALLBACK_SEQ_CACHE_CAP:
+                self.seq_cache.clear()
+            self.seq_cache[key] = e
+            if e["fail"] is not None:
+                self.parse_failed += 1
+                if not self.parse_logged:
+                    self.parse_logged = True
+                    self._log(f"{LOG_FALLBACK_PARSE}{sub} of scene {scene} could not be parsed ({e['fail']}"
+                              f"{LOG_FALLBACK_PARSE_TAIL}")
+        why = (f"sequence {sub}: {e['fail']}" if e["fail"] is not None else
+               f"sequence {sub}{FALLBACK_NONE_IDLE}" if e["clip"] is None else None)
+        return e["clip"], why
+
+    def write(self, d: dict, clip: str, kind: int, a: dict, by_id: bool, via: str, ctx: dict) -> None:
+        """ActFallbackWrite: the clip on the unit (the stand-in: its anim / mot for :attr:`CLIP_FRAMES`), counted when
+        written -- one per actor per frame (`clips`), the rest `collapsed` -- `last` recorded, one line (capped a boot)."""
+        frame = int(ctx.get("frame", 0))
+        if frame != self.frame:
+            self.frame, self.frame_mask = frame, 0
+        btl_id = int(d.get("id", 0))
+        collapsed = act_fallback_collapses(self.frame_mask, btl_id)
+        self.clip_on[int(d.get("slot", -1))] = {"frames": self.CLIP_FRAMES, "clip": clip, "id": btl_id,
+                                                "mot": act_fallback_motion(kind) if d.get("player") else -1}
+        self.frame_mask |= btl_id
+        # [fix pass 2: rtiming-1] a clip on a unit an abort of the open busy window already touched: written AFTER it
+        if self.lane.window_open and self.lane.window_abort_mask & btl_id:
+            self.post_abort_mask |= btl_id
+        if collapsed:
+            self.collapsed += 1
+        else:
+            self.clips += 1
+        self.last = {"actor": int(a["caster_slot"]), "clip": clip, "cmd": int(a["cmd_no"]), "sub": int(a["sub_no"]),
+                     "keyed_by": "id" if by_id else "caster", "kind": act_fallback_kind_name(kind),
+                     "id": int(a["act_id"]) if by_id else 0, "via": via, "ms": int(self.lane.now_ms)}
+        if self.logged >= ACT_FALLBACK_LOG_MAX:
+            return
+        self.logged += 1
+        self._log(f"{LOG_FALLBACK}{act_fallback_kind_name(kind)} clip {clip} on wire slot {a['caster_slot']} (cmd "
+                  f"{a['cmd_no']} sub {a['sub_no']}, "
+                  + (f"keyed by id {a['act_id']}" if by_id else f"{LOG_FALLBACK_BY_CASTER}{ACT_FALLBACK_WINDOW_MS} ms")
+                  + f", via {via}) at battle ms {self.lane.now_ms}"
+                  + (LOG_FALLBACK_COLLAPSED if collapsed else LOG_FALLBACK_CLIP_TAIL)
+                  + (LOG_FALLBACK_FURTHER if self.logged == ACT_FALLBACK_LOG_MAX else ""))
+
+    def log_summary(self, why: str) -> None:
+        """ActFallbackLogSummary: one line per boot at its end, only when fallback A did anything (a covered impact alone
+        logs none)."""
+        if self.clips + self.collapsed + self.deduped + self.none + self.guarded + self.backlog + self.parse_failed == 0:
+            return
+        self._log(f"{LOG_FALLBACK_SUMMARY}{why}) -- {self.clips} clip(s), {self.collapsed} collapsed, {self.deduped} "
+                  f"deduped, {self.covered} covered, {self.none} none, {self.guarded} guarded, {self.backlog} backlog, "
+                  f"{self.parse_failed} parse failure(s)")
+
+    # -- the published block
+    def doc(self, *, role: bool) -> dict:
+        """HarnessAgent.AppendActGuestFallback -- `act.guest.fallback`, in every role."""
+        return {"on": self.on(role), "clips": self.clips, "deduped": self.deduped, "covered": self.covered,
+                "none": self.none, "guarded": self.guarded, "backlog": self.backlog, "collapsed": self.collapsed,
+                "parse_failed": self.parse_failed, "last": dict(self.last) if self.last is not None else None}
+
+
+def act_fallback_decided(block: dict | None) -> int | None:
+    """The impacts an `act.guest.fallback` block says reached the motion step with a resolved caster (the sum of its
+    buckets); None for an absent or malformed block."""
+    if not isinstance(block, dict):
+        return None
+    try:
+        return sum(int(block[k]) for k in ACT_FALLBACK_BUCKETS)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+#: NetSyncDiorama.Replay.cs's s136 integer constants, by C# name (the pin, both ways -- test_harness_netsync.py reads every
+#: `internal const Int32` the s136 patch declares, comments stripped).
+CS_FALLBACK_CONSTANTS = {
+    "ActFallbackWindowMs": ACT_FALLBACK_WINDOW_MS, "ActFallbackIdCap": ACT_FALLBACK_ID_CAP,
+    "ActFallbackWinCap": ACT_FALLBACK_WIN_CAP, "ActFallbackSeqCacheCap": ACT_FALLBACK_SEQ_CACHE_CAP,
+    "ActFallbackLogMax": ACT_FALLBACK_LOG_MAX, "ActFallbackDeferMaxMs": ACT_FALLBACK_DEFER_MAX_MS,
+    "ActFallbackDeferCap": ACT_FALLBACK_DEFER_CAP, "ActFbNone": ACT_FB_NONE, "ActFbAttack": ACT_FB_ATTACK,
+    "ActFbMagic": ACT_FB_MAGIC, "ActFbItem": ACT_FB_ITEM, "ActFbEnemy": ACT_FB_ENEMY, "ActFbDecide": ACT_FB_DECIDE,
+    "ActFbCovered": ACT_FB_COVERED, "ActFbDeduped": ACT_FB_DEDUPED, "ActFbBacklog": ACT_FB_BACKLOG,
+    "ActFbGuarded": ACT_FB_GUARDED, "ActFbDeferWait": ACT_FB_DEFER_WAIT, "ActFbDeferPlay": ACT_FB_DEFER_PLAY,
+    "ActFbDeferDrop": ACT_FB_DEFER_DROP, "ActFbDeferCovered": ACT_FB_DEFER_COVERED}

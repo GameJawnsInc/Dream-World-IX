@@ -8507,6 +8507,13 @@ class Session:
             ("lifeskip", "the s135 life-mask skip's calibration lever (off = the reconciler applies a held slot's "
                          "sample)"),
             ("unit", "the s135 replay hit hold's unit-sample seam (one post-horizon type-1 record through ApplyUnit)"))})
+    #: [ff9mapkit netsync s136] FALLBACK A's op (NetSyncDiorama.HarnessActFallbackBench, routed with the guest ops), told by
+    #: `netsync.battle.act.guest.fallback`: `fallback on|off` (off = the pre-s136 guest: an impact no replay covers gets the
+    #: s110 player-only MP_ATTACK swing, an enemy nothing)
+    NETSYNC_ACTBENCH_OP_CAPS.update({
+        "fallback": ("coop_act_fallback", "netsync.battle.act.guest.fallback", "s136",
+                     "the s136 fallback A's calibration lever (off = the pre-s136 guest: the s110 player-only MP_ATTACK swing "
+                     "for an impact no replay covers)")})
     #: [ff9mapkit netsync s134] a later VALUE of an older op, told by its own key: `tape play [pct]` (s133 knew `tape` with
     #: rec|stop|clear|info|dump) -- (the accessor, the key, the patch, what it is)
     NETSYNC_ACTBENCH_VALUE_CAPS = {
@@ -8529,6 +8536,12 @@ class Session:
                                    "`actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear`, "
                                    "`actbench teardown`, `actbench hold|lifeskip on|off` or `actbench unit <slot> "
                                    "dead|alive|trance0|trance1`")
+    #: [ff9mapkit netsync s136] ...as s136 rewrote it (an s136 engine says this for every non-guest form)
+    NETSYNC_ACTBENCH_USAGE_S136 = ("expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, "
+                                   "`actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, "
+                                   "`actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear`, "
+                                   "`actbench teardown`, `actbench hold|lifeskip on|off`, `actbench unit <slot> "
+                                   "dead|alive|trance0|trance1` or `actbench fallback on|off`")
     #: [ff9mapkit netsync s134] each guest op's own refusal of a malformed form (HarnessActGuestBench, after its role gate)
     NETSYNC_ACTBENCH_GUEST_USAGE = {
         "feed": "netsync actbench feed: expected `feed <hex[,hex...]>`",
@@ -8550,6 +8563,9 @@ class Session:
     }
     #: [ff9mapkit netsync s135] `actbench unit <slot> <state>`'s states
     NETSYNC_ACTBENCH_UNIT_STATES = ("dead", "alive", "trance0", "trance1")
+    #: [ff9mapkit netsync s136] fallback A's op's own refusal of a malformed form (HarnessActFallbackBench, after the guest
+    #: bench's role gate)
+    NETSYNC_ACTBENCH_FALLBACK_USAGE = {"fallback": "netsync actbench fallback: expected `fallback on|off`"}
     #: [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern]`'s trailing tokens (`[wire] [skip|play|own] [rand]`): an
     #: engine before s111 IGNORES them (a manual boot with the guest's own intro) -- a silent wrong action, never sent.
     NETSYNC_DIOBOOT_TOKENS = ("wire", "skip", "play", "own", "rand")
@@ -8655,6 +8671,11 @@ class Session:
         ``unit <slot 0-7> dead|alive|trance0|trance1`` (one post-horizon type-1 record through ApplyUnit), each told by
         ``netsync.battle.act.guest.hold`` (:attr:`State.coop_act_hold`) -- :meth:`act_hold` / :meth:`act_unit`. On an
         s134 (or older) engine each is refused before the step, naming what that engine would answer.
+
+        [ff9mapkit netsync s136] fallback A adds NO sub-verb either: ``actbench`` gains ``fallback on|off`` (off = the
+        pre-s136 guest, the calibration lever), told by ``netsync.battle.act.guest.fallback``
+        (:attr:`State.coop_act_fallback`) -- :meth:`act_fallback`. On an s135 (or older) engine it is refused before the
+        step, naming what that engine would answer.
 
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
@@ -8773,7 +8794,8 @@ class Session:
                     raise HarnessError(why)
                 self.send("netsync " + " ".join([sub, *(str(a) for a in args)]), timeout=timeout)
                 return self.state
-            usage = (self.NETSYNC_ACTBENCH_USAGE_S135 if st.coop_act_hold else          # [ff9mapkit netsync s135]
+            usage = (self.NETSYNC_ACTBENCH_USAGE_S136 if st.coop_act_fallback else      # [ff9mapkit netsync s136]
+                     self.NETSYNC_ACTBENCH_USAGE_S135 if st.coop_act_hold else          # [ff9mapkit netsync s135]
                      self.NETSYNC_ACTBENCH_USAGE_S134 if st.coop_act_guest else self.NETSYNC_ACTBENCH_USAGE)
             if not (op == "tape" and value == "dump") and len(args) != 2:
                 raise HarnessError(f"{usage}\r\nParameter name: netsync actbench")
@@ -8819,7 +8841,8 @@ class Session:
         ...and the guest half: ``feed <hex[,hex...]>``, ``feedat <ms> <hex[,hex...]>``, ``tape play [pct]``, ``replay|
         rework|shortcircuit on|off``, ``knob 0|1|ini``, ``clear``, ``teardown`` (:meth:`act_feed`, :meth:`act_tape_play`).
         [ff9mapkit netsync s135] ...and the replay hit hold's: ``hold|lifeskip on|off``, ``unit <slot> dead|alive|trance0|
-        trance1`` (:meth:`act_hold`, :meth:`act_unit`)."""
+        trance1`` (:meth:`act_hold`, :meth:`act_unit`). [ff9mapkit netsync s136] ...and fallback A's ``fallback on|off``
+        (:meth:`act_fallback`)."""
         return self.netsync("actbench", op, *args, timeout=timeout)
 
     # -- [ff9mapkit netsync s134] the guest action replay's bench ---------------------------------------------------
@@ -8852,6 +8875,12 @@ class Session:
         steady booted selftest diorama."""
         return self.actbench("unit", int(slot), str(state), timeout=timeout)
 
+    def act_fallback(self, on: bool, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s136] ``actbench fallback on|off``: fallback A's calibration lever (off = the pre-s136 guest --
+        an impact no replay covers gets the s110 player-only MP_ATTACK swing, an enemy nothing). Released with the
+        harness."""
+        return self.actbench("fallback", "on" if on else "off", timeout=timeout)
+
     def act_tape_play(self, pct: int | None = None, *, timeout: float = 20.0) -> State:
         """``actbench tape play [pct]``: s133's loopback tape into the bench inbox at its recorded offsets (pct 1-1000 of
         real speed; default 100)."""
@@ -8861,9 +8890,11 @@ class Session:
         """[ff9mapkit netsync s134] What an s133 engine answers a guest form (no IsActGuestBenchOp there): its argument
         parse first (anything but three words is its usage), then HarnessActBench -- the role, an unknown op, a `tape`
         value it lacks. [ff9mapkit netsync s135] ...and what an s134 engine answers a replay-hit-hold form (its guest
-        router lacks `hold|lifeskip|unit`: the same s133 parse, its usage s134's text)."""
+        router lacks `hold|lifeskip|unit`: the same s133 parse, its usage s134's text). [ff9mapkit netsync s136] ...and what
+        an s135 engine answers a fallback form (its router lacks `fallback`: its usage s135's text)."""
         if len(args) != 2:
-            usage = self.NETSYNC_ACTBENCH_USAGE_S134 if st.coop_act_guest else self.NETSYNC_ACTBENCH_USAGE
+            usage = (self.NETSYNC_ACTBENCH_USAGE_S135 if st.coop_act_hold else
+                     self.NETSYNC_ACTBENCH_USAGE_S134 if st.coop_act_guest else self.NETSYNC_ACTBENCH_USAGE)
             return f"{usage}\r\nParameter name: netsync actbench"
         if not (st.netsync or {}).get("selftest"):
             return "netsync actbench: needs the selftest role (netsync selftest 1)"
@@ -8903,6 +8934,8 @@ class Session:
             state = str(args[2]).strip().lower() if n > 2 else ""
             if n != 3 or slot is None or not 0 <= slot <= 7 or state not in self.NETSYNC_ACTBENCH_UNIT_STATES:
                 return self.NETSYNC_ACTBENCH_HOLD_USAGE["unit"]
+        if op == "fallback" and (n != 2 or value not in ("on", "off")):              # [ff9mapkit netsync s136]
+            return self.NETSYNC_ACTBENCH_FALLBACK_USAGE["fallback"]
         if op in ("clear", "teardown") and n != 1:
             return usage[op]
         return None

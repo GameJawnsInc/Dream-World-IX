@@ -1888,6 +1888,43 @@ class State:
                                                                "first ([{slot, value, via, arrival_ms, release_ms}]; via "
                                                                "\"arrival\" | a release reason | \"queued\").")
 
+    # [ff9mapkit netsync s136] FALLBACK A, ONE STOCK CLIP PER UNCOVERED ACTION (studies/battle-coop/R3-DESIGN.md 3.3.5 as
+    # amended by R3-ACTION-REPLAY-AUDIT.md 2.4): `netsync.battle.act.guest.fallback`, the LAST key of `act.guest` -- an impact
+    # no action replay covers plays ONE stock clip chosen by its action (a player's MP_ITEM1 / MP_MAGIC / MP_ATTACK / none,
+    # an enemy's scene-sequence clip), at most once per action. The capability is the block's PRESENCE (absent = None per
+    # key, False for :attr:`coop_act_fallback`): an s135 engine answers `actbench fallback` "unknown op". Published in
+    # EVERY role; per diorama BOOT (reset by each boot, kept after its teardown until the next) except the lever. Every
+    # impact that reaches the motion step with a resolved caster counts exactly ONE of clips | deduped | covered | none |
+    # guarded | backlog | collapsed (battlewire.act_fallback_decided).
+    @property
+    def coop_act_fallback(self) -> bool | None:
+        """s136: fallback A (``netsync.battle.act.guest.fallback``; `actbench fallback on|off`). False = an engine whose
+        guest swings only a player caster's MP_ATTACK for an impact no replay covers (s135 and older)."""
+        return self._nb_cap("act.guest.fallback", dict)
+
+    coop_act_fallback_block = _nb_prop("act.guest.fallback", dict, "s136: the whole ``act.guest.fallback`` block, copied.")
+    coop_act_fallback_on = _nb_prop("act.guest.fallback.on", bool, "s136: fallback A is in force (false = `actbench fallback "
+                                                                   "off`: the pre-s136 s110 player-only swing).")
+    coop_act_fallback_clips = _nb_prop("act.guest.fallback.clips", int, "s136: clips WRITTEN this boot (one per actor per "
+                                                                        "frame).")
+    coop_act_fallback_deduped = _nb_prop("act.guest.fallback.deduped", int, "s136: impacts of an action that already had its "
+                                                                            "decision (by id, or by caster within 500 ms).")
+    coop_act_fallback_covered = _nb_prop("act.guest.fallback.covered", int, "s136: impacts a replay covers (no clip).")
+    coop_act_fallback_none = _nb_prop("act.guest.fallback.none", int, "s136: actions that chose no clip (Defend / Change, "
+                                                                      "an Idle-only or unparsable enemy sequence, ...).")
+    coop_act_fallback_guarded = _nb_prop("act.guest.fallback.guarded", int, "s136: impacts the call-site guards refused "
+                                                                            "(lethal, revive, hidden, a self-hit, acting, "
+                                                                            "the end or a Leave -- nothing spent).")
+    coop_act_fallback_backlog = _nb_prop("act.guest.fallback.backlog", int, "s136: impacts drained in a backlog Update (no "
+                                                                            "clip; the key spent).")
+    coop_act_fallback_collapsed = _nb_prop("act.guest.fallback.collapsed", int, "s136: clips overwritten on one actor in one "
+                                                                                "frame (not in clips).")
+    coop_act_fallback_parse_failed = _nb_prop("act.guest.fallback.parse_failed", int, "s136: enemy sequences that could not "
+                                                                                      "be parsed (played as nothing).")
+    coop_act_fallback_last = _nb_prop("act.guest.fallback.last", dict, "s136: the last clip written ({actor, clip, cmd, sub, "
+                                                                       "keyed_by, kind, id, via, ms}); None = none this "
+                                                                       "boot.")
+
     # ---- host: s111 the intro mirror's host half
     coop_host_cfg = _nb_prop("host.cfg", dict, "s111: the whole ``cfg`` block, copied (LIVE reads).")
     coop_cfg_atb = _nb_prop("host.cfg.atb", int, "s111: cfg.atb -- 0 Active, 1 Wait (a ``bench cfg atb`` override shows "
