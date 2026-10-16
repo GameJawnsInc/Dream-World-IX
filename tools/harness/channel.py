@@ -1829,6 +1829,65 @@ class State:
                                                            "speed, state, why, arrive_ms, launch_ms, first_hit_ms, end_ms, "
                                                            "hits}); None = none this boot.")
 
+    # [ff9mapkit netsync s135] THE REPLAY HIT HOLD (studies/battle-coop/R3-DESIGN.md 3.3.4 as amended by
+    # R3-ACTION-REPLAY-AUDIT.md 2.3): `netsync.battle.act.guest.hold`, the LAST key of `act.guest` -- numbers, the flinch and
+    # deaths on the guest wait for the action replay's own hit (the HP and MP bars still follow the host). The capability is
+    # the block's PRESENCE (absent = None per key, False for :attr:`coop_act_hold`): an s134 engine answers the `actbench
+    # hold|lifeskip|unit` ops "unknown op" / its usage. Published in EVERY role; per diorama BOOT (reset by each boot, kept
+    # after its teardown until the next) except the two levers. At rest (nothing held, no teardown discard) held == the sum
+    # of rel_* and queued == rel_queued (battlewire.act_hold_at_rest). "hold" names three things: always the full path.
+    @property
+    def coop_act_hold(self) -> bool | None:
+        """s135: the replay hit hold (``netsync.battle.act.guest.hold``; `actbench hold|lifeskip on|off`, `actbench unit
+        <slot> <state>`). False = an engine whose guest shows numbers, the flinch and deaths when the host's impact
+        ARRIVES (s134 and older)."""
+        return self._nb_cap("act.guest.hold", dict)
+
+    coop_act_hold_block = _nb_prop("act.guest.hold", dict, "s135: the whole ``act.guest.hold`` block, copied.")
+    coop_act_hold_on = _nb_prop("act.guest.hold.on", bool, "s135: the hold is in force (false = `actbench hold off`: the "
+                                                           "pre-s135 arrival path).")
+    coop_act_hold_lifeskip = _nb_prop("act.guest.hold.lifeskip", bool, "s135: the reconciler's life-mask skip is in force "
+                                                                       "(false = `actbench lifeskip off`).")
+    coop_act_hold_held_now = _nb_prop("act.guest.hold.held_now", int, "s135: impacts held for their replay's hit now.")
+    coop_act_hold_held = _nb_prop("act.guest.hold.held", int, "s135: impacts held this boot (LATE releases included).")
+    coop_act_hold_queued_now = _nb_prop("act.guest.hold.queued_now", int, "s135: frames queued behind an older held life "
+                                                                          "change now.")
+    coop_act_hold_queued = _nb_prop("act.guest.hold.queued", int, "s135: frames queued this boot (audit amendment 5).")
+    coop_act_hold_rel_hit = _nb_prop("act.guest.hold.rel_hit", int, "s135: held impacts released at their replay's hit.")
+    coop_act_hold_rel_late = _nb_prop("act.guest.hold.rel_late", int, "s135: ...at once, the replay's hit having come first "
+                                                                      "(a credit).")
+    coop_act_hold_rel_end = _nb_prop("act.guest.hold.rel_end", int, "s135: ...at the replay's natural end (it never hit "
+                                                                    "that target).")
+    coop_act_hold_rel_hostdone = _nb_prop("act.guest.hold.rel_hostdone", int, "s135: ...at the host's END + 1500 ms.")
+    coop_act_hold_rel_timeout = _nb_prop("act.guest.hold.rel_timeout", int, "s135: ...2500 ms (battle time) after arrival.")
+    coop_act_hold_rel_abort = _nb_prop("act.guest.hold.rel_abort", int, "s135: ...when the replay aborted (or an abort-all "
+                                                                        "dropped its pending START).")
+    coop_act_hold_rel_replaced = _nb_prop("act.guest.hold.rel_replaced", int, "s135: ...when a newer START replaced its "
+                                                                              "pending one (amendment 9).")
+    coop_act_hold_rel_declined = _nb_prop("act.guest.hold.rel_declined", int, "s135: ...when its pending START declined "
+                                                                              "otherwise (stale, noop, actor, ...).")
+    coop_act_hold_rel_end_inject = _nb_prop("act.guest.hold.rel_end_inject", int, "s135: ...at the end injection "
+                                                                                  "(amendment 2: before AllPlayersDown).")
+    coop_act_hold_rel_queued = _nb_prop("act.guest.hold.rel_queued", int, "s135: queued frames released (any reason).")
+    coop_act_hold_superseded = _nb_prop("act.guest.hold.superseded", int, "s135: releases whose life change a newer frame "
+                                                                          "had overtaken (the figure and the flinch only).")
+    coop_act_hold_discarded = _nb_prop("act.guest.hold.discarded", int, "s135: held + queued frames a teardown dropped "
+                                                                        "(nothing applied).")
+    coop_act_hold_life_mask = _nb_prop("act.guest.hold.life_mask", int, "s135: the wire-slot bits whose kill or revive "
+                                                                        "waits now (the reconciler skips them).")
+    coop_act_hold_mask_skips = _nb_prop("act.guest.hold.mask_skips", int, "s135: reconciler records the life mask "
+                                                                          "skipped.")
+    coop_act_hold_lag = _nb_prop("act.guest.hold.lag", dict, "s135: the paired releases' lag, copied ({n, min, p50, max}: "
+                                                             "battle ms of hit minus arrival, negative = a credit).")
+    coop_act_hold_lag_n = _nb_prop("act.guest.hold.lag.n", int, "s135: paired releases (hit and late) this boot.")
+    coop_act_hold_lag_min = _nb_prop("act.guest.hold.lag.min", int, "s135: the smallest lag (ms; -1 with n 0).")
+    coop_act_hold_lag_p50 = _nb_prop("act.guest.hold.lag.p50", int, "s135: the lower median lag (ms; -1 with n 0).")
+    coop_act_hold_lag_max = _nb_prop("act.guest.hold.lag.max", int, "s135: the largest lag (ms; -1 with n 0) -- the real "
+                                                                    "link's (amendment 10).")
+    coop_act_hold_figs = _nb_prop("act.guest.hold.figs", list, "s135: the last 16 figures the action lane DISPLAYED, oldest "
+                                                               "first ([{slot, value, via, arrival_ms, release_ms}]; via "
+                                                               "\"arrival\" | a release reason | \"queued\").")
+
     # ---- host: s111 the intro mirror's host half
     coop_host_cfg = _nb_prop("host.cfg", dict, "s111: the whole ``cfg`` block, copied (LIVE reads).")
     coop_cfg_atb = _nb_prop("host.cfg.atb", int, "s111: cfg.atb -- 0 Active, 1 Wait (a ``bench cfg atb`` override shows "

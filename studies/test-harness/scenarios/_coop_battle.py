@@ -129,6 +129,9 @@ R3_PROBES = {
     # [ff9mapkit netsync s134] the guest action replay (the guest `actbench` ops: feed|feedat|tape play|replay|rework|
     # shortcircuit|knob|clear|teardown)
     134: "netsync.battle.act.guest",
+    # [ff9mapkit netsync s135] the replay hit hold (the guest `actbench` ops: hold|lifeskip on|off, unit <slot> <state>) --
+    # keyed on `act.guest.hold`, never a bare "hold" (s119's `netsync.diorama.hold`, s114's `host.start_hold`)
+    135: "netsync.battle.act.guest.hold",
 }
 
 

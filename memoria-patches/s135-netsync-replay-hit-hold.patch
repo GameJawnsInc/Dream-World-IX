@@ -1,0 +1,2088 @@
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/UnifiedBattleSequencer.cs b/Assembly-CSharp/Memoria/Battle/SFX/UnifiedBattleSequencer.cs
+index acfa608..bacf0e9 100644
+--- a/Assembly-CSharp/Memoria/Battle/SFX/UnifiedBattleSequencer.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/UnifiedBattleSequencer.cs
+@@ -1024,6 +1024,10 @@ public static class UnifiedBattleSequencer
+                         {
+                             if (!btl2dParam.TryGetValue(btl, out Btl2dParam figParam))
+                                 continue;
++                            // [ff9mapkit netsync s135] a co-op guest's REPLAY: a figure its hit released is DISPLAYED here (the hold's
++                            // figs[], recorded at the display); read-only. One static read (false) on vanilla, solo and the host.
++                            if (Memoria.Netsync.NetSyncDiorama.ActLive)
++                                Memoria.Netsync.NetSyncDiorama.ActNoteFigure(cmd, btl, figParam);
+                             btl2d.Btl2dReq(btl, figParam);
+                             btl2dParam.Remove(btl);
+                         }
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 3bb6014..16eefb0 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -230,6 +230,14 @@ namespace Memoria.Harness
+         // `feedat <ms> <hex[,hex...]>`, `tape play [pct]`, `replay on|off`, `rework on|off`, `shortcircuit on|off`, `knob 0|1|ini`,
+         // `clear` and `teardown`. A driver checks for `netsync.battle.act.guest` -- absent = an engine whose guest replays no action
+         // (an s133 engine answers those ops with "unknown op" / "expected ...").
++        // [ff9mapkit netsync s135] (the replay hit hold; studies/battle-coop/R3-DESIGN.md 3.3.4 as amended by R3-ACTION-REPLAY-AUDIT.md
++        // 2.3), also additive under 5: `netsync.battle.act.guest` gains `hold` as its last key (see AppendActGuestHold), the selftest
++        // proof block gains one line, "action hold selftest: OK (N rows)" (NetSyncDiorama.ActHoldSelfTest), and `actbench` gains three
++        // guest ops (selftest role only): `hold on|off` (the calibration lever: off = the pre-s135 guest, numbers / the flinch /
++        // deaths at the impact's ARRIVAL), `lifeskip on|off` (off = the reconciler ignores the life mask) and `unit <slot 0-7>
++        // dead|alive|trance0|trance1` (one post-horizon type-1 record for that wire slot through the reconciler's own ApplyUnit). A
++        // driver checks for `netsync.battle.act.guest.hold` -- absent = an engine whose guest shows numbers, the flinch and deaths
++        // when the host's impact arrives (an s134 engine answers those ops with "unknown op" / "expected ...").
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1797,6 +1805,11 @@ namespace Memoria.Harness
+                             // the NEXT replay's hits fall through: the tripwire's red), `knob 0|1|ini` (a process-local [Netsync]
+                             // ActionReplay), `clear` (every replay aborted, the inbox emptied), `teardown` (the teardown's ActDiscardAll with no
+                             // Leave first). Read back: `netsync.battle.act.guest`. Released on disarm/fault/reset.
++                            // [ff9mapkit netsync s135] -- and the replay hit hold's (NetSyncDiorama.HarnessActHoldBench, routed through the
++                            // guest bench), selftest role only: `hold on|off` (off = the pre-s135 guest: numbers, the flinch and deaths at the
++                            // impact's arrival), `lifeskip on|off` (off = the reconciler ignores the life mask), `unit <slot 0-7>
++                            // dead|alive|trance0|trance1` (one post-horizon type-1 record through the reconciler's ApplyUnit). Read back:
++                            // `netsync.battle.act.guest.hold`. The levers are released on disarm/fault/reset.
+                             String aop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             String aval = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
+                             if (Memoria.Netsync.NetSyncDiorama.IsActGuestBenchOp(aop, aval))
+@@ -1816,7 +1829,7 @@ namespace Memoria.Harness
+                             }
+                             else if (s.Args.Length != 3)
+                             {
+-                                throw new ArgumentOutOfRangeException("netsync actbench", "expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, `actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, `actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear` or `actbench teardown`");
++                                throw new ArgumentOutOfRangeException("netsync actbench", "expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, `actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, `actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear`, `actbench teardown`, `actbench hold|lifeskip on|off` or `actbench unit <slot> dead|alive|trance0|trance1`");
+                             }
+                             if (!Memoria.Netsync.NetSyncBattle.HarnessActBench(aop, aval, afrom, acount, out why))
+                                 throw new InvalidOperationException(why ?? "netsync actbench refused");
+@@ -3321,7 +3334,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]}}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -4095,6 +4108,7 @@ namespace Memoria.Harness
+         //   `actor`, `cmd`, `sub`, `kind`, `num`, `speed`, `state` ("queued" | "waiting" | "running" | "ended" | "declined" | "aborted" |
+         //   "noop"), `why`, `arrive_ms`, `launch_ms`, `first_hit_ms`, `end_ms` (battle ms; -1 = not yet), `hits`; null = none). Sentinels
+         //   in AppendNetsync's catch line, inside its SECOND literal.
++        // [ff9mapkit netsync s135] + `hold` after `last` (the replay hit hold; see AppendActGuestHold).
+         private static void AppendActGuest(StringBuilder sb)
+         {
+             sb.Append("\"guest\":{");
+@@ -4189,9 +4203,81 @@ namespace Memoria.Harness
+                 Num(sb, "hits", lhits);
+                 sb.Append("}");
+             }
++            sb.Append(",");                                                                             // [ff9mapkit netsync s135]
++            AppendActGuestHold(sb);                                                                     // [ff9mapkit netsync s135]
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync s135] `netsync.battle.act.guest.hold` -- THE REPLAY HIT HOLD (NetSyncDiorama.Replay.cs; studies/battle-coop/
++        // R3-DESIGN.md 3.3.4 and 5.1 as amended by R3-ACTION-REPLAY-AUDIT.md 2.3), the LAST key of `act.guest`, in EVERY role. Per diorama
++        // boot (reset by each boot, kept after the teardown until the next) unless noted:
++        //   `on` (the hold is in force: false = the selftest lever `actbench hold off`, the pre-s135 arrival path -- not per boot),
++        //   `lifeskip` (the reconciler skips a held slot's record: false = `actbench lifeskip off` -- not per boot), `held_now` /
++        //   `held` (impacts held for their replay's hit now / this boot, LATE releases included), `queued_now` / `queued` (frames
++        //   queued behind an older held life change now / this boot), `rel_hit`, `rel_late`, `rel_end`, `rel_hostdone`, `rel_timeout`,
++        //   `rel_abort`, `rel_replaced`, `rel_declined`, `rel_end_inject` (held impacts released, by reason -- held = their sum +
++        //   held_now + the held part of `discarded`), `rel_queued` (queued frames released, any reason), `superseded` (releases
++        //   whose life change a newer frame -- or, the fix pass, a newer reconciler record -- had already overtaken, or a queued
++        //   lane that would revive through no life lane: the figure and the flinch only), `discarded` (held + queued frames a
++        //   teardown dropped, nothing applied), `life_mask` (wire-slot bits whose kill or revive waits now), `mask_skips`
++        //   (reconciler records the mask skipped -- each cached and re-applied when its slot leaves the mask), `lag` (paired releases -- hit and late: `n`, `min`, `p50`, `max` in battle ms of
++        //   hit minus arrival, negative = the replay's hit came first; -1 each with n 0) and `figs` (the last 16 figures DISPLAYED by
++        //   the action lane, oldest first: `slot` (wire slot), `value` (the HP figure, else the MP one), `via` ("arrival" | "hit" |
++        //   "late" | "end" | "hostdone" | "timeout" | "abort" | "replaced" | "declined" | "end-inject" | "queued"), `arrival_ms`,
++        //   `release_ms` (battle ms)). Sentinels in AppendNetsync's catch line, inside its SECOND literal.
++        private static void AppendActGuestHold(StringBuilder sb)
++        {
++            sb.Append("\"hold\":{");
++            Bool(sb, "on", Memoria.Netsync.NetSyncDiorama.HarnessHoldOn); sb.Append(",");
++            Bool(sb, "lifeskip", Memoria.Netsync.NetSyncDiorama.HarnessHoldLifeSkip); sb.Append(",");
++            Num(sb, "held_now", Memoria.Netsync.NetSyncDiorama.HarnessHoldHeldNow); sb.Append(",");
++            Num(sb, "held", Memoria.Netsync.NetSyncDiorama.HarnessHoldHeld); sb.Append(",");
++            Num(sb, "queued_now", Memoria.Netsync.NetSyncDiorama.HarnessHoldQueuedNow); sb.Append(",");
++            Num(sb, "queued", Memoria.Netsync.NetSyncDiorama.HarnessHoldQueued); sb.Append(",");
++            Num(sb, "rel_hit", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("hit")); sb.Append(",");
++            Num(sb, "rel_late", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("late")); sb.Append(",");
++            Num(sb, "rel_end", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("end")); sb.Append(",");
++            Num(sb, "rel_hostdone", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("hostdone")); sb.Append(",");
++            Num(sb, "rel_timeout", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("timeout")); sb.Append(",");
++            Num(sb, "rel_abort", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("abort")); sb.Append(",");
++            Num(sb, "rel_replaced", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("replaced")); sb.Append(",");
++            Num(sb, "rel_declined", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("declined")); sb.Append(",");
++            Num(sb, "rel_end_inject", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelBy("end-inject")); sb.Append(",");
++            Num(sb, "rel_queued", Memoria.Netsync.NetSyncDiorama.HarnessHoldRelQueued); sb.Append(",");
++            Num(sb, "superseded", Memoria.Netsync.NetSyncDiorama.HarnessHoldSuperseded); sb.Append(",");
++            Num(sb, "discarded", Memoria.Netsync.NetSyncDiorama.HarnessHoldDiscarded); sb.Append(",");
++            Num(sb, "life_mask", Memoria.Netsync.NetSyncDiorama.HarnessHoldLifeMask); sb.Append(",");
++            Num(sb, "mask_skips", Memoria.Netsync.NetSyncDiorama.HarnessHoldMaskSkips); sb.Append(",");
++            Int32 ln, lmin, lp50, lmax;
++            Memoria.Netsync.NetSyncDiorama.HarnessHoldLag(out ln, out lmin, out lp50, out lmax);
++            sb.Append("\"lag\":{");
++            Num(sb, "n", ln); sb.Append(",");
++            Num(sb, "min", lmin); sb.Append(",");
++            Num(sb, "p50", lp50); sb.Append(",");
++            Num(sb, "max", lmax);
++            sb.Append("},\"figs\":[");
++            Int32 nfig = Memoria.Netsync.NetSyncDiorama.HarnessHoldFigCount;
++            Boolean firstFig = true;
++            for (Int32 i = 0; i < nfig; i++)
++            {
++                Int32 fslot, fvalue, farrive, frelease;
++                String fvia;
++                if (!Memoria.Netsync.NetSyncDiorama.HarnessHoldFig(i, out fslot, out fvalue, out fvia, out farrive, out frelease))
++                    continue;
++                if (!firstFig)
++                    sb.Append(",");
++                firstFig = false;
++                sb.Append("{");
++                Num(sb, "slot", fslot); sb.Append(",");
++                Num(sb, "value", fvalue); sb.Append(",");
++                Str(sb, "via", fvia); sb.Append(",");
++                Num(sb, "arrival_ms", farrive); sb.Append(",");
++                Num(sb, "release_ms", frelease);
++                sb.Append("}");
++            }
++            sb.Append("]}");
++        }
++
+         // [ff9mapkit netsync B5] stage 5: `netsync.battle.end` -- the GUEST'S end presentation on its battle diorama
+         // (NetSyncDiorama.EndTick / InjectEnd, R8, the watchdogs; studies/battle-coop/B4-B5-DESIGN.md 5.3). Per diorama boot:
+         // reset by each boot, kept after the teardown until the next one.
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 5e72010..3f0acb5 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1407,6 +1407,10 @@ namespace Memoria.Netsync
+                         Boolean replayOk = NetSyncDiorama.ActReplaySelfTest(out replayDetail);
+                         Log.Message("[NetSync] action replay selftest: "
+                                     + (replayOk ? "OK (" + replayDetail + ")" : "FAIL (" + replayDetail + ")"));
++                        String holdDetail;               // [ff9mapkit netsync s135] the replay hit hold's pure rules
++                        Boolean holdOk = NetSyncDiorama.ActHoldSelfTest(out holdDetail);
++                        Log.Message("[NetSync] action hold selftest: "
++                                    + (holdOk ? "OK (" + holdDetail + ")" : "FAIL (" + holdDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
+index cd8a8a0..28ac02e 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
+@@ -161,6 +161,9 @@ namespace Memoria.Netsync
+             public Int32 Hits, Credits;
+             public UInt16 ImpactMask;                  // local btl_ids an impact of this action reached (credits: a hit before it)
+             public List<Int32> Songs;                  // every distinct Song this replay started (each stopped on an abort or a teardown)
++            // [ff9mapkit netsync s135] the hold's CREDITS: one per hit on a master target that released no held impact of this action --
++            // the btl_id it hit and the battle ms of the hit, oldest first (an impact that arrives after it releases at once, "late")
++            public List<Int32> HoldCreditUnits, HoldCreditMs;
+             public CMD_DATA Cmd;
+             public UnifiedBattleSequencer.BattleAction Action;
+             public BTL_DATA Actor;
+@@ -992,6 +995,9 @@ namespace Memoria.Netsync
+                     Log.Error("[NetSync] action replay tick failed (logged once per boot; the teardown still discards every replay): " + ex);
+                 }
+             }
++            // [ff9mapkit netsync s135] the hold's step (a hit's deferred drain; host-done, timeout, the skipped records' catch-up:
++            // PHASE_NORMAL only) -- OUTSIDE the try above, so a step there that keeps throwing never stops the timeout's bound
++            ActHoldTick();
+         }
+ 
+         // hold-through (audit 3.3): replays keep running through an s119 hold; counted once per hold that began while one acts
+@@ -1078,6 +1084,7 @@ namespace Memoria.Netsync
+                 catch { }
+             }
+             ActRecomputeLive();
++            ActHoldReleaseRec(r, "end");                  // [ff9mapkit netsync s135] what it never hit: the legacy path, now
+         }
+ 
+         // the unit is still linked in btl_list (DelCharacter unlinks), with a model
+@@ -1221,6 +1228,7 @@ namespace Memoria.Netsync
+                 _actStale++;
+             else if (why == "backlog")
+                 _actBacklog++;
++            ActHoldReleaseRec(r, ActDeclineVia(why));     // [ff9mapkit netsync s135] it never launches: its held impacts go now (amendment 9)
+             if (_actDeclineLogged.Contains(why) || _actDeclineLogged.Count >= 16)
+                 return;
+             _actDeclineLogged.Add(why);
+@@ -1240,6 +1248,7 @@ namespace Memoria.Netsync
+             _actNoop++;
+             _actDeclined++;
+             _actDeclinedWhy = "noop";
++            ActHoldReleaseRec(r, "declined");             // [ff9mapkit netsync s135] nothing will hit: its held impacts apply now
+             if (_actDeclineLogged.Contains("noop"))
+                 return;
+             _actDeclineLogged.Add("noop");
+@@ -1367,6 +1376,7 @@ namespace Memoria.Netsync
+                     ActZombie(r);
+             }
+             ActRecomputeLive();
++            ActHoldReleaseRec(r, "abort");                // [ff9mapkit netsync s135] its hit will never come: the legacy path, now
+             _actAborted++;
+             _actAbortWhy = why;
+             Int32 k = Array.IndexOf(ActAbortReasons, why);
+@@ -1501,6 +1511,7 @@ namespace Memoria.Netsync
+         /// achievement state). Never throws.</summary>
+         internal static void ActDiscardAll(String why)
+         {
++            ActHoldDiscardAll(why);                      // [ff9mapkit netsync s135] the life mask FIRST, then every held / queued frame dropped (amendment 12)
+             Int32 running = _actRunning.Count, queued = 0, released = 0;
+             try
+             {
+@@ -1708,7 +1719,9 @@ namespace Memoria.Netsync
+         /// and for every real command. s134 counts the hit (and a credit: no impact of this action reached that target yet) and, for a
+         /// Change replay, performs the presentation half: the row switch on the diorama unit, once (review F4). The `shortcircuit off`
+         /// lever's replay answers false (the tripwire's calibration red). A ZOMBIE (an aborted replay the sequencer would not let
+-        /// go) answers true, counting nothing: unregistered never means un-contained.</summary>
++        /// go) answers true, counting nothing: unregistered never means un-contained. [ff9mapkit netsync s135] Then THE HIT RELEASE
++        /// (ActHoldOnHit): the oldest held impact of this action on the hit's master unit -- its figures into the fig EffectPoint
++        /// collects, the flinch, the kill or revive -- or, with none held, a credit.</summary>
+         internal static Boolean ActOnHit(BTL_DATA target, CMD_DATA cmd, BattleActionThread sfxThread)
+         {
+             if (cmd == null)
+@@ -1723,6 +1736,7 @@ namespace Memoria.Netsync
+             {
+                 return false;
+             }
++            BTL_DATA master = null;
+             try
+             {
+                 r.Hits++;
+@@ -1731,7 +1745,7 @@ namespace Memoria.Netsync
+                     r.FirstHitMs = _actNowMs;
+                 if (target != null)
+                 {
+-                    BTL_DATA master = target;
++                    master = target;
+                     if (target.bi.slave != 0)
+                     {
+                         BattleUnit m = btl_util.GetMasterEnemyBtlPtr(target);
+@@ -1752,6 +1766,12 @@ namespace Memoria.Netsync
+                 }
+             }
+             catch { }
++            // [ff9mapkit netsync s135] THE HIT RELEASE: the oldest held impact of this action on this master target -- its figures
++            // written into the units' fig inside EffectPoint's zero/collect bracket (sfxThread: the sequencer's own call), so the
++            // sequence's Figure point shows them; then the flinch, then the kill or revive. No held impact = a CREDIT (an impact
++            // that arrives later releases at once, "late"). Its own try: never throws, and the answer below stands.
++            if (master != null)
++                ActHoldOnHit(r, master, target, sfxThread != null && !r.NoShortCircuit);
+             return !r.NoShortCircuit;
+         }
+ 
+@@ -2149,9 +2169,1346 @@ namespace Memoria.Netsync
+             return n;
+         }
+ 
++        // ===========================================================================================================================
++        // [ff9mapkit netsync s135] THE REPLAY HIT HOLD (studies/battle-coop/R3-DESIGN.md 3.3.4 as amended by R3-ACTION-REPLAY-AUDIT.md 2.3
++        // -- amendments 1-15, decisions D01-D12 -- and section 3; the audit's "s124"): numbers, the flinch and deaths on the guest wait
++        // for the action replay's OWN hit instead of landing when the host's impact frame ARRIVES. The owner's rule (2026-10-13): the
++        // numbers wait for the replay's hit; the HP and MP bars still follow the host.
++        //
++        // THE CONTAINMENT LAW holds: the hold only DELAYS applying the host's own values. Every figure, flinch, kill and revive it
++        // releases is the host frame's, through the lanes the arrival path already uses (ApplyActionState, KillUnit, a hand-built
++        // Btl2dParam with EMPTY modifiers, SetDamageMotion with no command). The guest's diorama computes nothing.
++        //
++        // ON ARRIVAL (ApplyActionFrame -> ActHoldIntake, right after the resolve) ActHoldVerdict decides:
++        //   HOLD   an impact whose action id names a queued, waiting or running replay (and a resolved target): the WHOLE frame is
++        //          kept -- both lanes (Darkside's HP recoil, WhiteDraw's MP gain, Sacrifice's caster kill: amendment 4) -- keyed
++        //          (actId, master target) (D09). Its NON-LIFE lanes apply NOW (raw HP / MP: the bars follow the host) and stamp
++        //          their slots; a LIFE lane (lethal, a unit dead here, or a slot an older frame still holds -- its revive is decided
++        //          at release, amendment 11) waits, and its slot joins _actLifeMask (the caster's too: amendment 4). The horizon
++        //          gate stamps now. The legacy swing is the replay's (skipped, counted).
++        //   LATE   the replay already hit that target (a CREDIT, per (actId, master target), oldest first): at once, through the
++        //          legacy path; its lag is negative.
++        //   QUEUE  any frame touching a slot with an OLDER pending held life change (or an older queued frame) that is not itself
++        //          held -- unpaired, a stat tick, a declined / NOOP / replaced START's, a late one (amendment 5, D05): the whole
++        //          frame waits behind it, in arrival order, bounded by the same timeout.
++        //   APPLY  everything else: the arrival path, exactly as before (an old host, an id-0 impact, a replay that never runs,
++        //          the `actbench hold off` lever).
++        // RELEASES -- each held impact exactly once, by one reason (`rel_*`):
++        //   `hit`         ActOnHit (any phase, D12): the held figures written into the hit unit's fig (and the caster's triple)
++        //                 INSIDE EffectPoint's own zero/collect bracket, so the sequence shows them at its own Figure point and
++        //                 its branches see the host's result; then the flinch (F5: decided from wire lethality first); then the
++        //                 kill or revive. One per call, oldest first per (actId, master target) -- WhiteDraw's / DragonBreath's
++        //                 extra CalcResults for one hit go at `end` or `hostdone` (amendment 7).
++        //   and through the LEGACY path (the direct Btl2dReq, never d.fig -- amendment 13): `late`; `end` (the replay ended
++        //   without hitting that target); `hostdone` (the host's END + 1500 ms, keyed on the action id); `timeout` (2500 ms after
++        //   arrival); `abort` (the replay aborted, or its pending START dropped by an abort-all); `replaced` (a newer START
++        //   replaced its pending one, amendment 9); `declined` (any other decline of a pending START: stale, noop, actor, ...);
++        //   `end-inject` (EndTick at the head of its injection branch, BEFORE AllPlayersDown, and InjectEnd's head: everything
++        //   held or queued -- amendment 2, D02).
++        //   Every timer counts BATTLE time (audit 3.5); ActTick's timer releases run only in PHASE_NORMAL (D12). The teardown
++        //   DISCARDS (ActDiscardAll -> ActHoldDiscardAll, the mask cleared FIRST): nothing applied (review F2).
++        //   [s135 fix] A replay CUT between a hit release and its Figure point (abort: pending, host-end, actor, fault, leave,
++        //   r8, w3) shows that hit's collected figure at once, directly (figs[] via its reason) -- never lost; at a natural
++        //   `end` nothing is shown (the sequence showed it, or never would: stock drops an uncollected param too). A release at
++        //   `end-inject`, or once the end is presented or a Leave is in flight, arms no death-attack grace (no replay follows).
++        // THE SUPERSEDED GUARD (amendment 1, review F9): _actAppliedSeq[slot] (NEVER the reconciler's scalar _lastAppliedSeq, D01)
++        //   is stamped by every frame state applied at once (stat ticks too, beside the gate stamps) and by a release whose life
++        //   change actually applied -- never by a held frame's own arrival. A deferred life lane applies only if
++        //   (Int16)(seq - _actAppliedSeq[slot]) > 0; otherwise only its figure and flinch show ("superseded").
++        //   [s135 fix] The reconciler stamps it too: every type-1 record ApplyUnit really applies (past the horizon gate and the
++        //   life mask, the unit resolved) stamps its sample seq when newer -- so a QUEUED frame's lane that a newer sample
++        //   already overtook (a kill by Doom, a script, a lost lethal impact) reads superseded instead of standing the corpse
++        //   up with its older HP. And a deferred lane that was NOT a life lane when it queued never revives (ActDeferredApplies).
++        // THE HIDDEN GUARD is re-read at every release (amendment 3): a unit hidden here gets no figure and no flinch; its life
++        //   change still applies.
++        // THE LIFE MASK keeps the reconciler off a held slot (ApplyUnit, after the horizon gate: the whole record, D04). THE
++        //   FREEZE (amendment 14, as built -- fix pass rlife-1): a slot is masked for its own held kill or revive and for any
++        //   frame held or queued behind an older life change or queued frame on it (ActBusyMaskOf: every slot of a queued frame
++        //   is busy; any lane on a busy slot is a life lane) -- a LIVING unit included. While masked, its WHOLE record is
++        //   skipped: current and max HP/MP, hide, trance and ATB do not follow the host (the one exception to the owner's "the
++        //   bars follow the host") until the last such change on its slot releases -- each at most 2.5 s of battle time from its
++        //   OWN arrival, so overlapping frames chain it. [s135 fix] What the mask skips is CACHED per slot (the latest record,
++        //   its seq) and re-applied at once through ApplyUnit -- the horizon gate re-read -- as soon as the slot leaves the mask
++        //   (ActHoldCatchUp in ActHoldTick, PHASE_NORMAL) and at the end-inject flush (before EndTick reads AllPlayersDown: a
++        //   kill or revive only the SAMPLE carries -- Doom, a script, a lost lethal impact, AutoLife -- lands before the end
++        //   presentation reads the party).
++        // THE DRAIN [s135 fix]: a hit release inside EffectPoint's bracket never drains the queue there (a queued frame's legacy
++        //   flinch would read the hit's crit bit in fig.info, its swing and kill would run mid-EffectPoint, and its figure would
++        //   pop before the older hit's): the drain is DUE and runs at the head of the next ActHoldTick, in any phase.
++        // figs[] is recorded at the DISPLAY (amendment 8, D06): EffectPoint's Figure half (ActNoteFigure) for a hit, the direct
++        //   Btl2dReq for every other path -- the arrival path included ("arrival"), so a figure that pops on arrival is SEEN. The
++        //   lag (hit_ms - arrival_ms; negative = a credit) is kept per paired release, and every release logs one line, capped
++        //   per boot (amendment 10, D10).
++        // Old hosts and a replay that never runs keep today's arrival-time path. Vanilla, solo and the host never reach any of it:
++        // the intake runs only inside a booted diorama's ApplyActionFrame, ApplyUnit reads one int, EffectPoint one static.
++        // ===========================================================================================================================
++        internal const Int32 ActHoldTimeoutMs = 2500;      // a held impact never waits longer than this (battle ms from its arrival)
++        internal const Int32 ActHoldHostDoneMs = 1500;     // ...nor longer than this after its host's END (keyed on the action id)
++        internal const Int32 ActHoldCap = 64;              // held + queued at most: past it a frame takes the arrival path
++        internal const Int32 ActHoldLogMax = 48;           // release lines per boot (then counted, not logged)
++        internal const Int32 ActHoldFigsMax = 16;          // figs[]: the last displays
++        internal const Int32 ActHoldLagCap = 512;          // lag samples kept per boot for the median (n counts on past it)
++        internal const Int32 ActHoldCreditCap = 32;        // credits kept per replay
++        // ActHoldVerdict's answers
++        internal const Int32 ActHoldApply = 0, ActHoldHold = 1, ActHoldLate = 2, ActHoldQueue = 3;
++        // ActHitFigPath's answers
++        internal const Int32 ActFigNone = 0, ActFigBracket = 1, ActFigDirect = 2;
++        // the arrival path's figs[] reason
++        internal const String ActViaArrival = "arrival";
++        /// <summary>[ff9mapkit netsync s135] Every release reason of a HELD impact, in `act.guest.hold.rel_*` order.</summary>
++        internal static readonly String[] ActHoldVias = { "hit", "late", "end", "hostdone", "timeout", "abort", "replaced", "declined", "end-inject" };
++
++        /// <summary>[ff9mapkit netsync s135] One host frame the hold keeps: HELD for its replay's hit, or QUEUED behind an older held life
++        /// change (the whole frame deferred).</summary>
++        internal sealed class ActHeld
++        {
++            public Int32 Ord;                          // arrival ordinal: one FIFO across the held and the queued
++            public NetSyncBattle.PeerAction A;         // the host's frame, whole
++            public ActRec Rec;                         // the replay it waits for (queued: the record it named, or null)
++            public Boolean Queued;                     // queued behind an older held change, not held for a hit
++            public Boolean LifeT, LifeC;               // that lane's state waits for the release (a held frame's others applied on arrival)
++            public Boolean SelfCast, Covered, Backlog; // the arrival's own facts (Covered: the legacy swing is the replay's)
++            public Int32 UnitId;                       // the master target's btl_id: the hit key with Rec (0 = none)
++            public Int32 Slots, LifeSlots;             // wire-slot bits: every resolved lane / its life lanes
++            public Int32 ArriveMs;                     // battle ms at the drain
++            public Int32 CreditMs = Int32.MinValue;    // a LATE frame queued behind a blocker: its credit's hit (MinValue = none)
++        }
++
++        // [ff9mapkit netsync s135] a hit's figure written into a unit's fig, waiting for EffectPoint's Figure point (figs[] "hit")
++        private sealed class ActFigPending
++        {
++            public CMD_DATA Cmd;
++            public BTL_DATA Unit;
++            public Int32 Slot, ArriveMs;
++        }
++
++        // [ff9mapkit netsync s135] one figs[] entry: a figure DISPLAYED
++        private sealed class ActFig
++        {
++            public Int32 Slot, Value, ArriveMs, ReleaseMs;
++            public String Via;
++        }
++
++        // ---------------------------------------------------------------------------------------------------- the hold's state (per boot)
++        /// <summary>[ff9mapkit netsync s135] THE LIFE MASK: wire slots (bit = slot) whose kill or revive waits for a release (the life lanes
++        /// of every held and queued frame). ApplyUnit skips such a slot's whole record. 0 on vanilla, solo, the host and an idle
++        /// guest. Cleared FIRST by every reset (a mask leaked past its frames would mute the reconciler).</summary>
++        private static Int32 _actLifeMask;
++        // THE SUPERSEDED GUARD's stamps, per wire slot (amendment 1, D01: never the reconciler's scalar _lastAppliedSeq, which this
++        // name would collide with): the seq of the last frame whose state applied to that slot -- immediate frames, stat ticks and
++        // a release's applied life change; never a held frame's own arrival. Cleared wherever _gateSeq is (the three B3.5 sites).
++        private static readonly UInt16[] _actAppliedSeq = new UInt16[8];
++        private static readonly Boolean[] _actAppliedSeen = new Boolean[8];
++        private static readonly List<ActHeld> _actHeld = new List<ActHeld>(16);      // in arrival order
++        private static readonly List<ActHeld> _actQueued = new List<ActHeld>(16);    // in arrival order
++        private static Int32 _actHoldOrd;
++        private static readonly List<ActFigPending> _actFigPending = new List<ActFigPending>(8);
++        private static readonly ActFig[] _actFigs = new ActFig[ActHoldFigsMax];
++        private static Int32 _actFigNext, _actFigCount;
++        private static readonly List<Int32> _actLag = new List<Int32>(32);
++        private static Int32 _actLagN, _actLagMin, _actLagMax;
++        // `act.guest.hold` counters (per boot: reset by the boot block, kept after the teardown until the next boot)
++        private static Int32 _holdHeld, _holdQueued, _holdRelQueued, _holdSuperseded, _holdDiscarded, _holdMaskSkips;
++        private static readonly Int32[] _holdRelBy = new Int32[9];
++        private static Int32 _holdLogged;
++        private static Boolean _holdFirstLogged, _holdMaskLogged, _holdErrLogged, _holdFlushLogged;
++        // [s135 fix] THE SKIPPED-RECORD CACHE (life-2): per wire slot, the latest type-1 record the life mask skipped and its
++        // sample seq (bit = slot in _actSkippedMask) -- re-applied through ApplyUnit when the slot leaves the mask, and at the
++        // end-inject flush; a record ApplyUnit really applies drops the slot's entry. Cleared where _actAppliedSeq is (the
++        // three B3.5 sites) and by the teardown's discard.
++        private static readonly NetSyncBattle.PeerUnit[] _actSkipped = new NetSyncBattle.PeerUnit[8];
++        private static readonly UInt16[] _actSkippedSeq = new UInt16[8];
++        private static Int32 _actSkippedMask;
++        private static Boolean _holdCatchUpLogged;
++        // [s135 fix] (stock-1) a hit release inside EffectPoint's bracket defers the queue's drain to the next ActHoldTick
++        private static Boolean _actHoldDrainDue;
++        // SELFTEST LEVERS (`actbench hold|lifeskip on|off`; released by ActBenchRelease, never per boot): read through the getters,
++        // which also need the selftest role -- a lever stranded across an ini edit never changes a real guest
++        private static Boolean _benchHoldOff;          // `hold off`: the pre-s135 guest (every impact takes the arrival path)
++        private static Boolean _benchLifeSkipOff;      // `lifeskip off`: the reconciler ignores the life mask (Leg 2's own red)
++
++        private static Boolean ActHoldOn { get { return !(_benchHoldOff && NetSyncClient.IsSelfTestRole); } }
++        private static Boolean ActLifeSkipOn { get { return !(_benchLifeSkipOff && NetSyncClient.IsSelfTestRole); } }
++
++        // ============================================================================================ the hold: pure rules
++        /// <summary>[ff9mapkit netsync s135] THE ARRIVAL VERDICT (pure; ActHoldSelfTest pins every row). holdOn false = the pre-s135
++        /// arrival path. A frame PAIRS when it is not a stat tick, its target resolved, and its record is queued / waiting /
++        /// running -- or ended with a credit for that target. A pairing frame without a credit is HELD (a full hold list applies
++        /// it now); with a credit it releases LATE -- unless a slot it touches is busy (masked), then it QUEUES behind the older
++        /// change, as does every other frame on a busy slot (a full list applies it now). Anything else applies now.</summary>
++        internal static Int32 ActHoldVerdict(Boolean holdOn, Boolean statTick, Int32 pairedState, Boolean targetResolved, Boolean credit,
++                                             Boolean masked, Boolean room)
++        {
++            if (!holdOn)
++                return ActHoldApply;
++            Boolean live = pairedState == ActStRegistered || pairedState == ActStWaiting || pairedState == ActStRunning;
++            Boolean pairs = !statTick && targetResolved && (live || (pairedState == ActStEnded && credit));
++            if (pairs && !credit)
++                return room ? ActHoldHold : ActHoldApply;
++            if (masked)
++                return room ? ActHoldQueue : ActHoldApply;
++            return pairs ? ActHoldLate : ActHoldApply;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] A held lane's state waits for the release when it is a LIFE change: lethal (raw wire HP 0),
++        /// a unit dead here now (its revive is decided at release, amendment 11), or a slot an older frame still holds (a kill
++        /// held before it may make it a revive). Any other lane applies now. Pure.</summary>
++        internal static Boolean ActLaneIsLife(Boolean lethal, Boolean deadNow, Boolean slotBusy)
++        {
++            return lethal || deadNow || slotBusy;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] THE SUPERSEDED GUARD (pure): a deferred lane's state applies only if no NEWER frame already
++        /// applied that slot -- the signed-diff idiom, wrap-safe; a slot nothing stamped this boot always applies.</summary>
++        internal static Boolean ActHeldApplies(UInt16 seq, Boolean seen, UInt16 stamp)
++        {
++            return !seen || (Int16)(seq - stamp) > 0;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] (fix pass: life-1, timing-2) A lane's state in ApplyActionFrameNow (pure): an arrival or a
++        /// late release always applies; a DEFERRED (queued) frame's lane applies only if no newer state applied that slot (the
++        /// superseded guard -- the reconciler's samples stamp too) and never REVIVES through a lane that was not a life lane
++        /// when the frame queued (a unit something else killed while it waited stays dead).</summary>
++        internal static Boolean ActDeferredApplies(Boolean deferred, Boolean revive, Boolean lifeAtQueue, UInt16 seq, Boolean seen, UInt16 stamp)
++        {
++            if (!deferred)
++                return true;
++            if (revive && !lifeAtQueue)
++                return false;
++            return ActHeldApplies(seq, seen, stamp);
++        }
++
++        /// <summary>[ff9mapkit netsync s135] (fix pass: life-2) The skipped records due for their catch-up (pure): every cached slot
++        /// that has left the life mask.</summary>
++        internal static Int32 ActCatchUpSlots(Int32 skipped, Int32 mask)
++        {
++            return skipped & ~mask;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] (fix pass: stock-1) A hit release drains the queue at once only OUTSIDE EffectPoint's
++        /// bracket (pure); inside it the drain waits for the next ActHoldTick.</summary>
++        internal static Boolean ActDrainsAtHit(Boolean bracket)
++        {
++            return !bracket;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] (fix pass: timing-1) A hit figure its Figure point has not shown yet is shown at once when
++        /// its replay is released `via` (pure): any cut -- never a natural `end` (the sequence showed it, or never would).</summary>
++        internal static Boolean ActShowsPendingAt(String via)
++        {
++            return via != "end";
++        }
++
++        /// <summary>[ff9mapkit netsync s135] (fix pass: timing-4) A released kill arms the death-attack grace (pure): a PLAYER caster's
++        /// lethal blow on an enemy, not a backlog frame -- and only while an EnemyDying replay can still follow: never at the
++        /// `end-inject` flush, never once the end is presented or a Leave is in flight (every START declines then).</summary>
++        internal static Boolean ActReleaseArmsGrace(Boolean lethal, Boolean casterIsPlayer, Boolean targetIsPlayer, Boolean backlog, String via,
++                                                    Boolean noReplay)
++        {
++            return lethal && casterIsPlayer && !targetIsPlayer && !backlog && via != "end-inject" && !noReplay;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] The revive is decided AT RELEASE (amendment 11, D11): not lethal, and the unit dead here NOW.
++        /// Pure.</summary>
++        internal static Boolean ActReviveAtRelease(Boolean lethal, Boolean deadNow)
++        {
++            return !lethal && deadNow;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] A held impact's timer release (pure, battle ms): `hostdone` once its host's END is
++        /// ActHoldHostDoneMs old, `timeout` once its own arrival is ActHoldTimeoutMs old (host-done first when both); null = it
++        /// waits on.</summary>
++        internal static String ActHeldTimerWhy(Boolean hostEnded, Int32 hostEndMs, Int32 arriveMs, Int32 nowMs)
++        {
++            if (hostEnded && nowMs - hostEndMs >= ActHoldHostDoneMs)
++                return "hostdone";
++            if (nowMs - arriveMs >= ActHoldTimeoutMs)
++                return "timeout";
++            return null;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] A queued frame stays queued while an OLDER held frame's life lane, or an older queued frame,
++        /// touches one of its slots (FIFO per slot). Pure.</summary>
++        internal static Boolean ActQueueBlocked(Int32 slots, Int32 olderHeldLife, Int32 olderQueued)
++        {
++            return (slots & (olderHeldLife | olderQueued)) != 0;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] ApplyUnit's skip (pure): the slot is in the life mask and the skip is in force (the
++        /// `lifeskip off` lever is its calibration red).</summary>
++        internal static Boolean ActLifeSkips(Int32 mask, Int32 index, Boolean skipOn)
++        {
++            return skipOn && index >= 0 && index < 8 && (mask & (1 << index)) != 0;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] Which release a decline of a pending START gives its held impacts (pure): `replaced` for a
++        /// newer START that took its pending slot (amendment 9), `abort` for an abort-all's drop (r8, w3, leave, clear), else
++        /// `declined`.</summary>
++        internal static String ActDeclineVia(String why)
++        {
++            if (why == "superseded")
++                return "replaced";
++            if (why == "r8" || why == "w3" || why == "leave" || why == "clear")
++                return "abort";
++            return "declined";
++        }
++
++        /// <summary>[ff9mapkit netsync s135] EndTick's release trigger (pure): THIS boot's battle (ours) shows an END kind.</summary>
++        internal static Boolean ActEndInjectFlushes(Boolean ours, Int32 kind)
++        {
++            return ours && NetSyncEnd.IsEndKind(kind);
++        }
++
++        /// <summary>[ff9mapkit netsync s135] How a release shows a lane's figure (pure): none for a unit hidden here (amendment 3); inside
++        /// EffectPoint's bracket the fig write (a hit through the sequencer's own call, the short-circuit in force); else the
++        /// direct Btl2dReq.</summary>
++        internal static Int32 ActHitFigPath(Boolean hidden, Boolean bracket)
++        {
++            if (hidden)
++                return ActFigNone;
++            return bracket ? ActFigBracket : ActFigDirect;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] A release's flinch (pure, F5): the host's DmgMot, not lethal, not a revive, not hidden, and a
++        /// unit that may play a cosmetic motion.</summary>
++        internal static Boolean ActReleaseFlinches(Boolean dmgMot, Boolean lethal, Boolean revive, Boolean hidden, Boolean canPlay)
++        {
++            return dmgMot && !lethal && !revive && !hidden && canPlay;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] figs[]' value (pure): the HP figure, else the MP one.</summary>
++        internal static Int32 ActFigValue(Int32 hp, Int32 mp)
++        {
++            return hp != 0 ? hp : mp;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] The lag's median (pure): the lower middle of the samples; -1 for none.</summary>
++        internal static Int32 ActLagP50(List<Int32> samples)
++        {
++            if (samples == null || samples.Count == 0)
++                return -1;
++            List<Int32> s = new List<Int32>(samples);
++            s.Sort();
++            return s[(s.Count - 1) / 2];
++        }
++
++        /// <summary>[ff9mapkit netsync s135] The hit's pick (pure over the list): the OLDEST held -- never queued -- impact of `rec` on the
++        /// master target `unitId`; -1 = none (the hit is a credit).</summary>
++        internal static Int32 ActPickOldest(List<ActHeld> held, ActRec rec, Int32 unitId)
++        {
++            Int32 best = -1;
++            for (Int32 i = 0; i < held.Count; i++)
++            {
++                ActHeld h = held[i];
++                if (h.Queued || !ReferenceEquals(h.Rec, rec) || h.UnitId != unitId)
++                    continue;
++                if (best < 0 || h.Ord < held[best].Ord)
++                    best = i;
++            }
++            return best;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] The credits (pure over the record): a hit that released nothing adds one (bounded); an
++        /// arriving impact finds the oldest for its master target and takes it (its hit ms: the late release's lag).</summary>
++        internal static void ActCreditAdd(ActRec r, Int32 unitId, Int32 ms)
++        {
++            if (r.HoldCreditUnits == null)
++            {
++                r.HoldCreditUnits = new List<Int32>(2);
++                r.HoldCreditMs = new List<Int32>(2);
++            }
++            if (r.HoldCreditUnits.Count >= ActHoldCreditCap)
++                return;
++            r.HoldCreditUnits.Add(unitId);
++            r.HoldCreditMs.Add(ms);
++        }
++
++        internal static Int32 ActCreditFind(ActRec r, Int32 unitId)
++        {
++            if (r.HoldCreditUnits == null)
++                return -1;
++            return r.HoldCreditUnits.IndexOf(unitId);
++        }
++
++        internal static Int32 ActCreditTake(ActRec r, Int32 index)
++        {
++            Int32 ms = r.HoldCreditMs[index];
++            r.HoldCreditUnits.RemoveAt(index);
++            r.HoldCreditMs.RemoveAt(index);
++            return ms;
++        }
++
++        // ============================================================================================ the hold: arrival
++        /// <summary>[ff9mapkit netsync s135] ApplyActionFrame's hold step, right after the resolve (both drains: the transport's and the
++        /// selftest inbox's). True = the hold took the frame (held, released late, or queued); false = the arrival path applies it
++        /// now, as before. Every state it writes is the host frame's own: a held frame's NON-LIFE lanes (the bars follow the host),
++        /// the horizon gate. Never throws into the drain (its own try: a fault leaves the frame to the arrival path).</summary>
++        private static Boolean ActHoldIntake(FF9StateBattleSystem b, ref NetSyncBattle.PeerAction a, BTL_DATA dT, BTL_DATA dC, Boolean selfCast,
++                                             ActRec paired, Boolean backlog)
++        {
++            if (!ActHoldOn || (paired == null && _actHeld.Count == 0 && _actQueued.Count == 0))
++                return false;                        // the cheap common case: nothing held, nothing to pair with
++            Boolean taken = false;                   // a fault after the first write keeps the frame (never applied twice)
++            try
++            {
++                Boolean hasC = dC != null && !selfCast;
++                Int32 bitT = dT != null ? 1 << a.TargetSlot : 0;
++                Int32 bitC = dC != null ? 1 << a.CasterSlot : 0;
++                Int32 slots = bitT | bitC;
++                Int32 busy = ActHoldBusyMask();
++                Boolean masked = (slots & busy) != 0;
++                Int32 credit = paired != null && dT != null && !a.StatTick ? ActCreditFind(paired, dT.btl_id) : -1;
++                Boolean room = _actHeld.Count + _actQueued.Count < ActHoldCap;
++                Int32 verdict = ActHoldVerdict(true, a.StatTick, paired != null ? paired.State : -1, dT != null, credit >= 0, masked, room);
++                if (verdict == ActHoldApply)
++                    return false;
++                Boolean covered = paired != null && paired.CoversSwing;
++                Int32 creditMs = Int32.MinValue;
++                if (credit >= 0 && verdict != ActHoldHold)
++                    creditMs = ActCreditTake(paired, credit);
++                taken = true;
++                if (verdict == ActHoldLate)
++                {
++                    // the replay already hit that target: at once, through the legacy path -- in order (no older change on its slots)
++                    ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, "late", _actNowMs, false, 0);
++                    _holdHeld++;
++                    ActHoldCount("late");
++                    ActHoldLag(creditMs - _actNowMs);
++                    ActHoldLog(paired, a.TargetSlot, "late", 0, creditMs - _actNowMs, false, false);
++                    return true;
++                }
++                ActHeld h = new ActHeld
++                {
++                    Ord = ++_actHoldOrd, A = a, Rec = paired, Queued = verdict == ActHoldQueue, SelfCast = selfCast, Covered = covered,
++                    Backlog = backlog, UnitId = dT != null ? dT.btl_id : 0, Slots = slots, ArriveMs = _actNowMs, CreditMs = creditMs
++                };
++                h.LifeT = dT != null && ActLaneIsLife(a.TgtHpRaw == 0, (dT.stat.cur & BattleStatus.Death) != 0, (bitT & busy) != 0);
++                h.LifeC = hasC && ActLaneIsLife(a.CastHpRaw == 0, (dC.stat.cur & BattleStatus.Death) != 0, (bitC & busy) != 0);
++                h.LifeSlots = (h.LifeT ? bitT : 0) | (h.LifeC ? bitC : 0);
++                if (!h.Queued)
++                {
++                    // HELD (listed first: a fault below still releases it later): the non-life lanes apply NOW -- the owner's rule,
++                    // the HP and MP bars follow the host -- and stamp their slots (applied at once); the life lanes, the figures and
++                    // the flinch wait for the release
++                    _actHeld.Add(h);
++                    _holdHeld++;
++                    if (dT != null && !h.LifeT)
++                    {
++                        ApplyActionState(dT, a.TargetSlot, false, false, a.TgtHpRaw, a.TgtMpRaw);
++                        ActStampApplied(a.TargetSlot, a.SeqHorizon);
++                    }
++                    if (hasC && !h.LifeC)
++                    {
++                        ApplyActionState(dC, a.CasterSlot, false, false, a.CastHpRaw, a.CastMpRaw);
++                        ActStampApplied(a.CasterSlot, a.SeqHorizon);
++                    }
++                    // the legacy player swing is the replay's (counted where the arrival path would have swung)
++                    if (covered && hasC && a.CasterIsPlayer && a.CastHpRaw != 0 && CanPlayCosmeticMotion(dC))
++                        _actSwingSkipped++;
++                }
++                else
++                {
++                    _actQueued.Add(h);
++                    _holdQueued++;
++                }
++                // THE HORIZON GATE, now (design 3.3.4): a type-1 sample older than this frame skips both slots; a post-horizon one
++                // clears it -- and still meets the life mask
++                if (dT != null)
++                {
++                    _gated[a.TargetSlot] = true;
++                    _gateSeq[a.TargetSlot] = a.SeqHorizon;
++                }
++                if (dC != null)
++                {
++                    _gated[a.CasterSlot] = true;
++                    _gateSeq[a.CasterSlot] = a.SeqHorizon;
++                }
++                ActHoldRecomputeMask();
++                ActHoldNoteFirst(h);
++                return true;
++            }
++            catch (Exception ex)
++            {
++                ActHoldErr(ex);
++                try { ActHoldRecomputeMask(); }
++                catch { }
++                return taken;                        // untouched: the arrival path applies it; touched: never twice
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] The intake's BUSY slots (pure over the lists): every held frame's LIFE lanes and every queued
++        /// frame's slots -- a newer frame on one of them queues behind it (a held frame's non-life lanes already applied: they
++        /// order nothing).</summary>
++        internal static Int32 ActBusyMaskOf(List<ActHeld> held, List<ActHeld> queued)
++        {
++            Int32 m = 0;
++            for (Int32 i = 0; i < held.Count; i++)
++                m |= held[i].LifeSlots;
++            for (Int32 i = 0; i < queued.Count; i++)
++                m |= queued[i].Slots;
++            return m;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] THE LIFE MASK (pure over the lists): the life lanes of every held and queued frame -- the
++        /// slots whose kill or revive still waits for a release.</summary>
++        internal static Int32 ActLifeMaskOf(List<ActHeld> held, List<ActHeld> queued)
++        {
++            Int32 m = 0;
++            for (Int32 i = 0; i < held.Count; i++)
++                m |= held[i].LifeSlots;
++            for (Int32 i = 0; i < queued.Count; i++)
++                m |= queued[i].LifeSlots;
++            return m;
++        }
++
++        private static Int32 ActHoldBusyMask()
++        {
++            return ActBusyMaskOf(_actHeld, _actQueued);
++        }
++
++        private static void ActHoldRecomputeMask()
++        {
++            _actLifeMask = ActLifeMaskOf(_actHeld, _actQueued);
++        }
++
++        // [ff9mapkit netsync s135] THE SUPERSEDED GUARD's stamp: a frame's state applied to `slot` (wire slot 0-7)
++        private static void ActStampApplied(Int32 slot, UInt16 seq)
++        {
++            if (slot < 0 || slot > 7)
++                return;
++            _actAppliedSeq[slot] = seq;
++            _actAppliedSeen[slot] = true;
++        }
++
++        private static Boolean ActHiddenNow(Int32 slot, Boolean isPlayer)
++        {
++            return !isPlayer && slot >= 0 && slot <= 7 && (_hiddenMask & (1 << slot)) != 0;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] (fix pass: life-1, life-2) ApplyUnit, once a record is really applied (past the horizon gate
++        /// and the life mask, its unit resolved): the slot's skipped record (if any) is overtaken -- dropped -- and the sample seq
++        /// stamps THE SUPERSEDED GUARD when newer (ActHeldApplies: a stale queued lane then reads superseded). Cannot throw.</summary>
++        private static void ActSampleApplied(Int32 index, UInt16 seq)
++        {
++            if (index < 0 || index > 7)
++                return;
++            _actSkippedMask &= ~(1 << index);
++            if (ActHeldApplies(seq, _actAppliedSeen[index], _actAppliedSeq[index]))
++                ActStampApplied(index, seq);
++        }
++
++        /// <summary>[ff9mapkit netsync s135] ApplyUnit's life-mask skip (behind `_actLifeMask != 0`): true = skip this slot's whole record
++        /// (counted; one line per boot) -- [fix pass: life-2] and CACHE it with its seq (the latest skipped record per slot), so
++        /// the slot catches up on it when it leaves the mask (ActHoldCatchUp) instead of waiting for a sample that may never come
++        /// (an end injection quiesces the reconciler).</summary>
++        private static Boolean ActLifeSkipNow(ref NetSyncBattle.PeerUnit u, UInt16 seq)
++        {
++            Int32 index = u.Index;
++            if (!ActLifeSkips(_actLifeMask, index, ActLifeSkipOn))
++                return false;
++            _actSkipped[index] = u;
++            _actSkippedSeq[index] = seq;
++            _actSkippedMask |= 1 << index;
++            _holdMaskSkips++;
++            if (!_holdMaskLogged)
++            {
++                _holdMaskLogged = true;
++                Log.Message("[NetSync] action replay hold: the reconciler skips wire slot " + index + "'s record -- its kill or revive waits for "
++                            + "the replay's hit (life mask 0x" + _actLifeMask.ToString("X2") + "; logged once per boot)");
++            }
++            return true;
++        }
++
++        // ============================================================================================ the hold: releases
++        /// <summary>[ff9mapkit netsync s135] ActOnHit's half (after the s134 bookkeeping): the oldest held impact of `r` on `master` is
++        /// released `hit` -- its target lane's figure into `hit` (the unit EffectPoint passed: a slave part's own fig) when
++        /// `bracket` (the sequencer's own call, the short-circuit in force), else shown directly -- and the queue behind it drains:
++        /// [fix pass: stock-1] at once only outside the bracket; inside it the drain is DUE (the next ActHoldTick), so no queued
++        /// frame's legacy flinch, swing or kill runs mid-EffectPoint over the hit's fig. No held impact = a CREDIT for that
++        /// target (while the hold is on). Never throws.</summary>
++        private static void ActHoldOnHit(ActRec r, BTL_DATA master, BTL_DATA hit, Boolean bracket)
++        {
++            try
++            {
++                Int32 i = ActPickOldest(_actHeld, r, master.btl_id);
++                if (i < 0)
++                {
++                    if (ActHoldOn)
++                        ActCreditAdd(r, master.btl_id, _actNowMs);
++                    return;
++                }
++                ActReleaseHeld(_actHeld[i], "hit", bracket, hit);
++                if (ActDrainsAtHit(bracket))
++                    ActHoldDrainQueue();
++                else if (_actQueued.Count > 0)
++                    _actHoldDrainDue = true;
++            }
++            catch (Exception ex)
++            {
++                ActHoldErr(ex);
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] Every held impact of `r` released `via` (oldest first), then the queue drains; its hit
++        /// figures still waiting for a Figure point leave the pending list -- [fix pass: timing-1] a CUT replay (any `via` but a
++        /// natural `end`) shows each one's collected figure NOW, directly (ActHoldShowPending: its kill or revive and its flinch
++        /// already landed at the hit; the number must not be lost). Never throws.</summary>
++        private static void ActHoldReleaseRec(ActRec r, String via)
++        {
++            if (r == null)
++                return;
++            try
++            {
++                if (r.Cmd != null && _actFigPending.Count > 0)
++                {
++                    if (ActShowsPendingAt(via))
++                        ActHoldShowPending(r, via);
++                    _actFigPending.RemoveAll(e => ReferenceEquals(e.Cmd, r.Cmd));
++                }
++                if (_actHeld.Count == 0)
++                    return;
++                ActHeld[] hs = _actHeld.ToArray();
++                Boolean any = false;
++                for (Int32 i = 0; i < hs.Length; i++)
++                {
++                    if (!ReferenceEquals(hs[i].Rec, r))
++                        continue;
++                    ActReleaseHeld(hs[i], via, false, null);
++                    any = true;
++                }
++                if (any)
++                    ActHoldDrainQueue();
++            }
++            catch (Exception ex)
++            {
++                ActHoldErr(ex);
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] (fix pass: timing-1) A cut replay's hit figures that EffectPoint collected but whose
++        /// Figure point never came: each unit's collected param leaves the action's btl2dParam (so a zombie's later Figure
++        /// point cannot show it twice) and is shown directly with `via` -- info, HP and MP only, the modifiers EMPTY (the F4
++        /// law: the short-circuit means CalcMain never ran) -- unless the unit is hidden here (amendment 3); its arrival the
++        /// oldest pending one's. A unit no longer in btl2dParam was shown at its Figure point already (or never collected).
++        /// The caller removes the pending entries. Never throws into it.</summary>
++        private static void ActHoldShowPending(ActRec r, String via)
++        {
++            Dictionary<BTL_DATA, Btl2dParam> col = r.Action != null ? r.Action.btl2dParam : null;
++            if (col == null || col.Count == 0)
++                return;
++            for (Int32 i = 0; i < _actFigPending.Count; i++)
++            {
++                ActFigPending e = _actFigPending[i];
++                try
++                {
++                    if (!ReferenceEquals(e.Cmd, r.Cmd) || e.Unit == null)
++                        continue;
++                    Btl2dParam p;
++                    if (!col.TryGetValue(e.Unit, out p) || p == null)
++                        continue;
++                    col.Remove(e.Unit);
++                    Int32 arrive = e.ArriveMs;
++                    for (Int32 k = i + 1; k < _actFigPending.Count; k++)
++                        if (ReferenceEquals(_actFigPending[k].Cmd, r.Cmd) && ReferenceEquals(_actFigPending[k].Unit, e.Unit)
++                            && _actFigPending[k].ArriveMs < arrive)
++                            arrive = _actFigPending[k].ArriveMs;
++                    if (!ActHiddenNow(e.Slot, e.Unit.bi.player != 0))
++                        ActShowFigure(e.Unit, e.Slot, new Btl2dParam { info = p.info, hp = p.hp, mp = p.mp }, via, arrive);
++                }
++                catch (Exception ex)
++                {
++                    ActHoldErr(ex);
++                }
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] ONE held impact released (`via`): its figures, the hidden guard RE-READ (amendment 3) -- for a
++        /// hit inside EffectPoint's bracket written into the units' fig (the target lane into `hit`; modifiers stay EMPTY: the F4
++        /// law), for every other release the direct Btl2dReq (d.fig untouched); then the flinch (F5: wire lethality first, the
++        /// revive decided now); then each LIFE lane's kill or revive with its raw HP / MP -- only if no newer frame already applied
++        /// that slot (the superseded guard; the death-attack grace armed right before a kill -- [fix pass: timing-4] only while a
++        /// replay can still follow). Lag, count, one log line. The caller drains the queue. [fix pass: stock-2] The figure step and
++        /// the flinch step each run in their own try (a throw in the stock display or motion never drops the life lanes), and a
++        /// unit with no model gets neither. Never throws (the mask is recomputed whatever happens).</summary>
++        private static void ActReleaseHeld(ActHeld h, String via, Boolean bracket, BTL_DATA hit)
++        {
++            _actHeld.Remove(h);
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                NetSyncBattle.PeerAction a = h.A;
++                BTL_DATA dT = b != null && a.TargetSlot <= 7 ? ResolveWireUnit(b, a.TargetSlot, a.TargetIsPlayer) : null;
++                BTL_DATA dC = b != null && a.CasterSlot <= 7 && !h.SelfCast ? ResolveWireUnit(b, a.CasterSlot, a.CasterIsPlayer) : null;
++                Boolean hiddenT = dT != null && ActHiddenNow(a.TargetSlot, a.TargetIsPlayer);
++                Boolean hiddenC = dC != null && ActHiddenNow(a.CasterSlot, a.CasterIsPlayer);
++                Boolean lethalT = a.TgtHpRaw == 0, lethalC = a.CastHpRaw == 0;
++                Boolean reviveT = h.LifeT && dT != null && ActReviveAtRelease(lethalT, (dT.stat.cur & BattleStatus.Death) != 0);
++                Boolean reviveC = h.LifeC && dC != null && ActReviveAtRelease(lethalC, (dC.stat.cur & BattleStatus.Death) != 0);
++                // FIGURES (the fig write only while EffectPoint's bracket is open around this very call) -- their own try
++                try
++                {
++                    if (dT != null && (a.FigInfoT != 0 || a.FigHpT != 0 || a.FigMpT != 0))
++                        ActHoldFigure(h, hit != null && bracket ? hit : dT, a.TargetSlot, a.FigInfoT, a.FigHpT, a.FigMpT,
++                                      ActHitFigPath(hiddenT, bracket), via);
++                    if (dC != null && (a.FigInfoC != 0 || a.FigHpC != 0 || a.FigMpC != 0))
++                        ActHoldFigure(h, dC, a.CasterSlot, a.FigInfoC, a.FigHpC, a.FigMpC, ActHitFigPath(hiddenC, bracket), via);
++                }
++                catch (Exception ex)
++                {
++                    ActHoldErr(ex);
++                }
++                // THE FLINCH (F5: decided from wire lethality before any life write; SetDamageMotion is slave-safe and skips a unit
++                // that holds its own command motion, as stock does) -- its own try; a unit with no model gets none
++                try
++                {
++                    if (dT != null && dT.gameObject != null
++                        && ActReleaseFlinches(a.DmgMot, lethalT, reviveT, hiddenT, CanPlayCosmeticMotion(dT)))
++                        btl_mot.SetDamageMotion(new BattleUnit(dT), null);
++                }
++                catch (Exception ex)
++                {
++                    ActHoldErr(ex);
++                }
++                // THE LIFE LANES (the superseded guard; a hidden unit's life change still applies)
++                Boolean superseded = false;
++                if (h.LifeT && dT != null)
++                {
++                    if (ActHeldApplies(a.SeqHorizon, _actAppliedSeen[a.TargetSlot], _actAppliedSeq[a.TargetSlot]))
++                    {
++                        if (ActReleaseArmsGrace(lethalT, a.CasterIsPlayer, a.TargetIsPlayer, h.Backlog, via, EndHudOff || LeaveRequestedRecently))
++                            ActArmDeathGrace(dT, true, "impact");   // BEFORE the kill: DeathStatusScript decides die_seq inside it
++                        ApplyActionState(dT, a.TargetSlot, lethalT, reviveT, a.TgtHpRaw, a.TgtMpRaw);
++                        ActStampApplied(a.TargetSlot, a.SeqHorizon);
++                    }
++                    else
++                    {
++                        superseded = true;
++                    }
++                }
++                if (h.LifeC && dC != null)
++                {
++                    if (ActHeldApplies(a.SeqHorizon, _actAppliedSeen[a.CasterSlot], _actAppliedSeq[a.CasterSlot]))
++                    {
++                        ApplyActionState(dC, a.CasterSlot, lethalC, reviveC, a.CastHpRaw, a.CastMpRaw);
++                        ActStampApplied(a.CasterSlot, a.SeqHorizon);
++                    }
++                    else
++                    {
++                        superseded = true;
++                    }
++                }
++                if (superseded)
++                    _holdSuperseded++;
++                Int32 lag = Int32.MinValue;
++                if (via == "hit")
++                {
++                    lag = _actNowMs - h.ArriveMs;
++                    ActHoldLag(lag);
++                }
++                ActHoldCount(via);
++                ActHoldLog(h.Rec, a.TargetSlot, via, _actNowMs - h.ArriveMs, lag, superseded, false);
++            }
++            catch (Exception ex)
++            {
++                ActHoldErr(ex);
++            }
++            finally
++            {
++                ActHoldRecomputeMask();
++            }
++        }
++
++        // One lane's figure at a release: none (hidden), the fig write inside EffectPoint's bracket (figs[] at its Figure point), or
++        // the direct display (figs[] now).
++        private static void ActHoldFigure(ActHeld h, BTL_DATA d, Int32 slot, UInt16 info, Int32 hp, Int32 mp, Int32 path, String via)
++        {
++            if (path == ActFigNone)
++                return;
++            if (path == ActFigBracket)
++            {
++                // EffectPoint zeroed every unit's fig right before this ExecVfxCommand and collects each info != 0 right after it:
++                // the host's own result, as CalcMain would have written it -- with NO modifiers (the F4 law)
++                d.fig.info |= info;
++                d.fig.hp += hp;
++                d.fig.mp += mp;
++                ActFigPendingAdd(h.Rec != null ? h.Rec.Cmd : null, d, slot, h.ArriveMs);
++                return;
++            }
++            ActShowFigure(d, slot, new Btl2dParam { info = info, hp = hp, mp = mp }, via, h.ArriveMs);
++        }
++
++        /// <summary>[ff9mapkit netsync s135] A QUEUED frame released (`via`): the whole frame through the arrival path's own steps
++        /// (ApplyActionFrameNow, deferred: each lane's state only if no newer state applied that slot -- [fix pass: life-1,
++        /// timing-2] a reconciler sample included -- and never a revive through a lane that was not a life lane when it queued:
++        /// its LifeSlots go along). Its log line says when a lane was superseded [fix pass: life-4]. Never throws.</summary>
++        private static void ActReleaseQueued(FF9StateBattleSystem b, ActHeld q, String via)
++        {
++            _actQueued.Remove(q);
++            try
++            {
++                NetSyncBattle.PeerAction a = q.A;
++                BTL_DATA dT = b != null && a.TargetSlot <= 7 ? ResolveWireUnit(b, a.TargetSlot, a.TargetIsPlayer) : null;
++                BTL_DATA dC = b != null && a.CasterSlot <= 7 ? ResolveWireUnit(b, a.CasterSlot, a.CasterIsPlayer) : null;
++                Int32 superseded0 = _holdSuperseded;
++                if (dT != null || dC != null)
++                    ApplyActionFrameNow(b, ref a, dT, dC, ReferenceEquals(dT, dC), q.Covered, q.Backlog, via, q.ArriveMs, true, q.LifeSlots);
++                Int32 lag = Int32.MinValue;
++                if (q.CreditMs != Int32.MinValue)
++                {
++                    lag = q.CreditMs - q.ArriveMs;               // a LATE frame a blocker kept: still a paired release
++                    ActHoldLag(lag);
++                }
++                _holdRelQueued++;
++                ActHoldLog(q.Rec, a.TargetSlot, via, _actNowMs - q.ArriveMs, lag, _holdSuperseded != superseded0, true);
++            }
++            catch (Exception ex)
++            {
++                ActHoldErr(ex);
++            }
++            finally
++            {
++                ActHoldRecomputeMask();
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] Every queued frame whose blockers are gone, in arrival order (FIFO per slot: an older held
++        /// life lane or an older queued frame on one of its slots keeps it). Never throws.</summary>
++        private static void ActHoldDrainQueue()
++        {
++            if (_actQueued.Count == 0)
++                return;
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                Int32 olderQueued = 0;
++                for (Int32 i = 0; i < _actQueued.Count; )
++                {
++                    ActHeld q = _actQueued[i];
++                    Int32 olderHeld = 0;
++                    for (Int32 k = 0; k < _actHeld.Count; k++)
++                        if (_actHeld[k].Ord < q.Ord)
++                            olderHeld |= _actHeld[k].LifeSlots;
++                    if (ActQueueBlocked(q.Slots, olderHeld, olderQueued))
++                    {
++                        olderQueued |= q.Slots;
++                        i++;
++                        continue;
++                    }
++                    ActReleaseQueued(b, q, "queued");   // removes q: the same index is the next frame
++                }
++            }
++            catch (Exception ex)
++            {
++                ActHoldErr(ex);
++            }
++            finally
++            {
++                ActHoldRecomputeMask();
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] ActTick's hold step (both branches, after the queue -- [fix pass: stock-3] outside ActTick's
++        /// own try, so a step there that keeps throwing never stops the timeout's bound): [fix pass: stock-1] FIRST a hit's
++        /// deferred drain, in any phase (a drain is safe anywhere; the fig was collected before this Update); then -- only in
++        /// PHASE_NORMAL with the scene ours (D12: the end injection released everything, and after it ActionTick drains nothing
++        /// more) -- host-done and timeout of every held impact (battle time), the queue's drain and its own timeouts, and
++        /// [fix pass: life-2] the catch-up of every skipped record whose slot left the life mask (the reconciler's own gate:
++        /// the units latched). Never throws.</summary>
++        private static void ActHoldTick()
++        {
++            try
++            {
++                if (_actHoldDrainDue)
++                {
++                    _actHoldDrainDue = false;
++                    ActHoldDrainQueue();
++                }
++                if (_actHeld.Count == 0 && _actQueued.Count == 0 && _actSkippedMask == 0)
++                    return;
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                if (b == null || !Active || b.btl_phase != FF9StateBattleSystem.PHASE_NORMAL)
++                    return;
++                if (_actHeld.Count > 0)
++                {
++                    ActHeld[] hs = _actHeld.ToArray();
++                    for (Int32 i = 0; i < hs.Length; i++)
++                    {
++                        ActHeld h = hs[i];
++                        String why = ActHeldTimerWhy(h.Rec != null && h.Rec.HostEnded, h.Rec != null ? h.Rec.HostEndMs : 0, h.ArriveMs, _actNowMs);
++                        if (why != null && _actHeld.Contains(h))
++                            ActReleaseHeld(h, why, false, null);
++                    }
++                }
++                ActHoldDrainQueue();
++                if (_actQueued.Count > 0)
++                {
++                    ActHeld[] qs = _actQueued.ToArray();
++                    for (Int32 i = 0; i < qs.Length; i++)
++                        if (ActHeldTimerWhy(false, 0, qs[i].ArriveMs, _actNowMs) != null && _actQueued.Contains(qs[i]))
++                            ActReleaseQueued(b, qs[i], "timeout");
++                }
++                // [fix pass: life-2] a slot that left the mask catches up on the record it skipped NOW (not ~150 ms later, on a
++                // sample that may never come) -- behind the reconciler's own latch gate
++                const Byte need = ff9btl.LOAD_INITNPC | ff9btl.LOAD_INITCHR;
++                if (_actSkippedMask != 0 && (b.btl_load_status & need) == need)
++                    ActHoldCatchUp(b, "its release");
++            }
++            catch (Exception ex)
++            {
++                ActHoldErr(ex);
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] (fix pass: life-2) THE CATCH-UP: every skipped record whose slot has left the life mask
++        /// (ActCatchUpSlots) goes through the reconciler's own ApplyUnit at its own sample seq -- the horizon gate re-read, only
++        /// the host's data applied (THE CONTAINMENT LAW) -- once (its cache entry dropped first: a throw never re-applies it).
++        /// One line per boot. Never throws.</summary>
++        private static void ActHoldCatchUp(FF9StateBattleSystem b, String why)
++        {
++            Int32 due = ActCatchUpSlots(_actSkippedMask, _actLifeMask);
++            if (due == 0 || b == null)
++                return;
++            for (Int32 i = 0; i < 8; i++)
++            {
++                if ((due & (1 << i)) == 0)
++                    continue;
++                _actSkippedMask &= ~(1 << i);
++                try
++                {
++                    NetSyncBattle.PeerUnit u = _actSkipped[i];
++                    ApplyUnit(b, ref u, _actSkippedSeq[i]);
++                    if (!_holdCatchUpLogged)
++                    {
++                        _holdCatchUpLogged = true;
++                        Log.Message("[NetSync] action replay hold: wire slot " + i + "'s skipped record (seq " + _actSkippedSeq[i] + ") re-applied at "
++                                    + why + " -- the reconciler's sample the life mask kept off it lands now (logged once per boot)");
++                    }
++                }
++                catch (Exception ex)
++                {
++                    ActHoldErr(ex);
++                }
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] THE END-INJECT RELEASE (amendment 2, D02): every held impact and every queued frame, in
++        /// arrival order, through the legacy path (`end-inject`) -- EndTick at the head of its injection branch (BEFORE
++        /// AllPlayersDown) and InjectEnd's head. The lists are emptied whatever happens (a throw half-way drops the rest
++        /// unapplied, logged): no mask may outlive the injection. [fix pass: life-2] THEN, the mask clear, every record the mask
++        /// skipped is re-applied (ActHoldCatchUp): ReconcileTick consumed the end-carrying sample this very frame and skipped a
++        /// masked slot's record -- a death only the sample carries lands before AllPlayersDown reads the party. A no-op when
++        /// nothing is held or cached.</summary>
++        private static void ActHoldFlush(String via)
++        {
++            if (_actHeld.Count == 0 && _actQueued.Count == 0)
++            {
++                ActHoldCatchUpAtFlush();
++                return;
++            }
++            Int32 held = _actHeld.Count, queued = _actQueued.Count;
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                List<ActHeld> all = new List<ActHeld>(held + queued);
++                all.AddRange(_actHeld);
++                all.AddRange(_actQueued);
++                all.Sort((x, y) => x.Ord.CompareTo(y.Ord));
++                for (Int32 i = 0; i < all.Count; i++)
++                {
++                    ActHeld e = all[i];
++                    if (e.Queued)
++                    {
++                        if (_actQueued.Contains(e))
++                            ActReleaseQueued(b, e, via);
++                    }
++                    else if (_actHeld.Contains(e))
++                    {
++                        ActReleaseHeld(e, via, false, null);
++                    }
++                }
++                if (!_holdFlushLogged)
++                {
++                    _holdFlushLogged = true;
++                    Log.Message("[NetSync] action replay hold: the end injection released " + held + " held impact(s) and " + queued + " queued "
++                                + "frame(s) at once (the legacy path: every kill lands before the end presentation reads the party; logged once per boot)");
++                }
++            }
++            catch (Exception ex)
++            {
++                ActHoldErr(ex);
++            }
++            finally
++            {
++                _actHeld.Clear();
++                _actQueued.Clear();
++                _actLifeMask = 0;
++                _actHoldDrainDue = false;                // (nothing queued is left to drain)
++            }
++            ActHoldCatchUpAtFlush();
++        }
++
++        // the flush's catch-up: every cached slot (the mask is 0 now) -- never throws into EndTick / InjectEnd
++        private static void ActHoldCatchUpAtFlush()
++        {
++            if (_actSkippedMask == 0)
++                return;
++            try { ActHoldCatchUp(FF9StateSystem.Battle.FF9Battle, "the end injection"); }
++            catch (Exception ex) { ActHoldErr(ex); }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] THE TEARDOWN'S half (ActDiscardAll's first statement): the life mask cleared FIRST (a throw
++        /// later can never leak it -- amendment 12), then every held and queued frame DROPPED, counted (`discarded`): nothing
++        /// applied, nothing shown (review F2: after ForceDisarm's `_booted = false` a held write would reach save-serialised
++        /// state) -- [fix pass] the skipped-record cache and a due drain dropped too (nothing re-applied). Never throws.</summary>
++        private static void ActHoldDiscardAll(String why)
++        {
++            _actLifeMask = 0;
++            _actSkippedMask = 0;
++            _actHoldDrainDue = false;
++            try
++            {
++                Int32 n = _actHeld.Count + _actQueued.Count;
++                _holdDiscarded += n;
++                _actHeld.Clear();
++                _actQueued.Clear();
++                _actFigPending.Clear();
++                if (n > 0)
++                    Log.Message("[NetSync] action replay hold: " + n + " held / queued frame(s) DISCARDED (" + why + ") -- nothing applied, nothing shown");
++            }
++            catch { }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] THE PER-BOOT RESET (amendment 12; the B3.5 three-site convention): the boot block and Boot's
++        /// catch -- the mask FIRST, the applied seqs, the held, queued and pending-figure lists. Never throws.</summary>
++        private static void ActHoldClear()
++        {
++            ActHoldClearSeq();
++            try
++            {
++                _actHeld.Clear();
++                _actQueued.Clear();
++                _actFigPending.Clear();
++            }
++            catch { }
++        }
++
++        /// <summary>[ff9mapkit netsync s135] ForceDisarm's half (beside its _gateSeq clear; ActDiscardAll then drops the frames): the life
++        /// mask and every slot's applied seq -- [fix pass] the skipped-record cache and a due drain too (it runs at the three
++        /// B3.5 sites: the boot block and Boot's catch through ActHoldClear, ForceDisarm directly). Cannot throw.</summary>
++        private static void ActHoldClearSeq()
++        {
++            _actLifeMask = 0;
++            _actSkippedMask = 0;
++            _actHoldDrainDue = false;
++            Array.Clear(_actAppliedSeq, 0, _actAppliedSeq.Length);
++            Array.Clear(_actAppliedSeen, 0, _actAppliedSeen.Length);
++            Array.Clear(_actSkippedSeq, 0, _actSkippedSeq.Length);
++        }
++
++        /// <summary>[ff9mapkit netsync s135] The boot block's counters (kept after the teardown until the next boot).</summary>
++        private static void ActHoldResetCounters()
++        {
++            _actHoldOrd = 0;
++            _holdHeld = _holdQueued = _holdRelQueued = _holdSuperseded = _holdDiscarded = _holdMaskSkips = 0;
++            Array.Clear(_holdRelBy, 0, _holdRelBy.Length);
++            Array.Clear(_actFigs, 0, _actFigs.Length);
++            _actFigNext = _actFigCount = 0;
++            _actLag.Clear();
++            _actLagN = _actLagMin = _actLagMax = 0;
++            _holdLogged = 0;
++            _holdFirstLogged = _holdMaskLogged = _holdErrLogged = _holdFlushLogged = _holdCatchUpLogged = false;
++        }
++
++        // ============================================================================================ the hold: figures, lag, logs
++        /// <summary>[ff9mapkit netsync s135] A figure shown DIRECTLY (the arrival path and every legacy release): figs[] records it at
++        /// the display (bi.disappear 0: btl2d's own gate), then the stock Btl2dReq. [fix pass: stock-2] A unit with no model shows
++        /// nothing (btl2d's GetFreeEntry sets the entry's BtlPtr BEFORE it reads the transform: a throw there would leave a
++        /// half-initialised entry for Btl2dMain to show).</summary>
++        private static void ActShowFigure(BTL_DATA d, Int32 slot, Btl2dParam p, String via, Int32 arriveMs)
++        {
++            if (d == null || d.gameObject == null)
++                return;
++            if (d.bi.disappear == 0)
++                ActFigRecord(slot, ActFigValue(p.hp, p.mp), via, arriveMs, _actNowMs);
++            btl2d.Btl2dReq(d, p);
++        }
++
++        /// <summary>[ff9mapkit netsync s135] A stat tick's figure (Btl2dStatReq), recorded the same way (the same model guard).</summary>
++        private static void ActShowStatFigure(BTL_DATA d, Int32 slot, Int32 hp, Int32 mp, String via, Int32 arriveMs)
++        {
++            if (d == null || d.gameObject == null)
++                return;
++            if (d.bi.disappear == 0)
++                ActFigRecord(slot, ActFigValue(hp, mp), via, arriveMs, _actNowMs);
++            btl2d.Btl2dStatReq(d, hp, mp);
++        }
++
++        // a hit's figure waits for EffectPoint's Figure point (bounded: the oldest goes)
++        private static void ActFigPendingAdd(CMD_DATA cmd, BTL_DATA unit, Int32 slot, Int32 arriveMs)
++        {
++            if (cmd == null || unit == null)
++                return;
++            if (_actFigPending.Count >= 32)
++                _actFigPending.RemoveAt(0);
++            _actFigPending.Add(new ActFigPending { Cmd = cmd, Unit = unit, Slot = slot, ArriveMs = arriveMs });
++        }
++
++        /// <summary>[ff9mapkit netsync s135] UnifiedBattleSequencer's EffectPoint, Figure half, right before its Btl2dReq (behind ActLive):
++        /// a figure a HIT release wrote into this unit's fig for this replay is DISPLAYED now -- figs[] "hit" (amendment 8: at the
++        /// display, not at the write). Read-only for the sequencer. Never throws.</summary>
++        internal static void ActNoteFigure(CMD_DATA cmd, BTL_DATA btl, Btl2dParam p)
++        {
++            if (_actFigPending.Count == 0 || cmd == null || btl == null || p == null)
++                return;
++            try
++            {
++                Int32 slot = -1, arrive = Int32.MaxValue;
++                for (Int32 i = _actFigPending.Count - 1; i >= 0; i--)
++                {
++                    ActFigPending e = _actFigPending[i];
++                    if (!ReferenceEquals(e.Cmd, cmd) || !ReferenceEquals(e.Unit, btl))
++                        continue;
++                    slot = e.Slot;
++                    if (e.ArriveMs < arrive)
++                        arrive = e.ArriveMs;
++                    _actFigPending.RemoveAt(i);
++                }
++                if (slot >= 0 && btl.bi.disappear == 0)
++                    ActFigRecord(slot, ActFigValue(p.hp, p.mp), "hit", arrive, _actNowMs);
++            }
++            catch { }
++        }
++
++        private static void ActFigRecord(Int32 slot, Int32 value, String via, Int32 arriveMs, Int32 releaseMs)
++        {
++            ActFig f = _actFigs[_actFigNext];
++            if (f == null)
++            {
++                f = new ActFig();
++                _actFigs[_actFigNext] = f;
++            }
++            f.Slot = slot;
++            f.Value = value;
++            f.Via = via;
++            f.ArriveMs = arriveMs;
++            f.ReleaseMs = releaseMs;
++            _actFigNext = (_actFigNext + 1) % ActHoldFigsMax;
++            if (_actFigCount < ActHoldFigsMax)
++                _actFigCount++;
++        }
++
++        private static void ActHoldLag(Int32 lag)
++        {
++            if (_actLagN == 0 || lag < _actLagMin)
++                _actLagMin = lag;
++            if (_actLagN == 0 || lag > _actLagMax)
++                _actLagMax = lag;
++            _actLagN++;
++            if (_actLag.Count < ActHoldLagCap)
++                _actLag.Add(lag);
++        }
++
++        private static void ActHoldCount(String via)
++        {
++            Int32 k = Array.IndexOf(ActHoldVias, via);
++            if (k >= 0)
++                _holdRelBy[k]++;
++        }
++
++        // A deferred frame's lane skipped by the superseded guard (ApplyActionFrameNow's queued releases)
++        private static void ActHoldNoteSuperseded()
++        {
++            _holdSuperseded++;
++        }
++
++        // ONE line per release (amendment 10), capped per boot: the real link's lag, readable without the harness.
++        private static void ActHoldLog(ActRec r, Int32 slot, String via, Int32 heldMs, Int32 lag, Boolean superseded, Boolean queued)
++        {
++            if (_holdLogged > ActHoldLogMax)
++                return;
++            _holdLogged++;
++            try
++            {
++                if (_holdLogged > ActHoldLogMax)
++                {
++                    Log.Message("[NetSync] action replay hold: further releases this boot are counted, not logged (act.guest.hold)");
++                    return;
++                }
++                Log.Message("[NetSync] action replay hold: " + (queued ? "queued frame" : "held impact") + (r != null ? " of id " + r.Id : "")
++                            + " on wire slot " + slot + " released via " + via + " after " + heldMs + " ms of battle time"
++                            + (lag != Int32.MinValue ? " (lag " + lag + " ms" + (lag < 0 ? ": the replay's hit came first" : "") + ")" : "")
++                            + (superseded ? " -- its life change SUPERSEDED by a newer frame (the figure and the flinch only)" : ""));
++            }
++            catch { }
++        }
++
++        private static void ActHoldNoteFirst(ActHeld h)
++        {
++            if (_holdFirstLogged)
++                return;
++            _holdFirstLogged = true;
++            Log.Message("[NetSync] action replay hold: " + (h.Queued ? "a frame QUEUED behind a held life change" : "an impact HELD for its replay's hit")
++                        + (h.Rec != null ? " (id " + h.Rec.Id + ")" : "") + " on wire slot " + h.A.TargetSlot + (h.LifeSlots != 0 ? ", life mask 0x"
++                        + _actLifeMask.ToString("X2") : "") + " -- numbers, the flinch and deaths wait for the replay's own hit; the bars follow "
++                        + "the host (logged once per boot)");
++        }
++
++        private static void ActHoldErr(Exception ex)
++        {
++            if (_holdErrLogged)
++                return;
++            _holdErrLogged = true;
++            try { Log.Error("[NetSync] action replay hold faulted (logged once per boot; the frame or release in hand fell back as best it could): " + ex); }
++            catch { }
++        }
++
++        // ============================================================================================ the hold's bench (`actbench`)
++        /// <summary>[ff9mapkit netsync s135] `netsync actbench hold|lifeskip|unit` (selftest role only -- HarnessActGuestBench checked it):
++        ///   `hold on|off` -- off = the pre-s135 guest: every impact takes the arrival-time path (Leg 1's and Leg 2's red);
++        ///   `lifeskip on|off` -- off = ApplyUnit ignores the life mask: a post-horizon dead sample kills a held slot at once;
++        ///   `unit &lt;slot 0-7&gt; dead|alive|trance0|trance1` -- one type-1 unit record for that wire slot, built from the unit's
++        ///       own state with that one change, through the reconciler's own ApplyUnit at sample seq = the slot's gate seq + 1
++        ///       (post-horizon), in the diorama's steady state (the selftest branch runs no ReconcileTick: this IS its sample).
++        /// False + why on a refusal.</summary>
++        private static Boolean HarnessActHoldBench(String[] args, String op, String val, out String why)
++        {
++            why = null;
++            if (op == "hold" || op == "lifeskip")
++            {
++                if (args.Length != 3 || (val != "on" && val != "off"))
++                {
++                    why = "netsync actbench " + op + ": expected `" + op + " on|off`";
++                    return false;
++                }
++                Boolean off = val == "off";
++                if (op == "hold")
++                {
++                    _benchHoldOff = off;
++                    Log.Message("[NetSync] harness: action replay hold " + (off ? "OFF -- CALIBRATION: the pre-s135 guest (numbers, the flinch and "
++                                + "deaths land when the host's impact ARRIVES)" : "ON"));
++                }
++                else
++                {
++                    _benchLifeSkipOff = off;
++                    Log.Message("[NetSync] harness: action replay life-mask skip " + (off ? "OFF -- CALIBRATION: the reconciler applies a held "
++                                + "slot's sample (a dead one kills before the replay's hit)" : "ON"));
++                }
++                return true;
++            }
++            String st = args.Length > 3 ? (args[3] ?? "").ToLowerInvariant() : "";
++            Int32 slot;
++            if (args.Length != 4 || !Int32.TryParse(args[2], out slot) || slot < 0 || slot > 7
++                || (st != "dead" && st != "alive" && st != "trance0" && st != "trance1"))
++            {
++                why = "netsync actbench unit: expected `unit <slot 0-7> dead|alive|trance0|trance1`";
++                return false;
++            }
++            FF9StateBattleSystem b;
++            if (!ActDrainGate(out b))
++            {
++                why = "netsync actbench unit: needs a booted battle diorama in its steady state (PHASE_NORMAL, the units latched)";
++                return false;
++            }
++            BTL_DATA d = ResolveWireUnit(b, slot, slot < 4);
++            if (d == null)
++            {
++                why = "netsync actbench unit: wire slot " + slot + " has no local unit";
++                return false;
++            }
++            NetSyncBattle.PeerUnit u = ActBenchUnitSample(d, slot, st);
++            UInt16 seq = (UInt16)(_gateSeq[slot] + 1);
++            Boolean masked = ActLifeSkips(_actLifeMask, slot, ActLifeSkipOn);
++            ApplyUnit(b, ref u, seq);
++            Log.Message("[NetSync] harness: action replay bench -- a type-1 record for wire slot " + slot + " (" + st + ", seq " + seq + ", post-horizon) "
++                        + (masked ? "met the life mask: SKIPPED (its kill or revive waits for the replay's hit)" : "went through the reconciler's ApplyUnit"));
++            return true;
++        }
++
++        // The bench's unit record: the unit's own state with one change (Alive / InTrance). Enemies carry the LOGICAL HP the host's
++        // sample carries (ApplyUnit writes it through BattleUnit).
++        private static NetSyncBattle.PeerUnit ActBenchUnitSample(BTL_DATA d, Int32 slot, String state)
++        {
++            BattleUnit unit = new BattleUnit(d);
++            Boolean dead = (d.stat.cur & BattleStatus.Death) != 0;
++            NetSyncBattle.PeerUnit u = new NetSyncBattle.PeerUnit();
++            u.Index = (Byte)slot;
++            u.IsPlayer = slot < 4;
++            u.Alive = state == "dead" ? false : state == "alive" ? true : !dead;
++            if (u.IsPlayer)
++            {
++                u.HpCur = d.cur.hp;
++                u.HpMax = d.max.hp;
++            }
++            else
++            {
++                u.HpCur = unit.CurrentHp;
++                u.HpMax = unit.MaximumHp;
++            }
++            u.MpCur = d.cur.mp;
++            u.MpMax = d.max.mp;
++            u.InTrance = state == "trance1" ? true : state == "trance0" ? false : (d.stat.cur & BattleStatus.Trance) != 0;
++            u.Hidden = !u.IsPlayer && (_hiddenMask & (1 << slot)) != 0;
++            u.TranceGauge = d.trance;
++            u.AtbCur = (UInt16)Math.Max(0, (Int32)d.cur.at);
++            u.AtbMax = (UInt16)Math.Max(1, (Int32)d.max.at);
++            return u;
++        }
++
++        // ============================================================================================ the hold's harness surface
++        // `netsync.battle.act.guest.hold` (HarnessAgent.AppendActGuestHold) -- read-only, main thread, never throw, every role.
++        internal static Boolean HarnessHoldOn { get { return ActHoldOn; } }
++        internal static Boolean HarnessHoldLifeSkip { get { return ActLifeSkipOn; } }
++        internal static Int32 HarnessHoldHeldNow { get { return _actHeld.Count; } }
++        internal static Int32 HarnessHoldHeld { get { return _holdHeld; } }
++        internal static Int32 HarnessHoldQueuedNow { get { return _actQueued.Count; } }
++        internal static Int32 HarnessHoldQueued { get { return _holdQueued; } }
++        internal static Int32 HarnessHoldRelQueued { get { return _holdRelQueued; } }
++        internal static Int32 HarnessHoldSuperseded { get { return _holdSuperseded; } }
++        internal static Int32 HarnessHoldDiscarded { get { return _holdDiscarded; } }
++        internal static Int32 HarnessHoldLifeMask { get { return _actLifeMask; } }
++        internal static Int32 HarnessHoldMaskSkips { get { return _holdMaskSkips; } }
++        internal static Int32 HarnessHoldFigCount { get { return _actFigCount; } }
++
++        /// <summary>[ff9mapkit netsync s135] `rel_<via>`: this boot's held impacts released by one reason (0 for any other word).</summary>
++        internal static Int32 HarnessHoldRelBy(String via)
++        {
++            Int32 k = Array.IndexOf(ActHoldVias, via);
++            return k >= 0 ? _holdRelBy[k] : 0;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] `lag`: n (every paired release this boot), min / p50 / max in battle ms (-1 each with n 0;
++        /// a negative value is a credit -- the replay's hit came first).</summary>
++        internal static void HarnessHoldLag(out Int32 n, out Int32 min, out Int32 p50, out Int32 max)
++        {
++            n = _actLagN;
++            min = n > 0 ? _actLagMin : -1;
++            max = n > 0 ? _actLagMax : -1;
++            p50 = n > 0 ? ActLagP50(_actLag) : -1;
++        }
++
++        /// <summary>[ff9mapkit netsync s135] `figs[i]`, oldest first (i &lt; HarnessHoldFigCount): one figure DISPLAYED.</summary>
++        internal static Boolean HarnessHoldFig(Int32 i, out Int32 slot, out Int32 value, out String via, out Int32 arriveMs, out Int32 releaseMs)
++        {
++            slot = value = arriveMs = releaseMs = -1;
++            via = null;
++            if (i < 0 || i >= _actFigCount)
++                return false;
++            Int32 at = (_actFigNext - _actFigCount + i + ActHoldFigsMax) % ActHoldFigsMax;
++            ActFig f = _actFigs[at];
++            if (f == null)
++                return false;
++            slot = f.Slot;
++            value = f.Value;
++            via = f.Via;
++            arriveMs = f.ArriveMs;
++            releaseMs = f.ReleaseMs;
++            return true;
++        }
++
+         // ============================================================================================ the selftest bench (`actbench`)
+         /// <summary>[ff9mapkit netsync s134] The `netsync actbench` ops this half owns (HarnessAgent routes them here before s133's):
+-        /// feed, feedat, `tape play`, replay, rework, shortcircuit, knob, clear, teardown.</summary>
++        /// feed, feedat, `tape play`, replay, rework, shortcircuit, knob, clear, teardown -- [ff9mapkit netsync s135] + hold, lifeskip,
++        /// unit (HarnessActHoldBench).</summary>
+         internal static Boolean IsActGuestBenchOp(String op, String value)
+         {
+             switch (op)
+@@ -2164,6 +3521,9 @@ namespace Memoria.Netsync
+                 case "knob":
+                 case "clear":
+                 case "teardown":
++                case "hold":                             // [ff9mapkit netsync s135] the replay hit hold's levers and its unit-sample seam
++                case "lifeskip":
++                case "unit":
+                     return true;
+                 case "tape":
+                     return value == "play";
+@@ -2180,7 +3540,8 @@ namespace Memoria.Netsync
+         ///   `shortcircuit on|off` -- off = the NEXT replay's hits fall through (the tripwire's red; one-shot);
+         ///   `knob 0|1|ini` -- a process-local [Netsync] ActionReplay (Memoria.ini is never touched);
+         ///   `clear` -- ActAbortAll("clear") and the inbox emptied; `teardown` -- ActDiscardAll("teardown (bench)"), the teardown's own
+-        ///       step with no Leave first (review F2's leg D2), the diorama left booted and contained.
++        ///       step with no Leave first (review F2's leg D2), the diorama left booted and contained;
++        ///   [ff9mapkit netsync s135] `hold on|off`, `lifeskip on|off`, `unit &lt;slot&gt; dead|alive|trance0|trance1` (HarnessActHoldBench).
+         /// args = the verb's whole argument list (args[0] = "actbench"). False + why on a refusal.</summary>
+         internal static Boolean HarnessActGuestBench(String[] args, out String why)
+         {
+@@ -2336,6 +3697,10 @@ namespace Memoria.Netsync
+                     }
+                     return true;
+                 }
++                case "hold":
++                case "lifeskip":
++                case "unit":
++                    return HarnessActHoldBench(args, op, val, out why);   // [ff9mapkit netsync s135]
+                 default:
+                     why = "netsync actbench: unknown op '" + op + "'";
+                     return false;
+@@ -2393,6 +3758,11 @@ namespace Memoria.Netsync
+                 _benchReworkOff = false;
+                 _benchShortCircuitOff = false;
+                 _benchKnob = -1;
++                // [ff9mapkit netsync s135] the hold's levers back too (the hold ON, the reconciler's life-mask skip ON)
++                if (_benchHoldOff || _benchLifeSkipOff)
++                    Log.Message("[NetSync] harness: action replay hold levers back (the hold ON, the life-mask skip ON; released with the harness)");
++                _benchHoldOff = false;
++                _benchLifeSkipOff = false;
+                 if (_actInbox.Count > 0)
+                     Log.Message("[NetSync] harness: action replay inbox emptied (" + _actInbox.Count + " frame(s); released with the harness)");
+                 _actInbox.Clear();
+@@ -2706,6 +4076,162 @@ namespace Memoria.Netsync
+             };
+         }
+ 
++        /// <summary>[ff9mapkit netsync s135] THE REPLAY HIT HOLD SELFTEST (NetSyncClient's selftest proof block: "action hold selftest:
++        /// OK|FAIL (...)"). The pure rules: the arrival verdict in every branch (the lever, each pairing state, the credit, the busy
++        /// slot, the full list, a stat tick, an unresolved target, an unpaired frame), the life lanes, the superseded guard (wrap
++        /// included), the revive decided at release, the host-done and timeout clocks, the queue's FIFO block, the masks, the
++        /// reconciler's skip and its lever, the decline-to-release mapping, the end-inject trigger, the hit's figure path, the
++        /// flinch, figs[]' value, the lag's median, the hit's pick and the credits -- [fix pass] + a queued lane's release (the
++        /// reconciler's stamp, no revive through a non-life lane), the deferred drain, the skipped records' catch-up, a cut
++        /// replay's pending figure and the release's death-attack grace. Each row discriminates one rule. Pure: touches no live
++        /// state.</summary>
++        internal static Boolean ActHoldSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                // --- the arrival verdict
++                Row(ActHoldVerdict(false, false, ActStRunning, true, false, false, true) == ActHoldApply
++                    && ActHoldVerdict(false, false, ActStRunning, true, true, true, true) == ActHoldApply
++                    && ActHoldVerdict(false, false, -1, true, false, true, true) == ActHoldApply,
++                    "verdict: `hold off` is the pre-s135 guest -- every frame applies on arrival", ref rows, ref fail);
++                Row(ActHoldVerdict(true, false, ActStRegistered, true, false, false, true) == ActHoldHold
++                    && ActHoldVerdict(true, false, ActStWaiting, true, false, false, true) == ActHoldHold
++                    && ActHoldVerdict(true, false, ActStRunning, true, false, false, true) == ActHoldHold
++                    && ActHoldVerdict(true, false, ActStRunning, true, false, true, true) == ActHoldHold,
++                    "verdict: an impact of a queued, waiting or running replay is HELD for its hit (on a busy slot too)", ref rows, ref fail);
++                Row(ActHoldVerdict(true, false, ActStRunning, true, true, false, true) == ActHoldLate
++                    && ActHoldVerdict(true, false, ActStEnded, true, true, false, true) == ActHoldLate
++                    && ActHoldVerdict(true, false, ActStRunning, true, true, true, true) == ActHoldQueue,
++                    "verdict: a credit (the replay already hit it) releases LATE at once -- behind an older change it queues", ref rows, ref fail);
++                Row(ActHoldVerdict(true, false, ActStEnded, true, false, false, true) == ActHoldApply
++                    && ActHoldVerdict(true, false, ActStDeclined, true, false, false, true) == ActHoldApply
++                    && ActHoldVerdict(true, false, ActStAborted, true, true, false, true) == ActHoldApply
++                    && ActHoldVerdict(true, false, ActStNoop, true, false, false, true) == ActHoldApply
++                    && ActHoldVerdict(true, false, ActStDeclined, true, false, true, true) == ActHoldQueue,
++                    "verdict: an ended (no credit), declined, aborted or NOOP replay holds nothing -- applies, or queues on a busy slot",
++                    ref rows, ref fail);
++                Row(ActHoldVerdict(true, true, ActStRunning, true, false, false, true) == ActHoldApply
++                    && ActHoldVerdict(true, true, -1, true, false, true, true) == ActHoldQueue
++                    && ActHoldVerdict(true, false, ActStRunning, false, false, false, true) == ActHoldApply
++                    && ActHoldVerdict(true, false, -1, true, false, false, true) == ActHoldApply
++                    && ActHoldVerdict(true, false, -1, true, false, true, true) == ActHoldQueue,
++                    "verdict: a stat tick, an unresolved target or an unpaired frame never pairs -- it queues only behind a busy slot",
++                    ref rows, ref fail);
++                Row(ActHoldVerdict(true, false, ActStRunning, true, false, false, false) == ActHoldApply
++                    && ActHoldVerdict(true, false, -1, true, false, true, false) == ActHoldApply,
++                    "verdict: a full hold list applies on arrival (never drops a frame)", ref rows, ref fail);
++                // --- the lanes and the superseded guard
++                Row(ActLaneIsLife(true, false, false) && ActLaneIsLife(false, true, false) && ActLaneIsLife(false, false, true)
++                    && !ActLaneIsLife(false, false, false),
++                    "lanes: lethal, dead here, or a busy slot waits for the release; any other lane applies now", ref rows, ref fail);
++                Row(ActHeldApplies(5, false, 9) && ActHeldApplies(10, true, 9) && !ActHeldApplies(9, true, 9) && !ActHeldApplies(8, true, 9)
++                    && ActHeldApplies(0x0002, true, 0xFFFE) && !ActHeldApplies(0xFFFE, true, 0x0002),
++                    "superseded: a deferred lane applies only if newer than the slot's last applied frame (wrap-safe)", ref rows, ref fail);
++                // [fix pass: life-1, timing-2] a QUEUED frame's lane at its release
++                Row(ActDeferredApplies(false, true, false, 1, true, 9) && ActDeferredApplies(true, false, false, 10, true, 9)
++                    && !ActDeferredApplies(true, false, false, 9, true, 9) && !ActDeferredApplies(true, true, false, 10, true, 9)
++                    && ActDeferredApplies(true, true, true, 10, true, 9) && ActDeferredApplies(true, true, true, 3, false, 9)
++                    && !ActDeferredApplies(true, true, false, 3, false, 9),
++                    "deferred: a queued lane applies only if newer than the slot's last applied state (a reconciler sample stamps too) -- and never revives through a lane that was no life lane when it queued",
++                    ref rows, ref fail);
++                Row(ActReviveAtRelease(false, true) && !ActReviveAtRelease(true, true) && !ActReviveAtRelease(false, false),
++                    "revive: decided at release -- not lethal, and dead here NOW", ref rows, ref fail);
++                // --- the clocks
++                Row(ActHeldTimerWhy(true, 100, 0, 100 + ActHoldHostDoneMs) == "hostdone" && ActHeldTimerWhy(true, 100, 0, 99 + ActHoldHostDoneMs) == null
++                    && ActHeldTimerWhy(false, 0, 100, 100 + ActHoldTimeoutMs) == "timeout" && ActHeldTimerWhy(false, 0, 100, 99 + ActHoldTimeoutMs) == null
++                    && ActHeldTimerWhy(true, 0, 0, ActHoldTimeoutMs) == "hostdone" && ActHoldTimeoutMs == 2500 && ActHoldHostDoneMs == 1500,
++                    "clocks: host-done at the END + 1500 ms, timeout at arrival + 2500 ms (battle time), host-done first", ref rows, ref fail);
++                // --- the queue and the masks
++                Row(ActQueueBlocked(0x10, 0x10, 0) && ActQueueBlocked(0x11, 0, 0x01) && !ActQueueBlocked(0x10, 0x20, 0x01)
++                    && !ActQueueBlocked(0x10, 0, 0),
++                    "queue: an older held life lane or an older queued frame on one of its slots keeps it; nothing else does", ref rows, ref fail);
++                Row(ActDrainsAtHit(false) && !ActDrainsAtHit(true),     // [fix pass: stock-1]
++                    "queue: a hit inside EffectPoint's bracket defers the drain to the next tick; outside it the queue drains at once", ref rows, ref fail);
++                List<ActHeld> mh = new List<ActHeld> { new ActHeld { Slots = 0x11, LifeSlots = 0x10 }, new ActHeld { Slots = 0x02, LifeSlots = 0 } };
++                List<ActHeld> mq = new List<ActHeld> { new ActHeld { Slots = 0x44, LifeSlots = 0x40, Queued = true } };
++                Row(ActLifeMaskOf(mh, mq) == 0x50 && ActBusyMaskOf(mh, mq) == 0x54 && ActLifeMaskOf(new List<ActHeld>(), new List<ActHeld>()) == 0,
++                    "masks: the life mask is every life lane; the busy mask adds a queued frame's every slot (a held non-life lane orders nothing)",
++                    ref rows, ref fail);
++                Row(ActLifeSkips(0x10, 4, true) && !ActLifeSkips(0x10, 4, false) && !ActLifeSkips(0x10, 5, true) && !ActLifeSkips(0xFF, 8, true),
++                    "reconciler: a masked slot's whole record skips -- the `lifeskip off` lever lets it through", ref rows, ref fail);
++                Row(ActCatchUpSlots(0x30, 0x10) == 0x20 && ActCatchUpSlots(0x10, 0x10) == 0 && ActCatchUpSlots(0, 0xFF) == 0   // [fix pass: life-2]
++                    && ActCatchUpSlots(0x81, 0) == 0x81,
++                    "catch-up: a skipped record re-applies once its slot leaves the life mask; a still-masked slot's waits", ref rows, ref fail);
++                // --- the release reasons
++                Row(ActDeclineVia("superseded") == "replaced" && ActDeclineVia("r8") == "abort" && ActDeclineVia("w3") == "abort"
++                    && ActDeclineVia("leave") == "abort" && ActDeclineVia("clear") == "abort" && ActDeclineVia("stale") == "declined"
++                    && ActDeclineVia("noop") == "declined" && ActDeclineVia("nosequence") == "declined",
++                    "release: a replaced START's impacts go `replaced`, an abort-all's `abort`, any other decline `declined`", ref rows, ref fail);
++                Row(ActEndInjectFlushes(true, NetSyncEnd.KVictoryPending) && ActEndInjectFlushes(true, NetSyncEnd.KDefeat)
++                    && ActEndInjectFlushes(true, NetSyncEnd.KEscape) && ActEndInjectFlushes(true, NetSyncEnd.KOtherEnd)
++                    && !ActEndInjectFlushes(true, NetSyncEnd.KFighting) && !ActEndInjectFlushes(true, NetSyncEnd.KEvent)
++                    && !ActEndInjectFlushes(false, NetSyncEnd.KDefeat),
++                    "release: this boot's END kind releases everything before AllPlayersDown; fighting, an event or another battle nothing",
++                    ref rows, ref fail);
++                Row(ActHoldVias.Length == 9 && ActHoldVias[0] == "hit" && ActHoldVias[8] == "end-inject" && Array.IndexOf(ActHoldVias, "replaced") == 6,
++                    "release: nine reasons, in the rel_* order", ref rows, ref fail);
++                // --- figures and the flinch
++                Row(ActHitFigPath(true, true) == ActFigNone && ActHitFigPath(false, true) == ActFigBracket && ActHitFigPath(false, false) == ActFigDirect
++                    && ActHitFigPath(true, false) == ActFigNone,
++                    "figure: a hidden unit shows none; a hit inside EffectPoint's bracket writes the fig; every other release shows it directly",
++                    ref rows, ref fail);
++                Row(ActShowsPendingAt("abort") && ActShowsPendingAt("declined") && ActShowsPendingAt("replaced") && !ActShowsPendingAt("end"),   // [fix pass: timing-1]
++                    "figure: a hit figure its Figure point never showed is shown at once when the replay is cut -- never at its natural end",
++                    ref rows, ref fail);
++                Row(ActReleaseFlinches(true, false, false, false, true) && !ActReleaseFlinches(false, false, false, false, true)
++                    && !ActReleaseFlinches(true, true, false, false, true) && !ActReleaseFlinches(true, false, true, false, true)
++                    && !ActReleaseFlinches(true, false, false, true, true) && !ActReleaseFlinches(true, false, false, false, false),
++                    "flinch: DmgMot, not lethal, not a revive, not hidden, a unit free to move -- nothing less (F5)", ref rows, ref fail);
++                // [fix pass: timing-4]
++                Row(ActReleaseArmsGrace(true, true, false, false, "hit", false) && ActReleaseArmsGrace(true, true, false, false, "timeout", false)
++                    && !ActReleaseArmsGrace(true, true, false, false, "end-inject", false) && !ActReleaseArmsGrace(true, true, false, false, "abort", true)
++                    && !ActReleaseArmsGrace(false, true, false, false, "hit", false) && !ActReleaseArmsGrace(true, false, false, false, "hit", false)
++                    && !ActReleaseArmsGrace(true, true, true, false, "hit", false) && !ActReleaseArmsGrace(true, true, false, true, "hit", false),
++                    "grace: a player's released kill on an enemy arms the death-attack grace -- never from a backlog, at the end injection, or once no replay can follow",
++                    ref rows, ref fail);
++                Row(ActFigValue(4321, 7) == 4321 && ActFigValue(0, 77) == 77 && ActFigValue(0, 0) == 0,
++                    "figs: the HP figure, else the MP one", ref rows, ref fail);
++                Row(ActLagP50(new List<Int32>()) == -1 && ActLagP50(new List<Int32> { 5 }) == 5 && ActLagP50(new List<Int32> { 3, 1, 2 }) == 2
++                    && ActLagP50(new List<Int32> { 4, 1, 3, 2 }) == 2 && ActLagP50(new List<Int32> { -40, 120, -3 }) == -3,
++                    "lag: the lower median (a credit's lag is negative)", ref rows, ref fail);
++                // --- the hit's pick and the credits
++                ActRec ra = ActTestRec(30, 0), rb = ActTestRec(31, 1);
++                List<ActHeld> pk = new List<ActHeld>
++                {
++                    new ActHeld { Ord = 5, Rec = ra, UnitId = 0x10 }, new ActHeld { Ord = 3, Rec = ra, UnitId = 0x10 },
++                    new ActHeld { Ord = 1, Rec = ra, UnitId = 0x20 }, new ActHeld { Ord = 2, Rec = rb, UnitId = 0x10 },
++                    new ActHeld { Ord = 0, Rec = ra, UnitId = 0x10, Queued = true }
++                };
++                Row(ActPickOldest(pk, ra, 0x10) == 1 && ActPickOldest(pk, ra, 0x20) == 2 && ActPickOldest(pk, rb, 0x10) == 3
++                    && ActPickOldest(pk, ra, 0x40) == -1 && ActPickOldest(pk, ActTestRec(30, 0), 0x10) == -1,
++                    "hit: the oldest HELD impact of that replay (by reference) on that master target; never a queued one; none = a credit",
++                    ref rows, ref fail);
++                ActRec rc = ActTestRec(32, 2);
++                ActCreditAdd(rc, 0x10, 100);
++                ActCreditAdd(rc, 0x20, 120);
++                ActCreditAdd(rc, 0x10, 130);
++                Int32 c1 = ActCreditFind(rc, 0x10);
++                Int32 m1 = c1 >= 0 ? ActCreditTake(rc, c1) : -1;
++                Int32 c2 = ActCreditFind(rc, 0x10);
++                Int32 m2 = c2 >= 0 ? ActCreditTake(rc, c2) : -1;
++                Row(c1 == 0 && m1 == 100 && m2 == 130 && ActCreditFind(rc, 0x10) == -1 && ActCreditFind(rc, 0x20) == 0 && ActCreditFind(ActTestRec(33, 0), 0x10) == -1,
++                    "credits: per (replay, master target), oldest first, each taken once", ref rows, ref fail);
++                ActRec rd = ActTestRec(34, 3);
++                for (Int32 i = 0; i < ActHoldCreditCap + 4; i++)
++                    ActCreditAdd(rd, 0x10, i);
++                Row(rd.HoldCreditUnits.Count == ActHoldCreditCap, "credits: bounded per replay (" + ActHoldCreditCap + ")", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
++        }
++
+         private static void Row(Boolean ok, String name, ref Int32 rows, ref String fail)
+         {
+             if (fail != null)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index d39fb19..3a4737b 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -792,6 +792,8 @@ namespace Memoria.Netsync
+                 // signed-diff half-wrap), and a manual boot must never inherit a wire nonce.
+                 Array.Clear(_gated, 0, _gated.Length);
+                 Array.Clear(_gateSeq, 0, _gateSeq.Length);
++                ActHoldClear();                      // [ff9mapkit netsync s135] ...and the hold's: the life mask, _actAppliedSeq, the held and queued frames
++                ActHoldResetCounters();              // [ff9mapkit netsync s135] (its per-boot counters, figs[] and the lag too)
+                 BootedWireNonce = -1;                // the watcher re-stamps it on a WIRE boot only
+                 _actionErrLogged = false;
+                 _returnPending = false;              // [ff9mapkit netsync F3.3] a fresh boot invalidates any old return intent
+@@ -941,6 +943,7 @@ namespace Memoria.Netsync
+                 _realMember = null;
+                 Array.Clear(_gated, 0, _gated.Length);      // B3.5: no gate survives a failed boot
+                 Array.Clear(_gateSeq, 0, _gateSeq.Length);
++                ActHoldClear();                             // [ff9mapkit netsync s135] ...nor a life mask, an applied seq or a held frame
+                 BootedWireNonce = -1;
+                 _wireSongId = -1;                           // B3.6: no song survives a failed boot either
+                 _wireIntro = -1;                            // [ff9mapkit netsync R3 s111] ...nor a host intro, nor its observables
+@@ -1027,6 +1030,7 @@ namespace Memoria.Netsync
+             try { FF9StateSystem.Battle.isDebug = false; } catch { }
+             Array.Clear(_gated, 0, _gated.Length);      // B3.5: the horizon gates die with the boot
+             Array.Clear(_gateSeq, 0, _gateSeq.Length);
++            ActHoldClearSeq();                          // [ff9mapkit netsync s135] ...the life mask and _actAppliedSeq too (ActDiscardAll drops the frames)
+             BootedWireNonce = -1;
+             _wireSongId = -1;                           // B3.6: the wire song dies with the boot
+             _wireIntro = -1;                            // [ff9mapkit netsync R3 s111] ...and so do the host intro and its observables
+@@ -1949,12 +1953,30 @@ namespace Memoria.Netsync
+                     return;
+                 _gated[u.Index] = false;   // post-horizon: the sample is fresher, it wins from here on
+             }
++            // [ff9mapkit netsync s135] THE LIFE MASK (R3-DESIGN.md 3.3.4; R3-ACTION-REPLAY-AUDIT.md 2.3 D04, amendment 14): a slot whose
++            // kill or revive waits for its replay's hit skips the WHOLE record, as the horizon gate does -- this skip is the only
++            // thing keeping the next post-horizon sample from killing (or standing up) the unit before the hit. THE FREEZE (as
++            // built, fix pass rlife-1): a slot is in the mask for its own held kill or revive AND for any frame held or queued
++            // behind an older life change or queued frame on it (the busy rule: every slot of a queued frame is busy, and any
++            // lane on a busy slot is a life lane) -- a LIVING unit included. While it is, its whole record is skipped: current
++            // and max HP/MP, hide, trance and ATB do not follow the host (the one exception to the owner's "the bars follow the
++            // host") until the last such change on its slot releases -- each at most 2.5 s of battle time from its OWN arrival,
++            // so overlapping frames chain it. [fix pass: life-2] The skipped record is CACHED (the latest per slot, with its seq)
++            // and re-applied here, through this very method, at once as the slot leaves the mask (ActHoldCatchUp in ActHoldTick)
++            // and at the end-inject flush -- the dedupe consumed it, and after an injection no sample comes. One int read when
++            // nothing is held.
++            if (_actLifeMask != 0 && ActLifeSkipNow(ref u, seq))
++                return;
+             BTL_DATA d = ResolveWireUnit(b, u.Index, u.IsPlayer);
+             if (d == null)
+             {
+                 LogUnresolvedWireUnit(u.Index, "reconcile");
+                 return;
+             }
++            // [ff9mapkit netsync s135] (fix pass: life-1) a record really applied: it overtakes the slot's skipped one and stamps THE
++            // SUPERSEDED GUARD (when newer) -- a queued frame's older lane then reads superseded at its release instead of
++            // standing up a unit this sample killed (B3.5's corpse stand-up, then re-kill)
++            ActSampleApplied(u.Index, seq);
+ 
+             Boolean hasDeath = (d.stat.cur & BattleStatus.Death) != 0;
+             if (!u.Alive)
+@@ -2199,6 +2221,9 @@ namespace Memoria.Netsync
+         // impact, a START this guest never saw): an impact of a queued, running or ended replay (or a NOOP) skips the legacy player
+         // MP_ATTACK swing -- the replay is its clip -- and marks its target for the replay's credits. + backlog: this drain is a
+         // backlog one (its STARTs decline `backlog`), so a lethal impact arms no death-attack grace -- no replay comes to use it.
++        // [ff9mapkit netsync s135] + THE REPLAY HIT HOLD: after the resolve, ActHoldIntake may keep the frame (a paired impact waits
++        // for its replay's hit; a frame for a slot with an older held life change queues behind it); steps c-h are
++        // ApplyActionFrameNow, shared with the hold's legacy releases.
+         private static void ApplyActionFrame(FF9StateBattleSystem b, ref NetSyncBattle.PeerAction a, ActRec paired, Boolean backlog)
+         {
+             // (b) RESOLVE -- the reconciler's exact resolution; an unresolvable unit is skipped, the
+@@ -2221,14 +2246,53 @@ namespace Memoria.Netsync
+             Boolean selfCast = ReferenceEquals(dT, dC);   // caster == target: one unit, one lane
+                                                           // (target.fig IS caster.fig on the host then --
+                                                           // popping both would double the figure)
++            // [ff9mapkit netsync s134] the record this impact names: counted as paired, its target marked for the replay's credits; an
++            // impact of a queued, running or ended replay (or a NOOP) skips the legacy swing -- the replay is its clip
++            Boolean covered = paired != null && paired.CoversSwing;
++            if (paired != null)
++            {
++                _actPaired++;
++                if (dT != null)
++                    paired.ImpactMask |= dT.btl_id;
++            }
++            // [ff9mapkit netsync s135] THE REPLAY HIT HOLD (NetSyncDiorama.Replay.cs ActHoldIntake): true = the hold took the frame --
++            // held for its replay's hit (its non-life lanes and the horizon gate applied now), released late (the replay already hit
++            // that target), or queued behind an older held life change. Anything else -- an old host, an id-0 impact, a replay that
++            // never runs, the `hold off` lever -- applies now, exactly as before.
++            if (ActHoldIntake(b, ref a, dT, dC, selfCast, paired, backlog))
++                return;
++            ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, ActViaArrival, _actNowMs, false, 0);
++        }
+ 
++        // [ff9mapkit netsync s135] Steps c-h of the arrival path, split out of ApplyActionFrame unchanged for an arrival -- and the hold's
++        // LEGACY apply of a frame it releases late or kept QUEUED. via / arriveMs: what figs[] records for its displays ("arrival" =
++        // at once). deferred (a QUEUED frame's release, R3-ACTION-REPLAY-AUDIT.md 2.3 amendments 1 and 5): each lane's state applies
++        // only if no newer frame already applied that slot (ActHeldApplies -- else its figure and flinch only, "superseded"), and
++        // its horizon gate was stamped on arrival. Every state write stamps the slot's _actAppliedSeq alongside the gate.
++        // [fix pass: life-1, timing-2] lifeSlots (a queued frame's: the wire slots whose lane was a LIFE lane when it queued; 0 on
++        // the arrival and late paths): a deferred lane applies through ActDeferredApplies -- the superseded guard, which the
++        // reconciler's samples now stamp too, and NO revive through a lane that was not a life lane at queue time (a unit Doom,
++        // a script or a lost lethal impact killed while the frame waited stays dead: no corpse stand-up, no second death).
++        private static void ApplyActionFrameNow(FF9StateBattleSystem b, ref NetSyncBattle.PeerAction a, BTL_DATA dT, BTL_DATA dC, Boolean selfCast,
++                                                Boolean covered, Boolean backlog, String via, Int32 arriveMs, Boolean deferred, Int32 lifeSlots)
++        {
+             // (c) DERIVE from RAW wire hp only -- never from wire status bits.
++            // [ff9mapkit netsync s135] (a deferred frame derives here too, at its release: a revive is decided NOW -- amendment 11)
+             Boolean lethalT = a.TgtHpRaw == 0;
+             Boolean lethalC = a.CastHpRaw == 0;
+             Boolean reviveT = dT != null && !lethalT && (dT.stat.cur & BattleStatus.Death) != 0;
+             Boolean reviveC = dC != null && !lethalC && (dC.stat.cur & BattleStatus.Death) != 0;
+             Boolean hiddenT = dT != null && !a.TargetIsPlayer && (_hiddenMask & (1 << a.TargetSlot)) != 0;
+             Boolean hiddenC = dC != null && !a.CasterIsPlayer && (_hiddenMask & (1 << a.CasterSlot)) != 0;
++            // [ff9mapkit netsync s135] THE SUPERSEDED GUARD for a deferred frame (an arrival always applies: it is the newest) --
++            // [fix pass] through ActDeferredApplies: no revive through a lane that was not a life lane when the frame queued
++            Boolean applyT = dT != null && ActDeferredApplies(deferred, reviveT, (lifeSlots & (1 << a.TargetSlot)) != 0, a.SeqHorizon,
++                                                              _actAppliedSeen[a.TargetSlot], _actAppliedSeq[a.TargetSlot]);
++            Boolean applyC = dC != null && !selfCast
++                             && ActDeferredApplies(deferred, reviveC, (lifeSlots & (1 << a.CasterSlot)) != 0, a.SeqHorizon,
++                                                   _actAppliedSeen[a.CasterSlot], _actAppliedSeq[a.CasterSlot]);
++            if ((dT != null && !applyT) || (dC != null && !selfCast && !applyC))
++                ActHoldNoteSuperseded();
+ 
+             // B3.6 -- STAT TICK (Poison/Regen/Venom): a STRUCTURAL branch, never the three
+             // coincidental self-skips the normal path happens to take today (DmgMot false, caster
+@@ -2238,13 +2302,21 @@ namespace Memoria.Netsync
+             // target-slot lanes (a tick that KILLS lands as the controlled instant kill); return.
+             if (a.StatTick)
+             {
++                // [ff9mapkit netsync s135] through ActShowStatFigure: the same Btl2dStatReq, recorded in figs[] at the display
+                 if (dT != null && !hiddenT && (a.FigHpT != 0 || a.FigMpT != 0))
+-                    btl2d.Btl2dStatReq(dT, a.FigHpT, a.FigMpT);   // inert: no modifier harvest, no fig write
++                    ActShowStatFigure(dT, a.TargetSlot, a.FigHpT, a.FigMpT, via, arriveMs);   // inert: no modifier harvest, no fig write
+                 if (dT != null)
+                 {
+-                    ApplyActionState(dT, a.TargetSlot, a.TgtHpRaw == 0, reviveT, a.TgtHpRaw, a.TgtMpRaw);
+-                    _gated[a.TargetSlot] = true;                  // state-write <=> horizon-consume
+-                    _gateSeq[a.TargetSlot] = a.SeqHorizon;
++                    if (applyT)
++                    {
++                        ApplyActionState(dT, a.TargetSlot, a.TgtHpRaw == 0, reviveT, a.TgtHpRaw, a.TgtMpRaw);
++                        ActStampApplied(a.TargetSlot, a.SeqHorizon);   // [ff9mapkit netsync s135] stat ticks stamp too (design 3.3.4)
++                    }
++                    if (!deferred)
++                    {
++                        _gated[a.TargetSlot] = true;              // state-write <=> horizon-consume
++                        _gateSeq[a.TargetSlot] = a.SeqHorizon;
++                    }
+                 }
+                 return;
+             }
+@@ -2253,33 +2325,35 @@ namespace Memoria.Netsync
+             // number outlives the death fade exactly as in stock. HAND-BUILT param with EMPTY
+             // modifiers (F4): NEVER Btl2dReqInstant (it harvests live IFigurePointStatusScript
+             // effects -- the v9 status carry means Trouble could be seated, and its OnFigurePoint
+-            // deals REAL spread damage), NEVER write d.fig (nothing on a command-less guest ever
++            // deals REAL spread damage), NEVER write d.fig here (nothing outside EffectPoint's bracket
+             // consumes it; a stale crit bit would even shove pos[2] in a later flinch). Skip hidden
+             // slots (F6: the guest hides via renderer toggles, so btl2d's own bi.disappear drop
+             // never fires here -- a figure would float over an invisible model).
++            // [ff9mapkit netsync s135] THE F4 LAW, AMENDED (R3-ACTION-REPLAY-AUDIT.md 2.3 amendment 13): d.fig is now written in ONE
++            // place only -- the hold's HIT release (ActOnHit -> ActReleaseHeld), inside EffectPoint's own zero/collect bracket, where
++            // the sequence collects it and shows it at its Figure point (modifiers still EMPTY). This path and every legacy release
++            // (late, end, hostdone, timeout, abort, replaced, declined, end-inject, queued) keep the direct Btl2dReq below and never
++            // touch d.fig. The crit shove a hit's flinch then makes (fig.info carries the host's crit bit) is stock's own: the host
++            // ORs fig.info before SetDamage too. Both displays go through ActShowFigure: figs[] is recorded at the display.
+             if (dT != null && !hiddenT && (a.FigInfoT != 0 || a.FigHpT != 0 || a.FigMpT != 0))
+-                btl2d.Btl2dReq(dT, new Btl2dParam { info = a.FigInfoT, hp = a.FigHpT, mp = a.FigMpT });
++                ActShowFigure(dT, a.TargetSlot, new Btl2dParam { info = a.FigInfoT, hp = a.FigHpT, mp = a.FigMpT }, via, arriveMs);
+             if (dC != null && !selfCast && !hiddenC && (a.FigInfoC != 0 || a.FigHpC != 0 || a.FigMpC != 0))
+-                btl2d.Btl2dReq(dC, new Btl2dParam { info = a.FigInfoC, hp = a.FigHpC, mp = a.FigMpC });
++                ActShowFigure(dC, a.CasterSlot, new Btl2dParam { info = a.FigInfoC, hp = a.FigHpC, mp = a.FigMpC }, via, arriveMs);
+ 
+             // (e) MOTIONS -- cosmetic, decided from WIRE lethality BEFORE any HP write (F5: on a
+             // lethal frame KillUnit owns the pose; SetDamageMotion's enemy branch would write
+             // die_seq=1 itself if hp were already 0). SetDamageMotion(unit, null) is null-cmd-safe
+-            // (forces MP_DAMAGE1) and slave-safe internally; guest fig.info stays 0, so no crit
+-            // shove. The FrozenAnimation guard is LOAD-BEARING now that carried statuses can seat
++            // (forces MP_DAMAGE1) and slave-safe internally; fig.info is 0 outside EffectPoint's
++            // bracket, so no crit shove here. The FrozenAnimation guard is LOAD-BEARING now that carried statuses can seat
+             // Petrify/Stop members at spawn.
++            // [ff9mapkit netsync s135] (fix pass: stock-1) ...and it stays true for the hold's queued releases: a hit release never
++            // drains the queue inside EffectPoint's bracket (ActHoldOnHit defers it to the next ActHoldTick).
+             if (dT != null && a.DmgMot && !lethalT && !reviveT && !hiddenT && CanPlayCosmeticMotion(dT))
+                 btl_mot.SetDamageMotion(new BattleUnit(dT), null);
+             // Player-only caster swing: an enemy's mot table is String[6] -- setMotion(MP_ATTACK)
+             // would index out of range; enemy attack anims exist only as per-scene SEQ data.
+             // [ff9mapkit netsync s134] ...skipped (counted) when a replay covers this impact: the replay plays the real clip.
+-            Boolean covered = paired != null && paired.CoversSwing;
+-            if (paired != null)
+-            {
+-                _actPaired++;
+-                if (dT != null)
+-                    paired.ImpactMask |= dT.btl_id;
+-            }
++            // [ff9mapkit netsync s135] (`covered` and the paired count are decided on arrival, in ApplyActionFrame)
+             if (dC != null && !selfCast && a.CasterIsPlayer && !lethalC && !reviveC && !hiddenC && CanPlayCosmeticMotion(dC))
+             {
+                 if (covered)
+@@ -2296,19 +2370,33 @@ namespace Memoria.Netsync
+ 
+             // [ff9mapkit netsync s134] the death-attack grace, BEFORE the kill below (DeathStatusScript decides die_seq inside it):
+             // a lethal impact from a PLAYER caster on an AttackOnDeath enemy (audit amendment 8) -- never in a backlog drain
+-            if (dT != null && lethalT && a.CasterIsPlayer && !a.TargetIsPlayer && !backlog)
++            // [ff9mapkit netsync s135] (+ applyT: a superseded deferred lane kills nothing, so it arms nothing) -- [fix pass: timing-4]
++            // through ActReleaseArmsGrace: a queued frame released at the end injection, or once the end is presented or a Leave
++            // is in flight, arms nothing (every START declines then: no replay comes to use it); the arrival path as before
++            if (applyT && ActReleaseArmsGrace(lethalT, a.CasterIsPlayer, a.TargetIsPlayer, backlog, via,
++                                              deferred && (EndHudOff || LeaveRequestedRecently)))
+                 ActArmDeathGrace(dT, true, "impact");
+ 
+             // (f) TARGET STATE, (g) CASTER STATE -- raw against RAW max, bypassing ApplyUnit's
+             // logical enemy lanes (feeding raw values through SetLogicalHP would double-offset an
+             // FLG boss by +10000 and clamp raw cur against logical max).
+-            if (dT != null)
++            // [ff9mapkit netsync s135] each applied lane stamps its slot's _actAppliedSeq (THE SUPERSEDED GUARD's input)
++            if (applyT)
++            {
+                 ApplyActionState(dT, a.TargetSlot, lethalT, reviveT, a.TgtHpRaw, a.TgtMpRaw);
+-            if (dC != null && !selfCast)
++                ActStampApplied(a.TargetSlot, a.SeqHorizon);
++            }
++            if (applyC)
++            {
+                 ApplyActionState(dC, a.CasterSlot, lethalC, reviveC, a.CastHpRaw, a.CastMpRaw);
++                ActStampApplied(a.CasterSlot, a.SeqHorizon);
++            }
+ 
+             // (h) GATE both resolved slots: any type-1 sample with seq < seqHorizon predates this
+             // application and must not regress it (the signed-diff compare lives in ApplyUnit).
++            // [ff9mapkit netsync s135] a deferred frame's gate was stamped on its arrival (ActHoldIntake): never re-stamped older here
++            if (deferred)
++                return;
+             if (dT != null)
+             {
+                 _gated[a.TargetSlot] = true;
+@@ -2658,6 +2746,14 @@ namespace Memoria.Netsync
+                 // [ff9mapkit netsync R3 s117] + the defeat rows: allDown (every linked local player down) tells a settled
+                 // annihilation in the host's PHASE_DEFEAT from var 34's scripted end. Walked only for a defeat kind (a fighting
+                 // host reaches this line every frame). Fix pass s117-1: + _hostEvent (var 34 only after the host's event phase).
++                // [ff9mapkit netsync s135] THE END-INJECT RELEASE (R3-ACTION-REPLAY-AUDIT.md 2.3 amendment 2, D02): the head of the
++                // injection branch -- an END kind of THIS boot's battle -- releases every held impact and every frame queued behind
++                // one NOW, through the legacy path, BEFORE AllPlayersDown: it reads LOCAL Death, and a kill still waiting for its
++                // replay's hit would read a dying player as standing (a no-settle annihilation, a host PHASE_DEFEAT misread as var
++                // 34, the stage-5 law broken for a masked slot). After the injection ActionTick drains nothing more, so no new hold
++                // forms. A no-op when nothing is held.
++                if (ActEndInjectFlushes(ours, e.Kind))
++                    ActHoldFlush("end-inject");
+                 Boolean allDown = e.Kind == NetSyncEnd.KDefeat && AllPlayersDown(b);
+                 Int32 action = NetSyncEnd.PresentFor(e.Kind, e.Phase, NetSyncEnd.GuestMode, allDown, _hostEvent);
+                 if (action == NetSyncEnd.PresentNone || (action == NetSyncEnd.PresentHold && _endHeld))
+@@ -2720,6 +2816,9 @@ namespace Memoria.Netsync
+         // settle-or-tail choice (NetSyncEnd.AnnihilateSettles; fix pass s117-1).
+         private static void InjectEnd(FF9StateBattleSystem b, NetSyncBattle.PeerEnd e, Int32 action, Boolean allDown)
+         {
++            // [ff9mapkit netsync s135] every inject path (the stale-lane hold break included): nothing held survives the injection
++            // (amendment 2 -- EndTick already released at its branch head; a no-op then)
++            ActHoldFlush("end-inject");
+             FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
+             _preInjectResult = ff9.btl_result;          // [ff9mapkit netsync R3 s115] the scoped no-leak rule's baseline
+             // [ff9mapkit netsync B4] the coupling FIRST: a stock window the bench (or, from stage 8, the ready mirror) opened
