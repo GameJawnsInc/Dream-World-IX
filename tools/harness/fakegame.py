@@ -151,20 +151,26 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #:                    `flee_gil`; `endbench fleegil`);
 #:   "defeat"      -- s117, the guest's defeat presentation (`end.follow_msg`; `endbench kill|phase-defeat`).
 #: [ff9mapkit netsync R3 s118-s121] the SITTING-A FIX ROUND (studies/battle-coop/R3-SITTING-A-FIXES.md), no new sub-verb or
-#: op. The default stand-in is the s121 stack; dropping these four caps models the deployed s117 DLL (the calibration):
+#: op. The deployed s117 DLL (the calibration) is the ladder prefix :func:`caps_through` ``("defeat")``:
 #:   "ownreport"   -- s118, the hand-back needs a live guest (`host.handback.refused_report|refused_now|diorama_seen`; the
 #:                    loopback guest's `bench boot declined|busy|stale` -- and `none` after the latch -- keep its slots);
 #:   "holdpeer"    -- s119, the diorama hold keyed on the peer (`netsync.diorama.hold`; the "diorama watcher" proof line);
 #:   "grace"       -- s120, the session grace (`netsync.session`; `hold.cap_ms` = the grace; the "session grace" line);
 #:   "menurefusal" -- s121, the audible menu refusal (`netsync.menu_refusal`; the "main menu refusal" line).
-#: [ff9mapkit netsync s131] THE EXPIRED SEQ (the Pump null re-adopt), no new sub-verb or op. The default stand-in is the
-#: s131 stack; dropping this cap (:data:`NETSYNC_S131_CAPS`) models the DEPLOYED s121 DLL (the calibration):
+#: [ff9mapkit netsync s131] THE EXPIRED SEQ (the Pump null re-adopt), no new sub-verb or op. The DEPLOYED s121 DLL (the
+#: calibration) is ``caps_through("menurefusal")``:
 #:   "expiredseq"  -- s131, the guest's peer adopt step (`netsync.battle.peer.expired`, at its sentinels here: the selftest
 #:                    role never runs a view out; the "peer adopt" proof line).
-#: [ff9mapkit netsync s132] THE GRACE DEFAULT IS ITS MAXIMUM, no new key, verb or op. Dropping this cap
-#: (:data:`NETSYNC_S132_CAPS`) models s120-s131 (the calibration):
+#: [ff9mapkit netsync s132] THE GRACE DEFAULT IS ITS MAXIMUM, no new key, verb or op. Its calibration (s131) is
+#: ``caps_through("expiredseq")``:
 #:   "grace40"     -- s132, an ABSENT [Netsync] SessionGraceMs reads 40000 (`netsync.session.grace_ms`, `hold.cap_ms`);
 #:                    30000 without it. An explicit value reads the same on both.
+#: [ff9mapkit netsync s133] GROUP 2 (action replay s133-s137, the guest's field model s138-s141; renumbered from the
+#: design's s122-s130 so number order is capture order). Its calibration (s132: the `act` probe fails closed) is
+#: ``caps_through("grace40")``:
+#:   "actstart"    -- s133, the HOST action-start lane (`netsync.battle.act.host`; the sub-verb `actbench`: `hoststarts
+#:                    on|off`, `tape rec|stop|clear|info`, `tape dump <from> <count>`; type-1 caps bit 5; the "action lane"
+#:                    proof line). The stand-in models it through battlewire.ActHostLane (see FakeGame._act_command).
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -188,19 +194,24 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "grace": ("s120", ()),
                        "menurefusal": ("s121", ()),
                        "expiredseq": ("s131", ()),
-                       "grace40": ("s132", ())}
-#: [ff9mapkit netsync R3 s118-s121] The four sitting-A caps: ``netsync_caps - NETSYNC_SITTING_A_CAPS - NETSYNC_S131_CAPS``
-#: is the s117 the sitting-A round calibrated against.
+                       "grace40": ("s132", ()),
+                       "actstart": ("s133", ("actbench",))}
+#: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
+#: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
+#: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
+#: The four sitting-A rungs (s118-s121; their calibration, s117, is ``caps_through("defeat")``).
 NETSYNC_SITTING_A_CAPS = frozenset(("ownreport", "holdpeer", "grace", "menurefusal"))
-#: [ff9mapkit netsync s131] The expired-seq cap: ``netsync_caps - NETSYNC_S131_CAPS`` is the DEPLOYED s121 (s131's
-#: calibration red).
+#: [ff9mapkit netsync s131] The expired-seq rung (its calibration, the deployed s121, is ``caps_through("menurefusal")``).
 NETSYNC_S131_CAPS = frozenset(("expiredseq",))
-#: [ff9mapkit netsync s132] The grace-default cap: ``netsync_caps - NETSYNC_S132_CAPS`` is s131 (s132's calibration red:
-#: an absent SessionGraceMs reads 30000).
+#: [ff9mapkit netsync s132] The grace-default rung (its calibration, s131, is ``caps_through("expiredseq")``: an absent
+#: SessionGraceMs reads 30000).
 NETSYNC_S132_CAPS = frozenset(("grace40",))
+#: [ff9mapkit netsync s133] The action-start rung (its calibration, s132, is ``caps_through("grace40")``).
+NETSYNC_S133_CAPS = frozenset(("actstart",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
-#: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`).
-NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench")
+#: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
+NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
+                             "actbench")
 #: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
 #: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
 #: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
@@ -247,6 +258,9 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "expiredseq": {"peer": ("expired",)},
     # [ff9mapkit netsync s132] no key at all: the agent is s131's (only an absent SessionGraceMs reads differently)
     "grace40": {},
+    # [ff9mapkit netsync s133] a FIFTH sub-object, `act`, with its `host` half (a FIXED sub-object:
+    # :data:`NETSYNC_ACT_HOST_KEYS`); s134 adds `act.guest` (audit amendment 13: `actbench` is keyed on `act.host`)
+    "actstart": {"act": ("host",)},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -304,6 +318,32 @@ NETSYNC_SESSION_KEYS = ("grace_ms", "state", "left_ms", "out_ms", "outages", "re
 NETSYNC_MENU_REFUSAL_KEYS = ("now", "count", "lines", "silent", "last_state", "last_field", "age_ms", "muted")
 #: [ff9mapkit netsync s131] `netsync.battle.peer.expired`, in AppendPeerExpired's order (battlewire.PeerLane.doc).
 NETSYNC_PEER_EXPIRED_KEYS = tuple(BW.PEER_EXPIRED_SENTINELS)
+#: [ff9mapkit netsync s133] `netsync.battle.act.host` and its fixed sub-objects, in AppendAct's order
+#: (battlewire.ActHostLane.doc); `last` and `tape.page` are nullable records (ACT_LAST_FIELDS / ACT_PAGE_KEYS when set).
+NETSYNC_ACT_HOST_KEYS = tuple(BW.ACT_HOST_SENTINELS)
+NETSYNC_ACT_KINDS_KEYS = tuple(BW.ACT_HOST_SENTINELS["kinds"])
+NETSYNC_ACT_VFX_KEYS = tuple(BW.ACT_HOST_SENTINELS["vfx"])
+NETSYNC_ACT_LOOP_KEYS = tuple(BW.ACT_HOST_SENTINELS["loop"])
+NETSYNC_ACT_TAPE_KEYS = tuple(BW.ACT_HOST_SENTINELS["tape"])
+NETSYNC_ACT_LAST_KEYS = tuple(BW.ACT_LAST_FIELDS)
+#: [ff9mapkit netsync s133] `actbench <op>` (NetSyncBattle.HarnessActBench), in its "unknown op" refusal's order, and the
+#: `tape` op's values (`tape rec|stop|clear|info` + `tape dump <from> <count>`: the agent's own argument parse names dump)
+NETSYNC_ACTBENCH_OPS = ("tape", "hoststarts")
+NETSYNC_ACTBENCH_TAPE_OPS = ("rec", "stop", "clear", "info", "dump")
+
+
+def caps_through(cap: str) -> frozenset:
+    """[ff9mapkit netsync s133] The stand-in capability set of the engine AT battle capability ``cap``: every F3.3 cap +
+    the battle ladder up to and including ``cap`` (a ladder PREFIX -- audit 3.1 / 4.1). The calibration engine of a round
+    is the prefix through the rung before its own (s133's: ``caps_through("grace40")``, s132)."""
+    names = list(NETSYNC_BATTLE_CAPS)
+    return frozenset(NETSYNC_F33_CAPS) | frozenset(names[:names.index(cap) + 1])
+
+
+def actbench_ops(caps) -> tuple:
+    """[ff9mapkit netsync s133] The `actbench` ops an engine with these capabilities has (s133: tape, hoststarts; none
+    before it -- the sub-verb itself is unknown there)."""
+    return NETSYNC_ACTBENCH_OPS if "actstart" in caps else ()
 #: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
 NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
 #: [ff9mapkit netsync B4] `bbench <op>` (NetSyncBattle.HarnessStockBench): s106's two, then s107's bench feed -- each
@@ -778,6 +818,13 @@ class FakeGame:
         #: `netsync.battle.peer.expired`. The stand-in has no transport and its selftest loopback writes the view directly
         #: (as the engine's does), so nothing ever runs out and the block sits at its sentinels; a test may pump it by hand.
         self._peer_lane = BW.PeerLane()
+        #: [ff9mapkit netsync s133] NetSyncBattle's host action-start lane (battlewire.ActHostLane: its statics, per PROCESS
+        #: for the lever, the tape and `edge_declined`; per own battle for the rest) -- `netsync.battle.act.host`. Fed by
+        #: the stand-in's own selftest battles (:meth:`_act_command`); its Log.Message lines go to Memoria.log.
+        self._act_lane = BW.ActHostLane()
+        self._act_logged = 0
+        #: [ff9mapkit netsync s133] the stand-in's enemy attack's sub_no (an EnemyAtk START names it: kind 2, num == sub)
+        self.act_enemy_sub = 3
         #: [ff9mapkit netsync R3] the selftest proof block is logged once per process; s120's overlay is composed by the
         #: selftest role's first tick ("off", detail 0) and keeps that state after it
         self._proof_logged = False
@@ -3386,7 +3433,8 @@ class FakeGame:
             self.battle_turn = -1           # SetIdle: the HUD stops asking
             self._close_battle_cursor()
         unit["atb"] = 0
-        self.battle_pending.append([self.frame + self.cmd_resolve_frames, slot, cmd, tar_id])
+        # [ff9mapkit netsync s133] + the sub and the cursor (the action-start lane's START carries them)
+        self.battle_pending.append([self.frame + self.cmd_resolve_frames, slot, cmd, tar_id, sub, cursor])
 
     def _resolve_commands(self) -> None:
         """Execute the commands whose time has come, then hand their slots back.
@@ -3397,18 +3445,24 @@ class FakeGame:
         """
         for entry in [e for e in self.battle_pending if e[0] <= self.frame]:
             self.battle_pending.remove(entry)
-            _, slot, cmd, tar_id = entry
+            _, slot, cmd, tar_id = entry[:4]
+            sub, cursor = (entry[4], entry[5]) if len(entry) > 5 else (0, 0)
             # Only Attack and Fire do damage here; Defend and items resolve harmlessly. That is
             # enough for a fight to actually END, which is what makes fight() testable at all.
+            hits = []
             if cmd in (1, 4):
                 damage = 260 if cmd == 1 else 400
                 for target in self.battle_units:
                     if tar_id & target["id"] and target["alive"]:
                         target["hp"] = max(0, target["hp"] - damage)
                         target["hp_raw"] = max(0, target["hp_raw"] - damage)
+                        hits.append((target, damage))
                         if target["hp"] == 0:
                             target["alive"] = False
                             target["targetable"] = False
+            else:
+                hits = [(t, 0) for t in self.battle_units if tar_id & t["id"]]
+            self._act_command(slot, cmd, sub, tar_id, cursor, hits)
             if slot in self.battle_done:
                 self.battle_done.remove(slot)
             if slot in self.battle_ready:
@@ -3533,6 +3587,9 @@ class FakeGame:
                     victim["hp_raw"] = max(0, victim["hp_raw"] - self.enemy_hit)
                     if victim["hp"] == 0:
                         victim["alive"] = False
+                    # [ff9mapkit netsync s133] the enemy's EnemyAtk: its START, the hit, its END on the action lane
+                    self._act_command(unit["slot"], BW.CMD_ENEMY_ATK, self.act_enemy_sub, int(victim["id"]), 0,
+                                      [(victim, self.enemy_hit)])
 
         # The HUD asks the first ready slot that has not answered -- BattleHUD.UpdatePlayer. [ff9mapkit netsync B4] It skips a
         # GUEST-OWNED slot (IsGuestOwnedSlot: a `guestslots` slot of a selftest own battle -- the loopback guest commands it)
@@ -4010,8 +4067,9 @@ class FakeGame:
             self._replay_next = 0
             self._replay_paced = paced != 0
             self._replay_start = self._guest_now()
-        elif sub in ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench"):
-            # [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op benches (s100-s110)
+        elif sub in ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
+                     "actbench"):
+            # [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op benches (s100-s110; s133 `actbench`)
             self._battle_bench_verb(sub, args, arg, out_of_range)
 
     def _release_netsync(self) -> None:
@@ -4218,7 +4276,9 @@ class FakeGame:
     def _mlog(self, msg: str) -> None:
         """[ff9mapkit netsync R3] One Memoria.Prime.Log.Message line in the game root's Memoria.log: ``dd.MM.yyyy HH:mm:ss
         |M| <msg>``, CRLF as the archived real logs read (.harness-runs/*/Memoria.log). The stand-in writes only the lines a
-        modelled R3 bench reads: the selftest proof block's R3 lines, the hand-back lines (s110 / s118) and s121's line."""
+        modelled R3 bench reads: the selftest proof block's R3 lines, the hand-back lines (s110 / s118) and s121's line --
+        [ff9mapkit netsync s133] and the host action-start lane's (battlewire.ActHostLane.lines: the battle's summary, the
+        `actbench` lever and tape lines, their release)."""
         stamp = time.strftime("%d.%m.%Y %H:%M:%S")
         path = self.memoria_log
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -4255,6 +4315,8 @@ class FakeGame:
             rows.append((BW.PROOF_MENU, BW.MENU_SELFTEST_ROWS))
         if "expiredseq" in caps:                            # [ff9mapkit netsync s131] right after the menu refusal's
             rows.append((BW.PROOF_ADOPT, BW.ADOPT_SELFTEST_ROWS))
+        if "actstart" in caps:                              # [ff9mapkit netsync s133] right after the peer adopt's
+            rows.append((BW.PROOF_ACTION, BW.ACTION_SELFTEST_ROWS))
         for head, n in rows:
             self._mlog("[NetSync] " + BW.proof_ok(head, n))
 
@@ -4452,6 +4514,8 @@ class FakeGame:
             if "defeat" in caps:                            # [ff9mapkit netsync R3 s117]
                 end["follow_msg"] = nb.follow_msg
             doc["end"] = end
+        if "actstart" in caps:                              # [ff9mapkit netsync s133] AppendAct, the fifth sub-object
+            doc["act"] = {"host": self._act_lane.doc(enabled=bool(self.netsync["enabled"]), selftest_role=role)}
         return doc
 
     def _nb_peer_end(self) -> dict | None:
@@ -4525,6 +4589,9 @@ class FakeGame:
         if nb.bench_guest_slots:
             nb.bench_guest_slots = False
             nb.guest_slots = 0                      # the pin while forced, else the ini's own value (0 here)
+        # [ff9mapkit netsync s133] ActHarnessRelease, last: the action-start lever back on, the action tape emptied
+        self._act_lane.release()
+        self._act_flush()
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
@@ -4590,6 +4657,8 @@ class FakeGame:
             self._nb_bbench(args, out_of_range, caps)
         elif sub == "endbench":
             self._nb_endbench(args, arg, out_of_range, caps)
+        elif sub == "actbench":
+            self._nb_actbench(args, arg, out_of_range)        # [ff9mapkit netsync s133]
 
     def _nb_bmenu(self, args: list, arg, out_of_range) -> None:
         """`netsync bmenu ...` (s102): HarnessAgent's parse of `capture` / `open` / `close`, then
@@ -6727,11 +6796,20 @@ class FakeGame:
         nb.hold_why = nb.hold_release = None
         nb.hold_held_ms = nb.hold_late_ms = -1
         nb.ctl_null_seen = nb.last_ctl_legacy = False
+        if "actstart" in self._nb_caps():
+            self._act_lane.battle_start(nb.nonce)           # [ff9mapkit netsync s133] ActBattleStart, after the nonce bump
 
     def _nb_own_end(self) -> None:
         """An own battle's falling edge (NoteOwnBattleEnd): the host's "last sample" reads -1, `host.end` null, the lane
-        is no longer live (the trails stay readable). [ff9mapkit netsync B4] s110: the hold ends and a lapse with it."""
+        is no longer live (the trails stay readable). [ff9mapkit netsync B4] s110: the hold ends and a lapse with it.
+        [ff9mapkit netsync s133] SelfTestPump's falling edge closes the own battle's action lane (no_end vs cut) before Reset
+        -- and Reset DISCARDS the frames buffered since the last in-battle tick unsent, as Pump's falling edge does (the
+        loopback models the wire: they never reach the audit or the tape)."""
         nb = self._nb
+        if "actstart" in self._nb_caps():
+            self._act_lane.close_battle(False, mid_action=False)
+            self._act_lane.out.clear()
+            self._act_flush()
         nb.own_epoch = None
         nb.phase_open = False
         nb.last_caps = -1
@@ -6751,6 +6829,92 @@ class FakeGame:
         nb.remote_seen = -1
         nb.remote_menu = False
         nb.ctl_null_seen = nb.last_ctl_legacy = False
+
+    # -- [ff9mapkit netsync s133] the host action-start lane ------------------------------------------------------------
+    #: The stand-in's describe (btl_vfx.DescribeCommandVfx's kind and number) for ITS command ids (MENU_COMMANDS: shapes,
+    #: not real FF9 ids): Attack the weapon's SpecialEffect (one number per caster slot, as a weapon serial is), Defend
+    #: COMMON, a Blk Mag ability and an item their sub_no as a SpecialEffect, an enemy's EnemyAtk its sub (kind 2).
+    ACT_FAKE_ATTACK_SFX = 100
+
+    def _act_describe(self, slot: int, cmd: int, sub: int) -> tuple:
+        if cmd == BW.CMD_ENEMY_ATK:
+            return BW.VFX_KIND_ENEMY, sub
+        if cmd == 1:
+            return BW.VFX_KIND_SPECIAL, self.ACT_FAKE_ATTACK_SFX + slot
+        if cmd == 2:
+            return BW.VFX_KIND_COMMON, cmd
+        if cmd in (4, 8):
+            return BW.VFX_KIND_SPECIAL, sub
+        return BW.VFX_KIND_NONE, 0
+
+    def _act_command(self, slot: int, cmd: int, sub: int, tar_id: int, cursor: int, hits: list) -> None:
+        """[ff9mapkit netsync s133] One resolved command on the HOST's action-start lane (battlewire.ActHostLane): the START
+        (QueueActionStart's gate: [Netsync] Enabled, no booted diorama, !isDebug, the lever, the pump's rising edge; the
+        actor's wire slot), the describe check (SelectCommandVfx is modelled as running what was described: no drift), one
+        impact per unit hit (QueueActionFrame's 46 bytes + the id), then the END (FinishCommand). NOT MODELLED: the
+        stand-in resolves a command in ONE frame, so START, impacts and END land in the same tick (the engine spreads them
+        over the sequence; the FIFO order is the same) -- no command is ever open across a falling edge (no `no_end` / `cut`
+        from a stand-in battle), no scripted sequence (StartBtlSeq: `scripted` 0), no stat tick, no counter / double-cast
+        slot, no unresolved actor, no buffer drop at the stand-in's action rates; the old engine is never modelled
+        (`vfx.unchecked` 0). The seqs follow the STATE-WRITE<=>HORIZON law: each impact stamps the sample clock and CONSUMES
+        it (the engine's ``bw.Write(_seq++)``), the START and the END stamp it without consuming -- so the next sample's seq
+        is past every impact's horizon."""
+        if "actstart" not in self._nb_caps():
+            return
+        nb, lane, ns = self._nb, self._act_lane, self.netsync
+        role = self._nb_role()
+        unit = next((u for u in self.battle_units if u["slot"] == slot), None)
+        if unit is None:
+            return
+        player = bool(unit.get("player"))
+        gate = dict(enabled=bool(ns["enabled"]), booted=bool(self._dio["booted"]), is_debug=bool(self.battle_debug))
+        key = ("cmd0", slot)                                # a unit's cmd[0], reused turn after turn as the engine's is
+        nonce = nb.nonce
+        kind, num = self._act_describe(slot, cmd, sub)
+        flags = (BW.ACTOR_IS_PLAYER if player else 0) | BW.ACTOR_HOST_REWORK | (
+            BW.ACTOR_HOST_FAST if self.cfg_speed >= 3 else 0)
+        lane.start(key, scripted=False, actor_slot=slot, actor_flags=flags, cmd_no=cmd, sub_no=sub, tar_id=tar_id,
+                   nonce=nonce, seq=nb.wire_seq, selftest_role=role, was_in_battle=nb.own_epoch == self.battle_epoch,
+                   cursor=cursor, vfx=(kind, num), host_speed=self.cfg_speed, **gate)
+        added = None if kind == BW.VFX_KIND_NONE else (kind == BW.VFX_KIND_ENEMY, num if kind in (
+            BW.VFX_KIND_ENEMY, BW.VFX_KIND_SPECIAL) else 0)
+        lane.check_vfx(key, rework=True, added=added)
+        for target, damage in hits:
+            fl = (1 if damage else 0) | (32 if target.get("player") else 0) | (64 if player else 0)
+            legacy = BW.encode_action_impact(nonce, nb.wire_seq, slot, target["slot"], fig_t=(0, damage, 0),
+                                             raws=(target.get("hp_raw", 0), 0, unit.get("hp_raw", 0), 0), flags=fl,
+                                             cmd_no=cmd, sub_no=sub)
+            if lane.impact(key, legacy, selftest_role=role, **gate) is not None:
+                nb.wire_seq = (nb.wire_seq + 1) & 0xFFFF   # QueueActionFrame's `_seq++`: the horizon CONSUMED
+        lane.end(key, nonce=nonce, seq=nb.wire_seq, enabled=gate["enabled"])
+        self._act_flush()
+
+    def _act_flush(self) -> None:
+        """The lane's new Log.Message lines into Memoria.log (Memoria's line shape)."""
+        lines = self._act_lane.lines
+        for text in lines[self._act_logged:]:
+            self._mlog(text)
+        self._act_logged = len(lines)
+
+    def _nb_actbench(self, args: list, arg, out_of_range) -> None:
+        """[ff9mapkit netsync s133] `netsync actbench ...`: HarnessAgent's argument parse FIRST (`tape dump <from> <count>`
+        with count 1-ActTapePageMax, every other form exactly three words), then NetSyncBattle.HarnessActBench (the
+        selftest role, the op, its value) -- in the agent's order and words."""
+        aop = args[1].lower() if len(args) > 1 else ""
+        aval = args[2].lower() if len(args) > 2 else ""
+        afrom = acount = -1
+        if aop == "tape" and aval == "dump":
+            afrom, acount = arg(3, -1), arg(4, -1)
+            if len(args) != 5 or afrom < 0 or acount < 1 or acount > BW.ACT_TAPE_PAGE_MAX:
+                raise out_of_range("netsync actbench tape dump", "expected `tape dump <from> <count>` (from >= 0, count 1-"
+                                   + str(BW.ACT_TAPE_PAGE_MAX) + ")")
+        elif len(args) != 3:
+            raise out_of_range("netsync actbench", "expected `actbench hoststarts on|off`, `actbench tape "
+                               "rec|stop|clear|info` or `actbench tape dump <from> <count>`")
+        ok, why = self._act_lane.bench(aop, aval, afrom, acount, selftest_role=self._nb_role(), now_ms=int(self.rt * 1000))
+        self._act_flush()
+        if not ok:
+            raise RuntimeError(why or "netsync actbench refused")
 
     def _nb_pump_own(self, caps) -> None:
         """SelfTestPump in an own battle: TrackCommandPhase, the roster, the sample (caps + Ready bits + the end block),
@@ -6812,8 +6976,14 @@ class FakeGame:
             caps_byte = BW.own_battle_caps(gates, self.battle_random, intro_on=self._nb_intro_on(),
                                            skipped=nb.own_intro == 1,
                                            holding="starthold" in caps and nb.hold is not None and BW.hold_bit(nb.hold))
+        if "actstart" in caps and self._act_lane.starts_on(self._nb_role()):
+            caps_byte |= BW.CAP_ACTION_STARTS               # [ff9mapkit netsync s133] bit 5 (not under `hoststarts off`)
         nb.last_caps, nb.last_ready = caps_byte, ready
         nb.wire_seq = (nb.wire_seq + 1) & 0xFFFF
+        if "actstart" in caps:
+            # [ff9mapkit netsync s133] LoopActions: this tick's type-6 frames round-trip the codec into the audit and tape
+            self._act_lane.loop_actions(int(self.rt * 1000))
+            self._act_flush()
         end = None
         if "endblock" in caps:
             ui, state = BW.UI_OTHER, 0

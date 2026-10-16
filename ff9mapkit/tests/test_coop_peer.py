@@ -869,6 +869,36 @@ def test_info_and_dump_read_a_tape(tmp_path, capsys):
     assert len(dumped) == 2 and "F9 0E 01 0C 00" in dumped[0]
 
 
+def test_dump_and_info_decode_an_s133_hosts_action_records(tmp_path, capsys):
+    """[ff9mapkit netsync s133] audit D5: `dump` / `info` decode type 6 through battlewire -- an s133 host's START (its
+    actor, its vfx kind), the impact's action id, the END; a pre-s133 host's 46-byte impact named as such; `info` counts
+    the host's action records (the tape fact s134's act leg reads: STARTs on this tape)."""
+    start = BW.encode_action_start(7, 10, 3, 0, BW.ACTOR_IS_PLAYER, 1, 176, 0x10, 0, 0, 0, BW.VFX_KIND_SPECIAL, 100, -1, 5)
+    impact = BW.encode_action_impact(7, 10, 0, 4, fig_t=(0, 33, 0), flags=65, cmd_no=1, sub_no=176, act_id=3)
+    end = BW.encode_action_end(7, 10, 3, 1, 176)
+    old = BW.encode_action_impact(7, 10, 0, 4, fig_t=(0, 33, 0), flags=65, cmd_no=1, sub_no=176)
+    texts = [CP.describe_frame(CP.TYPE_ACTION, p) for p in (start, impact, end, old)]
+    assert texts[0].startswith("action START id 3 actor 0 flags 0x01 cmd 1 sub 176 tar 0x10") and "kind special 100" \
+        in texts[0]
+    assert texts[1] == "action impact 0->4 cmd 1/176 hp 33 id 3" and texts[2] == "action END id 3 (cmd 1/176)"
+    assert texts[3].endswith("(46 B: no id -- a pre-s133 host)")
+    path = tmp_path / "act.f9tape"
+    tap = CP.TapeWriter(path, mode="test", clock=lambda: 0.0)
+    for p in (start, impact, end, old):
+        tap.write(CP.DIR_HOST, CP.build_frame(CP.TYPE_ACTION, p))
+    tap.close()
+    lines = CP.tape_info(path)
+    assert "host action records: 1 START(s), 1 END(s), 2 impact(s) (1 with an action id), 0 stat tick(s), 0 bad" in lines
+    assert CP.main(["dump", str(path), "--type", str(CP.TYPE_ACTION)]) == 0
+    out = capsys.readouterr().out
+    assert "action START id 3" in out and "action END id 3" in out and "a pre-s133 host" in out
+    pre = tmp_path / "pre.f9tape"
+    tap = CP.TapeWriter(pre, mode="test", clock=lambda: 0.0)
+    tap.write(CP.DIR_HOST, CP.build_frame(CP.TYPE_ACTION, old))
+    tap.close()
+    assert any(ln.endswith("-- no START: a pre-s133 host (or its `actbench hoststarts off`)") for ln in CP.tape_info(pre))
+
+
 def test_replay_host_cli_refuses_a_bad_plan_before_listening(tmp_path, capsys):
     path = tmp_path / "t.f9tape"
     _write_tape(path, [(0.0, CP.DIR_HOST, CP.build_pos_frame(250))])

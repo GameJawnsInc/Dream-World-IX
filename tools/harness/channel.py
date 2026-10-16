@@ -1629,6 +1629,97 @@ class State:
                                                             "repeat (the cut's tail less up to two Updates); -1 = none "
                                                             "yet.")
 
+    # [ff9mapkit netsync s133] THE HOST ACTION-START LANE (studies/battle-coop/R3-DESIGN.md 3.3.2 as amended by
+    # R3-ACTION-REPLAY-AUDIT.md 2.1): `netsync.battle.act.host` -- every action an own battle runs ships a START before its
+    # first impact and an END after its last, each impact carries its id, type-1 header flags bit 5 says so. The capability
+    # is the block's PRESENCE (absent = None per key, False for :attr:`coop_act_host`): an engine before s133 answers
+    # `netsync actbench` "unknown sub-verb". Published in EVERY role (audit 3.6); `loop` and `tape` are fed only by the
+    # selftest loopback and read zero elsewhere. Counters are per OWN BATTLE (reset at its rising edge, kept after it until
+    # the next one starts) unless marked monotonic; the tape is per process (`actbench tape`).
+    @property
+    def coop_act_host(self) -> bool | None:
+        """s133: the host action-start lane (``netsync.battle.act.host``; the verb ``actbench``). False = an engine whose
+        host ships no action START/END records and no impact ids (s132 and older)."""
+        return self._nb_cap("act.host", dict)
+
+    coop_act_host_block = _nb_prop("act.host", dict, "s133: the whole ``act.host`` block, copied.")
+    coop_act_host_on = _nb_prop("act.host.on", bool, "s133: this host ships STARTs/ENDs and impact ids NOW ([Netsync] "
+                                                     "Enabled and the calibration lever not pulled).")
+    coop_act_host_lever_off = _nb_prop("act.host.lever_off", bool, "s133: the selftest calibration lever `actbench "
+                                                                   "hoststarts off` (the pre-s133 host).")
+    coop_act_host_nonce = _nb_prop("act.host.nonce", int, "s133: the own battle these counts belong to; -1 = none yet.")
+    coop_act_host_starts = _nb_prop("act.host.starts", int, "s133: START records queued this own battle.")
+    coop_act_host_ends = _nb_prop("act.host.ends", int, "s133: END records queued (a displaced id's END included).")
+    coop_act_host_ext_impacts = _nb_prop("act.host.ext_impacts", int, "s133: impacts that carried the id extension.")
+    coop_act_host_noid_impacts = _nb_prop("act.host.noid_impacts", int, "s133: ...of them, id 0 (a nested CMD_DATA, a "
+                                                                        "declined START, an ENDed lifecycle).")
+    coop_act_host_scripted = _nb_prop("act.host.scripted", int, "s133: StartBtlSeq STARTs (never ENDed).")
+    coop_act_host_open = _nb_prop("act.host.open", int, "s133: END-eligible ids open now.")
+    coop_act_host_dropped = _nb_prop("act.host.dropped", int, "s133: type-6 frames the 64-frame action buffer dropped "
+                                                              "(oldest first, every kind) this own battle -- the PER-TICK "
+                                                              "burst budget only (Pump flushes it every in-battle tick).")
+    coop_act_host_wire_dropped = _nb_prop("act.host.wire_dropped", int, "s133: type-6 frames the TRANSPORT's 64-frame "
+                                                                        "out-queue dropped this own battle (a stalled or "
+                                                                        "backlogged link; always 0 under the selftest "
+                                                                        "loopback: no transport).")
+    coop_act_host_unresolved = _nb_prop("act.host.unresolved", int, "s133: commands with no wire actor (no START, no "
+                                                                    "id, no END).")
+    coop_act_host_scripted_takeover = _nb_prop("act.host.scripted_takeover", int,
+                                               "s133: StartBtlSeq over an open cmd[0] (its END went first).")
+    coop_act_host_scripted_reentry = _nb_prop("act.host.scripted_reentry", int,
+                                              "s133: a CommandEngine START on a CMD_DATA whose scripted sequence still ran.")
+    coop_act_host_restarted = _nb_prop("act.host.restarted", int, "s133: a CommandEngine START over its own open id.")
+    coop_act_host_no_end = _nb_prop("act.host.no_end", int, "s133: END-eligible ids open at a NORMAL close (a defect).")
+    coop_act_host_cut = _nb_prop("act.host.cut", int, "s133: ...open at a reset mid-battle or a mid-action teardown.")
+    coop_act_host_edge_declined = _nb_prop("act.host.edge_declined", int,
+                                           "s133: STARTs declined before the own battle's rising edge -- monotonic per "
+                                           "PROCESS, read DELTAS.")
+    coop_act_host_kinds = _nb_prop("act.host.kinds", dict, "s133: STARTs by vfx kind, copied.")
+    coop_act_host_kinds_none = _nb_prop("act.host.kinds.none", int, "s133: STARTs of kind 0 (no vfx).")
+    coop_act_host_kinds_seq = _nb_prop("act.host.kinds.seq", int, "s133: ...kind 1 (the ability's .seq).")
+    coop_act_host_kinds_enemy = _nb_prop("act.host.kinds.enemy", int, "s133: ...kind 2 (an enemy sequence, num = sub).")
+    coop_act_host_kinds_special = _nb_prop("act.host.kinds.special", int, "s133: ...kind 3 (a SpecialEffect).")
+    coop_act_host_kinds_common = _nb_prop("act.host.kinds.common", int, "s133: ...kind 4 (Defend / Change).")
+    coop_act_host_kinds_unknown = _nb_prop("act.host.kinds.unknown", int, "s133: ...0xFF (the describe threw).")
+    coop_act_host_vfx = _nb_prop("act.host.vfx", dict, "s133: the describe check (audit D2), copied.")
+    coop_act_host_vfx_checked = _nb_prop("act.host.vfx.checked", int, "s133: CommandEngine STARTs checked against what "
+                                                                      "SelectCommandVfx ran (SFXRework).")
+    coop_act_host_vfx_drift = _nb_prop("act.host.vfx.drift", int, "s133: ...that disagreed (DescribeCommandVfx no "
+                                                                  "longer mirrors it, or a CSV .seq's first use).")
+    coop_act_host_vfx_unchecked = _nb_prop("act.host.vfx.unchecked", int, "s133: ...on the old engine (no "
+                                                                          "runningActions to check).")
+    coop_act_host_vfx_why = _nb_prop("act.host.vfx.why", str, "s133: the last drift, named; \"\" = none.")
+    coop_act_host_last = _nb_prop("act.host.last", dict, "s133: the last START as shipped, decoded ({id, actor, flags, "
+                                                         "cmd, sub, tar, cursor, info, magic, kind, num, patched, speed}); "
+                                                         "None = none this battle.")
+    coop_act_host_loop = _nb_prop("act.host.loop", dict, "s133: the selftest loopback's audit, copied.")
+    coop_act_host_loop_starts = _nb_prop("act.host.loop.starts", int, "s133: STARTs the loopback received.")
+    coop_act_host_loop_ends = _nb_prop("act.host.loop.ends", int, "s133: ENDs the loopback received.")
+    coop_act_host_loop_impacts = _nb_prop("act.host.loop.impacts", int, "s133: impacts (stat ticks never count).")
+    coop_act_host_loop_impacts_ext = _nb_prop("act.host.loop.impacts_ext", int, "s133: ...with the id extension.")
+    coop_act_host_loop_stat = _nb_prop("act.host.loop.stat", int, "s133: stat ticks (flags bit 7, 46 bytes).")
+    coop_act_host_loop_ext_bad = _nb_prop("act.host.loop.ext_bad", int, "s133: bad / unknown-fmt extensions, and "
+                                                                        "START/END-flagged frames with none.")
+    coop_act_host_loop_paired = _nb_prop("act.host.loop.paired", int, "s133: ENDs that closed an open END-eligible START.")
+    coop_act_host_loop_orphans = _nb_prop("act.host.loop.orphans", int, "s133: an END with no open START, an impact "
+                                                                        "naming no open id, a duplicate START id.")
+    coop_act_host_loop_caster_mismatch = _nb_prop("act.host.loop.caster_mismatch", int,
+                                                  "s133: an impact whose caster is not its START's actor.")
+    coop_act_host_loop_no_end = _nb_prop("act.host.loop.no_end", int, "s133: STARTs the loopback saw open at a normal "
+                                                                      "close.")
+    coop_act_host_loop_cut = _nb_prop("act.host.loop.cut", int, "s133: ...open at a reset or a mid-action teardown.")
+    coop_act_host_tape = _nb_prop("act.host.tape", dict, "s133: the `actbench tape` block, copied.")
+    coop_act_host_tape_state = _nb_prop("act.host.tape.state", str, "s133: \"off\" | \"rec\" | \"stopped\" (\"\" = the "
+                                                                    "catch line's null).")
+    coop_act_host_tape_frames = _nb_prop("act.host.tape.frames", int, "s133: frames on the tape (at most 1024).")
+    coop_act_host_tape_starts = _nb_prop("act.host.tape.starts", int, "s133: ...of them STARTs.")
+    coop_act_host_tape_ms = _nb_prop("act.host.tape.ms", int, "s133: the last frame's offset from `tape rec`; -1 = none.")
+    coop_act_host_tape_overflow = _nb_prop("act.host.tape.overflow", int, "s133: frames past the 1024 cap (counted, not "
+                                                                          "recorded).")
+    coop_act_host_tape_page = _nb_prop("act.host.tape.page", dict, "s133: the last `actbench tape dump` ({from, count, "
+                                                                   "total, frames: [{i, ms, hex}]} -- compact upper-case "
+                                                                   "hex); None = none.")
+
     # ---- host: s111 the intro mirror's host half
     coop_host_cfg = _nb_prop("host.cfg", dict, "s111: the whole ``cfg`` block, copied (LIVE reads).")
     coop_cfg_atb = _nb_prop("host.cfg.atb", int, "s111: cfg.atb -- 0 Active, 1 Wait (a ``bench cfg atb`` override shows "
