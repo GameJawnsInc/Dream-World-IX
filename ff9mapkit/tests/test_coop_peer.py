@@ -899,6 +899,29 @@ def test_dump_and_info_decode_an_s133_hosts_action_records(tmp_path, capsys):
     assert any(ln.endswith("-- no START: a pre-s133 host (or its `actbench hoststarts off`)") for ln in CP.tape_info(pre))
 
 
+def test_tape_action_frames_carries_the_hosts_type6_payloads_in_order(tmp_path):
+    """[ff9mapkit netsync s134] tape_action_frames: the HOST's type-6 payloads off a tape, in order, with their tape times --
+    what the s134 tape leg judges the guest's replay against; a guest frame (dir 1) and other wire types never count, and
+    tape_actions' counts are the same frames'."""
+    start = BW.encode_action_start(7, 10, 3, 0, BW.ACTOR_IS_PLAYER, 1, 176, 0x10, 0, 0, 0, BW.VFX_KIND_SPECIAL, 100, -1, 5)
+    impact = BW.encode_action_impact(7, 10, 0, 4, fig_t=(0, 33, 0), flags=65, cmd_no=1, sub_no=176, act_id=3)
+    end = BW.encode_action_end(7, 10, 3, 1, 176)
+    path = tmp_path / "act.f9tape"
+    tap = CP.TapeWriter(path, mode="test", clock=lambda: 0.0)
+    tap.write(CP.DIR_HOST, CP.build_frame(CP.TYPE_ACTION, start), t=0.5)
+    tap.write(CP.DIR_GUEST, CP.build_frame(CP.TYPE_ACTION, impact), t=1.0)
+    tap.write(CP.DIR_HOST, CP.build_pos_frame(250), t=1.5)
+    tap.write(CP.DIR_HOST, CP.build_frame(CP.TYPE_ACTION, impact), t=2.0)
+    tap.write(CP.DIR_HOST, CP.build_frame(CP.TYPE_ACTION, end), t=2.5)
+    tap.close()
+    _header, records, _torn = CP.read_tape(path)
+    got = CP.tape_action_frames(records)
+    assert [p for _t, p in got] == [start, impact, end]
+    assert [round(t, 3) for t, _p in got] == [0.5, 2.0, 2.5]
+    acts = CP.tape_actions(records)
+    assert (acts["frames"], acts["starts"], acts["ends"], acts["impacts"], acts["ext"]) == (3, 1, 1, 1, 1)
+
+
 def test_replay_host_cli_refuses_a_bad_plan_before_listening(tmp_path, capsys):
     path = tmp_path / "t.f9tape"
     _write_tape(path, [(0.0, CP.DIR_HOST, CP.build_pos_frame(250))])

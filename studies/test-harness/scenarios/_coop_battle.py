@@ -126,6 +126,9 @@ R3_PROBES = {
     # [ff9mapkit netsync s133] group 2 (renumbered s133-s141): the host action-start lane (`actbench`) -- keyed on
     # `act.host`, never the bare `act` block (s134 adds `act.guest`; audit amendment 13)
     133: "netsync.battle.act.host",
+    # [ff9mapkit netsync s134] the guest action replay (the guest `actbench` ops: feed|feedat|tape play|replay|rework|
+    # shortcircuit|knob|clear|teardown)
+    134: "netsync.battle.act.guest",
 }
 
 
