@@ -132,6 +132,9 @@ R3_PROBES = {
     # [ff9mapkit netsync s135] the replay hit hold (the guest `actbench` ops: hold|lifeskip on|off, unit <slot> <state>) --
     # keyed on `act.guest.hold`, never a bare "hold" (s119's `netsync.diorama.hold`, s114's `host.start_hold`)
     135: "netsync.battle.act.guest.hold",
+    # [ff9mapkit netsync s136] fallback A, one stock clip per uncovered action (the guest `actbench` op: fallback on|off) --
+    # keyed on `act.guest.fallback`
+    136: "netsync.battle.act.guest.fallback",
 }
 
 

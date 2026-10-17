@@ -9,8 +9,8 @@ stack replays by number:
 | s133 | s122 | host action-start lane (START/END records, impact ids, header bit 5) | ★ deployed, solo-proven |
 | s134 | s123 | guest action replay | ★ deployed, solo-proven (solo + T2 tape leg) |
 | s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven, owner-confirmed |
-| s136 | s125 | fallback A: one stock clip per uncovered action | next |
-| s137 | s126 | trance burst timing | |
+| s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
+| s137 | s126 | trance burst timing | next |
 | s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | after action replay |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
@@ -158,3 +158,46 @@ arrived, so those numbers show on arrival, just after the swing. The tape leg sh
 median -234 ms). **Candidate follow-up (after group 2, with s142):** find where the host's ~300 ms goes between its own
 hit and the impact frame reaching the guest on a local link (its send point or cadence), or bound-wait the replay's
 EffectPoint for its paired impact so every number lands exactly on the swing.
+
+## s136: fallback A, one stock clip per uncovered action (2026-10-16)
+
+**What it does.** On the guest's diorama, an impact that no replay covers (an old host, a START declined, dropped or
+never received, ActionReplay=0, no SFXRework) used to get only the s110 player MP_ATTACK swing. It now plays one stock
+clip per action: Item/Throw MP_ITEM1, magic MP_MAGIC, Defend/Change none, other commands MP_ATTACK, and an enemy the
+first non-Idle caster PlayAnimation of its scene sequence (parsed, never executed, cached per (scene, sub); the Loop
+moves and scripted sequences included). Once per action, keyed (nonce, actId), or for an old host (caster, cmd, sub)
+inside a 500 ms battle-time window that slides with each sibling. An impact whose START is still pending waits for its
+decision; one whose caster is still acting in a replay waits for it (bounded, 4 s). Keys
+`netsync.battle.act.guest.fallback{...}`; `actbench fallback on|off`; 'action fallback selftest: OK (30 rows)'.
+
+**Built** by a workflow (engine, harness, a 4-lens review -- coverage/containment, stock safety, timing/dedupe/ends,
+harness -- with two skeptics per finding, a fix pass, a re-review, a second fix pass): 9 surviving findings in round 1
+(among them a whole action dropped when its caster was still acting, setMotion on a clip the unit lacks, the busy
+window's restore cutting a bystander's clip, the end/leave guard missing a Leave's own abort-all) and 5 in round 2
+(a pending START judged covered for good, the enemy Loop moves, the restore's order). 4 files, +1418/-19; the stack
+replays 29/29 byte-exact; 862 domain tests pass.
+
+**Calibrated on s135 first** (the live DLL `8258b7bb3ae0f606`): the solo bench under `COOP_CALIBRATE=1` red in exactly
+the probe-absent set (21 of 28, S136-CAL green); the T2 tape leg (the s133 host, ActionReplay=0) and the new ARC leg (the
+s117 old-host tape through the real intake) each red in exactly every fallback check (S136T-CAL, S136A-CAL green). The
+first tape and arc runs were disturbed from outside -- the owner had another game and a controller on: one launch left
+the title screen by itself, and one guest sat in the Pause menu through the host's fight (its start-hold report: BUSY)
+-- and both were green on a clean rerun. LESSON: the UNATTENDED LAW covers single-instance benches too.
+
+**Deployed** 2026-10-16 (`build_memoria.py`, backup `20261016-193358`; Assembly-CSharp `19ab527daa509b56`).
+
+**Proven solo on s136** (one block, nothing rerun):
+- The T2 TAPE LEG 13/13: the s133 host with ActionReplay=0 through the real transport -- every START declined `knob`,
+  attack and enemy clips keyed by id, every enemy clip equal to the offline btlseq oracle's, the Defends none. RED-only
+  under the inverse knob ActionReplay=1 (S136T-CAL: exactly UNCOV, CLIP, ENEMY, LOG).
+- The ARC LEG 12/12: the s117 OLD host's tape (no START, 46-byte impacts) through the real intake -- clips keyed by
+  caster inside the 500 ms window, enemy clips equal to the oracle's.
+- The solo bench 27/27 on its first in-game run and RED-only under `fallback off` (S136-CAL: exactly the 17-check lever
+  set). 'action fallback selftest: OK (30 rows)' in game.
+- The 6.1 regression set at baseline, incl. coop_action_hold 27/27 + its tape leg 12/12, coop_action_replay 35/35 + its
+  tape leg 16/16, coop_action_host 20/20, stock menu 27/27, dialogue authority 147/147 and result replay 50/51 (S9-C4L).
+  The T2 cut legs: cal 10/10, readopt 13/13 (+63 vs tail 67.3), s119 12/12 (+0), s120-battle 12/12 (+78), span 9/9.
+
+**What the owner would see:** nothing new on a normal duo -- an s133+ host's actions are all replayed (covered). Fallback
+A shows on mixed DLLs (an old host), a guest on the legacy engine, or a guest with `[Netsync] ActionReplay=0`: one stock
+clip per action instead of a full replay, and the enemies move.

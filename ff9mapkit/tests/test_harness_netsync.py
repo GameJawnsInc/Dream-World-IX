@@ -1849,15 +1849,19 @@ BATTLE_CONTAINERS = {"end.end_leave": "s105", "end.declined": "s105", "menu.cont
                      # [ff9mapkit netsync s134] its `guest` half and that half's fixed sub-objects
                      "act.guest": "s134", "act.guest.levers": "s134", "act.guest.grace": "s134",
                      "act.guest.window": "s134", "act.guest.aborts": "s134", "act.guest.discarded": "s134",
-                     # [ff9mapkit netsync s135] the replay hit hold, the LAST key of `act.guest`, and its `lag`
-                     "act.guest.hold": "s135", "act.guest.hold.lag": "s135"}
+                     # [ff9mapkit netsync s135] the replay hit hold (after `last`), and its `lag`
+                     "act.guest.hold": "s135", "act.guest.hold.lag": "s135",
+                     # [ff9mapkit netsync s136] fallback A, the LAST key of `act.guest`
+                     "act.guest.fallback": "s136"}
 #: The records that may be published null (an accessor reads None for them either way).
 BATTLE_NULLABLE = ("host.end", "peer.end", "menu.captured", "menu.roster", "menu.bench_roster", "menu.pending",
                    "menu.feed", "host.manifest", "host.handback.last", "end.replay.screen", "end.replay.fp",
                    # [ff9mapkit netsync s133]
                    "act.host.last", "act.host.tape.page",
                    # [ff9mapkit netsync s134]
-                   "act.guest.last")
+                   "act.guest.last",
+                   # [ff9mapkit netsync s136]
+                   "act.guest.fallback.last")
 
 
 def _leaves(block: dict, prefix: str = "") -> dict:
@@ -2057,9 +2061,11 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(guest["window"]) == FG.NETSYNC_ACT_GUEST_WINDOW_KEYS
     assert tuple(guest["aborts"]) == FG.NETSYNC_ACT_GUEST_ABORTS_KEYS == BW.ACT_ABORTS_KEYS
     assert tuple(guest["discarded"]) == FG.NETSYNC_ACT_GUEST_DISCARDED_KEYS == ("pending", "running")
-    # [ff9mapkit netsync s135] `act.guest.hold`, the LAST key of `act.guest`, and its fixed `lag`
-    assert list(guest)[-1] == "hold" and tuple(guest["hold"]) == FG.NETSYNC_ACT_GUEST_HOLD_KEYS
+    # [ff9mapkit netsync s135] `act.guest.hold`, after `last`, and its fixed `lag`; [ff9mapkit netsync s136] then
+    # `act.guest.fallback`, the LAST key of `act.guest`
+    assert list(guest)[-3:] == ["last", "hold", "fallback"] and tuple(guest["hold"]) == FG.NETSYNC_ACT_GUEST_HOLD_KEYS
     assert tuple(guest["hold"]["lag"]) == FG.NETSYNC_ACT_GUEST_HOLD_LAG_KEYS == BW.ACT_HOLD_LAG_KEYS
+    assert tuple(guest["fallback"]) == FG.NETSYNC_ACT_GUEST_FALLBACK_KEYS
     top = list(prev_doc)
     assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
@@ -2201,7 +2207,9 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
             "act.guest.on": "HarnessActGuestOn", "act.guest.rework": "HarnessActGuestRework",
             "act.guest.knob": "HarnessActGuestKnob",
             # [ff9mapkit netsync s135] the hold's levers at rest (`on` / `lifeskip` true; the catch line's false = "failed")
-            "act.guest.hold.on": "HarnessHoldOn", "act.guest.hold.lifeskip": "HarnessHoldLifeSkip"}
+            "act.guest.hold.on": "HarnessHoldOn", "act.guest.hold.lifeskip": "HarnessHoldLifeSkip",
+            # [ff9mapkit netsync s136] fallback A's lever at rest (`on` true; the catch line's false = "failed")
+            "act.guest.fallback.on": "HarnessFallbackOn"}
     for sub in want:
         assert list(got[sub]) == list(want[sub]), (sub, list(got[sub]), list(want[sub]))
     for path in BATTLE_CONTAINERS:                       # the fixed sub-objects keep the agent's key order too
@@ -2236,7 +2244,8 @@ BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", 
                  "s131", "s132",                              # [ff9mapkit netsync s131] (s122-s130 unused: group 2 is s133-s141)
                  "s133",                                      # [ff9mapkit netsync s133] group 2's first
                  "s134",                                      # [ff9mapkit netsync s134] the guest action replay
-                 "s135"]                                      # [ff9mapkit netsync s135] the replay hit hold
+                 "s135",                                      # [ff9mapkit netsync s135] the replay hit hold
+                 "s136"]                                      # [ff9mapkit netsync s136] fallback A
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2502,7 +2511,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s134] the guest action replay
             "coop_act_guest",
             # [ff9mapkit netsync s135] the replay hit hold
-            "coop_act_hold")
+            "coop_act_hold",
+            # [ff9mapkit netsync s136] fallback A
+            "coop_act_fallback")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -5430,6 +5441,7 @@ S131_CAPS = _all_caps_through("expiredseq")
 S132_CAPS = _all_caps_through("grace40")
 S133_CAPS = _all_caps_through("actstart")                              # [ff9mapkit netsync s134] s134's calibration red
 S134_CAPS = _all_caps_through("actreplay")                             # [ff9mapkit netsync s135] s135's calibration red
+S135_CAPS = _all_caps_through("acthold")                               # [ff9mapkit netsync s136] s136's calibration red
 _CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -6204,6 +6216,10 @@ def _proof_lines(fake) -> list:
 @pytest.mark.parametrize("caps,want", [
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30)]),
+    # [ff9mapkit netsync s136] s135 (s136's calibration red): no 'action fallback' line
+    ("s135", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
               BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28)]),
     # [ff9mapkit netsync s135] s134 (s135's calibration red): no 'action hold' line
     ("s134", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
@@ -6230,7 +6246,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     never runs the selftest role), so the s121 'no peer adopt line' red is the stand-in's, never yet observed in game."""
     fake = FakeGame(game)
     fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS,
-                         "s132": S132_CAPS, "s133": S133_CAPS, "s134": S134_CAPS}.get(caps) or _caps_at(caps)
+                         "s132": S132_CAPS, "s133": S133_CAPS, "s134": S134_CAPS,
+                         "s135": S135_CAPS}.get(caps) or _caps_at(caps)
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6245,7 +6262,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
         assert len(_proof_lines(fake)) == len(want)
     assert all(_battle_text(f'Log.Message("[NetSync] {h}"') for h in (BW.PROOF_CONTROL, BW.PROOF_WATCH, BW.PROOF_GRACE,
                                                                       BW.PROOF_ADOPT, BW.PROOF_ACTION,
-                                                                      BW.PROOF_REPLAY, BW.PROOF_HOLD)) \
+                                                                      BW.PROOF_REPLAY, BW.PROOF_HOLD,
+                                                                      BW.PROOF_FALLBACK)) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"'))
 
 
@@ -7548,7 +7566,8 @@ def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_st
     netsync s134] The guest ops (Session.NETSYNC_ACTBENCH_OP_CAPS) leave s133's "unknown op" list alone, and s134 REWROTE
     the agent's usage line: each engine's words are judged against a stand-in at THAT engine (s133's off s133's own
     patch), the guest forms by the s134 tests below. [ff9mapkit netsync s135] s135 rewrote the usage line again (the hold
-    ops): s134's is read off s134's own patch; the hold forms by the s135 tests below."""
+    ops): s134's is read off s134's own patch; the hold forms by the s135 tests below. [ff9mapkit netsync s136] ...and s136
+    once more (`fallback`): s135's off s135's own patch; the fallback form by the s136 tests below."""
     ops = net_lines("NetSyncBattle.cs", r"netsync actbench: unknown op '")
     assert len(ops) == 1 and tuple(re.search(r"\(([a-z|]+)\)\";", ops[0]).group(1).split("|")) == \
         Session.NETSYNC_ACTBENCH_OPS == FG.NETSYNC_ACTBENCH_OPS == FG.actbench_ops(_all_caps_through("actstart"))
@@ -7558,7 +7577,9 @@ def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_st
     for op, (_attr, _key, patch, _what) in Session.NETSYNC_ACTBENCH_OP_CAPS.items():
         later.setdefault(patch, []).append(op)
     assert tuple(later["s134"]) == FG.NETSYNC_ACTBENCH_GUEST_OPS == BW.ACT_GUEST_BENCH_OPS
-    assert tuple(later["s135"]) == FG.NETSYNC_ACTBENCH_HOLD_OPS == BW.ACT_HOLD_BENCH_OPS and set(later) == {"s134", "s135"}
+    assert tuple(later["s135"]) == FG.NETSYNC_ACTBENCH_HOLD_OPS == BW.ACT_HOLD_BENCH_OPS
+    assert tuple(later["s136"]) == FG.NETSYNC_ACTBENCH_FALLBACK_OPS == BW.ACT_FALLBACK_BENCH_OPS
+    assert set(later) == {"s134", "s135", "s136"}
     tape = net_lines("NetSyncBattle.cs", r"netsync actbench tape: expected `tape ")
     m = re.search(r"`tape ([a-z|]+)` or `tape dump <from> <count>`", tape[0]) if len(tape) == 1 else None
     assert m and Session.NETSYNC_ACTBENCH_TAPE_OPS == FG.NETSYNC_ACTBENCH_TAPE_OPS == tuple(m.group(1).split("|")) + (
@@ -7573,13 +7594,18 @@ def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_st
     s134_usage = [_literals(ln)[1] for ln in net_lines("HarnessAgent.cs", r'ArgumentOutOfRangeException\("netsync actbench", ',
                                                         [_patch_bytes("s134")])]
     assert s134_usage == [Session.NETSYNC_ACTBENCH_USAGE_S134] == [FG.NETSYNC_ACTBENCH_USAGE_S134]
-    assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE_S135}");')
-    assert Session.NETSYNC_ACTBENCH_USAGE_S135 == FG.NETSYNC_ACTBENCH_USAGE_S135
-    for old in (Session.NETSYNC_ACTBENCH_USAGE, Session.NETSYNC_ACTBENCH_USAGE_S134):         # s134, then s135, rewrote it
+    # [ff9mapkit netsync s136] s135's usage off its own patch (the line s136 rewrote), s136's off the live stack
+    s135_usage = [_literals(ln)[1] for ln in net_lines("HarnessAgent.cs", r'ArgumentOutOfRangeException\("netsync actbench", ',
+                                                        [_patch_bytes("s135")])]
+    assert s135_usage == [Session.NETSYNC_ACTBENCH_USAGE_S135] == [FG.NETSYNC_ACTBENCH_USAGE_S135]
+    assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE_S136}");')
+    assert Session.NETSYNC_ACTBENCH_USAGE_S136 == FG.NETSYNC_ACTBENCH_USAGE_S136
+    for old in (Session.NETSYNC_ACTBENCH_USAGE, Session.NETSYNC_ACTBENCH_USAGE_S134,
+                Session.NETSYNC_ACTBENCH_USAGE_S135):                    # s134, s135, then s136 rewrote it
         assert not _battle_text(f'"netsync actbench", "{old}");')
     tape_words = "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`"
     for caps, text in ((S133_CAPS, Session.NETSYNC_ACTBENCH_USAGE), (S134_CAPS, Session.NETSYNC_ACTBENCH_USAGE_S134),
-                       (None, Session.NETSYNC_ACTBENCH_USAGE_S135)):
+                       (S135_CAPS, Session.NETSYNC_ACTBENCH_USAGE_S135), (None, Session.NETSYNC_ACTBENCH_USAGE_S136)):
         fake = FakeGame(game)
         if caps is not None:
             fake.netsync_caps = caps
@@ -8545,8 +8571,9 @@ def test_the_act_guest_block_sits_after_host_at_the_catch_lines_sentinels():
     assert '\\"page\\":null}},\\"guest\\":{\\"on\\":false,' in b and "guest" not in a.split("diorama")[0]
     nothing = _agent_netsync_nothing()[0]
     assert _battle_of(nothing)["act"] == {"host": BW.ACT_HOST_SENTINELS, "guest": BW.ACT_GUEST_SENTINELS}
-    # s134 wrote the catch line whole; [ff9mapkit netsync s135] s135 added `act.guest.hold` (its last key) and nothing else
-    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "hold"}
+    # s134 wrote the catch line whole; [ff9mapkit netsync s135] s135 added `act.guest.hold` (after `last`) and nothing else;
+    # [ff9mapkit netsync s136] s136 `act.guest.fallback` (the last key) and nothing else
+    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("hold", "fallback")}
     assert _catch_doc_in("s134") == {**nothing, "battle": {**nothing["battle"], "act": {
         "host": BW.ACT_HOST_SENTINELS, "guest": s134_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134"))]
@@ -8554,7 +8581,7 @@ def test_the_act_guest_block_sits_after_host_at_the_catch_lines_sentinels():
     j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
     body = " ".join(_strip_comment(t) for t in new[i:j])
     names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
-    g = s134_guest                                                      # (`hold`: s135's own test)
+    g = s134_guest                                                      # (`hold` / `fallback`: their own tests)
     want = []
     for k, v in g.items():
         if k == "last":
@@ -8579,10 +8606,11 @@ def test_state_reads_the_act_guest_block_absent_on_s133_as_cannot():
     None at null, and the unit accessors read the seven keys (None without them)."""
     old = State({"frame": 1, "netsync": _catch_doc_in("s133")})
     live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
-    # ([ff9mapkit netsync s135] `act.guest.hold` is s135's: its own test below)
+    # ([ff9mapkit netsync s135] `act.guest.hold` is s135's, [ff9mapkit netsync s136] `act.guest.fallback` s136's: their own
+    # tests below)
     names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items()
-             if p.startswith("act.guest") and p != "act.guest.hold" and not p.startswith("act.guest.hold.")]
-    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "hold"}
+             if p.startswith("act.guest") and p.split(".")[2:3] not in (["hold"], ["fallback"])]
+    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("hold", "fallback")}
     assert len(names) == len(_leaves({"act": {"guest": s134_guest}})) + 6 == 63, names   # + 6 whole blocks
     assert (State({"frame": 1}).coop_act_guest, old.coop_act_guest, live.coop_act_guest) == (None, False, True)
     assert old.coop_act_host is True                                    # (s133's own block is there)
@@ -8611,7 +8639,8 @@ def test_a_fresh_stand_in_publishes_the_act_guest_block_and_s133_none(game):
     / `knob` the live reads at rest (true / true / 1); the stand-in at s133 publishes no `act.guest`, no 'action replay'
     proof line, and answers the guest forms in s133's words."""
     want = dict(BW.ACT_GUEST_SENTINELS, on=True, rework=True, knob=1,       # ([ff9mapkit netsync s135] + `hold`, its two
-                hold=dict(BW.ACT_GUEST_HOLD_SENTINELS, on=True, lifeskip=True))   # levers the live reads at rest)
+                hold=dict(BW.ACT_GUEST_HOLD_SENTINELS, on=True, lifeskip=True),   # levers the live reads at rest;
+                fallback=dict(BW.ACT_GUEST_FALLBACK_SENTINELS, on=True))   # [ff9mapkit netsync s136] + `fallback`, its lever)
     assert _battle_of(FakeGame(game)._netsync_doc())["act"]["guest"] == want
     old = _selftest(FakeGame(game))
     old.netsync_caps = S133_CAPS
@@ -8708,7 +8737,7 @@ def test_the_guest_ops_are_the_agents_and_the_driver_gates_them_by_act_guest(gam
     assert _added_after("s134", "HarnessAgent.cs", 'String aval = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";',
                         "if (Memoria.Netsync.NetSyncDiorama.IsActGuestBenchOp(aop, aval))")
     for op, (attr, key, patch, _what) in Session.NETSYNC_ACTBENCH_OP_CAPS.items():
-        if op in BW.ACT_HOLD_BENCH_OPS:                                 # ([ff9mapkit netsync s135] the hold's: below)
+        if op in BW.ACT_HOLD_BENCH_OPS + BW.ACT_FALLBACK_BENCH_OPS:     # (the hold's / fallback's: their own tests)
             continue
         assert (attr, key, patch) == ("coop_act_guest", "netsync.battle.act.guest", "s134"), op
     for op, words in Session.NETSYNC_ACTBENCH_GUEST_USAGE.items():
@@ -8881,11 +8910,15 @@ def test_shortcircuit_off_reds_the_tripwire_and_clear_and_teardown_drop_replays(
         assert _mlog_lines(fake, line), line
 
 
-def test_a_paired_impact_skips_the_swing_and_an_old_hosts_impact_swings(game):
+@pytest.mark.parametrize("level", ["s135", "s136"])
+def test_a_paired_impact_skips_the_swing_and_an_old_hosts_impact_swings(game, level):
     """ApplyActionFrame's s134 half: an impact naming a running replay's id pairs (`paired` 1) and its player swing is
     SKIPPED (`swing_skipped` 1: the replay is the clip); a 46-byte impact (no 0xA6 extension) is an old host's -- `old_host`
-    true, the line once, and the legacy MP_ATTACK swing shows on the caster."""
-    fake = _rep_dio(game)
+    true, the line once, and the legacy MP_ATTACK swing shows on the caster. [ff9mapkit netsync s136] The old host's impact
+    is fed once the replay ENDED: from s136 its Attack plays fallback A's attack clip (MP_ATTACK too, keyed by caster) --
+    and while its caster still ACTS in a replay fallback A refuses it (`guarded`: a clip would cut the replay's own),
+    where the s110 swing (s135) played over the replay."""
+    fake = _rep_dio(game, caps=S135_CAPS if level == "s135" else None)
     with session(game, fake) as g:
         _dio(g, fake)
         g.act_feed(_rep_start(1))
@@ -8897,10 +8930,19 @@ def test_a_paired_impact_skips_the_swing_and_an_old_hosts_impact_swings(game):
         assert st.coop_act_guest_swing_skipped == 1 and st.coop_act_guest_old_host is False
         old = BW.encode_action_impact(0x77, 4, 0, 4, fig_t=(0, 4321, 0), raws=(11200, 0, 420, 30), flags=1 | 64,
                                       cmd_no=1, sub_no=176)
-        g.act_feed(old)
-        st = _rep_until(g, lambda s: s.coop_act_guest_old_host is True and s.unit_mot(0) == BW.MP_ATTACK,
-                        "the old host's legacy swing")
+        st = g.act_feed(old)                                            # (the caster acts: s135 swings, s136 guards)
+        st = _rep_until(g, lambda s: s.coop_act_guest_old_host is True, "the old host's frame")
+        if level == "s136":
+            assert st.coop_act_fallback_guarded == 1 and st.coop_act_fallback_clips == 0
+        _rep_until(g, lambda s: s.coop_act_guest_running == 0 and s.unit_mot(0) != BW.MP_ATTACK, "the replay's end")
+        g.act_feed(BW.encode_action_impact(0x77, 5, 0, 4, fig_t=(0, 4321, 0), raws=(11200, 0, 420, 30), flags=1 | 64,
+                                           cmd_no=1, sub_no=176))
+        st = _rep_until(g, lambda s: s.unit_mot(0) == BW.MP_ATTACK, "the old host's legacy swing")
         assert st.coop_act_guest_swing_skipped == 1
+        if level == "s136":
+            assert st.coop_act_fallback_clips == 1 and st.coop_act_fallback_last["keyed_by"] == "caster"
+        else:
+            assert st.coop_act_fallback is False
     assert len(_mlog_lines(fake, BW.LOG_REPLAY_OLD_HOST)) == 1
 
 
@@ -9622,15 +9664,19 @@ def test_the_hold_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
     """THE CATCH-LITERAL RE-PIN for s135: `act.guest.hold` in AppendNetsync's SECOND catch literal, right after `last`,
     at its sentinels; the line stays ONE line of two literals; AppendActGuestHold writes the keys in the catch line's order
     (the lag's, then one figs entry's), each through its NetSyncDiorama getter (`rel_<via>` through HarnessHoldRelBy of
-    that via); AppendActGuest calls it after `last`; published in every role; protocol stays 5."""
+    that via); AppendActGuest calls it after `last`; published in every role; protocol stays 5. It was the LAST key at s135
+    -- [ff9mapkit netsync s136] s136 appended `fallback` after it (s136's own pin below) and changed nothing else."""
     catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
     assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
     a, b = _literals(catch[0])
     assert '\\"last\\":null,\\"hold\\":{\\"on\\":false,\\"lifeskip\\":false,' in b and "lifeskip" not in a
     nothing = _agent_netsync_nothing()[0]
     assert _battle_of(nothing)["act"]["guest"]["hold"] == BW.ACT_GUEST_HOLD_SENTINELS
-    assert list(_battle_of(nothing)["act"]["guest"])[-2:] == ["last", "hold"]
-    assert _catch_doc_in("s135") == nothing                                # s135 wrote the live catch line whole
+    assert list(_battle_of(nothing)["act"]["guest"])[-3:-1] == ["last", "hold"]
+    s135_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "fallback"}
+    assert list(_battle_of(_catch_doc_in("s135"))["act"]["guest"])[-2:] == ["last", "hold"]   # the last key AT s135
+    assert _catch_doc_in("s135") == {**nothing, "battle": {**nothing["battle"], "act": {    # s135 wrote that line whole
+        "host": BW.ACT_HOST_SENTINELS, "guest": s135_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s135"))]
     i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestHold("))
     j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
@@ -10374,9 +10420,9 @@ def load(name):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
-hl, ch, sh, tr, ah, ar, hd = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold",
-                                                  "coop_tape_record", "coop_action_host", "coop_action_replay",
-                                                  "coop_action_hold"))
+hl, ch, sh, tr, ah, ar, hd, fb = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold",
+                                                      "coop_tape_record", "coop_action_host", "coop_action_replay",
+                                                      "coop_action_hold", "coop_action_fallback"))
 print(json.dumps({
     "hl": {"catalog": sorted(hl._catalog(True)), "old": sorted(hl.OLD_PREDICTED), "capture_s": hl.CAPTURE_S},
     "cut": {leg: {"catalog": sorted(ch._catalog(leg, True)),
@@ -10408,7 +10454,21 @@ print(json.dumps({
            "replay_nonce": ar.NONCE, "figs": sorted(hd.FIG.values()), "boot1": list(hd.BOOT_1_LEGS),
            "tape": sorted(hd._tape_catalog(True)), "tape_plain": sorted(hd._tape_catalog(False)),
            "tape_hold": sorted(hd.TAPE_HOLD), "tape_old": sorted(hd._tape_predicted(False)),
-           "tape_knob": sorted(hd._tape_predicted(True)), "doc": " ".join((hd.__doc__ or "").split())}}))
+           "tape_knob": sorted(hd._tape_predicted(True)), "doc": " ".join((hd.__doc__ or "").split())},
+    "fb": {"catalog": sorted(fb._solo_catalog(True)), "plain": sorted(fb._solo_catalog(False)),
+           "old": sorted(fb.OLD_PREDICTED), "lever": sorted(fb.LEVER_PREDICTED), "maybe": sorted(fb.LEVER_MAYBE),
+           "fallback": sorted(fb.FALLBACK_CHECKS), "probe": fb.PROBE, "scene": fb.SCENE, "group": fb.GROUP,
+           "proof": fb.PROOF_OK, "leg": fb.LEG, "legs": list(fb.LEGS), "nonce": fb.NONCE, "replay_nonce": ar.NONCE,
+           "hold_nonce": hd.NONCE, "figs": sorted(fb.FIG.values()), "boot1": list(fb.BOOT_1_LEGS),
+           "tape": sorted(fb._tape_catalog(True)), "tape_plain": sorted(fb._tape_catalog(False)),
+           "tape_fb": sorted(fb.TAPE_FALLBACK), "tape_old": sorted(fb._tape_predicted(False)[0]),
+           "tape_old_maybe": sorted(fb._tape_predicted(False)[1]), "tape_replay": sorted(fb._tape_predicted(True)[0]),
+           "tape_replay_maybe": sorted(fb._tape_predicted(True)[1]), "doc": " ".join((fb.__doc__ or "").split()),
+           "arc": sorted(fb._arc_catalog(True)), "arc_plain": sorted(fb._arc_catalog(False)),
+           "arc_fb": sorted(fb.ARC_FALLBACK), "arc_old": sorted(fb._arc_predicted(False)[0]),
+           "arc_new": sorted(fb._arc_predicted(True)[0]), "arc_maybe": sorted(fb._arc_predicted(False)[1]
+                                                                             + fb._arc_predicted(True)[1]),
+           "arc_tape": fb.ARC_TAPE_NAME, "arc_name": fb.pb.ARC_TAPE_NAME}}))
 '''
 
 
@@ -11193,3 +11253,1707 @@ def test_the_s135_benchs_pure_judges_read_each_engine_and_can_fail():
     assert "released via 'timeout' after 2610 ms" in got["timer"]["green"][1]
     assert "0 release line(s)" in got["timer"]["queued"][1] and "2 release line(s)" in got["timer"]["twice"][1]
     assert got["needle"] == f"{BW.LOG_HOLD_HELD_IMPACT} of id 7 on wire slot 1{BW.LOG_HOLD_RELEASED_VIA}"
+
+
+# =========================================================================== [ff9mapkit netsync s136]
+# FALLBACK A, ONE STOCK CLIP PER UNCOVERED ACTION (studies/battle-coop/R3-DESIGN.md 3.3.5 as amended by
+# R3-ACTION-REPLAY-AUDIT.md 2.4 -- amendments 1-6, decisions D-a / D-b / D-c; the audit's "s125"). Guest only, wire v14,
+# harness protocol 5: one additive sub-object (`netsync.battle.act.guest.fallback`, the LAST key of `act.guest`), the
+# `actbench fallback on|off` lever (no new sub-verb), one proof line. battlewire's twins of the PURE rules
+# (ActFallbackPlayerClip ... ActFallbackCollapses, ActFallbackBook) EVALUATE ActFallbackSelfTest's OWN 30 rows off the stack
+# -- translated statement by statement (its foreach, its book, its synthetic threads) -- each rule's mutant fails a row,
+# the constants are pinned by name both ways, and s135 -- s136's calibration red -- is the ladder prefix through `acthold`
+# (S135_CAPS): every check below that reads the key, the op or the proof line reads "cannot" there.
+FB_ROW_MARKS = ("clip: a player's Item / AutoPotion / Throw plays MP_ITEM1 -- before the category (an item reads Void's)",
+                "clip: Defend / Change -- and a monster-transformed caster -- play nothing",
+                "enemy: the first caster PlayAnimation that is not Idle -- an earlier Idle is skipped, a later clip is not "
+                "taken",
+                "enemy: an Idle-only sequence (END's appended Idle), an empty one or an empty name plays nothing",
+                "once: an old host's (caster, cmd, sub) plays once within 500 ms of battle time between arrivals, either way "
+                "round",
+                "covered: a START a newer one of its actor replaced, or an abort-all dropped -- no clip",
+                "uncovered: no record (an old host, id 0, a START dropped, truncated or never received) plays the clip",
+                "verdict: covered, then deduped, then a backlog drain (no clip), then the guards; else the action decides",
+                "guard: a hit's caster plays; a self-cast plays only without a DmgMot (a Potion on self: its flinch owns a "
+                "self-hit)",
+                "collapse: a second clip on one actor in one frame overwrites the first -- counted once")
+#: ActFallbackSelfTest's own helpers' bodies, pinned (the namespace below implements exactly these)
+FB_HELPER_BLOCKS = {
+    "private static BattleActionCode ActTestCode(String op, String anim)": [
+        'return anim == null ? new BattleActionCode(op, "Char", "Caster") : new BattleActionCode(op, "Char", "Caster", '
+        '"Anim", anim);'],
+    "private static BattleActionThread ActTestThread(params BattleActionCode[] codes)": [
+        "BattleActionThread t = new BattleActionThread();", "foreach (BattleActionCode c in codes)", "t.code.AddLast(c);",
+        "return t;"],
+    "private static List<BattleActionThread> ActTestThreads(params BattleActionThread[] threads)": [
+        "return new List<BattleActionThread>(threads);"],
+}
+_FB_DECL = re.compile(r"(?:ActFallbackBook|BattleActionThread|Int64|Int32|String|Boolean) (\w+ = .+)", re.S)
+_FB_FOREACH = re.compile(r"\w+ (\w+) in (.+)")
+
+
+def _fb_python(stmts: list, indent: str = "") -> list:
+    """ActFallbackSelfTest's statements as Python source lines: a Row -> ``__row(expr, name)``; a declaration (several
+    declarators too) -> assignments; a ``foreach (T x in xs)`` -> ``for x in xs``; anything else (a call, an indexer
+    assignment) as itself."""
+    out = []
+    for s in stmts:
+        if not isinstance(s, str):
+            kind, header, body = s
+            m = _FB_FOREACH.fullmatch(header)
+            assert kind == "foreach" and m, s
+            out.append(f"{indent}for {m.group(1)} in {_rep_expr(m.group(2))}:")
+            out += _fb_python(body, indent + "    ")
+            continue
+        masked, strings = _rep_mask(s)
+        masked = _hold_init(masked)
+
+        def back(code):
+            for i, lit in enumerate(strings):
+                code = code.replace(f"__S{i}__", lit)
+            return code
+        m = re.fullmatch(r"Row\((.*)\)", masked, re.S)
+        if m:
+            args = _rep_split(m.group(1), ",")
+            assert len(args) == 4 and args[2:] == ["ref rows", "ref fail"], args
+            name = " + ".join(f"str({_rep_expr(part, strings)})" for part in _rep_split(args[1], "+"))
+            out.append(indent + back(f"__row({_rep_expr(args[0], strings)}, {name})"))
+            continue
+        m = _FB_DECL.fullmatch(masked)
+        if m:
+            for d in _rep_split(m.group(1), ","):
+                name, _, value = d.partition("=")
+                out.append(indent + back(f"{name.strip()} = {_rep_expr(value.strip(), strings)}"))
+            continue
+        out.append(indent + back(_rep_expr(masked, strings)))
+    return out
+
+
+def _fb_program() -> str:
+    """ActFallbackSelfTest, read off the stack (the hunk that holds it whole), as one Python program."""
+    block = _cs_block(REPLAY_FILE, "internal static Boolean ActFallbackSelfTest(")
+    code = " ".join(_strip_comment(ln) for ln in block if not re.match(r"(?:internal|private|public) static ", ln))
+    return "\n".join(_fb_python(_act_statements(code)))
+
+
+def _fb_ns(**twins) -> dict:
+    """The namespace ActFallbackSelfTest runs in: the constants by C# name (s134's, s135's and s136's; NetSyncBattle's,
+    BattleCommandId's, CharacterCommandType's and PlayerMotionIndex's as attribute holders), the twins under their C#
+    names (``twins`` replaces one -- a mutant), its own helpers (the pinned bodies of FB_HELPER_BLOCKS), btl_util's
+    GetCommandTypeSafe, ``new ActFallbackBook()`` / ``ActBook.KeyOf``, and ``__row`` asserting each row."""
+    tw = dict(covered=BW.act_fallback_covered, keyed=BW.act_fallback_keyed_by_id, winkey=BW.act_fallback_window_key,
+              within=BW.act_fallback_within_window, guard=BW.act_fallback_guard, endblocks=BW.act_fallback_end_blocks,
+              verdict=BW.act_fallback_verdict, player=BW.act_fallback_player_clip, item=BW.act_fallback_item_or_throw,
+              defend=BW.act_fallback_defend_or_change, enemycmd=BW.act_fallback_enemy_seq_cmd,
+              motion=BW.act_fallback_motion, kindname=BW.act_fallback_kind_name, first=BW.act_fallback_first_clip,
+              collapses=BW.act_fallback_collapses, book=BW.ActFallbackBook, typesafe=BW.command_type_safe,
+              # [fix pass] the deferral (cover-2), the restore's kept pose (timing-2), the write's refusal (stock-1)
+              defers=BW.act_fallback_defers, deferstep=BW.act_fallback_defer_step, keepspose=BW.act_fallback_keeps_pose,
+              playable=BW.act_fallback_clip_playable,
+              # [fix pass 2: rcover-2] the record deferral
+              awaits=BW.act_fallback_awaits_record, recordstep=BW.act_fallback_record_step)
+    tw.update(twins)
+    ns = dict(BW.CS_REPLAY_CONSTANTS)
+    ns.update(BW.CS_HOLD_CONSTANTS)
+    ns.update(BW.CS_FALLBACK_CONSTANTS)
+    names: list = []
+
+    def row(ok, name):
+        if ok is not True:
+            raise AssertionError(f"row {name!r} is {ok!r} for the twins")
+        names.append(name)
+
+    def member(obj, name):
+        return getattr(obj, _snake(name))
+
+    class _Book:                                                       # `ActBook.KeyOf(..)`
+        KeyOf = staticmethod(BW.ActBook.key_of)
+
+    # `new ActFallbackBook()`: the twin (or a mutant of it) reading THIS namespace's window rule, as the C# book reads the
+    # static ActFallbackWithinWindow
+    fb_book = type("_NsFallbackBook", (tw["book"],), {"within": staticmethod(tw["within"])})
+    ids = {k.split(".", 1)[1]: v for k, v in BW.CS_STOCK_IDS.items() if k.startswith("BattleCommandId.")}
+    ns.update(__row=row, __m=member, __names__=names,
+              NetSyncBattle=SimpleNamespace(**BW.CS_ACTION_CONSTANTS), BattleCommandId=SimpleNamespace(**ids),
+              CharacterCommandType=SimpleNamespace(Normal=BW.CMD_TYPE_NORMAL, Ability=BW.CMD_TYPE_ABILITY,
+                                                   Item=BW.CMD_TYPE_ITEM, Throw=BW.CMD_TYPE_THROW,
+                                                   Instant=BW.CMD_TYPE_INSTANT),
+              BattlePlayerCharacter=SimpleNamespace(PlayerMotionIndex=SimpleNamespace(
+                  MP_ATTACK=BW.MP_ATTACK, MP_MAGIC=BW.MP_MAGIC, MP_ITEM1=BW.MP_ITEM1)),
+              btl_util=SimpleNamespace(get_command_type_safe=lambda c: tw["typesafe"](c)),
+              ActTestNonce=BW.ACT_REPLAY_TEST_NONCE, ActBook=_Book, ActViaArrival=BW.ACT_VIA_ARRIVAL,
+              ActViaDeferred=BW.ACT_VIA_DEFERRED, ActFallbackBook=fb_book,
+              ActFallbackDefers=tw["defers"], ActFallbackDeferStep=tw["deferstep"], ActFallbackKeepsPose=tw["keepspose"],
+              ActFallbackClipPlayable=tw["playable"], ActFallbackAwaitsRecord=tw["awaits"],
+              ActFallbackRecordStep=tw["recordstep"],
+              ActFallbackCovered=tw["covered"], ActFallbackKeyedById=tw["keyed"], ActFallbackWindowKey=tw["winkey"],
+              ActFallbackWithinWindow=tw["within"], ActFallbackGuard=tw["guard"], ActFallbackEndBlocks=tw["endblocks"],
+              ActFallbackVerdict=tw["verdict"], ActFallbackPlayerClip=tw["player"], ActFallbackItemOrThrow=tw["item"],
+              ActFallbackDefendOrChange=tw["defend"], ActFallbackEnemySeqCmd=tw["enemycmd"],
+              ActFallbackMotion=tw["motion"], ActFallbackKindName=tw["kindname"], ActFallbackFirstClip=tw["first"],
+              ActFallbackCollapses=tw["collapses"],
+              # the selftest's helpers (FB_HELPER_BLOCKS' bodies)
+              ActTestCode=lambda op, anim: (BW.ActCode(op, "Char", "Caster") if anim is None else
+                                            BW.ActCode(op, "Char", "Caster", "Anim", anim)),
+              ActTestThread=lambda *codes: BW.ActThread(*codes), ActTestThreads=lambda *threads: list(threads))
+    return ns
+
+
+def _run_fb_selftest(**twins) -> list:
+    ns = _fb_ns(**twins)
+    exec(compile(_fb_program(), "<ActFallbackSelfTest>", "exec"), ns)              # noqa: S102 -- the stack's own rows
+    return ns["__names__"]
+
+
+def test_the_fallback_twins_evaluate_every_fallback_selftest_row_off_the_stack():
+    """battlewire's s136 twins (the player clip, the command predicates, the motions and kind names, the enemy clip, the
+    key, the once-per-action book and its window, covered vs uncovered, the verdict's order, the call-site guards, the end
+    block, the collapse) against ActFallbackSelfTest's OWN rows, EVALUATED in order: 30, the proof line's count. Its
+    helpers are the pinned bodies (FB_HELPER_BLOCKS). [fix pass] + the sliding window, the run-away hold and abort-all end
+    blocks, the deferral (cover-2), the restore's kept pose (timing-2) and the write's refusal (stock-1). [fix pass 2] + the
+    record deferral (rcover-2: two `defer` rows), the Loop / scripted enemy commands (rstock-1) and the ORDER-aware kept
+    pose (rtiming-1)."""
+    names = _run_fb_selftest()
+    assert len(names) == BW.FALLBACK_SELFTEST_ROWS == 30 and len(set(names)) == 30, names
+    assert all(mark in names for mark in FB_ROW_MARKS), set(FB_ROW_MARKS) - set(names)
+    prefix = lambda n: n.split(":", 1)[0]                                # noqa: E731
+    assert [sum(prefix(n) == p for n in names) for p in ("clip", "enemy", "key", "once", "covered", "uncovered",
+                                                         "verdict", "guard", "collapse", "defer", "restore", "write")] \
+        == [6, 3, 1, 5, 2, 2, 1, 3, 1, 4, 1, 1], names
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines(REPLAY_FILE, r".", [_patch_bytes("s136")])) == 30
+    for head, body in FB_HELPER_BLOCKS.items():
+        start = head.split("(", 1)[0] + "("
+        got = [c for c in (_strip_comment(t) for t in _cs_block(REPLAY_FILE, start, "}")) if c][2:]
+        assert got[:len(body)] == body, (head, got)
+
+
+def _fb_verdict_with(**changes):
+    """ActFallbackVerdict with ONE order changed (the twin's own body otherwise)."""
+    def verdict(covered, seen, backlog, guard_ok):
+        if changes.get("backlog_first") and backlog and not covered:
+            return BW.ACT_FB_BACKLOG                                    # a backlog drain ahead of the dedupe
+        if changes.get("guard_first") and not guard_ok and not covered:
+            return BW.ACT_FB_GUARDED                                    # the guards ahead of the dedupe / backlog
+        if changes.get("seen_first") and seen:
+            return BW.ACT_FB_DEDUPED                                    # a covered impact counted deduped
+        return BW.act_fallback_verdict(covered, seen, backlog, guard_ok)
+    return verdict
+
+
+class _FbBookNoRespend(BW.ActFallbackBook):
+    """A book whose window key keeps its FIRST arrival (a decision after the window never re-spends it)."""
+
+    def note(self, by_id, id_key, win_key, arrive_ms):
+        if not by_id and int(win_key) in self.win:
+            return
+        super().note(by_id, id_key, win_key, arrive_ms)
+
+
+class _FbBookIdsIgnored(BW.ActFallbackBook):
+    """A book that forgets the id keys (every impact of one action plays again)."""
+
+    def seen(self, by_id, id_key, win_key, arrive_ms):
+        return False if by_id else super().seen(by_id, id_key, win_key, arrive_ms)
+
+
+class _FbBookRewinds(BW.ActFallbackBook):
+    """[fix pass: timing-6] A book whose window key keeps the LAST noted arrival, older or not (a queued frame rewinds it)."""
+
+    def note(self, by_id, id_key, win_key, arrive_ms):
+        if not by_id:
+            self.win[int(win_key)] = int(arrive_ms)
+            return
+        super().note(by_id, id_key, win_key, arrive_ms)
+
+
+class _FbBookNoSlide(BW.ActFallbackBook):
+    """[fix pass: cover-5] A book whose window never follows a deduped sibling (anchored at the decision)."""
+
+    def slide(self, win_key, arrive_ms):
+        return None
+
+
+class _FbBookSlidesBack(BW.ActFallbackBook):
+    """[fix pass: cover-5] A book whose window follows ANY sibling, an older one too."""
+
+    def slide(self, win_key, arrive_ms):
+        if int(win_key) in self.win:
+            self.win[int(win_key)] = int(arrive_ms)
+
+
+class _FbBookSlideSpends(BW.ActFallbackBook):
+    """[fix pass: cover-5] A book whose slide spends a key never spent."""
+
+    def slide(self, win_key, arrive_ms):
+        self.win[int(win_key)] = max(self.win.get(int(win_key), int(arrive_ms)), int(arrive_ms))
+
+
+@pytest.mark.parametrize("twins", [
+    {"player": lambda item, defend, transform, cat: BW.ACT_FB_MAGIC if cat & 16 else
+        BW.act_fallback_player_clip(item, defend, transform, cat)},
+    {"player": lambda item, defend, transform, cat: BW.act_fallback_player_clip(item, defend, False, cat)},
+    {"player": lambda item, defend, transform, cat: BW.act_fallback_player_clip(item, False, transform, cat)},
+    {"player": lambda item, defend, transform, cat: BW.act_fallback_player_clip(item, defend, transform, cat & ~16)},
+    {"item": lambda t: t == BW.CMD_TYPE_ITEM},
+    {"typesafe": lambda c: BW.CMD_TYPE_ITEM if c == BW.CMD_ITEM_ID else BW.CMD_TYPE_NORMAL},
+    {"defend": lambda c: c == BW.CMD_DEFEND_ID},
+    {"enemycmd": lambda c: c in (BW.CMD_ENEMY_ATK, BW.CMD_ENEMY_COUNTER)},
+    {"enemycmd": lambda c: c in (BW.CMD_ENEMY_ATK, BW.CMD_ENEMY_COUNTER, BW.CMD_ENEMY_DYING, BW.CMD_ENEMY_REACTION)},
+    {"enemycmd": lambda c: BW.act_fallback_enemy_seq_cmd(c) and c != BW.CMD_NONE_ID},
+    {"enemycmd": lambda c: BW.act_fallback_enemy_seq_cmd(c) or c == BW.CMD_MAGIC_COUNTER},
+    {"motion": lambda k: BW.MP_MAGIC if k == BW.ACT_FB_ITEM else BW.act_fallback_motion(k)},
+    {"kindname": lambda k: {BW.ACT_FB_ITEM: "items"}.get(k, BW.act_fallback_kind_name(k))},
+    {"first": lambda threads: next((c.argument.get("Anim") for th in threads or () for c in th.code
+                                    if c.operation == "PlayAnimation" and c.argument.get("Char") == "Caster"), None)},
+    {"first": lambda threads: next((c.argument.get("Anim") for th in threads or () for c in th.code
+                                    if c.operation == "PlayAnimation" and c.argument.get("Anim") not in (None, "", "Idle")),
+                                   None)},
+    {"first": lambda threads: BW.act_fallback_first_clip(list(reversed(threads)) if threads else threads)},
+    {"first": lambda threads: next((c.argument.get("Anim") for th in threads or () for c in th.code
+                                    if c.operation == "PlayAnimation" and c.argument.get("Char") == "Caster"
+                                    and c.argument.get("Anim") != "Idle"), None)},
+    {"keyed": lambda has_ext, kind, act_id: bool(has_ext) and act_id != 0},
+    {"keyed": lambda has_ext, kind, act_id: bool(has_ext) and kind == BW.ACT_EXT_IMPACT},
+    {"winkey": lambda slot, player, cmd, sub: BW.act_fallback_window_key(slot, False, cmd, sub)},
+    {"winkey": lambda slot, player, cmd, sub: BW.act_fallback_window_key(slot, player, cmd, 0)},
+    {"winkey": lambda slot, player, cmd, sub: BW.act_fallback_window_key(0, player, cmd, sub)},
+    {"within": lambda spent, arrive: abs(arrive - spent) <= BW.ACT_FALLBACK_WINDOW_MS},
+    {"within": lambda spent, arrive: 0 <= arrive - spent < BW.ACT_FALLBACK_WINDOW_MS},
+    {"book": _FbBookNoRespend}, {"book": _FbBookIdsIgnored}, {"book": _FbBookRewinds}, {"book": _FbBookNoSlide},
+    {"book": _FbBookSlidesBack}, {"book": _FbBookSlideSpends},
+    {"covered": lambda state, why: state in (BW.ACT_ST_REGISTERED, BW.ACT_ST_WAITING, BW.ACT_ST_RUNNING, BW.ACT_ST_ENDED,
+                                             BW.ACT_ST_NOOP)},
+    {"covered": lambda state, why: BW.act_fallback_covered(state, why) or state == BW.ACT_ST_DECLINED},
+    {"covered": lambda state, why: BW.act_fallback_covered(state, why) and why != "superseded"},
+    {"covered": lambda state, why: state in (BW.ACT_ST_REGISTERED, BW.ACT_ST_WAITING, BW.ACT_ST_RUNNING, BW.ACT_ST_ENDED,
+                                             BW.ACT_ST_ABORTED, BW.ACT_ST_NOOP) or why == "superseded"},
+    {"covered": lambda state, why: BW.act_fallback_covered(state, why) or state < 0},
+    {"verdict": _fb_verdict_with(backlog_first=True)}, {"verdict": _fb_verdict_with(guard_first=True)},
+    {"verdict": _fb_verdict_with(seen_first=True)},
+    {"guard": lambda sc, dmg, lethal, revive, hidden, can, acting, end: not sc and not lethal and not revive
+        and not hidden and can and not acting and not end},
+    {"guard": lambda sc, dmg, lethal, revive, hidden, can, acting, end: not lethal and not revive and not hidden and can
+        and not acting and not end},
+    {"guard": lambda sc, dmg, lethal, revive, hidden, can, acting, end: (not sc or not dmg) and not lethal and not hidden
+        and can and not acting and not end},
+    {"guard": lambda sc, dmg, lethal, revive, hidden, can, acting, end: (not sc or not dmg) and not lethal and not revive
+        and not hidden and can and not end},
+    {"endblocks": lambda end, held, aborting, leaving, via: bool(end) or bool(held) or bool(aborting) or bool(leaving)},
+    {"endblocks": lambda end, held, aborting, leaving, via: bool(end) or bool(held) or bool(aborting) or via == "end-inject"},
+    {"endblocks": lambda end, held, aborting, leaving, via: BW.act_fallback_end_blocks(end, False, aborting, leaving, via)},
+    {"endblocks": lambda end, held, aborting, leaving, via: BW.act_fallback_end_blocks(end, held, False, leaving, via)},
+    {"endblocks": lambda end, held, aborting, leaving, via: BW.act_fallback_end_blocks(end, held, aborting, leaving, via)
+        or via == BW.ACT_VIA_DEFERRED},
+    {"collapses": lambda mask, btl_id: (mask & btl_id) != 0 or btl_id == 0},
+    {"defers": lambda by_id, idle, acting: bool(acting) and bool(idle)},
+    {"defers": lambda by_id, idle, acting: bool(by_id) and bool(acting)},
+    {"defers": lambda by_id, idle, acting: bool(by_id) and bool(idle)},
+    {"deferstep": lambda exp, acting, holder, pending: BW.ACT_FB_DEFER_WAIT if acting and not exp else
+        BW.act_fallback_defer_step(exp, acting, holder, pending)},
+    {"deferstep": lambda exp, acting, holder, pending: BW.act_fallback_defer_step(exp, acting, holder, False)},
+    {"deferstep": lambda exp, acting, holder, pending: BW.act_fallback_defer_step(False, acting, holder, pending)},
+    {"keepspose": lambda aborted, after, shows: bool(shows)},
+    {"keepspose": lambda aborted, after, shows: not aborted or bool(after)},
+    {"keepspose": lambda aborted, after, shows: not aborted and bool(shows)},
+    {"awaits": lambda covered, pending: bool(covered)},
+    {"awaits": lambda covered, pending: False},
+    {"awaits": lambda covered, pending: bool(pending)},
+    {"recordstep": lambda exp, pending: BW.ACT_FB_DEFER_WAIT if pending else BW.ACT_FB_DEFER_PLAY},
+    {"recordstep": lambda exp, pending: BW.ACT_FB_DEFER_DROP if exp and pending else BW.act_fallback_record_step(exp,
+                                                                                                                pending)},
+    {"recordstep": lambda exp, pending: BW.ACT_FB_DEFER_COVERED if exp else BW.act_fallback_record_step(exp, pending)},
+    {"playable": lambda has_anim, has_clip: bool(has_anim)},
+    {"playable": lambda has_anim, has_clip: bool(has_clip)}],
+    ids=["clip-category-before-item", "clip-transform-ignored", "clip-defend-ignored", "clip-magic-bit-missed",
+         "item-throw-missed", "typesafe-autopotion-missed", "defend-change-missed", "enemycmd-dying-missed",
+         "enemycmd-loop-missed", "enemycmd-scripted-missed", "enemycmd-magiccounter-taken",
+         "motion-item-as-magic", "kindname-item-renamed", "first-idle-taken", "first-any-char", "first-subthreads-first",
+         "first-empty-name-taken", "keyed-start-ext-keys", "keyed-id0-keys", "winkey-side-dropped",
+         "winkey-sub-dropped", "winkey-slot-dropped", "within-boundary-inclusive", "within-one-way-round", "book-window-never-respent",
+         "book-ids-forgotten", "book-older-rewinds", "book-window-never-slides", "book-slides-back", "book-slide-spends",
+         "covered-aborted-uncovered", "covered-every-decline", "covered-superseded-uncovered",
+         "covered-abort-all-uncovered", "covered-no-record", "verdict-backlog-before-dedupe",
+         "verdict-guard-before-dedupe", "verdict-covered-counted-deduped", "guard-self-cast-always",
+         "guard-self-hit-allowed", "guard-revive-allowed", "guard-acting-allowed", "endblocks-end-inject-plays",
+         "endblocks-leave-plays", "endblocks-hold-plays", "endblocks-abortall-plays", "endblocks-deferred-blocked",
+         "collapses-id0", "defers-id0-defers", "defers-any-refusal-defers", "defers-free-caster-defers",
+         "deferstep-newer-waits", "deferstep-pending-ignored", "deferstep-never-stale", "keepspose-aborted-kept",
+         "keepspose-idle-kept", "keepspose-order-blind", "awaits-any-covered", "awaits-never", "awaits-pending-only",
+         "recordstep-never-stale", "recordstep-stale-guarded", "recordstep-stale-first", "playable-anim-only",
+         "playable-clip-only"])
+def test_each_fallback_rule_mutant_fails_a_selftest_row(twins):
+    """A CHECK THAT CANNOT FAIL is no check: each rule of the clip choice, the predicates, the enemy clip, the key, the
+    book, the covered rule, the verdict's order, the guards, the end block and the collapse, broken alone in its twin,
+    fails one of the engine's own rows."""
+    _fb_program()                                                       # (its own parse outside the raises)
+    with pytest.raises(AssertionError, match=r"^row ['\"]"):
+        _run_fb_selftest(**twins)
+
+
+def test_the_fallback_twins_take_the_engines_parameters_in_its_order():
+    """Each s136 twin's parameters ARE its C# method's, in order (camelCase -> snake_case)."""
+    for start, fn in (("internal static Boolean ActFallbackCovered(", BW.act_fallback_covered),
+                      ("internal static Boolean ActFallbackKeyedById(", BW.act_fallback_keyed_by_id),
+                      ("internal static Int64 ActFallbackWindowKey(", BW.act_fallback_window_key),
+                      ("internal static Boolean ActFallbackWithinWindow(", BW.act_fallback_within_window),
+                      ("internal static Boolean ActFallbackGuard(", BW.act_fallback_guard),
+                      ("internal static Boolean ActFallbackEndBlocks(", BW.act_fallback_end_blocks),
+                      ("internal static Int32 ActFallbackVerdict(", BW.act_fallback_verdict),
+                      ("internal static Int32 ActFallbackPlayerClip(", BW.act_fallback_player_clip),
+                      ("internal static Boolean ActFallbackItemOrThrow(", BW.act_fallback_item_or_throw),
+                      ("internal static Boolean ActFallbackDefendOrChange(", BW.act_fallback_defend_or_change),
+                      ("internal static Boolean ActFallbackEnemySeqCmd(", BW.act_fallback_enemy_seq_cmd),
+                      ("internal static BattlePlayerCharacter.PlayerMotionIndex ActFallbackMotion(", BW.act_fallback_motion),
+                      ("internal static String ActFallbackKindName(", BW.act_fallback_kind_name),
+                      ("internal static String ActFallbackFirstClip(", BW.act_fallback_first_clip),
+                      ("internal static Boolean ActFallbackCollapses(", BW.act_fallback_collapses),
+                      ("internal static Boolean ActFallbackDefers(", BW.act_fallback_defers),
+                      ("internal static Int32 ActFallbackDeferStep(", BW.act_fallback_defer_step),
+                      ("internal static Boolean ActFallbackKeepsPose(", BW.act_fallback_keeps_pose),
+                      ("internal static Boolean ActFallbackAwaitsRecord(", BW.act_fallback_awaits_record),
+                      ("internal static Int32 ActFallbackRecordStep(", BW.act_fallback_record_step),
+                      ("internal static Boolean ActFallbackClipPlayable(", BW.act_fallback_clip_playable),
+                      ("public Boolean Seen(", BW.ActFallbackBook.seen),
+                      ("public void Note(", BW.ActFallbackBook.note),
+                      ("public void Slide(", BW.ActFallbackBook.slide)):
+        cs = [_snake(p) for p in _cs_signature(REPLAY_FILE, start)]
+        params = _twin_params(fn)
+        assert cs == (params[1:] if params[:1] == ["self"] else params), (start, cs, params)
+
+
+def _fb_consts() -> dict:
+    """Every `internal const Int32` the s136 patch declares (comments stripped) -> its value."""
+    out = {}
+    for line in net_lines(REPLAY_FILE, r"internal const Int32 ", [_patch_bytes("s136")]):
+        m = re.fullmatch(r"internal const Int32 (.*);", _strip_comment(line))
+        assert m, line
+        for decl in m.group(1).split(","):
+            d = re.fullmatch(r"\s*(\w+) = (0x[0-9A-Fa-f]+|-?\d+)\s*", decl)
+            assert d, decl
+            out[d.group(1)] = int(d.group(2), 0)
+    return out
+
+
+def test_the_fallback_constants_are_the_stacks_both_ways():
+    """THE PIN: every CS_FALLBACK_CONSTANTS entry is NetSyncDiorama.Replay.cs's constant of that name and value, and every
+    `internal const Int32` the s136 patch declares is in the table -- a constant added, renamed or retuned on either side
+    turns this red. ActFallbackKindName's names are pinned by value."""
+    cs = _fb_consts()
+    assert cs == BW.CS_FALLBACK_CONSTANTS, sorted(set(cs.items()) ^ set(BW.CS_FALLBACK_CONSTANTS.items()))
+    assert (cs["ActFallbackWindowMs"], cs["ActFallbackLogMax"]) == (500, 8)
+    assert (cs["ActFallbackDeferMaxMs"], cs["ActFallbackDeferCap"]) == (4000, 16)          # [fix pass: cover-2]
+    assert _battle_text('internal const String ActViaDeferred = "deferred";') and BW.ACT_VIA_DEFERRED == "deferred"
+    for kind, name in BW.ACT_FB_KIND_NAMES.items():
+        const = next(k for k, v in BW.CS_FALLBACK_CONSTANTS.items() if k.startswith("ActFb") and v == kind
+                     and k not in ("ActFbDecide", "ActFbCovered", "ActFbDeduped", "ActFbBacklog", "ActFbGuarded"))
+        assert _battle_text(f'case {const}: return "{name}";'), (const, name)
+    assert _battle_text('default: return "none";')
+
+
+def test_the_fallback_stock_values_are_the_clones_when_it_is_here():
+    """The stock values fallback A's twins read beyond CS_STOCK_IDS (which test_the_stock_ids_... pins, Throw / AutoPotion
+    / Fire included): PlayerMotionIndex's MP_ATTACK / MP_MAGIC / MP_ITEM1 by the enum's own order, and CharacterCommandType's
+    five values -- read off the shared Memoria clone when this machine has it."""
+    root = pathlib.Path(r"C:\gd\FFIX\Memoria\Assembly-CSharp")
+    bpc = root / "Global" / "battle" / "BattlePlayerCharacter.cs"
+    cct = root / "Memoria" / "Data" / "Characters" / "CharacterCommandType.cs"
+    if not bpc.is_file() or not cct.is_file():
+        pytest.skip("the shared Memoria clone is not on this machine")
+    text = bpc.read_text(encoding="utf-8-sig", errors="replace")
+    body = text[text.index("enum PlayerMotionIndex"):]
+    body = body[body.index("{") + 1:body.index("}")]
+    members = [m.strip() for m in body.replace("\n", " ").split(",") if m.strip()]
+    assert (members.index("MP_ATTACK"), members.index("MP_MAGIC"), members.index("MP_ITEM1")) == (
+        BW.MP_ATTACK, BW.MP_MAGIC, BW.MP_ITEM1)
+    text = cct.read_text(encoding="utf-8-sig", errors="replace")
+    got = {m.group(1): int(m.group(2)) for m in re.finditer(r"^\s*(\w+)\s*=\s*(\d+)", text, re.M)}
+    assert got == {"Normal": BW.CMD_TYPE_NORMAL, "Ability": BW.CMD_TYPE_ABILITY, "Item": BW.CMD_TYPE_ITEM,
+                   "Throw": BW.CMD_TYPE_THROW, "Instant": BW.CMD_TYPE_INSTANT}, got
+
+
+def test_the_fallback_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s136: `act.guest.fallback` in AppendNetsync's SECOND catch literal, right after `hold`,
+    at its sentinels (`last` a nullable record); the line stays ONE line of two literals; AppendActGuestFallback writes
+    the keys in the catch line's order (`last`'s fields in ACT_FALLBACK_LAST_KEYS' order), each through its NetSyncDiorama
+    getter; AppendActGuest calls it after the hold's; published in every role; protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    a, b = _literals(catch[0])
+    assert '\\"figs\\":[]},\\"fallback\\":{\\"on\\":false,\\"clips\\":0,' in b and "fallback" not in a
+    nothing = _agent_netsync_nothing()[0]
+    assert _battle_of(nothing)["act"]["guest"]["fallback"] == BW.ACT_GUEST_FALLBACK_SENTINELS
+    assert list(_battle_of(nothing)["act"]["guest"])[-2:] == ["hold", "fallback"]
+    assert _catch_doc_in("s136") == nothing                                # s136 wrote the live catch line whole
+    new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s136"))]
+    i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestFallback("))
+    j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
+    body = " ".join(_strip_comment(t) for t in new[i:j])
+    names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
+    top = [k for k in BW.ACT_GUEST_FALLBACK_SENTINELS if k != "last"]
+    assert names == top + list(BW.ACT_FALLBACK_LAST_KEYS), names
+    for k in top:
+        assert re.search(rf'(?:Bool|Num)\(sb, "{k}", Memoria\.Netsync\.NetSyncDiorama\.HarnessFallback\w+\)', body), k
+    assert '"last":null' in body.replace("\\", "") and '"last":{' in body.replace("\\", "")
+    assert _added_after("s136", "HarnessAgent.cs", "AppendActGuestHold(sb);", "AppendActGuestFallback(sb);")
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    assert not _battle_text("IsSelfTestRole ? _fb")                     # audit 3.6: published in EVERY role
+    assert _battle_text("internal static Boolean HarnessFallbackOn { get { return ActFallbackOn; } }")
+    assert _battle_text("private static Boolean ActFallbackOn { get { return !(_benchFallbackOff && "
+                        "NetSyncClient.IsSelfTestRole); } }")
+
+
+def test_state_reads_the_fallback_block_absent_on_s135_as_cannot():
+    """On s135's catch block (s136's calibration red) every `act.guest.fallback` accessor reads None and
+    `coop_act_fallback` False; on the live block they read the sentinels and True; a published block reads its values, a
+    mistyped one None, and `last` a copy (None at null)."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s135")})
+    live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
+    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items()
+             if p == "act.guest.fallback" or p.startswith("act.guest.fallback.")]
+    assert len(names) == len(_leaves({"act": {"guest": {"fallback": BW.ACT_GUEST_FALLBACK_SENTINELS}}})) + 1 == 11, names
+    assert (State({"frame": 1}).coop_act_fallback, old.coop_act_fallback, live.coop_act_fallback) == (None, False, True)
+    assert old.coop_act_hold is True                                    # (s135's own block is there)
+    assert all(getattr(old, n) is None for n in names)
+    assert all(getattr(live, n) is not None for n in names if n != "coop_act_fallback_last")
+    assert (live.coop_act_fallback_last, live.coop_act_fallback_on, live.coop_act_fallback_clips) == (None, False, 0)
+    doc = _agent_netsync_nothing()[0]
+    doc["battle"]["act"]["guest"]["fallback"].update(
+        clips=2, deduped="2", on=True,
+        last={"actor": 2, "clip": "ANH_MAIN_B0_006_210", "cmd": 14, "sub": 236, "keyed_by": "id", "kind": "item", "id": 7,
+              "via": "arrival", "ms": 1234})
+    st = State({"frame": 1, "netsync": doc})
+    assert (st.coop_act_fallback_clips, st.coop_act_fallback_deduped, st.coop_act_fallback_on) == (2, None, True)
+    last = st.coop_act_fallback_last
+    last["clip"] = ""
+    assert st.coop_act_fallback_last["clip"] == "ANH_MAIN_B0_006_210"   # a copy
+    assert BW.act_fallback_decided(dict(BW.ACT_GUEST_FALLBACK_SENTINELS, deduped="x")) is None   # (a mistyped bucket)
+    assert BW.act_fallback_decided(None) is None
+    assert BW.act_fallback_decided(dict(BW.ACT_GUEST_FALLBACK_SENTINELS, clips=2, none=1, covered=4)) == 7
+
+
+def test_a_fresh_stand_in_publishes_the_fallback_block_and_s135_none(game):
+    """The default stand-in (s136) publishes `act.guest.fallback` at the agent's sentinels with no client -- but `on` the
+    live read at rest (true); the stand-in at s135 publishes no `fallback`, no 'action fallback' proof line, and answers
+    the fallback forms in s135's words (its usage for a 2- or 4-word form, its "unknown op" for a 3-word one)."""
+    want = dict(BW.ACT_GUEST_FALLBACK_SENTINELS, on=True)
+    assert _battle_of(FakeGame(game)._netsync_doc())["act"]["guest"]["fallback"] == want
+    old = _selftest(FakeGame(game))
+    old.netsync_caps = S135_CAPS
+    assert "fallback" not in _battle_of(old._netsync_doc())["act"]["guest"]
+    assert set(_leaves(_battle_of(old._netsync_doc()))) == set(_leaves(_battle_of(_catch_doc_in("s135"))))
+    usage = f"{FG.NETSYNC_ACTBENCH_USAGE_S135}\r\nParameter name: netsync actbench"
+    for args, words in ((["actbench", "fallback", "off"], "netsync actbench: unknown op 'fallback' (tape|hoststarts)"),
+                        (["actbench", "fallback"], usage), (["actbench", "fallback", "off", "now"], usage)):
+        with pytest.raises(RuntimeError) as err:
+            old._netsync(args)
+        assert str(err.value) == words, args
+
+
+FB_REFUSALS = [
+    # (a fragment the agent says -- ONE C# literal of the stack, or a piece --, the args, where: None / selftest)
+    ("netsync actbench: needs the selftest role (netsync selftest 1)", ["actbench", "fallback", "off"], None),
+    (BW.FALLBACK_USAGE, ["actbench", "fallback", "maybe"], "selftest"),
+    (BW.FALLBACK_USAGE, ["actbench", "fallback"], "selftest"),
+    (BW.FALLBACK_USAGE, ["actbench", "fallback", "on", "x"], "selftest"),
+]
+
+
+@pytest.mark.parametrize("fragment,args,where", FB_REFUSALS, ids=[f"{r[0][:30]}-{i}" for i, r in enumerate(FB_REFUSALS)])
+def test_the_stand_in_refuses_the_fallback_op_in_the_agents_words(game, fragment, args, where):
+    """Every fallback `actbench` gate the stand-in models refuses with the engine's own words (each a literal of the
+    stack: HarnessActGuestBench's role gate, HarnessActFallbackBench's parse -- its WHOLE refusal)."""
+    assert _battle_text(fragment), f"the live stack no longer says {fragment!r}"
+    fake = FakeGame(game)
+    if where == "selftest":
+        _selftest(fake)
+    with pytest.raises(RuntimeError) as err:
+        fake._netsync(args)
+    assert (str(err.value) == fragment) if where == "selftest" else (fragment in str(err.value)), str(err.value)
+
+
+def test_the_fallback_op_is_the_agents_and_the_driver_gates_it_by_act_guest_fallback(game):
+    """`fallback` is IsActGuestBenchOp's (a case of its own) and HarnessActGuestBench's (routed to
+    HarnessActFallbackBench); the driver keys it on `act.guest.fallback` (s136), refuses a malformed form before the step
+    in the engine's words, and on an s135 engine refuses every fallback form naming s136 and what s135 would answer."""
+    new = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(REPLAY_FILE, _patch_bytes("s136"))) if c]
+    for site in (['case "unit":', 'case "fallback":', "return true;", 'case "tape":', 'return value == "play";'],
+                 ['case "fallback":', "return HarnessActFallbackBench(args, val, out why);", "default:"]):
+        assert any(new[k:k + len(site)] == site for k in range(len(new))), site
+    attr, key, patch, _what = Session.NETSYNC_ACTBENCH_OP_CAPS["fallback"]
+    assert (attr, key, patch) == ("coop_act_fallback", "netsync.battle.act.guest.fallback", "s136")
+    assert Session.NETSYNC_ACTBENCH_FALLBACK_USAGE == {"fallback": BW.FALLBACK_USAGE} and _battle_text(BW.FALLBACK_USAGE)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        for args in (("fallback",), ("fallback", "maybe"), ("fallback", "on", "x")):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *args])
+            assert str(err.value) == str(agent.value) == BW.FALLBACK_USAGE, (args, str(err.value), str(agent.value))
+        assert len(fake.executed) == n
+        st = g.act_fallback(False)                                      # a well-made form goes to the engine
+        assert st.coop_act_fallback_on is False
+        st = g.actbench("FALLBACK", "On")                               # the agent lowercases both; so does the driver
+        assert st.coop_act_fallback_on is True and fake.executed[-1] == ["netsync", "actbench", "FALLBACK", "On"]
+    fake = FakeGame(game)
+    fake.netsync_caps = S135_CAPS
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        for args in (("fallback", "off"), ("fallback",), ("fallback", "on", "x")):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *(str(a) for a in args)])
+            assert str(err.value).startswith("netsync actbench fallback: the deployed engine publishes no "
+                                             "`netsync.battle.act.guest.fallback`"), str(err.value)
+            assert f"(memoria-patch s136); it would answer \"{agent.value}\" only after the step" in str(err.value), \
+                (args, str(err.value), str(agent.value))
+        assert len(fake.executed) == n and g.state.coop_act_fallback is False and g.state.coop_act_hold is True
+
+
+def test_the_fallback_log_lines_are_the_engines():
+    """Every LOG_FALLBACK_* the stand-in writes and the bench reads is the stack's own words (one C# literal, or a piece
+    the engine splices): a reworded engine line turns this red before a bench silently stops matching it."""
+    for whole in (BW.LOG_FALLBACK_CLIP_TAIL, BW.LOG_FALLBACK_COLLAPSED, BW.LOG_FALLBACK_FURTHER, BW.LOG_FALLBACK_NONE,
+                  BW.LOG_FALLBACK_NONE_TAIL.split(" -- ", 1)[1], BW.LOG_FALLBACK_PARSE,
+                  BW.LOG_FALLBACK_PARSE_TAIL.split(" -- ", 1)[1], BW.LOG_FALLBACK_SUMMARY, BW.LOG_FALLBACK_LEVER_BACK, BW.FALLBACK_USAGE, BW.FALLBACK_NONE_DEFEND, BW.FALLBACK_NONE_TRANSFORM,
+                  BW.FALLBACK_NONE_IDLE, BW.LOG_FALLBACK_BY_CASTER,
+                  # [fix pass] stock-1's refusal reason and cover-2's deferral line (its literal pieces)
+                  BW.FALLBACK_NONE_MISSING, BW.LOG_FALLBACK_DEFER, BW.LOG_FALLBACK_DEFER_MID, BW.LOG_FALLBACK_DEFER_TAIL,
+                  ") waits for that replay's end, at most ",
+                  # [fix pass 2: rcover-2] the record deferral's line (its literal pieces)
+                  BW.LOG_FALLBACK_AWAIT_MID, BW.LOG_FALLBACK_AWAIT_WAITS, BW.LOG_FALLBACK_AWAIT_TAIL):
+        assert _battle_text(whole), whole
+    assert _battle_text('Log.Message("[NetSync] action fallback: wire slot " + a.CasterSlot + "\'s action (cmd " + a.CmdNo + '
+                        '" sub " + a.SubNo + ", id "')
+    assert _battle_text('+ a.ActId + ") waits for its START\'s decision (" + ActStateName(rec.State)')
+    assert _battle_text('+ ") -- a launch covers it, a decline plays its clip; at most " + ActFallbackDeferMaxMs')
+    # the spliced lines, pinned as the C# EXPRESSIONS that write them, piece by piece in order
+    for quoted in ('Log.Message("[NetSync] action fallback: " + ActFallbackKindName(kind) + " clip " + clip + " on wire slot " '
+                   '+ a.CasterSlot + " (cmd "',
+                   '+ a.CmdNo + " sub " + a.SubNo + ", " + (byId ? "keyed by id " + a.ActId : "keyed by caster, cmd and sub '
+                   'within "',
+                   '+ ActFallbackWindowMs + " ms") + ", via " + via + ") at battle ms " + _actNowMs',
+                   '(collapsed ? " -- collapsed onto this frame\'s earlier clip on that unit" : " -- one stock clip for an '
+                   'action no replay covers")',
+                   '(_fbLogged == ActFallbackLogMax ? "; further clips this boot are counted, not logged" : "")',
+                   'why = transformed ? "a monster-transformed caster" : "Defend / Change";',
+                   'Log.Message("[NetSync] action fallback: no clip for wire slot " + a.CasterSlot + " cmd " + a.CmdNo + " sub " '
+                   '+ a.SubNo + " ("'):
+        assert _battle_text(quoted), quoted
+    for piece in ("[NetSync] action fallback faulted (logged once per boot; the impact's figures and state still applied): ",
+                  " could not be parsed ("):
+        assert _battle_text(piece), piece
+    # the lever's two lines: ONE literal head + the ternary's two arms (s136 splits the OFF arm over two lines)
+    head, off1, off2, on = ("[NetSync] harness: action fallback ", "OFF -- CALIBRATION: the pre-s136 guest (an impact no replay ",
+                            "covers gets the s110 player-only MP_ATTACK swing; enemies nothing)", "ON")
+    assert _battle_text(f'"{head}" + (_benchFallbackOff ? "{off1}"') and _battle_text(f'+ "{off2}" : "{on}"));')
+    assert (BW.LOG_FALLBACK_OFF, BW.LOG_FALLBACK_ON) == (head + off1 + off2, head + on)
+    # ...and the parser reads the clip line exactly as the engine (and the stand-in's twin) writes it, Memoria's prefix kept
+    line = (f"16.10.2026 12:00:00 |M| {BW.LOG_FALLBACK}item clip ANH_MAIN_B0_006_210 on wire slot 2 (cmd 14 sub 236, keyed "
+            f"by id 7, via arrival) at battle ms 4410{BW.LOG_FALLBACK_CLIP_TAIL}")
+    assert BW.parse_fallback_clip(line) == {"kind": "item", "clip": "ANH_MAIN_B0_006_210", "slot": 2, "cmd": 14, "sub": 236,
+                                            "keyed_by": "id", "id": 7, "via": "arrival", "ms": 4410, "collapsed": False}
+    old = (f"{BW.LOG_FALLBACK}magic clip X on wire slot 1 (cmd 22 sub 25, {BW.LOG_FALLBACK_BY_CASTER}500 ms, via declined) at "
+           f"battle ms 9{BW.LOG_FALLBACK_COLLAPSED}")
+    assert BW.parse_fallback_clip(old)["keyed_by"] == "caster" and BW.parse_fallback_clip(old)["collapsed"] is True
+    assert BW.parse_fallback_clip(BW.LOG_FALLBACK_NONE + "1 cmd 4 sub 0 (Defend / Change)") is None
+
+
+#: the s136 hook sites (a file, then the lines in order inside s136's own patch: code lines, comments dropped)
+FB_HOOKS = {
+    "NetSyncDiorama.cs": [
+        ("ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, ActViaArrival, _actNowMs, false, 0, paired);",),
+        ("Boolean s110Swing = dC != null && !selfCast && a.CasterIsPlayer && !lethalC && !reviveC && !hiddenC && "
+         "CanPlayCosmeticMotion(dC);", "if (s110Swing && covered)", "{", "_actSwingSkipped++;", "}",
+         "else if (!ActFallbackOn)", "{", "if (s110Swing)", "{",
+         "btl_mot.setMotion(dC, BattlePlayerCharacter.PlayerMotionIndex.MP_ATTACK);"),
+        ("if (ActFallbackOn)", "ActFallbackAtImpact(ref a, dC, selfCast, lethalC, reviveC, hiddenC, rec, backlog, via, "
+                               "arriveMs);")],
+    "NetSyncDiorama.Replay.cs": [
+        ("ActRecomputeLive();", "ActFallbackReset(counters);", "if (!counters)", "return;"),
+        ("ActLogSummary(why);", "ActFallbackDropDeferred();", "ActFallbackLogSummary(why);"),
+        ('ApplyActionFrameNow(b, ref a, dT, dC, selfCast, covered, backlog, "late", _actNowMs, false, 0, paired);',),
+        ("if (ActFallbackOn)", "{", "BTL_DATA fC = h.SelfCast ? dT : dC;", "Boolean fLethal = h.SelfCast ? lethalT : lethalC;"),
+        ("q.Rec);",),
+        ("_benchLifeSkipOff = false;", "if (_benchFallbackOff)")],
+    "NetSyncClient.cs": [("Boolean fallbackOk = NetSyncDiorama.ActFallbackSelfTest(out fallbackDetail);",)],
+}
+
+
+def test_the_fallback_hooks_sit_at_the_audits_sites():
+    """Each s136 hook at its audited site, read off s136's own patch (code lines, comments dropped, in order): NO stock
+    file -- the four files are netsync's and the agent's only; the s110 swing's guard kept whole (swing_skipped exactly as
+    before, the swing verbatim under the lever) with fallback A after it; the arrival and the late release pass the record
+    (`paired`), a queued frame its own (`q.Rec`), a held release reads the caster's guards at the release AFTER the flinch
+    and BEFORE the life lanes; the reset inside ActResetForBoot BEFORE its counters' early return; the summary after s134's;
+    the lever in ActBenchRelease; the proof line."""
+    s136 = _patch_bytes("s136")
+    for file_name, sites in FB_HOOKS.items():
+        new = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(file_name, s136)) if c]
+        for site in sites:
+            at = next((k for k in range(len(new)) if new[k:k + len(site)] == list(site)), None)
+            assert at is not None, (file_name, site[0])
+    files = {p.replace("\\", "/").rsplit("/", 1)[-1] for p, _sec in msr.sections(s136) if p}
+    assert files == {"HarnessAgent.cs", "NetSyncClient.cs", "NetSyncDiorama.Replay.cs", "NetSyncDiorama.cs"}, files
+    assert all(any(d.endswith("/" + f) for d in msr.DEFAULT_FILES) for f in files), files   # (no new file to replay)
+    # the held release's order: s135's flinch block (its ActHoldErr catch) right before fallback A, THE LIFE LANES after
+    rel = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(REPLAY_FILE, s136)) if c]
+    # [fix pass: stock-3] fallback A's step in its OWN try (as the figure and flinch steps): a throw never drops the life lanes
+    head = ["ActHoldErr(ex);", "}", "try", "{", "if (ActFallbackOn)", "{", "BTL_DATA fC = h.SelfCast ? dT : dC;"]
+    tail = ["h.SelfCast ? hiddenT : hiddenC, h.Rec, h.Backlog, via, h.ArriveMs);", "}", "}", "catch (Exception ex)", "{",
+            "ActHoldErr(ex);", "}", "Boolean superseded = false;"]
+    for site in (head, tail):
+        assert any(rel[k:k + len(site)] == site for k in range(len(rel))), site
+    s135 = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(REPLAY_FILE, _patch_bytes("s135"))) if c]
+    flinch = s135.index("btl_mot.SetDamageMotion(new BattleUnit(dT), null);")
+    assert s135[flinch + 1:flinch + 6] == ["}", "catch (Exception ex)", "{", "ActHoldErr(ex);", "}"], s135[flinch:flinch + 8]
+    assert s135[flinch + 6] == "Boolean superseded = false;", s135[flinch + 6]          # (where s136's hunk goes in)
+    # THE CONTAINMENT LAW at the parse: it borrows the btlseq reader and opcode and puts them back; no text is fetched
+    for line in ("seq.sequenceReader = keepReader;", "seq.wSeqCode = keepCode;", "return String.Empty;",
+                 "e.Clip = ActFallbackFirstClip(BattleActionThread.LoadFromBtlSeq(b.btl_scene, seq, ActFallbackNoText, sub));"):
+        assert _battle_text(line), line
+
+
+def test_reset_releases_the_fallback_lever(game):
+    """HarnessReleaseBench's s136 half (audit 4.5): `fallback off` left set, then `reset`: the 'fallback lever back' line
+    once, and re-read WITH a fresh selftest role the lever at rest -- while s134's and s135's levers come back too."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        for args in (("fallback", "off"), ("hold", "off"), ("replay", "off")):
+            g.actbench(*args)
+        st = g.state
+        assert (st.coop_act_fallback_on, st.coop_act_hold_on, st.coop_act_guest_why) == (False, False, "lever")
+        g.send("reset")
+        g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=10.0, what="the release")
+        st = g.netsync("selftest", 1)
+        assert (st.coop_act_fallback_on, st.coop_act_hold_on, st.coop_act_guest_on) == (True, True, True)
+    assert len(_mlog_lines(fake, BW.LOG_FALLBACK_LEVER_BACK)) == 1 and len(_mlog_lines(fake, BW.LOG_HOLD_LEVERS_BACK)) == 1
+
+
+# ---- [ff9mapkit netsync s136] fallback A's model: the stand-in end to end through the driver, then battlewire's lane on the
+# rules no stand-in battle reaches (a lane rig: eight units, the bench feed, the stand-in's tick order)
+#: the stand-in diorama's cast for fallback A: Zidane / Vivi / Garnet (wire 0-2) and two enemies (wire 4-5)
+FB_UNITS = [
+    {"slot": 0, "id": 1, "player": True, "name": "Zidane", "hp": 420, "hp_max": 600, "hp_raw": 420, "hp_max_raw": 600,
+     "mp": 30, "mp_max": 40, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True, "level": 5,
+     "status": "0"},
+    {"slot": 1, "id": 2, "player": True, "name": "Vivi", "hp": 300, "hp_max": 380, "hp_raw": 300, "hp_max_raw": 380,
+     "mp": 12, "mp_max": 20, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True, "level": 4,
+     "status": "0"},
+    {"slot": 2, "id": 4, "player": True, "name": "Garnet", "hp": 350, "hp_max": 400, "hp_raw": 350, "hp_max_raw": 400,
+     "mp": 40, "mp_max": 50, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True, "level": 4,
+     "status": "0"},
+    {"slot": 4, "id": 16, "player": False, "name": "Fang", "hp": 900, "hp_max": 900, "hp_raw": 900, "hp_max_raw": 900,
+     "mp": 0, "mp_max": 0, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True, "level": 3,
+     "status": "0"},
+    {"slot": 5, "id": 32, "player": False, "name": "Fang", "hp": 900, "hp_max": 900, "hp_raw": 900, "hp_max_raw": 900,
+     "mp": 0, "mp_max": 0, "atb": 0, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True, "level": 3,
+     "status": "0"}]
+
+
+def _fb_impact(act_id, *, caster: int, target: int, cmd: int, sub: int, player_caster: bool = True,
+               player_target: bool = False, dmg: bool = False, hp: int = 300, cast_hp: int = 300, seq: int = 5,
+               nonce: int = 0x77) -> bytes:
+    """An impact naming ``act_id`` (None = a 46-byte old-host one) -- no figure; the host's raws (``cast_hp`` 0: lethal)."""
+    flags = (1 if dmg else 0) | (32 if player_target else 0) | (64 if player_caster else 0)
+    return BW.encode_action_impact(nonce, seq, caster, target, raws=(hp, 0, cast_hp, 0), flags=flags, cmd_no=cmd,
+                                   sub_no=sub, act_id=act_id)
+
+
+def _fb_dio(game, *, caps=None):
+    fake = _rep_dio(game, caps=caps)
+    fake.dio_units = [dict(u) for u in FB_UNITS]
+    return fake
+
+
+def test_the_stand_in_plays_one_clip_per_uncovered_action(game):
+    """6.10 on the stand-in, with `replay off` (every START declines `lever`: every impact UNCOVERED): Garnet's Potion on
+    HERSELF (no DmgMot: D-b) and on Vivi -> MP_ITEM1, Vivi's Fire -> MP_MAGIC, Zidane's Attack -> MP_ATTACK -- each the
+    caster's `mot`, `last` naming it (keyed by id) --; Fang's sub 0 -> the first non-Idle caster clip of its sequence (its
+    `anim`), sub 1 (END only) and Defend -> none; a self-hit (a DmgMot on self) guarded. `fallback off` is the pre-s136
+    guest: the Potion on Vivi and the Fire play MP_ATTACK (the s110 swing), the self-Potion and the enemy nothing, and no
+    counter moves."""
+    for lever in (False, True):
+        fake = _fb_dio(game)
+        with session(game, fake) as g:
+            _dio(g, fake)
+            g.actbench("replay", "off")
+            if lever:
+                g.act_fallback(False)
+            ids = iter(range(1, 99))
+
+            def act(caster, target, cmd, sub, *, player_caster=True, player_target=True, dmg=False, settle=True):
+                i = next(ids)
+                g.act_feed([_rep_start(i, actor=caster, player=player_caster, cmd=cmd, sub=sub, tar=1 << target),
+                            _fb_impact(i, caster=caster, target=target, cmd=cmd, sub=sub, player_caster=player_caster,
+                                       player_target=player_target, dmg=dmg)])
+                st = _rep_until(g, lambda s: s.coop_act_guest_declined >= i, f"START {i} declined")
+                g.wait_frames(2)
+                return g.state, i
+
+            st, i = act(2, 2, BW.CMD_ITEM_ID, BW.ITEM_POTION_ID)        # Garnet's Potion on herself
+            mot_self = st.unit_mot(2)
+            g.wait_frames(30)
+            st, i2 = act(2, 1, BW.CMD_ITEM_ID, BW.ITEM_POTION_ID)       # ...on Vivi
+            mot_ally, last_ally = st.unit_mot(2), st.coop_act_fallback_last
+            g.wait_frames(30)
+            st, _ = act(1, 4, BW.CMD_BLACK_MAGIC_ID, BW.ABILITY_FIRE_ID, player_target=False)   # Vivi's Fire on Fang
+            mot_magic = st.unit_mot(1)
+            st, _ = act(0, 4, BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID, player_target=False)     # Zidane's Attack
+            mot_attack = st.unit_mot(0)
+            st, _ = act(4, 0, BW.CMD_ENEMY_ATK, 0, player_caster=False)                         # Fang sub 0 on Zidane
+            enemy_anim, last_enemy = st.unit_anim(4), st.coop_act_fallback_last
+            g.wait_frames(30)
+            st, _ = act(4, 1, BW.CMD_ENEMY_ATK, 1, player_caster=False)                         # sub 1: END only
+            st, _ = act(0, 0, BW.CMD_DEFEND_ID, 177)                                             # Zidane's Defend
+            st, _ = act(1, 1, BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID, dmg=True)                  # a self-hit (confused)
+            fb = st.coop_act_fallback_block
+        if lever:
+            assert (mot_self, mot_ally, mot_magic, mot_attack) == (0, BW.MP_ATTACK, BW.MP_ATTACK, BW.MP_ATTACK)
+            assert enemy_anim == "IDLE" and fb == dict(BW.ACT_GUEST_FALLBACK_SENTINELS, on=False)
+            continue
+        assert (mot_self, mot_ally, mot_magic, mot_attack) == (BW.MP_ITEM1, BW.MP_ITEM1, BW.MP_MAGIC, BW.MP_ATTACK)
+        assert last_ally == {"actor": 2, "clip": "ANH_FAKE_P2_031", "cmd": BW.CMD_ITEM_ID, "sub": BW.ITEM_POTION_ID,
+                             "keyed_by": "id", "kind": "item", "id": i2, "via": "arrival", "ms": last_ally["ms"]}
+        first = BW.act_fallback_first_clip(BW.act_seq_threads(BW.ActFallbackLane.FAKE_SCENE_SEQS[0]))
+        assert enemy_anim == first == last_enemy["clip"] == "ANH_MON_FAKE_001_010" and last_enemy["kind"] == "enemy"
+        assert (fb["clips"], fb["none"], fb["guarded"], fb["covered"], fb["deduped"], fb["collapsed"]) == (5, 2, 1, 0, 0, 0)
+        assert _mlog_lines(fake, f"{BW.LOG_FALLBACK_NONE}4 cmd {BW.CMD_ENEMY_ATK} sub 1 (sequence 1{BW.FALLBACK_NONE_IDLE}")
+    assert _mlog_lines(fake, BW.LOG_FALLBACK_OFF)
+
+
+def test_the_stand_in_covers_a_replayed_action_and_plays_a_declined_ones_clip(game):
+    """COVERED vs UNCOVERED on the stand-in (replay ON): a START + its impact -- held, released at the replay's hit --
+    counts `covered` (no clip; swing_skipped +1); a NOOP START's impact (kind none) covered too; a START, its impact and
+    its END in ONE feed -- the impact HELD, then the START declined `stale` -- plays its action's clip at that `declined`
+    release (`last.via` "declined"); an impact naming no START (an id nothing registered) plays at arrival."""
+    fake = _fb_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.act_feed([_rep_start(1), _fb_impact(1, caster=0, target=4, cmd=BW.CMD_ATTACK_ID, sub=BW.ABILITY_ATTACK_ID,
+                                              player_target=False, dmg=True)])
+        st = _rep_until(g, lambda s: s.coop_act_hold_rel_hit == 1, "the hit release")
+        assert (st.coop_act_fallback_covered, st.coop_act_fallback_clips, st.coop_act_guest_swing_skipped) == (1, 0, 1)
+        _rep_until(g, lambda s: s.coop_act_guest_running == 0, "the replay's end")
+        g.act_feed([_rep_start(2, actor=1, kind=BW.VFX_KIND_NONE, num=0, tar=0x02),
+                    _fb_impact(2, caster=1, target=1, player_target=True, cmd=BW.CMD_DEFEND_ID, sub=177)])
+        st = _rep_until(g, lambda s: s.coop_act_guest_noop == 1 and s.coop_act_hold_held_now == 0, "the noop")
+        assert (st.coop_act_fallback_covered, st.coop_act_fallback_none, st.coop_act_fallback_clips) == (2, 0, 0)
+        g.act_feed([_rep_start(3, actor=2, cmd=BW.CMD_ITEM_ID, sub=BW.ITEM_POTION_ID, tar=0x04),
+                    _fb_impact(3, caster=2, target=2, player_target=True, cmd=BW.CMD_ITEM_ID, sub=BW.ITEM_POTION_ID),
+                    BW.encode_action_end(0x77, 9, 3, BW.CMD_ITEM_ID, BW.ITEM_POTION_ID)])
+        st = _rep_until(g, lambda s: s.coop_act_fallback_clips == 1, "the declined release's clip")
+        assert st.coop_act_guest_declined_why == "stale" and st.coop_act_hold_rel_declined == 2   # (the NOOP's, then this)
+        assert st.coop_act_hold_held == 3                               # (each of the three HELD -- never at arrival)
+        assert st.coop_act_fallback_last["via"] == "declined" and st.coop_act_fallback_last["kind"] == "item"
+        assert st.unit_mot(2) == BW.MP_ITEM1
+        g.act_feed(_fb_impact(77, caster=1, target=4, cmd=BW.CMD_BLACK_MAGIC_ID, sub=BW.ABILITY_FIRE_ID,
+                              player_target=False))
+        st = _rep_until(g, lambda s: s.coop_act_fallback_clips == 2, "the orphan's clip")
+        assert st.coop_act_fallback_last["via"] == BW.ACT_VIA_ARRIVAL and st.coop_act_fallback_last["id"] == 77
+
+
+def test_the_stand_in_at_s135_keeps_the_s110_swing(game):
+    """An s135 stand-in (S135_CAPS: no `actfallback` rung) keeps s135's model exactly: an uncovered Potion on an ally swings
+    MP_ATTACK, an enemy plays nothing, no `fallback` key, no proof line."""
+    fake = _fb_dio(game, caps=S135_CAPS)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        g.act_feed(_fb_impact(5, caster=2, target=1, player_target=True, cmd=BW.CMD_ITEM_ID, sub=BW.ITEM_POTION_ID))
+        st = _rep_until(g, lambda s: s.unit_mot(2) == BW.MP_ATTACK, "the s110 swing")
+        g.act_feed(_fb_impact(6, caster=4, target=0, cmd=BW.CMD_ENEMY_ATK, sub=0, player_caster=False,
+                              player_target=True))
+        g.wait_frames(3)
+        assert g.state.unit_anim(4) == "IDLE" and st.coop_act_fallback is False
+    assert not _mlog_lines(fake, BW.PROOF_FALLBACK)
+
+
+class _FbRig(_LaneRig):
+    """s134's lane rig with the hold AND fallback A on (an s136 lane), the frame counted (the collapse reads it)."""
+
+    def __init__(self, frames: int = 10 ** 6):
+        super().__init__(None, frames)
+        self.lane.with_hold_fn = True
+        self.lane.with_fallback_fn = True
+        self.frame = 0
+
+    def ctx(self, **kw) -> dict:
+        c = super().ctx(**kw)
+        c.setdefault("frame", self.frame)
+        return c
+
+    def step(self, n: int = 1, **kw) -> None:
+        for _ in range(n):
+            self.frame += 1
+            super().step(1, **kw)
+
+    def at(self, ms: int) -> None:
+        """Step until the battle clock reads at least ``ms``."""
+        while self.lane.now_ms < ms:
+            self.step()
+
+    @property
+    def fb(self) -> dict:
+        return self.lane.doc(role=True, booted=True)["fallback"]
+
+
+def _fb_old(caster: int = 0, *, cmd: int = BW.CMD_ATTACK_ID, sub: int = BW.ABILITY_ATTACK_ID, target: int = 4,
+            player: bool = True) -> bytes:
+    return _fb_impact(None, caster=caster, target=target, cmd=cmd, sub=sub, player_caster=player)
+
+def test_the_fallback_lane_keys_once_per_action_and_collapses_per_frame():
+    """ONCE PER ACTION on battlewire's lane: three impacts naming ONE id play one clip (deduped +2); three distinct ids on
+    one actor over three frames play three; three distinct ids on one actor in ONE drain play one (collapsed +2: counted
+    when written); the clip lines stop at ActFallbackLogMax with the 'further clips' tail. An old host's (caster, cmd, sub)
+    plays once within 500 ms of battle time between ARRIVALS -- an arrival < 500 ms after the spent one is deduped and
+    [fix pass: cover-5, timing-5] SLIDES the window to its own arrival (an id-less multi-hit action whose hits span 500 ms
+    or more stays one clip), one 500 ms or more after the action's LAST hit is a new decision that RE-SPENDS the key from
+    its own arrival; another caster, command or sub is another action. (A drain's arrival is the battle clock the previous
+    tick set: read before the step.)"""
+    rig = _FbRig()
+    rig.step()
+    att = dict(caster=0, target=4, cmd=BW.CMD_ATTACK_ID, sub=BW.ABILITY_ATTACK_ID)
+    rig.feed(*[_fb_impact(7, **att)] * 3)
+    rig.step()
+    assert (rig.fb["clips"], rig.fb["deduped"], rig.fb["last"]["keyed_by"], rig.fb["last"]["id"]) == (1, 2, "id", 7)
+    for i in (8, 9, 10):
+        rig.feed(_fb_impact(i, **att))
+        rig.step()
+    assert (rig.fb["clips"], rig.fb["collapsed"]) == (4, 0)
+    rig.feed(*[_fb_impact(i, **att) for i in (11, 12, 13)])
+    rig.step()
+    assert (rig.fb["clips"], rig.fb["collapsed"], rig.fb["last"]["id"]) == (5, 2, 13)
+    for i in (14, 15, 16):                                              # writes 8-10: the log's cap
+        rig.feed(_fb_impact(i, **att))
+        rig.step()
+    lines = [ln for ln in rig.lane.lines if ln.startswith(BW.LOG_FALLBACK) and " clip " in ln]
+    assert len(lines) == BW.ACT_FALLBACK_LOG_MAX and lines[-1].endswith(BW.LOG_FALLBACK_FURTHER), lines[-1]
+    assert sum(BW.LOG_FALLBACK_COLLAPSED in ln for ln in lines) == 2 and rig.fb["clips"] == 8
+
+    rig = _FbRig()
+    rig.step()
+
+    def old_at(ms: int, *frames) -> int:
+        """Feed ``frames`` so they drain at the first arrival >= ``ms``; that arrival."""
+        while rig.lane.now_ms < ms:
+            rig.step()
+        rig.feed(*frames)
+        arrival = rig.lane.now_ms
+        rig.step()
+        return arrival
+    spent = old_at(0, _fb_old())
+    assert (rig.fb["clips"], rig.fb["last"]["keyed_by"], rig.fb["last"]["id"]) == (1, "caster", 0)
+    a1 = old_at(spent + BW.ACT_FALLBACK_WINDOW_MS - 40, _fb_old())     # the first arrival in [460, 499]
+    assert a1 - spent < BW.ACT_FALLBACK_WINDOW_MS and (rig.fb["clips"], rig.fb["deduped"]) == (1, 1), a1 - spent
+    old_at(0, _fb_old(1), _fb_old(cmd=BW.CMD_BLACK_MAGIC_ID, sub=BW.ABILITY_FIRE_ID), _fb_old(sub=177))
+    assert (rig.fb["clips"], rig.fb["collapsed"]) == (3, 1)             # (two on Zidane in one frame: one collapses)
+    a2 = old_at(spent + BW.ACT_FALLBACK_WINDOW_MS, _fb_old())           # 500+ ms after the SPENT arrival, < 500 after a1
+    assert a2 - spent >= BW.ACT_FALLBACK_WINDOW_MS and a2 - a1 < BW.ACT_FALLBACK_WINDOW_MS, (a2 - spent, a2 - a1)
+    assert (rig.fb["clips"], rig.fb["deduped"]) == (3, 2), rig.fb      # the window SLID to a1: still one action
+    a3 = old_at(a2 + BW.ACT_FALLBACK_WINDOW_MS, _fb_old())              # 500 ms after the action's LAST hit (or more)
+    assert a3 - a2 >= BW.ACT_FALLBACK_WINDOW_MS and rig.fb["clips"] == 4, a3 - a2
+    a4 = old_at(a3 + 200, _fb_old())                                    # re-spent at a3: 200+ ms later is deduped
+    assert a4 - a3 < BW.ACT_FALLBACK_WINDOW_MS and (rig.fb["clips"], rig.fb["deduped"]) == (4, 3)
+
+
+def test_the_fallback_lane_guards_spend_nothing_and_a_backlog_spends_the_key():
+    """A guard refusal spends NO key -- a self-hit (a DmgMot on self) is guarded, its sibling (the same id on an enemy)
+    still plays; a lethal caster is guarded; a BACKLOG drain spends the key -- a backlog impact plays nothing (D-c) and its
+    live sibling is deduped, never a late clip; the end (presented or injected) / a Leave / the end-inject flush / [fix
+    pass: timing-1] the run-away hold block every clip; a caster acting in a running replay is -- [fix pass: cover-2] for an
+    id-keyed impact refused for nothing else -- DEFERRED (counted when it decides or drops: the teardown drops it
+    `guarded`), and for an id-0 one guarded at once; [fix pass: stock-2] a unit hidden by bi.disappear is guarded."""
+    rig = _FbRig()
+    rig.step()
+    att = dict(cmd=BW.CMD_ATTACK_ID, sub=BW.ABILITY_ATTACK_ID)
+    rig.feed(_fb_impact(7, caster=1, target=1, player_target=True, dmg=True, **att))
+    rig.step()
+    assert (rig.fb["guarded"], rig.fb["clips"]) == (1, 0)
+    rig.feed(_fb_impact(7, caster=1, target=4, **att))
+    rig.step()
+    assert (rig.fb["guarded"], rig.fb["clips"], rig.fb["deduped"]) == (1, 1, 0)
+    rig.feed(_fb_impact(8, caster=2, target=4, cast_hp=0, **att))     # Garnet's own blow kills her: lethal
+    rig.step()
+    assert (rig.fb["guarded"], rig.fb["clips"]) == (2, 1)
+    lane = rig.lane
+    unit = {u["slot"]: u for u in rig.units}
+    a = BW.decode_action(_fb_impact(9, caster=0, target=4, **att))
+    lane.fallback.at_impact(a, unit[0], False, False, False, False, None, True, BW.ACT_VIA_ARRIVAL, lane.now_ms, rig.ctx())
+    lane.fallback.at_impact(a, unit[0], False, False, False, False, None, False, BW.ACT_VIA_ARRIVAL, lane.now_ms, rig.ctx())
+    assert (rig.fb["backlog"], rig.fb["deduped"], rig.fb["clips"]) == (1, 1, 1)
+    b = BW.decode_action(_fb_impact(10, caster=3, target=4, **att))
+    for via, kw in (("end-inject", {}), (BW.ACT_VIA_ARRIVAL, {"end_presented": True}),
+                    (BW.ACT_VIA_ARRIVAL, {"end_injected": True}), ("queued", {"leaving": True}),
+                    (BW.ACT_VIA_ARRIVAL, {"end_held": True}),
+                    (BW.ACT_VIA_ARRIVAL, {"disappeared": lambda u: u is unit[3]})):
+        lane.fallback.at_impact(b, unit[3], False, False, False, False, None, False, via, lane.now_ms, rig.ctx(**kw))
+    assert (rig.fb["guarded"], rig.fb["clips"]) == (8, 1)
+    rig.feed(_rep_start(20, actor=3, tar=0x10))                         # the caster acts: its own replay runs
+    rig.step()
+    assert lane.acting_record(unit[3]) is not None
+    lane.fallback.at_impact(b, unit[3], False, False, False, False, None, False, BW.ACT_VIA_ARRIVAL, lane.now_ms, rig.ctx())
+    # [fix pass: cover-2] refused ONLY for its caster's running replay: deferred (no counter yet), its key unspent
+    assert (rig.fb["guarded"], rig.fb["clips"], len(lane.fallback.deferred)) == (8, 1, 1)
+    z = BW.decode_action(_fb_impact(0, caster=3, target=4, **att))      # an id-0 impact: never deferred
+    lane.fallback.at_impact(z, unit[3], False, False, False, False, None, False, BW.ACT_VIA_ARRIVAL, lane.now_ms, rig.ctx())
+    assert (rig.fb["guarded"], len(lane.fallback.deferred)) == (9, 1)
+    lane.fallback.at_impact(b, None, False, False, False, False, None, False, BW.ACT_VIA_ARRIVAL, lane.now_ms, rig.ctx())
+    # every impact with a resolved caster in exactly one bucket: 1 clip + 9 guarded + 1 backlog + 1 deduped (no caster:
+    # none) -- the deferred one once it decides or drops: the teardown drops it `guarded`
+    assert BW.act_fallback_decided(rig.fb) == 12
+    lane.discard_all("teardown (bench)")
+    assert BW.act_fallback_decided(rig.fb) == 13 and rig.fb["guarded"] == 10 and lane.fallback.deferred == []
+
+
+def _fb_lag(*, frames: int = 60, defer: bool = True, newer: bool = False) -> "_FbRig":
+    """[fix pass: cover-2] THE GUEST-LAG CASE on the lane: Zidane's replay 1 runs; his START 2 + its impact + its END land
+    in ONE drain -- the impact HELD (paired, Registered), START 2 declined `stale` before the holder check, its held
+    impact released `declined` while replay 1 still runs (its caster ACTS). ``defer`` False = THE MUTANT (no deferral:
+    refused at once); ``newer`` = Zidane's START 3 fed right after (it parks behind replay 1, then owns his turn)."""
+    rig = _FbRig(frames=frames)
+    if not defer:
+        rig.lane.fallback.defer = lambda *args: False
+    rig.step()
+    rig.feed(_rep_start(1))
+    rig.step()
+    assert [r.id for r in rig.lane.running] == [1]
+    rig.feed(_rep_start(2), _fb_impact(2, caster=0, target=4, cmd=BW.CMD_ATTACK_ID, sub=BW.ABILITY_ATTACK_ID),
+             BW.encode_action_end(0x77, 9, 2, BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID))
+    rig.step()
+    hold = rig.lane.hold.doc(role=True)
+    assert (hold["held"], hold["rel_declined"], rig.lane.stale) == (1, 1, 1), hold
+    if newer:
+        rig.feed(_rep_start(3))
+        rig.step()
+    return rig
+
+
+def test_the_fallback_lane_defers_an_action_refused_only_for_its_casters_replay():
+    """[fix pass: cover-2] An uncovered id-keyed action whose ONLY failing guard is "acting" WAITS for its caster's replay
+    -- its key unspent, no counter -- and plays its one clip via "deferred" once that replay ends (THE MUTANT, refused at
+    once, shows nothing: the stand-in can fail the ordering it claims). A NEWER replay of the actor owning the turn (one
+    launched meanwhile) drops it `guarded`; so does ActFallbackDeferMaxMs of battle time; so does the teardown."""
+    rig = _fb_lag()
+    assert (rig.fb["clips"], rig.fb["guarded"], len(rig.lane.fallback.deferred)) == (0, 0, 1), rig.fb
+    assert sum(ln.startswith(BW.LOG_FALLBACK_DEFER) for ln in rig.lane.lines) == 1
+    while rig.lane.running:
+        rig.step()
+    assert (rig.fb["clips"], rig.fb["guarded"], rig.lane.fallback.deferred) == (1, 0, []), rig.fb
+    assert {k: rig.fb["last"][k] for k in ("id", "via", "kind", "keyed_by")} == {
+        "id": 2, "via": BW.ACT_VIA_DEFERRED, "kind": "attack", "keyed_by": "id"}, rig.fb["last"]
+    rig = _fb_lag(defer=False)                                          # THE MUTANT: refused, never decided again
+    while rig.lane.running:
+        rig.step()
+    assert (rig.fb["clips"], rig.fb["guarded"]) == (0, 1), ("the no-deferral red never came", rig.fb)
+    rig = _fb_lag(newer=True)                                           # START 3 owns Zidane's next turn
+    while 3 not in [r.id for r in rig.lane.running]:
+        rig.step()
+    assert (rig.fb["clips"], rig.fb["guarded"], rig.lane.fallback.deferred) == (0, 1, []), rig.fb
+    rig = _fb_lag(frames=10 ** 6)                                       # replay 1 runs on: the deferral goes stale
+    rig.step(BW.ACT_FALLBACK_DEFER_MAX_MS // 33 - 5)
+    assert len(rig.lane.fallback.deferred) == 1 and rig.fb["guarded"] == 0
+    rig.step(10)
+    assert (rig.fb["clips"], rig.fb["guarded"], rig.lane.fallback.deferred) == (0, 1, []), rig.fb
+    rig = _fb_lag(frames=10 ** 6)                                       # ...or the teardown takes it
+    rig.lane.discard_all("teardown (bench)")
+    assert (rig.fb["guarded"], rig.lane.fallback.deferred) == (1, [])
+    assert [ln for ln in rig.lane.lines if ln.startswith(BW.LOG_FALLBACK_SUMMARY)][-1].endswith(
+        "0 clip(s), 0 collapsed, 0 deduped, 0 covered, 0 none, 1 guarded, 0 backlog, 0 parse failure(s)")
+
+
+def _fb_pending(start_tar: int, *, wait: bool = False) -> "_FbRig":
+    """[fix pass 2: rcover-2] Zidane's START 2 (its TarId ``start_tar``) and an impact naming it whose OWN target (wire 6: no
+    unit here) is unresolved -- so never HELD (the hold pairs only a resolved target): it applies at arrival, in the START's
+    own drain, against the still-REGISTERED record. ``wait``: Zidane's replay 1 runs first, so START 2 parks Waiting behind
+    it (the caller then steps with no steady frame: no launch, no pending abort)."""
+    rig = _FbRig()
+    rig.units[:] = [u for u in rig.units if u["slot"] != 6]
+    rig.step()
+    if wait:
+        rig.feed(_rep_start(1))
+        rig.step()
+        assert [r.id for r in rig.lane.running] == [1]
+    rig.feed(_rep_start(2, tar=start_tar), _fb_impact(2, caster=0, target=6, cmd=BW.CMD_ATTACK_ID, sub=BW.ABILITY_ATTACK_ID))
+    rig.step()
+    return rig
+
+
+def test_the_fallback_lane_waits_for_a_pending_records_decision(monkeypatch):
+    """[fix pass 2: rcover-2] An impact covered ONLY by a still-PENDING record has no verdict yet. A START whose TarId maps
+    to no unit declines `target` -- and every impact of it has no resolved target, so none is ever held: the one drained
+    with the START waits for the decision and, the START declined, plays its action's clip via "declined" (no counter
+    before; the line once). A START that LAUNCHES covers it (`covered`). THE MUTANT (covered at arrival, never looked at
+    again -- the pre-fix rule) leaves the declined action with NO clip: the stand-in can fail the ordering it claims. A
+    record still pending past ActFallbackDeferMaxMs keeps its arrival verdict (`covered`; its START then declines `timeout`:
+    nothing more); so does the teardown's drop."""
+    rig = _fb_pending(0x40)                                             # its TarId names wire 6 too: declined `target`
+    hold = rig.lane.hold.doc(role=True)
+    assert (rig.lane.declined_why, hold["held"]) == ("target", 0), (rig.lane.declined_why, hold)
+    assert (rig.fb["clips"], rig.fb["covered"], rig.lane.fallback.deferred) == (1, 0, []), rig.fb
+    assert {k: rig.fb["last"][k] for k in ("id", "via", "kind", "keyed_by")} == {
+        "id": 2, "via": "declined", "kind": "attack", "keyed_by": "id"}, rig.fb["last"]
+    awaits = [ln for ln in rig.lane.lines if BW.LOG_FALLBACK_AWAIT_WAITS in ln]
+    assert awaits == [f"{BW.LOG_FALLBACK_DEFER}0{BW.LOG_FALLBACK_AWAIT_MID}{BW.CMD_ATTACK_ID} sub {BW.ABILITY_ATTACK_ID}, id "
+                      f"2{BW.LOG_FALLBACK_AWAIT_WAITS}queued{BW.LOG_FALLBACK_AWAIT_TAIL}{BW.ACT_FALLBACK_DEFER_MAX_MS}"
+                      f"{BW.LOG_FALLBACK_DEFER_TAIL}"], awaits
+    rig = _fb_pending(0x10)                                             # a TarId that maps: it LAUNCHES -- covered
+    assert (rig.lane.started, rig.fb["clips"], rig.fb["covered"], rig.lane.fallback.deferred) == (1, 0, 1, []), rig.fb
+    with monkeypatch.context() as m:                                    # THE MUTANT: covered at arrival, never again
+        m.setattr(BW, "act_fallback_awaits_record", lambda covered, pending: False)
+        rig = _fb_pending(0x40)
+        assert rig.lane.declined_why == "target"
+        assert (rig.fb["clips"], rig.fb["covered"]) == (0, 1), ("the pending-covered red never came", rig.fb)
+    rig = _fb_pending(0x10, wait=True)                                  # parked Waiting behind replay 1, no steady frame
+    assert (rig.lane.book.queue[0].state, rig.fb["covered"], len(rig.lane.fallback.deferred)) == (BW.ACT_ST_WAITING, 0, 1)
+    rig.step(BW.ACT_FALLBACK_DEFER_MAX_MS // 33 - 5, steady=False)
+    assert (rig.fb["covered"], len(rig.lane.fallback.deferred)) == (0, 1), rig.fb
+    rig.step(10, steady=False)                                          # still pending past the bound: its arrival verdict
+    assert (rig.fb["covered"], rig.fb["clips"], rig.lane.fallback.deferred) == (1, 0, []), rig.fb
+    rig.step((BW.ACT_WAIT_MAX_MS - BW.ACT_FALLBACK_DEFER_MAX_MS) // 33 + 5, steady=False)
+    assert rig.lane.declined_why == "timeout" and (rig.fb["covered"], rig.fb["clips"]) == (1, 0), rig.fb
+    rig = _fb_pending(0x10, wait=True)                                  # ...and the teardown's drop: `covered`
+    rig.lane.discard_all("teardown (bench)")
+    assert (rig.fb["covered"], rig.fb["guarded"], rig.lane.fallback.deferred) == (1, 0, []), rig.fb
+
+
+def test_the_fallback_lane_keeps_a_clip_written_after_its_units_abort(monkeypatch):
+    """[fix pass 2: rtiming-1] THE ORDER, which the stand-in can fail: Zidane's replay 1 (on Fang 1) and Vivi's replay 2 (on
+    Fang 2) run; Fang 1 plays an uncovered move (its clip written BEFORE replay 1 aborts); replay 1 aborts while replay 2
+    keeps the busy window open; Zidane -- free now -- plays an uncovered Attack (written AFTER his replay's abort); replay 2
+    ends and the window's FULL restore runs: Zidane's clip plays on, Fang 1's -- an aborted replay's unit, written before
+    -- is cut to idle. THE MUTANT (ActFallbackKeepsPose blind to the order: the pre-fix rule) cuts Zidane's too; a LATER
+    abort touching Zidane takes his kept clip back."""
+    def run(later_abort: bool = False):
+        rig = _FbRig(frames=20)
+        rig.step()
+        rig.feed(_rep_start(1, tar=0x10), _rep_start(2, actor=1, tar=0x20))
+        rig.step()
+        r1, r2 = rig.lane.running
+        assert (r1.id, r2.id, rig.lane.window_open) == (1, 2, True)
+        rig.feed(_fb_impact(40, caster=4, target=0, cmd=BW.CMD_ENEMY_ATK, sub=0, player_caster=False, player_target=True))
+        rig.step()
+        assert 4 in rig.lane.fallback.clip_on, rig.fb
+        rig.lane._abort(r1, "fault", rig.ctx())
+        rig.lane._window_check(rig.ctx())
+        assert rig.lane.window_open and rig.lane.window_abort_mask == 0x11  # Zidane (1) and Fang 1 (16)
+        rig.feed(_fb_impact(41, caster=0, target=5, cmd=BW.CMD_ATTACK_ID, sub=BW.ABILITY_ATTACK_ID))
+        rig.step()
+        assert 0 in rig.lane.fallback.clip_on and rig.lane.fallback.post_abort_mask == 0x01, rig.fb
+        if later_abort:                                                 # replay 2 aborts WITH Zidane among its units
+            r2.targets.append(next(u for u in rig.units if u["slot"] == 0))
+            rig.lane._abort(r2, "fault", rig.ctx())
+            assert rig.lane.fallback.post_abort_mask == 0
+        while rig.lane.running:
+            rig.step()
+        rig.lane._window_check(rig.ctx())
+        assert (rig.lane.restores, rig.lane.window_open) == (1, False)
+        return rig
+    rig = run()
+    assert 0 in rig.lane.fallback.clip_on and 4 not in rig.lane.fallback.clip_on, rig.lane.fallback.clip_on
+    rig = run(later_abort=True)
+    assert 0 not in rig.lane.fallback.clip_on and 4 not in rig.lane.fallback.clip_on, rig.lane.fallback.clip_on
+    monkeypatch.setattr(BW, "act_fallback_keeps_pose", lambda aborted, after, shows: not aborted and bool(shows))
+    rig = run()
+    assert 0 not in rig.lane.fallback.clip_on, ("the order-blind red never came", rig.lane.fallback.clip_on)
+
+
+def test_the_fallback_lane_reads_loop_moves_and_scripted_sequences_as_scene_sequences(monkeypatch):
+    """[fix pass 2: rstock-1] An enemy's Loop move (ScriptCounter1-3: sub_no the attack number, as EnemyAtk's) and a battle
+    script's scripted sequence (cmd None: sub_no its pSeqNo) play their sequence's first non-Idle caster clip; MagicCounter
+    still names none. THE MUTANT (btlseq's four only -- the pre-fix rule) plays nothing for them."""
+    def run():
+        rig = _FbRig()
+        rig.step()
+        for i, (cmd, sub, slot) in enumerate(((BW.CMD_SCRIPT_COUNTER1, 0, 4), (BW.CMD_SCRIPT_COUNTER3, 3, 5),
+                                              (BW.CMD_NONE_ID, 2, 4), (BW.CMD_MAGIC_COUNTER, 0, 5)), start=1):
+            rig.feed(_fb_impact(i, caster=slot, target=0, cmd=cmd, sub=sub, player_caster=False, player_target=True))
+            rig.step()
+        return rig
+    rig = run()
+    assert (rig.fb["clips"], rig.fb["none"], rig.fb["collapsed"]) == (3, 1, 0), rig.fb
+    first = BW.act_fallback_first_clip(BW.act_seq_threads(BW.ActFallbackLane.FAKE_SCENE_SEQS[2]))
+    assert {k: rig.fb["last"][k] for k in ("cmd", "sub", "kind", "clip")} == {
+        "cmd": BW.CMD_NONE_ID, "sub": 2, "kind": "enemy", "clip": first}, rig.fb["last"]
+    assert rig.lane.fallback.clip_on[5]["clip"] == BW.act_fallback_first_clip(
+        BW.act_seq_threads(BW.ActFallbackLane.FAKE_SCENE_SEQS[3]))
+    monkeypatch.setattr(BW, "act_fallback_enemy_seq_cmd", lambda c: c in (BW.CMD_ENEMY_ATK, BW.CMD_ENEMY_COUNTER,
+                                                                           BW.CMD_ENEMY_DYING, BW.CMD_ENEMY_REACTION))
+    rig = run()
+    assert (rig.fb["clips"], rig.fb["none"]) == (0, 4), ("the btlseq-four red never came", rig.fb)
+
+
+def test_the_fallback_lane_plays_no_clip_inside_an_abort_all(monkeypatch):
+    """[fix pass: timing-1] A Leave's abort-all runs BEFORE the Leave is stamped: the frames its releases unblock -- here
+    Vivi's old-host Attack QUEUED behind a held kill, released `queued` when the abort releases the kill -- play NO clip
+    (`guarded`: ActFallbackEndBlocks' abortingAll). THE MUTANT (the abort-all input dropped) plays it."""
+    def run():
+        rig = _FbRig()
+        rig.step()
+        rig.feed(_rep_start(1, tar=0x20), _hold_impact(1, hp=0))       # Zidane on Fang 2 + a held KILL on Fang 1
+        rig.step()
+        assert rig.lane.hold.doc(role=True)["life_mask"] == 0x10
+        rig.feed(_fb_old(1, target=4))                                  # Vivi's old-host Attack on Fang 1: QUEUED
+        rig.step()
+        assert rig.lane.hold.doc(role=True)["queued_now"] == 1 and rig.fb["clips"] == 0
+        rig.lane.abort_all("leave", ctx=rig.ctx())
+        hold = rig.lane.hold.doc(role=True)
+        assert (hold["rel_abort"], hold["rel_queued"], rig.lane.aborting_all) == (1, 1, False), hold
+        return rig
+    rig = run()
+    assert (rig.fb["guarded"], rig.fb["clips"]) == (1, 0), rig.fb
+    orig = BW.act_fallback_end_blocks
+    monkeypatch.setattr(BW, "act_fallback_end_blocks", lambda e, h, ab, lv, via: orig(e, h, False, lv, via))
+    rig = run()
+    assert (rig.fb["guarded"], rig.fb["clips"]) == (0, 1), ("the abort-all red never came", rig.fb)
+
+
+def test_the_fallback_lane_reads_a_given_motion_table_as_the_engine():
+    """[fix pass: harness-06] A unit's given motion table is the engine's d.mot: too short for the action's motion, or an
+    empty name there, plays NOTHING (`none`, the engine's own reason naming the motion's enum name); a full one plays its
+    name -- never the stand-in's synthetic ``ANH_FAKE_P<slot>_<index>``."""
+    rig = _FbRig()
+    units = {u["slot"]: u for u in rig.units}
+    units[1]["mot_names"] = [f"ANH_VIVI_{i:03d}" for i in range(BW.MP_MAGIC)]          # no MP_MAGIC
+    units[2]["mot_names"] = [f"ANH_GARNET_{i:03d}" for i in range(40)]
+    units[2]["mot_names"][BW.MP_ATTACK] = ""                                            # an empty MP_ATTACK
+    units[0]["mot_names"] = [f"ANH_ZIDANE_{i:03d}" for i in range(40)]
+    rig.step()
+    for i, (caster, cmd, sub) in enumerate(((1, BW.CMD_BLACK_MAGIC_ID, BW.ABILITY_FIRE_ID),
+                                            (2, BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID),
+                                            (0, BW.CMD_ATTACK_ID, BW.ABILITY_ATTACK_ID)), start=1):
+        rig.feed(_fb_impact(i, caster=caster, target=4, cmd=cmd, sub=sub))
+        rig.step()
+    assert (rig.fb["none"], rig.fb["clips"]) == (2, 1), rig.fb
+    assert rig.fb["last"]["clip"] == f"ANH_ZIDANE_{BW.MP_ATTACK:03d}"
+    none = [ln for ln in rig.lane.lines if ln.startswith(BW.LOG_FALLBACK_NONE)]
+    assert none == [f"{BW.LOG_FALLBACK_NONE}1 cmd {BW.CMD_BLACK_MAGIC_ID} sub {BW.ABILITY_FIRE_ID} (the unit's motion table "
+                    f"has no MP_MAGIC{BW.LOG_FALLBACK_NONE_TAIL}"], none
+    assert _battle_text('why = "the unit\'s motion table has no " + ActFallbackMotion(kind);')
+
+
+def test_the_fallback_lane_judges_covered_at_the_motion_step_and_windows_on_arrivals():
+    """THE ORDERINGS the stand-in claims -- each one it can FAIL: (1) COVERED is read at the impact's motion step, on the
+    record's state THEN: a held impact whose START later declines `stale` plays its clip at the `declined` release (a model
+    that decided `covered` at ARRIVAL -- Registered then -- shows none: [fix pass 2: rcover-2] it reads the frozen state as
+    PENDING, so it never decides at all -- still waiting, or `covered` once the bound passes); (2) the window compares
+    ARRIVALS: an old host's
+    impact queued behind a held kill and released by its 2.5 s timeout is one action with its sibling that arrived beside
+    it (a model that compared the RELEASE time plays a second clip); (3) a held release reads the caster's guards BEFORE
+    the life lanes: a held REVIVE of a dead caster whose START then declines stays guarded (a model that ran fallback A
+    after the life lanes sees her standing and plays)."""
+    def held_then_stale(lane_patch=None):
+        rig = _FbRig()
+        if lane_patch is not None:
+            lane_patch(rig.lane)
+        rig.step()
+        rig.feed(_rep_start(1, actor=2, cmd=BW.CMD_ITEM_ID, sub=BW.ITEM_POTION_ID, tar=0x04),
+                 _fb_impact(1, caster=2, target=2, player_target=True, cmd=BW.CMD_ITEM_ID, sub=BW.ITEM_POTION_ID),
+                 BW.encode_action_end(0x77, 9, 1, BW.CMD_ITEM_ID, BW.ITEM_POTION_ID))
+        rig.step(3)
+        return rig
+    rig = held_then_stale()
+    hold = rig.lane.hold.doc(role=True)
+    assert (hold["held"], hold["rel_declined"], rig.lane.stale) == (1, 1, 1)
+    assert rig.fb["clips"] == 1 and (rig.fb["last"]["via"], rig.fb["last"]["kind"]) == ("declined", "item")
+
+    def at_arrival(lane):                                               # THE MUTANT: covered frozen at the arrival
+        frozen = {}
+        orig_intake = lane.hold.intake
+
+        def intake(a, dt, dc, self_cast, rec, backlog, covered, ctx):
+            if rec is not None:
+                frozen[id(a)] = rec.state
+            return orig_intake(a, dt, dc, self_cast, rec, backlog, covered, ctx)
+        lane.hold.intake = intake
+        orig = lane.fallback.at_impact
+
+        def at_impact(a, caster, self_cast, lethal, revive, hidden, rec, backlog, via, arrive_ms, ctx):
+            if rec is None or id(a) not in frozen:
+                return orig(a, caster, self_cast, lethal, revive, hidden, rec, backlog, via, arrive_ms, ctx)
+            state, rec.state = rec.state, frozen[id(a)]
+            try:
+                return orig(a, caster, self_cast, lethal, revive, hidden, rec, backlog, via, arrive_ms, ctx)
+            finally:
+                rec.state = state
+        lane.fallback.at_impact = at_impact
+    rig = held_then_stale(at_arrival)
+    assert (rig.fb["clips"], rig.fb["covered"] + len(rig.lane.fallback.deferred)) == (0, 1), (
+        "the arrival-frozen red never came", rig.fb)
+
+    def queued_sibling(release_time: bool):
+        rig = _FbRig()
+        rig.step()
+        # Zidane's replay on Fang 2 (wire 5) + a held KILL on Fang 1 (wire 4) it never hits: Fang 1's slot is busy until the
+        # kill's 2.5 s timeout
+        rig.feed(_rep_start(1, tar=0x20), _hold_impact(1, hp=0))
+        rig.step()
+        assert rig.lane.hold.doc(role=True)["life_mask"] == 0x10, rig.lane.hold.doc(role=True)
+        if release_time:                                                # THE MUTANT: the window keyed on the RELEASE
+            orig = rig.lane.fallback.at_impact
+            rig.lane.fallback.at_impact = lambda a, c, sc, le, rv, hd, rec, bl, via, ms, ctx: orig(
+                a, c, sc, le, rv, hd, rec, bl, via, rig.lane.now_ms, ctx)
+        # Vivi's old-host Attack twice in ONE drain: on Fang 2 first (applied at arrival: the window key spent), then on
+        # Fang 1 (its slot busy: QUEUED -- and Vivi's slot with it, so the FIRST frame must be the free one)
+        rig.feed(_fb_old(1, target=5), _fb_old(1, target=4))
+        rig.step()
+        assert (rig.lane.hold.doc(role=True)["queued_now"], rig.fb["clips"]) == (1, 1), rig.lane.hold.doc(role=True)
+        rig.step(BW.ACT_HOLD_TIMEOUT_MS // 33 + 3)
+        assert rig.lane.hold.doc(role=True)["rel_queued"] == 1 and rig.lane.hold.doc(role=True)["rel_timeout"] == 1
+        return rig
+    rig = queued_sibling(False)
+    assert (rig.fb["clips"], rig.fb["deduped"]) == (1, 1), rig.fb
+    rig = queued_sibling(True)
+    assert rig.fb["clips"] == 2, ("the release-time window red never came", rig.fb)
+
+    def held_revive(after_lanes: bool):
+        rig = _FbRig()
+        next(u for u in rig.units if u["slot"] == 1)["alive"] = False   # Vivi dead
+        rig.step()
+        if after_lanes:                                                 # THE MUTANT: fallback A after the life lanes
+            hold, pending = rig.lane.hold, []
+            orig_release, orig_at = hold.release_held, rig.lane.fallback.at_impact
+            rig.lane.fallback.at_impact = lambda *args: pending.append(args)
+
+            def release_held(h, via, bracket, hit, ctx=None):
+                orig_release(h, via, bracket, hit, ctx)
+                for a, c, sc, le, _rv, *rest in pending:
+                    orig_at(a, c, sc, le, bool(c is not None and not c.get("alive", True)), *rest)
+                pending.clear()
+            hold.release_held = release_held
+        # Fang's START, Vivi's impact naming it -- her caster lane REVIVES her (dead here, raw HP 120: a held life lane) --
+        # and its END in ONE drain: held, then the START declined `stale`, released `declined`
+        rig.feed(_rep_start(1, actor=4, player=False, cmd=BW.CMD_ENEMY_ATK, sub=0, tar=0x02),
+                 _fb_impact(1, caster=1, target=4, cmd=BW.CMD_ATTACK_ID, sub=BW.ABILITY_ATTACK_ID, cast_hp=120),
+                 BW.encode_action_end(0x77, 9, 1, BW.CMD_ENEMY_ATK, 0))
+        rig.step(3)
+        assert rig.lane.hold.doc(role=True)["rel_declined"] == 1
+        assert next(u for u in rig.units if u["slot"] == 1)["alive"] is True        # the life lane revived her
+        return rig
+    rig = held_revive(False)
+    assert (rig.fb["guarded"], rig.fb["clips"]) == (1, 0), rig.fb
+    rig = held_revive(True)
+    assert rig.fb["clips"] == 1, ("the after-the-lanes red never came", rig.fb)
+
+
+def test_the_fallback_lane_parses_each_scene_sequence_once_and_names_what_it_cannot():
+    """The enemy clip: parsed once per (scene, sub) a boot -- a second impact of sub 0 reads the cache --; a sequence the
+    scene lacks is a parse failure (parse_failed +1, the line once, played as nothing: none +1); a non-sequence enemy
+    command names no sequence; a monster-transformed player plays nothing; the boot summary names every bucket, and a boot
+    where only `covered` moved logs none."""
+    rig = _FbRig()
+    rig.step()
+    for i, (sub, slot) in enumerate(((0, 4), (0, 5), (9, 4), (9, 5)), start=1):
+        rig.feed(_fb_impact(i, caster=slot, target=0, cmd=BW.CMD_ENEMY_ATK, sub=sub, player_caster=False,
+                            player_target=True))
+        rig.step()
+    assert (rig.fb["clips"], rig.fb["none"], rig.fb["parse_failed"]) == (2, 2, 1) and len(rig.lane.fallback.seq_cache) == 2
+    rig.feed(_fb_impact(5, caster=4, target=0, cmd=BW.CMD_MAGIC_COUNTER, sub=0, player_caster=False, player_target=True))
+    rig.step()
+    next(u for u in rig.units if u["slot"] == 3)["monster_transform"] = True
+    rig.feed(_fb_impact(6, caster=3, target=4, cmd=BW.CMD_ATTACK_ID, sub=BW.ABILITY_ATTACK_ID))
+    rig.step()
+    assert (rig.fb["none"], rig.fb["clips"]) == (4, 2)
+    parse = [ln for ln in rig.lane.lines if ln.startswith(BW.LOG_FALLBACK_PARSE)]
+    assert parse == [f"{BW.LOG_FALLBACK_PARSE}9 of scene -1 could not be parsed (the scene has no sequence 9"
+                     f"{BW.LOG_FALLBACK_PARSE_TAIL}"]
+    rig.lane.discard_all("teardown (bench)")
+    summary = [ln for ln in rig.lane.lines if ln.startswith(BW.LOG_FALLBACK_SUMMARY)]
+    assert summary == [f"{BW.LOG_FALLBACK_SUMMARY}teardown (bench)) -- 2 clip(s), 0 collapsed, 0 deduped, 0 covered, 4 none, "
+                       "0 guarded, 0 backlog, 1 parse failure(s)"]
+    assert rig.fb["clips"] == 2 and rig.lane.fallback.seq_cache == {}  # the counters stay; the cache is per boot
+    quiet = _FbRig()
+    quiet.lane.fallback.covered = 3
+    quiet.lane.discard_all("teardown")
+    assert not [ln for ln in quiet.lane.lines if ln.startswith(BW.LOG_FALLBACK_SUMMARY)]
+
+
+#: coop_action_fallback's offline oracle, run in a CHILD (the scenario puts its own dir on sys.path at import): a synthetic
+#: raw17 through the kit's seqcodec, the clips read back as JSON
+_FB_ORACLE = r"""
+import importlib.util, json, os, struct, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_fallback", os.path.join(scen, "coop_action_fallback.py"))
+fb = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fb)
+# 4 sequence slots: 0 = Idle (byte 255) then anim code 1; 1 = END only; 2 = no sequence (offset 0); 3 = anim code 0 only
+# -- [fix pass: harness-04] with seqBaseAnim 1 (the scene's SECOND enemy type: its anims start one into the list), so sub
+# 3's code 0 resolves to anim_list[1 + 0] = 1002, never anim_list[0]
+seq_count, anim_count = 4, 2
+body_start = 8 + 3 * seq_count + 4 * anim_count
+b0, b1, b3 = bytes([0x05, 255, 0x05, 1, 0x00]), bytes([0x00]), bytes([0x05, 0, 0x00])
+offs = (body_start - 4, body_start - 4 + len(b0), 0, body_start - 4 + len(b0) + len(b1))
+cam = body_start + len(b0) + len(b1) + len(b3)
+raw = (struct.pack("<hhhh", 0, cam, seq_count, anim_count) + struct.pack("<4h", *offs) + struct.pack("<2i", 1001, 1002)
+       + bytes([0, 0, 0, 1]) + b0 + b1 + b3 + b"\x00" * 4)
+names = {1001: "ANH_MON_TEST_000_000", 1002: "ANH_MON_TEST_000_010"}
+clips = fb.btlseq_clips(raw, names)
+# THE MUTANT: an oracle that drops seqBaseAnim (at = code) -- the kit's parse with every base zeroed
+sc = fb._kit()[1]
+orig = sc.parse
+def parse_no_base(data):
+    m = orig(data)
+    m.seq_base_anim = [0] * len(m.seq_base_anim)
+    return m
+sc.parse = parse_no_base
+try:
+    mutant = fb.btlseq_clips(raw, names)
+finally:
+    sc.parse = orig
+print(json.dumps({"clips": {str(k): v for k, v in clips.items()}, "idle": fb.idle_only_subs(clips),
+                  "mutant": {str(k): v for k, v in mutant.items()},
+                  "kit": fb.kit_file(), "bad": fb.btlseq_clips(b"\x00\x01", names)}))
+"""
+
+
+def test_the_offline_btlseq_oracle_reads_load_from_btl_seqs_way():
+    """The s136 bench's OFFLINE enemy-clip oracle (coop_action_fallback.btlseq_clips over the kit's own seqcodec) reads a
+    raw17 as BattleActionThread.LoadFromBtlSeq does -- each case-5 op's anim id through seqBaseAnim[sub] + its code into the
+    anim list, byte 255 the literal "Idle", END's appended Idle -- and picks through battlewire's first-clip twin: a
+    sequence whose first op is Idle reads its second clip; an END-only one none (an IDLE-ONLY sub); a slot with no sequence
+    is absent; an unreadable raw17 reads {} (the bench names it). The kit it imports is THIS checkout's. [fix pass:
+    harness-04] One sub has a NON-ZERO seqBaseAnim (a scene's second enemy type always does): its code 0 reads anim_list[1];
+    THE MUTANT that drops the base (at = code) reads anim_list[0] there -- its own red."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _FB_ORACLE, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["clips"] == {"0": "ANH_MON_TEST_000_010", "1": None, "3": "ANH_MON_TEST_000_010"}, got
+    assert got["mutant"]["3"] == "ANH_MON_TEST_000_000" != got["clips"]["3"], ("the base-dropping red never came", got)
+    assert got["idle"] == [1] and got["bad"] == {}
+    assert pathlib.Path(got["kit"]).resolve().is_relative_to((REPO / "ff9mapkit").resolve()), got["kit"]
+
+
+#: [fix pass: harness-05] coop_action_fallback.oracle_overrides on a synthetic install (a CHILD, as the other bench runs)
+_FB_OVERRIDES = r"""
+import importlib.util, json, os, sys
+scen, tools, game = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_fallback", os.path.join(scen, "coop_action_fallback.py"))
+fb = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fb)
+print(json.dumps({n: [os.path.relpath(p, game).replace(os.sep, "/") for p in fb.oracle_overrides(game, n)]
+                  for n in ("EF_R004", "EF_R007", "EF_R999")}))
+"""
+
+
+def test_the_s136_oracle_fails_closed_on_a_stacked_override(tmp_path):
+    """[fix pass: harness-05] The offline oracle reads the BASE p0data2 only, so a Memoria.ini [Mod] FolderNames folder
+    that overrides the scene's sequences -- a loose raw17 under battlescene/evt_battle_<name>/, or its own p0data2.bin --
+    is named (scene_oracle then fails closed with that path); a folder not in FolderNames, and another scene's raw17,
+    are not; a clean install names nothing."""
+    game = tmp_path / "game"
+    raw = game / "ModA" / "StreamingAssets" / "Assets" / "Resources" / "BattleMap" / "BattleScene" / "EVT_BATTLE_EF_R004"
+    raw.mkdir(parents=True)
+    (raw / "EF_R004.raw17.bytes").write_bytes(b"\x00" * 8)
+    (game / "ModB" / "StreamingAssets").mkdir(parents=True)
+    (game / "ModC" / "StreamingAssets").mkdir(parents=True)
+    (game / "ModC" / "StreamingAssets" / "p0data2.bin").write_bytes(b"\x00")      # not stacked: never read
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    def run():
+        out = subprocess.run([sys.executable, "-c", _FB_OVERRIDES, str(SCENARIOS), str(REPO / "tools"), str(game)],
+                             env=env, capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        return json.loads(out.stdout.strip().splitlines()[-1])
+    assert run() == {"EF_R004": [], "EF_R007": [], "EF_R999": []}                 # no Memoria.ini: nothing stacked
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "ModA", "ModB"\n', encoding="utf-8")
+    assert run() == {"EF_R004": ["ModA/StreamingAssets/Assets/Resources/BattleMap/BattleScene/EVT_BATTLE_EF_R004/"
+                                 "EF_R004.raw17.bytes"], "EF_R007": [], "EF_R999": []}
+    (game / "ModB" / "StreamingAssets" / "p0data2.bin").write_bytes(b"\x00")
+    got = run()
+    assert got["EF_R007"] == got["EF_R999"] == ["ModB/StreamingAssets/p0data2.bin"] and len(got["EF_R004"]) == 2, got
+
+
+def test_the_s136_bench_predicts_its_reds_as_its_docstring_says():
+    """[ff9mapkit netsync s136] coop_action_fallback.py's calibration tables, pinned to its docstring: on s135 (and older)
+    every check is red but INI / S0 / PRE / TAPE / ORACLE / INV (the act.guest.fallback probe fails closed: no fallback op
+    ever sent); under its own lever (`actbench fallback off` before boot 1) exactly the LEVER set -- every leg reads its
+    counter's move -- every id one its catalog defines; boot 1 kills nothing (LETHAL and BACKLOG each own a boot) and plays
+    OLD before the bursts (the per-boot clip-line cap). Its tape leg: on an s135 guest every fallback check, under the
+    INVERSE knob (ActionReplay=1) exactly UNCOV / CLIP / ENEMY / LOG with NONE a maybe -- [fix pass: harness-03] its
+    accounting check ACCT, not a once-per-action claim the tape cannot fail. [fix pass: harness-01] Its ARC leg (the s117
+    arc tape: an old host through the real intake): on s135 every fallback check fails closed, on s136 nothing is predicted
+    red. [fix pass: timing-4] OLD's two in-window impacts ride ONE `feedat` verb. Its probe is the s136 key, its scene
+    the s134 bench's, its nonce and figures its own MARKERS, its proof line the engine's, the s134 lessons in its docstring
+    -- the Potion leg's target named, the Idle-only and distinct-id burst legs there (audit 4.8) -- and it never sends a
+    `dioleave` (s134 LESSON 2) or `endbench kill`, and every follow-up that must land inside a window or before a boot's
+    latch rides its feed's OWN request."""
+    fb = _scenario_tables()["fb"]
+    g = lambda *n: sorted(f"S136-{x}" for x in n)                     # noqa: E731
+    assert set(fb["catalog"]) == set(fb["plain"]) | {"S136-CAL"} and len(fb["plain"]) == 27
+    assert fb["old"] == sorted(set(fb["plain"]) - set(g("INI", "S0", "PRE", "TAPE", "ORACLE", "INV")))
+    assert fb["lever"] == g("ITEM", "ITEMA", "MAGIC", "ATTACK", "ENEMY", "IDLE", "DEF", "SELF", "BURST1", "BURSTD", "BURSTC",
+                            "OLD", "COV", "DECL", "NOOP", "LETHAL", "BACKLOG")
+    assert fb["maybe"] == [] and set(fb["lever"]) < set(fb["old"]) and set(fb["fallback"]) <= set(fb["plain"])
+    assert set(fb["plain"]) - set(fb["lever"]) == set(g("INI", "S0", "P0", "PROOF", "PRE", "TAPE", "ORACLE", "BOOT", "INV",
+                                                        "R"))
+    for piece in ("RED, exactly: every check but INI, S0, PRE, TAPE, ORACLE, INV (nothing booted, nothing to change)",
+                  "Predicted reds, exactly: ITEM, ITEMA, MAGIC, ATTACK, ENEMY, IDLE, DEF, SELF, BURST1, BURSTD, BURSTC, OLD, "
+                  "COV, DECL, NOOP, LETHAL, BACKLOG (", "GREEN: INI, S0, P0, PROOF, PRE, TAPE, ORACLE, BOOT, INV, R.",
+                  "ITS IN-RUN RED", "Garnet's Potion on HERSELF (the self target: no DmgMot -- D-b, amendment 4)",
+                  "Garnet's Potion on VIVI", "an Idle-only sequence", "three distinct action ids",
+                  "RED exactly P0, UNCOV, CLIP, ENEMY, NONE, ACCT, LOG (fails closed)",
+                  "RED exactly P0, OLD, CLIP, ENEMY, ACCT, LOG (fails closed)", "THE ARC LEG (COOP_FB_LEG=arc)",
+                  "ONCE PER ACTION is the solo BURST1 / OLD legs' proof", "'action fallback selftest: OK (30 rows)'",
+                  "THE SLIDE dedupes", "ONE CLIP INJECTED", "LOOP move (ScriptCounter1, cmd 63)",
+                  "RED exactly UNCOV, CLIP, ENEMY, LOG (nothing uncovered plays a clip); NONE is a maybe",
+                  "THE ORACLE (an enemy's clip): derived OFFLINE", "Never read from the engine under test",
+                  "THE CASTERS BY WIRE SLOT AND MODEL", "s134 LESSON 1", "s134 LESSON 2", "s134 LESSON 3", "s134 LESSON 4",
+                  "Memoria.ini [Netsync] Enabled = 0 (or absent)", "THE PER-BOOT LOG CAP", "with [Netsync] ActionReplay=0"):
+        assert piece in fb["doc"], piece
+    assert fb["probe"] == "netsync.battle.act.guest.fallback" == Session.NETSYNC_ACTBENCH_OP_CAPS["fallback"][1]
+    assert fb["scene"] == 306 and fb["group"] in (2, 4) and fb["leg"] == "solo" and fb["legs"] == ["solo", "tape", "arc"]
+    assert fb["proof"] == BW.proof_ok(BW.PROOF_FALLBACK, BW.FALLBACK_SELFTEST_ROWS)
+    assert fb["nonce"] == 0x5E and fb["nonce"] not in (fb["replay_nonce"], fb["hold_nonce"])
+    assert len(set(fb["figs"])) == len(fb["figs"]) == 18 and all(5161 <= f <= 5178 for f in fb["figs"])
+    assert not set(fb["figs"]) & set(_scenario_tables()["hd"]["figs"])
+    boot1 = fb["boot1"]
+    assert boot1[0] == "S136-BOOT" and not set(boot1) & set(g("LETHAL", "BACKLOG"))
+    assert boot1.index("S136-OLD") < boot1.index("S136-BURST1") and boot1[-3:] == ["S136-COV", "S136-DECL", "S136-NOOP"]
+    t = lambda *n: sorted(f"S136T-{x}" for x in n)                    # noqa: E731
+    assert set(fb["tape"]) == set(fb["tape_plain"]) | {"S136T-CAL"}
+    assert set(fb["tape_plain"]) == set(fb["tape_fb"]) | {"S136T-I", "T2-TAPE", "T2-CAL", "T2-PEER", "T2-SAVE", "T2-INI"}
+    assert fb["tape_old"] == fb["tape_fb"] == t("P0", "UNCOV", "CLIP", "ENEMY", "NONE", "ACCT", "LOG")
+    assert fb["tape_old_maybe"] == [] and fb["tape_replay"] == t("UNCOV", "CLIP", "ENEMY", "LOG")
+    assert fb["tape_replay_maybe"] == t("NONE")
+    a = lambda *n: sorted(f"S136A-{x}" for x in n)                    # noqa: E731
+    assert set(fb["arc"]) == set(fb["arc_plain"]) | {"S136A-CAL"}
+    assert set(fb["arc_plain"]) == set(fb["arc_fb"]) | {"S136A-I", "T2-TAPE", "T2-CAL", "T2-PEER", "T2-SAVE", "T2-INI"}
+    assert fb["arc_old"] == fb["arc_fb"] == a("P0", "OLD", "CLIP", "ENEMY", "ACCT", "LOG")
+    assert fb["arc_new"] == [] and fb["arc_maybe"] == [] and fb["arc_tape"] == fb["arc_name"]
+    src = (SCENARIOS / "coop_action_fallback.py").read_text(encoding="utf-8")
+    code = "\n".join(ln for ln in src.split('"""', 2)[2].splitlines() if not ln.lstrip().startswith("#"))
+    assert "dioleave" not in code and "endbench kill" not in code and '"kill"' not in code
+    # the follow-ups that must land inside a window or before the boot's latch ride ONE request (s135 LESSON)
+    for leg, sends in (("_boot_backlog", 'g.send(f"netsync dioboot {SCENE} {GROUP}", f"netsync actbench feed'),
+                       ("_leg_burst1", 'g.send(f"netsync actbench feed {_feed_arg([start, frames[0]])}", '
+                                       'f"netsync actbench feed {_feed_arg(frames[1:])}"'),
+                       ("_leg_old", 'g.send(f"netsync actbench feed {_feed_arg(old[0])}", f"netsync actbench feedat 250 '
+                                    '{_feed_arg(old[1:3])}",\n               f"netsync actbench feedat 500 {_feed_arg(old[3])}", '
+                                    'f"netsync actbench feedat 1100 {_feed_arg(old[4])}"'),
+                       ("_leg_enemy", 'g.send(f"netsync actbench feed {_feed_arg(frames)}", f"netsync actbench feed '
+                                      '{_feed_arg(loop_frames)}"')):
+        body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
+        assert sends in body, leg
+    # the lever: only under COOP_CALIBRATE (before boot 1, back after) and the release's left-set
+    assert code.count('_act_verb(g, "fallback", "off")') == 2 and code.count('_act_verb(g, "fallback", "on")') == 1
+
+
+#: coop_action_fallback's pure judges, run on synthetic inputs (JSON on stdin), the verdicts read back
+_FB_JUDGE = r"""
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_fallback", os.path.join(scen, "coop_action_fallback.py"))
+fb = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fb)
+class Led:
+    def __init__(self):
+        self.checks = {}
+    def check(self, cid, ok, detail=""):
+        self.checks[cid] = [bool(ok), str(detail)]
+    def unreached(self, ids, why):
+        for c in ids:
+            self.checks.setdefault(c, [False, "unreached: " + why])
+doc = json.loads(sys.stdin.read())
+out = {"pred": {k: fb.no_clip_pred(c["delta"], c["bucket"], c.get("n", 1)) for k, c in doc["pred"].items()},
+       "clip": {k: list(fb.judge_clip(c["last"], **c["want"])) for k, c in doc["clip"].items()},
+       "window": {k: list(fb.judge_window(c["records"], 1, 22, 25, c["min_gap"]) if isinstance(c, dict) else
+                          fb.judge_window(c, 1, 22, 25)) for k, c in doc["window"].items()},
+       "red": {k: fb.in_run_red(c["delta"], c["bucket"], c.get("n", 1)) for k, c in doc["red"].items()},
+       "union": fb.lasts_union(doc["union"]), "tape": {}, "arc": {},
+       "arcfacts": {k: list(fb.arc_tape_facts(v)) for k, v in doc["arcfacts"].items()}}
+# THE MUTANT of the in-run red's predicate: blind to the clips conjunct (the sibling-delta red could not tell it apart)
+orig = fb.no_clip_pred
+fb.no_clip_pred = lambda d, b, n=1: d.get(b) == n and d.get("collapsed") == 0
+try:
+    out["red_blind"] = {k: fb.in_run_red(c["delta"], c["bucket"], c.get("n", 1)) for k, c in doc["red"].items()}
+finally:
+    fb.no_clip_pred = orig
+for leg, judge in (("tape", fb.judge_fallback_tape), ("arc", fb.judge_fallback_arc)):
+    for name, run in doc[leg].items():
+        led = Led()
+        oracle = {int(k): v for k, v in run["oracle"].items()} if run.get("oracle") is not None else None
+        judge(led, run["samples"], run["messages"], run["act"], oracle, "no oracle here")
+        out[leg][name] = led.checks
+print(json.dumps(out))
+"""
+
+
+def _fb_last(kind="attack", clip="ANH_MAIN_B0_000_103", *, actor=0, cmd=1, sub=176, keyed_by="id", act_id=7,
+             via="arrival", ms=100) -> dict:
+    return {"actor": actor, "clip": clip, "cmd": cmd, "sub": sub, "keyed_by": keyed_by, "kind": kind, "id": act_id,
+            "via": via, "ms": ms}
+
+
+def _fb_tape_run(**over) -> dict:
+    """A synthetic tape-leg run on the knob: every START declined `knob`, the impacts uncovered -- clips (an attack and
+    two enemy subs), the Defends' none -- and the engine's clip lines and summary."""
+    fbk = dict(BW.ACT_GUEST_FALLBACK_SENTINELS, on=True, clips=5, none=8, last=_fb_last())
+    fbk.update(over.get("fallback", {}))
+    guest = {"starts_rx": 13, "started": 0, "declined": 13, "declined_why": "knob", "paired": 13, "fallback": fbk}
+    guest.update(over.get("guest", {}))
+    early = dict(fbk, last=_fb_last("enemy", "ANH_MON_B3_001_010", actor=4, cmd=47, sub=0, act_id=2), clips=1)
+    samples = [{"booted": True, "guest": dict(guest, fallback=early)}, {"booted": True, "guest": guest}]
+    if over.get("no_fallback"):
+        samples = [{"booted": True, "guest": {k: v for k, v in guest.items() if k != "fallback"}}]
+    line = lambda kind, clip, slot, cmd, sub, i: (                       # noqa: E731
+        f"16.10.2026 12:00:00 |M| {BW.LOG_FALLBACK}{kind} clip {clip} on wire slot {slot} (cmd {cmd} sub {sub}, keyed by id "
+        f"{i}, via arrival) at battle ms {100 * i}{BW.LOG_FALLBACK_CLIP_TAIL}")
+    messages = over.get("messages", [
+        line("enemy", "ANH_MON_B3_001_010", 4, 47, 0, 2), line("enemy", "ANH_MON_B3_001_030", 4, 47, 2, 12),
+        line("attack", "ANH_MAIN_B0_000_103", 0, 1, 176, 13),
+        f"{BW.LOG_FALLBACK_SUMMARY}teardown) -- 5 clip(s), 0 collapsed, 0 deduped, 0 covered, 8 none, 0 guarded, 0 backlog, "
+        "0 parse failure(s)"])
+    return {"samples": samples, "messages": messages, "act": {"starts": 13, "impacts": 13},
+            "oracle": over.get("oracle", {"0": "ANH_MON_B3_001_010", "1": None, "2": "ANH_MON_B3_001_030"})}
+
+
+def _fb_arc_run(**over) -> dict:
+    """[fix pass: harness-01] A synthetic ARC-leg run: an old host (no START), every write keyed by (caster, cmd, sub) with
+    id 0 -- an attack and an enemy clip, the window's dedupes -- and the engine's clip lines and summary."""
+    old = lambda kind, clip, actor, cmd, sub, ms: _fb_last(kind, clip, actor=actor, cmd=cmd, sub=sub,  # noqa: E731
+                                                           keyed_by="caster", act_id=0, ms=ms)
+    fbk = dict(BW.ACT_GUEST_FALLBACK_SENTINELS, on=True, clips=4, deduped=6, none=1,
+               last=old("attack", "ANH_MAIN_B0_000_103", 0, 1, 176, 900))
+    fbk.update(over.get("fallback", {}))
+    guest = {"starts_rx": 0, "started": 0, "declined": 0, "old_host": True, "paired": 0, "fallback": fbk}
+    guest.update(over.get("guest", {}))
+    early = dict(fbk, last=old("enemy", "ANH_MON_B3_001_010", 4, 47, 0, 300), clips=1)
+    samples = [{"booted": True, "guest": dict(guest, fallback=early)}, {"booted": True, "guest": guest}]
+    if over.get("no_fallback"):
+        samples = [{"booted": True, "guest": {k: v for k, v in guest.items() if k != "fallback"}}]
+    line = lambda kind, clip, slot, cmd, sub, ms: (                      # noqa: E731
+        f"16.10.2026 12:00:00 |M| {BW.LOG_FALLBACK}{kind} clip {clip} on wire slot {slot} (cmd {cmd} sub {sub}, "
+        f"{BW.LOG_FALLBACK_BY_CASTER}500 ms, via arrival) at battle ms {ms}{BW.LOG_FALLBACK_CLIP_TAIL}")
+    messages = over.get("messages", [
+        line("enemy", "ANH_MON_B3_001_010", 4, 47, 0, 300), line("attack", "ANH_MAIN_B0_000_103", 0, 1, 176, 900),
+        f"{BW.LOG_FALLBACK_SUMMARY}teardown) -- 4 clip(s), 0 collapsed, 6 deduped, 0 covered, 1 none, 0 guarded, 0 backlog, "
+        "0 parse failure(s)"])
+    return {"samples": samples, "messages": messages, "act": {"starts": 0, "impacts": 13},
+            "oracle": over.get("oracle", {"0": "ANH_MON_B3_001_010", "1": None, "2": "ANH_MON_B3_001_030"})}
+
+
+def test_the_s136_benchs_pure_judges_read_each_engine_and_can_fail():
+    """coop_action_fallback's judges, PURE, on synthetic runs -- each GREEN on the s136 shape and RED on every shape it
+    exists to catch: no_clip_pred (a clip written, the bucket off by one, a collapse), judge_clip (the wrong kind, id, via,
+    key, an "Idle" or empty clip, the oracle's clip missed), judge_window (one write, a gap under 500 ms, an id-keyed write),
+    lasts_union (dedupes), [fix pass 2] judge_window's OLD shape (A and E: an anchored window's three writes, a second write
+    that is D -- each red) and in_run_red (False on each no-clip leg's own shape; a predicate blind to the clips conjunct
+    reads True there), and judge_fallback_tape: an s135 guest fails closed; the INVERSE knob (the replays cover: started
+    13, covered 13, clips 0, no clip line) is red on exactly UNCOV / CLIP / ENEMY / LOG; an enemy clip off the oracle, a
+    missing oracle, a fault line, a parse failure, an attack-only run, more decisions than impacts, [fix pass: harness-03]
+    fewer than the paired impacts (a dropped bucket): each its own red. [fix pass: harness-01] judge_fallback_arc: an s135
+    guest fails closed; a write keyed by id, a START seen, a guest that never saw an old host, an enemy clip off the oracle
+    or none at all, more decisions than impacts, a fault line: each its own red; arc_tape_facts takes only an old host's
+    battle (impacts, no START)."""
+    zero = dict.fromkeys((*BW.ACT_FALLBACK_BUCKETS, "parse_failed"), 0)
+    pred = {"green": {"delta": dict(zero, none=1), "bucket": "none"},
+            "clip": {"delta": dict(zero, none=1, clips=1), "bucket": "none"},
+            "two": {"delta": dict(zero, none=2), "bucket": "none"},
+            "collapsed": {"delta": dict(zero, guarded=1, collapsed=1), "bucket": "guarded"},
+            "pair": {"delta": dict(zero, none=2), "bucket": "none", "n": 2}}
+    want = {"want_id": 7, "kind": "attack", "cmd": 1, "sub": 176, "actor": 0, "keyed_by": "id"}
+    clip = {"green": {"last": _fb_last(), "want": want},
+            "kind": {"last": _fb_last("magic"), "want": want},
+            "id": {"last": _fb_last(act_id=8), "want": want},
+            "via": {"last": _fb_last(via="declined"), "want": want},
+            "key": {"last": _fb_last(keyed_by="caster", act_id=0), "want": want},
+            "idle": {"last": _fb_last(clip="Idle"), "want": want},
+            "empty": {"last": _fb_last(clip=""), "want": want},
+            "oracle": {"last": _fb_last("enemy", "X", actor=4, cmd=47, sub=0),
+                       "want": dict(want, kind="enemy", cmd=47, sub=0, actor=4, clip="Y")},
+            "old": {"last": _fb_last("magic", actor=1, cmd=22, sub=25, keyed_by="caster", act_id=0),
+                    "want": dict(want, want_id=None, kind="magic", cmd=22, sub=25, actor=1, keyed_by="caster")}}
+    w = lambda ms, **kw: dict(_fb_last("magic", actor=1, cmd=22, sub=25, keyed_by="caster", act_id=0, ms=ms), **kw)  # noqa: E731
+    window = {"green": [w(100), w(850)], "one": [w(100)], "short": [w(100), w(450)],
+              "byid": [w(100), w(850, keyed_by="id", id=9)], "other": [w(100), w(850, sub=26)],
+              # [fix pass 2: rharness-03] OLD's own shape: A and E (the slide deduped D); an ANCHORED window's A, D and E;
+              # a second write that is D (under OLD_E_GAP)
+              "slide": {"records": [w(100), w(1350)], "min_gap": 1000},
+              "anchored": {"records": [w(100), w(760), w(1350)], "min_gap": 1000},
+              "d_not_e": {"records": [w(100), w(760)], "min_gap": 1000}}
+    # [fix pass 2: rharness-02] the in-run red on each no-clip leg's OWN shape: False with one clip injected
+    red = {"none": {"delta": dict(zero, none=1), "bucket": "none"},
+           "def": {"delta": dict(zero, none=2), "bucket": "none", "n": 2},
+           "covered": {"delta": dict(zero, covered=1), "bucket": "covered"},
+           "backlog": {"delta": dict(zero, backlog=1), "bucket": "backlog"}}
+    union = [{"last": _fb_last()}, {"last": _fb_last()}, {"last": None}, {"last": _fb_last(act_id=9)}, "junk"]
+    tape = {"green": _fb_tape_run(), "old": _fb_tape_run(no_fallback=True),
+            "replay": _fb_tape_run(guest={"started": 13, "declined": 4, "declined_why": "stale"},
+                                   fallback={"clips": 0, "covered": 9, "none": 4, "last": None},
+                                   messages=[f"{BW.LOG_FALLBACK_SUMMARY}teardown) -- 0 clip(s), 0 collapsed, 0 deduped, 9 "
+                                             "covered, 4 none, 0 guarded, 0 backlog, 0 parse failure(s)"]),
+            "enemy_off": _fb_tape_run(oracle={"0": "ANH_MON_B3_001_011", "2": "ANH_MON_B3_001_030"}),
+            "no_oracle": dict(_fb_tape_run(), oracle=None),
+            "fault": _fb_tape_run(messages=_fb_tape_run()["messages"] + [f"{BW.LOG_FALLBACK_FAULTED}NullReferenceException"]),
+            "parse": _fb_tape_run(fallback={"parse_failed": 1}),
+            "attack_only": _fb_tape_run(messages=[_fb_tape_run()["messages"][2], _fb_tape_run()["messages"][3]],
+                                        fallback={"last": _fb_last()}),
+            "too_many": _fb_tape_run(fallback={"clips": 9, "none": 8}),
+            "dropped": _fb_tape_run(fallback={"clips": 4, "none": 8})}         # 12 buckets < 13 paired: one dropped
+    arc = {"green": _fb_arc_run(), "old": _fb_arc_run(no_fallback=True),
+           "byid": _fb_arc_run(messages=_fb_arc_run()["messages"] + [
+               f"{BW.LOG_FALLBACK}attack clip ANH_MAIN_B0_000_103 on wire slot 0 (cmd 1 sub 176, keyed by id 7, via arrival) "
+               f"at battle ms 1200{BW.LOG_FALLBACK_CLIP_TAIL}"]),
+           "starts": _fb_arc_run(guest={"starts_rx": 2}),
+           "not_old": _fb_arc_run(guest={"old_host": False}),
+           "enemy_off": _fb_arc_run(oracle={"0": "ANH_MON_B3_001_011"}),
+           "no_enemy": _fb_arc_run(messages=_fb_arc_run()["messages"][1:]),
+           "too_many": _fb_arc_run(fallback={"deduped": 9}),
+           "fault": _fb_arc_run(messages=_fb_arc_run()["messages"] + [f"{BW.LOG_FALLBACK_FAULTED}KeyNotFoundException"])}
+    arc["no_enemy"]["samples"] = arc["no_enemy"]["samples"][1:]
+    arcfacts = {"old": {"starts": 0, "impacts": 13, "ext": 0}, "new": {"starts": 13, "impacts": 13, "ext": 13},
+                "empty": {"starts": 0, "impacts": 0}}
+    for name in ("attack_only", "replay"):                              # (no earlier enemy write on these runs)
+        tape[name]["samples"] = tape[name]["samples"][1:]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _FB_JUDGE, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         input=json.dumps({"pred": pred, "clip": clip, "window": window, "red": red, "union": union,
+                                           "tape": tape, "arc": arc, "arcfacts": arcfacts}),
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["pred"] == {"green": True, "clip": False, "two": False, "collapsed": False, "pair": True}, got["pred"]
+    assert {k: v[0] for k, v in got["clip"].items()} == {"green": True, "kind": False, "id": False, "via": False,
+                                                        "key": False, "idle": False, "empty": False, "oracle": False,
+                                                        "old": True}, got["clip"]
+    assert {k: v[0] for k, v in got["window"].items()} == {"green": True, "one": False, "short": False, "byid": False,
+                                                          "other": False, "slide": True, "anchored": False,
+                                                          "d_not_e": False}, got["window"]
+    assert got["red"] == dict.fromkeys(red, False), got["red"]          # every own-shape red reads False...
+    assert got["red_blind"] == dict.fromkeys(red, True), got["red_blind"]   # ...and a clips-blind predicate cannot
+    assert "gap 750" in got["window"]["green"][1] and len(got["union"]) == 2
+    fbk = ("S136T-P0", "S136T-UNCOV", "S136T-CLIP", "S136T-ENEMY", "S136T-NONE", "S136T-ACCT", "S136T-LOG")
+    red = lambda name: sorted(c for c, (ok, _d) in got["tape"][name].items() if not ok)   # noqa: E731
+    assert set(got["tape"]["green"]) == set(fbk) and red("green") == [], got["tape"]["green"]
+    assert red("old") == sorted(fbk) and all("unreached" in d for _ok, d in got["tape"]["old"].values())
+    assert red("replay") == sorted(("S136T-UNCOV", "S136T-CLIP", "S136T-ENEMY", "S136T-LOG")), got["tape"]["replay"]
+    assert red("enemy_off") == ["S136T-ENEMY"] and "ANH_MON_B3_001_011" in got["tape"]["enemy_off"]["S136T-ENEMY"][1]
+    assert red("no_oracle") == ["S136T-ENEMY"] and "no oracle here" in got["tape"]["no_oracle"]["S136T-ENEMY"][1]
+    assert red("fault") == ["S136T-LOG"] and red("parse") == ["S136T-ACCT"] and red("too_many") == ["S136T-ACCT"]
+    assert red("dropped") == ["S136T-ACCT"] and "paired 13" in got["tape"]["dropped"]["S136T-ACCT"][1]
+    assert red("attack_only") == ["S136T-CLIP", "S136T-ENEMY"], got["tape"]["attack_only"]
+    # [fix pass: harness-01] the arc leg's judge
+    afb = ("S136A-P0", "S136A-OLD", "S136A-CLIP", "S136A-ENEMY", "S136A-ACCT", "S136A-LOG")
+    ared = lambda name: sorted(c for c, (ok, _d) in got["arc"][name].items() if not ok)   # noqa: E731
+    assert set(got["arc"]["green"]) == set(afb) and ared("green") == [], got["arc"]["green"]
+    assert ared("old") == sorted(afb) and all("unreached" in d for _ok, d in got["arc"]["old"].values())
+    assert (ared("byid"), ared("starts"), ared("not_old")) == (["S136A-CLIP"], ["S136A-OLD"], ["S136A-OLD"]), got["arc"]
+    assert (ared("enemy_off"), ared("no_enemy"), ared("too_many"), ared("fault")) == (
+        ["S136A-ENEMY"], ["S136A-ENEMY"], ["S136A-ACCT"], ["S136A-LOG"]), got["arc"]
+    assert {k: v[0] for k, v in got["arcfacts"].items()} == {"old": True, "new": False, "empty": False}, got["arcfacts"]
