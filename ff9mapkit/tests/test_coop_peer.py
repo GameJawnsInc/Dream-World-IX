@@ -931,3 +931,191 @@ def test_replay_host_cli_refuses_a_bad_plan_before_listening(tmp_path, capsys):
     assert "--dial needs --code" in capsys.readouterr().out
     assert CP.main(["replay-host", str(path), "--blackhole-at", "1", "--blackhole-at", "2", "--blackhole-for", "1",
                     "--blackhole-for", "0"]) == 2
+
+
+# ======================================================================================== [ff9mapkit netsync s139] section 8
+def _party_body(chars=(0, 1, 2, 3), *, names=None, sas=None) -> bytes:
+    """A section-1 body as NetSyncParty.SerializeSections writes it: per seat [present u8], then CharId / Serial / Level /
+    Row, CurHp / MaxHp / CurMp / MaxMp (u32), Equip x5 (u16), [name len][name], the v9 block (basis HP / MP u32, 4 stat
+    bytes, basis capa u32, status u64, trance u8) and [SA count][SA ids u32]. -1 = an empty seat."""
+    out = bytearray()
+    for i, c in enumerate(chars):
+        if c is None or c < 0:
+            out.append(0)
+            continue
+        name = (names[i] if names else f"P{c}").encode("utf-8")
+        sa = (sas[i] if sas else (1, 2))
+        out += bytes((1, c, i, 10, 0)) + struct.pack("<4I", 100, 100, 20, 20) + struct.pack("<5H", 1, 2, 3, 4, 5)
+        out += bytes((len(name),)) + name + struct.pack("<2I", 90, 18) + bytes((10, 11, 12, 13)) + struct.pack("<I", 30)
+        out += struct.pack("<Q", 0) + bytes((0, len(sa))) + b"".join(struct.pack("<I", s) for s in sa)
+    return bytes(out)
+
+
+def _host_state_frame(dress=None, *, before7: bool = False, cut: int = 0, drop7: bool = False, party=(0, 1, 2, 3),
+                      past: bool = False) -> bytes:
+    """A host type-5 frame as BuildStateFrame composes it: the story (2048 B), the party sections (section 1 a real seat
+    layout for ``party``), section 5, section 7 -- then section 8 (``dress``; None = an s138-or-older host), or section 8
+    BEFORE section 7 (a misplaced producer), the payload cut ``cut`` bytes short (a frame truncated inside its last
+    section), no section 7 at all (``drop7``), or a sentinel section AFTER section 8 (``past``: the DressSelfTest row that
+    proves an old walker steps over section 8 by its length)."""
+    parts = [(BW.SECTION_STORY, bytes((i * 5) & 0xFF for i in range(BW.STORY_LEN))), (BW.SECTION_PARTY, _party_body(party)),
+             (BW.SECTION_BAG, bytes(range(20))), (BW.SECTION_EVENT, bytes((1, 7)))]
+    tail = [] if drop7 else [(BW.SECTION_DIALOG, bytes(range(90, 150)))]
+    if dress is not None:
+        tail = [(BW.SECTION_DRESS, dress)] + tail if before7 else tail + [(BW.SECTION_DRESS, dress)]
+    if past:
+        tail = tail + [(CP.SENTINEL_SECTION, CP.SENTINEL_BODY)]
+    payload = b""
+    for sid, body in parts + tail:
+        payload = BW.append_section(payload, sid, body)
+    return CP.build_frame(CP.TYPE_STATE, payload[:len(payload) - cut] if cut else payload)
+
+
+def _dress_tape(path, frames) -> None:
+    tap = CP.TapeWriter(path, mode="test", clock=lambda: 0.0)
+    tap.write(CP.DIR_HOST, CP.build_pos_frame(250), t=0.1)
+    for i, f in enumerate(frames):
+        tap.write(CP.DIR_HOST, f, t=0.2 + i * 0.14)
+    tap.write(CP.DIR_GUEST, _host_state_frame(None), t=9.0)          # a guest's frame never counts
+    tap.close()
+
+
+def test_dress_reads_section_8_off_a_hosts_tape(tmp_path, capsys):
+    """[ff9mapkit netsync s139] `coop_peer.py dress` -- G9's cheap half, section 8 ON A REAL WIRE: on an s139 host's tape
+    every type-5 frame carries section 8 right after section 7 and last, its body the twin's for the host's config (Vivi
+    08 00 01 under GhostAs auto, GuestSlots 2, the COOPPARTY party), and the old readers' twins land the same story, party
+    sections and sections 4-7 with it stripped -- exit 0. RED (exit 1) on an s138 host (no section 8), the wrong body, a
+    section 8 BEFORE section 7, a 2-byte body, a frame cut inside it, and an old-reader twin that would consume id 8."""
+    vivi = bytes((0x08, 0x00, 0x01))
+    assert BW.host_dress_section("auto", 2, "host", False, [0, 1, 2, 3]) == vivi
+    good = tmp_path / "s139.f9tape"
+    _dress_tape(good, [_host_state_frame(vivi) for _ in range(5)])
+    _h, records, _t = CP.read_tape(good)
+    d = CP.tape_dress(records, vivi)
+    assert (d["frames"], d["with8"], d["after7"], d["last"], d["malformed"], d["old_diff"], d["ok"]) == (5, 5, 5, 5, 0, 0,
+                                                                                                         True), d
+    assert d["bodies"] == {"08 00 01": 5}
+    assert CP.main(["dress", str(good), "--ghost-as", "auto", "--guest-slots", "2", "--party", "0,1,2,3"]) == 0
+    out = capsys.readouterr().out
+    assert "08 00 01 x5 (08 00 01 (model 8, charId 1))" in out and "VERDICT: OK" in out
+    assert CP.main(["dress", str(good), "--expect", "08 00 01"]) == 0 and CP.main(["dress", str(good)]) == 0
+    assert CP.main(["dress", str(good), "--expect", "DC 00 FF"]) == 1                    # the wrong body
+    assert CP.main(["dress", str(good), "--ghost-as", "auto", "--guest-slots", "0"]) == 1   # (a spectator: DC 00 FF)
+    # [ff9mapkit netsync s139] --ghost-as needs --guest-slots (a silent default 0 would mean a spectator): exit 2
+    assert CP.main(["dress", str(good), "--ghost-as", "auto"]) == 2
+    capsys.readouterr()
+    for name, frames in (("s138", [_host_state_frame(None)] * 3),
+                         ("before7", [_host_state_frame(vivi, before7=True)] * 3),
+                         ("no7", [_host_state_frame(vivi, drop7=True)] * 3),          # last, but not after section 7
+                         ("short", [_host_state_frame(bytes((0x08, 0x00)))] * 3),
+                         ("cut", [_host_state_frame(vivi), _host_state_frame(vivi, cut=1)]),
+                         ("mixed", [_host_state_frame(vivi), _host_state_frame(bytes((0xDC, 0x00, 0xFF)))]),
+                         ("past", [_host_state_frame(vivi, past=True)] * 3)):          # section 8 not LAST
+        path = tmp_path / f"{name}.f9tape"
+        _dress_tape(path, frames)
+        assert CP.main(["dress", str(path)] + (["--expect", "08 00 01"] if name == "mixed" else [])) == 1, name
+        out = capsys.readouterr().out
+        assert "VERDICT: FAIL" in out, name
+        if name == "s138":
+            assert "none -- an s138-or-older host" in out
+    assert CP.main(["dress", str(tmp_path / "missing.f9tape")]) == 2
+    # the old-reader check can fail: a walker twin that would consume section 8 reads the frame differently
+    real = BW.old_party_sections
+    try:
+        BW.old_party_sections = lambda p: [(s, b) for s, b in BW.walk_sections(p)[0] if s in (1, 2, 3, 8)]
+        bad = CP.tape_dress(records, vivi)
+    finally:
+        BW.old_party_sections = real
+    assert bad["old_diff"] == 5 and not bad["ok"] and bad["first_bad"].startswith("an old reader differs")
+    # ...and a walker twin that STOPS at id 8 (it answers every EARLIER read alike, so the strip comparison alone is blind
+    # to it -- section 8 is last on a real frame): the sentinel appended after section 8 catches it (the review's wire-2)
+    real = BW.old_try_read_section
+
+    def stop_at_8(payload, sid):
+        off, data = 0, bytes(payload or b"")
+        while off + 3 <= len(data):
+            s, ln = data[off], data[off + 1] | (data[off + 2] << 8)
+            if off + 3 + ln > len(data):
+                return None
+            if s == sid:
+                return data[off + 3:off + 3 + ln]
+            if s == BW.SECTION_DRESS:
+                return None
+            off += 3 + ln
+        return None
+    try:
+        BW.old_try_read_section = stop_at_8
+        stopped = CP.tape_dress(records, vivi)
+    finally:
+        BW.old_try_read_section = real
+    assert stopped["old_diff"] == 5 and not stopped["ok"], stopped
+    payload = CP.parse_frame(_host_state_frame(vivi))[1]
+    assert CP.strip_section(payload, BW.SECTION_DRESS) == CP.parse_frame(_host_state_frame(None))[1]
+
+
+def test_dress_finds_a_relative_tape_in_the_tape_home(tmp_path, monkeypatch, capsys):
+    """[ff9mapkit netsync s139] The review's rwire-1: the s139 acceptance's step 3 names the s117 tape RELATIVELY
+    (``.harness-runs/coop-tapes/<name>``) while the bench says to run from a WORKTREE, which has no tapes -- `dress` read
+    "No such file" (exit 2) instead of its calibration red. Now a relative path missing from the cwd is looked up under the
+    main repo, then by name in the tape home (COOP_TAPE_DIR here; else <main repo>/.harness-runs/coop-tapes), so from a cwd
+    where ONLY the tape home holds the file both the relative form and the bare name read it (an s138 host's tape: exit 1,
+    "none -- an s138-or-older host"); a name found nowhere is exit 2 naming every place tried, and an absolute path is
+    never redirected."""
+    home = tmp_path / "home" / ".harness-runs" / "coop-tapes"
+    home.mkdir(parents=True)
+    name = "20261014-224827-host250-s117.f9tape"
+    _dress_tape(home / name, [_host_state_frame(None)] * 3)
+    cwd = tmp_path / "worktree"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("COOP_TAPE_DIR", str(home))
+    assert CP.tape_home() == home.resolve()
+    rel = f".harness-runs/coop-tapes/{name}"
+    assert not (cwd / rel).exists()
+    found, tried = CP.resolve_tape(rel)
+    assert found is not None and found.resolve() == (home / name).resolve() and tried[0] == pathlib.Path(rel), tried
+    for form in (rel, name):
+        assert CP.main(["dress", form]) == 1, form
+        out = capsys.readouterr().out
+        assert "none -- an s138-or-older host" in out and "VERDICT: FAIL" in out, (form, out)
+    assert CP.main(["dress", ".harness-runs/coop-tapes/missing.f9tape"]) == 2
+    err = capsys.readouterr().err
+    assert "no tape" in err and str(home / "missing.f9tape") in err, err
+    absolute = tmp_path / "elsewhere" / name                      # an absolute path is read as given, never redirected
+    found, tried = CP.resolve_tape(absolute)
+    assert found is None and tried == [absolute]
+    assert CP.main(["dress", str(absolute)]) == 2
+    capsys.readouterr()
+    monkeypatch.delenv("COOP_TAPE_DIR")                           # unset: the MAIN repo's .harness-runs/coop-tapes
+    assert CP.tape_home().parts[-2:] == (".harness-runs", "coop-tapes")
+
+
+def test_dress_judges_each_frame_against_its_own_party(tmp_path, capsys):
+    """[ff9mapkit netsync s139] `coop_peer.py dress --ghost-as X --guest-slots N` with no --party reads EACH frame's own party
+    off its section 1 (BW.party_slot_chars: the CharId byte is PLAYER.info.slot_no -- the host's PLAYER.Index, what its
+    LiveSlotChars reads) and requires that frame's section 8 to be the twin's body for it: a tape whose party changes
+    mid-run (Vivi seated, then gone) holds when the body follows the party, and reads FAIL -- naming the first frame that
+    disagrees -- when it does not. The section-1 walker refuses a short body (ParseParty's own refusals)."""
+    vivi, moogle = bytes((0x08, 0x00, 0x01)), bytes((0xDC, 0x00, 0xFF))
+    assert BW.party_slot_chars(_party_body((0, 1, 2, 3))) == [0, 1, 2, 3]
+    assert BW.party_slot_chars(_party_body((0, -1, 5, -1), names=["Zidane", "", "Quina!", ""], sas=[(), (), (7,) * 9,
+                                                                                                    ()])) == [0, -1, 5, -1]
+    assert BW.party_slot_chars(_party_body((0, 1, 2, 3))[:-1]) is None and BW.party_slot_chars(b"") is None
+    assert BW.party_slot_chars(bytes(range(40))) is None
+    follows = tmp_path / "follows.f9tape"
+    _dress_tape(follows, [_host_state_frame(vivi, party=(0, 1, 2, 3))] * 3
+                + [_host_state_frame(moogle, party=(0, -1, -1, -1))] * 2)
+    assert CP.main(["dress", str(follows), "--ghost-as", "auto", "--guest-slots", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "5 agree, 0 disagree" in out and "VERDICT: OK" in out
+    stale = tmp_path / "stale.f9tape"
+    _dress_tape(stale, [_host_state_frame(vivi, party=(0, 1, 2, 3))] * 3
+                + [_host_state_frame(vivi, party=(0, -1, -1, -1))] * 2)
+    assert CP.main(["dress", str(stale), "--ghost-as", "auto", "--guest-slots", "2"]) == 1
+    out = capsys.readouterr().out
+    assert "3 agree, 2 disagree" in out and "own party [0, -1, -1, -1] gives DC 00 FF" in out and "VERDICT: FAIL" in out
+    # a fixed --party still checks one body for the whole tape (the stale tape's last frames then read as Vivi's)
+    assert CP.main(["dress", str(stale), "--ghost-as", "auto", "--guest-slots", "2", "--party", "0,1,2,3"]) == 0
+    _h, records, _t = CP.read_tape(stale)
+    d = CP.tape_dress(records, CP.frame_expect("auto", 2))
+    assert (d["disagree"], d["ok"]) == (2, False) and d["first_disagree"].startswith("section 8 08 00 01 on a frame")

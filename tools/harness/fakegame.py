@@ -207,6 +207,16 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #:                    `sid`). The stand-in publishes them for its field player, its bodies and the selftest mirror
 #:                    (FakeGame._player_dress_doc / _dress_doc say what it models and what it cannot); an s137 stand-in
 #:                    publishes none of them.
+#:   "dresshost"   -- s139, THE HOST'S DRESS RULE AND WIRE SECTION 8 (the sub-verb `selfdress`, selftest role): the selftest
+#:                    mirror -- the guest, this machine its host -- takes the s139 rule (ResolveAuto: the first OCCUPIED named
+#:                    slot, the MOOGLE for a spectator -- GuestSlots 0, owner D2 -- or an all-empty mask; GhostGuard; the raw
+#:                    anim on the wire's own body), its `selfdress` levers (`ghost` / `empty` / `rule s138` / `wire` /
+#:                    `clear`, released with the harness), `netsync.dress.ghost` gains them at its end (bench_mask,
+#:                    empty_mask, rule, wire, wire_anim, mode) then the ghost's visibility (rest_mask, shown_mask, hidden:
+#:                    NETSYNC_DRESS_NESTED_KEYS) and `netsync.dress` gains `codec`, `rig_idle_frames` and `mirror_party` after
+#:                    `party`; the proof block gains its three dress lines. Its calibration (s138:
+#:                    `selfdress` "unknown sub-verb", no `codec`) is ``caps_through("dressinstr")``. FakeGame._dress_doc says
+#:                    what it models (battlewire.selftest_dress -- the site's twin) and what it cannot.
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -236,7 +246,8 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "acthold": ("s135", ()),
                        "actfallback": ("s136", ()),
                        "acttrance": ("s137", ()),
-                       "dressinstr": ("s138", ())}
+                       "dressinstr": ("s138", ()),
+                       "dresshost": ("s139", ("selfdress",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -259,10 +270,14 @@ NETSYNC_S136_CAPS = frozenset(("actfallback",))
 NETSYNC_S137_CAPS = frozenset(("acttrance",))
 #: [ff9mapkit netsync s138] The dress-instrument rung (its calibration, s137, is ``caps_through("acttrance")``).
 NETSYNC_S138_CAPS = frozenset(("dressinstr",))
+#: [ff9mapkit netsync s139] The host-dress rung (its calibration, s138, is ``caps_through("dressinstr")``).
+NETSYNC_S139_CAPS = frozenset(("dresshost",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
+#: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
+#: Session.NETSYNC_DRESS_SUBVERBS, the gate widened to it).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
-                             "actbench")
+                             "actbench", "selfdress")
 #: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
 #: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
 #: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
@@ -324,6 +339,9 @@ NETSYNC_BATTLE_CAP_KEYS = {
     # its keys are NETSYNC_DRESS_CAP_KEYS, and the player / objects keys sit OUTSIDE netsync (NETSYNC_PLAYER_CAP_KEYS /
     # NETSYNC_OBJECT_CAP_KEYS)
     "dressinstr": {},
+    # [ff9mapkit netsync s139] nothing under `netsync.battle`: its keys sit inside `netsync.dress` (NETSYNC_DRESS_CAP_KEYS,
+    # NETSYNC_DRESS_NESTED_KEYS)
+    "dresshost": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -347,10 +365,10 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
 #: [ff9mapkit netsync s138] The keys each dress rung adds INSIDE `netsync.dress`, in AppendDress's order (s139 appends
 #: `codec` and `rig_idle_frames`, s140 `self`) -- the dress key law: every one under `netsync.dress`, never `netsync.battle`
 #: (the action-replay audit's 4.3).
-NETSYNC_DRESS_CAP_KEYS = {"dressinstr": ("ghost", "party")}
+NETSYNC_DRESS_CAP_KEYS = dict(BW.DRESS_KEYS_BY_RUNG)          # [ff9mapkit netsync s139] + `codec`, `rig_idle_frames`
 #: ...and the keys a later rung adds inside a dress block's FIXED sub-object, by path under `netsync.dress` (s139: its levers
 #: at the end of `ghost`).
-NETSYNC_DRESS_NESTED_KEYS: dict = {}
+NETSYNC_DRESS_NESTED_KEYS: dict = {"dresshost": {"ghost": BW.DRESS_GHOST_KEYS_BY_RUNG["dresshost"]}}
 #: [ff9mapkit netsync s138] `netsync.dress.ghost` as the LIVE stack writes it, in AppendDress's order (a FIXED sub-object:
 #: always whole, never null) -- the union of every rung's frozen row (BW.DRESS_GHOST_KEYS_BY_RUNG), read only by the
 #: live-catch pins; a per-rung reader (the probe, the stand-in) takes its rung's row.
@@ -491,6 +509,17 @@ def actbench_ops(caps) -> tuple:
         NETSYNC_ACTBENCH_HOLD_OPS if "acthold" in caps else ()) + (
         NETSYNC_ACTBENCH_FALLBACK_OPS if "actfallback" in caps else ()) + (
         NETSYNC_ACTBENCH_TRANCE_OPS if "acttrance" in caps else ())
+
+
+#: [ff9mapkit netsync s139] `selfdress <op>` (NetSyncClient.HarnessSelfDress), in its "unknown op" refusal's order -- s139's
+#: five (s140 adds `self` / `gate`, s141 `polish`: each told by its own key, Session.NETSYNC_SELFDRESS_OP_CAPS).
+NETSYNC_SELFDRESS_OPS = BW.SELFDRESS_OPS
+
+
+def selfdress_ops(caps) -> tuple:
+    """[ff9mapkit netsync s139] The `selfdress` ops an engine with these capabilities has (s139: ghost, empty, rule, wire,
+    clear; none before it -- the sub-verb itself is unknown there)."""
+    return NETSYNC_SELFDRESS_OPS if "dresshost" in caps else ()
 #: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
 NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
 #: [ff9mapkit netsync B4] `bbench <op>` (NetSyncBattle.HarnessStockBench): s106's two, then s107's bench feed -- each
@@ -588,6 +617,34 @@ FAKE_FRAME_N = 60
 #: Every lever is a value OTHER than the expected one, derived from what is worn -- never a fixed id that a later leg's
 #: expected value (s140's S1 / S5: Freya, 192) would turn into a no-op.
 DRESS_FAULTS = ("eye", "body", "anim_geo", "playing", "uid", "ghost_missing", "ghost_model", "party_empty", "object_model")
+#: [ff9mapkit netsync s139] THE HOST DRESS RULE's FAULT LEVERS (FakeGame.dress_faults too; the `dresshost` rung): each turns
+#: leg G's check red offline on the shape it exists to catch -- a value OTHER than the right one, derived from what is right:
+#:   "codec_fail"        `netsync.dress.codec` "fail: <row>" and the proof block's FAIL line -- G4
+#:   "idle_frames"       `rig_idle_frames` one frame off on the moogle row (8) -- G6
+#:   "spectator_zidane"  ResolveAuto's first rule as the audit RECOMMENDED before the owner's D2 (mask 0 -> undressed) -- G3d
+#:   "no_guard"          GhostGuard skipped (every wire body dressed) -- G7a / G7d
+#:   "section8_swapped"  the proof block's section-8 line in the swapped (big-endian) encoding -- G3d's section half
+#:   "ghost_body"        `ghost.body` another model's stem than the one the ghost wears -- the body witness of G1 / G3
+#:   "translate_own_body" GhostAnim always the loco translation, even on the wire's own body (amendment 4's raw-anim half
+#:                       broken: Vivi's break clip 912 flattened to her idle) -- G7b
+#:   "rest_mask_cleared" the rest mask snapshotted AFTER the force-enable (every renderer shown where neither mask rule
+#:                       applies: Garnet's two hairstyles) -- G8
+#:   "moogle_slides"     the moogle's walk / run clips never load: a moving moogle ghost plays its idle -- G3m
+#:   "clear_publishes_only" `selfdress clear` releases the PUBLISHED levers but the site keeps its last `ghost` mask (until
+#:                       the next `ghost` op) -- G5
+#:   "ghost_keeps_ini_mode" the `ghost` lever replaces the mask only: the site keeps the ini's GhostAs as its mode (the
+#:                       published mode still reads bench:auto) -- invisible under GhostAs = auto, G1-G3d / G3m / G5 / G7b /
+#:                       G7c / G8 red under GhostAs = '' (why s139's acceptance runs a second pass with the ini's GhostAs '')
+#:   "release_keeps_levers" the HARNESS release (HarnessReleaseBench, on every HarnessSelfTest(false): `reset`, `selftest
+#:                       0`, disarm) skips HarnessReleaseDress -- every selfdress lever survives it (`selfdress clear` still
+#:                       releases) -- S138-R, which holds `rule s139` into the reset on an s139+ engine
+DRESS_HOST_FAULTS = ("codec_fail", "idle_frames", "spectator_zidane", "no_guard", "section8_swapped", "ghost_body",
+                     "translate_own_body", "rest_mask_cleared", "moogle_slides", "clear_publishes_only",
+                     "ghost_keeps_ini_mode", "release_keeps_levers")
+#: [ff9mapkit netsync s139] `netsync.dress.rig_idle_frames` on the stand-in: the audit's census (R3-FIELD-MODEL-AUDIT.md 2.2
+#: amendment 7 -- read off the install's p0data5 by the kit's clip reader, round(length x rate) + 1), the value the engine
+#: MEASURES once per process in the proof block (-1 before it). A MODELLED value: the stand-in reads no clip.
+FAKE_RIG_IDLE_FRAMES = (60, 45, 30, 60, 50, 40, 30, 45, 72)
 #: [ff9mapkit netsync s138] The bodies whose prefab carries the hidden Orichalcum overlay `battle_model` BEFORE `bone000`
 #: (a read-only walk of the install's p0data prefabs, R3-FIELD-MODEL-AUDIT.md's stock-01 evidence: 98 Zidane, 509 Amarant)
 #: -- its renderer disabled, its GameObject active, so a first-renderer read finds it first.
@@ -610,6 +667,22 @@ def body_renderers(model: int, props=()) -> list:
     rows = [("battle_model/battle_model0", f"{m}_0")] if m in FAKE_BATTLE_OVERLAY_MODELS else []
     rows += [(f"bone000/bone013/prop{i}/mesh0", str(t)) for i, t in enumerate(props)]
     return rows + [("mesh0", f"{m}_0"), ("mesh1", f"{m}_1")]
+
+
+def ghost_renderer_tree(model: int) -> tuple:
+    """[ff9mapkit netsync s139] A ghost body's (transforms, renderers): every transform's path under the root in depth-first
+    pre-order and the renderers' paths in GetComponentsInChildren order -- what battlewire.field_hides reads. Garnet (185)
+    carries her two hairstyles (long_hair with its rubber_band, short_hair) beside mesh0; the overlay bodies
+    (:data:`FAKE_BATTLE_OVERLAY_MODELS`) their hidden battle_model first; every other body mesh0 / mesh1. A MODEL of the
+    prefab order, not the prefab: the bench's G8 oracle reads the install's."""
+    m = int(model)
+    if m == 185:
+        return (("bone000", "long_hair", "long_hair/rubber_band", "mesh0", "short_hair"),
+                ("long_hair", "long_hair/rubber_band", "mesh0", "short_hair"))
+    rends = tuple(path for path, _tex in body_renderers(m))
+    trans = (("battle_model", "battle_model/battle_model0") if m in FAKE_BATTLE_OVERLAY_MODELS else ()) + \
+        ("bone000", "mesh0", "mesh1")
+    return trans, rends
 
 
 def _geo_name(model: int) -> str | None:
@@ -1105,6 +1178,21 @@ class FakeGame:
         self.dress_faults: set = set()
         self._ghost_clip: str | None = None          # what the ghost plays THIS frame (the player's, one frame ago)
         self._ghost_clip_next: str | None = None
+        #: [ff9mapkit netsync s139] THE HOST DRESS RULE's stand-in (the `dresshost` rung): Memoria.ini [Netsync] GhostAs as the
+        #: engine reads it (None = absent: NetSyncVisitor.GhostAs "" -- dress nothing; the owner's install reads "auto"), the
+        #: `selfdress` levers (-1 / None = off: HarnessSelfDress' statics, released with the harness), the codec proof's
+        #: verdict and the measured idle frames (both set by the proof block, once per process), and what the ghost WEARS
+        #: (EnsureGhost's model and rig, one frame behind like its clip). `ini_garnet_hair` is Memoria.ini [Graphics]
+        #: GarnetHair (None = absent = 0: the scenario decides -- ModelFactory's field-mode hair hide, the rest mask's input).
+        self.ini_ghost_as: str | None = None
+        self.ini_garnet_hair: int | None = None
+        self._dress_bench: dict = {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}
+        #: the mask the SITE reads (== the published `bench_mask` but under the `clear_publishes_only` fault)
+        self._dress_site_mask: int = -1
+        self._dress_codec: str | None = None
+        self._rig_idle: list = [-1] * BW.RIG_ROW_COUNT
+        self._ghost_worn: tuple | None = None        # (model, rig, mask kind) the ghost wears THIS frame
+        self._ghost_worn_next: tuple | None = None
         self._rng = random.Random()                 # the bench host's epoch draws (Guid bytes on the engine)
         #: [ff9mapkit netsync F3.3] C3 R9: the selftest bench HOST and its ring (:class:`_BenchHost`)
         self._bench = _BenchHost(self._rng)
@@ -4345,6 +4433,8 @@ class FakeGame:
                      "actbench"):
             # [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op benches (s100-s110; s133 `actbench`)
             self._battle_bench_verb(sub, args, arg, out_of_range)
+        elif sub == "selfdress":
+            self._selfdress(args)                       # [ff9mapkit netsync s139] the host dress rule's bench
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -4559,27 +4649,237 @@ class FakeGame:
 
     def _step_dress(self) -> None:
         """[ff9mapkit netsync s138] The ghost's DriveGhost, one frame behind the publish: it plays what the player played
-        LAST frame."""
-        live = self._ghost_live() and self._dress_actor(self.has_position)
-        self._ghost_clip = self._ghost_clip_next if live else None
-        self._ghost_clip_next = _clip_name(self._dress_anim()) if live else None
+        LAST frame. [ff9mapkit netsync s139] ...and, from the `dresshost` rung on, what the selftest dress site makes of it
+        (:meth:`_dress_site`: EnsureGhost's model and rig with it -- and which renderer mask the site applied --, one frame
+        behind too)."""
+        site = self._dress_site()
+        self._ghost_clip = self._ghost_clip_next if site else None
+        self._ghost_worn = self._ghost_worn_next if site else None
+        self._ghost_clip_next = _clip_name(site["anim"]) if site else None
+        self._ghost_worn_next = (site["model"], site["rig"], site["mask"]) if site else None
+
+    # -- [ff9mapkit netsync s139] THE HOST DRESS RULE (the `dresshost` rung) --------------------------------------------
+    # WHAT IT MODELS: the selftest dress site, through battlewire.selftest_dress (the s139 site's twin, its `selfdress`
+    # levers read on the selftest role only): the ini's GhostAs (`ini_ghost_as`, None = absent = "") under the forced
+    # selftest's GuestSlots pin 0 -- so `auto` dresses the mirror as the MOOGLE (owner D2) -- the party's live seats (with the
+    # `empty` lever), the guard against the mirror's wire body (the player's own, or the `wire` lever's, playing its pinned
+    # raw clip when `wire <model> <anim>`), the raw anim on the wire's own body and the dressed rig's loco clip on another;
+    # `ghost.geo` the worn model's GEO (the kit's copy of the table; FallbackGeo when it has none, its body then ZDN's); the
+    # ghost's VISIBILITY over a modelled renderer tree (ghost_renderer_tree: Garnet's two hairstyles, the overlay bodies'
+    # battle_model) -- `rest_mask` CreateModel's field-mode hides (battlewire.field_hides: the ini's [Graphics] GarnetHair and
+    # the scenario counter), `shown_mask` / `hidden` what the site's mask leaves (the player's own on its own model, the rest
+    # mask, or every renderer under the `rule s138` lever); the proof block's three dress lines (the codec verdict, the
+    # section-8 body the producer would ship -- BW.host_dress_section --, the idle frames FAKE_RIG_IDLE_FRAMES); every lever
+    # released with the harness (HarnessReleaseDress, from HarnessReleaseBench). WHAT IT CANNOT: a real host's transport site
+    # (the stand-in never hosts a peer), the wire's section 8 itself (no socket), the party mirror (`mirror_party` null: no
+    # host frame is ever parsed), a re-dress deferred off FieldHUD, a clip's real length, a prefab's real renderer order, and
+    # the codec proof's in-game rows (it reports the engine's row count). The FAULT LEVERS (DRESS_HOST_FAULTS) are how a test
+    # shows each leg-G check red.
+    def _dress_party(self) -> list:
+        """The four seats' raw CharacterId (FF9.party.member[i].Index; -1 empty) -- the read the dress rules take."""
+        seats = (list(self.save_party) + [None] * 4)[:4]
+        return [int(m["char"]) if m else -1 for m in seats]
+
+    def _dress_site(self) -> dict | None:
+        """The selftest dress site this frame (None = no ghost): s138 -- the player's own body and anim; from `dresshost`
+        on BW.selftest_dress with the stand-in's ini, levers and party, the fault levers applied."""
+        if not (self._ghost_live() and self._dress_actor(self.has_position)):
+            return None
+        me_model, me_anim = int(self.player_body["model"]), self._dress_anim()
+        if "dresshost" not in self._nb_caps():
+            return {"model": me_model, "rig": BW.RIG_NONE, "anim": me_anim, "mask": "local"}
+        b, faults, role = self._dress_bench, self.dress_faults, self._nb_role()
+        site_mask = self._dress_site_mask if "clear_publishes_only" in faults else b["mask"]
+        kw = dict(me_model=me_model, me_anim=me_anim, party=self._dress_party(), role="selftest", selftest_role=role,
+                  enabled=True, empty_mask=b["empty"], rule=b["rule"], wire=b["wire"], wire_anim=b["wire_anim"])
+        if "ghost_keeps_ini_mode" in faults and role and site_mask >= 0:
+            # the `ghost` lever replaced the MASK only: the site keeps the ini's GhostAs as its mode (an `auto` ini reads the
+            # same either way -- which is why this fault needs a pass with the ini's GhostAs '')
+            return BW.selftest_dress(ghost_as=self.ini_ghost_as or "", guest_slots=site_mask, bench_mask=-1, **kw)
+        site = BW.selftest_dress(ghost_as=self.ini_ghost_as or "", guest_slots=0, bench_mask=site_mask, **kw)
+        old_rule = role and b["rule"] == "s138"
+        mask = site_mask if role and site_mask >= 0 else 0
+        mode = "auto" if role and site_mask >= 0 else BW.dress_mode(self.ini_ghost_as)
+        if "spectator_zidane" in faults and not old_rule and mode == "auto" and mask & 0x0F == 0:
+            site = BW.selftest_dress(ghost_as="", guest_slots=0, bench_mask=-1, **kw)   # the overridden recommendation
+        if "no_guard" in faults and not old_rule:
+            st_wire = b["wire"] if role and b["wire"] >= 0 else me_model
+            chars = BW.live_slot_chars(kw["party"], b["empty"] if role and b["empty"] >= 0 else 0)
+            dress, rig = BW.resolve_dress_rule(mode, mask, BW.moogle_when_empty("selftest", role), chars)
+            if dress:
+                pinned = role and b["wire"] >= 0 and b["wire_anim"] >= 0
+                loco = BW.classify_loco(st_wire, b["wire_anim"]) if pinned else BW.classify_loco(me_model, me_anim)
+                wire_rig = BW.rig_for_model(st_wire)
+                wire_anim = (b["wire_anim"] if pinned else me_anim if st_wire == me_model
+                             else BW.loco_anim(wire_rig, loco) if wire_rig >= 0 else me_anim)
+                site = {"model": dress, "rig": rig, "anim": BW.ghost_anim(dress, rig, st_wire, loco, wire_anim),
+                        "mask": "rest"}
+        if "translate_own_body" in faults and not old_rule and site["rig"] >= 0:
+            # GhostAnim flattened: the dressed rig's loco clip whatever body it rides (the wire's own included)
+            pinned = role and b["wire"] >= 0 and b["wire_anim"] >= 0
+            loco = BW.classify_loco(b["wire"], b["wire_anim"]) if pinned else BW.classify_loco(me_model, me_anim)
+            site = dict(site, anim=BW.loco_anim(site["rig"], loco))
+        moog = BW.rig_row(BW.RIG_MOOGLE)
+        if "moogle_slides" in faults and site["model"] == BW.MOOGLE_MODEL and site["anim"] in (moog["walk"], moog["run"]):
+            site = dict(site, anim=moog["idle"])                            # its walk / run never loaded: the idle
+        return site
+
+    def _ghost_visibility(self, model: int, kind: str) -> tuple:
+        """(rest_mask, shown_mask, hidden) of a ghost wearing ``model`` under the site's mask ``kind`` -- over
+        ghost_renderer_tree: the rest mask is CreateModel's field-mode hides (BW.field_hides with the ini's GarnetHair and the
+        scenario counter); "local" / "rest" show it (the player's own mask is index-valid on its own model only, where it is
+        that same field-mode visibility), "all" every renderer (the `rule s138` lever's 0xFFFF)."""
+        trans, rends = ghost_renderer_tree(model)
+        geo = _geo_name(model) or BW.GHOST_FALLBACK_GEO
+        hides = BW.field_hides(geo, trans, rends, garnet_hair=self.ini_garnet_hair or 0, scenario=self.scenario)
+        # the `rest_mask_cleared` fault: the snapshot taken AFTER the force-enable (the player's own mask is unaffected)
+        rest_hides = [] if "rest_mask_cleared" in self.dress_faults else list(hides)
+        rest = BW.visibility_mask(rends, rest_hides)
+        if kind == "all":
+            return rest, BW.visibility_mask(rends, ()), []
+        if kind == "rest":
+            return rest, rest, rest_hides
+        return rest, BW.visibility_mask(rends, hides), list(hides)
+
+    def _dress_mode(self) -> str | None:
+        """NetSyncClient.HarnessDressMode: "bench:auto" while the `ghost` lever holds (the selftest role), else "ini:" + the
+        ini's trimmed GhostAs; None with no NetSyncClient instance."""
+        if not self.netsync["instance"]:
+            return None
+        if self._nb_role() and self._dress_bench["mask"] >= 0:
+            return BW.DRESS_MODE_BENCH
+        return BW.DRESS_MODE_INI + (self.ini_ghost_as or "").strip()
+
+    def _dress_release(self, cause: str) -> None:
+        """NetSyncClient.HarnessReleaseDress: every selfdress lever off (its line only when one was set). Under the
+        `clear_publishes_only` fault a `selfdress clear` leaves the SITE's mask where it was."""
+        b = self._dress_bench
+        any_set = b["mask"] >= 0 or b["empty"] >= 0 or b["rule"] is not None or b["wire"] >= 0
+        self._dress_bench = {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}
+        if not ("clear_publishes_only" in self.dress_faults and cause == "selfdress clear"):
+            self._dress_site_mask = -1
+        if any_set:
+            self._mlog(f"[NetSync] harness: selfdress levers released ({cause}) -- the mirror's dress back to the pin, the "
+                       f"ini's GhostAs and the host rule")
+
+    def _selfdress(self, args: list) -> None:
+        """`netsync selfdress <op> [value]` (s139, NetSyncClient.HarnessSelfDress): the role first, then the op, then its
+        value, in the agent's words; a refusal changes nothing."""
+        if not self._nb_role():
+            raise RuntimeError("netsync selfdress: needs the selftest role (netsync selftest 1)")
+        n = len(args)
+        op = args[1].lower() if n > 1 else ""
+        val = args[2].lower() if n > 2 else ""
+        num = int(val) if val.isascii() and val.isdigit() and int(val) < 2 ** 31 else None   # NumberStyles.None
+        b = self._dress_bench
+        if op in ("ghost", "empty"):
+            if n != 3 or not (val == "off" or (num is not None and 0 <= num <= 0x0F)):
+                raise RuntimeError(f"netsync selfdress {op}: expected `{op} <mask 0-15>|off`")
+            v = -1 if val == "off" else num
+            if op == "ghost":
+                b["mask"] = v
+                self._dress_site_mask = v
+                self._mlog("[NetSync] harness: selfdress ghost " + (
+                    "OFF -- the mirror's dress back to the GuestSlots pin and the ini's GhostAs" if v < 0 else
+                    f"{v} -- the mirror's dress mask, mode auto (Memoria.ini and the battle GuestSlots untouched)"))
+            else:
+                b["empty"] = v
+                self._mlog("[NetSync] harness: selfdress empty " + (
+                    "OFF -- the dress rules read the party as it is" if v < 0 else
+                    f"{v} -- those party slots read EMPTY to the dress rules (FF9.party untouched)"))
+        elif op == "rule":
+            if n != 3 or val not in BW.SELFDRESS_RULES:
+                raise RuntimeError("netsync selfdress rule: expected `rule s138|s139`")
+            b["rule"] = val
+            self._mlog("[NetSync] harness: selfdress rule " + val + (
+                " -- CALIBRATION: the pre-s139 selftest dress site (the first named bit, no skip, no moogle, no guard, no "
+                "rest mask)" if val == "s138" else " -- the host rule"))
+        elif op == "wire":
+            anim_val = args[3].lower() if n > 3 else ""
+            anim = int(anim_val) if anim_val.isascii() and anim_val.isdigit() and int(anim_val) < 2 ** 31 else None
+            model_ok = num is not None and 1 <= num <= 65534
+            if not ((n == 3 and (val == "off" or model_ok))
+                    or (n == 4 and model_ok and anim is not None and 0 <= anim <= 65535)):
+                raise RuntimeError("netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`")
+            b["wire"] = -1 if val == "off" else num
+            b["wire_anim"] = anim if n == 4 else -1
+            self._mlog("[NetSync] harness: selfdress wire " + (
+                "OFF -- the mirror's wire body is my own model again" if b["wire"] < 0 else
+                f"{b['wire']}" + (f" playing {b['wire_anim']}" if b["wire_anim"] >= 0 else "")
+                + " -- the mirror's wire body (the guard's input; the undressed body)"))
+        elif op == "clear":
+            if n != 2:
+                raise RuntimeError("netsync selfdress clear: takes no argument")
+            self._dress_release("selfdress clear")
+        else:
+            raise RuntimeError(f"netsync selfdress: unknown op '{op}' ({'|'.join(NETSYNC_SELFDRESS_OPS)})")
+
+    def _dress_proof(self) -> None:
+        """[ff9mapkit netsync s139] The proof block's three dress lines (right after the trance line), once per process: the
+        codec verdict (`netsync.dress.codec`), the section-8 body this machine would host now (HostDressSection: the ini's
+        GhostAs under the GuestSlots pin 0), the idle frames (`rig_idle_frames`, measured once)."""
+        faults = self.dress_faults
+        if "codec_fail" in faults:
+            row = "auto: " + BW.DRESS_AUTO_TABLE[0][0]
+            self._dress_codec = BW.DRESS_CODEC_FAIL + row
+            self._mlog(f"[NetSync] {BW.PROOF_DRESS}FAIL (row '{row}' failed (5 rows run))")
+        else:
+            self._dress_codec = BW.DRESS_CODEC_OK
+            self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_DRESS, BW.DRESS_SELFTEST_ROWS))
+        b = self._dress_bench
+        chars = BW.live_slot_chars(self._dress_party(), b["empty"] if self._nb_role() and b["empty"] >= 0 else 0)
+        body = BW.host_dress_section(self.ini_ghost_as or "", 0, "selftest", self._nb_role(), chars)
+        if "section8_swapped" in faults:
+            model, char_id = BW.parse_dress_section(body)
+            body = BW.swapped_dress_body(model, char_id)
+        self._mlog("[NetSync] " + BW.PROOF_DRESS_SECTION + BW.dress_section_text(body))
+        frames = list(FAKE_RIG_IDLE_FRAMES)
+        if "idle_frames" in faults:
+            frames[BW.RIG_MOOGLE] += 1
+        self._rig_idle = frames
+        self._mlog("[NetSync] " + BW.PROOF_RIG_IDLE + ",".join(str(f) for f in frames)
+                   + f" ({sum(1 for f in frames if f >= 0)} of {BW.RIG_ROW_COUNT} measured)")
 
     def _dress_doc(self) -> dict:
         """HarnessAgent.AppendDress (s138): `ghost` (what the ghost WEARS: its sentinels with no ghost) then `party` (the
         four seats' CharacterId, -1 = empty) -- a LIVE read, never the catch line's sentinel."""
         faults = self.dress_faults
+        host = "dresshost" in self._nb_caps()                  # [ff9mapkit netsync s139]
         # the `dressinstr` rung's OWN ghost keys (BW.DRESS_GHOST_KEYS_BY_RUNG, frozen at s138) -- never the live union, which
         # s139 grows with its levers (a later rung's stand-in adds its row on top, gated on its own rung)
         ghost = {k: BW.DRESS_GHOST_SENTINELS[k] for k in BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"]}
+        vis = None
         if self._ghost_live() and "ghost_missing" not in faults:
-            worn = int(self.player_body["model"])
+            worn, rig, kind = int(self.player_body["model"]), BW.RIG_NONE, "local"
+            if host:
+                # [ff9mapkit netsync s139] what EnsureGhost built (one frame behind; this frame's site before the first step)
+                site = self._dress_site() if self._ghost_worn is None else None
+                now = self._ghost_worn or ((site["model"], site["rig"], site["mask"]) if site else None)
+                if now is not None:
+                    worn, rig, kind = now
             model = dress_fault_model(worn) if "ghost_model" in faults else worn
             clip = self._ghost_clip
-            ghost.update(model=model, geo=_geo_name(model) or BW.GHOST_FALLBACK_GEO, clip=clip, rig=BW.RIG_NONE,
-                         playing=clip is not None, body=BW.body_of(body_renderers(model)))
+            geo = _geo_name(model)
+            built = model if geo else BW.PLAIN_ZIDANE_MODEL      # FallbackGeo: the asked-for id did not resolve -- ZDN built
+            vis = self._ghost_visibility(built, kind) if host else None   # [ff9mapkit netsync s139] the body CreateModel built
+            if "ghost_body" in faults:
+                built = dress_fault_model(built)
+            ghost.update(model=model, geo=geo or BW.GHOST_FALLBACK_GEO, clip=clip, rig=rig,
+                         playing=clip is not None, body=BW.body_of(body_renderers(built)))
+        if host:
+            # [ff9mapkit netsync s139] the selftest levers AS SET (published in every role), the mode, then the visibility
+            b = self._dress_bench
+            ghost.update(bench_mask=b["mask"], empty_mask=b["empty"], rule=b["rule"], wire=b["wire"],
+                         wire_anim=b["wire_anim"], mode=self._dress_mode(), rest_mask=vis[0] if vis else -1,
+                         shown_mask=vis[1] if vis else -1, hidden=vis[2] if vis else None)
         seats = (list(self.save_party) + [None] * 4)[:4]
         party = [-1] * 4 if "party_empty" in faults else [int(m["char"]) if m else -1 for m in seats]
-        return {"ghost": ghost, "party": party}
+        doc = {"ghost": ghost, "party": party}
+        if host:
+            doc["codec"] = self._dress_codec                     # [ff9mapkit netsync s139] after `party`
+            doc["rig_idle_frames"] = list(self._rig_idle)
+            doc["mirror_party"] = None                           # no host frame is ever parsed here
+        return doc
 
     def _party_adds_on_load(self) -> None:
         """[ff9mapkit netsync s138] A field whose Main_Init runs B_PARTYADD (`party_adds`): each member joins the first
@@ -4692,6 +4992,8 @@ class FakeGame:
             rows.append((BW.PROOF_TRANCE, BW.TRANCE_SELFTEST_ROWS))
         for head, n in rows:
             self._mlog("[NetSync] " + BW.proof_ok(head, n))
+        if "dresshost" in caps:                             # [ff9mapkit netsync s139] right after the trance line
+            self._dress_proof()
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -4970,6 +5272,10 @@ class FakeGame:
         # [ff9mapkit netsync s134] NetSyncDiorama.ActBenchRelease, right after it: the replay levers back, the inbox emptied
         self._act_guest.release()
         self._act_flush()
+        # [ff9mapkit netsync s139] NetSyncClient.HarnessReleaseDress, last: the selfdress levers (ghost, empty, rule, wire) off
+        # (the `release_keeps_levers` fault skips it: S138-R's red)
+        if "release_keeps_levers" not in self.dress_faults:
+            self._dress_release("released with the harness")
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an

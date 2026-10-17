@@ -226,9 +226,12 @@ class CoopDoc(QWidget):
         # caught "Their own model (classic gl" mid-word. The teaching lives in the tooltip above.
         self.combo_ghost.addItem("Their own model", "")
         self.combo_ghost.addItem("Auto — the member they command", "auto")
+        # [ff9mapkit netsync s139] + the moogle (rig row 8): coop.GHOST_NAMES accepts it, so a combo without it would
+        # load GhostAs=moogle as index 0 and the next apply would rewrite the user's value to "off" (a test pins these
+        # data values to GHOST_NAMES, aliases folded). It dresses the HOST's ghost of its guest; a client stays undressed.
         for label, data in (("Zidane", "zidane"), ("Vivi", "vivi"), ("Garnet / Dagger", "dagger"),
                             ("Steiner", "steiner"), ("Freya", "freya"), ("Quina", "quina"),
-                            ("Eiko", "eiko"), ("Amarant", "amarant")):
+                            ("Eiko", "eiko"), ("Amarant", "amarant"), ("Moogle", "moogle")):
             self.combo_ghost.addItem(label, data)
         ghost_lbl.setBuddy(self.combo_ghost)        # see the buddy note in the Session section
         ghost_row.addWidget(ghost_lbl)

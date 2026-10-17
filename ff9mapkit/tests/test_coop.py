@@ -116,6 +116,7 @@ def test_parse_ghost_as():
     assert coop.parse_ghost_as("auto") == "auto"
     assert coop.parse_ghost_as("Vivi") == "vivi"
     assert coop.parse_ghost_as("DAGGER") == "dagger"       # the engine's garnet alias
+    assert coop.parse_ghost_as("Moogle") == "moogle"       # [ff9mapkit netsync s139] rig row 8 (an older engine: undressed)
     for off_ish in ("", "off", "none", "0"):
         assert coop.parse_ghost_as(off_ish) == ""
     with pytest.raises(ValueError):

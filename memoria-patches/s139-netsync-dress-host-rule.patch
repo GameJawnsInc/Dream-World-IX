@@ -1,0 +1,1498 @@
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 680af6d..3a1ccd6 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -253,6 +253,17 @@ namespace Memoria.Harness
+         // calibration lever: off = the pre-s137 timing, a trance model swapping when the host's sample carries the bit). A driver
+         // checks for `netsync.battle.act.guest.trance` -- absent = an engine whose guest swaps the trance model at the host's sample
+         // (an s136 engine answers `actbench trancegrace` with "unknown op").
++        // [ff9mapkit netsync s139] (the host's dress rule and wire section 8; studies/battle-coop/R3-DESIGN.md 3.4.3 as amended by
++        // R3-FIELD-MODEL-AUDIT.md 2.2 and 3.1), also additive under 5: `netsync.dress.ghost` gains its levers at its end (bench_mask,
++        // empty_mask, rule, wire, wire_anim, mode) then the ghost's visibility (rest_mask, shown_mask, hidden), `netsync.dress` gains
++        // `codec`, `rig_idle_frames` and `mirror_party` after `party` (see AppendDress), the selftest proof block gains THREE lines --
++        // "dress codec selftest: OK (N rows)" (NetSyncClient.DressSelfTest), "dress section 8 as this machine would host now: XX XX XX
++        // (model m, charId c)" (HostDressSection: the producer's bytes) and "dress rig idle frames: ..." (NetSyncVisitor.
++        // MeasureRigIdleFrames) --, and `netsync` gains one sub-verb, `selfdress` (selftest role only): `ghost <mask 0-15>|off`, `empty
++        // <mask 0-15>|off`, `rule s138|s139` (the calibration lever: s138 = the pre-s139 dress rule), `wire <model> [anim]|off` and
++        // `clear` (NetSyncClient.HarnessSelfDress). A driver checks for `netsync.dress.codec` -- absent = an engine
++        // whose host dresses its guest's ghost by the first named bit and ships no section 8 (an s138 engine answers `netsync selfdress`
++        // with "unknown sub-verb").
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1857,8 +1868,27 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync actbench refused");
+                             break;
+                         }
++                        case "selfdress":
++                        {
++                            // [ff9mapkit netsync s139] -- the host dress rule's bench (NetSyncClient.HarnessSelfDress), selftest role only; the
++                            // levers act at the selftest mirror's dress site alone (a host or client never reads them):
++                            //   `selfdress ghost <mask 0-15>|off`  the mirror's dress mask, standing in for GuestSlots AND forcing mode auto
++                            //       (the ini's GhostAs and the battle GuestSlots untouched); off = the pin and the ini's mode;
++                            //   `selfdress empty <mask 0-15>|off`  those party slots read EMPTY to the dress rules (FF9.party untouched);
++                            //   `selfdress rule s138|s139`  the calibration lever (s138 = the whole pre-s139 selftest site: the first named bit,
++                            //       no skip, no moogle, no guard, the loco translation on any dress, no rest mask);
++                            //   `selfdress wire <model 1-65534> [anim 0-65535]|off`  the mirror's wire body (the guard's input; the undressed
++                            //       body), with `anim` playing that raw clip (the raw-anim rule's input: a break clip is no loco);
++                            //   `selfdress clear`  every lever off.
++                            // Read back: `netsync.dress.ghost` (bench_mask, empty_mask, rule, wire, wire_anim, mode, what the ghost wears and
++                            // its visibility: rest_mask, shown_mask, hidden). Every
++                            // lever is released on disarm/fault/reset (NetSyncBattle.HarnessReleaseBench).
++                            if (!Memoria.Netsync.NetSyncClient.HarnessSelfDress(s.Args, out why))
++                                throw new InvalidOperationException(why ?? "netsync selfdress refused");
++                            break;
++                        }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench|actbench)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench|actbench|selfdress)");
+                     }
+                     Block(2);
+                     break;
+@@ -3512,7 +3542,10 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null},\"party\":[-1,-1,-1,-1]}}");
++                // [ff9mapkit netsync s139] the SECOND literal's `dress` gains ghost's levers (bench_mask, empty_mask, rule, wire, wire_anim,
++                // mode) and its visibility (rest_mask, shown_mask, hidden), then `codec`, `rig_idle_frames` and `mirror_party` after `party`
++                // -- AppendDress's keys at their sentinels.
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3538,6 +3571,22 @@ namespace Memoria.Harness
+         //   characters; -1 = an EMPTY slot, -2 = a slot whose read threw (UNREADABLE -- never read as an empty seat). The catch
+         //   line's [-1 x 4] means the whole block failed to build.
+         // s139 appends `codec` and `rig_idle_frames` (and its levers at the end of `ghost`), s140 appends `self`.
++        // [ff9mapkit netsync s139] (R3-FIELD-MODEL-AUDIT.md 2.2 amendments 1, 6, 7 and 12; 3.1's sentinels), in every role:
++        //   `ghost` gains, at its end, the selftest `selfdress` levers AS SET -- `bench_mask` (`ghost <mask>`; -1 = off), `empty_mask`
++        //   (`empty <mask>`; -1 = off), `rule` ("s138" | "s139" as last set; null = never set), `wire` (`wire <model>`; -1 = off) -- and
++        //   `mode`, the dress mode this screen's ghost reads: "bench:auto" (the `ghost` lever, selftest role) or "ini:" + the ini's
++        //   GhostAs as read (trimmed; "ini:" = none); null = no NetSyncClient instance. The levers act on the selftest role only.
++        //   `codec` -- the dress codec proof's verdict: null until the selftest proof block ran it, then "ok" or "fail: <row>".
++        //   `rig_idle_frames` -- nine ints, one per rig row (0-7 the CharacterId rows, 8 the moogle): each idle clip's frame count by the
++        //   engine's formula on the clip loaded the AnimationFactory way (NetSyncVisitor.MeasureRigIdleFrames, once per process by the
++        //   selftest proof block); -1 = not measured, or that clip did not resolve or load. Judge it against the install's oracle.
++        //   `ghost.wire_anim` (after `wire`) -- the raw clip `wire <model> <anim>` pins the stand-in body to (-1 = none: it moves with my
++        //   loco). After `mode`, the ghost's VISIBILITY (the rest mask's only witness; NetSyncClient.HarnessGhost*Mask / Hidden):
++        //   `rest_mask` -- CreateModel's own field-mode visibility, snapshotted before the force-enable (bit i = renderer i, at most 16;
++        //   -1 = no ghost); `shown_mask` -- the renderers enabled NOW, the same bits; `hidden` -- every renderer disabled now, as its
++        //   path under the ghost's root (["short_hair"]; [] = none hidden; null = no ghost).
++        //   `mirror_party` (after `rig_idle_frames`) -- the PARTY MIRROR an old reader landed (NetSyncParty.Slots' CharacterIds, -1 an
++        //   absent slot; null = no mirror active): on a live guest, the witness that its s103 walker stepped past section 8.
+         private static void AppendDress(StringBuilder sb)
+         {
+             sb.Append("\"dress\":{\"ghost\":{");
+@@ -3546,7 +3595,16 @@ namespace Memoria.Harness
+             Str(sb, "clip", Try(() => Memoria.Netsync.NetSyncClient.HarnessGhostClip)); sb.Append(",");
+             Num(sb, "rig", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessGhostRig, -1L)); sb.Append(",");
+             Bool(sb, "playing", Try(() => Memoria.Netsync.NetSyncClient.HarnessGhostPlaying, false)); sb.Append(",");
+-            Str(sb, "body", Try(() => BodyOf(Memoria.Netsync.NetSyncClient.HarnessGhostObject)));
++            Str(sb, "body", Try(() => BodyOf(Memoria.Netsync.NetSyncClient.HarnessGhostObject))); sb.Append(",");
++            Num(sb, "bench_mask", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressBenchMask, -1L)); sb.Append(",");   // [ff9mapkit netsync s139]
++            Num(sb, "empty_mask", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressEmptyMask, -1L)); sb.Append(",");   // [ff9mapkit netsync s139]
++            Str(sb, "rule", Try(() => Memoria.Netsync.NetSyncClient.HarnessDressRule)); sb.Append(",");                          // [ff9mapkit netsync s139]
++            Num(sb, "wire", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressWire, -1L)); sb.Append(",");              // [ff9mapkit netsync s139]
++            Num(sb, "wire_anim", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressWireAnim, -1L)); sb.Append(",");     // [ff9mapkit netsync s139]
++            Str(sb, "mode", Try(() => Memoria.Netsync.NetSyncClient.HarnessDressMode)); sb.Append(",");                          // [ff9mapkit netsync s139]
++            Num(sb, "rest_mask", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessGhostRestMask, -1L)); sb.Append(",");     // [ff9mapkit netsync s139]
++            Num(sb, "shown_mask", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessGhostShownMask, -1L)); sb.Append(",");   // [ff9mapkit netsync s139]
++            StrList(sb, "hidden", Try(() => Memoria.Netsync.NetSyncClient.HarnessGhostHidden));                                  // [ff9mapkit netsync s139]
+             sb.Append("},\"party\":[");
+             for (Int32 i = 0; i < 4; i++)
+             {
+@@ -3555,7 +3613,57 @@ namespace Memoria.Harness
+                     sb.Append(",");
+                 sb.Append(Try(() => PartyIndexOf(slot), -2).ToString(CultureInfo.InvariantCulture));   // -2 = unreadable, -1 = empty
+             }
+-            sb.Append("]}");
++            sb.Append("],");                                                                            // [ff9mapkit netsync s139]
++            Str(sb, "codec", Try(() => Memoria.Netsync.NetSyncClient.HarnessDressCodec)); sb.Append(",");                         // [ff9mapkit netsync s139]
++            sb.Append("\"rig_idle_frames\":[");                                                         // [ff9mapkit netsync s139]
++            for (Int32 r = 0; r < Memoria.Netsync.NetSyncVisitor.RigRowCount; r++)
++            {
++                Int32 row = r;
++                if (r > 0)
++                    sb.Append(",");
++                sb.Append(Try(() => Memoria.Netsync.NetSyncVisitor.HarnessRigIdleFrame(row), -1).ToString(CultureInfo.InvariantCulture));
++            }
++            sb.Append("],");                                                                            // [ff9mapkit netsync s139]
++            IntList(sb, "mirror_party", Try(() => Memoria.Netsync.NetSyncClient.HarnessDressMirrorParty));                      // [ff9mapkit netsync s139]
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync s139] a JSON key holding a string list, or null for a null list.
++        private static void StrList(StringBuilder sb, String key, String[] list)
++        {
++            sb.Append(Quote(key)).Append(":");
++            if (list == null)
++            {
++                sb.Append("null");
++                return;
++            }
++            sb.Append("[");
++            for (Int32 i = 0; i < list.Length; i++)
++            {
++                if (i > 0)
++                    sb.Append(",");
++                sb.Append(Quote(list[i]));
++            }
++            sb.Append("]");
++        }
++
++        // [ff9mapkit netsync s139] a JSON key holding an int list, or null for a null list.
++        private static void IntList(StringBuilder sb, String key, Int32[] list)
++        {
++            sb.Append(Quote(key)).Append(":");
++            if (list == null)
++            {
++                sb.Append("null");
++                return;
++            }
++            sb.Append("[");
++            for (Int32 i = 0; i < list.Length; i++)
++            {
++                if (i > 0)
++                    sb.Append(",");
++                sb.Append(list[i].ToString(CultureInfo.InvariantCulture));
++            }
++            sb.Append("]");
+         }
+ 
+         // [ff9mapkit netsync s138] one party slot's CharacterId, raw; -1 = empty. Only ever called inside a Try (whose fallback, -2,
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index a8ef50a..4d6ef3f 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -19,7 +19,13 @@ namespace Memoria.Netsync
+     //   GhostAs     =                       VISITOR MODE: dress the PEER's ghost on MY screen -- "auto"
+     //                                       = as the party member of my first GuestSlots bit; or a
+     //                                       playable name (vivi, dagger, ...); empty = their own model.
+-    //   FollowHost  = 0                     VISITOR MODE (guest side): 1 = auto-warp my game to the
++    //                                       [ff9mapkit netsync s139] on the HOST: "auto" = the first OCCUPIED named
++    //                                       slot's main (Cinna..Beatrix, a custom member or an unreadable slot: undressed),
++    //                                       the MOOGLE for GuestSlots 0 or every named slot empty; `moogle` is a name; only
++    //                                       a plain-Zidane (98) or already-dressed guest body is dressed (any other shows as
++    //                                       it is), and the host ships its dress as state-frame section 8. A CLIENT keeps the
++    //                                       s138 rule (no moogle, by name or otherwise: the host is never a moogle).
++    //   FollowHost  = 0                    VISITOR MODE (guest side): 1 = auto-warp my game to the
+     //                                       field the peer is on (debounced; registered fields only),
+     //                                       my own random encounters pause while following, and the
+     //                                       host's battles boot as a live render-only diorama on my
+@@ -112,6 +118,7 @@ namespace Memoria.Netsync
+         private UInt16 _ghostModel = UInt16.MaxValue;    // which GEO the ghost currently wears
+         private String _ghostGeo;                        // [ff9mapkit netsync s138] the GEO name CreateModel BUILT (FallbackGeo included; null = no ghost) -- harness-only
+         private Int32 _ghostRig = -1;                    // [ff9mapkit netsync s138] the dress rig the ghost is driven with (-1 = undressed / no ghost) -- harness-only
++        private UInt16 _ghostRestMask;                   // [ff9mapkit netsync s139] CreateModel's own renderer visibility (bit i = renderer i), before the force-enable
+         private Renderer[] _ghostRends;                  // the ghost's renderers (the peer's mask applies to these)
+         private Renderer[] _localRends;                  // the LOCAL player's renderers (the outgoing mask reads these)
+         private GameObject _localRendsOwner;             // cache key: refresh when the player object changes
+@@ -1421,23 +1428,78 @@ namespace Memoria.Netsync
+                         Boolean tranceOk = NetSyncDiorama.ActTranceSelfTest(out tranceDetail);
+                         Log.Message("[NetSync] action trance selftest: "
+                                     + (tranceOk ? "OK (" + tranceDetail + ")" : "FAIL (" + tranceDetail + ")"));
++                        String dressDetail;              // [ff9mapkit netsync s139] the host rule's pure rules + the section-8 codec past the old readers
++                        Boolean dressOk = DressSelfTest(out dressDetail);
++                        Log.Message("[NetSync] dress codec selftest: "
++                                    + (dressOk ? "OK (" + dressDetail + ")" : "FAIL (" + dressDetail + ")"));
++                        Log.Message("[NetSync] dress section 8 as this machine would host now: " + DressSectionText(HostDressSection()));
++                        Int32 idleMeasured = NetSyncVisitor.MeasureRigIdleFrames();   // [ff9mapkit netsync s139] `netsync.dress.rig_idle_frames`
++                        Log.Message("[NetSync] dress rig idle frames: " + RigIdleFramesText() + " (" + idleMeasured + " of "
++                                    + NetSyncVisitor.RigRowCount + " measured)");
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
++                    // [ff9mapkit netsync s139] THE HOST RULE, solo: the mirror IS the guest, this machine its host -- ResolveDressRule
++                    // (moogleWhenEmpty: host or the selftest role, read now) behind GhostGuard, the raw-anim rule and the rest mask, exactly
++                    // as the host's transport branch below. Under the forced role GuestSlots is pinned 0, so `GhostAs = auto` dresses the
++                    // mirror as the MOOGLE (owner D2: a spectator). The `selfdress` levers (IsSelfTestRole only; released with the harness):
++                    // `ghost` stands in for the mask AND the mode (auto), `empty` empties party slots for the dress read, `wire` stands in
++                    // for the mirror's wire body (the guard's input; the undressed body) -- with an anim, `wire <model> <anim>`, the
++                    // stand-in guest PLAYS that raw clip (its loco byte classified on its own body, as a real guest's sender does), so the
++                    // raw-anim rule has a clip the loco translation cannot reproduce --, `rule s138` restores the WHOLE pre-s139 site
++                    // here (rule, anim and mask: the calibration red of every s139 change this site shows).
+                     NetSyncVisitor.SuppressEncounters = _followHost;   // selftest: observable encounter pause
+-                    Int32 stRig;
+-                    UInt16 stDress = NetSyncVisitor.ResolveDress(_guestSlots, out stRig);
++                    Boolean stBench = IsSelfTestRole;
++                    UInt16 stWire = stBench && _benchDressWire >= 0 ? (UInt16)_benchDressWire : me.model;
++                    Boolean stPinned = stBench && _benchDressWire >= 0 && _benchDressWireAnim >= 0;   // [ff9mapkit netsync s139] `wire <model> <anim>`
++                    Byte stLoco = stPinned ? NetSyncVisitor.ClassifyLoco(stWire, (UInt16)_benchDressWireAnim)
++                                           : NetSyncVisitor.ClassifyLoco(me.model, me.anim);
++                    Int32 stWireRig = NetSyncVisitor.RigForModel(stWire);
++                    UInt16 stWireAnim = stPinned ? (UInt16)_benchDressWireAnim                         // the mirror's own wire anim: the
++                                      : stWire == me.model ? me.anim                                   // pinned raw clip, else a stand-in
++                                      : stWireRig >= 0 ? NetSyncVisitor.LocoAnim(stWireRig, stLoco)    // body moves with ITS rig's clip
++                                      : me.anim;                                                       // for my loco
++                    Int32 stMask = stBench && _benchDressMask >= 0 ? _benchDressMask : _guestSlots;
++                    String stMode = stBench && _benchDressMask >= 0 ? "auto" : NetSyncVisitor.GhostAs;
++                    Boolean stOldRule = stBench && _benchDressRule == "s138";
++                    Int32 stRig = -1;
++                    UInt16 stDress = 0;
++                    if (NetSyncVisitor.Enabled)
++                    {
++                        if (stOldRule)
++                            stDress = NetSyncVisitor.ResolveDressS138(stMode, stMask, ReadSlotChars(), out stRig);
++                        else
++                            stDress = NetSyncVisitor.GhostGuard(NetSyncVisitor.ResolveDressRule(stMode, stMask,
++                                          NetSyncVisitor.MoogleWhenEmpty(_role, IsSelfTestRole), ReadSlotChars(), out stRig), stWire);
++                    }
++                    if (stDress == 0)
++                        stRig = -1;
+                     Vector3 stMirror = me.fieldMapActor.transform.localPosition + new Vector3(_selfTestDx, 0f, _selfTestDz);
+                     WriteCoopCells(1, stMirror);   // the mirror IS the peer: [[coop]] gates prove solo
+-                    EnsureGhost(ee, stDress != 0 ? stDress : me.model, stDress != 0 ? stRig : -1);   // [ff9mapkit netsync s138] + the rig, recorded for the harness
++                    EnsureGhost(ee, stDress != 0 ? stDress : stWire, stDress != 0 ? stRig : -1);   // [ff9mapkit netsync s138] + the rig, recorded for the harness
+                     if (_ghost != null)
+                     {
+-                        UInt16 stAnim = stDress != 0
+-                            ? NetSyncVisitor.LocoAnim(stRig, NetSyncVisitor.ClassifyLoco(me.model, me.anim))
+-                            : me.anim;
++                        UInt16 stAnim = stOldRule
++                            ? (stDress != 0 ? NetSyncVisitor.LocoAnim(stRig, stLoco) : stWireAnim)     // the s138 rule: always translated
++                            : NetSyncVisitor.GhostAnim(stDress, stRig, stWire, stLoco, stWireAnim);   // [ff9mapkit netsync s139] raw on its own body
+                         DriveGhost(stMirror, me.fieldMapActor.transform.localRotation, stAnim);
+-                        if (stDress == 0 || stDress == me.model)
+-                            ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
++                        if (stOldRule)
++                        {
++                            // the lever restores the WHOLE pre-s139 site: the player's mask on its own model, else every renderer as
++                            // EnsureGhost's force-enable leaves it (no rest mask -- re-asserted each frame, whatever the last rule hid)
++                            ApplyGhostMask((stDress == 0 && stWire == me.model) || stDress == me.model ? LocalMeshMask(me) : (UInt16)0xFFFF);
++                        }
++                        else if (stDress == 0 || stDress == stWire)
++                        {
++                            if (stWire == me.model)
++                                ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
++                            else
++                                ApplyGhostMask(_ghostRestMask);      // [ff9mapkit netsync s139] a stand-in wire body: no mask of its own
++                        }
++                        else if (stDress == me.model)
++                            ApplyGhostMask(LocalMeshMask(me));
++                        else
++                            ApplyGhostMask(_ghostRestMask);          // [ff9mapkit netsync s139] neither mask rule: CreateModel's own hides
+                         ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
+                     }
+                     // F2 L1 BENCH (selftest): DebugHostEventFlag simulates "the host is in a scene" -- its edges
+@@ -1560,12 +1622,27 @@ namespace Memoria.Netsync
+                     WriteCoopCells(1, rs.Pos);             // the peer's TRUE position feeds the [[coop]] gates
+                     // Visitor mode may DRESS the peer's ghost as one of MY party members (the one they
+                     // command in battle); their rig-neutral loco byte then picks the dressed rig's clip.
++                    // [ff9mapkit netsync s139] THE HOST RULE (the host's ghost of its guest only; s139 is host-side): HostDress --
++                    // ResolveDressRule with the moogle for a spectator (GuestSlots 0, owner D2) or an all-empty mask -- behind
++                    // GhostGuard (a plain-Zidane or already-dressed wire body is dressed; any other shows as it is), the raw wire anim
++                    // on the wire's own body, and CreateModel's own hides when neither mask rule applies. A CLIENT keeps the s138 rule.
+                     Int32 dressRig;
+-                    UInt16 dressModel = NetSyncVisitor.ResolveDress(_guestSlots, out dressRig);
++                    UInt16 dressModel;
++                    Boolean hostRule = _role == "host";
++                    if (hostRule)
++                    {
++                        dressModel = NetSyncVisitor.GhostGuard(HostDress(out dressRig), rs.Model);
++                        if (dressModel == 0)
++                            dressRig = -1;
++                    }
++                    else
++                        dressModel = NetSyncVisitor.ResolveDress(_guestSlots, out dressRig);
+                     EnsureGhost(ee, dressModel != 0 ? dressModel : rs.Model, dressModel != 0 ? dressRig : -1);   // [ff9mapkit netsync s138] + the rig, recorded for the harness
+                     if (_ghost != null)
+                     {
+-                        UInt16 animId = dressModel != 0 ? NetSyncVisitor.LocoAnim(dressRig, rs.Loco) : rs.Anim;
++                        UInt16 animId = hostRule
++                            ? NetSyncVisitor.GhostAnim(dressModel, dressRig, rs.Model, rs.Loco, rs.Anim)   // [ff9mapkit netsync s139]
++                            : dressModel != 0 ? NetSyncVisitor.LocoAnim(dressRig, rs.Loco) : rs.Anim;
+                         DriveGhost(rs.Pos, rs.Rot, animId);
+                         // A mask is index-valid only on the model it was read from -- apply the best one
+                         // we legitimately have (closes the drawn-dagger quirk for the common cases:
+@@ -1574,6 +1651,8 @@ namespace Memoria.Netsync
+                             ApplyGhostMask(rs.MeshVis);
+                         else if (local != null && dressModel == local.model)
+                             ApplyGhostMask(LocalMeshMask(local));
++                        else if (hostRule)
++                            ApplyGhostMask(_ghostRestMask);      // [ff9mapkit netsync s139] neither rule: CreateModel's own hides (one hairstyle)
+                         ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
+                     }
+                     AutoTeleportTick(local, rs.Pos, false);    // F1: recover a separated guest (self-gated)
+@@ -2984,6 +3063,15 @@ namespace Memoria.Netsync
+         // while one is live) and the host-event flag. A null story (no event state yet) ships nothing,
+         // exactly as the bare SnapshotAll publish did before F2.
+         private Byte[] BuildStateFrame()
++        {
++            Boolean host = _role == "host";
++            return BuildStateFrame(host, host);   // [ff9mapkit netsync s139] the one builder below, its host sections by my role
++        }
++
++        // [ff9mapkit netsync s139] the builder itself: `hostSections` appends section 7, `dressSection` section 8 (the publish passes
++        // its role for both); the dress codec proof (DressSelfTest, the selftest role) builds a host frame through THIS code with
++        // and without section 8, to prove an old guest's readers skip it.
++        private Byte[] BuildStateFrame(Boolean hostSections, Boolean dressSection)
+         {
+             Byte[] all = NetSyncState.SnapshotAll();
+             if (all == null)
+@@ -2998,9 +3086,14 @@ namespace Memoria.Netsync
+             // [ff9mapkit netsync F3.3] R2: the dialogue section rides EVERY host frame (the ring is the delivery channel;
+             // the slot's 33 ms re-send is what makes it loss-proof). Sections 5 and 7 leave in ONE snapshot, so the scene
+             // flag can never overtake or drain an event. MAIN THREAD (every caller of BuildStateFrame is).
+-            if (_role == "host")
++            if (hostSections)
+                 all = NetSyncState.AppendSection(all, NetSyncState.SectionDialog,
+                     _hostRing.BuildSection(_hostHeartbeat, HostDialogFlags(), _hostScene.Nonce, _hostScene.Field, _hostOpen, _hostOpenN));
++            // [ff9mapkit netsync s139] section 8, THE HOST'S DRESS for its guest ([model u16 LE][charId u8], always 3 bytes), right after
++            // section 7 on EVERY host frame (the 7 Hz publish and the out-of-band intent emit). Additive under wire v14: an old guest's
++            // readers skip it by id and length (NetSyncVisitor's section-8 comment; DressSelfTest proves it in-engine). +6 B a frame.
++            if (dressSection)
++                all = NetSyncState.AppendSection(all, NetSyncVisitor.SectionDress, HostDressSection());
+             return all;
+         }
+ 
+@@ -4956,6 +5049,671 @@ namespace Memoria.Netsync
+         }
+         public static GameObject HarnessGhostObject { get { NetSyncClient i = _instance; return i == null || i._ghost == null ? null : i._ghost; } }
+ 
++        // ============================================================================================================================
++        // [ff9mapkit netsync s139] THE HOST'S DRESS RULE AND WIRE SECTION 8 (studies/battle-coop/R3-DESIGN.md 3.4.3 as amended by
++        // R3-FIELD-MODEL-AUDIT.md 2.2 and 3.1-3.3, with the owner's two decisions of 2026-10-17 -- D1 Option A: the host's GhostAs is the
++        // one knob for both screens, a SelfDress=0 guest is still dressed by its host, the position frame is unchanged; D2: a spectating
++        // guest, GuestSlots 0, is the MOOGLE). The rules are NetSyncVisitor's (pure); this block is their live wiring, the section-8
++        // producer, the selftest `selfdress` bench and its proof. HOST-SIDE ONLY: a client's ghost keeps the s138 rule and a client
++        // produces no section 8 (it publishes the keys); vanilla and a solo game (Enabled = 0) never reach any of it.
++
++        // THE HOST'S DRESS: what its guest should wear (no guard -- section 8 carries the dress itself; the ghost guards it). The moogle
++        // predicate is read at call time from the live role. The mode is checked FIRST and the party read only for `auto` (the named
++        // path never reads it): with dressing off this costs nothing per frame, and section 8 still ships 00 00 FF.
++        private static UInt16 HostDress(out Int32 rigIdx)
++        {
++            rigIdx = -1;
++            if (!NetSyncVisitor.Enabled)
++                return 0;
++            String mode = NetSyncVisitor.DressMode(NetSyncVisitor.GhostAs);
++            if (NetSyncVisitor.DressModeOff(mode))
++                return 0;
++            return NetSyncVisitor.ResolveDressRule(mode, _guestSlots, NetSyncVisitor.MoogleWhenEmpty(_role, IsSelfTestRole),
++                                                   mode == "auto" ? ReadSlotChars() : null, out rigIdx);
++        }
++
++        // SECTION 8's body, built by this ONE method for BuildStateFrame and the codec proof: [model u16 LE][charId u8]. Never empty and
++        // never throws (a fault reads "no dress", 00 00 FF).
++        internal static Byte[] HostDressSection()
++        {
++            try
++            {
++                Int32 rig;
++                UInt16 model = HostDress(out rig);
++                return NetSyncVisitor.DressSectionBody(model, NetSyncVisitor.DressCharId(model, rig));
++            }
++            catch
++            {
++                return NetSyncVisitor.DressSectionBody(0, NetSyncVisitor.CharNone);
++            }
++        }
++
++        // The live party read the dress rules take, the `selfdress empty` lever applied on the selftest role only.
++        private static Int32[] ReadSlotChars()
++        {
++            return NetSyncVisitor.LiveSlotChars(IsSelfTestRole && _benchDressEmpty >= 0 ? _benchDressEmpty : 0);
++        }
++
++        // A section-8 body as the proof block logs it: "DC 00 FF (model 220, charId 255)"; "malformed" for a body its reader refuses.
++        private static String DressSectionText(Byte[] body)
++        {
++            UInt16 model;
++            Byte charId;
++            if (!NetSyncVisitor.TryParseDressSection(body, out model, out charId))
++                return "malformed";
++            return body[0].ToString("X2") + " " + body[1].ToString("X2") + " " + body[2].ToString("X2") + " (model " + model
++                   + ", charId " + charId + ")";
++        }
++
++        private static String RigIdleFramesText()
++        {
++            System.Text.StringBuilder sb = new System.Text.StringBuilder(48);
++            for (Int32 i = 0; i < NetSyncVisitor.RigRowCount; i++)
++            {
++                if (i > 0)
++                    sb.Append(',');
++                sb.Append(NetSyncVisitor.HarnessRigIdleFrame(i).ToString(System.Globalization.CultureInfo.InvariantCulture));
++            }
++            return sb.ToString();
++        }
++
++        // THE SELFDRESS BENCH (harness `netsync selfdress`; IsSelfTestRole only). Read only at the selftest dress site (and by
++        // ReadSlotChars on the selftest role), so a host or a client never sees them. Every lever is released by HarnessReleaseDress --
++        // from NetSyncBattle.HarnessReleaseBench, i.e. every HarnessSelfTest(false): disarm, fault, `reset` -- and by `selfdress clear`.
++        private static Int32 _benchDressMask = -1;       // `ghost <mask>`: the mirror's dress mask, mode `auto`; -1 = off (the pin, the ini's mode)
++        private static Int32 _benchDressEmpty = -1;      // `empty <mask>`: party slots the dress rules read as EMPTY; -1 = off
++        private static String _benchDressRule;           // `rule s138|s139` as set: "s138" = the pre-s139 rule at the selftest site; null = never set
++        private static Int32 _benchDressWire = -1;       // `wire <model>`: the mirror's wire body; -1 = off (my own model)
++        private static Int32 _benchDressWireAnim = -1;   // `wire <model> <anim>`: the raw clip that body plays; -1 = none (it moves with my loco)
++        private static String _dressCodec;               // `netsync.dress.codec`: null until DressSelfTest ran, then "ok" | "fail: <row>"
++
++        // harness `netsync selfdress <op> [value]` (`args` = the verb's arguments, args[0] = "selfdress"); the role first, then the op,
++        // then its value -- a refusal names what was expected and changes nothing:
++        //   ghost <mask 0-15>|off      the selftest mirror's dress input: the mask stands in for GuestSlots AND the mode reads `auto`
++        //                              (Memoria.ini, its GhostAs and NetSyncBattle.GuestSlots untouched); off = the pin and the ini's mode
++        //   empty <mask 0-15>|off      those party slots read EMPTY to the dress rules (FF9.party untouched) -- a mask, so "every named
++        //                              slot empty" is testable on a multi-bit mask
++        //   rule s138|s139             THE CALIBRATION LEVER: s138 = the WHOLE pre-s139 selftest site (the first named bit, no skip, no
++        //                              moogle, no guard, the loco translation even onto the wire's own body, no rest mask); s139 = the
++        //                              host rule
++        //   wire <model 1-65534> [anim 0-65535]|off   stands in for the mirror's WIRE body (the guard's input, the undressed body): the
++        //                              mirror becomes a guest wearing that model -- moving with its rig's clip for my loco (where it has
++        //                              a rig), or, with `anim`, PLAYING that raw clip (its loco byte that clip's class on that body: a
++        //                              break clip such as Vivi's 912 classifies as no loco, which the s138 translation flattens to idle)
++        //   clear                      every selfdress lever released (as the harness release does)
++        // Read back: `netsync.dress.ghost` (bench_mask, empty_mask, rule, wire, wire_anim, mode, and what the ghost wears).
++        public static Boolean HarnessSelfDress(String[] args, out String why)
++        {
++            why = null;
++            try
++            {
++                if (!IsSelfTestRole)
++                {
++                    why = "netsync selfdress: needs the selftest role (netsync selftest 1)";
++                    return false;
++                }
++                Int32 n = args != null ? args.Length : 0;
++                String op = n > 1 && args[1] != null ? args[1].ToLowerInvariant() : "";
++                String val = n > 2 && args[2] != null ? args[2].ToLowerInvariant() : "";
++                Int32 num;
++                Boolean isNum = Int32.TryParse(val, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out num);
++                switch (op)
++                {
++                    case "ghost":
++                    case "empty":
++                        if (n != 3 || !(val == "off" || (isNum && num >= 0 && num <= 0x0F)))
++                        {
++                            why = "netsync selfdress " + op + ": expected `" + op + " <mask 0-15>|off`";
++                            return false;
++                        }
++                        if (val == "off")
++                            num = -1;
++                        if (op == "ghost")
++                        {
++                            _benchDressMask = num;
++                            Log.Message("[NetSync] harness: selfdress ghost " + (num < 0
++                                        ? "OFF -- the mirror's dress back to the GuestSlots pin and the ini's GhostAs"
++                                        : num + " -- the mirror's dress mask, mode auto (Memoria.ini and the battle GuestSlots untouched)"));
++                        }
++                        else
++                        {
++                            _benchDressEmpty = num;
++                            Log.Message("[NetSync] harness: selfdress empty " + (num < 0
++                                        ? "OFF -- the dress rules read the party as it is"
++                                        : num + " -- those party slots read EMPTY to the dress rules (FF9.party untouched)"));
++                        }
++                        return true;
++                    case "rule":
++                        if (n != 3 || (val != "s138" && val != "s139"))
++                        {
++                            why = "netsync selfdress rule: expected `rule s138|s139`";
++                            return false;
++                        }
++                        _benchDressRule = val;
++                        Log.Message("[NetSync] harness: selfdress rule " + val + (val == "s138"
++                                    ? " -- CALIBRATION: the pre-s139 selftest dress site (the first named bit, no skip, no moogle, no guard, no rest mask)"
++                                    : " -- the host rule"));
++                        return true;
++                    case "wire":
++                    {
++                        String animVal = n > 3 && args[3] != null ? args[3].ToLowerInvariant() : "";
++                        Int32 anim;
++                        Boolean animOk = Int32.TryParse(animVal, System.Globalization.NumberStyles.None,
++                                                        System.Globalization.CultureInfo.InvariantCulture, out anim) && anim >= 0 && anim <= 65535;
++                        if (!((n == 3 && (val == "off" || (isNum && num >= 1 && num <= 65534)))
++                              || (n == 4 && isNum && num >= 1 && num <= 65534 && animOk)))
++                        {
++                            why = "netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`";
++                            return false;
++                        }
++                        _benchDressWire = val == "off" ? -1 : num;
++                        _benchDressWireAnim = n == 4 ? anim : -1;   // [ff9mapkit netsync s139] the raw clip it plays (-1 = my loco's)
++                        Log.Message("[NetSync] harness: selfdress wire " + (_benchDressWire < 0
++                                    ? "OFF -- the mirror's wire body is my own model again"
++                                    : _benchDressWire + (_benchDressWireAnim >= 0 ? " playing " + _benchDressWireAnim : "")
++                                      + " -- the mirror's wire body (the guard's input; the undressed body)"));
++                        return true;
++                    }
++                    case "clear":
++                        if (n != 2)
++                        {
++                            why = "netsync selfdress clear: takes no argument";
++                            return false;
++                        }
++                        HarnessReleaseDress("selfdress clear");
++                        return true;
++                    default:
++                        why = "netsync selfdress: unknown op '" + op + "' (ghost|empty|rule|wire|clear)";
++                        return false;
++                }
++            }
++            catch (Exception err)
++            {
++                why = "netsync selfdress: " + err.Message;
++                return false;
++            }
++        }
++
++        // Every selfdress lever back off (never throws). Called by NetSyncBattle.HarnessReleaseBench and `selfdress clear`.
++        internal static void HarnessReleaseDress(String cause)
++        {
++            Boolean any = _benchDressMask >= 0 || _benchDressEmpty >= 0 || _benchDressRule != null || _benchDressWire >= 0;
++            _benchDressMask = -1;
++            _benchDressEmpty = -1;
++            _benchDressRule = null;
++            _benchDressWire = -1;
++            _benchDressWireAnim = -1;
++            if (any)
++                Log.Message("[NetSync] harness: selfdress levers released (" + cause + ") -- the mirror's dress back to the pin, the ini's "
++                            + "GhostAs and the host rule");
++        }
++
++        // `netsync.dress.ghost`'s s139 keys (HarnessAgent.AppendDress, at the end of `ghost`): the selfdress levers as set (-1 / null =
++        // off), and `mode` -- the dress mode this screen's ghost reads: "bench:auto" (the `ghost` lever, selftest role) or "ini:" + the
++        // ini's GhostAs as read (trimmed; "ini:" = none); null = no NetSyncClient instance. `codec` (DressSelfTest) is null until the
++        // proof ran; `rig_idle_frames` is NetSyncVisitor.HarnessRigIdleFrame.
++        public static Int32 HarnessDressBenchMask { get { return _benchDressMask; } }
++        public static Int32 HarnessDressEmptyMask { get { return _benchDressEmpty; } }
++        public static String HarnessDressRule { get { return _benchDressRule; } }
++        public static Int32 HarnessDressWire { get { return _benchDressWire; } }
++        public static Int32 HarnessDressWireAnim { get { return _benchDressWireAnim; } }
++        public static String HarnessDressMode
++        {
++            get
++            {
++                if (_instance == null)
++                    return null;
++                return IsSelfTestRole && _benchDressMask >= 0 ? "bench:auto" : "ini:" + (NetSyncVisitor.GhostAs ?? "");
++            }
++        }
++        public static String HarnessDressCodec { get { return _dressCodec; } }
++
++        // `netsync.dress.ghost`'s VISIBILITY witnesses (the rest mask -- audit 2.2 amendment 8 -- has no other): `rest_mask`, CreateModel's
++        // own field-mode visibility snapshotted before EnsureGhost's force-enable (bit i = renderer i, at most 16; -1 = no ghost);
++        // `shown_mask`, the ghost's renderers enabled NOW (the same bits: what the last ApplyGhostMask left); `hidden`, every renderer
++        // disabled now, as its path under the ghost's root ("short_hair", "long_hair/rubber_band"; null = no ghost) -- judged against the
++        // install's prefab, never against the engine's own snapshot.
++        public static Int32 HarnessGhostRestMask { get { NetSyncClient i = _instance; return i == null || i._ghost == null ? -1 : (Int32)i._ghostRestMask; } }
++        public static Int32 HarnessGhostShownMask
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                if (i == null || i._ghost == null || i._ghostRends == null)
++                    return -1;
++                Int32 mask = 0;
++                for (Int32 r = 0; r < i._ghostRends.Length && r < 16; r++)
++                    if (i._ghostRends[r] != null && i._ghostRends[r].enabled)
++                        mask |= 1 << r;
++                return mask;
++            }
++        }
++        public static String[] HarnessGhostHidden
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                if (i == null || i._ghost == null || i._ghostRends == null)
++                    return null;
++                System.Collections.Generic.List<String> hidden = new System.Collections.Generic.List<String>();
++                Transform root = i._ghost.transform;
++                foreach (Renderer r in i._ghostRends)
++                    if (r != null && !r.enabled)
++                        hidden.Add(PathUnder(r.transform, root));
++                return hidden.ToArray();
++            }
++        }
++
++        // A transform's path under `root` ("long_hair/rubber_band"; "" for the root itself).
++        private static String PathUnder(Transform t, Transform root)
++        {
++            if (t == root)
++                return "";
++            String path = t.name;
++            for (Transform p = t.parent; p != null && p != root; p = p.parent)
++                path = p.name + "/" + path;
++            return path;
++        }
++
++        // `netsync.dress.mirror_party` -- the PARTY MIRROR an old reader landed (NetSyncParty.ParseSections, s103: untouched by s139):
++        // the four mirrored slots' CharacterId (-1 = an absent slot), null while no mirror is active. On a live guest it is the
++        // witness that its s103 walker stepped past the host's section 8 (the host's own `dress.party` is what it must equal).
++        public static Int32[] HarnessDressMirrorParty
++        {
++            get
++            {
++                if (!NetSyncParty.MirrorActive)
++                    return null;
++                Int32[] chars = new Int32[4];
++                for (Int32 s = 0; s < 4; s++)
++                    chars[s] = NetSyncParty.Slots[s].Present ? (Int32)NetSyncParty.Slots[s].CharId : -1;
++                return chars;
++            }
++        }
++
++        // THE DRESS CODEC PROOF (selftest role; once, with the proof block -- audit 2.2 amendment 6): "[NetSync] dress codec selftest: OK
++        // (N rows)" and `netsync.dress.codec` ("ok" | "fail: <row>"). Rows: the rig table; ResolveAuto's table (owner D2's mask-0 moogle
++        // included), the named path and the mode; the s138 rule the lever restores; GhostGuard; GhostAnim; the role predicate; the
++        // section-8 codec on HAND-CHECKED bytes (a symmetric byte-order bug would round-trip its own encoder); THE OLD-GUEST ROWS -- a
++        // REAL host frame from BuildStateFrame (SnapshotAll + section 5 + section 7) with and without section 8, the dressed one through
++        // the REAL wire codec: the readers an s117 laptop runs (ApplyStoryTo, ParseSections -- the party, key items and bag through the
++        // B_HAVE_ITEM wrap --, TryReadSection(5 / 7) and the absent-id reads that CROSS section 8: intent, talk) give identical results
++        // both ways, a section appended AFTER section 8 still reads (the walk steps over it by its length, never stops at it), a
++        // truncated section 8 is refused, a longer one read forward; and THE MUTANTS that must fail -- swapped bytes, a
++        // Rigs.Length party guard, the moogle on the client role -- each run against the same rows and required to be caught.
++        // ParseSections fills the party mirror's statics, so its rows parse only with the mirror idle (the proof block runs right after
++        // NetSyncParty.SelfTest, which clears it) and Clear() after every parse; with the mirror live they fail closed, never vacuously.
++        private Boolean DressSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                Int32 rig = -1;
++                UInt16 pm = 0;
++                Byte pc = 0;
++                NetSyncVisitor.Rig moog = default(NetSyncVisitor.Rig);
++                // --- the rig table (amendment 2)
++                DressRow(NetSyncVisitor.RigCount == NetSyncVisitor.RigRowCount && NetSyncVisitor.MainRigCount == 8 && NetSyncVisitor.MoogleRig == 8
++                         && NetSyncVisitor.RigForModel(220) == 8 && NetSyncVisitor.RigForModel(98) == 0 && NetSyncVisitor.RigForModel(509) == 7
++                         && NetSyncVisitor.RigForModel(532) == -1,
++                         "rigs: nine rows -- the mains 0-7, the moogle row 8 (model 220)", ref rows, ref fail);
++                DressRow(NetSyncVisitor.TryGetRig(8, out moog) && moog.Model == 220 && moog.Idle == 2904 && moog.Walk == 2927 && moog.Run == 2907
++                         && moog.TurnL == 2923 && moog.TurnR == 2911 && moog.Eye == 50 && moog.Inactive == 0 && moog.WalkStepA == -1
++                         && moog.RunStepA == -1 && moog.IdleAlias == 2905 && !NetSyncVisitor.TryGetRig(9, out moog)
++                         && !NetSyncVisitor.TryGetRig(-1, out moog),
++                         "rigs: the moogle row is GEO_NPC_F0_MOG's census row (eye 50, no break clip, no footsteps)", ref rows, ref fail);
++                DressRow(NetSyncVisitor.LocoAnim(8, NetSyncVisitor.LocoWalk) == 2927 && NetSyncVisitor.LocoAnim(8, NetSyncVisitor.LocoOther) == 2904
++                         && NetSyncVisitor.LocoAnim(9, NetSyncVisitor.LocoWalk) == 0 && NetSyncVisitor.ClassifyLoco(220, 2907) == NetSyncVisitor.LocoRun,
++                         "rigs: the moogle's loco clips classify and translate", ref rows, ref fail);
++                DressRow(RigColumnsHold(), "rigs: each row's idle alias names its idle's clip; footfalls come in ordered pairs or not at all",
++                         ref rows, ref fail);
++                // --- ResolveAuto (amendment 3, owner D2), the named path and the mode
++                String auto = DressAutoTable(NetSyncVisitor.ResolveAuto);
++                DressRow(auto == null, "auto: " + (auto ?? "the table"), ref rows, ref fail);
++                DressRow(NetSyncVisitor.ResolveDressRule("moogle", 0, false, null, out rig) == 220 && rig == 8
++                         && NetSyncVisitor.ResolveDressRule(" Zidane ", 0, false, null, out rig) == 98 && rig == 0
++                         && NetSyncVisitor.ResolveDressRule("dagger", 0, true, null, out rig) == 185 && rig == 2
++                         && NetSyncVisitor.ResolveDressRule("salamander", 0, true, null, out rig) == 509 && rig == 7
++                         && NetSyncVisitor.ResolveDressRule("cinna", 2, true, DressParty4, out rig) == 0 && rig == -1,
++                         "named: moogle 220 on any role, zidane 98, the aliases; an unknown name dresses nothing", ref rows, ref fail);
++                DressRow(NetSyncVisitor.ResolveDressRule("", 0, true, DressParty4, out rig) == 0 && rig == -1
++                         && NetSyncVisitor.ResolveDressRule("off", 0, true, DressParty4, out rig) == 0
++                         && NetSyncVisitor.ResolveDressRule("0", 6, true, DressParty4, out rig) == 0
++                         && NetSyncVisitor.ResolveDressRule(null, 0, true, DressParty4, out rig) == 0
++                         && NetSyncVisitor.ResolveDressRule("AUTO", 0, true, DressParty4, out rig) == 220 && rig == 8,
++                         "mode: GhostAs \"\" / off / 0 dress nothing -- the spectator's moogle comes with auto only", ref rows, ref fail);
++                // --- the s138 rule (a client's dress; `selfdress rule s138`)
++                DressRow(NetSyncVisitor.ResolveDressS138("auto", 0, DressParty4, out rig) == 0 && rig == -1
++                         && NetSyncVisitor.ResolveDressS138("auto", 6, new Int32[] { 0, -1, 2, -1 }, out rig) == 0
++                         && NetSyncVisitor.ResolveDressS138("auto", 2, new Int32[] { 0, -1, -1, -1 }, out rig) == 0
++                         && NetSyncVisitor.ResolveDressS138("auto", 2, new Int32[] { 0, 8, -1, -1 }, out rig) == 0
++                         && NetSyncVisitor.ResolveDressS138("auto", 6, DressParty4, out rig) == 8 && rig == 1
++                         && NetSyncVisitor.ResolveDressS138("moogle", 0, null, out rig) == 0 && rig == -1
++                         && NetSyncVisitor.ResolveDressS138("vivi", 0, null, out rig) == 8 && rig == 1,
++                         "s138: the first named bit -- no skip, no moogle (not even by name), Cinna undressed", ref rows, ref fail);
++                // --- the guard and the anim (amendment 4)
++                DressRow(NetSyncVisitor.GhostGuard(185, 98) == 185 && NetSyncVisitor.GhostGuard(185, 185) == 185
++                         && NetSyncVisitor.GhostGuard(185, 532) == 0 && NetSyncVisitor.GhostGuard(185, 5489) == 0
++                         && NetSyncVisitor.GhostGuard(220, 98) == 220 && NetSyncVisitor.GhostGuard(0, 98) == 0,
++                         "guard: wire 98 or the dress -> dressed; wire 532 / 5489 -> shown as it is", ref rows, ref fail);
++                DressRow(NetSyncVisitor.GhostAnim(185, 2, 98, NetSyncVisitor.LocoWalk, 25) == 2086
++                         && NetSyncVisitor.GhostAnim(185, 2, 185, NetSyncVisitor.LocoOther, 3160) == 3160
++                         && NetSyncVisitor.GhostAnim(0, -1, 5489, NetSyncVisitor.LocoWalk, 1996) == 1996
++                         && NetSyncVisitor.GhostAnim(220, 8, 98, NetSyncVisitor.LocoRun, 38) == 2907
++                         && NetSyncVisitor.GhostAnim(220, 8, 98, NetSyncVisitor.LocoOther, 57) == 2904,
++                         "anim: translated onto another body, raw on the wire's own (a break clip is never flattened to idle)", ref rows, ref fail);
++                // --- the role predicate (amendment 3)
++                DressRow(NetSyncVisitor.MoogleWhenEmpty("host", false) && NetSyncVisitor.MoogleWhenEmpty("selftest", true)
++                         && !NetSyncVisitor.MoogleWhenEmpty("client", false) && !NetSyncVisitor.MoogleWhenEmpty("guest", false)
++                         && !NetSyncVisitor.MoogleWhenEmpty("selftest", false) && !NetSyncVisitor.MoogleWhenEmpty(null, false),
++                         "role: the moogle for the host and the selftest role only (a typo'd role is neither)", ref rows, ref fail);
++                // --- section 8's charId and codec, on hand-checked bytes
++                DressRow(NetSyncVisitor.DressCharId(98, 0) == 0 && NetSyncVisitor.DressCharId(192, 4) == 4 && NetSyncVisitor.DressCharId(509, 7) == 7
++                         && NetSyncVisitor.DressCharId(220, 8) == 0xFF && NetSyncVisitor.DressCharId(0, -1) == 0xFF,
++                         "charId: a main's row; 0xFF for the moogle and for no dress", ref rows, ref fail);
++                DressRow(BytesAre(NetSyncVisitor.DressSectionBody(192, 4), 0xC0, 0x00, 0x04)
++                         && BytesAre(NetSyncVisitor.DressSectionBody(220, 0xFF), 0xDC, 0x00, 0xFF)
++                         && BytesAre(NetSyncVisitor.DressSectionBody(0, 0xFF), 0x00, 0x00, 0xFF)
++                         && BytesAre(NetSyncVisitor.DressSectionBody(5489, 3), 0x71, 0x15, 0x03),
++                         "codec: hand-checked bytes -- (192, 4) C0 00 04, (220, FF) DC 00 FF, (0, FF) 00 00 FF", ref rows, ref fail);
++                DressRow(NetSyncVisitor.TryParseDressSection(new Byte[] { 0xC0, 0x00, 0x04 }, out pm, out pc) && pm == 192 && pc == 4
++                         && NetSyncVisitor.TryParseDressSection(new Byte[] { 0xDC, 0x00, 0xFF, 0x5A, 0xA5 }, out pm, out pc) && pm == 220 && pc == 0xFF
++                         && !NetSyncVisitor.TryParseDressSection(new Byte[] { 0xDC, 0x00 }, out pm, out pc)
++                         && !NetSyncVisitor.TryParseDressSection(new Byte[] { 0xDC }, out pm, out pc)
++                         && !NetSyncVisitor.TryParseDressSection(new Byte[0], out pm, out pc)
++                         && !NetSyncVisitor.TryParseDressSection(null, out pm, out pc),
++                         "codec: the reader refuses fewer than 3 bytes and reads a longer body's first 3 (forward)", ref rows, ref fail);
++                // --- THE OLD-GUEST ROWS: a real host frame with and without section 8 (amendment 6; audit 3.2)
++                Byte[] own = HostDressSection();
++                DressRow(own != null && own.Length == NetSyncVisitor.DressBodyLen && NetSyncVisitor.TryParseDressSection(own, out pm, out pc)
++                         && (pc == NetSyncVisitor.CharNone || pc < NetSyncVisitor.MainRigCount),
++                         "producer: HostDressSection is never empty -- 3 bytes that parse", ref rows, ref fail);
++                Byte[] plain = BuildStateFrame(true, false);
++                Byte[] dressed = BuildStateFrame(true, true);
++                DressRow(plain != null && dressed != null && dressed.Length == plain.Length + 3 + NetSyncVisitor.DressBodyLen
++                         && BytesEqualRange(plain, dressed, plain.Length) && dressed[plain.Length] == NetSyncVisitor.SectionDress
++                         && dressed[plain.Length + 1] == NetSyncVisitor.DressBodyLen && dressed[plain.Length + 2] == 0,
++                         "frame: BuildStateFrame's host frame gains exactly section 8 at its end (+6 B)", ref rows, ref fail);
++                Byte[] rx = dressed != null ? WireRoundTrip(dressed) : null;
++                DressRow(rx != null && BytesEqualRange(rx, dressed, dressed.Length) && rx.Length == dressed.Length
++                         && dressed.Length <= NetSyncWire.MaxPayload,
++                         "wire: the real type-5 frame codec carries the dressed frame, inside MaxPayload", ref rows, ref fail);
++                Byte[] s7a = null, s7b = null, s5a = null, s5b = null, s8 = null;
++                DressRow(rx != null && NetSyncState.TryReadSection(plain, NetSyncState.SectionDialog, out s7a)
++                         && NetSyncState.TryReadSection(rx, NetSyncState.SectionDialog, out s7b) && BytesEqual(s7a, s7b)
++                         && NetSyncState.TryReadSection(plain, NetSyncState.SectionEvent, out s5a)
++                         && NetSyncState.TryReadSection(rx, NetSyncState.SectionEvent, out s5b) && BytesEqual(s5a, s5b),
++                         "old guest: TryReadSection reads the same sections 5 and 7 with section 8 appended", ref rows, ref fail);
++                DressRow(rx != null && SameRead(plain, rx, NetSyncState.SectionIntent) && SameRead(plain, rx, NetSyncState.SectionTalk),
++                         "old guest: an absent id's read (intent, talk -- the walks that CROSS section 8) answers the same", ref rows, ref fail);
++                DressRow(rx != null && NetSyncState.TryReadSection(rx, NetSyncVisitor.SectionDress, out s8) && BytesEqual(s8, own)
++                         && !NetSyncState.TryReadSection(plain, NetSyncVisitor.SectionDress, out s8),
++                         "section 8: present on the dressed frame (HostDressSection's body), absent from the plain one", ref rows, ref fail);
++                Byte[] storyA = new Byte[2048];
++                Byte[] storyB = new Byte[2048];
++                DressRow(rx != null && NetSyncState.ApplyStoryTo(plain, storyA) && NetSyncState.ApplyStoryTo(rx, storyB) && BytesEqual(storyA, storyB),
++                         "old guest: ApplyStoryTo applies the same story past section 8", ref rows, ref fail);
++                DressRow(rx != null && PartyParsesAlike(plain, rx),
++                         "old guest: ParseSections lands the same party, key items and bag with section 8 appended (the mirror idle)",
++                         ref rows, ref fail);
++                Byte[] past = rx != null ? NetSyncState.AppendSection(rx, 0xC8, new Byte[] { 0x5A }) : null;
++                Byte[] s200 = null;
++                DressRow(past != null && NetSyncState.TryReadSection(past, 0xC8, out s200) && BytesAre(s200, 0x5A)
++                         && NetSyncState.ApplyStoryTo(past, storyB) && BytesEqual(storyA, storyB) && PartyParsesAlike(plain, past),
++                         "past: a section AFTER section 8 still reads -- the walk steps over section 8 by its length", ref rows, ref fail);
++                Byte[] shortly = plain != null ? NetSyncState.AppendSection(plain, NetSyncVisitor.SectionDress, new Byte[] { 0xDC, 0x00 }) : null;
++                DressRow(shortly != null && NetSyncState.TryReadSection(shortly, NetSyncVisitor.SectionDress, out s8) && s8.Length == 2
++                         && !NetSyncVisitor.TryParseDressSection(s8, out pm, out pc)
++                         && NetSyncState.ApplyStoryTo(shortly, storyB) && BytesEqual(storyA, storyB)
++                         && NetSyncState.TryReadSection(shortly, NetSyncState.SectionDialog, out s7b) && BytesEqual(s7a, s7b)
++                         && PartyParsesAlike(plain, shortly),
++                         "truncated: a 2-byte section 8 is refused by its reader; the old readers are unmoved", ref rows, ref fail);
++                Byte[] cut = null;
++                if (rx != null)
++                {
++                    cut = new Byte[rx.Length - 1];
++                    Array.Copy(rx, 0, cut, 0, cut.Length);
++                }
++                DressRow(cut != null && !NetSyncState.TryReadSection(cut, NetSyncVisitor.SectionDress, out s8)
++                         && NetSyncState.ApplyStoryTo(cut, storyB) && BytesEqual(storyA, storyB)
++                         && NetSyncState.TryReadSection(cut, NetSyncState.SectionDialog, out s7b) && BytesEqual(s7a, s7b),
++                         "truncated: a frame cut inside section 8 refuses it; the story and section 7 still read", ref rows, ref fail);
++                Byte[] longer = plain != null && own != null
++                    ? NetSyncState.AppendSection(plain, NetSyncVisitor.SectionDress, new Byte[] { own[0], own[1], own[2], 0x5A, 0xA5 }) : null;
++                DressRow(longer != null && NetSyncState.TryReadSection(longer, NetSyncVisitor.SectionDress, out s8)
++                         && NetSyncVisitor.TryParseDressSection(s8, out pm, out pc) && pm == (UInt16)(own[0] | (own[1] << 8)) && pc == own[2]
++                         && NetSyncState.ApplyStoryTo(longer, storyB) && BytesEqual(storyA, storyB) && PartyParsesAlike(plain, longer),
++                         "forward: a 5-byte section 8 reads its first 3; the old readers are unmoved", ref rows, ref fail);
++                // --- THE MUTANTS: each must be CAUGHT by the rows above (a check that cannot fail is not a check)
++                DressRow(!BytesAre(SwappedDressBody(192, 4), 0xC0, 0x00, 0x04) && !BytesAre(SwappedDressBody(5489, 3), 0x71, 0x15, 0x03)
++                         && (!NetSyncVisitor.TryParseDressSection(SwappedDressBody(192, 4), out pm, out pc) || pm != 192),
++                         "mutant: a swapped (big-endian) encoder is caught by the hand-checked bytes and the real reader", ref rows, ref fail);
++                DressRow(DressAutoTable(MutantRigsLengthGuard) != null,
++                         "mutant: a Rigs.Length party guard (Cinna would wear the moogle row) is caught by the auto table", ref rows, ref fail);
++                DressRow(DressAutoTable(MutantMoogleOnClient) != null && MoogleRoleMutant("guest") != NetSyncVisitor.MoogleWhenEmpty("guest", false),
++                         "mutant: the moogle on the client role (or `role != \"client\"`) is caught", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            _dressCodec = fail == null ? "ok" : "fail: " + fail;
++            return fail == null;
++        }
++
++        private static readonly Int32[] DressParty4 = { 0, 1, 2, 3 };   // Zidane, Vivi, Garnet, Steiner -- never mutated
++
++        private delegate UInt16 DressAutoRule(Int32 mask, Boolean moogleWhenEmpty, Int32[] slotChar, out Int32 rigIdx);
++
++        // ResolveAuto's row table (amendment 6; owner D2's first rule), run against a resolver: null when every row holds, else the
++        // first failing row's name. The production rule must pass it; each mutant must fail it.
++        private static String DressAutoTable(DressAutoRule rule)
++        {
++            if (!AutoIs(rule, 0, true, DressParty4, 220, 8)) return "mask 0 -> the moogle on the host / selftest (owner D2)";
++            if (!AutoIs(rule, 0, false, DressParty4, 0, -1)) return "mask 0 -> undressed on a client";
++            if (!AutoIs(rule, 2, true, DressParty4, 8, 1)) return "slot 1 named -> its member (Vivi, 8)";
++            if (!AutoIs(rule, 1, true, DressParty4, 98, 0)) return "slot 0 named -> Zidane (98)";
++            if (!AutoIs(rule, 6, true, new Int32[] { 0, -1, 2, -1 }, 185, 2)) return "an empty first named slot -> the next named member";
++            if (!AutoIs(rule, 6, true, new Int32[] { 0, -1, -1, -1 }, 220, 8)) return "every named slot empty -> the moogle (host / selftest)";
++            if (!AutoIs(rule, 6, false, new Int32[] { 0, -1, -1, -1 }, 0, -1)) return "every named slot empty -> undressed on a client";
++            if (!AutoIs(rule, 2, true, new Int32[] { 0, 8, -1, -1 }, 0, -1)) return "Cinna (CharacterId 8) -> undressed, never the moogle row";
++            if (!AutoIs(rule, 2, true, new Int32[] { 0, 10, -1, -1 }, 0, -1)) return "Blank (10) -> undressed";
++            if (!AutoIs(rule, 2, true, new Int32[] { 0, 12, -1, -1 }, 0, -1)) return "a custom character (12) -> undressed";
++            if (!AutoIs(rule, 6, true, new Int32[] { 0, 8, 1, -1 }, 0, -1)) return "the first OCCUPIED named slot decides (Cinna before Vivi)";
++            if (!AutoIs(rule, 0x12, true, DressParty4, 8, 1)) return "bits above slot 3 are no party slots";
++            if (!AutoIs(rule, 6, true, new Int32[] { 0, -1, -2, -1 }, 0, -1)) return "an UNREADABLE named slot (-2) -> undressed, never the moogle";
++            if (!AutoIs(rule, 2, true, null, 0, -1)) return "no party read -> unreadable: undressed, never the moogle";
++            return null;
++        }
++
++        private static Boolean AutoIs(DressAutoRule rule, Int32 mask, Boolean moogleWhenEmpty, Int32[] slotChar, Int32 wantModel, Int32 wantRig)
++        {
++            Int32 rig;
++            UInt16 model = rule(mask, moogleWhenEmpty, slotChar, out rig);
++            return model == wantModel && rig == wantRig;
++        }
++
++        // the mutants (DressSelfTest requires each to be caught)
++        private static UInt16 MutantRigsLengthGuard(Int32 mask, Boolean moogleWhenEmpty, Int32[] slotChar, out Int32 rigIdx)
++        {
++            return NetSyncVisitor.ResolveAutoCore(mask, moogleWhenEmpty, slotChar, NetSyncVisitor.RigRowCount, out rigIdx);
++        }
++
++        private static UInt16 MutantMoogleOnClient(Int32 mask, Boolean moogleWhenEmpty, Int32[] slotChar, out Int32 rigIdx)
++        {
++            return NetSyncVisitor.ResolveAuto(mask, true, slotChar, out rigIdx);
++        }
++
++        private static Boolean MoogleRoleMutant(String role)
++        {
++            return role != "client";
++        }
++
++        private static Byte[] SwappedDressBody(UInt16 model, Byte charId)
++        {
++            return new Byte[] { (Byte)((model >> 8) & 0xFF), (Byte)(model & 0xFF), charId };
++        }
++
++        private static Boolean RigColumnsHold()
++        {
++            for (Int32 i = 0; i < NetSyncVisitor.RigRowCount; i++)
++            {
++                NetSyncVisitor.Rig r;
++                String idle, alias;
++                if (!NetSyncVisitor.TryGetRig(i, out r) || !FF9DBAll.AnimationDB.TryGetValue((Int32)r.Idle, out idle)
++                    || !FF9DBAll.AnimationDB.TryGetValue((Int32)r.IdleAlias, out alias) || String.IsNullOrEmpty(idle) || idle != alias)
++                    return false;
++                if ((r.WalkStepA < 0) != (r.WalkStepB < 0) || (r.RunStepA < 0) != (r.RunStepB < 0)
++                    || (r.WalkStepA >= 0 && r.WalkStepA >= r.WalkStepB) || (r.RunStepA >= 0 && r.RunStepA >= r.RunStepB))
++                    return false;
++            }
++            return true;
++        }
++
++        // The type-5 frame codec a peer's transport runs (NetSyncWire.BuildFrame / TryParseHeader), as NetSyncState.SelfTest does it.
++        private static Byte[] WireRoundTrip(Byte[] payload)
++        {
++            Byte[] frame = NetSyncWire.BuildFrame(NetSyncWire.TypeState, payload);
++            Byte type;
++            Int32 len;
++            if (!NetSyncWire.TryParseHeader(frame, out type, out len) || type != NetSyncWire.TypeState || len != payload.Length
++                || frame.Length != NetSyncWire.HeaderSize + len)
++                return null;
++            Byte[] received = new Byte[len];
++            Array.Copy(frame, NetSyncWire.HeaderSize, received, 0, len);
++            return received;
++        }
++
++        // ParseSections over two frames, the party it lands compared slot for slot -- and its OTHER half, sections 2-3, through the read an
++        // old guest's event VM makes of them (NetSyncParty.TryItemCount, the B_HAVE_ITEM wrap), asked while each parse is live for every
++        // item in my bag, every key item I hold and one I do not. The mirror's statics are a live guest's, so a live (or bench-armed)
++        // mirror fails closed; each parse is followed by Clear() (a selftest machine never stays MirrorActive).
++        private static Boolean PartyParsesAlike(Byte[] a, Byte[] b)
++        {
++            if (a == null || b == null || NetSyncParty.MirrorActive || NetSyncParty.BenchMirrorArmed)
++                return false;
++            try
++            {
++                Int32[] items = ItemProbeIds();
++                Boolean gotA = NetSyncParty.ParseSections(a);
++                NetSyncParty.Slot[] slotsA = (NetSyncParty.Slot[])NetSyncParty.Slots.Clone();
++                Int32[] countsA = ItemCountsNow(items);
++                NetSyncParty.Clear();
++                Boolean gotB = NetSyncParty.ParseSections(b);
++                NetSyncParty.Slot[] slotsB = (NetSyncParty.Slot[])NetSyncParty.Slots.Clone();
++                Int32[] countsB = ItemCountsNow(items);
++                NetSyncParty.Clear();
++                if (!gotA || !gotB)
++                    return false;
++                for (Int32 i = 0; i < 4; i++)
++                    if (!SlotsAlike(slotsA[i], slotsB[i]))
++                        return false;
++                return SeqEqual(countsA, countsB);
++            }
++            finally
++            {
++                NetSyncParty.Clear();
++            }
++        }
++
++        // The item ids the mirror's B_HAVE_ITEM wrap is probed with: every regular item in my live bag, every key item I hold, and one
++        // key item I do not (its 0 must survive too).
++        private static Int32[] ItemProbeIds()
++        {
++            System.Collections.Generic.List<Int32> ids = new System.Collections.Generic.List<Int32>();
++            FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
++            if (ff9 != null && ff9.item != null)
++                foreach (FF9ITEM item in ff9.item)
++                    if (item != null && item.count > 0)
++                        ids.Add(ff9item.GetItemIdFromRegularId(item.id));
++            Int32 absent = -1;
++            if (ff9 != null && ff9.rare_item_obtained != null)
++            {
++                foreach (Int32 rare in ff9.rare_item_obtained)
++                    ids.Add(ff9item.GetItemIdFromImportantId(rare));
++                for (Int32 r = 0; r < 256 && absent < 0; r++)
++                    if (!ff9.rare_item_obtained.Contains(r))
++                        absent = r;
++            }
++            ids.Add(ff9item.GetItemIdFromImportantId(absent < 0 ? 0 : absent));
++            return ids.ToArray();
++        }
++
++        // What TryItemCount answers for each id right now (-1 = it declined: no mirror, or a card).
++        private static Int32[] ItemCountsNow(Int32[] ids)
++        {
++            Int32[] counts = new Int32[ids.Length];
++            for (Int32 i = 0; i < ids.Length; i++)
++            {
++                Int32 c;
++                counts[i] = NetSyncParty.TryItemCount(ids[i], out c) ? c : -1;
++            }
++            return counts;
++        }
++
++        // TryReadSection of one id on two frames answers the same (found or not; the same body when found).
++        private static Boolean SameRead(Byte[] a, Byte[] b, Byte sectionId)
++        {
++            Byte[] x, y;
++            Boolean gotX = NetSyncState.TryReadSection(a, sectionId, out x);
++            Boolean gotY = NetSyncState.TryReadSection(b, sectionId, out y);
++            return gotX == gotY && (!gotX || BytesEqual(x, y));
++        }
++
++        private static Boolean SlotsAlike(NetSyncParty.Slot x, NetSyncParty.Slot y)
++        {
++            if (x.Present != y.Present || x.CharId != y.CharId || x.Serial != y.Serial || x.Level != y.Level || x.Row != y.Row
++                || x.CurHp != y.CurHp || x.MaxHp != y.MaxHp || x.CurMp != y.CurMp || x.MaxMp != y.MaxMp || x.Name != y.Name
++                || x.BasisMaxHp != y.BasisMaxHp || x.BasisMaxMp != y.BasisMaxMp || x.Dex != y.Dex || x.Str != y.Str || x.Mgc != y.Mgc
++                || x.Wpr != y.Wpr || x.BasisMaxCapa != y.BasisMaxCapa || x.Status != y.Status || x.Trance != y.Trance)
++                return false;
++            return SeqEqual(x.Equip, y.Equip) && SeqEqual(x.SaIds, y.SaIds);
++        }
++
++        private static Boolean SeqEqual<T>(T[] a, T[] b)
++        {
++            if (a == null || b == null)
++                return a == null && b == null;
++            if (a.Length != b.Length)
++                return false;
++            for (Int32 i = 0; i < a.Length; i++)
++                if (!a[i].Equals(b[i]))
++                    return false;
++            return true;
++        }
++
++        private static Boolean BytesEqual(Byte[] a, Byte[] b)
++        {
++            return a != null && b != null && a.Length == b.Length && BytesEqualRange(a, b, a.Length);
++        }
++
++        private static Boolean BytesEqualRange(Byte[] a, Byte[] b, Int32 count)
++        {
++            if (a == null || b == null || a.Length < count || b.Length < count)
++                return false;
++            for (Int32 i = 0; i < count; i++)
++                if (a[i] != b[i])
++                    return false;
++            return true;
++        }
++
++        private static Boolean BytesAre(Byte[] b, params Byte[] want)
++        {
++            return BytesEqual(b, want);
++        }
++
++        private static void DressRow(Boolean ok, String name, ref Int32 rows, ref String fail)
++        {
++            if (fail != null)
++                return;
++            rows++;
++            if (!ok)
++                fail = name;
++        }
++
+         internal static String OverlayName(Int32 state)
+         {
+             switch (state)
+@@ -5536,9 +6294,17 @@ namespace Memoria.Netsync
+                     SetLayerRecursive(g, lp.fieldMapActor.gameObject.layer);
+ 
+                 Renderer[] renderers = g.GetComponentsInChildren<Renderer>();
++                // [ff9mapkit netsync s139] THE REST MASK (audit 2.2 amendment 8): CreateModel's own field-mode visibility, read BEFORE the
++                // force-enable below -- its hides (Garnet's off-scenario hair, ModelFactory's garnetShortHairTable; a field model's
++                // battle_model) are what the force-enable undoes, and only a peer's mask of the SAME model can redo them. The caller
++                // applies it whenever neither mask rule does (a dress on a body other than the wire's and my leader's). Bit i =
++                // renderer i, at most 16 (ApplyGhostMask's reach).
++                UInt16 restMask = 0;
+                 for (Int32 i = 0; i < renderers.Length; i++)
+                 {
+                     Renderer renderer = renderers[i];
++                    if (i < 16 && renderer != null && renderer.enabled)
++                        restMask |= (UInt16)(1 << i);            // [ff9mapkit netsync s139]
+                     // Enable everything at spawn; the peer's OWN per-submesh mask (ApplyGhostMask, each
+                     // frame) then hides whatever they have hidden -- sheathed weapons and all -- without
+                     // this side guessing anything about a rig it may not even know.
+@@ -5563,6 +6329,7 @@ namespace Memoria.Netsync
+                 _ghostModel = model;
+                 _ghostGeo = geo;                           // [ff9mapkit netsync s138] what CreateModel BUILT (FallbackGeo when the id did not resolve/load) -- harness-only
+                 _ghostRig = rig;                           // [ff9mapkit netsync s138] harness-only
++                _ghostRestMask = restMask;                 // [ff9mapkit netsync s139]
+                 _ghostRends = renderers;
+                 _ghostAnim = g.GetComponent<Animation>();
+                 if (_ghostAnim != null)
+@@ -5750,6 +6517,7 @@ namespace Memoria.Netsync
+             _ghostModel = UInt16.MaxValue;
+             _ghostGeo = null;                              // [ff9mapkit netsync s138] harness-only
+             _ghostRig = -1;
++            _ghostRestMask = 0;                            // [ff9mapkit netsync s139]
+             _ghostRends = null;
+         }
+ 
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 657f0a7..61a4441 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -5627,6 +5627,7 @@ namespace Memoria.Netsync
+             BenchBootLateMs = 0;
+             ActHarnessRelease();                   // [ff9mapkit netsync s133] the action-start lever back on, the action tape emptied
+             NetSyncDiorama.ActBenchRelease();      // [ff9mapkit netsync s134] the action-replay levers back, the bench inbox emptied
++            NetSyncClient.HarnessReleaseDress("released with the harness");   // [ff9mapkit netsync s139] the selfdress levers (ghost, empty, rule, wire) off
+         }
+ 
+         // ============================================================================ harness surface (R3 s111)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
+index e3df2ae..a922d46 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
+@@ -1,5 +1,6 @@
+ using System;
+ using System.Collections.Generic;
++using UnityEngine;   // [ff9mapkit netsync s139] AnimationClip / Mathf (MeasureRigIdleFrames)
+ 
+ namespace Memoria.Netsync
+ {
+@@ -13,6 +14,10 @@ namespace Memoria.Netsync
+     //     wearing a different model than the peer walks needs the translation, not the raw id
+     //   - GhostAs resolution ("dress the peer's ghost as X"): "auto" = the party member of my first
+     //     GuestSlots bit; or an explicit playable name; "" = off (the ghost wears the peer's model)
++    //     [ff9mapkit netsync s139] -- on the HOST (and the selftest role) "auto" is THE HOST RULE (ResolveAuto: the first OCCUPIED
++    //     named slot, the moogle for a spectator or an all-empty mask) behind GhostGuard, and the host's state frame carries the
++    //     dress as section 8; a client keeps the s138 rule (ResolveDress). `moogle` is a name too -- on the host only: a client's
++    //     s138 rule caps every name at the mains (owner D2: "the host will never be a moogle").
+     //   - SuppressEncounters, read by the SettingsState.IsNoEncounter hook: while FOLLOWING the
+     //     host, the guest's own random encounters pause (only the host's battles exist; the guest
+     //     assists through the battle lanes)
+@@ -20,7 +25,7 @@ namespace Memoria.Netsync
+     {
+         // --- config mirrors (written by NetSyncClient on every config [re]load; main thread) ---
+         public static Boolean Enabled;
+-        public static String GhostAs = "";     // [Netsync] GhostAs = "" | auto | zidane..amarant (+aliases)
++        public static String GhostAs = "";     // [Netsync] GhostAs = "" | auto | zidane..amarant (+aliases) | moogle ([ff9mapkit netsync s139])
+         public static Boolean FollowHost;      // [Netsync] FollowHost = 0/1 (guest side)
+ 
+         // Read by the SettingsState.IsNoEncounter engine hook -- must be cheap, never throws.
+@@ -31,36 +36,83 @@ namespace Memoria.Netsync
+         // Field player rigs for the 8 mains, index == CharacterId (0 Zidane .. 7 Amarant). The data is
+         // the kit's proven home-field extraction (model id + the 5 movement clips); characters beyond
+         // the 8 (Cinna/Marcus/Blank/Beatrix/customs) have no row -> dressing/classification fall back.
+-        private struct Rig
++        // [ff9mapkit netsync s139] THE FULL RIG TABLE (studies/battle-coop/R3-DESIGN.md 3.4.3 as amended by R3-FIELD-MODEL-AUDIT.md 2.2
++        // amendment 2: every value checked against all 817 field-script exports and the clips in p0data5) -- the columns s140 and s141
++        // read, filled now so there is ONE table -- and ROW 8, THE MOOGLE (GEO_NPC_F0_MOG; no stock footsteps: fields 115/150/206).
++        // THE RIG SPACE: 0-7 = the CharacterId rows, 8 = the moogle. Rig 8 is NOT CharacterId 8 (Cinna): the PARTY path guards on
++        // MainRigCount (a party member 8+ never reaches the moogle row), the NAMED path on Rigs.Length (`GhostAs = moogle` dresses).
++        //   Eye        SetModel's eye byte (po.eye = -4 * Eye) -- the census: 98->93 (1173 of 1173 inits) .. 220->50 (209 of 209).
++        //   Inactive   the idle-break clip; 0 = NONE -- the engine's own `p.sleep == 0` test (EventEngine CheckSleep: no break anim),
++        //              never "fall back to idle" (Freya, Quina, Amarant and the moogle set none in stock; Zidane's is moot).
++        //   WalkStepA/B, RunStepA/B   the footfall frames (the RunModelCode(16, clip, frame) census): exactly two per walk clip and two
++        //              per run clip, each inside its clip; -1 = none (Quina and the moogle).
++        //   StepSound  the step-sound override (Steiner 925, both slots); 0 = keep the source key's id.
++        //   IdleAlias  the second id naming the same idle clip (Zidane 200 / 324 share ANH_MAIN_F0_ZDN_IDLE: classify by NAME).
++        //   HandBone / HandBoneEnd   R_hand / R_hand_end (s141's prop remap).
++        // Internal (TryGetRig) so s140's self-dress reads the same rows; no engine path but the dress reads them.
++        internal struct Rig
+         {
+             public UInt16 Model, Idle, Walk, Run, TurnL, TurnR;
+-            public Rig(UInt16 model, UInt16 idle, UInt16 walk, UInt16 run, UInt16 turnL, UInt16 turnR)
++            public Byte Eye;                                        // [ff9mapkit netsync s139]
++            public UInt16 Inactive;                                 // [ff9mapkit netsync s139] 0 = none
++            public Int16 WalkStepA, WalkStepB, RunStepA, RunStepB;  // [ff9mapkit netsync s139] -1 = none
++            public UInt16 StepSound;                                // [ff9mapkit netsync s139] 0 = the source key's
++            public UInt16 IdleAlias;                                // [ff9mapkit netsync s139]
++            public Byte HandBone, HandBoneEnd;                      // [ff9mapkit netsync s139]
++            public Rig(UInt16 model, UInt16 idle, UInt16 walk, UInt16 run, UInt16 turnL, UInt16 turnR,
++                       Byte eye, UInt16 inactive, Int16 walkStepA, Int16 walkStepB, Int16 runStepA, Int16 runStepB,
++                       UInt16 stepSound, UInt16 idleAlias, Byte handBone, Byte handBoneEnd)
+             {
+                 Model = model; Idle = idle; Walk = walk; Run = run; TurnL = turnL; TurnR = turnR;
++                Eye = eye; Inactive = inactive; WalkStepA = walkStepA; WalkStepB = walkStepB; RunStepA = runStepA; RunStepB = runStepB;
++                StepSound = stepSound; IdleAlias = idleAlias; HandBone = handBone; HandBoneEnd = handBoneEnd;
+             }
+         }
+ 
+         private static readonly Rig[] Rigs =
+         {
+-            new Rig(98,   200,  25,   38,   40,   41),    // 0 Zidane
+-            new Rig(8,    148,  571,  419,  917,  918),   // 1 Vivi
+-            new Rig(185,  2089, 2086, 2091, 2088, 2084),  // 2 Garnet
+-            new Rig(5489, 2001, 1996, 2005, 1986, 2010),  // 3 Steiner
+-            new Rig(192,  2556, 2553, 2558, 2555, 2551),  // 4 Freya
+-            new Rig(273,  3228, 3237, 3230, 3235, 3227),  // 5 Quina
+-            new Rig(443,  7503, 7518, 7506, 7516, 7514),  // 6 Eiko
+-            new Rig(509,  8307, 8316, 8312, 8310, 8314),  // 7 Amarant
++            //      model idle  walk  run   turnL turnR  eye  inact  walk steps  run steps  step  alias  R_hand R_hand_end
++            new Rig(98,   200,  25,   38,   40,   41,    93,  57,    4,  13,     0,  8,     0,    324,   12, 13),   // 0 Zidane
++            new Rig(8,    148,  571,  419,  917,  918,   61,  912,   4,  14,     0,  9,     0,    573,   16, 17),   // 1 Vivi
++            new Rig(185,  2089, 2086, 2091, 2088, 2084,  91,  3160,  4,  15,     0,  9,     0,    2090,  14, 15),   // 2 Garnet
++            new Rig(5489, 2001, 1996, 2005, 1986, 2010,  104, 119,   4,  14,     0,  9,     925,  2002,  14, 15),   // 3 Steiner
++            new Rig(192,  2556, 2553, 2558, 2555, 2551,  94,  0,     4,  16,     0,  9,     0,    2557,  12, 12),   // 4 Freya
++            new Rig(273,  3228, 3237, 3230, 3235, 3227,  92,  0,     -1, -1,     -1, -1,    0,    3229,  13, 14),   // 5 Quina
++            new Rig(443,  7503, 7518, 7506, 7516, 7514,  63,  9590,  1,  13,     0,  9,     0,    7504,  14, 15),   // 6 Eiko
++            new Rig(509,  8307, 8316, 8312, 8310, 8314,  122, 0,     6,  23,     10, 21,    0,    8308,  15, 16),   // 7 Amarant
++            new Rig(220,  2904, 2927, 2907, 2923, 2911,  50,  0,     -1, -1,     -1, -1,    0,    2905,  19, 19),   // 8 the MOOGLE [ff9mapkit netsync s139]
+         };
+ 
++        // [ff9mapkit netsync s139] the rig space's bounds and the moogle row (see the table's comment).
++        internal const Int32 MainRigCount = 8;          // the CharacterId rows 0-7: the PARTY path's guard (CharacterId 8 = Cinna)
++        public const Int32 RigRowCount = 9;             // Rigs.Length (the moogle included) -- `netsync.dress.rig_idle_frames` has one per row
++        internal const Int32 MoogleRig = 8;
++        internal const UInt16 MoogleModel = 220;        // GEO_NPC_F0_MOG
++        internal const UInt16 PlainZidaneModel = 98;    // GEO_MAIN_F0_ZDN: the body an undressed (s117) guest sends
++        internal const Byte CharNone = 0xFF;            // CharacterId.NONE: section 8's charId for the moogle and for no dress
++        internal static Int32 RigCount { get { return Rigs.Length; } }
++
++        internal static Boolean TryGetRig(Int32 rigIdx, out Rig rig)
++        {
++            if (rigIdx < 0 || rigIdx >= Rigs.Length)
++            {
++                rig = default(Rig);
++                return false;
++            }
++            rig = Rigs[rigIdx];
++            return true;
++        }
++
+         private static readonly Dictionary<String, Int32> NameToRig = new Dictionary<String, Int32>
+         {
+             { "zidane", 0 }, { "vivi", 1 }, { "garnet", 2 }, { "dagger", 2 }, { "steiner", 3 },
+             { "freya", 4 }, { "quina", 5 }, { "eiko", 6 }, { "amarant", 7 }, { "salamander", 7 },
++            { "moogle", 8 },   // [ff9mapkit netsync s139] the named path keeps `< Rigs.Length`: GhostAs = moogle dresses (charId 0xFF)
+         };
+ 
+         private static Dictionary<Int32, Int32> _modelToRig;   // built lazily from Rigs
+ 
+-        private static Int32 RigForModel(UInt16 model)
++        internal static Int32 RigForModel(UInt16 model)          // [ff9mapkit netsync s139] internal: the selftest's `wire` lever reads it
+         {
+             if (_modelToRig == null)
+             {
+@@ -108,45 +160,282 @@ namespace Memoria.Netsync
+         // The model the PEER's ghost should wear on MY screen, per GhostAs. 0 = no dressing (wire
+         // model). "auto" = the party member of my first GuestSlots bit -- the character the guest
+         // commands in battle is the character they appear as on the field.
++        // [ff9mapkit netsync s139] THE PRE-s139 RULE, kept for the CLIENT role (s139 is host-side: a guest's dress of the host's
++        // ghost is unchanged) -- now the pure ResolveDressS138 over the live party read. Byte for byte the s138 answer for EVERY
++        // GhostAs value: the party path AND the named path cap at MainRigCount (== the old Rigs.Length, 8), so the new name
++        // `moogle` dresses nothing here, exactly as on s138 (owner D2: "the host will never be a moogle"). The mode is checked
++        // FIRST and the party read only for `auto`, as s138 did: an idle co-op client pays nothing on this path.
+         public static UInt16 ResolveDress(Int32 guestSlots, out Int32 rigIdx)
+         {
+             rigIdx = -1;
+             if (!Enabled)
+                 return 0;
+-            String mode = (GhostAs ?? "").Trim().ToLowerInvariant();
+-            if (mode.Length == 0 || mode == "off" || mode == "0")
+-                return 0;
+             try
+             {
+-                Int32 charId = -1;
+-                if (mode == "auto")
++                String mode = DressMode(GhostAs);
++                if (DressModeOff(mode))
++                    return 0;
++                return ResolveDressS138(mode, guestSlots, mode == "auto" ? LiveSlotChars(0) : null, out rigIdx);
++            }
++            catch
++            {
++                rigIdx = -1;
++                return 0;
++            }
++        }
++
++        // ================================================================================================================================
++        // [ff9mapkit netsync s139] THE HOST RULE (studies/battle-coop/R3-DESIGN.md 3.4.3 as amended by R3-FIELD-MODEL-AUDIT.md 2.2:
++        // amendments 3-7 and the owner's two decisions, 2026-10-17). Every rule here is PURE (its inputs are parameters; the live
++        // party comes in through LiveSlotChars), pinned by the selftest rows in NetSyncClient.DressSelfTest and twinned in the repo
++        // harness (tools/harness/battlewire.py) with the same parameters.
++        //   ResolveAuto(mask, moogleWhenEmpty, slotChar) -- "auto": the guest's ghost wears the party member it puppets:
++        //     1. mask == 0 (a SPECTATING guest: GuestSlots 0) -> the MOOGLE (220, charId 0xFF) when moogleWhenEmpty (OWNER D2: "moogle.
++        //        2 zidanes just looks weird, and the host will never be a moogle."); undressed (0) without it -- a client;
++        //     2. else the FIRST OCCUPIED named slot decides: a main (0-7) -> its row; Cinna..Beatrix (8-11) or a custom character
++        //        (12+) -> 0 (no proven rig: the wire body); an EMPTY named slot is skipped to the next named one; an UNREADABLE
++        //        named slot (its read threw, or no party read at all: SlotUnreadable) -> 0 -- a party-read FAULT never wears the
++        //        moogle (nor ships DC 00 FF);
++        //     3. every named slot empty -> the moogle when moogleWhenEmpty, else 0.
++        //   moogleWhenEmpty = MoogleWhenEmpty(role, IsSelfTestRole): host OR the selftest role, written POSITIVELY and read at CALL
++        //     time (the selftest branch runs for any role but host / client: `role != "client"` would hand a typo'd Role=guest the moogle).
++        //   GhostGuard(dress, wire) -- the host dresses only a PLAIN ZIDANE (98: an s117 guest) or an ALREADY-DRESSED wire body (an s140
++        //     guest); any other wire body (a Steiner-led guest, 532 ZDD) shows as it is. OWNER D1 (Option A): an opted-out SelfDress=0
++        //     guest sends 98 exactly as an s117 guest does, so the host KEEPS dressing it -- the host's GhostAs is the one knob for both
++        //     screens (empty it to make both Zidane); the screens agree whenever the guest dresses or wears a non-Zidane body.
++        //   GhostAnim -- a dressed ghost on a DIFFERENT body plays the dressed rig's loco clip for the wire's loco byte; a ghost on the
++        //     wire's OWN body (undressed, or an s140 guest already wearing the dress) plays the RAW wire anim, so the guest's gestures and
++        //     break clips (Vivi's 912) are never flattened to idle.
++        //   Section 8 (SectionDress, the host's type-5 state frame, after section 7): [model u16 LE][charId u8], ALWAYS 3 bytes on every
++        //     host frame -- no dress 00 00 FF, the moogle DC 00 FF, a main [model][0..7] (charId 0xFF unless a main is dressed; the guest,
++        //     from s140, resolves the rig by MODEL and reads charId only for the Zidane disarm). Never an EMPTY body: AppendSection drops
++        //     one, and "section absent" (an old host) must stay distinct from "model 0". A reader refuses fewer than 3 bytes and reads the
++        //     first 3 of a longer body (the forward rule). An OLD guest skips it by id and length: ApplyStoryTo applies id 0 only,
++        //     ParseSections consumes 1-3 only, TryReadSection returns the first match of the id asked -- NetSyncState.cs and
++        //     NetSyncParty.cs are untouched since s103, so an s117 laptop runs byte-identical walkers. The wire stays v14.
++        internal const Byte SectionDress = 8;           // NetSyncState's ids are 0 and 4-7, NetSyncParty's 1-3: 8 is free
++        internal const Int32 DressBodyLen = 3;
++
++        // The dress mode a GhostAs value names: trimmed, lower-case; "", "off" and "0" = no dressing.
++        internal static String DressMode(String ghostAs)
++        {
++            return (ghostAs ?? "").Trim().ToLowerInvariant();
++        }
++
++        internal static Boolean DressModeOff(String mode)
++        {
++            return mode == null || mode.Length == 0 || mode == "off" || mode == "0";
++        }
++
++        // Who may wear the moogle for an empty (or unnamed) puppet: the host and the selftest role, nobody else (a client; a
++        // typo'd role that runs the selftest branch without being the selftest role).
++        internal static Boolean MoogleWhenEmpty(String role, Boolean selfTestRole)
++        {
++            return role == "host" || selfTestRole;
++        }
++
++        // The live party read the dress rules take: slot -> its CharacterId (raw FF9.party.member[slot].Index, the source
++        // `netsync.dress.party` publishes -- never NetSyncParty.Slots, where the selftest mirror seats its BENCH stand-in), -1 = an
++        // EMPTY slot. `emptyMask` (the selftest `selfdress empty` lever; 0 = none) reads its slots as empty. Never throws: a slot
++        // whose read throws reads SlotUnreadable (-2, as `netsync.dress.party` publishes it) -- never an empty seat.
++        internal const Int32 SlotUnreadable = -2;       // [ff9mapkit netsync s139] a slot whose read threw (or no party read)
++
++        internal static Int32[] LiveSlotChars(Int32 emptyMask)
++        {
++            Int32[] chars = { -1, -1, -1, -1 };
++            for (Int32 slot = 0; slot < 4; slot++)
++            {
++                if ((emptyMask & (1 << slot)) != 0)
++                    continue;
++                try
+                 {
+-                    if (guestSlots == 0)
+-                        return 0;
+-                    Int32 slot = 0;
+-                    while (slot < 4 && (guestSlots & (1 << slot)) == 0)
+-                        slot++;
+-                    if (slot >= 4)
+-                        return 0;
+                     PLAYER member = FF9StateSystem.Common.FF9.party.member[slot];
+-                    if (member == null)
+-                        return 0;
+-                    charId = (Int32)member.Index;
++                    chars[slot] = member == null ? -1 : (Int32)member.Index;
+                 }
+-                else if (!NameToRig.TryGetValue(mode, out charId))
++                catch
+                 {
+-                    return 0;   // unknown name -> no dressing (logged once at config time by the client)
++                    chars[slot] = SlotUnreadable;
+                 }
+-                if (charId < 0 || charId >= Rigs.Length)
+-                    return 0;   // Cinna/Marcus/Blank/Beatrix/customs: no proven rig row -> wire model
+-                rigIdx = charId;
+-                return Rigs[charId].Model;
+             }
+-            catch
++            return chars;
++        }
++
++        // A slot's CharacterId off a party read; SlotUnreadable when there is no read (null) or no such slot.
++        private static Int32 SlotCharOf(Int32[] slotChar, Int32 slot)
++        {
++            return slotChar != null && slot >= 0 && slot < slotChar.Length ? slotChar[slot] : SlotUnreadable;
++        }
++
++        public static UInt16 ResolveAuto(Int32 mask, Boolean moogleWhenEmpty, Int32[] slotChar, out Int32 rigIdx)
++        {
++            return ResolveAutoCore(mask, moogleWhenEmpty, slotChar, MainRigCount, out rigIdx);
++        }
++
++        // ResolveAuto's body; `partyCap` is MainRigCount in production -- the selftest's mutant row passes Rigs.Length (Cinna would
++        // wear the moogle row) to prove the Cinna row catches it.
++        internal static UInt16 ResolveAutoCore(Int32 mask, Boolean moogleWhenEmpty, Int32[] slotChar, Int32 partyCap, out Int32 rigIdx)
++        {
++            rigIdx = -1;
++            mask &= 0x0F;                                // party slots 0-3 only
++            if (mask != 0)
+             {
+-                rigIdx = -1;
++                for (Int32 slot = 0; slot < 4; slot++)
++                {
++                    if ((mask & (1 << slot)) == 0)
++                        continue;
++                    Int32 charId = SlotCharOf(slotChar, slot);
++                    if (charId == SlotUnreadable)
++                        return 0;                        // a read that threw: undressed, NEVER the moogle
++                    if (charId < 0)
++                        continue;                        // an EMPTY named slot: the next named one
++                    if (charId >= partyCap || charId >= Rigs.Length)
++                        return 0;                        // Cinna..Beatrix / a custom character: no proven rig -> the wire body
++                    rigIdx = charId;
++                    return Rigs[charId].Model;
++                }
++            }
++            // mask 0 (OWNER D2: a spectating guest) or every named slot empty
++            if (!moogleWhenEmpty)
++                return 0;
++            rigIdx = MoogleRig;
++            return MoogleModel;
++        }
++
++        // The named path: a NameToRig name whose row is below `cap` -> its row; anything else -> 0. The s139 host rule passes
++        // Rigs.Length (`GhostAs = moogle` dresses the host's ghost of its guest); the s138 rule passes MainRigCount (a client, and the
++        // `rule s138` lever: `moogle` dresses nothing, exactly as on s138 -- the host is never a moogle).
++        internal static UInt16 ResolveNamed(String mode, Int32 cap, out Int32 rigIdx)
++        {
++            rigIdx = -1;
++            Int32 rig;
++            if (mode == null || !NameToRig.TryGetValue(mode, out rig))
++                return 0;                                // unknown name -> no dressing
++            if (rig < 0 || rig >= cap || rig >= Rigs.Length)
++                return 0;
++            rigIdx = rig;
++            return Rigs[rig].Model;
++        }
++
++        // THE s139 RULE: GhostAs "" / off / 0 -> 0; "auto" -> ResolveAuto; a name -> ResolveNamed. Guard-free (GhostGuard is the
++        // caller's: section 8 carries the dress itself).
++        public static UInt16 ResolveDressRule(String ghostAs, Int32 mask, Boolean moogleWhenEmpty, Int32[] slotChar, out Int32 rigIdx)
++        {
++            rigIdx = -1;
++            String mode = DressMode(ghostAs);
++            if (DressModeOff(mode))
+                 return 0;
++            if (mode == "auto")
++                return ResolveAuto(mask, moogleWhenEmpty, slotChar, out rigIdx);
++            return ResolveNamed(mode, Rigs.Length, out rigIdx);
++        }
++
++        // THE s138 RULE (a client's dress; the selftest's `selfdress rule s138` calibration lever): "auto" = the FIRST named bit,
++        // no skip, no moogle -- an empty first named slot or a member 8+ -> 0; a name -> ResolveNamed capped at the mains (no
++        // moogle by name either: byte for byte s138, whose table had no moogle row).
++        public static UInt16 ResolveDressS138(String ghostAs, Int32 mask, Int32[] slotChar, out Int32 rigIdx)
++        {
++            rigIdx = -1;
++            String mode = DressMode(ghostAs);
++            if (DressModeOff(mode))
++                return 0;
++            if (mode != "auto")
++                return ResolveNamed(mode, MainRigCount, out rigIdx);
++            if (mask == 0)
++                return 0;
++            Int32 slot = 0;
++            while (slot < 4 && (mask & (1 << slot)) == 0)
++                slot++;
++            if (slot >= 4)
++                return 0;
++            Int32 charId = SlotCharOf(slotChar, slot);
++            if (charId < 0 || charId >= MainRigCount)
++                return 0;
++            rigIdx = charId;
++            return Rigs[charId].Model;
++        }
++
++        // The host's dress guard: keep the dress on a plain-Zidane (98) or already-dressed wire body, else show the wire body (0).
++        public static UInt16 GhostGuard(UInt16 dressModel, UInt16 wireModel)
++        {
++            if (dressModel == 0)
++                return 0;
++            return wireModel == PlainZidaneModel || wireModel == dressModel ? dressModel : (UInt16)0;
++        }
++
++        // The anim a ghost plays: the dressed rig's loco clip on a body other than the wire's, else the raw wire anim.
++        public static UInt16 GhostAnim(UInt16 dressModel, Int32 dressRig, UInt16 wireModel, Byte wireLoco, UInt16 wireAnim)
++        {
++            return dressModel != 0 && dressModel != wireModel ? LocoAnim(dressRig, wireLoco) : wireAnim;
++        }
++
++        // Section 8's charId for a dress: the row for a MAIN (0-7), else 0xFF (the moogle, no dress).
++        public static Byte DressCharId(UInt16 model, Int32 rigIdx)
++        {
++            return model != 0 && rigIdx >= 0 && rigIdx < MainRigCount ? (Byte)rigIdx : CharNone;
++        }
++
++        // Section 8's body: [model u16 LE][charId u8] -- (192, 4) = C0 00 04, (220, 0xFF) = DC 00 FF, (0, 0xFF) = 00 00 FF.
++        public static Byte[] DressSectionBody(UInt16 model, Byte charId)
++        {
++            return new Byte[] { (Byte)(model & 0xFF), (Byte)((model >> 8) & 0xFF), charId };
++        }
++
++        // Section 8's reader: false for a null or truncated (< 3 B) body; a longer body reads its first 3 bytes (the forward rule).
++        public static Boolean TryParseDressSection(Byte[] body, out UInt16 model, out Byte charId)
++        {
++            model = 0;
++            charId = CharNone;
++            if (body == null || body.Length < DressBodyLen)
++                return false;
++            model = (UInt16)(body[0] | (body[1] << 8));
++            charId = body[2];
++            return true;
++        }
++
++        // `netsync.dress.rig_idle_frames` (audit amendment 7, D4): each rig row's IDLE clip frame count, MEASURED by the engine's own
++        // formula (EventEngineUtils.GetCharAnimFrame: round(length * frameRate) + 1) on the clip loaded THE ANIMATIONFACTORY WAY
++        // (AddAnimWithAnimatioName's path: "Animations/" + FolderOf(name) + "/" + name through GetRenameAnimationPath, then
++        // AssetManager.Load) -- the asset a body plays, with no GameObject needed (GetCharAnimFrame answers -1 for a clip not on
++        // the GO, and the ghost loads only its worn model's folder). -1 = not measured yet, or the row's clip did not resolve or load.
++        // Measured ONCE per process, by the selftest proof block (the selftest role only): the bench judges it against the oracle the
++        // kit reads offline, never the engine's answer alone. Main thread.
++        internal static readonly Int32[] RigIdleFrames = { -1, -1, -1, -1, -1, -1, -1, -1, -1 };
++
++        public static Int32 HarnessRigIdleFrame(Int32 rig)
++        {
++            return rig >= 0 && rig < RigIdleFrames.Length ? RigIdleFrames[rig] : -1;
++        }
++
++        internal static Int32 MeasureRigIdleFrames()
++        {
++            Int32 measured = 0;
++            for (Int32 i = 0; i < Rigs.Length && i < RigIdleFrames.Length; i++)
++            {
++                Int32 frames = -1;
++                try
++                {
++                    String name;
++                    if (FF9DBAll.AnimationDB.TryGetValue((Int32)Rigs[i].Idle, out name))
++                    {
++                        String folder = FolderOf(name);
++                        if (folder != null)
++                        {
++                            String path = AnimationFactory.GetRenameAnimationPath("Animations/" + folder + "/" + name);
++                            AnimationClip clip = AssetManager.Load<AnimationClip>(path, false);
++                            if (clip != null)
++                                frames = Mathf.RoundToInt(clip.length * clip.frameRate) + 1;
++                        }
++                    }
++                }
++                catch
++                {
++                    frames = -1;
++                }
++                RigIdleFrames[i] = frames;
++                if (frames >= 0)
++                    measured++;
+             }
++            return measured;
+         }
+ 
+         // [ff9mapkit netsync s138] THE DRESS INSTRUMENT's pure helpers (studies/battle-coop/R3-DESIGN.md 3.4.2 as amended by

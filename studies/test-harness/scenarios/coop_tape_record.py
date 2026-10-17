@@ -253,11 +253,42 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         return
     # 4. the free roam, the battle, the post-battle roam
     _hold_until(ctx, conn[0], PRE_S)
+    _note_host_ghost(g)                     # [ff9mapkit netsync s139] the transport site's tuple: a NOTE, no check
     _battle(g, led, ctx)
     g.note(f"post-battle free roam: {POST_S:g} s on field {g.state.field_id}")
     time.sleep(POST_S)
     g.note(f"coop_peer serve-guest: {ctx.peer.stop()}")
     _facts(g, led, ctx)
+
+
+def _note_host_ghost(g) -> None:
+    """[ff9mapkit netsync s139] A NOTE (never a check: the recorder's calibration is unchanged) of the HOST's own ghost of the
+    fake guest while it roams -- the transport site (HostDress behind GhostGuard on the fake guest's wire body, which
+    mirrors the host's model: 98) -- for a reader to judge against battlewire's host rule and the install oracle
+    (coop_dress_wire.py's G9d-f are that judge on a real guest, at three GuestSlots). An engine before s138 publishes no
+    `netsync.dress`."""
+    gh = cb.path(g.state, "netsync.dress.ghost")
+    if not isinstance(gh, dict):
+        g.note("s139 transport site: the host publishes no `netsync.dress.ghost` (an engine before s138)")
+        return
+    g.note("s139 transport site -- the host's ghost of the fake guest: "
+           + ", ".join(f"{k}={gh.get(k)!r}" for k in ("model", "rig", "geo", "body", "clip", "playing", "mode")
+                       if k in gh))
+
+
+def _note_section8(g, ctx: _Ctx, cp) -> None:
+    """[ff9mapkit netsync s139] NOTES (never a check) of the tape's section 8 -- coop_peer's `dress` report with each host
+    frame's own party (its section 1) and the host's [Netsync] GhostAs read READ-ONLY: what `py tools/harness/coop_peer.py
+    dress <tape> --ghost-as <it> --guest-slots 2` prints. An s138-or-older host's tape reads "none"."""
+    ghost_as = (cb.ini_value(g, "Netsync", "GhostAs") or "").strip()
+    try:
+        ok, lines = cp.tape_dress_lines(ctx.tape, cp.frame_expect(ghost_as, GUEST_SLOTS))
+    except Exception as err:                 # noqa: BLE001 -- a note only
+        g.note(f"section 8: the tape's dress read raised {type(err).__name__}: {err}")
+        return
+    g.note(f"SECTION 8 on {ctx.tape.name} (GhostAs {ghost_as!r}, GuestSlots {GUEST_SLOTS}): {'held' if ok else 'NOT held'}")
+    for line in lines[1:]:
+        g.note("  " + line)
 
 
 def _wait_config(g, ctx: _Ctx, role: str, first: float = 6.0, second: float = 10.0) -> list:
@@ -363,6 +394,7 @@ def _facts(g, led: cb.Ledger, ctx: _Ctx) -> None:
         g.note("  " + line)
     for k in ("f1", "f2", "f3", "f4", "f5"):
         led.check(f"REC-{k.upper()}", facts[k]["ok"], facts[k]["why"])
+    _note_section8(g, ctx, cp)              # [ff9mapkit netsync s139] the tape's section 8: NOTES, no check
     plans = {leg: pb.plan_leg(leg, facts) for leg in pb.LEGS}
     plans["s120-world"] = pb.plan_leg("span", facts, world=True)
     for leg, p in plans.items():

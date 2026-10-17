@@ -2390,6 +2390,60 @@ class State:
     coop_dress_party = _dress_prop("party", list, "s138: the four party slots' raw CharacterId (FF9.party.member[i].Index); "
                                                   "-1 = an empty slot, -2 = an unreadable one (its read threw).")
 
+    # ---- [ff9mapkit netsync s139] THE HOST'S DRESS RULE (R3-FIELD-MODEL-AUDIT.md 2.2, its 3.1 sentinels): `ghost` gains the
+    # selftest `selfdress` levers AS SET at its end (published in every role; they ACT on the selftest role only) and `mode`;
+    # `netsync.dress` gains `codec` and `rig_idle_frames` after `party`. The capability is `ghost.bench_mask`'s PRESENCE
+    # (:attr:`coop_dress_host`; the bench probe ladder tells s139 by `codec` -- battlewire.DRESS_PROBES). The selftest
+    # mirror under the forced role IS the guest and this machine its host: with GuestSlots pinned 0 a `GhostAs = auto` dresses
+    # it as the MOOGLE (owner D2) -- read `mode` before judging what it wears.
+    @property
+    def coop_dress_host(self) -> bool | None:
+        """s139: the host dress rule and section 8 (``netsync.dress.ghost.bench_mask``; the ``selfdress`` sub-verb). False =
+        an engine whose host dresses its guest's ghost by the first named bit and ships no section 8 (s138 and older; it
+        answers `netsync selfdress` with "unknown sub-verb")."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._dress_path("ghost.bench_mask", int) is not None
+
+    coop_dress_ghost_bench_mask = _dress_prop("ghost.bench_mask", int, "s139: the `selfdress ghost <mask>` lever as set (the "
+                                                                       "selftest mirror's dress mask, mode auto); -1 = off.")
+    coop_dress_ghost_empty_mask = _dress_prop("ghost.empty_mask", int, "s139: the `selfdress empty <mask>` lever as set (those "
+                                                                       "party slots read EMPTY to the dress rules); -1 = off.")
+    coop_dress_ghost_rule = _dress_prop("ghost.rule", str, "s139: the `selfdress rule` lever as last set -- 's138' (THE "
+                                                           "CALIBRATION: the pre-s139 selftest site) or 's139'; '' = never "
+                                                           "set.")
+    coop_dress_ghost_wire = _dress_prop("ghost.wire", int, "s139: the `selfdress wire <model>` lever as set (the mirror's wire "
+                                                           "body: the guard's input, the undressed body); -1 = off.")
+    coop_dress_ghost_wire_anim = _dress_prop("ghost.wire_anim", int, "s139: the raw clip `selfdress wire <model> <anim>` pins "
+                                                                     "the stand-in wire body to (the raw-anim rule's "
+                                                                     "input); -1 = none (it moves with the player's loco).")
+    coop_dress_ghost_rest_mask = _dress_prop("ghost.rest_mask", int, "s139: CreateModel's own field-mode visibility of the "
+                                                                     "ghost, snapshotted before the force-enable (bit i = "
+                                                                     "renderer i, at most 16 -- the REST MASK); -1 = no "
+                                                                     "ghost.")
+    coop_dress_ghost_shown_mask = _dress_prop("ghost.shown_mask", int, "s139: the ghost's renderers enabled NOW, the same "
+                                                                       "bits as `rest_mask`; -1 = no ghost.")
+    coop_dress_ghost_hidden = _dress_prop("ghost.hidden", list, "s139: every ghost renderer disabled now, as its path under "
+                                                                "the ghost's root (['short_hair']); None = no ghost (the "
+                                                                "key null) or an engine before s139.")
+    coop_dress_ghost_mode = _dress_prop("ghost.mode", str, "s139: the dress mode this screen's ghost reads -- 'bench:auto' "
+                                                           "(the `ghost` lever, selftest role) or 'ini:' + the ini's trimmed "
+                                                           "GhostAs ('ini:' = none); '' = no NetSyncClient instance.")
+    coop_dress_codec = _dress_prop("codec", str, "s139: the dress codec proof's verdict -- 'ok' or 'fail: <row>' "
+                                                 "(NetSyncClient.DressSelfTest, once per process in the selftest proof "
+                                                 "block); '' = not run yet.")
+    coop_dress_rig_idle_frames = _dress_prop("rig_idle_frames", list, "s139: nine ints, one per rig row (0-7 the "
+                                                                      "CharacterId rows, 8 the moogle) -- each idle clip's "
+                                                                      "frame count, MEASURED once per process by the proof "
+                                                                      "block (round(length x rate) + 1 on the clip loaded "
+                                                                      "the AnimationFactory way); -1 = not measured. Judge "
+                                                                      "it against the install's oracle, never alone.")
+    coop_dress_mirror_party = _dress_prop("mirror_party", list, "s139: the PARTY MIRROR an old reader landed "
+                                                                "(NetSyncParty.Slots' CharacterIds, -1 an absent slot) -- on "
+                                                                "a live guest the witness that its s103 walker stepped past "
+                                                                "the host's section 8; None = no mirror active (the key "
+                                                                "null) or an engine before s139.")
+
     def unit_mot(self, slot: int) -> int | None:
         """[ff9mapkit netsync R3 s115] ``battle.units[].mot`` for btl ``slot``: the current clip as the unit's own motion
         index (a player's 17 = MP_ESCAPE, 4 = MP_DISABLE; -1 = none of its own). None = no such unit / before s115."""

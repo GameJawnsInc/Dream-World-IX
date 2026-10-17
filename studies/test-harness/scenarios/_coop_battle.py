@@ -142,6 +142,9 @@ R3_PROBES = {
     # (s138's own fixed sub-object; s139 adds `netsync.dress.codec`, s140 `netsync.dress.self`). Its OTHER half sits outside
     # netsync: `player.model` (the bench probes both, coop_self_dress.py)
     138: "netsync.dress.ghost",
+    # [ff9mapkit netsync s139] the host dress rule and section 8 (the sub-verb `selfdress`) -- keyed on `netsync.dress.codec`
+    # (appended after `party`; battlewire.DRESS_PROBES[139]). The driver's capability is `ghost.bench_mask` (s139's too)
+    139: "netsync.dress.codec",
 }
 
 
@@ -571,9 +574,12 @@ def setup(g, field: int, *, label: str) -> tuple:
     return good, (why or f"selftest={ns.get('selftest')!r} forced={ns.get('forced')!r} role={ns.get('role')!r}")
 
 
-def release(g, ledger: Ledger | None = None, cid: str | None = None, *, expect_lines=(), at: int | None = None) -> None:
+def release(g, ledger: Ledger | None = None, cid: str | None = None, *, expect_lines=(), at: int | None = None,
+            extra=None) -> None:
     """`reset`: every lever, the forced role, parked frames, a harness diorama. Optionally judged as ``cid``: the role
-    is released, no diorama is left booted, and each ``expect_lines`` needle logged after ``at``."""
+    is released, no diorama is left booted, each ``expect_lines`` needle logged after ``at``, and -- [ff9mapkit netsync
+    s139] -- ``extra(state)`` -> (ok, detail) on the post-reset state, when given (a lever the bench HELD into the reset
+    read back released)."""
     try:
         g.send("reset")
         st = poll(g, lambda s: s.netsync is not None and not (s.netsync or {}).get("forced") and not dio(s).get("booted"),
@@ -587,9 +593,11 @@ def release(g, ledger: Ledger | None = None, cid: str | None = None, *, expect_l
     lines = new(g, at) if at is not None else []
     missing = [n for n in expect_lines if count(lines, n) == 0]
     ns = st.netsync or {}
-    ledger.check(cid, ns.get("forced") is False and not dio(st).get("booted") and not missing,
+    x_ok, x_why = extra(st) if extra is not None else (True, "")
+    ledger.check(cid, ns.get("forced") is False and not dio(st).get("booted") and not missing and x_ok,
                  f"forced={ns.get('forced')!r} booted={dio(st).get('booted')!r} missing lines={missing}; "
-                 f"{grep(lines, 'released with the harness', 'override released')}")
+                 + (f"{x_why}; " if x_why else "")
+                 + f"{grep(lines, 'released with the harness', 'override released')}")
 
 
 def reread_with_role(g) -> tuple:

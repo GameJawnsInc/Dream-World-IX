@@ -365,6 +365,9 @@ class Duo:
         self.relay: ToolProc | None = None
         self.bridges: dict[str, ToolProc] = {}
         self.ini_backups: dict[str, str | None] = {}
+        #: [ff9mapkit netsync s139] a scenario's own [Netsync] keys per role ON TOP of ROLE_VALUES (``pair(role_extra=...)``,
+        #: e.g. the host's GhostAs for coop_dress_wire.py) -- never Role, RelayUrl or SessionCode (the duo owns those)
+        self.role_extra: dict = {}
         self.paired = False
         self._stack = contextlib.ExitStack()
         self._report: dict = {}
@@ -523,6 +526,11 @@ class Duo:
 
     def role_values(self, role: str) -> dict:
         vals = dict(ROLE_VALUES[role])
+        extra = dict(self.role_extra.get(role) or {})
+        owned = sorted(k for k in extra if k in ("Role", "RelayUrl", "SessionCode"))
+        if owned:
+            raise HarnessError(f"role_extra for the {role} names {owned}: the duo owns those keys")
+        vals.update(extra)
         vals.update({"RelayUrl": self.url(role), "SessionCode": self.code})
         assert vals["Role"] in ("host", "client"), vals          # never "guest": that is the selftest
         return vals
@@ -612,13 +620,47 @@ class Duo:
                    f"{show(hits(self.lines(role), 'config'))}", role=role, cid=cid)
         return cfg
 
+    def set_netsync(self, role: str, updates: dict, *, timeout: float = 15.0, pred=None) -> list:
+        """[ff9mapkit netsync s139] A LIVE [Netsync] edit on a running pair (coop_dress_wire.py steps the host's GuestSlots
+        through its phases): ``updates`` folded into the role's scenario keys (:attr:`role_extra` -- never Role, RelayUrl
+        or SessionCode, refused before anything is written) and the role's whole [Netsync] rewritten through the kit's
+        writer -- the same values plus the edit, so the TRANSPORT signature is unchanged and the session survives: a
+        BEHAVIOUR key (GuestSlots, GhostAs, ...: NetSyncClient's _cfgBehaviorSig) is applied live by its Update's 2 s ini
+        poll -> ApplyBehaviorChange. Returns the engine's own echo -- this role's config lines logged at or after the
+        write, on its relay URL and code, that ``pred`` (the match) accepts -- or [] when none within ``timeout``. The
+        ini's backup lands in the run dir's ``ini/`` beside the pairing's (:attr:`ini_backups` keeps the pairing's);
+        :meth:`stop` restores the root's ini as ever."""
+        owned = sorted(k for k in updates if k in ("Role", "RelayUrl", "SessionCode"))
+        if owned:
+            raise HarnessError(f"set_netsync for the {role} names {owned}: the duo owns those keys")
+        self.role_extra = dict(self.role_extra)
+        self.role_extra[role] = dict(self.role_extra.get(role) or {}, **{k: str(v) for k, v in updates.items()})
+        vals = self.role_values(role)
+        at = _dt.datetime.now()
+        self.instances[role].netsync(vals, backup_to=self.run_dir / "ini")
+        url = vals["RelayUrl"]
+
+        def want(m):
+            return (m.group(1) == "True" and m.group(2) == ENGINE_ROLE[role] and m.group(5) == url
+                    and m.group(6) == self.code and (pred is None or pred(m)))
+        found = self.wait_line(role, "config", timeout, pred=want, after=at)
+        self.log(f"{role}: [Netsync] {dict(updates)} written live -- "
+                 + (f"the engine echoed it: {show(found, 1)}" if found else f"NO matching config line within {timeout:g}s"))
+        return found
+
     def pair(self, *, field: int | None = None, host_setup=None, guest_setup=None,
-             marker: tuple | None = (MARKER_BYTE, MARKER_VALUE), encounters_off: bool = True) -> None:
+             marker: tuple | None = (MARKER_BYTE, MARKER_VALUE), encounters_off: bool = True,
+             role_extra: dict | None = None) -> None:
         """New Game in both, each onto ``field`` (host first; ``host_setup(g)`` / ``guest_setup(g)`` run after its New
         Game), the host poking ``marker`` and the guest watching it; then each role's ini, host first (C2); both legs
         on the relay (C3); the guest paired on the host's field (C4); a ghost on it in BOTH games (C5); the guest's
-        state mirror ARMED (C6). ``expect_mirror`` (C7) is the caller's: it is the mirror's first proof, not setup."""
+        state mirror ARMED (C6). ``expect_mirror`` (C7) is the caller's: it is the mirror's first proof, not setup.
+        ``role_extra`` ({role: {key: value}}) adds a scenario's own [Netsync] keys to each role's (:attr:`role_extra`)."""
         fld = self.field if field is None else int(field)
+        if role_extra is not None:
+            self.role_extra = {r: dict(v or {}) for r, v in role_extra.items()}
+            for r in self.role_extra:
+                self.role_values(r)                 # refuse a key the duo owns BEFORE anything is written
         for r in ROLES:
             g = self.sessions[r]
             g.newgame()

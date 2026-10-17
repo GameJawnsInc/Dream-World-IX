@@ -154,6 +154,73 @@ def test_role_values_put_the_guest_on_role_client_and_the_right_port(duo_env):
     assert all(v["SessionCode"] == "ff9-DUOTEST1" for v in map(d.role_values, D.ROLES))
 
 
+def test_a_scenarios_role_extra_rides_its_roles_ini_and_never_the_duos_own_keys(duo_env):
+    """[ff9mapkit netsync s139] ``pair(role_extra=...)`` (coop_dress_wire.py's host GhostAs / GuestSlots): a scenario's own
+    [Netsync] keys join THAT role's values on top of ROLE_VALUES; the keys the duo owns (Role, RelayUrl, SessionCode) are
+    refused BEFORE anything is written -- a scenario can never turn the guest into the selftest role or off the relay."""
+    d = duo_env["make"](code="ff9-DUOTEST1")
+    d.role_extra = {"host": {"GhostAs": "auto", "GuestSlots": "2"}}
+    host, guest = d.role_values("host"), d.role_values("guest")
+    assert (host["GhostAs"], host["GuestSlots"], host["Role"]) == ("auto", "2", "host")
+    assert "GhostAs" not in guest and guest["Role"] == "client"
+    for key in ("Role", "RelayUrl", "SessionCode"):
+        d.role_extra = {"guest": {key: "x"}}
+        with pytest.raises(HarnessError, match="the duo owns those keys"):
+            d.role_values("guest")
+    d.role_extra = {}
+    with pytest.raises(HarnessError, match="the duo owns those keys"):
+        d.pair(role_extra={"guest": {"Role": "guest"}})        # refused before any New Game or ini write
+    assert not d.ini_backups
+
+
+def test_a_live_netsync_edit_rewrites_the_roles_ini_and_waits_for_the_engines_echo(duo_env, tmp_path):
+    """[ff9mapkit netsync s139] ``Duo.set_netsync`` (coop_dress_wire.py steps the host's GuestSlots 2 -> 4 -> 0 on a live
+    pair): the edit folds into the role's scenario keys and the role's WHOLE [Netsync] is rewritten -- the same Role,
+    RelayUrl and SessionCode (the transport signature unchanged: the session survives), the edited key new; it returns the
+    engine's echo, a config line on this role's URL and code logged AFTER the write that the caller's match accepts (an
+    older line, another code or a line the match rejects is not one: [] at the timeout); the keys the duo owns are refused
+    before anything is written."""
+    d = duo_env["make"](code="ff9-DUOTEST1")
+    d.role_extra = {"host": {"GhostAs": "auto", "GuestSlots": "2"}}
+    log = tmp_path / "host-Memoria.log"
+    url = d.role_values("host")["RelayUrl"]
+    log.write_text(f"{stamp()} |I| [NetSync] config enabled=True role=host field=0 guestSlots=4 ghostAs=auto "
+                   f"relay={url} code=ff9-DUOTEST1\n", encoding="utf-8")      # an OLDER line, before the write
+    d.logs = {"host": D.EngineLog(log)}
+    time.sleep(1.1)                                                          # engine stamps are whole seconds
+    written = []
+
+    class Inst:
+        def netsync(self, vals, *, backup_to=None):
+            written.append(dict(vals))
+            slots = int(vals.get("GuestSlots", "0"))
+            with open(log, "a", encoding="utf-8") as f:                       # the engine's echo of the new values
+                f.write(f"{stamp()} |I| [NetSync] config enabled=True role=host field=0"
+                        + (f" guestSlots={slots}" if slots else "") + f" ghostAs={vals.get('GhostAs', '')} "
+                        f"relay={vals['RelayUrl']} code={vals['SessionCode']}\n")
+            return None
+    d.instances = dict(d.instances, host=Inst())
+
+    def slots_of(m):
+        hit = re.search(r"\bguestSlots=(\d+)", m.group(4) or "")
+        return int(hit.group(1)) if hit else 0
+    got = d.set_netsync("host", {"GuestSlots": 4}, timeout=2.0, pred=lambda m: slots_of(m) == 4)
+    assert len(got) == 1 and "guestSlots=4" in got[0][1], got                 # the NEW echo only, never the older line
+    assert written[-1]["GuestSlots"] == "4" and written[-1]["GhostAs"] == "auto"
+    assert (written[-1]["Role"], written[-1]["RelayUrl"], written[-1]["SessionCode"]) == ("host", url, "ff9-DUOTEST1")
+    assert d.role_extra["host"] == {"GhostAs": "auto", "GuestSlots": "4"}
+    got = d.set_netsync("host", {"GuestSlots": 0}, timeout=2.0, pred=lambda m: slots_of(m) == 0)
+    assert len(got) == 1 and "guestSlots" not in got[0][1] and written[-1]["GuestSlots"] == "0"
+    t0 = time.time()
+    assert d.set_netsync("host", {"GuestSlots": 2}, timeout=0.6, pred=lambda m: slots_of(m) == 5) == []
+    assert time.time() - t0 >= 0.5                                           # the match rejected every line: the timeout
+    n = len(written)
+    for key in ("Role", "RelayUrl", "SessionCode"):
+        with pytest.raises(HarnessError, match="the duo owns those keys"):
+            d.set_netsync("host", {key: "x"}, timeout=0.1)
+    assert len(written) == n, "a refused edit writes nothing"
+
+
 # ------------------------------------------------------------------------------------------- the laws refuse first
 
 

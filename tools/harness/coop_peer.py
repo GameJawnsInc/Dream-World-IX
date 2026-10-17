@@ -28,6 +28,15 @@ benched as the host OR as the guest:
                      ``ff9mapkit coop bridge --relay ws://127.0.0.1:7777``. ``--tap`` records both directions.
   fake-guest-client  the serve-guest guest, but DIALLING a relay as role=guest (the T1 hang-sentinel bench's fake guest).
   info / dump        read a tape: its battles, field edges and frame counts (pick a ``--blackhole-at`` from them).
+  dress              [ff9mapkit netsync s139] SECTION 8 ON A REAL WIRE: every HOST type-5 frame on a tape (recorded off the
+                     socket by ``serve-guest --tap``: coop_tape_record.py on an s139+ host) carries the host's dress section
+                     right after section 7, its body the one the host's config gives (``--expect HEX``, or the twin's for
+                     ``--ghost-as/--guest-slots`` over each frame's own party, or a fixed ``--party``), and the s103
+                     readers an OLD guest runs (battlewire's twins of
+                     ApplyStoryTo / TryReadSection / ParseSections' walk) land the same story, party sections and sections
+                     4-7 with section 8 stripped. Exit 0 when every frame holds, 1 when one does not, 2 on a bad tape.
+                     A relative tape path missing from the cwd is looked up under the MAIN repo, then by name in the
+                     tape home (COOP_TAPE_DIR, else <main repo>/.harness-runs/coop-tapes): a worktree has no tapes.
 
 THE TAPE (``.f9tape``) -- stdlib, binary, append-only, crash-tolerant (a torn tail is reported, never fatal):
   ``F9TAPE01`` | u32 LE header length | UTF-8 JSON header | records ``[t f64 LE][dir u8][len u32 LE][payload]``.
@@ -2039,6 +2048,179 @@ def cmd_dump(args) -> int:
     return 0
 
 
+# ======================================================================================== [ff9mapkit netsync s139] section 8
+def strip_section(payload, section_id: int) -> bytes:
+    """``payload`` re-framed without its sections of ``section_id`` (the walk stops where the engine's does: a truncated
+    tail is dropped with it)."""
+    out = b""
+    for sid, body in BW.walk_sections(payload)[0]:
+        if sid != section_id:
+            out = out + bytes((sid, len(body) & 0xFF, (len(body) >> 8) & 0xFF)) + body
+    return out
+
+
+#: the sentinel section tape_dress appends AFTER section 8 (an id no engine uses): an old walker must step over section 8 by
+#: its length to reach it -- a walker that STOPPED at id 8 would answer every earlier read identically, so the strip
+#: comparison alone could not tell (section 8 is always last on a real frame)
+SENTINEL_SECTION, SENTINEL_BODY = 0xC8, b"\x5a"
+
+
+def tape_dress(records, expect=None) -> dict:
+    """Section 8 on a tape's HOST type-5 frames (PURE over the records): how many frames, how many carry section 8, how
+    many with it RIGHT AFTER section 7 and LAST, how many bodies the reader refuses (< 3 B), the bodies seen (hex ->
+    count), and how many frames an OLD guest reads differently with section 8 present than stripped (its story, its party
+    sections, each of sections 4-7: battlewire's s103 walker twins) or cannot step past it (a SENTINEL section appended
+    after section 8 must still read, the story and party sections unmoved). ``expect``: None, the body every frame must
+    carry (bytes), or a function ``payload -> bytes`` giving each frame's OWN expected body (``disagree`` counts the
+    frames whose body is not theirs). ``ok`` -- the wire carries section 8 as s139 says: at least one frame, every one with
+    section 8 after section 7 and last, every body parsed, no old-reader difference, and every body the expected one."""
+    frames = [payload for _r, wtype, payload in host_frames(records) if wtype == TYPE_STATE]
+    out = {"frames": len(frames), "with8": 0, "after7": 0, "last": 0, "malformed": 0, "old_diff": 0, "bodies": {},
+           "disagree": 0, "first_bad": None, "first_disagree": None}
+    per_frame = callable(expect)
+    for payload in frames:
+        secs, truncated = BW.walk_sections(payload)
+        ids = [sid for sid, _b in secs]
+        if BW.SECTION_DRESS not in ids:
+            continue
+        out["with8"] += 1
+        k = ids.index(BW.SECTION_DRESS)
+        body = secs[k][1]
+        if BW.SECTION_DIALOG in ids and ids.index(BW.SECTION_DIALOG) == k - 1:
+            out["after7"] += 1
+        if k == len(ids) - 1 and not truncated:
+            out["last"] += 1
+        if BW.parse_dress_section(body) is None:
+            out["malformed"] += 1
+        key = BW.hex_bytes(body)
+        out["bodies"][key] = out["bodies"].get(key, 0) + 1
+        if per_frame:
+            mine = expect(payload)
+            if mine is None or bytes(body) != bytes(mine):
+                out["disagree"] += 1
+                if out["first_disagree"] is None:
+                    out["first_disagree"] = (f"section 8 {key} on a frame whose own party "
+                                             f"{BW.frame_slot_chars(payload)} gives "
+                                             f"{BW.hex_bytes(mine) if mine is not None else 'no expectation'}")
+        bare = strip_section(payload, BW.SECTION_DRESS)
+        past = BW.append_section(payload, SENTINEL_SECTION, SENTINEL_BODY)
+        same = (BW.old_apply_story(payload) == BW.old_apply_story(bare)
+                and BW.old_party_sections(payload) == BW.old_party_sections(bare)
+                and all(BW.old_try_read_section(payload, sid) == BW.old_try_read_section(bare, sid)
+                        for sid in (BW.SECTION_INTENT, BW.SECTION_EVENT, BW.SECTION_TALK, BW.SECTION_DIALOG))
+                and BW.old_try_read_section(past, SENTINEL_SECTION) == SENTINEL_BODY
+                and BW.old_apply_story(past) == BW.old_apply_story(payload)
+                and BW.old_party_sections(past) == BW.old_party_sections(payload))
+        if not same:
+            out["old_diff"] += 1
+            if out["first_bad"] is None:
+                out["first_bad"] = f"an old reader differs on a frame with section 8 {key}"
+    n = out["with8"]
+    want = None if expect is None or per_frame else BW.hex_bytes(expect)
+    out["ok"] = bool(out["frames"]) and n == out["frames"] == out["after7"] == out["last"] and not out["malformed"] \
+        and not out["old_diff"] and not out["disagree"] and (want is None or out["bodies"] == {want: n})
+    return out
+
+
+def frame_expect(ghost_as, guest_slots: int):
+    """``payload -> bytes``: each host frame's OWN expected section 8 -- the twin's body for the host's ``ghost_as`` /
+    ``guest_slots`` over the party THAT frame carries in its section 1 (its CharId bytes are PLAYER.info.slot_no, the very
+    PLAYER.Index the host's LiveSlotChars reads); None when the frame has no readable section 1."""
+    def expect(payload):
+        party = BW.frame_slot_chars(payload)
+        if party is None:
+            return None
+        return BW.host_dress_section(ghost_as, int(guest_slots), "host", False, party)
+    return expect
+
+
+def tape_dress_lines(path, expect=None) -> tuple:
+    """(ok, the ``dress`` report's lines) for a tape file (``expect`` as :func:`tape_dress`)."""
+    header, records, torn = read_tape(path)
+    d = tape_dress(records, expect)
+    if callable(expect):
+        want = (f" (each frame's own party: {d['with8'] - d['disagree']} agree, {d['disagree']} disagree"
+                + (f" -- first: {d['first_disagree']}" if d["first_disagree"] else "") + ")")
+    else:
+        want = "" if expect is None else f" (want {BW.hex_bytes(expect)} -- {BW.dress_section_text(expect)})"
+    lines = [f"tape {path}", f"host type-5 frames: {d['frames']}; with section 8: {d['with8']} (right after section 7: "
+             f"{d['after7']}, last: {d['last']}, malformed: {d['malformed']})" + (f"; TORN tail {torn} B" if torn else ""),
+             "section 8 bodies: " + (", ".join(f"{k} x{v} ({BW.dress_section_text(bytes.fromhex(k))})"
+                                               for k, v in d["bodies"].items()) or "none -- an s138-or-older host") + want,
+             f"old-guest readers (story, party sections, sections 4-7, a section past it) with section 8 vs stripped: "
+             f"{d['with8'] - d['old_diff']} identical, {d['old_diff']} different"
+             + (f" ({d['first_bad']})" if d["first_bad"] else ""),
+             "VERDICT: " + ("OK -- section 8 rides every host state frame, after section 7, and an old guest skips it"
+                            if d["ok"] else "FAIL")]
+    return d["ok"], lines
+
+
+def _dress_expect(args):
+    """The ``dress`` verb's expectation: ``--expect HEX``; or, with ``--ghost-as`` (which REQUIRES ``--guest-slots``: a
+    default would silently mean a spectator), ``--party`` given -> one body for the whole tape, omitted -> each frame's own
+    party off its section 1 (:func:`frame_expect`); None = no body check."""
+    if args.expect:
+        return bytes(int(t, 16) for t in args.expect.replace("-", " ").split())
+    if args.ghost_as is None:
+        return None
+    if args.guest_slots is None:
+        raise ValueError("--ghost-as needs --guest-slots (the host's GuestSlots; 0 = a spectator: the moogle under auto)")
+    if args.party:
+        party = [int(x) for x in args.party.split(",")]
+        return BW.host_dress_section(args.ghost_as, int(args.guest_slots), "host", False, party)
+    return frame_expect(args.ghost_as, int(args.guest_slots))
+def tape_home() -> Path:
+    """Where the recorded tapes live: COOP_TAPE_DIR, else <the MAIN repo>/.harness-runs/coop-tapes -- the rule
+    studies/test-harness/scenarios/_coop_peer_bench.tape_dir() records them by (gitignored, outliving any worktree). The
+    main repo is tools/repo_root.main_repo_root (git's common dir); this checkout when git cannot answer."""
+    env = os.environ.get("COOP_TAPE_DIR", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    try:
+        tools = str(_REPO / "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        from repo_root import main_repo_root
+        main = Path(main_repo_root(start=_REPO / "tools", fallback=_REPO))
+    except Exception:                                      # noqa: BLE001 -- a gitless machine keeps this checkout
+        main = _REPO
+    return main / ".harness-runs" / "coop-tapes"
+
+
+def resolve_tape(path) -> tuple:
+    """[ff9mapkit netsync s139] (the tape file to read, the places tried): ``path`` as given (against the cwd) when it is a
+    file; else, for a RELATIVE path, the same path under the main repo (``.harness-runs/coop-tapes/<name>`` written from a
+    worktree, where that directory does not exist) and its bare name under :func:`tape_home`. The first file found wins;
+    none -> (None, tried) -- the caller says every place it looked."""
+    p = Path(path).expanduser()
+    tried = [p]
+    if p.is_file():
+        return p, tried
+    if not p.is_absolute():
+        home = tape_home()
+        for cand in (home.parent.parent / p, home / p.name):
+            if cand not in tried:
+                tried.append(cand)
+                if cand.is_file():
+                    return cand, tried
+    return None, tried
+
+
+def cmd_dress(args) -> int:
+    found, tried = resolve_tape(args.tape)
+    if found is None:
+        print(f"ERROR: no tape {args.tape!r} -- tried {', '.join(str(t) for t in tried)}", file=sys.stderr)
+        return 2
+    try:
+        ok, lines = tape_dress_lines(found, _dress_expect(args))
+    except (OSError, TapeError, ValueError) as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 2
+    for line in lines:
+        print(line)
+    return 0 if ok else 1
+
+
 def _add_guest_options(p) -> None:
     p.add_argument("--report", choices=sorted(REPORTS), default="off",
                    help="the type-3 control frame while the host's battle lane is live: off (none, default), legacy "
@@ -2117,6 +2299,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--hex", action="store_true", help="append the raw frame bytes")
     p.add_argument("--limit", type=int, default=0)
     p.set_defaults(func=cmd_dump)
+
+    p = sub.add_parser("dress", help="[s139] section 8 on a tape's host state frames: present, after section 7, its body, "
+                                     "skipped by the old readers")
+    p.add_argument("tape", help="the tape: a path (against the cwd), else -- when relative -- the same path under the "
+                                "MAIN repo, else its name under COOP_TAPE_DIR / <main repo>/.harness-runs/coop-tapes")
+    p.add_argument("--expect", metavar="HEX", help="the body every frame must carry, e.g. '08 00 01' (Vivi)")
+    p.add_argument("--ghost-as", default=None, help="...or the host's [Netsync] GhostAs (the twin computes the body)")
+    p.add_argument("--guest-slots", type=int, default=None, help="the host's GuestSlots (REQUIRED with --ghost-as)")
+    p.add_argument("--party", default=None, metavar="C0,C1,C2,C3",
+                   help="the host's party slots' CharacterIds, -1 empty (with --ghost-as auto), e.g. 0,1,2,3; omitted = "
+                        "each frame's OWN party, read off its section 1")
+    p.set_defaults(func=cmd_dress)
     return ap
 
 
