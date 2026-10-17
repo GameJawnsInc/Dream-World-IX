@@ -1851,8 +1851,10 @@ BATTLE_CONTAINERS = {"end.end_leave": "s105", "end.declined": "s105", "menu.cont
                      "act.guest.window": "s134", "act.guest.aborts": "s134", "act.guest.discarded": "s134",
                      # [ff9mapkit netsync s135] the replay hit hold (after `last`), and its `lag`
                      "act.guest.hold": "s135", "act.guest.hold.lag": "s135",
-                     # [ff9mapkit netsync s136] fallback A, the LAST key of `act.guest`
-                     "act.guest.fallback": "s136"}
+                     # [ff9mapkit netsync s136] fallback A (after `hold`)
+                     "act.guest.fallback": "s136",
+                     # [ff9mapkit netsync s137] the trance burst timing, the LAST key of `act.guest`
+                     "act.guest.trance": "s137"}
 #: The records that may be published null (an accessor reads None for them either way).
 BATTLE_NULLABLE = ("host.end", "peer.end", "menu.captured", "menu.roster", "menu.bench_roster", "menu.pending",
                    "menu.feed", "host.manifest", "host.handback.last", "end.replay.screen", "end.replay.fp",
@@ -1861,7 +1863,9 @@ BATTLE_NULLABLE = ("host.end", "peer.end", "menu.captured", "menu.roster", "menu
                    # [ff9mapkit netsync s134]
                    "act.guest.last",
                    # [ff9mapkit netsync s136]
-                   "act.guest.fallback.last")
+                   "act.guest.fallback.last",
+                   # [ff9mapkit netsync s137]
+                   "act.guest.trance.last")
 
 
 def _leaves(block: dict, prefix: str = "") -> dict:
@@ -2062,10 +2066,12 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(guest["aborts"]) == FG.NETSYNC_ACT_GUEST_ABORTS_KEYS == BW.ACT_ABORTS_KEYS
     assert tuple(guest["discarded"]) == FG.NETSYNC_ACT_GUEST_DISCARDED_KEYS == ("pending", "running")
     # [ff9mapkit netsync s135] `act.guest.hold`, after `last`, and its fixed `lag`; [ff9mapkit netsync s136] then
-    # `act.guest.fallback`, the LAST key of `act.guest`
-    assert list(guest)[-3:] == ["last", "hold", "fallback"] and tuple(guest["hold"]) == FG.NETSYNC_ACT_GUEST_HOLD_KEYS
+    # `act.guest.fallback`; [ff9mapkit netsync s137] then `act.guest.trance`, the LAST key of `act.guest`
+    assert list(guest)[-4:] == ["last", "hold", "fallback", "trance"]
+    assert tuple(guest["hold"]) == FG.NETSYNC_ACT_GUEST_HOLD_KEYS
     assert tuple(guest["hold"]["lag"]) == FG.NETSYNC_ACT_GUEST_HOLD_LAG_KEYS == BW.ACT_HOLD_LAG_KEYS
     assert tuple(guest["fallback"]) == FG.NETSYNC_ACT_GUEST_FALLBACK_KEYS
+    assert tuple(guest["trance"]) == FG.NETSYNC_ACT_GUEST_TRANCE_KEYS
     top = list(prev_doc)
     assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
@@ -2209,7 +2215,9 @@ def test_a_fresh_stand_in_publishes_the_agents_battle_sentinels(game):
             # [ff9mapkit netsync s135] the hold's levers at rest (`on` / `lifeskip` true; the catch line's false = "failed")
             "act.guest.hold.on": "HarnessHoldOn", "act.guest.hold.lifeskip": "HarnessHoldLifeSkip",
             # [ff9mapkit netsync s136] fallback A's lever at rest (`on` true; the catch line's false = "failed")
-            "act.guest.fallback.on": "HarnessFallbackOn"}
+            "act.guest.fallback.on": "HarnessFallbackOn",
+            # [ff9mapkit netsync s137] the trance grace lever at rest (`on` true; the catch line's false = "failed")
+            "act.guest.trance.on": "HarnessTranceOn"}
     for sub in want:
         assert list(got[sub]) == list(want[sub]), (sub, list(got[sub]), list(want[sub]))
     for path in BATTLE_CONTAINERS:                       # the fixed sub-objects keep the agent's key order too
@@ -2245,7 +2253,8 @@ BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", 
                  "s133",                                      # [ff9mapkit netsync s133] group 2's first
                  "s134",                                      # [ff9mapkit netsync s134] the guest action replay
                  "s135",                                      # [ff9mapkit netsync s135] the replay hit hold
-                 "s136"]                                      # [ff9mapkit netsync s136] fallback A
+                 "s136",                                      # [ff9mapkit netsync s136] fallback A
+                 "s137"]                                      # [ff9mapkit netsync s137] the trance burst timing
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2513,7 +2522,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s135] the replay hit hold
             "coop_act_hold",
             # [ff9mapkit netsync s136] fallback A
-            "coop_act_fallback")
+            "coop_act_fallback",
+            # [ff9mapkit netsync s137] the trance burst timing
+            "coop_act_trance")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -5442,6 +5453,7 @@ S132_CAPS = _all_caps_through("grace40")
 S133_CAPS = _all_caps_through("actstart")                              # [ff9mapkit netsync s134] s134's calibration red
 S134_CAPS = _all_caps_through("actreplay")                             # [ff9mapkit netsync s135] s135's calibration red
 S135_CAPS = _all_caps_through("acthold")                               # [ff9mapkit netsync s136] s136's calibration red
+S136_CAPS = _all_caps_through("actfallback")                           # [ff9mapkit netsync s137] s137's calibration red
 _CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -6216,6 +6228,11 @@ def _proof_lines(fake) -> list:
 @pytest.mark.parametrize("caps,want", [
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
+              BW.proof_ok(BW.PROOF_TRANCE, 21)]),
+    # [ff9mapkit netsync s137] s136 (s137's calibration red): no 'action trance' line
+    ("s136", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
               BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30)]),
     # [ff9mapkit netsync s136] s135 (s136's calibration red): no 'action fallback' line
     ("s135", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
@@ -6247,7 +6264,7 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     fake = FakeGame(game)
     fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS,
                          "s132": S132_CAPS, "s133": S133_CAPS, "s134": S134_CAPS,
-                         "s135": S135_CAPS}.get(caps) or _caps_at(caps)
+                         "s135": S135_CAPS, "s136": S136_CAPS}.get(caps) or _caps_at(caps)
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6263,7 +6280,7 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     assert all(_battle_text(f'Log.Message("[NetSync] {h}"') for h in (BW.PROOF_CONTROL, BW.PROOF_WATCH, BW.PROOF_GRACE,
                                                                       BW.PROOF_ADOPT, BW.PROOF_ACTION,
                                                                       BW.PROOF_REPLAY, BW.PROOF_HOLD,
-                                                                      BW.PROOF_FALLBACK)) \
+                                                                      BW.PROOF_FALLBACK, BW.PROOF_TRANCE)) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"'))
 
 
@@ -7567,7 +7584,8 @@ def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_st
     the agent's usage line: each engine's words are judged against a stand-in at THAT engine (s133's off s133's own
     patch), the guest forms by the s134 tests below. [ff9mapkit netsync s135] s135 rewrote the usage line again (the hold
     ops): s134's is read off s134's own patch; the hold forms by the s135 tests below. [ff9mapkit netsync s136] ...and s136
-    once more (`fallback`): s135's off s135's own patch; the fallback form by the s136 tests below."""
+    once more (`fallback`): s135's off s135's own patch; the fallback form by the s136 tests below. [ff9mapkit netsync
+    s137] ...and s137 once more (`trancegrace`): s136's off s136's own patch; the trancegrace form by the s137 tests below."""
     ops = net_lines("NetSyncBattle.cs", r"netsync actbench: unknown op '")
     assert len(ops) == 1 and tuple(re.search(r"\(([a-z|]+)\)\";", ops[0]).group(1).split("|")) == \
         Session.NETSYNC_ACTBENCH_OPS == FG.NETSYNC_ACTBENCH_OPS == FG.actbench_ops(_all_caps_through("actstart"))
@@ -7579,7 +7597,8 @@ def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_st
     assert tuple(later["s134"]) == FG.NETSYNC_ACTBENCH_GUEST_OPS == BW.ACT_GUEST_BENCH_OPS
     assert tuple(later["s135"]) == FG.NETSYNC_ACTBENCH_HOLD_OPS == BW.ACT_HOLD_BENCH_OPS
     assert tuple(later["s136"]) == FG.NETSYNC_ACTBENCH_FALLBACK_OPS == BW.ACT_FALLBACK_BENCH_OPS
-    assert set(later) == {"s134", "s135", "s136"}
+    assert tuple(later["s137"]) == FG.NETSYNC_ACTBENCH_TRANCE_OPS == BW.ACT_TRANCE_BENCH_OPS
+    assert set(later) == {"s134", "s135", "s136", "s137"}
     tape = net_lines("NetSyncBattle.cs", r"netsync actbench tape: expected `tape ")
     m = re.search(r"`tape ([a-z|]+)` or `tape dump <from> <count>`", tape[0]) if len(tape) == 1 else None
     assert m and Session.NETSYNC_ACTBENCH_TAPE_OPS == FG.NETSYNC_ACTBENCH_TAPE_OPS == tuple(m.group(1).split("|")) + (
@@ -7598,14 +7617,19 @@ def test_the_actbench_ops_are_the_agents_and_the_driver_gates_them_before_the_st
     s135_usage = [_literals(ln)[1] for ln in net_lines("HarnessAgent.cs", r'ArgumentOutOfRangeException\("netsync actbench", ',
                                                         [_patch_bytes("s135")])]
     assert s135_usage == [Session.NETSYNC_ACTBENCH_USAGE_S135] == [FG.NETSYNC_ACTBENCH_USAGE_S135]
-    assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE_S136}");')
-    assert Session.NETSYNC_ACTBENCH_USAGE_S136 == FG.NETSYNC_ACTBENCH_USAGE_S136
+    # [ff9mapkit netsync s137] s136's usage off its own patch (the line s137 rewrote), s137's off the live stack
+    s136_usage = [_literals(ln)[1] for ln in net_lines("HarnessAgent.cs", r'ArgumentOutOfRangeException\("netsync actbench", ',
+                                                        [_patch_bytes("s136")])]
+    assert s136_usage == [Session.NETSYNC_ACTBENCH_USAGE_S136] == [FG.NETSYNC_ACTBENCH_USAGE_S136]
+    assert _battle_text(f'"netsync actbench", "{Session.NETSYNC_ACTBENCH_USAGE_S137}");')
+    assert Session.NETSYNC_ACTBENCH_USAGE_S137 == FG.NETSYNC_ACTBENCH_USAGE_S137
     for old in (Session.NETSYNC_ACTBENCH_USAGE, Session.NETSYNC_ACTBENCH_USAGE_S134,
-                Session.NETSYNC_ACTBENCH_USAGE_S135):                    # s134, s135, then s136 rewrote it
+                Session.NETSYNC_ACTBENCH_USAGE_S135, Session.NETSYNC_ACTBENCH_USAGE_S136):   # s134-s137 rewrote it
         assert not _battle_text(f'"netsync actbench", "{old}");')
     tape_words = "netsync actbench tape: expected `tape rec|stop|clear|info` or `tape dump <from> <count>`"
     for caps, text in ((S133_CAPS, Session.NETSYNC_ACTBENCH_USAGE), (S134_CAPS, Session.NETSYNC_ACTBENCH_USAGE_S134),
-                       (S135_CAPS, Session.NETSYNC_ACTBENCH_USAGE_S135), (None, Session.NETSYNC_ACTBENCH_USAGE_S136)):
+                       (S135_CAPS, Session.NETSYNC_ACTBENCH_USAGE_S135), (S136_CAPS, Session.NETSYNC_ACTBENCH_USAGE_S136),
+                       (None, Session.NETSYNC_ACTBENCH_USAGE_S137)):
         fake = FakeGame(game)
         if caps is not None:
             fake.netsync_caps = caps
@@ -8572,8 +8596,9 @@ def test_the_act_guest_block_sits_after_host_at_the_catch_lines_sentinels():
     nothing = _agent_netsync_nothing()[0]
     assert _battle_of(nothing)["act"] == {"host": BW.ACT_HOST_SENTINELS, "guest": BW.ACT_GUEST_SENTINELS}
     # s134 wrote the catch line whole; [ff9mapkit netsync s135] s135 added `act.guest.hold` (after `last`) and nothing else;
-    # [ff9mapkit netsync s136] s136 `act.guest.fallback` (the last key) and nothing else
-    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("hold", "fallback")}
+    # [ff9mapkit netsync s136] s136 `act.guest.fallback` and nothing else; [ff9mapkit netsync s137] s137 `act.guest.trance`
+    # (the last key) and nothing else
+    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("hold", "fallback", "trance")}
     assert _catch_doc_in("s134") == {**nothing, "battle": {**nothing["battle"], "act": {
         "host": BW.ACT_HOST_SENTINELS, "guest": s134_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134"))]
@@ -8581,7 +8606,7 @@ def test_the_act_guest_block_sits_after_host_at_the_catch_lines_sentinels():
     j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
     body = " ".join(_strip_comment(t) for t in new[i:j])
     names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
-    g = s134_guest                                                      # (`hold` / `fallback`: their own tests)
+    g = s134_guest                                                      # (`hold` / `fallback` / `trance`: their own tests)
     want = []
     for k, v in g.items():
         if k == "last":
@@ -8606,11 +8631,11 @@ def test_state_reads_the_act_guest_block_absent_on_s133_as_cannot():
     None at null, and the unit accessors read the seven keys (None without them)."""
     old = State({"frame": 1, "netsync": _catch_doc_in("s133")})
     live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
-    # ([ff9mapkit netsync s135] `act.guest.hold` is s135's, [ff9mapkit netsync s136] `act.guest.fallback` s136's: their own
-    # tests below)
+    # ([ff9mapkit netsync s135] `act.guest.hold` is s135's, [ff9mapkit netsync s136] `act.guest.fallback` s136's,
+    # [ff9mapkit netsync s137] `act.guest.trance` s137's: their own tests below)
     names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items()
-             if p.startswith("act.guest") and p.split(".")[2:3] not in (["hold"], ["fallback"])]
-    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("hold", "fallback")}
+             if p.startswith("act.guest") and p.split(".")[2:3] not in (["hold"], ["fallback"], ["trance"])]
+    s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("hold", "fallback", "trance")}
     assert len(names) == len(_leaves({"act": {"guest": s134_guest}})) + 6 == 63, names   # + 6 whole blocks
     assert (State({"frame": 1}).coop_act_guest, old.coop_act_guest, live.coop_act_guest) == (None, False, True)
     assert old.coop_act_host is True                                    # (s133's own block is there)
@@ -8640,7 +8665,8 @@ def test_a_fresh_stand_in_publishes_the_act_guest_block_and_s133_none(game):
     proof line, and answers the guest forms in s133's words."""
     want = dict(BW.ACT_GUEST_SENTINELS, on=True, rework=True, knob=1,       # ([ff9mapkit netsync s135] + `hold`, its two
                 hold=dict(BW.ACT_GUEST_HOLD_SENTINELS, on=True, lifeskip=True),   # levers the live reads at rest;
-                fallback=dict(BW.ACT_GUEST_FALLBACK_SENTINELS, on=True))   # [ff9mapkit netsync s136] + `fallback`, its lever)
+                fallback=dict(BW.ACT_GUEST_FALLBACK_SENTINELS, on=True),   # [ff9mapkit netsync s136] + `fallback`, its lever;
+                trance=dict(BW.ACT_GUEST_TRANCE_SENTINELS, on=True))       # [ff9mapkit netsync s137] + `trance`, its lever)
     assert _battle_of(FakeGame(game)._netsync_doc())["act"]["guest"] == want
     old = _selftest(FakeGame(game))
     old.netsync_caps = S133_CAPS
@@ -8659,21 +8685,27 @@ def test_a_fresh_stand_in_publishes_the_act_guest_block_and_s133_none(game):
         assert str(err.value) == words, args
 
 
-@pytest.mark.parametrize("level", ["s133", "s134"])
+@pytest.mark.parametrize("level", ["s133", "s134", "s137"])
 def test_the_stand_ins_units_grow_the_replay_keys_after_z_at_s134(game, level):
     """`battle.units[]` gains `anim`, `anim_frame`, `away`, `rot_y`, `acting`, `die_seq`, `row` at s134 -- after s115's
     `z`, before `status` (AppendBattleUnits; audit amendment 18), each line read off s134's patch, in that order; the
-    stand-in publishes them exactly from s134 on."""
+    stand-in publishes them exactly from s134 on. [ff9mapkit netsync s137] `trance_model` follows `row` (before `status`)
+    from s137 on -- read off s137's patch, right after the `row` line; an s134-s136 stand-in publishes none."""
     s134 = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134"))]
     z = s134.index('Num(sb, "z", Try(() => unit.Data.pos.z, Single.NaN)); sb.Append(",");')
     keys = [re.match(r'(?:Num|Str|Bool)\(sb, "(\w+)", Try\(\(\) => ', t) for t in s134[z + 1:z + 30]]
     keys = [m.group(1) for m in keys if m]
     assert keys[:len(BW.UNIT_ACT_KEYS) + 1] == list(BW.UNIT_ACT_KEYS) + ["status"], keys
+    s137 = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s137"))]
+    row = s137.index('Num(sb, "row", Try(() => (Int32)unit.Data.bi.row, -1)); sb.Append(",");')
+    keys = [re.match(r'(?:Num|Str|Bool)\(sb, "(\w+)", Try\(\(\) => ', t) for t in s137[row + 1:row + 8]]
+    assert [m.group(1) for m in keys if m][:2] == list(BW.UNIT_TRANCE_KEYS) + ["status"], s137[row:row + 8]
     fake = _dio_fake(FakeGame(game))
-    fake.netsync_caps = S133_CAPS if level == "s133" else fake.netsync_caps
+    fake.netsync_caps = {"s133": S133_CAPS, "s134": S136_CAPS}.get(level, fake.netsync_caps)
     unit = fake._battle_doc()["units"][0]
     tail = list(unit)[list(unit).index("cmd_busy") + 1:]
-    assert tail == ["mot", "disappear", "z"] + (list(BW.UNIT_ACT_KEYS) if level == "s134" else []) + ["status"], tail
+    assert tail == ["mot", "disappear", "z"] + (list(BW.UNIT_ACT_KEYS) if level != "s133" else []) + (
+        list(BW.UNIT_TRANCE_KEYS) if level == "s137" else []) + ["status"], tail
 
 
 def _rep_start(act_id: int, *, actor: int = 0, player: bool = True, cmd: int = BW.CMD_ATTACK_ID,
@@ -8737,7 +8769,7 @@ def test_the_guest_ops_are_the_agents_and_the_driver_gates_them_by_act_guest(gam
     assert _added_after("s134", "HarnessAgent.cs", 'String aval = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";',
                         "if (Memoria.Netsync.NetSyncDiorama.IsActGuestBenchOp(aop, aval))")
     for op, (attr, key, patch, _what) in Session.NETSYNC_ACTBENCH_OP_CAPS.items():
-        if op in BW.ACT_HOLD_BENCH_OPS + BW.ACT_FALLBACK_BENCH_OPS:     # (the hold's / fallback's: their own tests)
+        if op in BW.ACT_HOLD_BENCH_OPS + BW.ACT_FALLBACK_BENCH_OPS + BW.ACT_TRANCE_BENCH_OPS:   # (their own tests)
             continue
         assert (attr, key, patch) == ("coop_act_guest", "netsync.battle.act.guest", "s134"), op
     for op, words in Session.NETSYNC_ACTBENCH_GUEST_USAGE.items():
@@ -9665,15 +9697,16 @@ def test_the_hold_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
     at its sentinels; the line stays ONE line of two literals; AppendActGuestHold writes the keys in the catch line's order
     (the lag's, then one figs entry's), each through its NetSyncDiorama getter (`rel_<via>` through HarnessHoldRelBy of
     that via); AppendActGuest calls it after `last`; published in every role; protocol stays 5. It was the LAST key at s135
-    -- [ff9mapkit netsync s136] s136 appended `fallback` after it (s136's own pin below) and changed nothing else."""
+    -- [ff9mapkit netsync s136] s136 appended `fallback` after it (s136's own pin below) and changed nothing else;
+    [ff9mapkit netsync s137] s137 `trance` after that (its own pin)."""
     catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
     assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
     a, b = _literals(catch[0])
     assert '\\"last\\":null,\\"hold\\":{\\"on\\":false,\\"lifeskip\\":false,' in b and "lifeskip" not in a
     nothing = _agent_netsync_nothing()[0]
     assert _battle_of(nothing)["act"]["guest"]["hold"] == BW.ACT_GUEST_HOLD_SENTINELS
-    assert list(_battle_of(nothing)["act"]["guest"])[-3:-1] == ["last", "hold"]
-    s135_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "fallback"}
+    assert list(_battle_of(nothing)["act"]["guest"])[-4:-2] == ["last", "hold"]
+    s135_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("fallback", "trance")}
     assert list(_battle_of(_catch_doc_in("s135"))["act"]["guest"])[-2:] == ["last", "hold"]   # the last key AT s135
     assert _catch_doc_in("s135") == {**nothing, "battle": {**nothing["battle"], "act": {    # s135 wrote that line whole
         "host": BW.ACT_HOST_SENTINELS, "guest": s135_guest}}}
@@ -10420,9 +10453,10 @@ def load(name):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
-hl, ch, sh, tr, ah, ar, hd, fb = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold",
-                                                      "coop_tape_record", "coop_action_host", "coop_action_replay",
-                                                      "coop_action_hold", "coop_action_fallback"))
+hl, ch, sh, tr, ah, ar, hd, fb, tc = (load(n) for n in ("coop_handback_live", "coop_cut_hold", "coop_battle_start_hold",
+                                                          "coop_tape_record", "coop_action_host", "coop_action_replay",
+                                                          "coop_action_hold", "coop_action_fallback",
+                                                          "coop_action_trance"))
 print(json.dumps({
     "hl": {"catalog": sorted(hl._catalog(True)), "old": sorted(hl.OLD_PREDICTED), "capture_s": hl.CAPTURE_S},
     "cut": {leg: {"catalog": sorted(ch._catalog(leg, True)),
@@ -10468,7 +10502,16 @@ print(json.dumps({
            "arc_fb": sorted(fb.ARC_FALLBACK), "arc_old": sorted(fb._arc_predicted(False)[0]),
            "arc_new": sorted(fb._arc_predicted(True)[0]), "arc_maybe": sorted(fb._arc_predicted(False)[1]
                                                                              + fb._arc_predicted(True)[1]),
-           "arc_tape": fb.ARC_TAPE_NAME, "arc_name": fb.pb.ARC_TAPE_NAME}}))
+           "arc_tape": fb.ARC_TAPE_NAME, "arc_name": fb.pb.ARC_TAPE_NAME},
+    "tc": {"catalog": sorted(tc._solo_catalog(True)), "plain": sorted(tc._solo_catalog(False)),
+           "old": sorted(tc.OLD_PREDICTED), "lever": sorted(tc.LEVER_PREDICTED), "maybe": sorted(tc.LEVER_MAYBE),
+           "trance": sorted(tc.TRANCE_CHECKS), "probe": tc.PROBE, "scene": tc.SCENE, "group": tc.GROUP,
+           "proof": tc.PROOF_OK, "nonce": tc.NONCE, "boot1": list(tc.BOOT_1_LEGS),
+           "pred_new": sorted(tc.predicted(True)[0]), "pred_old": sorted(tc.predicted(False)[0]),
+           "cal_modes": list(tc.CAL_MODES), "grace": [tc.GRACE_LO, tc.GRACE_HI], "cap": [tc.CAP_LO, tc.CAP_HI],
+           "busy": [tc.BUSY_LO, tc.BUSY_HI], "quiet": tc.QUIET_MS, "frame": tc.FRAME_MS,
+           "busy_run": [tc.BUSY_RUN_MIN_MS, tc.BUSY_RUN_MAX_MS], "pause": [tc.PAUSE_HOLD_S, tc.PAUSE_MIN_MS],
+           "press": tc.PRESS_PAUSE, "doc": " ".join((tc.__doc__ or "").split())}}))
 '''
 
 
@@ -11675,15 +11718,19 @@ def test_the_fallback_block_is_act_guests_last_key_at_the_catch_lines_sentinels(
     """THE CATCH-LITERAL RE-PIN for s136: `act.guest.fallback` in AppendNetsync's SECOND catch literal, right after `hold`,
     at its sentinels (`last` a nullable record); the line stays ONE line of two literals; AppendActGuestFallback writes
     the keys in the catch line's order (`last`'s fields in ACT_FALLBACK_LAST_KEYS' order), each through its NetSyncDiorama
-    getter; AppendActGuest calls it after the hold's; published in every role; protocol stays 5."""
+    getter; AppendActGuest calls it after the hold's; published in every role; protocol stays 5. It was the LAST key at
+    s136 -- [ff9mapkit netsync s137] s137 appended `trance` after it (s137's own pin below) and changed nothing else."""
     catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
     assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
     a, b = _literals(catch[0])
     assert '\\"figs\\":[]},\\"fallback\\":{\\"on\\":false,\\"clips\\":0,' in b and "fallback" not in a
     nothing = _agent_netsync_nothing()[0]
     assert _battle_of(nothing)["act"]["guest"]["fallback"] == BW.ACT_GUEST_FALLBACK_SENTINELS
-    assert list(_battle_of(nothing)["act"]["guest"])[-2:] == ["hold", "fallback"]
-    assert _catch_doc_in("s136") == nothing                                # s136 wrote the live catch line whole
+    assert list(_battle_of(nothing)["act"]["guest"])[-3:-1] == ["hold", "fallback"]
+    s136_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "trance"}
+    assert list(_battle_of(_catch_doc_in("s136"))["act"]["guest"])[-2:] == ["hold", "fallback"]   # the last key AT s136
+    assert _catch_doc_in("s136") == {**nothing, "battle": {**nothing["battle"], "act": {    # s136 wrote that line whole
+        "host": BW.ACT_HOST_SENTINELS, "guest": s136_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s136"))]
     i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestFallback("))
     j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
@@ -12957,3 +13004,1853 @@ def test_the_s136_benchs_pure_judges_read_each_engine_and_can_fail():
     assert (ared("enemy_off"), ared("no_enemy"), ared("too_many"), ared("fault")) == (
         ["S136A-ENEMY"], ["S136A-ENEMY"], ["S136A-ACCT"], ["S136A-LOG"]), got["arc"]
     assert {k: v[0] for k, v in got["arcfacts"].items()} == {"old": True, "new": False, "empty": False}, got["arcfacts"]
+
+
+# =========================================================================== [ff9mapkit netsync s137]
+# THE TRANCE BURST TIMING (studies/battle-coop/R3-DESIGN.md 3.3.6 as amended by R3-ACTION-REPLAY-AUDIT.md 2.5 -- amendments
+# 1-6, decisions D1-D6; the audit's "s126"). Guest only, wire v14, harness protocol 5: one additive sub-object
+# (`netsync.battle.act.guest.trance`, the LAST key of `act.guest`), one unit key (`battle.units[].trance_model`, after
+# `row`), the `actbench trancegrace on|off` lever (no new sub-verb), one proof line. battlewire's twins of the PURE rules
+# (ActTranceDefers ... ActTrancePresents) EVALUATE ActTranceSelfTest's OWN 21 rows off the stack -- translated statement by
+# statement -- each rule's mutant fails a row, the constants are pinned by name both ways, and s136 -- s137's calibration
+# red -- is the ladder prefix through `actfallback` (S136_CAPS): every check below that reads the key, the op or the proof
+# line reads "cannot" there.
+TR_ROW_MARKS = ("gate: the swap waits only with bit 5 latched, a guest that can replay and the trancegrace lever on",
+                "grace: with nothing naming the unit the swap comes 400 ms of battle time after the sample",
+                "cap: 2500 ms of battle time after the sample it swaps, even while the unit is still named",
+                "cap: its own SysTrans START queued or pending, or its replay running unhit, holds past the grace and the cap",
+                "decline: any decline of the unit's SysTrans START ends the grace -- a duplicate copy's excepted (its first "
+                "may launch)",
+                "verdict: else the cap, else the grace, else it waits",
+                "arrival: a SysTrans hit, decline or end within 400 ms before the sample swaps at once (the START came "
+                "first)",
+                # [ff9mapkit netsync s137 fix pass] the burst ceiling (timing-1), the frozen wait (model-2), the catch-up's
+                # window (timing-3), the hit's trust (model-1 / model-2), the running burst at the injection (timing-2)
+                "ceiling: its own burst holds at most 8500 ms of battle time after the sample (a parked START's 6 s + the "
+                "cap), then the cap swaps it -- whatever the queue does",
+                "frozen: a slot s135's life mask freezes waits -- past the cap, a decline, its burst's end, a fallen gate, a "
+                "death -- for the catch-up's bit (a Leave still drops, a matching model is still moot)",
+                "catch-up: a record the life mask froze swaps at once when its burst passed since the freeze began (or 400 "
+                "ms before it)",
+                "trust: a hit swaps nothing on a bit the life mask froze, or one contradicting its own vfx (an End with the "
+                "bit set, an Activate with it clear: a corpse whose death stripped Trance)",
+                "inject: one whose own SysTrans burst already plays unhit stays pending -- its hit or its end swaps it, never "
+                "ahead of it",
+                "present: SetPresentColor after a swap and at a SysTrans replay's end (a player corpse's too) -- never after "
+                "an end injection, at a Leave, without a model or on a fading enemy",
+                # [ff9mapkit netsync s137 fix pass 2] (rmodel-1) a corpse waits for its own burst; the flush swaps one whose
+                # burst passed
+                "verdict: a corpse waits for its own burst -- its decline, its end or a fallen gate swap it, never the grace; "
+                "the cap drops it with nothing of its own (an untrusted hit waits for its end); the gate falling swaps at "
+                "once; its own burst in flight waits past a decline, an end and the cap",
+                "inject: the end injection swaps every pending deferral by the probe at once (a corpse only when its own "
+                "burst passed since the record; a Leave or no unit drop it)")
+
+
+def _tr_program() -> str:
+    """ActTranceSelfTest, read off the stack (the hunk that holds it whole), as one Python program."""
+    block = _cs_block(REPLAY_FILE, "internal static Boolean ActTranceSelfTest(")
+    code = " ".join(_strip_comment(ln) for ln in block if not re.match(r"(?:internal|private|public) static ", ln))
+    return "\n".join(_fb_python(_act_statements(code)))
+
+
+def _tr_ns(**twins) -> dict:
+    """The namespace ActTranceSelfTest runs in: s137's constants by C# name, BattleCommandId as an attribute holder (off
+    CS_STOCK_IDS), the twins under their C# names (``twins`` replaces one -- a mutant) and ``__row`` asserting each row."""
+    tw = dict(defers=BW.act_trance_defers, burst=BW.act_trance_is_burst, declines=BW.act_trance_decline_ends,
+              names=BW.act_trance_rec_names, arrival=BW.act_trance_on_arrival, step=BW.act_trance_step,
+              verdict=BW.act_trance_verdict, flush=BW.act_trance_flush_verdict, hit=BW.act_trance_hit_swaps,
+              presents=BW.act_trance_presents, trusts=BW.act_trance_hit_trusts)
+    tw.update(twins)
+    ns = dict(BW.CS_TRANCE_CONSTANTS)
+    names: list = []
+
+    def row(ok, name):
+        if ok is not True:
+            raise AssertionError(f"row {name!r} is {ok!r} for the twins")
+        names.append(name)
+
+    ids = {k.split(".", 1)[1]: v for k, v in BW.CS_STOCK_IDS.items() if k.startswith("BattleCommandId.")}
+    ns.update(__row=row, __m=lambda obj, name: getattr(obj, _snake(name)), __names__=names,
+              BattleCommandId=SimpleNamespace(**ids),
+              # the stock vfx numbers the trust row names (CS_STOCK_IDS pins both) and s134's parked-START bound
+              SpecialEffect=SimpleNamespace(Special_Trance_Activate=BW.SPECIAL_TRANCE_ACTIVATE,
+                                            Special_Trance_End=BW.SPECIAL_TRANCE_END),
+              ActWaitMaxMs=BW.ACT_WAIT_MAX_MS,
+              ActTranceDefers=tw["defers"], ActTranceIsBurst=tw["burst"], ActTranceDeclineEnds=tw["declines"],
+              ActTranceRecNames=tw["names"], ActTranceOnArrival=tw["arrival"], ActTranceStep=tw["step"],
+              ActTranceVerdict=tw["verdict"], ActTranceFlushVerdict=tw["flush"], ActTranceHitSwaps=tw["hit"],
+              ActTrancePresents=tw["presents"], ActTranceHitTrusts=tw["trusts"])
+    return ns
+
+
+def _run_tr_selftest(**twins) -> list:
+    ns = _tr_ns(**twins)
+    exec(compile(_tr_program(), "<ActTranceSelfTest>", "exec"), ns)               # noqa: S102 -- the stack's own rows
+    return ns["__names__"]
+
+
+def test_the_trance_twins_evaluate_every_trance_selftest_row_off_the_stack():
+    """battlewire's s137 twins (the gate, the burst record, the busy rule's naming, the grace / busy / cap step, the
+    burst's exemption and its ceiling, the decline end, the resolution's order with the frozen wait, the START-first swap
+    and the catch-up's window, the hit's probe and its trust, the end injection's flush with a running burst left pending,
+    the present colour's guard) against ActTranceSelfTest's OWN rows, EVALUATED in order: 21, the proof line's count,
+    every row in s137's own patch."""
+    names = _run_tr_selftest()
+    assert len(names) == BW.TRANCE_SELFTEST_ROWS == 21 and len(set(names)) == 21, names
+    assert all(mark in names for mark in TR_ROW_MARKS), set(TR_ROW_MARKS) - set(names)
+    prefix = lambda n: n.split(":", 1)[0]                                # noqa: E731
+    assert [sum(prefix(n) == p for n in names) for p in ("gate", "burst", "names", "grace", "busy", "cap", "ceiling",
+                                                         "decline", "probe", "frozen", "verdict", "arrival", "catch-up",
+                                                         "hit", "trust", "inject", "present")] \
+        == [1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 3, 1, 1, 1, 1, 2, 1], names
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines(REPLAY_FILE, r".", [_patch_bytes("s137")])) == 21
+
+
+def _tr_verdict_with(**changes):
+    """ActTranceVerdict with ONE order changed (the twin's own body otherwise -- the REAL one, captured: a monkeypatched
+    twin would call itself)."""
+    real = BW.act_trance_verdict
+
+    def verdict(gate, leaving, normal, unit_ok, wearing, bit, frozen, dead, burst, hit, declined, ended, step):
+        live = not frozen
+        if changes.get("ended_first") and live and normal and unit_ok and wearing != bit and not dead and gate                 and not burst and ended:
+            return BW.ACT_TR_SWAP_END                                   # the end ahead of a decline
+        if changes.get("decline_before_burst") and live and normal and unit_ok and wearing != bit and not dead and gate                 and declined:
+            return BW.ACT_TR_SWAP_DECLINE                               # a decline cuts its own burst in flight
+        if changes.get("gate_after_burst") and live and not leaving and unit_ok and wearing != bit and normal                 and not dead and burst:
+            return BW.ACT_TR_WAIT                                       # a fallen gate waits for a burst it never swaps
+        # [ff9mapkit netsync s137 fix pass 2] (rmodel-1) a corpse: dropped first (the old order), graced like a living unit,
+        # dropped at the cap past a hit of its own, never dropped, or dropped ahead of its own burst in flight
+        if changes.get("dead_first") and live and dead and not leaving and unit_ok and wearing != bit and normal:
+            return BW.ACT_TR_DROP_DEAD
+        if changes.get("dead_graced") and dead:
+            return real(gate, leaving, normal, unit_ok, wearing, bit, frozen, False, burst, hit, declined, ended, step)
+        if changes.get("dead_hit_ignored") and dead:
+            return real(gate, leaving, normal, unit_ok, wearing, bit, frozen, dead, burst, False, declined, ended, step)
+        if changes.get("dead_kept") and dead and step == BW.ACT_TR_STEP_CAP:
+            return real(gate, leaving, normal, unit_ok, wearing, bit, frozen, dead, burst, True, declined, ended, step)
+        if changes.get("dead_before_burst") and live and dead and burst and gate and not leaving and unit_ok                 and wearing != bit and normal:
+            return BW.ACT_TR_DROP_DEAD
+        if changes.get("phase_ignored") and not normal:
+            return real(gate, leaving, True, unit_ok, wearing, bit, frozen, dead, burst, hit, declined, ended, step)
+        if changes.get("moot_ignored") and wearing == bit and not leaving and unit_ok:
+            return real(gate, leaving, normal, unit_ok, not bit, bit, frozen, dead, burst, hit, declined, ended, step)
+        if changes.get("leave_ignored") and leaving:
+            return real(gate, False, normal, unit_ok, wearing, bit, frozen, dead, burst, hit, declined, ended, step)
+        if changes.get("grace_before_cap") and live and step in (BW.ACT_TR_STEP_CAP, BW.ACT_TR_STEP_GRACE) and gate                 and normal and unit_ok and wearing != bit and not dead and not burst and not declined and not ended:
+            return BW.ACT_TR_SWAP_GRACE
+        # [ff9mapkit netsync s137 fix pass] (model-2) the frozen wait, ignored or ahead of the Leave / unit / moot checks;
+        # (timing-1) a burst past its ceiling still waiting
+        if changes.get("frozen_ignored") and frozen:
+            return real(gate, leaving, normal, unit_ok, wearing, bit, False, dead, burst, hit, declined, ended, step)
+        if changes.get("frozen_first") and frozen:
+            return BW.ACT_TR_WAIT
+        if changes.get("ceiling_ignored") and live and burst and step == BW.ACT_TR_STEP_BURST_MAX and not leaving                 and unit_ok and wearing != bit and normal and not dead and gate:
+            return BW.ACT_TR_WAIT
+        return real(gate, leaving, normal, unit_ok, wearing, bit, frozen, dead, burst, hit, declined, ended, step)
+    return verdict
+
+
+def _tr_step_with(**changes):
+    """ActTranceStep with ONE rule changed (the REAL twin otherwise, captured)."""
+    real = BW.act_trance_step
+
+    def step(record_ms, last_busy_ms, busy_now, burst, now_ms):
+        if changes.get("burst_capped") and burst and now_ms - record_ms >= BW.ACT_TRANCE_CAP_MS:
+            return BW.ACT_TR_STEP_CAP                                   # the cap cuts the unit's own burst
+        if changes.get("burst_graced") and burst and not busy_now and now_ms - record_ms >= BW.ACT_TRANCE_GRACE_MS:
+            return BW.ACT_TR_STEP_GRACE                                 # a burst not counted as naming the unit
+        if changes.get("busy_uncapped") and busy_now and not burst:
+            return BW.ACT_TR_STEP_WAIT                                  # the cap never bounds a busy unit
+        if changes.get("record_only") and not burst and now_ms - record_ms < BW.ACT_TRANCE_CAP_MS:
+            return BW.ACT_TR_STEP_GRACE if now_ms - record_ms >= BW.ACT_TRANCE_GRACE_MS else BW.ACT_TR_STEP_WAIT
+        if changes.get("strict") and not burst and not busy_now and now_ms - max(record_ms, last_busy_ms) == \
+                BW.ACT_TRANCE_GRACE_MS:
+            return BW.ACT_TR_STEP_WAIT                                  # `>` for `>=`: 400 ms waits one frame more
+        # [ff9mapkit netsync s137 fix pass] (timing-1) the burst's ceiling: never, one ms late, or the cap's step (a burst
+        # past its ceiling read as the ordinary cap -- which the verdict holds)
+        if changes.get("ceiling_never") and burst:
+            return BW.ACT_TR_STEP_WAIT
+        if changes.get("ceiling_strict") and burst and now_ms - record_ms == BW.ACT_TRANCE_BURST_MAX_MS:
+            return BW.ACT_TR_STEP_WAIT
+        if changes.get("ceiling_as_cap") and burst and now_ms - record_ms >= BW.ACT_TRANCE_BURST_MAX_MS:
+            return BW.ACT_TR_STEP_CAP
+        return real(record_ms, last_busy_ms, busy_now, burst, now_ms)
+    return step
+
+
+@pytest.mark.parametrize("twins", [
+    {"defers": lambda bit5, can, grace: bool(bit5) and bool(can)},
+    {"defers": lambda bit5, can, grace: bool(bit5) and bool(grace)},
+    {"defers": lambda bit5, can, grace: bool(can) and bool(grace)},
+    {"burst": lambda cmd, player, slot: cmd == BW.CMD_SYS_TRANS and bool(player) and 0 <= slot <= 4},
+    {"burst": lambda cmd, player, slot: cmd in (BW.CMD_SYS_TRANS, BW.CMD_SYS_PHANTOM) and bool(player) and 0 <= slot <= 3},
+    {"burst": lambda cmd, player, slot: bool(player) and 0 <= slot <= 3},
+    {"declines": lambda why: True},
+    {"declines": lambda why: why not in ("duplicate", "noop")},
+    {"declines": lambda why: why is not None and why != "duplicate"},
+    {"names": lambda slot, actor, player, tar, magic: (actor == slot and 0 <= slot <= 7) or bool((tar | magic) & (1 << slot))},
+    {"names": lambda slot, actor, player, tar, magic: BW.act_trance_rec_names(slot, actor, player, tar, 0)},
+    {"names": lambda slot, actor, player, tar, magic: 0 <= slot <= 7 and (bool(player) == (slot < 4)
+                                                                          or bool((tar | magic) & (1 << slot)))},
+    {"arrival": lambda now, since, hit, decl, end: any(0 <= now - t < BW.ACT_TRANCE_GRACE_MS for t in (hit, decl, end)
+                                                       if t >= 0)},
+    {"arrival": lambda now, since, hit, decl, end: BW.act_trance_on_arrival(now, since, hit, -1, end)},
+    {"arrival": lambda now, since, hit, decl, end: BW.act_trance_on_arrival(now, since, hit, decl, -1)},
+    {"arrival": lambda now, since, hit, decl, end: any(t >= 0 and abs(now - t) <= BW.ACT_TRANCE_GRACE_MS
+                                                       for t in (hit, decl, end))},
+    {"arrival": lambda now, since, hit, decl, end: any(t > 0 and 0 <= now - t <= BW.ACT_TRANCE_GRACE_MS
+                                                       for t in (hit, decl, end))},
+    # [ff9mapkit netsync s137 fix pass] (timing-3) the catch-up's window: the freeze ignored, not widened by the grace, a
+    # freeze stamped after the sample taken as is
+    {"arrival": lambda now, since, hit, decl, end: BW.act_trance_on_arrival(now, -1, hit, decl, end)},
+    {"arrival": lambda now, since, hit, decl, end: any(
+        0 <= t <= now and t >= (since if 0 <= since < now else now - BW.ACT_TRANCE_GRACE_MS) for t in (hit, decl, end))},
+    {"arrival": lambda now, since, hit, decl, end: any(
+        0 <= t <= now and t >= (since if since >= 0 else now) - BW.ACT_TRANCE_GRACE_MS for t in (hit, decl, end))},
+    {"step": _tr_step_with(burst_capped=True)}, {"step": _tr_step_with(burst_graced=True)},
+    {"step": _tr_step_with(busy_uncapped=True)}, {"step": _tr_step_with(record_only=True)},
+    {"step": _tr_step_with(strict=True)},
+    {"step": _tr_step_with(ceiling_never=True)}, {"step": _tr_step_with(ceiling_strict=True)},
+    {"step": _tr_step_with(ceiling_as_cap=True)},
+    {"verdict": _tr_verdict_with(ended_first=True)}, {"verdict": _tr_verdict_with(decline_before_burst=True)},
+    {"verdict": _tr_verdict_with(gate_after_burst=True)},
+    # [ff9mapkit netsync s137 fix pass 2] (rmodel-1) the corpse's wait for its own burst, broken five ways
+    {"verdict": _tr_verdict_with(dead_first=True)}, {"verdict": _tr_verdict_with(dead_graced=True)},
+    {"verdict": _tr_verdict_with(dead_hit_ignored=True)}, {"verdict": _tr_verdict_with(dead_kept=True)},
+    {"verdict": _tr_verdict_with(dead_before_burst=True)},
+    {"verdict": _tr_verdict_with(phase_ignored=True)}, {"verdict": _tr_verdict_with(moot_ignored=True)},
+    {"verdict": _tr_verdict_with(leave_ignored=True)},
+    {"verdict": _tr_verdict_with(grace_before_cap=True)},
+    {"verdict": _tr_verdict_with(frozen_ignored=True)}, {"verdict": _tr_verdict_with(frozen_first=True)},
+    {"verdict": _tr_verdict_with(ceiling_ignored=True)},
+    {"flush": lambda leaving, ok, wearing, bit, dead, passed, run: BW.act_trance_flush_verdict(leaving, ok, wearing, bit,
+                                                                                               False, passed, run)},
+    {"flush": lambda leaving, ok, wearing, bit, dead, passed, run: BW.act_trance_flush_verdict(False, ok, wearing, bit, dead,
+                                                                                               passed, run)},
+    {"flush": lambda leaving, ok, wearing, bit, dead, passed, run: BW.act_trance_flush_verdict(leaving, True, wearing, bit,
+                                                                                               dead, passed, run)},
+    {"flush": lambda leaving, ok, wearing, bit, dead, passed, run: BW.act_trance_flush_verdict(leaving, ok, not bit, bit,
+                                                                                               dead, passed, run)},
+    # [ff9mapkit netsync s137 fix pass] (timing-2) the running burst at the injection ignored; [fix pass 2] (rmodel-1) a
+    # corpse dropped ahead of its own running burst (the old order), or whatever its burst did (`passed` ignored)
+    {"flush": lambda leaving, ok, wearing, bit, dead, passed, run: BW.act_trance_flush_verdict(leaving, ok, wearing, bit,
+                                                                                               dead, passed, False)},
+    {"flush": lambda leaving, ok, wearing, bit, dead, passed, run: BW.ACT_TR_DROP_DEAD
+     if dead and not leaving and ok and wearing != bit else BW.act_trance_flush_verdict(leaving, ok, wearing, bit, dead,
+                                                                                        passed, run)},
+    {"flush": lambda leaving, ok, wearing, bit, dead, passed, run: BW.act_trance_flush_verdict(leaving, ok, wearing, bit,
+                                                                                               dead, False, run)},
+    {"hit": lambda gate, wearing, bit: bool(wearing) != bool(bit)},
+    {"hit": lambda gate, wearing, bit: bool(gate)},
+    # [ff9mapkit netsync s137 fix pass] (model-1 / model-2) the hit's trust: the freeze, the End, the Activate ignored, or
+    # every vfx judged
+    {"trusts": lambda frozen, num, bit: BW.act_trance_hit_trusts(False, num, bit)},
+    {"trusts": lambda frozen, num, bit: BW.act_trance_hit_trusts(frozen, 0 if num == BW.SPECIAL_TRANCE_END else num, bit)},
+    {"trusts": lambda frozen, num, bit: BW.act_trance_hit_trusts(frozen, 0 if num == BW.SPECIAL_TRANCE_ACTIVATE else num,
+                                                                 bit)},
+    {"trusts": lambda frozen, num, bit: not frozen and bool(bit)},
+    {"presents": lambda inj, leaving, model, fading: not leaving and bool(model) and not fading},
+    {"presents": lambda inj, leaving, model, fading: not inj and bool(model) and not fading},
+    {"presents": lambda inj, leaving, model, fading: not inj and not leaving and not fading},
+    {"presents": lambda inj, leaving, model, fading: not inj and not leaving and bool(model)}],
+    ids=["defers-lever-ignored", "defers-replay-ignored", "defers-bit5-ignored", "burst-slot4-taken",
+         "burst-phantom-taken", "burst-any-cmd", "declines-duplicate-ends", "declines-noop-kept", "declines-null-kept",
+         "names-side-ignored", "names-magic-ignored", "names-actor-slot-ignored", "arrival-boundary-exclusive",
+         "arrival-decline-ignored", "arrival-end-ignored", "arrival-future-taken", "arrival-zero-ignored",
+         "arrival-freeze-ignored", "arrival-freeze-unwidened", "arrival-freeze-future-kept",
+         "step-burst-capped", "step-burst-graced", "step-busy-uncapped", "step-record-only", "step-strict",
+         "step-ceiling-never", "step-ceiling-strict", "step-ceiling-as-cap",
+         "verdict-end-before-decline", "verdict-decline-cuts-burst", "verdict-gate-after-burst",
+         "verdict-dead-first", "verdict-dead-graced", "verdict-dead-hit-ignored", "verdict-dead-kept",
+         "verdict-dead-before-burst",
+         "verdict-phase-ignored", "verdict-moot-ignored", "verdict-leave-ignored",
+         "verdict-grace-before-cap", "verdict-frozen-ignored", "verdict-frozen-first", "verdict-ceiling-ignored",
+         "flush-dead-ignored", "flush-leave-ignored", "flush-unit-ignored",
+         "flush-moot-ignored", "flush-burst-ignored", "flush-dead-before-burst", "flush-passed-ignored",
+         "hit-gate-ignored", "hit-probe-ignored",
+         "trusts-freeze-ignored", "trusts-end-ignored", "trusts-activate-ignored", "trusts-any-vfx",
+         "presents-inject-ignored", "presents-leave-ignored", "presents-model-ignored", "presents-fading-ignored"])
+def test_each_trance_rule_mutant_fails_a_selftest_row(twins):
+    """A CHECK THAT CANNOT FAIL is no check: each rule of the gate, the burst record, the naming, the arrival window (and the
+    catch-up's), the step (the cap's burst exemption, its ceiling, the busy hold, the grace's origin, its boundary), the
+    verdict's order (the frozen wait), the flush (a running burst), the hit's probe and its trust and the present colour's
+    guard, broken alone in its twin, fails one of the engine's own rows."""
+    _tr_program()                                                       # (its own parse outside the raises)
+    with pytest.raises(AssertionError, match=r"^row ['\"]"):
+        _run_tr_selftest(**twins)
+
+
+def test_the_trance_twins_take_the_engines_parameters_in_its_order():
+    """Each s137 twin's parameters ARE its C# method's, in order (camelCase -> snake_case) -- ActTrancePassed's (private)
+    too."""
+    for start, fn in (("internal static Boolean ActTranceDefers(", BW.act_trance_defers),
+                      ("internal static Boolean ActTranceIsBurst(", BW.act_trance_is_burst),
+                      ("internal static Boolean ActTranceDeclineEnds(", BW.act_trance_decline_ends),
+                      ("internal static Boolean ActTranceRecNames(", BW.act_trance_rec_names),
+                      ("internal static Boolean ActTranceOnArrival(", BW.act_trance_on_arrival),
+                      ("private static Boolean ActTrancePassed(", BW.act_trance_passed),
+                      ("internal static Int32 ActTranceStep(", BW.act_trance_step),
+                      ("internal static Int32 ActTranceVerdict(", BW.act_trance_verdict),
+                      ("internal static Int32 ActTranceFlushVerdict(", BW.act_trance_flush_verdict),
+                      ("internal static Boolean ActTranceHitSwaps(", BW.act_trance_hit_swaps),
+                      ("internal static Boolean ActTranceHitTrusts(", BW.act_trance_hit_trusts),
+                      ("internal static Boolean ActTrancePresents(", BW.act_trance_presents)):
+        cs = [_snake(p) for p in _cs_signature(REPLAY_FILE, start)]
+        assert cs == _twin_params(fn), (start, cs, _twin_params(fn))
+    # ActTrancePassed's body and ActTranceOnArrival's window, read off the stack (the twins'): set, never after now, no
+    # earlier than the window's start -- the grace before now, or before a freeze that began earlier (timing-3)
+    assert _battle_text("return atMs >= 0 && atMs <= nowMs && atMs >= fromMs;")
+    assert _battle_text("Int32 fromMs = (sinceMs >= 0 && sinceMs < nowMs ? sinceMs : nowMs) - ActTranceGraceMs;")
+
+
+def _tr_consts() -> dict:
+    """Every `internal const Int32` the s137 patch declares (comments stripped) -> its value."""
+    out = {}
+    for line in net_lines(REPLAY_FILE, r"internal const Int32 ", [_patch_bytes("s137")]):
+        m = re.fullmatch(r"internal const Int32 (.*);", _strip_comment(line))
+        assert m, line
+        for decl in m.group(1).split(","):
+            d = re.fullmatch(r"\s*(\w+) = (0x[0-9A-Fa-f]+|-?\d+)\s*", decl)
+            assert d, decl
+            out[d.group(1)] = int(d.group(2), 0)
+    return out
+
+
+def test_the_trance_constants_are_the_stacks_both_ways():
+    """THE PIN: every CS_TRANCE_CONSTANTS entry is NetSyncDiorama.Replay.cs's constant of that name and value, and every
+    `internal const Int32` the s137 patch declares is in the table -- a constant added, renamed or retuned on either side
+    turns this red. The design's numbers: a 400 ms grace, a 2500 ms cap, 12 lines a boot."""
+    cs = _tr_consts()
+    assert cs == BW.CS_TRANCE_CONSTANTS, sorted(set(cs.items()) ^ set(BW.CS_TRANCE_CONSTANTS.items()))
+    assert (cs["ActTranceGraceMs"], cs["ActTranceCapMs"], cs["ActTranceLogMax"]) == (400, 2500, 12)
+    # [ff9mapkit netsync s137 fix pass] (timing-1) THE BURST CEILING: a parked START's 6 s bound plus the cap
+    assert cs["ActTranceBurstMaxMs"] == 8500 == BW.ACT_WAIT_MAX_MS + BW.ACT_TRANCE_CAP_MS
+    assert len(set(v for k, v in cs.items() if k.startswith("ActTr") and not k.startswith("ActTrStep")
+                   and not k.startswith("ActTrance"))) == 11                 # the verdict's answers are distinct
+
+
+def test_the_trance_stock_values_are_the_clones_when_it_is_here():
+    """The stock values the s137 twins and bench read beyond CS_STOCK_IDS (which pins SysTrans 59, SysPhantom 57,
+    Special_Trance_Activate 257 and Special_Trance_End 489): BattleStatus.Trance (1 << 14, the bit `battle.units[].status`
+    carries) -- read off the shared Memoria clone when this machine has it -- and the host's own SysTrans vfx choice
+    (GetPlayerCommandSFX: Activate while the caster is in Trance, else End)."""
+    root = pathlib.Path(r"C:\gd\FFIX\Memoria\Assembly-CSharp")
+    status = root / "Memoria" / "Data" / "Battle" / "BattleStatus.cs"
+    vfx = root / "Global" / "btl_vfx.cs"
+    if not status.is_file() or not vfx.is_file():
+        pytest.skip("the shared Memoria clone is not on this machine")
+    m = re.search(r"^\s*Trance\s*=\s*1\s*<<\s*(\d+)\s*,", status.read_text(encoding="utf-8-sig", errors="replace"), re.M)
+    assert m and (1 << int(m.group(1))) == BW.BATTLE_STATUS_TRANCE
+    assert ("return btl_stat.CheckStatus(regist, BattleStatus.Trance) ? SpecialEffect.Special_Trance_Activate : "
+            "SpecialEffect.Special_Trance_End;") in vfx.read_text(encoding="utf-8-sig", errors="replace")
+
+
+def test_the_trance_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s137: `act.guest.trance` in AppendNetsync's SECOND catch literal, right after
+    `fallback`, at its sentinels (`last` a nullable record); the line stays ONE line of two literals; AppendActGuestTrance
+    writes the keys in the catch line's order (`last`'s fields in ACT_TRANCE_LAST_KEYS' order), each through its
+    NetSyncDiorama getter; AppendActGuest calls it after fallback A's; published in every role; protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    a, b = _literals(catch[0])
+    assert '\\"parse_failed\\":0,\\"last\\":null},\\"trance\\":{\\"on\\":false,\\"gate\\":false,' in b and "trance\\" not in a
+    nothing = _agent_netsync_nothing()[0]
+    assert _battle_of(nothing)["act"]["guest"]["trance"] == BW.ACT_GUEST_TRANCE_SENTINELS
+    assert list(_battle_of(nothing)["act"]["guest"])[-2:] == ["fallback", "trance"]
+    assert _catch_doc_in("s137") == nothing                                # s137 wrote the live catch line whole
+    new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s137"))]
+    i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestTrance("))
+    j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
+    body = " ".join(_strip_comment(t) for t in new[i:j])
+    names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
+    top = [k for k in BW.ACT_GUEST_TRANCE_SENTINELS if k != "last"]
+    assert names == top + list(BW.ACT_TRANCE_LAST_KEYS), names
+    for k in top:
+        assert re.search(rf'(?:Bool|Num)\(sb, "{k}", Memoria\.Netsync\.NetSyncDiorama\.HarnessTrance\w+\)', body), k
+    assert '"last":null' in body.replace("\\", "") and '"last":{' in body.replace("\\", "")
+    assert _added_after("s137", "HarnessAgent.cs", "AppendActGuestFallback(sb);", "AppendActGuestTrance(sb);")
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    assert not _battle_text("IsSelfTestRole ? _tr")                     # audit 3.6: published in EVERY role
+    assert _battle_text("internal static Boolean HarnessTranceOn { get { return ActTranceGraceOn; } }")
+    assert _battle_text("internal static Boolean HarnessTranceGate { get { return _booted && ActTranceGate; } }")
+    assert _battle_text("private static Boolean ActTranceGraceOn { get { return !(_benchTranceGraceOff && "
+                        "NetSyncClient.IsSelfTestRole); } }")
+    assert _battle_text("private static Boolean ActTranceGate { get { return ActTranceDefers(_actBit5, ActCanReplay, "
+                        "ActTranceGraceOn); } }")
+
+
+def test_state_reads_the_trance_block_absent_on_s136_as_cannot():
+    """On s136's catch block (s137's calibration red) every `act.guest.trance` accessor reads None and `coop_act_trance`
+    False; on the live block they read the sentinels and True; a published block reads its values, a mistyped one None, and
+    `last` a copy (None at null); `unit_trance_model` reads the unit's bool (None without the key or the unit); the block's
+    identity (act_trance_accounted) reads a malformed block as None."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s136")})
+    live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
+    names = [n for p, n in State.NETSYNC_BATTLE_ACCESSORS.items()
+             if p == "act.guest.trance" or p.startswith("act.guest.trance.")]
+    assert len(names) == len(_leaves({"act": {"guest": {"trance": BW.ACT_GUEST_TRANCE_SENTINELS}}})) + 1 == 19, names
+    assert (State({"frame": 1}).coop_act_trance, old.coop_act_trance, live.coop_act_trance) == (None, False, True)
+    assert old.coop_act_fallback is True                                # (s136's own block is there)
+    assert all(getattr(old, n) is None for n in names)
+    assert all(getattr(live, n) is not None for n in names if n != "coop_act_trance_last")
+    assert (live.coop_act_trance_last, live.coop_act_trance_on, live.coop_act_trance_gate) == (None, False, False)
+    doc = _agent_netsync_nothing()[0]
+    doc["battle"]["act"]["guest"]["trance"].update(
+        deferred=3, swaps_by_hit="1", on=True, pending=1,
+        last={"slot": 0, "swapped": True, "to": True, "via": "hit", "id": 7, "record_ms": 100, "ms": 1650})
+    st = State({"frame": 1, "netsync": doc})
+    assert (st.coop_act_trance_deferred, st.coop_act_trance_swaps_by_hit, st.coop_act_trance_on,
+            st.coop_act_trance_pending) == (3, None, True, 1)
+    last = st.coop_act_trance_last
+    last["via"] = ""
+    assert st.coop_act_trance_last["via"] == "hit"                       # a copy
+    unit = State({"frame": 1, "battle": {"units": [{"slot": 0, "trance_model": True}, {"slot": 1, "trance_model": 1},
+                                                    {"slot": 4}]}})
+    assert (unit.unit_trance_model(0), unit.unit_trance_model(1), unit.unit_trance_model(4), unit.unit_trance_model(2)) \
+        == (True, None, None, None)
+    ok = dict(BW.ACT_GUEST_TRANCE_SENTINELS, deferred=4, swaps_by_hit=1, swaps_by_grace=1, dropped=1, pending=0b0100)
+    assert BW.act_trance_accounted(ok) is True
+    assert BW.act_trance_accounted(dict(ok, pending=0)) is False         # a deferral that never ended
+    assert BW.act_trance_accounted(dict(ok, moot=1)) is False            # one counted twice
+    assert BW.act_trance_accounted(dict(ok, dropped="x")) is None and BW.act_trance_accounted(None) is None
+
+
+def test_a_fresh_stand_in_publishes_the_trance_block_and_s136_none(game):
+    """The default stand-in (s137) publishes `act.guest.trance` at the agent's sentinels with no client -- but `on` the live
+    read at rest (true); the stand-in at s136 publishes no `trance`, no 'action trance' proof line, and answers the
+    trancegrace forms in s136's words (its usage for a 2- or 4-word form, its "unknown op" for a 3-word one)."""
+    want = dict(BW.ACT_GUEST_TRANCE_SENTINELS, on=True)
+    assert _battle_of(FakeGame(game)._netsync_doc())["act"]["guest"]["trance"] == want
+    old = _selftest(FakeGame(game))
+    old.netsync_caps = S136_CAPS
+    assert "trance" not in _battle_of(old._netsync_doc())["act"]["guest"]
+    assert set(_leaves(_battle_of(old._netsync_doc()))) == set(_leaves(_battle_of(_catch_doc_in("s136"))))
+    usage = f"{FG.NETSYNC_ACTBENCH_USAGE_S136}\r\nParameter name: netsync actbench"
+    for args, words in ((["actbench", "trancegrace", "off"], "netsync actbench: unknown op 'trancegrace' (tape|hoststarts)"),
+                        (["actbench", "trancegrace"], usage), (["actbench", "trancegrace", "off", "now"], usage)):
+        with pytest.raises(RuntimeError) as err:
+            old._netsync(args)
+        assert str(err.value) == words, args
+
+
+TR_REFUSALS = [
+    # (a fragment the agent says -- ONE C# literal of the stack --, the args, where: None / selftest)
+    ("netsync actbench: needs the selftest role (netsync selftest 1)", ["actbench", "trancegrace", "off"], None),
+    (BW.TRANCE_USAGE, ["actbench", "trancegrace", "maybe"], "selftest"),
+    (BW.TRANCE_USAGE, ["actbench", "trancegrace"], "selftest"),
+    (BW.TRANCE_USAGE, ["actbench", "trancegrace", "on", "x"], "selftest"),
+]
+
+
+@pytest.mark.parametrize("fragment,args,where", TR_REFUSALS, ids=[f"{r[0][:30]}-{i}" for i, r in enumerate(TR_REFUSALS)])
+def test_the_stand_in_refuses_the_trancegrace_op_in_the_agents_words(game, fragment, args, where):
+    """Every trancegrace `actbench` gate the stand-in models refuses with the engine's own words (each a literal of the
+    stack: HarnessActGuestBench's role gate, HarnessActTranceBench's parse -- its WHOLE refusal)."""
+    assert _battle_text(fragment), f"the live stack no longer says {fragment!r}"
+    fake = FakeGame(game)
+    if where == "selftest":
+        _selftest(fake)
+    with pytest.raises(RuntimeError) as err:
+        fake._netsync(args)
+    assert (str(err.value) == fragment) if where == "selftest" else (fragment in str(err.value)), str(err.value)
+
+
+def test_the_trancegrace_op_is_the_agents_and_the_driver_gates_it_by_act_guest_trance(game):
+    """`trancegrace` is IsActGuestBenchOp's (a case of its own) and HarnessActGuestBench's (routed to
+    HarnessActTranceBench); the driver keys it on `act.guest.trance` (s137), refuses a malformed form before the step in
+    the engine's words, and on an s136 engine refuses every trancegrace form naming s137 and what s136 would answer."""
+    new = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(REPLAY_FILE, _patch_bytes("s137"))) if c]
+    for site in (['case "fallback":', 'case "trancegrace":', "return true;", 'case "tape":', 'return value == "play";'],
+                 ["return HarnessActFallbackBench(args, val, out why);", 'case "trancegrace":',
+                  "return HarnessActTranceBench(args, val, out why);", "default:"]):
+        assert any(new[k:k + len(site)] == site for k in range(len(new))), site
+    attr, key, patch, _what = Session.NETSYNC_ACTBENCH_OP_CAPS["trancegrace"]
+    assert (attr, key, patch) == ("coop_act_trance", "netsync.battle.act.guest.trance", "s137")
+    assert Session.NETSYNC_ACTBENCH_TRANCE_USAGE == {"trancegrace": BW.TRANCE_USAGE} and _battle_text(BW.TRANCE_USAGE)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        for args in (("trancegrace",), ("trancegrace", "maybe"), ("trancegrace", "on", "x")):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *args])
+            assert str(err.value) == str(agent.value) == BW.TRANCE_USAGE, (args, str(err.value), str(agent.value))
+        assert len(fake.executed) == n
+        st = g.act_trance_grace(False)                                  # a well-made form goes to the engine
+        assert st.coop_act_trance_on is False
+        st = g.actbench("TRANCEGRACE", "On")                            # the agent lowercases both; so does the driver
+        assert st.coop_act_trance_on is True and fake.executed[-1] == ["netsync", "actbench", "TRANCEGRACE", "On"]
+    fake = FakeGame(game)
+    fake.netsync_caps = S136_CAPS
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        n = len(fake.executed)
+        for args in (("trancegrace", "off"), ("trancegrace",), ("trancegrace", "on", "x")):
+            with pytest.raises(HarnessError) as err:
+                g.netsync("actbench", *args)
+            with pytest.raises(RuntimeError) as agent:
+                fake._netsync(["actbench", *(str(a) for a in args)])
+            assert str(err.value).startswith("netsync actbench trancegrace: the deployed engine publishes no "
+                                             "`netsync.battle.act.guest.trance`"), str(err.value)
+            assert f"(memoria-patch s137); it would answer \"{agent.value}\" only after the step" in str(err.value), \
+                (args, str(err.value), str(agent.value))
+        assert len(fake.executed) == n and g.state.coop_act_trance is False and g.state.coop_act_fallback is True
+
+
+def test_the_trance_log_lines_are_the_engines():
+    """Every LOG_TRANCE_* the stand-in writes and the bench reads is the stack's own words (one C# literal, or the pieces
+    the engine splices, in order): a reworded engine line turns this red before a bench silently stops matching it -- and
+    the parser reads the swap / keep line exactly as the engine (and the stand-in's twin) writes it."""
+    for whole in (BW.LOG_TRANCE_SLOT, BW.LOG_TRANCE_WAITS, BW.LOG_TRANCE_WAITS_TAIL, BW.LOG_TRANCE_FURTHER,
+                  BW.LOG_TRANCE_KEEPS, BW.LOG_TRANCE_SUMMARY, BW.LOG_TRANCE_FAULTED, BW.LOG_TRANCE_LEVER_BACK,
+                  BW.TRANCE_USAGE, "(the replay's hit; else ", " ms of battle time after nothing names the unit, at most ",
+                  " -> the ", ", replay id ", "; battle ms ", " ms of battle time ", "after its sample"):
+        assert _battle_text(whole), whole
+    # the spliced lines, pinned as the C# EXPRESSIONS that write them, piece by piece in order
+    for quoted in ('Log.Message("[NetSync] action trance: wire slot " + slot + "\'s " + (bit ? "trance" : "normal") + " model '
+                   'waits for its SysTrans burst "',
+                   '+ "(the replay\'s hit; else " + ActTranceGraceMs + " ms of battle time after nothing names the unit, at '
+                   'most "',
+                   '+ ActTranceCapMs + " ms without its START) -- the trance status, the glow and the gauge already follow the '
+                   'host"',
+                   'Log.Message("[NetSync] action trance: wire slot " + slot + (swapped ? " -> the " + (to ? "trance" : '
+                   '"normal") + " model" : " keeps its model")',
+                   '+ " (" + via + (id > 0 ? ", replay id " + id : "") + (recordMs >= 0 ? ", " + (_actNowMs - recordMs) + '
+                   '" ms of battle time "',
+                   '+ "after its sample" : "") + "; battle ms " + _actNowMs + ")"',
+                   '(_trLogged == ActTranceLogMax ? "; further lines this boot are counted, not logged" : "")'):
+        assert _battle_text(quoted), quoted
+    # the lever's two lines: ONE literal head + the ternary's two arms (s137 splits the OFF arm over two lines)
+    head, off1, off2, on = ("[NetSync] harness: action trance grace ", "OFF -- CALIBRATION: the pre-s137 timing (a trance "
+                            "model ", "swaps when the host's sample carries the bit; the SysTrans replay's hit swaps nothing)",
+                            "ON")
+    assert _battle_text(f'"{head}" + (_benchTranceGraceOff ? "{off1}"') and _battle_text(f'+ "{off2}" : "{on}"));')
+    assert (BW.LOG_TRANCE_OFF, BW.LOG_TRANCE_ON) == (head + off1 + off2, head + on)
+    assert BW.LOG_TRANCE_AFTER == " ms of battle time " + "after its sample"
+    line = (f"16.10.2026 12:00:00 |M| {BW.LOG_TRANCE_SLOT}0 -> the trance model (hit, replay id 7, 561{BW.LOG_TRANCE_AFTER}; "
+            "battle ms 1650)")
+    assert BW.parse_trance_line(line) == {"slot": 0, "swapped": True, "to": True, "via": "hit", "id": 7, "after_ms": 561,
+                                          "ms": 1650, "further": False}
+    keep = f"{BW.LOG_TRANCE_SLOT}2{BW.LOG_TRANCE_KEEPS} (teardown, 33{BW.LOG_TRANCE_AFTER}; battle ms 99){BW.LOG_TRANCE_FURTHER}"
+    assert BW.parse_trance_line(keep) == {"slot": 2, "swapped": False, "to": None, "via": "teardown", "id": 0,
+                                          "after_ms": 33, "ms": 99, "further": True}
+    imm = f"{BW.LOG_TRANCE_SLOT}1 -> the normal model (immediate; battle ms 40)"
+    assert BW.parse_trance_line(imm)["after_ms"] is None and BW.parse_trance_line(imm)["to"] is False
+    waits = f"{BW.LOG_TRANCE_SLOT}0's trance{BW.LOG_TRANCE_WAITS}(the replay's hit; else 400 ms"
+    assert BW.parse_trance_waits(waits) == {"slot": 0, "to": True} and BW.parse_trance_line(waits) is None
+    assert BW.parse_trance_waits(line) is None
+
+
+#: the s137 hook sites (a file, then the lines in order inside s137's own patch: code lines, comments dropped)
+TR_HOOKS = {
+    "NetSyncDiorama.cs": [
+        ("if (wearing != u.InTrance)", "ActTranceAtSample(d, u.Index, u.InTrance);", "}"),
+        ('ActHoldFlush("end-inject");', "ActTranceFlush();", "FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;"),
+        # [ff9mapkit netsync s137 fix pass] (model-1) the death lane mirrors a dead player's Trance bit and glow, after the
+        # kill and before its return
+        ("KillUnit(d);", "}", "if (u.IsPlayer)", "{", "if (u.InTrance)", "d.stat.cur |= BattleStatus.Trance;", "else",
+         "d.stat.cur &= ~BattleStatus.Trance;", "d.enable_trance_glow = u.InTrance;",
+         # [ff9mapkit netsync s137 fix pass 2] (rmodel-1) ...then the corpse's probe with the on-arrival rule
+         "if (d.tranceGo != null && d.gameObject != null && ReferenceEquals(d.gameObject, d.tranceGo) != u.InTrance)",
+         "ActTranceAtDeadSample(d, u.Index, u.InTrance);", "}", "return;")],
+    "NetSyncDiorama.Replay.cs": [
+        ("ActFallbackReset(counters);", "ActTranceReset(counters);", "if (!counters)", "return;"),
+        ("ActHoldTick();", "ActTranceTick();", "}"),
+        ('ActHoldReleaseRec(r, "end");', "ActTranceOnReplayOver(r, null);"),
+        ("ActHoldReleaseRec(r, ActDeclineVia(why));", "ActTranceOnDecline(r, why);"),
+        ('ActHoldReleaseRec(r, "declined");', 'ActTranceOnDecline(r, "noop");'),
+        ('ActHoldReleaseRec(r, "abort");', "ActTranceOnReplayOver(r, why);", "_actAborted++;"),
+        ("ActFallbackLogSummary(why);", "ActTranceDiscardAll(why);", "}"),
+        ("catch { }", "ActTranceOnHit(r);"),
+        ("_benchFallbackOff = false;", "if (_benchTranceGraceOff)"),
+        # [ff9mapkit netsync s137 fix pass] (timing-3) the freeze's stamps inside s135's skip, its applied record and its
+        # catch-up (set around that ApplyUnit only)
+        ("return false;", "if ((_actSkippedMask & (1 << index)) == 0)", "_actSkippedSinceMs[index] = _actNowMs;",
+         "_actSkipped[index] = u;"),
+        ("_trApplySinceMs = (_actSkippedMask & (1 << index)) != 0 ? _actSkippedSinceMs[index] : _trCatchUpSinceMs;",
+         "_actSkippedMask &= ~(1 << index);"),
+        ("_actSkippedMask &= ~(1 << i);", "_trCatchUpSinceMs = _actSkippedSinceMs[i];", "try"),
+        ("ActHoldErr(ex);", "}", "_trCatchUpSinceMs = -1;", "}")],
+    "NetSyncClient.cs": [("Boolean tranceOk = NetSyncDiorama.ActTranceSelfTest(out tranceDetail);",)],
+    "HarnessAgent.cs": [("AppendActGuestFallback(sb);", 'sb.Append(",");', "AppendActGuestTrance(sb);", 'sb.Append("}");'),
+                        ('Num(sb, "row", Try(() => (Int32)unit.Data.bi.row, -1)); sb.Append(",");',)],
+}
+
+
+def test_the_trance_hooks_sit_at_the_audits_sites():
+    """Each s137 hook at its audited site, read off s137's own patch (code lines, comments dropped, in order): NO stock
+    file -- the four files are netsync's and the agent's only; ApplyUnit RECORDS through ActTranceAtSample where the
+    reconciler swapped (its old SetTranceModel line gone); InjectEnd's head flushes after the hold's; ActResetForBoot resets
+    BEFORE its counters' early return; ActTick resolves after ActHoldTick (outside its try); the end / abort / decline /
+    NOOP marks after the hold's releases; the teardown after fallback A's summary; ActOnHit's trance step before the
+    hold's hit release; the lever in ActBenchRelease; the proof line. THE CONTAINMENT LAW at the source: s137's code writes
+    no trance_no, no enable_trance_glow, no status, no achievement -- every SetTranceModel it adds takes the MIRRORED bit
+    (D2)."""
+    s137 = _patch_bytes("s137")
+    for file_name, sites in TR_HOOKS.items():
+        new = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(file_name, s137)) if c]
+        for site in sites:
+            at = next((k for k in range(len(new)) if new[k:k + len(site)] == list(site)), None)
+            assert at is not None, (file_name, site[0])
+    files = {p.replace("\\", "/").rsplit("/", 1)[-1] for p, _sec in msr.sections(s137) if p}
+    assert files == {"HarnessAgent.cs", "NetSyncClient.cs", "NetSyncDiorama.Replay.cs", "NetSyncDiorama.cs"}, files
+    assert all(any(d.endswith("/" + f) for d in msr.DEFAULT_FILES) for f in files), files   # (no new file to replay)
+    assert not _battle_text("btl_vfx.SetTranceModel(d, u.InTrance);")    # the reconciler's own swap: replaced
+    added = [_strip_comment(t) for f in ("NetSyncDiorama.cs", "NetSyncDiorama.Replay.cs")
+             for _h, k, t in _new_side(f, s137) if k == "+"]
+    # [ff9mapkit netsync s137 fix pass] (model-1) the ONE status write s137 adds is the death lane's MIRROR of the host's own
+    # sample (u.InTrance) -- the very lines the live lane already runs: exactly these, once each, and nothing else
+    mirror = ("d.stat.cur |= BattleStatus.Trance;", "d.stat.cur &= ~BattleStatus.Trance;", "d.enable_trance_glow = u.InTrance;")
+    assert [sum(a == m for a in added) for m in mirror] == [1, 1, 1], added
+    code = " ".join(a for a in added if a and a not in mirror)
+    for banned in ("trance_no", "enable_trance_glow", "AlterStatus", "RemoveStatus", "BattleAchievement", "stat.cur |=",
+                   "stat.cur &="):
+        assert banned not in code, banned
+    calls = re.findall(r"btl_vfx\.SetTranceModel\(([^;]*)\);", code)
+    assert len(calls) == 2 and all(c.replace(" ", "") == "d,bit" for c in calls), calls
+    # [fix pass 2] (rstock-1) every s137 swap but the ungated sample's (the pre-s137 call, the other one above) goes through
+    # ActTranceSetModel -- the renderer normalisation around SetTranceModel: ActTranceSwap's and the hit's
+    normalised = re.findall(r"(?<!void )ActTranceSetModel\(([^;]*)\);", code)       # (calls, not its definition)
+    assert len(normalised) == 2 and all(c.replace(" ", "") == "d,bit" for c in normalised), normalised
+    # (fix: stock-hidden-swap) every swap made outside a sequence goes through ActTranceSwap (the sample's gate and
+    # on-arrival swaps, the resolver, the post-injection end, the flush; [fix pass 2] (rmodel-1) the death lane's on-arrival)
+    kept = re.findall(r"ActTranceSwap\(([^;]*)\);", code)
+    assert len(kept) == 6 and all(c.replace(" ", "") == "d,bit" for c in kept), kept
+    # ActTranceTick sits OUTSIDE ActTick's own try: the hold's tick and it follow that try's `catch { }` close
+    rep = [c for c in (_strip_comment(t) for _h, _k, t in _new_side(REPLAY_FILE, s137)) if c]
+    k = rep.index("ActTranceTick();")
+    assert rep[k - 1] == "ActHoldTick();" and rep[k + 1] == "}", rep[k - 3:k + 2]
+
+
+def test_reset_releases_the_trancegrace_lever(game):
+    """HarnessReleaseBench's s137 half (audit 4.5): `trancegrace off` left set, then `reset`: the 'trance grace lever back'
+    line once, and re-read WITH a fresh selftest role the lever at rest -- while s135's and s136's levers come back too."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        for args in (("trancegrace", "off"), ("fallback", "off"), ("hold", "off")):
+            g.actbench(*args)
+        st = g.state
+        assert (st.coop_act_trance_on, st.coop_act_fallback_on, st.coop_act_hold_on) == (False, False, False)
+        g.send("reset")
+        g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=10.0, what="the release")
+        st = g.netsync("selftest", 1)
+        assert (st.coop_act_trance_on, st.coop_act_fallback_on, st.coop_act_hold_on) == (True, True, True)
+    assert len(_mlog_lines(fake, BW.LOG_TRANCE_LEVER_BACK)) == 1 and len(_mlog_lines(fake, BW.LOG_FALLBACK_LEVER_BACK)) == 1
+
+
+# ---- [ff9mapkit netsync s137] the trance burst timing's model: the stand-in end to end through the driver, then battlewire's
+# lane on the rules no stand-in battle reaches (a lane rig: eight units, the bench feed, the stand-in's tick order)
+def _tr_arm(g, caps: int = 0x22):
+    """The stage-8 feed armed (6.11): `bbench start 1` + `bbench caps <caps>` -- bit 5 latched (0x22)."""
+    g.netsync("bbench", "start", 1)
+    g.netsync("bbench", "caps", caps)
+    if caps & BW.CAP_ACTION_STARTS:
+        return _rep_until(g, lambda s: s.coop_act_guest_bit5 is True and s.coop_act_trance_gate is True, "the bit-5 latch")
+    g.wait_frames(10)
+    return g.state
+
+
+def _tr_u(st, slot: int) -> dict:
+    """The published unit in btl ``slot`` (State.unit reads by NAME)."""
+    return next((u for u in st.battle.get("units", []) if u.get("slot") == slot), {})
+
+
+def _tr_swap(g, base: int, key: str, what: str, timeout: float = 6.0):
+    return _rep_until(g, lambda s: (getattr(s, f"coop_act_trance_{key}") or 0) > base, what, timeout)
+
+
+def test_the_stand_in_defers_the_model_to_the_grace_and_the_hit(game):
+    """6.11 on the stand-in, the seat at wire 0: `unit 0 trance1` alone HOLDS the normal model (deferred +1, pending bit 0,
+    trance_model False -- the status already carries Trance) and the grace swaps it 400-450 ms of battle time after the
+    record; `unit 0 trance0` + a SysTrans END START in ONE request (the agent's Block(2) between) swaps back AT that replay's
+    hit (last.ms == act.guest.last.first_hit_ms, via hit), the present colour following at the replay's end."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        _tr_arm(g)
+        st = g.act_unit(0, "trance1")
+        assert (st.coop_act_trance_deferred, st.coop_act_trance_pending, st.unit_trance_model(0)) == (1, 1, False)
+        assert int(_tr_u(st, 0)["status"]) & BW.BATTLE_STATUS_TRANCE                        # the bit follows at once
+        st = _tr_swap(g, 0, "swaps_by_grace", "the grace")
+        last = st.coop_act_trance_last
+        assert (last["via"], last["to"], last["slot"]) == ("grace", True, 0) and st.unit_trance_model(0) is True
+        assert BW.ACT_TRANCE_GRACE_MS <= last["ms"] - last["record_ms"] <= BW.ACT_TRANCE_GRACE_MS + 50, last
+        g.wait_frames(40)                                               # past the on-arrival window of nothing (no burst)
+        e = BW.encode_action_start(0x77, 1, 9, 0, BW.ACTOR_IS_PLAYER | BW.ACTOR_HOST_REWORK, BW.CMD_SYS_TRANS, 0, 0x01, 0,
+                                   0, 0, BW.VFX_KIND_SPECIAL, BW.SPECIAL_TRANCE_END, -1, 5)
+        g.send("netsync actbench unit 0 trance0", f"netsync actbench feed {BW.act_feed_arg([e])}")
+        st = g.state
+        assert st.coop_act_trance_pending == 1 and st.unit_trance_model(0) is True
+        st = _tr_swap(g, 0, "swaps_by_hit", "the END's hit")
+        last, gl = st.coop_act_trance_last, st.coop_act_guest_last
+        assert (last["via"], last["to"], last["id"]) == ("hit", False, 9) and last["ms"] == gl["first_hit_ms"] >= 0
+        assert st.unit_trance_model(0) is False
+        present = st.coop_act_trance_present
+        st = _rep_until(g, lambda s: s.coop_act_guest_running == 0, "the END replay's end")
+        assert st.coop_act_trance_present == present + 1 and BW.act_trance_accounted(st.coop_act_trance_block)
+    assert _mlog_lines(fake, BW.LOG_TRANCE_WAITS) and _mlog_lines(fake, "(hit, replay id 9, ")
+
+
+def test_the_stand_in_swaps_at_once_for_a_declined_start_and_on_arrival(game):
+    """A declined SysTrans START (START + END in one feed: `stale`) ends the grace AT ONCE (swaps_by_decline +1, via
+    declined, well under 400 ms); in the START-FIRST order (the declined START, then -- the same request -- the record) the
+    sample swaps ON ARRIVAL (on_arrival +1, deferred +0, record_ms -1)."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        _tr_arm(g)
+        s = BW.encode_action_start(0x77, 1, 3, 0, BW.ACTOR_IS_PLAYER | BW.ACTOR_HOST_REWORK, BW.CMD_SYS_TRANS, 0, 0x01, 0,
+                                   0, 0, BW.VFX_KIND_SPECIAL, BW.SPECIAL_TRANCE_ACTIVATE, -1, 5)
+        end = BW.encode_action_end(0x77, 2, 3, BW.CMD_SYS_TRANS, 0)
+        g.send("netsync actbench unit 0 trance1", f"netsync actbench feed {BW.act_feed_arg([s, end])}")
+        st = _tr_swap(g, 0, "swaps_by_decline", "the decline")
+        last = st.coop_act_trance_last
+        assert last["via"] == "declined" and last["ms"] - last["record_ms"] < BW.ACT_TRANCE_GRACE_MS
+        assert st.coop_act_guest_stale == 1 and st.unit_trance_model(0) is True
+        g.act_unit(0, "trance0")
+        _rep_until(g, lambda s: s.unit_trance_model(0) is False and s.coop_act_trance_pending == 0, "back to normal")
+        g.wait_frames(40)
+        s2 = BW.encode_action_start(0x77, 1, 4, 0, BW.ACTOR_IS_PLAYER | BW.ACTOR_HOST_REWORK, BW.CMD_SYS_TRANS, 0, 0x01, 0,
+                                    0, 0, BW.VFX_KIND_SPECIAL, BW.SPECIAL_TRANCE_ACTIVATE, -1, 5)
+        base, arrived = g.state.coop_act_trance_deferred, g.state.coop_act_trance_on_arrival   # (the reset's own, if any)
+        g.send(f"netsync actbench feed {BW.act_feed_arg([s2, BW.encode_action_end(0x77, 2, 4, BW.CMD_SYS_TRANS, 0)])}",
+               "netsync actbench unit 0 trance1")
+        st = g.state
+        last = st.coop_act_trance_last
+        assert (last["via"], last["record_ms"], st.coop_act_trance_on_arrival, st.coop_act_trance_deferred) == (
+            "on-arrival", -1, arrived + 1, base) and st.unit_trance_model(0) is True
+
+
+def test_the_stand_in_under_the_lever_or_without_bit5_swaps_at_the_sample(game, monkeypatch):
+    """6.11's RED, both ways, on the stand-in: `trancegrace off` (the pre-s137 timing) and an armed feed with caps 0x02 (bit
+    5 never latched: an old host) each swap at the SAMPLE (immediate +1, deferred +0, the trance model on the op's own
+    state) -- and a SysTrans hit then swaps nothing (hit_unpaired +0) EVEN WITH A PROBE THAT DIFFERS (fix pass:
+    harness-lever-hit-assertion-vacuous: the mirrored bit cleared with no sample, the worn model still the trance one, an
+    End burst's hit): the two reds read the same; a hit rule blind to the gate swaps there (the check can fail); the
+    stand-in at s136 publishes no worn model at all (`trance_model` is s137's)."""
+    def run(how):
+        fake = _rep_dio(game)
+        with session(game, fake) as g:
+            _dio(g, fake)
+            _tr_arm(g, 0x22 if how == "lever" else 0x02)
+            if how == "lever":
+                g.act_trance_grace(False)
+            st = g.act_unit(0, "trance1")
+            assert (st.coop_act_trance_immediate, st.coop_act_trance_deferred, st.unit_trance_model(0)) == (1, 0, True), how
+            assert st.coop_act_trance_gate is False and st.coop_act_trance_last["via"] == "immediate"
+            fake._act_guest.hold.trance[0] = False                      # the bit cleared with NO sample: the probe differs
+            s = BW.encode_action_start(0x77, 1, 5, 0, BW.ACTOR_IS_PLAYER | BW.ACTOR_HOST_REWORK, BW.CMD_SYS_TRANS, 0, 0x01,
+                                       0, 0, 0, BW.VFX_KIND_SPECIAL, BW.SPECIAL_TRANCE_END, -1, 5)
+            g.act_feed([s])
+            return _rep_until(g, lambda s: s.coop_act_guest_hits >= 1 and s.coop_act_guest_running == 0, "the burst's end")
+    for how in ("lever", "caps"):
+        st = run(how)
+        assert st.coop_act_trance_hit_unpaired == 0 and st.coop_act_trance_swaps_by_hit == 0, how
+        assert st.unit_trance_model(0) is True                          # the hit swapped nothing, the probe differing
+    monkeypatch.setattr(BW, "act_trance_hit_swaps", lambda gate, wearing, bit: bool(wearing) != bool(bit))
+    st = run("lever")
+    assert st.coop_act_trance_hit_unpaired == 1 and st.unit_trance_model(0) is False   # a gate-blind hit: red
+    monkeypatch.undo()
+    old = _rep_dio(game, caps=S136_CAPS)
+    with session(game, old) as g:
+        _dio(g, old)
+        st = g.act_unit(0, "trance1")
+        assert "trance_model" not in _tr_u(st, 0) and st.coop_act_trance is False
+
+
+def test_the_stand_in_flushes_at_the_end_injection_and_drops_at_the_teardown(game):
+    """A pending deferral ends at the END INJECTION's head (swaps_by_inject +1, via inject, the trance model -- the stock
+    tails own the units after it) and at the TEARDOWN (`actbench teardown`: dropped +1, via teardown, nothing applied, the
+    boot summary line); the block's identity holds after each."""
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        _tr_arm(g)
+        g.send("netsync actbench unit 0 trance1", "netsync actbench teardown")
+        st = g.state
+        assert (st.coop_act_trance_dropped, st.coop_act_trance_pending, st.unit_trance_model(0)) == (1, 0, False)
+        assert st.coop_act_trance_last["via"] == "teardown" and st.coop_act_trance_last["swapped"] is False
+        assert BW.act_trance_accounted(st.coop_act_trance_block)
+    assert _mlog_lines(fake, BW.LOG_TRANCE_SUMMARY + "teardown (bench)) -- 1 deferred")
+    fake = _rep_dio(game)
+    with session(game, fake) as g:
+        _dio(g, fake)
+        _tr_arm(g)
+        g.send("netsync actbench unit 0 trance1", "netsync endbench victory")
+        st = _rep_until(g, lambda s: s.coop_present_injected is True, "the injection")
+        assert (st.coop_act_trance_swaps_by_inject, st.coop_act_trance_pending, st.unit_trance_model(0)) == (1, 0, True)
+        assert st.coop_act_trance_last["via"] == "inject" and BW.act_trance_accounted(st.coop_act_trance_block)
+
+
+class _TrRig:
+    """battlewire.ActGuestLane with the hold, fallback A and the trance timing (the s137 stand-in's lane) off the game: the
+    bench feed, the `unit` record, the stand-in's tick order (drain, then tick) on a 33 ms frame, bit 5 latched."""
+
+    def __init__(self, *, bit5: bool = True, frames: int = 30):
+        self.lane = BW.ActGuestLane()
+        self.lane.with_hold_fn = self.lane.with_fallback_fn = self.lane.with_trance_fn = True
+        self.lane.REPLAY_FRAMES = frames
+        self.lane.HIT_FRAME = min(self.lane.HIT_FRAME, frames - 1)
+        self.units = _lane_units()
+        self.ms = 0
+        if bit5:
+            self.lane.latch_caps(0x22, True)
+
+    def ctx(self, **kw) -> dict:
+        c = {"booted": True, "role": True, "steady": True, "normal_latched": True, "live_latched": False, "paused": False,
+             "now_ms": self.ms, "wall_ms": self.ms, "end_injected": False, "r8_hits": 0, "end_presented": False,
+             "leaving": False, "hidden_mask": 0, "units": self.units,
+             "resolve": lambda i, p: next((u for u in self.units if u["slot"] == i and u["player"] == p), None),
+             "linked": lambda u: any(u is x for x in self.units)}
+        c.update(kw)
+        return c
+
+    def step(self, n: int = 1, **kw) -> None:
+        for _ in range(n):
+            self.ms += 33
+            self.lane.drain_bench(self.ctx(**kw))
+            self.lane.tick(self.ctx(**kw))
+
+    def until(self, pred, limit: int = 400, **kw) -> int:
+        for k in range(limit):
+            if pred():
+                return k
+            self.step(1, **kw)
+        raise AssertionError("never")
+
+    def feed(self, *frames) -> None:
+        ok, why = self.lane.bench(["actbench", "feed", BW.act_feed_arg(frames)], booted=True, role=True)
+        assert ok, why
+
+    def unit(self, slot: int, state: str) -> None:
+        ok, why = self.lane.bench(["actbench", "unit", str(slot), state], booted=True, role=True, ctx=self.ctx())
+        assert ok, why
+
+    @property
+    def tr(self):
+        return self.lane.trance
+
+    def now_minus(self, at_ms: int) -> int:
+        """The lane's battle ms since ``at_ms``."""
+        return self.lane.now_ms - int(at_ms)
+
+
+def _tr_start(act_id: int, *, actor: int = 0, cmd: int = BW.CMD_SYS_TRANS, num: int = BW.SPECIAL_TRANCE_ACTIVATE,
+              tar: int = 0x01, player: bool = True, kind: int | None = None) -> bytes:
+    flags = (BW.ACTOR_IS_PLAYER if player else 0) | BW.ACTOR_HOST_REWORK
+    kind = (BW.VFX_KIND_SPECIAL if player else BW.VFX_KIND_ENEMY) if kind is None else kind
+    return BW.encode_action_start(0x77, 1, act_id, actor, flags, cmd, 0, tar, 0, 0, 0, kind, num, -1, 5)
+
+
+def _tr_grace_rig(**kw) -> "_TrRig":
+    rig = _TrRig(**kw)
+    rig.step()
+    rig.unit(0, "trance1")
+    rig.until(lambda: rig.tr.pend == 0)
+    return rig
+
+
+def _tr_park_rig(*, frames: int = 90) -> "_TrRig":
+    """An Attack replay of wire 0 running, then the record, then a SysTrans START of wire 0 PARKED behind it until the
+    pending-start bound (1500 ms) cuts the Attack -- every replay's hit 60 frames (1980 ms) into its run, so the burst's
+    own hit lands ~3.5 s after the record: past the grace AND the cap."""
+    rig = _TrRig(frames=frames)
+    rig.lane.HIT_FRAME = 60
+    rig.step()
+    rig.feed(_tr_start(1, cmd=BW.CMD_ATTACK_ID, num=100, tar=0x10))
+    rig.step()
+    rig.unit(0, "trance1")
+    rig.step()
+    rig.feed(_tr_start(2))
+    rig.until(lambda: rig.tr.pend == 0, 800)
+    return rig
+
+
+def test_the_trance_lane_holds_a_parked_burst_past_the_grace_and_the_cap(monkeypatch):
+    """THE BURST'S EXEMPTION (the engine's refinement of amendment 3, needed by audit 4.8's leg): a SysTrans START parked
+    behind its actor's running replay holds the deferral past the 400 ms grace AND past the 2500 ms cap -- the swap at ITS
+    hit. The stand-in can FAIL this ordering: a step whose cap cuts the burst swaps by the cap, one that graces it swaps at
+    400 ms, before that START ever launched."""
+    rig = _tr_park_rig()
+    last, rec = rig.tr.last, rig.lane.book.find(BW.ActBook.key_of(0x77, 2))
+    assert (last["via"], last["id"]) == ("hit", 2) and last["ms"] == rec.first_hit_ms
+    assert rec.launch_ms - rec.arrive_ms > BW.ACT_TRANCE_GRACE_MS and last["ms"] - last["record_ms"] > BW.ACT_TRANCE_CAP_MS
+    # both layers exempt the burst (the step AND the verdict): with neither, the cap cuts it before its hit; with a busy
+    # rule that sees nothing at all, the grace does -- each well before the burst's own hit
+    real_verdict, real_step = BW.act_trance_verdict, BW.act_trance_step
+
+    def blind_verdict(gate, leaving, normal, unit_ok, wearing, bit, frozen, dead, burst, hit, declined, ended, step):
+        return real_verdict(gate, leaving, normal, unit_ok, wearing, bit, frozen, dead, False, hit, declined, ended, step)
+
+    def blind_step(record_ms, last_busy_ms, busy_now, burst, now_ms):
+        return real_step(record_ms, last_busy_ms, busy_now, False, now_ms)
+    for patches, via in (((BW, "act_trance_verdict", blind_verdict), (BW, "act_trance_step", blind_step)), "cap"), \
+            (((BW.ActTranceLane, "busy_of", lambda self, s, d: (False, False)),), "grace"):
+        for owner, name, fn in patches:
+            monkeypatch.setattr(owner, name, fn)
+        bad = _tr_park_rig()
+        hit = bad.lane.book.find(BW.ActBook.key_of(0x77, 2)).first_hit_ms
+        assert bad.tr.last["via"] == via and (hit < 0 or bad.tr.last["ms"] < hit), (via, bad.tr.last, hit)
+        monkeypatch.undo()
+
+
+def test_the_trance_lane_holds_while_a_replay_names_the_unit_then_the_grace_or_the_cap(monkeypatch):
+    """THE BUSY HOLD: an Attack replay of wire 0 (or ON wire 0, by an enemy) names the unit -- the grace counts from the
+    LAST frame it was named (the swap 400 ms after that replay's end); a replay that names it longer than 2500 ms meets THE
+    CAP; a held impact on its slot names it too. The stand-in can FAIL each: a busy rule blind to the target, a grace from
+    the record alone."""
+    for actor, tar, player in ((0, 0x10, True), (4, 0x01, False)):
+        rig = _TrRig(frames=20)
+        rig.step()
+        rig.feed(_tr_start(1, actor=actor, cmd=BW.CMD_ATTACK_ID if player else BW.CMD_ENEMY_ATK, num=100 if player else 0,
+                           tar=tar, player=player))
+        rig.step()
+        rig.unit(0, "trance1")
+        rig.until(lambda: rig.tr.pend == 0)
+        rec = rig.lane.book.find(BW.ActBook.key_of(0x77, 1))
+        assert rig.tr.last["via"] == "grace" and BW.ACT_TRANCE_GRACE_MS - 33 <= rig.tr.last["ms"] - rec.end_ms <= \
+            BW.ACT_TRANCE_GRACE_MS + 33, (actor, rig.tr.last, rec.end_ms)
+    long = _TrRig(frames=200)                                           # ~6.6 s: past the cap
+    long.step()
+    long.feed(_tr_start(1, actor=2, cmd=BW.CMD_SUMMON_GARNET, num=BW.SPECIAL_LEVIATHAN_FULL, tar=0x01))
+    long.step()
+    long.unit(0, "trance1")
+    long.until(lambda: long.tr.pend == 0)
+    assert long.tr.last["via"] == "cap" and BW.ACT_TRANCE_CAP_MS <= long.tr.last["ms"] - long.tr.last["record_ms"] <= \
+        BW.ACT_TRANCE_CAP_MS + 33 and long.lane.running
+    # a busy rule that reads a running replay's ACTOR only (ActUnitsOf without its targets): the summon ON the unit no
+    # longer names it -- the grace swaps 400 ms in, the summon still running
+    monkeypatch.setattr(BW.ActGuestLane, "_units_of", lambda self, r: int(r.actor.get("id", 0)) if r.actor else 0)
+    blind = _TrRig(frames=200)
+    blind.step()
+    blind.feed(_tr_start(1, actor=2, cmd=BW.CMD_SUMMON_GARNET, num=BW.SPECIAL_LEVIATHAN_FULL, tar=0x01))
+    blind.step()
+    blind.unit(0, "trance1")
+    blind.until(lambda: blind.tr.pend == 0)
+    assert blind.tr.last["via"] == "grace" and blind.lane.running
+    monkeypatch.undo()
+    monkeypatch.setattr(BW.ActTranceLane, "busy_of", lambda self, s, d: (False, False))
+    blind = _TrRig(frames=200)
+    blind.step()
+    blind.feed(_tr_start(1, actor=2, cmd=BW.CMD_SUMMON_GARNET, num=BW.SPECIAL_LEVIATHAN_FULL, tar=0x01))
+    blind.step()
+    blind.unit(0, "trance1")
+    blind.until(lambda: blind.tr.pend == 0)
+    assert blind.tr.last["via"] == "grace"                              # a busy rule that sees nothing graces at 400 ms
+    monkeypatch.undo()
+    monkeypatch.setattr(BW, "act_trance_step", _tr_step_with(record_only=True))
+    early = _TrRig(frames=40)
+    early.step()
+    early.feed(_tr_start(1, cmd=BW.CMD_ATTACK_ID, num=100, tar=0x10))
+    early.step()
+    early.unit(0, "trance1")
+    early.until(lambda: early.tr.pend == 0)
+    assert early.tr.last["via"] == "grace" and early.lane.running         # swapped while the Attack still ran
+    monkeypatch.undo()
+    # [ff9mapkit netsync s137 fix pass] (harness-busy-held-impact) a HELD impact on the unit's slot names it too -- no
+    # replay names wire 0 here (ActUnitsOf blinded), only an impact the hold keeps: the deferral waits for its release,
+    # then the grace counts from there. A busy rule without the held / queued loop graces 400 ms after the record instead.
+    def held_rig():
+        rig = _TrRig()
+        rig.step()
+        h = BW.ActHeld(slots=0x01, arrive_ms=rig.ms)
+        rig.lane.hold.held.append(h)
+        rig.unit(0, "trance1")
+        rig.step(30)                                                    # ~1 s, inside the held impact's own 2.5 s
+        if rig.tr.pend:
+            rig.lane.hold.held.remove(h)                                # its release (the replay's hit, its timeout)
+        released = rig.ms
+        rig.until(lambda: rig.tr.pend == 0)
+        return rig, released
+    monkeypatch.setattr(BW.ActGuestLane, "_units_of", lambda self, r: 0)
+    rig, released = held_rig()
+    assert rig.tr.last["via"] == "grace" and BW.ACT_TRANCE_GRACE_MS - 33 <= rig.tr.last["ms"] - released <= \
+        BW.ACT_TRANCE_GRACE_MS + 33, (rig.tr.last, released)
+    real_busy = BW.ActTranceLane.busy_of
+
+    def busy_no_held(self, s, d):
+        saved = (self.lane.hold.held, self.lane.hold.queued)
+        self.lane.hold.held, self.lane.hold.queued = [], []
+        try:
+            return real_busy(self, s, d)
+        finally:
+            self.lane.hold.held, self.lane.hold.queued = saved
+    monkeypatch.setattr(BW.ActTranceLane, "busy_of", busy_no_held)
+    blind, released = held_rig()
+    assert blind.tr.last["via"] == "grace" and blind.tr.last["ms"] - blind.tr.last["record_ms"] <= \
+        BW.ACT_TRANCE_GRACE_MS + 33 and blind.tr.last["ms"] < released     # swapped while the impact was still held
+
+
+def test_the_trance_lane_ends_the_grace_at_a_decline_an_end_and_a_fallen_gate(monkeypatch):
+    """At once: a decline of the unit's SysTrans START (`stale`, a NOOP, an abort-all's drop -- never a `duplicate` copy's),
+    its replay's END without a hit (swaps_by_end), the gate falling mid-grace (`replay off`: swaps_by_decline via gate). The
+    stand-in can FAIL each: a decline rule that keeps waiting reads the grace (400 ms late), a verdict blind to the end
+    waits for the grace too."""
+    rig = _TrRig()
+    rig.step()
+    rig.unit(0, "trance1")
+    rig.feed(_tr_start(1), BW.encode_action_end(0x77, 2, 1, BW.CMD_SYS_TRANS, 0))
+    rig.until(lambda: rig.tr.pend == 0)
+    assert rig.tr.last["via"] == "declined" and rig.tr.last["ms"] - rig.tr.last["record_ms"] < 100
+    noop = _TrRig()
+    noop.step()
+    noop.unit(0, "trance1")
+    noop.feed(BW.encode_action_start(0x77, 1, 1, 0, BW.ACTOR_IS_PLAYER | BW.ACTOR_HOST_REWORK, BW.CMD_SYS_TRANS, 0, 0x01,
+                                     0, 0, 0, BW.VFX_KIND_NONE, 0, -1, 5))
+    noop.until(lambda: noop.tr.pend == 0)
+    assert noop.tr.last["via"] == "declined" and noop.lane.noop == 1
+    dup = _TrRig()
+    dup.step()
+    dup.feed(_tr_start(1, cmd=BW.CMD_ATTACK_ID, num=100, tar=0x10))     # (a first START of id 7 elsewhere: no SysTrans)
+    dup.step()
+    dup.unit(0, "trance1")
+    dup.feed(_tr_start(1))                                              # a SysTrans with a spent id: `duplicate`
+    dup.until(lambda: dup.tr.pend == 0)
+    assert dup.lane.declined_why == "duplicate" and dup.tr.last["via"] == "grace"
+    gate = _TrRig()
+    gate.step()
+    gate.unit(0, "trance1")
+    gate.step(2)
+    ok, _why = gate.lane.bench(["actbench", "replay", "off"], booted=True, role=True)
+    gate.step()
+    assert ok and gate.tr.last["via"] == "gate" and gate.tr.by_decline == 1
+    end = _TrRig(frames=30)
+    end.lane.HIT_FRAME = 99                                             # a burst that ends WITHOUT a hit
+    end.step()
+    end.unit(0, "trance1")
+    end.feed(_tr_start(1))
+    end.until(lambda: end.tr.pend == 0)
+    assert end.tr.last["via"] == "ended" and end.tr.by_end == 1 and end.tr.present >= 1
+    monkeypatch.setattr(BW, "act_trance_decline_ends", lambda why: False)
+    late = _TrRig()
+    late.step()
+    late.unit(0, "trance1")
+    late.feed(_tr_start(1), BW.encode_action_end(0x77, 2, 1, BW.CMD_SYS_TRANS, 0))
+    late.until(lambda: late.tr.pend == 0)
+    assert late.tr.last["via"] == "grace"
+    monkeypatch.undo()
+    # a verdict blind to the burst's END (its end mark ignored): the burst that never hit leaves the swap to the grace
+    real_verdict = BW.act_trance_verdict
+
+    def end_blind(gate, leaving, normal, unit_ok, wearing, bit, frozen, dead, burst, hit, declined, ended, step):
+        return real_verdict(gate, leaving, normal, unit_ok, wearing, bit, frozen, dead, burst, hit, declined, False, step)
+    monkeypatch.setattr(BW, "act_trance_verdict", end_blind)
+    blind = _TrRig(frames=30)
+    blind.lane.HIT_FRAME = 99
+    blind.step()
+    blind.unit(0, "trance1")
+    blind.feed(_tr_start(1))
+    blind.until(lambda: blind.tr.pend == 0)
+    assert blind.tr.last["via"] == "grace" and blind.tr.by_end == 0
+
+
+def test_the_trance_lane_swaps_on_arrival_only_inside_the_window_and_never_for_a_duplicate():
+    """THE START-FIRST ORDER: a sample within 400 ms after its unit's SysTrans hit, decline or end swaps at once
+    (`on_arrival`, not deferred); one past the window defers (the grace then); a deferral already pending keeps its record
+    (the resolution re-reads the bit)."""
+    rig = _TrRig()
+    rig.step()
+    rig.feed(_tr_start(1), BW.encode_action_end(0x77, 2, 1, BW.CMD_SYS_TRANS, 0))
+    rig.step()
+    rig.unit(0, "trance1")
+    assert (rig.tr.on_arrival, rig.tr.deferred, rig.tr.last["via"]) == (1, 0, "on-arrival")
+    rig.unit(0, "trance0")
+    assert rig.tr.on_arrival == 2
+    rig.step(14)                                                        # 462 ms: past the window
+    rig.unit(0, "trance1")
+    assert (rig.tr.deferred, rig.tr.pend) == (1, 1)
+    rig.unit(0, "trance0")                                              # the bit flips back while pending: moot later
+    assert rig.tr.deferred == 1
+    rig.step()
+    assert (rig.tr.moot, rig.tr.pend, rig.tr.last["via"]) == (1, 0, "moot")
+    # [ff9mapkit netsync s137 fix pass] (harness-arrival-test-misnamed) a DUPLICATE copy's decline marks nothing: the first
+    # START of that id may still launch, so a sample right after it DEFERS (never on arrival) -- a decline rule that let a
+    # duplicate end the grace would swap it on arrival
+    def dup_rig():
+        dup = _TrRig()
+        dup.step()
+        dup.feed(_tr_start(1, cmd=BW.CMD_ATTACK_ID, num=100, tar=0x10))   # id 1: an Attack (no burst)
+        dup.step()
+        dup.feed(_tr_start(1))                                          # a SysTrans reusing id 1: `duplicate`
+        dup.step()
+        dup.unit(0, "trance1")
+        return dup
+    dup = dup_rig()
+    assert dup.lane.declined_why == "duplicate" and (dup.tr.deferred, dup.tr.on_arrival) == (1, 0)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(BW, "act_trance_decline_ends", lambda why: True)
+        bad = dup_rig()
+        assert bad.lane.declined_why == "duplicate" and (bad.tr.deferred, bad.tr.on_arrival) == (0, 1)
+
+
+def test_the_trance_lane_hit_swaps_by_the_probe_and_the_flush_and_teardown_end_every_deferral():
+    """THE HIT (D2): a SysTrans hit with no deferral pending but a worn model that differs swaps (`hit_unpaired`); with the
+    model already right it swaps nothing; THE END INJECTION's flush swaps by the probe (a dead unit dropped); THE TEARDOWN
+    drops (nothing applied); the identity holds throughout -- and every state the lane publishes is the agent's keys."""
+    rig = _TrRig(bit5=False)                                            # ungated: the sample swaps at once
+    rig.step()
+    rig.unit(0, "trance1")
+    assert rig.tr.immediate == 1 and rig.tr.wears(rig.units[0])
+    rig.lane.latch_caps(0x22, True)                                     # gated from here
+    rig.lane.hold.trance[0] = False                                     # the bit cleared with no sample (a probe that
+    rig.feed(_tr_start(1, num=BW.SPECIAL_TRANCE_END))                   # differs): the END's hit swaps it, unpaired
+    rig.until(lambda: rig.tr.hit_unpaired == 1)
+    assert not rig.tr.wears(rig.units[0]) and rig.tr.last["via"] == "hit"
+    rig.step(30)
+    rig.unit(0, "trance1")
+    rig.unit(1, "trance1")
+    rig.units[1]["alive"] = False
+    rig.tr.flush(rig.ctx())
+    assert (rig.tr.by_inject, rig.tr.dropped, rig.tr.pend) == (1, 1, 0) and rig.tr.wears(rig.units[0])
+    rig.unit(0, "trance0")
+    rig.lane.discard_all("teardown (bench)")
+    assert rig.tr.dropped == 2 and rig.tr.wears(rig.units[0]) and rig.tr.pend == 0
+    assert BW.act_trance_accounted(rig.tr.doc(role=True, booted=True))
+    assert list(rig.tr.doc(role=True, booted=True)) == list(BW.ACT_GUEST_TRANCE_SENTINELS)
+    assert any(ln.startswith(BW.LOG_TRANCE_SUMMARY + "teardown (bench)) -- 3 deferred") for ln in rig.lane.lines)
+
+
+def _tr_kill_rig(*, mirror: bool = True, trust: bool = True, monkeypatch=None) -> "_TrRig":
+    """(fix: model-1) the deferral recorded, then the unit KILLED by a dead sample carrying InTrance 0 (the host's
+    DeathStatusScript stripped Trance: its Activate was still queued), then the host's SysTrans END (489) on the corpse,
+    run to its end and one resolver frame past it."""
+    rig = _TrRig(frames=30)
+    rig.step()
+    rig.unit(0, "trance1")
+    assert rig.tr.pend == 1
+    rig.lane.hold.apply_unit(rig.units[0], 0, "dead", 9, True, in_trance=False)
+    rig.step()
+    assert not rig.units[0]["alive"]
+    rig.feed(_tr_start(1, num=BW.SPECIAL_TRANCE_END))
+    rig.until(lambda: rig.lane.hits >= 1 and not rig.lane.running)
+    rig.step()
+    return rig
+
+
+def test_the_trance_lane_mirrors_a_corpses_bit_so_its_end_burst_swaps_nothing(monkeypatch):
+    """(fix: model-1) A unit whose gauge filled on hit 1 and that died on hit 2 of the same action: the host's corpse stays
+    in its NORMAL model (its END burst's SetTranceModel(false)). The dead sample now mirrors the host's bit (0): the
+    resolver reads the change moot, and the corpse's END burst swaps nothing (hit_unpaired +0, hit_untrusted +0). The
+    stand-in can FAIL it both layers deep: without the mirror the corpse's deferral waits for its own burst on a STALE bit
+    (fix pass 2, rmodel-1: a corpse is no longer dropped), the END's contradicting bit swaps nothing at its hit (the trust
+    rule: hit_untrusted +1) but its end puts the trance model on (swaps_by_end +1); without the mirror AND the trust rule
+    the END's hit puts it on (swaps_by_hit +1)."""
+    rig = _tr_kill_rig()
+    assert rig.lane.declined_why != "dead" and rig.lane.hits >= 1      # the corpse's SysTrans ran (ActDeadMayRun)
+    assert (rig.tr.wears(rig.units[0]), rig.tr.hit_unpaired, rig.tr.hit_untrusted, rig.tr.moot, rig.tr.pend) == (
+        False, 0, 0, 1, 0)
+    assert BW.act_trance_accounted(rig.tr.doc(role=True, booted=True))
+    monkeypatch.setattr(BW.ActHoldLane, "mirror_dead_trance", lambda self, d, in_trance: None)
+    stale = _tr_kill_rig()
+    assert (stale.tr.wears(stale.units[0]), stale.tr.hit_untrusted, stale.tr.by_end) == (True, 1, 1) \
+        and stale.tr.last["via"] == "ended"                             # the corpse in its trance model: red
+    monkeypatch.setattr(BW, "act_trance_hit_trusts", lambda frozen, num, bit: True)
+    bad = _tr_kill_rig()
+    assert (bad.tr.wears(bad.units[0]), bad.tr.by_hit) == (True, 1)     # the regression the fix removes
+
+
+def test_the_trance_lane_waits_on_a_frozen_slot_past_the_cap_and_its_hit_swaps_nothing(monkeypatch):
+    """(fix: model-2) While s135's life mask freezes wire 0 its bit is stale: the deferral WAITS past the 2500 ms cap, and a
+    SysTrans hit on it swaps nothing (hit_untrusted +1, the burst's mark kept); once the mask lets go the resolver swaps
+    by the bit then. A resolver blind to the freeze swaps by the cap while frozen."""
+    def rig_frozen():
+        rig = _TrRig(frames=30)
+        rig.step()
+        rig.unit(0, "trance1")
+        rig.lane.hold.life_mask |= 0x01                                 # a held kill or revive on wire 0
+        rig.step(int(BW.ACT_TRANCE_CAP_MS / 33) + 10)
+        return rig
+    rig = rig_frozen()
+    assert rig.tr.pend == 1 and rig.tr.by_cap == 0 and not rig.tr.wears(rig.units[0])
+    rig.feed(_tr_start(1))
+    rig.until(lambda: rig.lane.hits >= 1)
+    assert (rig.tr.hit_untrusted, rig.tr.by_hit, rig.tr.pend) == (1, 0, 1) and rig.tr.last["via"] == "frozen"
+    assert rig.tr.hit_ms[0] >= 0 and not rig.tr.wears(rig.units[0])
+    rig.lane.hold.life_mask = 0
+    rig.step()
+    assert rig.tr.pend == 0 and rig.tr.wears(rig.units[0]) and rig.tr.last["via"] in ("cap", "ended")
+    assert BW.act_trance_accounted(rig.tr.doc(role=True, booted=True))
+    monkeypatch.setattr(BW.ActTranceLane, "frozen", lambda self, s, role: False)
+    blind = rig_frozen()
+    assert blind.tr.pend == 0 and blind.tr.last["via"] in ("grace", "cap")   # swapped on a frozen bit: red
+
+
+def test_the_trance_lane_catch_up_swaps_on_arrival_when_the_burst_passed_during_the_freeze(monkeypatch):
+    """(fix: timing-3) The trance record SKIPPED by the life mask (cached), its SysTrans burst hitting during the freeze,
+    the mask letting go more than 400 ms later: the catch-up's re-apply swaps ON ARRIVAL (the burst passed since the
+    freeze began) instead of deferring a change whose burst is long over. A window blind to the freeze defers it."""
+    pin = {"mask": 0}                                                   # the held life change on wire 0, kept by hand
+    real_recompute = BW.ActHoldLane.recompute_mask
+
+    def pinned(self):
+        real_recompute(self)
+        self.life_mask |= pin["mask"]
+    monkeypatch.setattr(BW.ActHoldLane, "recompute_mask", pinned)
+
+    def rig_caught_up():
+        rig = _TrRig(frames=30)
+        rig.step()
+        pin["mask"] = rig.lane.hold.life_mask = 0x01
+        rig.unit(0, "trance1")                                          # skipped: cached for the catch-up
+        assert 0 in rig.lane.hold.skipped and rig.tr.deferred == 0
+        rig.feed(_tr_start(1))
+        rig.until(lambda: rig.lane.hits >= 1)
+        rig.step(40)                                                    # ~1.3 s: the replay's end, too, 400+ ms behind
+        assert 0 in rig.lane.hold.skipped and rig.tr.deferred == 0 and not rig.lane.running   # (still frozen)
+        assert rig.now_minus(rig.tr.hit_ms[0]) > BW.ACT_TRANCE_GRACE_MS and rig.now_minus(rig.tr.end_ms[0]) > \
+            BW.ACT_TRANCE_GRACE_MS
+        pin["mask"] = rig.lane.hold.life_mask = 0
+        rig.step()                                                      # the hold's catch-up, then the resolver
+        return rig
+    rig = rig_caught_up()
+    assert (rig.tr.on_arrival, rig.tr.deferred, rig.tr.last["via"]) == (1, 0, "on-arrival") and rig.tr.wears(rig.units[0])
+    real = BW.act_trance_on_arrival
+    monkeypatch.setattr(BW, "act_trance_on_arrival", lambda now, since, hit, decl, end: real(now, -1, hit, decl, end))
+    late = rig_caught_up()
+    assert (late.tr.on_arrival, late.tr.deferred) == (0, 1)
+
+
+def test_the_trance_lane_keeps_a_hidden_units_new_model_hidden_outside_a_sequence(monkeypatch):
+    """(fix: stock-hidden-swap) A swap made OUTSIDE a sequence (here the grace) on a DISAPPEARED unit keeps its new model
+    hidden (ChangeModel activated it; ActTranceSwap deactivates it again: its own SetDisappear(false) shows it later); a
+    visible unit's stays shown; the hit's swap stays the plain call. The stand-in can FAIL it: a resolver swapping through
+    the raw SetTranceModel leaves the hidden unit's new model active."""
+    def graced(hidden):
+        rig = _TrRig()
+        rig.units[0]["disappear"] = 1 if hidden else 0
+        rig.step()
+        rig.unit(0, "trance1")
+        rig.until(lambda: rig.tr.pend == 0)
+        assert rig.tr.last["via"] == "grace" and rig.tr.wears(rig.units[0])
+        return rig.tr.active.get(0)
+    assert (graced(True), graced(False)) == (False, True)
+    hit = _TrRig(frames=30)
+    hit.units[0]["disappear"] = 1
+    hit.step()
+    hit.unit(0, "trance1")
+    hit.feed(_tr_start(1))
+    hit.until(lambda: hit.tr.pend == 0)
+    assert hit.tr.last["via"] == "hit" and hit.tr.active.get(0) is True   # inside the burst's own hide: the host's call
+    monkeypatch.setattr(BW.ActTranceLane, "swap_kept", BW.ActTranceLane.swap)
+    assert graced(True) is True                                         # the raw call: shown while hidden -- red
+
+
+def test_the_trance_lane_caps_a_stalled_burst_at_its_ceiling(monkeypatch):
+    """(fix: timing-1) THE BURST CEILING: a SysTrans START that never leaves the queue (an ActTick try that keeps throwing,
+    a stalled sequence) holds the deferral past the cap -- but the resolver owns a bound of its own: 8500 ms of battle time
+    after the record it swaps by the cap ("cap"). A step without the ceiling waits for as long as the queue does."""
+    monkeypatch.setattr(BW.ActGuestLane, "_decide_queue", lambda self, ctx, paused: None)   # a queue that never moves
+
+    def stalled():
+        rig = _TrRig()
+        rig.step()
+        rig.unit(0, "trance1")
+        rig.feed(_tr_start(1))
+        rig.step()
+        assert rig.lane.book.find(BW.ActBook.key_of(0x77, 1)).pending
+        return rig
+    rig = stalled()
+    rig.until(lambda: rig.tr.pend == 0, 400)
+    last = rig.tr.last
+    assert last["via"] == "cap" and BW.ACT_TRANCE_BURST_MAX_MS <= last["ms"] - last["record_ms"] <= \
+        BW.ACT_TRANCE_BURST_MAX_MS + 33 and rig.lane.book.find(BW.ActBook.key_of(0x77, 1)).pending, last
+    monkeypatch.setattr(BW, "act_trance_step", _tr_step_with(ceiling_never=True))
+    unbounded = stalled()
+    unbounded.step(400)
+    assert unbounded.tr.pend == 1 and unbounded.tr.by_cap == 0             # ~13 s and still waiting: red
+
+
+def test_the_trance_lane_leaves_a_running_burst_to_its_hit_or_end_at_the_injection(monkeypatch):
+    """(fix: timing-2) A VICTORY injected while the unit's own SysTrans burst plays (launched, unhit): the flush leaves that
+    deferral PENDING -- the burst's hit swaps it (any phase: `swaps_by_hit`), or, a burst that ends without one, its end
+    after the injection (`swaps_by_end`, no present colour: the tails own the units). A flush blind to the running burst
+    puts the trance model on ahead of it (`swaps_by_inject`)."""
+    def injected(hit_frame):
+        rig = _TrRig(frames=60)
+        rig.lane.HIT_FRAME = hit_frame
+        rig.step()
+        rig.unit(0, "trance1")
+        rig.feed(_tr_start(1))
+        rig.step(5)
+        rec = rig.lane.book.find(BW.ActBook.key_of(0x77, 1))
+        assert rec in rig.lane.running and rec.first_hit_ms < 0 and rig.tr.pend == 1
+        rig.tr.flush(rig.ctx())                                         # InjectEnd's head (still PHASE_NORMAL)
+        return rig, rec
+    rig, rec = injected(40)
+    assert (rig.tr.pend, rig.tr.by_inject) == (1, 0) and not rig.tr.wears(rig.units[0])
+    rig.until(lambda: rig.tr.pend == 0, 100, end_injected=True, steady=False)
+    assert (rig.tr.last["via"], rig.tr.by_hit) == ("hit", 1) and rig.tr.last["ms"] == rec.first_hit_ms
+    end, _rec = injected(99)                                            # a burst that ends WITHOUT a hit
+    present = end.tr.present
+    end.until(lambda: end.tr.pend == 0, 100, end_injected=True, steady=False)
+    assert (end.tr.last["via"], end.tr.by_end, end.tr.present) == ("ended", 1, present) and end.tr.wears(end.units[0])
+    assert BW.act_trance_accounted(end.tr.doc(role=True, booted=True))
+    monkeypatch.setattr(BW.ActTranceLane, "burst_running", lambda self, s: False)
+    blind, _rec = injected(40)
+    assert (blind.tr.pend, blind.tr.by_inject, blind.tr.last["via"]) == (0, 1, "inject")   # ahead of its burst: red
+
+
+def test_the_trance_lane_resolves_a_pending_change_once_when_the_gate_falls_at_a_sample(monkeypatch):
+    """(fix: timing-4) A deferral pending, the gate falling (`replay off`) and a sample asking for the same swap before the
+    next tick: the sample resolves THAT deferral ("gate", swaps_by_decline +1) -- never a second `immediate` swap of the
+    same change with a `moot` after it. The old order (the gate before the pending bit) counts it twice."""
+    def fallen():
+        rig = _TrRig()
+        rig.step()
+        rig.unit(0, "trance1")
+        assert rig.tr.pend == 1
+        ok, _why = rig.lane.bench(["actbench", "replay", "off"], booted=True, role=True)
+        assert ok
+        rig.unit(0, "trance1")                                          # the same change, re-sampled, before a tick
+        rig.step()
+        return rig
+    rig = fallen()
+    assert (rig.tr.by_decline, rig.tr.immediate, rig.tr.moot, rig.tr.pend, rig.tr.last["via"]) == (1, 0, 0, 0, "gate")
+    assert rig.tr.wears(rig.units[0]) and BW.act_trance_accounted(rig.tr.doc(role=True, booted=True))
+    real = BW.ActTranceLane.at_sample
+
+    def old_order(self, d, slot, bit, role):
+        if slot < 0 or slot > 3 or not self.gate(role):
+            self.swap(d, bit)
+            self.immediate += 1
+            self.note(slot, True, bit, "immediate", 0, -1)
+            return
+        return real(self, d, slot, bit, role)
+    monkeypatch.setattr(BW.ActTranceLane, "at_sample", old_order)
+    twice = fallen()
+    assert (twice.tr.immediate, twice.tr.moot, twice.tr.by_decline) == (1, 1, 0)   # one change, two outcomes: red
+
+
+def _tr_pin_mask(monkeypatch) -> dict:
+    """s135's life mask on wire 0 held by hand (the hold's own recompute OR'd with ``pin["mask"]``)."""
+    pin = {"mask": 0}
+    real_recompute = BW.ActHoldLane.recompute_mask
+
+    def pinned(self):
+        real_recompute(self)
+        self.life_mask |= pin["mask"]
+    monkeypatch.setattr(BW.ActHoldLane, "recompute_mask", pinned)
+    return pin
+
+
+def _tr_in_trance(rig) -> None:
+    """The seat on wire 0 into its trance model (the grace), then quiet (every burst mark older than the window)."""
+    rig.step()
+    rig.unit(0, "trance1")
+    rig.until(lambda: rig.tr.pend == 0)
+    assert rig.tr.wears(rig.units[0])
+    rig.step(25)
+
+
+def _tr_corpse_rigs(pin: dict) -> dict:
+    """[ff9mapkit netsync s137 fix pass 2] (rmodel-1) the five corpse shapes -- each ends where the HOST's corpse wears its
+    NORMAL model (its own END hit swapped it, or it never changed):
+      frozen   an END deferral pending; its END burst hits while s135's life mask FREEZES the slot (`hit_untrusted`) and
+               ends; the kill held there releases and the catch-up lands the dead record -- the burst ENDED since the
+               record: `swaps_by_end`;
+      skipped  the bit-0 sample itself SKIPPED by the freeze (nothing pending); the END burst hits and ends; the dead
+               record (InTrance 0) lands at the catch-up -- the death lane's on-arrival swap (`on_arrival`);
+      declined an END deferral pending; the unit dies (InTrance 0); past the grace it still WAITS (a corpse is never
+               graced); its own END START declines `stale` -- `swaps_by_decline`;
+      capped   an END deferral pending; the unit dies; nothing of its own comes -- dropped `dead` at the cap (the trance
+               model kept: nothing applied, as before);
+      inject   `frozen`, but the victory injects while the kill is still held: the hold's flush lands the dead record,
+               the trance flush swaps the corpse whose burst passed (`swaps_by_inject`)."""
+    out = {}
+
+    def frozen_end(rig):
+        _tr_in_trance(rig)
+        rig.unit(0, "trance0")                                          # the END deferral (the trance model worn)
+        assert rig.tr.pend == 1
+        pin["mask"] = rig.lane.hold.life_mask = 0x01                    # a held kill on wire 0: the slot freezes
+        rig.feed(_tr_start(1, num=BW.SPECIAL_TRANCE_END))
+        rig.until(lambda: rig.lane.hits >= 1 and not rig.lane.running)
+        assert rig.tr.hit_untrusted == 1 and rig.tr.pend == 1 and rig.tr.wears(rig.units[0])
+        rig.lane.hold.apply_unit(rig.units[0], 0, "dead", 900, True, in_trance=False)   # skipped: cached
+        assert 0 in rig.lane.hold.skipped and rig.units[0]["alive"]
+    rig = _TrRig(frames=30)
+    frozen_end(rig)
+    pin["mask"] = rig.lane.hold.life_mask = 0
+    rig.step()                                                          # the catch-up (dead), then the resolver
+    out["frozen"] = rig
+    rig = _TrRig(frames=30)
+    _tr_in_trance(rig)
+    pin["mask"] = rig.lane.hold.life_mask = 0x01
+    rig.unit(0, "trance0")                                              # skipped: nothing pending
+    assert rig.tr.deferred == 1 and 0 in rig.lane.hold.skipped
+    rig.feed(_tr_start(1, num=BW.SPECIAL_TRANCE_END))
+    rig.until(lambda: rig.lane.hits >= 1 and not rig.lane.running)
+    rig.lane.hold.apply_unit(rig.units[0], 0, "dead", 900, True, in_trance=False)
+    rig.step(20)                                                        # ~660 ms: the end older than the 400 ms window
+    pin["mask"] = rig.lane.hold.life_mask = 0
+    rig.step()
+    out["skipped"] = rig
+    for name in ("declined", "capped"):
+        rig = _TrRig(frames=30)
+        _tr_in_trance(rig)
+        graced, dropped = rig.tr.by_grace, rig.tr.dropped
+        rig.unit(0, "trance0")
+        rig.lane.hold.apply_unit(rig.units[0], 0, "dead", 900, True, in_trance=False)
+        rig.step(int(BW.ACT_TRANCE_GRACE_MS / 33) + 5)                  # past the grace
+        rig.waited = (rig.tr.pend, rig.tr.by_grace - graced, rig.tr.dropped - dropped)
+        if name == "declined":
+            rig.feed(_tr_start(2, num=BW.SPECIAL_TRANCE_END), BW.encode_action_end(0x77, 2, 2, BW.CMD_SYS_TRANS, 0))
+        rig.until(lambda: rig.tr.pend == 0)
+        out[name] = rig
+    rig = _TrRig(frames=30)
+    frozen_end(rig)
+    pin["mask"] = rig.lane.hold.life_mask = 0                           # (the held kill the flush releases)
+    rig.lane.hold.flush("end-inject", rig.ctx())                        # InjectEnd's head: the hold first (its catch-up)
+    assert not rig.units[0]["alive"] and rig.tr.pend == 1
+    rig.tr.flush(rig.ctx())                                             # ...then the trance flush
+    out["inject"] = rig
+    return out
+
+
+def test_the_trance_lane_corpse_waits_for_its_own_burst(monkeypatch):
+    """[ff9mapkit netsync s137 fix pass 2] (rmodel-1) Stock lets a dead player run SysTrans and the host's hit swaps the
+    corpse whatever its state -- so a unit whose own burst already passed when it died must still swap on the guest. A
+    pending corpse waits for its own burst (its decline or end swaps it, never the grace) and is dropped only at the cap
+    with nothing of its own; the death lane runs the on-arrival rule; the injection's flush swaps a corpse whose burst
+    passed. The stand-in can FAIL each shape: the old order (a corpse dropped first) leaves frozen and declined in the
+    trance model; a death lane without the probe leaves skipped there; a corpse graced like a living unit swaps by the
+    grace; a flush blind to the passed burst drops inject."""
+    out = _tr_corpse_rigs(_tr_pin_mask(monkeypatch))
+    want = {"frozen": ("ended", False), "skipped": ("on-arrival", False), "declined": ("declined", False),
+            "capped": ("dead", True), "inject": ("inject", False)}
+    got = {k: (r.tr.last["via"], r.tr.wears(r.units[0])) for k, r in out.items()}
+    assert got == want, got
+    assert all(not r.units[0]["alive"] and r.tr.pend == 0 and BW.act_trance_accounted(r.tr.doc(role=True, booted=True))
+               for r in out.values())
+    assert out["declined"].waited == (1, 0, 0) and out["capped"].waited == (1, 0, 0)    # past the grace: still waiting
+    cap = out["capped"].tr.last
+    assert BW.ACT_TRANCE_CAP_MS <= cap["ms"] - cap["record_ms"] <= BW.ACT_TRANCE_CAP_MS + 33 and not cap["swapped"]
+    assert (out["skipped"].tr.on_arrival, out["frozen"].tr.by_end, out["declined"].tr.by_decline,
+            out["inject"].tr.by_inject) == (1, 1, 1, 1)
+    # the old order: a corpse dropped at its first frame dead
+    monkeypatch.setattr(BW, "act_trance_verdict", _tr_verdict_with(dead_first=True))
+    old = _tr_corpse_rigs(_tr_pin_mask(monkeypatch))
+    assert {k: old[k].tr.wears(old[k].units[0]) for k in ("frozen", "declined")} == {"frozen": True, "declined": True}
+    assert (old["frozen"].tr.last["via"], old["declined"].waited[2]) == ("dead", 1)
+    monkeypatch.undo()
+    monkeypatch.setattr(BW, "act_trance_verdict", _tr_verdict_with(dead_graced=True))
+    graced = _tr_corpse_rigs(_tr_pin_mask(monkeypatch))
+    assert graced["declined"].waited == (0, 1, 0) and graced["capped"].tr.last["via"] == "grace"
+    monkeypatch.undo()
+    monkeypatch.setattr(BW.ActTranceLane, "at_dead_sample", lambda self, d, slot, bit, role: None)
+    blind = _tr_corpse_rigs(_tr_pin_mask(monkeypatch))
+    assert blind["skipped"].tr.wears(blind["skipped"].units[0]) and blind["skipped"].tr.on_arrival == 0
+    monkeypatch.undo()
+    real_flush = BW.act_trance_flush_verdict
+    monkeypatch.setattr(BW, "act_trance_flush_verdict",
+                        lambda leaving, ok, wearing, bit, dead, passed, run: real_flush(leaving, ok, wearing, bit, dead,
+                                                                                         False, run))
+    unpassed = _tr_corpse_rigs(_tr_pin_mask(monkeypatch))
+    assert unpassed["inject"].tr.wears(unpassed["inject"].units[0]) and unpassed["inject"].tr.last["via"] == "dead"
+
+
+def test_the_trance_lane_normalises_the_renderers_around_every_swap(monkeypatch):
+    """[ff9mapkit netsync s137 fix pass 2] (rstock-1) Stock assumes a model is switched out with its renderers ON: ChangeModel
+    resets the meshIsRendering CACHE to all-true and leaves the renderers alone, and DispCharacter writes a renderer only
+    when the cache differs. A swap made inside a mesh-flag hide (here the grace, while a ShowMesh fade's HideMesh has the
+    flags set) and the swap back with the flags clear (the END's hit): the re-worn normal model's renderers must be ON.
+    The stand-in can FAIL it: the raw SetTranceModel at both swaps leaves the normal model invisible for good."""
+    def run():
+        rig = _TrRig(frames=30)
+        u = rig.units[0]
+        rig.step()
+        u["meshflags"] = 1                                              # every mesh flag-hidden (btl_mot.HideMesh)
+        rig.tr.disp(u)                                                  # DispCharacter disables the worn model's renderers
+        assert not rig.tr.renders(u)
+        rig.unit(0, "trance1")
+        rig.until(lambda: rig.tr.pend == 0)                             # the grace swaps INSIDE the hide
+        rig.tr.disp(u)
+        hidden = (rig.tr.wears(u), rig.tr.renders(u))                   # (the new model hidden by the flags too)
+        u["meshflags"] = 0                                              # the hide ends
+        rig.tr.disp(u)
+        shown = rig.tr.renders(u)
+        rig.step(25)
+        rig.unit(0, "trance0")
+        rig.feed(_tr_start(1, num=BW.SPECIAL_TRANCE_END))
+        rig.until(lambda: rig.tr.pend == 0)                             # the END's hit swaps it back, the flags clear
+        rig.tr.disp(u)
+        return rig, u, hidden, shown
+    rig, u, hidden, shown = run()
+    assert rig.tr.last["via"] == "hit" and hidden == (True, False) and shown is True
+    assert not rig.tr.wears(u) and rig.tr.renders(u)                    # the normal model re-worn, visible
+    monkeypatch.setattr(BW.ActTranceLane, "set_model", BW.ActTranceLane.swap)
+    bad, bu, _hidden, _shown = run()
+    assert bad.tr.last["via"] == "hit" and not bad.tr.wears(bu) and not bad.tr.renders(bu)   # invisible: red
+
+
+def test_the_trance_lane_grace_counts_battle_time_a_pause_stops_it(monkeypatch):
+    """[ff9mapkit netsync s137 fix pass 2] (rtiming-1, audit 3.5) THE GRACE IS BATTLE TIME: `unit 0 trance1`, then 2 s with
+    the diorama PAUSED -- the deferral stays pending in the normal model (swaps_by_grace +0) on every paused frame; once
+    unpaused the grace swaps 400-433 ms of battle time after the record. The stand-in can FAIL it: a resolver fed the
+    caller's WALL ms swaps by the grace under the pause."""
+    def paused():
+        rig = _TrRig()
+        rig.step()
+        rig.unit(0, "trance1")
+        rig.step(2)                                                     # ~66 ms into the grace
+        seen = []
+        for _ in range(63):                                             # ~2 s of wall time, paused
+            rig.step(1, paused=True)
+            seen.append((rig.tr.pend, rig.tr.by_grace, rig.tr.wears(rig.units[0])))
+        return rig, seen
+    rig, seen = paused()
+    assert set(seen) == {(1, 0, False)} and rig.lane.paused_ms >= 2000, (set(seen), rig.lane.paused_ms)
+    rig.until(lambda: rig.tr.pend == 0)
+    last = rig.tr.last
+    assert last["via"] == "grace" and BW.ACT_TRANCE_GRACE_MS <= last["ms"] - last["record_ms"] <= \
+        BW.ACT_TRANCE_GRACE_MS + 33, last
+    monkeypatch.setattr(BW.ActTranceLane, "now", property(lambda self: int(self.lane.clock_last or 0)))
+    wall, wseen = paused()
+    assert wall.tr.pend == 0 and wall.tr.by_grace == 1 and (0, 1, True) in wseen   # swapped under the pause: red
+
+
+def _tr_via_literals_of_calls(tree, names: tuple) -> set:
+    """Every str constant inside the 4th argument of a call to one of ``names`` (a method or a function), its ternaries
+    included, plus every ``via = "..."`` assignment."""
+    import ast
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            fn = node.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else fn.id if isinstance(fn, ast.Name) else None
+            if name in names and len(node.args) >= 4:
+                out |= {c.value for c in ast.walk(node.args[3]) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "via" for t in node.targets) \
+                and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            out.add(node.value.value)
+    return out
+
+
+def test_the_trance_vias_are_the_engines_both_ways():
+    """[ff9mapkit netsync s137 fix pass 2] (rharness-trance-vias-unpinned) THE PIN, as s135's ACT_HOLD_VIAS: every
+    `last.via` literal the s137 patch writes (each ActTranceResolved / ActTranceNote argument, its ternaries, every
+    `via = "..."`) IS BW.ACT_TRANCE_VIAS, both ways; every via the stand-in's ActTranceLane writes is one of them; and every
+    via coop_action_trance.py judges `last.via` against is one of them -- a via renamed on either side turns this red
+    offline, never first in an owner sitting."""
+    import ast
+    import inspect
+    import textwrap
+    code = " ".join(c for c in (_strip_comment(t) for _h, _k, t in _new_side(REPLAY_FILE, _patch_bytes("s137"))) if c)
+    engine = set()
+    for m in re.finditer(r"(?<!void )ActTrance(?:Resolved|Note)\(([^;]*?)\);", code):
+        engine |= set(re.findall(r'"([a-z-]+)"', m.group(1)))
+    engine |= set(re.findall(r'\bvia = "([a-z-]+)";', code))
+    assert engine == set(BW.ACT_TRANCE_VIAS), (sorted(engine - set(BW.ACT_TRANCE_VIAS)),
+                                                sorted(set(BW.ACT_TRANCE_VIAS) - engine))
+    assert len(BW.ACT_TRANCE_VIAS) == len(set(BW.ACT_TRANCE_VIAS))
+    lane = _tr_via_literals_of_calls(ast.parse(textwrap.dedent(inspect.getsource(BW.ActTranceLane))), ("resolved", "note"))
+    assert len(lane) >= 12 and lane <= set(BW.ACT_TRANCE_VIAS), sorted(lane - set(BW.ACT_TRANCE_VIAS))
+    bench = ast.parse((SCENARIOS / "coop_action_trance.py").read_text(encoding="utf-8"))
+    judged = set()
+    for node in ast.walk(bench):
+        if isinstance(node, ast.Call):
+            judged |= {k.value.value for k in node.keywords if k.arg == "via" and isinstance(k.value, ast.Constant)}
+        if isinstance(node, ast.Compare) and isinstance(node.left, ast.Call) \
+                and isinstance(node.left.func, ast.Attribute) and node.left.func.attr == "get" \
+                and node.left.args and isinstance(node.left.args[0], ast.Constant) and node.left.args[0].value == "via":
+            judged |= {c.value for c in node.comparators if isinstance(c, ast.Constant)}
+    assert len(judged) >= 8 and judged <= set(BW.ACT_TRANCE_VIAS), sorted(judged - set(BW.ACT_TRANCE_VIAS))
+
+
+def test_the_s137_bench_predicts_its_reds_as_its_docstring_says():
+    """[ff9mapkit netsync s137] coop_action_trance.py's calibration tables, pinned to its docstring: on s136 (and older)
+    every check is red but INI / S0 / PRE / TAPE / INV (the act.guest.trance probe fails closed: no trance op ever sent);
+    under its own lever (`actbench trancegrace off` before boot 1) exactly the LEVER set -- and the caps 0x02 run predicts
+    the SAME set (6.11: it must equal the lever red) -- every id one its catalog defines; boot 1 kills nothing (the
+    teardown last; INJECT owns boot 2). Its probe is the s137 key, its scene the s134 bench's, its nonce its own MARKER, its
+    proof line the engine's, the lessons in its docstring (the seat read by wire slot, its model off the seated unit; no
+    tape leg, and why), and it never sends a `dioleave` or `endbench kill`, and every follow-up that must land inside a
+    grace or before a replay's hit rides its feed's OWN request."""
+    tc = _scenario_tables()["tc"]
+    g = lambda *n: sorted(f"S137-{x}" for x in n)                     # noqa: E731
+    assert set(tc["catalog"]) == set(tc["plain"]) | {"S137-CAL"} and len(tc["plain"]) == 24
+    assert tc["old"] == sorted(set(tc["plain"]) - set(g("INI", "S0", "PRE", "TAPE", "INV")))
+    assert tc["lever"] == g("GRACE", "STAT", "PAUSE", "HIT", "END", "DECL", "ARRIVE", "PARK", "PARK-CAP", "BUSY", "CAP",
+                            "TD", "INJECT")
+    assert tc["maybe"] == [] and set(tc["lever"]) < set(tc["old"]) and set(tc["trance"]) <= set(tc["plain"])
+    assert set(tc["plain"]) - set(tc["lever"]) == set(g("INI", "S0", "P0", "PROOF", "PRE", "TAPE", "BOOT", "LVR", "CONT",
+                                                        "INV", "R"))
+    assert tc["pred_new"] == tc["lever"] and tc["pred_old"] == tc["old"] and tc["cal_modes"] == ["lever", "caps"]
+    for piece in ("RED, exactly: every check but INI, S0, PRE, TAPE, INV (nothing booted, nothing to change)",
+                  "Predicted reds, exactly: GRACE, STAT, PAUSE, HIT, END, DECL, ARRIVE, PARK, PARK-CAP, BUSY, CAP, TD, "
+                  "INJECT (",
+                  # [ff9mapkit netsync s137 fix pass 2] (rtiming-1) the pause leg; (harness-busy-unguarded) BUSY's reach
+                  "PAUSE (fix pass 2: rtiming-1; audit 3.5 names the 400 ms grace a BATTLE-time timer)",
+                  "a swallowed press is PAUSE's red, never a paused diorama left to the legs after it", "ITS REACH",
+                  "at least the cap minus the grace, 2100 ms (a CORRECT engine swaps by the cap first)",
+                  "GREEN: INI, S0, P0, PROOF, PRE, TAPE, BOOT, LVR, CONT, INV, R.", "it must equal the lever red EXACTLY",
+                  "'action trance selftest: OK (21 rows)'", "NO TAPE LEG", "`bbench start 0x01` + `bbench caps 0x22`",
+                  # [ff9mapkit netsync s137 fix pass] the tape leg's real reasons (the booster seat named), the hit past the
+                  # grace / the cap (NOT REACHED otherwise), the publish witness
+                  "Battle Assistance booster", "persistent trance achievement", "THE HIT MUST LAND PAST THE GRACE",
+                  "NOT REACHED", "THE PUBLISH WITNESS", "the burst OUTLIVES THE CAP",
+                  "READ OFF THE SEATED UNIT", "Freya's at writing, whose trance model is Freya's", "THE SEAT BY WIRE SLOT",
+                  "a SysTrans START PARKED past 400 ms behind a running replay", "a DECLINED START swaps at once",
+                  "400-450 ms of battle time", "2500-2550 ms", "THE LEVER'S OWN RED", "THE CONTAINMENT LAW",
+                  "s134 LESSON 1", "s134 LESSON 2", "s134 LESSON 3", "s134 LESSON 4", "s135 LESSON",
+                  "Memoria.ini [Netsync] Enabled = 0 (or absent)", "COOP_TRANCE_CAL=caps", "never a hard-coded model id"):
+        assert piece in tc["doc"], piece
+    assert tc["probe"] == "netsync.battle.act.guest.trance" == Session.NETSYNC_ACTBENCH_OP_CAPS["trancegrace"][1]
+    assert tc["scene"] == 306 and tc["group"] in (2, 4)
+    assert tc["proof"] == BW.proof_ok(BW.PROOF_TRANCE, BW.TRANCE_SELFTEST_ROWS)
+    t = _scenario_tables()
+    assert tc["nonce"] == 0x5F and tc["nonce"] not in (t["fb"]["nonce"], t["fb"]["hold_nonce"], t["fb"]["replay_nonce"])
+    boot1 = tc["boot1"]
+    assert boot1[0] == "S137-BOOT" and boot1[-1] == "S137-TD" and "S137-INJECT" not in boot1
+    assert boot1.index("S137-HIT") < boot1.index("S137-END") and boot1.index("S137-LVR") < boot1.index("S137-CONT")
+    assert boot1.index("S137-GRACE") < boot1.index("S137-PAUSE") < boot1.index("S137-HIT")
+    assert (tc["grace"], tc["cap"], tc["busy"]) == ([400, 450], [2500, 2550], [350, 450])
+    # [ff9mapkit netsync s137 fix pass 2] BUSY's reach: 100 ms / the cap minus the grace; PAUSE: 2.5 s held, paused_ms +2000,
+    # its press Session.press's own step (s134 PAUSE's verified one)
+    assert tc["busy_run"] == [100, BW.ACT_TRANCE_CAP_MS - BW.ACT_TRANCE_GRACE_MS] == [100, 2100]
+    assert tc["pause"] == [2.5, 2000] and tc["pause"][0] * 1000 > tc["pause"][1]
+    sent = []
+    Session.press(SimpleNamespace(send=sent.append), "pause", 2)
+    assert sent == [tc["press"]] == ["press pause 2"]
+    # (fix pass: harness-quiet-ms-unpinned) QUIET is the grace + 200, so every burst mark is older than the on-arrival
+    # window when the next leg records; the publish witness's slack is one battle frame
+    assert tc["quiet"] == BW.ACT_TRANCE_GRACE_MS + 200 and tc["quiet"] > BW.ACT_TRANCE_GRACE_MS and tc["frame"] == 34
+    assert "QUIET_MS = BW.ACT_TRANCE_GRACE_MS + 200" in (SCENARIOS / "coop_action_trance.py").read_text(encoding="utf-8")
+    src = (SCENARIOS / "coop_action_trance.py").read_text(encoding="utf-8")
+    code = "\n".join(ln for ln in src.split('"""', 2)[2].splitlines() if not ln.lstrip().startswith("#"))
+    assert "dioleave" not in code and "endbench kill" not in code and '"kill"' not in code
+    # the follow-ups that must land inside a grace or before a replay's hit ride ONE request (s135 LESSON)
+    for leg, sends in (("_hit_leg", '_batched(g, _unit_step(ctx, "trance1" if to else "trance0"), _feed_step(s))'),
+                       ("_leg_decl", '_batched(g, _unit_step(ctx, "trance1"), _feed_step([s, _end(act_id, BW.CMD_SYS_TRANS, '
+                                     '0)]))'),
+                       ("_leg_arrive", '_batched(g, _feed_step([s, _end(act_id, BW.CMD_SYS_TRANS, 0)]), '
+                                       '_unit_step(ctx, "trance1"))'),
+                       ("_leg_park", '_batched(g, _feed_step(a), _unit_step(ctx, "trance1"), _feed_step(s))'),
+                       # [in-game fix 1] BUSY and CAP send the op in its OWN request once their replay has run its lead (still
+                       # naming the unit): fed with the START, BUSY's Attack outlived the cap's window and CAP's summon launch
+                       # hitched the op's publish -- neither op must land before a hit, only while the replay runs
+                       ("_leg_busy", 'xa, why = _batched(g, _feed_step(a))'),
+                       ("_leg_busy", "_under_way(g, a_id, BUSY_LEAD_MS, \"the seat's Attack under way\")"),
+                       ("_leg_busy", 'x0, why = _batched(g, _unit_step(ctx, "trance1"))'),
+                       ("_leg_pause", '_batched(g, _unit_step(ctx, "trance1"), PRESS_PAUSE)'),
+                       ("_leg_cap", 'xs, why = _batched(g, _feed_step(summon))'),
+                       ("_leg_cap", '_under_way(g, l_id, CAP_LEAD_MS, "the summon under way")'),
+                       ("_leg_cap", 'x0, why = _batched(g, _unit_step(ctx, "trance1"))'),
+                       ("_leg_td", '_batched(g, _unit_step(ctx, "trance1"), "netsync actbench teardown")'),
+                       ("_boot_inject", '_batched(g, _feed_step(summon), f"netsync actbench unit {wire} trance1", '
+                                        '"netsync endbench victory")')):
+        body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
+        assert sends in body, leg
+    # [in-game fix 1/2] BUSY and CAP: the feed, then `_under_way` gating the op (`is None:`), then the op -- in that
+    # order; the leads pinned and BUSY's inside its reach guard; the witness's origin the record's first publish
+    op = 'x0, why = _batched(g, _unit_step(ctx, "trance1"))'
+    for leg, feed, gate in (("_leg_busy", "xa, why = _batched(g, _feed_step(a))", "_under_way(g, a_id, BUSY_LEAD_MS"),
+                            ("_leg_cap", "xs, why = _batched(g, _feed_step(summon))", "_under_way(g, l_id, CAP_LEAD_MS")):
+        body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
+        assert body.index(feed) < body.index(gate) < body.index(op), leg
+        assert body.split(gate, 1)[1].split("\n", 1)[0].endswith("is None:"), leg
+        assert body.count("_reset_seat(g, ctx)") >= 2, leg
+    assert "BUSY_LEAD_MS = 800" in code and "CAP_LEAD_MS = 600" in code
+    assert 100 < 2203 - 800 < BW.ACT_TRANCE_CAP_MS - BW.ACT_TRANCE_GRACE_MS   # the stand-in Attack's measured run
+    for leg in ("_leg_grace", "_leg_cap"):
+        body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
+        assert "_record_publish(g, f0, base, x0)" in body and '_gv(x0, "battle_ms")' not in body, leg
+    # the lever: only under COOP_CALIBRATE (before boot 1, back after), LVR's own red, and the release's left-set
+    assert code.count('_act_verb(g, "trancegrace", "off")') == 3 and code.count('_act_verb(g, "trancegrace", "on")') == 1
+    assert '"off" if ctx.get("levers_set") else "on"' in code
+    # the seat's model is READ off the seated unit (seat_view's `trance_model`), never a model id or the stand-in's name;
+    # a unit is looked up BY NAME only in battle 1 (the real party), every diorama leg takes the seat by wire (_seat)
+    legs = code.split("def _arm(", 1)[1]
+    assert "trance_model" in code and "BENCH" not in code and "_unit_named" not in legs and "_seat(" in legs
+    assert code.count("_unit_named(") == 1 and "def _seat(" in code
+
+
+#: coop_action_trance's pure judges, run on synthetic inputs (JSON on stdin), the verdicts read back
+_TC_JUDGE = r"""
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_action_trance", os.path.join(scen, "coop_action_trance.py"))
+tc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tc)
+doc = json.loads(sys.stdin.read())
+out = {"held": {k: tc.held_pred(c["block"], c["base"], c["wire"], tc.seat_view(c["unit"]), c.get("want", True))
+                for k, c in doc["held"].items()},
+       "view": {k: tc.seat_view(u) for k, u in doc["view"].items()},
+       "last": {k: list(tc.judge_last(c["last"], **c["want"])) for k, c in doc["last"].items()},
+       "window": {k: list(tc.judge_window(c["last"], c["lo"], c["hi"], since=c.get("since"))) for k, c in doc["window"].items()},
+       "hit": {k: list(tc.judge_at_hit(c["last"], c["glast"], c["id"])) for k, c in doc["hit"].items()},
+       "parked": {k: list(tc.judge_parked(c, 7)) for k, c in doc["parked"].items()},
+       "waited": {k: list(tc.judge_waited(c["origin"], c["glast"], 7, c["more"])) for k, c in doc["waited"].items()},
+       "reach": {k: list(tc.busy_reach(c["last"], c["glast"], 7)) for k, c in doc["reach"].items()},
+       "span": {k: list(tc.judge_pause_span(*c)) for k, c in doc["span"].items()}}
+class St:
+    def __init__(self, d):
+        self.raw = d
+        self.frame = d.get("frame", 0)
+import types
+def unit(s, slot):
+    return next((u for u in s.raw.get("units", []) if u.get("slot") == slot), None)
+def nsb(s):
+    return s.raw.get("netsync", {}).get("battle", {})
+tc.cb.unit = unit
+tc.cb.nsb = nsb
+tc.cb.frame_of = lambda s: s.frame
+out["early"] = {k: tc.early_swaps([St(s) for s in c["samples"]], 0, 7, c.get("to", True)) for k, c in doc["early"].items()}
+out["flip"] = {k: list(tc.judge_flip([St(s) for s in c["samples"]], 0, c["origin"], c["lo"], c["hi"],
+                                     record_ms=c.get("record")))
+               for k, c in doc["flip"].items()}
+out["holds"] = {k: list(tc.paused_holds([St(s) for s in c["samples"]], 0, 0, 1000, 2)) for k, c in doc["holds"].items()}
+print(json.dumps(out))
+"""
+
+
+def _tc_block(**over) -> dict:
+    return dict(BW.ACT_GUEST_TRANCE_SENTINELS, on=True, gate=True, **over)
+
+
+def _tc_last(via="grace", *, slot=0, swapped=True, to=True, act_id=0, record_ms=1000, ms=1417) -> dict:
+    return {"slot": slot, "swapped": swapped, "to": to, "via": via, "id": act_id, "record_ms": record_ms, "ms": ms}
+
+
+def test_the_s137_benchs_pure_judges_read_each_engine_and_can_fail():
+    """coop_action_trance's judges, PURE, on synthetic shapes -- each GREEN on the s137 shape and RED on every shape it
+    exists to catch: held_pred (the swap already made, no deferral, the wrong slot pending, a unit with no key -- the s136
+    shape --, and LVR's immediate shape), seat_view (the Trance status bit, a missing key), judge_last (the wrong via, slot,
+    id, direction, a kept model), judge_window (one ms early, late, no record), judge_at_hit (a swap a frame off the hit, the
+    wrong START, no hit), judge_parked (a START launched at once), early_swaps (a publish in the trance model before the
+    hit)."""
+    base = {"deferred": 2}
+    unit = {"slot": 0, "trance_model": False, "status": str(BW.BATTLE_STATUS_TRANCE)}
+    held = {"green": {"block": _tc_block(deferred=3, pending=1), "base": base, "wire": 0, "unit": unit},
+            "swapped": {"block": _tc_block(deferred=3, pending=1), "base": base, "wire": 0,
+                        "unit": dict(unit, trance_model=True)},
+            "none": {"block": _tc_block(deferred=2, pending=0), "base": base, "wire": 0, "unit": unit},
+            "slot": {"block": _tc_block(deferred=3, pending=2), "base": base, "wire": 0, "unit": unit},
+            "s136": {"block": _tc_block(deferred=3, pending=1), "base": base, "wire": 0, "unit": {"slot": 0}},
+            "lvr": {"block": _tc_block(deferred=2, pending=0, immediate=1), "base": base, "wire": 0,
+                    "unit": dict(unit, trance_model=True)},
+            "end": {"block": _tc_block(deferred=3, pending=1), "base": base, "wire": 0,
+                    "unit": dict(unit, trance_model=True, status="0"), "want": False}}
+    view = {"bit": unit, "none": {"slot": 0, "status": "0"}, "junk": {"status": "x", "trance_model": 1}}
+    last = {"green": {"last": _tc_last(), "want": {"via": "grace", "wire": 0}},
+            "via": {"last": _tc_last("cap"), "want": {"via": "grace", "wire": 0}},
+            "slot": {"last": _tc_last(slot=1), "want": {"via": "grace", "wire": 0}},
+            "id": {"last": _tc_last("hit", act_id=8), "want": {"via": "hit", "wire": 0, "act_id": 7}},
+            "dir": {"last": _tc_last("hit", to=False, act_id=7), "want": {"via": "hit", "wire": 0, "act_id": 7}},
+            "kept": {"last": _tc_last("teardown", swapped=False, to=True), "want": {"via": "teardown", "wire": 0,
+                                                                                   "to": None, "swapped": False}},
+            "kept_swapped": {"last": _tc_last("teardown"), "want": {"via": "teardown", "wire": 0, "to": None,
+                                                                    "swapped": False}}}
+    window = {"green": {"last": _tc_last(), "lo": 400, "hi": 450}, "early": {"last": _tc_last(ms=1399), "lo": 400, "hi": 450},
+              "late": {"last": _tc_last(ms=1451), "lo": 400, "hi": 450},
+              "norecord": {"last": _tc_last(record_ms=-1), "lo": 400, "hi": 450},
+              "since": {"last": _tc_last(ms=3000), "lo": 350, "hi": 450, "since": 2600}}
+    hit = {"green": {"last": _tc_last("hit", act_id=7, ms=1650), "glast": {"id": 7, "first_hit_ms": 1650}, "id": 7},
+           "frame": {"last": _tc_last("hit", act_id=7, ms=1683), "glast": {"id": 7, "first_hit_ms": 1650}, "id": 7},
+           "other": {"last": _tc_last("hit", act_id=7, ms=1650), "glast": {"id": 8, "first_hit_ms": 1650}, "id": 7},
+           "nohit": {"last": _tc_last("hit", act_id=7, ms=1650), "glast": {"id": 7, "first_hit_ms": -1}, "id": 7}}
+    parked = {"green": {"id": 7, "arrive_ms": 100, "launch_ms": 1300}, "at_once": {"id": 7, "arrive_ms": 100,
+                                                                                  "launch_ms": 133},
+              "unlaunched": {"id": 7, "arrive_ms": 100, "launch_ms": -1}, "other": {"id": 8, "arrive_ms": 0,
+                                                                                  "launch_ms": 900}}
+
+    def pub(frame, model, fh, gid=7):
+        return {"frame": frame, "units": [{"slot": 0, "trance_model": model}],
+                "netsync": {"battle": {"act": {"guest": {"last": {"id": gid, "first_hit_ms": fh}}}}}}
+    early = {"green": {"samples": [pub(1, False, -1), pub(2, False, -1), pub(3, True, 900)]},
+             "early": {"samples": [pub(1, False, -1), pub(2, True, -1), pub(3, True, 900)]},
+             "before_start": {"samples": [pub(1, True, -1, gid=6), pub(2, True, 900)]},
+             "back": {"samples": [pub(1, True, -1), pub(2, False, 900)], "to": False}}
+    # [ff9mapkit netsync s137 fix pass] (harness-hit-not-discriminating, timing-6) the hit past the grace / the cap: a hit
+    # 300 ms after the op (inside the grace) must NOT read as waited -- that leg records "not reached", never green
+    waited = {"green": {"origin": 1000, "glast": {"id": 7, "first_hit_ms": 2900}, "more": 450},
+              "hit_at_300": {"origin": 1000, "glast": {"id": 7, "first_hit_ms": 1300}, "more": 450},
+              "boundary": {"origin": 1000, "glast": {"id": 7, "first_hit_ms": 1450}, "more": 450},
+              "nohit": {"origin": 1000, "glast": {"id": 7, "first_hit_ms": -1}, "more": 450},
+              "other": {"origin": 1000, "glast": {"id": 8, "first_hit_ms": 2900}, "more": 450},
+              "noorigin": {"origin": None, "glast": {"id": 7, "first_hit_ms": 2900}, "more": 450},
+              "cap_green": {"origin": 1000, "glast": {"id": 7, "first_hit_ms": 4600}, "more": 2550},
+              "cap_short": {"origin": 1000, "glast": {"id": 7, "first_hit_ms": 3400}, "more": 2550}}
+
+    def at(frame, model, ms):
+        return {"frame": frame, "units": [{"slot": 0, "trance_model": model}],
+                "netsync": {"battle": {"act": {"guest": {"battle_ms": ms}}}}}
+    # (harness-timing-windows-self-reported) THE PUBLISH WITNESS: the first publish in the new model, its battle_ms from
+    # the op's -- a record stamped late (after the op's publish), a flip a frame too early or late, no flip, red
+    flip = {"green": {"samples": [at(1, False, 1100), at(2, True, 1417)], "origin": 1000, "lo": 400, "hi": 450,
+                      "record": 1000},
+            "frame_slack": {"samples": [at(1, True, 1370)], "origin": 1000, "lo": 400, "hi": 450, "record": 990},
+            "early": {"samples": [at(1, True, 1360)], "origin": 1000, "lo": 400, "hi": 450, "record": 1000},
+            "late": {"samples": [at(1, True, 1490)], "origin": 1000, "lo": 400, "hi": 450, "record": 1000},
+            "late_record": {"samples": [at(1, True, 1417)], "origin": 1000, "lo": 400, "hi": 450, "record": 1033},
+            "no_flip": {"samples": [at(1, False, 1417)], "origin": 1000, "lo": 400, "hi": 450, "record": 1000},
+            "no_origin": {"samples": [at(1, True, 1417)], "origin": None, "lo": 400, "hi": 450, "record": 1000}}
+    # [ff9mapkit netsync s137 fix pass 2] (harness-busy-unguarded) BUSY's reach: the Attack's run from the record -- 100 ms
+    # or less, or 2100 ms or more, is NOT REACHED (never judged on that shape); unread (another START, no end) is None
+    reach = {"ok": {"last": _tc_last(record_ms=1000), "glast": {"id": 7, "end_ms": 1900}},
+             "short": {"last": _tc_last(record_ms=1000), "glast": {"id": 7, "end_ms": 1100}},
+             "short_101": {"last": _tc_last(record_ms=1000), "glast": {"id": 7, "end_ms": 1101}},
+             "long": {"last": _tc_last(record_ms=1000), "glast": {"id": 7, "end_ms": 3100}},
+             "long_2099": {"last": _tc_last(record_ms=1000), "glast": {"id": 7, "end_ms": 3099}},
+             "other": {"last": _tc_last(record_ms=1000), "glast": {"id": 8, "end_ms": 1900}},
+             "no_end": {"last": _tc_last(record_ms=1000), "glast": {"id": 7, "end_ms": -1}},
+             "no_record": {"last": _tc_last(record_ms=-1), "glast": {"id": 7, "end_ms": 1900}}}
+    # (rtiming-1) THE PAUSE: its spans (wall, battle, paused_ms, the pause's battle ms after the record) and its hold on the
+    # paused publishes (paused_ms past 1000, swaps_by_grace still 2)
+    span = {"green": [2900, 417, 2400, 100], "short_pause": [2900, 417, 1900, 100], "late_pause": [2900, 417, 2400, 400],
+            "wall_short": [2300, 417, 2400, 100], "unread": [None, 417, 2400, 100]}
+
+    def ps(frame, paused, pending, model, grace=2):
+        return {"frame": frame, "units": [{"slot": 0, "trance_model": model}],
+                "netsync": {"battle": {"act": {"guest": {"paused_ms": paused, "trance": {"pending": pending,
+                                                                                         "swaps_by_grace": grace}}}}}}
+    holds = {"green": {"samples": [ps(1, 1000, 1, False), ps(2, 1033, 1, False), ps(3, 1066, 1, False)]},
+             "swapped": {"samples": [ps(1, 1033, 1, False), ps(2, 1066, 0, True, 3)]},
+             "unpended": {"samples": [ps(1, 1033, 0, False)]}, "model": {"samples": [ps(1, 1033, 1, True)]}}
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _TC_JUDGE, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         input=json.dumps({"held": held, "view": view, "last": last, "window": window, "hit": hit,
+                                           "parked": parked, "early": early, "waited": waited, "flip": flip,
+                                           "reach": reach, "span": span, "holds": holds}),
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["held"] == {"green": True, "swapped": False, "none": False, "slot": False, "s136": False, "lvr": False,
+                           "end": True}, got["held"]
+    assert got["view"]["bit"] == {"model": False, "status_trance": True, "name": None, "anim": None}
+    assert (got["view"]["none"]["model"], got["view"]["none"]["status_trance"], got["view"]["junk"]["model"]) == (
+        None, False, None)
+    assert {k: v[0] for k, v in got["last"].items()} == {"green": True, "via": False, "slot": False, "id": False,
+                                                        "dir": False, "kept": True, "kept_swapped": False}, got["last"]
+    assert {k: v[0] for k, v in got["window"].items()} == {"green": True, "early": False, "late": False,
+                                                          "norecord": False, "since": True}, got["window"]
+    assert "417 ms of battle time" in got["window"]["green"][1]
+    assert {k: v[0] for k, v in got["hit"].items()} == {"green": True, "frame": False, "other": False, "nohit": False}
+    assert {k: v[0] for k, v in got["parked"].items()} == {"green": True, "at_once": False, "unlaunched": False,
+                                                          "other": False}
+    assert got["early"] == {"green": [], "early": [[2, -1]], "before_start": [[1, None]], "back": []}, got["early"]
+    assert {k: v[0] for k, v in got["waited"].items()} == {"green": True, "hit_at_300": False, "boundary": False,
+                                                          "nohit": False, "other": False, "noorigin": False,
+                                                          "cap_green": True, "cap_short": False}, got["waited"]
+    assert "300 ms of battle time after the op" in got["waited"]["hit_at_300"][1]
+    assert {k: v[0] for k, v in got["flip"].items()} == {"green": True, "frame_slack": True, "early": False,
+                                                        "late": False, "late_record": False, "no_flip": False,
+                                                        "no_origin": False}, got["flip"]
+    assert "417 ms after the op's 1000" in got["flip"]["green"][1]
+    assert got["reach"] == {"ok": ["ok", 900], "short": ["short", 100], "short_101": ["ok", 101], "long": ["long", 2100],
+                            "long_2099": ["ok", 2099], "other": [None, None], "no_end": [None, None],
+                            "no_record": [None, None]}, got["reach"]
+    assert {k: v[0] for k, v in got["span"].items()} == {"green": True, "short_pause": False, "late_pause": False,
+                                                        "wall_short": False, "unread": False}, got["span"]
+    assert got["holds"] == {"green": [2, []], "swapped": [2, [2]], "unpended": [1, [1]], "model": [1, [1]]}, got["holds"]

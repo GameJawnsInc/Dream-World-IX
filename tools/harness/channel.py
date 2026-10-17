@@ -1925,6 +1925,60 @@ class State:
                                                                        "keyed_by, kind, id, via, ms}); None = none this "
                                                                        "boot.")
 
+    # [ff9mapkit netsync s137] THE TRANCE BURST TIMING (studies/battle-coop/R3-DESIGN.md 3.3.6 as amended by
+    # R3-ACTION-REPLAY-AUDIT.md 2.5): `netsync.battle.act.guest.trance`, the LAST key of `act.guest` -- a trance MODEL change
+    # the reconciler's probe asks for waits for the SysTrans replay's own hit, else a 400 ms grace of battle time after
+    # nothing names the unit, capped at 2500 ms from the sample -- the unit's own burst in flight at most 8500 ms (the trance
+    # status, the glow and the gauge follow the host at once, as before). The capability is the block's PRESENCE (absent =
+    # None per key, False for :attr:`coop_act_trance`): an
+    # s136 engine answers `actbench trancegrace` "unknown op". Published in EVERY role; per diorama BOOT (reset by each boot,
+    # kept after its teardown until the next) except the lever. Every deferral ends exactly once
+    # (battlewire.act_trance_accounted): deferred == swaps_by_* + moot + dropped + the bits of `pending`.
+    @property
+    def coop_act_trance(self) -> bool | None:
+        """s137: the trance burst timing (``netsync.battle.act.guest.trance``; `actbench trancegrace on|off`). False = an
+        engine whose guest swaps the trance model when the host's sample carries the bit (s136 and older)."""
+        return self._nb_cap("act.guest.trance", dict)
+
+    coop_act_trance_block = _nb_prop("act.guest.trance", dict, "s137: the whole ``act.guest.trance`` block, copied.")
+    coop_act_trance_on = _nb_prop("act.guest.trance.on", bool, "s137: the grace is in force (false = `actbench trancegrace "
+                                                               "off`: the pre-s137 timing).")
+    coop_act_trance_gate = _nb_prop("act.guest.trance.gate", bool, "s137: a model change defers NOW (a booted diorama, bit 5 "
+                                                                   "latched this boot, a guest that can replay, `on`).")
+    coop_act_trance_deferred = _nb_prop("act.guest.trance.deferred", int, "s137: model changes recorded to wait for their "
+                                                                          "SysTrans burst.")
+    coop_act_trance_pending = _nb_prop("act.guest.trance.pending", int, "s137: the wire-slot bits (0-3) of the deferrals "
+                                                                        "waiting now (0 = none).")
+    coop_act_trance_swaps_by_hit = _nb_prop("act.guest.trance.swaps_by_hit", int, "s137: swapped at the SysTrans replay's own "
+                                                                                  "hit.")
+    coop_act_trance_swaps_by_grace = _nb_prop("act.guest.trance.swaps_by_grace", int, "s137: swapped 400 ms of battle time "
+                                                                                      "after nothing named the unit.")
+    coop_act_trance_swaps_by_cap = _nb_prop("act.guest.trance.swaps_by_cap", int, "s137: swapped 2500 ms of battle time after "
+                                                                                  "the sample, the unit still named (its own "
+                                                                                  "burst in flight: 8500 ms, the ceiling).")
+    coop_act_trance_swaps_by_decline = _nb_prop("act.guest.trance.swaps_by_decline", int, "s137: swapped at once: its "
+                                                                                          "SysTrans START declined, or the "
+                                                                                          "gate fell.")
+    coop_act_trance_swaps_by_end = _nb_prop("act.guest.trance.swaps_by_end", int, "s137: swapped at once: its SysTrans "
+                                                                                  "replay ended or aborted unswapped.")
+    coop_act_trance_swaps_by_inject = _nb_prop("act.guest.trance.swaps_by_inject", int, "s137: swapped at an end "
+                                                                                        "injection's head.")
+    coop_act_trance_moot = _nb_prop("act.guest.trance.moot", int, "s137: resolved with the worn model already matching.")
+    coop_act_trance_dropped = _nb_prop("act.guest.trance.dropped", int, "s137: resolved with no swap (a Leave, the teardown, "
+                                                                        "a dead unit, no unit, a fault).")
+    coop_act_trance_immediate = _nb_prop("act.guest.trance.immediate", int, "s137: swapped at the sample, ungated (no bit 5, "
+                                                                            "a guest that cannot replay, the lever).")
+    coop_act_trance_on_arrival = _nb_prop("act.guest.trance.on_arrival", int, "s137: swapped at the sample, gated: its burst "
+                                                                              "had already hit, declined or ended.")
+    coop_act_trance_hit_unpaired = _nb_prop("act.guest.trance.hit_unpaired", int, "s137: SysTrans hits that swapped with no "
+                                                                                  "deferral pending.")
+    coop_act_trance_hit_untrusted = _nb_prop("act.guest.trance.hit_untrusted", int, "s137: SysTrans hits that swapped NOTHING: "
+                                                                                    "the bit frozen by s135's life mask, or "
+                                                                                    "contradicting the replay's own vfx.")
+    coop_act_trance_present = _nb_prop("act.guest.trance.present", int, "s137: btl_stat.SetPresentColor calls.")
+    coop_act_trance_last = _nb_prop("act.guest.trance.last", dict, "s137: the last swap or resolution ({slot, swapped, to, "
+                                                                   "via, id, record_ms, ms}); None = none this boot.")
+
     # ---- host: s111 the intro mirror's host half
     coop_host_cfg = _nb_prop("host.cfg", dict, "s111: the whole ``cfg`` block, copied (LIVE reads).")
     coop_cfg_atb = _nb_prop("host.cfg.atb", int, "s111: cfg.atb -- 0 Active, 1 Wait (a ``bench cfg atb`` override shows "
@@ -2218,6 +2272,16 @@ class State:
     def unit_row(self, slot: int) -> int | None:
         """[ff9mapkit netsync s134] ``battle.units[].row`` (bi.row: a Change flips it)."""
         return self._unit_num(slot, "row", int)
+
+    def unit_trance_model(self, slot: int) -> bool | None:
+        """[ff9mapkit netsync s137] ``battle.units[].trance_model``: the unit WEARS its trance model now (gameObject ==
+        tranceGo; false for a unit without one) -- read from the seated unit, never assumed. None = no such unit / before
+        s137."""
+        for u in self.battle.get("units", []):
+            if isinstance(u, dict) and u.get("slot") == slot:
+                v = u.get("trance_model")
+                return v if isinstance(v, bool) else None
+        return None
 
     def _unit_num(self, slot: int, key: str, kind):
         for u in self.battle.get("units", []):

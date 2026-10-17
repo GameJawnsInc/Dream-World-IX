@@ -10,8 +10,8 @@ stack replays by number:
 | s134 | s123 | guest action replay | ★ deployed, solo-proven (solo + T2 tape leg) |
 | s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven, owner-confirmed |
 | s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
-| s137 | s126 | trance burst timing | next |
-| s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | after action replay |
+| s137 | s126 | trance burst timing | ★ deployed, solo-proven |
+| s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | next |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -201,3 +201,57 @@ the title screen by itself, and one guest sat in the Pause menu through the host
 **What the owner would see:** nothing new on a normal duo -- an s133+ host's actions are all replayed (covered). Fallback
 A shows on mixed DLLs (an old host), a guest on the legacy engine, or a guest with `[Netsync] ActionReplay=0`: one stock
 clip per action instead of a full replay, and the enemies move.
+
+## s137: the trance burst timing (2026-10-17)
+
+**What it does.** On a booted diorama whose host latched bit 5 and whose guest can replay, a unit's trance model no
+longer swaps the moment the host's sample carries the trance bit. ApplyUnit records the change; ActTick resolves it every
+frame on both branches -- at the SysTrans replay's own hit (SetTranceModel with the mirrored bit, only when the worn
+model differs), else 400 ms of battle time after nothing names the unit (capped at 2500 ms; a unit's own burst in flight
+may hold it up to 8500 ms), at once on a decline of its SysTrans START or at its replay's end, and at the end injection.
+Old hosts, a guest that cannot replay and the lever keep the immediate swap. Keys `netsync.battle.act.guest.trance{...}`
+and `units[].trance_model`; `actbench trancegrace on|off`; 'action trance selftest: OK (21 rows)'.
+
+**Built** by a workflow (engine, harness, a 4-lens review -- model/containment, stock safety, timing/grace/ends,
+harness -- with two skeptics per finding, a fix pass, a re-review, a second fix pass). Round 1's one blocking finding:
+an End burst on a dead unit would have swapped the corpse INTO its trance model (the corpse's mirrored bit went stale);
+now the dead lane mirrors the host's bit and a corpse waits for its own burst. Others fixed: the burst exemption had no
+time bound (now 8500 ms), a victory injection swapped ahead of a burst in flight, a swap inside a mesh-flag hide left
+renderers off, and the bench gained a PAUSE leg proving the grace counts battle time. 4 files, +1262/-4; the stack
+replays 29/29 byte-exact; 962 domain tests pass. **No tape leg:** no recorded host tape carries a trance, and forcing
+one (the Battle Assistance booster plus a fight policy) would be a new, nondeterministic instrument needing its own CAL.
+
+**Calibrated on s136 first** (the live DLL `19ab527daa509b56`): the solo bench under `COOP_CALIBRATE=1`, in both its
+lever mode and its caps-0x02 mode, red in exactly the probe-absent set (19 of 25, S137-CAL green both times).
+
+**Deployed** 2026-10-17 (`build_memoria.py`, backup `20261017-015533`; Assembly-CSharp `0269771f24b626c1`).
+
+**Proven solo on s137:**
+- coop_action_trance 24/24 (after the bench fixes below) and RED-only under COOP_CALIBRATE in both modes (the
+  `trancegrace off` lever and caps 0x02: the same lever set). 'action trance selftest: OK (21 rows)' in game. The
+  numbers: the grace 406 ms after the record; a SysTrans hit swapping at its first_hit_ms; a START parked 1.5 s behind
+  a running Attack still swapping at its own hit, 6.1 s after the op (past the cap); the busy hold swapping 391 ms after
+  the Attack's end (it ran 1343 ms past the record); the cap at 2531 ms with the summon still running; the pause leg
+  proving battle time.
+- The 6.1 regression set at baseline, incl. the s133-s136 benches and every tape/arc leg (fallback tape 13/13, arc
+  12/12, hold tape 12/12, replay tape 16/16), dialogue authority 147/147, result replay 50/51 (S9-C4L). The T2 cut legs:
+  cal 10/10, readopt 13/13 (+62 vs tail 67.3), s119 12/12 (+0), s120-battle 12/12 (+94), span 9/9.
+
+**The proof block found three bench-instrument problems (all fixed, the engine right every time):**
+- S137-BUSY: the BENCH stand-in's Attack ran 2188 ms past a record taken at its feed, so a correct engine swapped by
+  the cap (NOT REACHED). The op now rides its own request 800 ms into the Attack.
+- S137-CAP: the summon launched in the op's own frame, whose asset-load hitch put the op's publish 203 ms after the
+  record (the witness read 2313 ms for a 2516 ms cap swap). The op now rides its own request 600 ms into the summon.
+  An adversarial review of that fix (3 lenses) found the deeper flaw both CAP and GRACE shared: the witness's origin was
+  the request's acknowledged state, 31-62 ms behind the record against 34 ms of slack (GRACE had passed by 9 ms). It now
+  starts at the first publish showing the record; CAP also reports the frame into the swap and reads NOT REACHED if a
+  load hitch straddles the cap.
+- S135-L1/L1F (the s135 hold bench): which Fang move battle 1 tapes varies -- sub 3 hits 1437 ms after an impact fed with
+  its START, sub 5 2156-2560 ms -- and the slow one outran the hold's 2.5 s timeout. The impact now rides the same
+  request `feedat 700`. (The rerun taped sub 3; sub 5's arithmetic: 1456-1860 ms, inside the timeout.)
+A rerun on s137 after the fixes: trance 24/24 + both calibrations clean, hold 27/27 + its calibration clean.
+
+**For the owner:** audit amendment 3 said the grace is "capped at 2500 ms"; as built, a unit's own SysTrans burst in
+flight is exempt from that cap, bounded at 8500 ms (the 6 s parked-START limit plus the cap) -- ratify or reject.
+
+**Action replay (s133-s137) is complete.** Next in the plan order: the guest's own field model, s138-s141.

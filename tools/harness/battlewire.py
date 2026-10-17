@@ -50,6 +50,12 @@ way the engine fabricates its bench end through the real ParseView.
     the once-per-action book (ActFallbackBook), COVERED vs UNCOVERED (ActFallbackCovered), the verdict's order, the call-site
     guards and the per-frame collapse -- and fallback A with its statics (ActFallbackLane, owned by ActGuestLane:
     `netsync.battle.act.guest.fallback`).
+  * [ff9mapkit netsync s137] THE TRANCE BURST TIMING's pure rules (NetSyncDiorama.Replay.cs's ActTranceSelfTest twins): the
+    gate (ActTranceDefers), the burst record (ActTranceIsBurst), the busy rule's naming (ActTranceRecNames), the grace, its
+    busy hold and the cap with the burst's exemption (ActTranceStep), the decline end (ActTranceDeclineEnds), the
+    resolution's order (ActTranceVerdict), the START-first swap (ActTranceOnArrival), the hit's probe (ActTranceHitSwaps),
+    the end injection's flush (ActTranceFlushVerdict) and the present colour's guard (ActTrancePresents) -- and the timing
+    with its statics (ActTranceLane, owned by ActGuestLane: `netsync.battle.act.guest.trance`).
 """
 from __future__ import annotations
 
@@ -3875,7 +3881,11 @@ class ActGuestLane:
     only). A hit's figure is DISPLAYED :attr:`FIGURE_FRAMES` frames after the hit (the sequence's Figure point).
     [ff9mapkit netsync s136] With :attr:`with_fallback` true (the stand-in's `actfallback` rung; it needs the hold's) the
     lane carries FALLBACK A (:class:`ActFallbackLane`, :attr:`fallback`): ApplyActionFrameNow's motion step and
-    ActReleaseHeld's fallback step play one stock clip per action no replay covers -- an s135 lane keeps the s110 swing."""
+    ActReleaseHeld's fallback step play one stock clip per action no replay covers -- an s135 lane keeps the s110 swing.
+    [ff9mapkit netsync s137] With :attr:`with_trance` true (the stand-in's `acttrance` rung; it needs fallback A's) the lane
+    carries THE TRANCE BURST TIMING (:class:`ActTranceLane`, :attr:`trance`): ApplyUnit's model check records a deferral,
+    ActTick resolves it every tick, a SysTrans replay's hit swaps the model -- an s136 lane swaps at the sample (and
+    publishes no worn model: `battle.units[].trance_model` is s137's)."""
 
     REPLAY_FRAMES = 30
     HIT_FRAME = 15
@@ -3893,6 +3903,10 @@ class ActGuestLane:
         self.with_fallback_fn = False
         #: [ff9mapkit netsync s136] [fix pass: timing-1] true while :meth:`abort_all` runs (fallback A's end block)
         self.aborting_all = False
+        #: [ff9mapkit netsync s137] the trance burst timing (its state and lever; ``with_trance`` decides whether it RUNS)
+        self.trance = ActTranceLane(self)
+        #: [ff9mapkit netsync s137] True, or a callable answering it (the stand-in: its `acttrance` rung) -- False = s136
+        self.with_trance_fn = False
         self.ctx_last: dict = {}                 # the last ctx a drain / tick / bench passed (the hold's releases resolve by it)
         self.action_replay = True                # [Netsync] ActionReplay (the ini's; default 1)
         self.sfx_rework = True                   # this machine's [Battle] SFXRework
@@ -3956,6 +3970,9 @@ class ActGuestLane:
         # [ff9mapkit netsync s136] ActFallbackReset(counters), before the counters' own early return: the spent keys, the
         # sequence cache and the frame's collapse mask always; its counters, log budgets and `last` with the boot's
         self.fallback.reset(counters)
+        # [ff9mapkit netsync s137] ActTranceReset(counters), right after fallback A's: the pending deferrals and the burst
+        # marks always; its counters, log budget and `last` with the boot's (and the stand-in's worn models: a boot's units)
+        self.trance.reset(counters)
         if not counters:
             return
         # (the stand-in's unit shapes: a diorama BOOT's new units -- ActDiscardAll / `actbench teardown` keeps them, as the
@@ -3996,17 +4013,43 @@ class ActGuestLane:
         return self.with_fallback and self.fallback.on(role)
 
     @property
+    def with_trance(self) -> bool:
+        """[ff9mapkit netsync s137] The trance burst timing exists (an s137+ engine; the stand-in's `acttrance` rung -- the
+        ladder puts it after `actfallback`)."""
+        fn = self.with_trance_fn
+        return (bool(fn()) if callable(fn) else bool(fn)) and self.with_fallback
+
+    def model_check(self, d, slot: int, bit: bool, role: bool) -> None:
+        """[ff9mapkit netsync s137] ApplyUnit's model check (the reconciler's stateless probe: a player with a trance model
+        whose worn model differs from the mirrored bit): from s137 ActTranceAtSample -- an s136 lane swaps at the sample,
+        as before (no counter: the pre-s137 reconciler's own SetTranceModel)."""
+        if not self.trance.has_model(d) or self.trance.wears(d) == bool(bit):
+            return
+        if self.with_trance:
+            self.trance.at_sample(d, slot, bool(bit), role)
+        else:
+            self.trance.swap(d, bool(bit))
+
+    def dead_model_check(self, d, slot: int, bit: bool, role: bool) -> None:
+        """[ff9mapkit netsync s137] (fix: rmodel-1) ApplyUnit's DEATH lane, after it mirrored a dead player's bit: the probe
+        with the on-arrival rule (ActTranceAtDeadSample) -- an s136 lane's death lane swaps nothing (as before)."""
+        if not self.with_trance or not self.trance.has_model(d) or self.trance.wears(d) == bool(bit):
+            return
+        self.trance.at_dead_sample(d, slot, bool(bit), role)
+
+    @property
     def live(self) -> bool:
         """ActLive: a replay CMD_DATA is registered."""
         return bool(self.running)
 
     # -- the bench (HarnessActGuestBench)
     @staticmethod
-    def is_bench_op(op: str, value: str, hold: bool = False, fallback: bool = False) -> bool:
+    def is_bench_op(op: str, value: str, hold: bool = False, fallback: bool = False, trance: bool = False) -> bool:
         """NetSyncDiorama.IsActGuestBenchOp. [ff9mapkit netsync s135] ``hold``: the engine has the replay hit hold (its
-        `hold|lifeskip|unit` ops route here too). [ff9mapkit netsync s136] ``fallback``: ...and fallback A (`fallback`)."""
+        `hold|lifeskip|unit` ops route here too). [ff9mapkit netsync s136] ``fallback``: ...and fallback A (`fallback`).
+        [ff9mapkit netsync s137] ``trance``: ...and the trance burst timing (`trancegrace`)."""
         return op in ACT_GUEST_BENCH_OPS or (op == "tape" and value == "play") or (bool(hold) and op in ACT_HOLD_BENCH_OPS) \
-            or (bool(fallback) and op in ACT_FALLBACK_BENCH_OPS)
+            or (bool(fallback) and op in ACT_FALLBACK_BENCH_OPS) or (bool(trance) and op in ACT_TRANCE_BENCH_OPS)
 
     def bench(self, args: list, *, booted: bool, role: bool, tape=None, ctx: dict | None = None) -> tuple:
         """HarnessActGuestBench(args) -> ``(ok, why)`` in the engine's words; ``args`` the verb's whole list (args[0] =
@@ -4022,6 +4065,8 @@ class ActGuestLane:
             return self.hold.bench(args, op, val, booted=booted, role=role, ctx=ctx or self.ctx_last)
         if self.with_fallback and op in ACT_FALLBACK_BENCH_OPS:
             return self.fallback.bench(args, val)           # [ff9mapkit netsync s136] HarnessActFallbackBench
+        if self.with_trance and op in ACT_TRANCE_BENCH_OPS:
+            return self.trance.bench(args, val)             # [ff9mapkit netsync s137] HarnessActTranceBench
         if op in ("feed", "feedat"):
             ms = 0
             if op == "feed":
@@ -4109,6 +4154,7 @@ class ActGuestLane:
         self.bench_knob = -1
         self.hold.release()                      # [ff9mapkit netsync s135] the hold's levers back (its own line first)
         self.fallback.release()                  # [ff9mapkit netsync s136] fallback A's lever back (its own line)
+        self.trance.release()                    # [ff9mapkit netsync s137] the trance grace lever back (its own line)
         if self.inbox:
             self._log(f"{LOG_REPLAY_INBOX_EMPTIED}{len(self.inbox)} frame(s); released with the harness)")
         self.inbox = []
@@ -4259,7 +4305,9 @@ class ActGuestLane:
             d["actor_hidden"] = not r.is_player and bool(int(ctx.get("hidden_mask", 0)) & (1 << r.actor_slot))
             dead = not actor.get("alive", True)
             d["dead_or_dying"] = dead
-            d["die_seq"] = 5 if dead else 0
+            # [ff9mapkit netsync s137] die_seq is the ENEMY fade's counter (a dead stand-in enemy is fully faded); a dead PLAYER keeps
+            # 0 -- so its Sys* commands (a corpse's SysTrans END) may run, as ActDeadMayRun lets them in the engine
+            d["die_seq"] = 5 if dead and not r.is_player else 0
             d["actor_linked"] = True
 
             def unit_id(i):
@@ -4280,6 +4328,8 @@ class ActGuestLane:
             self.backlog += 1
         if self.with_hold:                       # [ff9mapkit netsync s135] it never launches: its held impacts go now
             self.hold.release_rec(r, act_decline_via(why))
+        if self.with_trance:                     # [ff9mapkit netsync s137] a SysTrans START declined: its grace ends at once
+            self.trance.on_decline(r, why)
         if why in self.decline_logged or len(self.decline_logged) >= 16:
             return
         self.decline_logged.append(why)
@@ -4295,6 +4345,8 @@ class ActGuestLane:
         self.declined_why = "noop"
         if self.with_hold:                       # [ff9mapkit netsync s135] nothing will hit: its held impacts apply now
             self.hold.release_rec(r, "declined")
+        if self.with_trance:                     # [ff9mapkit netsync s137] a SysTrans with no vfx: no burst will come
+            self.trance.on_decline(r, "noop")
         if "noop" in self.decline_logged:
             return
         self.decline_logged.append("noop")
@@ -4381,6 +4433,10 @@ class ActGuestLane:
             self.rows[slot] = 1 - self.rows.get(slot, 1)
         if r.no_short_circuit:
             self.note_calc_while_booted()
+        if self.with_trance:
+            # [ff9mapkit netsync s137] THE TRANCE BURST (ActTranceOnHit, before the hold's release): a SysTrans replay's hit
+            # swaps its actor's model by the probe with the mirrored bit, under the gate
+            self.trance.on_hit(r, bool((self.ctx_last or {}).get("role", False)))
         if self.with_hold:
             # [ff9mapkit netsync s135] THE HIT RELEASE (ActHoldOnHit; the stand-in has no slave parts: the master is the
             # target): inside EffectPoint's bracket unless the replay falls through the short-circuit
@@ -4422,6 +4478,8 @@ class ActGuestLane:
             self.running.remove(r)
         if self.with_hold:                       # [ff9mapkit netsync s135] what it never hit: the legacy path, now
             self.hold.release_rec(r, "end")
+        if self.with_trance:                     # [ff9mapkit netsync s137] a SysTrans burst is over: its end mark, the colour
+            self.trance.on_replay_over(r, None, self.ctx_last)
 
     def _units_of(self, r: ActRec) -> int:
         """ActUnitsOf: the btl_ids a replay acts with -- its actor and its mapped targets (the stand-in: no reflect, no magic
@@ -4441,6 +4499,8 @@ class ActGuestLane:
             self.running.remove(r)
         if self.with_hold:                       # [ff9mapkit netsync s135] its hit will never come: the legacy path, now
             self.hold.release_rec(r, "abort")
+        if self.with_trance:                     # [ff9mapkit netsync s137] a SysTrans burst cut: its end mark, the colour
+            self.trance.on_replay_over(r, why, ctx)
         self.aborted += 1
         self.abort_why = why
         if why in self.aborts_by:
@@ -4504,6 +4564,8 @@ class ActGuestLane:
                       f"{self.calc_while_booted}" + ("; the host predates action replay" if self.old_host else ""))
         self.fallback.drop_deferred()            # [ff9mapkit netsync s136] [fix pass: cover-2] still waiting: `guarded`
         self.fallback.log_summary(why)           # [ff9mapkit netsync s136] fallback A's line (only when it did anything)
+        if self.with_trance:                     # [ff9mapkit netsync s137] a pending deferral: `dropped`, nothing applied
+            self.trance.discard_all(why)
         self.reset_for_boot(False)
 
     def _window_open(self) -> None:
@@ -4563,7 +4625,9 @@ class ActGuestLane:
         if self.with_fallback:
             self.fallback.deferred_tick(ctx)     # [ff9mapkit netsync s136] [fix pass: cover-2] ActFallbackDeferredTick
         if self.with_hold:
-            self.hold.tick(ctx)                  # [ff9mapkit netsync s135] ActHoldTick, last (PHASE_NORMAL only)
+            self.hold.tick(ctx)                  # [ff9mapkit netsync s135] ActHoldTick (PHASE_NORMAL only)
+        if self.with_trance:
+            self.trance.tick(ctx)                # [ff9mapkit netsync s137] ActTranceTick, last (both branches, every frame)
 
     # -- the published block and the units' observables
     def acting_record(self, unit: dict) -> ActRec | None:
@@ -4585,7 +4649,9 @@ class ActGuestLane:
                     clip["clip"] if clip is not None else "DISABLE" if dead else "IDLE"),
                 "anim_frame": r.frames if r is not None else 0, "away": float(round(away, 3)),
                 "rot_y": 0.0 if player else 180.0, "acting": r is not None, "die_seq": 5 if dead else 0,
-                "row": self.rows.get(slot, 1) if player else 0}
+                "row": self.rows.get(slot, 1) if player else 0,
+                # [ff9mapkit netsync s137] `trance_model`, after `row` (an s136 lane publishes none): the worn model
+                **({"trance_model": self.trance.wears(unit)} if self.with_trance else {})}
 
     def last_doc(self) -> dict | None:
         r = self.last
@@ -4618,8 +4684,10 @@ class ActGuestLane:
                 "last": self.last_doc(),
                 # [ff9mapkit netsync s135] AppendActGuestHold, after `last` (an s134 lane publishes none)
                 **({"hold": self.hold.doc(role=role)} if self.with_hold else {}),
-                # [ff9mapkit netsync s136] AppendActGuestFallback, the LAST key (an s135 lane publishes none)
-                **({"fallback": self.fallback.doc(role=role)} if self.with_fallback else {})}
+                # [ff9mapkit netsync s136] AppendActGuestFallback, after `hold` (an s135 lane publishes none)
+                **({"fallback": self.fallback.doc(role=role)} if self.with_fallback else {}),
+                # [ff9mapkit netsync s137] AppendActGuestTrance, the LAST key (an s136 lane publishes none)
+                **({"trance": self.trance.doc(role=role, booted=booted)} if self.with_trance else {})}
 
 
 def _cs_int(text) -> int | None:
@@ -5085,6 +5153,13 @@ class ActHoldLane:
         self.gate_seq = [0] * 8
         self.skipped: dict = {}                  # [fix pass: life-2] slot -> (state, seq): the latest record the mask skipped
         self.drain_due = False                   # [fix pass: stock-1] a hit's drain, deferred to the next tick
+        #: [ff9mapkit netsync s137] (fix: timing-3) slot -> the battle ms its FIRST skipped record met the mask (the engine's
+        #: _actSkippedSinceMs: written as the slot enters the cache, read only while it is in it)
+        self.skipped_since: dict = {}
+        self.catch_up_since = -1                 # [ff9mapkit netsync s137] ActHoldCatchUp's, around its ApplyUnit only
+        #: [ff9mapkit netsync s137] (fix: rmodel-1) slot -> the skipped record's own InTrance (a lane rig's ``in_trance``;
+        #: the engine caches the WHOLE PeerUnit record): re-applied with it at the catch-up
+        self.skipped_trance: dict = {}
 
     def reset_counters(self) -> None:
         """ActHoldResetCounters (the boot block): the counters, figs[] and the lag -- kept after a teardown until the next
@@ -5572,10 +5647,16 @@ class ActHoldLane:
             if not due & (1 << slot) or slot not in self.skipped:
                 continue
             state, seq = self.skipped.pop(slot)
+            in_trance = self.skipped_trance.pop(slot, None)
             d = self._resolve(ctx, slot, slot < 4)
             if d is None:
                 continue
-            self.apply_unit(d, slot, state, seq, bool(ctx.get("role", False)))
+            # [ff9mapkit netsync s137] (fix: timing-3) the record froze from here (the engine's _trCatchUpSinceMs)
+            self.catch_up_since = int(self.skipped_since.get(slot, -1))
+            try:
+                self.apply_unit(d, slot, state, seq, bool(ctx.get("role", False)), in_trance=in_trance)
+            finally:
+                self.catch_up_since = -1
             if not self.catch_up_logged:
                 self.catch_up_logged = True
                 self._log(f"{LOG_HOLD_CATCH_UP}{slot}{LOG_HOLD_CATCH_UP_PIECE}{seq}) re-applied at {why}"
@@ -5609,6 +5690,7 @@ class ActHoldLane:
         DROPPED, counted (`discarded`) -- nothing applied, nothing shown."""
         self.life_mask = 0
         self.skipped, self.drain_due = {}, False
+        self.skipped_trance = {}
         n = len(self.held) + len(self.queued)
         self.discarded += n
         self.held, self.queued, self.fig_pending = [], [], []
@@ -5616,20 +5698,41 @@ class ActHoldLane:
             self._log(f"{LOG_HOLD}{n}{LOG_HOLD_DISCARDED}{why}) -- nothing applied, nothing shown")
 
     # -- the reconciler's skip and the bench (HarnessActHoldBench)
-    def apply_unit(self, d: dict, slot: int, state: str, seq: int, role: bool) -> None:
+    def mirror_dead_trance(self, d: dict, in_trance) -> None:
+        """[ff9mapkit netsync s137] (fix: model-1) ApplyUnit's death lane on a dead PLAYER's sample: its Trance bit (and glow)
+        mirrored from the record -- the host's own, so a SysTrans hit on the corpse reads the host's state. ``in_trance``
+        None = the bench record's own (it carries the unit's current bit: no change)."""
+        if d.get("player") and in_trance is not None:
+            self.trance[int(d.get("slot", -1))] = bool(in_trance)
+
+    def apply_unit(self, d: dict, slot: int, state: str, seq: int, role: bool, in_trance=None) -> None:
         """ApplyUnit for one bench record (the stand-in's model): the horizon gate passes (post-horizon by construction),
         THE LIFE MASK skips the whole record (counted, one line per boot; the fix pass CACHES it for its catch-up), else --
         the record really applied: the slot's cache dropped, THE SUPERSEDED GUARD stamped when newer (the fix pass) -- the
-        death lane (a kill), the revive (a dead enemy is fully faded here: it holds dead), trance."""
+        death lane (a kill; [ff9mapkit netsync s137] a dead player's Trance bit mirrored: :meth:`mirror_dead_trance`, then --
+        fix rmodel-1 -- its on-arrival probe: ActGuestLane.dead_model_check), the
+        revive (a dead enemy is fully faded here: it holds dead), trance. ``in_trance`` (a lane rig's only): the record's
+        InTrance where it differs from the bench record's own (the unit's current bit, or trance0 / trance1's)."""
         if self.life_mask != 0 and act_life_skips(self.life_mask, slot, self.lifeskip_on(role)):
+            if slot not in self.skipped:         # [ff9mapkit netsync s137] (fix: timing-3) the slot's freeze began
+                self.skipped_since[slot] = self.now
             self.skipped[slot] = (state, int(seq) & 0xFFFF)   # [fix pass: life-2] the latest skipped record, for its catch-up
+            if in_trance is None:                # [ff9mapkit netsync s137] (fix: rmodel-1) ...with its own InTrance
+                self.skipped_trance.pop(slot, None)
+            else:
+                self.skipped_trance[slot] = bool(in_trance)
             self.mask_skips += 1
             if not self.mask_logged:
                 self.mask_logged = True
                 self._log(f"{LOG_HOLD_MASK_SKIP}{slot}'s record -- its kill or revive waits for the replay's hit (life mask "
                           f"0x{self.life_mask:02X}; logged once per boot)")
             return
+        # [ff9mapkit netsync s137] (fix: timing-3) THIS record's freeze (ActSampleApplied: a skipped one it overtakes, or the
+        # catch-up's re-apply) -- the trance lane's on-arrival window reads it
+        self.lane.trance.apply_since = int(self.skipped_since.get(slot, -1)) if slot in self.skipped else \
+            int(self.catch_up_since)
         self.skipped.pop(slot, None)             # [fix pass: life-1] a record really applied: it overtakes the skipped one
+        self.skipped_trance.pop(slot, None)
         if self.applies(slot, seq):              # ...and stamps THE SUPERSEDED GUARD when newer
             self.stamp(slot, seq)
         dead = self._dead(d)
@@ -5640,7 +5743,10 @@ class ActHoldLane:
                 d["hp_raw"] = 0
                 if "hp" in d:
                     d["hp"] = 0
-            return                                   # dead: the death lane owns everything
+            self.mirror_dead_trance(d, in_trance)    # [ff9mapkit netsync s137] (fix: model-1) the corpse's bit: the host's
+            if d.get("player"):                      # [ff9mapkit netsync s137] (fix: rmodel-1) ...and its on-arrival probe
+                self.lane.dead_model_check(d, int(slot), bool(self.trance.get(int(d.get("slot", -1)), False)), bool(role))
+            return                                   # dead: the death lane owns everything else
         if dead:
             if not d.get("player"):
                 return                               # "revive requested for a fully-faded enemy -- holding dead"
@@ -5651,6 +5757,9 @@ class ActHoldLane:
                     d["hp"] = 1
         if state in ("trance0", "trance1"):
             self.trance[int(d.get("slot", -1))] = state == "trance1"
+        # [ff9mapkit netsync s137] the model check after the TRANCE lane (the bit and the glow follow the record at once): the
+        # stateless probe -- the worn model against the mirrored bit -- through ActTranceAtSample (an s136 lane: at once)
+        self.lane.model_check(d, int(slot), bool(self.trance.get(int(d.get("slot", -1)), False)), bool(role))
 
     def bench(self, args: list, op: str, val: str, *, booted: bool, role: bool, ctx: dict | None) -> tuple:
         """HarnessActHoldBench (after HarnessActGuestBench's role gate) -> ``(ok, why)`` in the engine's words."""
@@ -6500,3 +6609,767 @@ CS_FALLBACK_CONSTANTS = {
     "ActFbCovered": ACT_FB_COVERED, "ActFbDeduped": ACT_FB_DEDUPED, "ActFbBacklog": ACT_FB_BACKLOG,
     "ActFbGuarded": ACT_FB_GUARDED, "ActFbDeferWait": ACT_FB_DEFER_WAIT, "ActFbDeferPlay": ACT_FB_DEFER_PLAY,
     "ActFbDeferDrop": ACT_FB_DEFER_DROP, "ActFbDeferCovered": ACT_FB_DEFER_COVERED}
+
+
+# ======================================================================================== [ff9mapkit netsync s137]
+# THE TRANCE BURST TIMING (studies/battle-coop/R3-DESIGN.md 3.3.6 as amended by R3-ACTION-REPLAY-AUDIT.md 2.5 --
+# amendments 1-6, decisions D1-D6 -- and 3.5; the design's and the audit's "s126": group 2 was renumbered s133-s141). Until
+# s137 the guest's reconciler swapped a player's MODEL the moment the host's type-1 sample carried the trance stat bit --
+# ahead of the SysTrans burst the guest has replayed since s134. s137 DEFERS that model change (and only it: the trance
+# status, enable_trance_glow, the gauge and the ATB still follow the host at the sample) to the SysTrans replay's own hit
+# -- the host's own swap point -- else to a 400 ms GRACE of battle time after nothing names the unit, capped at 2500 ms
+# from the sample (never while the unit's own SysTrans burst is in flight -- that waits for its hit, at most THE BURST
+# CEILING, 8500 ms from the sample). THE CONTAINMENT LAW holds: the swap's argument is the guest's MIRRORED stat bit (D2),
+# probe-guarded; nothing writes trance_no. Everything below is the C# twin of a PURE rule of NetSyncDiorama.Replay.cs's
+# trance burst (each method of the same name, its parameters in its order); test_harness_netsync.py EVALUATES
+# ActTranceSelfTest's own 21 rows against them (read off the stack, in order) and pins the constants by name both ways
+# (CS_TRANCE_CONSTANTS). :class:`ActTranceLane` is the stand-in's model of the live half with its statics (its docstring
+# says what it models and what it cannot).
+ACT_TRANCE_GRACE_MS = 400                 # the grace after the unit was last named (battle ms)
+ACT_TRANCE_CAP_MS = 2500                  # ...capped this long after the record (battle ms; never cuts its own burst)
+ACT_TRANCE_BURST_MAX_MS = 8500            # ...and its own burst, at most this long after the record (ActWaitMaxMs + the cap)
+ACT_TRANCE_LOG_MAX = 12                   # deferral / swap lines per boot (then counted, not logged)
+ACT_TR_STEP_WAIT, ACT_TR_STEP_GRACE, ACT_TR_STEP_CAP, ACT_TR_STEP_BURST_MAX = 0, 1, 2, 3      # ActTranceStep's answers
+#: ActTranceVerdict's (and ActTranceFlushVerdict's) answers
+ACT_TR_WAIT, ACT_TR_MOOT, ACT_TR_DROP_LEAVE, ACT_TR_DROP_UNIT, ACT_TR_DROP_DEAD, ACT_TR_SWAP_GATE = 0, 1, 2, 3, 4, 5
+ACT_TR_SWAP_DECLINE, ACT_TR_SWAP_END, ACT_TR_SWAP_CAP, ACT_TR_SWAP_GRACE, ACT_TR_SWAP_INJECT = 6, 7, 8, 9, 10
+PROOF_TRANCE = "action trance selftest: "  # NetSyncDiorama.ActTranceSelfTest (s137), logged right after PROOF_FALLBACK
+TRANCE_SELFTEST_ROWS = 21                 # 1 gate + 1 burst + 1 names + 5 grace / busy / cap / burst exemption / ceiling
+#                                           + 1 decline + 6 verdict order (the frozen wait's one) + 2 arrival (the
+#                                           catch-up's one) + 2 hit / trust + 2 inject + 1 present
+#: `actbench <op>` -- the trance burst timing's op (HarnessActTranceBench, routed through the guest bench: IsActGuestBenchOp)
+ACT_TRANCE_BENCH_OPS = ("trancegrace",)
+#: `act.guest.trance.last` (HarnessTranceLast: the last swap or resolution this boot), in AppendActGuestTrance's order
+ACT_TRANCE_LAST_KEYS = ("slot", "swapped", "to", "via", "id", "record_ms", "ms")
+#: every `last.via` the engine writes ("frozen" / "contradicted": an untrusted hit, no resolution) -- [s137 fix pass 2]
+#: PINNED both ways against the s137 patch's own literals, the stand-in's and the bench's judged ones
+#: (test_harness_netsync.py: test_the_trance_vias_are_the_engines_both_ways)
+ACT_TRANCE_VIAS = ("immediate", "on-arrival", "hit", "grace", "cap", "declined", "gate", "ended", "inject", "moot", "leave",
+                   "teardown", "dead", "unit", "fault", "frozen", "contradicted")
+#: the ways a DEFERRAL ends (each counted once): deferred == the sum of these + the bits of `pending`
+ACT_TRANCE_RESOLVED_KEYS = ("swaps_by_hit", "swaps_by_grace", "swaps_by_cap", "swaps_by_decline", "swaps_by_end",
+                            "swaps_by_inject", "moot", "dropped")
+#: `netsync.battle.act.guest.trance` at AppendNetsync's catch-line sentinels, in AppendActGuestTrance's order -- the LAST key
+#: of `act.guest`. The live block differs at rest only where the agent reads a static: `on` (true, no lever).
+ACT_GUEST_TRANCE_SENTINELS = {
+    "on": False, "gate": False, "deferred": 0, "pending": 0, **dict.fromkeys(ACT_TRANCE_RESOLVED_KEYS[:6], 0),
+    "moot": 0, "dropped": 0, "immediate": 0, "on_arrival": 0, "hit_unpaired": 0, "hit_untrusted": 0, "present": 0,
+    "last": None,
+}
+ACT_GUEST_SENTINELS["trance"] = ACT_GUEST_TRANCE_SENTINELS      # (after `fallback`: s137's key, the last of act.guest)
+#: BattleStatus.Trance (Memoria/Data/Battle/BattleStatus.cs: 1 << 14) -- the bit `battle.units[].status` carries
+BATTLE_STATUS_TRANCE = 1 << 14
+#: SpecialEffect.Special_Trance_End -- the host-resolved vfx of a SysTrans that LEAVES Trance (Activate is s134's 257)
+SPECIAL_TRANCE_END = 489
+CS_STOCK_IDS.update({"SpecialEffect.Special_Trance_End": SPECIAL_TRANCE_END})
+#: `battle.units[]`'s s137 key, after s134's `row`, before `status` (AppendBattleUnits)
+UNIT_TRANCE_KEYS = ("trance_model",)
+#: the engine's words (each a C# literal of the stack, or its head)
+LOG_TRANCE = "[NetSync] action trance: "
+LOG_TRANCE_SLOT = "[NetSync] action trance: wire slot "
+LOG_TRANCE_WAITS = " model waits for its SysTrans burst "                 # "<head><slot>'s <trance|normal>" + this
+LOG_TRANCE_WAITS_TAIL = (" ms without its START) -- the trance status, the glow and the gauge already follow the host")
+LOG_TRANCE_FURTHER = "; further lines this boot are counted, not logged"
+LOG_TRANCE_KEEPS = " keeps its model"
+LOG_TRANCE_AFTER = " ms of battle time after its sample"
+LOG_TRANCE_SUMMARY = "[NetSync] action trance: boot summary ("
+LOG_TRANCE_FAULTED = "[NetSync] action trance: a step faulted (its deferral dropped; logged once per boot): "
+LOG_TRANCE_OFF = ("[NetSync] harness: action trance grace OFF -- CALIBRATION: the pre-s137 timing (a trance model swaps when "
+                  "the host's sample carries the bit; the SysTrans replay's hit swaps nothing)")
+LOG_TRANCE_ON = "[NetSync] harness: action trance grace ON"
+LOG_TRANCE_LEVER_BACK = ("[NetSync] harness: action trance grace lever back (the model swap waits for the burst again; released "
+                         "with the harness)")
+#: HarnessActTranceBench's refusal of a malformed form (after the guest bench's role gate)
+TRANCE_USAGE = "netsync actbench trancegrace: expected `trancegrace on|off`"
+#: ActTranceNote's swap / keep line, parsed anywhere in a log line (Memoria.log's prefix kept)
+_TRANCE_LINE_RX = re.compile(
+    re.escape(LOG_TRANCE_SLOT) + r"(\d+)(?: -> the (trance|normal) model|" + re.escape(LOG_TRANCE_KEEPS) + r") \(([a-z-]+)"
+    r"(?:, replay id (\d+))?(?:, (-?\d+)" + re.escape(LOG_TRANCE_AFTER) + r")?; battle ms (-?\d+)\)")
+_TRANCE_WAITS_RX = re.compile(re.escape(LOG_TRANCE_SLOT) + r"(\d+)'s (trance|normal)" + re.escape(LOG_TRANCE_WAITS))
+
+
+def parse_trance_line(line: str) -> dict | None:
+    """One ActTranceNote line -> {slot (the WIRE slot), swapped, to (True = the trance model; None when kept), via, id (0 =
+    none), after_ms (battle ms from its sample; None when not deferred), ms (battle ms of the swap or resolution),
+    further}; None for any other line (the deferral's "waits" line too: :func:`parse_trance_waits`)."""
+    m = _TRANCE_LINE_RX.search(line or "")
+    if m is None:
+        return None
+    return {"slot": int(m.group(1)), "swapped": m.group(2) is not None,
+            "to": (m.group(2) == "trance") if m.group(2) else None, "via": m.group(3),
+            "id": int(m.group(4)) if m.group(4) else 0, "after_ms": int(m.group(5)) if m.group(5) else None,
+            "ms": int(m.group(6)), "further": LOG_TRANCE_FURTHER in line}
+
+
+def parse_trance_waits(line: str) -> dict | None:
+    """ActTranceAtSample's deferral line -> {slot, to (True = the trance model the unit waits for)}; None otherwise."""
+    m = _TRANCE_WAITS_RX.search(line or "")
+    return {"slot": int(m.group(1)), "to": m.group(2) == "trance"} if m else None
+
+
+# ---- the pure rules (each NetSyncDiorama's method of the same name, its parameters in its order)
+def act_trance_defers(bit5: bool, can_replay: bool, grace_on: bool) -> bool:
+    """NetSyncDiorama.ActTranceDefers -- THE GATE (amendment 3): a model change waits for the burst only with bit 5 latched,
+    a guest that can replay, and the `trancegrace` lever on. Anything else swaps at the sample."""
+    return bool(bit5) and bool(can_replay) and bool(grace_on)
+
+
+def act_trance_is_burst(cmd_no: int, is_player: bool, actor_slot: int) -> bool:
+    """NetSyncDiorama.ActTranceIsBurst: a SysTrans of a PLAYER wire slot 0-3 (an enemy wears no trance model; SysPhantom is
+    Garnet's recast, not the burst)."""
+    return int(cmd_no) == CMD_SYS_TRANS and bool(is_player) and 0 <= int(actor_slot) <= 3
+
+
+def act_trance_decline_ends(why) -> bool:
+    """NetSyncDiorama.ActTranceDeclineEnds (amendment 3): ANY decline of the unit's SysTrans START ends the grace -- except a
+    DUPLICATE copy's (the first START of that id is still in the book and may launch)."""
+    return why != "duplicate"
+
+
+def act_trance_rec_names(slot: int, actor_slot: int, actor_is_player: bool, tar_wire: int, magic_wire: int) -> bool:
+    """NetSyncDiorama.ActTranceRecNames: a START names the wire slot as its actor (same side), or by a wire target or
+    magic-caster bit (bits 0-3 the host's compacted players, 4-7 its enemy slots)."""
+    if slot < 0 or slot > 7:
+        return False
+    if bool(actor_is_player) == (slot < 4) and int(actor_slot) == int(slot):
+        return True
+    return ((int(tar_wire) | int(magic_wire)) & (1 << int(slot))) != 0
+
+
+def act_trance_passed(now_ms: int, from_ms: int, at_ms: int) -> bool:
+    """NetSyncDiorama.ActTrancePassed (private): ``at_ms`` set, never after ``now_ms`` and no earlier than ``from_ms``."""
+    return int(at_ms) >= 0 and int(at_ms) <= int(now_ms) and int(at_ms) >= int(from_ms)
+
+
+def act_trance_on_arrival(now_ms: int, since_ms: int, hit_ms: int, decline_ms: int, end_ms: int) -> bool:
+    """NetSyncDiorama.ActTranceOnArrival: the burst already PASSED at a sample -- the slot's SysTrans hit, its START's
+    decline or its replay's end at most ActTranceGraceMs before ``now_ms`` (-1 = none) -- [fix: timing-3] or, for a record
+    s135's life mask froze since ``since_ms`` (-1 = none), at most ActTranceGraceMs before that freeze began -- and never
+    after ``now_ms``: the sample swaps at once."""
+    base = int(since_ms) if 0 <= int(since_ms) < int(now_ms) else int(now_ms)
+    from_ms = base - ACT_TRANCE_GRACE_MS
+    return act_trance_passed(now_ms, from_ms, hit_ms) or act_trance_passed(now_ms, from_ms, decline_ms) \
+        or act_trance_passed(now_ms, from_ms, end_ms)
+
+
+def act_trance_step(record_ms: int, last_busy_ms: int, busy_now: bool, burst: bool, now_ms: int) -> int:
+    """NetSyncDiorama.ActTranceStep -- THE GRACE (amendment 3, D3, audit 3.5's battle time): the unit's own burst in flight
+    waits (no cap: it ends by its own bounds -- [fix: timing-1] or by THE BURST CEILING, ActTranceBurstMaxMs after the
+    record); else the cap, ActTranceCapMs after the record, even while something names the unit; else it waits while
+    something names it, then ActTranceGraceMs from the later of the record and the last frame it was named."""
+    if burst:
+        return ACT_TR_STEP_BURST_MAX if int(now_ms) - int(record_ms) >= ACT_TRANCE_BURST_MAX_MS else ACT_TR_STEP_WAIT
+    if int(now_ms) - int(record_ms) >= ACT_TRANCE_CAP_MS:
+        return ACT_TR_STEP_CAP
+    if busy_now:
+        return ACT_TR_STEP_WAIT
+    return ACT_TR_STEP_GRACE if int(now_ms) - max(int(record_ms), int(last_busy_ms)) >= ACT_TRANCE_GRACE_MS \
+        else ACT_TR_STEP_WAIT
+
+
+def act_trance_verdict(gate: bool, leaving: bool, normal: bool, unit_ok: bool, wearing: bool, bit: bool, frozen: bool,
+                       dead: bool, burst: bool, hit: bool, declined: bool, ended: bool, step: int) -> int:
+    """NetSyncDiorama.ActTranceVerdict -- THE RESOLUTION of one pending deferral, in its order: a Leave drops, no unit drops,
+    a matching model is moot, a slot s135's life mask freezes waits ([fix: model-2]), outside PHASE_NORMAL it waits, the
+    gate falling swaps at once, the unit's own burst in flight waits (past THE BURST CEILING the cap swaps it: [fix:
+    timing-1]), a decline of its SysTrans START swaps at once, then its replay's end or abort -- [fix: rmodel-1] a dead unit
+    swaps by those rows (the host swaps a corpse at its own hit) and otherwise waits, never graced: dropped only at the cap
+    with no ``hit`` of its own since the record -- then the cap, then the grace; else it waits."""
+    if leaving:
+        return ACT_TR_DROP_LEAVE
+    if not unit_ok:
+        return ACT_TR_DROP_UNIT
+    if bool(wearing) == bool(bit):
+        return ACT_TR_MOOT
+    if frozen:
+        return ACT_TR_WAIT
+    if not normal:
+        return ACT_TR_WAIT
+    if not gate:
+        return ACT_TR_SWAP_GATE
+    if burst:
+        return ACT_TR_SWAP_CAP if step == ACT_TR_STEP_BURST_MAX else ACT_TR_WAIT
+    if declined:
+        return ACT_TR_SWAP_DECLINE
+    if ended:
+        return ACT_TR_SWAP_END
+    if dead:
+        return ACT_TR_DROP_DEAD if step == ACT_TR_STEP_CAP and not hit else ACT_TR_WAIT
+    if step == ACT_TR_STEP_CAP:
+        return ACT_TR_SWAP_CAP
+    if step == ACT_TR_STEP_GRACE:
+        return ACT_TR_SWAP_GRACE
+    return ACT_TR_WAIT
+
+
+def act_trance_flush_verdict(leaving: bool, unit_ok: bool, wearing: bool, bit: bool, dead: bool, passed: bool,
+                             burst_running: bool) -> int:
+    """NetSyncDiorama.ActTranceFlushVerdict -- THE END INJECTION's flush of one pending deferral: a Leave drops, no unit
+    drops, a matching model is moot; [fix: timing-2] its OWN SysTrans replay already running unhit waits (its hit or its end
+    resolves it) -- [fix: rmodel-1] a corpse's too; a dead unit swaps only when its own burst ``passed`` since the record
+    (hit, declined or ended: the host swapped it there), else it drops; else it swaps NOW (the pre-s137 guest already wore
+    it)."""
+    if leaving:
+        return ACT_TR_DROP_LEAVE
+    if not unit_ok:
+        return ACT_TR_DROP_UNIT
+    if bool(wearing) == bool(bit):
+        return ACT_TR_MOOT
+    if burst_running:
+        return ACT_TR_WAIT
+    if dead:
+        return ACT_TR_SWAP_INJECT if passed else ACT_TR_DROP_DEAD
+    return ACT_TR_SWAP_INJECT
+
+
+def act_trance_hit_swaps(gate: bool, wearing: bool, bit: bool) -> bool:
+    """NetSyncDiorama.ActTranceHitSwaps -- THE HIT (D2): a SysTrans replay's hit swaps its actor's model only under the gate,
+    and only when the worn model differs from the mirrored bit (the stateless probe)."""
+    return bool(gate) and bool(wearing) != bool(bit)
+
+
+def act_trance_hit_trusts(frozen: bool, vfx_num: int, bit: bool) -> bool:
+    """NetSyncDiorama.ActTranceHitTrusts -- (fix: model-1, model-2) the hit may TRUST the mirrored bit: not while s135's
+    life mask freezes the slot, and not when the bit contradicts the replay's own vfx (the host chose an End from a clear
+    bit, an Activate from a set one -- GetPlayerCommandSFX); any other vfx number is not judged."""
+    if frozen:
+        return False
+    if int(vfx_num) == SPECIAL_TRANCE_END and bit:
+        return False
+    return not (int(vfx_num) == SPECIAL_TRANCE_ACTIVATE and not bit)
+
+
+def act_trance_presents(end_injected: bool, leaving: bool, has_model: bool, fading: bool) -> bool:
+    """NetSyncDiorama.ActTrancePresents -- THE PRESENT COLOUR's guard (amendment 5): never after an end injection, at a Leave,
+    without a model or on a FADING enemy corpse -- [fix: model-3] a player corpse presents (stock's SysTrans finish)."""
+    return not end_injected and not leaving and bool(has_model) and not fading
+
+
+def act_trance_accounted(block: dict | None) -> bool | None:
+    """The `act.guest.trance` block's identity: every deferral ends exactly once -- deferred == swaps_by_hit +
+    swaps_by_grace + swaps_by_cap + swaps_by_decline + swaps_by_end + swaps_by_inject + moot + dropped + the bits of
+    `pending` (wire slots 0-3). None for an absent or malformed block."""
+    if not isinstance(block, dict):
+        return None
+    try:
+        pending = int(block["pending"])
+        return int(block["deferred"]) == sum(int(block[k]) for k in ACT_TRANCE_RESOLVED_KEYS) + bin(pending & 0xF).count("1")
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+class ActTranceLane:
+    """[ff9mapkit netsync s137] THE TRANCE BURST TIMING as NetSyncDiorama.Replay.cs runs it, with its statics -- the
+    stand-in's model, owned by an :class:`ActGuestLane` (its battle clock, its book, its running replays, its hold, its
+    log). MODELLED, through the twins above: ApplyUnit's model check (ActTranceAtSample, from the hold lane's ApplyUnit
+    model: the `unit <slot> trance0|trance1` bench record and the catch-up -- a slot already pending keeps its record
+    under the gate and resolves "gate" without it (fix: timing-4), the swap at the sample ungated (`immediate`), the
+    START-first order (`on_arrival`: a hit, decline or end of the slot's SysTrans within 400 ms -- or since the record's
+    freeze began, fix: timing-3), the record), the resolver every tick (ActTranceTick after the hold's tick: the busy rule --
+    a queued or pending START naming the unit as actor, wire target or magic caster, a running replay acting with it
+    (ActUnitsOf), a held or queued impact on its slot -- the burst (its own SysTrans START pending, or its replay running
+    unhit), the frozen slot (s135's life mask, its skipped record: fix model-2), the unlinked unit (fix: stock-unlinked-swap),
+    the verdict's whole order with the burst ceiling (fix: timing-1)), the hit (ActTranceOnHit at ActGuestLane's ActOnHit:
+    the probe with the mirrored bit and its trust, `swaps_by_hit` / `hit_unpaired` / `hit_untrusted` / `moot`), a decline /
+    NOOP of a SysTrans START (ActTranceOnDecline, a duplicate excepted), a SysTrans replay's end or abort
+    (ActTranceOnReplayOver: the end mark, the present colour, the post-injection resolution: fix timing-2), the end
+    injection's flush (ActTranceFlush at InjectEnd's head: a running burst left pending), the teardown (ActTranceDiscardAll:
+    every pending one dropped, nothing applied, the summary line), the per-boot reset, the lever (`trancegrace on|off`, its
+    role gate, ActBenchRelease's half), every counter, `last` and every Log.Message line -- the present colour's guard
+    (counted: `present`) -- and a hidden unit's model kept hidden by every swap made outside a sequence (ActTranceSwap,
+    fix: stock-hidden-swap: :attr:`active`, the worn model's SetActive state, False for a disappeared unit's kept swap);
+    [fix: rmodel-1] a corpse's deferral waiting for its own burst (the verdict's `hit`, the flush's `passed`) and the death
+    lane's on-arrival swap (ActTranceAtDeadSample: :meth:`at_dead_sample`); [fix: rstock-1] the renderer normalisation
+    every s137 swap carries (ActTranceSetModel: :meth:`set_model`) against stock's renderer CACHE -- :attr:`rendering`, each
+    model's renderers by (btl slot, model), and :attr:`cache`, the unit's meshIsRendering (ChangeModel resets it to True;
+    :meth:`disp` is DispCharacter's mesh pass, which writes a renderer only when the cache differs; a truthy
+    ``meshflags`` on the unit dict = every mesh flag-hidden).
+    NOT MODELLED -- shapes, not engine data: the worn model is :attr:`worn` (by the unit's btl slot; a boot's units wear
+    their normal model), a unit has a trance model when it is a player (a unit dict with ``trance_go`` False has none), a
+    unit is hidden when its dict carries a truthy ``disappear`` (bi.disappear), the mirrored stat bit is the hold lane's
+    :attr:`ActHoldLane.trance` (the reconciler's TRANCE lane -- a dead player's too, fix model-1 -- which the stand-in
+    publishes in `battle.units[].status`), the swap itself (SetTranceModel: no mesh, no motion set, no weapon bones), the
+    colours (SetPresentColor counted, never drawn), a SysTrans replay that falls through the short-circuit (the stock
+    case's own SetTranceModel: the stand-in's tripwire counts it, the model stays), the horizon gate's freeze of the bit
+    (the bench records are post-horizon by construction) and a fault (the 'a step faulted' line)."""
+
+    def __init__(self, lane) -> None:
+        self.lane = lane
+        self.bench_off = False                   # `trancegrace off`: the pre-s137 timing (harness-scoped, never per boot)
+        self.worn: dict = {}                     # (the stand-in's model: the worn model by unit btl slot; True = trance)
+        self.active: dict = {}                   # (...and its SetActive state: False = kept hidden by ActTranceSwap)
+        self.rendering: dict = {}                # [fix: rstock-1] each model's renderers, by (btl slot, model): True = on
+        self.cache: dict = {}                    # ...and the unit's meshIsRendering cache (one flag: all meshes alike)
+        self.reset(True)
+
+    # -- the lever (its getter needs the selftest role, as the engine's)
+    def on(self, role: bool) -> bool:
+        """ActTranceGraceOn / HarnessTranceOn."""
+        return not (self.bench_off and bool(role))
+
+    def gate(self, role: bool) -> bool:
+        """ActTranceGate: bit 5 latched this boot, a guest that can replay, the lever on."""
+        return act_trance_defers(self.lane.bit5, self.lane.can_replay(role), self.on(role))
+
+    def release(self) -> None:
+        """ActBenchRelease's s137 half: the lever back (one line when it was pulled)."""
+        if self.bench_off:
+            self._log(LOG_TRANCE_LEVER_BACK)
+        self.bench_off = False
+
+    def bench(self, args: list, val: str) -> tuple:
+        """HarnessActTranceBench (after HarnessActGuestBench's role gate) -> ``(ok, why)`` in the engine's words."""
+        if len(args) != 3 or val not in ("on", "off"):
+            return False, TRANCE_USAGE
+        self.bench_off = val == "off"
+        self._log(LOG_TRANCE_OFF if self.bench_off else LOG_TRANCE_ON)
+        return True, None
+
+    # -- the per-boot state
+    def reset(self, counters: bool) -> None:
+        """ActTranceReset: the pending deferrals and the burst marks always; the counters, the log budget and `last` with
+        the boot block's counters (kept after the teardown until the next boot)."""
+        self.pend = 0
+        self.record_ms = [-1] * 4
+        self.busy_ms = [-1] * 4
+        self.want = [False] * 4
+        self.hit_ms = [-1] * 4
+        self.decline_ms = [-1] * 4
+        self.end_ms = [-1] * 4
+        self.apply_since = -1                    # [fix: timing-3] ActSampleApplied's _trApplySinceMs (the hold lane writes it)
+        if not counters:
+            return
+        self.deferred = self.by_hit = self.by_grace = self.by_cap = self.by_decline = self.by_end = self.by_inject = 0
+        self.moot = self.dropped = self.immediate = self.on_arrival = self.hit_unpaired = self.hit_untrusted = 0
+        self.present = 0
+        self.logged = 0
+        self.err_logged = False
+        self.last = None
+        self.worn = {}                           # (the stand-in's unit shapes: a boot's new units wear their normal model)
+        self.active = {}
+        self.rendering = {}
+        self.cache = {}
+
+    def _log(self, text: str) -> None:
+        self.lane._log(text)
+
+    @property
+    def now(self) -> int:
+        return self.lane.now_ms
+
+    # -- the stand-in's unit shapes
+    @staticmethod
+    def has_model(d) -> bool:
+        """tranceGo != null && gameObject != null, as the stand-in models it: a player (``trance_go`` False: none)."""
+        return d is not None and bool(d.get("player")) and d.get("trance_go", True) is not False
+
+    def wears(self, d) -> bool:
+        """gameObject == tranceGo (`battle.units[].trance_model`): False for a unit without a trance model."""
+        return self.has_model(d) and bool(self.worn.get(int(d.get("slot", -1)), False))
+
+    def bit_of(self, d) -> bool:
+        """The unit's MIRRORED Trance stat bit (d.stat.cur): the reconciler's TRANCE lane, the hold lane's record of it."""
+        return d is not None and bool(self.lane.hold.trance.get(int(d.get("slot", -1)), False))
+
+    @staticmethod
+    def hidden(d) -> bool:
+        """bi.disappear != 0, as the stand-in models it: a truthy ``disappear`` on the unit dict."""
+        return d is not None and bool(d.get("disappear"))
+
+    def frozen(self, s: int, role: bool) -> bool:
+        """ActTranceFrozen (fix: model-2): s135's life mask freezes wire slot ``s``'s bit -- masked, or its skipped record not
+        yet caught up."""
+        hold = self.lane.hold
+        return act_life_skips(hold.life_mask, s, hold.lifeskip_on(role)) or s in hold.skipped
+
+    def swap(self, d, bit: bool) -> None:
+        """btl_vfx.SetTranceModel(d, bit) -- the stand-in: the worn model flips, and ChangeModel ACTIVATES it and resets the
+        renderer CACHE to on (BTL_DATA.ChangeModel: meshIsRendering all-true -- the renderers themselves untouched)."""
+        slot = int(d.get("slot", -1))
+        self.worn[slot] = bool(bit)
+        self.active[slot] = True
+        self.cache[slot] = True
+
+    # -- [fix: rstock-1] the renderers and stock's cache of them
+    @staticmethod
+    def flagged(d) -> bool:
+        """geo.geoMeshChkFlags != 0 for every mesh, as the stand-in models it: a truthy ``meshflags`` on the unit dict."""
+        return d is not None and bool(d.get("meshflags"))
+
+    def renders(self, d) -> bool:
+        """The WORN model's renderers on (the stand-in's: every mesh alike)."""
+        slot = int(d.get("slot", -1))
+        return bool(self.rendering.get((slot, bool(self.worn.get(slot, False))), True))
+
+    def disp(self, d) -> None:
+        """btlseq.DispCharacter's mesh pass (every frame, stock): SetIsEnabledMeshRenderer(m, flags clear) -- a write that
+        lands only when the cache differs (BTL_DATA.cs: it returns early on the cache)."""
+        slot = int(d.get("slot", -1))
+        on = not self.flagged(d)
+        if bool(self.cache.get(slot, True)) != on:
+            self.rendering[(slot, bool(self.worn.get(slot, False)))] = on
+            self.cache[slot] = on
+
+    def set_model(self, d, bit: bool) -> None:
+        """ActTranceSetModel (fix: rstock-1) -- EVERY s137 swap: the worn model's flag-disabled renderers back on before the
+        swap (ActTranceShowWorn: ChangeModel deactivates it in the same call), SetTranceModel, then this frame's mesh flags
+        written onto the incoming model past the reset cache (ActTranceApplyMeshFlags)."""
+        slot = int(d.get("slot", -1))
+        if not bool(self.cache.get(slot, True)):
+            self.rendering[(slot, bool(self.worn.get(slot, False)))] = True
+            self.cache[slot] = True
+        self.swap(d, bit)
+        on = not self.flagged(d)
+        self.rendering[(slot, bool(bit))] = on
+        self.cache[slot] = on
+
+    def swap_kept(self, d, bit: bool) -> None:
+        """ActTranceSwap (fix: stock-hidden-swap) -- every swap made outside a sequence: SetTranceModel (normalised: fix
+        rstock-1, :meth:`set_model`), then a hidden unit's new model deactivated again (its own SetDisappear(false) shows it
+        later)."""
+        hidden = self.hidden(d)
+        self.set_model(d, bit)
+        if hidden:
+            self.active[int(d.get("slot", -1))] = False
+
+    def _linked(self, ctx: dict | None):
+        return (ctx or {}).get("linked") or (lambda u: True)
+
+    # -- the record (ActTranceAtSample: ApplyUnit's model check, with a probe that differs)
+    def at_sample(self, d, slot: int, bit: bool, role: bool) -> None:
+        """A slot already PENDING keeps its record under the gate -- and with the gate down resolves it here ("gate"; fix:
+        timing-4); UNGATED -- the pre-s137 swap at the sample (`immediate`); gated, with the unit's burst already passed (since
+        the record's freeze, fix: timing-3) -- at once (`on_arrival`); else RECORDED (`deferred`) for :meth:`tick`."""
+        gate = self.gate(role)
+        if 0 <= slot <= 3 and self.pend & (1 << slot):
+            if gate:
+                return
+            self.swap_kept(d, bit)
+            self.by_decline += 1
+            self.present_on(d, None, self.lane.ctx_last)
+            self.resolved(slot, True, bit, "gate", 0)
+            return
+        if slot < 0 or slot > 3 or not gate:
+            self.swap(d, bit)
+            self.immediate += 1
+            self.present_on(d, None, self.lane.ctx_last)
+            self.note(slot, True, bit, "immediate", 0, -1)
+            return
+        if act_trance_on_arrival(self.now, self.apply_since, self.hit_ms[slot], self.decline_ms[slot], self.end_ms[slot]):
+            self.swap_kept(d, bit)
+            self.on_arrival += 1
+            self.present_on(d, None, self.lane.ctx_last)
+            self.note(slot, True, bit, "on-arrival", 0, -1)
+            return
+        self.pend |= 1 << slot
+        self.record_ms[slot] = self.now
+        self.busy_ms[slot] = -1
+        self.want[slot] = bool(bit)
+        self.deferred += 1
+        if self.logged >= ACT_TRANCE_LOG_MAX:
+            return
+        self.logged += 1
+        self._log(f"{LOG_TRANCE_SLOT}{slot}'s {'trance' if bit else 'normal'}{LOG_TRANCE_WAITS}(the replay's hit; else "
+                  f"{ACT_TRANCE_GRACE_MS} ms of battle time after nothing names the unit, at most {ACT_TRANCE_CAP_MS}"
+                  f"{LOG_TRANCE_WAITS_TAIL}" + (LOG_TRANCE_FURTHER if self.logged == ACT_TRANCE_LOG_MAX else ""))
+
+    def at_dead_sample(self, d, slot: int, bit: bool, role: bool) -> None:
+        """ActTranceAtDeadSample (fix: rmodel-1) -- ApplyUnit's DEATH lane, its bit mirrored, the worn model differing: the
+        on-arrival rule (a corpse whose own burst hit, declined or ended within the window -- or since the record's freeze --
+        swaps now: the host's hit swapped it whatever its state). Gated only; a pending slot is the resolver's; an unlinked
+        unit swaps nothing."""
+        if slot < 0 or slot > 3 or not self.gate(role) or self.pend & (1 << slot):
+            return
+        if not self._linked(self.lane.ctx_last)(d):
+            return
+        if not act_trance_on_arrival(self.now, self.apply_since, self.hit_ms[slot], self.decline_ms[slot],
+                                     self.end_ms[slot]):
+            return
+        self.swap_kept(d, bit)
+        self.on_arrival += 1
+        self.present_on(d, None, self.lane.ctx_last)
+        self.note(slot, True, bit, "on-arrival", 0, -1)
+
+    # -- the resolver (ActTranceTick: every tick, after the hold's)
+    def tick(self, ctx: dict | None) -> None:
+        if self.pend == 0:
+            return
+        ctx = ctx or {}
+        normal = bool(ctx.get("steady"))
+        role = bool(ctx.get("role", False))
+        gate = self.gate(role)
+        leaving = bool(ctx.get("leaving"))
+        for s in range(4):
+            if self.pend & (1 << s):
+                self.step_slot(s, normal, gate, leaving, ctx)
+
+    def busy_of(self, s: int, d) -> tuple:
+        """ActTranceBusyOf -- THE BUSY RULE (amendment 3): (busy, burst) for wire slot ``s`` and its unit ``d``."""
+        busy = burst = False
+        for r in self.lane.book.queue:
+            if not r.pending:
+                continue
+            if act_trance_rec_names(s, r.actor_slot, r.is_player, r.tar_id, r.magic_caster):
+                busy = True
+            if r.actor_slot == s and act_trance_is_burst(r.cmd_no, r.is_player, r.actor_slot):
+                burst = True
+        for r in self.lane.running:
+            if self.lane._units_of(r) & int(d.get("id", 0)):
+                busy = True
+            if r.actor_slot == s and act_trance_is_burst(r.cmd_no, r.is_player, r.actor_slot) and r.first_hit_ms < 0:
+                burst = True
+        bit = 1 << s
+        for h in list(self.lane.hold.held) + list(self.lane.hold.queued):
+            if int(h.slots) & bit:
+                busy = True
+        if burst:
+            busy = True
+        return busy, burst
+
+    def burst_running(self, s: int) -> bool:
+        """ActTranceBurstRunning (fix: timing-2): the slot's OWN SysTrans replay runs and has not hit yet."""
+        return any(r.actor_slot == s and act_trance_is_burst(r.cmd_no, r.is_player, r.actor_slot) and r.first_hit_ms < 0
+                   for r in self.lane.running)
+
+    def passed_since(self, s: int) -> bool:
+        """ActTrancePassedSince (fix: rmodel-1): the pending slot's own burst passed since its record -- a SysTrans hit, a
+        decline of its START or its replay's end or abort (the flush's ``passed``)."""
+        rec = self.record_ms[s]
+        return self.hit_ms[s] >= rec or self.decline_ms[s] >= rec or self.end_ms[s] >= rec
+
+    def unit_of(self, s: int, ctx: dict):
+        """ActTranceUnit: the pending slot's unit, with its trance model, still linked (fix: stock-unlinked-swap) -- None =
+        none."""
+        resolve = ctx.get("resolve") or (lambda i, p: None)
+        d = resolve(s, True)
+        return d if self.has_model(d) and self._linked(ctx)(d) else None
+
+    def step_slot(self, s: int, normal: bool, gate: bool, leaving: bool, ctx: dict) -> None:
+        """ActTranceStepSlot: the unit and its probe, what names it, the verdict -- then the swap (with the present colour)
+        or the resolution without one."""
+        d = self.unit_of(s, ctx)
+        unit_ok = d is not None
+        wearing = unit_ok and self.wears(d)
+        bit = unit_ok and self.bit_of(d)
+        dead = unit_ok and not d.get("alive", True)
+        busy = burst = False
+        if unit_ok:
+            busy, burst = self.busy_of(s, d)
+        if busy:
+            self.busy_ms[s] = self.now
+        step = act_trance_step(self.record_ms[s], self.busy_ms[s], busy, burst, self.now)
+        v = act_trance_verdict(gate, leaving, normal, unit_ok, wearing, bit, self.frozen(s, bool(ctx.get("role", False))),
+                               dead, burst, self.hit_ms[s] >= self.record_ms[s], self.decline_ms[s] >= self.record_ms[s],
+                               self.end_ms[s] >= self.record_ms[s], step)
+        if v == ACT_TR_WAIT:
+            return
+        if v == ACT_TR_MOOT:
+            self.moot += 1
+            self.resolved(s, False, bit, "moot", 0)
+            return
+        if v in (ACT_TR_DROP_LEAVE, ACT_TR_DROP_UNIT, ACT_TR_DROP_DEAD):
+            self.dropped += 1
+            self.resolved(s, False, bit, "leave" if v == ACT_TR_DROP_LEAVE else "unit" if v == ACT_TR_DROP_UNIT else "dead",
+                          0)
+            return
+        self.swap_kept(d, bit)                   # the mirrored bit NOW (D2), as the reconciler's own swap (kept hidden)
+        if v == ACT_TR_SWAP_GATE:
+            self.by_decline += 1
+            via = "gate"
+        elif v == ACT_TR_SWAP_DECLINE:
+            self.by_decline += 1
+            via = "declined"
+        elif v == ACT_TR_SWAP_END:
+            self.by_end += 1
+            via = "ended"
+        elif v == ACT_TR_SWAP_CAP:
+            self.by_cap += 1
+            via = "cap"
+        else:
+            self.by_grace += 1
+            via = "grace"
+        self.present_on(d, None, ctx)
+        self.resolved(s, True, bit, via, 0)
+
+    # -- the hit, the decline, the end (ActTranceOnHit / ActTranceOnDecline / ActTranceOnReplayOver)
+    def on_hit(self, r, role: bool) -> None:
+        """ActTranceOnHit, for every hit of a SysTrans replay of a player: the burst's mark, then -- under the gate, when the
+        worn model differs from the mirrored bit and that bit can be trusted (fix: model-1, model-2) -- the swap (a pending
+        deferral `swaps_by_hit`; none pending `hit_unpaired`); an untrusted bit swaps nothing (`hit_untrusted`); a matching
+        model resolves a pending deferral `moot`. An unlinked actor swaps nothing. Ungated the hit swaps nothing."""
+        if r is None or not act_trance_is_burst(r.cmd_no, r.is_player, r.actor_slot):
+            return
+        s = int(r.actor_slot)
+        self.hit_ms[s] = self.now
+        d = getattr(r, "actor", None)
+        if not self.has_model(d) or not self._linked(self.lane.ctx_last)(d):
+            return
+        pending = bool(self.pend & (1 << s))
+        gate = self.gate(role)
+        wearing, bit = self.wears(d), self.bit_of(d)
+        if not act_trance_hit_swaps(gate, wearing, bit):
+            if pending and gate:
+                self.moot += 1
+                self.resolved(s, False, bit, "moot", r.id)
+            return
+        frozen = self.frozen(s, role)
+        if not act_trance_hit_trusts(frozen, r.vfx_num, bit):
+            self.hit_untrusted += 1              # a stale or contradicting bit: no swap on it
+            self.note(s, False, bit, "frozen" if frozen else "contradicted", r.id, -1)
+            return
+        self.set_model(d, bit)                   # the host's own swap point (its present colour follows at the replay's end);
+        #                                          [fix: rstock-1] its renderers normalised (inside a mesh-flag hide too)
+        if pending:
+            self.by_hit += 1
+            self.resolved(s, True, bit, "hit", r.id)
+        else:
+            self.hit_unpaired += 1
+            self.note(s, True, bit, "hit", r.id, -1)
+
+    def on_decline(self, r, why) -> None:
+        """ActTranceOnDecline (ActDecline / ActMarkNoop): a decline of a player's SysTrans START (any reason but a duplicate
+        copy) marks its slot."""
+        if r is not None and act_trance_is_burst(r.cmd_no, r.is_player, r.actor_slot) and act_trance_decline_ends(why):
+            self.decline_ms[int(r.actor_slot)] = self.now
+
+    def on_replay_over(self, r, why, ctx: dict | None) -> None:
+        """ActTranceOnReplayOver (ActFinishEnded: ``why`` None / ActAbort): a SysTrans replay is over -- its player slot's end
+        mark, then stock's present colour on its actor (never after an end injection, at a Leave, on a fading enemy or an
+        unlinked unit) -- and (fix: timing-2), after an end injection, the deferral the flush left for this burst resolves
+        here (`swaps_by_end`)."""
+        if r is None or int(r.cmd_no) != CMD_SYS_TRANS:
+            return
+        burst = act_trance_is_burst(r.cmd_no, r.is_player, r.actor_slot)
+        if burst:
+            self.end_ms[int(r.actor_slot)] = self.now
+        ctx = ctx or self.lane.ctx_last or {}
+        d = getattr(r, "actor", None)
+        if d is not None and self._linked(ctx)(d):
+            self.present_on(d, why, ctx)
+        if burst and ctx.get("end_injected") and self.pend & (1 << int(r.actor_slot)):
+            self.end_after_inject(int(r.actor_slot), why, r.id, ctx)
+
+    def end_after_inject(self, s: int, why, act_id: int, ctx: dict) -> None:
+        """ActTranceEndAfterInject (fix: timing-2): the flush's own verdict (its burst no longer running), the swap counted
+        `swaps_by_end` -- no present colour (the tails own the units)."""
+        d = self.unit_of(s, ctx)
+        unit_ok = d is not None
+        wearing = unit_ok and self.wears(d)
+        bit = unit_ok and self.bit_of(d)
+        v = act_trance_flush_verdict(why == "leave" or bool(ctx.get("leaving")), unit_ok, wearing, bit,
+                                     unit_ok and not d.get("alive", True), self.passed_since(s), False)
+        if v == ACT_TR_MOOT:
+            self.moot += 1
+            self.resolved(s, False, bit, "moot", act_id)
+        elif v != ACT_TR_SWAP_INJECT:
+            self.dropped += 1
+            self.resolved(s, False, bit, "leave" if v == ACT_TR_DROP_LEAVE else "unit" if v == ACT_TR_DROP_UNIT else "dead",
+                          act_id)
+        else:
+            self.swap_kept(d, bit)
+            self.by_end += 1
+            self.resolved(s, True, bit, "ended", act_id)
+
+    # -- the end injection and the teardown
+    def flush(self, ctx: dict | None) -> None:
+        """ActTranceFlush -- InjectEnd's head (every inject path, still in PHASE_NORMAL): every pending deferral swaps by the
+        probe NOW (`swaps_by_inject`; ActTranceFlushVerdict) -- except one whose own SysTrans replay runs unhit (fix:
+        timing-2): left pending for its hit or its end."""
+        if self.pend == 0:
+            return
+        ctx = ctx or self.lane.ctx_last or {}
+        leaving = bool(ctx.get("leaving"))
+        for s in range(4):
+            if not self.pend & (1 << s):
+                continue
+            d = self.unit_of(s, ctx)
+            unit_ok = d is not None
+            wearing = unit_ok and self.wears(d)
+            bit = unit_ok and self.bit_of(d)
+            v = act_trance_flush_verdict(leaving, unit_ok, wearing, bit, unit_ok and not d.get("alive", True),
+                                         self.passed_since(s), self.burst_running(s))
+            if v == ACT_TR_WAIT:
+                continue
+            if v == ACT_TR_MOOT:
+                self.moot += 1
+                self.resolved(s, False, bit, "moot", 0)
+            elif v != ACT_TR_SWAP_INJECT:
+                self.dropped += 1
+                self.resolved(s, False, bit, "leave" if v == ACT_TR_DROP_LEAVE else "unit" if v == ACT_TR_DROP_UNIT else
+                              "dead", 0)
+            else:
+                self.swap_kept(d, bit)
+                self.by_inject += 1
+                self.present_on(d, None, dict(ctx, end_injected=False))   # (before the injection writes its phase)
+                self.resolved(s, True, bit, "inject", 0)
+
+    def discard_all(self, why: str) -> None:
+        """ActTranceDiscardAll (ActDiscardAll, before its state reset): every pending deferral DROPPED ("teardown") -- nothing
+        applied -- and one summary line when the boot did anything."""
+        for s in range(4):
+            if self.pend & (1 << s):
+                self.dropped += 1
+                self.resolved(s, False, self.want[s], "teardown", 0)
+        if self.deferred + self.immediate + self.on_arrival + self.hit_unpaired + self.hit_untrusted == 0:
+            return
+        self._log(f"{LOG_TRANCE_SUMMARY}{why}) -- {self.deferred} deferred ({self.by_hit} at the hit, {self.by_grace} by the "
+                  f"grace, {self.by_cap} by the cap, {self.by_decline} by a decline, {self.by_end} at the burst's end, "
+                  f"{self.by_inject} at the end injection, {self.moot} moot, {self.dropped} dropped), {self.immediate} "
+                  f"immediate, {self.on_arrival} on arrival, {self.hit_unpaired} unpaired hit(s), {self.hit_untrusted} "
+                  f"untrusted hit(s); {self.present} present colour(s)")
+
+    # -- the present colour, the resolution, `last` and the line
+    def present_on(self, d, why, ctx: dict | None) -> None:
+        """ActTrancePresent: SetPresentColor behind ActTrancePresents (``why`` = an abort's reason) -- counted; a FADING
+        enemy corpse is guarded (fix: model-3: a player corpse presents)."""
+        ctx = ctx or {}
+        if d is None or not act_trance_presents(bool(ctx.get("end_injected")), why == "leave" or bool(ctx.get("leaving")),
+                                                True, not d.get("player") and not d.get("alive", True)):
+            return
+        self.present += 1
+
+    def resolved(self, slot: int, swapped: bool, to: bool, via: str, act_id: int) -> None:
+        """ActTranceResolved: the slot leaves `pending`; `last` and one line (capped)."""
+        record_ms = self.record_ms[slot] if 0 <= slot <= 3 else -1
+        if 0 <= slot <= 3:
+            self.pend &= ~(1 << slot)
+            self.record_ms[slot] = -1
+            self.busy_ms[slot] = -1
+        self.note(slot, swapped, to, via, act_id, record_ms)
+
+    def note(self, slot: int, swapped: bool, to: bool, via: str, act_id: int, record_ms: int) -> None:
+        """ActTranceNote: `last` and the line (capped per boot)."""
+        self.last = {"slot": int(slot), "swapped": bool(swapped), "to": bool(to), "via": via, "id": int(act_id),
+                     "record_ms": int(record_ms), "ms": int(self.now)}
+        if self.logged >= ACT_TRANCE_LOG_MAX:
+            return
+        self.logged += 1
+        self._log(f"{LOG_TRANCE_SLOT}{slot}" + (f" -> the {'trance' if to else 'normal'} model" if swapped else
+                                                LOG_TRANCE_KEEPS)
+                  + f" ({via}" + (f", replay id {act_id}" if act_id > 0 else "")
+                  + (f", {self.now - record_ms}{LOG_TRANCE_AFTER}" if record_ms >= 0 else "") + f"; battle ms {self.now})"
+                  + (LOG_TRANCE_FURTHER if self.logged == ACT_TRANCE_LOG_MAX else ""))
+
+    # -- the published block
+    def doc(self, *, role: bool, booted: bool) -> dict:
+        """HarnessAgent.AppendActGuestTrance -- `act.guest.trance`, in every role."""
+        return {"on": self.on(role), "gate": bool(booted) and self.gate(role), "deferred": self.deferred,
+                "pending": self.pend, "swaps_by_hit": self.by_hit, "swaps_by_grace": self.by_grace,
+                "swaps_by_cap": self.by_cap, "swaps_by_decline": self.by_decline, "swaps_by_end": self.by_end,
+                "swaps_by_inject": self.by_inject, "moot": self.moot, "dropped": self.dropped,
+                "immediate": self.immediate, "on_arrival": self.on_arrival, "hit_unpaired": self.hit_unpaired,
+                "hit_untrusted": self.hit_untrusted, "present": self.present,
+                "last": dict(self.last) if self.last is not None else None}
+
+
+#: NetSyncDiorama.Replay.cs's s137 integer constants, by C# name (the pin, both ways -- test_harness_netsync.py reads every
+#: `internal const Int32` the s137 patch declares, comments stripped).
+CS_TRANCE_CONSTANTS = {
+    "ActTranceGraceMs": ACT_TRANCE_GRACE_MS, "ActTranceCapMs": ACT_TRANCE_CAP_MS,
+    "ActTranceBurstMaxMs": ACT_TRANCE_BURST_MAX_MS, "ActTranceLogMax": ACT_TRANCE_LOG_MAX,
+    "ActTrStepWait": ACT_TR_STEP_WAIT, "ActTrStepGrace": ACT_TR_STEP_GRACE, "ActTrStepCap": ACT_TR_STEP_CAP,
+    "ActTrStepBurstMax": ACT_TR_STEP_BURST_MAX,
+    "ActTrWait": ACT_TR_WAIT, "ActTrMoot": ACT_TR_MOOT, "ActTrDropLeave": ACT_TR_DROP_LEAVE,
+    "ActTrDropUnit": ACT_TR_DROP_UNIT, "ActTrDropDead": ACT_TR_DROP_DEAD, "ActTrSwapGate": ACT_TR_SWAP_GATE,
+    "ActTrSwapDecline": ACT_TR_SWAP_DECLINE, "ActTrSwapEnd": ACT_TR_SWAP_END, "ActTrSwapCap": ACT_TR_SWAP_CAP,
+    "ActTrSwapGrace": ACT_TR_SWAP_GRACE, "ActTrSwapInject": ACT_TR_SWAP_INJECT}
