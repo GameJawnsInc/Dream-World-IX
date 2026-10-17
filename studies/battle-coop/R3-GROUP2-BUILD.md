@@ -12,7 +12,8 @@ stack replays by number:
 | s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
 | s137 | s126 | trance burst timing | ★ deployed, solo-proven |
 | s138 | s127 | the dress instrument (keys only) | ★ deployed, solo-proven |
-| s139-s141 | s128-s130 | the guest's own field model (shows its party character, or a moogle) | next: s139 (two owner questions first) |
+| s139 | s128 | the host's dress rule + wire section 8 | captured, calibrated on s138; deploy pending |
+| s140-s141 | s129-s130 | the guest dresses itself; polish | |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -296,3 +297,25 @@ wide), both calibration modes clean. LESSON: a sampled witness needs a bracket, 
 
 **Next: s139** (the host rule and wire section 8). Before its hunks, the owner answers the audit's two questions (2.2 D1:
 the SelfDress=0 opt-out on the host's ghost; D2: a spectating guest's body).
+
+## s139: the host's dress rule and wire section 8 (2026-10-17)
+
+**The owner's two answers first** (R3-FIELD-MODEL-AUDIT.md 2.2): D1 "yes" -- the host's GhostAs is the one knob, a
+guest's SelfDress=0 only switches off its own dressing, no wire change; D2 "moogle. 2 zidanes just looks weird, and the
+host will never be a moogle" -- a spectating guest (GuestSlots 0) wears the moogle, overriding the audit's recommendation.
+
+**What it does.** On the host, the guest's ghost: the first occupied named slot's member, or the MOOGLE (new rig row 8)
+for an empty slot or a spectator; GhostGuard keeps the dress only on a plain-98 wire body or one already dressed; a rest
+mask restores CreateModel's field-mode hides (Garnet one hairstyle). Section 8 `[model u16][charId u8]` rides every host
+state frame (+6 B, wire v14, old guests skip it). The client keeps the s138 rule. `netsync selfdress ...` (selftest only;
+`rule s138` is the lever); 'dress codec selftest: OK (29 rows)'.
+
+**Built** by a workflow (engine, harness, a 4-lens review with two skeptics per finding, two fix passes). 4 engine
+files, +1217/-51; 2196 tests pass. Benches: coop_self_dress leg G; `coop_peer.py dress` (a tape's section 8); a duo leg
+coop_dress_wire.py (G9: the host's transport site stepped live through GuestSlots 2 / 4 / 0 -- Vivi, Garnet with one
+hairstyle, the moogle -- and the relay tap's section 8 in tape order).
+
+**Calibrated on s138 first** (the live DLL `a8b0fd80ecc4013d`): the solo bench red in exactly leg G's old row (S138-CAL
+green, leg I green); `coop_peer.py dress` on the s117 host tape: exit 1, no section 8; the duo G9 under COOP_CALIBRATE:
+exactly OLD_PREDICTED red (S139-G9-CAL green) -- among them the one behavioural red an old DLL gives: an s138 host
+leaves a spectator's ghost plain Zidane.
