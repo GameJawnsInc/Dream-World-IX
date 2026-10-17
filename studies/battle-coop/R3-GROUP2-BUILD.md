@@ -9,8 +9,8 @@ stack replays by number:
 | s133 | s122 | host action-start lane (START/END records, impact ids, header bit 5) | ★ deployed, solo-proven |
 | s134 | s123 | guest action replay | ★ deployed, solo-proven (solo + T2 tape leg) |
 | s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven, owner-confirmed |
-| s136 | s125 | fallback A: one stock clip per uncovered action | captured, calibrated on s135; deploy pending |
-| s137 | s126 | trance burst timing | |
+| s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
+| s137 | s126 | trance burst timing | next |
 | s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | after action replay |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
@@ -183,3 +183,21 @@ s117 old-host tape through the real intake) each red in exactly every fallback c
 first tape and arc runs were disturbed from outside -- the owner had another game and a controller on: one launch left
 the title screen by itself, and one guest sat in the Pause menu through the host's fight (its start-hold report: BUSY)
 -- and both were green on a clean rerun. LESSON: the UNATTENDED LAW covers single-instance benches too.
+
+**Deployed** 2026-10-16 (`build_memoria.py`, backup `20261016-193358`; Assembly-CSharp `19ab527daa509b56`).
+
+**Proven solo on s136** (one block, nothing rerun):
+- The T2 TAPE LEG 13/13: the s133 host with ActionReplay=0 through the real transport -- every START declined `knob`,
+  attack and enemy clips keyed by id, every enemy clip equal to the offline btlseq oracle's, the Defends none. RED-only
+  under the inverse knob ActionReplay=1 (S136T-CAL: exactly UNCOV, CLIP, ENEMY, LOG).
+- The ARC LEG 12/12: the s117 OLD host's tape (no START, 46-byte impacts) through the real intake -- clips keyed by
+  caster inside the 500 ms window, enemy clips equal to the oracle's.
+- The solo bench 27/27 on its first in-game run and RED-only under `fallback off` (S136-CAL: exactly the 17-check lever
+  set). 'action fallback selftest: OK (30 rows)' in game.
+- The 6.1 regression set at baseline, incl. coop_action_hold 27/27 + its tape leg 12/12, coop_action_replay 35/35 + its
+  tape leg 16/16, coop_action_host 20/20, stock menu 27/27, dialogue authority 147/147 and result replay 50/51 (S9-C4L).
+  The T2 cut legs: cal 10/10, readopt 13/13 (+63 vs tail 67.3), s119 12/12 (+0), s120-battle 12/12 (+78), span 9/9.
+
+**What the owner would see:** nothing new on a normal duo -- an s133+ host's actions are all replayed (covered). Fallback
+A shows on mixed DLLs (an old host), a guest on the legacy engine, or a guest with `[Netsync] ActionReplay=0`: one stock
+clip per action instead of a full replay, and the enemies move.
