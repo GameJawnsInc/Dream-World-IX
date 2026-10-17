@@ -10,7 +10,7 @@ stack replays by number:
 | s134 | s123 | guest action replay | ★ deployed, solo-proven (solo + T2 tape leg) |
 | s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven, owner-confirmed |
 | s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
-| s137 | s126 | trance burst timing | next |
+| s137 | s126 | trance burst timing | captured, calibrated on s136; deploy pending |
 | s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | after action replay |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
@@ -201,3 +201,25 @@ the title screen by itself, and one guest sat in the Pause menu through the host
 **What the owner would see:** nothing new on a normal duo -- an s133+ host's actions are all replayed (covered). Fallback
 A shows on mixed DLLs (an old host), a guest on the legacy engine, or a guest with `[Netsync] ActionReplay=0`: one stock
 clip per action instead of a full replay, and the enemies move.
+
+## s137: the trance burst timing (2026-10-17)
+
+**What it does.** On a booted diorama whose host latched bit 5 and whose guest can replay, a unit's trance model no
+longer swaps the moment the host's sample carries the trance bit. ApplyUnit records the change; ActTick resolves it every
+frame on both branches -- at the SysTrans replay's own hit (SetTranceModel with the mirrored bit, only when the worn
+model differs), else 400 ms of battle time after nothing names the unit (capped at 2500 ms; a unit's own burst in flight
+may hold it up to 8500 ms), at once on a decline of its SysTrans START or at its replay's end, and at the end injection.
+Old hosts, a guest that cannot replay and the lever keep the immediate swap. Keys `netsync.battle.act.guest.trance{...}`
+and `units[].trance_model`; `actbench trancegrace on|off`; 'action trance selftest: OK (21 rows)'.
+
+**Built** by a workflow (engine, harness, a 4-lens review -- model/containment, stock safety, timing/grace/ends,
+harness -- with two skeptics per finding, a fix pass, a re-review, a second fix pass). Round 1's one blocking finding:
+an End burst on a dead unit would have swapped the corpse INTO its trance model (the corpse's mirrored bit went stale);
+now the dead lane mirrors the host's bit and a corpse waits for its own burst. Others fixed: the burst exemption had no
+time bound (now 8500 ms), a victory injection swapped ahead of a burst in flight, a swap inside a mesh-flag hide left
+renderers off, and the bench gained a PAUSE leg proving the grace counts battle time. 4 files, +1262/-4; the stack
+replays 29/29 byte-exact; 962 domain tests pass. **No tape leg:** no recorded host tape carries a trance, and forcing
+one (the Battle Assistance booster plus a fight policy) would be a new, nondeterministic instrument needing its own CAL.
+
+**Calibrated on s136 first** (the live DLL `19ab527daa509b56`): the solo bench under `COOP_CALIBRATE=1`, in both its
+lever mode and its caps-0x02 mode, red in exactly the probe-absent set (19 of 25, S137-CAL green both times).
