@@ -138,6 +138,10 @@ R3_PROBES = {
     # [ff9mapkit netsync s137] the trance burst timing (the guest `actbench` op: trancegrace on|off) -- keyed on
     # `act.guest.trance`, never a bare "trance" (`battle.units[].trance_model` is its unit witness, not its probe)
     137: "netsync.battle.act.guest.trance",
+    # [ff9mapkit netsync s138] the dress instrument (no verb, op or lever: harness keys only) -- keyed on `netsync.dress.ghost`
+    # (s138's own fixed sub-object; s139 adds `netsync.dress.codec`, s140 `netsync.dress.self`). Its OTHER half sits outside
+    # netsync: `player.model` (the bench probes both, coop_self_dress.py)
+    138: "netsync.dress.ghost",
 }
 
 

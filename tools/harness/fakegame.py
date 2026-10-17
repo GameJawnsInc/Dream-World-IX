@@ -196,6 +196,17 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #:                    lane's `trance`; see its docstring): from this rung on ApplyUnit's model check (the `unit <slot>
 #:                    trance0|trance1` record) defers the worn model to the SysTrans replay's hit, else the grace or the cap
 #:                    -- an s136 stand-in swaps it at the sample (and publishes no worn model).
+#: [ff9mapkit netsync s138] THE GUEST'S OWN FIELD MODEL (s138-s141: R3-DESIGN.md 3.4 as amended by R3-FIELD-MODEL-AUDIT.md,
+#: whose 3.1 decided the key design -- the dress rungs join THIS ladder and the block nests as `netsync.dress`; the rung names
+#: are `dressinstr` / `dresshost` / `dressself` / `dresspolish`, never the verb's `selfdress`). Its calibration (s137: the
+#: `player.model` and `netsync.dress` probes fail closed) is ``caps_through("acttrance")``:
+#:   "dressinstr"  -- s138, THE DRESS INSTRUMENT (harness keys only, inert in every role; no sub-verb, op, lever or proof
+#:                    line): `netsync.dress` -- netsync's LAST key, after `battle` (NETSYNC_TOP_CAP_KEYS; inside it
+#:                    NETSYNC_DRESS_CAP_KEYS: `ghost`, `party`) -- and, OUTSIDE netsync, the `player` block's dress keys
+#:                    (NETSYNC_PLAYER_CAP_KEYS, after `control`) and `objects[].model` (NETSYNC_OBJECT_CAP_KEYS, after
+#:                    `sid`). The stand-in publishes them for its field player, its bodies and the selftest mirror
+#:                    (FakeGame._player_dress_doc / _dress_doc say what it models and what it cannot); an s137 stand-in
+#:                    publishes none of them.
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -224,7 +235,8 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "actreplay": ("s134", ()),
                        "acthold": ("s135", ()),
                        "actfallback": ("s136", ()),
-                       "acttrance": ("s137", ())}
+                       "acttrance": ("s137", ()),
+                       "dressinstr": ("s138", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -245,6 +257,8 @@ NETSYNC_S135_CAPS = frozenset(("acthold",))
 NETSYNC_S136_CAPS = frozenset(("actfallback",))
 #: [ff9mapkit netsync s137] The trance-burst-timing rung (its calibration, s136, is ``caps_through("actfallback")``).
 NETSYNC_S137_CAPS = frozenset(("acttrance",))
+#: [ff9mapkit netsync s138] The dress-instrument rung (its calibration, s137, is ``caps_through("acttrance")``).
+NETSYNC_S138_CAPS = frozenset(("dressinstr",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
@@ -306,6 +320,10 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "actfallback": {},
     # [ff9mapkit netsync s137] nothing at this level: `trance` keys INSIDE `act.guest` (NETSYNC_BATTLE_NESTED_KEYS)
     "acttrance": {},
+    # [ff9mapkit netsync s138] nothing under `netsync.battle`: `dress` is a TOP-LEVEL netsync block (NETSYNC_TOP_CAP_KEYS),
+    # its keys are NETSYNC_DRESS_CAP_KEYS, and the player / objects keys sit OUTSIDE netsync (NETSYNC_PLAYER_CAP_KEYS /
+    # NETSYNC_OBJECT_CAP_KEYS)
+    "dressinstr": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -323,8 +341,26 @@ NETSYNC_BATTLE_NESTED_KEYS = {
 NETSYNC_DIORAMA_CAP_KEYS = {"intro": ("intro",), "starthold": ("live",), "holdpeer": ("hold",)}
 NETSYNC_DIORAMA_NESTED_KEYS = {"swirl": {"intro": ("swirl_clamp",)}}
 #: [ff9mapkit netsync R3 s120/s121] The TOP-LEVEL `netsync` blocks a battle capability adds, in the agent's order --
-#: between `diorama` and `battle` (AppendSession, AppendMenuRefusal).
-NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",)}
+#: between `diorama` and `battle` (AppendSession, AppendMenuRefusal); [ff9mapkit netsync s138] and `dress` AFTER `battle`
+#: (AppendDress: netsync's LAST key).
+NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",), "dressinstr": ("dress",)}
+#: [ff9mapkit netsync s138] The keys each dress rung adds INSIDE `netsync.dress`, in AppendDress's order (s139 appends
+#: `codec` and `rig_idle_frames`, s140 `self`) -- the dress key law: every one under `netsync.dress`, never `netsync.battle`
+#: (the action-replay audit's 4.3).
+NETSYNC_DRESS_CAP_KEYS = {"dressinstr": ("ghost", "party")}
+#: ...and the keys a later rung adds inside a dress block's FIXED sub-object, by path under `netsync.dress` (s139: its levers
+#: at the end of `ghost`).
+NETSYNC_DRESS_NESTED_KEYS: dict = {}
+#: [ff9mapkit netsync s138] `netsync.dress.ghost` as the LIVE stack writes it, in AppendDress's order (a FIXED sub-object:
+#: always whole, never null) -- the union of every rung's frozen row (BW.DRESS_GHOST_KEYS_BY_RUNG), read only by the
+#: live-catch pins; a per-rung reader (the probe, the stand-in) takes its rung's row.
+NETSYNC_DRESS_GHOST_KEYS = tuple(BW.DRESS_GHOST_SENTINELS)
+#: [ff9mapkit netsync s138] THE LEVEL HOME FOR KEYS OUTSIDE NETSYNC: what a rung adds to the top-level `player` block (after
+#: `control`, AppendPlayerDress / WritePlayerDress) and to every `objects[]` entry (after `sid`). The s90 THREE CASES hold for
+#: both: absent = an older engine, null = no controlled actor (for `objects`, the whole list null off a field), else the raw
+#: value. A test pins the LIVE writers against these rows in ladder order (a later rung's rewrite cannot leave them stale).
+NETSYNC_PLAYER_CAP_KEYS = {"dressinstr": BW.PLAYER_DRESS_KEYS}
+NETSYNC_OBJECT_CAP_KEYS = {"dressinstr": BW.OBJECT_DRESS_KEYS}
 NETSYNC_BATTLE_END_LEAVE_KEYS = ("trigger", "latched_ms", "tries", "deferred", "requested", "request_ms", "why", "settled",
                                  "via", "stamp", "stamp_host", "stamped", "stamped_was", "music_shut", "music_why",
                                  "wipe_lifted", "reverted")
@@ -526,6 +562,67 @@ FAKE_PARTY = ({"char": 0, "name": "Zidane", "level": 5, "exp": 1700, "status": 0
                "abils": [(30, 25), (31, 40)]},
               {"char": 1, "name": "Vivi", "level": 4, "exp": 1000, "status": 0, "pa": [0], "abils": [(20, 30)]},
               None, None)
+#: [ff9mapkit netsync s138] The stand-in's FIELD player body (`player.*`'s dress keys): a stock Zidane -- field 250's
+#: Zidane_Init and the kit's player entry alike (R3-FIELD-MODEL-AUDIT.md 2.1, the oracle rows): SetModel(98, 93),
+#: SetStandAnimation(200), SetWalkAnimation(25), SetRunAnimation(38). `eye` is SetModel's eye BYTE (PosObj.eye = -4 x it).
+FAKE_PLAYER_BODY = {"model": 98, "eye": 93, "idle": 200, "walk": 25, "run": 38}
+#: [ff9mapkit netsync s138] The controlled entry's sid (== uid: an InitObject(sid, 0)) on a field `player_sids` does not
+#: name -- the kit's player entry (1). A REAL field's is its own (field 250's Zidane is entry 10): a test names it.
+FAKE_PLAYER_SID = 1
+#: [ff9mapkit netsync s138] `player.frame_n` on the stand-in -- a MODELLED loop length, NOT the clip's (the stand-in reads no
+#: clip); `anim_frame` runs 0..FAKE_FRAME_N-1 on the frame counter.
+FAKE_FRAME_N = 60
+#: [ff9mapkit netsync s138] The dress instrument's FAULT LEVERS (FakeGame.dress_faults): each turns ONE leg-I check red
+#: offline, so a bench judge can be shown failing on the shape it claims to catch (R3-FIELD-MODEL-AUDIT.md 2.1 amendment 12):
+#:   "eye"             player.eye off by one eye byte (-4) -- I4
+#:   "body"            player.body reads ANOTHER model's stem than the one worn (:func:`dress_fault_model`: 98 under any
+#:                     other model, 192 under 98) -- on a dressed body (model 192) that is audit amendment 3's own case, a
+#:                     dress hook that wrote po.model but left the ZDN body ("98") -- I1
+#:   "anim_geo"        player.anim_geo null: nothing playing on the Animation component -- I3
+#:   "playing"         player.clip_playing false -- I3
+#:   "uid"             player.uid one past the entry's sid -- I9
+#:   "ghost_missing"   netsync.dress.ghost at its sentinels while netsync.session.ghost reads true -- I7
+#:   "ghost_model"     the ghost WEARS another model than the player's (:func:`dress_fault_model` of it) -- I7
+#:   "party_empty"     netsync.dress.party all -1 -- I8
+#:   "object_model"    objects[] entries published WITHOUT `model` (an s137 object list) -- I6
+#: Every lever is a value OTHER than the expected one, derived from what is worn -- never a fixed id that a later leg's
+#: expected value (s140's S1 / S5: Freya, 192) would turn into a no-op.
+DRESS_FAULTS = ("eye", "body", "anim_geo", "playing", "uid", "ghost_missing", "ghost_model", "party_empty", "object_model")
+#: [ff9mapkit netsync s138] The bodies whose prefab carries the hidden Orichalcum overlay `battle_model` BEFORE `bone000`
+#: (a read-only walk of the install's p0data prefabs, R3-FIELD-MODEL-AUDIT.md's stock-01 evidence: 98 Zidane, 509 Amarant)
+#: -- its renderer disabled, its GameObject active, so a first-renderer read finds it first.
+FAKE_BATTLE_OVERLAY_MODELS = (98, 509)
+
+
+def dress_fault_model(model: int) -> int:
+    """[ff9mapkit netsync s138] A model OTHER than ``model`` for a fault lever: Zidane (98) under any other model, Freya
+    (192) under Zidane -- so the lever still bites when the expected body is Freya."""
+    return 98 if int(model) != 98 else 192
+
+
+def body_renderers(model: int, props=()) -> list:
+    """[ff9mapkit netsync s138] A field body's renderers in Unity's DEPTH-FIRST order, as ``(path, texture name)`` --
+    what HarnessAgent.BodyOf walks (battlewire.body_of is its twin): the hidden overlay first on
+    :data:`FAKE_BATTLE_OVERLAY_MODELS`, then the bone subtree -- where GeoAttach parents a prop (``props``: each prop's
+    texture name, attached under bone 13) -- then the body's own mesh0 / mesh1. A MODEL of the prefab order, not the
+    prefab: the stand-in reads no asset."""
+    m = int(model)
+    rows = [("battle_model/battle_model0", f"{m}_0")] if m in FAKE_BATTLE_OVERLAY_MODELS else []
+    rows += [(f"bone000/bone013/prop{i}/mesh0", str(t)) for i, t in enumerate(props)]
+    return rows + [("mesh0", f"{m}_0"), ("mesh1", f"{m}_1")]
+
+
+def _geo_name(model: int) -> str | None:
+    """FF9BattleDB.GEO[model] through TryGetValue -- the kit's copy of Memoria's open-source id<->name table (the same
+    table the engine's GEO holds); None for an id it lacks."""
+    from ff9mapkit._modeldb import MODELS
+    return MODELS.get(int(model))
+
+
+def _clip_name(anim: int) -> str | None:
+    """FF9DBAll.AnimationDB[anim] through TryGetValue -- the kit's copy of Memoria's open-source animation table."""
+    from ff9mapkit._animdb_all import ANIMATIONS
+    return ANIMATIONS.get(int(anim))
 
 
 def _int32(text) -> int | None:
@@ -992,6 +1089,22 @@ class FakeGame:
         self.save_bag: dict = {236: 7, 237: 2}
         self.save_cards: dict = {}
         self.save_passive: set = set()        # the ability-achievement sets (FF9.party: learned, passive)
+        #: [ff9mapkit netsync s138] THE DRESS INSTRUMENT's stand-in (the `dressinstr` rung; :meth:`_player_dress_doc`,
+        #: :meth:`_dress_doc`): the controlled FIELD player's body (FAKE_PLAYER_BODY: its model, SetModel's eye byte and the
+        #: loco ids), its entry per field (`player_sids` {field: sid}, sid == uid; FAKE_PLAYER_SID elsewhere), the fields
+        #: whose Main_Init adds party members (`party_adds` {field: (CharacterId, ...)}: B_PARTYADD into the first empty
+        #: seat, a member already seated a no-op -- the stand-in runs no field script, so COOPPARTY's adds are a test's to
+        #: name) and the FAULT LEVERS (`dress_faults`, :data:`DRESS_FAULTS`). The selftest mirror's ghost clip trails the
+        #: player's by ONE frame (DriveGhost runs from another MonoBehaviour than the publish).
+        self.player_body: dict = dict(FAKE_PLAYER_BODY)
+        #: [ff9mapkit netsync s138] props attached to the controlled body (GeoAttach under a bone): each one's TEXTURE NAME
+        #: -- read only by `body`'s rule (body_renderers / BW.body_of), which must never take a prop's for the body's
+        self.player_props: list = []
+        self.player_sids: dict = {}
+        self.party_adds: dict = {}
+        self.dress_faults: set = set()
+        self._ghost_clip: str | None = None          # what the ghost plays THIS frame (the player's, one frame ago)
+        self._ghost_clip_next: str | None = None
         self._rng = random.Random()                 # the bench host's epoch draws (Guid bytes on the engine)
         #: [ff9mapkit netsync F3.3] C3 R9: the selftest bench HOST and its ring (:class:`_BenchHost`)
         self._bench = _BenchHost(self._rng)
@@ -1722,6 +1835,7 @@ class FakeGame:
                 self._step_netsync()        # s96: the F3.2 guest's dialogue lock (bench only)
                 self._step_script_poll()    # [ff9mapkit netsync F3.3] R5: the open polled line's script button-poll
                 self._step_diorama()        # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's leave and return
+                self._step_dress()          # [ff9mapkit netsync s138] the selftest mirror's ghost: one frame behind
                 self._publish()
                 self._step_machine("agent_first")
             else:
@@ -1914,6 +2028,7 @@ class FakeGame:
             # changes, so the trace's residue net sees them in the OLD field (`_warp_writes`); -1 writes nothing
             self._warp_writes(num(1, -1), num(2, -1))
             self.field_id = num(0, -1)
+            self._party_adds_on_load()                  # [ff9mapkit netsync s138] a Main_Init's B_PARTYADD (`party_adds`)
             self._guest.field_load()                    # s96: every field load re-arms the panic unlock (a reload too)
             self.ui_state = "FieldHUD"
             self.control = self.warp_arrive_control     # H9: False -- control zeroed at the field start, not given
@@ -2711,13 +2826,20 @@ class FakeGame:
                 return
 
     def _objects_doc(self) -> list:
-        """``objects`` as the s89 agent publishes it, for this field's bodies."""
+        """``objects`` as the s89 agent publishes it, for this field's bodies -- [ff9mapkit netsync s138] each with its
+        ``model`` from the `dressinstr` rung on."""
+        dress = "dressinstr" in self._nb_caps()
         out = []
         for i, b in self._bodies():
             coll = bool(b.get("coll", True))
             rr, tr = b.get("range_r"), b.get("talk_r")
             shown = bool(b.get("shown", True))
-            out.append({"uid": self._uid(i), "sid": int(b.get("sid", 10 + i)),
+            row = {"uid": self._uid(i), "sid": int(b.get("sid", 10 + i))}
+            if dress and "object_model" not in self.dress_faults:
+                # [ff9mapkit netsync s138] PosObj.model, raw, after `sid` (AppendObjects): a body's own ``model``, else
+                # MODEL_NONE -- the stand-in's bodies run no SetModel unless a test gives them one
+                row["model"] = int(b.get("model", BW.MODEL_NONE))
+            out.append({**row,
                         "x": float(b["x"]), "y": float(b.get("y", 0.0)), "z": float(b["z"]),
                         "range": rr is not None, "talk": tr is not None,
                         "r": float(b["r"]), "solid": coll and bool(b.get("solid")), "coll": coll,
@@ -3275,6 +3397,10 @@ class FakeGame:
             "netsync": self._netsync_doc(),
             "held": held,
         }
+        if "dressinstr" in self._nb_caps():
+            # [ff9mapkit netsync s138] AppendPlayerDress, right after `control` (the agent's order) -- each key null with no
+            # controlled actor (the s90 THREE CASES)
+            doc["player"].update(self._player_dress_doc(px is not None))
         if self.facing_mode == "published":
             # s90: the yaw raw (to 0.001) and the gate's facing byte, both null exactly together -- off a field or with
             # no controlled character; published with or without user control (a scripted turn moves the yaw too)
@@ -4279,6 +4405,8 @@ class FakeGame:
                 doc["menu_refusal"] = self._menu_refusal_doc()   # [ff9mapkit netsync R3 s121] ...after `session`
             if "gates" in caps:
                 doc["battle"] = self._nb_doc()          # [ff9mapkit netsync B4] s100+
+            if "dressinstr" in caps:
+                doc["dress"] = self._dress_doc()        # [ff9mapkit netsync s138] netsync's LAST key, after `battle`
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -4375,6 +4503,95 @@ class FakeGame:
         """NetSyncClient.Update's selftest `inScope` (approximated): on a field (gMode 1, its fieldmap up) -- not the
         title, the world map or a battle."""
         return self.field_id > 0 and not self.battle_active and self.ui_state not in ("Title", "WorldHUD")
+
+    # -- [ff9mapkit netsync s138] THE DRESS INSTRUMENT (the `dressinstr` rung) -------------------------------------------
+    # WHAT IT MODELS: one stock Zidane FIELD player (player_body) -- its model, GEO name and clip names off the kit's copy of
+    # Memoria's open-source tables (the ones the engine's FF9BattleDB.GEO / AnimationDB hold), its eye from SetModel's byte,
+    # the loco id from the PAD (a held direction: run, or walk with `cancel` held / dash inhibited -- the stand-in's own
+    # gait rule; idle otherwise), sid == uid per field; the selftest mirror's ghost (wearing the player's model -- GhostAs
+    # "" / auto with the selftest's GuestSlots 0 dresses nothing -- and playing the player's clip one frame late); the
+    # party's four seats (save_party: FF9.party.member's Index); a body's own `model`; `body` by BodyOf's own rule over a
+    # MODELLED prefab order (body_renderers: the hidden overlay on 98 / 509, the bone subtree with `player_props` attached,
+    # then mesh0 -- so a prop can never be read for the body, and a first-renderer read is shown wrong on a non-Zidane rig).
+    # WHAT IT CANNOT: textures (a texture is its model id's own stem -- what a stock body wears; an alias model's prefab, an
+    # unnamed loose-FBX texture and a texanim RenderTexture are not modelled), the Animation component (`anim_geo` is the folder of exactly the clip it plays; `clip_playing` true while a
+    # clip is set), clip lengths (`frame_n` is FAKE_FRAME_N), the idle timer's sleep clip (CheckSleep), a 1-frame clip's
+    # Stop(), a named GhostAs (s139's leg G), HideMesh (`meshflags` 0), and the world actor (every key null on WorldHUD,
+    # where the engine publishes the world actor's). The FAULT LEVERS (dress_faults) are how a test shows each check red.
+    def _dress_actor(self, has_position: bool = True) -> bool:
+        """A controlled FIELD actor this sample (the agent's GetControlChar() != null, on a field): else every player dress
+        key is null."""
+        return bool(has_position) and self.field_id > 0 and self.ui_state not in ("Title", "WorldHUD")
+
+    def _dress_anim(self) -> int:
+        """PosObj.anim of the controlled player: the loco id the pad asks for this frame (no control: the idle)."""
+        b = self.player_body
+        if not self.control or self.ui_state != "FieldHUD" or self._frozen():
+            return int(b["idle"])
+        if not any(self._move_held(d) for d in ("up", "down", "left", "right")):
+            return int(b["idle"])
+        return int(b["walk"] if self._is_held("cancel") or self.dash_inhibit else b["run"])
+
+    def _player_dress_doc(self, has_position: bool = True) -> dict:
+        """HarnessAgent.AppendPlayerDress (s138), in its order (BW.PLAYER_DRESS_KEYS) -- null per key with no controlled
+        actor; else the raw values, the fault levers applied."""
+        if not self._dress_actor(has_position):
+            return dict.fromkeys(BW.PLAYER_DRESS_KEYS)
+        faults = self.dress_faults
+        b = self.player_body
+        model = int(b["model"])
+        anim = self._dress_anim()
+        clip = _clip_name(anim)
+        sid = int(self.player_sids.get(self.field_id, FAKE_PLAYER_SID))
+        body = BW.body_of(body_renderers(model, self.player_props))   # BodyOf: the root's own mesh0, never a prop
+        return {"model": model, "anim": anim, "geo": _geo_name(model),
+                "anim_geo": None if "anim_geo" in faults else BW.folder_of(clip),
+                "eye": BW.eye_of(int(b["eye"]) + (1 if "eye" in faults else 0)),
+                "uid": sid + (1 if "uid" in faults else 0), "sid": sid,
+                "body": BW.texture_stem(f"{dress_fault_model(model)}_0") if "body" in faults else body, "clip": clip,
+                "clip_playing": clip is not None and "playing" not in faults,
+                "frame_n": FAKE_FRAME_N, "anim_frame": self.frame % FAKE_FRAME_N, "meshflags": 0}
+
+    def _ghost_live(self) -> bool:
+        """The selftest mirror's ghost is spawned (`netsync.session.ghost`): an instance, the selftest role, a field in
+        scope."""
+        return bool(self.netsync["instance"]) and self._nb_role() and self._selftest_in_scope()
+
+    def _step_dress(self) -> None:
+        """[ff9mapkit netsync s138] The ghost's DriveGhost, one frame behind the publish: it plays what the player played
+        LAST frame."""
+        live = self._ghost_live() and self._dress_actor(self.has_position)
+        self._ghost_clip = self._ghost_clip_next if live else None
+        self._ghost_clip_next = _clip_name(self._dress_anim()) if live else None
+
+    def _dress_doc(self) -> dict:
+        """HarnessAgent.AppendDress (s138): `ghost` (what the ghost WEARS: its sentinels with no ghost) then `party` (the
+        four seats' CharacterId, -1 = empty) -- a LIVE read, never the catch line's sentinel."""
+        faults = self.dress_faults
+        # the `dressinstr` rung's OWN ghost keys (BW.DRESS_GHOST_KEYS_BY_RUNG, frozen at s138) -- never the live union, which
+        # s139 grows with its levers (a later rung's stand-in adds its row on top, gated on its own rung)
+        ghost = {k: BW.DRESS_GHOST_SENTINELS[k] for k in BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"]}
+        if self._ghost_live() and "ghost_missing" not in faults:
+            worn = int(self.player_body["model"])
+            model = dress_fault_model(worn) if "ghost_model" in faults else worn
+            clip = self._ghost_clip
+            ghost.update(model=model, geo=_geo_name(model) or BW.GHOST_FALLBACK_GEO, clip=clip, rig=BW.RIG_NONE,
+                         playing=clip is not None, body=BW.body_of(body_renderers(model)))
+        seats = (list(self.save_party) + [None] * 4)[:4]
+        party = [-1] * 4 if "party_empty" in faults else [int(m["char"]) if m else -1 for m in seats]
+        return {"ghost": ghost, "party": party}
+
+    def _party_adds_on_load(self) -> None:
+        """[ff9mapkit netsync s138] A field whose Main_Init runs B_PARTYADD (`party_adds`): each member joins the first
+        empty seat; one already seated is a no-op (the kit's [party] block is dedup- and overflow-guarded)."""
+        for char in self.party_adds.get(self.field_id, ()):
+            if any(m is not None and int(m["char"]) == int(char) for m in self.save_party):
+                continue
+            seat = next((i for i, m in enumerate(self.save_party) if m is None), None)
+            if seat is None:
+                return
+            self.save_party[seat] = {"char": int(char), "name": f"char{int(char)}", "level": 1, "exp": 0, "status": 0,
+                                     "pa": [], "abils": []}
 
     def _menu_key_now(self) -> str | None:
         """NetSyncField.HarnessMenuKeyNow: MenuKeyStep through MenuKeyRoute on the stand-in's UI -- "dialog" under an open

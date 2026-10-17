@@ -63,9 +63,11 @@ reach still judged. Between legs the seat is brought back
 to its normal model (`unit <seat> trance0`) and the bench waits until nothing runs and QUIET_MS = the grace + 200 = 600 ms
 of battle time pass (every burst mark then older than the 400 ms on-arrival window): QUIET. THE PUBLISH WITNESS (s136
 LESSON 8: a clock the feature does not compute): every timer window (GRACE, BUSY, CAP) is judged twice -- on s137's own
-`last.ms - last.record_ms`, and on the publishes: from the FIRST publish that shows the deferral (in-game fix 2: the
-request's acknowledged state trails the record by its 31-62 ms round trip, against the witness's 34 ms slack; never
-before last.record_ms) to the first publish whose seat wears the new model, within the window +- one battle frame.
+`last.ms - last.record_ms`, and on the publishes: from an ORIGIN BRACKET -- the last publish read before the deferral
+and the first read showing it, the record inside it (in-game fixes 2-3: the request's acknowledged state trails the
+record by 31-62 ms against the witness's 34 ms slack, and the harness reads only some publishes) -- to the first publish
+whose seat wears the new model: not late from the bracket's end, not early from its start, +- one battle frame; a
+bracket wider than 170 ms reads NOT REACHED.
 
 WHAT IS PROVEN (S137-*):
   INI    precondition: [Netsync] Enabled reads 0 / absent (READ-ONLY) -- else NOTHING runs.
@@ -243,6 +245,7 @@ PAUSE_HOLD_S = 2.5
 PAUSE_MIN_MS = 2000
 PRESS_PAUSE = "press pause 2"
 #: one battle frame (30 fps) + a ms of rounding: THE PUBLISH WITNESS's slack (the first publish after a swap is <= 1 frame on)
+BRACKET_MAX_MS = 5 * 34                    # [in-game fix 3] the widest origin bracket the witness still judges
 FRAME_MS = 34
 SWAP_S = 6.0                               # a grace / decline swap's publish, at most
 REPLAY_S = 20.0                            # a fabricated replay's end, at most
@@ -466,16 +469,26 @@ def judge_waited(origin_ms, glast: dict, act_id: int, more_than: int) -> tuple:
     return ok, f"the START {glast.get('id')!r}'s hit {took!r} ms of battle time after the op (want id {act_id}, > {more_than})"
 
 
-def judge_flip(samples: list, slot: int, origin_ms, lo: int, hi: int, *, to: bool = True, record_ms=None) -> tuple:
+def judge_flip(samples: list, slot: int, origin_ms, lo: int, hi: int, *, to: bool = True, record_ms=None,
+               origin_lo=None) -> tuple:
     """THE PUBLISH WITNESS (PURE; s136 LESSON 8 -- a clock the feature does not compute): the first publish whose seat wears
     model ``to``, its act.guest.battle_ms minus ``origin_ms`` within [lo - FRAME_MS, hi + FRAME_MS]; with ``record_ms`` (the
-    engine's own record) the origin must not precede it (a record stamped late would read the window short). (ok, detail)."""
+    engine's own record) the origin must not precede it (a record stamped late would read the window short).
+    [in-game fix 3] With ``origin_lo`` the origin is a BRACKET [origin_lo, origin_ms] -- the last publish before the event
+    and the first after it: the record must sit inside it, and the swap must not be late measured from origin_ms nor
+    early measured from origin_lo (the harness reads only some publishes; one origin read late reads the window short).
+    (ok, detail)."""
     at = _num(origin_ms)
     if at is None or at < 0:
         return False, f"no origin publish (battle_ms {origin_ms!r})"
     rec = _num(record_ms) if record_ms is not None else None
+    lo_at = _num(origin_lo) if origin_lo is not None else None
+    if origin_lo is not None and (lo_at is None or lo_at < 0 or lo_at > at):
+        return False, f"no sound origin bracket ({origin_lo!r} .. {at})"
     if record_ms is not None and (rec is None or rec < 0 or at < rec):
         return False, f"the op's publish (battle ms {at}) precedes the engine's record ({record_ms!r})"
+    if lo_at is not None and rec is not None and rec < lo_at:
+        return False, f"the engine's record ({rec}) precedes the bracket's last publish before it ({lo_at})"
     flip = next((s for s in samples if seat_view(cb.unit(s, slot)).get("model") is to), None)
     if flip is None:
         return False, f"no publish shows the seat in model {to} (of {len(samples)})"
@@ -483,6 +496,11 @@ def judge_flip(samples: list, slot: int, origin_ms, lo: int, hi: int, *, to: boo
     if ms is None:
         return False, "the flip publish carries no act.guest.battle_ms"
     took = ms - at
+    if lo_at is not None:
+        early = ms - lo_at
+        return (took <= hi + FRAME_MS and early >= lo - FRAME_MS,
+                f"the publish witness: the first publish in model {to} at battle ms {ms}, {took}-{early} ms after the "
+                f"origin bracket {lo_at}..{at} (width {at - lo_at}; want {lo}-{hi} +- {FRAME_MS})")
     return lo - FRAME_MS <= took <= hi + FRAME_MS, (f"the publish witness: the first publish in model {to} at battle ms "
                                                     f"{ms}, {took} ms after the op's {at} (want {lo}-{hi} +- {FRAME_MS})")
 
@@ -843,15 +861,20 @@ def _under_way(g, act_id: int, lead_ms: int, what: str):
     return x if x is not None and _n(_glast(x).get("end_ms"), -1) < 0 else None
 
 
-def _record_publish(g, f0: int, base: dict, x0):
-    """[in-game fix 2] THE WITNESS'S ORIGIN: the first publish after frame ``f0`` that shows the deferral (deferred past
-    ``base``) -- s134's battle_ms at most one frame after the engine's record, so both of the witness's edges are
-    first-publish edges (the request's acknowledged state ``x0`` trails the record by its 31-62 ms round trip, against
-    the witness's 34 ms slack). Falls back to ``x0``."""
-    for s in list(g.states_since(f0)) + [x0]:
-        if s is not None and _tv(s, "deferred") > base["deferred"]:
-            return s
-    return x0
+def _record_bracket(g, s_pre, base: dict, x0) -> tuple:
+    """[in-game fix 3] THE WITNESS'S ORIGIN BRACKET: (lo, hi) battle ms -- hi the first publish read after ``s_pre`` (the
+    state read just before the op's request) that shows the deferral (deferred past ``base``), lo the last one read
+    before it that does not (``s_pre`` itself at worst). The harness reads only some publishes: on s138's proof run the
+    first one showing the deferral was the request's own acknowledged state, 62 ms after the record (fix 2 then read
+    GRACE 344 ms for the engine's 406). ``hi`` falls back to ``x0``."""
+    lo = _gv(s_pre, "battle_ms")
+    for s in list(g.states_since(cb.frame_of(s_pre))) + [x0]:
+        if s is None:
+            continue
+        if _tv(s, "deferred") > base["deferred"]:
+            return lo, _gv(s, "battle_ms")
+        lo = max(lo, _gv(s, "battle_ms"))
+    return lo, _gv(x0, "battle_ms")
 
 
 def _flip_step(samples: list, slot: int, to: bool = True):
@@ -879,7 +902,7 @@ def _leg_grace(g, led: cb.Ledger, ctx: dict) -> None:
     _quiet(g)
     slot, wire = ctx["seat_slot"], ctx["seat_wire"]
     base = _tbase(g.state)
-    f0 = cb.frame_of(g.state)
+    s_pre = g.state
     x0, why = _batched(g, _unit_step(ctx, "trance1"))
     if x0 is None:
         led.unreached(("S137-GRACE", "S137-STAT"), why)
@@ -894,15 +917,20 @@ def _leg_grace(g, led: cb.Ledger, ctx: dict) -> None:
     last = _tlast(x)
     lok, ldetail = judge_last(last, via="grace", wire=wire, to=True)
     wok, wdetail = judge_window(last, GRACE_LO, GRACE_HI)
-    fok, fdetail = judge_flip(list(samples) + [x], slot, _gv(_record_publish(g, f0, base, x0), "battle_ms"), GRACE_LO,
-                              GRACE_HI,
-                              record_ms=last.get("record_ms"))
+    b_lo, b_hi = _record_bracket(g, s_pre, base, x0)
+    fok, fdetail = judge_flip(list(samples) + [x], slot, b_hi, GRACE_LO, GRACE_HI, record_ms=last.get("record_ms"),
+                              origin_lo=b_lo)
     before = [cb.frame_of(s) for s in samples if _tv(s, "swaps_by_grace") == base["swaps_by_grace"]
               and seat_view(cb.unit(s, slot)).get("model") is True]
-    led.check("S137-GRACE", held and lok and wok and fok and not before and after["model"] is True
-              and _tv(x, "swaps_by_grace") == base["swaps_by_grace"] + 1,
-              f"held at the op {held} ({_tbrief(x0)}; the seat {v0}); {ldetail}; {wdetail}; {fdetail}; the trance model "
-              f"before the swap on {before[:4]}; after {after}; delta {_tdelta(x, base)}")
+    rest = held and lok and wok and not before and after["model"] is True \
+        and _tv(x, "swaps_by_grace") == base["swaps_by_grace"] + 1
+    gdetail = (f"held at the op {held} ({_tbrief(x0)}; the seat {v0}); {ldetail}; {wdetail}; {fdetail}; the trance model "
+               f"before the swap on {before[:4]}; after {after}; delta {_tdelta(x, base)}")
+    if rest and not fok and b_hi - b_lo > BRACKET_MAX_MS:
+        led.unreached(("S137-GRACE",), f"the witness's origin bracket is {b_hi - b_lo} ms wide (> {BRACKET_MAX_MS}): "
+                                       f"{gdetail}")
+    else:
+        led.check("S137-GRACE", rest and fok, gdetail)
     led.check("S137-STAT", v0["status_trance"] and v0["model"] is False and after["status_trance"] and after["model"],
               f"at the op: status Trance {v0['status_trance']}, the model {v0['model']!r} (want the bit, the normal model); "
               f"after the swap: {after}")
@@ -1216,7 +1244,7 @@ def _leg_cap(g, led: cb.Ledger, ctx: dict) -> None:
         led.check("S137-CAP", False, f"not reached: the summon never ran {CAP_LEAD_MS} ms unended: {why or ar._brief(g.state)}")
         _reset_seat(g, ctx)
         return
-    f0 = cb.frame_of(g.state)
+    s_pre = g.state
     x0, why = _batched(g, _unit_step(ctx, "trance1"))
     if x0 is None:
         led.check("S137-CAP", False, f"not reached: {why}")
@@ -1228,9 +1256,9 @@ def _leg_cap(g, led: cb.Ledger, ctx: dict) -> None:
     last = _tlast(x)
     lok, ldetail = judge_last(last, via="cap", wire=wire, to=True)
     wok, wdetail = judge_window(last, CAP_LO, CAP_HI)
-    fok, fdetail = judge_flip(list(samples) + [x], slot, _gv(_record_publish(g, f0, base, x0), "battle_ms"), CAP_LO,
-                              CAP_HI,
-                              record_ms=last.get("record_ms"))
+    b_lo, b_hi = _record_bracket(g, s_pre, base, x0)
+    fok, fdetail = judge_flip(list(samples) + [x], slot, b_hi, CAP_LO, CAP_HI, record_ms=last.get("record_ms"),
+                              origin_lo=b_lo)
     running = _gv(x, "running") >= 1 and _glast(x).get("id") == l_id and _n(_glast(x).get("end_ms"), -1) < 0
     step = _flip_step(list(samples) + [x], slot)
     detail = (f"held at the op {held}; {ldetail}; {wdetail}; {fdetail}; the summon (id {l_id}) still running at the swap "
@@ -1239,6 +1267,8 @@ def _leg_cap(g, led: cb.Ledger, ctx: dict) -> None:
     if not wok and step is not None and step > 2 * FRAME_MS:
         # [in-game fix 2] a load hitch straddled the cap: the engine swaps on the first frame past it, nothing to correct
         led.unreached(("S137-CAP",), f"a {step} ms frame straddled the cap: {detail}")
+    elif held and lok and wok and running and not fok and b_hi - b_lo > BRACKET_MAX_MS:
+        led.unreached(("S137-CAP",), f"the witness's origin bracket is {b_hi - b_lo} ms wide (> {BRACKET_MAX_MS}): {detail}")
     else:
         led.check("S137-CAP", held and lok and wok and fok and running
                   and _tv(x, "swaps_by_cap") == base["swaps_by_cap"] + 1, detail)

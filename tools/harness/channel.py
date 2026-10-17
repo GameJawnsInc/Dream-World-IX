@@ -333,6 +333,39 @@ def _dio_prop(path: str, kind, doc: str) -> property:
     return property(get)
 
 
+def _pl_prop(key: str, kind, doc: str) -> property:
+    """[ff9mapkit netsync s138] One of the dress instrument's ``player`` keys (OUTSIDE netsync) as a read-only :class:`State`
+    property, carrying its key for the test's table (:attr:`State.PLAYER_DRESS_ACCESSORS`). The s90 THREE CASES: None for
+    an absent key (an engine before s138 -- :attr:`State.player_dress_status` "cannot") AND for null (no controlled actor:
+    "unknown"); a value of the wrong type reads None too. A null string reads None here (never ""): for these keys null
+    means "no actor", which is not a string."""
+    def get(self):
+        v = (self.raw.get("player") or {}).get(key)
+        if kind is bool:
+            return v if isinstance(v, bool) else None
+        if kind is int:
+            return v if isinstance(v, int) and not isinstance(v, bool) else None
+        if kind is str:
+            return v if isinstance(v, str) else None
+        raise TypeError(f"_pl_prop: no reading for {kind!r}")
+    get.__doc__ = doc
+    get.__name__ = "player_" + key
+    get.pl_key = key
+    return property(get)
+
+
+def _dress_prop(path: str, kind, doc: str) -> property:
+    """[ff9mapkit netsync s138] One ``netsync.dress`` key (the dress instrument's block, netsync's LAST key) as a read-only
+    :class:`State` property, carrying its path under ``netsync.dress`` for the test's table
+    (:attr:`State.NETSYNC_DRESS_ACCESSORS`) -- the house reading (:meth:`State._dress_path`: a null string reads "")."""
+    def get(self):
+        return self._dress_path(path, kind)
+    get.__doc__ = doc
+    get.__name__ = "dress_" + path.replace(".", "_")
+    get.dress_path = path
+    return property(get)
+
+
 def _ns_prop(path: str, kind, doc: str) -> property:
     """[ff9mapkit netsync R3 s120/s121] One key of a TOP-LEVEL ``netsync`` block the battle round added (s120's
     ``session``, s121's ``menu_refusal``) as a read-only :class:`State` property, carrying its dotted path under
@@ -593,6 +626,69 @@ class State:
         :attr:`player_yaw`. None when absent or null (:attr:`facing_status` says which)."""
         v = (self.raw.get("player") or {}).get("face")
         return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+    # -- the controlled actor's BODY (memoria-patch s138, the dress instrument) ---------------
+    # THREE CASES, the facing precedent: ``player.model`` ABSENT is an engine that cannot publish the body (s137 and
+    # older), null is one that can and has no controlled actor this sample, a number is the body. The keys read the
+    # controlled actor on ANY map (the same GetControlChar() as x/y/z). Harness keys only: nothing in the engine reads
+    # them. `anim` is the clip ID -- ``battle.units[].anim`` is a clip NAME; `clip` is this id's NAME (AnimationDB, the
+    # same derivation as ``netsync.dress.ghost.clip``). `model` is RAW: 65535 = no SetModel yet (the PosObj constructor's
+    # default). `body` and `anim_geo` are the two WITNESSES no dress computes (both are read off the GameObject):
+    # judge a model or a clip on them too, never on model / anim alone (R3-FIELD-MODEL-AUDIT.md 2.1 amendment 3).
+    @property
+    def player_dress_status(self) -> str:
+        """``"cannot"`` (``player.model`` absent: an engine before s138), ``"unknown"`` (null: no controlled actor this
+        sample) or ``"known"`` (:attr:`player_model` is the body's raw model id)."""
+        p = self.raw.get("player") or {}
+        if "model" not in p:
+            return "cannot"
+        v = p.get("model")
+        return "known" if isinstance(v, int) and not isinstance(v, bool) else "unknown"
+
+    player_model = _pl_prop("model", int, "s138: PosObj.model, RAW (65535 = no SetModel yet).")
+    player_anim = _pl_prop("anim", int, "s138: PosObj.anim -- the clip ID (`battle.units[].anim` is a name; "
+                                        ":attr:`player_clip` is this id's).")
+    player_geo = _pl_prop("geo", str, "s138: FF9BattleDB.GEO[model] (TryGetValue): the GEO name SetModel builds from; None "
+                                      "with no entry.")
+    player_anim_geo = _pl_prop("anim_geo", str, "s138: the GEO folder (NetSyncVisitor.FolderOf) of the clip the Animation "
+                                                "component ACTUALLY plays (its enabled state of the highest weight > 0) -- a "
+                                                "WITNESS; None = nothing playing. Never judge it at anim 0 "
+                                                "(ANH_MAIN_F0_STN_B) or on a 1-frame clip (stopped at once).")
+    player_eye = _pl_prop("eye", int, "s138: PosObj.eye = -4 x SetModel's eye byte (Zidane's 93 -> -372).")
+    player_uid = _pl_prop("uid", int, "s138: the controlled entry's uid.")
+    player_sid = _pl_prop("sid", int, "s138: the controlled entry's sid (its entry index).")
+    player_body = _pl_prop("body", str, "s138: the GEO-id stem (NetSyncVisitor.TextureStem) of the texture the actor's OWN "
+                                        "mesh0 wears (HarnessAgent.BodyOf: never the first renderer depth-first -- Zidane's "
+                                        "hidden battle_model0, a prop under a bone; battlewire.body_of is its twin) -- ZDN "
+                                        "'98', FRJ '192', MOG '220': a WITNESS; None = no renderer / material / _MainTex / "
+                                        "texture, or an UNNAMED texture (a loose-FBX or CustomModelField body): with a known "
+                                        "model that is 'cannot judge', never a wrong body.")
+    player_clip = _pl_prop("clip", str, "s138: AnimationDB[anim] (TryGetValue), the clip NAME; None with no entry.")
+    player_clip_playing = _pl_prop("clip_playing", bool, "s138: Animation.IsPlaying(clip) on the actor -- False for no clip, "
+                                                         "no Animation component or not playing.")
+    player_frame_n = _pl_prop("frame_n", int, "s138: PosObj.frameN.")
+    player_anim_frame = _pl_prop("anim_frame", int, "s138: PosObj.animFrame (what a script's f[7] reads).")
+    player_meshflags = _pl_prop("meshflags", int, "s138: PosObj.meshflags (the HideMesh bits).")
+
+    @property
+    def object_models(self) -> list | None:
+        """[ff9mapkit netsync s138] ``[(uid, sid, model), ...]`` of the listed field actors, in the list's order
+        (``objects[].model``: PosObj.model RAW, 65535 = no SetModel yet) -- None unless :attr:`objects_status` is
+        ``"listed"``, the ENGINE can publish the body (the instrument's other half, published by the same patch in every
+        listed state: :attr:`player_dress_status` not ``"cannot"``) AND every entry carries an int ``uid`` / ``sid`` /
+        ``model``. An s137 list has no ``model``: that is "cannot", never an empty answer -- and field 250's list is ALWAYS
+        empty, so without the capability check an s137 [] would read as "no actor wears 98" (R3-FIELD-MODEL-AUDIT.md 2.1
+        amendment 1's trap). [] is a listed field with no other actor, on an engine that can say so."""
+        objs = self.objects
+        if objs is None or self.player_dress_status == "cannot":
+            return None
+        out = []
+        for o in objs:
+            row = tuple((o or {}).get(k) for k in ("uid", "sid", "model"))
+            if not all(isinstance(v, int) and not isinstance(v, bool) for v in row):
+                return None
+            out.append(row)
+        return out
 
     # -- the walkmesh triangle: NOT PUBLISHED LIVE ------------------------------------------
     # No agent yet publishes the triangle or floor the player stands on. What s83 publishes under
@@ -2222,6 +2318,78 @@ class State:
     menu_refusal_muted = _ns_prop("menu_refusal.muted", bool, "s121: FF9Sfx.muteSfx at the last audible refusal (the buzz "
                                                               "was asked for, the engine muted it).")
 
+    # ---- [ff9mapkit netsync s138] THE DRESS INSTRUMENT (studies/battle-coop/R3-DESIGN.md 3.4.2 as amended by
+    # R3-FIELD-MODEL-AUDIT.md 2.1, whose 3.1 nests the block as `netsync.dress`, netsync's LAST key): harness keys only, in
+    # EVERY role. The capability is the block's PRESENCE (absent = None per key, False for :attr:`coop_dress_instr`): the
+    # `coop_dress_*` family is this block's alone (its own table, :attr:`NETSYNC_DRESS_ACCESSORS`). THE NAMES: a key's
+    # accessor is `coop_dress_<path>`; a fixed sub-object's WHOLE accessor is `coop_dress_<path>_block` (never the bare
+    # `coop_dress_<path>`: audit 3.1 reserves `coop_dress_instr` / `_host` / `_self` / `_polish` for the rungs' BOOLEAN
+    # capabilities -- s140's `self` container would collide). `ghost` is what the peer's ghost WEARS on this screen:
+    # `model` / `geo` / `rig` the body the CURRENT ghost was built for, while `clip` already follows the caller's rig -- a
+    # re-dress requested off FieldHUD is not applied, and the engine's Update has no fixed order against the publish, so
+    # compare the ghost with the player on FieldHUD only, once its tuple has held 2+ consecutive FieldHUD publishes. `party`
+    # is a LIVE read (FF9.party.member[i].Index, raw CharacterId: 0-7 the mains, 8-11 Cinna..Beatrix, 12+ custom; -1
+    # (battlewire.PARTY_EMPTY) an empty seat, -2 (PARTY_UNREADABLE) a seat whose read threw -- never an empty one) -- never
+    # the selftest mirror's NetSyncParty.Slots. THE RIG SPACE (battlewire.RIG_NAMES): -1 none, 0-7 the CharacterId rows, 8
+    # the moogle (s139) -- never compared with a CharacterId at 8.
+    def _dress_path(self, path: str, kind):
+        """``netsync.dress.<path>`` read as ``kind`` (bool / int / str null -> "" / list copied / dict copied); None when any
+        step is absent or the type is wrong."""
+        ns = self.netsync
+        node = ns.get("dress") if isinstance(ns, dict) else None
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        if kind is bool:
+            return node if isinstance(node, bool) else None
+        if kind is int:
+            return node if isinstance(node, int) and not isinstance(node, bool) else None
+        if kind is str:
+            return "" if node is None else node if isinstance(node, str) else None
+        if kind is list:
+            return _json_copy(node) if isinstance(node, list) else None
+        if kind is dict:
+            return _json_copy(node) if isinstance(node, dict) else None
+        raise TypeError(f"_dress_path: no reading for {kind!r}")
+
+    @property
+    def coop_dress_instr(self) -> bool | None:
+        """s138: the dress instrument (``netsync.dress.ghost``; with it the ``player.*`` body keys and ``objects[].model``
+        -- each half told by its own key: :attr:`player_dress_status`, :attr:`object_models`). False = an engine before
+        s138 (no sub-verb, op or lever: nothing to refuse)."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._dress_path("ghost", dict) is not None
+
+    @property
+    def netsync_dress(self) -> dict | None:
+        """s138: the whole ``netsync.dress`` block, copied (None when absent)."""
+        ns = self.netsync
+        v = ns.get("dress") if isinstance(ns, dict) else None
+        return _json_copy(v) if isinstance(v, dict) else None
+
+    coop_dress_ghost_block = _dress_prop("ghost", dict, "s138: the whole ``ghost`` block, copied (a FIXED sub-object; its "
+                                                         "whole accessor is `_block`-suffixed, never `coop_dress_ghost`).")
+    coop_dress_ghost_model = _dress_prop("ghost.model", int, "s138: the model id the CURRENT ghost was built to wear "
+                                                             "(_ghostModel); -1 = no ghost.")
+    coop_dress_ghost_geo = _dress_prop("ghost.geo", str, "s138: the GEO name CreateModel BUILT (FallbackGeo GEO_MAIN_F0_ZDN "
+                                                         "when the id did not resolve or load); '' = no ghost.")
+    coop_dress_ghost_clip = _dress_prop("ghost.clip", str, "s138: the clip DriveGhost last asked for (set even when its Play "
+                                                           "failed) -- it already follows the CALLER's rig, ahead of a "
+                                                           "re-dress deferred off FieldHUD; '' = none.")
+    coop_dress_ghost_rig = _dress_prop("ghost.rig", int, "s138: the rig of the dress the ghost WEARS -- -1 undressed / no "
+                                                         "ghost, 0-7 the CharacterId rows (s139: 8 the moogle). A deferred "
+                                                         "off-FieldHUD re-dress keeps the old model and rig while DriveGhost "
+                                                         "already plays the new rig's clips: judge rig with model on FieldHUD "
+                                                         "only, the tuple held 2+ publishes.")
+    coop_dress_ghost_playing = _dress_prop("ghost.playing", bool, "s138: Animation.IsPlaying(clip) on the ghost -- the "
+                                                                  "witness `clip` alone cannot fake; False = no ghost.")
+    coop_dress_ghost_body = _dress_prop("ghost.body", str, "s138: the ghost's worn-texture GEO-id stem (the player's own "
+                                                           "rule: its mesh0); '' = no ghost (or an unnamed texture).")
+    coop_dress_party = _dress_prop("party", list, "s138: the four party slots' raw CharacterId (FF9.party.member[i].Index); "
+                                                  "-1 = an empty slot, -2 = an unreadable one (its read threw).")
+
     def unit_mot(self, slot: int) -> int | None:
         """[ff9mapkit netsync R3 s115] ``battle.units[].mot`` for btl ``slot``: the current clip as the unit's own motion
         index (a player's 17 = MP_ESCAPE, 4 = MP_DISABLE; -1 = none of its own). None = no such unit / before s115."""
@@ -2597,6 +2765,13 @@ State.NETSYNC_DIORAMA_ACCESSORS = {p.fget.dio_path: name for name, p in vars(Sta
 #: (s121) blocks (dotted under ``netsync``) -> its State accessor -- held against the agent's keys the same way.
 State.NETSYNC_TOP_ACCESSORS = {p.fget.ns_path: name for name, p in vars(State).items()
                                if isinstance(p, property) and hasattr(p.fget, "ns_path")}
+#: [ff9mapkit netsync s138] Every ``netsync.dress`` key path (dotted under ``netsync.dress``) -> its State accessor -- the
+#: dress block's own table (never NETSYNC_TOP_ACCESSORS, whose law pins `session` / `menu_refusal`).
+State.NETSYNC_DRESS_ACCESSORS = {p.fget.dress_path: name for name, p in vars(State).items()
+                                 if isinstance(p, property) and hasattr(p.fget, "dress_path")}
+#: [ff9mapkit netsync s138] Every ``player`` dress key (OUTSIDE netsync, battlewire.PLAYER_DRESS_KEYS) -> its State accessor.
+State.PLAYER_DRESS_ACCESSORS = {p.fget.pl_key: name for name, p in vars(State).items()
+                                if isinstance(p, property) and hasattr(p.fget, "pl_key")}
 
 
 def _f(v) -> str:

@@ -5820,8 +5820,11 @@ def test_the_fake_publishes_its_bodies_as_s89_objects(game):
                                  _villager(0, -300, y=-500.0, path=[(0, -300), (0, -400)], speed=5)]}
         st = published(g, lambda s: s.objects is not None and len(s.objects) == 4)
         a, b, c, d = st.objects
-        assert set(a) == {"uid", "sid", "x", "y", "z", "range", "talk", "r", "solid", "coll", "range_r", "talk_r",
-                          "shown", "moving", "flags"}
+        # [ff9mapkit netsync s138] + `model` after `sid` (PosObj.model raw: the dress instrument's `dressinstr` rung, which
+        # the default stand-in carries; a body with no ``model`` of its own reads 65535, no SetModel yet)
+        assert set(a) == {"uid", "sid", "model", "x", "y", "z", "range", "talk", "r", "solid", "coll", "range_r",
+                          "talk_r", "shown", "moving", "flags"}
+        assert list(a)[:3] == ["uid", "sid", "model"] and a["model"] == 65535
         assert (a["uid"], a["r"], a["solid"], a["coll"], a["range"], a["range_r"], a["moving"]) == \
             (128, 152.0, True, True, False, None, False)
         assert (b["uid"], b["sid"], b["range"], b["talk"], b["range_r"], b["talk_r"]) == (200, 12, True, True, 314.0, 280.0)

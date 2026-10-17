@@ -11,7 +11,8 @@ stack replays by number:
 | s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven, owner-confirmed |
 | s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
 | s137 | s126 | trance burst timing | ★ deployed, solo-proven |
-| s138-s141 | s127-s130 | the guest's own field model (shows its party character, or a moogle) | next |
+| s138 | s127 | the dress instrument (keys only) | ★ deployed, solo-proven |
+| s139-s141 | s128-s130 | the guest's own field model (shows its party character, or a moogle) | next: s139 (two owner questions first) |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -251,7 +252,47 @@ lever mode and its caps-0x02 mode, red in exactly the probe-absent set (19 of 25
   request `feedat 700`. (The rerun taped sub 3; sub 5's arithmetic: 1456-1860 ms, inside the timeout.)
 A rerun on s137 after the fixes: trance 24/24 + both calibrations clean, hold 27/27 + its calibration clean.
 
-**For the owner:** audit amendment 3 said the grace is "capped at 2500 ms"; as built, a unit's own SysTrans burst in
-flight is exempt from that cap, bounded at 8500 ms (the 6 s parked-START limit plus the cap) -- ratify or reject.
+**OWNER-RATIFIED:** audit amendment 3 said the grace is "capped at 2500 ms"; as built, a unit's own SysTrans burst in
+flight is exempt from that cap, bounded at 8500 ms (the 6 s parked-START limit plus the cap). The owner kept it:
+"Keep the burst's cap exemption (up to 8.5 s)".
 
 **Action replay (s133-s137) is complete.** Next in the plan order: the guest's own field model, s138-s141.
+
+## s138: the dress instrument (2026-10-17)
+
+**The pre-build audit first.** The field-model design (3.4) was written before s131-s137, so it was audited against the
+live clone, the harness and the install before any hunk: `R3-FIELD-MODEL-AUDIT.md` (four lanes, two skeptics per serious
+finding, 48 of 50 survived). It decided the dress keys' home (`netsync.dress`, on the one ladder), rewrote leg I so every
+check can fail, and found a stock frame-wait (field 2705) that s140's loco mapping would have broken. Two owner questions
+gate s139 (the SelfDress=0 opt-out on the host's ghost; a spectating guest's body).
+
+**What s138 does.** Nothing on any role: harness keys only. `player.*` gains model, anim, geo, anim_geo, eye, uid, sid,
+body (the root mesh's texture stem -- what is actually worn), clip, clip_playing, frame_n, anim_frame, meshflags;
+`objects[].model`; `netsync.dress` = ghost{model, geo, clip, rig, playing, body} (what the peer's ghost really wears,
+recorded at EnsureGhost) + party[4] (from FF9.party, never the selftest mirror's BENCH stand-in).
+
+**Built** by a workflow (engine, harness, a 4-lens review with two skeptics per finding, two fix passes; 11 surviving
+findings in round 1, among them a blocking one: leg I's walk check counted render-frame publishes while the player moves
+on 30 Hz field ticks). 3 files, +284/-6; the stack replays 29/29 byte-exact; 2062 domain tests pass.
+
+**Calibrated on s137 first** (the live DLL `0269771f24b626c1`): coop_self_dress under `COOP_CALIBRATE=1` red in exactly
+I1-I9 (the keys absent), S138-CAL green; the oracle, the precondition and the probe green.
+
+**Deployed** 2026-10-17 (`build_memoria.py`, backup `20261017-104630`; Assembly-CSharp `a8b0fd80ecc4013d`).
+
+**Proven solo on s138:** coop_self_dress leg I 15/15 on its first in-game run, every value against the offline oracle:
+model 98, body '98', GEO_MAIN_F0_ZDN, eye -372, sid == uid (10 on 250, 1 on 30801); the run clip 38 mid-move and 200 at
+rest, judged per field tick; the selftest ghost wearing exactly the player's model, GEO, clip and body; party [0, 1, 2, 3]
+after the COOPPARTY seed; 30801's NPCs model 217. The field/ghost regression set at baseline (talk relay 28/28, dialogue
+authority 147/147, diorama return 22/22, handback live 18/18, handback 21/21, end guest 49/49, action replay 35/35 + its
+tape 16/16) and the T2 cut legs (cal 10/10, readopt +78, s120-battle +63).
+
+**The s137 trance bench's witness, a third time.** GRACE went red on s138 with the engine's own window right (406 ms):
+fix 2 took the witness's origin from the first sample the harness READ showing the deferral -- here the request's
+acknowledged state, 62 ms after the record (witness 344 ms). Fix 3 makes the origin a BRACKET: the last publish read before
+the deferral and the first read showing it, the record inside it, the swap judged not-late from the bracket's end and
+not-early from its start; a bracket wider than 170 ms reads NOT REACHED. Rerun on s138: trance 24/24 (brackets 31 and 16 ms
+wide), both calibration modes clean. LESSON: a sampled witness needs a bracket, never one edge.
+
+**Next: s139** (the host rule and wire section 8). Before its hunks, the owner answers the audit's two questions (2.2 D1:
+the SelfDress=0 opt-out on the host's ghost; D2: a spectating guest's body).
