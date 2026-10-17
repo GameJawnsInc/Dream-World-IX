@@ -251,7 +251,8 @@ lever mode and its caps-0x02 mode, red in exactly the probe-absent set (19 of 25
   request `feedat 700`. (The rerun taped sub 3; sub 5's arithmetic: 1456-1860 ms, inside the timeout.)
 A rerun on s137 after the fixes: trance 24/24 + both calibrations clean, hold 27/27 + its calibration clean.
 
-**For the owner:** audit amendment 3 said the grace is "capped at 2500 ms"; as built, a unit's own SysTrans burst in
-flight is exempt from that cap, bounded at 8500 ms (the 6 s parked-START limit plus the cap) -- ratify or reject.
+**OWNER-RATIFIED:** audit amendment 3 said the grace is "capped at 2500 ms"; as built, a unit's own SysTrans burst in
+flight is exempt from that cap, bounded at 8500 ms (the 6 s parked-START limit plus the cap). The owner kept it:
+"Keep the burst's cap exemption (up to 8.5 s)".
 
 **Action replay (s133-s137) is complete.** Next in the plan order: the guest's own field model, s138-s141.
