@@ -888,7 +888,9 @@ No behaviour changes on any role. Later benches can then go red on VALUES, not o
 +if (dressModel != 0 && rs.Model != 98 && rs.Model != dressModel) dressModel = 0;     // a non-Zidane leader, 532, an opted-out guest: show it as it is
 ```
 
-The selftest branch (`:1180`) gets the same guard. Both screens then agree in every case.
+The selftest branch (`:1180`) gets the same guard. Both screens then agree whenever the guest dresses or wears a non-Zidane body
+(owner D1: an opted-out SelfDress=0 guest is indistinguishable from an old guest on the wire, so the host keeps dressing it). A
+spectating guest (GuestSlots=0) wears the MOOGLE (owner D2, 2026-10-17; R3-FIELD-MODEL-AUDIT.md 2.2 amendment 3).
 
 **Section 8 producer.**
 - `BuildStateFrame` (`NetSyncClient.cs:1906-1925`, after the section-7 append) adds
@@ -1504,7 +1506,7 @@ relaunch once to register, and never pin the id in `.ff9deploy.toml`. It holds:
 | B24 | Warm and cold battle returns | still dressed after both |
 | B25 | World map, the opening FMV, endings, the title | never dressed; dressed again back on a field |
 | B26 | Session end | the exit ramp reloads the laptop's own save undressed |
-| B27 | `SelfDress=0` (live) | at the next load the laptop stays Zidane, and the host's ghost ALSO shows Zidane (the guard) |
+| B27 | `SelfDress=0` (live) | at the next cold load the laptop stays Zidane; the host's ghost keeps the slot member (owner D1, 2026-10-17: the host's GhostAs is the one knob -- empty it to make both Zidane) |
 | B28 | A Steiner- or Dagger-led section, or a `ZDD` (532) field | both screens show the real body; nothing is dressed |
 | B29 | After s141 | the tree shadow on 250 darkens the dressed body; footsteps audible for humanoids, silent for the moogle; a dagger-draw cutscene leaves the dressed body intact |
 | B30 | Every box | the host's own Zidane is never dressed |

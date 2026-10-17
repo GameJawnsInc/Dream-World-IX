@@ -55,9 +55,9 @@ Four findings block the build as written:
 3. **s139's leg G depends on config nothing reads** (s139-F3). The selftest dress reads the ini's `GhostAs` and a slot mask pinned to 0. No harness key publishes either, so on another machine leg G reads red on a correct engine.
 4. **s140's loco mapping breaks a stock frame-wait** (s140-F1). Field 2705 (Pandemonium) loops `while GetEntryAnimFrame(255) < GetAnimDuration(8847) - 1`. B_FRAME still answers with the raw clip's 40 frames, and no dressed walk reaches frame 39. The fix is the B_FRAME timeline law (s140 amendment 1).
 
-**Two owner questions must be answered before s139**, because both change s139 code (section 2.2, decisions D1 and D2):
-- **The SelfDress=0 opt-out.** When the guest opts out, should the host's ghost of it also turn back to Zidane, as box B27 says? That needs a new wire byte. The recommendation is no: add no wire, and rewrite B27.
-- **A spectating guest (GuestSlots=0).** Should it stay Zidane (recommended) or show the moogle?
+**The two owner questions are ANSWERED (2026-10-17)** (section 2.2, decisions D1 and D2):
+- **The SelfDress=0 opt-out: Option A.** The owner: "yes" -- the host's GhostAs stays the one knob for both screens, SelfDress=0 is the guest's local switch, no wire change, B27 rewritten.
+- **A spectating guest (GuestSlots=0): the MOOGLE**, overriding the recommendation. The owner: "moogle. 2 zidanes just looks weird, and the host will never be a moogle." s139 amendment 3's first rule changes accordingly.
 
 **What must change first, in order:**
 1. Adopt section 3.1's key design in s138's harness commit.
@@ -298,7 +298,7 @@ Rows shared with s138 (ResolveDress, the two dress sites, HarnessSelfTest, Ensur
 
 3. **ResolveAuto is a pure function, with the moogle rule bounded (s139-F6, F15; s141-F8).**
    - The signature is `ResolveAuto(mask, moogleWhenEmpty, slotChar)`. Its rules, in order:
-     1. `mask == 0 → 0` stays the first line (pending owner decision D2). Today mask 0 means no dress (NetSyncVisitor.cs:124-125). The design's "every named slot empty → moogle" is vacuously true for mask 0 and would turn a spectating guest into a moogle.
+     1. **OWNER-DECIDED (D2): `mask == 0` → the moogle (220, charId 0xFF) when `moogleWhenEmpty`** -- a spectating guest puppets nobody, and two Zidanes look wrong ("the host will never be a moogle"). Today mask 0 means no dress (NetSyncVisitor.cs:124-125); s139 changes that on purpose. Without `moogleWhenEmpty` (a client role) mask 0 still gives 0.
      2. Otherwise, return the first named slot that holds a main (0-7).
      3. A named slot holding Cinna through Beatrix, or a member of 12 or above, gives 0.
      4. If every named slot is empty, return the moogle (220, charId 0xFF), but only when `moogleWhenEmpty`.
@@ -404,8 +404,8 @@ Rows shared with s138 (ResolveDress, the two dress sites, HarnessSelfTest, Ensur
 
 | # | Question | Recommendation |
 |---|---|---|
-| D1 | **Owner question.** A guest sets `SelfDress=0` on its own machine. Should the host's ghost of it also turn back to Zidane, as box B27 says? As designed this cannot work: on the wire, an opted-out guest looks identical to an old guest. | **Option A (recommended): no, and rewrite B27.** Under Q8, the HOST's GhostAs is the one knob for both screens; SelfDress=0 is the guest's local escape hatch. B27 becomes: "the laptop stays Zidane; the host's ghost keeps the slot member (empty the host's GhostAs to make both Zidane)". Reword 3.4.3 to "both screens agree whenever the guest dresses or wears a non-Zidane body", and list the guest-side skips (amendment 9) as known disagreements in risk 11. No wire change. **Option B:** a 38th byte on the type-0 position frame (old parsers already ignore bytes past 37: NetSyncSocket.cs:209-230, coop_peer.py:161). bit0 = self-dress capable (s140+), bit1 = dressed now. The parser and the guard change in s139 (`if (rs.DressCapable) dressModel = 0`: a new guest's wire body is authoritative, and only a guest without the byte is dressed by ResolveAuto). The writer lands in s140. It works, but it is new wire surface (NetSyncSocket, NetSyncRelay, coop_peer) for a diagnostic knob. |
-| D2 | **Owner question.** A spectating guest (the host's GuestSlots = 0, box B0) puppets nobody. Should it stay Zidane, as today, or show the moogle like a guest whose named slot is empty? | Stay Zidane: keep `mask == 0 → 0` (amendment 3). GuestSlots 0 is the spectate mode, and "a moogle if 1-person party" describes a named slot with no member. Control row G3d. |
+| D1 | **OWNER-DECIDED: Option A** ("yes", 2026-10-17). A guest sets `SelfDress=0` on its own machine. Should the host's ghost of it also turn back to Zidane, as box B27 says? As designed this cannot work: on the wire, an opted-out guest looks identical to an old guest. | **Option A (recommended): no, and rewrite B27.** Under Q8, the HOST's GhostAs is the one knob for both screens; SelfDress=0 is the guest's local escape hatch. B27 becomes: "the laptop stays Zidane; the host's ghost keeps the slot member (empty the host's GhostAs to make both Zidane)". Reword 3.4.3 to "both screens agree whenever the guest dresses or wears a non-Zidane body", and list the guest-side skips (amendment 9) as known disagreements in risk 11. No wire change. **Option B:** a 38th byte on the type-0 position frame (old parsers already ignore bytes past 37: NetSyncSocket.cs:209-230, coop_peer.py:161). bit0 = self-dress capable (s140+), bit1 = dressed now. The parser and the guard change in s139 (`if (rs.DressCapable) dressModel = 0`: a new guest's wire body is authoritative, and only a guest without the byte is dressed by ResolveAuto). The writer lands in s140. It works, but it is new wire surface (NetSyncSocket, NetSyncRelay, coop_peer) for a diagnostic knob. |
+| D2 | **OWNER-DECIDED: the MOOGLE** (2026-10-17: "moogle. 2 zidanes just looks weird, and the host will never be a moogle."; the row's recommendation below was overridden). A spectating guest (the host's GuestSlots = 0, box B0) puppets nobody. Should it stay Zidane, as today, or show the moogle like a guest whose named slot is empty? | (overridden) Stay Zidane: keep `mask == 0 → 0` (amendment 3). GuestSlots 0 is the spectate mode, and "a moogle if 1-person party" describes a named slot with no member. Control row G3d. |
 | D3 | What does the Inactive column mean for rigs with no stock break animation? | 0 = none (amendment 2). |
 | D4 | Keep `rig_idle_frames` as an engine-measured key? | Keep it, with the measuring path named, judged against the oracle (amendment 7). |
 | D5 | Fold the Garnet hair fix into s139? | Yes, generalised as the rest mask (amendment 8). |
@@ -929,7 +929,7 @@ The legs run in this order:
 | G2 | — | `ghost 6` + `empty 2` → slot 2's member. |
 | G3 | — | `ghost 2` + `empty 2` → model 220, `GEO_NPC_F0_MOG`, `ANH_NPC_F0_MOG_*` clips, body "220", plus a game_snap read. |
 | G3c | — | `ghost 6` + `empty 6` → the moogle. |
-| G3d | — | `ghost 0` → the ghost wears the wire model, and section 8 carries model 0 (`00 00 FF`). |
+| G3d | — | (owner D2) `ghost 0` → the ghost wears the MOOGLE (220, `GEO_NPC_F0_MOG`), and section 8 carries model 220 charId 0xFF (`DC 00 FF`). |
 | G4 | — | `dress.codec == "ok"`, plus the codec log line. |
 | G5 (control) | — | `clear` → back to G0's baseline. |
 | G6 | — | `rig_idle_frames` equals the oracle `[60, 45, 30, 60, 50, 40, 30, 45, 72]`. |
