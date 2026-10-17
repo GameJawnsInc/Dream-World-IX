@@ -57,12 +57,15 @@ its worn model is READ OFF THE SEATED UNIT (`battle.units[].trance_model`) -- ne
 No leg sends a `dioleave` mid-swirl (s134 LESSON 2): every leave comes after a steady boot. THE ORDER (s134 LESSON 3):
 nothing in boot 1 ends the fight (TD, the teardown, is its last leg); the end injection (INJECT) has its own boot. A
 follow-up that must land inside a grace or before a replay's hit rides the feed's OWN request (the agent runs a request's
-next step Block(2) frames on) -- never a second request after a poll (s135 LESSON). Between legs the seat is brought back
+next step Block(2) frames on) -- never a second request after a poll (s135 LESSON); an op that need only land WHILE a
+long replay runs (BUSY, CAP: in-game fix 1) rides its own request once `_under_way` confirms the replay's lead, its
+reach still judged. Between legs the seat is brought back
 to its normal model (`unit <seat> trance0`) and the bench waits until nothing runs and QUIET_MS = the grace + 200 = 600 ms
 of battle time pass (every burst mark then older than the 400 ms on-arrival window): QUIET. THE PUBLISH WITNESS (s136
 LESSON 8: a clock the feature does not compute): every timer window (GRACE, BUSY, CAP) is judged twice -- on s137's own
-`last.ms - last.record_ms`, and on the publishes: the request's own state's act.guest.battle_ms (x0, never before
-last.record_ms) to the first publish whose seat wears the new model, within the window +- one battle frame.
+`last.ms - last.record_ms`, and on the publishes: from the FIRST publish that shows the deferral (in-game fix 2: the
+request's acknowledged state trails the record by its 31-62 ms round trip, against the witness's 34 ms slack; never
+before last.record_ms) to the first publish whose seat wears the new model, within the window +- one battle frame.
 
 WHAT IS PROVEN (S137-*):
   INI    precondition: [Netsync] Enabled reads 0 / absent (READ-ONLY) -- else NOTHING runs.
@@ -116,7 +119,8 @@ WHAT IS PROVEN (S137-*):
   PARK-CAP the burst OUTLIVES THE CAP (the engine's refinement of amendment 3, for ratification): the same leg, judged only
          when its burst's hit landed more than 2550 ms after the op (else NOT REACHED: a burst that hit inside the cap cannot
          tell its exemption from the cap) -- the swap still at that hit, swaps_by_cap +0.
-  BUSY   THE BUSY HOLD (amendment 3): the seat's Attack + `unit <seat> trance1` in ONE request, NO SysTrans: the deferral
+  BUSY   THE BUSY HOLD (amendment 3): the seat's Attack, then `unit <seat> trance1` in its own request once the Attack has
+         run 800 ms (in-game fix 1: fed with the START, the stand-in's Attack outlived the cap's window), NO SysTrans: the deferral
          holds while that replay names the unit, then the grace -- via grace at 350-450 ms of battle time after the
          Attack's end (act.guest.last.end_ms; the last busy frame is one frame before it; the publish witness from that
          end too), trance_model false on every publish while the Attack ran. ITS REACH (fix pass 2: harness-busy-
@@ -124,7 +128,8 @@ WHAT IS PROVEN (S137-*):
          this window too) or at least the cap minus the grace, 2100 ms (a CORRECT engine swaps by the cap first) records the
          leg NOT REACHED, never green or red on the shape; `ran` is in its detail either way.
   CAP    THE CAP: a LONG replay naming the seat (Garnet's seat's Leviathan, Leviathan__Full, on the seat's wire bit: it
-         outlives W3's 4 s) + `unit <seat> trance1` in ONE request: swaps_by_cap +1, `last` via cap at 2500-2550 ms of
+         outlives W3's 4 s), then `unit <seat> trance1` in its own request once it has run 600 ms (in-game fix 1: past its
+         launch's asset-load hitch, which skewed the witness's origin by 203 ms): swaps_by_cap +1, `last` via cap at 2500-2550 ms of
          battle time after the record (and on the publish witness), the summon still running at the swap. (The seat may
          be HIDDEN by the summon then: the cap's swap keeps a hidden unit's new model hidden -- `trance_model` still reads
          the worn model.)
@@ -224,6 +229,13 @@ QUIET_MS = BW.ACT_TRANCE_GRACE_MS + 200    # battle ms between legs: every burst
 #: window too); at least the cap minus the grace (2100) a CORRECT engine swaps by the cap first. Either way NOT REACHED.
 BUSY_RUN_MIN_MS = 100
 BUSY_RUN_MAX_MS = BW.ACT_TRANCE_CAP_MS - BW.ACT_TRANCE_GRACE_MS
+#: [in-game fix 1] how far into its replay BUSY / CAP send the op (their own request, the replay confirmed running):
+#: the first in-game run fed the op with the START, so BUSY's Attack (the BENCH stand-in's) ran 2188 ms past the record --
+#: a correct engine swapped by the cap (NOT REACHED) -- and CAP's summon launched in the op's own frame, whose asset-load
+#: hitch put the op's publish 203 ms after the record (the publish witness read 2313 ms for a 2516 ms cap swap)
+BUSY_LEAD_MS = 800
+CAP_LEAD_MS = 600
+LEAD_S = 8.0                               # a fed replay under way by its lead, at most
 #: PAUSE (fix pass 2: rtiming-1, audit 3.5 -- the grace is BATTLE time): the pause held this long (wall), and the engine's
 #: paused_ms at least PAUSE_MIN_MS over it; the press is s134 PAUSE's verified one (Session.press's own step), riding the
 #: record's request so it lands inside the grace
@@ -817,6 +829,42 @@ def _batched(g, *steps) -> tuple:
         return None, f"the batched request was refused: {str(err)[:300]}"
 
 
+def _under_way(g, act_id: int, lead_ms: int, what: str):
+    """[in-game fix 1] Poll until the s134 record of START ``act_id`` has run ``lead_ms`` battle ms since its launch and
+    has not ended: that state, or None (it never launched, or ended first)."""
+    def ok(s):
+        gl = _glast(s)
+        if gl.get("id") != act_id:
+            return False
+        if _n(gl.get("end_ms"), -1) >= 0:
+            return True                      # ended (or declined) first: the caller reads None
+        return _n(gl.get("launch_ms"), -1) >= 0 and _gv(s, "battle_ms") - _n(gl.get("launch_ms"), 0) >= lead_ms
+    x = cb.poll(g, ok, LEAD_S, what)
+    return x if x is not None and _n(_glast(x).get("end_ms"), -1) < 0 else None
+
+
+def _record_publish(g, f0: int, base: dict, x0):
+    """[in-game fix 2] THE WITNESS'S ORIGIN: the first publish after frame ``f0`` that shows the deferral (deferred past
+    ``base``) -- s134's battle_ms at most one frame after the engine's record, so both of the witness's edges are
+    first-publish edges (the request's acknowledged state ``x0`` trails the record by its 31-62 ms round trip, against
+    the witness's 34 ms slack). Falls back to ``x0``."""
+    for s in list(g.states_since(f0)) + [x0]:
+        if s is not None and _tv(s, "deferred") > base["deferred"]:
+            return s
+    return x0
+
+
+def _flip_step(samples: list, slot: int, to: bool = True):
+    """[in-game fix 2] The battle ms between the first publish wearing model ``to`` and the publish before it (None
+    unread): a frame much longer than FRAME_MS there (a load hitch) moves a timer's swap with nothing to correct it."""
+    prev = None
+    for s in samples:
+        if seat_view(cb.unit(s, slot)).get("model") is to:
+            return None if prev is None else _gv(s, "battle_ms") - _gv(prev, "battle_ms")
+        prev = s
+    return None
+
+
 def _unit_step(ctx: dict, state: str) -> str:
     return f"netsync actbench unit {ctx['seat_wire']} {state}"
 
@@ -831,6 +879,7 @@ def _leg_grace(g, led: cb.Ledger, ctx: dict) -> None:
     _quiet(g)
     slot, wire = ctx["seat_slot"], ctx["seat_wire"]
     base = _tbase(g.state)
+    f0 = cb.frame_of(g.state)
     x0, why = _batched(g, _unit_step(ctx, "trance1"))
     if x0 is None:
         led.unreached(("S137-GRACE", "S137-STAT"), why)
@@ -845,7 +894,8 @@ def _leg_grace(g, led: cb.Ledger, ctx: dict) -> None:
     last = _tlast(x)
     lok, ldetail = judge_last(last, via="grace", wire=wire, to=True)
     wok, wdetail = judge_window(last, GRACE_LO, GRACE_HI)
-    fok, fdetail = judge_flip(list(samples) + [x], slot, _gv(x0, "battle_ms"), GRACE_LO, GRACE_HI,
+    fok, fdetail = judge_flip(list(samples) + [x], slot, _gv(_record_publish(g, f0, base, x0), "battle_ms"), GRACE_LO,
+                              GRACE_HI,
                               record_ms=last.get("record_ms"))
     before = [cb.frame_of(s) for s in samples if _tv(s, "swaps_by_grace") == base["swaps_by_grace"]
               and seat_view(cb.unit(s, slot)).get("model") is True]
@@ -1103,7 +1153,14 @@ def _leg_busy(g, led: cb.Ledger, ctx: dict) -> None:
         led.check("S137-BUSY", False, f"not reached: {a}")
         return
     base = _tbase(g.state)
-    x0, why = _batched(g, _feed_step(a), _unit_step(ctx, "trance1"))
+    # [in-game fix 1] the op rides its OWN request once the Attack has run BUSY_LEAD_MS (it still names the unit): fed
+    # with the START, the stand-in's Attack outlived the cap's window from the record
+    xa, why = _batched(g, _feed_step(a))
+    if xa is None or _under_way(g, a_id, BUSY_LEAD_MS, "the seat's Attack under way") is None:
+        led.check("S137-BUSY", False, f"not reached: the Attack never ran {BUSY_LEAD_MS} ms unended: {why or ar._brief(g.state)}")
+        _reset_seat(g, ctx)
+        return
+    x0, why = _batched(g, _unit_step(ctx, "trance1"))
     if x0 is None:
         led.check("S137-BUSY", False, f"not reached: {why}")
         return
@@ -1152,7 +1209,15 @@ def _leg_cap(g, led: cb.Ledger, ctx: dict) -> None:
         led.check("S137-CAP", False, f"not reached: {summon}")
         return
     base = _tbase(g.state)
-    x0, why = _batched(g, _feed_step(summon), _unit_step(ctx, "trance1"))
+    # [in-game fix 1] the op rides its OWN request once the summon has run CAP_LEAD_MS: fed with the START, the summon
+    # launched in the op's own frame and its asset-load hitch skewed the publish witness's origin by 203 ms
+    xs, why = _batched(g, _feed_step(summon))
+    if xs is None or _under_way(g, l_id, CAP_LEAD_MS, "the summon under way") is None:
+        led.check("S137-CAP", False, f"not reached: the summon never ran {CAP_LEAD_MS} ms unended: {why or ar._brief(g.state)}")
+        _reset_seat(g, ctx)
+        return
+    f0 = cb.frame_of(g.state)
+    x0, why = _batched(g, _unit_step(ctx, "trance1"))
     if x0 is None:
         led.check("S137-CAP", False, f"not reached: {why}")
         return
@@ -1163,12 +1228,20 @@ def _leg_cap(g, led: cb.Ledger, ctx: dict) -> None:
     last = _tlast(x)
     lok, ldetail = judge_last(last, via="cap", wire=wire, to=True)
     wok, wdetail = judge_window(last, CAP_LO, CAP_HI)
-    fok, fdetail = judge_flip(list(samples) + [x], slot, _gv(x0, "battle_ms"), CAP_LO, CAP_HI,
+    fok, fdetail = judge_flip(list(samples) + [x], slot, _gv(_record_publish(g, f0, base, x0), "battle_ms"), CAP_LO,
+                              CAP_HI,
                               record_ms=last.get("record_ms"))
     running = _gv(x, "running") >= 1 and _glast(x).get("id") == l_id and _n(_glast(x).get("end_ms"), -1) < 0
-    led.check("S137-CAP", held and lok and wok and fok and running and _tv(x, "swaps_by_cap") == base["swaps_by_cap"] + 1,
-              f"held at the op {held}; {ldetail}; {wdetail}; {fdetail}; the summon (id {l_id}) still running at the swap "
-              f"{running} ({cb.pick(_glast(x), 'id', 'state', 'launch_ms', 'end_ms')}); delta {_tdelta(x, base)}")
+    step = _flip_step(list(samples) + [x], slot)
+    detail = (f"held at the op {held}; {ldetail}; {wdetail}; {fdetail}; the summon (id {l_id}) still running at the swap "
+              f"{running} ({cb.pick(_glast(x), 'id', 'state', 'launch_ms', 'first_hit_ms', 'end_ms')}); the frame "
+              f"into the swap {step!r} ms; delta {_tdelta(x, base)}")
+    if not wok and step is not None and step > 2 * FRAME_MS:
+        # [in-game fix 2] a load hitch straddled the cap: the engine swaps on the first frame past it, nothing to correct
+        led.unreached(("S137-CAP",), f"a {step} ms frame straddled the cap: {detail}")
+    else:
+        led.check("S137-CAP", held and lok and wok and fok and running
+                  and _tv(x, "swaps_by_cap") == base["swaps_by_cap"] + 1, detail)
     _reset_seat(g, ctx)
 
 

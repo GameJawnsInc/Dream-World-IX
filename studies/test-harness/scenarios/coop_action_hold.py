@@ -60,7 +60,8 @@ WHAT IS PROVEN (S135-*):
   BOOT  boot 1 steady with `act.guest.hold` at rest: held_now 0, queued_now 0, life_mask 0 (and `act.guest` running 0).
   -- boot 1: nothing dies --
   L1    Leg 1 (audit amendment 8): an ENEMY replay (Fang 1, kind 2, the taped sub) on Zidane's seat + a non-lethal impact
-        naming it (figure 5135) in ONE feed: the seat's hp_raw follows the host on a publish taken BEFORE the replay's hit
+        naming it (figure 5135) in ONE request, the impact `feedat 700` (s137 proof-block fix: a slow taped Fang move
+        outran the 2500 ms timeout when fed WITH its START): the seat's hp_raw follows the host on a publish taken BEFORE the replay's hit
         (the bars follow at arrival, never at the hit), the impact HELD (held_now 1); NO figure 5135 on any publish before
         the replay's first_hit_ms; then exactly ONE figure 5135 -- via "hit", displayed at or after first_hit_ms (figs[] is
         recorded at the DISPLAY); rel_hit +1; lag n +1 and >= 0.
@@ -251,6 +252,10 @@ FIG = {"L1": 5135, "L5": 5136, "L3": 5137, "L4": 5138, "L4N": 5139, "L7": 5140, 
        "DSK_C": 5143, "L8": 5144, "TD": 5145, "L2": 5146, "L2R": 5147, "L6": 5148, "DEF": 5149,
        "QSUP": 5150, "CATCH": 5151}       # MARKER: the figures (5150-5151: the fix pass's legs)
 INFO_HP = 1                                # Param.FIG_INFO_DISP_HP: an HP figure (EffectPoint collects info != 0 only)
+#: [s137 proof-block fix] Leg 1's impact rides the START's OWN request this many ms later (`feedat`): which Fang move
+#: battle 1 tapes varies -- sub 3 hit 1437 ms after an impact fed WITH its START, sub 5 2156 and 2560 ms -- and the slow
+#: one outran the hold's 2500 ms timeout, so a correct engine released the number via `timeout` (red L1 / L1F)
+L1_IMPACT_AFTER_MS = 700
 REPLAY_S = 20.0                            # a fabricated replay's end, at most
 LONG_S = 30.0                              # the long summon's natural end, at most (it is cleared past it)
 FIGURE_SLACK_MS = 250                      # a timer release's lateness, at most (ActTick runs every Update)
@@ -948,7 +953,14 @@ def _leg_l1(g, led: cb.Ledger, ctx: dict) -> None:
     hit = _impact(fw, zw, act_id=act_id, fig_t=FIG["L1"], tgt_raw=_raws(zu, hp1), cast_raw=_raws(fu),
                   player_caster=False, player_target=True, cmd=(ctx["tape"]["enemy"])["cmd"],
                   sub=ctx["tape"]["enemy"]["sub"])
-    samples, states, end = _watch_after_feed(g, [frame, hit], _replay_over(base))
+    try:                                     # ONE request: the impact L1_IMPACT_AFTER_MS after the START (still before its hit)
+        g.send(f"netsync actbench feed {_feed_arg(frame)}",
+               f"netsync actbench feedat {L1_IMPACT_AFTER_MS} {_feed_arg(hit)}", timeout=20.0)
+    except HarnessError as err:
+        led.unreached(("S135-L1", "S135-L1F"), f"the feeds were refused: {str(err)[:300]}")
+        return
+    states, end = cb.watch_from(g, g.state, _replay_over(base), REPLAY_S)
+    samples = [_sample(s) for s in states]
     g.wait_frames(5)
     x = g.state
     # the owner's rule: the BARS follow the host at arrival -- on a publish taken BEFORE the replay's hit (a defect that

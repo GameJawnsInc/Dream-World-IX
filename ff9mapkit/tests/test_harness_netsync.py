@@ -14635,14 +14635,35 @@ def test_the_s137_bench_predicts_its_reds_as_its_docstring_says():
                        ("_leg_arrive", '_batched(g, _feed_step([s, _end(act_id, BW.CMD_SYS_TRANS, 0)]), '
                                        '_unit_step(ctx, "trance1"))'),
                        ("_leg_park", '_batched(g, _feed_step(a), _unit_step(ctx, "trance1"), _feed_step(s))'),
-                       ("_leg_busy", '_batched(g, _feed_step(a), _unit_step(ctx, "trance1"))'),
+                       # [in-game fix 1] BUSY and CAP send the op in its OWN request once their replay has run its lead (still
+                       # naming the unit): fed with the START, BUSY's Attack outlived the cap's window and CAP's summon launch
+                       # hitched the op's publish -- neither op must land before a hit, only while the replay runs
+                       ("_leg_busy", 'xa, why = _batched(g, _feed_step(a))'),
+                       ("_leg_busy", "_under_way(g, a_id, BUSY_LEAD_MS, \"the seat's Attack under way\")"),
+                       ("_leg_busy", 'x0, why = _batched(g, _unit_step(ctx, "trance1"))'),
                        ("_leg_pause", '_batched(g, _unit_step(ctx, "trance1"), PRESS_PAUSE)'),
-                       ("_leg_cap", '_batched(g, _feed_step(summon), _unit_step(ctx, "trance1"))'),
+                       ("_leg_cap", 'xs, why = _batched(g, _feed_step(summon))'),
+                       ("_leg_cap", '_under_way(g, l_id, CAP_LEAD_MS, "the summon under way")'),
+                       ("_leg_cap", 'x0, why = _batched(g, _unit_step(ctx, "trance1"))'),
                        ("_leg_td", '_batched(g, _unit_step(ctx, "trance1"), "netsync actbench teardown")'),
                        ("_boot_inject", '_batched(g, _feed_step(summon), f"netsync actbench unit {wire} trance1", '
                                         '"netsync endbench victory")')):
         body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
         assert sends in body, leg
+    # [in-game fix 1/2] BUSY and CAP: the feed, then `_under_way` gating the op (`is None:`), then the op -- in that
+    # order; the leads pinned and BUSY's inside its reach guard; the witness's origin the record's first publish
+    op = 'x0, why = _batched(g, _unit_step(ctx, "trance1"))'
+    for leg, feed, gate in (("_leg_busy", "xa, why = _batched(g, _feed_step(a))", "_under_way(g, a_id, BUSY_LEAD_MS"),
+                            ("_leg_cap", "xs, why = _batched(g, _feed_step(summon))", "_under_way(g, l_id, CAP_LEAD_MS")):
+        body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
+        assert body.index(feed) < body.index(gate) < body.index(op), leg
+        assert body.split(gate, 1)[1].split("\n", 1)[0].endswith("is None:"), leg
+        assert body.count("_reset_seat(g, ctx)") >= 2, leg
+    assert "BUSY_LEAD_MS = 800" in code and "CAP_LEAD_MS = 600" in code
+    assert 100 < 2203 - 800 < BW.ACT_TRANCE_CAP_MS - BW.ACT_TRANCE_GRACE_MS   # the stand-in Attack's measured run
+    for leg in ("_leg_grace", "_leg_cap"):
+        body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
+        assert "_record_publish(g, f0, base, x0)" in body and '_gv(x0, "battle_ms")' not in body, leg
     # the lever: only under COOP_CALIBRATE (before boot 1, back after), LVR's own red, and the release's left-set
     assert code.count('_act_verb(g, "trancegrace", "off")') == 3 and code.count('_act_verb(g, "trancegrace", "on")') == 1
     assert '"off" if ctx.get("levers_set") else "on"' in code
