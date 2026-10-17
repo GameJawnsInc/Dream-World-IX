@@ -55,6 +55,8 @@ Four findings block the build as written:
 3. **s139's leg G depends on config nothing reads** (s139-F3). The selftest dress reads the ini's `GhostAs` and a slot mask pinned to 0. No harness key publishes either, so on another machine leg G reads red on a correct engine.
 4. **s140's loco mapping breaks a stock frame-wait** (s140-F1). Field 2705 (Pandemonium) loops `while GetEntryAnimFrame(255) < GetAnimDuration(8847) - 1`. B_FRAME still answers with the raw clip's 40 frames, and no dressed walk reaches frame 39. The fix is the B_FRAME timeline law (s140 amendment 1).
 
+**A third owner decision (2026-10-17, after s139): Blank, Marcus, Cinna and Beatrix (CharacterId 8-11) get THEIR OWN MODELS** ("their own models"), not s139's undressed; built in s140 (rig rows from the install's census; ResolveAuto maps 8-11 to them; section 8 carries charId 8-11).
+
 **The two owner questions are ANSWERED (2026-10-17)** (section 2.2, decisions D1 and D2):
 - **The SelfDress=0 opt-out: Option A.** The owner: "yes" -- the host's GhostAs stays the one knob for both screens, SelfDress=0 is the guest's local switch, no wire change, B27 rewritten.
 - **A spectating guest (GuestSlots=0): the MOOGLE**, overriding the recommendation. The owner: "moogle. 2 zidanes just looks weird, and the host will never be a moogle." s139 amendment 3's first rule changes accordingly.
