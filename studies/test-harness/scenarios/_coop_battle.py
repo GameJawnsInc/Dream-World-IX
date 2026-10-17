@@ -135,6 +135,9 @@ R3_PROBES = {
     # [ff9mapkit netsync s136] fallback A, one stock clip per uncovered action (the guest `actbench` op: fallback on|off) --
     # keyed on `act.guest.fallback`
     136: "netsync.battle.act.guest.fallback",
+    # [ff9mapkit netsync s137] the trance burst timing (the guest `actbench` op: trancegrace on|off) -- keyed on
+    # `act.guest.trance`, never a bare "trance" (`battle.units[].trance_model` is its unit witness, not its probe)
+    137: "netsync.battle.act.guest.trance",
 }
 
 

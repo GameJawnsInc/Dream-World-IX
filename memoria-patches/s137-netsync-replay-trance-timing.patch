@@ -1,0 +1,1495 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+index 096628d..8fe8b1e 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
+@@ -1987,6 +1987,24 @@ namespace Memoria.Netsync
+                         ActArmDeathGrace(d, true, "reconcile");   // [ff9mapkit netsync s134] D10: BEFORE the kill (its killer is unknown here)
+                     KillUnit(d);
+                 }
++                // [ff9mapkit netsync s137] (fix: model-1) a dead PLAYER's sample still carries the host's Trance bit: mirrored here, as the
++                // live lane below mirrors it, so a SysTrans hit on the corpse reads the HOST's state -- a death that stripped Trance on the
++                // host (DeathStatusScript: the Activate still queued) reads 0 and its END burst swaps nothing; one with the Activate
++                // already running keeps 1 and swaps at that Activate's hit, as the host does. Only the bit and the glow (the host's own
++                // values; the death lane still owns the pose and every other field; KillUnit's AlterStatus never strips it).
++                if (u.IsPlayer)
++                {
++                    if (u.InTrance)
++                        d.stat.cur |= BattleStatus.Trance;
++                    else
++                        d.stat.cur &= ~BattleStatus.Trance;
++                    d.enable_trance_glow = u.InTrance;
++                    // [ff9mapkit netsync s137] (fix: rmodel-1) ...and the probe with the on-arrival rule, as the live lane's catch-up: a
++                    // corpse whose own SysTrans burst already hit, declined or ended swaps now (the host's hit swapped it whatever its
++                    // state); gated only, a pending slot left to the resolver (NetSyncDiorama.Replay.cs: ActTranceAtDeadSample)
++                    if (d.tranceGo != null && d.gameObject != null && ReferenceEquals(d.gameObject, d.tranceGo) != u.InTrance)
++                        ActTranceAtDeadSample(d, u.Index, u.InTrance);
++                }
+                 return;                              // dead: the death lane owns everything
+             }
+ 
+@@ -2049,11 +2067,16 @@ namespace Memoria.Netsync
+             if (u.IsPlayer)
+                 d.trance = u.TranceGauge;   // v9: the live gauge byte -- the HUD's TranceBar reads
+                                             // Data.trance per frame (PLAYER.trance is stale mid-battle)
++            // [ff9mapkit netsync s137] THE TRANCE BURST TIMING (R3-DESIGN.md 3.3.6; R3-ACTION-REPLAY-AUDIT.md 2.5): the bit, the glow and the
++            // gauge above follow the host at once, as before; the MODEL swap the probe asks for goes to ActTranceAtSample -- ungated (an
++            // old host without bit 5, a guest that cannot replay, the `actbench trancegrace off` lever) it is this same swap, now;
++            // gated it is RECORDED and ActTick resolves it every frame: at the SysTrans replay's own hit, else by the grace
++            // (NetSyncDiorama.Replay.cs). This method only records: it runs only on a new seq in PHASE_NORMAL (amendment 1).
+             if (u.IsPlayer && d.tranceGo != null && d.gameObject != null)
+             {
+                 Boolean wearing = ReferenceEquals(d.gameObject, d.tranceGo);
+                 if (wearing != u.InTrance)
+-                    btl_vfx.SetTranceModel(d, u.InTrance);
++                    ActTranceAtSample(d, u.Index, u.InTrance);   // [ff9mapkit netsync s137] was btl_vfx.SetTranceModel(d, u.InTrance)
+             }
+             // ATB (players only)
+             if (u.IsPlayer)
+@@ -2833,6 +2856,9 @@ namespace Memoria.Netsync
+             // [ff9mapkit netsync s135] every inject path (the stale-lane hold break included): nothing held survives the injection
+             // (amendment 2 -- EndTick already released at its branch head; a no-op then)
+             ActHoldFlush("end-inject");
++            // [ff9mapkit netsync s137] ...nor a trance model change waiting for its burst: swapped now by the probe, before the phase write
++            // below (the pre-s137 guest already wore it; from here the stock tails own the units). A no-op when nothing is pending.
++            ActTranceFlush();
+             FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
+             _preInjectResult = ff9.btl_result;          // [ff9mapkit netsync R3 s115] the scoped no-leak rule's baseline
+             // [ff9mapkit netsync B4] the coupling FIRST: a stock window the bench (or, from stage 8, the ready mirror) opened
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
+index f515591..172695d 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.Replay.cs
+@@ -416,6 +416,7 @@ namespace Memoria.Netsync
+             ActPruneZombies();
+             ActRecomputeLive();                      // false, unless a zombie is still in the sequencer
+             ActFallbackReset(counters);              // [ff9mapkit netsync s136] fallback A's keys and sequence cache (its counters with ours)
++            ActTranceReset(counters);                // [ff9mapkit netsync s137] the trance deferrals and burst marks (its counters with ours)
+             if (!counters)
+                 return;
+             _actPausedMs = 0;
+@@ -1000,6 +1001,9 @@ namespace Memoria.Netsync
+             // [ff9mapkit netsync s135] the hold's step (a hit's deferred drain; host-done, timeout, the skipped records' catch-up:
+             // PHASE_NORMAL only) -- OUTSIDE the try above, so a step there that keeps throwing never stops the timeout's bound
+             ActHoldTick();
++            // [ff9mapkit netsync s137] the trance deferrals' resolver (audit 2.5 amendment 1: every frame, both branches -- after the hold's
++            // catch-up, which may record one), outside the try above too: the grace and the cap always run
++            ActTranceTick();
+         }
+ 
+         // hold-through (audit 3.3): replays keep running through an s119 hold; counted once per hold that began while one acts
+@@ -1087,6 +1091,7 @@ namespace Memoria.Netsync
+             }
+             ActRecomputeLive();
+             ActHoldReleaseRec(r, "end");                  // [ff9mapkit netsync s135] what it never hit: the legacy path, now
++            ActTranceOnReplayOver(r, null);               // [ff9mapkit netsync s137] a SysTrans burst is over: its end mark, stock's present colour
+         }
+ 
+         // the unit is still linked in btl_list (DelCharacter unlinks), with a model
+@@ -1231,6 +1236,7 @@ namespace Memoria.Netsync
+             else if (why == "backlog")
+                 _actBacklog++;
+             ActHoldReleaseRec(r, ActDeclineVia(why));     // [ff9mapkit netsync s135] it never launches: its held impacts go now (amendment 9)
++            ActTranceOnDecline(r, why);                   // [ff9mapkit netsync s137] a SysTrans START declined: its unit's grace ends at once
+             if (_actDeclineLogged.Contains(why) || _actDeclineLogged.Count >= 16)
+                 return;
+             _actDeclineLogged.Add(why);
+@@ -1251,6 +1257,7 @@ namespace Memoria.Netsync
+             _actDeclined++;
+             _actDeclinedWhy = "noop";
+             ActHoldReleaseRec(r, "declined");             // [ff9mapkit netsync s135] nothing will hit: its held impacts apply now
++            ActTranceOnDecline(r, "noop");                // [ff9mapkit netsync s137] a SysTrans with no vfx: no burst will come
+             if (_actDeclineLogged.Contains("noop"))
+                 return;
+             _actDeclineLogged.Add("noop");
+@@ -1380,6 +1387,7 @@ namespace Memoria.Netsync
+             }
+             ActRecomputeLive();
+             ActHoldReleaseRec(r, "abort");                // [ff9mapkit netsync s135] its hit will never come: the legacy path, now
++            ActTranceOnReplayOver(r, why);                // [ff9mapkit netsync s137] a SysTrans burst cut: its end mark, stock's present colour
+             _actAborted++;
+             _actAbortWhy = why;
+             Int32 k = Array.IndexOf(ActAbortReasons, why);
+@@ -1562,6 +1570,7 @@ namespace Memoria.Netsync
+                 ActLogSummary(why);
+                 ActFallbackDropDeferred();               // [ff9mapkit netsync s136] [fix pass: cover-2] a deferred impact still waiting: `guarded`
+                 ActFallbackLogSummary(why);              // [ff9mapkit netsync s136] fallback A's line (only when it did anything)
++                ActTranceDiscardAll(why);                // [ff9mapkit netsync s137] a pending trance deferral: `dropped`, nothing applied (+ its line)
+             }
+             catch { }
+             finally
+@@ -1810,6 +1819,10 @@ namespace Memoria.Netsync
+                 }
+             }
+             catch { }
++            // [ff9mapkit netsync s137] THE TRANCE BURST: a SysTrans replay's hit swaps its actor's model HERE -- the host's own swap
++            // point (btl_cmd.ExecVfxCommand's SysTrans case) -- by the probe with the guest's mirrored stat bit (D2), under the gate
++            // (ActTranceOnHit; its own try: never throws, and the answer below stands). Nothing else of that case runs here.
++            ActTranceOnHit(r);
+             // [ff9mapkit netsync s135] THE HIT RELEASE: the oldest held impact of this action on this master target -- its figures
+             // written into the units' fig inside EffectPoint's zero/collect bracket (sfxThread: the sequencer's own call), so the
+             // sequence's Figure point shows them; then the flinch, then the kill or revive. No held impact = a CREDIT (an impact
+@@ -2736,6 +2749,9 @@ namespace Memoria.Netsync
+         {
+             if (index < 0 || index > 7)
+                 return;
++            // [ff9mapkit netsync s137] (fix: timing-3) THIS record's freeze: since when the life mask kept this slot's records off it (a
++            // skipped one this record overtakes, or the catch-up's re-apply) -- -1 = none; ApplyUnit's trance lane reads it next
++            _trApplySinceMs = (_actSkippedMask & (1 << index)) != 0 ? _actSkippedSinceMs[index] : _trCatchUpSinceMs;
+             _actSkippedMask &= ~(1 << index);
+             if (ActHeldApplies(seq, _actAppliedSeen[index], _actAppliedSeq[index]))
+                 ActStampApplied(index, seq);
+@@ -2750,6 +2766,8 @@ namespace Memoria.Netsync
+             Int32 index = u.Index;
+             if (!ActLifeSkips(_actLifeMask, index, ActLifeSkipOn))
+                 return false;
++            if ((_actSkippedMask & (1 << index)) == 0)
++                _actSkippedSinceMs[index] = _actNowMs;   // [ff9mapkit netsync s137] (fix: timing-3) the slot's first skipped record: its freeze began
+             _actSkipped[index] = u;
+             _actSkippedSeq[index] = seq;
+             _actSkippedMask |= 1 << index;
+@@ -3138,6 +3156,7 @@ namespace Memoria.Netsync
+                 if ((due & (1 << i)) == 0)
+                     continue;
+                 _actSkippedMask &= ~(1 << i);
++                _trCatchUpSinceMs = _actSkippedSinceMs[i];   // [ff9mapkit netsync s137] (fix: timing-3) the record froze from here
+                 try
+                 {
+                     NetSyncBattle.PeerUnit u = _actSkipped[i];
+@@ -3153,6 +3172,7 @@ namespace Memoria.Netsync
+                 {
+                     ActHoldErr(ex);
+                 }
++                _trCatchUpSinceMs = -1;                      // [ff9mapkit netsync s137] (only this re-apply)
+             }
+         }
+ 
+@@ -3573,7 +3593,7 @@ namespace Memoria.Netsync
+         // ============================================================================================ the selftest bench (`actbench`)
+         /// <summary>[ff9mapkit netsync s134] The `netsync actbench` ops this half owns (HarnessAgent routes them here before s133's):
+         /// feed, feedat, `tape play`, replay, rework, shortcircuit, knob, clear, teardown -- [ff9mapkit netsync s135] + hold, lifeskip,
+-        /// unit (HarnessActHoldBench).</summary>
++        /// unit (HarnessActHoldBench). [ff9mapkit netsync s136] + fallback. [ff9mapkit netsync s137] + trancegrace.</summary>
+         internal static Boolean IsActGuestBenchOp(String op, String value)
+         {
+             switch (op)
+@@ -3590,6 +3610,7 @@ namespace Memoria.Netsync
+                 case "lifeskip":
+                 case "unit":
+                 case "fallback":                         // [ff9mapkit netsync s136] fallback A's lever
++                case "trancegrace":                      // [ff9mapkit netsync s137] the trance burst timing's lever
+                     return true;
+                 case "tape":
+                     return value == "play";
+@@ -3609,6 +3630,7 @@ namespace Memoria.Netsync
+         ///       step with no Leave first (review F2's leg D2), the diorama left booted and contained;
+         ///   [ff9mapkit netsync s135] `hold on|off`, `lifeskip on|off`, `unit &lt;slot&gt; dead|alive|trance0|trance1` (HarnessActHoldBench).
+         ///   [ff9mapkit netsync s136] `fallback on|off` (HarnessActFallbackBench).
++        ///   [ff9mapkit netsync s137] `trancegrace on|off` (HarnessActTranceBench).
+         /// args = the verb's whole argument list (args[0] = "actbench"). False + why on a refusal.</summary>
+         internal static Boolean HarnessActGuestBench(String[] args, out String why)
+         {
+@@ -3770,6 +3792,8 @@ namespace Memoria.Netsync
+                     return HarnessActHoldBench(args, op, val, out why);   // [ff9mapkit netsync s135]
+                 case "fallback":
+                     return HarnessActFallbackBench(args, val, out why);   // [ff9mapkit netsync s136]
++                case "trancegrace":
++                    return HarnessActTranceBench(args, val, out why);     // [ff9mapkit netsync s137]
+                 default:
+                     why = "netsync actbench: unknown op '" + op + "'";
+                     return false;
+@@ -3836,6 +3860,10 @@ namespace Memoria.Netsync
+                 if (_benchFallbackOff)
+                     Log.Message("[NetSync] harness: action fallback lever back (fallback A ON; released with the harness)");
+                 _benchFallbackOff = false;
++                // [ff9mapkit netsync s137] the trance burst timing's lever back too (the grace ON)
++                if (_benchTranceGraceOff)
++                    Log.Message("[NetSync] harness: action trance grace lever back (the model swap waits for the burst again; released with the harness)");
++                _benchTranceGraceOff = false;
+                 if (_actInbox.Count > 0)
+                     Log.Message("[NetSync] harness: action replay inbox emptied (" + _actInbox.Count + " frame(s); released with the harness)");
+                 _actInbox.Clear();
+@@ -5547,5 +5575,1114 @@ namespace Memoria.Netsync
+         {
+             return new List<BattleActionThread>(threads);
+         }
++
++        // ===========================================================================================================================
++        // [ff9mapkit netsync s137] THE TRANCE BURST TIMING (studies/battle-coop/R3-DESIGN.md 3.3.6 as amended by R3-ACTION-REPLAY-AUDIT.md
++        // 2.5 -- amendments 1-6, decisions D1-D6 -- and 3.5; the design's and the audit's "s126": group 2 was renumbered s133-s141).
++        // Until s137 the reconciler swapped a player's model the moment the host's type-1 sample carried the trance stat bit -- ahead
++        // of the SysTrans burst the guest has replayed since s134, so the trance model appeared first and its burst played after it.
++        // Now, on a booted diorama whose host latched bit 5 and whose guest can replay (the knob on, no `replay off` lever, SFXRework),
++        // the MODEL change waits for that replay's own hit: the point where the host itself swaps (btl_cmd.ExecVfxCommand's SysTrans
++        // case, at the shared sequence's EffectPoint).
++        //
++        // THE CONTAINMENT LAW holds: s137 only DELAYS the host's own model change. The trance status bit, enable_trance_glow, the gauge
++        // byte and the ATB stay the host's, mirrored at the sample exactly as before; SetTranceModel's argument is the guest's MIRRORED
++        // stat bit at the swap (D2 -- the host's own read at its hit, btl_cmd.cs `toTrance = CheckStatus(cmd.regist, Trance)`). A
++        // replay's hit still short-circuits every write (no trance_no, no achievement, no SA trigger: s134's short-circuit owns the hit
++        // -- this only changes which model the diorama unit wears).
++        //
++        // THE RECORD (amendment 1, D1): ApplyUnit's model check -- the STATELESS PROBE, the worn model (gameObject == tranceGo) against
++        // the mirrored bit -- no longer swaps on a gated diorama: ActTranceAtSample RECORDS a deferral for that wire slot (battle ms;
++        // `deferred`). ApplyUnit runs only on a new type-1 seq in PHASE_NORMAL (and the selftest branch runs no ReconcileTick at all),
++        // so it resolves nothing: ActTick resolves every pending deferral EVERY frame on both branches (ActTranceTick, outside ActTick's
++        // own try, as the hold's tick). UNGATED -- an old host (no bit 5), a guest that cannot replay, the `trancegrace off` lever --
++        // the swap is at the sample, the pre-s137 call (`immediate`; amendment 5's present colour and one capped line follow it: the
++        // ungated path is the pre-s137 TIMING, not byte-identical behaviour). A gated sample whose unit's SysTrans burst already HIT,
++        // whose SysTrans START already DECLINED or whose SysTrans replay already ENDED within ActTranceGraceMs before it swaps at once
++        // too (`on_arrival`: the START came first -- the END order, where the host's FinishCommand strips the status and queues
++        // SysTrans in one frame, lets either frame arrive first). [fix: timing-4] A sample for a slot ALREADY pending keeps its record
++        // under the gate; with the gate down it resolves that deferral itself ("gate"), never a second `immediate` swap.
++        // WHERE THE BIT FREEZES (amendment 2): ApplyUnit returns before its trance lane at the horizon gate and under s135's life mask
++        // -- the skipped record is re-applied at the catch-up, which records the deferral then; [fix: timing-3] a burst that hit,
++        // declined or ended since that slot's freeze began (or within ActTranceGraceMs before it) counts as passed there, so the
++        // catch-up swaps on arrival. [fix: model-1] A DEAD sample no longer freezes it: ApplyUnit's death lane mirrors a dead
++        // player's Trance bit and glow (the host's own -- a death that strips Trance on the host reaches the corpse at once, so its
++        // END burst swaps nothing there) -- [fix: rmodel-1] and runs the on-arrival rule on it (ActTranceAtDeadSample): stock lets a
++        // dead player run SysTrans and the host's hit swaps the corpse whatever its state, so a corpse whose own burst already hit,
++        // declined or ended swaps on arrival there too. [fix: model-2] While s135's life mask FREEZES a slot (masked, or its skipped record not yet
++        // caught up) its bit is stale: the resolver waits for the catch-up, and a SysTrans hit on it swaps nothing (`hit_untrusted`,
++        // the burst's mark kept) -- nothing is judged on a frozen bit; the mask's own 2.5 s bounds, the injection's flush (which
++        // clears the mask first) and the teardown bound the wait.
++        //
++        // THE RESOLUTION, per pending slot every frame (ActTranceVerdict -- the selftest pins its order):
++        //   a Leave in flight -> dropped (`dropped`, "leave": the scene is going; nothing applied);
++        //   no unit, no trance model or an unlinked unit -> dropped ("unit"; [fix: stock-unlinked-swap] nothing positions an unlinked
++        //       unit's new model);
++        //   the worn model already matches the bit -> `moot` (the bit flipped back, or another path swapped it);
++        //   the slot frozen by s135's life mask -> it WAITS (above);
++        //   outside PHASE_NORMAL -> it WAITS (the reconciler's own swap never ran there; the end injection flushes first);
++        //   the gate fell (the lever, the knob, rework, replay off) -> at once (`swaps_by_decline`, "gate": this guest replays nothing);
++        //   the unit's own SysTrans burst still in flight -- a START of it queued or pending (amendment 3: "not hit"), or its replay
++        //       running and not yet hit -> it WAITS for that hit (past the cap: see THE CAP AND THE BURST), at most
++        //       ActTranceBurstMaxMs after the record (`swaps_by_cap`, "cap");
++        //   a decline of that unit's SysTrans START since the record (any reason but a duplicate copy; a NOOP too) -> at once
++        //       (`swaps_by_decline`, amendment 3: else a stale decline makes the swap 400 ms late with no burst);
++        //   its SysTrans replay ended or aborted since the record without the swap -> at once (`swaps_by_end`: the burst is over);
++        //   [fix: rmodel-1] the unit DEAD here -> it WAITS for its own burst -- the rows above swap it (the host's hit swaps a corpse
++        //       whatever its state: stock lets a dead player run SysTrans) -- never by the grace; dropped ("dead": a revive's next
++        //       live sample self-heals) only at the cap with nothing of its own since the record (a hit of its own the resolver did
++        //       not trust -- the slot frozen then -- waits for that replay's end);
++        //   else THE GRACE (ActTranceStep): it waits while any queued or pending START, running replay or held / queued impact NAMES
++        //       the unit (actor, target, magic caster), then ActTranceGraceMs = 400 ms of BATTLE time (audit 3.5) from the last frame
++        //       it was named (`swaps_by_grace`), capped at ActTranceCapMs = 2500 ms of battle time from the record (`swaps_by_cap`).
++        //   THE HIT (ActOnHit, any phase): a SysTrans replay's hit swaps its actor's model by the probe with the mirrored bit -- the
++        //       host's own swap, at the same point of the same sequence: a pending deferral resolves `swaps_by_hit` (or `moot`); with
++        //       none pending a swap counts `hit_unpaired` (a deferral dropped as dead, then the corpse's own burst: the host swaps
++        //       there too). Under the lever (or ungated) the hit swaps nothing, as before. [fix: model-1, model-2] A hit whose bit
++        //       cannot be trusted swaps nothing (`hit_untrusted`, "frozen" / "contradicted"; its mark kept for the next sample): the
++        //       slot frozen by the life mask, or a bit contradicting the replay's own vfx (an End with the bit set, an Activate with
++        //       it clear -- the host chose that vfx from its own bit, btl_vfx.GetPlayerCommandSFX).
++        //   THE END INJECTION (InjectEnd's head, still in PHASE_NORMAL, before the phase write): every pending deferral swaps by the
++        //       probe at once (`swaps_by_inject`) -- the pre-s137 guest already wore it, and the stock tails own the units after it --
++        //       [fix: timing-2] except one whose OWN SysTrans replay already runs unhit: it stays pending, and its hit (any phase:
++        //       `swaps_by_hit`) or that replay's end or abort (`swaps_by_end`, resolved there: the tick waits outside PHASE_NORMAL)
++        //       swaps it -- a victory never puts the trance model on ahead of the burst the guest is already playing; [fix: rmodel-1]
++        //       a corpse's swaps only when its own burst hit, declined or ended since the record (else dropped, "dead").
++        //   THE TEARDOWN (ActDiscardAll) drops every pending one (`dropped`, "teardown"): nothing applied. A resolver step that throws
++        //       drops its slot ("fault"; logged once per boot). No path strands a deferral: every frame resolves or waits, the
++        //       injection, a running burst's end or abort (natural, W3, R8) and the teardown end every one.
++        //   Every deferral ends exactly once: deferred == swaps_by_hit + swaps_by_grace + swaps_by_cap + swaps_by_decline +
++        //       swaps_by_end + swaps_by_inject + moot + dropped + the bits of `pending`.
++        // THE CAP AND THE BURST -- a deliberate refinement of amendment 3's "capped at 2500 ms", so that its own 4.8 leg (a SysTrans
++        //   START parked past 400 ms behind a running replay swaps at first_hit) can hold: the ef257 burst's hit lands ~60 battle frames
++        //   after its launch (PlayerSequence Wait 1 + 24, the SFX load, then the shared sequence's EffectPoint at 16 + 19), so a cap
++        //   from the sample would cut most real bursts. The cap bounds every OTHER wait (no START yet, other replays, held impacts);
++        //   the unit's own burst, once its START is in, ends by its own bounds -- its hit, its decline (ActWaitMaxMs included), its
++        //   END + 6 s or 90 s abort (`swaps_by_end`) -- [fix: timing-1] and, whatever the queue does (an ActTick try that keeps
++        //   throwing, a lost host END with a stalled sequence), by THE BURST CEILING the resolver owns: ActTranceBurstMaxMs = 8500
++        //   battle ms (ActWaitMaxMs + ActTranceCapMs) after the record (`swaps_by_cap`, "cap") -- a parked START declines by 6 s and
++        //   launches at most ActPendingAbortMs after parking, so a healthy burst's hit always lands well inside it.
++        // THE PRESENT COLOUR (amendment 5): stock runs btl_stat.SetPresentColor when a SysTrans finishes (CheckCommandLoop) -- a replay
++        //   never enters cur_cmd_list, so the guest runs it at every SysTrans replay's end or abort, and after every swap the reconciler
++        //   or this resolver performs (the weapon otherwise keeps its last glow tint: SetDefaultShader colours only btl.gameObject).
++        //   Never after an end injection (the tails own the units), at a Leave, without a model, on a fading ENEMY corpse (its fade's
++        //   SetBBGColor) or at the teardown (`present` counts the calls); [fix: model-3] a player corpse's SysTrans end presents too,
++        //   as stock's finish does whatever the caster's state. A hit swap waits for its replay's end, as on the host.
++        // HIDDEN UNITS ([fix: stock-hidden-swap]): SetTranceModel's ChangeModel always activates the new model, and BattleMainLoop's
++        //   DispCharacter skips a disappeared unit -- so every swap made OUTSIDE a sequence (the resolver, the flush, the on-arrival
++        //   and gate swaps at a sample, a burst's end after an injection) goes through ActTranceSwap, which keeps a hidden unit's new
++        //   model hidden at SetDisappear's own off-screen y: the hiding sequence's SetDisappear(false) shows it later. The hit's swap
++        //   keeps no hide of its own (the host's own, inside the burst's ShowMesh hide); the ungated sample's stays the pre-s137 call.
++        // MESH-FLAG HIDES ([fix: rstock-1]): ChangeModel resets meshIsRendering to all-true and SetTranceModel sets battleModelIsRendering
++        //   -- the cache, never the renderers -- so a model switched out while a mesh-flag hide (btl_mot.HideMesh: ShowMesh's timed
++        //   fades, a one-frame non-target hide) had DispCharacter disable its renderers came back invisible: DispCharacter's next
++        //   SetIsEnabledMeshRenderer(m, true) returns early on the lying cache. Every s137 swap (ActTranceSetModel: the resolver, the
++        //   flush, the on-arrival and gate swaps, the hit) turns the outgoing model's flag-disabled renderers back on before the
++        //   swap (ChangeModel deactivates it in the same call: nothing drawn) and writes this frame's mesh flags onto the incoming
++        //   one past the reset cache, as DispCharacter's mesh pass does. The weapons need nothing (DispCharacter rewrites them).
++        // THE LAUNCH STANCE (amendment 4, D4): unchanged -- ActStanceGate already mirrors the host gate (SysTrans 59 is outside it: no
++        //   MP_IDLE_CMD; ef257 plays only its conditional MP_MAGIC, ef489 no caster clip). NO RESTORE EXEMPTION (amendment 6, D6): the
++        //   busy-window snapshot is BTL_DATA state, re-applied every frame to whichever model is worn.
++        // THE LEVER `actbench trancegrace off` (selftest role only; released with the harness) is the pre-s137 TIMING: every swap at the
++        //   sample, the hit swapping nothing (6.11's other red, caps 0x02 -- no bit 5 latched -- reads the same). Vanilla, solo and the
++        //   host never reach any of it: ApplyUnit, ActOnHit and InjectEnd run only on a booted diorama.
++        // KNOWN v1 (not fixed here): a late-join or reconnect boot into a fight already under way defers the model of a unit already
++        //   in trance before the boot (its burst came before the boot: the grace swaps it, 400 ms to 2.5 s late).
++        // ===========================================================================================================================
++        internal const Int32 ActTranceGraceMs = 400;       // the grace after the unit was last named (battle ms)
++        internal const Int32 ActTranceCapMs = 2500;        // ...capped this long after the record (battle ms; never cuts its own burst)
++        internal const Int32 ActTranceBurstMaxMs = 8500;   // ...and its own burst, at most this long after the record (= ActWaitMaxMs + ActTranceCapMs)
++        internal const Int32 ActTranceLogMax = 12;         // deferral / swap lines per boot (then counted, not logged)
++        // ActTranceStep's answers
++        internal const Int32 ActTrStepWait = 0, ActTrStepGrace = 1, ActTrStepCap = 2, ActTrStepBurstMax = 3;
++        // ActTranceVerdict's (and ActTranceFlushVerdict's) answers
++        internal const Int32 ActTrWait = 0, ActTrMoot = 1, ActTrDropLeave = 2, ActTrDropUnit = 3, ActTrDropDead = 4, ActTrSwapGate = 5;
++        internal const Int32 ActTrSwapDecline = 6, ActTrSwapEnd = 7, ActTrSwapCap = 8, ActTrSwapGrace = 9, ActTrSwapInject = 10;
++
++        // ---------------------------------------------------------------------------------------------------- the deferral's state (per boot)
++        // per PLAYER wire slot 0-3 (enemies wear no trance model: tranceGo null)
++        private static Int32 _trPendMask;                                // slots with a pending deferral (`pending`)
++        private static readonly Int32[] _trRecordMs = new Int32[4];      // battle ms of each pending record (-1 = none)
++        private static readonly Int32[] _trBusyMs = new Int32[4];        // the last battle ms something named the unit (-1 = not since the record)
++        private static readonly Boolean[] _trWant = new Boolean[4];      // the bit at the record (the log only: every swap re-reads the bit)
++        private static readonly Int32[] _trHitMs = new Int32[4];         // the last SysTrans replay hit on the slot's unit (-1 = none)
++        private static readonly Int32[] _trDeclineMs = new Int32[4];     // the last decline of the slot's SysTrans START (-1 = none)
++        private static readonly Int32[] _trEndMs = new Int32[4];         // the last end / abort of the slot's SysTrans replay (-1 = none)
++        // [fix: timing-3] per wire slot 0-7, the battle ms its FIRST skipped record met s135's life mask (written as the slot enters
++        // _actSkippedMask, read only while it is in it); the catch-up's re-apply and the applied record's own freeze (-1 = none)
++        private static readonly Int32[] _actSkippedSinceMs = new Int32[8];
++        private static Int32 _trCatchUpSinceMs = -1;                     // set by ActHoldCatchUp around its ApplyUnit only
++        private static Int32 _trApplySinceMs = -1;                       // ActSampleApplied's: the record ApplyUnit is applying now
++        // `act.guest.trance` counters (per boot: reset by the boot block, kept after the teardown until the next boot)
++        private static Int32 _trDeferred, _trByHit, _trByGrace, _trByCap, _trByDecline, _trByEnd, _trByInject, _trMoot, _trDropped;
++        private static Int32 _trImmediate, _trOnArrival, _trHitUnpaired, _trHitUntrusted, _trPresent;
++        private static Int32 _trLogged;
++        private static Boolean _trErrLogged;
++        // `last`: the last swap or resolution this boot
++        private static Boolean _trLastSet, _trLastSwapped, _trLastTo;
++        private static Int32 _trLastSlot, _trLastId, _trLastRecordMs, _trLastMs;
++        private static String _trLastVia;
++        // SELFTEST LEVER (`actbench trancegrace on|off`; released by ActBenchRelease, never per boot): read through ActTranceGraceOn, which
++        // also needs the selftest role -- a lever stranded across an ini edit never changes a real guest
++        private static Boolean _benchTranceGraceOff;   // `trancegrace off`: the pre-s137 timing (the swap at the sample)
++
++        private static Boolean ActTranceGraceOn { get { return !(_benchTranceGraceOff && NetSyncClient.IsSelfTestRole); } }
++
++        /// <summary>[ff9mapkit netsync s137] The deferral is in force now: bit 5 latched this boot, a guest that can replay, the lever on.</summary>
++        private static Boolean ActTranceGate { get { return ActTranceDefers(_actBit5, ActCanReplay, ActTranceGraceOn); } }
++
++        // Per boot (ActResetForBoot): the pending deferrals and the burst marks always; the counters, the log budget and `last` with the
++        // boot block's counters (kept after the teardown until the next boot). Never throws.
++        private static void ActTranceReset(Boolean counters)
++        {
++            _trPendMask = 0;
++            for (Int32 i = 0; i < 4; i++)
++            {
++                _trRecordMs[i] = -1;
++                _trBusyMs[i] = -1;
++                _trWant[i] = false;
++                _trHitMs[i] = -1;
++                _trDeclineMs[i] = -1;
++                _trEndMs[i] = -1;
++            }
++            _trCatchUpSinceMs = -1;
++            _trApplySinceMs = -1;
++            if (!counters)
++                return;
++            _trDeferred = _trByHit = _trByGrace = _trByCap = _trByDecline = _trByEnd = _trByInject = _trMoot = _trDropped = 0;
++            _trImmediate = _trOnArrival = _trHitUnpaired = _trHitUntrusted = _trPresent = 0;
++            _trLogged = 0;
++            _trErrLogged = false;
++            _trLastSet = false;
++            _trLastSwapped = _trLastTo = false;
++            _trLastSlot = _trLastId = _trLastRecordMs = _trLastMs = -1;
++            _trLastVia = null;
++        }
++
++        // ============================================================================================ the trance burst: pure rules
++        /// <summary>[ff9mapkit netsync s137] THE GATE (pure; amendment 3's "gated on this guest being able to replay"): a model change waits for
++        /// the burst only with bit 5 latched, a guest that can replay, and the `trancegrace` lever on. Anything else swaps at the sample.</summary>
++        internal static Boolean ActTranceDefers(Boolean bit5, Boolean canReplay, Boolean graceOn)
++        {
++            return bit5 && canReplay && graceOn;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] A BURST record (pure): a SysTrans of a PLAYER wire slot 0-3 (an enemy wears no trance model;
++        /// SysPhantom is Garnet's recast, not the burst).</summary>
++        internal static Boolean ActTranceIsBurst(Int32 cmdNo, Boolean isPlayer, Int32 actorSlot)
++        {
++            return cmdNo == (Int32)BattleCommandId.SysTrans && isPlayer && actorSlot >= 0 && actorSlot <= 3;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] A decline that ends the grace (pure, amendment 3: ANY decline of the unit's SysTrans START) --
++        /// except a DUPLICATE copy's (the first START of that id is still in the book and may launch).</summary>
++        internal static Boolean ActTranceDeclineEnds(String why)
++        {
++            return why != "duplicate";
++        }
++
++        /// <summary>[ff9mapkit netsync s137] A START names the wire slot (pure): as its actor (same side), or by a wire target or magic-caster bit
++        /// (bits 0-3 the host's compacted players, 4-7 its enemy slots).</summary>
++        internal static Boolean ActTranceRecNames(Int32 slot, Int32 actorSlot, Boolean actorIsPlayer, UInt16 tarWire, UInt16 magicWire)
++        {
++            if (slot < 0 || slot > 7)
++                return false;
++            if (actorIsPlayer == (slot < 4) && actorSlot == slot)
++                return true;
++            return ((tarWire | magicWire) & (1 << slot)) != 0;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] The burst already PASSED at a sample (pure): the slot's SysTrans hit, its START's decline or its
++        /// replay's end at most ActTranceGraceMs of battle time before `nowMs` (-1 = none) -- [fix: timing-3] or, for a record s135's life
++        /// mask froze since `sinceMs` (-1 = none), at most ActTranceGraceMs before that freeze began -- and never after `nowMs`: the
++        /// sample swaps at once (`on_arrival`).</summary>
++        internal static Boolean ActTranceOnArrival(Int32 nowMs, Int32 sinceMs, Int32 hitMs, Int32 declineMs, Int32 endMs)
++        {
++            Int32 fromMs = (sinceMs >= 0 && sinceMs < nowMs ? sinceMs : nowMs) - ActTranceGraceMs;
++            return ActTrancePassed(nowMs, fromMs, hitMs) || ActTrancePassed(nowMs, fromMs, declineMs) || ActTrancePassed(nowMs, fromMs, endMs);
++        }
++
++        private static Boolean ActTrancePassed(Int32 nowMs, Int32 fromMs, Int32 atMs)
++        {
++            return atMs >= 0 && atMs <= nowMs && atMs >= fromMs;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] THE GRACE (pure; amendment 3, D3, audit 3.5's battle time): the unit's own burst in flight waits
++        /// (no cap: it ends by its own bounds -- [fix: timing-1] or by THE BURST CEILING, ActTranceBurstMaxMs after the record); else the
++        /// cap, ActTranceCapMs after the record, even while something names the unit; else it waits while something names it, then
++        /// ActTranceGraceMs from the later of the record and the last frame it was named.</summary>
++        internal static Int32 ActTranceStep(Int32 recordMs, Int32 lastBusyMs, Boolean busyNow, Boolean burst, Int32 nowMs)
++        {
++            if (burst)
++                return nowMs - recordMs >= ActTranceBurstMaxMs ? ActTrStepBurstMax : ActTrStepWait;
++            if (nowMs - recordMs >= ActTranceCapMs)
++                return ActTrStepCap;
++            if (busyNow)
++                return ActTrStepWait;
++            return nowMs - Math.Max(recordMs, lastBusyMs) >= ActTranceGraceMs ? ActTrStepGrace : ActTrStepWait;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] THE RESOLUTION of one pending deferral (pure; the selftest pins the order): a Leave drops, no unit
++        /// drops, a matching model is moot, a slot s135's life mask freezes waits ([fix: model-2]), outside PHASE_NORMAL it waits, the
++        /// gate falling swaps at once, the unit's own burst in flight waits (past THE BURST CEILING the cap swaps it: [fix: timing-1]),
++        /// a decline of its SysTrans START swaps at once, then its replay's end or abort -- [fix: rmodel-1] a dead unit swaps by those
++        /// rows (the host swaps a corpse at its own hit) and otherwise waits, never graced: dropped only at the cap with no `hit` of
++        /// its own since the record -- then the cap, then the grace; else it waits.</summary>
++        internal static Int32 ActTranceVerdict(Boolean gate, Boolean leaving, Boolean normal, Boolean unitOk, Boolean wearing, Boolean bit,
++                                               Boolean frozen, Boolean dead, Boolean burst, Boolean hit, Boolean declined, Boolean ended,
++                                               Int32 step)
++        {
++            if (leaving)
++                return ActTrDropLeave;
++            if (!unitOk)
++                return ActTrDropUnit;
++            if (wearing == bit)
++                return ActTrMoot;
++            if (frozen)
++                return ActTrWait;
++            if (!normal)
++                return ActTrWait;
++            if (!gate)
++                return ActTrSwapGate;
++            if (burst)
++                return step == ActTrStepBurstMax ? ActTrSwapCap : ActTrWait;
++            if (declined)
++                return ActTrSwapDecline;
++            if (ended)
++                return ActTrSwapEnd;
++            if (dead)
++                return step == ActTrStepCap && !hit ? ActTrDropDead : ActTrWait;
++            if (step == ActTrStepCap)
++                return ActTrSwapCap;
++            if (step == ActTrStepGrace)
++                return ActTrSwapGrace;
++            return ActTrWait;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] THE END INJECTION's flush of one pending deferral (pure): a Leave drops, no unit drops, a matching
++        /// model is moot; [fix: timing-2] its OWN SysTrans replay already running unhit waits (its hit or its end resolves it) --
++        /// [fix: rmodel-1] a corpse's too; a dead unit swaps only when its own burst `passed` since the record (hit, declined or
++        /// ended: the host swapped it there), else it drops; else it swaps NOW (the pre-s137 guest already wore it).</summary>
++        internal static Int32 ActTranceFlushVerdict(Boolean leaving, Boolean unitOk, Boolean wearing, Boolean bit, Boolean dead,
++                                                    Boolean passed, Boolean burstRunning)
++        {
++            if (leaving)
++                return ActTrDropLeave;
++            if (!unitOk)
++                return ActTrDropUnit;
++            if (wearing == bit)
++                return ActTrMoot;
++            if (burstRunning)
++                return ActTrWait;
++            if (dead)
++                return passed ? ActTrSwapInject : ActTrDropDead;
++            return ActTrSwapInject;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] THE HIT (pure, D2): a SysTrans replay's hit swaps its actor's model only under the gate, and only
++        /// when the worn model differs from the mirrored bit (the stateless probe).</summary>
++        internal static Boolean ActTranceHitSwaps(Boolean gate, Boolean wearing, Boolean bit)
++        {
++            return gate && wearing != bit;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] (fix: model-1, model-2) The hit may TRUST the mirrored bit (pure): not while s135's life mask
++        /// freezes the slot, and not when the bit contradicts the replay's own vfx -- the host chose an End (489) from a clear bit and an
++        /// Activate (257) from a set one (btl_vfx.GetPlayerCommandSFX); any other vfx number is not judged.</summary>
++        internal static Boolean ActTranceHitTrusts(Boolean frozen, Int32 vfxNum, Boolean bit)
++        {
++            if (frozen)
++                return false;
++            if (vfxNum == (Int32)SpecialEffect.Special_Trance_End && bit)
++                return false;
++            return !(vfxNum == (Int32)SpecialEffect.Special_Trance_Activate && !bit);
++        }
++
++        /// <summary>[ff9mapkit netsync s137] THE PRESENT COLOUR's guard (pure, amendment 5): never after an end injection, at a Leave, without a
++        /// model or on a FADING enemy corpse (its fade owns the colour) -- [fix: model-3] a player corpse presents, as stock's SysTrans
++        /// finish does whatever the caster's state.</summary>
++        internal static Boolean ActTrancePresents(Boolean endInjected, Boolean leaving, Boolean hasModel, Boolean fading)
++        {
++            return !endInjected && !leaving && hasModel && !fading;
++        }
++
++        // ============================================================================================ the trance burst: the live half
++        /// <summary>[ff9mapkit netsync s137] (fix: model-2) s135's life mask FREEZES the wire slot's bit now: the slot is masked (its records
++        /// skipped) or its skipped record still waits for the catch-up.</summary>
++        private static Boolean ActTranceFrozen(Int32 slot)
++        {
++            return ActLifeSkips(_actLifeMask, slot, ActLifeSkipOn) || (slot >= 0 && slot < 8 && (_actSkippedMask & (1 << slot)) != 0);
++        }
++
++        /// <summary>[ff9mapkit netsync s137] (fix: stock-hidden-swap) Every swap made OUTSIDE a sequence (ActTranceSetModel's: [fix: rstock-1]
++        /// its renderers normalised): SetTranceModel's ChangeModel always
++        /// activates the new model (BTL_DATA.cs: SetActive(true)) while BattleMainLoop's DispCharacter skips a disappeared unit
++        /// (battle.cs: bi.disappear) -- a hidden unit's new model would stand on screen, frozen at its old transform, until the hiding
++        /// sequence's SetDisappear(false). Kept hidden here, at the worn model's own position (SetDisappear's off-screen y): that
++        /// SetDisappear(false) shows the worn model later. A SetTranceModel that throws propagates, as before.</summary>
++        private static void ActTranceSwap(BTL_DATA d, Boolean bit)
++        {
++            Boolean hidden = d.bi.disappear != 0;
++            Vector3 lp = d.gameObject.transform.localPosition;
++            ActTranceSetModel(d, bit);                   // [fix: rstock-1] SetTranceModel, its renderers normalised
++            if (hidden && d.gameObject != null)
++            {
++                d.gameObject.transform.localPosition = lp;
++                d.gameObject.SetActive(false);
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s137] (fix: rstock-1) EVERY s137 swap -- SetTranceModel with its renderers normalised. Stock assumes a
++        /// model is switched out with its renderers on: ChangeModel resets meshIsRendering to all-true and SetTranceModel sets
++        /// battleModelIsRendering (BTL_DATA.cs: the cache only), so a model switched out while a mesh-flag hide had DispCharacter
++        /// disable its renderers came back invisible (its SetIsEnabled*Renderer(true) return early on the cache). BEFORE the swap the
++        /// worn model's flag-disabled mesh renderers go back on -- and its battle_model renderer when every mesh was off (DispCharacter's
++        /// all-off branch; never its Zidane-sword rule, the steady state it re-applies itself) -- ChangeModel deactivates it in this
++        /// same call, so nothing is drawn; AFTER it this frame's mesh flags are written onto the incoming model past the reset cache,
++        /// as DispCharacter's mesh pass does (every mesh off: its battle_model renderer off). The weapons need nothing: DispCharacter
++        /// rewrites weaponRenderer[n].enabled every frame. A SetTranceModel that throws propagates, as before.</summary>
++        private static void ActTranceSetModel(BTL_DATA d, Boolean bit)
++        {
++            ActTranceShowWorn(d);
++            btl_vfx.SetTranceModel(d, bit);
++            ActTranceApplyMeshFlags(d);
++        }
++
++        // [fix: rstock-1] the worn model's renderers as DispCharacter's all-on frame leaves them, before ChangeModel switches it out.
++        // Never throws.
++        private static void ActTranceShowWorn(BTL_DATA d)
++        {
++            try
++            {
++                if (d.gameObject == null || d.meshIsRendering == null)
++                    return;
++                Int32 n = Math.Min(d.meshCount, d.meshIsRendering.Length);
++                Boolean allOff = n > 0;
++                for (Int32 m = 0; m < n; m++)
++                {
++                    if (d.meshIsRendering[m])
++                    {
++                        allOff = false;
++                        continue;
++                    }
++                    d.SetIsEnabledMeshRenderer(m, true);
++                }
++                if (allOff)
++                    d.SetIsEnabledBattleModelRenderer(true);
++            }
++            catch { }
++        }
++
++        // [fix: rstock-1] this frame's mesh flags (geo.geoMeshChkFlags) onto the model just worn, past ChangeModel's all-true cache: the
++        // cache inverted first so the renderer write lands, then left as stock keeps it (a mesh node that is missing writes nothing).
++        // Never throws.
++        private static void ActTranceApplyMeshFlags(BTL_DATA d)
++        {
++            try
++            {
++                if (d.gameObject == null || d.meshIsRendering == null)
++                    return;
++                Int32 n = Math.Min(d.meshCount, d.meshIsRendering.Length);
++                Int32 off = 0;
++                for (Int32 m = 0; m < n; m++)
++                {
++                    Boolean on = geo.geoMeshChkFlags(d, m) == 0;
++                    if (!on)
++                        off++;
++                    d.meshIsRendering[m] = !on;
++                    d.SetIsEnabledMeshRenderer(m, on);
++                    d.meshIsRendering[m] = on;
++                }
++                if (n > 0 && off == n)
++                    d.SetIsEnabledBattleModelRenderer(false);
++            }
++            catch { }
++        }
++
++        /// <summary>[ff9mapkit netsync s137] (fix: rmodel-1) ApplyUnit's DEATH lane, after it mirrored a dead player's Trance bit (`bit`): the
++        /// worn model differs from it -- the on-arrival rule the live lane runs at a catch-up. Stock lets a dead player run SysTrans
++        /// and the host's hit swaps the corpse whatever its state: a corpse whose own burst hit, declined or ended within
++        /// ActTranceGraceMs (or since this record's freeze began) swaps NOW (`on_arrival`, through ActTranceSwap; the present colour).
++        /// Gated only (ungated, the pre-s137 death lane swapped nothing); a slot already pending is the resolver's (a corpse waits for
++        /// its own burst there); an unlinked unit swaps nothing ([fix: stock-unlinked-swap]). A SetTranceModel that throws propagates
++        /// into ApplyUnit, as the live lane's.</summary>
++        private static void ActTranceAtDeadSample(BTL_DATA d, Int32 slot, Boolean bit)
++        {
++            if (slot < 0 || slot > 3 || !ActTranceGate || (_trPendMask & (1 << slot)) != 0)
++                return;
++            if (!ActLinked(FF9StateSystem.Battle.FF9Battle, d))
++                return;
++            if (!ActTranceOnArrival(_actNowMs, _trApplySinceMs, _trHitMs[slot], _trDeclineMs[slot], _trEndMs[slot]))
++                return;
++            ActTranceSwap(d, bit);                       // its own burst already passed: the host already swapped this corpse
++            _trOnArrival++;
++            ActTrancePresent(d, null);
++            ActTranceNote(slot, true, bit, "on-arrival", 0, -1);
++        }
++
++        /// <summary>[ff9mapkit netsync s137] ApplyUnit's model check, with a probe that differs (the worn model against the mirrored bit `bit` of
++        /// wire slot `slot`): a slot already PENDING keeps its record under the gate (the resolution re-reads the bit) -- [fix: timing-4]
++        /// with the gate down it resolves that deferral here ("gate", as the resolver would); UNGATED -- the pre-s137 swap, verbatim, at
++        /// the sample (`immediate`); gated, with the unit's burst already passed (since this record's freeze, when s135's life mask
++        /// froze it: [fix: timing-3]) -- at once (`on_arrival`); else RECORDED (`deferred`) for ActTranceTick. Every swap is followed
++        /// by the present colour. A SetTranceModel that throws propagates into ApplyUnit, as before.</summary>
++        private static void ActTranceAtSample(BTL_DATA d, Int32 slot, Boolean bit)
++        {
++            Boolean gate = ActTranceGate;
++            if (slot >= 0 && slot <= 3 && (_trPendMask & (1 << slot)) != 0)
++            {
++                if (gate)
++                    return;
++                ActTranceSwap(d, bit);                   // the gate fell with this change pending: ONE resolution, never a second swap
++                _trByDecline++;
++                ActTrancePresent(d, null);
++                ActTranceResolved(slot, true, bit, "gate", 0);
++                return;
++            }
++            if (slot < 0 || slot > 3 || !gate)
++            {
++                btl_vfx.SetTranceModel(d, bit);          // the pre-s137 swap, at the sample
++                _trImmediate++;
++                ActTrancePresent(d, null);
++                ActTranceNote(slot, true, bit, "immediate", 0, -1);
++                return;
++            }
++            if (ActTranceOnArrival(_actNowMs, _trApplySinceMs, _trHitMs[slot], _trDeclineMs[slot], _trEndMs[slot]))
++            {
++                ActTranceSwap(d, bit);                   // its burst already played (or never will): no wait
++                _trOnArrival++;
++                ActTrancePresent(d, null);
++                ActTranceNote(slot, true, bit, "on-arrival", 0, -1);
++                return;
++            }
++            _trPendMask |= 1 << slot;
++            _trRecordMs[slot] = _actNowMs;
++            _trBusyMs[slot] = -1;
++            _trWant[slot] = bit;
++            _trDeferred++;
++            if (_trLogged >= ActTranceLogMax)
++                return;
++            _trLogged++;
++            Log.Message("[NetSync] action trance: wire slot " + slot + "'s " + (bit ? "trance" : "normal") + " model waits for its SysTrans burst "
++                        + "(the replay's hit; else " + ActTranceGraceMs + " ms of battle time after nothing names the unit, at most "
++                        + ActTranceCapMs + " ms without its START) -- the trance status, the glow and the gauge already follow the host"
++                        + (_trLogged == ActTranceLogMax ? "; further lines this boot are counted, not logged" : ""));
++        }
++
++        /// <summary>[ff9mapkit netsync s137] THE RESOLVER -- ActTick, every frame on both branches, after the hold's tick and outside ActTick's
++        /// own try: each pending deferral through ActTranceVerdict. One int read when nothing is pending. Never throws (a slot whose
++        /// step throws is dropped: "fault").</summary>
++        private static void ActTranceTick()
++        {
++            if (_trPendMask == 0)
++                return;
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                Boolean normal = b != null && Active && b.btl_phase == FF9StateBattleSystem.PHASE_NORMAL;
++                Boolean gate = ActTranceGate;
++                Boolean leaving = LeaveRequestedRecently;
++                for (Int32 s = 0; s < 4; s++)
++                {
++                    if ((_trPendMask & (1 << s)) == 0)
++                        continue;
++                    try
++                    {
++                        ActTranceStepSlot(b, s, normal, gate, leaving);
++                    }
++                    catch (Exception ex)
++                    {
++                        if ((_trPendMask & (1 << s)) != 0)
++                        {
++                            _trDropped++;
++                            ActTranceResolved(s, false, false, "fault", 0);
++                        }
++                        ActTranceErr(ex);
++                    }
++                }
++            }
++            catch (Exception ex)
++            {
++                ActTranceErr(ex);
++            }
++        }
++
++        // The pending slot's unit, with its trance model, still linked in btl_list ([fix: stock-unlinked-swap]: nothing positions an
++        // unlinked unit's new model) -- null = none
++        private static BTL_DATA ActTranceUnit(FF9StateBattleSystem b, Int32 s)
++        {
++            BTL_DATA d = b != null ? ResolveWireUnit(b, s, true) : null;
++            return d != null && d.tranceGo != null && d.gameObject != null && ActLinked(b, d) ? d : null;
++        }
++
++        // One pending slot's step: the unit and its probe, what names it, the verdict -- then the swap (with the present colour) or the
++        // resolution without one.
++        private static void ActTranceStepSlot(FF9StateBattleSystem b, Int32 s, Boolean normal, Boolean gate, Boolean leaving)
++        {
++            BTL_DATA d = ActTranceUnit(b, s);
++            Boolean unitOk = d != null;
++            Boolean wearing = unitOk && ReferenceEquals(d.gameObject, d.tranceGo);
++            Boolean bit = unitOk && (d.stat.cur & BattleStatus.Trance) != 0;
++            Boolean dead = unitOk && (d.stat.cur & BattleStatus.Death) != 0;
++            Boolean busy = false, burst = false;
++            if (unitOk)
++                ActTranceBusyOf(s, d, out busy, out burst);
++            if (busy)
++                _trBusyMs[s] = _actNowMs;
++            Int32 step = ActTranceStep(_trRecordMs[s], _trBusyMs[s], busy, burst, _actNowMs);
++            Int32 v = ActTranceVerdict(gate, leaving, normal, unitOk, wearing, bit, ActTranceFrozen(s), dead, burst,
++                                       _trHitMs[s] >= _trRecordMs[s], _trDeclineMs[s] >= _trRecordMs[s], _trEndMs[s] >= _trRecordMs[s],
++                                       step);
++            switch (v)
++            {
++                case ActTrWait:
++                    return;
++                case ActTrMoot:
++                    _trMoot++;
++                    ActTranceResolved(s, false, bit, "moot", 0);
++                    return;
++                case ActTrDropLeave:
++                case ActTrDropUnit:
++                case ActTrDropDead:
++                    _trDropped++;
++                    ActTranceResolved(s, false, bit, v == ActTrDropLeave ? "leave" : v == ActTrDropUnit ? "unit" : "dead", 0);
++                    return;
++            }
++            ActTranceSwap(d, bit);                       // the mirrored bit NOW (D2), as the reconciler's own swap (a hidden unit kept hidden)
++            String via;
++            switch (v)
++            {
++                case ActTrSwapGate:
++                    _trByDecline++;
++                    via = "gate";
++                    break;
++                case ActTrSwapDecline:
++                    _trByDecline++;
++                    via = "declined";
++                    break;
++                case ActTrSwapEnd:
++                    _trByEnd++;
++                    via = "ended";
++                    break;
++                case ActTrSwapCap:
++                    _trByCap++;
++                    via = "cap";
++                    break;
++                default:
++                    _trByGrace++;
++                    via = "grace";
++                    break;
++            }
++            ActTrancePresent(d, null);
++            ActTranceResolved(s, true, bit, via, 0);
++        }
++
++        // What NAMES the unit now (THE BUSY RULE, amendment 3): a queued or pending START (its actor, a wire target, the magic caster), a
++        // running replay acting with it (ActUnitsOf: actor, targets, reflect targets, magic caster), a held or queued impact touching its
++        // wire slot. BURST: its own SysTrans START queued or pending, or its own SysTrans replay running and not yet hit.
++        private static void ActTranceBusyOf(Int32 s, BTL_DATA d, out Boolean busy, out Boolean burst)
++        {
++            busy = false;
++            burst = false;
++            foreach (ActRec r in _actBook.Queue)
++            {
++                if (!r.Pending)
++                    continue;
++                if (ActTranceRecNames(s, r.ActorSlot, r.IsPlayer, r.TarId, r.MagicCaster))
++                    busy = true;
++                if (r.ActorSlot == s && ActTranceIsBurst(r.CmdNo, r.IsPlayer, r.ActorSlot))
++                    burst = true;
++            }
++            foreach (ActRec r in _actRunning)
++            {
++                if ((ActUnitsOf(r) & d.btl_id) != 0)
++                    busy = true;
++                if (r.ActorSlot == s && ActTranceIsBurst(r.CmdNo, r.IsPlayer, r.ActorSlot) && r.FirstHitMs < 0)
++                    burst = true;
++            }
++            Int32 bit = 1 << s;
++            foreach (ActHeld h in _actHeld)
++                if ((h.Slots & bit) != 0)
++                    busy = true;
++            foreach (ActHeld h in _actQueued)
++                if ((h.Slots & bit) != 0)
++                    busy = true;
++            if (burst)
++                busy = true;
++        }
++
++        // [fix: timing-2] the slot's OWN SysTrans replay is running and has not hit yet
++        private static Boolean ActTranceBurstRunning(Int32 s)
++        {
++            foreach (ActRec r in _actRunning)
++                if (r.ActorSlot == s && ActTranceIsBurst(r.CmdNo, r.IsPlayer, r.ActorSlot) && r.FirstHitMs < 0)
++                    return true;
++            return false;
++        }
++
++        // [fix: rmodel-1] the pending slot's OWN burst passed since its record: a SysTrans hit, a decline of its START or its
++        // replay's end or abort (the flush's `passed`)
++        private static Boolean ActTrancePassedSince(Int32 s)
++        {
++            Int32 rec = _trRecordMs[s];
++            return _trHitMs[s] >= rec || _trDeclineMs[s] >= rec || _trEndMs[s] >= rec;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] ActOnHit, for every hit of a SysTrans replay of a player: the burst's mark, then -- under the gate,
++        /// when the worn model differs from the mirrored bit (the probe) and that bit can be trusted (ActTranceHitTrusts: [fix: model-1,
++        /// model-2]) -- the swap, the host's own at the same point of the same sequence (a pending deferral `swaps_by_hit`; none pending
++        /// `hit_unpaired`); an untrusted bit swaps nothing (`hit_untrusted`; the mark kept, a pending deferral left to the resolver); a
++        /// matching model resolves a pending deferral `moot`. An unlinked actor swaps nothing ([fix: stock-unlinked-swap]). Ungated the
++        /// hit swaps nothing (the sample already did). Its own try: never throws into ActOnHit.</summary>
++        private static void ActTranceOnHit(ActRec r)
++        {
++            try
++            {
++                if (r == null || !ActTranceIsBurst(r.CmdNo, r.IsPlayer, r.ActorSlot))
++                    return;
++                Int32 s = r.ActorSlot;
++                _trHitMs[s] = _actNowMs;
++                BTL_DATA d = r.Actor;
++                if (d == null || d.tranceGo == null || d.gameObject == null || !ActLinked(FF9StateSystem.Battle.FF9Battle, d))
++                    return;
++                Boolean pending = (_trPendMask & (1 << s)) != 0;
++                Boolean gate = ActTranceGate;
++                Boolean wearing = ReferenceEquals(d.gameObject, d.tranceGo);
++                Boolean bit = (d.stat.cur & BattleStatus.Trance) != 0;
++                if (!ActTranceHitSwaps(gate, wearing, bit))
++                {
++                    if (pending && gate)
++                    {
++                        _trMoot++;
++                        ActTranceResolved(s, false, bit, "moot", r.Id);
++                    }
++                    return;                              // ungated: a deferral left pending resolves in the tick ("gate")
++                }
++                Boolean frozen = ActTranceFrozen(s);
++                if (!ActTranceHitTrusts(frozen, r.VfxNum, bit))
++                {
++                    _trHitUntrusted++;                   // a stale or contradicting bit: no swap on it (the next sample, or the catch-up, decides)
++                    ActTranceNote(s, false, bit, frozen ? "frozen" : "contradicted", r.Id, -1);
++                    return;
++                }
++                ActTranceSetModel(d, bit);               // the host's own swap point (its present colour follows at the replay's end);
++                                                         // [fix: rstock-1] its renderers normalised (inside a mesh-flag hide too)
++                if (pending)
++                {
++                    _trByHit++;
++                    ActTranceResolved(s, true, bit, "hit", r.Id);
++                }
++                else
++                {
++                    _trHitUnpaired++;
++                    ActTranceNote(s, true, bit, "hit", r.Id, -1);
++                }
++            }
++            catch (Exception ex)
++            {
++                ActTranceErr(ex);
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s137] ActDecline / ActMarkNoop: a decline of a player's SysTrans START (any reason but a duplicate copy)
++        /// marks its slot -- the resolver ends a pending grace at once, and a sample within ActTranceGraceMs after it swaps on arrival.</summary>
++        private static void ActTranceOnDecline(ActRec r, String why)
++        {
++            if (r != null && ActTranceIsBurst(r.CmdNo, r.IsPlayer, r.ActorSlot) && ActTranceDeclineEnds(why))
++                _trDeclineMs[r.ActorSlot] = _actNowMs;
++        }
++
++        /// <summary>[ff9mapkit netsync s137] ActFinishEnded / ActAbort (`why` null = a natural end): a SysTrans replay is over -- its player
++        /// slot's end mark (the resolver swaps a deferral it never resolved: the burst is over or cut), then stock's present colour
++        /// on its actor (CheckCommandLoop's SysTrans finish; never after an end injection, at a Leave, on a fading enemy or an unlinked
++        /// unit) -- [fix: timing-2] and, after an end injection (the tick waits outside PHASE_NORMAL), the deferral the flush left
++        /// pending for this very burst resolves HERE by the probe (`swaps_by_end`). Never throws.</summary>
++        private static void ActTranceOnReplayOver(ActRec r, String why)
++        {
++            try
++            {
++                if (r == null || r.CmdNo != (UInt16)BattleCommandId.SysTrans)
++                    return;
++                Boolean burst = ActTranceIsBurst(r.CmdNo, r.IsPlayer, r.ActorSlot);
++                if (burst)
++                    _trEndMs[r.ActorSlot] = _actNowMs;
++                if (r.Actor != null && ActLinked(FF9StateSystem.Battle.FF9Battle, r.Actor))
++                    ActTrancePresent(r.Actor, why);
++                if (burst && _endInjected && (_trPendMask & (1 << r.ActorSlot)) != 0)
++                    ActTranceEndAfterInject(r.ActorSlot, why, r.Id);
++            }
++            catch { }
++        }
++
++        // [fix: timing-2] a deferral the end injection's flush left for its running burst, at that burst's end or abort: the flush's own
++        // verdict (its burst no longer running), the swap counted `swaps_by_end` -- no present colour (the tails own the units)
++        private static void ActTranceEndAfterInject(Int32 s, String why, Int32 id)
++        {
++            try
++            {
++                FF9StateBattleSystem b = FF9StateSystem.Battle.FF9Battle;
++                BTL_DATA d = ActTranceUnit(b, s);
++                Boolean unitOk = d != null;
++                Boolean wearing = unitOk && ReferenceEquals(d.gameObject, d.tranceGo);
++                Boolean bit = unitOk && (d.stat.cur & BattleStatus.Trance) != 0;
++                Int32 v = ActTranceFlushVerdict(why == "leave" || LeaveRequestedRecently, unitOk, wearing, bit,
++                                                unitOk && (d.stat.cur & BattleStatus.Death) != 0, ActTrancePassedSince(s), false);
++                if (v == ActTrMoot)
++                {
++                    _trMoot++;
++                    ActTranceResolved(s, false, bit, "moot", id);
++                }
++                else if (v != ActTrSwapInject)
++                {
++                    _trDropped++;
++                    ActTranceResolved(s, false, bit, v == ActTrDropLeave ? "leave" : v == ActTrDropUnit ? "unit" : "dead", id);
++                }
++                else
++                {
++                    ActTranceSwap(d, bit);
++                    _trByEnd++;
++                    ActTranceResolved(s, true, bit, "ended", id);
++                }
++            }
++            catch (Exception ex)
++            {
++                if ((_trPendMask & (1 << s)) != 0)
++                {
++                    _trDropped++;
++                    ActTranceResolved(s, false, false, "fault", id);
++                }
++                ActTranceErr(ex);
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s137] InjectEnd's head (every inject path, still in PHASE_NORMAL): every pending deferral swaps by the
++        /// probe NOW (`swaps_by_inject`; ActTranceFlushVerdict) -- the pre-s137 guest already wore it, and from here the stock tails own
++        /// the units -- [fix: timing-2] except one whose own SysTrans replay already runs unhit: left pending for its hit or its end.
++        /// Each slot in its own try. Never throws.</summary>
++        private static void ActTranceFlush()
++        {
++            if (_trPendMask == 0)
++                return;
++            FF9StateBattleSystem b = null;
++            try { b = FF9StateSystem.Battle.FF9Battle; }
++            catch { }
++            Boolean leaving = false;
++            try { leaving = LeaveRequestedRecently; }
++            catch { }
++            for (Int32 s = 0; s < 4; s++)
++            {
++                if ((_trPendMask & (1 << s)) == 0)
++                    continue;
++                try
++                {
++                    BTL_DATA d = ActTranceUnit(b, s);
++                    Boolean unitOk = d != null;
++                    Boolean wearing = unitOk && ReferenceEquals(d.gameObject, d.tranceGo);
++                    Boolean bit = unitOk && (d.stat.cur & BattleStatus.Trance) != 0;
++                    Int32 v = ActTranceFlushVerdict(leaving, unitOk, wearing, bit, unitOk && (d.stat.cur & BattleStatus.Death) != 0,
++                                                    ActTrancePassedSince(s), ActTranceBurstRunning(s));
++                    if (v == ActTrWait)
++                        continue;                      // its own burst is playing: its hit (any phase) or its end swaps it
++                    if (v == ActTrMoot)
++                    {
++                        _trMoot++;
++                        ActTranceResolved(s, false, bit, "moot", 0);
++                    }
++                    else if (v != ActTrSwapInject)
++                    {
++                        _trDropped++;
++                        ActTranceResolved(s, false, bit, v == ActTrDropLeave ? "leave" : v == ActTrDropUnit ? "unit" : "dead", 0);
++                    }
++                    else
++                    {
++                        ActTranceSwap(d, bit);
++                        _trByInject++;
++                        ActTrancePresent(d, null);     // still before the injection writes its phase: _endInjected is false here
++                        ActTranceResolved(s, true, bit, "inject", 0);
++                    }
++                }
++                catch (Exception ex)
++                {
++                    if ((_trPendMask & (1 << s)) != 0)
++                    {
++                        _trDropped++;
++                        ActTranceResolved(s, false, false, "fault", 0);
++                    }
++                    ActTranceErr(ex);
++                }
++            }
++        }
++
++        /// <summary>[ff9mapkit netsync s137] TEARDOWN (ActDiscardAll, before its state reset): every pending deferral DROPPED ("teardown") --
++        /// nothing applied, as every other discard -- and one summary line when the boot did anything. Never throws.</summary>
++        private static void ActTranceDiscardAll(String why)
++        {
++            try
++            {
++                for (Int32 s = 0; s < 4; s++)
++                {
++                    if ((_trPendMask & (1 << s)) == 0)
++                        continue;
++                    _trDropped++;
++                    ActTranceResolved(s, false, _trWant[s], "teardown", 0);
++                }
++                if (_trDeferred + _trImmediate + _trOnArrival + _trHitUnpaired + _trHitUntrusted == 0)
++                    return;
++                Log.Message("[NetSync] action trance: boot summary (" + why + ") -- " + _trDeferred + " deferred (" + _trByHit + " at the hit, "
++                            + _trByGrace + " by the grace, " + _trByCap + " by the cap, " + _trByDecline + " by a decline, " + _trByEnd
++                            + " at the burst's end, " + _trByInject + " at the end injection, " + _trMoot + " moot, " + _trDropped + " dropped), "
++                            + _trImmediate + " immediate, " + _trOnArrival + " on arrival, " + _trHitUnpaired + " unpaired hit(s), "
++                            + _trHitUntrusted + " untrusted hit(s); " + _trPresent + " present colour(s)");
++            }
++            catch { }
++        }
++
++        // SetPresentColor (amendment 5) behind ActTrancePresents; `why` = an abort's reason (null = none). Never throws.
++        private static void ActTrancePresent(BTL_DATA d, String why)
++        {
++            try
++            {
++                if (d == null || !ActTrancePresents(_endInjected, why == "leave" || LeaveRequestedRecently, d.gameObject != null,
++                                                    d.bi.player == 0 && (d.stat.cur & BattleStatus.Death) != 0))
++                    return;
++                btl_stat.SetPresentColor(d);
++                _trPresent++;
++            }
++            catch { }
++        }
++
++        // A deferral ends (the caller counted its outcome): the slot leaves `pending`, `last` and one line (capped).
++        private static void ActTranceResolved(Int32 slot, Boolean swapped, Boolean to, String via, Int32 id)
++        {
++            Int32 recordMs = slot >= 0 && slot <= 3 ? _trRecordMs[slot] : -1;
++            if (slot >= 0 && slot <= 3)
++            {
++                _trPendMask &= ~(1 << slot);
++                _trRecordMs[slot] = -1;
++                _trBusyMs[slot] = -1;
++            }
++            ActTranceNote(slot, swapped, to, via, id, recordMs);
++        }
++
++        // `last` and the line (capped per boot)
++        private static void ActTranceNote(Int32 slot, Boolean swapped, Boolean to, String via, Int32 id, Int32 recordMs)
++        {
++            _trLastSet = true;
++            _trLastSlot = slot;
++            _trLastSwapped = swapped;
++            _trLastTo = to;
++            _trLastVia = via;
++            _trLastId = id;
++            _trLastRecordMs = recordMs;
++            _trLastMs = _actNowMs;
++            if (_trLogged >= ActTranceLogMax)
++                return;
++            _trLogged++;
++            try
++            {
++                Log.Message("[NetSync] action trance: wire slot " + slot + (swapped ? " -> the " + (to ? "trance" : "normal") + " model" : " keeps its model")
++                            + " (" + via + (id > 0 ? ", replay id " + id : "") + (recordMs >= 0 ? ", " + (_actNowMs - recordMs) + " ms of battle time "
++                            + "after its sample" : "") + "; battle ms " + _actNowMs + ")"
++                            + (_trLogged == ActTranceLogMax ? "; further lines this boot are counted, not logged" : ""));
++            }
++            catch { }
++        }
++
++        private static void ActTranceErr(Exception ex)
++        {
++            if (_trErrLogged)
++                return;
++            _trErrLogged = true;
++            try { Log.Error("[NetSync] action trance: a step faulted (its deferral dropped; logged once per boot): " + ex); }
++            catch { }
++        }
++
++        // ============================================================================================ the trance burst: bench and harness surface
++        /// <summary>[ff9mapkit netsync s137] `netsync actbench trancegrace on|off` (selftest role only -- HarnessActGuestBench checked it): off
++        /// = the pre-s137 timing, the calibration lever (every model swap at the sample; a SysTrans replay's hit swaps nothing). A
++        /// deferral pending when it goes off swaps at the next tick ("gate"). Released with the harness (ActBenchRelease). False + why
++        /// on a refusal.</summary>
++        private static Boolean HarnessActTranceBench(String[] args, String val, out String why)
++        {
++            why = null;
++            if (args.Length != 3 || (val != "on" && val != "off"))
++            {
++                why = "netsync actbench trancegrace: expected `trancegrace on|off`";
++                return false;
++            }
++            _benchTranceGraceOff = val == "off";
++            Log.Message("[NetSync] harness: action trance grace " + (_benchTranceGraceOff ? "OFF -- CALIBRATION: the pre-s137 timing (a trance model "
++                        + "swaps when the host's sample carries the bit; the SysTrans replay's hit swaps nothing)" : "ON"));
++            return true;
++        }
++
++        // `netsync.battle.act.guest.trance` (HarnessAgent.AppendActGuestTrance) -- read-only, main thread, never throw, every role.
++        internal static Boolean HarnessTranceOn { get { return ActTranceGraceOn; } }
++        internal static Boolean HarnessTranceGate { get { return _booted && ActTranceGate; } }
++        internal static Int32 HarnessTranceDeferred { get { return _trDeferred; } }
++        internal static Int32 HarnessTrancePending { get { return _trPendMask; } }
++        internal static Int32 HarnessTranceByHit { get { return _trByHit; } }
++        internal static Int32 HarnessTranceByGrace { get { return _trByGrace; } }
++        internal static Int32 HarnessTranceByCap { get { return _trByCap; } }
++        internal static Int32 HarnessTranceByDecline { get { return _trByDecline; } }
++        internal static Int32 HarnessTranceByEnd { get { return _trByEnd; } }
++        internal static Int32 HarnessTranceByInject { get { return _trByInject; } }
++        internal static Int32 HarnessTranceMoot { get { return _trMoot; } }
++        internal static Int32 HarnessTranceDropped { get { return _trDropped; } }
++        internal static Int32 HarnessTranceImmediate { get { return _trImmediate; } }
++        internal static Int32 HarnessTranceOnArrival { get { return _trOnArrival; } }
++        internal static Int32 HarnessTranceHitUnpaired { get { return _trHitUnpaired; } }
++        internal static Int32 HarnessTranceHitUntrusted { get { return _trHitUntrusted; } }
++        internal static Int32 HarnessTrancePresent { get { return _trPresent; } }
++
++        /// <summary>[ff9mapkit netsync s137] `act.guest.trance.last`: the last swap or resolution this boot (false = none).</summary>
++        internal static Boolean HarnessTranceLast(out Int32 slot, out Boolean swapped, out Boolean to, out String via, out Int32 id,
++                                                  out Int32 recordMs, out Int32 ms)
++        {
++            slot = id = recordMs = ms = -1;
++            swapped = to = false;
++            via = null;
++            if (!_trLastSet)
++                return false;
++            slot = _trLastSlot;
++            swapped = _trLastSwapped;
++            to = _trLastTo;
++            via = _trLastVia;
++            id = _trLastId;
++            recordMs = _trLastRecordMs;
++            ms = _trLastMs;
++            return true;
++        }
++
++        // ============================================================================================ the trance burst: the selftest
++        /// <summary>[ff9mapkit netsync s137] THE TRANCE BURST SELFTEST (NetSyncClient's selftest proof block: "action trance selftest: OK|FAIL
++        /// (...)", after the fallback's line). The pure rules: the gate, the burst record, the busy rule's naming, the grace and its
++        /// 400 ms, the busy hold, the cap and its 2500 ms, the burst's exemption and its ceiling, the decline end (a duplicate excepted),
++        /// the resolution's whole order (the frozen slot's wait and a corpse's wait for its own burst included), the swap at a sample
++        /// whose burst already passed (and at a frozen record's catch-up), the hit's probe and its trust, the end injection's flush (a
++        /// running burst left pending, a corpse's passed burst) and the present colour's guard. Each row discriminates one rule. Pure:
++        /// touches no live state.</summary>
++        internal static Boolean ActTranceSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                Int32 wait = ActTrStepWait;
++                // --- the gate (amendment 3; 6.11: caps 0x02 -- no bit 5 -- reads as the lever)
++                Row(ActTranceDefers(true, true, true) && !ActTranceDefers(false, true, true) && !ActTranceDefers(true, false, true)
++                    && !ActTranceDefers(true, true, false),
++                    "gate: the swap waits only with bit 5 latched, a guest that can replay and the trancegrace lever on", ref rows, ref fail);
++                // --- the burst record and the busy rule's naming
++                Row(ActTranceIsBurst((Int32)BattleCommandId.SysTrans, true, 0) && ActTranceIsBurst((Int32)BattleCommandId.SysTrans, true, 3)
++                    && !ActTranceIsBurst((Int32)BattleCommandId.SysTrans, false, 4) && !ActTranceIsBurst((Int32)BattleCommandId.SysTrans, true, 4)
++                    && !ActTranceIsBurst((Int32)BattleCommandId.Attack, true, 0) && !ActTranceIsBurst((Int32)BattleCommandId.SysPhantom, true, 0),
++                    "burst: a SysTrans of a player wire slot 0-3 (an enemy wears no trance model; SysPhantom is not the burst)", ref rows, ref fail);
++                Row(ActTranceRecNames(0, 0, true, 0, 0) && !ActTranceRecNames(0, 0, false, 0, 0) && ActTranceRecNames(0, 4, false, 0x01, 0)
++                    && ActTranceRecNames(1, 4, false, 0, 0x02) && !ActTranceRecNames(0, 4, false, 0x10, 0x02) && !ActTranceRecNames(2, 1, true, 0x01, 0)
++                    && !ActTranceRecNames(9, 0, true, 0xFF, 0xFF),
++                    "names: a START names the unit as its actor (same side), by a wire target bit or as the magic caster", ref rows, ref fail);
++                // --- the grace (amendment 3, D3; battle time)
++                Row(ActTranceStep(1000, -1, false, false, 1399) == wait && ActTranceStep(1000, -1, false, false, 1400) == ActTrStepGrace
++                    && ActTranceGraceMs == 400,
++                    "grace: with nothing naming the unit the swap comes 400 ms of battle time after the sample", ref rows, ref fail);
++                Row(ActTranceStep(1000, 1900, true, false, 1900) == wait && ActTranceStep(1000, 1900, false, false, 2299) == wait
++                    && ActTranceStep(1000, 1900, false, false, 2300) == ActTrStepGrace && ActTranceStep(1000, 900, false, false, 1399) == wait,
++                    "busy: it holds while a START, a replay or a held impact names the unit, then 400 ms from the last frame it was named",
++                    ref rows, ref fail);
++                Row(ActTranceStep(1000, 3499, true, false, 3499) == wait && ActTranceStep(1000, 3500, true, false, 3500) == ActTrStepCap
++                    && ActTranceStep(1000, 3400, false, false, 3500) == ActTrStepCap && ActTranceCapMs == 2500,
++                    "cap: 2500 ms of battle time after the sample it swaps, even while the unit is still named", ref rows, ref fail);
++                Row(ActTranceStep(1000, 9000, true, true, 9000) == wait && ActTranceStep(1000, -1, false, true, 1400) == wait,
++                    "cap: its own SysTrans START queued or pending, or its replay running unhit, holds past the grace and the cap", ref rows, ref fail);
++                Row(ActTranceStep(1000, 9499, true, true, 9499) == wait && ActTranceStep(1000, 9500, true, true, 9500) == ActTrStepBurstMax
++                    && ActTranceStep(1000, 9500, true, false, 9500) == ActTrStepCap && ActTranceBurstMaxMs == ActWaitMaxMs + ActTranceCapMs
++                    && ActTranceVerdict(true, false, true, true, false, true, false, false, true, false, true, false, ActTrStepBurstMax) == ActTrSwapCap,
++                    "ceiling: its own burst holds at most 8500 ms of battle time after the sample (a parked START's 6 s + the cap), then the "
++                    + "cap swaps it -- whatever the queue does", ref rows, ref fail);
++                // --- the decline end (amendment 3)
++                Row(ActTranceDeclineEnds("stale") && ActTranceDeclineEnds("backlog") && ActTranceDeclineEnds("noop") && ActTranceDeclineEnds("superseded")
++                    && ActTranceDeclineEnds("rework") && ActTranceDeclineEnds("timeout") && ActTranceDeclineEnds(null) && !ActTranceDeclineEnds("duplicate"),
++                    "decline: any decline of the unit's SysTrans START ends the grace -- a duplicate copy's excepted (its first may launch)",
++                    ref rows, ref fail);
++                // --- the resolution's order (amendment 1: resolved every frame, never stranded)
++                Row(ActTranceVerdict(true, true, true, true, false, true, false, false, false, false, false, false, ActTrStepGrace) == ActTrDropLeave
++                    && ActTranceVerdict(true, false, true, false, false, true, false, false, false, false, false, false, ActTrStepGrace) == ActTrDropUnit
++                    && ActTranceVerdict(true, false, true, true, true, true, false, false, false, false, true, true, ActTrStepCap) == ActTrMoot
++                    && ActTranceVerdict(true, false, true, true, false, false, false, false, false, false, true, true, ActTrStepCap) == ActTrMoot
++                    && ActTranceVerdict(true, false, false, true, false, true, false, false, false, false, true, true, ActTrStepCap) == ActTrWait,
++                    "probe: a Leave drops, no unit drops, a worn model matching the mirrored bit is moot, outside PHASE_NORMAL it waits",
++                    ref rows, ref fail);
++                Row(ActTranceVerdict(true, false, true, true, false, true, true, false, false, false, true, true, ActTrStepCap) == ActTrWait
++                    && ActTranceVerdict(false, false, true, true, false, true, true, true, false, false, false, false, ActTrStepGrace) == ActTrWait
++                    && ActTranceVerdict(true, false, true, true, false, true, true, false, true, false, false, false, ActTrStepBurstMax) == ActTrWait
++                    && ActTranceVerdict(true, true, true, true, false, true, true, false, false, false, false, false, wait) == ActTrDropLeave
++                    && ActTranceVerdict(true, false, true, true, true, true, true, false, false, false, false, false, ActTrStepCap) == ActTrMoot,
++                    "frozen: a slot s135's life mask freezes waits -- past the cap, a decline, its burst's end, a fallen gate, a death -- for "
++                    + "the catch-up's bit (a Leave still drops, a matching model is still moot)", ref rows, ref fail);
++                // [fix: rmodel-1] a corpse waits for its own burst (the host swaps a dead unit at its own SysTrans hit)
++                Row(ActTranceVerdict(true, false, true, true, false, true, false, true, false, false, true, false, ActTrStepCap) == ActTrSwapDecline
++                    && ActTranceVerdict(true, false, true, true, false, true, false, true, false, false, false, true, wait) == ActTrSwapEnd
++                    && ActTranceVerdict(false, false, true, true, false, true, false, true, false, false, false, false, wait) == ActTrSwapGate
++                    && ActTranceVerdict(true, false, true, true, false, true, false, true, true, false, false, false, wait) == ActTrWait
++                    && ActTranceVerdict(true, false, true, true, false, true, false, true, false, false, false, false, ActTrStepGrace) == ActTrWait
++                    && ActTranceVerdict(true, false, true, true, false, true, false, true, false, false, false, false, ActTrStepCap) == ActTrDropDead
++                    && ActTranceVerdict(true, false, true, true, false, true, false, true, false, true, false, false, ActTrStepCap) == ActTrWait
++                    && ActTranceVerdict(false, false, true, true, false, true, false, false, true, false, false, false, wait) == ActTrSwapGate
++                    && ActTranceVerdict(true, false, true, true, false, true, false, false, true, false, true, true, ActTrStepCap) == ActTrWait,
++                    "verdict: a corpse waits for its own burst -- its decline, its end or a fallen gate swap it, never the grace; the cap drops "
++                    + "it with nothing of its own (an untrusted hit waits for its end); the gate falling swaps at once; its own burst in "
++                    + "flight waits past a decline, an end and the cap", ref rows, ref fail);
++                Row(ActTranceVerdict(true, false, true, true, false, true, false, false, false, false, true, false, wait) == ActTrSwapDecline
++                    && ActTranceVerdict(true, false, true, true, true, false, false, false, false, false, true, false, wait) == ActTrSwapDecline
++                    && ActTranceVerdict(true, false, true, true, false, true, false, false, false, false, false, true, wait) == ActTrSwapEnd
++                    && ActTranceVerdict(true, false, true, true, false, true, false, false, false, false, true, true, wait) == ActTrSwapDecline,
++                    "verdict: a decline of its SysTrans START swaps at once, ahead of the grace; so does its replay's end or abort", ref rows, ref fail);
++                Row(ActTranceVerdict(true, false, true, true, false, true, false, false, false, false, false, false, ActTrStepCap) == ActTrSwapCap
++                    && ActTranceVerdict(true, false, true, true, false, true, false, false, false, false, false, false, ActTrStepGrace) == ActTrSwapGrace
++                    && ActTranceVerdict(true, false, true, true, false, true, false, false, false, false, false, false, wait) == ActTrWait,
++                    "verdict: else the cap, else the grace, else it waits", ref rows, ref fail);
++                // --- a sample whose burst already passed swaps on arrival
++                Row(ActTranceOnArrival(1000, -1, 700, -1, -1) && ActTranceOnArrival(1000, -1, -1, 600, -1) && ActTranceOnArrival(1000, -1, -1, -1, 1000)
++                    && !ActTranceOnArrival(1000, -1, 599, -1, -1) && !ActTranceOnArrival(1000, -1, -1, -1, -1) && !ActTranceOnArrival(1000, -1, 1001, -1, -1)
++                    && ActTranceOnArrival(0, -1, 0, -1, -1),
++                    "arrival: a SysTrans hit, decline or end within 400 ms before the sample swaps at once (the START came first)", ref rows, ref fail);
++                Row(ActTranceOnArrival(5000, 2000, 2500, -1, -1) && ActTranceOnArrival(5000, 2000, -1, 1600, -1) && !ActTranceOnArrival(5000, 2000, 1599, -1, -1)
++                    && !ActTranceOnArrival(5000, -1, 2500, -1, -1) && ActTranceOnArrival(5000, 6000, 4600, -1, -1) && !ActTranceOnArrival(5000, 6000, 4599, -1, -1)
++                    && !ActTranceOnArrival(5000, 2000, 5001, -1, -1),
++                    "catch-up: a record the life mask froze swaps at once when its burst passed since the freeze began (or 400 ms before it)",
++                    ref rows, ref fail);
++                // --- the hit (D2) and its trust, the end injection's flush, the present colour (amendment 5)
++                Row(ActTranceHitSwaps(true, false, true) && ActTranceHitSwaps(true, true, false) && !ActTranceHitSwaps(true, true, true)
++                    && !ActTranceHitSwaps(true, false, false) && !ActTranceHitSwaps(false, false, true),
++                    "hit: a SysTrans replay's hit swaps by the probe with the mirrored bit -- only under the gate (the lever's hit swaps nothing)",
++                    ref rows, ref fail);
++                Row(ActTranceHitTrusts(false, (Int32)SpecialEffect.Special_Trance_Activate, true) && ActTranceHitTrusts(false, (Int32)SpecialEffect.Special_Trance_End, false)
++                    && !ActTranceHitTrusts(false, (Int32)SpecialEffect.Special_Trance_End, true) && !ActTranceHitTrusts(false, (Int32)SpecialEffect.Special_Trance_Activate, false)
++                    && !ActTranceHitTrusts(true, (Int32)SpecialEffect.Special_Trance_Activate, true) && ActTranceHitTrusts(false, 0, true) && ActTranceHitTrusts(false, 0, false),
++                    "trust: a hit swaps nothing on a bit the life mask froze, or one contradicting its own vfx (an End with the bit set, an "
++                    + "Activate with it clear: a corpse whose death stripped Trance)", ref rows, ref fail);
++                Row(ActTranceFlushVerdict(false, true, false, true, false, false, false) == ActTrSwapInject && ActTranceFlushVerdict(false, true, true, true, false, false, false) == ActTrMoot
++                    && ActTranceFlushVerdict(false, true, false, true, true, false, false) == ActTrDropDead && ActTranceFlushVerdict(false, true, false, true, true, true, false) == ActTrSwapInject
++                    && ActTranceFlushVerdict(true, true, false, true, false, false, false) == ActTrDropLeave && ActTranceFlushVerdict(false, false, false, true, false, false, false) == ActTrDropUnit,
++                    "inject: the end injection swaps every pending deferral by the probe at once (a corpse only when its own burst passed "
++                    + "since the record; a Leave or no unit drop it)", ref rows, ref fail);
++                Row(ActTranceFlushVerdict(false, true, false, true, false, false, true) == ActTrWait && ActTranceFlushVerdict(false, true, true, true, false, false, true) == ActTrMoot
++                    && ActTranceFlushVerdict(false, true, false, true, true, false, true) == ActTrWait && ActTranceFlushVerdict(true, true, false, true, false, false, true) == ActTrDropLeave,
++                    "inject: one whose own SysTrans burst already plays unhit stays pending -- its hit or its end swaps it, never ahead of it",
++                    ref rows, ref fail);
++                Row(ActTrancePresents(false, false, true, false) && !ActTrancePresents(true, false, true, false) && !ActTrancePresents(false, true, true, false)
++                    && !ActTrancePresents(false, false, false, false) && !ActTrancePresents(false, false, true, true),
++                    "present: SetPresentColor after a swap and at a SysTrans replay's end (a player corpse's too) -- never after an end "
++                    + "injection, at a Leave, without a model or on a fading enemy", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                if (fail == null)
++                    fail = "threw " + err.GetType().Name;
++            }
++            detail = fail == null ? rows + " rows" : "row '" + fail + "' failed (" + rows + " rows run)";
++            return fail == null;
++        }
+     }
+ }
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index daec5d9..f4715d6 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1415,6 +1415,10 @@ namespace Memoria.Netsync
+                         Boolean fallbackOk = NetSyncDiorama.ActFallbackSelfTest(out fallbackDetail);
+                         Log.Message("[NetSync] action fallback selftest: "
+                                     + (fallbackOk ? "OK (" + fallbackDetail + ")" : "FAIL (" + fallbackDetail + ")"));
++                        String tranceDetail;             // [ff9mapkit netsync s137] the trance burst timing's pure rules (the gate, the grace, the cap)
++                        Boolean tranceOk = NetSyncDiorama.ActTranceSelfTest(out tranceDetail);
++                        Log.Message("[NetSync] action trance selftest: "
++                                    + (tranceOk ? "OK (" + tranceDetail + ")" : "FAIL (" + tranceDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 6bdd3b4..d4d9522 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -245,6 +245,14 @@ namespace Memoria.Harness
+         // calibration lever: off = the pre-s136 guest, the s110 player-only MP_ATTACK swing for an impact no replay covers). A driver
+         // checks for `netsync.battle.act.guest.fallback` -- absent = an engine whose guest swings only player casters' MP_ATTACK for an
+         // uncovered impact (an s135 engine answers `actbench fallback` with "unknown op").
++        // [ff9mapkit netsync s137] (the trance burst timing; studies/battle-coop/R3-DESIGN.md 3.3.6 as amended by R3-ACTION-REPLAY-AUDIT.md
++        // 2.5), also additive under 5: `netsync.battle.act.guest` gains `trance` as its last key (after `fallback`; see
++        // AppendActGuestTrance), `battle.units[]` gains `trance_model` (after `row`, before `status`: the worn model, read from the
++        // unit), the selftest proof block gains one line, "action trance selftest: OK (N rows)"
++        // (NetSyncDiorama.ActTranceSelfTest), and `actbench` gains one guest op (selftest role only): `trancegrace on|off` (the
++        // calibration lever: off = the pre-s137 timing, a trance model swapping when the host's sample carries the bit). A driver
++        // checks for `netsync.battle.act.guest.trance` -- absent = an engine whose guest swaps the trance model at the host's sample
++        // (an s136 engine answers `actbench trancegrace` with "unknown op").
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1820,6 +1828,10 @@ namespace Memoria.Harness
+                             // [ff9mapkit netsync s136] -- and fallback A's (NetSyncDiorama.HarnessActFallbackBench, routed through the guest
+                             // bench), selftest role only: `fallback on|off` (off = the pre-s136 guest: the s110 player-only MP_ATTACK swing
+                             // for an impact no replay covers). Read back: `netsync.battle.act.guest.fallback`. Released on disarm/fault/reset.
++                            // [ff9mapkit netsync s137] -- and the trance burst timing's (NetSyncDiorama.HarnessActTranceBench, routed through the
++                            // guest bench), selftest role only: `trancegrace on|off` (off = the pre-s137 timing: the trance model swaps at the
++                            // host's sample, the SysTrans replay's hit swaps nothing). Read back: `netsync.battle.act.guest.trance`. Released on
++                            // disarm/fault/reset.
+                             String aop = s.Args.Length > 1 ? s.Args[1].ToLowerInvariant() : "";
+                             String aval = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
+                             if (Memoria.Netsync.NetSyncDiorama.IsActGuestBenchOp(aop, aval))
+@@ -1839,7 +1851,7 @@ namespace Memoria.Harness
+                             }
+                             else if (s.Args.Length != 3)
+                             {
+-                                throw new ArgumentOutOfRangeException("netsync actbench", "expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, `actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, `actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear`, `actbench teardown`, `actbench hold|lifeskip on|off`, `actbench unit <slot> dead|alive|trance0|trance1` or `actbench fallback on|off`");
++                                throw new ArgumentOutOfRangeException("netsync actbench", "expected `actbench hoststarts on|off`, `actbench tape rec|stop|clear|info|play [pct]`, `actbench tape dump <from> <count>`, `actbench feed <hex>`, `actbench feedat <ms> <hex>`, `actbench replay|rework|shortcircuit on|off`, `actbench knob 0|1|ini`, `actbench clear`, `actbench teardown`, `actbench hold|lifeskip on|off`, `actbench unit <slot> dead|alive|trance0|trance1`, `actbench fallback on|off` or `actbench trancegrace on|off`");
+                             }
+                             if (!Memoria.Netsync.NetSyncBattle.HarnessActBench(aop, aval, afrom, acount, out why))
+                                 throw new InvalidOperationException(why ?? "netsync actbench refused");
+@@ -3174,6 +3186,9 @@ namespace Memoria.Harness
+                     Bool(sb, "acting", Try(() => Memoria.Netsync.NetSyncDiorama.HarnessActActing(unit.Data), false)); sb.Append(",");
+                     Num(sb, "die_seq", Try(() => (Int32)unit.Data.die_seq, -1)); sb.Append(",");
+                     Num(sb, "row", Try(() => (Int32)unit.Data.bi.row, -1)); sb.Append(",");
++                    // [ff9mapkit netsync s137] `trance_model` (the unit WEARS its trance model now: gameObject == tranceGo; false for a unit
++                    // without one, an enemy) -- the trance burst timing's witness, read from the seated unit itself, never assumed.
++                    Bool(sb, "trance_model", Try(() => unit.Data.tranceGo != null && ReferenceEquals(unit.Data.gameObject, unit.Data.tranceGo), false)); sb.Append(",");
+                     // A [Flags] ULONG with a bit at 63 -- published as a decimal STRING so nothing
+                     // downstream has to survive it arriving as a float.
+                     Str(sb, "status", Try(() => ((UInt64)unit.CurrentStatus).ToString(CultureInfo.InvariantCulture)));
+@@ -3344,7 +3359,7 @@ namespace Memoria.Harness
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null}}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -4120,6 +4135,7 @@ namespace Memoria.Harness
+         //   in AppendNetsync's catch line, inside its SECOND literal.
+         // [ff9mapkit netsync s135] + `hold` after `last` (the replay hit hold; see AppendActGuestHold).
+         // [ff9mapkit netsync s136] + `fallback` after `hold` (fallback A; see AppendActGuestFallback).
++        // [ff9mapkit netsync s137] + `trance` after `fallback` (the trance burst timing; see AppendActGuestTrance).
+         private static void AppendActGuest(StringBuilder sb)
+         {
+             sb.Append("\"guest\":{");
+@@ -4218,6 +4234,8 @@ namespace Memoria.Harness
+             AppendActGuestHold(sb);                                                                     // [ff9mapkit netsync s135]
+             sb.Append(",");                                                                             // [ff9mapkit netsync s136]
+             AppendActGuestFallback(sb);                                                                 // [ff9mapkit netsync s136]
++            sb.Append(",");                                                                             // [ff9mapkit netsync s137]
++            AppendActGuestTrance(sb);                                                                   // [ff9mapkit netsync s137]
+             sb.Append("}");
+         }
+ 
+@@ -4352,6 +4370,79 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync s137] `netsync.battle.act.guest.trance` -- THE TRANCE BURST TIMING (NetSyncDiorama.Replay.cs; studies/battle-coop/
++        // R3-DESIGN.md 3.3.6 and 5.1 as amended by R3-ACTION-REPLAY-AUDIT.md 2.5), the LAST key of `act.guest`, in EVERY role. Per diorama
++        // boot (reset by each boot, kept after the teardown until the next) unless noted. A trance MODEL change the reconciler's probe
++        // asks for (the worn model against the host's mirrored stat bit; the bit, the glow and the gauge follow the host at once) is
++        // either swapped at the sample (`immediate`, `on_arrival`) or DEFERRED, and every deferral ends exactly once:
++        // deferred == swaps_by_hit + swaps_by_grace + swaps_by_cap + swaps_by_decline + swaps_by_end + swaps_by_inject + moot + dropped
++        // + the bits of `pending`.
++        //   `on` (the grace is in force: false = the selftest lever `actbench trancegrace off`, the pre-s137 timing -- not per boot),
++        //   `gate` (a model change defers NOW: a booted diorama, bit 5 latched this boot, a guest that can replay, `on`), `deferred`
++        //   (model changes recorded to wait for their SysTrans burst), `pending` (wire-slot bits of the deferrals waiting now; 0 =
++        //   none), `swaps_by_hit` (swapped at the SysTrans replay's own hit -- `last.ms` equals that replay's `act.guest.last
++        //   .first_hit_ms` when it is the last START), `swaps_by_grace` (400 ms of battle time after nothing named the unit: no
++        //   queued or pending START, no running replay, no held or queued impact on it), `swaps_by_cap` (2500 ms of battle time after
++        //   the sample, the unit still named -- while its own SysTrans START is queued or pending or its replay runs unhit, only at
++        //   the burst ceiling: 8500 ms after the sample),
++        //   `swaps_by_decline` (its SysTrans START declined -- any reason but a duplicate, a NOOP too -- or the gate fell: at once),
++        //   `swaps_by_end` (its SysTrans replay ended or aborted without the swap: at once), `swaps_by_inject` (pending at an end
++        //   injection: swapped right before it), `moot` (the worn model already matched the bit when it resolved), `dropped` (no swap:
++        //   a Leave, the teardown, a dead unit, no (linked) unit, a faulted step), `immediate` (swapped at the sample, ungated: an old host
++        //   without bit 5, a guest that cannot replay, the lever -- not deferred), `on_arrival` (swapped at the sample, gated, because
++        //   the unit's SysTrans burst had already hit, declined or ended within 400 ms before it -- not deferred), `hit_unpaired`
++        //   (SysTrans hits that swapped with no deferral pending), `hit_untrusted` (SysTrans hits that swapped NOTHING because the
++        //   mirrored bit could not be trusted there: the slot frozen by s135's life mask, or the bit contradicting the replay's own
++        //   Activate / End vfx), `present` (btl_stat.SetPresentColor calls: every SysTrans replay's end or abort -- a player
++        //   corpse's too -- and every swap but a hit's; never after an end injection, at a Leave or on a fading enemy) and `last` (the last
++        //   swap or resolution: `slot` (the wire slot), `swapped`, `to` (true = the trance model: the mirrored bit at that moment),
++        //   `via` ("immediate" | "on-arrival" | "hit" | "grace" | "cap" | "declined" | "gate" | "ended" | "inject" | "moot" |
++        //   "leave" | "teardown" | "dead" | "unit" | "fault" | "frozen" | "contradicted" -- the last two an untrusted hit, no
++        //   resolution), `id` (the SysTrans replay's action id for "hit", "frozen", "contradicted", a hit's "moot" and a resolution
++        //   at a burst's end after an injection; 0 otherwise), `record_ms` (battle ms of the deferral's sample; -1 = not deferred),
++        //   `ms` (battle ms of the swap or resolution); null = none). Sentinels in AppendNetsync's catch line, inside its SECOND literal.
++        private static void AppendActGuestTrance(StringBuilder sb)
++        {
++            sb.Append("\"trance\":{");
++            Bool(sb, "on", Memoria.Netsync.NetSyncDiorama.HarnessTranceOn); sb.Append(",");
++            Bool(sb, "gate", Memoria.Netsync.NetSyncDiorama.HarnessTranceGate); sb.Append(",");
++            Num(sb, "deferred", Memoria.Netsync.NetSyncDiorama.HarnessTranceDeferred); sb.Append(",");
++            Num(sb, "pending", Memoria.Netsync.NetSyncDiorama.HarnessTrancePending); sb.Append(",");
++            Num(sb, "swaps_by_hit", Memoria.Netsync.NetSyncDiorama.HarnessTranceByHit); sb.Append(",");
++            Num(sb, "swaps_by_grace", Memoria.Netsync.NetSyncDiorama.HarnessTranceByGrace); sb.Append(",");
++            Num(sb, "swaps_by_cap", Memoria.Netsync.NetSyncDiorama.HarnessTranceByCap); sb.Append(",");
++            Num(sb, "swaps_by_decline", Memoria.Netsync.NetSyncDiorama.HarnessTranceByDecline); sb.Append(",");
++            Num(sb, "swaps_by_end", Memoria.Netsync.NetSyncDiorama.HarnessTranceByEnd); sb.Append(",");
++            Num(sb, "swaps_by_inject", Memoria.Netsync.NetSyncDiorama.HarnessTranceByInject); sb.Append(",");
++            Num(sb, "moot", Memoria.Netsync.NetSyncDiorama.HarnessTranceMoot); sb.Append(",");
++            Num(sb, "dropped", Memoria.Netsync.NetSyncDiorama.HarnessTranceDropped); sb.Append(",");
++            Num(sb, "immediate", Memoria.Netsync.NetSyncDiorama.HarnessTranceImmediate); sb.Append(",");
++            Num(sb, "on_arrival", Memoria.Netsync.NetSyncDiorama.HarnessTranceOnArrival); sb.Append(",");
++            Num(sb, "hit_unpaired", Memoria.Netsync.NetSyncDiorama.HarnessTranceHitUnpaired); sb.Append(",");
++            Num(sb, "hit_untrusted", Memoria.Netsync.NetSyncDiorama.HarnessTranceHitUntrusted); sb.Append(",");   // [ff9mapkit netsync s137] (fix: model-1, model-2)
++            Num(sb, "present", Memoria.Netsync.NetSyncDiorama.HarnessTrancePresent); sb.Append(",");
++            Int32 tslot, tid, trecord, tms;
++            Boolean tswapped, tto;
++            String tvia;
++            if (!Memoria.Netsync.NetSyncDiorama.HarnessTranceLast(out tslot, out tswapped, out tto, out tvia, out tid, out trecord, out tms))
++            {
++                sb.Append("\"last\":null");
++            }
++            else
++            {
++                sb.Append("\"last\":{");
++                Num(sb, "slot", tslot); sb.Append(",");
++                Bool(sb, "swapped", tswapped); sb.Append(",");
++                Bool(sb, "to", tto); sb.Append(",");
++                Str(sb, "via", tvia); sb.Append(",");
++                Num(sb, "id", tid); sb.Append(",");
++                Num(sb, "record_ms", trecord); sb.Append(",");
++                Num(sb, "ms", tms);
++                sb.Append("}");
++            }
++            sb.Append("}");
++        }
++
+         // [ff9mapkit netsync B5] stage 5: `netsync.battle.end` -- the GUEST'S end presentation on its battle diorama
+         // (NetSyncDiorama.EndTick / InjectEnd, R8, the watchdogs; studies/battle-coop/B4-B5-DESIGN.md 5.3). Per diorama boot:
+         // reset by each boot, kept after the teardown until the next one.
