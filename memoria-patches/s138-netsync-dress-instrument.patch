@@ -1,0 +1,403 @@
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index d4d9522..680af6d 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -2560,7 +2560,8 @@ namespace Memoria.Harness
+             Num(sb, "tri", po != null ? po.activeTri : -1); sb.Append(",");
+             // The uid the player's LAST talk targeted (Actor.listener) -- how a scenario learns an NPC's uid.
+             Num(sb, "listener", po is Actor ? (Int64)((Actor)po).listener : -1L); sb.Append(",");
+-            Bool(sb, "control", Try(() => PersistenSingleton<EventEngine>.Instance.GetUserControl(), false));
++            Bool(sb, "control", Try(() => PersistenSingleton<EventEngine>.Instance.GetUserControl(), false)); sb.Append(",");
++            AppendPlayerDress(sb, po);                                                                  // [ff9mapkit netsync s138]
+             sb.Append("},");
+ 
+             AppendInput(sb); sb.Append(",");
+@@ -2577,6 +2578,157 @@ namespace Memoria.Harness
+             WriteAtomic(Path.Combine(_dir, "state.json"), sb.ToString());
+         }
+ 
++        // [ff9mapkit netsync s138] THE DRESS INSTRUMENT's `player` keys (studies/battle-coop/R3-DESIGN.md 3.4.2 as amended by
++        // R3-FIELD-MODEL-AUDIT.md 2.1 amendments 3, 5, 6 and 13), additive under protocol 5 -- the s90 THREE CASES: an absent key is an
++        // older engine, null is "no controlled actor", anything else is the value. They read the controlled actor on ANY map (the same
++        // GetControlChar as x/y/z). Each key has its OWN Try and degrades to null on a throw; GEO and AnimationDB are TwoWayDictionaries
++        // whose indexer throws, so every lookup is TryGetValue. The player block has no block-level try and a throw out of PublishState
++        // FAULTS the agent for the rest of the run, so AppendPlayerDress also wraps the whole write: should a read ever escape its Try,
++        // the keys it wrote are cut back and PlayerDressNull (every key, null, in the same order) stands in -- never a torn half.
++        // Read-only: nothing is written. THE COST, while the agent is armed only (Update returns before PublishState when it is not):
++        // one Animation lookup per publish, an enumeration of that component's states -- O(the actor's clip count: every clip the
++        // field's EventAnimation list maps to the model, plus any added later) -- for `anim_geo`, a GEO and an AnimationDB lookup, and
++        // the mesh0 renderer read for `body`.
++        //   model         PosObj.model, raw: 65535 = no SetModel yet (the PosObj constructor's default; updateModelsToBeAdded's own
++        //                 "no model" test).
++        //   anim          PosObj.anim, the clip ID (`battle.units[].anim` is a NAME; `clip` below is this id's name).
++        //   geo           FF9BattleDB.GEO[model], the GEO name SetModel builds from; null = no entry.
++        //   anim_geo      the GEO folder (NetSyncVisitor.FolderOf) of the clip the actor's Animation component is ACTUALLY playing: its
++        //                 enabled state of the highest weight > 0; null = none playing. Read off the component, never derived from
++        //                 `anim` -- it is the witness a dress that writes po.anim cannot compute. Anim 0 is ANH_MAIN_F0_STN_B: never
++        //                 judge it at anim 0.
++        //   eye           PosObj.eye, -4 x SetModel's eye byte (Zidane's 93 -> -372).
++        //   uid / sid     the controlled entry's.
++        //   body          the GEO-id stem (NetSyncVisitor.TextureStem) of the texture the actor's OWN mesh0 wears (BodyOf: the root's
++        //                 direct child "mesh0", the engine's per-mesh rule -- never the first renderer depth-first, which is Zidane's
++        //                 hidden battle_model0 or a prop attached under a bone) -- ZDN "98", FRJ "192", MOG "220". sharedMaterial, so no
++        //                 material instance is made per publish. null = no GameObject, renderer, material or texture, AND an unnamed
++        //                 texture (a loose-FBX model's, or a CustomModelField swap's: LoadFromDisc names none) -- read null with a known
++        //                 `model` as "cannot judge", never as a wrong body. A texanim (blinking) material wears a RenderTexture named
++        //                 after the MATERIAL ("<material>_RT"), so for those the stem is the material's ("98_0" -> "98" on stock).
++        //                 The second witness no dress computes.
++        //   clip          AnimationDB[anim], the clip NAME -- the derivation `netsync.dress.ghost.clip` uses; null = no entry.
++        //   clip_playing  Animation.IsPlaying(clip) on the actor GameObject; false = no clip, no component, or not playing.
++        //   frame_n / anim_frame   PosObj.frameN / animFrame (a script's f[7] reads animFrame).
++        //   meshflags     PosObj.meshflags, the HideMesh bits.
++        private const Int64 NullNum = Int64.MinValue;   // NumOrNull: publish this integer key as null
++        // The dress keys at null, in WritePlayerDress's order: what AppendPlayerDress writes when a read escapes its Try.
++        private const String PlayerDressNull = "\"model\":null,\"anim\":null,\"geo\":null,\"anim_geo\":null,\"eye\":null,\"uid\":null,\"sid\":null,\"body\":null,\"clip\":null,\"clip_playing\":null,\"frame_n\":null,\"anim_frame\":null,\"meshflags\":null";
++
++        private static void AppendPlayerDress(StringBuilder sb, PosObj po)
++        {
++            Int32 mark = sb.Length;
++            try
++            {
++                WritePlayerDress(sb, po);
++            }
++            catch (Exception)
++            {
++                sb.Length = mark;                          // cut back what was written: the keys whole, at null -- never torn
++                sb.Append(PlayerDressNull);
++            }
++        }
++
++        private static void WritePlayerDress(StringBuilder sb, PosObj po)
++        {
++            Boolean has = po != null;
++            Animation an = has ? Try(() => po.go != null ? po.go.GetComponent<Animation>() : null) : null;   // once per publish
++            NumOrNull(sb, "model", has ? Try(() => (Int64)po.model, NullNum) : NullNum); sb.Append(",");
++            NumOrNull(sb, "anim", has ? Try(() => (Int64)po.anim, NullNum) : NullNum); sb.Append(",");
++            Str(sb, "geo", has ? Try(() => GeoNameOf(po.model)) : null); sb.Append(",");
++            Str(sb, "anim_geo", has ? Try(() => Memoria.Netsync.NetSyncVisitor.FolderOf(PlayingStateName(an))) : null); sb.Append(",");
++            NumOrNull(sb, "eye", has ? Try(() => (Int64)po.eye, NullNum) : NullNum); sb.Append(",");
++            NumOrNull(sb, "uid", has ? Try(() => (Int64)po.uid, NullNum) : NullNum); sb.Append(",");
++            NumOrNull(sb, "sid", has ? Try(() => (Int64)po.sid, NullNum) : NullNum); sb.Append(",");
++            Str(sb, "body", has ? Try(() => BodyOf(po.go)) : null); sb.Append(",");
++            String clip = has ? Try(() => ClipNameOf(po.anim)) : null;
++            Str(sb, "clip", clip); sb.Append(",");
++            if (has)
++                Bool(sb, "clip_playing", Try(() => IsClipPlaying(an, clip), false));
++            else
++                sb.Append("\"clip_playing\":null");
++            sb.Append(",");
++            NumOrNull(sb, "frame_n", has ? Try(() => (Int64)po.frameN, NullNum) : NullNum); sb.Append(",");
++            NumOrNull(sb, "anim_frame", has ? Try(() => (Int64)po.animFrame, NullNum) : NullNum); sb.Append(",");
++            NumOrNull(sb, "meshflags", has ? Try(() => (Int64)po.meshflags, NullNum) : NullNum);
++        }
++
++        // [ff9mapkit netsync s138] the dress instrument's guarded readers -- each returns null / false / -1 for anything missing and is
++        // only ever called inside a Try. Read-only.
++        private static String GeoNameOf(UInt16 model)
++        {
++            String geo;
++            return FF9BattleDB.GEO.TryGetValue((Int32)model, out geo) ? geo : null;
++        }
++
++        private static String ClipNameOf(UInt16 anim)
++        {
++            String clip;
++            return FF9DBAll.AnimationDB.TryGetValue((Int32)anim, out clip) ? clip : null;
++        }
++
++        // Both readers take the actor's Animation component, resolved ONCE per publish by WritePlayerDress (null = no GameObject or
++        // no component).
++        private static Boolean IsClipPlaying(Animation a, String clip)
++        {
++            if (a == null || String.IsNullOrEmpty(clip))
++                return false;
++            return a.IsPlaying(clip);
++        }
++
++        // The state the Animation component is ACTUALLY playing: its enabled state of the highest weight > 0 (the field plays a clip
++        // by Animation.Play, which stops the rest of its layer; null = none playing or no component). The full enumeration is the
++        // point: the witness must stay independent of po.anim.
++        private static String PlayingStateName(Animation a)
++        {
++            if (a == null)
++                return null;
++            String best = null;
++            Single weight = 0f;
++            foreach (AnimationState st in a)
++            {
++                if (st != null && st.enabled && st.weight > weight)
++                {
++                    weight = st.weight;
++                    best = st.name;
++                }
++            }
++            return best;
++        }
++
++        // What a body WEARS (the same rule for the player and the ghost): the GEO-id stem of the sharedMaterial texture on the root's
++        // OWN mesh0 -- its direct child named "mesh0", the engine's per-mesh rule (PosObj.SetIsEnabledMeshRenderer; ModelImporter
++        // names an external model's meshes mesh{i} too). NEVER the first renderer depth-first: on Zidane (98) that is the HIDDEN
++        // Orichalcum overlay battle_model0 (ModelFactory disables its renderer, its GameObject stays active), and on every other rig
++        // the bone subtree is walked before mesh0 -- a prop GeoAttach parents under a bone would be read as the body. Only a body
++        // with no mesh0 renderer falls back to the first renderer. HasProperty first, so a shader with no _MainTex never logs an
++        // error per publish. An unnamed texture (a loose-FBX model, a CustomModelField swap) reads null: "cannot judge" -- no
++        // fallback to the material's name, which on a loose FBX is its shader's and would read as a confident wrong stem.
++        private static String BodyOf(GameObject go)
++        {
++            if (go == null)
++                return null;
++            Transform m0 = go.transform.Find("mesh0");
++            Renderer r = m0 != null ? m0.GetComponent<Renderer>() : null;
++            if (r == null)
++                r = go.GetComponentInChildren<Renderer>();
++            if (r == null)
++                return null;
++            Material m = r.sharedMaterial;
++            if (m == null || !m.HasProperty("_MainTex"))
++                return null;
++            Texture t = m.mainTexture;
++            return t == null ? null : Memoria.Netsync.NetSyncVisitor.TextureStem(t.name);
++        }
++
++        private static void NumOrNull(StringBuilder sb, String key, Int64 value)
++        {
++            if (value == NullNum)
++                sb.Append(Quote(key)).Append(":null");
++            else
++                Num(sb, key, value);
++        }
++
+         // What the ENGINE thinks the input is, as opposed to what the harness believes it scheduled.
+         // Publishing both sides is what makes an input failure diagnosable instead of a guessing game:
+         // `held` is the agent's own view, `key_*` is the value the movement code actually reads through
+@@ -3355,16 +3507,65 @@ namespace Memoria.Harness
+                 AppendDiorama(sb); sb.Append(",");
+                 AppendSession(sb); sb.Append(",");                                                      // [ff9mapkit netsync R3 s120]
+                 AppendMenuRefusal(sb); sb.Append(",");                                                  // [ff9mapkit netsync R3 s121]
+-                AppendNetsyncBattle(sb);
++                AppendNetsyncBattle(sb); sb.Append(",");
++                AppendDress(sb);                                                                        // [ff9mapkit netsync s138]
+             }
+             catch (Exception)
+             {
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null},\"party\":[-1,-1,-1,-1]}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+         }
+ 
++        // [ff9mapkit netsync s138] `netsync.dress` -- THE DRESS INSTRUMENT (studies/battle-coop/R3-DESIGN.md 3.4.2 as amended by
++        // R3-FIELD-MODEL-AUDIT.md 2.1 amendments 4-7 and its 3.1, which nests the block here as netsync's LAST key, after `battle`),
++        // additive under protocol 5 (an older engine publishes no `dress`: read absence as "cannot", never as a value). Published in
++        // EVERY role; harness-only reads, nothing is written. Every key goes through its own Try, so this block can never void the
++        // netsync block; AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
++        //   `ghost` -- a FIXED sub-object, always written whole, never null: what the peer's ghost ACTUALLY wears on this screen
++        //   (NetSyncClient.HarnessGhost*): `model` / `geo` / `rig` describe the body the CURRENT ghost was BUILT for -- `model` the id it
++        //   was built to wear (-1 = no ghost), `geo` the GEO name CreateModel built (FallbackGeo when the id did not resolve or load;
++        //   null = no ghost), `rig` the rig of the dress it WEARS (-1 = undressed or no ghost, 0-7 = the CharacterId rows; s139 adds 8,
++        //   the moogle) -- while `clip` (the clip DriveGhost last asked for; null = none) already follows the caller's rig. A re-dress
++        //   requested off FieldHUD is NOT applied (EnsureGhost keeps the old ghost and returns before recording anything) while
++        //   DriveGhost already plays the NEW rig's clips, and NetSyncClient's Update has no fixed order against this publish -- so
++        //   the first FieldHUD publish can still carry the old body with the new clip: judge model / geo / rig with `clip` on FieldHUD
++        //   only, and only once the tuple has held 2+ consecutive FieldHUD publishes. `playing` (that clip is really playing; false =
++        //   no ghost) and `body` (its worn texture's GEO-id stem, the player's own rule; null = no ghost).
++        //   `party` -- the four party slots' CharacterId, RAW (FF9.party.member[i].Index, the source ResolveDress reads -- never
++        //   NetSyncParty.Slots, where the selftest mirror seats its "BENCH" stand-in): 0-7 the mains, 8-11 Cinna..Beatrix, 12+ custom
++        //   characters; -1 = an EMPTY slot, -2 = a slot whose read threw (UNREADABLE -- never read as an empty seat). The catch
++        //   line's [-1 x 4] means the whole block failed to build.
++        // s139 appends `codec` and `rig_idle_frames` (and its levers at the end of `ghost`), s140 appends `self`.
++        private static void AppendDress(StringBuilder sb)
++        {
++            sb.Append("\"dress\":{\"ghost\":{");
++            Num(sb, "model", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessGhostModel, -1L)); sb.Append(",");
++            Str(sb, "geo", Try(() => Memoria.Netsync.NetSyncClient.HarnessGhostGeo)); sb.Append(",");
++            Str(sb, "clip", Try(() => Memoria.Netsync.NetSyncClient.HarnessGhostClip)); sb.Append(",");
++            Num(sb, "rig", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessGhostRig, -1L)); sb.Append(",");
++            Bool(sb, "playing", Try(() => Memoria.Netsync.NetSyncClient.HarnessGhostPlaying, false)); sb.Append(",");
++            Str(sb, "body", Try(() => BodyOf(Memoria.Netsync.NetSyncClient.HarnessGhostObject)));
++            sb.Append("},\"party\":[");
++            for (Int32 i = 0; i < 4; i++)
++            {
++                Int32 slot = i;
++                if (i > 0)
++                    sb.Append(",");
++                sb.Append(Try(() => PartyIndexOf(slot), -2).ToString(CultureInfo.InvariantCulture));   // -2 = unreadable, -1 = empty
++            }
++            sb.Append("]}");
++        }
++
++        // [ff9mapkit netsync s138] one party slot's CharacterId, raw; -1 = empty. Only ever called inside a Try (whose fallback, -2,
++        // is the unreadable slot).
++        private static Int32 PartyIndexOf(Int32 slot)
++        {
++            PLAYER member = FF9StateSystem.Common.FF9.party.member[slot];
++            return member == null ? -1 : (Int32)member.Index;
++        }
++
+         // [ff9mapkit netsync F3.3] DIO-1 -- `netsync.diorama`, additive under protocol 5 (an engine without it publishes
+         // no key: read absence as "cannot", never as "cold"). `boot` = the last boot's return decision (warm = the
+         // stock battle-return slot was primed; `boot_why` = the cold reason), `boot_x`/`boot_z` = the controlled
+@@ -5325,6 +5526,8 @@ namespace Memoria.Harness
+         //          when the GameObject carries no HonoBehavior: the gate never drives its renderers.
+         //   moving a scripted walk in progress (actMove), a controller path, or displaced this tick (the
+         //          engine's own walk-animation test). A walker held by a collision still reads true.
++        //   model  [ff9mapkit netsync s138] PosObj.model, a plain field read (raw: 65535 = no SetModel yet) -- no per-object GEO
++        //          lookup, since one throw would null the whole list.
+         // r/coll/solid/range_r/talk_r are relations to the player; with no controlled player they are null.
+         // `pushout` is the push-out's GLOBAL state, which decides whether a non-solid body blocks RIGHT NOW:
+         // slock = EventEngine.sLockTimer (< 0: the walk-through window is open and every non-16 object is
+@@ -5378,6 +5581,7 @@ namespace Memoria.Harness
+                     sb.Append("{");
+                     Num(sb, "uid", obj.uid); sb.Append(",");
+                     Num(sb, "sid", obj.sid); sb.Append(",");
++                    Num(sb, "model", actor.model); sb.Append(",");                                     // [ff9mapkit netsync s138]
+                     Num(sb, "x", actor.pos[0]); sb.Append(",");
+                     Num(sb, "y", actor.pos[1]); sb.Append(",");
+                     Num(sb, "z", actor.pos[2]); sb.Append(",");
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index f4715d6..a8ef50a 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -110,6 +110,8 @@ namespace Memoria.Netsync
+         private Animation _ghostAnim;
+         private String _ghostClip;
+         private UInt16 _ghostModel = UInt16.MaxValue;    // which GEO the ghost currently wears
++        private String _ghostGeo;                        // [ff9mapkit netsync s138] the GEO name CreateModel BUILT (FallbackGeo included; null = no ghost) -- harness-only
++        private Int32 _ghostRig = -1;                    // [ff9mapkit netsync s138] the dress rig the ghost is driven with (-1 = undressed / no ghost) -- harness-only
+         private Renderer[] _ghostRends;                  // the ghost's renderers (the peer's mask applies to these)
+         private Renderer[] _localRends;                  // the LOCAL player's renderers (the outgoing mask reads these)
+         private GameObject _localRendsOwner;             // cache key: refresh when the player object changes
+@@ -1427,7 +1429,7 @@ namespace Memoria.Netsync
+                     UInt16 stDress = NetSyncVisitor.ResolveDress(_guestSlots, out stRig);
+                     Vector3 stMirror = me.fieldMapActor.transform.localPosition + new Vector3(_selfTestDx, 0f, _selfTestDz);
+                     WriteCoopCells(1, stMirror);   // the mirror IS the peer: [[coop]] gates prove solo
+-                    EnsureGhost(ee, stDress != 0 ? stDress : me.model);
++                    EnsureGhost(ee, stDress != 0 ? stDress : me.model, stDress != 0 ? stRig : -1);   // [ff9mapkit netsync s138] + the rig, recorded for the harness
+                     if (_ghost != null)
+                     {
+                         UInt16 stAnim = stDress != 0
+@@ -1560,7 +1562,7 @@ namespace Memoria.Netsync
+                     // command in battle); their rig-neutral loco byte then picks the dressed rig's clip.
+                     Int32 dressRig;
+                     UInt16 dressModel = NetSyncVisitor.ResolveDress(_guestSlots, out dressRig);
+-                    EnsureGhost(ee, dressModel != 0 ? dressModel : rs.Model);
++                    EnsureGhost(ee, dressModel != 0 ? dressModel : rs.Model, dressModel != 0 ? dressRig : -1);   // [ff9mapkit netsync s138] + the rig, recorded for the harness
+                     if (_ghost != null)
+                     {
+                         UInt16 animId = dressModel != 0 ? NetSyncVisitor.LocoAnim(dressRig, rs.Loco) : rs.Anim;
+@@ -4928,6 +4930,31 @@ namespace Memoria.Netsync
+         }
+         public static Boolean HarnessGhost { get { NetSyncClient i = _instance; return i != null && i._ghost != null; } }
+         public static Boolean HarnessGhostHeld { get { NetSyncClient i = _instance; return i != null && i._ghostHeld && i._ghost != null; } }
++        // [ff9mapkit netsync s138] `netsync.dress.ghost` -- what the peer's ghost ACTUALLY wears on this screen, read for the harness only
++        // (studies/battle-coop/R3-FIELD-MODEL-AUDIT.md 2.1 amendment 4). `model`, `geo` and `rig` describe the body the CURRENT ghost
++        // was BUILT for: `model` (the id it was built to wear; -1 = no ghost), `geo` (the GEO name CreateModel BUILT -- FallbackGeo
++        // when the id did not resolve or load; null = no ghost), `rig` (the rig of the dress it WEARS; -1 = undressed or no ghost).
++        // `clip` (the clip DriveGhost last asked for -- set even when its Play failed; null = none) already follows the CALLER's rig:
++        // a re-dress requested off FieldHUD is not applied (EnsureGhost keeps the old ghost and returns before recording anything)
++        // while DriveGhost plays the new rig's clips, so for those frames the old body carries the new clip. `playing`
++        // (Animation.IsPlaying(clip): the witness `clip` alone cannot fake) and the GameObject itself (the harness reads its worn
++        // texture, `body`, by the player's own rule). No ghost -> every value at its sentinel. This Update has no fixed order against
++        // the harness publish, so the first FieldHUD publish can still show that mix: compare the ghost with the player on FieldHUD
++        // only, once its tuple has held 2+ consecutive FieldHUD publishes.
++        public static Int32 HarnessGhostModel { get { NetSyncClient i = _instance; return i == null || i._ghost == null ? -1 : (Int32)i._ghostModel; } }
++        public static String HarnessGhostGeo { get { NetSyncClient i = _instance; return i == null || i._ghost == null ? null : i._ghostGeo; } }
++        public static String HarnessGhostClip { get { NetSyncClient i = _instance; return i == null || i._ghost == null ? null : i._ghostClip; } }
++        public static Int32 HarnessGhostRig { get { NetSyncClient i = _instance; return i == null || i._ghost == null ? -1 : i._ghostRig; } }
++        public static Boolean HarnessGhostPlaying
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                return i != null && i._ghost != null && i._ghostAnim != null && !String.IsNullOrEmpty(i._ghostClip)
++                       && i._ghostAnim.IsPlaying(i._ghostClip);
++            }
++        }
++        public static GameObject HarnessGhostObject { get { NetSyncClient i = _instance; return i == null || i._ghost == null ? null : i._ghost; } }
+ 
+         internal static String OverlayName(Int32 state)
+         {
+@@ -5454,10 +5481,17 @@ namespace Memoria.Netsync
+         // (see class comment). The peer's model id resolves through FF9BattleDB.GEO exactly like the
+         // event engine spawns actors; the Zidane rig is worn ONLY when the id can't resolve or its assets
+         // are missing (e.g. the peer walks a modded character this install doesn't have).
+-        private void EnsureGhost(EventEngine ee, UInt16 model)
++        // [ff9mapkit netsync s138] `rig` is the dress rig the caller drives the ghost with (-1 = undressed). It is RECORDED for the
++        // harness (`netsync.dress.ghost.rig`: the rig of the dress the ghost WEARS) and read by nothing else: the ghost's model, clips,
++        // mask and lighting are unchanged. The off-FieldHUD keep-the-old-ghost return below records nothing, so there the published
++        // model / geo / rig still describe the OLD body while the caller's DriveGhost already plays the new rig's clips.
++        private void EnsureGhost(EventEngine ee, UInt16 model, Int32 rig)
+         {
+             if (_ghost != null && _ghostModel == model)
++            {
++                _ghostRig = rig;                           // [ff9mapkit netsync s138] the same body, driven with this rig now (harness-only)
+                 return;
++            }
+             if (_ghost != null)
+             {
+                 // RE-DRESS only while the FIELD HUD owns the screen: a party reorder changes the dress
+@@ -5527,6 +5561,8 @@ namespace Memoria.Netsync
+                 NormalSolver.SmoothCharacterMesh(renderers);
+                 _ghost = g;
+                 _ghostModel = model;
++                _ghostGeo = geo;                           // [ff9mapkit netsync s138] what CreateModel BUILT (FallbackGeo when the id did not resolve/load) -- harness-only
++                _ghostRig = rig;                           // [ff9mapkit netsync s138] harness-only
+                 _ghostRends = renderers;
+                 _ghostAnim = g.GetComponent<Animation>();
+                 if (_ghostAnim != null)
+@@ -5712,6 +5748,8 @@ namespace Memoria.Netsync
+             _ghostAnim = null;
+             _ghostClip = null;
+             _ghostModel = UInt16.MaxValue;
++            _ghostGeo = null;                              // [ff9mapkit netsync s138] harness-only
++            _ghostRig = -1;
+             _ghostRends = null;
+         }
+ 
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
+index dbd89fb..e3df2ae 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
+@@ -148,5 +148,41 @@ namespace Memoria.Netsync
+                 return 0;
+             }
+         }
++
++        // [ff9mapkit netsync s138] THE DRESS INSTRUMENT's pure helpers (studies/battle-coop/R3-DESIGN.md 3.4.2 as amended by
++        // R3-FIELD-MODEL-AUDIT.md 2.1 amendments 3 and 8). Only the harness publish calls them (HarnessAgent's `player.anim_geo` /
++        // `player.body` and `netsync.dress.ghost.body`); no engine path reads them, so s138 changes no behaviour.
++        // FolderOf -- the GEO folder a clip NAME loads from, by AnimationFactory.AddAnimWithAnimatioName's OWN rule: "GEO_" + tokens
++        // 1-3 of the '_'-split name ("ANH_MAIN_F0_ZDN_IDLE" -> "GEO_MAIN_F0_ZDN", "ANH_NPC_F0_MOG_IDLE" -> "GEO_NPC_F0_MOG"). NOT
++        // GetAnimationFolder: that one remaps through animationPathTable (and tests animationMapping but indexes animationPathTable --
++        // a latent KeyNotFound). Null for a null or empty name, or one of fewer than 4 tokens; never throws. Two traps for a reader:
++        // anim 0 is ANH_MAIN_F0_STN_B (never judge a folder at anim 0), and ids 200 and 324 share ANH_MAIN_F0_ZDN_IDLE (classify
++        // clips by NAME, not by id). Audit amendment 8: the repo harness pins a Python twin of this rule, case for case.
++        public static String FolderOf(String clip)
++        {
++            if (String.IsNullOrEmpty(clip))
++                return null;
++            String[] token = clip.Split('_');
++            if (token.Length < 4)
++                return null;
++            return "GEO_" + token[1] + "_" + token[2] + "_" + token[3];
++        }
++
++        // [ff9mapkit netsync s138] TextureStem -- the GEO-id stem of a model texture's NAME, the text before its first '_' ("98_0" /
++        // "98_1" -> "98" Zidane, "192_0" -> "192" Freya, "220_0" -> "220" the moogle). A name with no '_' (or one that starts with
++        // it) is its own stem. Null for a null or empty name; never throws. It names what the body WEARS, which no dress computes
++        // (audit amendment 3). What the NAME is depends on how the texture was loaded: ModelFactory's checkTextureOnDisc swap (an
++        // external or Moguri texture) copies the stock name, so the stem holds; a loose-FBX model (ModelImporter) and a per-field
++        // CustomModelField swap (ModelFactory.ChangeModelTexture) wear an UNNAMED Texture2D (AssetManager.LoadFromDisc names none),
++        // so the stem reads null for a body that is there -- "cannot judge", never a wrong body; and a texture-animated (blinking)
++        // material's _MainTex is a RenderTexture GEOTEXHEADER names after the MATERIAL (its name plus _RT), so for those the stem is
++        // the material's name's (the same id on stock).
++        public static String TextureStem(String name)
++        {
++            if (String.IsNullOrEmpty(name))
++                return null;
++            Int32 cut = name.IndexOf('_');
++            return cut <= 0 ? name : name.Substring(0, cut);
++        }
+     }
+ }

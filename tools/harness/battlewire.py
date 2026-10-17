@@ -56,6 +56,10 @@ way the engine fabricates its bench end through the real ParseView.
     resolution's order (ActTranceVerdict), the START-first swap (ActTranceOnArrival), the hit's probe (ActTranceHitSwaps),
     the end injection's flush (ActTranceFlushVerdict) and the present colour's guard (ActTrancePresents) -- and the timing
     with its statics (ActTranceLane, owned by ActGuestLane: `netsync.battle.act.guest.trance`).
+  * [ff9mapkit netsync s138] THE DRESS INSTRUMENT (the guest's own field model, s138-s141): the keys it publishes and their
+    sentinels (`player.*` after `control`, `objects[].model`, `netsync.dress`), the RIG space, and the Python twins of its
+    two pure helpers -- NetSyncVisitor.FolderOf (AnimationFactory.AddAnimWithAnimatioName's naming rule) and
+    NetSyncVisitor.TextureStem (a texture name's GEO-id stem). s139 adds the section-8 codec and ResolveAuto's twins here.
 """
 from __future__ import annotations
 
@@ -7373,3 +7377,113 @@ CS_TRANCE_CONSTANTS = {
     "ActTrDropUnit": ACT_TR_DROP_UNIT, "ActTrDropDead": ACT_TR_DROP_DEAD, "ActTrSwapGate": ACT_TR_SWAP_GATE,
     "ActTrSwapDecline": ACT_TR_SWAP_DECLINE, "ActTrSwapEnd": ACT_TR_SWAP_END, "ActTrSwapCap": ACT_TR_SWAP_CAP,
     "ActTrSwapGrace": ACT_TR_SWAP_GRACE, "ActTrSwapInject": ACT_TR_SWAP_INJECT}
+
+
+# ================================================================================================ s138
+# [ff9mapkit netsync s138] THE DRESS INSTRUMENT (studies/battle-coop/R3-DESIGN.md 3.4.2 as amended by R3-FIELD-MODEL-AUDIT.md
+# 2.1 amendments 3-8 and 13, and its 3.1 key design): harness keys only -- no behaviour on any role. Three homes:
+#   * `player.*` (OUTSIDE netsync, after `control`): the s90 THREE CASES -- an ABSENT key is an engine that cannot publish
+#     the body (s137 and older), null is one that can and has no controlled actor this sample, anything else is the raw
+#     value. `anim` is the clip ID (`battle.units[].anim` is a NAME); `clip` is that id's NAME (AnimationDB, the same
+#     derivation as `netsync.dress.ghost.clip`). `body` and `anim_geo` are the two WITNESSES a dress cannot compute: the
+#     worn texture's GEO-id stem, and the folder of the clip the Animation component ACTUALLY plays.
+#   * `objects[].model` (after `sid`): PosObj.model, a plain field read (raw: MODEL_NONE = no SetModel yet).
+#   * `netsync.dress` (netsync's LAST key, after `battle`): `ghost` (a FIXED sub-object, always whole: what the peer's ghost
+#     WEARS on this screen) then `party` (the four slots' raw CharacterId). s139 appends `codec`, `rig_idle_frames` and its
+#     levers at the end of `ghost`; s140 appends `self`; s141 adds keys only inside `self`.
+
+#: AppendPlayerDress's keys, in its order (HarnessAgent.cs WritePlayerDress, right after `control`) -- s138's, and the whole
+#: player block's: the audit's amendment 5 publishes every key s139-s141 judge NOW, so no later rung adds a player key (the
+#: level home, fakegame.NETSYNC_PLAYER_CAP_KEYS, holds one row; a test pins the live writer against its ladder).
+PLAYER_DRESS_KEYS = ("model", "anim", "geo", "anim_geo", "eye", "uid", "sid", "body", "clip", "clip_playing", "frame_n",
+                     "anim_frame", "meshflags")
+#: AppendObjects' s138 key (right after `sid`).
+OBJECT_DRESS_KEYS = ("model",)
+#: PosObj.model's constructor default (PosObj.cs:16): no SetModel has run yet -- updateModelsToBeAdded's own "no model" test.
+MODEL_NONE = 65535
+#: `netsync.dress.ghost` at its sentinels, in AppendDress's order: no ghost (or no NetSyncClient instance) -- the LIVE union
+#: (s139 appends its levers at the end of `ghost`: bench_mask, empty_mask, rule, wire, mode). What a probe or a stand-in
+#: holds a given rung to is that rung's FROZEN row, :data:`DRESS_GHOST_KEYS_BY_RUNG` -- never this live union (an s138
+#: engine publishes six keys whatever s139 adds here).
+DRESS_GHOST_SENTINELS = {"model": -1, "geo": None, "clip": None, "rig": -1, "playing": False, "body": None}
+#: [ff9mapkit netsync s138] Each dress rung's OWN `ghost` keys, frozen at its patch, in AppendDress's order -- the rows the
+#: bench probe (coop_self_dress.probe), the stand-in's per-rung ghost (fakegame) and the s138 patch pin read; only the
+#: live-catch pins read the union (:data:`DRESS_GHOST_SENTINELS`). s139 adds its row ("dresshost": its five levers).
+DRESS_GHOST_KEYS_BY_RUNG = {"dressinstr": ("model", "geo", "clip", "rig", "playing", "body")}
+#: `netsync.dress.party`'s two non-member values: an EMPTY slot (FF9.party.member[i] null) and an UNREADABLE one (its read
+#: threw: AppendDress's Try fallback) -- never read -2 as an empty seat the engine's ResolveAuto saw. The catch line's
+#: [-1 x 4] means the whole block failed to build.
+PARTY_EMPTY = -1
+PARTY_UNREADABLE = -2
+#: `netsync.dress` at the catch line's sentinels (its SECOND literal): `ghost`, then `party` ([-1 x 4]: the block failed).
+#: The live `party` is a LIVE read of FF9.party.member[i].Index (PARTY_EMPTY / PARTY_UNREADABLE as above) -- never
+#: NetSyncParty.Slots, where the selftest mirror seats its "BENCH" stand-in (the s134 lesson).
+DRESS_SENTINELS = {"ghost": dict(DRESS_GHOST_SENTINELS), "party": [-1, -1, -1, -1]}
+#: [ff9mapkit netsync s138] THE DRESS PROBE LADDER: the key each dress patch is told by (R3-FIELD-MODEL-AUDIT.md 3.1 names
+#: them) -- s138 its own fixed `ghost`, s139 `codec` (appended to `netsync.dress`), s140 `self` (a fixed sub-object), s141
+#: `self.steps` (a key inside it). An engine is the HIGHEST rung whose key it publishes, every rung below present too.
+DRESS_PROBES = {138: "netsync.dress.ghost", 139: "netsync.dress.codec", 140: "netsync.dress.self",
+                141: "netsync.dress.self.steps"}
+#: NetSyncClient.FallbackGeo: what EnsureGhost BUILDS when the asked-for id does not resolve or load (`ghost.geo`).
+GHOST_FALLBACK_GEO = "GEO_MAIN_F0_ZDN"
+#: THE RIG SPACE (`ghost.rig`; s140's `self.rig`): -1 = undressed / no ghost, 0-7 = the CharacterId rows (Zidane ..
+#: Amarant), 8 = the moogle (s139). Rig 8 is NOT CharacterId 8 (Cinna): decode through this table, never compare a rig
+#: with a CharacterId when it reads 8.
+RIG_NONE = -1
+RIG_MOOGLE = 8
+RIG_NAMES = ("zidane", "vivi", "garnet", "steiner", "freya", "quina", "eiko", "amarant", "moogle")
+
+
+def rig_name(rig) -> str | None:
+    """A dress rig's name (:data:`RIG_NAMES`); None for -1 / anything outside 0-8 / a non-int."""
+    if isinstance(rig, bool) or not isinstance(rig, int) or not 0 <= rig < len(RIG_NAMES):
+        return None
+    return RIG_NAMES[rig]
+
+
+def folder_of(clip) -> str | None:
+    """NetSyncVisitor.FolderOf (s138), case for case: the GEO folder a clip NAME loads from, by
+    AnimationFactory.AddAnimWithAnimatioName's OWN rule -- "GEO_" + tokens 1-3 of the '_'-split name
+    ("ANH_MAIN_F0_ZDN_IDLE" -> "GEO_MAIN_F0_ZDN"). None for a null or empty name, or one of fewer than 4 tokens; never
+    raises. NOT GetAnimationFolder (a path-table remap with a latent KeyNotFound). Two traps for a reader: anim 0 is
+    ANH_MAIN_F0_STN_B (never judge a folder at anim 0), and ids 200 and 324 share ANH_MAIN_F0_ZDN_IDLE (classify by NAME)."""
+    if not isinstance(clip, str) or clip == "":
+        return None
+    token = clip.split("_")
+    if len(token) < 4:
+        return None
+    return "GEO_" + token[1] + "_" + token[2] + "_" + token[3]
+
+
+def texture_stem(name) -> str | None:
+    """NetSyncVisitor.TextureStem (s138), case for case: the GEO-id stem of a model texture's NAME -- the text before its
+    first '_' ("98_0" / "98_1" -> "98" Zidane, "192_0" -> "192" Freya, "220_0" -> "220" the moogle). A name with no '_',
+    or one that starts with it, is its own stem; None for a null or empty name; never raises."""
+    if not isinstance(name, str) or name == "":
+        return None
+    cut = name.find("_")
+    return name if cut <= 0 else name[:cut]
+
+
+#: HarnessAgent.BodyOf's mesh: the actor root's DIRECT child of this name (PosObj.SetIsEnabledMeshRenderer's own rule;
+#: ModelImporter names an external model's meshes mesh{i} too).
+BODY_MESH = "mesh0"
+
+
+def body_of(renderers) -> str | None:
+    """HarnessAgent.BodyOf (s138) as a rule over a body's renderers IN UNITY'S DEPTH-FIRST ORDER -- ``[(path, texture name),
+    ...]``, each path relative to the actor root ("battle_model/battle_model0", "bone000/.../mesh0", "mesh0"): the texture
+    stem of the root's DIRECT child :data:`BODY_MESH` when it has a renderer, else of the FIRST renderer; None with no
+    renderer, or an unnamed texture (None / "" -- a loose-FBX or CustomModelField body: "cannot judge"). NEVER the first
+    renderer when mesh0 is there: on Zidane (98) that is the hidden Orichalcum overlay battle_model0, and on the other rigs
+    the bone subtree is walked first -- a prop GeoAttach parents under a bone would be read as the body."""
+    rows = [r for r in (renderers or ()) if isinstance(r, (tuple, list)) and len(r) == 2]
+    if not rows:
+        return None
+    pick = next((r for r in rows if r[0] == BODY_MESH), rows[0])
+    return texture_stem(pick[1])
+
+
+def eye_of(eye_byte: int) -> int:
+    """PosObj.eye from SetModel's eye byte: ``po.eye = -4 * getv1()`` (DoEventCode.cs SetModel) -- Zidane's 93 -> -372."""
+    return -4 * int(eye_byte)

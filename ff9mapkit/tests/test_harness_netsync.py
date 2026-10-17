@@ -856,6 +856,12 @@ def _catch_doc_in(stem: str) -> dict:
     return json.loads("{" + unescape(a + _f3_retired_text() + b) + "}")["netsync"]
 
 
+def _undressed(doc: dict) -> dict:
+    """[ff9mapkit netsync s138] A `netsync` document without s138's `dress` (netsync's LAST key, after `battle`): the live
+    catch line as s131-s137 wrote it -- s138 added that one block and nothing else."""
+    return {k: v for k, v in doc.items() if k != "dress"}
+
+
 def _agent_host_ops() -> tuple[str, ...]:
     lines = net_lines("NetSyncClient.cs", r"netsync host: unknown op '")
     assert len(lines) == 1, lines
@@ -2074,6 +2080,15 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(guest["trance"]) == FG.NETSYNC_ACT_GUEST_TRANCE_KEYS
     top = list(prev_doc)
     assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
+    # [ff9mapkit netsync s138] `dress` is netsync's LAST key, after `battle` (R3-FIELD-MODEL-AUDIT.md 3.1), its keys the dress
+    # rungs' (ghost, party) and `ghost` a fixed sub-object in AppendDress's order
+    assert top[top.index("battle"):] == ["battle", "dress"], top
+    assert tuple(prev_doc["dress"]) == tuple(k for keys in FG.NETSYNC_DRESS_CAP_KEYS.values() for k in keys)
+    assert tuple(prev_doc["dress"]["ghost"]) == FG.NETSYNC_DRESS_GHOST_KEYS == tuple(BW.DRESS_GHOST_SENTINELS)
+    # ...the LIVE union, which is every dress rung's FROZEN row in ladder order (a probe / stand-in reads its rung's row)
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    assert list(BW.DRESS_GHOST_KEYS_BY_RUNG) == [r for r in names if r in BW.DRESS_GHOST_KEYS_BY_RUNG]
+    assert tuple(k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row) == tuple(BW.DRESS_GHOST_SENTINELS)
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
 
 
@@ -2254,7 +2269,8 @@ BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", 
                  "s134",                                      # [ff9mapkit netsync s134] the guest action replay
                  "s135",                                      # [ff9mapkit netsync s135] the replay hit hold
                  "s136",                                      # [ff9mapkit netsync s136] fallback A
-                 "s137"]                                      # [ff9mapkit netsync s137] the trance burst timing
+                 "s137",                                      # [ff9mapkit netsync s137] the trance burst timing
+                 "s138"]                                      # [ff9mapkit netsync s138] the dress instrument (keys only)
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2274,11 +2290,17 @@ def test_an_older_battle_stand_in_is_that_patchs_agent(game, level):
     assert set(_dio_leaves(doc["diorama"])) == set(_dio_leaves(want["diorama"])), level   # [ff9mapkit netsync R3]
     assert list(doc["diorama"]) == list(want["diorama"]), level
     # [ff9mapkit netsync R3 s120/s121] ...and the blocks from `diorama` on in the agent's order (`session`, `menu_refusal`)
-    tail = [k for k in want if k in ("diorama", "session", "menu_refusal", "battle")]
+    # [ff9mapkit netsync s138] ...and `dress` after `battle` (netsync's last key)
+    tail = [k for k in want if k in ("diorama", "session", "menu_refusal", "battle", "dress")]
     assert [k for k in doc if k in tail] == tail, (level, list(doc))
     for block in ("session", "menu_refusal"):
         if block in want:
             assert list(doc[block]) == list(want[block]), (level, block)
+    if "dress" in want:
+        # [ff9mapkit netsync s138] the dress block's keys AND order, descending into its fixed sub-objects
+        # (DRESS_CONTAINERS): a stand-in at this level publishes exactly that patch's dress keys -- a later rung's lever
+        # in `ghost`, `codec` or `self` would show here
+        assert list(_dress_leaves(doc["dress"])) == list(_dress_leaves(want["dress"])), (level, doc["dress"])
     if "battle" in want:
         assert set(_leaves(_battle_of(doc))) == set(_leaves(_battle_of(want))), \
             set(_leaves(_battle_of(doc))) ^ set(_leaves(_battle_of(want)))
@@ -2506,7 +2528,8 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
     """No `netsync` block: every B4/B5 capability and accessor None. A block without `battle` (s99): the capabilities
     False, every accessor None. Each patch's own block: its capabilities True, every LATER stage's capability False and
     its accessors None -- a stage-1 engine's missing `r9_refused` read as 0 would make a containment assertion green
-    against the wrong DLL."""
+    against the wrong DLL. [ff9mapkit netsync s138] The same per level for `netsync.dress`'s accessors
+    (NETSYNC_DRESS_ACCESSORS): a value where that patch's catch line publishes the key, None where it does not."""
     caps = ("coop_host_gates", "coop_containment", "coop_stock_menu", "coop_end_trailer", "coop_presentation",
             "coop_exit_with_host", "coop_menu_content", "coop_ready_mirror", "coop_result_manifest", "coop_result_replay",
             "coop_slot_handback", "coop_intro_mirror", "coop_swirl_clamp", "coop_wait_parity", "coop_start_hold",
@@ -2524,15 +2547,20 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s136] fallback A
             "coop_act_fallback",
             # [ff9mapkit netsync s137] the trance burst timing
-            "coop_act_trance")
+            "coop_act_trance",
+            # [ff9mapkit netsync s138] the dress instrument (`netsync.dress`: the dress rungs join this one ladder, audit 3.1)
+            "coop_dress_instr")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
+    dress = State.NETSYNC_DRESS_ACCESSORS          # [ff9mapkit netsync s138] `netsync.dress`'s table rides the same ladder
     none = State({"frame": 1})
     assert all(getattr(none, c) is None for c in caps) and all(getattr(none, n) is None for n in table.values())
+    assert all(getattr(none, n) is None for n in dress.values())
     assert none.coop_battle is None and none.coop_peer_end_manifest is None
     s99 = State({"frame": 1, "netsync": _battle_block("s99")})
     assert all(getattr(s99, c) is False for c in caps) and all(getattr(s99, n) is None for n in table.values())
+    assert all(getattr(s99, n) is None for n in dress.values())
     # [ff9mapkit netsync s132] a keyless stage publishes the previous one's block, so it reads every capability True
     for level in BATTLE_KEYLESS_LEVELS:
         assert _battle_block(level) == _battle_block(BATTLE_LEVELS[BATTLE_LEVELS.index(level) - 1]), level
@@ -2544,6 +2572,17 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
         for path, name in table.items():
             if path in published:
                 assert getattr(st, name) is not None or path in BATTLE_NULLABLE, (level, path)
+            else:
+                assert getattr(st, name) is None, (level, path)
+        # [ff9mapkit netsync s138] ...and the dress keys, through the `_dress_of` descent (audit 3.1): an accessor reads a
+        # value from the patch that published its key on and None before it -- so s139's `ghost` levers read None on
+        # s138's catch line, which publishes `dress` without them
+        block = _battle_block(level)
+        d_pub = set(_dress_leaves(_dress_of(block) if "dress" in block else {})) | {
+            p for p, at in DRESS_CONTAINERS.items() if int(at[1:]) <= int(level[1:])}
+        for path, name in dress.items():
+            if path in d_pub:
+                assert getattr(st, name) is not None or path in DRESS_NULLABLE, (level, path)
             else:
                 assert getattr(st, name) is None, (level, path)
 
@@ -5454,6 +5493,7 @@ S133_CAPS = _all_caps_through("actstart")                              # [ff9map
 S134_CAPS = _all_caps_through("actreplay")                             # [ff9mapkit netsync s135] s135's calibration red
 S135_CAPS = _all_caps_through("acthold")                               # [ff9mapkit netsync s136] s136's calibration red
 S136_CAPS = _all_caps_through("actfallback")                           # [ff9mapkit netsync s137] s137's calibration red
+S137_CAPS = _all_caps_through("acttrance")                             # [ff9mapkit netsync s138] s138's calibration red
 _CS_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
@@ -6788,8 +6828,9 @@ def test_the_expired_block_is_peers_last_key_at_the_catch_lines_sentinels():
     assert _added_after("s131", "HarnessAgent.cs", 'Str(sb, "bench_manifest_note"', "AppendPeerExpired(sb);")
     assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
     # s131 wrote the catch line whole; s132 left it alone; [ff9mapkit netsync s133] s133 added `act` after `end` and
-    # nothing else -- so the live line is s131's plus that one sub-object
-    live = _agent_netsync_nothing()[0]
+    # nothing else -- so the live line is s131's plus that one sub-object; [ff9mapkit netsync s138] plus `dress`, netsync's
+    # last key (s138 added that one block and nothing else)
+    live = _undressed(_agent_netsync_nothing()[0])
     assert _catch_doc_in("s131") == _catch_doc_in("s132") == {**live, "battle": {
         k: v for k, v in live["battle"].items() if k != "act"}}
 
@@ -7459,7 +7500,9 @@ def test_the_act_block_is_the_fifth_sub_object_at_the_catch_lines_sentinels():
     nothing = _agent_netsync_nothing()[0]
     assert _battle_of(nothing)["act"]["host"] == BW.ACT_HOST_SENTINELS
     # s133 wrote the catch line whole; [ff9mapkit netsync s134] s134 added `act.guest` after `act.host` and nothing else
-    assert _catch_doc_in("s133") == {**nothing, "battle": {**nothing["battle"], "act": {"host": BW.ACT_HOST_SENTINELS}}}
+    # [ff9mapkit netsync s138] (and s138 `dress`, netsync's last key: _undressed)
+    assert _catch_doc_in("s133") == {**_undressed(nothing), "battle": {**nothing["battle"], "act": {
+        "host": BW.ACT_HOST_SENTINELS}}}
     body = " ".join(_act_region("private static void AppendAct(", "// [ff9mapkit netsync B5] stage 5:", "HarnessAgent.cs"))
     names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
     host = BW.ACT_HOST_SENTINELS
@@ -8599,7 +8642,7 @@ def test_the_act_guest_block_sits_after_host_at_the_catch_lines_sentinels():
     # [ff9mapkit netsync s136] s136 `act.guest.fallback` and nothing else; [ff9mapkit netsync s137] s137 `act.guest.trance`
     # (the last key) and nothing else
     s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("hold", "fallback", "trance")}
-    assert _catch_doc_in("s134") == {**nothing, "battle": {**nothing["battle"], "act": {
+    assert _catch_doc_in("s134") == {**_undressed(nothing), "battle": {**nothing["battle"], "act": {   # [s138] _undressed
         "host": BW.ACT_HOST_SENTINELS, "guest": s134_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134"))]
     i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuest("))
@@ -9708,7 +9751,7 @@ def test_the_hold_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
     assert list(_battle_of(nothing)["act"]["guest"])[-4:-2] == ["last", "hold"]
     s135_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("fallback", "trance")}
     assert list(_battle_of(_catch_doc_in("s135"))["act"]["guest"])[-2:] == ["last", "hold"]   # the last key AT s135
-    assert _catch_doc_in("s135") == {**nothing, "battle": {**nothing["battle"], "act": {    # s135 wrote that line whole
+    assert _catch_doc_in("s135") == {**_undressed(nothing), "battle": {**nothing["battle"], "act": {   # s135 wrote it whole
         "host": BW.ACT_HOST_SENTINELS, "guest": s135_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s135"))]
     i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestHold("))
@@ -11729,7 +11772,7 @@ def test_the_fallback_block_is_act_guests_last_key_at_the_catch_lines_sentinels(
     assert list(_battle_of(nothing)["act"]["guest"])[-3:-1] == ["hold", "fallback"]
     s136_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "trance"}
     assert list(_battle_of(_catch_doc_in("s136"))["act"]["guest"])[-2:] == ["hold", "fallback"]   # the last key AT s136
-    assert _catch_doc_in("s136") == {**nothing, "battle": {**nothing["battle"], "act": {    # s136 wrote that line whole
+    assert _catch_doc_in("s136") == {**_undressed(nothing), "battle": {**nothing["battle"], "act": {   # s136 wrote it whole
         "host": BW.ACT_HOST_SENTINELS, "guest": s136_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s136"))]
     i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestFallback("))
@@ -13359,7 +13402,8 @@ def test_the_trance_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
     nothing = _agent_netsync_nothing()[0]
     assert _battle_of(nothing)["act"]["guest"]["trance"] == BW.ACT_GUEST_TRANCE_SENTINELS
     assert list(_battle_of(nothing)["act"]["guest"])[-2:] == ["fallback", "trance"]
-    assert _catch_doc_in("s137") == nothing                                # s137 wrote the live catch line whole
+    # s137 wrote the catch line whole; [ff9mapkit netsync s138] s138 added `dress` (netsync's last key) and nothing else
+    assert _catch_doc_in("s137") == _undressed(nothing)
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s137"))]
     i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestTrance("))
     j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
@@ -14854,3 +14898,1251 @@ def test_the_s137_benchs_pure_judges_read_each_engine_and_can_fail():
     assert {k: v[0] for k, v in got["span"].items()} == {"green": True, "short_pause": False, "late_pause": False,
                                                         "wall_short": False, "unread": False}, got["span"]
     assert got["holds"] == {"green": [2, []], "swapped": [2, [2]], "unpended": [1, [1]], "model": [1, [1]]}, got["holds"]
+
+
+# =========================================================================================================== s138
+# [ff9mapkit netsync s138] THE DRESS INSTRUMENT -- the first of the guest's own field model's patches (studies/battle-coop/
+# R3-DESIGN.md 3.4.2 as amended by R3-FIELD-MODEL-AUDIT.md 2.1, whose 3.1 decided the key design): harness keys only.
+# Three homes, each pinned to the s138 patch: `netsync.dress` (netsync's LAST key, after `battle`; its sentinels in the
+# catch line's SECOND literal), `player.*` right after `control` (OUTSIDE netsync: the s90 THREE CASES) and
+# `objects[].model` right after `sid`. The dress rungs join the ONE battle ladder (`dressinstr` first: FG.NETSYNC_BATTLE_CAPS)
+# and the dress key law keeps every dress key under `netsync.dress`, never `netsync.battle` (the action-replay audit's 4.3).
+import struct                                                           # noqa: E402
+
+#: [ff9mapkit netsync s138] the FIXED sub-objects inside `netsync.dress`, BY PATH -> the patch that added each (s139 grows
+#: `ghost` with its levers; s140 adds `self`) -- a new container goes HERE, or :func:`_dress_leaves` never sees inside it.
+DRESS_CONTAINERS = {"ghost": "s138"}
+#: [ff9mapkit netsync s138] the `netsync.dress` records that may be published null where their accessor reads None (the
+#: BATTLE_NULLABLE twin; a null STRING reads "", so none at s138) -- a later rung's nullable record goes HERE.
+DRESS_NULLABLE = ()
+
+
+def _dress_of(doc: dict) -> dict:
+    """[ff9mapkit netsync s138] the dress twin of :func:`_battle_of`: a netsync document's `dress` block."""
+    d = doc.get("dress")
+    assert isinstance(d, dict), sorted(doc)
+    return d
+
+
+def _dress_leaves(block: dict, prefix: str = "") -> dict:
+    """``netsync.dress``'s key paths -> values, descending only into :data:`DRESS_CONTAINERS` (a list -- `party` -- and a
+    nullable record are one leaf each)."""
+    out = {}
+    for k, v in block.items():
+        path = prefix + k
+        if isinstance(v, dict) and path in DRESS_CONTAINERS:
+            out.update(_dress_leaves(v, path + "."))
+        else:
+            out[path] = v
+    return out
+
+
+def _s138_new(file_name: str) -> list:
+    """The s138 patch's NEW-side lines (added and context) for ``file_name``, stripped."""
+    return [t for _h, _k, t in _new_side(file_name, _patch_bytes("s138"))]
+
+
+def _s138_block(file_name: str, start: str, stop_prefix: str) -> list:
+    """One block of the s138 patch's new side: from the line starting ``start`` up to (not including) the first later line
+    starting ``stop_prefix``, comments stripped."""
+    new = _s138_new(file_name)
+    i = next(k for k, t in enumerate(new) if t.startswith(start))
+    j = next(k for k in range(i + 1, len(new)) if new[k].startswith(stop_prefix))
+    return [_strip_comment(t) for t in new[i:j]]
+
+
+def _s138_probe() -> str:
+    """The R3 probe the s138 bench reads (studies/test-harness/scenarios/_coop_battle.py R3_PROBES[138]), off its source."""
+    src = (SCENARIOS / "_coop_battle.py").read_text(encoding="utf-8")
+    m = re.search(r'^\s*138: "([a-z.]+)",', src, re.M)
+    assert m, "no R3_PROBES[138]"
+    return m.group(1)
+
+
+def test_the_dress_block_is_netsyncs_last_key_at_the_catch_lines_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s138: `dress` closes AppendNetsync's SECOND catch literal, right after `battle`, at its
+    sentinels (ghost {model -1, geo / clip / body null, rig -1, playing false}, party [-1 x 4]); the line stays ONE line of
+    two literals around NetsyncF3Retired; the s138 patch's AppendDress writes `ghost`'s keys -- s138's FROZEN row
+    (BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"], never the live union a later rung grows) -- each through its own Try and a
+    NetSyncClient.HarnessGhost* getter, then `party` off FF9.party.member[i].Index (never NetSyncParty.Slots, where the
+    selftest mirror seats its "BENCH" impostor), an unreadable slot -2 and an empty one -1; it is called right after
+    AppendNetsyncBattle, in every role; the harness protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    a, b = _literals(catch[0])
+    assert b.endswith('\\"last\\":null}}}},\\"dress\\":{\\"ghost\\":{\\"model\\":-1,\\"geo\\":null,\\"clip\\":null,'
+                      '\\"rig\\":-1,\\"playing\\":false,\\"body\\":null},\\"party\\":[-1,-1,-1,-1]}}'), b[-240:]
+    assert "dress" not in a
+    nothing = _agent_netsync_nothing()[0]
+    assert list(nothing)[-2:] == ["battle", "dress"] and nothing["dress"] == BW.DRESS_SENTINELS
+    assert list(nothing["dress"]) == ["ghost", "party"] and list(nothing["dress"]["ghost"]) == list(BW.DRESS_GHOST_SENTINELS)
+    assert _catch_doc_in("s138") == nothing and _catch_doc_in("s137") == _undressed(nothing)   # s138 wrote it whole
+    body = " ".join(_s138_block("HarnessAgent.cs", "private static void AppendDress(", "private static Int32 PartyIndexOf("))
+    names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
+    assert names == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"]), names       # s138's own row, frozen
+    getters = re.findall(r"Memoria\.Netsync\.NetSyncClient\.(HarnessGhost\w+)", body)
+    assert getters == ["HarnessGhostModel", "HarnessGhostGeo", "HarnessGhostClip", "HarnessGhostRig", "HarnessGhostPlaying",
+                       "HarnessGhostObject"], getters
+    assert body.count("Try(") == 7, body                        # the six ghost keys and each party slot: one Try apiece
+    assert 'sb.Append("},\\"party\\":[");' in body and "PartyIndexOf(slot), -2)" in body and "NetSyncParty" not in body
+    assert (BW.PARTY_EMPTY, BW.PARTY_UNREADABLE) == (-1, -2) and BW.DRESS_SENTINELS["party"] == [BW.PARTY_EMPTY] * 4
+    party = " ".join(_s138_block("HarnessAgent.cs", "private static Int32 PartyIndexOf(", "}"))
+    assert "FF9StateSystem.Common.FF9.party.member[slot]" in party and "NetSyncParty" not in party
+    assert _battle_text("return member == null ? -1 : (Int32)member.Index;")
+    assert _added_after("s138", "HarnessAgent.cs", 'AppendNetsyncBattle(sb); sb.Append(",");', "AppendDress(sb);")
+    assert "IsSelfTestRole" not in body                         # published in EVERY role
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    # the ghost getters: a sentinel whenever the instance or its ghost is null (never a stale bookkeeping field)
+    for g in ("HarnessGhostModel", "HarnessGhostGeo", "HarnessGhostClip", "HarnessGhostRig", "HarnessGhostObject"):
+        line = [ln for ln in _stack_text("NetSyncClient.cs") if "public static" in ln and f" {g} " in ln]
+        assert len(line) == 1 and "i == null || i._ghost == null ?" in line[0], (g, line)
+    assert _battle_text("&& i._ghostAnim.IsPlaying(i._ghostClip);")
+
+
+def test_the_player_dress_keys_follow_control_each_read_on_its_own():
+    """`player.*` (OUTSIDE netsync): WritePlayerDress writes exactly BW.PLAYER_DRESS_KEYS -- FG.NETSYNC_PLAYER_CAP_KEYS'
+    `dressinstr` row -- in that order, right after `control`; each key through its own Try, null with no controlled actor
+    (NullNum / null: the s90 THREE CASES); GEO and AnimationDB through TryGetValue (their indexers throw); the actor's
+    Animation component resolved ONCE per publish and handed to both readers; AppendPlayerDress wraps the whole write
+    (the player block has no block-level try and a throw out of PublishState FAULTS the agent): a read that escapes its
+    Try cuts the builder back and writes PlayerDressNull -- every key, null, in the same order; the body read off the
+    root's OWN mesh0 (the first renderer only as a fallback) behind HasProperty; `anim_geo` off the enabled state of the
+    highest weight; `objects[].model` -- FG.NETSYNC_OBJECT_CAP_KEYS -- a plain field read right after `sid`."""
+    lines = _s138_block("HarnessAgent.cs", "private static void WritePlayerDress(", "private static String GeoNameOf(")
+    body = " ".join(lines)
+    names = re.findall(r'(?:Bool|NumOrNull|Str)\(sb, "(\w+)"', body)
+    assert tuple(names) == BW.PLAYER_DRESS_KEYS == FG.NETSYNC_PLAYER_CAP_KEYS["dressinstr"], names
+    for ln in lines:
+        m = re.search(r'(NumOrNull|Str)\(sb, "(\w+)"', ln)
+        if m and m.group(2) != "clip":                          # `clip` is the Try'd local read once above it
+            assert "Try(" in ln and (": NullNum" in ln if m.group(1) == "NumOrNull" else ": null" in ln), ln
+    assert "String clip = has ? Try(() => ClipNameOf(po.anim)) : null;" in body
+    assert 'sb.Append("\\"clip_playing\\":null");' in body      # no actor: null, never false
+    # the Animation component: ONE lookup a publish, handed to both readers (the witness still enumerates every state)
+    assert body.count("GetComponent<Animation>()") == 1 and \
+        "Animation an = has ? Try(() => po.go != null ? po.go.GetComponent<Animation>() : null) : null;" in body
+    assert "PlayingStateName(an)" in body and "IsClipPlaying(an, clip)" in body
+    for frag in ("private static Boolean IsClipPlaying(Animation a, String clip)",
+                 "private static String PlayingStateName(Animation a)", "foreach (AnimationState st in a)"):
+        assert _battle_text(frag), frag
+    # the wrapper: the whole write under one try, cut back to the keys at null on a throw (never a torn half)
+    wrap = " ".join(_s138_block("HarnessAgent.cs", "private static void AppendPlayerDress(",
+                                "private static void WritePlayerDress("))
+    for frag in ("Int32 mark = sb.Length;", "WritePlayerDress(sb, po);", "catch (Exception)", "sb.Length = mark;",
+                 "sb.Append(PlayerDressNull);"):
+        assert frag in wrap, frag
+    const = net_lines("HarnessAgent.cs", r'private const String PlayerDressNull = "')
+    assert len(const) == 1, const
+    nulls = json.loads("{" + _literals(const[0])[0].replace('\\"', '"') + "}")
+    assert tuple(nulls) == BW.PLAYER_DRESS_KEYS and set(nulls.values()) == {None}, nulls
+    assert _added_after("s138", "HarnessAgent.cs", 'Bool(sb, "control"', "AppendPlayerDress(sb, po);")
+    for frag in ("private const Int64 NullNum = Int64.MinValue;",
+                 "return FF9BattleDB.GEO.TryGetValue((Int32)model, out geo) ? geo : null;",
+                 "return FF9DBAll.AnimationDB.TryGetValue((Int32)anim, out clip) ? clip : null;",
+                 "Material m = r.sharedMaterial;", 'if (m == null || !m.HasProperty("_MainTex"))',
+                 "return t == null ? null : Memoria.Netsync.NetSyncVisitor.TextureStem(t.name);",
+                 "if (st != null && st.enabled && st.weight > weight)"):
+        assert _battle_text(frag), frag
+    # BodyOf: the root's OWN mesh0 (BW.BODY_MESH), the first renderer only when there is none -- in that order
+    bodyof = [c for c in (_strip_comment(t) for t in _s138_block("HarnessAgent.cs", "private static String BodyOf(",
+                                                                  "private static void NumOrNull(")) if c]
+    i = bodyof.index('Transform m0 = go.transform.Find("mesh0");')
+    assert bodyof[i + 1:i + 4] == ["Renderer r = m0 != null ? m0.GetComponent<Renderer>() : null;", "if (r == null)",
+                                   "r = go.GetComponentInChildren<Renderer>();"], bodyof
+    assert BW.BODY_MESH == "mesh0" and not _battle_text("Renderer r = go.GetComponentInChildren<Renderer>();")
+
+
+#: [ff9mapkit netsync s138] AppendObjects' per-entry keys as s89 wrote them, in its order (test_harness.py pins the set)
+S89_OBJECT_KEYS = ("uid", "sid", "x", "y", "z", "range", "talk", "r", "solid", "coll", "range_r", "talk_r", "shown",
+                   "moving", "flags")
+
+
+def _writer_keys(lines) -> list:
+    """The keys a C# writer block publishes, in order, once each: its Bool / Num / NumOrNull / Str calls and its
+    ``\"key\":null`` literals."""
+    out = []
+    for a, b in re.findall(r'(?:(?:Bool|Num|NumOrNull|Str)\(sb, "(\w+)")|\\"(\w+)\\":null', " ".join(lines)):
+        k = a or b
+        if k not in out:
+            out.append(k)
+    return out
+
+
+def test_the_live_dress_writers_are_their_level_homes_in_ladder_order(game):
+    """THE LIVE LAW for the dress keys OUTSIDE netsync (and the ghost's), read off the LIVE stack rather than the s138
+    patch -- so an s139-s141 rewrite of a writer (a key added, renamed or moved) cannot leave BW, the stand-in or the bench
+    probe stale while every s138 pin stays green: WritePlayerDress's keys (the last live patch holding the whole method,
+    each line net-present) == the ladder-ordered concatenation of FG.NETSYNC_PLAYER_CAP_KEYS' rows, no player-key line of
+    its idiom sits outside it, and PlayerDressNull carries the same keys; AppendObjects' per-entry keys == the s89 set
+    with each rung's NETSYNC_OBJECT_CAP_KEYS inserted after `sid` (each by its own patch, net-present once), no other
+    object-key line exists, and the stand-in publishes that order; AppendDress's ghost keys == the live catch literal's
+    (the union of BW.DRESS_GHOST_KEYS_BY_RUNG)."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+
+    def ladder(table):
+        assert set(table) <= set(names), set(table) - set(names)
+        return [k for rung in names if rung in table for k in table[rung]]
+    lines = _cs_block("HarnessAgent.cs", "private static void WritePlayerDress(", stop="private static String GeoNameOf(UInt16 model)")
+    keys = re.findall(r'(?:Bool|NumOrNull|Str)\(sb, "(\w+)"', " ".join(lines))
+    assert keys == ladder(FG.NETSYNC_PLAYER_CAP_KEYS) == list(BW.PLAYER_DRESS_KEYS), keys
+    idiom = [t for t in _stack_text("HarnessAgent.cs")
+             if t.startswith("NumOrNull(sb, ") or re.match(r'(?:Str|Bool)\(sb, "\w+", (?:has \?|Try\(\(\) => IsClipPlaying)', t)]
+    assert idiom and set(idiom) <= set(lines), sorted(set(idiom) - set(lines))
+    const = net_lines("HarnessAgent.cs", r'private const String PlayerDressNull = "')
+    assert len(const) == 1 and list(json.loads("{" + _literals(const[0])[0].replace('\\"', '"') + "}")) == keys
+    # AppendObjects: the s89 entry keys, each rung's keys inserted right after `sid`
+    block = _cs_block("HarnessAgent.cs", "private static void AppendObjects(StringBuilder outer)", stop='sb.Append("}");')
+    got = _writer_keys(block[block.index('sb.Append("{");'):])     # one entry: its `{` to its `}`
+    rung_keys = ladder(FG.NETSYNC_OBJECT_CAP_KEYS)
+    base = [k for k in got if k not in rung_keys]
+    assert tuple(base) == S89_OBJECT_KEYS, base
+    i = base.index("sid") + 1
+    want = base[:i] + rung_keys + base[i:]
+    for rung, keys_ in FG.NETSYNC_OBJECT_CAP_KEYS.items():
+        patch = FG.NETSYNC_BATTLE_CAPS[rung][0]
+        for k in keys_:
+            assert _added_after(patch, "HarnessAgent.cs", 'Num(sb, "sid", obj.sid);', f'Num(sb, "{k}", actor.'), (rung, k)
+            assert len(net_lines("HarnessAgent.cs", rf'\bNum\(sb, "{k}", actor\.')) == 1, (rung, k)
+    entry = re.compile(r'^(?:Bool|Num|Str)\(sb, "(\w+)", (?:obj|actor)\.')
+    live = [entry.match(t).group(1) for t in _stack_text("HarnessAgent.cs") if entry.match(t)]
+    assert set(live) <= set(want), sorted(set(live) - set(want))
+    fake = FakeGame(game)
+    fake.field_id, fake.ui_state = FIELD, "FieldHUD"
+    fake.blockers = {FIELD: [{"x": 300.0, "z": 0.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217}]}
+    assert list(fake._objects_doc()[0]) == want, list(fake._objects_doc()[0])
+    # AppendDress: its ghost keys == the live catch literal's == the union of the frozen rows
+    dress = _cs_block("HarnessAgent.cs", "private static void AppendDress(", stop='sb.Append("]}");')
+    ghost = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', " ".join(dress))
+    assert ghost == list(_agent_netsync_nothing()[0]["dress"]["ghost"]) == list(BW.DRESS_GHOST_SENTINELS) == \
+        [k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row], ghost
+    assert FG.NETSYNC_OBJECT_CAP_KEYS["dressinstr"] == BW.OBJECT_DRESS_KEYS == ("model",)
+    assert _added_after("s138", "HarnessAgent.cs", 'Num(sb, "sid", obj.sid);', 'Num(sb, "model", actor.model);')
+    assert set(FG.NETSYNC_PLAYER_CAP_KEYS) == set(FG.NETSYNC_OBJECT_CAP_KEYS) == {"dressinstr"}
+
+
+def test_the_folder_and_stem_twins_are_the_engines_rules_case_for_case():
+    """BW.folder_of / BW.texture_stem are NetSyncVisitor.FolderOf / TextureStem (the s138 bodies pinned line for line),
+    run on the C# comments' own cases and the edges (null, empty, fewer than 4 tokens, no '_', a leading '_'); and every
+    clip of the nine rig rows -- the eight playerswap.CHARACTERS rows, their idle aliases and the moogle's -- folds to its
+    own model's GEO under that rule (the kit's copies of the open-source tables; audit amendment 8)."""
+    vis = _stack_text("NetSyncVisitor.cs")
+    for frag in ("String[] token = clip.Split('_');", "if (token.Length < 4)",
+                 'return "GEO_" + token[1] + "_" + token[2] + "_" + token[3];', "Int32 cut = name.IndexOf('_');",
+                 "return cut <= 0 ? name : name.Substring(0, cut);", "if (String.IsNullOrEmpty(clip))",
+                 "if (String.IsNullOrEmpty(name))"):
+        assert frag in vis, frag
+    new = _s138_new("NetSyncVisitor.cs")
+    i = new.index("public static String FolderOf(String clip)")
+    j = new.index("public static String TextureStem(String name)")
+    prose = [t[2:].strip() if t.startswith("//") else t for t in new]     # the comment lines, their `//` dropped
+    folder_doc, stem_doc = " ".join(prose[:i]), " ".join(prose[i:j])
+    pair = re.compile(r'"([A-Za-z0-9_]+)"(?: / "([A-Za-z0-9_]+)")? -> "([A-Za-z0-9_]+)"')
+    folder_cases = [(m.group(1), m.group(3)) for m in pair.finditer(folder_doc)]
+    stem_cases = [(n, m.group(3)) for m in pair.finditer(stem_doc) for n in (m.group(1), m.group(2)) if n]
+    assert folder_cases == [("ANH_MAIN_F0_ZDN_IDLE", "GEO_MAIN_F0_ZDN"), ("ANH_NPC_F0_MOG_IDLE", "GEO_NPC_F0_MOG")]
+    assert stem_cases == [("98_0", "98"), ("98_1", "98"), ("192_0", "192"), ("220_0", "220")], stem_cases
+    for clip, want in folder_cases:
+        assert BW.folder_of(clip) == want, clip
+    for name, want in stem_cases:
+        assert BW.texture_stem(name) == want, name
+    for v in (None, "", "ANH_MAIN_F0", "ANH", 7):
+        assert BW.folder_of(v) is None, v
+    assert BW.folder_of("A_B_C_D") == "GEO_B_C_D" and BW.folder_of("ANH_MAIN_F0_STN_B") == "GEO_MAIN_F0_STN"
+    assert BW.texture_stem("98") == "98" and BW.texture_stem("_x") == "_x" and BW.texture_stem("") is None
+    assert BW.texture_stem(None) is None and BW.eye_of(93) == -372
+    from ff9mapkit import playerswap
+    from ff9mapkit._animdb_all import ANIMATIONS
+    from ff9mapkit._modeldb import MODELS
+    aliases = {"zidane": 324, "vivi": 573, "garnet": 2090, "steiner": 2002, "freya": 2557, "quina": 3229, "eiko": 7504,
+               "amarant": 8308}                                 # R3-FIELD-MODEL-AUDIT.md 2.2 amendment 2's idle aliases
+    assert set(playerswap.CHARACTERS) == set(BW.RIG_NAMES[:8])  # the eight CharacterId rows (rig 8 is the moogle)
+    rows = {n: dict(playerswap.CHARACTERS[n], alias=aliases[n]) for n in BW.RIG_NAMES[:8]}
+    rows["moogle"] = {"model": 220, "idle": 2904, "walk": 2927, "run": 2907, "left": 2923, "right": 2911, "alias": 2905}
+    assert [r["model"] for r in rows.values()] == [98, 8, 185, 5489, 192, 273, 443, 509, 220]   # rig order = CharacterId
+    for name, r in rows.items():
+        for k, anim in r.items():
+            if k in ("model", "eye"):
+                continue
+            assert BW.folder_of(ANIMATIONS.get(anim)) == MODELS[r["model"]], (name, k, anim, ANIMATIONS.get(anim))
+    assert ANIMATIONS[200] == ANIMATIONS[324] == "ANH_MAIN_F0_ZDN_IDLE" and ANIMATIONS[0] == "ANH_MAIN_F0_STN_B"
+    assert [BW.rig_name(r) for r in (-1, 0, 7, 8, 9, True)] == [None, "zidane", "amarant", "moogle", None, None]
+
+
+def test_the_body_twin_reads_the_roots_own_mesh0_never_a_prop_or_the_overlay():
+    """BW.body_of is HarnessAgent.BodyOf's rule (pinned to the engine's lines in the player-block test) over a body's
+    renderers in Unity's depth-first order; on the stand-in's MODELLED prefab orders (FG.body_renderers: the hidden
+    battle_model overlay first on 98 / 509, then the bone subtree where GeoAttach parents a prop, then mesh0) it reads the
+    model's OWN stem for every rig row's model with a prop attached under bone 13, while a FIRST-renderer read (the rule
+    before the fix) reads the PROP on every rig without the overlay and the overlay's '98' on Zidane with or without the
+    prop -- so a prop check on a Zidane body cannot fail: s141's F8 must run on a NON-Zidane controlled body (and the
+    bench's docstring says so). Edges: no renderer, no root mesh0 (the first renderer stands in), an unnamed texture."""
+    prop = "9999_0"
+    rigs = [98, 8, 185, 5489, 192, 273, 443, 509, 220]          # the nine rig rows' models (rig order = CharacterId, 8 MOG)
+    for m in rigs:
+        rows = FG.body_renderers(m, [prop])
+        assert BW.body_of(rows) == str(m), (m, rows)
+        assert BW.body_of(FG.body_renderers(m)) == str(m), m
+        first = BW.texture_stem(rows[0][1])
+        if m in FG.FAKE_BATTLE_OVERLAY_MODELS:
+            assert first == str(m) == BW.texture_stem(FG.body_renderers(m)[0][1]), m   # the overlay: the prop is invisible
+        else:
+            assert first == "9999", (m, first)                  # the old rule reads the PROP for the body
+    assert FG.FAKE_BATTLE_OVERLAY_MODELS == (98, 509)
+    assert BW.body_of([]) is None and BW.body_of(None) is None
+    assert BW.body_of([("bone000/bone013/prop0/mesh0", "5489_0")]) == "5489"   # no root mesh0: the first renderer
+    assert BW.body_of([("bone000/bone013/prop0/mesh0", "5489_0"), ("mesh0", "192_0")]) == "192"
+    assert BW.body_of([("mesh0", "")]) is None and BW.body_of([("mesh0", None)]) is None   # unnamed: cannot judge
+    sd_doc = (SCENARIOS / "coop_self_dress.py").read_text(encoding="utf-8")
+    assert "judge it on a NON-Zidane controlled body" in " ".join(sd_doc.split())
+
+
+def test_each_dress_rungs_keys_are_ones_its_patch_added():
+    """THE DRESS KEY LAW (the action-replay audit's 4.3; R3-FIELD-MODEL-AUDIT.md 3.1): every dress rung sits on the ONE
+    battle ladder right after `acttrance`, adds NOTHING under `netsync.battle` (its NETSYNC_BATTLE_CAP_KEYS row empty, no
+    nested row) and adds exactly its NETSYNC_DRESS_CAP_KEYS row inside `netsync.dress` -- each key's path under
+    `netsync.dress`, never `netsync.battle` -- and its NETSYNC_DRESS_NESTED_KEYS row inside the block's fixed sub-objects;
+    the capability accessor reads a key its own patch added."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    rungs = list(FG.NETSYNC_DRESS_CAP_KEYS)
+    assert rungs == names[names.index("acttrance") + 1:][:len(rungs)] and rungs[0] == "dressinstr"
+    assert FG.NETSYNC_S138_CAPS == frozenset(("dressinstr",)) and FG.NETSYNC_BATTLE_CAPS["dressinstr"] == ("s138", ())
+    assert FG.NETSYNC_TOP_CAP_KEYS["dressinstr"] == ("dress",)
+    for rung, keys in FG.NETSYNC_DRESS_CAP_KEYS.items():
+        patch = FG.NETSYNC_BATTLE_CAPS[rung][0]
+        was, now = _catch_doc_in(f"s{int(patch[1:]) - 1}"), _catch_doc_in(patch)
+        assert now["battle"] == was["battle"], rung              # nothing under netsync.battle
+        assert FG.NETSYNC_BATTLE_CAP_KEYS[rung] == {} and rung not in FG.NETSYNC_BATTLE_NESTED_KEYS, rung
+        d_was, d_now = was.get("dress") or {}, _dress_of(now)
+        added = tuple(k for k in d_now if k not in d_was)
+        assert added == keys, (rung, added)
+        assert not (set(added) & set(now["battle"])), added
+        nested = {p: tuple(k for k in _at(d_now, p) if k not in _at(d_was, p)) for p in DRESS_CONTAINERS
+                  if isinstance(d_was.get(p), dict)}
+        assert {p: v for p, v in nested.items() if v} == FG.NETSYNC_DRESS_NESTED_KEYS.get(rung, {}), (rung, nested)
+    # the capability accessor reads `netsync.dress.ghost` -- a key `dressinstr` added -- and nothing older
+    assert "ghost" in FG.NETSYNC_DRESS_CAP_KEYS["dressinstr"]
+    assert State({"frame": 1, "netsync": _catch_doc_in("s138")}).coop_dress_instr is True
+    assert State({"frame": 1, "netsync": _catch_doc_in("s137")}).coop_dress_instr is False
+    assert State({"frame": 1, "netsync": {"enabled": True, "dress": {"party": [0, -1, -1, -1]}}}).coop_dress_instr is False
+    assert _s138_probe() == "netsync.dress.ghost"
+
+
+def test_every_dress_key_has_an_accessor_and_every_accessor_a_key():
+    """`netsync.dress`'s keys are exactly NETSYNC_DRESS_ACCESSORS' paths (+ the whole-ghost accessor), every accessor of
+    the `coop_dress_` family and reading its sentinel's type (null = a string reads ""); the player's dress keys are exactly
+    PLAYER_DRESS_ACCESSORS' (`player_<key>`); and the family stays out of the battle and top tables (NETSYNC_TOP_ACCESSORS'
+    law pins `session` / `menu_refusal`)."""
+    nothing = _agent_netsync_nothing()[0]
+    leaves = _dress_leaves(_dress_of(nothing))
+    table = State.NETSYNC_DRESS_ACCESSORS
+    assert set(table) - set(leaves) == set(DRESS_CONTAINERS) and set(leaves) <= set(table), sorted(set(table) ^ set(leaves))
+    assert all(n.startswith("coop_dress_") for n in table.values())
+    st = State({"frame": 1, "netsync": nothing})
+    for path, name in table.items():
+        got = getattr(st, name)
+        sentinel = leaves[path] if path in leaves else _at(_dress_of(nothing), path)
+        if sentinel is None:
+            assert got == "", (path, got)
+        elif isinstance(sentinel, (dict, list)):
+            assert got == sentinel and got is not sentinel, (path, got)
+        else:
+            assert got == sentinel and type(got) is type(sentinel), (path, got, sentinel)
+    assert st.netsync_dress == BW.DRESS_SENTINELS
+    assert not (set(table.values()) & set(State.NETSYNC_BATTLE_ACCESSORS.values()))
+    assert not (set(table.values()) & set(State.NETSYNC_TOP_ACCESSORS.values()))
+    pl = State.PLAYER_DRESS_ACCESSORS
+    assert tuple(pl) == BW.PLAYER_DRESS_KEYS and all(pl[k] == "player_" + k for k in pl), pl
+    # THE NAMES: a key's accessor is `coop_dress_<path>`, a fixed sub-object's WHOLE accessor `coop_dress_<path>_block`
+    # -- never the bare `coop_dress_<path>`, and never one of the rungs' BOOLEAN capability names (audit 3.1:
+    # `coop_dress_instr` / `_host` / `_self` / `_polish` -- s140's `self` container would otherwise collide)
+    for path, name in table.items():
+        flat = "coop_dress_" + path.replace(".", "_")
+        assert name == (flat + "_block" if path in DRESS_CONTAINERS else flat), (path, name)
+    reserved = {"coop_dress_instr", "coop_dress_host", "coop_dress_self", "coop_dress_polish"}
+    assert not (set(table.values()) & reserved), set(table.values()) & reserved
+    assert isinstance(getattr(State, "coop_dress_instr"), property) and not hasattr(State.coop_dress_instr.fget,
+                                                                                     "dress_path")
+
+
+def test_state_reads_the_dress_instrument_absent_as_cannot_never_as_nothing():
+    """On s137's catch block every `netsync.dress` accessor reads None and `coop_dress_instr` False; on the live block the
+    sentinels and True; no `netsync` block reads None; a published block reads its values (lists and dicts COPIED), a
+    mistyped value None. The player's THREE CASES: absent = "cannot" (every accessor None), null = "unknown" (None), a value
+    = "known"; a bool where an int belongs, an int where a string belongs: None. `object_models`: None for no list, a null
+    list, a list whose entries lack `model` (s137's) and ANY list -- an empty one included -- from an engine that cannot
+    publish the body (`player.model` absent); the rows otherwise ([] a field with no other actor)."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s137")})
+    live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
+    none = State({"frame": 1})
+    assert (none.coop_dress_instr, old.coop_dress_instr, live.coop_dress_instr) == (None, False, True)
+    for name in State.NETSYNC_DRESS_ACCESSORS.values():
+        assert getattr(none, name) is None and getattr(old, name) is None, name
+        assert getattr(live, name) is not None, name
+    assert none.netsync_dress is None and old.netsync_dress is None
+    d = {"ghost": {"model": 192, "geo": "GEO_MAIN_F0_FRJ", "clip": "ANH_MAIN_F0_FRJ_IDLE", "rig": 4, "playing": True,
+                   "body": "192"}, "party": [0, 4, -1, 2]}
+    st = State({"frame": 1, "netsync": {"enabled": True, "dress": d}})
+    assert (st.coop_dress_ghost_model, st.coop_dress_ghost_geo, st.coop_dress_ghost_clip, st.coop_dress_ghost_rig,
+            st.coop_dress_ghost_playing, st.coop_dress_ghost_body, st.coop_dress_party) == (
+        192, "GEO_MAIN_F0_FRJ", "ANH_MAIN_F0_FRJ_IDLE", 4, True, "192", [0, 4, -1, 2])
+    got = st.coop_dress_party
+    got.append(9)
+    gh = st.coop_dress_ghost_block
+    gh["model"] = 1
+    assert st.coop_dress_party == [0, 4, -1, 2] and st.coop_dress_ghost_model == 192
+    bad = State({"frame": 1, "netsync": {"dress": {"ghost": {"model": True, "geo": 3, "clip": [], "rig": "4", "playing": 1,
+                                                             "body": 98}, "party": {"0": 0}}}})
+    assert all(getattr(bad, n) is None for p, n in State.NETSYNC_DRESS_ACCESSORS.items() if p != "ghost"), bad.raw
+    # THE PLAYER'S THREE CASES (the s90 facing precedent)
+    absent = State({"frame": 1, "player": {"x": 0.0, "z": 0.0, "control": True}})
+    null = State({"frame": 1, "player": dict({"x": 0.0}, **dict.fromkeys(BW.PLAYER_DRESS_KEYS))})
+    vals = {"model": 98, "anim": 200, "geo": "GEO_MAIN_F0_ZDN", "anim_geo": "GEO_MAIN_F0_ZDN", "eye": -372, "uid": 10,
+            "sid": 10, "body": "98", "clip": "ANH_MAIN_F0_ZDN_IDLE", "clip_playing": True, "frame_n": 60, "anim_frame": 7,
+            "meshflags": 0}
+    known = State({"frame": 1, "player": dict(vals)})
+    assert (absent.player_dress_status, null.player_dress_status, known.player_dress_status) == ("cannot", "unknown",
+                                                                                                 "known")
+    for key, name in State.PLAYER_DRESS_ACCESSORS.items():
+        assert getattr(absent, name) is None and getattr(null, name) is None, name
+        assert getattr(known, name) == vals[key] and type(getattr(known, name)) is type(vals[key]), name
+    junk = State({"frame": 1, "player": {"model": True, "anim": "200", "geo": 98, "clip_playing": 1, "eye": None}})
+    assert junk.player_dress_status == "unknown" and (junk.player_model, junk.player_anim, junk.player_geo,
+                                                      junk.player_clip_playing, junk.player_eye) == (None,) * 5
+    # objects[].model
+    row = {"uid": 2, "sid": 2, "model": 217, "x": 0.0, "y": 0.0, "z": 0.0}
+    can = {"model": 98}                                         # the instrument's other half: this engine CAN publish
+    assert State({"frame": 1}).object_models is None and State({"frame": 1, "objects": None}).object_models is None
+    # an EMPTY list is "cannot" on an engine that cannot publish the body (s137: field 250's list is always empty) --
+    # [] only from one that can (`player.model` present: a value, or null with no controlled actor)
+    assert State({"frame": 1, "objects": []}).object_models is None
+    assert State({"frame": 1, "player": {"x": 0.0, "control": True}, "objects": []}).object_models is None
+    assert State({"frame": 1, "player": can, "objects": []}).object_models == []
+    assert State({"frame": 1, "player": {"model": None}, "objects": []}).object_models == []
+    assert State({"frame": 1, "player": can,
+                  "objects": [{k: v for k, v in row.items() if k != "model"}]}).object_models is None
+    assert State({"frame": 1, "player": can, "objects": [dict(row, model=True)]}).object_models is None
+    assert State({"frame": 1, "player": can, "objects": [row, dict(row, uid=3, sid=3)]}).object_models == [
+        (2, 2, 217), (3, 3, 217)]
+    assert State({"frame": 1, "objects": [row]}).object_models is None   # rows with `model`, but no capability: never read
+
+
+def _dress_fake(game, **over):
+    """A stand-in stepped BY HAND on a field, in the forced selftest role, its ghost's clip filled (two frames)."""
+    fake = FakeGame(game)
+    fake.field_id, fake.ui_state = FIELD, "FieldHUD"
+    for k, v in over.items():
+        setattr(fake, k, v)
+    fake._netsync(["selftest", "1"])
+    fake._step_dress()
+    fake._step_dress()
+    return fake
+
+
+def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
+    """With no client the stand-in's `netsync.dress` is the agent's block -- netsync's last key, `ghost` then `party`, the
+    ghost at its sentinels (no ghost) -- except `party`, which the agent reads LIVE (its catch line's [-1 x 4] is "the block
+    failed to build"): the seats' CharacterIds, -1 empty."""
+    nothing = _agent_netsync_nothing()[0]
+    fake = FakeGame(game)
+    doc = fake._netsync_doc()
+    assert list(doc)[-1] == "dress" and list(doc["dress"]) == list(nothing["dress"])
+    assert doc["dress"]["ghost"] == nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
+    assert list(doc["dress"]["ghost"]) == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"])   # the rung's own row
+    assert doc["dress"]["party"] == [0, 1, -1, -1] == [m["char"] if m else -1 for m in fake.save_party]
+    assert _battle_text("sb.Append(Try(() => PartyIndexOf(slot), -2).ToString(CultureInfo.InvariantCulture));")
+
+
+def test_an_s137_stand_in_publishes_no_dress_key_and_the_dress_rung_every_one(game):
+    """THE LEVEL HOME FOR KEYS OUTSIDE NETSYNC (audit 2.1 amendment 12): the player / objects / dress keys are gated on the
+    `dressinstr` rung -- ``caps_through("acttrance")`` (s137, s138's calibration) publishes NONE of them (`player.model`
+    absent: "cannot"; objects without `model`; no `netsync.dress`), ``caps_through("dressinstr")`` every one, in order."""
+    for caps, has in ((S137_CAPS, False), (_all_caps_through("dressinstr"), True)):
+        fake = FakeGame(game)
+        fake.netsync_caps = caps
+        fake.blockers = {FIELD: [{"x": 300.0, "z": 0.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217}]}
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            st = g.wait_for(lambda s: s.objects is not None and len(s.objects) == 1, timeout=10.0, what="the body")
+        p = st.raw["player"]
+        if has:
+            assert [k for k in p if k in BW.PLAYER_DRESS_KEYS] == list(BW.PLAYER_DRESS_KEYS)
+            assert st.player_dress_status == "known" and st.object_models == [(2, 2, 217)] and st.coop_dress_instr
+            assert list(st.objects[0])[:3] == ["uid", "sid", "model"] and list(st.netsync)[-1] == "dress"
+        else:
+            assert not (set(p) & set(BW.PLAYER_DRESS_KEYS)), p
+            assert st.player_dress_status == "cannot" and st.object_models is None and st.coop_dress_instr is False
+            assert "model" not in st.objects[0] and "dress" not in st.netsync
+
+
+def test_the_stand_in_models_the_body_the_ghost_and_the_party(game):
+    """What the stand-in models, each value honest: a stock Zidane's body (98, GEO_MAIN_F0_ZDN, -372, '98', the clip names
+    off the kit's copy of AnimationDB), the loco id off the pad (run by default, walk with `cancel` held, the stand id at
+    rest), sid == uid per field (`player_sids`), every key null off a field; the selftest mirror's ghost wearing the
+    player's model with its clip ONE frame behind the player's; the party's seats and a Main_Init's adds into the first
+    empty seats (a member already seated a no-op); a body's own `model` (MODEL_NONE without one)."""
+    fake = FakeGame(game)
+    fake.player_sids = {FIELD: 10}
+    fake.party_adds = {FIELD: (1, 2, 3)}
+    fake.blockers = {FIELD: [{"x": 300.0, "z": 0.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217},
+                             {"x": -300.0, "z": 0.0, "r": 152.0, "uid": 3, "sid": 3}]}
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        st = g.wait_for(lambda s: s.control and s.object_models is not None, timeout=10.0, what="control")
+        assert (st.player_model, st.player_geo, st.player_eye, st.player_body, st.player_anim, st.player_clip,
+                st.player_anim_geo, st.player_clip_playing, st.player_sid, st.player_uid, st.player_meshflags) == (
+            98, "GEO_MAIN_F0_ZDN", -372, "98", 200, "ANH_MAIN_F0_ZDN_IDLE", "GEO_MAIN_F0_ZDN", True, 10, 10, 0)
+        assert st.object_models == [(2, 2, 217), (3, 3, BW.MODEL_NONE)]
+        assert st.coop_dress_party == [0, 1, 2, 3]               # Vivi already seated: that add was a no-op
+        g.hold("up", 40)
+        run = g.wait_for(lambda s: s.player_anim == 38, timeout=5.0, what="the run id")
+        assert run.player_clip == "ANH_MAIN_F0_ZDN_RUN" and run.player_anim_geo == "GEO_MAIN_F0_ZDN"
+        g.wait_for(lambda s: s.player_anim == 200, timeout=5.0, what="the stand id again")
+        g.hold("cancel", 60)
+        g.hold("up", 40)
+        walk = g.wait_for(lambda s: s.player_anim == 25, timeout=5.0, what="the walk id")
+        assert walk.player_clip == "ANH_MAIN_F0_ZDN_WALK"
+        g.netsync("selftest", 1)
+        gh = g.wait_for(lambda s: s.coop_dress_ghost_model == 98, timeout=5.0, what="the ghost")
+        assert (gh.coop_dress_ghost_geo, gh.coop_dress_ghost_rig, gh.coop_dress_ghost_body) == ("GEO_MAIN_F0_ZDN", -1, "98")
+        fake.ui_state = "WorldHUD"
+        off = g.wait_for(lambda s: s.ui_state == "WorldHUD", timeout=5.0, what="off a field")
+        assert off.player_dress_status == "unknown" and off.coop_dress_ghost_model == -1
+    # a prop attached under a bone is never read for the body (BodyOf's mesh0 rule), on Zidane or a dressed Freya body
+    for model in (98, 192):
+        propped = _dress_fake(game, player_props=["5489_0"])
+        propped.player_body = dict(propped.player_body, model=model)
+        assert propped._player_dress_doc()["body"] == str(model), model
+    hand = _dress_fake(game)
+    assert hand._dress_doc()["ghost"]["clip"] == "ANH_MAIN_F0_ZDN_IDLE"
+    hand._dress_anim = lambda: 38                               # the player starts to run...
+    hand._step_dress()
+    assert (hand._player_dress_doc()["clip"], hand._dress_doc()["ghost"]["clip"]) == ("ANH_MAIN_F0_ZDN_RUN",
+                                                                                      "ANH_MAIN_F0_ZDN_IDLE")
+    hand._step_dress()                                          # ...and the ghost follows ONE frame later
+    assert hand._dress_doc()["ghost"]["clip"] == "ANH_MAIN_F0_ZDN_RUN"
+
+
+#: [ff9mapkit netsync s138] each fault lever -> the published keys it changes (and nothing else)
+DRESS_FAULT_KEYS = {"eye": {"player.eye"}, "body": {"player.body"}, "anim_geo": {"player.anim_geo"},
+                    "playing": {"player.clip_playing"}, "uid": {"player.uid"},
+                    "ghost_missing": {"ghost.model", "ghost.geo", "ghost.clip", "ghost.playing", "ghost.body"},
+                    "ghost_model": {"ghost.model", "ghost.geo", "ghost.body"}, "party_empty": {"party"},
+                    "object_model": {"objects.model"}}
+
+
+def test_each_dress_fault_lever_changes_its_own_keys_only(game):
+    """FakeGame.dress_faults (FG.DRESS_FAULTS, every one listed here): each turns exactly its keys -- so the bench judge
+    that reads them can be shown red offline on the shape it exists to catch, and on nothing else."""
+    assert set(DRESS_FAULT_KEYS) == set(FG.DRESS_FAULTS)
+
+    def doc(fake):
+        out = {f"player.{k}": v for k, v in fake._player_dress_doc().items()}
+        d = fake._dress_doc()
+        out.update({f"ghost.{k}": v for k, v in d["ghost"].items()}, party=d["party"])
+        out["objects.model"] = fake._objects_doc()[0].get("model", "ABSENT")
+        return out
+    blockers = {FIELD: [{"x": 300.0, "z": 0.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217}]}
+    clean = doc(_dress_fake(game, blockers=blockers))
+    assert clean["ghost.model"] == 98 and clean["objects.model"] == 217 and clean["party"] == [0, 1, -1, -1]
+    for fault, keys in DRESS_FAULT_KEYS.items():
+        got = doc(_dress_fake(game, blockers=blockers, dress_faults={fault}))
+        assert {k for k in clean if got[k] != clean[k]} == keys, fault
+    assert doc(_dress_fake(game, blockers=blockers, dress_faults={"eye"}))["player.eye"] == -376      # one eye byte off
+    # ...and every lever still bites when the WORN body is Freya (192: s140's S1 / S5 expected value) -- a value OTHER
+    # than the one worn, never a fixed id: the body lever then reads ZDN '98' under model 192 (audit amendment 3's case)
+    freya = dict(FG.FAKE_PLAYER_BODY, model=192)
+    clean = doc(_dress_fake(game, blockers=blockers, player_body=dict(freya)))
+    assert (clean["player.model"], clean["player.body"], clean["ghost.model"]) == (192, "192", 192)
+    for fault, keys in DRESS_FAULT_KEYS.items():
+        got = doc(_dress_fake(game, blockers=blockers, player_body=dict(freya), dress_faults={fault}))
+        assert {k for k in clean if got[k] != clean[k]} == keys, ("freya", fault)
+    bad = doc(_dress_fake(game, blockers=blockers, player_body=dict(freya), dress_faults={"body", "ghost_model"}))
+    assert (bad["player.body"], bad["ghost.model"], bad["ghost.body"]) == ("98", 98, "98")
+    assert [FG.dress_fault_model(m) for m in (98, 192, 220)] == [192, 98, 98]
+
+
+# ---- the s138 bench (studies/test-harness/scenarios/coop_self_dress.py), off the game: its tables, its pure judges and its
+# offline oracle reader, then a smoke against the stand-in -- each run in a CHILD (the scenario puts its own dir on sys.path)
+_SD_CHILD_HEAD = r"""
+import importlib.util, json, os, sys
+scen, tools, kit = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, tools)
+sys.path.insert(0, kit)
+spec = importlib.util.spec_from_file_location("coop_self_dress", os.path.join(scen, "coop_self_dress.py"))
+sd = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sd)
+"""
+
+_SD_TABLES = _SD_CHILD_HEAD + r"""
+def legs(env):
+    try:
+        return list(sd.selected_legs(env))
+    except ValueError as err:
+        return "ValueError: " + str(err)
+def mode(legs, env):
+    try:
+        return sd.selected_cal_mode(legs, env)
+    except ValueError as err:
+        return "ValueError: " + str(err)
+def pred(stage, legs, m="old"):
+    r, mb, w = sd.predicted(stage, legs, m)
+    return [None if r is None else list(r), list(mb), w]
+real = dict(sd.LEGS)
+cases = {"p137": pred(137, ("I",)), "p138": pred(138, ("I",)), "p139": pred(139, ("I",)), "pnone": pred(None, ("I",)),
+         "plever": pred(138, ("I",), "rule-s138")}
+# a FUTURE leg G (s139) registered beside I: its `old` row calibrates the s138 engine; leg I contributes nothing there
+sd.LEGS = dict(real, G={"patch": 139, "catalog": dict, "checks": ("S139-G2",), "steps": {}, "pre": (30604,),
+                        "oracle": ("stock",), "oracle_extra": None,
+                        "old": {137: (("S139-G0",), ()), 138: (("S139-G0", "S139-G2"), ("S139-G9",))},
+                        "lever": {"rule-s138": (("S139-G2", "S139-G3"), ())}})
+cases.update({"ig138": pred(138, ("I", "G")), "ig137": pred(137, ("I", "G")), "ig136": pred(136, ("I", "G")),
+              "ig139_old": pred(139, ("I", "G")), "ig139_lever": pred(139, ("I", "G"), "rule-s138"),
+              "g139_lever": pred(139, ("G",), "rule-s138"), "ig138_lever": pred(138, ("I", "G"), "rule-s138"),
+              "modes_ig": list(sd.cal_modes(("I", "G"))), "mode_ok": mode(("I", "G"), {"COOP_DRESS_CAL": "Rule-S138"}),
+              "pre_ig": list(sd.pre_fields(("I", "G"))), "oracle_ig": list(sd.oracle_fields(("I", "G"), 250))})
+# a FUTURE leg's own offline oracle (s141's MCF light): its `oracle_extra` hook, merged per leg; a raising hook is named
+sd._hook_ok = lambda g, ctx: ({"light_rgb": [80, 96, 120]}, {"mcf": "row 98 has no floor 1"})
+def _hook_bad(g, ctx):
+    raise OSError("no mapconfig")
+sd._hook_bad = _hook_bad
+base = {"patch": 141, "catalog": dict, "checks": (), "steps": {}, "pre": (30606,), "oracle": ("stock",), "old": {},
+        "lever": {}}
+sd.LEGS = dict(real, F=dict(base, oracle_extra="_hook_ok"), X=dict(base, oracle_extra="_hook_bad"))
+ctx = {"legs": ("I", "F", "X"), "oracle": {"fields": {}, "party": None, "problems": {}}}
+sd._oracle_extra(None, ctx)
+cases["extra"] = [ctx["oracle"]["extra"], ctx["oracle"]["problems"]]
+cases["pre_ifx"] = list(sd.pre_fields(("I", "F", "X")))
+sd.LEGS = real
+print(json.dumps({
+    "cal": sorted(sd._catalog(("I",), True)), "plain": sorted(sd._catalog(("I",), False)), "i": list(sd.I_CHECKS),
+    "legs": {k: {"patch": v["patch"], "steps": v["steps"], "pre": list(v["pre"]), "oracle": list(v["oracle"]),
+                 "oracle_extra": v["oracle_extra"], "old": {str(s): [list(r), list(m)] for s, (r, m) in v["old"].items()},
+                 "lever": {k2: [list(r), list(m)] for k2, (r, m) in v["lever"].items()}}
+             for k, v in sd.LEGS.items()},
+    "phases": list(sd.PHASES), "cases": cases,
+    "modes": {"default": mode(("I",), {}), "old": mode(("I",), {"COOP_DRESS_CAL": " OLD "}),
+              "bad": mode(("I",), {"COOP_DRESS_CAL": "rule-s138"})},
+    "sel": {"none": legs({}), "lower": legs({"COOP_DRESS_LEGS": "i"}), "dup": legs({"COOP_DRESS_LEGS": " I , i "}),
+            "bad": legs({"COOP_DRESS_LEGS": "I,X"})},
+    "consts": [sd.STOCK_FIELD, sd.BENCH_FIELD, sd.PARTY_FIELD, sd.DRESS_PROBE, sd.PLAYER_PROBE, list(sd.GHOST_AS_OK),
+               sd.EVT_LANG, sd.STEADY_TICKS, sd.TAIL_TICKS, sd.GHOST_HOLD, sd.REST_STILL, sd.STOCK_ENTRANCE,
+               sd.WALK_TICKS, sd.TICK_GAP, list(sd.KIT_CACHE_FILES), list(sd.S138_GHOST_KEYS)],
+    "probes": {str(k): v for k, v in sd.STAGE_PROBES.items()},
+    "pre_i": list(sd.pre_fields(("I",))), "oracle_i": list(sd.oracle_fields(("I",), 250)),
+    "steps_exist": all(callable(getattr(sd, s, None)) for v in sd.LEGS.values() for s in v["steps"].values()),
+    "doc": " ".join((sd.__doc__ or "").split())}))
+"""
+
+
+def _sd_child(script: str, payload=None, *, timeout: float = 240.0) -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", script, str(SCENARIOS), str(REPO / "tools"), str(REPO / "ff9mapkit")],
+                         env=env, input=json.dumps(payload or {}), capture_output=True, text=True, timeout=timeout)
+    assert out.returncode == 0, out.stderr[-3000:]
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_the_s138_benchs_tables_are_its_docstring():
+    """coop_self_dress.py's leg registry and calibration tables, pinned to its docstring: leg I is s138's, with steps in the
+    stock / seeded / bench / close phases (each a function the file defines), its PRE fields (30604, 30801) and oracle
+    fields (the stock field, 30801); on an engine before s138 (stage 137) exactly I1-I9 are predicted red (INI / OR / S0 /
+    P0 / PRE / R green); on s138 (and later) leg I alone defines no calibration (an inert instrument: the CAL row says to
+    calibrate on the s137 DLL); a torn instrument has none. THE COMBINATION RULE, on a future leg G (s139) registered beside
+    I: on s138 G's `old` row calibrates the run and I contributes NOTHING (it must stay green -- never "no lever" for the
+    whole run); on s137 both `old` rows add; on an engine neither leg has an `old` row for, none; on s139 under G's lever
+    only G's `lever` row, and without a lever no calibration; a lever mode no selected leg has is refused
+    (COOP_DRESS_CAL, case-blind; default `old`); the legs' PRE and oracle fields union in leg order. COOP_DRESS_LEGS picks
+    legs case-blind and refuses a name the file lacks; the CAL row joins the catalog only under COOP_CALIBRATE; the probe
+    is the dress probe LADDER (battlewire.DRESS_PROBES), its 138 rung _coop_battle's R3_PROBES[138]."""
+    got = _sd_child(_SD_TABLES)
+    i_checks = [f"S138-I{n}" for n in range(1, 10)]
+    c = got["cases"]
+    assert got["i"] == i_checks and c["p137"] == [i_checks, [], ""]
+    shared = ["S138-INI", "S138-OR", "S138-P0", "S138-PRE", "S138-R", "S138-S0"]
+    assert got["plain"] == sorted(shared + i_checks) and got["cal"] == sorted(shared + i_checks + ["S138-CAL"])
+    assert got["legs"] == {"I": {"patch": 138, "steps": {"stock": "_i_stock", "seeded": "_i_seeded", "bench": "_i_bench",
+                                                         "close": "_i_close"},
+                                 "pre": [30604, 30801], "oracle": ["stock", 30801], "oracle_extra": None,
+                                 "old": {"137": [i_checks, []]}, "lever": {}}} and got["steps_exist"]
+    assert got["phases"] == ["stock", "seed", "seeded", "bench", "close"]
+    for k in ("p138", "p139"):
+        assert c[k][0] is None and "no lever" in c[k][2] and "0269771f24b626c1" in c[k][2], (k, c[k])
+    assert c["pnone"][0] is None and "TORN" in c["pnone"][2]
+    assert c["plever"][0] is None and "rule-s138" in c["plever"][2]
+    # the combination rule (a future leg G beside I)
+    assert c["ig138"] == [["S139-G0", "S139-G2"], ["S139-G9"], ""], c["ig138"]      # I contributes nothing: stays green
+    assert c["ig137"] == [i_checks + ["S139-G0"], [], ""], c["ig137"]
+    assert c["ig136"][0] is None and "leg I" in c["ig136"][2], c["ig136"]
+    assert c["ig139_old"][0] is None and "no lever" in c["ig139_old"][2], c["ig139_old"]
+    assert c["ig139_lever"] == c["g139_lever"] == [["S139-G2", "S139-G3"], [], ""], c["ig139_lever"]
+    assert c["ig138_lever"] == c["ig138"], c["ig138_lever"]  # an engine before G's patch: G's `old` row, never its lever
+    assert c["modes_ig"] == ["old", "rule-s138"] and c["mode_ok"] == "rule-s138"
+    assert c["pre_ig"] == [30604, 30801] and c["oracle_ig"] == [250, 30801]
+    assert got["pre_i"] == [30604, 30801] and got["oracle_i"] == [250, 30801]
+    extra, problems = c["extra"]
+    assert extra == {"F": {"light_rgb": [80, 96, 120]}, "X": None}, extra
+    assert problems == {"F.mcf": "row 98 has no floor 1", "X.hook": "_hook_bad raised OSError: no mapconfig"}, problems
+    assert c["pre_ifx"] == [30604, 30801, 30606]
+    assert got["modes"]["default"] == got["modes"]["old"] == "old"
+    assert got["modes"]["bad"].startswith("ValueError: COOP_DRESS_CAL='rule-s138' is no calibration mode")
+    assert got["sel"]["none"] == got["sel"]["lower"] == got["sel"]["dup"] == ["I"]
+    assert got["sel"]["bad"].startswith("ValueError: COOP_DRESS_LEGS names ['X']")
+    assert got["consts"] == [250, 30801, 30604, "netsync.dress.ghost", "player.model", ["", "auto", "off", "0"], "us", 2, 1,
+                             2, 3, 0, 16, 4, [".ff9mapkit-events-bundle.txt"],
+                             ["model", "geo", "clip", "rig", "playing", "body"]]
+    assert got["probes"] == {str(k): v for k, v in BW.DRESS_PROBES.items()} == {
+        "138": "netsync.dress.ghost", "139": "netsync.dress.codec", "140": "netsync.dress.self",
+        "141": "netsync.dress.self.steps"}
+    assert _s138_probe() == got["consts"][3]
+    doc = got["doc"]
+    for cid in ("INI", "OR", "S0", "P0", "PRE", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "I8", "I9", "R"):
+        assert f" {cid} " in doc, cid                            # WHAT IS PROVEN names every check
+    assert "RED, exactly: I1-I9. GREEN: INI, OR, S0, P0, PRE, R." in doc
+    assert "JUDGED PER FIELD TICK" in doc and "TAKEN OVER" in doc and "PER FIELD" in doc and "READ-ONLY" in doc
+    assert "py tools/play.py studies/test-harness/scenarios/coop_self_dress.py --field 250" in doc
+    assert "COOP_CALIBRATE=1 py tools/play.py studies/test-harness/scenarios/coop_self_dress.py --field 250" in doc
+
+
+_SD_JUDGES = _SD_CHILD_HEAD + r"""
+doc = json.loads(sys.stdin.read())
+class St:
+    def __init__(self, d):
+        self.raw = d
+        self.frame = d.get("frame", 0)
+        self.field_id = (d.get("field") or {}).get("id", 0)
+def sts(xs):
+    return [St(x) for x in xs]
+fo = {int(k): v for k, v in doc["fo"].items()}
+for v in fo.values():
+    v["npcs"] = {int(k): m for k, m in v["npcs"].items()}
+f250, f30801 = fo[250], fo[30801]
+named = sd._fo({"oracle": {"fields": {}, "problems": {30801: "EVT_TEST30801 not deployed"}}}, 30801)
+out = {"probe": {k: list(sd.probe(St(d))) for k, d in doc["probe"].items()},
+       "model": {k: sd.judge_model(p, f250)[0] for k, p in doc["player"].items()},
+       "geo": {k: sd.judge_geo(p, f250)[0] for k, p in doc["player"].items()},
+       "eye": {k: sd.judge_eye(p, f250)[0] for k, p in doc["player"].items()},
+       "ids": {k: sd.judge_ids(p, f250)[0] for k, p in doc["player"].items()},
+       "folder": {k: sd.judge_rest_folder(p, f250)[0] for k, p in doc["player"].items()},
+       "walk": {k: list(sd.judge_walk(sts(s), f250)) for k, s in doc["walk"].items()},
+       "moves": {k: [len(m) for m in sd.moves(sts(s))] for k, s in doc["walk"].items()},
+       "moves0": {k: [len(m) for m in sd.moves(sts(s), gap=0)] for k, s in doc["walk"].items()},
+       "rest": {k: list(sd.judge_rest(sts(s), f250)) for k, s in doc["rest"].items()},
+       "ghost": {k: sd.judge_ghost(sts(s))[0] for k, s in doc["ghost"].items()},
+       "ghost1": {k: sd.judge_ghost(sts(s), hold=1)[0] for k, s in doc["ghost"].items()},
+       "party": {k: sd.judge_party(d, [0, 1, 2, 3])[0] for k, d in doc["party"].items()},
+       "party_nowant": list(sd.judge_party(doc["party"]["green"], None, why="coopparty.field.toml: gone")),
+       "party_unread": sd.judge_party({"party": [0, 1, -2, 3]}, [0, 1, 2, 3])[1],
+       "objects": {k: list(sd.judge_objects(St(d), f30801)) for k, d in doc["objects"].items()},
+       "noracle": [sd.judge_model(doc["player"]["green"], {})[0], sd.judge_objects(St(doc["objects"]["green"]), {})[0]],
+       "named": [named] + [list(j(doc["player"]["green"], named)) for j in (sd.judge_model, sd.judge_geo, sd.judge_eye,
+                                                                            sd.judge_ids, sd.judge_rest_folder)]
+                + [list(sd.judge_objects(St(doc["objects"]["green"]), named)),
+                   list(sd.judge_walk(sts(doc["walk"]["run"]), named))],
+       "nobody": [list(sd.judge_model(doc["nobody"]["right"], f250)), list(sd.judge_model(doc["nobody"]["wrong"], f250))],
+       "free": {k: sd.free_on(d, 250) for k, d in doc["free"].items()},
+       "prefix": len(sd.on_field_prefix(doc["prefix"], 250)),
+       "eb": {k: sd.eb_facts(bytes.fromhex(h)) for k, h in doc["eb"].items()}}
+print(json.dumps(out))
+"""
+
+_SD_FO = {"sid": 10, "uid": 10, "model": 98, "eye": 93, "idle": 200, "walk": 25, "run": 38, "inactive": 57, "npcs": {},
+          "geo": "GEO_MAIN_F0_ZDN", "body": "98", "clips": {"idle": "ANH_MAIN_F0_ZDN_IDLE"}}
+
+
+def _sd_player(**over) -> dict:
+    """A published `player` block of the s138 shape (a stock Zidane at rest); a value "DROP" removes its key."""
+    p = {"x": 0.0, "y": 0.0, "z": 0.0, "control": True, "model": 98, "anim": 200, "geo": "GEO_MAIN_F0_ZDN",
+         "anim_geo": "GEO_MAIN_F0_ZDN", "eye": -372, "uid": 10, "sid": 10, "body": "98", "clip": "ANH_MAIN_F0_ZDN_IDLE",
+         "clip_playing": True, "frame_n": 60, "anim_frame": 0, "meshflags": 0}
+    p.update(over)
+    return {k: v for k, v in p.items() if v != "DROP"}
+
+
+def _sd_doc(frame=1, *, player=None, ghost=None, party=None, ui="FieldHUD", sess_ghost=True, forced=True, dress=True,
+            **pover) -> dict:
+    """A published document of the s138 shape: the player block, the forced selftest, `netsync.dress`."""
+    p = player if player is not None else _sd_player(**pover)
+    ns = {"enabled": True, "selftest": forced, "forced": forced, "session": {"ghost": sess_ghost}}
+    if dress:
+        ns["dress"] = {"ghost": {k: BW.DRESS_GHOST_SENTINELS[k] for k in BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"]}
+                       if ghost is None else ghost,
+                       "party": [0, 1, 2, 3] if party is None else party}
+    return {"frame": frame, "ui_state": ui, "field": {"id": 250}, "player": p, "netsync": ns}
+
+
+def _sd_ghost(**over) -> dict:
+    g = {"model": 98, "geo": "GEO_MAIN_F0_ZDN", "clip": "ANH_MAIN_F0_ZDN_IDLE", "rig": -1, "playing": True, "body": "98"}
+    g.update(over)
+    return g
+
+
+def _sd_eb(entries: dict) -> str:
+    """A synthetic `.eb` (hex) from ``{entry index: packed entry}`` -- the kit's own layout (eb.model)."""
+    n = max(entries) + 1
+    head = bytearray(b"EV\x00" + bytes([n]) + b"\x00" * (0x80 - 4))
+    table, body, off = bytearray(), bytearray(), n * 8
+    for i in range(n):
+        e = entries.get(i, b"")
+        table += struct.pack("<HHBBH", off if e else 0, len(e), 0, 0, 0)
+        body += e
+        off += len(e)
+    return bytes(head + table + body).hex()
+
+
+def test_the_s138_benchs_pure_judges_read_each_engine_and_can_fail():
+    """coop_self_dress.py's judges, PURE, on synthetic shapes -- each GREEN on the s138 shape and RED on every shape it
+    exists to catch (audit 2.1 amendment 1: an absent key, an empty list, a null, a wrong eye, a missing ghost, an empty
+    party): the probe (whole / absent / torn / a later superset), I1 (absent, null, a foreign body, no oracle), I2, I4 (-376),
+    I9 (a uid off its sid), I3 (anim 0's STN_B trap, nothing playing), I5 (walk or run either way; the hold's first and
+    the release's last publishes not judged -- STEADY / TAIL --; an idle publish mid-move; no move; the SLEEP clip at rest;
+    still moving at rest), I7 (the one-frame skew -- the 2-publish hold needed:
+    hold=1 reads it red --, the ghost missing, in another model, dressed, not playing, another body, no session ghost, off
+    FieldHUD, no dress block), I8 (empty, absent, a non-Zidane slot 0, short), I6 (absent, null, empty, one actor, no
+    model, a wrong model, a 98) and the oracle's .eb reader (the controlled entry is the LAST inited binder; none; an
+    uninited binder)."""
+    from ff9mapkit.eb import opcodes as O
+    from ff9mapkit.eb.model import pack_entry
+    g138 = {k: BW.DRESS_GHOST_SENTINELS[k] for k in BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"]}
+    s139 = {"ghost": dict(g138, bench_mask=-1, empty_mask=-1, rule=None, wire=-1, mode=None), "party": [0, -1, -1, -1],
+            "codec": None, "rig_idle_frames": [-1] * 9}
+    probe = {"whole": _sd_doc(), "absent": _sd_doc(player={"x": 0.0, "control": True}, dress=False),
+             "torn_dress": _sd_doc(dress=False), "torn_player": _sd_doc(player={"x": 0.0, "model": 98}),
+             "torn_party": dict(_sd_doc(), netsync={"dress": {"ghost": dict(g138), "party": [0]}}),
+             # s139: its levers appended to `ghost`, `codec` to `dress` -- a whole s138 prefix, the stage 139
+             "later": dict(_sd_doc(), netsync={"dress": s139}),
+             "s140": dict(_sd_doc(), netsync={"dress": dict(s139, self={"rig": -1})}),
+             "s141": dict(_sd_doc(), netsync={"dress": dict(s139, self={"rig": -1, "steps": []})}),
+             # a GAP in the ladder (s140's `self` without s139's `codec`) and an s139 ghost missing an s138 key: torn
+             "gap": dict(_sd_doc(), netsync={"dress": {"ghost": dict(g138), "party": [0, -1, -1, -1], "self": {}}}),
+             "torn_s139": dict(_sd_doc(), netsync={"dress": dict(s139, ghost={k: v for k, v in s139["ghost"].items()
+                                                                               if k != "body"})})}
+    player = {"green": _sd_player(), "absent": _sd_player(**dict.fromkeys(BW.PLAYER_DRESS_KEYS, "DROP")),
+              "null": _sd_player(**dict.fromkeys(BW.PLAYER_DRESS_KEYS)), "body": _sd_player(body="192"),
+              "eye": _sd_player(eye=-376), "uid": _sd_player(uid=11), "geo": _sd_player(geo="GEO_MAIN_F0_FRJ"),
+              "anim0": _sd_player(anim=0), "noplay": _sd_player(anim_geo=None), "stopped": _sd_player(clip_playing=False)}
+    nobody = {"right": _sd_player(body=None), "wrong": _sd_player(body=None, model=192)}
+
+    def move(n, *, anim=38, start=4, idle_at=None, **over):
+        """n publishes: still for `start`, then moving 30u a publish (the anim `anim`, `over` applied) until 2 before
+        the end, then still at rest."""
+        out = []
+        for i in range(n):
+            moving = start <= i < n - 2
+            z = 0.0 if i < start else 30.0 * (min(i, n - 3) - start + 1)
+            a = anim if moving and i != idle_at else 200
+            out.append(_sd_doc(i + 1, player=_sd_player(z=z, anim=a, **(over if moving else {}))))
+        return out
+    mixed = move(16)
+    for i, s in enumerate(mixed):
+        if s["player"]["anim"] == 38 and i % 2:
+            s["player"]["anim"] = 25
+    coast, taking = move(16), move(16)
+    coast[13]["player"]["anim"] = 200                                   # the release's coast: moved, the pad already up
+    taking[4]["player"]["anim"] = 200                                   # the hold taking: moved, the anim not yet loco
+
+    def quantized(n, *, every=2, anim=38, start=4, end_still=4, idle_at=None):
+        """n publishes at ~60 fps: still for `start`, then the position steps every `every`-th publish (a field tick;
+        the publishes between are render frames with NO tick -- the same po.pos) with the anim `anim` on EVERY one, then
+        still at rest for the last `end_still`."""
+        out, z = [], 0.0
+        for i in range(n):
+            moving = start <= i < n - end_still
+            if moving and (i - start) % every == 0:
+                z += 60.0
+            a = anim if moving and i != idle_at else 200
+            out.append(_sd_doc(i + 1, player=_sd_player(z=z, anim=a)))
+        return out
+    twice = quantized(14, start=2, end_still=2) + [_sd_doc(100 + i, player=_sd_player(z=300.0 + 60.0 * max(0, i - 8),
+                                                                                       anim=38 if i > 8 else 200))
+                                                   for i in range(20)]
+    walk = {"run": move(16), "walk": move(16, anim=25), "mixed": mixed, "idle_mid": move(16, idle_at=10),
+            "still": [_sd_doc(i + 1) for i in range(16)], "short": move(8), "noplay": move(16, clip_playing=False),
+            "absent": move(16, anim="DROP"), "coast": coast, "taking": taking,
+            # THE TICK LAW: at 60 fps the position steps every OTHER publish (31 fps: every one) -- green per tick; a
+            # TICKLESS frame mid-move that reads the stand id is still judged (red); 3-frame tick gaps (~90 fps) too
+            "q60": quantized(30), "q60_idle": quantized(30, idle_at=17), "q90": quantized(40, every=3),
+            "q60_short": quantized(12), "twice": twice}
+
+    def rest(**over):
+        return [_sd_doc(i + 1, **over) for i in range(6)]
+    rests = {"green": rest(), "sleep": rest(anim=57, clip="ANH_MAIN_F0_ZDN_BREAK1_XARM"), "other": rest(anim=25),
+             "clip": rest(clip="ANH_MAIN_F0_ZDN_WALK"), "moving": [_sd_doc(i + 1, z=30.0 * i) for i in range(6)],
+             "few": rest()[:2]}
+
+    def ghosts(**gover):
+        return [_sd_doc(i + 1, ghost=_sd_ghost(**gover)) for i in range(4)]
+    skew = ghosts()
+    skew[-1]["player"].update(anim=38, clip="ANH_MAIN_F0_ZDN_RUN")      # the player changed on the LAST publish only
+    redress = ghosts()
+    redress[-1]["netsync"]["dress"]["ghost"].update(model=192, geo="GEO_MAIN_F0_FRJ")   # the ghost changed on the LAST
+    bodiless = ghosts(body=None)
+    for x in bodiless:
+        x["player"]["body"] = None
+    ghost = {"green": ghosts(), "skew": skew, "missing": [_sd_doc(i + 1) for i in range(4)], "nobody": bodiless,
+             "redress": redress,
+             "model": ghosts(model=192, geo="GEO_MAIN_F0_FRJ"), "dressed": ghosts(rig=0), "noplay": ghosts(playing=False),
+             "body": ghosts(body="192"), "nosess": [_sd_doc(i + 1, ghost=_sd_ghost(), sess_ghost=False) for i in range(4)],
+             "battle": [_sd_doc(i + 1, ghost=_sd_ghost(), ui="BattleHUD") for i in range(4)],
+             "unforced": [_sd_doc(i + 1, ghost=_sd_ghost(), forced=False) for i in range(4)],
+             "nodress": [_sd_doc(i + 1, dress=False) for i in range(4)], "empty": []}
+    party = {"green": {"party": [0, 1, 2, 3]}, "reordered": {"party": [0, 3, 1, 2]}, "empty": {"party": [-1] * 4},
+             "lead": {"party": [1, 0, 2, 3]}, "short": {"party": [0, 1, 2]}, "null": {"party": [0, None, 2, 3]},
+             "fewer": {"party": [0, 1, -1, -1]}, "absent": {}, "unreadable": {"party": [0, 1, -2, 3]}}
+    o = {"uid": 2, "sid": 2, "model": 217, "x": 0.0, "y": 0.0, "z": 0.0}
+    objects = {"green": {"objects": [o, dict(o, uid=3, sid=3)]}, "absent": {}, "null": {"objects": None},
+               "empty": {"objects": []}, "one": {"objects": [o]},
+               "nomodel": {"objects": [{k: v for k, v in o.items() if k != "model"}, dict(o, uid=3, sid=3)]},
+               "wrong": {"objects": [o, dict(o, uid=3, sid=3, model=216)]},
+               "zidane": {"objects": [o, dict(o, uid=3, sid=3, model=98)]},
+               "unknown_sid": {"objects": [o, dict(o, uid=5, sid=5)]}}
+    main = pack_entry(0, [(0, O.init_object(1, 0) + O.init_object(2, 0) + O.init_object(3, 7))])
+    pl = pack_entry(2, [(0, O.set_model(98, 93) + O.set_stand_animation(200) + O.encode(0x34, 25) + O.encode(0x35, 38)
+                         + O.encode(0x52, 57) + O.encode(0x2C))])
+    npc = pack_entry(2, [(0, O.set_model(217, 100) + O.set_stand_animation(2370))])
+    second = pack_entry(2, [(0, O.set_model(192, 94) + O.set_stand_animation(2556) + O.encode(0x34, 2553)
+                             + O.encode(0x35, 2558) + O.encode(0x2C))])
+    eb = {"green": _sd_eb({0: main, 1: pl, 2: npc, 3: npc}), "second": _sd_eb({0: main, 1: pl, 2: npc, 3: second}),
+          "none": _sd_eb({0: main, 1: npc, 2: npc, 3: npc}),
+          "uninited": _sd_eb({0: pack_entry(0, [(0, O.init_object(2, 0) + O.init_object(3, 0))]), 1: pl, 2: npc,
+                              3: npc})}
+    free = {"green": _sd_doc(), "fading": dict(_sd_doc(), fading=True), "nocontrol": _sd_doc(control=False),
+            "battle": _sd_doc(ui="BattleHUD"), "elsewhere": dict(_sd_doc(), field={"id": 251})}
+    prefix = [_sd_doc(1), _sd_doc(2), dict(_sd_doc(3), fading=True), _sd_doc(4)]
+    payload = {"fo": {"250": _SD_FO, "30801": dict(_SD_FO, sid=1, uid=1, npcs={"2": 217, "3": 217})}, "probe": probe,
+               "player": player, "walk": walk, "rest": rests, "ghost": ghost, "party": party, "objects": objects, "eb": eb,
+               "free": free, "prefix": prefix, "nobody": nobody}
+    got = _sd_child(_SD_JUDGES, payload)
+    assert {k: v[0] for k, v in got["probe"].items()} == {
+        "whole": 138, "absent": 137, "torn_dress": None, "torn_player": None, "torn_party": None, "later": 139,
+        "s140": 140, "s141": 141, "gap": None, "torn_s139": None}, got["probe"]
+    assert "gap in the dress probe ladder" in got["probe"]["gap"][1] and got["probe"]["later"][1].startswith("whole (s139)")
+    assert {k for k, v in got["model"].items() if not v} == {"absent", "null", "body"}, got["model"]
+    assert {k for k, v in got["geo"].items() if not v} == {"absent", "null", "geo"}, got["geo"]
+    assert {k for k, v in got["eye"].items() if not v} == {"absent", "null", "eye"}, got["eye"]
+    assert {k for k, v in got["ids"].items() if not v} == {"absent", "null", "uid"}, got["ids"]
+    assert {k for k, v in got["folder"].items() if not v} == {"absent", "null", "anim0", "noplay", "stopped"}, got["folder"]
+    assert {k: v[0] for k, v in got["walk"].items()} == {"run": True, "walk": True, "mixed": True, "idle_mid": False,
+                                                        "still": False, "short": False, "noplay": False,
+                                                        "absent": False, "coast": True, "taking": True, "q60": True,
+                                                        "q60_idle": False, "q90": True, "q60_short": False,
+                                                        "twice": True}, got["walk"]
+    # per TICK: q60's 11 ticks are ONE move (the tickless frames collapsed); read per PUBLISH (gap 0, the judge before the
+    # tick law) the same samples are eleven 1-tick moves -- no middle at all: the 60 fps shape the old judge read red
+    assert got["moves"]["q60"] == [11] and got["moves0"]["q60"] == [1] * 11, (got["moves"]["q60"], got["moves0"]["q60"])
+    assert got["moves"]["run"] == got["moves0"]["run"] == [10]                     # 31 fps: every publish a tick
+    assert got["moves"]["twice"] == [5, 11], got["moves"]["twice"]               # a long still gap ends a move
+    assert "over 8 ticks" in got["walk"]["q60"][1] and "first bad" in got["walk"]["q60_idle"][1]
+    assert "field ticks" in got["walk"]["q60_short"][1]
+    assert "['run']" in got["walk"]["run"][1] and "['walk']" in got["walk"]["walk"][1]
+    assert {k: v[0] for k, v in got["rest"].items()} == {"green": True, "sleep": False, "other": False, "clip": False,
+                                                        "moving": False, "few": False}, got["rest"]
+    assert "SLEEP" in got["rest"]["sleep"][1] and "not a pass" in got["rest"]["sleep"][1]
+    assert got["ghost"] == {"green": True, "skew": True, "missing": False, "model": False, "dressed": False,
+                            "noplay": False, "body": False, "nosess": False, "battle": False, "unforced": False,
+                            "nodress": False, "empty": False, "nobody": False, "redress": True}, got["ghost"]
+    assert got["ghost1"]["green"] is True and got["ghost1"]["skew"] is False       # the 2-publish rule is load-bearing
+    assert got["ghost1"]["redress"] is False                    # ...for the ghost's own tuple too (a re-dress landing)
+    assert got["party"] == {"green": True, "reordered": True, "empty": False, "lead": False, "short": False,
+                            "null": False, "fewer": False, "absent": False, "unreadable": False}, got["party"]
+    assert got["party_nowant"][0] is False and got["party_nowant"][1].startswith("not reached: no party oracle "
+                                                                                 "(coopparty.field.toml: gone)")
+    assert "slots [2] UNREADABLE" in got["party_unread"]
+    assert {k: v[0] for k, v in got["objects"].items()} == {"green": True, "absent": False, "null": False, "empty": False,
+                                                           "one": False, "nomodel": False, "wrong": False,
+                                                           "zidane": False, "unknown_sid": False}, got["objects"]
+    assert got["noracle"] == [False, False]
+    # a NAMED per-field miss: every judge reads it "not reached", naming the field and why (never a wrong value)
+    named, *judged = got["named"]
+    assert named == {"_none": "no oracle for field 30801 (EVT_TEST30801 not deployed)"}
+    for ok, why in judged:
+        assert ok is False and why == "not reached: no oracle for field 30801 (EVT_TEST30801 not deployed)", why
+    # `body` null with the model right: "cannot judge" (an unnamed texture), never a pass -- and a wrong model stays a value
+    assert got["nobody"][0][0] is False and got["nobody"][0][1].startswith("not reached: cannot judge the body")
+    assert got["nobody"][1][0] is False and not got["nobody"][1][1].startswith("not reached")
+    assert got["free"] == {"green": True, "fading": False, "nocontrol": False, "battle": False, "elsewhere": False}
+    assert got["prefix"] == 2                                   # the window ends at its first sample off the field
+    e = got["eb"]
+    assert {k: e["green"][k] for k in ("sid", "uid", "model", "eye", "idle", "walk", "run", "inactive", "players",
+                                       "problems")} == {"sid": 1, "uid": 1, "model": 98, "eye": 93, "idle": 200,
+                                                        "walk": 25, "run": 38, "inactive": 57, "players": [1],
+                                                        "problems": []}
+    assert e["green"]["npcs"] == {"2": 217, "3": 217}
+    assert (e["second"]["sid"], e["second"]["uid"], e["second"]["model"], e["second"]["players"], e["second"]["npcs"]) == (
+        3, 7, 192, [1, 3], {"1": 98, "2": 217})                 # control binds to the LAST inited binder
+    assert e["none"]["sid"] is None and e["none"]["problems"]
+    assert e["uninited"]["sid"] is None and e["uninited"]["players"] == []
+
+
+_SD_ORACLE_OFFLINE = _SD_CHILD_HEAD + r"""
+import pathlib, tempfile
+doc = json.loads(sys.stdin.read())
+def make(case):
+    t = pathlib.Path(tempfile.mkdtemp())
+    (t / "Memoria.ini").write_text('[Mod]\nFolderNames = "FF9CustomMap", "FF9CustomMap-msgs"\n', encoding="utf-8")
+    (t / "StreamingAssets").mkdir()
+    if case.get("cache", True):
+        (t / "StreamingAssets" / ".ff9mapkit-events-bundle.txt").write_text("p0data7.bin", encoding="utf-8")
+    for folder, evts in case.get("evts", {}).items():
+        d = t.joinpath(folder, *sd.EVENT_DIR, "us")
+        d.mkdir(parents=True, exist_ok=True)
+        for name, hexdata in evts.items():
+            (d / f"{name}.eb.bytes").write_bytes(bytes.fromhex(hexdata))
+    for folder, text in case.get("dict", {}).items():
+        (t / folder).mkdir(exist_ok=True)
+        (t / folder / "DictionaryPatch.txt").write_text(text, encoding="utf-8")
+    return t
+class G:
+    def __init__(self, t):
+        self.game_path = t
+    def registered_fields(self):
+        return {30801: "TEST30801", 30604: "TEST30604"}, []
+FACTS = {98: {"geo": "GEO_MAIN_F0_ZDN", "geo_read": "GEO_MAIN_F0_ZDN", "geo_table": "GEO_MAIN_F0_ZDN", "stems": ["98"],
+              "body": "98"}}
+NONE = {"geo": None, "geo_read": None, "geo_table": None, "stems": [], "body": None}
+sd.model_facts = lambda game, model: dict(FACTS.get(int(model), NONE))   # the install's read_model: off the test
+out = {}
+for name, case in doc["cases"].items():
+    t = make(case)
+    oracle, why = sd.read_oracle(G(t), (250, 30801))
+    out[name] = {"fields": sorted(oracle["fields"]), "problems": {str(k): v for k, v in oracle["problems"].items()},
+                 "party": oracle["party"], "why": why, "kit_missing": sd.kit_cache_missing(t),
+                 "cache_written": (t / "StreamingAssets" / ".ff9mapkit-events-bundle.txt").exists(),
+                 "npcs801": {str(k): v for k, v in (oracle["fields"].get(30801) or {}).get("npcs", {}).items()}}
+out["scan"] = [list(x) for x in sd.dictionary_remaps(make(doc["cases"]["remap"]), ["FF9CustomMap", "FF9CustomMap-msgs"],
+                                                     [98, 217], [25])]
+print(json.dumps(out))
+"""
+
+
+_SD_SMOKE = _SD_CHILD_HEAD + r"""
+import pathlib, tempfile
+from harness import Session, fakegame as FG
+from harness.fakegame import FakeGame
+doc = json.loads(sys.stdin.read())
+fo = {int(k): dict(v, npcs={int(s): m for s, m in v["npcs"].items()}) for k, v in doc["fo"].items()}
+def oracle_for(run):
+    drop = {int(f) for f in run.get("drop", ())}
+    def read(g, fields):
+        problems = {f: f"the test dropped field {f}'s oracle" for f in fields if f in drop}
+        return ({"fields": {f: fo[f] for f in fields if f in fo and f not in drop}, "party": [0, 1, 2, 3],
+                 "problems": problems}, "the test's oracle" + (f"; PROBLEM {problems}" if problems else ""))
+    return read
+sd.REST_S = 0.6
+DICT = "FieldScene 30604 11 TEST30604 TEST30604 30604\nFieldScene 30801 11 TEST30801 TEST30801 30801\n"
+results = {}
+for name, run in doc["runs"].items():
+    t = pathlib.Path(tempfile.mkdtemp())
+    (t / "x64").mkdir()
+    (t / "x64" / "FF9.exe").write_bytes(b"MZ")
+    (t / "x64" / "Memoria.log").write_text("fake log\n", encoding="utf-8")
+    mod = t / "FF9CustomMap"
+    mod.mkdir()
+    (mod / "DictionaryPatch.txt").write_text(run.get("dict", DICT), encoding="utf-8")
+    if run.get("ini"):
+        (t / "Memoria.ini").write_text(run["ini"], encoding="utf-8")
+    sd.read_oracle = oracle_for(run)
+    fake = FakeGame(t, ticks=run.get("ticks", "mean"), render_fps=float(run.get("render_fps", 60.0)))
+    fake.fps = 240
+    if run.get("caps"):
+        fake.netsync_caps = FG.caps_through(run["caps"])
+    fake.party_adds = {30604: (1, 2, 3)}
+    fake.player_sids = {250: 10, 30801: 1}
+    fake.blockers = {30801: [{"x": -400.0, "z": 600.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217},
+                             {"x": 400.0, "z": 600.0, "r": 152.0, "uid": 3, "sid": 3, "model": 217}]}
+    fake.dress_faults = set(run.get("faults", ()))
+    if run.get("regions"):
+        fake.regions = {int(f): [dict(r, arrive=tuple(r["arrive"])) for r in rs] for f, rs in run["regions"].items()}
+        fake.exit_frames = int(run.get("exit_frames", 0))
+    sd.cb.CALIBRATE = bool(run.get("cal"))
+    if run.get("calmode") is not None:
+        os.environ["COOP_DRESS_CAL"] = run["calmode"]
+    else:
+        os.environ.pop("COOP_DRESS_CAL", None)
+    if run.get("legs") is not None:
+        os.environ["COOP_DRESS_LEGS"] = run["legs"]
+    else:
+        os.environ.pop("COOP_DRESS_LEGS", None)
+    g = Session(game_path=t, run_dir=t / "run", save_dir=t / "player-saves", pid_probe=lambda: [],
+                launcher=lambda exe, fake=fake: fake.start(), boot_timeout=15.0, verbose=False)
+    with g:
+        g._booted_once = True
+        sd.run(g)
+        rows = list(g.checks)
+    acted = [s for s in fake.executed if s and str(s[0]) in ("newgame", "warp")]
+    warps = [list(s) for s in fake.executed if s and str(s[0]) == "warp"]
+    results[name] = {"red": sorted(r["what"].split(":")[0] for r in rows if not r["ok"]),
+                     "all": sorted(r["what"].split(":")[0] for r in rows), "acted": len(acted),
+                     "warps": [[str(x) for x in w] for w in warps],
+                     "detail": {r["what"].split(":")[0]: r["detail"][:300] for r in rows}}
+print(json.dumps(results))
+"""
+
+
+def test_the_s138_benchs_oracle_reads_per_field_and_never_writes_the_install():
+    """read_oracle, the REAL reader, on a synthetic install (each field's `.eb` from a stacked mod folder, the models'
+    facts stubbed): PER FIELD -- one field's failure (no `.eb`; a DictionaryPatch `3DModel` / `3DModelAnimation` line
+    touching its model or loco ids, named with its folder and line; the kit cache missing for a p0data-only field) drops
+    THAT field and names it in `problems`, the other field is kept; the cache is never created (the install is read-only:
+    a p0data read is not even attempted without it); a line the engine cannot parse, or an unrelated id, touches nothing."""
+    from ff9mapkit import extract as X
+    from ff9mapkit.eb import opcodes as O
+    from ff9mapkit.eb.model import pack_entry
+    pl = pack_entry(2, [(0, O.set_model(98, 93) + O.set_stand_animation(200) + O.encode(0x34, 25) + O.encode(0x35, 38)
+                         + O.encode(0x52, 57) + O.encode(0x2C))])
+    npc = pack_entry(2, [(0, O.set_model(217, 100) + O.set_stand_animation(2370))])
+    eb250 = _sd_eb({0: pack_entry(0, [(0, O.init_object(1, 0))]), 1: pl})
+    eb801 = _sd_eb({0: pack_entry(0, [(0, O.init_object(1, 0) + O.init_object(2, 0) + O.init_object(3, 0))]), 1: pl,
+                    2: npc, 3: npc})
+    evt250 = X.ID_TO_EVT[250]
+    both = {"FF9CustomMap": {evt250: eb250, "EVT_TEST30801": eb801}}
+    cases = {"clean": {"evts": both},
+             "remap": {"evts": both, "dict": {"FF9CustomMap-msgs": "FieldScene 30606 11 X X 30606\n3DModel 217 GEO_NPC_F0_RMF\n"}},
+             "remap_anim": {"evts": both, "dict": {"FF9CustomMap": "// a comment\n3DModelAnimation 54 25 ANH_NPC_F0_RMF_WALK\n"}},
+             "unrelated": {"evts": both, "dict": {"FF9CustomMap": "3DModel 5489 GEO_X\n3DModelAnimation x 25 BAD\n3DModel\n"}},
+             "nocache": {"evts": {"FF9CustomMap": {"EVT_TEST30801": eb801}}, "cache": False},
+             "missing801": {"evts": {"FF9CustomMap": {evt250: eb250}}}}
+    got = _sd_child(_SD_ORACLE_OFFLINE, {"cases": cases})
+    assert got["clean"]["fields"] == [250, 30801] and got["clean"]["problems"] == {}, got["clean"]
+    assert got["clean"]["party"] == [0, 1, 2, 3] and got["clean"]["npcs801"] == {"2": 217, "3": 217}
+    assert got["unrelated"]["fields"] == [250, 30801] and got["unrelated"]["problems"] == {}, got["unrelated"]
+    r = got["remap"]
+    assert r["fields"] == [250] and list(r["problems"]) == ["30801"], r
+    assert "FF9CustomMap-msgs: '3DModel 217 GEO_NPC_F0_RMF'" in r["problems"]["30801"] and "PROBLEM 30801" in r["why"]
+    a = got["remap_anim"]
+    assert a["fields"] == [] and sorted(a["problems"]) == ["250", "30801"], a
+    assert "3DModelAnimation 54 25 ANH_NPC_F0_RMF_WALK" in a["problems"]["250"]
+    n = got["nocache"]
+    assert n["fields"] == [30801] and list(n["problems"]) == ["250"] and "kit cache" in n["problems"]["250"], n
+    assert n["kit_missing"] == [".ff9mapkit-events-bundle.txt"] and n["cache_written"] is False
+    m = got["missing801"]
+    assert m["fields"] == [250] and list(m["problems"]) == ["30801"] and "no `.eb` for field 30801" in m["problems"]["30801"]
+    assert got["scan"] == [["FF9CustomMap-msgs", "3DModel 217 GEO_NPC_F0_RMF"]], got["scan"]
+
+
+def test_the_s138_bench_runs_green_on_the_stand_in_and_red_exactly_where_its_checks_say():
+    """THE SMOKE: coop_self_dress.py run end to end against the stand-in (a stub oracle in the shape the install's gives) --
+    GREEN on the s138 stand-in; under COOP_CALIBRATE=1 on the s137 stand-in RED in exactly I1-I9 with S138-CAL green (the
+    prediction holds on the stand-in -- never read as the engine's: the engine is the calibration); on the s138 stand-in
+    under COOP_CALIBRATE=1 only the CAL row red (no lever); the fault levers red exactly their checks; the INI refusals
+    (Enabled 1, a named GhostAs) run NOTHING; an unknown leg name records S138-LEGS red, an unknown COOP_DRESS_CAL mode
+    S138-CALMODE, and neither runs anything; PRE red (30801 unregistered) reads the seed and the 30801 halves "not
+    reached". THE TICK LAW: on WHOLE (quantized) ticks rendering 60 fps -- every other publish the same position -- and
+    31 fps the run is green (I5 judged per tick); the hold is sized at the measured rate. THE PER-FIELD ORACLE: with only
+    30801's oracle dropped, S138-OR is red naming it, 30801's halves read "not reached: no oracle for field 30801", and
+    every check on 250 (I3, I5, I7) still judges green. A hold TAKEN OVER by a walk-in gateway (control off at the
+    step, the field 50 frames later) reads I5 "not reached" -- never judged on the next field -- and the rest window is
+    judged back on 250. Every warp to the stock field names entrance 0."""
+    fo = {"250": dict(_SD_FO, npcs={"7": 176}), "30801": dict(_SD_FO, sid=1, uid=1, npcs={"2": 217, "3": 217})}
+    runs = {"green": {}, "cal137": {"caps": "acttrance", "cal": True}, "cal138": {"cal": True},
+            "faults_a": {"faults": ["eye", "uid", "ghost_model", "party_empty", "object_model"]},
+            "faults_b": {"faults": ["body", "anim_geo"]}, "faults_c": {"faults": ["playing", "ghost_missing"]},
+            "ini_live": {"ini": "[Netsync]\nEnabled = 1\nRole = host\n"},
+            "ini_named": {"ini": "[Netsync]\nEnabled = 0\nGhostAs = vivi\n"},
+            "ini_ok": {"ini": "[Netsync]\nGhostAs = Auto\n"},
+            "legs": {"legs": "I,Q"}, "pre": {"dict": "FieldScene 30604 11 TEST30604 TEST30604 30604\n"},
+            "q60": {"ticks": "quantized", "render_fps": 60}, "q31": {"ticks": "quantized", "render_fps": 31},
+            "or801": {"drop": [30801]}, "calmode": {"cal": True, "calmode": "rule-s138"},
+            # a WALK-IN GATEWAY around the spawn on every side: the hold is taken over (control off at the step, the
+            # field 50 frames later -- field 250's DisableMove + Wait(25)) -- I5 "not reached", the rest judged on 250
+            "gate": {"regions": {"250": [{"zone": z, "to": 251, "arrive": [0, 0]} for z in (
+                [[-600, 150], [600, 150], [600, 600], [-600, 600]], [[-600, -600], [600, -600], [600, -150], [-600, -150]],
+                [[150, -150], [600, -150], [600, 150], [150, 150]], [[-600, -150], [-150, -150], [-150, 150], [-600, 150]])]},
+                     "exit_frames": 50}}
+    got = _sd_child(_SD_SMOKE, {"fo": fo, "runs": runs}, timeout=600.0)
+    i_all = [f"S138-I{n}" for n in range(1, 10)]
+    every = sorted(["S138-INI", "S138-OR", "S138-S0", "S138-P0", "S138-PRE", "S138-R"] + i_all)
+    assert got["green"]["red"] == [] and got["green"]["all"] == every, got["green"]
+    assert got["ini_ok"]["red"] == [] and got["ini_ok"]["all"] == every, got["ini_ok"]["red"]
+    assert got["cal137"]["red"] == i_all and "S138-CAL" in got["cal137"]["all"], got["cal137"]["detail"]
+    assert got["cal137"]["detail"]["S138-P0"].startswith("absent:")
+    assert got["cal138"]["red"] == ["S138-CAL"] and "no lever" in got["cal138"]["detail"]["S138-CAL"]
+    assert got["faults_a"]["red"] == ["S138-I4", "S138-I6", "S138-I7", "S138-I8", "S138-I9"], got["faults_a"]["red"]
+    assert got["faults_b"]["red"] == ["S138-I1", "S138-I3", "S138-I5", "S138-I7"], got["faults_b"]["red"]
+    assert got["faults_c"]["red"] == ["S138-I3", "S138-I5", "S138-I7"], got["faults_c"]["red"]
+    for name in ("ini_live", "ini_named"):
+        r = got[name]
+        assert "S138-INI" in r["red"] and r["acted"] == 0 and set(r["red"]) == set(r["all"]), (name, r["red"])
+    assert "Enabled = '1'" in got["ini_live"]["detail"]["S138-INI"]
+    assert "GhostAs = 'vivi'" in got["ini_named"]["detail"]["S138-INI"]
+    assert got["legs"]["red"] == ["S138-LEGS"] == got["legs"]["all"] and got["legs"]["acted"] == 0
+    assert got["pre"]["red"] == ["S138-I1", "S138-I2", "S138-I4", "S138-I6", "S138-I8", "S138-I9", "S138-PRE"], \
+        got["pre"]["red"]
+    assert "not reached" in got["pre"]["detail"]["S138-I6"] and "30801: not reached" in got["pre"]["detail"]["S138-I1"]
+    # THE TICK LAW: green on whole ticks at 60 fps (every other publish the same position) and at 31 fps
+    for name in ("q60", "q31"):
+        assert got[name]["red"] == [] and got[name]["all"] == every, (name, got[name]["red"], got[name]["detail"])
+        assert "ticks" in got[name]["detail"]["S138-I5"], got[name]["detail"]["S138-I5"]
+    # THE PER-FIELD ORACLE: only 30801's dropped -- OR red naming it, 30801's halves not reached, 250's checks judged
+    r = got["or801"]
+    assert r["red"] == ["S138-I1", "S138-I2", "S138-I4", "S138-I6", "S138-I9", "S138-OR"], r["red"]
+    assert "30801" in r["detail"]["S138-OR"] and "not reached: no oracle for field 30801" in r["detail"]["S138-I6"]
+    assert "30801: not reached: no oracle for field 30801" in r["detail"]["S138-I1"]
+    assert "250: model=98" in r["detail"]["S138-I1"]
+    assert got["calmode"]["red"] == ["S138-CALMODE"] == got["calmode"]["all"] and got["calmode"]["acted"] == 0
+    # a hold TAKEN OVER by a gateway: I5 "not reached" (never judged on the next field), the bench waits the takeover out
+    # and warps back at entrance 0, and the rest window is judged on 250 -- I3 and I7 green there
+    gate = got["gate"]
+    assert gate["red"] == ["S138-I5"], (gate["red"], gate["detail"])
+    assert gate["detail"]["S138-I5"].startswith("MOVING not reached: the probe hold 'up' was TAKEN OVER"), gate["detail"]
+    assert "control False" in gate["detail"]["S138-I5"]
+    assert len([w for w in gate["warps"] if w[1] == "250" and w[2] == "0"]) >= 2, gate["warps"]
+    # every warp to the stock field names entrance 0 (never -1: the last field's General_FieldEntrance)
+    stock = [w for w in got["green"]["warps"] if w[1] == "250"]
+    assert stock and all(w[2] == "0" for w in stock), got["green"]["warps"]
+
+
+_SD_ORACLE = _SD_CHILD_HEAD + r"""
+from pathlib import Path
+game = Path(sys.stdin.read().strip())
+out = {}
+d250, src250 = sd.field_eb(game, 250)
+out["250"] = dict(sd.eb_facts(d250), src=src250) if d250 else None
+out["m98"] = sd.model_facts(game, 98)
+d801, src801 = sd.field_eb(game, 30801, reg_name="TEST30801")
+out["30801"] = dict(sd.eb_facts(d801), src=src801) if d801 else None
+out["m217"] = sd.model_facts(game, 217)
+out["party"] = sd.party_oracle()[0]
+print(json.dumps(out, default=list))
+"""
+
+
+def test_the_s138_benchs_oracle_reads_the_install_as_the_audit_cites_it():
+    """INSTALL-GATED (READ-ONLY; skipped where no install is found, or where the kit's caches are missing -- the kit
+    would WRITE them into StreamingAssets): the bench's offline oracle on the real data -- field
+    250's `.eb` gives entry 10 (uid 10), SetModel(98, 93), 200 / 25 / 38, inactive 57 (HW test2_67: Zidane_Init) and the
+    frog at entry 7 (176); model 98 reads GEO_MAIN_F0_ZDN with texture stem '98', 217 GEO_NPC_F0_CSO '217'; 30801's
+    deployed `.eb` (when a mod folder ships it) entry 1 with the two CSO NPCs (217 at entries 2-3); the seed's party
+    [0, 1, 2, 3]."""
+    from ff9mapkit import config
+    try:
+        game = config.find_game_path(None)
+    except Exception:                                       # noqa: BLE001 - no install configured: nothing to read
+        pytest.skip("no FF9 install configured")
+    if game is None or not (pathlib.Path(game) / "StreamingAssets").is_dir():
+        pytest.skip("no FF9 install (StreamingAssets) on this machine")
+    # READ-ONLY means read-only: the kit's readers WRITE their caches next to the bundles on a miss -- never here
+    for cache in (".ff9mapkit-events-bundle.txt", ".ff9mapkit-field-index.json"):
+        if not (pathlib.Path(game) / "StreamingAssets" / cache).is_file():
+            pytest.skip(f"the kit cache {cache} is missing from the install: this test would WRITE it there (run any "
+                        f"ff9mapkit read once, by hand, then re-run)")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _SD_ORACLE, str(SCENARIOS), str(REPO / "tools"), str(REPO / "ff9mapkit")],
+                         env=env, input=str(game), capture_output=True, text=True, timeout=240)
+    assert out.returncode == 0, out.stderr[-3000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    f = got["250"]
+    assert f is not None, got
+    assert {k: f[k] for k in ("sid", "uid", "model", "eye", "idle", "walk", "run", "inactive", "problems")} == {
+        "sid": 10, "uid": 10, "model": 98, "eye": 93, "idle": 200, "walk": 25, "run": 38, "inactive": 57, "problems": []}
+    assert f["npcs"] == {"7": 176}
+    assert (got["m98"]["geo"], got["m98"]["body"], got["m98"]["stems"]) == ("GEO_MAIN_F0_ZDN", "98", ["98"])
+    assert (got["m217"]["geo"], got["m217"]["body"]) == ("GEO_NPC_F0_CSO", "217")
+    assert got["party"] == [0, 1, 2, 3]
+    b = got["30801"]
+    if b is not None:                                       # the bench field is deployed on this install
+        assert (b["sid"], b["uid"], b["model"], b["eye"], b["idle"], b["walk"], b["run"]) == (1, 1, 98, 93, 200, 25, 38)
+        assert b["npcs"] == {"2": 217, "3": 217}

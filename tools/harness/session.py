@@ -8698,6 +8698,13 @@ class Session:
         (:attr:`State.coop_act_trance`) -- :meth:`act_trance_grace`. On an s136 (or older) engine it is refused before the
         step, naming what that engine would answer.
 
+        [ff9mapkit netsync s138] the dress instrument (the guest's own field model, s138-s141) adds NO sub-verb, op or lever
+        -- keys only, each half told by its presence: ``netsync.dress`` (:attr:`State.coop_dress_instr`, netsync's last key)
+        and, outside netsync, ``player.model`` and its body keys (:attr:`State.player_dress_status`) and
+        ``objects[].model`` (:attr:`State.object_models`). s139's ``selfdress`` will key on ``netsync.dress.ghost`` levers
+        through its own table (NETSYNC_DRESS_SUBVERBS, the gate widened to it -- R3-FIELD-MODEL-AUDIT.md 3.1). Nothing here
+        changes for s138.
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
