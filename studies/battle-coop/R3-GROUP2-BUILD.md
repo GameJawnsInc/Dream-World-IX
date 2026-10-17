@@ -12,8 +12,8 @@ stack replays by number:
 | s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
 | s137 | s126 | trance burst timing | ★ deployed, solo-proven |
 | s138 | s127 | the dress instrument (keys only) | ★ deployed, solo-proven |
-| s139 | s128 | the host's dress rule + wire section 8 | captured, calibrated on s138; deploy pending |
-| s140-s141 | s129-s130 | the guest dresses itself; polish | |
+| s139 | s128 | the host's dress rule + wire section 8 | ★ deployed, solo-proven + real-wire duo |
+| s140-s141 | s129-s130 | the guest dresses itself; polish | next: s140 |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -319,3 +319,25 @@ hairstyle, the moogle -- and the relay tap's section 8 in tape order).
 green, leg I green); `coop_peer.py dress` on the s117 host tape: exit 1, no section 8; the duo G9 under COOP_CALIBRATE:
 exactly OLD_PREDICTED red (S139-G9-CAL green) -- among them the one behavioural red an old DLL gives: an s138 host
 leaves a spectator's ghost plain Zidane.
+
+**Deployed** 2026-10-17 (`build_memoria.py`, backup `20261017-175116`; Assembly-CSharp `1365959f2efca2e7`).
+
+**Proven on s139 -- every acceptance step:**
+1. coop_self_dress legs I+G 31/31 on the first in-game run under GhostAs auto, and RED-only under `selfdress rule s138`
+   (exactly the lever set). The ghost: the moogle for an empty named slot, every slot empty, a spectator -- walking and
+   running on the moogle's own clips; Vivi for slot 1, Garnet when slot 1 is skipped; a Steiner-led wire body shown as
+   Steiner, a plain-98 one dressed, Vivi's break clip raw on an already-dressed body; Garnet with ONE hairstyle.
+2. The same bench 31/31 with GhostAs blank.
+3. `coop_peer.py dress` on the s117 tape: no section 8 (its red).
+4. A fresh s139 host tape: section 8 on all 4897 host state frames, right after section 7 and last, `08 00 01` (Vivi)
+   each; the old-guest readers identical with it or stripped, every frame.
+5. The duo coop_dress_wire G9 18/18: two real games through the relay, GuestSlots stepped live 2 / 4 / 0 -- the host's
+   ghost Vivi, Garnet (one hairstyle), the moogle; the guest's own body plain Zidane throughout; its story and party
+   mirrors landed past section 8.
+The 6.1 regression set at baseline; wait parity (W-A5b 'not reached': every ATB already full) and stock menu content
+(the cursor one row off) green on a rerun. The T2 cut legs: readopt +78, s119 +15, s120-battle +93.
+
+**An owner question before s140** (raised by the build's review): in the disc-1 opening the party is Zidane plus Blank /
+Marcus / Cinna, and s139 leaves a named slot holding one of them (CharacterId 8-11) undressed -- so the host sees two
+Zidanes, the case D2 called weird. Options: real rig rows for the four (they are playable, so their field rigs exist),
+or the moogle for them.
