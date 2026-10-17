@@ -11,8 +11,8 @@ stack replays by number:
 | s135 | s124 | numbers, flinch and death wait for the replay's hit | ★ deployed, solo-proven, owner-confirmed |
 | s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
 | s137 | s126 | trance burst timing | ★ deployed, solo-proven |
-| s138 | s127 | the dress instrument (keys only) | captured, calibrated on s137; deploy pending |
-| s139-s141 | s128-s130 | the guest's own field model (shows its party character, or a moogle) | |
+| s138 | s127 | the dress instrument (keys only) | ★ deployed, solo-proven |
+| s139-s141 | s128-s130 | the guest's own field model (shows its party character, or a moogle) | next: s139 (two owner questions first) |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -277,3 +277,22 @@ on 30 Hz field ticks). 3 files, +284/-6; the stack replays 29/29 byte-exact; 206
 
 **Calibrated on s137 first** (the live DLL `0269771f24b626c1`): coop_self_dress under `COOP_CALIBRATE=1` red in exactly
 I1-I9 (the keys absent), S138-CAL green; the oracle, the precondition and the probe green.
+
+**Deployed** 2026-10-17 (`build_memoria.py`, backup `20261017-104630`; Assembly-CSharp `a8b0fd80ecc4013d`).
+
+**Proven solo on s138:** coop_self_dress leg I 15/15 on its first in-game run, every value against the offline oracle:
+model 98, body '98', GEO_MAIN_F0_ZDN, eye -372, sid == uid (10 on 250, 1 on 30801); the run clip 38 mid-move and 200 at
+rest, judged per field tick; the selftest ghost wearing exactly the player's model, GEO, clip and body; party [0, 1, 2, 3]
+after the COOPPARTY seed; 30801's NPCs model 217. The field/ghost regression set at baseline (talk relay 28/28, dialogue
+authority 147/147, diorama return 22/22, handback live 18/18, handback 21/21, end guest 49/49, action replay 35/35 + its
+tape 16/16) and the T2 cut legs (cal 10/10, readopt +78, s120-battle +63).
+
+**The s137 trance bench's witness, a third time.** GRACE went red on s138 with the engine's own window right (406 ms):
+fix 2 took the witness's origin from the first sample the harness READ showing the deferral -- here the request's
+acknowledged state, 62 ms after the record (witness 344 ms). Fix 3 makes the origin a BRACKET: the last publish read before
+the deferral and the first read showing it, the record inside it, the swap judged not-late from the bracket's end and
+not-early from its start; a bracket wider than 170 ms reads NOT REACHED. Rerun on s138: trance 24/24 (brackets 31 and 16 ms
+wide), both calibration modes clean. LESSON: a sampled witness needs a bracket, never one edge.
+
+**Next: s139** (the host rule and wire section 8). Before its hunks, the owner answers the audit's two questions (2.2 D1:
+the SelfDress=0 opt-out on the host's ghost; D2: a spectating guest's body).

@@ -14707,7 +14707,8 @@ def test_the_s137_bench_predicts_its_reds_as_its_docstring_says():
     assert 100 < 2203 - 800 < BW.ACT_TRANCE_CAP_MS - BW.ACT_TRANCE_GRACE_MS   # the stand-in Attack's measured run
     for leg in ("_leg_grace", "_leg_cap"):
         body = code.split(f"def {leg}(", 1)[1].split("\ndef ", 1)[0]
-        assert "_record_publish(g, f0, base, x0)" in body and '_gv(x0, "battle_ms")' not in body, leg
+        assert "_record_bracket(g, s_pre, base, x0)" in body and "origin_lo=b_lo" in body, leg
+        assert '_gv(x0, "battle_ms")' not in body and "BRACKET_MAX_MS" in body, leg
     # the lever: only under COOP_CALIBRATE (before boot 1, back after), LVR's own red, and the release's left-set
     assert code.count('_act_verb(g, "trancegrace", "off")') == 3 and code.count('_act_verb(g, "trancegrace", "on")') == 1
     assert '"off" if ctx.get("levers_set") else "on"' in code
@@ -14751,7 +14752,7 @@ tc.cb.nsb = nsb
 tc.cb.frame_of = lambda s: s.frame
 out["early"] = {k: tc.early_swaps([St(s) for s in c["samples"]], 0, 7, c.get("to", True)) for k, c in doc["early"].items()}
 out["flip"] = {k: list(tc.judge_flip([St(s) for s in c["samples"]], 0, c["origin"], c["lo"], c["hi"],
-                                     record_ms=c.get("record")))
+                                     record_ms=c.get("record"), origin_lo=c.get("origin_lo")))
                for k, c in doc["flip"].items()}
 out["holds"] = {k: list(tc.paused_holds([St(s) for s in c["samples"]], 0, 0, 1000, 2)) for k, c in doc["holds"].items()}
 print(json.dumps(out))
@@ -14838,7 +14839,20 @@ def test_the_s137_benchs_pure_judges_read_each_engine_and_can_fail():
             "late": {"samples": [at(1, True, 1490)], "origin": 1000, "lo": 400, "hi": 450, "record": 1000},
             "late_record": {"samples": [at(1, True, 1417)], "origin": 1000, "lo": 400, "hi": 450, "record": 1033},
             "no_flip": {"samples": [at(1, False, 1417)], "origin": 1000, "lo": 400, "hi": 450, "record": 1000},
-            "no_origin": {"samples": [at(1, True, 1417)], "origin": None, "lo": 400, "hi": 450, "record": 1000}}
+            "no_origin": {"samples": [at(1, True, 1417)], "origin": None, "lo": 400, "hi": 450, "record": 1000},
+            # [in-game fix 3] THE BRACKET: s138's proof run -- record 9157, the last publish read before it 9094, the
+            # first showing it 9219 (62 ms late), the swap 9563 (engine 406): green; an immediate swap, a 2500 cap and a
+            # record outside the bracket stay red
+            "bracket_green": {"samples": [at(1, True, 9563)], "origin": 9219, "origin_lo": 9094, "lo": 400,
+                              "hi": 450, "record": 9157},
+            "bracket_immediate": {"samples": [at(1, True, 9170)], "origin": 9219, "origin_lo": 9094, "lo": 400,
+                                  "hi": 450, "record": 9157},
+            "bracket_late": {"samples": [at(1, True, 11660)], "origin": 9219, "origin_lo": 9094, "lo": 400,
+                             "hi": 450, "record": 9157},
+            "bracket_short_300": {"samples": [at(1, True, 9457)], "origin": 9219, "origin_lo": 9150, "lo": 400,
+                                  "hi": 450, "record": 9157},
+            "bracket_record_outside": {"samples": [at(1, True, 9563)], "origin": 9219, "origin_lo": 9180, "lo": 400,
+                                       "hi": 450, "record": 9157}}
     # [ff9mapkit netsync s137 fix pass 2] (harness-busy-unguarded) BUSY's reach: the Attack's run from the record -- 100 ms
     # or less, or 2100 ms or more, is NOT REACHED (never judged on that shape); unread (another START, no end) is None
     reach = {"ok": {"last": _tc_last(record_ms=1000), "glast": {"id": 7, "end_ms": 1900}},
@@ -14890,7 +14904,11 @@ def test_the_s137_benchs_pure_judges_read_each_engine_and_can_fail():
     assert "300 ms of battle time after the op" in got["waited"]["hit_at_300"][1]
     assert {k: v[0] for k, v in got["flip"].items()} == {"green": True, "frame_slack": True, "early": False,
                                                         "late": False, "late_record": False, "no_flip": False,
-                                                        "no_origin": False}, got["flip"]
+                                                        "no_origin": False, "bracket_green": True,
+                                                        "bracket_immediate": False, "bracket_late": False,
+                                                        "bracket_short_300": False,
+                                                        "bracket_record_outside": False}, got["flip"]
+    assert "344-469 ms after the origin bracket 9094..9219 (width 125" in got["flip"]["bracket_green"][1]
     assert "417 ms after the op's 1000" in got["flip"]["green"][1]
     assert got["reach"] == {"ok": ["ok", 900], "short": ["short", 100], "short_101": ["ok", 101], "long": ["long", 2100],
                             "long_2099": ["ok", 2099], "other": [None, None], "no_end": [None, None],
