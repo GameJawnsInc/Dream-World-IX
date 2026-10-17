@@ -90,8 +90,12 @@ _CODE_RE = re.compile(r"(?i:ff9-)?[A-Za-z0-9]{1,32}")   # everything validate_co
 # The playable names the engine's visitor mode can dress a ghost as (NetSyncVisitor.NameToRig,
 # s37) -- the 8 mains with proven field rigs; dagger/salamander are aliases. Anyone else
 # (Cinna/Marcus/Blank/Beatrix/customs) has no proven rig row, so the engine refuses = undressed.
+# [ff9mapkit netsync s139] + "moogle" (rig row 8, GEO_NPC_F0_MOG): the same moogle the host's
+# `auto` rule shows for a spectator or an empty puppet slot. It dresses the HOST's ghost of its
+# guest only -- a client keeps the s138 rule and leaves the host's ghost undressed (the host is
+# never a moogle), as does an engine before s139. A test pins this tuple to NameToRig's keys.
 GHOST_NAMES = ("zidane", "vivi", "garnet", "dagger", "steiner",
-               "freya", "quina", "eiko", "amarant", "salamander")
+               "freya", "quina", "eiko", "amarant", "salamander", "moogle")
 
 
 def parse_guest_slots(spec: str) -> int:

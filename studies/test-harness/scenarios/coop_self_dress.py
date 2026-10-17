@@ -16,14 +16,14 @@ order and calls every selected leg's step in each:
             selected legs need, registered)
     stock   field 250 BEFORE the party seed      (s139's G0 / G3a, which need an empty slot, join here)
     seed    warp through COOPPARTY (30604: [party] add = vivi, garnet, steiner) to 30801
-    seeded  the seeded party, on 30801            (s139's G1-G8 join here)
+    seeded  the seeded party, on 30801            (s139's G1-G7 join here)
     bench   field 30801's actors                  (s140's bench field 30606 legs N / T / X follow the same shape)
     close   the verdicts that need every field read
-Today the file has leg I (s138). s139 adds leg G (NETSYNC_DRESS_SUBVERBS `selfdress`: its `old` row at stage 138 is "the
-verb refused before the step, the codec key absent"; its `lever` row `rule-s138` turns G2 / G3 / G7a red), s140 legs
-S/W/X/N/T (pre 30602 / 30606), s141 leg F. COOP_DRESS_LEGS=I,G picks legs (default: every leg this file has). THE RIG SPACE
-is battlewire.RIG_NAMES: -1 none, 0-7 the CharacterId rows, 8 the moogle (rig 8 is NOT CharacterId 8, Cinna) -- decoded by
-name, never compared with a CharacterId at 8.
+The file has leg I (s138) and leg G (s139: Session.NETSYNC_DRESS_SUBVERBS `selfdress`; its `old` row at stages 137 / 138
+is every G check -- the verb refused before the step, `mode` / `codec` / `rig_idle_frames` absent --; its `lever` row
+`rule-s138` is G_LEVER_REDS). s140 adds legs S/W/X/N/T (pre 30602 / 30606), s141 leg F. COOP_DRESS_LEGS=I,G picks legs
+(default: every leg this file has). THE RIG SPACE is battlewire.RIG_NAMES: -1 none, 0-7 the CharacterId rows, 8 the moogle
+(rig 8 is NOT CharacterId 8, Cinna) -- decoded by name, never compared with a CharacterId at 8.
 
 LEG I (s138) -- THE DRESS INSTRUMENT. Harness keys only, no behaviour on any role (R3-FIELD-MODEL-AUDIT.md 2.1 and its
 3.1 key design). Three homes: `player.*` OUTSIDE netsync, right after `control` (model, anim, geo, anim_geo, eye, uid, sid,
@@ -63,9 +63,11 @@ FIELD: a field that reads clean is kept whatever else fails, and S138-OR is red 
 PRECONDITIONS -- THE OPERATOR'S JOB (the bench never edits Memoria.ini, deploys nothing and launches nothing):
   * Memoria.ini [Netsync] Enabled = 0 (or absent) AND GhostAs one of "", auto, off, 0 (or absent): the selftest role is
     refused on a live-configured install (HarnessSelfTest), and a NAMED GhostAs dresses the selftest mirror whatever the
-    slots (ResolveDress's named branch) -- I7 compares an UNdressed mirror. S138-INI reads both READ-ONLY and, when either
-    is off, records itself red and runs NOTHING. (At writing the shared ini reads Enabled=1 Role=host GhostAs=auto: set
-    Enabled=0 by hand -- after a backup -- and relaunch.)
+    slots (ResolveDress's named branch). S138-INI reads both READ-ONLY and, when either is off, records itself red and runs
+    NOTHING. (At writing the shared ini reads Enabled=1 Role=host GhostAs=auto: set Enabled=0 by hand -- after a backup --
+    and relaunch.) [s139] GhostAs is read once more, READ-ONLY, for what the mirror must wear: on an s139+ engine the
+    selftest mirror runs THE HOST RULE under the forced role's GuestSlots pin 0, so `auto` dresses it as the MOOGLE (owner
+    D2) and "" / off / 0 leave it undressed -- I7 and G0 judge whichever the ini names, never the ini a test assumed.
   * The DLL under test deployed and the game launched on it, controllers OFF (THE UNATTENDED LAW: no leg needs a human).
   * COOPPARTY (30604, FF9CustomMap-msgs) and 30801 (FF9CustomMap) registered (S138-PRE).
 
@@ -113,7 +115,10 @@ WHAT IS PROVEN (S138-*):
         MonoBehaviour: one frame of skew; a re-dress deferred off FieldHUD lands a frame late, the old body already on the
         new clip), every value non-null on both sides and the ghost wearing the player's own: model, geo, clip, rig -1
         (undressed: the selftest pins GuestSlots 0, so ResolveDress("auto") returns 0), playing true, and the player's
-        body stem.
+        body stem. ON AN s139+ ENGINE (the probe's stage) the mirror runs the host rule instead: I7 judges what
+        judge_worn computes for the ini's GhostAs with every lever off -- the MOOGLE (220, rig 8, GEO_NPC_F0_MOG, body
+        '220', ANH_NPC_F0_MOG_IDLE at rest) for auto, the player's own body for "" / off / 0 -- against the install's
+        oracle (G0 judges the same baseline, with the mode).
         (The rest window is judged only while the game is still on 250 -- FieldHUD, control, no fade: its first sample
         that is not ends it. An empty window reads "not reached".)
   -- the seed: warp through 30604 to 30801 --
@@ -122,7 +127,11 @@ WHAT IS PROVEN (S138-*):
   I6    >= 2 listed actors, every one carrying an int `model`, each its entry's SetModel id by sid (217: the oracle), and
         none reads 98 (the player's).
         (I1 / I2 / I4 / I9 judge 30801's kit player here too.)
-  R     `reset` releases the forced selftest role (no lever exists at s138: nothing else to release).
+  R     `reset` releases the forced selftest role (no lever exists at s138: nothing else to release). [s139] On an s139+
+        engine (the probe's stage) the bench first HOLDS one inert lever into the reset -- `selfdress rule s139`, seen
+        published -- so R also witnesses THE HARNESS RELEASE (HarnessReleaseBench -> HarnessReleaseDress): the line
+        'selfdress levers released (released with the harness)' logged and every lever read back off (`bench_mask`,
+        `empty_mask`, `wire`, `wire_anim` -1, `rule` null: the getters publish them raw, in every role).
 NOT PROVEN HERE: `frame_n` / `anim_frame` / `meshflags` / `clip` beyond I5's name (published for s140-s141's legs), the
 world actor (`player.*` on the world map), a body whose texture is not its own id's (an alias prefab), a body whose texture
 has no name (a loose-FBX or CustomModelField body: `body` null), the ghost of a REAL peer (two machines: sitting B), a
@@ -149,9 +158,112 @@ CALIBRATION -- a check that cannot fail is not a check (R3-FIELD-MODEL-AUDIT.md 
     smokes this bench against the stand-in at mean ticks AND at whole (quantized) ticks rendering 60 and 31 fps -- never
     read S138-CAL offline: the engine is the calibration.
 
+LEG G (s139) -- THE HOST'S DRESS RULE AND WIRE SECTION 8 (R3-FIELD-MODEL-AUDIT.md 2.2 and 4.3, with the owner's two
+decisions of 2026-10-17: D1 Option A -- the host's GhostAs is the one knob for both screens, no position-frame change; D2
+-- a spectating guest, GuestSlots 0, is the MOOGLE). The selftest mirror IS the guest and this machine its host: its dress
+site runs the s139 rule (ResolveAuto: the first OCCUPIED named slot decides, a main wears its rig, an empty named slot is
+skipped, a member 8+ is undressed, mask 0 or every named slot empty the moogle -- behind GhostGuard: a wire body of 98 or the
+dress itself is dressed, any other shows as it is; the raw anim on the wire's own body), driven by the `selfdress` levers
+(selftest role only, released with the harness): `ghost <mask>` stands in for GuestSlots AND forces mode auto, `empty
+<mask>` empties party slots for the dress read, `wire <model> [anim]` stands in for the mirror's wire body (with `anim`
+PLAYING that raw clip -- the raw-anim rule's only input the loco translation cannot reproduce), `rule s138` restores the
+whole pre-s139 site (the calibration lever), `clear` releases them. EVERY EXPECTED VALUE IS COMPUTED, never asked of the
+engine: battlewire.selftest_dress -- the site's Python twin, its rig rows pinned to the census AND to the s139 patch by
+test_harness_netsync.py -- on each judged publish's own player model / anim and LIVE party (`netsync.dress.party`, never
+NetSyncParty.Slots), the ini's GhostAs read offline and the levers the bench set; the expected model's GEO name and texture
+stem off the install (read_model, cross-checked with the kit's GEO table), the clip NAME off the kit's copy of the
+open-source AnimationDB, the idle frames off p0data5 (the kit's clip reader at catalog.locate_animation's folder,
+round(length x rate) + 1 -- the oracle_extra hook `_g_oracle`; [60, 45, 30, 60, 50, 40, 30, 45, 72] at writing), and
+Garnet's prefab renderer tree off p0data (the kit's prefab walk: G8's field-mode hides by ModelFactory's own rule,
+battlewire.field_hides, with the ini's [Graphics] GarnetHair read offline and the published scenario counter). A row is
+judged on the LAST publish where the player's anim and the ghost's tuple have held GHOST_HOLD+ publishes on FieldHUD with
+the PUBLISHED levers equal to the ones set (the ops landed) and `ghost.mode` the one they imply ("bench:auto" under a
+`ghost` lever -- the lever FORCES auto, amendment 1 -- else "ini:" + the ini's GhostAs), GHOST_SETTLE_S after the ops;
+`playing` is judged only when the expected clip lives in the worn model's own GEO folder (EnsureGhost loads that folder
+alone). Before every row the bench `clear`s whatever it set (under the calibration lever, `rule s138` again).
+  -- field 250, before the seed (after leg I's rest window) --
+  G0    the baseline, every lever off: `ghost.mode` == "ini:" + the ini's GhostAs and the mirror wears the twin's answer
+        for it (the moogle for auto, owner D2; its own body for none).
+  G4    `netsync.dress.codec` == "ok" and the proof line "dress codec selftest: OK (29 rows)" (its rows 16-26 run a REAL
+        host frame through the s103 readers an old guest runs, a section appended AFTER section 8 included: the in-engine
+        proof that section 8 is skipped by its length). Judged here: the proof block runs at S0, whatever the seed does.
+  G6    `rig_idle_frames` == the install's oracle, row for row (the proof block's too).
+  G3a   while the New-Game party's slot 1 is EMPTY (the real party read; "not reached" when the save already holds it):
+        `ghost 2` -> the moogle (220, rig 8, GEO_NPC_F0_MOG, body '220', an ANH_NPC_F0_MOG clip, playing).
+  -- the seed (leg I's), then on 30801, s1 = the first slot >= 1 holding a main (Vivi in slot 1 after COOPPARTY) --
+  G1    `ghost 1<<s1` -> that member's rig row: model and rig == party[s1], its GEO and body, its loco clip, playing.
+  G2    `ghost 6` + `empty 2` -> slot 2's member (Garnet: the empty named slot skipped). Not reached without a main there.
+  G3    `ghost 2` + `empty 2` -> the moogle.        G3c  `ghost 6` + `empty 6` -> the moogle (a MULTI-bit mask, all empty).
+  G3m   the moogle MOVING (box B19's "a moogle that walks, runs and turns"): `ghost 2` + `empty 2`, then a walk probe on
+        30801 (leg I's: one hold, judged per tick) -- every mid-move publish whose player anim held 2+ publishes shows the
+        twin's clip for that anim (25 -> ANH_NPC_F0_MOG_WALK, 38 -> ANH_NPC_F0_MOG_RUN: whichever the hold took), playing,
+        on the moogle. The turn clips are left to the sitting (their timing depends on the run).
+  G3d   `ghost 0` -> the moogle (a spectator), AND the proof block's line "dress section 8 as this machine would host now:"
+        carries the twin's body for the ini's GhostAs under the pin -- "DC 00 FF (model 220, charId 255)" for auto, "00 00
+        FF (model 0, charId 255)" for none (the producer's bytes; the selftest role has no socket: the wire's own witness is
+        G9, below).
+  G5    (control) its OWN setup: `ghost 1<<s1` held until the ghost wears party[s1]'s rig (the precondition), then `clear`
+        ALONE -> every lever -1 / null, the mode G0's, the ghost back to G0's baseline (model, geo, rig) -- a witness that
+        MOVES under every ini (Vivi -> the moogle under auto, Vivi -> the player's own body under none).
+  G7a-d the guard, on `ghost <s1 bit>`: `wire 5489` (a Steiner-led guest) -> the ghost SHOWS 5489, rig -1, with Steiner's
+        own loco clip; `wire <the dress model> <its rig's break clip>` (an s140 guest already dressed, PLAYING Vivi's 912)
+        -> dressed, playing the RAW 912 (amendment 4: the s138 translation flattens it to her idle); `wire 98` (an s117 or
+        SelfDress=0 guest: owner D1) -> dressed; `wire 532` (GEO_MAIN_F0_ZDD, no rig) -> shows 532.
+  G8    THE REST MASK (amendment 8), on `ghost <Garnet's bit>` (Garnet seated by the seed): `shown_mask == rest_mask`, a
+        hide among them, and `hidden` == the install prefab's field-mode hides (ModelFactory: Garnet's `short_hair` below
+        ScenarioCounter 10300 unless [Graphics] GarnetHair forces a hairstyle; any `battle_model`) -- one hairstyle shown.
+  Every lever is released at the leg's end (none is left for leg I's later reads), and `reset` releases them all (S138-R:
+  on s139+ it holds `rule s139` into the reset and reads every lever back off -- the harness release witnessed in game).
+NOT PROVEN BY LEG G: the turn clips of a moving moogle (timing-dependent: the sitting); the host's TRANSPORT site and
+section 8 ON A REAL WIRE -- G9, below; a game_snap of the moogle (an AUDIT DEVIATION from 2.2 amendment 13 / 4.3 G3,
+recorded in the README row: `geo` and `body` are read off the spawned GO -- the witnesses of what is worn -- and a
+screenshot judges nothing unattended).
+NOT PROVEN BY LEG G OR G9 (sitting boxes; a same-DLL duo guest always sends 98): the guard's non-98 half on the TRANSPORT
+site (a guest wearing another body: B28) and the raw wire anim on the transport site (a guest whose wire body IS the dress:
+an s140+ laptop, B20). Both are proven at the SELFTEST site only (G7a / G7d, G7b).
+G9 -- SECTION 8 ON A REAL WIRE AND THE TRANSPORT SITE (studies/test-harness/scenarios/coop_dress_wire.py, a duo leg):
+two s139 games through tools/harness/duo.py on the relay's tap -- the host at GhostAs auto with the COOPPARTY seed, field
+250; the guest Role=client. An s139 GUEST's receive path IS the old path (no production code reads section 8 in s139:
+test_harness_netsync.py pins it), so a same-DLL duo is a valid old-guest stand-in -- the duo's one limit (both roots
+junction one Managed, so it cannot MIX DLLs) bites only box B19, an OLD laptop, which stays a sitting box. ONE dress cannot
+tell the transport site from the s138 rule (at GuestSlots 2 both dress Vivi, who hides nothing), so the host's GuestSlots
+is STEPPED LIVE through three dresses (duo.Duo.set_netsync, each step on the host's config echo, each judged publish
+carrying its GuestSlots): G9d at 2 -- Vivi; G9e at 4 -- Garnet WITH THE REST MASK (rest_mask_verdict, the transport site's
+`else if (hostRule) ApplyGhostMask(_ghostRestMask)`: one hairstyle); G9f at 0 -- a spectator, the MOOGLE (owner D2: the
+s138 client rule leaves it undressed). G9a the tap, read last: section 8 on every host frame, skipped by the s103 walkers'
+twins, its bodies in tape order 08 00 01 -> B9 00 02 -> DC 00 FF; G9b the guest's readers stepped past it ('state-mirror
+ARMED', its story mirroring, `netsync.dress.mirror_party` == the host's party); G9c the guest's own body stays 98 at every
+phase. Its cheap half on a recorded tape: `py tools/harness/coop_peer.py dress <tape> --ghost-as auto --guest-slots 2`
+(each frame's own party read off its section 1; exit 0 = held) on a coop_tape_record.py tape; an s138 host's tape reads
+"none -- an s138-or-older host" (exit 1: its calibration red). A relative tape path missing from the cwd is looked up
+under the MAIN repo, then by name in the tape home (a worktree has no tapes).
+  CALIBRATION: on s138 (the deployed DLL a8b0fd80ecc4013d at writing) and s137 every G check is red (G_CHECKS: the verb
+  refused before the step, the keys absent) -- COOP_CALIBRATE=1 judges exactly that as S138-CAL. On s139 under
+  COOP_DRESS_CAL=rule-s138 exactly G_LEVER_REDS go red (G3a, G2, G3, G3c, G3m, G3d, G7a, G7b, G7d, G8: the skip, the
+  moogle, the guard's non-98 half, the raw anim, the rest mask); G0, G4 and G6 are read before the lever is pulled and
+  G5's `clear` releases it, so they stay green with G1 and G7c (and leg I, judged before the lever). A lever-row red that
+  reads "not reached" is the lever UNPROVEN there, never a predicted red: S138-CAL fails naming it. OFFLINE: the stand-in's
+  `dresshost` rung models the site with battlewire.selftest_dress and its FAULT LEVERS (fakegame.DRESS_HOST_FAULTS) turn
+  each row red on the shape it exists to catch; test_harness_netsync.py smokes this leg against it in every mode.
+
+s139 ACCEPTANCE -- every step REQUIRED (the selftest site alone cannot witness the transport site or the wire):
+  1. this bench, GhostAs auto (the owner's ini): green; then COOP_CALIBRATE=1 COOP_DRESS_CAL=rule-s138: S138-CAL green.
+  2. this bench AGAIN with [Netsync] GhostAs = '' (the operator flips it BY HAND, after a backup, as for Enabled): green --
+     under auto an engine whose `ghost` lever replaced the mask without forcing auto dresses identically, so only this
+     pass can show G1-G3d red on it (fakegame's `ghost_keeps_ini_mode` fault).
+  3. `py tools/harness/coop_peer.py dress C:/gd/Dream-World-IX/.harness-runs/coop-tapes/20261014-224827-host250-s117.f9tape`
+     (the tape lives in the MAIN repo only) -> exit 1, "none -- an s138-or-older host": the tape check's calibration red.
+  4. coop_tape_record.py on s139, then `py tools/harness/coop_peer.py dress <its tape> --ghost-as auto --guest-slots 2`
+     -> exit 0, 08 00 01 (Vivi) on every host state frame (the recorder notes the host's own ghost tuple; no new check).
+  5. `py tools/harness/duo.py studies/test-harness/scenarios/coop_dress_wire.py` -> G9a-f green: the transport site at
+     GuestSlots 2 (Vivi), 4 (Garnet, one hairstyle) and 0 (the moogle), the tap 08 00 01 -> B9 00 02 -> DC 00 FF (and
+     COOP_CALIBRATE=1 on the s138 DLL: exactly its OLD_PREDICTED red, G9f's detail the old DLL's undressed spectator).
+
 RUN (from THIS worktree, so its tools/ and ff9mapkit/ are the ones imported):
     py tools/play.py studies/test-harness/scenarios/coop_self_dress.py --field 250
     COOP_CALIBRATE=1 py tools/play.py studies/test-harness/scenarios/coop_self_dress.py --field 250    (on the s137 DLL)
+    COOP_CALIBRATE=1 COOP_DRESS_CAL=rule-s138 py tools/play.py studies/test-harness/scenarios/coop_self_dress.py --field 250
+        (leg G's lever, on s139)      COOP_DRESS_LEGS=G ... (leg G alone; it still needs the seed, so PRE holds)
   PowerShell has no per-launch form: a `$env:` value PERSISTS in that shell -- clear it after each run:
     Remove-Item Env:COOP_CALIBRATE, Env:COOP_DRESS_LEGS, Env:COOP_DRESS_CAL -ErrorAction SilentlyContinue
 """
@@ -242,6 +354,72 @@ def _catalog_i() -> dict:
 
 I_CHECKS = tuple(_catalog_i())
 
+# ---- [ff9mapkit netsync s139] LEG G -- THE HOST'S DRESS RULE (see the docstring's LEG G)
+#: the wire bodies the guard rows stand in (`selfdress wire`): a body WITH a rig (Steiner: the guard shows it, moving with
+#: its own rig's loco clip) and one with NONE (GEO_MAIN_F0_ZDD: the guard shows it, playing my raw clip)
+G_WIRE_RIGGED = 5489
+G_WIRE_UNRIGGED = 532
+#: every model leg G may expect the ghost to wear -- the nine rig rows (the twin's, pinned to the census) and the unrigged
+#: wire body -- each read off the install by the oracle (GEO name, texture stem), never the engine's tables
+G_MODELS = tuple(row[0] for row in BW.RIGS) + (G_WIRE_UNRIGGED,)
+#: the models whose PREFAB renderer tree the oracle reads (G8's field-mode hides): Garnet, the one body with two hairstyles
+G_PREFAB_MODELS = (185,)
+#: G8's member: Garnet (CharacterId 2), seated by the seed
+G_GARNET = 2
+#: after a `selfdress` op: how long the ghost is watched before the LAST held publish is judged (EnsureGhost re-dresses in
+#: the same frame on FieldHUD; DriveGhost trails one frame)
+GHOST_SETTLE_S = 2.0
+#: leg G's calibration lever (COOP_DRESS_CAL): `selfdress rule s138` -- the WHOLE pre-s139 selftest site (the first named
+#: bit, no skip, no moogle, no guard, the loco translation on any dress, no rest mask), pulled after G0 / G4 / G6 and again
+#: after every `clear`
+CAL_RULE_S138 = "rule-s138"
+
+
+def _catalog_g() -> dict:
+    return {
+        "S139-G0": "the baseline, first: `ghost.mode` reads 'ini:' + the ini's GhostAs (read offline) and the mirror wears "
+                   "the s139 rule's answer for it under the GuestSlots-0 pin -- the MOOGLE for auto (owner D2), its own "
+                   "body for '' / off / 0 -- model, rig, geo, body and clip against the twin and the install's oracle",
+        "S139-G4": "`netsync.dress.codec` == 'ok' and the proof block's 'dress codec selftest: OK (29 rows)' line (judged at "
+                   "the stock field: the proof block runs at S0)",
+        "S139-G6": "`rig_idle_frames` == the oracle the kit's clip reader reads off the install's p0data5 (round(length x "
+                   "rate) + 1 per rig row's idle clip)",
+        "S139-G3a": "before the seed, slot 1 EMPTY on the real party: `ghost 2` (no `empty`) -> the moogle (220, rig 8, "
+                    "GEO_NPC_F0_MOG, body '220', an ANH_NPC_F0_MOG clip, playing)",
+        "S139-G1": "after the seed: `ghost 1<<s1` (s1 = the first slot >= 1 holding a main, read off the live party) -> that "
+                   "member's rig row: model, rig == party[s1], its GEO and body off the install, its loco clip, playing",
+        "S139-G2": "`ghost 6` + `empty 2` -> slot 2's member (an EMPTY named slot is skipped to the next named one)",
+        "S139-G3": "`ghost 2` + `empty 2` -> the moogle (every named slot empty)",
+        "S139-G3c": "`ghost 6` + `empty 6` -> the moogle (every named slot of a MULTI-bit mask empty)",
+        "S139-G3m": "the moogle MOVING: `ghost 2` + `empty 2`, then a walk probe -- every mid-move publish whose player anim "
+                    "held 2+ publishes shows the twin's clip for it (25 -> ANH_NPC_F0_MOG_WALK, 38 -> ANH_NPC_F0_MOG_RUN), "
+                    "playing, on the moogle",
+        "S139-G3d": "`ghost 0` (a spectator, owner D2) -> the moogle; and the proof block's section-8 line is the twin's body "
+                    "for the ini's GhostAs under the pin (DC 00 FF for auto, 00 00 FF for none)",
+        "S139-G5": "(control, its own setup) `ghost 1<<s1` held until the ghost wears party[s1]'s rig, then `clear` ALONE -> "
+                   "every lever back off (-1 / null), the mode back to G0's, and the ghost back to G0's baseline",
+        "S139-G7a": "the guard, `ghost <s1 bit>` + `wire 5489` (a Steiner-led guest) -> the ghost SHOWS 5489, rig -1, "
+                    "moving with Steiner's own loco clip",
+        "S139-G7b": "`wire <the dress model> <its rig's break clip>` (an s140 guest already dressed, PLAYING Vivi's 912) -> "
+                    "dressed, playing the RAW wire clip (amendment 4; the s138 translation flattens it to the dressed idle)",
+        "S139-G7c": "`wire 98` (a plain-Zidane wire body: an s117 guest, or an opted-out SelfDress=0 one -- owner D1) -> "
+                    "dressed",
+        "S139-G7d": "`wire 532` (GEO_MAIN_F0_ZDD, no rig) -> the ghost SHOWS 532, playing nothing it cannot load",
+        "S139-G8": "THE REST MASK, `ghost <Garnet's bit>`: `shown_mask == rest_mask` with a hide among them, and `hidden` == "
+                   "the install prefab's field-mode hides (ModelFactory's rule: one hairstyle by the scenario counter / "
+                   "[Graphics] GarnetHair, any battle_model)",
+    }
+
+
+G_CHECKS = tuple(_catalog_g())
+#: leg G's red set under its own lever (`rule s138`: the pre-s139 site) -- every row the host rule changed at this site:
+#: the skip (G2), the moogle (G3a, G3, G3c, G3m, G3d), the guard's non-98 half (G7a, G7d), the raw anim on the wire's own
+#: body (G7b: the pinned break clip translated to the dressed idle) and the rest mask (G8: 0xFFFF re-asserted, both
+#: hairstyles shown). G0, G4 and G6 are read before the lever is pulled; G1, G5 and G7c stay GREEN (the first named bit
+#: holds a main; `clear` releases the lever; a wire body of 98 is dressed by both rules, with the same translated clip).
+G_LEVER_REDS = ("S139-G3a", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m", "S139-G3d", "S139-G7a", "S139-G7b", "S139-G7d",
+                "S139-G8")
+
 
 #: THE LEG REGISTRY. Per leg: its patch; its catalog and checks; its steps per phase (each `step(g, led, ctx)`); `pre` --
 #: the fields it needs REGISTERED (S138-PRE); `oracle` -- the fields whose `.eb` the oracle reads ("stock" = the run's
@@ -254,6 +432,12 @@ LEGS = {
           "steps": {"stock": "_i_stock", "seeded": "_i_seeded", "bench": "_i_bench", "close": "_i_close"},
           "pre": (PARTY_FIELD, BENCH_FIELD), "oracle": ("stock", BENCH_FIELD), "oracle_extra": None,
           "old": {137: (I_CHECKS, ())}, "lever": {}},
+    # [ff9mapkit netsync s139] on an engine before s139 every G check reads red: the `selfdress` verb is refused before the
+    # step (the driver: no `netsync.dress.ghost.bench_mask`), and `mode` / `codec` / `rig_idle_frames` are absent
+    "G": {"patch": 139, "catalog": _catalog_g, "checks": G_CHECKS,
+          "steps": {"stock": "_g_stock", "seeded": "_g_seeded"},
+          "pre": (PARTY_FIELD, BENCH_FIELD), "oracle": ("stock",), "oracle_extra": "_g_oracle",
+          "old": {137: (G_CHECKS, ()), 138: (G_CHECKS, ())}, "lever": {CAL_RULE_S138: (G_LEVER_REDS, ())}},
 }
 PHASES = ("stock", "seed", "seeded", "bench", "close")
 #: the engine stages the probe tells apart: 137 = no instrument (s137 or older); 138-141 = the dress probe ladder's rungs
@@ -324,8 +508,10 @@ def _shared_catalog(calibrate: bool, legs=tuple(LEGS)) -> dict:
         "S138-R": "`reset` releases the forced selftest role",
     }
     if calibrate:
-        c["S138-CAL"] = ("CALIBRATION: exactly the predicted checks are red -- on an engine before s138 (no `player.model`, "
-                         "no `netsync.dress`) the leg-I value checks I1-I9")
+        c["S138-CAL"] = ("CALIBRATION: exactly the predicted checks are red -- each selected leg's `old` row on an engine "
+                         "before its patch (leg I on s137: I1-I9; leg G on s137 / s138: every G check), its `lever` row "
+                         "under COOP_DRESS_CAL (leg G's rule-s138: G3a, G2, G3, G3c, G3m, G3d, G7a, G7b, G7d, G8), nothing "
+                         "else; a lever row whose red reads 'not reached' is UNPROVEN, never a predicted red")
     return c
 
 
@@ -367,6 +553,17 @@ def predicted(stage, legs, mode: str = CAL_OLD) -> tuple:
                           + "; ".join(f"s{LEGS[g]['patch']} has no lever (an inert instrument)" for g in legs)
                           + " -- calibrate on the engine BEFORE it (the s137 DLL 0269771f24b626c1)")
     return tuple(dict.fromkeys(reds)), tuple(dict.fromkeys(maybe)), ""
+
+
+def lever_unproven(stage, legs, mode: str, unreached) -> list:
+    """(PURE) Under a calibration LEVER (``mode`` != CAL_OLD): the lever rows of the legs at or before ``stage`` whose red
+    reads "not reached" (``unreached``: the ids recorded so) -- the lever never bit there, so the red proves nothing about
+    it and S138-CAL must fail naming them (Ledger.judge_calibration alone would count any red). An `old` row (a leg newer
+    than the engine: its verb refused before the step) is left alone -- there a pre-step refusal IS the predicted red."""
+    if stage is None or mode == CAL_OLD:
+        return []
+    rows = [c for leg in legs if LEGS[leg]["patch"] <= stage for c in LEGS[leg]["lever"].get(mode, ((), ()))[0]]
+    return sorted(c for c in dict.fromkeys(rows) if c in set(unreached or ()))
 
 
 # ================================================================================================ reads (raw, absent-aware)
@@ -696,6 +893,294 @@ def judge_objects(x, fo: dict) -> tuple:
     return not wrong and not zid, (f"(uid, sid, model) {rows}; oracle by sid {npcs}"
                                    + (f"; NOT the oracle's: {wrong}" if wrong else "")
                                    + (f"; the player's model: {zid}" if zid else ""))
+
+
+# ---- [ff9mapkit netsync s139] leg G's pure judges -------------------------------------------------------------------
+#: the `selfdress` levers all OFF, as the bench tracks them and the engine publishes them (`ghost.bench_mask`, `empty_mask`,
+#: `rule`, `wire`, `wire_anim`)
+LEVERS_OFF = {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}
+
+
+def published_levers(x) -> dict | None:
+    """(PURE) The `selfdress` levers the engine PUBLISHES as set (`netsync.dress.ghost`'s s139 keys), in the bench's
+    shape; None on an engine before s139 (no `bench_mask`)."""
+    d = _dress(x)
+    gh = d.get("ghost") if isinstance(d, dict) else None
+    if not isinstance(gh, dict) or "bench_mask" not in gh:
+        return None
+    return {"mask": gh.get("bench_mask"), "empty": gh.get("empty_mask"), "rule": gh.get("rule"), "wire": gh.get("wire"),
+            "wire_anim": gh.get("wire_anim")}
+
+
+#: the lever S138-R holds into the reset on an s139+ engine: `rule s139` is INERT (the s139 rule is the site's own), so
+#: holding it changes nothing a later read judges -- and HarnessReleaseDress logs only when a lever was held
+HOLD_INTO_RESET = ("rule", "s139")
+#: the line the harness release logs for it (NetSyncBattle.HarnessReleaseBench -> HarnessReleaseDress's cause)
+RELEASE_LINE = "selfdress levers released (released with the harness)"
+
+
+def judge_released(x) -> tuple:
+    """S138-R's s139 half (PURE): after `reset` every selfdress lever reads OFF -- `bench_mask`, `empty_mask`, `wire`,
+    `wire_anim` -1 and `rule` null (the getters publish the levers RAW, in every role, so the read is a witness, not a
+    role gate's rest value). Red on any held lever and on an engine that publishes none."""
+    got = published_levers(x)
+    if got is None:
+        return False, "the selfdress levers after the reset: not published (no `ghost.bench_mask`)"
+    return got == LEVERS_OFF, f"the selfdress levers after the reset {got} (want every one off: {LEVERS_OFF})"
+
+
+def hold_into_reset(g, ctx: dict) -> tuple:
+    """(held, why): on an s139+ engine (the probe's stage) send :data:`HOLD_INTO_RESET` and see it PUBLISHED (the lever
+    held: the reset must then release it) -> (True, None); before s139 nothing exists to hold -> (False, None); a refusal
+    or a lever that never publishes -> (False, why)."""
+    stage = ctx.get("stage")
+    if stage is None or stage < 139:
+        return False, None
+    ok, why = cb.try_ns(g, "selfdress", *HOLD_INTO_RESET)
+    if not ok:
+        return False, f"`selfdress {' '.join(HOLD_INTO_RESET)}` refused: {why}"
+    st = cb.poll(g, lambda s: (published_levers(s) or {}).get("rule") == HOLD_INTO_RESET[1], 5.0,
+                 f"`selfdress {' '.join(HOLD_INTO_RESET)}` published")
+    if st is None:
+        return False, f"`selfdress {' '.join(HOLD_INTO_RESET)}` never published (levers {published_levers(g.state)})"
+    return True, None
+
+
+def want_mode(levers: dict, ghost_as) -> str:
+    """(PURE) The `ghost.mode` the levers imply: "bench:auto" under a `ghost` lever (it FORCES mode auto -- audit 2.2
+    amendment 1), else "ini:" + the ini's trimmed GhostAs."""
+    return BW.DRESS_MODE_BENCH if int(levers["mask"]) >= 0 else BW.DRESS_MODE_INI + (ghost_as or "").strip()
+
+
+def want_ghost(x, levers: dict, ghost_as) -> dict | None:
+    """(PURE) What THE s139 SELFTEST SITE makes the mirror wear and play on this sample -- battlewire.selftest_dress, the
+    site's twin (its rig rows pinned to the census), on the sample's own player model / anim and its LIVE party
+    (`netsync.dress.party`), the ini's GhostAs and the GuestSlots-0 pin, the bench's ``levers`` (the `rule` lever is never
+    applied: the expectation is always the s139 rule, so the calibration lever's red shows). None when the player's model
+    or anim, or the party, is unread."""
+    p, d = _player(x), _dress(x)
+    model, anim = _int(p.get("model")), _int(p.get("anim"))
+    party = d.get("party") if isinstance(d, dict) else None
+    if model is None or anim is None or not isinstance(party, list) or len(party) != 4:
+        return None
+    return BW.selftest_dress(ghost_as=ghost_as or "", guest_slots=0, me_model=model, me_anim=anim, party=party,
+                             role="selftest", selftest_role=True, bench_mask=int(levers["mask"]),
+                             empty_mask=int(levers["empty"]), rule=None, wire=int(levers["wire"]),
+                             wire_anim=int(levers.get("wire_anim", -1)))
+
+
+def _held_pick(samples: list, levers: dict, hold: int):
+    """The LAST sample where the player's anim AND the ghost's (model, geo, clip, rig) have held ``hold``+ publishes -- on
+    FieldHUD, the selftest role forced, `session.ghost` true and the PUBLISHED levers equal to ``levers`` (the ops
+    landed). None when there is none."""
+    pick, run, prev = None, 0, _ABSENT
+    for s in samples:
+        r = _raw(s)
+        anim = _player(s).get("anim", _ABSENT)
+        key = (anim, _ghost_tuple(s))
+        run = run + 1 if anim is not _ABSENT and anim is not None and key == prev else 1
+        prev = key
+        ns = r.get("netsync") if isinstance(r.get("netsync"), dict) else {}
+        sess = ns.get("session") if isinstance(ns.get("session"), dict) else {}
+        if (run >= hold and r.get("ui_state") == "FieldHUD" and ns.get("selftest") is True and ns.get("forced") is True
+                and sess.get("ghost") is True and published_levers(s) == dict(levers)):
+            pick = s
+    return pick
+
+
+def _no_pick_why(samples: list, levers: dict, hold: int) -> str:
+    last = _raw(samples[-1])
+    ns = last.get("netsync") if isinstance(last.get("netsync"), dict) else {}
+    return (f"no publish with the ghost held {hold}+ on FieldHUD, the role forced, session.ghost true and the levers "
+            f"{levers} published (last: levers {published_levers(samples[-1])}, ui {last.get('ui_state')!r}, forced "
+            f"{ns.get('forced')!r})")
+
+
+def _worn_verdict(pick, *, levers: dict, ghost_as, models: dict, clips: dict, moving: bool = False) -> tuple:
+    """One sample against :func:`want_ghost`: (ok, detail) -- model, rig, GEO and texture stem off the INSTALL, the clip
+    NAME of the twin's anim (playing, where that clip lives in the worn folder), and `ghost.mode` the one the levers imply.
+    A ghost body null with everything else right reads "not reached: cannot judge"."""
+    want = want_ghost(pick, levers, ghost_as)
+    p, gh = _player(pick), _dress(pick)["ghost"]
+    if want is None:
+        return False, f"the player's model / anim or the party unread (player {cb.pick(p, 'model', 'anim')})"
+    m = want["model"]
+    facts = models.get(m) or {}
+    if not facts.get("geo") or not facts.get("body"):
+        return False, f"not reached: no install oracle for model {m} (the twin's answer: {BW.rig_name(want['rig'])})"
+    want_clip = clips.get(want["anim"])
+    judged_play = want_clip is not None and BW.folder_of(want_clip) == facts["geo"]
+    mode, wmode = gh.get("mode"), want_mode(levers, ghost_as)
+    detail = (f"ghost {cb.pick(gh, *S138_GHOST_KEYS)} mode {mode!r} vs the twin's "
+              f"{BW.rig_name(want['rig']) or 'undressed'}: model {m} rig {want['rig']} geo {facts['geo']} body "
+              f"{facts['body']!r} clip {want_clip!r} mode {wmode!r} (player {p.get('model')}/{p.get('anim')}, party "
+              f"{_dress(pick).get('party')}, levers {levers}, GhostAs {ghost_as!r})"
+              + ("" if judged_play else "; `playing` not judged: that clip is not in the worn model's own GEO folder"))
+    same_but_body = (_int(gh.get("model")) == m and _int(gh.get("rig")) == want["rig"] and gh.get("geo") == facts["geo"]
+                     and want_clip is not None and gh.get("clip") == want_clip
+                     and (not judged_play or gh.get("playing") is True) and mode == wmode)
+    if same_but_body and gh.get("body") is None:
+        return False, f"not reached: cannot judge the body -- `ghost.body` null ({detail})"
+    return same_but_body and gh.get("body") == facts["body"], detail
+
+
+def judge_worn(samples: list, *, levers: dict, ghost_as, models: dict, clips: dict, hold: int = GHOST_HOLD) -> tuple:
+    """Leg G (PURE): on the LAST publish where the player's anim AND the ghost's (model, geo, clip, rig) have held ``hold``+
+    publishes -- on FieldHUD, the selftest role forced, `session.ghost` true and the PUBLISHED levers equal to ``levers``
+    (the ops landed) -- the ghost wears what :func:`want_ghost` computes: its model and rig, the GEO and texture stem the
+    INSTALL gives that model (``models``: the oracle's {model: {geo, body}} -- never the engine's tables), and the clip
+    NAME of the twin's anim (``clips``: the kit's copy of the open-source AnimationDB), playing -- judged only when that
+    clip lives in the worn model's own GEO folder (EnsureGhost loads the worn folder alone: a foreign clip cannot play) --
+    and `ghost.mode` the one the levers imply (:func:`want_mode`: a `ghost` lever FORCES auto, so 'ini:auto' under a mask is
+    red even where it dresses the same). A ghost body null with everything else right reads "not reached: cannot judge"."""
+    if not samples:
+        return False, "no publishes"
+    d = _dress(samples[-1])
+    if d is None or not isinstance(d.get("ghost"), dict) or "mode" not in d["ghost"]:
+        return False, "netsync.dress.ghost.mode ABSENT -- an engine before s139"
+    pick = _held_pick(samples, levers, hold)
+    if pick is None:
+        return False, _no_pick_why(samples, levers, hold)
+    return _worn_verdict(pick, levers=levers, ghost_as=ghost_as, models=models, clips=clips)
+
+
+def judge_worn_moving(samples: list, *, levers: dict, ghost_as, models: dict, clips: dict) -> tuple:
+    """G3m (PURE): the ghost while the player MOVES -- the move's middle (:func:`moving_middle`: per tick, the tickless
+    frames included), every publish whose player anim held over the publish before it (DriveGhost trails the player by one
+    frame: a walk -> run switch is not judged on its first frame), with the levers published as set, on FieldHUD, the
+    selftest role forced: each one :func:`_worn_verdict` -- the twin's clip for THAT anim (25 -> the dressed rig's walk, 38
+    its run), playing, on the dressed body. Red on any judged publish that is not; "not reached" when no move has a
+    middle."""
+    if not samples:
+        return False, "no publishes"
+    d = _dress(samples[-1])
+    if d is None or not isinstance(d.get("ghost"), dict) or "mode" not in d["ghost"]:
+        return False, "netsync.dress.ghost.mode ABSENT -- an engine before s139"
+    mid = moving_middle(samples)
+    if not mid:
+        runs = moves(samples)
+        return False, (f"not reached: no move of {STEADY_TICKS + TAIL_TICKS + 1}+ field ticks ({len(samples)} samples; "
+                       f"moves of {[len(r) for r in runs]} ticks)")
+    judged, bad, anims, worn = 0, None, set(), set()
+    for a, b in zip(mid, mid[1:]):
+        r = _raw(b)
+        ns = r.get("netsync") if isinstance(r.get("netsync"), dict) else {}
+        sess = ns.get("session") if isinstance(ns.get("session"), dict) else {}
+        if (_player(a).get("anim") != _player(b).get("anim") or r.get("ui_state") != "FieldHUD"
+                or ns.get("forced") is not True or sess.get("ghost") is not True or published_levers(b) != dict(levers)):
+            continue
+        judged += 1
+        anims.add(_player(b).get("anim"))
+        worn.add(str(((_dress(b) or {}).get("ghost") or {}).get("clip")))
+        ok, why = _worn_verdict(b, levers=levers, ghost_as=ghost_as, models=models, clips=clips)
+        if not ok and bad is None:
+            bad = why
+    if not judged:
+        return False, f"not reached: no mid-move publish held its anim with the levers {levers} published ({len(mid)} mid)"
+    return bad is None, (f"{judged} mid-move publishes judged, player anims {sorted(a for a in anims if a is not None)}, "
+                         f"ghost clips {sorted(worn)}" + (f"; first bad: {bad}" if bad else ""))
+
+
+def judge_rest_mask(samples: list, *, levers: dict, tree, garnet_hair, hold: int = GHOST_HOLD) -> tuple:
+    """G8's visibility half (PURE): on the held pick (:func:`_held_pick`), the ghost's `shown_mask` == its `rest_mask` (the
+    rest mask APPLIED), with a hide among them (else nothing is proven: "not reached: cannot judge"), and `hidden` -- the
+    renderers disabled now -- == the install prefab's field-mode hides by ModelFactory's own rule (BW.field_hides over
+    ``tree``: {geo, transforms, renderers} read off p0data; ``garnet_hair``: the ini's [Graphics] GarnetHair; the sample's
+    own published scenario counter), and `rest_mask` == that rule's mask. ``tree`` None: "not reached"."""
+    if not samples:
+        return False, "no publishes"
+    d = _dress(samples[-1])
+    gh0 = d.get("ghost") if isinstance(d, dict) else None
+    if not isinstance(gh0, dict) or "rest_mask" not in gh0:
+        return False, "netsync.dress.ghost.rest_mask ABSENT -- an engine before s139's visibility keys"
+    if not tree:
+        return False, "not reached: no prefab tree for the rest mask's oracle"
+    pick = _held_pick(samples, levers, hold)
+    if pick is None:
+        return False, _no_pick_why(samples, levers, hold)
+    return rest_mask_verdict(_dress(pick)["ghost"], _int(_raw(pick).get("scenario")), tree, garnet_hair)
+
+
+def rest_mask_verdict(gh: dict, scenario, tree, garnet_hair) -> tuple:
+    """(PURE) THE REST MASK on one picked ghost record ``gh`` (`netsync.dress.ghost`): `shown_mask` == `rest_mask` (the rest
+    mask APPLIED) == the install prefab's rule mask, with a hide among them (else "not reached: cannot judge"), and `hidden`
+    == the prefab's field-mode hides by ModelFactory's own rule (BW.field_hides over ``tree`` -- {geo, transforms,
+    renderers} read off p0data -- with ``garnet_hair``, the ini's [Graphics] GarnetHair, and ``scenario``, the sample's own
+    published scenario counter). Shared by G8 (the selftest site) and G9e (the host's TRANSPORT site, coop_dress_wire.py)."""
+    if not isinstance(gh, dict) or "rest_mask" not in gh:
+        return False, "netsync.dress.ghost.rest_mask ABSENT -- an engine before s139's visibility keys"
+    if not tree:
+        return False, "not reached: no prefab tree for the rest mask's oracle"
+    if scenario is None:
+        return False, "not reached: no published scenario counter (the hair rule's input)"
+    want_hidden = BW.field_hides(tree["geo"], tree["transforms"], tree["renderers"], garnet_hair=garnet_hair or 0,
+                                 scenario=scenario)
+    want_rest = BW.visibility_mask(tree["renderers"], want_hidden)
+    rest, shown, hidden = _int(gh.get("rest_mask")), _int(gh.get("shown_mask")), gh.get("hidden")
+    detail = (f"rest_mask {rest} shown_mask {shown} hidden {hidden!r} vs the prefab's rule: rest {want_rest} hidden "
+              f"{want_hidden} (scenario {scenario}, GarnetHair {garnet_hair!r}, {len(tree['renderers'])} renderers)")
+    if not want_hidden:
+        return False, f"not reached: cannot judge -- the rule hides nothing on this body ({detail})"
+    ok = (rest is not None and rest == shown == want_rest and isinstance(hidden, list)
+          and sorted(hidden) == sorted(want_hidden))
+    return ok, detail
+
+
+def judge_baseline(samples: list, *, ghost_as, models: dict, clips: dict) -> tuple:
+    """G0 / G5 (PURE): every lever OFF, `ghost.mode` == "ini:" + the ini's GhostAs as the bench read it offline (trimmed),
+    and the ghost what the s139 rule makes of it under the pin (:func:`judge_worn`)."""
+    ok, why = judge_worn(samples, levers=LEVERS_OFF, ghost_as=ghost_as, models=models, clips=clips)
+    d = _dress(samples[-1]) if samples else None
+    gh = d.get("ghost") if isinstance(d, dict) else None
+    mode = gh.get("mode", "ABSENT") if isinstance(gh, dict) else "ABSENT"
+    want_mode_ = BW.DRESS_MODE_INI + (ghost_as or "").strip()
+    return ok and mode == want_mode_, f"mode {mode!r} (want {want_mode_!r}); {why}"
+
+
+def judge_section_line(lines: list, ghost_as) -> tuple:
+    """G3d's second half (PURE over Memoria.log): the proof block's LATEST section-8 line carries the twin's body for the
+    ini's GhostAs under the forced selftest's GuestSlots pin 0 (battlewire.host_dress_section) -- "DC 00 FF (model 220,
+    charId 255)" for auto (owner D2), "00 00 FF (model 0, charId 255)" for none. The producer's bytes as this machine would
+    host them (the selftest role has no socket: G9, the duo relay tap, is the wire's own witness)."""
+    want = BW.dress_section_text(BW.host_dress_section(ghost_as or "", 0, "selftest", True, None))
+    hits = [ln for ln in lines if BW.PROOF_DRESS_SECTION in ln]
+    if not hits:
+        return False, f"no '{BW.PROOF_DRESS_SECTION.strip()}' line in Memoria.log (want {want!r})"
+    got = hits[-1].split(BW.PROOF_DRESS_SECTION, 1)[1].strip()
+    return got == want, f"section 8 {got!r} (the twin's {want!r} for GhostAs {ghost_as!r} under the pin)"
+
+
+def judge_codec(d: dict | None, lines: list) -> tuple:
+    """G4 (PURE): `netsync.dress.codec` == "ok" AND the proof block's line reads OK with the engine's row count."""
+    if d is None or "codec" not in d:
+        return False, "netsync.dress.codec ABSENT -- an engine before s139"
+    want = BW.proof_ok(BW.PROOF_DRESS, BW.DRESS_SELFTEST_ROWS)
+    hits = [ln for ln in lines if BW.PROOF_DRESS in ln]
+    line = hits[-1].split("[NetSync] ", 1)[-1].strip() if hits else None
+    ok = d.get("codec") == BW.DRESS_CODEC_OK and line == want
+    return ok, f"codec {d.get('codec')!r}; proof line {line!r} (want {want!r})"
+
+
+def judge_idle_frames(d: dict | None, oracle) -> tuple:
+    """G6 (PURE): `rig_idle_frames` -- nine ints -- equals the oracle the kit's clip reader read off the install (None:
+    "not reached")."""
+    if d is None or "rig_idle_frames" not in d:
+        return False, "netsync.dress.rig_idle_frames ABSENT -- an engine before s139"
+    got = d.get("rig_idle_frames")
+    if oracle is None:
+        return False, f"not reached: no idle-frame oracle (published {got})"
+    if not isinstance(got, list) or len(got) != BW.RIG_ROW_COUNT or any(_int(v) is None for v in got):
+        return False, f"rig_idle_frames {got!r}: not {BW.RIG_ROW_COUNT} ints"
+    bad = [f"{BW.RIG_NAMES[i]} {got[i]} != {oracle[i]}" for i in range(BW.RIG_ROW_COUNT) if got[i] != oracle[i]]
+    return not bad, f"rig_idle_frames {got} (oracle {list(oracle)})" + (f"; {bad}" if bad else "")
+
+
+def first_main_slot(party) -> int | None:
+    """(PURE) s1: the first slot >= 1 holding a main (CharacterId 0-7) -- what `ghost 1<<s1` names; None when none does."""
+    if not isinstance(party, list):
+        return None
+    return next((i for i in range(1, min(4, len(party))) if _int(party[i]) is not None and 0 <= party[i] < BW.MAIN_RIG_COUNT),
+                None)
 
 
 # ================================================================================================ the offline oracle
@@ -1125,8 +1610,22 @@ def _i_stock(g, led: cb.Ledger, ctx: dict) -> None:
     led.check("S138-I5", moving_ok and rest_ok, f"MOVING {moving_why}; REST {rest_why}{cut}")
     ok, why = judge_rest_folder(_player(rest[-1]), fo)
     led.check("S138-I3", ok, why + cut)
-    ok, why = judge_ghost(rest)
+    ok, why = _judge_i7(g, rest, ctx)
     led.check("S138-I7", ok, why + cut)
+
+
+def _judge_i7(g, rest: list, ctx: dict) -> tuple:
+    """I7 by the engine the probe found: before s139 (or a torn probe) the s138 rule -- the mirror wears the player's own
+    body (:func:`judge_ghost`); from s139 on the mirror runs THE HOST RULE under the forced selftest's GuestSlots pin 0, so
+    it wears what :func:`judge_worn` computes for the ini's GhostAs with every lever off -- the MOOGLE for auto (owner D2),
+    the player's own body for '' / off / 0 -- against the install's oracle."""
+    stage = ctx.get("stage")
+    if stage is None or stage < 139:
+        return judge_ghost(rest)
+    want = want_ghost(rest[-1], LEVERS_OFF, ctx.get("ghost_as")) if rest else None
+    models, clips = _dress_oracle(g, ctx, {want["model"]} if want else set())
+    ok, why = judge_worn(rest, levers=LEVERS_OFF, ghost_as=ctx.get("ghost_as"), models=models, clips=clips)
+    return ok, f"s{stage}: the host rule under the GuestSlots pin 0, GhostAs {ctx.get('ghost_as')!r} -- {why}"
 
 
 def _i_seeded(g, led: cb.Ledger, ctx: dict) -> None:
@@ -1173,11 +1672,399 @@ def _i_close(g, led: cb.Ledger, ctx: dict) -> None:
         led.check(cid, all(oks), "; ".join(parts))
 
 
+# ------------------------------------------------------------------------------------------------ leg G's offline oracle
+def idle_frames_oracle(game: Path) -> tuple:
+    """(the nine rig rows' idle frame counts, or None; why) -- THE FRAME LAW off the install: each rig row's idle clip (the
+    twin's ids, battlewire.RIGS, pinned to the census) read out of p0data5 by the kit's clip reader (ff9mapkit.models.
+    _gltf_io.read_clip at the folder ff9mapkit.catalog.locate_animation resolves -- the engine's own folder rule), counted
+    by EventEngineUtils.GetCharAnimFrame's formula round(length x rate) + 1 (the kit's thumbcache frame law). READ-ONLY:
+    a UnityPy load of the bundle writes nothing."""
+    _kit()
+    from ff9mapkit import catalog
+    from ff9mapkit import extract as X
+    from ff9mapkit.models import _gltf_io
+    bundle = X._unitypy().load(str(Path(game) / "StreamingAssets" / "p0data5.bin"))
+    disc = _gltf_io.anim_disc_map(bundle)
+    out = []
+    for i, row in enumerate(BW.RIGS):
+        model, idle = row[0], row[1]
+        loc = catalog.locate_animation(idle, model, disc)
+        clip = _gltf_io.read_clip(bundle, loc[1], loc[0]) if loc else None
+        if clip is None:
+            return None, f"rig {i} ({BW.RIG_NAMES[i]}): its idle clip {idle} is not in p0data5 for model {model}"
+        out.append(int(round(float(clip["length"]) * float(clip["sample_rate"] or 30.0))) + 1)
+    return out, f"p0data5 idle frames {out}"
+
+
+def g_oracle_read(game: Path) -> tuple:
+    """Leg G's offline oracle: ({"models": {model: {geo, body, ...}}, "clips": {anim id: clip name}, "idle_frames": [9] or
+    None}, {key: why}) -- every model leg G may expect (:data:`G_MODELS`) off the install (:func:`model_facts`: its GEO name
+    cross-checked with the kit's table, its texture stem), the clip names off the kit's copy of the open-source
+    AnimationDB, the idle frames (:func:`idle_frames_oracle`), and a DictionaryPatch `3DModel` / `3DModelAnimation` remap of
+    any of those models or the rig rows' loco ids named (stock Memoria applies it at launch; the kit's tables do not)."""
+    _kit()
+    from ff9mapkit import extract as X
+    from ff9mapkit._animdb_all import ANIMATIONS
+    problems, models = {}, {}
+    for m in G_MODELS:
+        try:
+            facts = model_facts(game, m)
+        except Exception as err:             # noqa: BLE001 - one model that cannot be read is a named problem
+            problems[f"model {m}"] = f"read_model raised {type(err).__name__}: {str(err)[:160]}"
+            continue
+        if facts.get("geo") is None or facts.get("body") is None:
+            problems[f"model {m}"] = (f"geo {facts.get('geo_read')!r} vs the table's {facts.get('geo_table')!r}, stems "
+                                      f"{facts.get('stems')}")
+            continue
+        models[m] = facts
+    try:
+        loco = [a for row in BW.RIGS for a in row[1:6]]
+        remaps = dictionary_remaps(game, X._mod_folders(game), G_MODELS, loco)
+    except Exception as err:                 # noqa: BLE001
+        remaps, problems["remaps"] = [], f"the DictionaryPatch scan raised {type(err).__name__}: {str(err)[:160]}"
+    for folder, line in remaps:
+        problems[f"remap {folder}"] = f"{line!r} touches a leg-G model or loco id (stock Memoria applies it at launch)"
+    try:
+        frames, why = idle_frames_oracle(game)
+    except Exception as err:                 # noqa: BLE001
+        frames, why = None, f"the p0data5 read raised {type(err).__name__}: {str(err)[:160]}"
+    if frames is None:
+        problems["idle_frames"] = why
+    prefabs = {}
+    for m in G_PREFAB_MODELS:
+        try:
+            tree = prefab_tree(game, m)
+        except Exception as err:             # noqa: BLE001 - a prefab that cannot be walked is a named problem
+            problems[f"prefab {m}"] = f"the prefab walk raised {type(err).__name__}: {str(err)[:160]}"
+            continue
+        if not tree["renderers"]:
+            problems[f"prefab {m}"] = f"{tree['geo']}: no renderer found"
+            continue
+        prefabs[m] = tree
+    return {"models": models, "clips": dict(ANIMATIONS), "idle_frames": frames, "prefabs": prefabs}, problems
+
+
+#: the Renderer subclasses a prefab's GameObjects carry (GetComponentsInChildren<Renderer> finds both)
+RENDERER_TYPES = ("SkinnedMeshRenderer", "MeshRenderer")
+
+
+def prefab_tree(game: Path, model: int) -> dict:
+    """G8's offline oracle: a model's PREFAB as {geo, transforms, renderers} -- every transform's path under the root in
+    depth-first pre-order (the root excluded) and every Renderer's path in GetComponentsInChildren order -- walked off
+    p0data through the kit's bundle reader (ff9mapkit.models.extract._open_prefab; READ-ONLY, a UnityPy load writes
+    nothing). ``geo`` is the REQUESTED identity (ModelFactory's garnetShortHairTable keys off it)."""
+    _kit()
+    from ff9mapkit.models import extract as ME
+    geo, _gid, _tint, _pgeo, _pgid, _ptint, b, root_pid = ME._open_prefab(str(int(model)), game)
+    transforms, renderers = [], []
+
+    def walk(tr_tt, path: str) -> None:
+        if not tr_tt:
+            return
+        go = b.tt(ME._pid(tr_tt.get("m_GameObject", {})))
+        if path:
+            transforms.append(path)
+        if go and any(tn in RENDERER_TYPES for tn, _p in b.components(go)):
+            renderers.append(path)
+        for ch in tr_tt.get("m_Children", []):
+            ctt = b.tt(ME._pid(ch))
+            cgo = b.tt(ME._pid(ctt.get("m_GameObject", {}))) if ctt else None
+            name = str(cgo.get("m_Name")) if cgo else "?"
+            walk(ctt, f"{path}/{name}" if path else name)
+
+    _tpid, root_tr = b.transform_of(b.tt(root_pid))
+    walk(root_tr, "")
+    return {"geo": geo, "transforms": transforms, "renderers": renderers}
+
+
+def _g_oracle(g, ctx: dict) -> tuple:
+    """Leg G's `oracle_extra` hook (:func:`g_oracle_read` on the run's install)."""
+    return g_oracle_read(Path(g.game_path))
+
+
+def _g_oracle_of(ctx: dict) -> dict | None:
+    extra = ((ctx.get("oracle") or {}).get("extra") or {}).get("G")
+    return extra if isinstance(extra, dict) and extra.get("models") is not None else None
+
+
+def _dress_oracle(g, ctx: dict, need) -> tuple:
+    """(models, clips) for a dress judge outside leg G (I7 on s139+), holding at least the models in ``need``: leg G's
+    oracle when it ran; else the fields' own oracle (S138-OR already read each field's player model off the install);
+    else the model read NOW (OFFLINE, read-only -- the moogle, when the ini's `auto` dresses the mirror), cached in
+    ``ctx``. The clip names are the kit's copy of the open-source AnimationDB."""
+    got = _g_oracle_of(ctx)
+    if got is not None:
+        return got["models"], got["clips"]
+    cache = ctx.setdefault("dress_models", {})
+    for fo in ((ctx.get("oracle") or {}).get("fields") or {}).values():
+        if fo.get("model") is not None and fo.get("geo") and fo.get("body"):
+            cache.setdefault(int(fo["model"]), {"geo": fo["geo"], "body": fo["body"]})
+    for m in need:
+        if m is None or m in cache:
+            continue
+        try:
+            facts = model_facts(Path(g.game_path), int(m))
+            cache[m] = facts if facts.get("geo") and facts.get("body") else {}
+        except Exception:                    # noqa: BLE001 - an unread model reads "not reached" at the judge
+            cache[m] = {}
+    _kit()
+    from ff9mapkit._animdb_all import ANIMATIONS
+    return cache, dict(ANIMATIONS)
+
+
+# ------------------------------------------------------------------------------------------------ leg G's steps
+G_STOCK_CHECKS = ("S139-G0", "S139-G4", "S139-G6", "S139-G3a")
+G_SEEDED_CHECKS = ("S139-G1", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m", "S139-G3d", "S139-G5", "S139-G7a", "S139-G7b",
+                   "S139-G7c", "S139-G7d", "S139-G8")
+
+
+def _g_ctx(ctx: dict) -> dict:
+    """Leg G's run state: the levers the bench holds, whether the calibration lever is pulled, the ini's GhostAs and
+    [Graphics] GarnetHair (read READ-ONLY), G0's baseline."""
+    if "g" not in ctx:
+        ctx["g"] = {"levers": dict(LEVERS_OFF), "ghost_as": ctx.get("ghost_as"), "garnet_hair": ctx.get("garnet_hair"),
+                    "base": None, "lever": bool(ctx.get("calibrate")) and ctx.get("cal_mode") == CAL_RULE_S138}
+    return ctx["g"]
+
+
+def _g_send(g, ctx: dict, *ops) -> str | None:
+    """Each `selfdress` op in order, through the driver (refused BEFORE the step on an engine before s139), the levers the
+    bench now holds tracked; the first refusal's text, or None."""
+    lv = _g_ctx(ctx)["levers"]
+    for op in ops:
+        words = [str(a) for a in op]
+        ok, why = cb.try_ns(g, "selfdress", *words)
+        if not ok:
+            return f"`selfdress {' '.join(words)}` refused: {why}"
+        name, val = words[0], (words[1] if len(words) > 1 else None)
+        if name == "clear":
+            lv.update(LEVERS_OFF)
+        elif name in ("ghost", "empty"):
+            lv["mask" if name == "ghost" else "empty"] = -1 if val == "off" else int(val)
+        elif name == "wire":
+            lv["wire"] = -1 if val == "off" else int(val)
+            lv["wire_anim"] = int(words[2]) if len(words) > 2 else -1
+        elif name == "rule":
+            lv["rule"] = val
+    return None
+
+
+def _g_clear(g, ctx: dict, *, relever: bool = True) -> str | None:
+    """Every lever back off with `selfdress clear` -- then, under the calibration lever (``relever``), `rule s138` again
+    (`clear` releases it). Nothing is sent when the bench already holds exactly that."""
+    gx = _g_ctx(ctx)
+    want = dict(LEVERS_OFF, rule="s138") if relever and gx["lever"] else dict(LEVERS_OFF)
+    if gx["levers"] == want:
+        return None
+    why = _g_send(g, ctx, ("clear",))
+    if why is None and want["rule"]:
+        why = _g_send(g, ctx, ("rule", "s138"))
+    return why
+
+
+def _labelled(label: str, ok: bool, detail: str) -> tuple:
+    """(ok, detail) with the ops' label -- a "not reached: " verdict kept FIRST (S138-CAL reads it there)."""
+    nr = "not reached: "
+    if detail.startswith(nr):
+        return ok, f"{nr}{label}: {detail[len(nr):]}"
+    return ok, f"{label}: {detail}"
+
+
+def _g_apply(g, ctx: dict, ops) -> tuple:
+    """Every lever cleared (the calibration lever re-pulled), ``ops`` sent -> (label, None) or (label, the refusal)."""
+    label = " + ".join(f"`selfdress {' '.join(str(a) for a in op)}`" for op in ops)
+    return label, _g_clear(g, ctx) or _g_send(g, ctx, *ops)
+
+
+def _g_try(g, ctx: dict, field: int, ops) -> tuple:
+    """One leg-G row: every lever cleared (the calibration lever re-pulled), ``ops`` sent, the ghost watched GHOST_SETTLE_S
+    on ``field`` and its last held publish judged against the twin (:func:`judge_worn`) -> (ok, detail)."""
+    gx, oracle = _g_ctx(ctx), _g_oracle_of(ctx)
+    if oracle is None:
+        return False, f"not reached: no leg-G oracle ({(ctx.get('oracle') or {}).get('problems')})"
+    label, why = _g_apply(g, ctx, ops)
+    if why is not None:
+        return False, f"not reached: {why}"
+    samples = on_field_prefix(cb.hold_for(g, GHOST_SETTLE_S), field)
+    ok, detail = judge_worn(samples, levers=dict(gx["levers"]), ghost_as=gx["ghost_as"], models=oracle["models"],
+                            clips=oracle["clips"])
+    return _labelled(label, ok, detail)
+
+
+def _g_stock(g, led: cb.Ledger, ctx: dict) -> None:
+    """Field 250, before the seed (after leg I's rest window): G0 -- the baseline, every lever off --, G4 and G6 (the proof
+    block's verdicts: it ran at S0), then, under COOP_DRESS_CAL=rule-s138, the calibration lever; then G3a while the
+    New-Game party's slot 1 is EMPTY (the real party read: no `empty` lever); every lever cleared after it (under the
+    calibration lever, `rule s138` pulled again: no leg-I read after it reads the ghost)."""
+    field, gx = ctx["stock"], _g_ctx(ctx)
+    oracle = _g_oracle_of(ctx)
+    led.check("S139-G4", *judge_codec(_dress(g.state), cb.log_lines(g)))
+    led.check("S139-G6", *judge_idle_frames(_dress(g.state), (oracle or {}).get("idle_frames")))
+    if _settle(g, field) is None:
+        led.unreached(("S139-G0", "S139-G3a"), f"field {field} never came up with the player free")
+        return
+    if oracle is None:
+        led.unreached(("S139-G0", "S139-G3a"), f"no leg-G oracle ({(ctx.get('oracle') or {}).get('problems')})")
+        return
+    samples = on_field_prefix(cb.hold_for(g, GHOST_SETTLE_S), field)
+    ok, why = judge_baseline(samples, ghost_as=gx["ghost_as"], models=oracle["models"], clips=oracle["clips"])
+    gx["base"] = _ghost_tuple(samples[-1]) if samples else None
+    led.check("S139-G0", ok, why)
+    if gx["lever"]:
+        w = _g_send(g, ctx, ("rule", "s138"))
+        g.note("CALIBRATION: `selfdress rule s138` pulled -- the pre-s139 selftest site" + (f" (REFUSED: {w})" if w else ""))
+    party = (_dress(g.state) or {}).get("party")
+    if not isinstance(party, list) or len(party) != 4:
+        led.check("S139-G3a", False, f"netsync.dress.party {party!r}: not 4 slots -- an engine before s138")
+    elif party[1] != BW.PARTY_EMPTY:
+        led.unreached(("S139-G3a",), f"the save's slot 1 already holds CharacterId {party[1]} (party {party}): the empty "
+                                     f"named slot G3a needs is not there before the seed")
+    else:
+        led.check("S139-G3a", *_g_try(g, ctx, field, [("ghost", 2)]))
+    w = _g_clear(g, ctx)
+    if w is not None:
+        g.note(f"leg G's cleanup on {field}: {w}")
+
+
+def slot_of(party, char: int) -> int | None:
+    """(PURE) The first slot >= 1 holding CharacterId ``char`` (G8: Garnet) -- None when none does."""
+    if not isinstance(party, list):
+        return None
+    return next((i for i in range(1, min(4, len(party))) if _int(party[i]) == int(char)), None)
+
+
+def _g_moving(g, ctx: dict, field: int) -> tuple:
+    """G3m: `ghost 2` + `empty 2` (the moogle, whatever the ini), the ghost settled, then leg I's walk probe on ``field``
+    -- its samples judged per tick (:func:`judge_worn_moving`). A hold TAKEN OVER reads "not reached" (the bench waits it
+    out and warps back)."""
+    gx, oracle = _g_ctx(ctx), _g_oracle_of(ctx)
+    if oracle is None:
+        return False, f"not reached: no leg-G oracle ({(ctx.get('oracle') or {}).get('problems')})"
+    label, why = _g_apply(g, ctx, [("ghost", 2), ("empty", 2)])
+    if why is not None:
+        return False, f"not reached: {why}"
+    cb.hold_for(g, GHOST_SETTLE_S)
+    walk = _walk_probe(g, field)
+    if walk["left"]:
+        _recover(g, field)
+        return False, f"not reached: {label}: the probe hold {walk['tried'][-1]!r} was TAKEN OVER ({walk['why']})"
+    if walk["dir"] is None:
+        return False, f"not reached: {label}: {walk['why']} ({walk['tried']})"
+    _settle(g, field)
+    ok, detail = judge_worn_moving(walk["samples"], levers=dict(gx["levers"]), ghost_as=gx["ghost_as"],
+                                   models=oracle["models"], clips=oracle["clips"])
+    return _labelled(f"{label}, hold {walk['dir']!r} ({walk['frames']} frames)", ok, detail)
+
+
+def _g_rest_mask(g, ctx: dict, field: int, slot: int) -> tuple:
+    """G8: `ghost 1<<slot` (Garnet's bit) -> the ghost wears her (:func:`judge_worn`) AND its visibility is the rest mask
+    applied, equal to the install prefab's field-mode hides (:func:`judge_rest_mask`)."""
+    gx, oracle = _g_ctx(ctx), _g_oracle_of(ctx)
+    if oracle is None:
+        return False, f"not reached: no leg-G oracle ({(ctx.get('oracle') or {}).get('problems')})"
+    label, why = _g_apply(g, ctx, [("ghost", 1 << slot)])
+    if why is not None:
+        return False, f"not reached: {why}"
+    samples = on_field_prefix(cb.hold_for(g, GHOST_SETTLE_S), field)
+    lv = dict(gx["levers"])
+    worn_ok, worn = judge_worn(samples, levers=lv, ghost_as=gx["ghost_as"], models=oracle["models"], clips=oracle["clips"])
+    tree = (oracle.get("prefabs") or {}).get(BW.RIGS[G_GARNET][0])
+    vis_ok, vis = judge_rest_mask(samples, levers=lv, tree=tree, garnet_hair=gx["garnet_hair"])
+    nr = "not reached: "
+    detail = (nr if not worn_ok and worn.startswith(nr) or not vis_ok and vis.startswith(nr) else "") + \
+        f"VISIBILITY {vis.removeprefix(nr)}; WORN {worn.removeprefix(nr)}"
+    return _labelled(label, worn_ok and vis_ok, detail)
+
+
+def _g_seeded(g, led: cb.Ledger, ctx: dict) -> None:
+    """After the seed, on 30801 (the live party read: s1 = its first slot >= 1 holding a main): G1, G2, G3, G3c, G3m (the
+    moogle moving), G3d, G5 (its own setup: `ghost 1<<s1`, then `clear` alone -- the lever released for it, re-pulled
+    after), the guard rows G7a-d on `ghost <s1 bit>`, then G8 on Garnet's bit; every lever released at the end (no `rule
+    s138` left for the later phases)."""
+    gx = _g_ctx(ctx)
+    if not ctx.get("seeded"):
+        led.unreached(G_SEEDED_CHECKS, "the seed did not run (PRE, or a warp failed)")
+        return
+    field = BENCH_FIELD
+    st = _settle(g, field)
+    if st is None:
+        led.unreached(G_SEEDED_CHECKS, f"field {field} never came up with control")
+        return
+    oracle = _g_oracle_of(ctx)
+    if oracle is None:
+        led.unreached(G_SEEDED_CHECKS, f"no leg-G oracle ({(ctx.get('oracle') or {}).get('problems')})")
+        return
+    party = (_dress(st) or {}).get("party")
+    s1 = first_main_slot(party)
+    g.note(f"leg G: the seeded party {party} -- s1 = {s1}")
+    if s1 is None:
+        led.unreached(("S139-G1", "S139-G5", "S139-G7a", "S139-G7b", "S139-G7c", "S139-G7d"),
+                      f"no slot >= 1 holds a main (party {party}): nothing for `ghost 1<<s1` to name")
+    else:
+        led.check("S139-G1", *_g_try(g, ctx, field, [("ghost", 1 << s1)]))
+    if isinstance(party, list) and len(party) == 4 and _int(party[2]) is not None and 0 <= party[2] < BW.MAIN_RIG_COUNT:
+        led.check("S139-G2", *_g_try(g, ctx, field, [("ghost", 6), ("empty", 2)]))
+    else:
+        led.unreached(("S139-G2",), f"slot 2 holds no main (party {party}): the skip has no next member to land on")
+    led.check("S139-G3", *_g_try(g, ctx, field, [("ghost", 2), ("empty", 2)]))
+    led.check("S139-G3c", *_g_try(g, ctx, field, [("ghost", 6), ("empty", 6)]))
+    led.check("S139-G3m", *_g_moving(g, ctx, field))
+    # G3d: a spectator (mask 0) -- the ghost half AND the producer's bytes off the proof block's line
+    ok, why = _g_try(g, ctx, field, [("ghost", 0)])
+    sec_ok, sec_why = judge_section_line(cb.log_lines(g), gx["ghost_as"])
+    led.check("S139-G3d", ok and sec_ok, f"{why}; SECTION 8: {sec_why}")
+    # G5 (control): its OWN setup -- `ghost 1<<s1` held until the ghost wears party[s1] (the precondition), then `clear`
+    # ALONE: every lever off, the mode and the ghost back to G0's baseline (a witness that MOVES: Vivi -> the baseline)
+    if s1 is not None:
+        pre_ok, pre_why = _g_try(g, ctx, field, [("ghost", 1 << s1)])
+        if not pre_ok:
+            led.check("S139-G5", False, f"not reached: the precondition `ghost {1 << s1}` -> party[{s1}] did not hold "
+                                        f"({pre_why})")
+        else:
+            why = _g_send(g, ctx, ("clear",))
+            if why is not None:
+                led.check("S139-G5", False, f"not reached: {why}")
+            else:
+                samples = on_field_prefix(cb.hold_for(g, GHOST_SETTLE_S), field)
+                ok, detail = judge_baseline(samples, ghost_as=gx["ghost_as"], models=oracle["models"],
+                                            clips=oracle["clips"])
+                now = _ghost_tuple(samples[-1]) if samples else None
+                base = gx["base"]
+                same = base is not None and now is not None and (now[0], now[1], now[3]) == (base[0], base[1], base[3])
+                led.check("S139-G5", ok and same,
+                          f"after `ghost {1 << s1}` held ({pre_why[:160]}), `selfdress clear`: {detail}; (model, geo, rig) "
+                          f"{now and (now[0], now[1], now[3])} vs G0's {base and (base[0], base[1], base[3])}")
+    # G7: the guard, on `ghost <s1 bit>` (the dress is party[s1]'s rig row); G7b pins the wire body to its rig's BREAK clip
+    if s1 is not None:
+        dress = BW.rig_row(party[s1])
+        for cid, wire in (("S139-G7a", (G_WIRE_RIGGED,)), ("S139-G7b", (dress["model"], dress["inactive"])),
+                          ("S139-G7c", (BW.PLAIN_ZIDANE_MODEL,)), ("S139-G7d", (G_WIRE_UNRIGGED,))):
+            if cid == "S139-G7b" and not dress["inactive"]:
+                led.unreached((cid,), f"party[{s1}]'s rig ({BW.rig_name(party[s1])}) has no break clip (0 = none)")
+                continue
+            led.check(cid, *_g_try(g, ctx, field, [("ghost", 1 << s1), ("wire", *wire)]))
+    # G8: the rest mask, on Garnet's bit
+    gslot = slot_of(party, G_GARNET)
+    if gslot is None:
+        led.unreached(("S139-G8",), f"no slot >= 1 holds Garnet (party {party}): the rest mask's two-hairstyle body")
+    else:
+        led.check("S139-G8", *_g_rest_mask(g, ctx, field, gslot))
+    w = _g_clear(g, ctx, relever=False)
+    if w is not None:
+        g.note(f"leg G's cleanup on {field}: {w}")
+
+
 # ================================================================================================ the run
 def _ctx_new(stock: int, legs, calibrate: bool, cal_mode: str | None = None) -> dict:
     return {"stock": int(stock), "legs": tuple(legs), "calibrate": bool(calibrate), "cal_mode": cal_mode,
             "ini_ok": False, "oracle": None, "stage": None, "pre": False, "seeded": False, "reads": {}, "states": {},
-            "unreached": {}, "walk": None, "rest": None}
+            "unreached": {}, "walk": None, "rest": None, "ghost_as": None, "garnet_hair": None}
+
+
+def unreached_ids(g) -> set:
+    """The check ids this run recorded RED with a "not reached" detail (off the session's own rows)."""
+    return {str(r.get("what", "")).split(":")[0] for r in getattr(g, "checks", ()) or ()
+            if not r.get("ok") and str(r.get("detail", "")).startswith("not reached")}
 
 
 def run(g, field: int = STOCK_FIELD):
@@ -1208,13 +2095,29 @@ def run(g, field: int = STOCK_FIELD):
         led.close()
         if ctx["ini_ok"]:
             at = cb.mark(g)
-            cb.release(g, led, "S138-R", at=at)
+            # [ff9mapkit netsync s139] on an s139+ engine one inert selfdress lever is HELD into the reset, so S138-R
+            # witnesses the harness release itself (HarnessReleaseBench -> HarnessReleaseDress), not only the forced role
+            try:
+                held, hwhy = hold_into_reset(g, ctx)
+            except HarnessError as err:                    # a dead game still gets its `reset` tried below
+                held, hwhy = False, f"raised ({str(err)[:200]})"
+            if held:
+                extra, lines = judge_released, (RELEASE_LINE,)
+            elif hwhy is not None:
+                extra, lines = (lambda _st, w=hwhy: (False, f"the selfdress lever to hold into the reset: {w}")), ()
+            else:
+                extra, lines = None, ()
+            cb.release(g, led, "S138-R", at=at, expect_lines=lines, extra=extra)
         else:
             led.unreached(("S138-R",), "the precondition refused the run (S138-INI): nothing was set")
         if calibrate:
             pred, maybe, why = predicted(ctx["stage"], legs, cal_mode or CAL_OLD)
+            unproven = lever_unproven(ctx["stage"], legs, cal_mode or CAL_OLD, unreached_ids(g))
             if pred is None:
                 led.check("S138-CAL", False, why)
+            elif unproven:
+                led.check("S138-CAL", False, f"the lever {cal_mode!r} is UNPROVEN on {unproven}: each predicted red reads "
+                                             f"'not reached' (the lever never bit there) -- a red that proves nothing")
             else:
                 led.judge_calibration("S138-CAL", pred, maybe)
         led.close(final=True)
@@ -1227,6 +2130,12 @@ def _run(g, led: cb.Ledger, ctx: dict) -> None:
         led.close(f"refused to run: {why}")
         return
     ctx["ini_ok"] = True
+    # [ff9mapkit netsync s139] the config leg G (and I7 on s139+) judges by, read READ-ONLY: [Netsync] GhostAs as the engine
+    # reads it (trimmed; absent = "")
+    ctx["ghost_as"] = (cb.ini_value(g, "Netsync", "GhostAs") or "").strip()
+    # ...and [Graphics] GarnetHair (G8's hair rule: 1 long, 2 short, else the scenario counter decides), READ-ONLY
+    hair = (cb.ini_value(g, "Graphics", "GarnetHair") or "").strip()
+    ctx["garnet_hair"] = int(hair) if hair.lstrip("-").isdigit() else 0
     oracle, owhy = read_oracle(g, oracle_fields(ctx["legs"], ctx["stock"]))
     ctx["oracle"] = oracle
     _oracle_extra(g, ctx)

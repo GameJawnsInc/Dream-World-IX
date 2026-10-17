@@ -12,7 +12,8 @@ stack replays by number:
 | s136 | s125 | fallback A: one stock clip per uncovered action | ★ deployed, solo-proven (solo + tape + arc legs) |
 | s137 | s126 | trance burst timing | ★ deployed, solo-proven |
 | s138 | s127 | the dress instrument (keys only) | ★ deployed, solo-proven |
-| s139-s141 | s128-s130 | the guest's own field model (shows its party character, or a moogle) | next: s139 (two owner questions first) |
+| s139 | s128 | the host's dress rule + wire section 8 | ★ deployed, solo-proven + real-wire duo |
+| s140-s141 | s129-s130 | the guest dresses itself; polish | next: s140 |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -296,3 +297,47 @@ wide), both calibration modes clean. LESSON: a sampled witness needs a bracket, 
 
 **Next: s139** (the host rule and wire section 8). Before its hunks, the owner answers the audit's two questions (2.2 D1:
 the SelfDress=0 opt-out on the host's ghost; D2: a spectating guest's body).
+
+## s139: the host's dress rule and wire section 8 (2026-10-17)
+
+**The owner's two answers first** (R3-FIELD-MODEL-AUDIT.md 2.2): D1 "yes" -- the host's GhostAs is the one knob, a
+guest's SelfDress=0 only switches off its own dressing, no wire change; D2 "moogle. 2 zidanes just looks weird, and the
+host will never be a moogle" -- a spectating guest (GuestSlots 0) wears the moogle, overriding the audit's recommendation.
+
+**What it does.** On the host, the guest's ghost: the first occupied named slot's member, or the MOOGLE (new rig row 8)
+for an empty slot or a spectator; GhostGuard keeps the dress only on a plain-98 wire body or one already dressed; a rest
+mask restores CreateModel's field-mode hides (Garnet one hairstyle). Section 8 `[model u16][charId u8]` rides every host
+state frame (+6 B, wire v14, old guests skip it). The client keeps the s138 rule. `netsync selfdress ...` (selftest only;
+`rule s138` is the lever); 'dress codec selftest: OK (29 rows)'.
+
+**Built** by a workflow (engine, harness, a 4-lens review with two skeptics per finding, two fix passes). 4 engine
+files, +1217/-51; 2196 tests pass. Benches: coop_self_dress leg G; `coop_peer.py dress` (a tape's section 8); a duo leg
+coop_dress_wire.py (G9: the host's transport site stepped live through GuestSlots 2 / 4 / 0 -- Vivi, Garnet with one
+hairstyle, the moogle -- and the relay tap's section 8 in tape order).
+
+**Calibrated on s138 first** (the live DLL `a8b0fd80ecc4013d`): the solo bench red in exactly leg G's old row (S138-CAL
+green, leg I green); `coop_peer.py dress` on the s117 host tape: exit 1, no section 8; the duo G9 under COOP_CALIBRATE:
+exactly OLD_PREDICTED red (S139-G9-CAL green) -- among them the one behavioural red an old DLL gives: an s138 host
+leaves a spectator's ghost plain Zidane.
+
+**Deployed** 2026-10-17 (`build_memoria.py`, backup `20261017-175116`; Assembly-CSharp `1365959f2efca2e7`).
+
+**Proven on s139 -- every acceptance step:**
+1. coop_self_dress legs I+G 31/31 on the first in-game run under GhostAs auto, and RED-only under `selfdress rule s138`
+   (exactly the lever set). The ghost: the moogle for an empty named slot, every slot empty, a spectator -- walking and
+   running on the moogle's own clips; Vivi for slot 1, Garnet when slot 1 is skipped; a Steiner-led wire body shown as
+   Steiner, a plain-98 one dressed, Vivi's break clip raw on an already-dressed body; Garnet with ONE hairstyle.
+2. The same bench 31/31 with GhostAs blank.
+3. `coop_peer.py dress` on the s117 tape: no section 8 (its red).
+4. A fresh s139 host tape: section 8 on all 4897 host state frames, right after section 7 and last, `08 00 01` (Vivi)
+   each; the old-guest readers identical with it or stripped, every frame.
+5. The duo coop_dress_wire G9 18/18: two real games through the relay, GuestSlots stepped live 2 / 4 / 0 -- the host's
+   ghost Vivi, Garnet (one hairstyle), the moogle; the guest's own body plain Zidane throughout; its story and party
+   mirrors landed past section 8.
+The 6.1 regression set at baseline; wait parity (W-A5b 'not reached': every ATB already full) and stock menu content
+(the cursor one row off) green on a rerun. The T2 cut legs: readopt +78, s119 +15, s120-battle +93.
+
+**An owner question before s140** (raised by the build's review): in the disc-1 opening the party is Zidane plus Blank /
+Marcus / Cinna, and s139 leaves a named slot holding one of them (CharacterId 8-11) undressed -- so the host sees two
+Zidanes, the case D2 called weird. Options: real rig rows for the four (they are playable, so their field rigs exist),
+or the moogle for them.

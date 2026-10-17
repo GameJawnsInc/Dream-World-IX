@@ -60,6 +60,12 @@ way the engine fabricates its bench end through the real ParseView.
     sentinels (`player.*` after `control`, `objects[].model`, `netsync.dress`), the RIG space, and the Python twins of its
     two pure helpers -- NetSyncVisitor.FolderOf (AnimationFactory.AddAnimWithAnimatioName's naming rule) and
     NetSyncVisitor.TextureStem (a texture name's GEO-id stem). s139 adds the section-8 codec and ResolveAuto's twins here.
+  * [ff9mapkit netsync s139] THE HOST'S DRESS RULE AND WIRE SECTION 8: the full rig table (RIGS, nine rows -- the moogle is
+    row 8 -- with every column the audit's census fills), the loco translation (ClassifyLoco / LocoAnim), the pure rules
+    (ResolveAuto with the owner's D2 spectator moogle, ResolveNamed, ResolveDressRule, the client's ResolveDressS138,
+    GhostGuard, GhostAnim, MoogleWhenEmpty, DressCharId), the section-8 codec (DressSectionBody / TryParseDressSection) and
+    the s103 section walkers an OLD guest runs (ApplyStoryTo / TryReadSection / ParseSections' walk), the selftest dress
+    SITE (the mirror's rule behind the `selfdress` levers), and the offline half of DressSelfTest's rows with its mutants.
 """
 from __future__ import annotations
 
@@ -7405,11 +7411,19 @@ MODEL_NONE = 65535
 #: (s139 appends its levers at the end of `ghost`: bench_mask, empty_mask, rule, wire, mode). What a probe or a stand-in
 #: holds a given rung to is that rung's FROZEN row, :data:`DRESS_GHOST_KEYS_BY_RUNG` -- never this live union (an s138
 #: engine publishes six keys whatever s139 adds here).
-DRESS_GHOST_SENTINELS = {"model": -1, "geo": None, "clip": None, "rig": -1, "playing": False, "body": None}
+DRESS_GHOST_SENTINELS = {"model": -1, "geo": None, "clip": None, "rig": -1, "playing": False, "body": None,
+                         # [ff9mapkit netsync s139] the selftest `selfdress` levers AS SET (-1 / null = off), `mode`, then the
+                         # ghost's VISIBILITY (the rest mask's witness: -1 / null = no ghost)
+                         "bench_mask": -1, "empty_mask": -1, "rule": None, "wire": -1, "wire_anim": -1, "mode": None,
+                         "rest_mask": -1, "shown_mask": -1, "hidden": None}
 #: [ff9mapkit netsync s138] Each dress rung's OWN `ghost` keys, frozen at its patch, in AppendDress's order -- the rows the
 #: bench probe (coop_self_dress.probe), the stand-in's per-rung ghost (fakegame) and the s138 patch pin read; only the
 #: live-catch pins read the union (:data:`DRESS_GHOST_SENTINELS`). s139 adds its row ("dresshost": its five levers).
-DRESS_GHOST_KEYS_BY_RUNG = {"dressinstr": ("model", "geo", "clip", "rig", "playing", "body")}
+DRESS_GHOST_KEYS_BY_RUNG = {"dressinstr": ("model", "geo", "clip", "rig", "playing", "body"),
+                            # [ff9mapkit netsync s139] its levers at the END of `ghost` (AppendDress), then `mode`, then the
+                            # ghost's visibility
+                            "dresshost": ("bench_mask", "empty_mask", "rule", "wire", "wire_anim", "mode", "rest_mask",
+                                          "shown_mask", "hidden")}
 #: `netsync.dress.party`'s two non-member values: an EMPTY slot (FF9.party.member[i] null) and an UNREADABLE one (its read
 #: threw: AppendDress's Try fallback) -- never read -2 as an empty seat the engine's ResolveAuto saw. The catch line's
 #: [-1 x 4] means the whole block failed to build.
@@ -7418,7 +7432,14 @@ PARTY_UNREADABLE = -2
 #: `netsync.dress` at the catch line's sentinels (its SECOND literal): `ghost`, then `party` ([-1 x 4]: the block failed).
 #: The live `party` is a LIVE read of FF9.party.member[i].Index (PARTY_EMPTY / PARTY_UNREADABLE as above) -- never
 #: NetSyncParty.Slots, where the selftest mirror seats its "BENCH" stand-in (the s134 lesson).
-DRESS_SENTINELS = {"ghost": dict(DRESS_GHOST_SENTINELS), "party": [-1, -1, -1, -1]}
+DRESS_SENTINELS = {"ghost": dict(DRESS_GHOST_SENTINELS), "party": [-1, -1, -1, -1],
+                   # [ff9mapkit netsync s139] after `party`: the codec proof's verdict (null until it ran), the nine rig
+                   # rows' idle frame counts (-1 = not measured) and the party mirror an old reader landed (null = none)
+                   "codec": None, "rig_idle_frames": [-1] * 9, "mirror_party": None}
+#: [ff9mapkit netsync s139] Each dress rung's OWN `netsync.dress` keys, frozen at its patch (the stand-in publishes its rungs'
+#: rows; the live catch the union): s138 `ghost` / `party`, s139 `codec` / `rig_idle_frames` / `mirror_party`
+#: (fakegame.NETSYNC_DRESS_CAP_KEYS is the same ladder; a test pins both against the catch lines).
+DRESS_KEYS_BY_RUNG = {"dressinstr": ("ghost", "party"), "dresshost": ("codec", "rig_idle_frames", "mirror_party")}
 #: [ff9mapkit netsync s138] THE DRESS PROBE LADDER: the key each dress patch is told by (R3-FIELD-MODEL-AUDIT.md 3.1 names
 #: them) -- s138 its own fixed `ghost`, s139 `codec` (appended to `netsync.dress`), s140 `self` (a fixed sub-object), s141
 #: `self.steps` (a key inside it). An engine is the HIGHEST rung whose key it publishes, every rung below present too.
@@ -7487,3 +7508,620 @@ def body_of(renderers) -> str | None:
 def eye_of(eye_byte: int) -> int:
     """PosObj.eye from SetModel's eye byte: ``po.eye = -4 * getv1()`` (DoEventCode.cs SetModel) -- Zidane's 93 -> -372."""
     return -4 * int(eye_byte)
+
+
+# ================================================================================================ s139
+# [ff9mapkit netsync s139] THE HOST'S DRESS RULE AND WIRE SECTION 8 (studies/battle-coop/R3-DESIGN.md 3.4.3 as amended by
+# R3-FIELD-MODEL-AUDIT.md 2.2 and 3.1-3.3, with the owner's two decisions of 2026-10-17 -- D1 Option A: the host's GhostAs is
+# the one knob for both screens and the position frame is unchanged; D2: a spectating guest, GuestSlots 0, is the MOOGLE).
+# Every function below is the PURE C# rule of the same name in NetSyncVisitor.cs (same parameters, same answers), pinned by
+# test_harness_netsync.py to the s139 patch's lines and to NetSyncClient.DressSelfTest's rows (evaluated here off the
+# stack). HOST-SIDE: the host's ghost of its guest takes the s139 rule; a client keeps the s138 rule (resolve_dress_s138).
+
+#: THE FULL RIG TABLE, NetSyncVisitor.Rigs (the s139 patch's nine rows, the moogle row 8), each column as the audit's census
+#: fills it (R3-FIELD-MODEL-AUDIT.md 2.2 amendment 2: every value checked against all 817 field-script exports and the
+#: clips in p0data5). A test pins these rows to the patch's text AND to the kit's playerswap.CHARACTERS (model, eye, idle,
+#: walk, run, left, right) with literals for the moogle row and the new columns. Columns:
+#:   eye        SetModel's eye byte (po.eye = -4 x eye)
+#:   inactive   the idle-break clip; 0 = NONE (EventEngine CheckSleep's own `p.sleep == 0` test -- never "the idle")
+#:   walk_step_a/b, run_step_a/b   the footfall frames (RunModelCode(16, clip, frame)); -1 = none (Quina, the moogle)
+#:   step_sound the step-sound override (Steiner 925); 0 = keep the source key's id
+#:   idle_alias the second id naming the same idle clip (classify by NAME)
+#:   hand_bone / hand_bone_end   R_hand / R_hand_end (s141's prop remap)
+RIG_COLUMNS = ("model", "idle", "walk", "run", "turn_l", "turn_r", "eye", "inactive", "walk_step_a", "walk_step_b",
+               "run_step_a", "run_step_b", "step_sound", "idle_alias", "hand_bone", "hand_bone_end")
+RIGS = (
+    (98, 200, 25, 38, 40, 41, 93, 57, 4, 13, 0, 8, 0, 324, 12, 13),                 # 0 Zidane
+    (8, 148, 571, 419, 917, 918, 61, 912, 4, 14, 0, 9, 0, 573, 16, 17),             # 1 Vivi
+    (185, 2089, 2086, 2091, 2088, 2084, 91, 3160, 4, 15, 0, 9, 0, 2090, 14, 15),    # 2 Garnet
+    (5489, 2001, 1996, 2005, 1986, 2010, 104, 119, 4, 14, 0, 9, 925, 2002, 14, 15),  # 3 Steiner
+    (192, 2556, 2553, 2558, 2555, 2551, 94, 0, 4, 16, 0, 9, 0, 2557, 12, 12),        # 4 Freya
+    (273, 3228, 3237, 3230, 3235, 3227, 92, 0, -1, -1, -1, -1, 0, 3229, 13, 14),     # 5 Quina
+    (443, 7503, 7518, 7506, 7516, 7514, 63, 9590, 1, 13, 0, 9, 0, 7504, 14, 15),     # 6 Eiko
+    (509, 8307, 8316, 8312, 8310, 8314, 122, 0, 6, 23, 10, 21, 0, 8308, 15, 16),     # 7 Amarant
+    (220, 2904, 2927, 2907, 2923, 2911, 50, 0, -1, -1, -1, -1, 0, 2905, 19, 19),     # 8 the MOOGLE
+)
+#: the rig space's bounds (NetSyncVisitor): the CharacterId rows 0-7 guard the PARTY path (CharacterId 8 is Cinna, never the
+#: moogle row); RIG_ROW_COUNT = Rigs.Length (`netsync.dress.rig_idle_frames` has one value per row); the named path guards on
+#: it, so `GhostAs = moogle` dresses.
+MAIN_RIG_COUNT = 8
+RIG_ROW_COUNT = 9
+MOOGLE_MODEL = 220                       # GEO_NPC_F0_MOG
+PLAIN_ZIDANE_MODEL = 98                  # GEO_MAIN_F0_ZDN: the body an undressed (s117 / SelfDress=0) guest sends
+CHAR_NONE = 0xFF                         # CharacterId.NONE: section 8's charId for the moogle and for no dress
+#: NetSyncVisitor.NameToRig (the named path; s139 adds `moogle`): the kit's ff9mapkit.coop.GHOST_NAMES are exactly its keys.
+NAME_TO_RIG = {"zidane": 0, "vivi": 1, "garnet": 2, "dagger": 2, "steiner": 3, "freya": 4, "quina": 5, "eiko": 6,
+               "amarant": 7, "salamander": 7, "moogle": 8}
+#: NetSyncVisitor's loco classes (the wire's rig-neutral locomotion byte).
+LOCO_OTHER, LOCO_IDLE, LOCO_WALK, LOCO_RUN, LOCO_TURN_L, LOCO_TURN_R = range(6)
+#: Section 8 (NetSyncVisitor.SectionDress): the host's type-5 state frame's dress section, right after section 7 --
+#: NetSyncState uses 0 and 4-7 and NetSyncParty 1-3, so 8 was free. Its body is always DRESS_BODY_LEN bytes.
+SECTION_STORY, SECTION_PARTY, SECTION_KEY_ITEMS, SECTION_BAG = 0, 1, 2, 3
+SECTION_INTENT, SECTION_EVENT, SECTION_TALK, SECTION_DIALOG, SECTION_DRESS = 4, 5, 6, 7, 8
+DRESS_BODY_LEN = 3
+STORY_LEN = 2048                         # NetSyncState.StoryLen: ApplyStoryTo applies an id-0 section of exactly this
+STORY_MASK = (2032, 2041)                # ...outside MaskLo..MaskHi (the coop cells: never carried)
+#: The selftest proof block's s139 lines (NetSyncClient: right after the s137 trance line), in its order.
+PROOF_DRESS = "dress codec selftest: "   # NetSyncClient.DressSelfTest
+#: 4 rig + 1 auto table + 2 named / mode + 1 s138 + 2 guard / anim + 1 role + 1 charId + 2 codec + 1 producer + 11 frame /
+#: wire / old-guest (sections 5 and 7, the absent-id reads that cross section 8, section 8 itself, the story, the party with
+#: its key items and bag, a section AFTER section 8) / truncation / forward + 3 mutants
+DRESS_SELFTEST_ROWS = 29
+PROOF_DRESS_SECTION = "dress section 8 as this machine would host now: "    # + DressSectionText(HostDressSection())
+PROOF_RIG_IDLE = "dress rig idle frames: "                                  # + 9 ints + " (<n> of 9 measured)"
+#: `netsync.dress.codec`'s two verdict shapes (null until the proof ran): "ok", or "fail: <the first failing row's name>".
+DRESS_CODEC_OK = "ok"
+DRESS_CODEC_FAIL = "fail: "
+#: `netsync.dress.ghost.mode`: "bench:auto" while the `ghost` lever holds (the selftest role), else "ini:" + the ini's
+#: GhostAs as read (trimmed -- "ini:" = none); null = no NetSyncClient instance.
+DRESS_MODE_BENCH = "bench:auto"
+DRESS_MODE_INI = "ini:"
+#: The `selfdress` ops (NetSyncClient.HarnessSelfDress), in its "unknown op" refusal's order, and its rule values.
+SELFDRESS_OPS = ("ghost", "empty", "rule", "wire", "clear")
+SELFDRESS_RULES = ("s138", "s139")
+
+
+def rig_row(rig) -> dict | None:
+    """One rig row as {column: value} (:data:`RIG_COLUMNS`); None outside 0-8 (TryGetRig)."""
+    if isinstance(rig, bool) or not isinstance(rig, int) or not 0 <= rig < len(RIGS):
+        return None
+    return dict(zip(RIG_COLUMNS, RIGS[rig]))
+
+
+def rig_for_model(model) -> int:
+    """NetSyncVisitor.RigForModel: the rig row wearing ``model`` (the moogle included), -1 for any other model."""
+    for i, row in enumerate(RIGS):
+        if row[0] == model:
+            return i
+    return -1
+
+
+def classify_loco(model, anim) -> int:
+    """NetSyncVisitor.ClassifyLoco (SENDER side): ``anim``'s rig-neutral loco class on ``model``'s rig -- LOCO_OTHER for a
+    model with no rig or a clip that is no loco clip (a gesture, a break clip: Zidane's 57)."""
+    r = rig_row(rig_for_model(model))
+    if r is None:
+        return LOCO_OTHER
+    for col, loco in (("idle", LOCO_IDLE), ("walk", LOCO_WALK), ("run", LOCO_RUN), ("turn_l", LOCO_TURN_L),
+                      ("turn_r", LOCO_TURN_R)):
+        if anim == r[col]:
+            return loco
+    return LOCO_OTHER
+
+
+def loco_anim(rig_idx, loco) -> int:
+    """NetSyncVisitor.LocoAnim (RECEIVER side): ``rig_idx``'s clip for a loco class (OTHER and IDLE -> its idle); 0 outside
+    the rig space."""
+    r = rig_row(rig_idx)
+    if r is None:
+        return 0
+    return {LOCO_WALK: r["walk"], LOCO_RUN: r["run"], LOCO_TURN_L: r["turn_l"], LOCO_TURN_R: r["turn_r"]}.get(loco,
+                                                                                                         r["idle"])
+
+
+def dress_mode(ghost_as) -> str:
+    """NetSyncVisitor.DressMode: a GhostAs value trimmed and lower-cased (None -> "")."""
+    return ("" if ghost_as is None else str(ghost_as)).strip().lower()
+
+
+def dress_mode_off(mode) -> bool:
+    """NetSyncVisitor.DressModeOff: "", "off" and "0" (and None) dress nothing."""
+    return mode is None or mode in ("", "off", "0")
+
+
+def moogle_when_empty(role, self_test_role: bool) -> bool:
+    """NetSyncVisitor.MoogleWhenEmpty -- POSITIVE and read at call time: the host or the selftest role (IsSelfTestRole:
+    enabled AND role "selftest"). A client, a typo'd role (Role=guest runs the selftest branch without being the selftest
+    role) and a disabled selftest are never the moogle -- ``role != "client"`` would hand the typo the moogle."""
+    return role == "host" or bool(self_test_role)
+
+
+def _slot_char(slot_char, slot: int) -> int:
+    """NetSyncVisitor.SlotCharOf: a slot's CharacterId off a party read -- PARTY_UNREADABLE (-2) when there is no read (None)
+    or no such slot, -1 for an empty one."""
+    if slot_char is None or not 0 <= slot < len(slot_char):
+        return PARTY_UNREADABLE
+    v = slot_char[slot]
+    return v if isinstance(v, int) and not isinstance(v, bool) else -1
+
+
+def resolve_auto_core(mask: int, moogle_when_empty_: bool, slot_char, party_cap: int) -> tuple:
+    """NetSyncVisitor.ResolveAutoCore -> (model, rig): ``party_cap`` is MAIN_RIG_COUNT in production; the selftest's mutant
+    passes RIG_ROW_COUNT (Cinna would wear the moogle row) and the Cinna row must catch it."""
+    mask = int(mask) & 0x0F                            # party slots 0-3 only
+    if mask:
+        for slot in range(4):
+            if not mask & (1 << slot):
+                continue
+            char = _slot_char(slot_char, slot)
+            if char == PARTY_UNREADABLE:
+                return 0, -1                           # a read that threw (or no party read): undressed, NEVER the moogle
+            if char < 0:
+                continue                               # an EMPTY named slot: the next named one
+            if char >= party_cap or char >= len(RIGS):
+                return 0, -1                           # Cinna..Beatrix (8-11) / a custom character (12+): the wire body
+            return RIGS[char][0], char
+    if not moogle_when_empty_:                         # mask 0 (OWNER D2: a spectator) or every named slot empty
+        return 0, -1
+    return MOOGLE_MODEL, RIG_MOOGLE
+
+
+def resolve_auto(mask: int, moogle_when_empty_: bool, slot_char) -> tuple:
+    """NetSyncVisitor.ResolveAuto(mask, moogleWhenEmpty, slotChar) -> (model, rig), in its rule order: (1) mask 0 -- a
+    SPECTATING guest -- the MOOGLE (220, rig 8) when ``moogle_when_empty_`` (OWNER D2: "moogle. 2 zidanes just looks weird,
+    and the host will never be a moogle."), else 0; (2) the FIRST OCCUPIED named slot decides: a main (0-7) its row, a
+    member 8+ 0, an empty named slot skipped, an UNREADABLE one (-2: its read threw) 0 -- a party-read fault never wears the
+    moogle; (3) every named slot empty: the moogle when allowed, else 0. ``slot_char`` is the four slots' raw CharacterId
+    (-1 = empty, -2 = unreadable; None = no party read at all: every slot unreadable)."""
+    return resolve_auto_core(mask, moogle_when_empty_, slot_char, MAIN_RIG_COUNT)
+
+
+def resolve_named(mode, cap: int) -> tuple:
+    """NetSyncVisitor.ResolveNamed -> (model, rig): a NameToRig name whose row is below ``cap`` its row; anything else (0,
+    -1). The s139 host rule passes RIG_ROW_COUNT (`GhostAs = moogle` dresses), the s138 rule MAIN_RIG_COUNT (a client and
+    the `rule s138` lever: no moogle by name -- the host is never a moogle)."""
+    rig = NAME_TO_RIG.get(mode) if isinstance(mode, str) else None
+    if rig is None or not 0 <= rig < min(int(cap), len(RIGS)):
+        return 0, -1
+    return RIGS[rig][0], rig
+
+
+def resolve_dress_rule(ghost_as, mask: int, moogle_when_empty_: bool, slot_char) -> tuple:
+    """NetSyncVisitor.ResolveDressRule -- THE s139 RULE -> (model, rig): GhostAs "" / off / 0 dress nothing; "auto" is
+    :func:`resolve_auto`; a name is :func:`resolve_named`. Guard-free (the guard is :func:`ghost_guard`, the caller's)."""
+    mode = dress_mode(ghost_as)
+    if dress_mode_off(mode):
+        return 0, -1
+    if mode == "auto":
+        return resolve_auto(mask, moogle_when_empty_, slot_char)
+    return resolve_named(mode, len(RIGS))
+
+
+def resolve_dress_s138(ghost_as, mask: int, slot_char) -> tuple:
+    """NetSyncVisitor.ResolveDressS138 -- THE s138 RULE (a CLIENT's dress of the host's ghost; the selftest's `selfdress
+    rule s138` lever) -> (model, rig): "auto" = the FIRST named bit, no skip, no moogle (an empty first named slot or a
+    member 8+ -> 0); a name -> :func:`resolve_named` capped at the mains (`moogle` dresses nothing: byte for byte s138)."""
+    mode = dress_mode(ghost_as)
+    if dress_mode_off(mode):
+        return 0, -1
+    if mode != "auto":
+        return resolve_named(mode, MAIN_RIG_COUNT)
+    mask = int(mask)
+    if mask == 0:
+        return 0, -1
+    slot = 0
+    while slot < 4 and not mask & (1 << slot):
+        slot += 1
+    if slot >= 4:
+        return 0, -1
+    char = _slot_char(slot_char, slot)
+    if char < 0 or char >= MAIN_RIG_COUNT:
+        return 0, -1
+    return RIGS[char][0], char
+
+
+def ghost_guard(dress_model: int, wire_model: int) -> int:
+    """NetSyncVisitor.GhostGuard: keep the dress on a plain-Zidane wire body (98: an s117 guest, or an opted-out SelfDress=0
+    one -- owner D1) or one already wearing it (an s140 guest); any other wire body (a Steiner-led guest, ZDD 532) shows
+    as it is (0 = undressed)."""
+    if not dress_model:
+        return 0
+    return dress_model if wire_model in (PLAIN_ZIDANE_MODEL, dress_model) else 0
+
+
+def ghost_anim(dress_model: int, dress_rig: int, wire_model: int, wire_loco: int, wire_anim: int) -> int:
+    """NetSyncVisitor.GhostAnim: a dress on a body OTHER than the wire's plays the dressed rig's loco clip for the wire's
+    loco class; a ghost on the wire's OWN body plays the RAW wire anim (a gesture or a break clip is never flattened)."""
+    if dress_model and dress_model != wire_model:
+        return loco_anim(dress_rig, wire_loco)
+    return wire_anim
+
+
+def dress_char_id(model: int, rig_idx: int) -> int:
+    """NetSyncVisitor.DressCharId: section 8's charId -- the row of a MAIN (0-7), else CHAR_NONE (the moogle, no dress)."""
+    return rig_idx if model and 0 <= rig_idx < MAIN_RIG_COUNT else CHAR_NONE
+
+
+def dress_section_body(model: int, char_id: int) -> bytes:
+    """NetSyncVisitor.DressSectionBody: [model u16 LE][charId u8] -- (192, 4) C0 00 04, (220, FF) DC 00 FF, (0, FF) 00 00 FF."""
+    return bytes((int(model) & 0xFF, (int(model) >> 8) & 0xFF, int(char_id) & 0xFF))
+
+
+def parse_dress_section(body) -> tuple | None:
+    """NetSyncVisitor.TryParseDressSection -> (model, charId), or None for a null or truncated (< 3 B) body; a longer body
+    reads its first 3 bytes (the forward rule)."""
+    if body is None or len(body) < DRESS_BODY_LEN:
+        return None
+    return body[0] | (body[1] << 8), body[2]
+
+
+def dress_section_text(body) -> str:
+    """NetSyncClient.DressSectionText -- how the proof block logs a section-8 body: "DC 00 FF (model 220, charId 255)";
+    "malformed" for a body its reader refuses."""
+    got = parse_dress_section(body)
+    if got is None:
+        return "malformed"
+    return f"{body[0]:02X} {body[1]:02X} {body[2]:02X} (model {got[0]}, charId {got[1]})"
+
+
+def host_dress_section(ghost_as, guest_slots: int, role, selftest_role: bool, slot_char) -> bytes:
+    """NetSyncClient.HostDressSection's body (Enabled): the s139 rule for the HOST's config -- its GhostAs and GuestSlots
+    (the forced selftest pins GuestSlots 0; the `ghost` lever never reaches it, the `empty` lever does: ``slot_char``),
+    never guarded (section 8 carries the dress itself). The mode is read first and the party only for `auto` (HostDress)."""
+    mode = dress_mode(ghost_as)
+    model, rig = (0, -1) if dress_mode_off(mode) else resolve_dress_rule(
+        mode, guest_slots, moogle_when_empty(role, selftest_role), slot_char if mode == "auto" else None)
+    return dress_section_body(model, dress_char_id(model, rig))
+
+
+def live_slot_chars(party, empty_mask: int = 0) -> list:
+    """NetSyncVisitor.LiveSlotChars over a party read (``party`` = the four slots' raw CharacterId, -1 / None empty, -2
+    UNREADABLE -- `netsync.dress.party`'s own values): ``empty_mask``'s slots (the `selfdress empty` lever) read EMPTY; an
+    unreadable slot stays -2 (never an empty seat)."""
+    seats = (list(party or ()) + [-1] * 4)[:4]
+    out = []
+    for i, v in enumerate(seats):
+        if (int(empty_mask) >> i) & 1:
+            out.append(-1)
+        elif isinstance(v, int) and not isinstance(v, bool) and v == PARTY_UNREADABLE:
+            out.append(PARTY_UNREADABLE)
+        elif not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            out.append(-1)
+        else:
+            out.append(v)
+    return out
+
+
+# ---- the section framing an OLD guest walks (NetSyncState.cs / NetSyncParty.cs, untouched since s103)
+def append_section(frame: bytes, section_id: int, body) -> bytes:
+    """NetSyncState.AppendSection: [id u8][len u16 LE][body] appended; a null or EMPTY body is a no-op (why section 8 is
+    never empty: "absent" must stay distinct from "model 0")."""
+    if not body:
+        return bytes(frame or b"")
+    return bytes(frame or b"") + bytes((section_id & 0xFF, len(body) & 0xFF, (len(body) >> 8) & 0xFF)) + bytes(body)
+
+
+def walk_sections(payload) -> tuple:
+    """A type-5 payload's sections as the engine frames them -> ([(id, body), ...], truncated): walked while 3 header
+    bytes remain; a section whose length runs past the end stops the walk (``truncated`` True)."""
+    out, off, data = [], 0, bytes(payload or b"")
+    while off + 3 <= len(data):
+        sid, ln = data[off], data[off + 1] | (data[off + 2] << 8)
+        if off + 3 + ln > len(data):
+            return out, True
+        out.append((sid, data[off + 3:off + 3 + ln]))
+        off += 3 + ln
+    return out, False
+
+
+def old_apply_story(payload) -> bytes | None:
+    """NetSyncState.ApplyStoryTo's walk (an s117 guest's): the 2048-byte story it would land (outside the coop-cell mask;
+    those bytes read 0 here), or None when no id-0 section of exactly STORY_LEN applied before the walk stopped."""
+    target, applied = bytearray(STORY_LEN), False
+    for sid, body in walk_sections(payload)[0]:
+        if sid == SECTION_STORY and len(body) == STORY_LEN:
+            for i in range(STORY_LEN):
+                if i < STORY_MASK[0] or i > STORY_MASK[1]:
+                    target[i] = body[i]
+            applied = True
+    return bytes(target) if applied else None
+
+
+def old_try_read_section(payload, section_id: int) -> bytes | None:
+    """NetSyncState.TryReadSection: the FIRST section with ``section_id``; None when it is absent OR a truncated section
+    comes before it (the whole payload refused)."""
+    off, data = 0, bytes(payload or b"")
+    while off + 3 <= len(data):
+        sid, ln = data[off], data[off + 1] | (data[off + 2] << 8)
+        if off + 3 + ln > len(data):
+            return None
+        if sid == section_id:
+            return data[off + 3:off + 3 + ln]
+        off += 3 + ln
+    return None
+
+
+def old_party_sections(payload) -> list:
+    """NetSyncParty.ParseSections' walk: the sections 1-3 it consumes, in order, as (id, body) -- every other id skipped by
+    length, the walk stopped at a truncation (the bodies' own parse is not twinned here)."""
+    return [(sid, body) for sid, body in walk_sections(payload)[0]
+            if sid in (SECTION_PARTY, SECTION_KEY_ITEMS, SECTION_BAG)]
+
+
+def decode_dress(payload) -> tuple | None:
+    """Section 8 of a host type-5 payload, as an s140+ guest reads it: (model, charId); None when the host sent none (an
+    s138-or-older host) or its body is truncated -- the caller tells "absent" (no id 8) from "malformed" by
+    :func:`old_try_read_section`."""
+    return parse_dress_section(old_try_read_section(payload, SECTION_DRESS))
+
+
+#: NetSyncParty's section-1 seat: [present u8] then, when present, CharId, Serial, Level, Row (u8 x4), CurHp, MaxHp, CurMp,
+#: MaxMp (u32 x4), Equip (u16 x5), [name len u8][name], then the v9 block -- BasisMaxHp, BasisMaxMp (u32 x2), Dex, Str, Mgc,
+#: Wpr (u8 x4), BasisMaxCapa (u32), Status (u64), Trance (u8), [SA count u8][SA ids u32 x n].
+_SEAT_HEAD = 4 + 16 + 10
+_SEAT_V9 = 8 + 4 + 4 + 8 + 1
+
+
+def party_slot_chars(body) -> list | None:
+    """[ff9mapkit netsync s139] NetSyncParty.ParseParty's walk over a section-1 body -> the four seats' CharId (-1 = an absent
+    seat), or None when the body is malformed (ParseParty's own refusals). The CharId byte is PLAYER.info.slot_no -- the
+    host's PLAYER.Index, the very value its LiveSlotChars reads -- so a frame's own party is what its section 8 must agree
+    with (coop_peer.py dress)."""
+    data, off, out = bytes(body or b""), 0, []
+    end = len(data)
+    for _ in range(4):
+        if off >= end:
+            return None
+        present = data[off] != 0
+        off += 1
+        if not present:
+            out.append(-1)
+            continue
+        if off + _SEAT_HEAD + 1 > end:
+            return None
+        out.append(data[off])
+        off += _SEAT_HEAD
+        name_len = data[off]
+        off += 1 + name_len
+        if off > end or off + _SEAT_V9 + 1 > end:
+            return None
+        off += _SEAT_V9
+        sa = data[off]
+        off += 1 + 4 * sa
+        if off > end:
+            return None
+    return out
+
+
+def frame_slot_chars(payload) -> list | None:
+    """The host's party as one type-5 payload carries it (its FIRST section 1, :func:`party_slot_chars`); None when the frame
+    has no readable section 1."""
+    body = old_try_read_section(payload, SECTION_PARTY)
+    return None if body is None else party_slot_chars(body)
+
+
+# ---- [ff9mapkit netsync s139] THE GHOST'S VISIBILITY (the rest mask's witness: `ghost.rest_mask` / `shown_mask` / `hidden`)
+#: ModelFactory.garnetShortHairTable: the GEOs whose field load hides one of Garnet's two hairstyles.
+GARNET_SHORT_HAIR_GEOS = ("GEO_MAIN_F0_GRN", "GEO_MAIN_F1_GRN", "GEO_MAIN_B0_002", "GEO_MAIN_B0_003", "GEO_MAIN_B0_004",
+                          "GEO_MAIN_B0_005", "GEO_MON_B3_149")
+#: FF9StateSystem.EventState.ScenarioCounter from which `GarnetHair = 0` (the default) wears the SHORT hair.
+GARNET_SHORT_HAIR_SCENARIO = 10300
+
+
+def garnet_short_hair(garnet_hair, scenario) -> bool:
+    """ModelFactory.CreateModel's hair choice: [Graphics] GarnetHair 1 = long, 2 = short, anything else (0, the default) =
+    short from ScenarioCounter 10300 on."""
+    if garnet_hair == 1:
+        return False
+    if garnet_hair == 2:
+        return True
+    return int(scenario) >= GARNET_SHORT_HAIR_SCENARIO
+
+
+def field_hides(geo, transforms, renderers, *, garnet_hair=0, scenario=0) -> list:
+    """ModelFactory.CreateModel's FIELD-MODE hides (isBattle false), as a rule over a prefab -- ``transforms``: every
+    transform's path under the root in depth-first pre-order (the root itself excluded); ``renderers``: the renderers' paths
+    in GetComponentsInChildren order. GetChildByName(name) is the FIRST transform of that name, depth-first; every renderer in
+    its subtree (itself included) is disabled. Garnet's GEOs (GARNET_SHORT_HAIR_GEOS) hide `long_hair` when she wears the
+    short hair (:func:`garnet_short_hair`), else `short_hair`; every model hides `battle_model`. -> the hidden renderers'
+    paths, in renderer order."""
+    roots = []
+    if geo in GARNET_SHORT_HAIR_GEOS:
+        roots.append("long_hair" if garnet_short_hair(garnet_hair, scenario) else "short_hair")
+    roots.append("battle_model")
+    picked = []
+    for name in roots:
+        first = next((t for t in transforms if t.rsplit("/", 1)[-1] == name), None)
+        if first is not None:
+            picked.append(first)
+    return [r for r in renderers if any(r == p or r.startswith(p + "/") for p in picked)]
+
+
+def visibility_mask(renderers, hidden) -> int:
+    """The bit mask (bit i = renderer i, at most 16 -- ApplyGhostMask's reach) of the renderers NOT in ``hidden``."""
+    hid = set(hidden or ())
+    return sum(1 << i for i, r in enumerate(list(renderers)[:16]) if r not in hid)
+
+
+# ---- THE SELFTEST DRESS SITE (NetSyncClient's selftest branch, s139): the mirror IS the guest, this machine its host
+def selftest_dress(*, ghost_as, guest_slots: int, me_model: int, me_anim: int, party, role="selftest",
+                   selftest_role: bool = True, enabled: bool = True, bench_mask: int = -1, empty_mask: int = -1,
+                   rule=None, wire: int = -1, wire_anim: int = -1) -> dict:
+    """What the selftest mirror's ghost WEARS and PLAYS this frame (NetSyncClient's selftest dress site, s139, its
+    `selfdress` levers read on the selftest role only) -> {"model", "rig", "anim", "mask"}: ``model`` is EnsureGhost's
+    model (the dress, else the wire body), ``rig`` its rig (-1 undressed), ``anim`` DriveGhost's clip id, ``mask`` which
+    renderer mask applies ("local" the player's own -- index-valid on its own model only --, "rest" CreateModel's own hides
+    (the rest mask), "all" every renderer: the `rule s138` lever re-asserts 0xFFFF on a body that is not the player's).
+    ``party`` is the four slots' raw CharacterId (-1 empty, -2 unreadable). The `wire` lever stands in for the mirror's wire
+    body: it moves with ITS rig's clip for my loco, where it has a rig -- or, with ``wire_anim`` (`wire <model> <anim>`),
+    PLAYS that raw clip, its loco byte that clip's class on that body (as a real guest's sender classifies it)."""
+    bench = bool(selftest_role)
+    st_wire = wire if bench and wire >= 0 else me_model
+    pinned = bench and wire >= 0 and wire_anim >= 0
+    st_loco = classify_loco(st_wire, wire_anim) if pinned else classify_loco(me_model, me_anim)
+    wire_rig = rig_for_model(st_wire)
+    wire_anim = (wire_anim if pinned else me_anim if st_wire == me_model
+                 else loco_anim(wire_rig, st_loco) if wire_rig >= 0 else me_anim)
+    st_mask = bench_mask if bench and bench_mask >= 0 else guest_slots
+    st_mode = "auto" if bench and bench_mask >= 0 else ghost_as
+    old_rule = bench and rule == "s138"
+    chars = live_slot_chars(party, empty_mask if bench and empty_mask >= 0 else 0)
+    dress, rig = 0, -1
+    if enabled:
+        if old_rule:
+            dress, rig = resolve_dress_s138(st_mode, st_mask, chars)
+        else:
+            m, rig = resolve_dress_rule(st_mode, st_mask, moogle_when_empty(role, selftest_role), chars)
+            dress = ghost_guard(m, st_wire)
+    if dress == 0:
+        rig = -1
+    model = dress if dress else st_wire
+    if old_rule:
+        anim = loco_anim(rig, st_loco) if dress else wire_anim
+        mask = "local" if (dress == 0 and st_wire == me_model) or dress == me_model else "all"
+    else:
+        anim = ghost_anim(dress, rig, st_wire, st_loco, wire_anim)
+        if dress == 0 or dress == st_wire:
+            mask = "local" if st_wire == me_model else "rest"
+        elif dress == me_model:
+            mask = "local"
+        else:
+            mask = "rest"
+    return {"model": model, "rig": rig, "anim": anim, "mask": mask}
+
+
+# ---- DressSelfTest's rows, the OFFLINE half (rows 1-15 and the mutants: the rows 16-26 need a real host frame -- in game)
+DRESS_PARTY4 = (0, 1, 2, 3)                               # Zidane, Vivi, Garnet, Steiner
+#: ResolveAuto's row table (DressAutoTable, in its order): (name, mask, moogle_when_empty, slot_char, model, rig) -- the
+#: production rule passes every row; each mutant fails one.
+DRESS_AUTO_TABLE = (
+    ("mask 0 -> the moogle on the host / selftest (owner D2)", 0, True, DRESS_PARTY4, 220, 8),
+    ("mask 0 -> undressed on a client", 0, False, DRESS_PARTY4, 0, -1),
+    ("slot 1 named -> its member (Vivi, 8)", 2, True, DRESS_PARTY4, 8, 1),
+    ("slot 0 named -> Zidane (98)", 1, True, DRESS_PARTY4, 98, 0),
+    ("an empty first named slot -> the next named member", 6, True, (0, -1, 2, -1), 185, 2),
+    ("every named slot empty -> the moogle (host / selftest)", 6, True, (0, -1, -1, -1), 220, 8),
+    ("every named slot empty -> undressed on a client", 6, False, (0, -1, -1, -1), 0, -1),
+    ("Cinna (CharacterId 8) -> undressed, never the moogle row", 2, True, (0, 8, -1, -1), 0, -1),
+    ("Blank (10) -> undressed", 2, True, (0, 10, -1, -1), 0, -1),
+    ("a custom character (12) -> undressed", 2, True, (0, 12, -1, -1), 0, -1),
+    ("the first OCCUPIED named slot decides (Cinna before Vivi)", 6, True, (0, 8, 1, -1), 0, -1),
+    ("bits above slot 3 are no party slots", 0x12, True, DRESS_PARTY4, 8, 1),
+    ("an UNREADABLE named slot (-2) -> undressed, never the moogle", 6, True, (0, -1, -2, -1), 0, -1),
+    ("no party read -> unreadable: undressed, never the moogle", 2, True, None, 0, -1),
+)
+
+
+def dress_auto_table(rule) -> str | None:
+    """DressAutoTable: None when ``rule(mask, moogle_when_empty, slot_char) -> (model, rig)`` passes every row, else the
+    first failing row's name."""
+    for name, mask, mwe, chars, model, rig in DRESS_AUTO_TABLE:
+        if tuple(rule(mask, mwe, chars)) != (model, rig):
+            return name
+    return None
+
+
+def mutant_rigs_length_guard(mask, mwe, slot_char) -> tuple:
+    """DressSelfTest's mutant: the party path guarded on Rigs.Length (9) -- Cinna (8) would wear the moogle row."""
+    return resolve_auto_core(mask, mwe, slot_char, RIG_ROW_COUNT)
+
+
+def mutant_moogle_on_client(mask, mwe, slot_char) -> tuple:
+    """DressSelfTest's mutant: the moogle handed to every role (the client included)."""
+    return resolve_auto(mask, True, slot_char)
+
+
+def mutant_role_not_client(role) -> bool:
+    """DressSelfTest's mutant predicate: ``role != "client"`` (a typo'd Role=guest would get the moogle)."""
+    return role != "client"
+
+
+def swapped_dress_body(model: int, char_id: int) -> bytes:
+    """DressSelfTest's mutant encoder: the model big-endian (a symmetric byte-order bug round-trips its own encoder)."""
+    return bytes(((int(model) >> 8) & 0xFF, int(model) & 0xFF, int(char_id) & 0xFF))
+
+
+def dress_selftest_offline() -> list:
+    """DressSelfTest's rows that need no game (rows 1-15: the rig table, the rules, the role predicate, the codec on
+    hand-checked bytes) and its three mutants (rows 27-29), as [(row name, ok)] -- the Python twins run through the
+    engine's own cases (test_harness_netsync.py holds them against the s139 patch's lines). Rows 4 and 15 read the clip
+    table / the live producer: here row 4 is the alias / footfall rule over :data:`RIGS` (its AnimationDB half is the test's
+    with the kit's copy) and row 15 the producer on the forced selftest's own config (GuestSlots 0, GhostAs auto)."""
+    rows = []
+    moog = rig_row(8)
+    rows.append(("rigs: nine rows -- the mains 0-7, the moogle row 8 (model 220)",
+                 len(RIGS) == RIG_ROW_COUNT and MAIN_RIG_COUNT == 8 and RIG_MOOGLE == 8 and rig_for_model(220) == 8
+                 and rig_for_model(98) == 0 and rig_for_model(509) == 7 and rig_for_model(532) == -1))
+    rows.append(("rigs: the moogle row is GEO_NPC_F0_MOG's census row (eye 50, no break clip, no footsteps)",
+                 moog is not None and (moog["model"], moog["idle"], moog["walk"], moog["run"], moog["turn_l"],
+                                       moog["turn_r"], moog["eye"], moog["inactive"], moog["walk_step_a"],
+                                       moog["run_step_a"], moog["idle_alias"]) == (220, 2904, 2927, 2907, 2923, 2911, 50,
+                                                                                   0, -1, -1, 2905)
+                 and rig_row(9) is None and rig_row(-1) is None))
+    rows.append(("rigs: the moogle's loco clips classify and translate",
+                 loco_anim(8, LOCO_WALK) == 2927 and loco_anim(8, LOCO_OTHER) == 2904 and loco_anim(9, LOCO_WALK) == 0
+                 and classify_loco(220, 2907) == LOCO_RUN))
+    pairs = all((r[8] < 0) == (r[9] < 0) and (r[10] < 0) == (r[11] < 0) and (r[8] < 0 or r[8] < r[9])
+                and (r[10] < 0 or r[10] < r[11]) for r in RIGS)
+    rows.append(("rigs: each row's idle alias names its idle's clip; footfalls come in ordered pairs or not at all", pairs))
+    auto = dress_auto_table(resolve_auto)
+    rows.append(("auto: " + (auto or "the table"), auto is None))
+    rows.append(("named: moogle 220 on any role, zidane 98, the aliases; an unknown name dresses nothing",
+                 resolve_dress_rule("moogle", 0, False, None) == (220, 8)
+                 and resolve_dress_rule(" Zidane ", 0, False, None) == (98, 0)
+                 and resolve_dress_rule("dagger", 0, True, None) == (185, 2)
+                 and resolve_dress_rule("salamander", 0, True, None) == (509, 7)
+                 and resolve_dress_rule("cinna", 2, True, DRESS_PARTY4) == (0, -1)))
+    rows.append(("mode: GhostAs \"\" / off / 0 dress nothing -- the spectator's moogle comes with auto only",
+                 resolve_dress_rule("", 0, True, DRESS_PARTY4) == (0, -1)
+                 and resolve_dress_rule("off", 0, True, DRESS_PARTY4)[0] == 0
+                 and resolve_dress_rule("0", 6, True, DRESS_PARTY4)[0] == 0
+                 and resolve_dress_rule(None, 0, True, DRESS_PARTY4)[0] == 0
+                 and resolve_dress_rule("AUTO", 0, True, DRESS_PARTY4) == (220, 8)))
+    rows.append(("s138: the first named bit -- no skip, no moogle (not even by name), Cinna undressed",
+                 resolve_dress_s138("auto", 0, DRESS_PARTY4) == (0, -1)
+                 and resolve_dress_s138("auto", 6, (0, -1, 2, -1))[0] == 0
+                 and resolve_dress_s138("auto", 2, (0, -1, -1, -1))[0] == 0
+                 and resolve_dress_s138("auto", 2, (0, 8, -1, -1))[0] == 0
+                 and resolve_dress_s138("auto", 6, DRESS_PARTY4) == (8, 1)
+                 and resolve_dress_s138("moogle", 0, None) == (0, -1)
+                 and resolve_dress_s138("vivi", 0, None) == (8, 1)))
+    rows.append(("guard: wire 98 or the dress -> dressed; wire 532 / 5489 -> shown as it is",
+                 ghost_guard(185, 98) == 185 and ghost_guard(185, 185) == 185 and ghost_guard(185, 532) == 0
+                 and ghost_guard(185, 5489) == 0 and ghost_guard(220, 98) == 220 and ghost_guard(0, 98) == 0))
+    rows.append(("anim: translated onto another body, raw on the wire's own (a break clip is never flattened to idle)",
+                 ghost_anim(185, 2, 98, LOCO_WALK, 25) == 2086 and ghost_anim(185, 2, 185, LOCO_OTHER, 3160) == 3160
+                 and ghost_anim(0, -1, 5489, LOCO_WALK, 1996) == 1996 and ghost_anim(220, 8, 98, LOCO_RUN, 38) == 2907
+                 and ghost_anim(220, 8, 98, LOCO_OTHER, 57) == 2904))
+    rows.append(("role: the moogle for the host and the selftest role only (a typo'd role is neither)",
+                 moogle_when_empty("host", False) and moogle_when_empty("selftest", True)
+                 and not moogle_when_empty("client", False) and not moogle_when_empty("guest", False)
+                 and not moogle_when_empty("selftest", False) and not moogle_when_empty(None, False)))
+    rows.append(("charId: a main's row; 0xFF for the moogle and for no dress",
+                 dress_char_id(98, 0) == 0 and dress_char_id(192, 4) == 4 and dress_char_id(509, 7) == 7
+                 and dress_char_id(220, 8) == 0xFF and dress_char_id(0, -1) == 0xFF))
+    rows.append(("codec: hand-checked bytes -- (192, 4) C0 00 04, (220, FF) DC 00 FF, (0, FF) 00 00 FF",
+                 dress_section_body(192, 4) == bytes((0xC0, 0x00, 0x04))
+                 and dress_section_body(220, 0xFF) == bytes((0xDC, 0x00, 0xFF))
+                 and dress_section_body(0, 0xFF) == bytes((0x00, 0x00, 0xFF))
+                 and dress_section_body(5489, 3) == bytes((0x71, 0x15, 0x03))))
+    rows.append(("codec: the reader refuses fewer than 3 bytes and reads a longer body's first 3 (forward)",
+                 parse_dress_section(bytes((0xC0, 0x00, 0x04))) == (192, 4)
+                 and parse_dress_section(bytes((0xDC, 0x00, 0xFF, 0x5A, 0xA5))) == (220, 0xFF)
+                 and parse_dress_section(bytes((0xDC, 0x00))) is None and parse_dress_section(bytes((0xDC,))) is None
+                 and parse_dress_section(b"") is None and parse_dress_section(None) is None))
+    own = host_dress_section("auto", 0, "selftest", True, DRESS_PARTY4)
+    got = parse_dress_section(own)
+    rows.append(("producer: HostDressSection is never empty -- 3 bytes that parse",
+                 len(own) == DRESS_BODY_LEN and got is not None and (got[1] == CHAR_NONE or got[1] < MAIN_RIG_COUNT)))
+    swapped_caught = (swapped_dress_body(192, 4) != bytes((0xC0, 0x00, 0x04))
+                      and swapped_dress_body(5489, 3) != bytes((0x71, 0x15, 0x03))
+                      and (parse_dress_section(swapped_dress_body(192, 4)) or (None,))[0] != 192)
+    rows.append(("mutant: a swapped (big-endian) encoder is caught by the hand-checked bytes and the real reader",
+                 swapped_caught))
+    rows.append(("mutant: a Rigs.Length party guard (Cinna would wear the moogle row) is caught by the auto table",
+                 dress_auto_table(mutant_rigs_length_guard) is not None))
+    rows.append(("mutant: the moogle on the client role (or `role != \"client\"`) is caught",
+                 dress_auto_table(mutant_moogle_on_client) is not None
+                 and mutant_role_not_client("guest") != moogle_when_empty("guest", False)))
+    return rows

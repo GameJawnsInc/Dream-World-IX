@@ -148,6 +148,19 @@ def test_the_ghost_combo_items_fit_its_closed_box(coop):
         "text scales -- the hard clip returns while the character fence stays green")
 
 
+def test_the_ghost_combo_offers_every_ghost_name_the_kit_writes(coop):
+    """[ff9mapkit netsync s139] The combo's data values ARE {'' (their own model), 'auto'} plus coop.GHOST_NAMES with the
+    engine's aliases folded (garnet -> dagger, salamander -> amarant): a name the kit accepts (`ff9mapkit coop --ghost-as
+    moogle`) but the combo lacks loads as index 0, and the next apply silently rewrites the user's GhostAs to 'off'."""
+    from ff9mapkit import coop as kit
+    combo = coop.combo_ghost
+    data = [combo.itemData(i) for i in range(combo.count())]
+    folded = {"garnet": "dagger", "salamander": "amarant"}
+    assert len(data) == len(set(data)), data
+    assert set(data) == {"", "auto"} | {folded.get(n, n) for n in kit.GHOST_NAMES}, data
+    assert "moogle" in data
+
+
 def test_the_kv_key_column_tracks_its_own_font(coop, app):
     """The Status keys clipped at a 150% dial ("gameC:", "enginnetsync") because the column was a px
     measured from the CONSTRUCTION-time font, before the QSS landed, and never again. The law: a width

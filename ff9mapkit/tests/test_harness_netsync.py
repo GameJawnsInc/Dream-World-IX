@@ -412,7 +412,8 @@ def test_netsync_refuses_an_unknown_sub_verb_before_spending_a_step(game):
         g.newgame(settle=0)
         seq = g.state.seq
         with pytest.raises(HarnessError, match=r"unknown sub-verb 'tape' \(selftest\|bench\|l1\|hostscene.*"
-                                               r"\|tap-record\|replay\|.*\|bmenu\|bbench\|endbench\|actbench\)"):
+                                               r"\|tap-record\|replay\|.*\|bmenu\|bbench\|endbench\|actbench"
+                                               r"\|selfdress\)"):                # [ff9mapkit netsync s139]
             g.netsync("tape", 1)
         assert g.state.seq == seq and not any(s[:1] == ["netsync"] for s in fake.executed)
 
@@ -860,6 +861,21 @@ def _undressed(doc: dict) -> dict:
     """[ff9mapkit netsync s138] A `netsync` document without s138's `dress` (netsync's LAST key, after `battle`): the live
     catch line as s131-s137 wrote it -- s138 added that one block and nothing else."""
     return {k: v for k, v in doc.items() if k != "dress"}
+
+
+def _dress_through(doc: dict, rung: str) -> dict:
+    """[ff9mapkit netsync s139] A `netsync` document with only the dress keys of the rungs up to ``rung`` (the dress ladder:
+    BW.DRESS_KEYS_BY_RUNG for `netsync.dress`, BW.DRESS_GHOST_KEYS_BY_RUNG inside `ghost`) -- the catch line an engine AT
+    that rung writes, when the later rungs added keys only there."""
+    names = list(BW.DRESS_KEYS_BY_RUNG)
+    upto = names[:names.index(rung) + 1]
+    dress_keys = [k for r in upto for k in BW.DRESS_KEYS_BY_RUNG[r]]
+    ghost_keys = [k for r in upto for k in BW.DRESS_GHOST_KEYS_BY_RUNG.get(r, ())]
+    out = dict(doc)
+    d = {k: v for k, v in doc["dress"].items() if k in dress_keys}
+    d["ghost"] = {k: v for k, v in doc["dress"]["ghost"].items() if k in ghost_keys}
+    out["dress"] = d
+    return out
 
 
 def _agent_host_ops() -> tuple[str, ...]:
@@ -2013,7 +2029,8 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
         for sub, keys in was.items():                   # nothing the previous stage published is lost
             assert set(keys) <= set(now[sub]), (patch, sub, set(keys) - set(now[sub]))
         for verb in verbs:
-            assert Session.NETSYNC_BATTLE_SUBVERBS[verb][2] == patch, verb
+            # [ff9mapkit netsync s139] the dress sub-verbs ride the same ladder through their own table (audit 3.1)
+            assert {**Session.NETSYNC_BATTLE_SUBVERBS, **Session.NETSYNC_DRESS_SUBVERBS}[verb][2] == patch, verb
         # [ff9mapkit netsync R3] the keys added INSIDE an older fixed sub-object, and to / inside `netsync.diorama`
         nested = {}
         for path in [c for c in BATTLE_CONTAINERS if c in _leaves_paths(was)]:
@@ -2089,7 +2106,9 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     names = list(FG.NETSYNC_BATTLE_CAPS)
     assert list(BW.DRESS_GHOST_KEYS_BY_RUNG) == [r for r in names if r in BW.DRESS_GHOST_KEYS_BY_RUNG]
     assert tuple(k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row) == tuple(BW.DRESS_GHOST_SENTINELS)
-    assert set(Session.NETSYNC_BATTLE_SUBVERBS) == {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}
+    assert set(Session.NETSYNC_BATTLE_SUBVERBS) | set(Session.NETSYNC_DRESS_SUBVERBS) == \
+        {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}            # [ff9mapkit netsync s139] + the dress table
+    assert not set(Session.NETSYNC_BATTLE_SUBVERBS) & set(Session.NETSYNC_DRESS_SUBVERBS)
 
 
 def test_each_battle_verbs_capability_key_is_one_its_patch_added():
@@ -2270,7 +2289,8 @@ BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", 
                  "s135",                                      # [ff9mapkit netsync s135] the replay hit hold
                  "s136",                                      # [ff9mapkit netsync s136] fallback A
                  "s137",                                      # [ff9mapkit netsync s137] the trance burst timing
-                 "s138"]                                      # [ff9mapkit netsync s138] the dress instrument (keys only)
+                 "s138",                                      # [ff9mapkit netsync s138] the dress instrument (keys only)
+                 "s139"]                                      # [ff9mapkit netsync s139] the host dress rule + `selfdress`
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2306,8 +2326,9 @@ def test_an_older_battle_stand_in_is_that_patchs_agent(game, level):
             set(_leaves(_battle_of(doc))) ^ set(_leaves(_battle_of(want)))
         for sub in _battle_of(want):                     # ...in the agent's order
             assert list(_battle_of(doc)[sub]) == list(_battle_of(want)[sub]), (level, sub)
-    # (the patches that rewrite the "unknown sub-verb" line: s100-s103 and s106 -- [ff9mapkit netsync s133] and s133)
-    lines = [p for p in ("s100", "s101", "s102", "s103", "s106", "s133") if int(p[1:]) <= int(level[1:])]
+    # (the patches that rewrite the "unknown sub-verb" line: s100-s103 and s106 -- [ff9mapkit netsync s133] and s133;
+    # [ff9mapkit netsync s139] and s139, `selfdress`)
+    lines = [p for p in ("s100", "s101", "s102", "s103", "s106", "s133", "s139") if int(p[1:]) <= int(level[1:])]
     known = "|".join(_subverbs_in(lines[-1] if lines else "s99"))
     assert fake._netsync_subverbs() == tuple(known.split("|"))
     for cap in names[len(have):]:
@@ -2549,7 +2570,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s137] the trance burst timing
             "coop_act_trance",
             # [ff9mapkit netsync s138] the dress instrument (`netsync.dress`: the dress rungs join this one ladder, audit 3.1)
-            "coop_dress_instr")
+            "coop_dress_instr",
+            # [ff9mapkit netsync s139] the host dress rule (`netsync.dress.ghost.bench_mask`; the `selfdress` sub-verb)
+            "coop_dress_host")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -2793,7 +2816,8 @@ def test_netsync_refuses_a_battle_verb_its_engine_lacks_before_spending_a_step(g
         g.netsync("selftest", 1)
         lacking = [v for c in names if c not in have for v in FG.NETSYNC_BATTLE_CAPS[c][1]]
         for verb in lacking:
-            _attr, key, patch, _what = Session.NETSYNC_BATTLE_SUBVERBS[verb]
+            # [ff9mapkit netsync s139] the dress sub-verb rides the ladder through its own table
+            _attr, key, patch, _what = {**Session.NETSYNC_BATTLE_SUBVERBS, **Session.NETSYNC_DRESS_SUBVERBS}[verb]
             with pytest.raises(HarnessError, match=rf"^netsync {verb}: the deployed engine publishes no "
                                                    rf"`{re.escape(key)}` .*\(memoria-patch {patch}\); it would answer "
                                                    rf"\"netsync: unknown sub-verb '{verb}'\" only after the step"):
@@ -5961,9 +5985,12 @@ def test_session_grace_twins_evaluate_every_grace_selftest_row_off_the_stack():
                          _watch_ns())
     assert len(names) == BW.GRACE_SELFTEST_ROWS == 31, names
     assert all(mark in names for mark in GRACE_ROW_MARKS), set(GRACE_ROW_MARKS) - set(names)
-    # the proof block's two NetSyncClient selftests are every `ref rows, ref fail` row the file carries
-    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncClient.cs")) == \
+    # the proof block's NetSyncClient selftests are every `ref rows, ref fail` row the file carries -- [ff9mapkit netsync
+    # s139] the two of s119 / s120 and DressSelfTest's 29 (s138's file had only the two)
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncClient.cs", r".", _prefix("s138"))) == \
         BW.WATCH_SELFTEST_ROWS + BW.GRACE_SELFTEST_ROWS
+    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncClient.cs")) == \
+        BW.WATCH_SELFTEST_ROWS + BW.GRACE_SELFTEST_ROWS + BW.DRESS_SELFTEST_ROWS
 
 
 def test_the_session_grace_twins_hold_the_bench_legs():
@@ -6269,6 +6296,11 @@ def _proof_lines(fake) -> list:
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
               BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
+              BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 29)]),
+    # [ff9mapkit netsync s139] s138 (s139's calibration red): no 'dress codec' line
+    ("s138", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
               BW.proof_ok(BW.PROOF_TRANCE, 21)]),
     # [ff9mapkit netsync s137] s136 (s137's calibration red): no 'action trance' line
     ("s136", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
@@ -6304,7 +6336,7 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     fake = FakeGame(game)
     fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS,
                          "s132": S132_CAPS, "s133": S133_CAPS, "s134": S134_CAPS,
-                         "s135": S135_CAPS, "s136": S136_CAPS}.get(caps) or _caps_at(caps)
+                         "s135": S135_CAPS, "s136": S136_CAPS, "s138": S138_CAPS_}.get(caps) or _caps_at(caps)
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6321,7 +6353,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
                                                                       BW.PROOF_ADOPT, BW.PROOF_ACTION,
                                                                       BW.PROOF_REPLAY, BW.PROOF_HOLD,
                                                                       BW.PROOF_FALLBACK, BW.PROOF_TRANCE)) \
-        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"'))
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"')) \
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS}"'))   # [netsync s139]
 
 
 def _mlog_lines(fake, needle: str) -> list:
@@ -14932,7 +14965,8 @@ import struct                                                           # noqa: 
 DRESS_CONTAINERS = {"ghost": "s138"}
 #: [ff9mapkit netsync s138] the `netsync.dress` records that may be published null where their accessor reads None (the
 #: BATTLE_NULLABLE twin; a null STRING reads "", so none at s138) -- a later rung's nullable record goes HERE.
-DRESS_NULLABLE = ()
+#: [ff9mapkit netsync s139] `ghost.hidden` (null = no ghost) and `mirror_party` (null = no party mirror): nullable LISTS
+DRESS_NULLABLE = ("ghost.hidden", "mirror_party")
 
 
 def _dress_of(doc: dict) -> dict:
@@ -14985,7 +15019,8 @@ def test_the_dress_block_is_netsyncs_last_key_at_the_catch_lines_sentinels():
     NetSyncClient.HarnessGhost* getter, then `party` off FF9.party.member[i].Index (never NetSyncParty.Slots, where the
     selftest mirror seats its "BENCH" impostor), an unreadable slot -2 and an empty one -1; it is called right after
     AppendNetsyncBattle, in every role; the harness protocol stays 5."""
-    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    # [ff9mapkit netsync s139] the line AS s138 WROTE IT (its own patch, frozen): s139 rewrote it (its test pins the live one)
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', [_patch_bytes("s138")])
     assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
     a, b = _literals(catch[0])
     assert b.endswith('\\"last\\":null}}}},\\"dress\\":{\\"ghost\\":{\\"model\\":-1,\\"geo\\":null,\\"clip\\":null,'
@@ -14993,8 +15028,10 @@ def test_the_dress_block_is_netsyncs_last_key_at_the_catch_lines_sentinels():
     assert "dress" not in a
     nothing = _agent_netsync_nothing()[0]
     assert list(nothing)[-2:] == ["battle", "dress"] and nothing["dress"] == BW.DRESS_SENTINELS
-    assert list(nothing["dress"]) == ["ghost", "party"] and list(nothing["dress"]["ghost"]) == list(BW.DRESS_GHOST_SENTINELS)
-    assert _catch_doc_in("s138") == nothing and _catch_doc_in("s137") == _undressed(nothing)   # s138 wrote it whole
+    s138 = _catch_doc_in("s138")
+    assert list(s138["dress"]) == list(BW.DRESS_KEYS_BY_RUNG["dressinstr"]) == ["ghost", "party"]
+    assert list(s138["dress"]["ghost"]) == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"])
+    assert s138 == _dress_through(nothing, "dressinstr") and _catch_doc_in("s137") == _undressed(nothing)   # s138: whole
     body = " ".join(_s138_block("HarnessAgent.cs", "private static void AppendDress(", "private static Int32 PartyIndexOf("))
     names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
     assert names == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"]), names       # s138's own row, frozen
@@ -15128,9 +15165,28 @@ def test_the_live_dress_writers_are_their_level_homes_in_ladder_order(game):
     fake.field_id, fake.ui_state = FIELD, "FieldHUD"
     fake.blockers = {FIELD: [{"x": 300.0, "z": 0.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217}]}
     assert list(fake._objects_doc()[0]) == want, list(fake._objects_doc()[0])
-    # AppendDress: its ghost keys == the live catch literal's == the union of the frozen rows
-    dress = _cs_block("HarnessAgent.cs", "private static void AppendDress(", stop='sb.Append("]}");')
-    ghost = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', " ".join(dress))
+    # AppendDress: its ghost keys == the live catch literal's == the union of the frozen rows -- [ff9mapkit netsync s139]
+    # read per rung (s139 rewrote AppendDress in hunks that do not hold the whole method): each rung's row is exactly the
+    # ghost writer lines its OWN patch adds (a key an earlier rung owns, re-added in a rewrite, stays that rung's), and every
+    # ghost writer line is net-present ONCE in the live stack
+    ghost_line = re.compile(r'^(?:Bool|Num|Str|StrList)\(sb, "(\w+)", Try\(.*NetSyncClient\.Harness(?:Ghost|Dress)')
+    ghost, seen = [], set()
+    for rung in BW.DRESS_GHOST_KEYS_BY_RUNG:
+        new = _new_side("HarnessAgent.cs", _patch_bytes(FG.NETSYNC_BATTLE_CAPS[rung][0]))
+        j = next(k for k, (_h, _kk, t) in enumerate(new) if t.startswith('sb.Append("},\\"party\\":[");'))
+        starts = [k for k in range(j) if new[k][2].startswith("private static void AppendDress(")]
+        i = starts[-1] if starts else max(k for k in range(j) if new[k][2].startswith('Str(sb, "clip", '))
+        row = []
+        for _h, kind, t in new[i:j]:
+            m = ghost_line.match(t)
+            if kind == "+" and m and m.group(1) not in seen:
+                row.append(m.group(1))
+        assert tuple(row) == BW.DRESS_GHOST_KEYS_BY_RUNG[rung], (rung, row)
+        seen.update(row)
+        ghost += row
+    for k in ghost:
+        live = [t for t in _stack_text("HarnessAgent.cs") if ghost_line.match(t) and ghost_line.match(t).group(1) == k]
+        assert len(live) == 1, (k, live)
     assert ghost == list(_agent_netsync_nothing()[0]["dress"]["ghost"]) == list(BW.DRESS_GHOST_SENTINELS) == \
         [k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row], ghost
     assert FG.NETSYNC_OBJECT_CAP_KEYS["dressinstr"] == BW.OBJECT_DRESS_KEYS == ("model",)
@@ -15260,7 +15316,8 @@ def test_every_dress_key_has_an_accessor_and_every_accessor_a_key():
         got = getattr(st, name)
         sentinel = leaves[path] if path in leaves else _at(_dress_of(nothing), path)
         if sentinel is None:
-            assert got == "", (path, got)
+            # a null STRING reads ""; a nullable LIST (DRESS_NULLABLE, s139) reads None
+            assert got == ("" if path not in DRESS_NULLABLE else None), (path, got)
         elif isinstance(sentinel, (dict, list)):
             assert got == sentinel and got is not sentinel, (path, got)
         else:
@@ -15293,9 +15350,9 @@ def test_state_reads_the_dress_instrument_absent_as_cannot_never_as_nothing():
     live = State({"frame": 1, "netsync": _agent_netsync_nothing()[0]})
     none = State({"frame": 1})
     assert (none.coop_dress_instr, old.coop_dress_instr, live.coop_dress_instr) == (None, False, True)
-    for name in State.NETSYNC_DRESS_ACCESSORS.values():
+    for path, name in State.NETSYNC_DRESS_ACCESSORS.items():
         assert getattr(none, name) is None and getattr(old, name) is None, name
-        assert getattr(live, name) is not None, name
+        assert getattr(live, name) is not None or path in DRESS_NULLABLE, name
     assert none.netsync_dress is None and old.netsync_dress is None
     d = {"ghost": {"model": 192, "geo": "GEO_MAIN_F0_FRJ", "clip": "ANH_MAIN_F0_FRJ_IDLE", "rig": 4, "playing": True,
                    "body": "192"}, "party": [0, 4, -1, 2]}
@@ -15365,7 +15422,9 @@ def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
     doc = fake._netsync_doc()
     assert list(doc)[-1] == "dress" and list(doc["dress"]) == list(nothing["dress"])
     assert doc["dress"]["ghost"] == nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
-    assert list(doc["dress"]["ghost"]) == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"])   # the rung's own row
+    # the default stand-in carries every dress rung: the union of their frozen rows, in ladder order
+    assert list(doc["dress"]["ghost"]) == [k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row]
+    assert (doc["dress"]["codec"], doc["dress"]["rig_idle_frames"]) == (None, [-1] * 9)   # [s139] no proof block yet
     assert doc["dress"]["party"] == [0, 1, -1, -1] == [m["char"] if m else -1 for m in fake.save_party]
     assert _battle_text("sb.Append(Try(() => PartyIndexOf(slot), -2).ToString(CultureInfo.InvariantCulture));")
 
@@ -15445,8 +15504,11 @@ def test_the_stand_in_models_the_body_the_ghost_and_the_party(game):
 #: [ff9mapkit netsync s138] each fault lever -> the published keys it changes (and nothing else)
 DRESS_FAULT_KEYS = {"eye": {"player.eye"}, "body": {"player.body"}, "anim_geo": {"player.anim_geo"},
                     "playing": {"player.clip_playing"}, "uid": {"player.uid"},
-                    "ghost_missing": {"ghost.model", "ghost.geo", "ghost.clip", "ghost.playing", "ghost.body"},
-                    "ghost_model": {"ghost.model", "ghost.geo", "ghost.body"}, "party_empty": {"party"},
+                    # [ff9mapkit netsync s139] no ghost (or another model's body) also moves its VISIBILITY keys
+                    "ghost_missing": {"ghost.model", "ghost.geo", "ghost.clip", "ghost.playing", "ghost.body",
+                                      "ghost.rest_mask", "ghost.shown_mask", "ghost.hidden"},
+                    "ghost_model": {"ghost.model", "ghost.geo", "ghost.body", "ghost.rest_mask", "ghost.shown_mask",
+                                    "ghost.hidden"}, "party_empty": {"party"},
                     "object_model": {"objects.model"}}
 
 
@@ -15581,10 +15643,11 @@ def test_the_s138_benchs_tables_are_its_docstring():
     assert got["i"] == i_checks and c["p137"] == [i_checks, [], ""]
     shared = ["S138-INI", "S138-OR", "S138-P0", "S138-PRE", "S138-R", "S138-S0"]
     assert got["plain"] == sorted(shared + i_checks) and got["cal"] == sorted(shared + i_checks + ["S138-CAL"])
-    assert got["legs"] == {"I": {"patch": 138, "steps": {"stock": "_i_stock", "seeded": "_i_seeded", "bench": "_i_bench",
-                                                         "close": "_i_close"},
-                                 "pre": [30604, 30801], "oracle": ["stock", 30801], "oracle_extra": None,
-                                 "old": {"137": [i_checks, []]}, "lever": {}}} and got["steps_exist"]
+    assert got["legs"]["I"] == {"patch": 138, "steps": {"stock": "_i_stock", "seeded": "_i_seeded", "bench": "_i_bench",
+                                                        "close": "_i_close"},
+                                "pre": [30604, 30801], "oracle": ["stock", 30801], "oracle_extra": None,
+                                "old": {"137": [i_checks, []]}, "lever": {}} and got["steps_exist"]
+    assert list(got["legs"]) == ["I", "G"]                      # [ff9mapkit netsync s139] leg G (its own test pins it)
     assert got["phases"] == ["stock", "seed", "seeded", "bench", "close"]
     for k in ("p138", "p139"):
         assert c[k][0] is None and "no lever" in c[k][2] and "0269771f24b626c1" in c[k][2], (k, c[k])
@@ -15605,8 +15668,8 @@ def test_the_s138_benchs_tables_are_its_docstring():
     assert problems == {"F.mcf": "row 98 has no floor 1", "X.hook": "_hook_bad raised OSError: no mapconfig"}, problems
     assert c["pre_ifx"] == [30604, 30801, 30606]
     assert got["modes"]["default"] == got["modes"]["old"] == "old"
-    assert got["modes"]["bad"].startswith("ValueError: COOP_DRESS_CAL='rule-s138' is no calibration mode")
-    assert got["sel"]["none"] == got["sel"]["lower"] == got["sel"]["dup"] == ["I"]
+    assert got["modes"]["bad"].startswith("ValueError: COOP_DRESS_CAL='rule-s138' is no calibration mode")   # leg I alone
+    assert got["sel"]["lower"] == got["sel"]["dup"] == ["I"] and got["sel"]["none"] == ["I", "G"]   # [s139] every leg
     assert got["sel"]["bad"].startswith("ValueError: COOP_DRESS_LEGS names ['X']")
     assert got["consts"] == [250, 30801, 30604, "netsync.dress.ghost", "player.model", ["", "auto", "off", "0"], "us", 2, 1,
                              2, 3, 0, 16, 4, [".ff9mapkit-events-bundle.txt"],
@@ -15949,6 +16012,10 @@ def oracle_for(run):
                  "problems": problems}, "the test's oracle" + (f"; PROBLEM {problems}" if problems else ""))
     return read
 sd.REST_S = 0.6
+# [ff9mapkit netsync s139] the install's read_model, off the test (I7 on an s139 stand-in reads the moogle's facts lazily)
+from ff9mapkit._modeldb import MODELS as _MODELS
+sd.model_facts = lambda game, model: {"geo": _MODELS.get(int(model)), "geo_read": _MODELS.get(int(model)),
+                                      "geo_table": _MODELS.get(int(model)), "stems": [str(model)], "body": str(model)}
 DICT = "FieldScene 30604 11 TEST30604 TEST30604 30604\nFieldScene 30801 11 TEST30801 TEST30801 30801\n"
 results = {}
 for name, run in doc["runs"].items():
@@ -15971,6 +16038,10 @@ for name, run in doc["runs"].items():
     fake.blockers = {30801: [{"x": -400.0, "z": 600.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217},
                              {"x": 400.0, "z": 600.0, "r": 152.0, "uid": 3, "sid": 3, "model": 217}]}
     fake.dress_faults = set(run.get("faults", ()))
+    # [ff9mapkit netsync s139] the stand-in reads the GhostAs the bench reads (the engine's own ini: the s139 mirror's dress)
+    import re as _re
+    _m = _re.search(r"(?mi)^\s*GhostAs\s*=\s*(.*?)\s*$", run.get("ini") or "")
+    fake.ini_ghost_as = _m.group(1) if _m else None
     if run.get("regions"):
         fake.regions = {int(f): [dict(r, arrive=tuple(r["arrive"])) for r in rs] for f, rs in run["regions"].items()}
         fake.exit_frames = int(run.get("exit_frames", 0))
@@ -15979,10 +16050,7 @@ for name, run in doc["runs"].items():
         os.environ["COOP_DRESS_CAL"] = run["calmode"]
     else:
         os.environ.pop("COOP_DRESS_CAL", None)
-    if run.get("legs") is not None:
-        os.environ["COOP_DRESS_LEGS"] = run["legs"]
-    else:
-        os.environ.pop("COOP_DRESS_LEGS", None)
+    os.environ["COOP_DRESS_LEGS"] = run.get("legs", "I")     # [ff9mapkit netsync s139] leg G has its own smoke
     g = Session(game_path=t, run_dir=t / "run", save_dir=t / "player-saves", pid_probe=lambda: [],
                 launcher=lambda exe, fake=fake: fake.start(), boot_timeout=15.0, verbose=False)
     with g:
@@ -16078,7 +16146,9 @@ def test_the_s138_bench_runs_green_on_the_stand_in_and_red_exactly_where_its_che
     assert got["cal137"]["detail"]["S138-P0"].startswith("absent:")
     assert got["cal138"]["red"] == ["S138-CAL"] and "no lever" in got["cal138"]["detail"]["S138-CAL"]
     assert got["faults_a"]["red"] == ["S138-I4", "S138-I6", "S138-I7", "S138-I8", "S138-I9"], got["faults_a"]["red"]
-    assert got["faults_b"]["red"] == ["S138-I1", "S138-I3", "S138-I5", "S138-I7"], got["faults_b"]["red"]
+    # [ff9mapkit netsync s139] the default stand-in is s139: I7 judges the mirror against the INSTALL's oracle for what the
+    # host rule makes it wear (judge_worn), no longer against the player's own body -- a foreign PLAYER body is I1's red
+    assert got["faults_b"]["red"] == ["S138-I1", "S138-I3", "S138-I5"], got["faults_b"]["red"]
     assert got["faults_c"]["red"] == ["S138-I3", "S138-I5", "S138-I7"], got["faults_c"]["red"]
     for name in ("ini_live", "ini_named"):
         r = got[name]
@@ -16164,3 +16234,1951 @@ def test_the_s138_benchs_oracle_reads_the_install_as_the_audit_cites_it():
     if b is not None:                                       # the bench field is deployed on this install
         assert (b["sid"], b["uid"], b["model"], b["eye"], b["idle"], b["walk"], b["run"]) == (1, 1, 98, 93, 200, 25, 38)
         assert b["npcs"] == {"2": 217, "3": 217}
+
+
+# =========================================================================================================== s139
+# [ff9mapkit netsync s139] THE HOST'S DRESS RULE AND WIRE SECTION 8 -- the second of the guest's own field model's patches
+# (studies/battle-coop/R3-DESIGN.md 3.4.3 as amended by R3-FIELD-MODEL-AUDIT.md 2.2 and 3.1-3.3, with the owner's two
+# decisions: D1 Option A, D2 the spectator MOOGLE). Pinned to the s139 patch: its keys (the `ghost` levers + `mode`, then
+# `codec` and `rig_idle_frames` after `party`), its sub-verb `selfdress` (its own table, the gate widened to it), the full
+# rig table and every pure rule (their Python twins in battlewire, DressSelfTest's own rows EVALUATED against them), the
+# selftest site the stand-in models, and the bench's leg G.
+def _s139_new(file_name: str) -> list:
+    """The s139 patch's NEW-side lines (added and context) for ``file_name``, stripped."""
+    return [t for _h, _k, t in _new_side(file_name, _patch_bytes("s139"))]
+
+
+def _s139_block(file_name: str, start: str, stop_prefix: str, *, comments: bool = False) -> list:
+    """One block of the s139 patch's new side: from the line starting ``start`` up to (not including) the first later line
+    starting ``stop_prefix`` (comments stripped unless ``comments``)."""
+    new = _s139_new(file_name)
+    i = next(k for k, t in enumerate(new) if t.startswith(start))
+    j = next(k for k in range(i + 1, len(new)) if new[k].startswith(stop_prefix))
+    return list(new[i:j]) if comments else [_strip_comment(t) for t in new[i:j]]
+
+
+def test_the_s139_catch_line_closes_dress_with_the_host_rules_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s139: the live line (still ONE line of two literals around NetsyncF3Retired) closes
+    `dress` with s139's keys at their sentinels -- `ghost` gains bench_mask -1, empty_mask -1, rule null, wire -1, wire_anim
+    -1, mode null, then its visibility rest_mask -1, shown_mask -1, hidden null at its END, `dress` gains codec null,
+    rig_idle_frames nine -1s and mirror_party null after `party` (audit 3.1's table) -- and is s139's own
+    line (s138's, with exactly those keys added: :func:`_dress_through`). AppendDress writes them in that order, each
+    through its own Try and a NetSyncClient.HarnessDress* / NetSyncVisitor.HarnessRigIdleFrame getter, in EVERY role; the
+    harness protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    _a, b = _literals(catch[0])
+    assert b.endswith('\\"body\\":null,\\"bench_mask\\":-1,\\"empty_mask\\":-1,\\"rule\\":null,\\"wire\\":-1,\\"wire_anim\\":-1,'
+                      '\\"mode\\":null,\\"rest_mask\\":-1,\\"shown_mask\\":-1,\\"hidden\\":null},\\"party\\":[-1,-1,-1,-1],'
+                      '\\"codec\\":null,\\"rig_idle_frames\\":[-1,-1,-1,-1,-1,-1,-1,-1,-1],\\"mirror_party\\":null}}'), b[-320:]
+    nothing = _agent_netsync_nothing()[0]
+    assert _catch_doc_in("s139") == nothing and nothing["dress"] == BW.DRESS_SENTINELS
+    assert list(nothing["dress"]) == [k for row in BW.DRESS_KEYS_BY_RUNG.values() for k in row] == \
+        ["ghost", "party", "codec", "rig_idle_frames", "mirror_party"]
+    assert _dress_through(nothing, "dressinstr") == _catch_doc_in("s138")
+    assert {k: nothing["dress"]["ghost"][k] for k in BW.DRESS_GHOST_KEYS_BY_RUNG["dresshost"]} == {
+        "bench_mask": -1, "empty_mask": -1, "rule": None, "wire": -1, "wire_anim": -1, "mode": None, "rest_mask": -1,
+        "shown_mask": -1, "hidden": None}
+    assert len(BW.DRESS_SENTINELS["rig_idle_frames"]) == BW.RIG_ROW_COUNT == 9
+    new = [_strip_comment(t) for t in _s139_new("HarnessAgent.cs")]
+    levers = [t for t in new if re.match(r'(?:Num|Str|StrList)\(sb, "(?:bench_mask|empty_mask|rule|wire|wire_anim|mode|'
+                                         r'rest_mask|shown_mask|hidden)", ', t)]
+    assert [re.match(r'\w+\(sb, "(\w+)"', t).group(1) for t in levers] == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dresshost"])
+    getters = [re.search(r"NetSyncClient\.(Harness(?:Dress|Ghost)\w+)", t).group(1) for t in levers]
+    assert getters == ["HarnessDressBenchMask", "HarnessDressEmptyMask", "HarnessDressRule", "HarnessDressWire",
+                       "HarnessDressWireAnim", "HarnessDressMode", "HarnessGhostRestMask", "HarnessGhostShownMask",
+                       "HarnessGhostHidden"], getters
+    assert all("Try(() => " in t for t in levers) and all(", -1L)" in t for t in levers if t.startswith("Num("))
+    assert 'IntList(sb, "mirror_party", Try(() => Memoria.Netsync.NetSyncClient.HarnessDressMirrorParty));' in new
+    assert 'Str(sb, "codec", Try(() => Memoria.Netsync.NetSyncClient.HarnessDressCodec)); sb.Append(",");' in new
+    assert "for (Int32 r = 0; r < Memoria.Netsync.NetSyncVisitor.RigRowCount; r++)" in new
+    assert "sb.Append(Try(() => Memoria.Netsync.NetSyncVisitor.HarnessRigIdleFrame(row), -1).ToString(CultureInfo." \
+           "InvariantCulture));" in new
+    i, j = new.index('Str(sb, "body", Try(() => BodyOf(Memoria.Netsync.NetSyncClient.HarnessGhostObject))); sb.Append(",");'), \
+        new.index('IntList(sb, "mirror_party", Try(() => Memoria.Netsync.NetSyncClient.HarnessDressMirrorParty));')
+    assert new.index('sb.Append("},\\"party\\":[");') < new.index('Str(sb, "codec", Try(() => Memoria.Netsync.NetSyncClient.'
+                                                               'HarnessDressCodec)); sb.Append(",");') < j and i < j
+    assert not any("IsSelfTestRole" in t for t in new[i:j])           # published in EVERY role (the levers ACT selftest-only)
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    # the getters: the levers' statics as SET (-1 / null = off), `mode` null without an instance, codec null until proven
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    for frag in ("public static Int32 HarnessDressBenchMask { get { return _benchDressMask; } }",
+                 "public static String HarnessDressRule { get { return _benchDressRule; } }",
+                 "return IsSelfTestRole && _benchDressMask >= 0 ? \"bench:auto\" : \"ini:\" + (NetSyncVisitor.GhostAs ?? \"\");",
+                 "private static Int32 _benchDressMask = -1;", "private static Int32 _benchDressEmpty = -1;",
+                 "private static Int32 _benchDressWire = -1;", "public static String HarnessDressCodec { get { return "
+                 "_dressCodec; } }"):
+        assert frag in client, frag
+    assert (BW.DRESS_MODE_BENCH, BW.DRESS_MODE_INI) == ("bench:auto", "ini:")
+    vis = " ".join(_stack_text("NetSyncVisitor.cs"))
+    assert "internal static readonly Int32[] RigIdleFrames = { -1, -1, -1, -1, -1, -1, -1, -1, -1 };" in vis
+    assert "return rig >= 0 && rig < RigIdleFrames.Length ? RigIdleFrames[rig] : -1;" in vis
+
+
+def test_each_dress_verbs_capability_key_is_one_its_patch_added():
+    """THE DRESS VERB KEY LAW (audit 3.1): each dress sub-verb's capability key sits under `netsync.dress` (never
+    `netsync.battle`), its leaf a key ITS patch added (NETSYNC_DRESS_CAP_KEYS, or inside a fixed sub-object:
+    NETSYNC_DRESS_NESTED_KEYS), read by the State accessor it names -- True on its own patch's catch line, False on the one
+    before; and every dress verb rides its rung of the one ladder (FG.NETSYNC_BATTLE_CAPS)."""
+    rungs = {v: c for c, (_p, vs) in FG.NETSYNC_BATTLE_CAPS.items() for v in vs}
+    assert set(Session.NETSYNC_DRESS_SUBVERBS) == {v for c in FG.NETSYNC_DRESS_CAP_KEYS for v in FG.NETSYNC_BATTLE_CAPS[c][1]}
+    for verb, (attr, key, patch, _what) in Session.NETSYNC_DRESS_SUBVERBS.items():
+        rung = rungs[verb]
+        assert FG.NETSYNC_BATTLE_CAPS[rung][0] == patch, (verb, rung, patch)
+        assert key.startswith("netsync.dress.") and not key.startswith("netsync.battle"), key
+        path = key[len("netsync.dress."):]
+        parent, _, leaf = path.rpartition(".")
+        assert (leaf in FG.NETSYNC_DRESS_CAP_KEYS[rung] if not parent else
+                leaf in FG.NETSYNC_DRESS_NESTED_KEYS.get(rung, {}).get(parent, ())), (verb, key)
+        assert isinstance(getattr(State, attr), property) and attr.startswith("coop_dress_"), attr
+        assert getattr(State({"frame": 1, "netsync": _catch_doc_in(patch)}), attr) is True, verb
+        assert getattr(State({"frame": 1, "netsync": _catch_doc_in(f"s{int(patch[1:]) - 1}")}), attr) is False, verb
+    assert Session.NETSYNC_DRESS_SUBVERBS["selfdress"][:3] == ("coop_dress_host", "netsync.dress.ghost.bench_mask", "s139")
+    assert State({"frame": 1}).coop_dress_host is None
+
+
+def test_the_s139_agent_prints_selfdress_last_and_the_driver_and_the_stand_in_agree():
+    """`selfdress` is APPENDED to the agent's "unknown sub-verb" literal (after `actbench`), and to the driver's and the
+    stand-in's lists in the same place -- NETSYNC_SUBVERBS, NETSYNC_AUTHORITY_SUBVERBS, FG.NETSYNC_BATTLE_VERB_ORDER."""
+    assert _subverbs_in("s139") == _subverbs_in("s133") + ("selfdress",)
+    assert Session.NETSYNC_SUBVERBS[-2:] == ("actbench", "selfdress") == FG.NETSYNC_SUBVERBS[-2:]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-2:] == ("actbench", "selfdress")
+    assert FG.NETSYNC_BATTLE_VERB_ORDER[-2:] == ("actbench", "selfdress")
+    assert FG.NETSYNC_BATTLE_CAPS["dresshost"] == ("s139", ("selfdress",)) and FG.NETSYNC_S139_CAPS == frozenset(("dresshost",))
+    assert FG.netsync_subverbs(FG.caps_through("dressinstr"))[-1] == "actbench"
+    assert _s138_probe() == "netsync.dress.ghost" and BW.DRESS_PROBES[139] == "netsync.dress.codec"
+    src = (SCENARIOS / "_coop_battle.py").read_text(encoding="utf-8")
+    assert re.search(r'^\s*139: "netsync\.dress\.codec",', src, re.M)
+
+
+def _agent_selfdress_ops() -> tuple:
+    lines = net_lines("NetSyncClient.cs", r"netsync selfdress: unknown op '")
+    assert len(lines) == 1, lines
+    m = re.search(r"\(([a-z|]+)\)\";", lines[0])
+    assert m, lines[0]
+    return tuple(m.group(1).split("|"))
+
+
+def test_the_selfdress_ops_and_usage_are_the_engines_in_its_order():
+    """HarnessSelfDress' op list (its "unknown op" literal) IS the driver's, the stand-in's and battlewire's; each usage
+    refusal the driver quotes is one of its literals; and it refuses in ITS order -- the ROLE first, then the op, then the
+    value (the driver mirrors that: it sends for the agent's own role refusal, and refuses an op / value before the step only
+    on the selftest role)."""
+    assert _agent_selfdress_ops() == Session.NETSYNC_SELFDRESS_OPS == FG.NETSYNC_SELFDRESS_OPS == BW.SELFDRESS_OPS == \
+        ("ghost", "empty", "rule", "wire", "clear")
+    assert FG.selfdress_ops(FG.caps_through("dresshost")) == BW.SELFDRESS_OPS and FG.selfdress_ops(S138_CAPS_) == ()
+    assert Session.NETSYNC_SELFDRESS_OP_CAPS == {}             # s140 adds `self` / `gate`, s141 `polish`
+    client = _stack_text("NetSyncClient.cs")
+    for op, text in Session.NETSYNC_SELFDRESS_USAGE.items():
+        if op in ("ghost", "empty"):
+            assert any('why = "netsync selfdress " + op + ": expected `" + op + " <mask 0-15>|off`";' in ln
+                       for ln in client), op
+            assert text == f"netsync selfdress {op}: expected `{op} <mask 0-15>|off`"
+        else:
+            assert any(f'why = "{text}";' in ln for ln in client), (op, text)
+    body = _s139_block("NetSyncClient.cs", "public static Boolean HarnessSelfDress(", "internal static void HarnessReleaseDress(")
+    role = body.index("if (!IsSelfTestRole)")
+    assert body[role + 2] == 'why = "netsync selfdress: needs the selftest role (netsync selftest 1)";'
+    assert role < body.index("switch (op)") < body.index('case "ghost":')
+    assert 'String op = n > 1 && args[1] != null ? args[1].ToLowerInvariant() : "";' in body
+    assert "Boolean isNum = Int32.TryParse(val, System.Globalization.NumberStyles.None, System.Globalization." \
+           "CultureInfo.InvariantCulture, out num);" in body
+    assert "if (n != 3 || !(val == \"off\" || (isNum && num >= 0 && num <= 0x0F)))" in body
+    assert "if (!((n == 3 && (val == \"off\" || (isNum && num >= 1 && num <= 65534)))" in body
+    assert "|| (n == 4 && isNum && num >= 1 && num <= 65534 && animOk)))" in body
+    assert "_benchDressWireAnim = n == 4 ? anim : -1;" in body
+    assert 'if (n != 3 || (val != "s138" && val != "s139"))' in body and "if (n != 2)" in body
+
+
+S138_CAPS_ = FG.caps_through("dressinstr")                     # [ff9mapkit netsync s139] s139's calibration engine
+
+
+def _sd(f):
+    """The stand-in in the forced selftest role on a field (the `selfdress` verb's own gate passed)."""
+    f.field_id, f.ui_state = FIELD, "FieldHUD"
+    f._netsync(["selftest", "1"])
+    return f
+
+
+DRESS_REFUSALS = [
+    ("netsync selfdress: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["selfdress", "ghost", "2"])),
+    ("netsync selfdress: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["selfdress", "bogus"])),
+    ("netsync selfdress: unknown op '", lambda f: _sd(f)._netsync(["selfdress", "bogus"])),
+    ("' (ghost|empty|rule|wire|clear)", lambda f: _sd(f)._netsync(["selfdress"])),
+    ("netsync selfdress ", lambda f: _sd(f)._netsync(["selfdress", "ghost", "16"])),
+    (": expected `", lambda f: _sd(f)._netsync(["selfdress", "empty", "-1"])),
+    (" <mask 0-15>|off`", lambda f: _sd(f)._netsync(["selfdress", "ghost"])),
+    ("netsync selfdress rule: expected `rule s138|s139`", lambda f: _sd(f)._netsync(["selfdress", "rule", "s137"])),
+    ("netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "wire", "0"])),
+    ("netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "wire", "65535"])),
+    ("netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "wire", "+5"])),
+    # [ff9mapkit netsync s139] the raw-anim lever: an anim past 65535, or one after `off`
+    ("netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "wire", "8", "65536"])),
+    ("netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "wire", "off", "912"])),
+    ("netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "wire", "8", "912", "1"])),
+    ("netsync selfdress clear: takes no argument", lambda f: _sd(f)._netsync(["selfdress", "clear", "now"])),
+]
+
+
+@pytest.mark.parametrize("fragment,provoke", DRESS_REFUSALS, ids=[f"{i}-{r[0][:30]}" for i, r in enumerate(DRESS_REFUSALS)])
+def test_the_stand_in_refuses_selfdress_in_the_agents_words(game, fragment, provoke):
+    """Every `selfdress` gate the stand-in models refuses with the agent's own words (each fragment one literal of the
+    live stack, or a piece of one) -- the role first, then the op, then its value."""
+    assert _battle_text(fragment) or any(fragment in ln for ln in _stack_text("NetSyncClient.cs")), fragment
+    fake = FakeGame(game)
+    with pytest.raises(RuntimeError) as err:
+        provoke(fake)
+    assert fragment in str(err.value), str(err.value)
+    assert fake._dress_bench == {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}   # nothing changed
+
+
+def test_the_driver_refuses_selfdress_before_the_step_in_the_engines_order(game):
+    """On an s138 stand-in `selfdress` is refused BEFORE the step, naming the key, the patch and what that engine answers
+    after it ("unknown sub-verb"); on s139 outside the selftest role the step goes out and the AGENT's role refusal comes
+    back (its order: role first); in the selftest role an unknown op and every malformed value are refused before the step
+    in HarnessSelfDress' words, and a well-made op lands -- its lever published as set."""
+    for caps in (S138_CAPS_, None):
+        fake = FakeGame(game)
+        if caps is not None:
+            fake.netsync_caps = caps
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            if caps is not None:
+                g.netsync("selftest", 1)
+                n = len(fake.executed)
+                with pytest.raises(HarnessError, match=r"^netsync selfdress: the deployed engine publishes no "
+                                                       r"`netsync\.dress\.ghost\.bench_mask` .*\(memoria-patch s139\); it "
+                                                       r"would answer \"netsync: unknown sub-verb 'selfdress'\" only after "
+                                                       r"the step"):
+                    g.selfdress("ghost", 2)
+                assert len(fake.executed) == n
+                continue
+            n = len(fake.executed)
+            with pytest.raises(HarnessError, match=r"needs the selftest role \(netsync selftest 1\)"):
+                g.selfdress("bogus")                       # not the selftest role: the AGENT refuses (the role first)
+            assert len(fake.executed) == n + 1 and fake.executed[-1] == ["netsync", "selfdress", "bogus"]
+            g.netsync("selftest", 1)
+            for args, why in ((("bogus",), "netsync selfdress: unknown op 'bogus' (ghost|empty|rule|wire|clear)"),
+                              ((), "netsync selfdress: unknown op '' (ghost|empty|rule|wire|clear)"),
+                              (("ghost", 16), "netsync selfdress ghost: expected `ghost <mask 0-15>|off`"),
+                              (("empty",), "netsync selfdress empty: expected `empty <mask 0-15>|off`"),
+                              (("ghost", "0x2"), "netsync selfdress ghost: expected `ghost <mask 0-15>|off`"),
+                              (("rule", "s140"), "netsync selfdress rule: expected `rule s138|s139`"),
+                              (("wire", 0), "netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`"),
+                              (("wire", 65535), "netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`"),
+                              (("wire", 8, 65536), "netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`"),
+                              (("wire", "off", 912), "netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`"),
+                              (("clear", "x"), "netsync selfdress clear: takes no argument")):
+                n = len(fake.executed)
+                with pytest.raises(HarnessError) as err:
+                    g.selfdress(*args) if args else g.netsync("selfdress")
+                assert str(err.value) == why and len(fake.executed) == n, (args, str(err.value))
+                with pytest.raises(RuntimeError, match=re.escape(why)):
+                    fake._netsync(["selfdress", *(str(a) for a in args)])   # ...the agent's own words, after the step
+            st = g.selfdress("ghost", 6)
+            st = g.selfdress("empty", "02")
+            st = g.selfdress("WIRE", 5489)
+            st = g.selfdress("rule", "S138")
+            assert (st.coop_dress_ghost_bench_mask, st.coop_dress_ghost_empty_mask, st.coop_dress_ghost_wire,
+                    st.coop_dress_ghost_rule, st.coop_dress_ghost_mode) == (6, 2, 5489, "s138", "bench:auto")
+            assert st.coop_dress_ghost_wire_anim == -1                     # `wire <model>` alone pins no clip
+            st = g.selfdress("wire", 8, 912)
+            assert (st.coop_dress_ghost_wire, st.coop_dress_ghost_wire_anim) == (8, 912)
+            st = g.selfdress("clear")
+            assert (st.coop_dress_ghost_bench_mask, st.coop_dress_ghost_empty_mask, st.coop_dress_ghost_wire,
+                    st.coop_dress_ghost_rule, st.coop_dress_ghost_mode, st.coop_dress_ghost_wire_anim) == (
+                -1, -1, -1, "", "ini:", -1)
+
+
+def test_reset_and_every_release_path_free_every_selfdress_lever(game):
+    """HarnessReleaseDress over the four levers, from NetSyncBattle.HarnessReleaseBench -- which HarnessSelfTest(false)
+    runs on EVERY path (disarm, fault, `reset`, `selftest 0`) above its forced-role return -- and from `selfdress clear`:
+    on the stand-in each path leaves every lever off (its release line once per path that held one), and on the stack the
+    release is that call, the levers' own resets, its one line."""
+    for path in ("reset", "selftest0", "clear"):
+        fake = FakeGame(game)
+        cause = "selfdress clear" if path == "clear" else "released with the harness"
+        was = len(_mlog_lines(fake, f"selfdress levers released ({cause})"))      # (the game dir's log is shared)
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            g.netsync("selftest", 1)
+            for args in (("ghost", 2), ("empty", 4), ("rule", "s138"), ("wire", 532, 200)):
+                g.selfdress(*args)
+            st = g.state
+            assert (st.coop_dress_ghost_bench_mask, st.coop_dress_ghost_empty_mask, st.coop_dress_ghost_rule,
+                    st.coop_dress_ghost_wire, st.coop_dress_ghost_wire_anim) == (2, 4, "s138", 532, 200), path
+            if path == "reset":
+                g.send("reset")
+                g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0, what="the release")
+                st = g.netsync("selftest", 1)
+            elif path == "selftest0":
+                g.netsync("selftest", 0)
+                st = g.netsync("selftest", 1)
+            else:
+                st = g.selfdress("clear")
+            assert (st.coop_dress_ghost_bench_mask, st.coop_dress_ghost_empty_mask, st.coop_dress_ghost_rule,
+                    st.coop_dress_ghost_wire, st.coop_dress_ghost_wire_anim) == (-1, -1, "", -1, -1), path
+            assert len(_mlog_lines(fake, f"selfdress levers released ({cause})")) == was + 1, path
+    # [ff9mapkit netsync s139] the `release_keeps_levers` fault (S138-R's red): the HARNESS release skips
+    # HarnessReleaseDress -- a `reset` and a `selftest 0` leave every lever held and log no release line; `clear` still frees
+    for path in ("reset", "selftest0", "clear"):
+        fake = FakeGame(game)
+        fake.dress_faults = {"release_keeps_levers"}
+        cause = "selfdress clear" if path == "clear" else "released with the harness"
+        was = len(_mlog_lines(fake, f"selfdress levers released ({cause})"))
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            g.netsync("selftest", 1)
+            g.selfdress("rule", "s139")
+            if path == "reset":
+                g.send("reset")
+                g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0, what="the release")
+                st = g.state
+            elif path == "selftest0":
+                st = g.netsync("selftest", 0)
+            else:
+                st = g.selfdress("clear")
+            freed = path == "clear"
+            assert st.coop_dress_ghost_rule == ("" if freed else "s139"), (path, st.coop_dress_ghost_rule)
+            assert len(_mlog_lines(fake, f"selfdress levers released ({cause})")) == was + (1 if freed else 0), path
+    battle = " ".join(_stack_text("NetSyncBattle.cs"))
+    assert 'NetSyncClient.HarnessReleaseDress("released with the harness");' in battle
+    rel = _s139_block("NetSyncClient.cs", "internal static void HarnessReleaseDress(String cause)", "// `netsync.dress.ghost`'s s139")
+    for frag in ("_benchDressMask = -1;", "_benchDressEmpty = -1;", "_benchDressRule = null;", "_benchDressWire = -1;",
+                 "_benchDressWireAnim = -1;"):
+        assert frag in rel, frag
+    assert 'HarnessReleaseDress("selfdress clear");' in " ".join(_stack_text("NetSyncClient.cs"))
+    # HarnessReleaseBench is what HarnessSelfTest(false) runs on every path (the s100 rule, read off the stack)
+    assert any("NetSyncBattle.HarnessReleaseBench();" in ln for ln in _stack_text("NetSyncClient.cs"))
+
+
+#: [ff9mapkit netsync s139] THE CENSUS (R3-FIELD-MODEL-AUDIT.md 2.2 amendment 2, every value checked against all 817
+#: field-script exports and the clips in p0data5): the columns the kit's playerswap.CHARACTERS does not carry, per rig row
+#: (0-7 the CharacterId rows, 8 the moogle) -- the eye byte (98->93 .. 220->50), the idle-break clip (0 = none: Freya,
+#: Quina, Amarant and the moogle set none in stock), the walk / run footfall frames (-1 = none), the step-sound override
+#: (Steiner 925), the idle alias and the R_hand / R_hand_end bones.
+RIG_CENSUS = {
+    "zidane": {"eye": 93, "inactive": 57, "walk_steps": (4, 13), "run_steps": (0, 8), "step_sound": 0, "idle_alias": 324,
+               "hand": (12, 13)},
+    "vivi": {"eye": 61, "inactive": 912, "walk_steps": (4, 14), "run_steps": (0, 9), "step_sound": 0, "idle_alias": 573,
+             "hand": (16, 17)},
+    "garnet": {"eye": 91, "inactive": 3160, "walk_steps": (4, 15), "run_steps": (0, 9), "step_sound": 0,
+               "idle_alias": 2090, "hand": (14, 15)},
+    "steiner": {"eye": 104, "inactive": 119, "walk_steps": (4, 14), "run_steps": (0, 9), "step_sound": 925,
+                "idle_alias": 2002, "hand": (14, 15)},
+    "freya": {"eye": 94, "inactive": 0, "walk_steps": (4, 16), "run_steps": (0, 9), "step_sound": 0, "idle_alias": 2557,
+              "hand": (12, 12)},
+    "quina": {"eye": 92, "inactive": 0, "walk_steps": (-1, -1), "run_steps": (-1, -1), "step_sound": 0,
+              "idle_alias": 3229, "hand": (13, 14)},
+    "eiko": {"eye": 63, "inactive": 9590, "walk_steps": (1, 13), "run_steps": (0, 9), "step_sound": 0, "idle_alias": 7504,
+             "hand": (14, 15)},
+    "amarant": {"eye": 122, "inactive": 0, "walk_steps": (6, 23), "run_steps": (10, 21), "step_sound": 0,
+                "idle_alias": 8308, "hand": (15, 16)},
+    "moogle": {"eye": 50, "inactive": 0, "walk_steps": (-1, -1), "run_steps": (-1, -1), "step_sound": 0,
+               "idle_alias": 2905, "hand": (19, 19)},
+}
+#: ...and the moogle row's loco ids (GEO_NPC_F0_MOG: FF9DBAll's 2904 IDLE, 2927 WALK, 2907 RUN, 2923 TURN_L, 2911 TURN_R)
+MOOGLE_LOCO = {"model": 220, "idle": 2904, "walk": 2927, "run": 2907, "left": 2923, "right": 2911}
+#: the idle frame counts the kit's clip reader reads off the install's p0data5 (the audit's amendment 7 census)
+RIG_IDLE_FRAMES_CENSUS = [60, 45, 30, 60, 50, 40, 30, 45, 72]
+
+
+def _s139_rig_rows() -> list:
+    """NetSyncVisitor.Rigs as the s139 patch writes it: each `new Rig(...)` row's sixteen ints, in order."""
+    rows = []
+    for t in _s139_new("NetSyncVisitor.cs"):
+        m = re.match(r"new Rig\(([-\d,\s]+)\),", t)
+        if m:
+            rows.append(tuple(int(x) for x in m.group(1).split(",")))
+    return rows
+
+
+def test_the_rig_twin_is_the_engines_table_and_the_census():
+    """battlewire.RIGS IS the s139 patch's Rigs (nine rows of sixteen columns, the moogle row 8) -- and that table is the
+    census: rows 0-7's model / eye / idle / walk / run / turns are the kit's playerswap.CHARACTERS (the s37 home-field
+    extraction the engine's rows came from), the moogle row and every new column the audit's literals (RIG_CENSUS,
+    MOOGLE_LOCO); each idle alias names its idle's clip (the kit's copy of AnimationDB), every loco clip folds to its own
+    model's GEO, footfalls come in ordered pairs or not at all. The constants: MainRigCount 8 (the PARTY path's guard),
+    RigRowCount 9, MoogleRig 8, MoogleModel 220, PlainZidaneModel 98, CharNone 0xFF, SectionDress 8 (free: NetSyncState 0
+    and 4-7, NetSyncParty 1-3), DressBodyLen 3; the loco classes 0-5."""
+    from ff9mapkit import playerswap
+    from ff9mapkit._animdb_all import ANIMATIONS
+    from ff9mapkit._modeldb import MODELS
+    rows = _s139_rig_rows()
+    assert rows == list(BW.RIGS) and len(rows) == BW.RIG_ROW_COUNT == 9, rows
+    assert all(len(r) == len(BW.RIG_COLUMNS) == 16 for r in rows)
+    sig = " ".join(_s139_block("NetSyncVisitor.cs", "public Rig(UInt16 model, UInt16 idle", "{"))
+    names = re.findall(r"\b(?:UInt16|Byte|Int16) (\w+)", sig)
+    assert [_snake(n).replace("turn_l", "turn_l") for n in names] == [c.replace("turn_l", "turn_l") for c in
+                                                                      ("model", "idle", "walk", "run", "turn_l", "turn_r",
+                                                                       "eye", "inactive", "walk_step_a", "walk_step_b",
+                                                                       "run_step_a", "run_step_b", "step_sound",
+                                                                       "idle_alias", "hand_bone", "hand_bone_end")], names
+    assert tuple(_snake(n) for n in names) == BW.RIG_COLUMNS
+    for i, name in enumerate(BW.RIG_NAMES):
+        r = BW.rig_row(i)
+        if i < 8:
+            c = playerswap.CHARACTERS[name]
+            assert (r["model"], r["eye"], r["idle"], r["walk"], r["run"], r["turn_l"], r["turn_r"]) == (
+                c["model"], c["eye"], c["idle"], c["walk"], c["run"], c["left"], c["right"]), name
+        else:
+            assert {k: r[{"left": "turn_l", "right": "turn_r"}.get(k, k)] for k in MOOGLE_LOCO} == MOOGLE_LOCO
+        cen = RIG_CENSUS[name]
+        assert (r["eye"], r["inactive"], (r["walk_step_a"], r["walk_step_b"]), (r["run_step_a"], r["run_step_b"]),
+                r["step_sound"], r["idle_alias"], (r["hand_bone"], r["hand_bone_end"])) == (
+            cen["eye"], cen["inactive"], cen["walk_steps"], cen["run_steps"], cen["step_sound"], cen["idle_alias"],
+            cen["hand"]), name
+        assert ANIMATIONS[r["idle"]] == ANIMATIONS[r["idle_alias"]], name
+        for col in ("idle", "walk", "run", "turn_l", "turn_r", "idle_alias"):
+            assert BW.folder_of(ANIMATIONS[r[col]]) == MODELS[r["model"]], (name, col)
+    assert MODELS[220] == "GEO_NPC_F0_MOG" and BW.rig_for_model(220) == BW.RIG_MOOGLE == 8
+    vis = " ".join(_stack_text("NetSyncVisitor.cs"))
+    for frag, val in (("internal const Int32 MainRigCount = ", BW.MAIN_RIG_COUNT), ("public const Int32 RigRowCount = ",
+                                                                                    BW.RIG_ROW_COUNT),
+                      ("internal const Int32 MoogleRig = ", BW.RIG_MOOGLE), ("internal const UInt16 MoogleModel = ",
+                                                                             BW.MOOGLE_MODEL),
+                      ("internal const UInt16 PlainZidaneModel = ", BW.PLAIN_ZIDANE_MODEL),
+                      ("internal const Byte SectionDress = ", BW.SECTION_DRESS),
+                      ("internal const Int32 DressBodyLen = ", BW.DRESS_BODY_LEN)):
+        assert f"{frag}{val};" in vis, frag
+    assert "internal const Byte CharNone = 0xFF;" in vis and BW.CHAR_NONE == 0xFF
+    assert ("public const Byte LocoOther = 0, LocoIdle = 1, LocoWalk = 2, LocoRun = 3, LocoTurnL = 4, LocoTurnR = 5;"
+            in vis) and (BW.LOCO_OTHER, BW.LOCO_IDLE, BW.LOCO_WALK, BW.LOCO_RUN, BW.LOCO_TURN_L, BW.LOCO_TURN_R) == \
+        (0, 1, 2, 3, 4, 5)
+    state = " ".join(net_lines("NetSyncState.cs", r"public const Byte Section"))
+    party = " ".join(net_lines("NetSyncParty.cs", r"const Byte Section"))
+    used = {int(v) for v in re.findall(r"Section\w+ = (\d+);", state + " " + party)}
+    assert used <= {0, 4, 5, 6, 7} | {1, 2, 3} and BW.SECTION_DRESS not in used
+    assert (BW.SECTION_STORY, BW.SECTION_INTENT, BW.SECTION_EVENT, BW.SECTION_TALK, BW.SECTION_DIALOG) == (0, 4, 5, 6, 7)
+
+
+def test_the_kits_ghost_names_are_the_engines_name_to_rig_keys():
+    """ff9mapkit.coop.GHOST_NAMES -- what `ff9mapkit coop --ghost-as` accepts -- equals NetSyncVisitor.NameToRig's keys in
+    its order (s139 adds `moogle`, rig 8), and BW.NAME_TO_RIG is the engine's dict: a name either side lacks would be
+    refused up front by the kit or silently undressed by the engine."""
+    from ff9mapkit import coop
+    block = " ".join(_cs_block("NetSyncVisitor.cs", "private static readonly Dictionary<String, Int32> NameToRig", "};"))
+    pairs = [(n, int(v)) for n, v in re.findall(r'\{ "(\w+)", (\d+) \}', block)]
+    assert dict(pairs) == BW.NAME_TO_RIG and len(pairs) == len(BW.NAME_TO_RIG) == 11
+    assert tuple(n for n, _v in pairs) == coop.GHOST_NAMES
+    assert coop.parse_ghost_as("Moogle") == "moogle" and BW.NAME_TO_RIG["moogle"] == BW.RIG_MOOGLE
+    assert "{ \"moogle\", 8 }," in block
+
+
+_DRESS_TWINS = {          # C# method -> (the twin, the C# parameter names it takes, an `out` result folded into its return)
+    "ResolveAuto": "resolve_auto", "ResolveAutoCore": "resolve_auto_core", "ResolveNamed": "resolve_named",
+    "ResolveDressRule": "resolve_dress_rule", "ResolveDressS138": "resolve_dress_s138", "GhostGuard": "ghost_guard",
+    "GhostAnim": "ghost_anim", "DressCharId": "dress_char_id", "DressSectionBody": "dress_section_body",
+    "TryParseDressSection": "parse_dress_section", "MoogleWhenEmpty": "moogle_when_empty", "DressMode": "dress_mode",
+    "DressModeOff": "dress_mode_off", "LocoAnim": "loco_anim", "ClassifyLoco": "classify_loco",
+    "RigForModel": "rig_for_model"}
+
+
+def test_the_dress_twins_take_the_engines_parameters_in_its_order():
+    """Each s139 twin's parameters ARE its C# method's, in order (camelCase -> snake_case; a trailing `_` on the twin's
+    name dodges a clash with the module's own function; every `out` parameter is folded into the twin's return): a
+    parameter added or moved on either side turns this red."""
+    vis = _stack_text("NetSyncVisitor.cs")
+    for method, twin in _DRESS_TWINS.items():
+        sig = [ln for ln in vis if re.match(rf"(?:public|internal|private) static [\w\[\]]+ {method}\(", ln)]
+        assert len(sig) == 1, (method, sig)
+        inner = sig[0][sig[0].index("(") + 1:sig[0].rindex(")")]
+        cs = [_snake(p.split()[-1]) for p in inner.split(",") if p.strip() and p.split()[0] != "out"]
+        assert cs == _twin_params(getattr(BW, twin)), (method, cs, _twin_params(getattr(BW, twin)))
+
+
+def test_the_dress_auto_table_is_the_engines_row_for_row():
+    """DressSelfTest's ResolveAuto table (DressAutoTable, its `AutoIs` rows in order -- owner D2's mask-0 moogle first) IS
+    BW.DRESS_AUTO_TABLE, name for name and value for value; the production twin passes every row and each of the engine's
+    mutants fails one (the Rigs.Length party guard on the Cinna row, the client moogle on a client row)."""
+    block = _s139_block("NetSyncClient.cs", "private static String DressAutoTable(DressAutoRule rule)", "private static Boolean AutoIs(")
+    rows = []
+    for t in block:
+        m = re.match(r'if \(!AutoIs\(rule, (0x[0-9A-Fa-f]+|\d+), (true|false), (DressParty4|null|new Int32\[\] \{ ([-\d, ]+) \}),'
+                     r' (\d+), (-?\d+)\)\) return "((?:[^"\\]|\\.)*)";', t)
+        if m:
+            chars = BW.DRESS_PARTY4 if m.group(3) == "DressParty4" else None if m.group(3) == "null" else \
+                tuple(int(x) for x in m.group(4).split(","))
+            rows.append((m.group(7), int(m.group(1), 0), m.group(2) == "true", chars, int(m.group(5)), int(m.group(6))))
+    assert len(rows) == len(BW.DRESS_AUTO_TABLE) == 14 and tuple(rows) == BW.DRESS_AUTO_TABLE, rows
+    assert "private static readonly Int32[] DressParty4 = { 0, 1, 2, 3 };" in " ".join(_stack_text("NetSyncClient.cs"))
+    assert BW.dress_auto_table(BW.resolve_auto) is None
+    assert BW.dress_auto_table(BW.mutant_rigs_length_guard) == "Cinna (CharacterId 8) -> undressed, never the moogle row"
+    assert BW.dress_auto_table(BW.mutant_moogle_on_client) == "mask 0 -> undressed on a client"
+    # the audit's OVERRIDDEN recommendation (mask 0 -> undressed everywhere) is caught by the first row: owner D2 is pinned
+    assert BW.dress_auto_table(lambda m, w, c: (0, -1) if m & 0x0F == 0 else BW.resolve_auto(m, w, c)) == \
+        "mask 0 -> the moogle on the host / selftest (owner D2)"
+    # ...and a rule without the skip (s138's first named bit) by the empty-first-slot row
+    assert BW.dress_auto_table(lambda m, w, c: BW.resolve_dress_s138("auto", m, c) if m & 0x0F else
+                               BW.resolve_auto(m, w, c)) == "an empty first named slot -> the next named member"
+
+
+# ---- DressSelfTest's OWN rows, evaluated against the twins (the s139 proof block's 29 rows)
+_RIG_CS = ("Model", "Idle", "Walk", "Run", "TurnL", "TurnR", "Eye", "Inactive", "WalkStepA", "WalkStepB", "RunStepA",
+           "RunStepB", "StepSound", "IdleAlias", "HandBone", "HandBoneEnd")
+
+
+def _dress_frame_parts() -> list:
+    """A synthetic HOST state frame's sections as BuildStateFrame(true, false) composes them (SnapshotAll's story and party
+    sections, then sections 5 and 7) -- bytes the old readers walk exactly as a real frame's (the walkers read only the
+    framing and ids 0-3)."""
+    story = bytes((i * 7 + 3) & 0xFF for i in range(BW.STORY_LEN))
+    return [(BW.SECTION_STORY, story), (BW.SECTION_PARTY, bytes(range(40))), (BW.SECTION_KEY_ITEMS, bytes(12)),
+            (BW.SECTION_BAG, bytes(range(30, 60))), (BW.SECTION_EVENT, bytes((1, 0x42))),
+            (BW.SECTION_DIALOG, bytes(range(100, 160)))]
+
+
+def _dress_ns(**over) -> dict:
+    """The namespace DressSelfTest runs in: the twins under their C# names (an `out x` passed BY NAME, written into the
+    namespace), BuildStateFrame / WireRoundTrip / PartyParsesAlike / HostDressSection as their Python stand-ins (the
+    synthetic host frame, coop_peer's v14 frame codec, the s103 walkers' twins, the forced selftest's own config:
+    GuestSlots 0, GhostAs auto -- owner D2's DC 00 FF), and ``over`` replacing any twin (a MUTANT, to prove a row bites)."""
+    from types import SimpleNamespace as NS
+    from harness import coop_peer as CP
+    from ff9mapkit._animdb_all import ANIMATIONS
+    tw = dict(resolve_auto=BW.resolve_auto, resolve_dress_rule=BW.resolve_dress_rule,
+              resolve_dress_s138=BW.resolve_dress_s138, ghost_guard=BW.ghost_guard, ghost_anim=BW.ghost_anim,
+              dress_char_id=BW.dress_char_id, dress_section_body=BW.dress_section_body,
+              parse_dress_section=BW.parse_dress_section, moogle_when_empty=BW.moogle_when_empty,
+              old_try_read_section=BW.old_try_read_section, old_apply_story=BW.old_apply_story,
+              old_party_sections=BW.old_party_sections, append_section=BW.append_section, rigs=BW.RIGS,
+              host_dress_section=lambda: BW.host_dress_section("auto", 0, "selftest", True, None))
+    tw.update(over)
+    ns: dict = {}
+
+    def out(name, value):
+        ns[name] = value
+
+    def try_get_rig(i, name):
+        if not 0 <= i < len(tw["rigs"]):
+            out(name, None)
+            return False
+        out(name, NS(**dict(zip(_RIG_CS, tw["rigs"][i]))))
+        return True
+
+    def two(fn):
+        def call(*a):
+            model, rig = fn(*a[:-1])
+            out(a[-1], rig)
+            return model
+        return call
+
+    def parse(body, mname, cname):
+        got = tw["parse_dress_section"](body)
+        out(mname, got[0] if got else 0)
+        out(cname, got[1] if got else BW.CHAR_NONE)
+        return got is not None
+
+    def read(payload, sid, name):
+        got = tw["old_try_read_section"](payload, sid)
+        out(name, got)
+        return got is not None
+
+    def same_read(a, b, sid):
+        x, y = tw["old_try_read_section"](a, sid), tw["old_try_read_section"](b, sid)
+        return (x is None) == (y is None) and (x is None or bytes(x) == bytes(y))
+
+    def apply_story(payload, target):
+        got = tw["old_apply_story"](payload)
+        if got is None:
+            return False
+        for i in range(BW.STORY_LEN):
+            if i < BW.STORY_MASK[0] or i > BW.STORY_MASK[1]:
+                target[i] = got[i]
+        return True
+
+    def frame(host_sections, dress_section):
+        f = b""
+        for sid, body in _dress_frame_parts():
+            if sid != BW.SECTION_DIALOG or host_sections:
+                f = tw["append_section"](f, sid, body)
+        return tw["append_section"](f, BW.SECTION_DRESS, tw["host_dress_section"]()) if dress_section else f
+
+    def wire_round_trip(payload):
+        got = CP.parse_frame(CP.build_frame(CP.TYPE_STATE, payload))
+        return got[1] if got and got[0] == CP.TYPE_STATE else None
+
+    def party_alike(a, b):
+        if a is None or b is None:
+            return False
+        pa, pb = tw["old_party_sections"](a), tw["old_party_sections"](b)
+        return bool(pa) and pa == pb and any(sid == BW.SECTION_PARTY for sid, _b in pa)
+
+    def columns_hold():
+        for r in tw["rigs"]:
+            row = dict(zip(BW.RIG_COLUMNS, r))
+            if not ANIMATIONS.get(row["idle"]) or ANIMATIONS.get(row["idle"]) != ANIMATIONS.get(row["idle_alias"]):
+                return False
+            for a, b in ((row["walk_step_a"], row["walk_step_b"]), (row["run_step_a"], row["run_step_b"])):
+                if (a < 0) != (b < 0) or (a >= 0 and a >= b):
+                    return False
+        return True
+
+    rig_for = lambda m: next((i for i, r in enumerate(tw["rigs"]) if r[0] == m), -1)   # noqa: E731
+    ns.update(
+        NetSyncVisitor=NS(RigCount=len(tw["rigs"]), RigRowCount=BW.RIG_ROW_COUNT, MainRigCount=BW.MAIN_RIG_COUNT,
+                          MoogleRig=BW.RIG_MOOGLE, RigForModel=rig_for, TryGetRig=try_get_rig, LocoAnim=BW.loco_anim,
+                          ClassifyLoco=BW.classify_loco, LocoWalk=BW.LOCO_WALK, LocoRun=BW.LOCO_RUN,
+                          LocoOther=BW.LOCO_OTHER, ResolveAuto=tw["resolve_auto"],
+                          ResolveDressRule=two(tw["resolve_dress_rule"]), ResolveDressS138=two(tw["resolve_dress_s138"]),
+                          GhostGuard=tw["ghost_guard"], GhostAnim=tw["ghost_anim"], MoogleWhenEmpty=tw["moogle_when_empty"],
+                          DressCharId=tw["dress_char_id"], DressSectionBody=tw["dress_section_body"],
+                          TryParseDressSection=parse, DressBodyLen=BW.DRESS_BODY_LEN, CharNone=BW.CHAR_NONE,
+                          SectionDress=BW.SECTION_DRESS),
+        NetSyncState=NS(TryReadSection=read, ApplyStoryTo=apply_story, AppendSection=tw["append_section"],
+                        SectionDialog=BW.SECTION_DIALOG, SectionEvent=BW.SECTION_EVENT, SectionIntent=BW.SECTION_INTENT,
+                        SectionTalk=BW.SECTION_TALK),
+        SameRead=same_read,
+        NetSyncWire=NS(MaxPayload=8192),
+        DressParty4=list(BW.DRESS_PARTY4), RigColumnsHold=columns_hold,
+        DressAutoTable=BW.dress_auto_table, MutantRigsLengthGuard=BW.mutant_rigs_length_guard,
+        MutantMoogleOnClient=BW.mutant_moogle_on_client, MoogleRoleMutant=BW.mutant_role_not_client,
+        SwappedDressBody=BW.swapped_dress_body, BytesAre=lambda b, *w: b is not None and bytes(b) == bytes(w),
+        BytesEqual=lambda a, b: a is not None and b is not None and bytes(a) == bytes(b),
+        BytesEqualRange=lambda a, b, n: a is not None and b is not None and len(a) >= n and len(b) >= n
+        and bytes(a[:n]) == bytes(b[:n]),
+        HostDressSection=tw["host_dress_section"], BuildStateFrame=frame, WireRoundTrip=wire_round_trip,
+        PartyParsesAlike=party_alike, CutLast=lambda x: None if x is None else x[:-1])
+    return ns
+
+
+def _dress_statements() -> list:
+    """DressSelfTest's body off the s139 patch as statements -- its one Array.Copy block folded to ``cut = CutLast(rx)``
+    and row 5's computed name ("auto: " + (auto ?? "the table")) to the name it takes when the table holds."""
+    lines = _s139_block("NetSyncClient.cs", "private Boolean DressSelfTest(out String detail)", "catch (Exception err)")
+    text = " ".join(t for t in lines[1:] if t not in ("{", "}", "try"))
+    copy = "if (rx != null) cut = new Byte[rx.Length - 1]; Array.Copy(rx, 0, cut, 0, cut.Length);"
+    assert text.count(copy) == 1, text[text.find("if (rx"):][:200]
+    text = text.replace(copy, "cut = CutLast(rx);")
+    assert text.count('"auto: " + (auto ?? "the table")') == 1
+    text = text.replace('"auto: " + (auto ?? "the table")', '"auto: the table"')
+    return _split_statements(text)
+
+
+_DRESS_ROW = re.compile(r'^DressRow\((.*), "((?:[^"\\]|\\.)*)", ref rows, ref fail\)$', re.S)
+_DRESS_DECL = re.compile(r"^(?:Int32|UInt16|Byte|String|Boolean|Byte\[\]|NetSyncVisitor\.Rig) (\w+ = .+)$", re.S)
+
+
+def _dress_cs(expr: str) -> str:
+    """One DressSelfTest expression as Python (:func:`_cs_expr`, after its own shapes: an Int32 array initialiser, a sized
+    Byte array, default(Rig), the (UInt16) cast and a top-level ``c ? a : null`` ternary)."""
+    expr = re.sub(r"\bnew Int32\[\]\s*\{([^{}]*)\}", r"[\1]", expr)
+    expr = re.sub(r"\bnew Byte\[(\d+)\]", r"bytearray(\1)", expr)
+    expr = re.sub(r"\bdefault\(NetSyncVisitor\.Rig\)", "null", expr)
+    expr = expr.replace("(UInt16)", "")
+    m = re.fullmatch(r"(.+?) \? (.+) : null", expr.strip(), re.S)
+    if m:
+        return f"(({_cs_expr(m.group(2), True)}) if ({_cs_expr(m.group(1), True)}) else None)"
+    return _cs_expr(expr, True)
+
+
+def _run_dress_rows(ns: dict) -> list:
+    """Run DressSelfTest's statements in ``ns``: declarations (several per statement) and assignments evaluate, each
+    DressRow asserts its expression TRUE for the twins. Returns the row names in order."""
+    names = []
+    for st in _dress_statements():
+        st = " ".join(st.split())
+        m = _DRESS_ROW.match(st)
+        if m:
+            got = eval(_dress_cs(m.group(1)), ns)                       # noqa: S307 -- the stack's own selftest rows
+            name = m.group(2).replace('\\"', '"')                     # the C# literal's escaped quotes
+            assert got is True, f"row {name!r} is {got!r} for the twins"
+            names.append(name)
+            continue
+        d = _DRESS_DECL.match(st)
+        body = d.group(1) if d else st
+        for part in re.split(r", (?=\w+ = )", body):
+            a = re.fullmatch(r"(\w+) = (.+)", part, re.S)
+            assert a, f"an unparsed DressSelfTest statement: {st!r}"
+            ns[a.group(1)] = eval(_dress_cs(a.group(2)), ns)          # noqa: S307
+    return names
+
+
+def test_the_dress_twins_evaluate_every_dress_selftest_row_off_the_stack():
+    """DressSelfTest's OWN 29 rows (the s139 patch's proof block, read off the stack), EVALUATED in order against the
+    battlewire twins: the rig table, ResolveAuto's table (owner D2's mask-0 moogle first), the named path and the mode,
+    the s138 rule, the guard and the anim, the role predicate, charId, the codec on HAND-CHECKED bytes and its reader --
+    and THE OLD-GUEST ROWS on a synthetic host frame through the Python twins of the s103 walkers an old guest runs
+    (ApplyStoryTo, TryReadSection, ParseSections' walk) and coop_peer's v14 frame codec: section 8 appended is exactly +6 B,
+    skipped by every old reader, refused when truncated, read forward when longer -- and the three mutants, each caught.
+    Row for row the names battlewire.dress_selftest_offline reports for the rows it runs alone (1-15 and the mutants)."""
+    names = _run_dress_rows(_dress_ns())
+    assert len(names) == BW.DRESS_SELFTEST_ROWS == 29 and len(set(names)) == 29, names
+    offline = [n for n, ok in BW.dress_selftest_offline()]
+    assert all(ok for _n, ok in BW.dress_selftest_offline())
+    assert offline == names[:15] + names[-3:], (offline, names)
+    assert names[4] == "auto: the table" and names[15].startswith("frame: BuildStateFrame's host frame gains exactly")
+    # the proof line's shape and the codec key's two verdicts, off the stack
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    for frag in ('Log.Message("[NetSync] dress codec selftest: "', '+ (dressOk ? "OK (" + dressDetail + ")" : "FAIL (" + '
+                 'dressDetail + ")"));', 'detail = fail == null ? rows + " rows" : "row \'" + fail + "\' failed (" + rows + '
+                 '" rows run)";', '_dressCodec = fail == null ? "ok" : "fail: " + fail;',
+                 'Log.Message("[NetSync] dress section 8 as this machine would host now: " + DressSectionText('
+                 'HostDressSection()));'):
+        assert frag in client, frag
+    assert (BW.DRESS_CODEC_OK, BW.DRESS_CODEC_FAIL) == ("ok", "fail: ")
+    assert BW.proof_ok(BW.PROOF_DRESS, BW.DRESS_SELFTEST_ROWS) == "dress codec selftest: OK (29 rows)"
+
+
+@pytest.mark.parametrize("mutant,row", [
+    ("swapped", "codec: hand-checked bytes -- (192, 4) C0 00 04, (220, FF) DC 00 FF, (0, FF) 00 00 FF"),
+    ("no_d2", "auto: the table"),
+    ("cap9", "auto: the table"),
+    ("no_guard", "guard: wire 98 or the dress -> dressed; wire 532 / 5489 -> shown as it is"),
+    ("flatten", "anim: translated onto another body, raw on the wire's own (a break clip is never flattened to idle)"),
+    ("typo_role", "role: the moogle for the host and the selftest role only (a typo'd role is neither)"),
+    ("no_forward", "codec: the reader refuses fewer than 3 bytes and reads a longer body's first 3 (forward)"),
+    ("strict_walker", "section 8: present on the dressed frame (HostDressSection's body), absent from the plain one"),
+    # [ff9mapkit netsync s139] a walker that STOPS at section 8 answers every earlier read the same -- only a section
+    # appended AFTER it can tell (the review's wire-2)
+    ("stop_at_8", "past: a section AFTER section 8 still reads -- the walk steps over section 8 by its length"),
+    ("unreadable_moogle", "auto: the table"),
+    ("empty_body", "producer: HostDressSection is never empty -- 3 bytes that parse"),
+    ("rig_alias", "rigs: each row's idle alias names its idle's clip; footfalls come in ordered pairs or not at all"),
+])
+def test_each_dress_selftest_row_can_fail_on_the_twin_it_holds(mutant, row):
+    """A check that cannot fail is not a check: each mutant twin (a symmetric big-endian codec, ResolveAuto without owner
+    D2's spectator moogle or with a Rigs.Length party guard, no guard, the loco translation on the wire's own body, the
+    `role != "client"` predicate, a reader that refuses a longer body, an old walker that refuses an id it does not know
+    or STOPS at id 8, an EMPTY section-8 body, a broken idle alias, an unreadable party slot read as an empty seat) turns
+    DressSelfTest's OWN row red -- the very row named."""
+    rigs = list(BW.RIGS)
+    rigs[3] = rigs[3][:13] + (2001 + 7,) + rigs[3][14:]
+    over = {
+        "swapped": {"dress_section_body": BW.swapped_dress_body,
+                    "parse_dress_section": lambda b: None if b is None or len(b) < 3 else ((b[0] << 8) | b[1], b[2])},
+        "no_d2": {"resolve_auto": lambda m, w, c: (0, -1) if m & 0x0F == 0 else BW.resolve_auto(m, w, c)},
+        "cap9": {"resolve_auto": BW.mutant_rigs_length_guard},
+        "no_guard": {"ghost_guard": lambda d, w: d},
+        "flatten": {"ghost_anim": lambda dm, dr, wm, wl, wa: BW.loco_anim(dr, wl) if dm else wa},
+        "typo_role": {"moogle_when_empty": lambda role, st: role != "client"},
+        "no_forward": {"parse_dress_section": lambda b: None if b is None or len(b) != 3 else (b[0] | (b[1] << 8), b[2])},
+        "strict_walker": {"old_try_read_section": lambda p, sid: None if sid == BW.SECTION_DRESS else
+                          BW.old_try_read_section(p, sid)},
+        "stop_at_8": {"old_try_read_section": _stop_at_8_walker},
+        # a party-read FAULT (-2) read as an empty seat: the host would hand it the moogle (the review's nit)
+        "unreadable_moogle": {"resolve_auto": lambda m, w, c: BW.resolve_auto(
+            m, w, [-1 if v == BW.PARTY_UNREADABLE else v for v in (c if c is not None else (-1, -1, -1, -1))])},
+        "empty_body": {"host_dress_section": lambda: b""},
+        "rig_alias": {"rigs": tuple(rigs)},
+    }[mutant]
+    with pytest.raises(AssertionError) as err:
+        _run_dress_rows(_dress_ns(**over))
+    assert f"row {row!r}" in str(err.value), str(err.value)
+
+
+def _stop_at_8_walker(payload, section_id):
+    """A TryReadSection mutant that STOPS at the first id-8 section (answers it when asked for 8, nothing past it)."""
+    off, data = 0, bytes(payload or b"")
+    while off + 3 <= len(data):
+        sid, ln = data[off], data[off + 1] | (data[off + 2] << 8)
+        if off + 3 + ln > len(data):
+            return None
+        if sid == section_id:
+            return data[off + 3:off + 3 + ln]
+        if sid == BW.SECTION_DRESS:
+            return None
+        off += 3 + ln
+    return None
+
+
+def test_the_selftest_dress_site_twin_is_the_engines_statement_for_statement():
+    """battlewire.selftest_dress -- the stand-in's and the bench's model of the selftest mirror's dress site -- mirrors the
+    s139 site's statements, pinned here in order: the levers read on IsSelfTestRole only (the wire, the mask AND the mode,
+    the rule), the s138 rule or the s139 rule behind GhostGuard with MoogleWhenEmpty read at call time, EnsureGhost on the
+    dress or the wire body, the anim (the s138 rule's translation, else GhostAnim), and the three masks. Any edit to the
+    site turns this red until the twin is revisited."""
+    site = [t for t in _s139_block("NetSyncClient.cs", "Boolean stBench = IsSelfTestRole;", "ServiceGhostLighting(ee);")
+            if t and not t.startswith("//")]
+    assert site == [
+        "Boolean stBench = IsSelfTestRole;",
+        "UInt16 stWire = stBench && _benchDressWire >= 0 ? (UInt16)_benchDressWire : me.model;",
+        "Boolean stPinned = stBench && _benchDressWire >= 0 && _benchDressWireAnim >= 0;",
+        "Byte stLoco = stPinned ? NetSyncVisitor.ClassifyLoco(stWire, (UInt16)_benchDressWireAnim)",
+        ": NetSyncVisitor.ClassifyLoco(me.model, me.anim);",
+        "Int32 stWireRig = NetSyncVisitor.RigForModel(stWire);",
+        "UInt16 stWireAnim = stPinned ? (UInt16)_benchDressWireAnim",
+        ": stWire == me.model ? me.anim",
+        ": stWireRig >= 0 ? NetSyncVisitor.LocoAnim(stWireRig, stLoco)",
+        ": me.anim;",
+        "Int32 stMask = stBench && _benchDressMask >= 0 ? _benchDressMask : _guestSlots;",
+        'String stMode = stBench && _benchDressMask >= 0 ? "auto" : NetSyncVisitor.GhostAs;',
+        'Boolean stOldRule = stBench && _benchDressRule == "s138";',
+        "Int32 stRig = -1;", "UInt16 stDress = 0;", "if (NetSyncVisitor.Enabled)", "{", "if (stOldRule)",
+        "stDress = NetSyncVisitor.ResolveDressS138(stMode, stMask, ReadSlotChars(), out stRig);", "else",
+        "stDress = NetSyncVisitor.GhostGuard(NetSyncVisitor.ResolveDressRule(stMode, stMask,",
+        "NetSyncVisitor.MoogleWhenEmpty(_role, IsSelfTestRole), ReadSlotChars(), out stRig), stWire);", "}",
+        "if (stDress == 0)", "stRig = -1;",
+        "Vector3 stMirror = me.fieldMapActor.transform.localPosition + new Vector3(_selfTestDx, 0f, _selfTestDz);",
+        "WriteCoopCells(1, stMirror);",
+        "EnsureGhost(ee, stDress != 0 ? stDress : stWire, stDress != 0 ? stRig : -1);",
+        "if (_ghost != null)", "{", "UInt16 stAnim = stOldRule",
+        "? (stDress != 0 ? NetSyncVisitor.LocoAnim(stRig, stLoco) : stWireAnim)",
+        ": NetSyncVisitor.GhostAnim(stDress, stRig, stWire, stLoco, stWireAnim);",
+        "DriveGhost(stMirror, me.fieldMapActor.transform.localRotation, stAnim);", "if (stOldRule)", "{",
+        "ApplyGhostMask((stDress == 0 && stWire == me.model) || stDress == me.model ? LocalMeshMask(me) : (UInt16)0xFFFF);",
+        "}", "else if (stDress == 0 || stDress == stWire)", "{", "if (stWire == me.model)",
+        "ApplyGhostMask(LocalMeshMask(me));", "else", "ApplyGhostMask(_ghostRestMask);", "}",
+        "else if (stDress == me.model)", "ApplyGhostMask(LocalMeshMask(me));", "else", "ApplyGhostMask(_ghostRestMask);"], site
+    # the empty lever reaches the dress read (and the section-8 producer) on the selftest role only
+    assert "return NetSyncVisitor.LiveSlotChars(IsSelfTestRole && _benchDressEmpty >= 0 ? _benchDressEmpty : 0);" in \
+        " ".join(_stack_text("NetSyncClient.cs"))
+    # the twin on the cases each statement decides (the stand-in and the bench read only this function)
+    me = dict(me_model=98, me_anim=200, party=[0, 1, 2, 3], guest_slots=0)
+    assert BW.selftest_dress(ghost_as="auto", **me) == {"model": 220, "rig": 8, "anim": 2904, "mask": "rest"}
+    assert BW.selftest_dress(ghost_as="", **me) == {"model": 98, "rig": -1, "anim": 200, "mask": "local"}
+    assert BW.selftest_dress(ghost_as="", bench_mask=2, **me)["model"] == 8                  # `ghost` forces auto
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, role="host", selftest_role=False, **me)["model"] == 220
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=5489, role="host", selftest_role=False, **me)["model"]         == 220                                                  # a host's site reads no lever
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=6, empty_mask=2, **me)["model"] == 185
+    assert BW.selftest_dress(ghost_as="auto", rule="s138", **me) == {"model": 98, "rig": -1, "anim": 200, "mask": "local"}
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=5489, **me) == {"model": 5489, "rig": -1, "anim": 2001,
+                                                                                  "mask": "rest"}
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=5489, rule="s138", **me) == {
+        "model": 8, "rig": 1, "anim": 148, "mask": "all"}
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=8, me_model=98, me_anim=38, party=[0, 1, 2, 3],
+                             guest_slots=0) == {"model": 8, "rig": 1, "anim": 419, "mask": "rest"}
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=532, **me) == {"model": 532, "rig": -1, "anim": 200,
+                                                                                 "mask": "rest"}
+    assert BW.selftest_dress(ghost_as="auto", enabled=False, **me)["model"] == 98
+    assert BW.selftest_dress(ghost_as="auto", role="guest", selftest_role=False, **me)["model"] == 98   # a typo'd role
+    # GhostAs = moogle (the new name) dresses on any role; Cinna in the named slot never wears the moogle row
+    assert BW.selftest_dress(ghost_as="moogle", **me)["model"] == 220
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, me_model=98, me_anim=200, party=[0, 8, -1, -1],
+                             guest_slots=0)["model"] == 98
+    # [ff9mapkit netsync s139] `wire <model> <anim>`: the stand-in guest PLAYS its pinned raw clip -- on its own dressed body
+    # the s139 rule plays it raw (Vivi's break clip 912), the `rule s138` lever translates it to the dressed idle (148);
+    # without the anim both rules give the same translated clip (the lever-blind G7b this pin closes)
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=8, wire_anim=912, **me) == {
+        "model": 8, "rig": 1, "anim": 912, "mask": "rest"}
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=8, wire_anim=912, rule="s138", **me) == {
+        "model": 8, "rig": 1, "anim": 148, "mask": "all"}
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=8, **me)["anim"] == \
+        BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=8, rule="s138", **me)["anim"] == 148
+    assert BW.selftest_dress(ghost_as="auto", bench_mask=2, wire=5489, wire_anim=1996, **me) == {
+        "model": 5489, "rig": -1, "anim": 1996, "mask": "rest"}          # a shown body plays its pinned clip too
+    assert BW.selftest_dress(ghost_as="auto", wire_anim=912, **me)["anim"] == 2904   # no `wire`: the pin is inert
+
+
+def test_the_host_dresses_its_guests_ghost_and_the_client_keeps_the_s138_rule():
+    """THE TRANSPORT SITE (s139 is host-side; no solo run reaches it -- the selftest role has no socket): on the HOST the
+    ghost of its guest takes HostDress behind GhostGuard against the WIRE body (rs.Model) and GhostAnim, CreateModel's rest
+    mask when neither mask rule applies; any other role keeps ResolveDress -- now the pure s138 rule over the live party;
+    section 8 is built only for the host's own frames, through ONE producer that never ships an empty body."""
+    host = [t for t in _s139_block("NetSyncClient.cs", "Int32 dressRig;", "ServiceGhostLighting(ee);") if t and not
+            t.startswith("//")]
+    assert host[:12] == ["Int32 dressRig;", "UInt16 dressModel;", 'Boolean hostRule = _role == "host";', "if (hostRule)",
+                         "{", "dressModel = NetSyncVisitor.GhostGuard(HostDress(out dressRig), rs.Model);",
+                         "if (dressModel == 0)", "dressRig = -1;", "}", "else",
+                         "dressModel = NetSyncVisitor.ResolveDress(_guestSlots, out dressRig);",
+                         "EnsureGhost(ee, dressModel != 0 ? dressModel : rs.Model, dressModel != 0 ? dressRig : -1);"], host
+    assert "? NetSyncVisitor.GhostAnim(dressModel, dressRig, rs.Model, rs.Loco, rs.Anim)" in host
+    assert host[-2:] == ["else if (hostRule)", "ApplyGhostMask(_ghostRestMask);"], host[-4:]
+    vis = " ".join(_stack_text("NetSyncVisitor.cs"))
+    # the CLIENT's s138 rule: the mode FIRST, the party read only for `auto`, names capped at the mains (no moogle)
+    for frag in ("String mode = DressMode(GhostAs);",
+                 'return ResolveDressS138(mode, guestSlots, mode == "auto" ? LiveSlotChars(0) : null, out rigIdx);',
+                 "return ResolveNamed(mode, MainRigCount, out rigIdx);", "return ResolveNamed(mode, Rigs.Length, out rigIdx);",
+                 "chars[slot] = SlotUnreadable;", "if (charId == SlotUnreadable) return 0;"):
+        assert frag in vis, frag
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    for frag in ('Boolean host = _role == "host";', "return BuildStateFrame(host, host);",
+                 "if (dressSection)", "all = NetSyncState.AppendSection(all, NetSyncVisitor.SectionDress, HostDressSection());",
+                 "return NetSyncVisitor.DressSectionBody(model, NetSyncVisitor.DressCharId(model, rig));",
+                 "return NetSyncVisitor.DressSectionBody(0, NetSyncVisitor.CharNone);",
+                 "String mode = NetSyncVisitor.DressMode(NetSyncVisitor.GhostAs);",
+                 "return NetSyncVisitor.ResolveDressRule(mode, _guestSlots, NetSyncVisitor.MoogleWhenEmpty(_role, "
+                 'IsSelfTestRole), mode == "auto" ? ReadSlotChars() : null, out rigIdx);'):
+        assert frag in client, frag
+    # the wire stays v14 and the position frame 37 B: the s139 patch touches neither NetSyncSocket.cs nor NetSyncState.cs /
+    # NetSyncParty.cs (the walkers an s117 laptop runs are byte-identical)
+    touched = {path.replace("\\", "/").rsplit("/", 1)[-1] for path, _sec in msr.sections(_patch_bytes("s139")) if path}
+    assert touched == {"HarnessAgent.cs", "NetSyncClient.cs", "NetSyncBattle.cs", "NetSyncVisitor.cs"}, touched
+    assert BW.host_dress_section("auto", 2, "host", False, [0, 1, 2, 3]) == bytes((0x08, 0x00, 0x01))   # Vivi in slot 1
+    assert BW.host_dress_section("auto", 2, "host", False, [0, -1, -1, -1]) == bytes((0xDC, 0x00, 0xFF))  # the moogle
+    assert BW.host_dress_section("auto", 0, "host", False, [0, 1, 2, 3]) == bytes((0xDC, 0x00, 0xFF))     # owner D2
+    assert BW.host_dress_section("", 2, "host", False, [0, 1, 2, 3]) == bytes((0x00, 0x00, 0xFF))
+    assert BW.host_dress_section("freya", 2, "client", False, None) == bytes((0xC0, 0x00, 0x04))
+    assert BW.host_dress_section("auto", 0, "client", False, [0, 1, 2, 3]) == bytes((0x00, 0x00, 0xFF))
+    # [ff9mapkit netsync s139] a party-read FAULT never ships the moogle: an unreadable named slot (-2) -> no dress
+    assert BW.host_dress_section("auto", 2, "host", False, [0, -2, -1, -1]) == bytes((0x00, 0x00, 0xFF))
+    # the client keeps the s138 rule byte for byte: `moogle` by name dresses nothing there (the host is never a moogle)
+    assert BW.resolve_dress_s138("moogle", 0, None) == (0, -1) and BW.resolve_dress_rule("moogle", 0, False, None) == (220, 8)
+
+
+def test_no_production_path_reads_section_8_in_s139():
+    """[ff9mapkit netsync s139] THE OLD-GUEST STAND-IN LAW (the review's wire-1): s139 READS section 8 nowhere but in its own
+    codec proof -- every `TryReadSection(..., NetSyncVisitor.SectionDress, ...)` and every TryParseDressSection call on the
+    live stack sits inside DressSelfTest (or the proof block's log text), and NetSyncState.cs / NetSyncParty.cs (the s103
+    walkers) are untouched by the patch. So an s139 GUEST's receive path IS an old guest's: a same-DLL duo (G9,
+    coop_dress_wire.py) is a valid old-reader witness. s140's guest-side reader must move this pin."""
+    client = _stack_text("NetSyncClient.cs")
+    start = next(i for i, t in enumerate(client) if t.startswith("private Boolean DressSelfTest(out String detail)"))
+    end = next(i for i in range(start + 1, len(client)) if client[i].startswith("private static readonly Int32[] DressParty4"))
+    reads = [i for i, t in enumerate(client) if "NetSyncVisitor.SectionDress, out" in t or "TryParseDressSection(" in t]
+    outside = [client[i] for i in reads if not start <= i < end and "DressSectionText" not in client[i]
+               and not client[i].startswith("if (!NetSyncVisitor.TryParseDressSection(body, out model, out charId))")]
+    assert reads and not outside, outside
+    for name in ("NetSyncVisitor.cs", "NetSyncBattle.cs", "NetSyncState.cs", "NetSyncParty.cs", "NetSyncDiorama.cs",
+                 "NetSyncField.cs", "NetSyncSocket.cs", "NetSyncRelay.cs"):
+        assert not any("SectionDress, out" in t for t in _stack_text(name)), name
+    touched = {path.replace("\\", "/").rsplit("/", 1)[-1] for path, _sec in msr.sections(_patch_bytes("s139")) if path}
+    assert not touched & {"NetSyncState.cs", "NetSyncParty.cs"}, touched
+
+
+# ---- the stand-in's `dresshost` rung
+def test_an_s138_stand_in_publishes_no_s139_key_and_the_dresshost_rung_every_one(game):
+    """THE LEVEL HOME for s139: ``caps_through("dressinstr")`` (s139's calibration) publishes s138's dress block exactly --
+    `ghost` its six keys, no `codec` / `rig_idle_frames`, `selfdress` an unknown sub-verb, no dress proof line; the
+    `dresshost` rung adds exactly NETSYNC_DRESS_CAP_KEYS["dresshost"] and the ghost's levers (NETSYNC_DRESS_NESTED_KEYS),
+    the proof block's three dress lines setting `codec` "ok" and the idle frames."""
+    for caps, has in ((S138_CAPS_, False), (FG.caps_through("dresshost"), True)):
+        fake = FakeGame(game)
+        fake.netsync_caps = caps
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            st = g.netsync("selftest", 1)
+            st = g.wait_for(lambda s: s.coop_dress_ghost_model not in (None, -1), timeout=5.0, what="the ghost")
+            d = st.netsync_dress
+            if has:
+                assert list(d) == ["ghost", "party", "codec", "rig_idle_frames", "mirror_party"] and st.coop_dress_host
+                assert st.coop_dress_mirror_party is None                    # no host frame is ever parsed here
+                assert list(d["ghost"])[6:] == list(FG.NETSYNC_DRESS_NESTED_KEYS["dresshost"]["ghost"])
+                st = g.wait_for(lambda s: s.coop_dress_codec == "ok", timeout=5.0, what="the proof block")
+                assert st.coop_dress_rig_idle_frames == list(FG.FAKE_RIG_IDLE_FRAMES) == RIG_IDLE_FRAMES_CENSUS
+                assert _mlog_lines(fake, "dress codec selftest: OK (29 rows)")
+                assert _mlog_lines(fake, "dress section 8 as this machine would host now: 00 00 FF (model 0, charId 255)")
+                assert _mlog_lines(fake, "dress rig idle frames: 60,45,30,60,50,40,30,45,72 (9 of 9 measured)")
+            else:
+                assert list(d) == ["ghost", "party"] and list(d["ghost"]) == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"])
+                assert st.coop_dress_host is False and st.coop_dress_codec is None
+                with pytest.raises(HarnessError, match="publishes no `netsync.dress.ghost.bench_mask`"):
+                    g.selfdress("ghost", 2)
+                with pytest.raises(RuntimeError, match=r"^netsync: unknown sub-verb 'selfdress' \(.*\|actbench\)$"):
+                    fake._netsync(["selfdress", "ghost", "2"])
+                assert not _mlog_lines(fake, "dress codec selftest")
+    # each line the stand-in writes is the engine's own (its literals, spliced)
+    for piece in ("[NetSync] harness: selfdress ghost ", " -- the mirror's dress mask, mode auto (Memoria.ini and the battle "
+                  "GuestSlots untouched)", "[NetSync] harness: selfdress levers released (", ") -- the mirror's dress back "
+                  "to the pin, the ini's "):
+        assert any(piece in ln for ln in _stack_text("NetSyncClient.cs")), piece
+    for line, pieces in (("dress rig idle frames: 60,45,30,60,50,40,30,45,72 (9 of 9 measured)",
+                          ("[NetSync] dress rig idle frames: ", " (", " of ", " measured)")),
+                         ("dress section 8 as this machine would host now: DC 00 FF (model 220, charId 255)",
+                          ("[NetSync] dress section 8 as this machine would host now: ", " (model ", ", charId ", ")"))):
+        assert all(any(f'"{p}"' in ln for ln in _stack_text("NetSyncClient.cs")) for p in pieces), (line, pieces)
+
+
+def test_the_dresshost_stand_in_dresses_its_mirror_by_the_host_rule(game):
+    """What the stand-in models (FakeGame._dress_site -> battlewire.selftest_dress): under the forced role's GuestSlots pin
+    0 the ini's GhostAs decides the baseline -- `auto` the MOOGLE (owner D2: 220, rig 8, GEO_NPC_F0_MOG, body '220', its
+    idle clip), none the player's own body; the levers drive it (`ghost` with the live party, `empty`, `wire`, `rule s138`)
+    and `mode` reads 'bench:auto' / 'ini:<GhostAs>'; the ghost's model and clip trail the site by one frame."""
+    def ghost(fake):
+        d = fake._dress_doc()["ghost"]
+        return d["model"], d["rig"], d["geo"], d["body"], d["clip"], d["mode"]
+    fake = _dress_fake(game, ini_ghost_as="auto")
+    assert ghost(fake) == (220, 8, "GEO_NPC_F0_MOG", "220", "ANH_NPC_F0_MOG_IDLE", "ini:auto")
+    fake = _dress_fake(game, ini_ghost_as=" off ")
+    assert ghost(fake) == (98, -1, "GEO_MAIN_F0_ZDN", "98", "ANH_MAIN_F0_ZDN_IDLE", "ini:off")
+    fake = _dress_fake(game)
+    assert ghost(fake)[:2] == (98, -1) and ghost(fake)[5] == "ini:"
+    fake.save_party = [dict(FG.FAKE_PARTY[0]), dict(FG.FAKE_PARTY[1]), None, None]
+    for args, want in ((("ghost", "2"), (8, 1, "GEO_MAIN_F0_VIV", "8", "ANH_MAIN_F0_VIV_IDLE", "bench:auto")),
+                       (("empty", "2"), (220, 8, "GEO_NPC_F0_MOG", "220", "ANH_NPC_F0_MOG_IDLE", "bench:auto")),
+                       (("empty", "off"), (8, 1, "GEO_MAIN_F0_VIV", "8", "ANH_MAIN_F0_VIV_IDLE", "bench:auto")),
+                       (("wire", "5489"), (5489, -1, "GEO_MAIN_F0_STN", "5489", "ANH_MAIN_F0_STN_IDLE", "bench:auto")),
+                       (("rule", "s138"), (8, 1, "GEO_MAIN_F0_VIV", "8", "ANH_MAIN_F0_VIV_IDLE", "bench:auto")),
+                       (("wire", "off"), (8, 1, "GEO_MAIN_F0_VIV", "8", "ANH_MAIN_F0_VIV_IDLE", "bench:auto")),
+                       (("ghost", "0"), (98, -1, "GEO_MAIN_F0_ZDN", "98", "ANH_MAIN_F0_ZDN_IDLE", "bench:auto")),
+                       (("rule", "s139"), (220, 8, "GEO_NPC_F0_MOG", "220", "ANH_NPC_F0_MOG_IDLE", "bench:auto")),
+                       (("ghost", "off"), (98, -1, "GEO_MAIN_F0_ZDN", "98", "ANH_MAIN_F0_ZDN_IDLE", "ini:"))):
+        fake._netsync(["selfdress", *args])
+        fake._step_dress()
+        fake._step_dress()
+        assert ghost(fake) == want, (args, ghost(fake))
+    # a wire model with no GEO in the kit's table: FallbackGeo built, the ZDN body, the requested id kept
+    fake._netsync(["selfdress", "ghost", "2"])
+    fake._netsync(["selfdress", "wire", "65000"])
+    fake._step_dress()
+    fake._step_dress()
+    assert ghost(fake)[:4] == (65000, -1, BW.GHOST_FALLBACK_GEO, "98")
+
+
+#: [ff9mapkit netsync s139] each s139 fault lever -> the published keys it changes on a stand-in with ini GhostAs auto and a
+#: seated Vivi under `ghost 2` + `wire 5489` (the guard's case) -- and nothing else. Five bite only their own shape, read
+#: by the extra probes below: `translate_own_body` a pinned break clip on the dressed wire body (G7b), `rest_mask_cleared`
+#: Garnet's rest mask (G8), `moogle_slides` a MOVING moogle (G3m), `clear_publishes_only` a `clear` after a `ghost` (G5),
+#: `ghost_keeps_ini_mode` a `ghost` lever under an ini GhostAs other than auto
+DRESS_HOST_FAULT_KEYS = {"codec_fail": {"codec"}, "idle_frames": {"rig_idle_frames"},
+                         "no_guard": {"ghost.model", "ghost.geo", "ghost.body", "ghost.rig", "ghost.clip"},
+                         "ghost_body": {"ghost.body"},
+                         "spectator_zidane": set(), "section8_swapped": set(), "translate_own_body": set(),
+                         "rest_mask_cleared": set(), "moogle_slides": set(), "clear_publishes_only": set(),
+                         "ghost_keeps_ini_mode": set(), "release_keeps_levers": set()}
+#: ...and the probe each of those five bites (the stand-in's published key under it), every other fault leaving it
+DRESS_HOST_FAULT_PROBES = {"translate_own_body": "rawclip", "rest_mask_cleared": "garnet", "moogle_slides": "moving",
+                           "clear_publishes_only": "cleared", "ghost_keeps_ini_mode": "inimode"}
+
+
+def test_each_dress_host_fault_lever_changes_its_own_keys_only(game):
+    """FakeGame.dress_faults over FG.DRESS_HOST_FAULTS: each turns exactly its keys (so leg G's judge that reads them can be
+    shown red offline on the shape it exists to catch, and on nothing else); `spectator_zidane` bites only a mask-0 dress
+    (G3d, G0 under auto) and `section8_swapped` only the proof block's section-8 line."""
+    assert set(DRESS_HOST_FAULT_KEYS) == set(FG.DRESS_HOST_FAULTS) and not set(FG.DRESS_HOST_FAULTS) & set(FG.DRESS_FAULTS)
+
+    def doc(faults=()):
+        fake = _dress_fake(game, ini_ghost_as="auto", dress_faults=set(faults))
+        fake.save_party = [dict(FG.FAKE_PARTY[0]), dict(FG.FAKE_PARTY[1]), None, None]
+        fake._proof_logged = False
+        fake._step_selftest_proof()
+        for args in (("ghost", "2"), ("wire", "5489")):
+            fake._netsync(["selfdress", *args])
+        fake._step_dress()
+        fake._step_dress()
+        d = fake._dress_doc()
+        out = {f"ghost.{k}": v for k, v in d["ghost"].items()}
+        out.update(codec=d["codec"], rig_idle_frames=d["rig_idle_frames"])
+        sec = _mlog_lines(fake, BW.PROOF_DRESS_SECTION)
+        out["section8"] = sec[-1].split(BW.PROOF_DRESS_SECTION, 1)[1] if sec else None
+        spect = _dress_fake(game, ini_ghost_as="auto", dress_faults=set(faults))
+        out["spectator"] = spect._dress_doc()["ghost"]["model"]
+        return out
+    clean = doc()
+    assert (clean["ghost.model"], clean["codec"], clean["spectator"]) == (5489, "ok", 220)
+    for fault, keys in DRESS_HOST_FAULT_KEYS.items():
+        got = doc([fault])
+        changed = {k for k in clean if got[k] != clean[k]} - {"section8", "spectator"}
+        assert changed == keys, (fault, changed)
+        assert (got["spectator"] != clean["spectator"]) == (fault == "spectator_zidane"), fault
+        assert (got["section8"] != clean["section8"]) == (fault == "section8_swapped"), (fault, got["section8"])
+    assert doc(["codec_fail"])["codec"].startswith("fail: auto: mask 0 -> the moogle")
+    assert doc(["section8_swapped"])["section8"].startswith("00 DC FF")
+
+    # [ff9mapkit netsync s139] THE FIVE SHAPE FAULTS: each bites its own probe -- and no other fault moves that probe but
+    # the ones named (a `clear` back to the spectator's moogle is also what `spectator_zidane` changes)
+    def probe(name, faults=()):
+        party = [dict(FG.FAKE_PARTY[0]), dict(FG.FAKE_PARTY[1]),
+                 {"char": 2, "name": "Garnet", "level": 4, "exp": 0, "status": 0, "pa": [], "abils": []}, None]
+        fake = _dress_fake(game, ini_ghost_as="" if name == "inimode" else "auto", dress_faults=set(faults),
+                           save_party=party)
+        ops = {"rawclip": [("ghost", "2"), ("wire", "8", "912")], "garnet": [("ghost", "4")],
+               "moving": [("ghost", "2"), ("empty", "2")], "cleared": [("ghost", "2")], "inimode": [("ghost", "2")]}[name]
+        if name == "moving":
+            fake._dress_anim = lambda: int(fake.player_body["walk"])          # the player walking (25)
+        for args in ops:
+            fake._netsync(["selfdress", *args])
+        fake._step_dress()
+        fake._step_dress()
+        if name == "cleared":
+            fake._netsync(["selfdress", "clear"])
+            fake._step_dress()
+            fake._step_dress()
+        gh = fake._dress_doc()["ghost"]
+        return {"rawclip": gh["clip"], "garnet": (gh["rest_mask"], gh["shown_mask"], gh["hidden"]),
+                "moving": gh["clip"], "cleared": gh["model"], "inimode": gh["model"]}[name]
+    clean = {name: probe(name) for name in set(DRESS_HOST_FAULT_PROBES.values())}
+    assert clean == {"rawclip": FG._clip_name(912), "garnet": (7, 7, ["short_hair"]), "moving": "ANH_NPC_F0_MOG_WALK",
+                     "cleared": 220, "inimode": 8}, clean
+    bites = {"rawclip": {"translate_own_body"}, "garnet": {"rest_mask_cleared"}, "moving": {"moogle_slides"},
+             "cleared": {"clear_publishes_only", "spectator_zidane"}, "inimode": {"ghost_keeps_ini_mode"}}
+    for fault in FG.DRESS_HOST_FAULTS:
+        for name, want in clean.items():
+            assert (probe(name, [fault]) != want) == (fault in bites[name]), (fault, name, probe(name, [fault]))
+    assert probe("rawclip", ["translate_own_body"]) == "ANH_MAIN_F0_VIV_IDLE"
+    assert probe("garnet", ["rest_mask_cleared"]) == (15, 15, [])
+    assert probe("moving", ["moogle_slides"]) == "ANH_NPC_F0_MOG_IDLE"
+    assert probe("cleared", ["clear_publishes_only"]) == 8 and probe("inimode", ["ghost_keeps_ini_mode"]) == 98
+
+
+# ---- the s139 bench (coop_self_dress.py leg G), off the game: its tables, its pure judges, a smoke against the stand-in and
+# the install-gated oracle -- each run in a CHILD (the scenario puts its own dir on sys.path)
+_SG_TABLES = _SD_CHILD_HEAD + r"""
+def pred(stage, legs, m="old"):
+    r, mb, w = sd.predicted(stage, legs, m)
+    return [None if r is None else list(r), list(mb), w]
+g = sd.LEGS["G"]
+print(json.dumps({
+    "g": {"patch": g["patch"], "steps": g["steps"], "pre": list(g["pre"]), "oracle": list(g["oracle"]),
+          "oracle_extra": g["oracle_extra"], "old": {str(s): [list(r), list(m)] for s, (r, m) in g["old"].items()},
+          "lever": {k: [list(r), list(m)] for k, (r, m) in g["lever"].items()}},
+    "checks": list(sd.G_CHECKS), "cat": sorted(sd._catalog(("I", "G"), True)), "lever_reds": list(sd.G_LEVER_REDS),
+    "seeded": list(sd.G_SEEDED_CHECKS), "models": list(sd.G_MODELS), "stock_checks": list(sd.G_STOCK_CHECKS),
+    "unproven": {"lever": sd.lever_unproven(139, ("I", "G"), "rule-s138", {"S139-G3a", "S139-G2", "S138-I5", "S139-G1"}),
+                 "old": sd.lever_unproven(139, ("I", "G"), "old", {"S139-G3a"}),
+                 "before": sd.lever_unproven(138, ("I", "G"), "rule-s138", {"S139-G3a"}),
+                 "none_unreached": sd.lever_unproven(139, ("G",), "rule-s138", set())},
+    "consts": [sd.G_WIRE_RIGGED, sd.G_WIRE_UNRIGGED, sd.GHOST_SETTLE_S, sd.CAL_RULE_S138, sd.LEVERS_OFF],
+    "steps_exist": all(callable(getattr(sd, s, None)) for s in g["steps"].values()) and callable(getattr(sd, g["oracle_extra"])),
+    "modes": list(sd.cal_modes(("I", "G"))), "modes_g": list(sd.cal_modes(("G",))),
+    "p137": pred(137, ("I", "G")), "p138": pred(138, ("I", "G")), "p139": pred(139, ("I", "G")),
+    "p139_lever": pred(139, ("I", "G"), "rule-s138"), "p138_lever": pred(138, ("I", "G"), "rule-s138"),
+    "p139_g": pred(139, ("G",)), "p140_lever": pred(140, ("G",), "rule-s138"),
+    "pre": list(sd.pre_fields(("G",))), "oracle": list(sd.oracle_fields(("I", "G"), 250)),
+    "sel": list(sd.selected_legs({})), "sel_g": list(sd.selected_legs({"COOP_DRESS_LEGS": "g"})),
+    "doc": " ".join((sd.__doc__ or "").split())}))
+"""
+
+
+def test_the_s139_legs_tables_are_its_docstring():
+    """coop_self_dress.py's leg G: s139's, its steps in the stock (G0, G4, G6, the lever, G3a) and seeded (G1-G8) phases,
+    PRE the seed's fields, the stock field's oracle plus its own offline hook (`_g_oracle`: the models, the clip names, the
+    idle frames, Garnet's prefab tree); on s137 and s138 EVERY G check is predicted red (the verb refused before the step,
+    the keys absent) and leg I adds its own on s137; on s139 under COOP_DRESS_CAL=rule-s138 exactly G_LEVER_REDS -- G3a,
+    G2, G3, G3c, G3m, G3d, G7a, G7b, G7d, G8 -- and without a lever no calibration; an engine before G's patch takes G's
+    `old` row, never its lever; a lever row reading "not reached" is UNPROVEN (lever_unproven), an `old` row's never. Every
+    check is named in the docstring's leg G, and the docstring's CALIBRATION, RUN and s139 ACCEPTANCE say how to pull the
+    lever, flip the ini's GhostAs and read the wire."""
+    got = _sd_child(_SG_TABLES)
+    g_checks = ["S139-G0", "S139-G4", "S139-G6", "S139-G3a", "S139-G1", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m",
+                "S139-G3d", "S139-G5", "S139-G7a", "S139-G7b", "S139-G7c", "S139-G7d", "S139-G8"]
+    lever_reds = ["S139-G3a", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m", "S139-G3d", "S139-G7a", "S139-G7b", "S139-G7d",
+                  "S139-G8"]
+    assert got["checks"] == g_checks
+    assert got["g"] == {"patch": 139, "steps": {"stock": "_g_stock", "seeded": "_g_seeded"}, "pre": [30604, 30801],
+                        "oracle": ["stock"], "oracle_extra": "_g_oracle",
+                        "old": {"137": [g_checks, []], "138": [g_checks, []]},
+                        "lever": {"rule-s138": [lever_reds, []]}} and got["steps_exist"]
+    assert got["lever_reds"] == got["g"]["lever"]["rule-s138"][0] and set(got["lever_reds"]) < set(g_checks)
+    assert got["seeded"] == g_checks[4:] and set(g_checks) <= set(got["cat"])
+    assert got["stock_checks"] == g_checks[:4]
+    assert got["models"] == [98, 8, 185, 5489, 192, 273, 443, 509, 220, 532]
+    assert got["consts"] == [5489, 532, 2.0, "rule-s138", {"mask": -1, "empty": -1, "rule": None, "wire": -1,
+                                                           "wire_anim": -1}]
+    # the lever's unproven rows: a lever row reading "not reached" (only under the lever, only at or past G's patch)
+    assert got["unproven"] == {"lever": ["S139-G2", "S139-G3a"], "old": [], "before": [], "none_unreached": []}
+    i_checks = [f"S138-I{n}" for n in range(1, 10)]
+    assert got["modes"] == got["modes_g"] == ["old", "rule-s138"]
+    assert got["p137"] == [i_checks + g_checks, [], ""] and got["p138"] == [g_checks, [], ""]
+    assert got["p139"][0] is None and "no lever" in got["p139"][2] and got["p139_g"][0] is None
+    assert got["p139_lever"] == [got["lever_reds"], [], ""] == got["p140_lever"]
+    assert got["p138_lever"] == got["p138"]                     # before G's patch: its `old` row, never its lever
+    assert got["pre"] == [30604, 30801] and got["oracle"] == [250, 30801]
+    assert got["sel"] == ["I", "G"] and got["sel_g"] == ["G"]
+    doc = got["doc"]
+    for cid in ("G0", "G3a", "G1", "G2", "G3", "G3c", "G3m", "G3d", "G4", "G5", "G6", "G7a-d", "G8", "G9"):
+        assert re.search(rf"(?<![\w-]){re.escape(cid)}(?![\w-])", doc), cid
+    for frag in ("LEG G (s139)", "owner D2", "D1 Option A", "EVERY EXPECTED VALUE IS COMPUTED", "battlewire.selftest_dress",
+                 "G8 THE REST MASK (amendment 8)", "NOT PROVEN BY LEG G: the turn clips", "AUDIT DEVIATION",
+                 "COOP_DRESS_CAL=rule-s138",
+                 "COOP_CALIBRATE=1 COOP_DRESS_CAL=rule-s138 py tools/play.py studies/test-harness/scenarios/"
+                 "coop_self_dress.py --field 250", "coop_peer.py dress", "s139 ACCEPTANCE -- every step REQUIRED",
+                 "[Netsync] GhostAs = ''", "20261014-224827-host250-s117.f9tape", "coop_dress_wire.py",
+                 "cannot MIX DLLs) bites only box B19",
+                 # [ff9mapkit netsync s139] the review's fixes: the tape by its MAIN-repo path (a worktree has none), G9's
+                 # phases, what stays a sitting box, and S138-R's held lever
+                 "dress C:/gd/Dream-World-IX/.harness-runs/coop-tapes/20261014-224827-host250-s117.f9tape",
+                 "duo.Duo.set_netsync", "a guest wearing another body: B28", "an s140+ laptop, B20",
+                 "08 00 01 -> B9 00 02 -> DC 00 FF", "holds `rule s139` into the reset",
+                 "'selfdress levers released (released with the harness)'"):
+        assert frag in doc, frag
+
+
+_SG_JUDGES = _SD_CHILD_HEAD + r"""
+from harness import battlewire as BW
+doc = json.loads(sys.stdin.read())
+class St:
+    def __init__(self, d):
+        self.raw = d
+        self.frame = d.get("frame", 0)
+models = {int(k): v for k, v in doc["models"].items()}
+clips = {int(k): v for k, v in doc["clips"].items()}
+def sts(xs):
+    return [St(x) for x in xs]
+out = {}
+def lv(levers):
+    return dict({"wire_anim": -1}, **levers)
+for name, case in doc["worn"].items():
+    out[name] = list(sd.judge_worn(sts(case["samples"]), levers=lv(case["levers"]), ghost_as=case["ghost_as"], models=models,
+                                   clips=clips, **({"hold": case["hold"]} if "hold" in case else {})))
+out["moving"] = {k: list(sd.judge_worn_moving(sts(v["samples"]), levers=lv(v["levers"]), ghost_as=v["ghost_as"],
+                                              models=models, clips=clips)) for k, v in doc["moving"].items()}
+out["rest"] = {k: list(sd.judge_rest_mask(sts(v["samples"]), levers=lv(v["levers"]), tree=v["tree"],
+                                          garnet_hair=v["hair"])) for k, v in doc["rest"].items()}
+out["want_mode"] = [sd.want_mode(lv({"mask": 2, "empty": -1, "rule": None, "wire": -1}), "auto"),
+                    sd.want_mode(lv({"mask": -1, "empty": -1, "rule": None, "wire": -1}), " Auto ")]
+out["base"] = {k: list(sd.judge_baseline(sts(v["samples"]), ghost_as=v["ghost_as"], models=models, clips=clips))
+               for k, v in doc["base"].items()}
+out["sec"] = {k: list(sd.judge_section_line(v["lines"], v["ghost_as"])) for k, v in doc["sec"].items()}
+out["codec"] = {k: list(sd.judge_codec(v["d"], v["lines"])) for k, v in doc["codec"].items()}
+out["frames"] = {k: list(sd.judge_idle_frames(v["d"], v["oracle"])) for k, v in doc["frames"].items()}
+out["s1"] = {k: sd.first_main_slot(v) for k, v in doc["s1"].items()}
+out["levers"] = [sd.published_levers(St(doc["worn"]["moogle"]["samples"][0])),
+                 sd.published_levers(St({"netsync": {"dress": {"ghost": {"model": 98}}}}))]
+print(json.dumps(out))
+"""
+
+
+def _sg_doc(frame=1, *, ghost=None, party=None, levers=None, mode="ini:auto", anim=200, model=98, vis=None,
+            scenario=0, **kw) -> dict:
+    """A published document of the s139 shape: a Zidane player, the forced selftest, `netsync.dress` with its levers and
+    the ghost's visibility (``vis``: rest_mask, shown_mask, hidden), the published scenario counter."""
+    lv = dict({"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}, **(levers or {}))
+    g = dict({"model": 220, "geo": "GEO_NPC_F0_MOG", "clip": "ANH_NPC_F0_MOG_IDLE", "rig": 8, "playing": True,
+              "body": "220"}, **(ghost or {}))
+    rest, shown, hidden = vis if vis is not None else (3, 3, [])
+    g.update(bench_mask=lv["mask"], empty_mask=lv["empty"], rule=lv["rule"], wire=lv["wire"], wire_anim=lv["wire_anim"],
+             mode=mode, rest_mask=rest, shown_mask=shown, hidden=hidden)
+    d = _sd_doc(frame, model=model, anim=anim, **kw)
+    d["scenario"] = scenario
+    d["netsync"]["dress"] = {"ghost": g, "party": [0, -1, -1, -1] if party is None else party, "codec": "ok",
+                             "rig_idle_frames": list(RIG_IDLE_FRAMES_CENSUS)}
+    return d
+
+
+def test_the_s139_benchs_pure_judges_read_each_engine_and_can_fail():
+    """Leg G's judges, PURE, on synthetic shapes -- each GREEN on the s139 shape and RED on every shape it exists to catch:
+    judge_worn (the moogle; a wrong model / rig / geo / body / clip; nothing playing where the clip is the worn folder's,
+    not judged where it is not; the levers not yet published; held one publish only (hold 2 needed); no ghost mode -- an
+    s138 engine; no oracle for the expected model; a null body "cannot judge"), judge_baseline (the mode against the
+    ini), judge_section_line (DC 00 FF for auto, 00 00 FF for none, the swapped bytes, no line), judge_codec (ok + the
+    line; a fail verdict; the line missing; s138), judge_idle_frames (equal; one frame off; short; no oracle; s138) and
+    first_main_slot (the first slot >= 1 holding a main)."""
+    from ff9mapkit._animdb_all import ANIMATIONS
+    from ff9mapkit._modeldb import MODELS
+    models = {str(m): {"geo": MODELS[m], "body": str(m)} for m in (98, 8, 185, 5489, 220, 532)}
+    clips = {str(a): ANIMATIONS[a] for a in (200, 38, 2904, 2907, 148, 2089, 2001, 57)}
+
+    def held(n=4, **kw):
+        return [_sg_doc(i + 1, **kw) for i in range(n)]
+    vivi = {"model": 8, "geo": "GEO_MAIN_F0_VIV", "clip": "ANH_MAIN_F0_VIV_IDLE", "rig": 1, "body": "8"}
+    stn = {"model": 5489, "geo": "GEO_MAIN_F0_STN", "clip": "ANH_MAIN_F0_STN_IDLE", "rig": -1, "body": "5489"}
+    zdd = {"model": 532, "geo": "GEO_MAIN_F0_ZDD", "clip": "ANH_MAIN_F0_ZDN_IDLE", "rig": -1, "body": "532",
+           "playing": False}
+    skew = held()
+    skew[-1]["netsync"]["dress"]["ghost"]["model"] = 8          # the last publish re-dressed: not held
+    late = held(levers={"mask": 2})
+    for x in late[1:]:
+        x["netsync"]["dress"]["ghost"].update(bench_mask=-1)  # the lever not published yet
+    worn = {
+        "moogle": {"samples": held(), "levers": {"mask": -1, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "zidane": {"samples": held(ghost={"model": 98, "geo": "GEO_MAIN_F0_ZDN", "clip": "ANH_MAIN_F0_ZDN_IDLE",
+                                          "rig": -1, "body": "98"}, mode="ini:auto"),
+                   "levers": {"mask": -1, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "vivi": {"samples": held(ghost=vivi, party=[0, 1, 2, 3], levers={"mask": 2}, mode="bench:auto"),
+                 "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "vivi_rig": {"samples": held(ghost=dict(vivi, rig=-1), party=[0, 1, 2, 3], levers={"mask": 2}, mode="bench:auto"),
+                     "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "vivi_geo": {"samples": held(ghost=dict(vivi, geo="GEO_MAIN_F0_ZDN"), party=[0, 1, 2, 3], levers={"mask": 2},
+                                     mode="bench:auto"),
+                     "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "vivi_body": {"samples": held(ghost=dict(vivi, body="98"), party=[0, 1, 2, 3], levers={"mask": 2},
+                                      mode="bench:auto"),
+                      "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "vivi_clip": {"samples": held(ghost=dict(vivi, clip="ANH_MAIN_F0_ZDN_IDLE"), party=[0, 1, 2, 3],
+                                      levers={"mask": 2}, mode="bench:auto"),
+                      "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "vivi_stopped": {"samples": held(ghost=dict(vivi, playing=False), party=[0, 1, 2, 3], levers={"mask": 2},
+                                         mode="bench:auto"),
+                         "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "nullbody": {"samples": held(ghost=dict(vivi, body=None), party=[0, 1, 2, 3], levers={"mask": 2},
+                                     mode="bench:auto"),
+                     "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "garnet": {"samples": held(ghost={"model": 185, "geo": "GEO_MAIN_F0_GRN", "clip": "ANH_MAIN_F0_GRN_IDLE",
+                                          "rig": 2, "body": "185"}, party=[0, 1, 2, 3], levers={"mask": 6, "empty": 2},
+                                   mode="bench:auto"),
+                   "levers": {"mask": 6, "empty": 2, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "steiner": {"samples": held(ghost=stn, party=[0, 1, 2, 3], levers={"mask": 2, "wire": 5489}, mode="bench:auto"),
+                    "levers": {"mask": 2, "empty": -1, "rule": None, "wire": 5489}, "ghost_as": "auto"},
+        "lever_dressed": {"samples": held(ghost=vivi, party=[0, 1, 2, 3], levers={"mask": 2, "wire": 5489, "rule": "s138"},
+                                          mode="bench:auto"),
+                          "levers": {"mask": 2, "empty": -1, "rule": "s138", "wire": 5489}, "ghost_as": "auto"},
+        "zdd": {"samples": held(ghost=zdd, party=[0, 1, 2, 3], levers={"mask": 2, "wire": 532}, mode="bench:auto"),
+                "levers": {"mask": 2, "empty": -1, "rule": None, "wire": 532}, "ghost_as": "auto"},
+        "skew": {"samples": skew, "levers": {"mask": -1, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "skew1": {"samples": held(), "levers": {"mask": -1, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto",
+                  "hold": 5},
+        "late": {"samples": late, "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "nomode": {"samples": [dict(x, netsync=dict(x["netsync"], dress={"ghost": {"model": 98}, "party": [0, -1, -1, -1]}))
+                               for x in held()],
+                   "levers": {"mask": -1, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "nooracle": {"samples": held(ghost={"model": 192}, party=[0, 4, -1, -1], levers={"mask": 2}, mode="bench:auto"),
+                     "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+        "battle": {"samples": held(ui="BattleHUD"), "levers": {"mask": -1, "empty": -1, "rule": None, "wire": -1},
+                   "ghost_as": "auto"},
+        "empty": {"samples": [], "levers": {"mask": -1, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"},
+    }
+    base = {"auto": {"samples": held(), "ghost_as": "auto"}, "none": {"samples": held(mode="ini:", ghost={
+                "model": 98, "geo": "GEO_MAIN_F0_ZDN", "clip": "ANH_MAIN_F0_ZDN_IDLE", "rig": -1, "body": "98"}),
+                "ghost_as": ""},
+            "mode": {"samples": held(mode="ini:"), "ghost_as": "auto"},
+            "named_ini": {"samples": held(mode="ini:Auto"), "ghost_as": "Auto"}}
+    line = "17.10.2026 12:00:00 |M| [NetSync] dress section 8 as this machine would host now: "
+    sec = {"auto": {"lines": ["x", line + "DC 00 FF (model 220, charId 255)"], "ghost_as": "auto"},
+           "none": {"lines": [line + "00 00 FF (model 0, charId 255)"], "ghost_as": ""},
+           "wrong": {"lines": [line + "00 00 FF (model 0, charId 255)"], "ghost_as": "auto"},
+           "swapped": {"lines": [line + "00 DC FF (model 56320, charId 255)"], "ghost_as": "auto"},
+           "latest": {"lines": [line + "00 00 FF (model 0, charId 255)", line + "DC 00 FF (model 220, charId 255)"],
+                      "ghost_as": "auto"},
+           "none_line": {"lines": ["nothing"], "ghost_as": "auto"}}
+    ok_line = "17.10.2026 12:00:00 |M| [NetSync] dress codec selftest: OK (29 rows)"
+    codec = {"green": {"d": {"codec": "ok"}, "lines": [ok_line]}, "fail": {"d": {"codec": "fail: auto: x"}, "lines": [
+                 "|M| [NetSync] dress codec selftest: FAIL (row 'auto: x' failed (5 rows run))"]},
+             "noline": {"d": {"codec": "ok"}, "lines": []}, "rows26": {"d": {"codec": "ok"}, "lines": [
+                 ok_line.replace("29", "28")]}, "s138": {"d": {"ghost": {}}, "lines": [ok_line]}, "none": {"d": None,
+                                                                                                         "lines": []}}
+    c = RIG_IDLE_FRAMES_CENSUS
+    frames = {"green": {"d": {"rig_idle_frames": list(c)}, "oracle": list(c)},
+              "off": {"d": {"rig_idle_frames": c[:8] + [73]}, "oracle": list(c)},
+              "short": {"d": {"rig_idle_frames": c[:8]}, "oracle": list(c)},
+              "unmeasured": {"d": {"rig_idle_frames": [-1] * 9}, "oracle": list(c)},
+              "nooracle": {"d": {"rig_idle_frames": list(c)}, "oracle": None},
+              "s138": {"d": {"ghost": {}}, "oracle": list(c)}}
+    s1 = {"seeded": [0, 1, 2, 3], "cinna": [0, 8, 2, -1], "empty": [0, -1, -1, -1], "lead": [1, -1, -1, -1],
+          "custom": [0, 12, -1, 3], "none": None}
+    # [ff9mapkit netsync s139] the FORCED-AUTO witness (amendment 1): under a `ghost` lever the mode must read bench:auto --
+    # an engine whose lever replaced the mask only (mode ini:auto) dresses the same under auto and is red HERE
+    worn["mode_ini_under_mask"] = {"samples": held(ghost=vivi, party=[0, 1, 2, 3], levers={"mask": 2}, mode="ini:auto"),
+                                   "levers": {"mask": 2, "empty": -1, "rule": None, "wire": -1}, "ghost_as": "auto"}
+    # G7b's raw clip: the dressed body ON the wire's own model plays the pinned break clip raw (912), never Vivi's idle
+    worn["rawclip"] = {"samples": held(ghost=dict(vivi, clip=ANIMATIONS[912]), party=[0, 1, 2, 3],
+                                       levers={"mask": 2, "wire": 8, "wire_anim": 912}, mode="bench:auto"),
+                       "levers": {"mask": 2, "empty": -1, "rule": None, "wire": 8, "wire_anim": 912}, "ghost_as": "auto"}
+    worn["rawclip_flattened"] = {"samples": held(ghost=vivi, party=[0, 1, 2, 3],
+                                                 levers={"mask": 2, "wire": 8, "wire_anim": 912}, mode="bench:auto"),
+                                 "levers": {"mask": 2, "empty": -1, "rule": None, "wire": 8, "wire_anim": 912},
+                                 "ghost_as": "auto"}
+    clips.update({"912": ANIMATIONS[912], "25": ANIMATIONS[25], "2927": ANIMATIONS[2927], "2904": ANIMATIONS[2904]})
+
+    # G3m: a walk (x moving each publish, anim 25) under `ghost 2` + `empty 2`: the ghost the moogle WALKING
+    def walk(n=12, clip="ANH_NPC_F0_MOG_WALK", anim=25, still=False):
+        return [_sg_doc(i + 1, anim=anim, x=0.0 if still else 30.0 * i, party=[0, 1, 2, 3], levers={"mask": 2, "empty": 2},
+                        mode="bench:auto", ghost={"clip": clip}) for i in range(n)]
+    mlev = {"mask": 2, "empty": 2, "rule": None, "wire": -1}
+    moving = {"walk": {"samples": walk(), "levers": mlev, "ghost_as": "auto"},
+              "slides": {"samples": walk(clip="ANH_NPC_F0_MOG_IDLE"), "levers": mlev, "ghost_as": "auto"},
+              "zidane": {"samples": [dict(s, netsync=dict(s["netsync"], dress=dict(s["netsync"]["dress"], ghost=dict(
+                  s["netsync"]["dress"]["ghost"], model=98, geo="GEO_MAIN_F0_ZDN", rig=-1, body="98",
+                  clip="ANH_MAIN_F0_ZDN_WALK")))) for s in walk()], "levers": mlev, "ghost_as": "auto"},
+              "still": {"samples": walk(still=True), "levers": mlev, "ghost_as": "auto"},
+              "s138": {"samples": [dict(s, netsync=dict(s["netsync"], dress={"ghost": {"model": 220}, "party": [0, 1, 2, 3]}))
+                                   for s in walk()], "levers": mlev, "ghost_as": "auto"}}
+    # G8: Garnet under `ghost 4` -- the rest mask applied (short_hair hidden below scenario 10300)
+    tree = {"geo": "GEO_MAIN_F0_GRN", "transforms": ["bone000", "long_hair", "long_hair/rubber_band", "mesh0", "short_hair"],
+            "renderers": ["long_hair", "long_hair/rubber_band", "mesh0", "short_hair"]}
+    grn = {"model": 185, "geo": "GEO_MAIN_F0_GRN", "clip": "ANH_MAIN_F0_GRN_IDLE", "rig": 2, "body": "185"}
+    glev = {"mask": 4, "empty": -1, "rule": None, "wire": -1}
+
+    def gar(vis, scenario=0):
+        return held(ghost=grn, party=[0, 1, 2, 3], levers={"mask": 4}, mode="bench:auto", vis=vis, scenario=scenario)
+    rest = {"green": {"samples": gar((7, 7, ["short_hair"])), "levers": glev, "tree": tree, "hair": 0},
+            "both_hairs": {"samples": gar((7, 15, [])), "levers": glev, "tree": tree, "hair": 0},
+            "rest_cleared": {"samples": gar((15, 15, [])), "levers": glev, "tree": tree, "hair": 0},
+            "wrong_hair": {"samples": gar((7, 7, ["short_hair"]), scenario=10300), "levers": glev, "tree": tree, "hair": 0},
+            "long_forced": {"samples": gar((7, 7, ["short_hair"]), scenario=10300), "levers": glev, "tree": tree,
+                            "hair": 1},
+            "short_forced": {"samples": gar((7, 7, ["short_hair"])), "levers": glev, "tree": tree, "hair": 2},
+            "notree": {"samples": gar((7, 7, ["short_hair"])), "levers": glev, "tree": None, "hair": 0},
+            "nohide": {"samples": gar((3, 3, [])), "levers": glev, "tree": dict(tree, geo="GEO_MAIN_F0_VIV"), "hair": 0},
+            "absent": {"samples": [dict(s, netsync=dict(s["netsync"], dress=dict(s["netsync"]["dress"], ghost={
+                k: v for k, v in s["netsync"]["dress"]["ghost"].items() if k not in ("rest_mask", "shown_mask", "hidden")})))
+                for s in gar((7, 7, ["short_hair"]))], "levers": glev, "tree": tree, "hair": 0}}
+    models["185"] = {"geo": "GEO_MAIN_F0_GRN", "body": "185"}
+    got = _sd_child(_SG_JUDGES, {"models": models, "clips": clips, "worn": worn, "base": base, "sec": sec, "codec": codec,
+                                 "frames": frames, "s1": s1, "moving": moving, "rest": rest})
+    verdict = {k: v[0] for k, v in got.items() if k in worn}
+    assert verdict == {"moogle": True, "zidane": False, "vivi": True, "vivi_rig": False, "vivi_geo": False,
+                       "vivi_body": False, "vivi_clip": False, "vivi_stopped": False, "nullbody": False, "garnet": True,
+                       "steiner": True, "lever_dressed": False, "zdd": True, "skew": True, "skew1": False, "late": False,
+                       "nomode": False, "nooracle": False, "battle": False, "empty": False, "mode_ini_under_mask": False,
+                       "rawclip": True, "rawclip_flattened": False}, verdict
+    assert "mode 'ini:auto'" in got["mode_ini_under_mask"][1] and "mode 'bench:auto'" in got["mode_ini_under_mask"][1]
+    assert got["want_mode"] == ["bench:auto", "ini:Auto"]
+    assert {k: v[0] for k, v in got["moving"].items()} == {"walk": True, "slides": False, "zidane": False, "still": False,
+                                                           "s138": False}, got["moving"]
+    assert got["moving"]["still"][1].startswith("not reached: no move") and "player anims [25]" in got["moving"]["walk"][1]
+    assert got["moving"]["s138"][1] == "netsync.dress.ghost.mode ABSENT -- an engine before s139"
+    assert {k: v[0] for k, v in got["rest"].items()} == {
+        "green": True, "both_hairs": False, "rest_cleared": False, "wrong_hair": False, "long_forced": True,
+        "short_forced": False, "notree": False, "nohide": False, "absent": False}, got["rest"]
+    assert got["rest"]["notree"][1].startswith("not reached") and got["rest"]["nohide"][1].startswith("not reached")
+    assert "ABSENT" in got["rest"]["absent"][1]
+    assert got["nullbody"][1].startswith("not reached: cannot judge the body")
+    assert "`playing` not judged" in got["zdd"][1] and "`playing` not judged" not in got["vivi"][1]
+    assert got["nomode"][1] == "netsync.dress.ghost.mode ABSENT -- an engine before s139"
+    assert got["nooracle"][1].startswith("not reached: no install oracle for model 192")
+    assert "the twin's moogle" in got["zidane"][1] and "the twin's undressed: model 5489" in got["steiner"][1]
+    assert {k: v[0] for k, v in got["base"].items()} == {"auto": True, "none": True, "mode": False, "named_ini": True}
+    assert {k: v[0] for k, v in got["sec"].items()} == {"auto": True, "none": True, "wrong": False, "swapped": False,
+                                                        "latest": True, "none_line": False}
+    assert {k: v[0] for k, v in got["codec"].items()} == {"green": True, "fail": False, "noline": False, "rows26": False,
+                                                          "s138": False, "none": False}
+    assert {k: v[0] for k, v in got["frames"].items()} == {"green": True, "off": False, "short": False,
+                                                           "unmeasured": False, "nooracle": False, "s138": False}
+    assert "moogle 73 != 72" in got["frames"]["off"][1] and got["frames"]["nooracle"][1].startswith("not reached")
+    assert got["s1"] == {"seeded": 1, "cinna": 2, "empty": None, "lead": None, "custom": 3, "none": None}
+    assert got["levers"] == [{"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}, None]
+
+
+_SG_SMOKE = _SD_CHILD_HEAD + r"""
+import pathlib, tempfile
+from harness import Session, fakegame as FG
+from harness.fakegame import FakeGame
+from ff9mapkit._modeldb import MODELS
+from ff9mapkit._animdb_all import ANIMATIONS
+doc = json.loads(sys.stdin.read())
+fo = {int(k): dict(v, npcs={int(s): m for s, m in v["npcs"].items()}) for k, v in doc["fo"].items()}
+def oracle_for(run):
+    def read(g, fields):
+        return ({"fields": {f: fo[f] for f in fields if f in fo}, "party": [0, 1, 2, 3], "problems": {}}, "the test's oracle")
+    return read
+def g_oracle(run):
+    def read(game):
+        models = {m: {"geo": MODELS[m], "body": str(m)} for m in sd.G_MODELS if m not in run.get("drop_models", ())}
+        frames = None if run.get("no_frames") else [60, 45, 30, 60, 50, 40, 30, 45, 72]
+        problems = {"idle_frames": "the test dropped it"} if frames is None else {}
+        trans, rends = FG.ghost_renderer_tree(185)                     # the stand-in's modelled prefab order
+        prefabs = {} if run.get("no_prefab") else {185: {"geo": MODELS[185], "transforms": list(trans),
+                                                         "renderers": list(rends)}}
+        if run.get("no_prefab"):
+            problems["prefab 185"] = "the test dropped it"
+        return {"models": models, "clips": dict(ANIMATIONS), "idle_frames": frames, "prefabs": prefabs}, problems
+    return read
+sd.REST_S = 0.6
+sd.GHOST_SETTLE_S = 0.6
+DICT = "FieldScene 30604 11 TEST30604 TEST30604 30604\nFieldScene 30801 11 TEST30801 TEST30801 30801\n"
+results = {}
+for name, run in doc["runs"].items():
+    t = pathlib.Path(tempfile.mkdtemp())
+    (t / "x64").mkdir()
+    (t / "x64" / "FF9.exe").write_bytes(b"MZ")
+    (t / "x64" / "Memoria.log").write_text("fake log\n", encoding="utf-8")
+    mod = t / "FF9CustomMap"
+    mod.mkdir()
+    (mod / "DictionaryPatch.txt").write_text(run.get("dict", DICT), encoding="utf-8")
+    ga = run.get("ghost_as")
+    (t / "Memoria.ini").write_text("[Netsync]\nEnabled = 0\n" + (f"GhostAs = {ga}\n" if ga is not None else ""),
+                                   encoding="utf-8")
+    sd.read_oracle = oracle_for(run)
+    sd.g_oracle_read = g_oracle(run)
+    fake = FakeGame(t, ticks="mean", render_fps=60.0)
+    fake.fps = 240
+    fake.ini_ghost_as = ga
+    if run.get("caps"):
+        fake.netsync_caps = FG.caps_through(run["caps"])
+    fake.party_adds = {30604: tuple(run.get("adds", (1, 2, 3)))}
+    fake.player_sids = {250: 10, 30801: 1}
+    fake.blockers = {30801: [{"x": -400.0, "z": 600.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217},
+                             {"x": 400.0, "z": 600.0, "r": 152.0, "uid": 3, "sid": 3, "model": 217}]}
+    fake.dress_faults = set(run.get("faults", ()))
+    if not run.get("vivi_at_newgame"):
+        fake.save_party = [dict(FG.FAKE_PARTY[0]), None, None, None]    # New Game: Zidane alone in slot 0
+    sd.cb.CALIBRATE = bool(run.get("cal"))
+    if run.get("calmode") is not None:
+        os.environ["COOP_DRESS_CAL"] = run["calmode"]
+    else:
+        os.environ.pop("COOP_DRESS_CAL", None)
+    os.environ["COOP_DRESS_LEGS"] = run.get("legs", "I,G")
+    g = Session(game_path=t, run_dir=t / "run", save_dir=t / "player-saves", pid_probe=lambda: [],
+                launcher=lambda exe, fake=fake: fake.start(), boot_timeout=15.0, verbose=False)
+    with g:
+        g._booted_once = True
+        sd.run(g)
+        rows = list(g.checks)
+    steps = [list(s) for s in fake.executed if s and s[:2] == ["netsync", "selfdress"]]
+    results[name] = {"red": sorted(r["what"].split(":")[0] for r in rows if not r["ok"]),
+                     "all": sorted(r["what"].split(":")[0] for r in rows), "steps": steps,
+                     "levers_left": dict(fake._dress_bench),
+                     "detail": {r["what"].split(":")[0]: r["detail"][:900] for r in rows}}
+print(json.dumps(results))
+"""
+
+
+def test_the_s139_leg_runs_green_on_the_stand_in_and_red_exactly_where_its_checks_say():
+    """THE SMOKE: legs I and G end to end against the stand-in (stub oracles in the shape the install's give) -- GREEN on
+    the s139 stand-in with the ini's GhostAs `auto` (the mirror the moogle: I7 and G0 judge it), none and `off` alike;
+    under COOP_CALIBRATE=1 COOP_DRESS_CAL=rule-s138 RED in exactly G_LEVER_REDS with S138-CAL green, `rule s138` sent
+    after G0 and again after each `clear`; on the s138 stand-in (COOP_CALIBRATE=1) every G check red, no `selfdress` step
+    ever sent (refused before it), CAL green; on s137 leg I's and G's together. Every lever is released at the leg's end.
+    The fault levers turn exactly their rows red; G3a reads "not reached" when the New-Game party already holds slot 1;
+    with a party whose slot 2 is empty G2 reads "not reached"; a dropped model oracle reads its rows "not reached"."""
+    fo = {"250": dict(_SD_FO, npcs={"7": 176}), "30801": dict(_SD_FO, sid=1, uid=1, npcs={"2": 217, "3": 217})}
+    runs = {"auto": {"ghost_as": "auto"}, "none": {}, "off": {"ghost_as": "off"},
+            "lever": {"ghost_as": "auto", "cal": True, "calmode": "rule-s138"},
+            "lever_none": {"ghost_as": "", "cal": True, "calmode": "rule-s138"},
+            "s138": {"ghost_as": "auto", "caps": "dressinstr", "cal": True},
+            "s137": {"ghost_as": "auto", "caps": "acttrance", "cal": True},
+            "cal139": {"ghost_as": "auto", "cal": True},
+            "codec": {"ghost_as": "auto", "faults": ["codec_fail"]}, "frames": {"ghost_as": "auto", "faults": ["idle_frames"]},
+            "spect": {"ghost_as": "auto", "faults": ["spectator_zidane"]}, "guard": {"ghost_as": "auto", "faults": ["no_guard"]},
+            "sec8": {"ghost_as": "auto", "faults": ["section8_swapped"]}, "body": {"ghost_as": "auto", "faults": ["ghost_body"]},
+            "vivi": {"ghost_as": "auto", "vivi_at_newgame": True}, "adds1": {"ghost_as": "auto", "adds": [1]},
+            "nomodel": {"ghost_as": "auto", "drop_models": [5489]}, "noframes": {"ghost_as": "auto", "no_frames": True},
+            # [ff9mapkit netsync s139] the review's fixes: each new fault turns exactly its row red; the forced-auto fault is
+            # invisible under the owner's auto and red under GhostAs '' (acceptance step 2); a lever row that reads
+            # "not reached" fails S138-CAL as UNPROVEN; no prefab -> G8 "not reached"
+            "rawclip": {"ghost_as": "auto", "faults": ["translate_own_body"]},
+            "restmask": {"ghost_as": "auto", "faults": ["rest_mask_cleared"]},
+            "slides": {"ghost_as": "auto", "faults": ["moogle_slides"]},
+            "cleared": {"ghost_as": "auto", "faults": ["clear_publishes_only"]},
+            "inimode_auto": {"ghost_as": "auto", "faults": ["ghost_keeps_ini_mode"]},
+            "inimode_none": {"ghost_as": "", "faults": ["ghost_keeps_ini_mode"]},
+            "lever_vivi": {"ghost_as": "auto", "cal": True, "calmode": "rule-s138", "vivi_at_newgame": True},
+            "noprefab": {"ghost_as": "auto", "no_prefab": True},
+            # the review's s138r: S138-R holds `rule s139` into the reset on an s139+ engine -- a stand-in whose harness
+            # release skips HarnessReleaseDress turns exactly S138-R red
+            "release": {"ghost_as": "auto", "faults": ["release_keeps_levers"]}}
+    got = _sd_child(_SG_SMOKE, {"fo": fo, "runs": runs}, timeout=1500.0)
+    i_all = [f"S138-I{n}" for n in range(1, 10)]
+    g_all = ["S139-G0", "S139-G1", "S139-G2", "S139-G3", "S139-G3a", "S139-G3c", "S139-G3d", "S139-G3m", "S139-G4", "S139-G5",
+             "S139-G6", "S139-G7a", "S139-G7b", "S139-G7c", "S139-G7d", "S139-G8"]
+    every = sorted(["S138-INI", "S138-OR", "S138-S0", "S138-P0", "S138-PRE", "S138-R"] + i_all + g_all)
+    for name in ("auto", "none", "off"):
+        assert got[name]["red"] == [] and got[name]["all"] == every, (name, got[name]["red"], got[name]["detail"])
+        assert got[name]["levers_left"] == {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}, name
+        # S138-R witnessed the HARNESS release: `rule s139` held into the reset (the last selfdress step), its release
+        # line logged, every lever read back off
+        assert got[name]["steps"][-2:] == [["netsync", "selfdress", "clear"], ["netsync", "selfdress", "rule", "s139"]]
+        assert "the selfdress levers after the reset {'mask': -1" in got[name]["detail"]["S138-R"], \
+            got[name]["detail"]["S138-R"]
+        assert "missing lines=[]" in got[name]["detail"]["S138-R"]
+    assert got["release"]["red"] == ["S138-R"], got["release"]["red"]
+    assert "'rule': 's139'" in got["release"]["detail"]["S138-R"] and \
+        "selfdress levers released (released with the harness)" in got["release"]["detail"]["S138-R"]
+    assert got["release"]["levers_left"]["rule"] == "s139"
+    assert "the twin's moogle" in got["auto"]["detail"]["S138-I7"] and "the twin's moogle" in got["auto"]["detail"]["S139-G0"]
+    assert "the twin's undressed: model 98" in got["none"]["detail"]["S139-G0"]
+    assert "DC 00 FF (model 220, charId 255)" in got["auto"]["detail"]["S139-G3d"]
+    assert "00 00 FF (model 0, charId 255)" in got["none"]["detail"]["S139-G3d"]
+    assert "ANH_NPC_F0_MOG_" in got["auto"]["detail"]["S139-G3m"] and "mid-move publishes judged" in \
+        got["auto"]["detail"]["S139-G3m"]
+    assert "short_hair" in got["auto"]["detail"]["S139-G8"] and "short_hair" in got["none"]["detail"]["S139-G8"]
+    assert "wire 8 912" in got["auto"]["detail"]["S139-G7b"] or "`selfdress wire 8 912`" in got["auto"]["detail"]["S139-G7b"]
+    lever = sorted(["S139-G3a", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m", "S139-G3d", "S139-G7a", "S139-G7b",
+                    "S139-G7d", "S139-G8"])
+    for name in ("lever", "lever_none"):
+        assert got[name]["red"] == lever, (name, got[name]["red"])
+        assert got[name]["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
+        rules = [s for s in got[name]["steps"] if s[2:] == ["rule", "s138"]]
+        assert len(rules) >= 3 and got[name]["steps"][-2:] == [["netsync", "selfdress", "clear"],
+                                                               ["netsync", "selfdress", "rule", "s139"]], got[name]["steps"]
+    assert got["s138"]["red"] == g_all and got["s138"]["steps"] == [], got["s138"]
+    assert got["s138"]["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
+    assert got["s137"]["red"] == sorted(i_all + g_all) and got["s137"]["steps"] == []
+    assert got["s137"]["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
+    assert got["cal139"]["red"] == ["S138-CAL"] and "no lever" in got["cal139"]["detail"]["S138-CAL"]
+    assert got["codec"]["red"] == ["S139-G4"] and got["frames"]["red"] == ["S139-G6"]
+    assert got["spect"]["red"] == ["S138-I7", "S139-G0", "S139-G3d", "S139-G5"], got["spect"]["red"]
+    assert got["guard"]["red"] == ["S139-G7a", "S139-G7d"] and got["sec8"]["red"] == ["S139-G3d"]
+    assert got["body"]["red"] == sorted(["S138-I7"] + [c for c in g_all if c not in ("S139-G4", "S139-G6")])
+    assert got["vivi"]["red"] == ["S139-G3a"] and got["vivi"]["detail"]["S139-G3a"].startswith(
+        "not reached: the save's slot 1 already holds CharacterId 1")
+    assert got["adds1"]["red"] == ["S138-I8", "S139-G2", "S139-G8"] and "slot 2 holds no main" in \
+        got["adds1"]["detail"]["S139-G2"] and got["adds1"]["detail"]["S139-G8"].startswith("not reached: no slot >= 1 holds")
+    assert got["nomodel"]["red"] == ["S139-G7a"], got["nomodel"]["red"]
+    assert got["nomodel"]["detail"]["S139-G7a"].startswith("not reached: ") and \
+        "no install oracle for model 5489" in got["nomodel"]["detail"]["S139-G7a"]
+    assert got["noframes"]["red"] == ["S138-OR", "S139-G6"] and "not reached" in got["noframes"]["detail"]["S139-G6"]
+    # [ff9mapkit netsync s139] the review's fixes, each red exactly where it exists to be
+    assert got["rawclip"]["red"] == ["S139-G7b"], got["rawclip"]["red"]
+    assert got["restmask"]["red"] == ["S139-G8"], got["restmask"]["red"]
+    assert got["slides"]["red"] == ["S139-G3m"], got["slides"]["red"]
+    assert got["cleared"]["red"] == ["S139-G5"], got["cleared"]["red"]
+    assert got["inimode_auto"]["red"] == [], got["inimode_auto"]["red"]         # invisible under the owner's auto ...
+    assert got["inimode_none"]["red"] == sorted(["S139-G1", "S139-G2", "S139-G3", "S139-G3a", "S139-G3c", "S139-G3d",
+                                                 "S139-G3m", "S139-G5", "S139-G7b", "S139-G7c", "S139-G8"]), \
+        got["inimode_none"]["red"]                                                 # ... red on the '' pass (step 2)
+    assert got["lever_vivi"]["red"] == sorted(lever + ["S138-CAL"]), got["lever_vivi"]["red"]
+    assert "UNPROVEN on ['S139-G3a']" in got["lever_vivi"]["detail"]["S138-CAL"], got["lever_vivi"]["detail"]["S138-CAL"]
+    assert got["noprefab"]["red"] == ["S138-OR", "S139-G8"] and \
+        got["noprefab"]["detail"]["S139-G8"].startswith("not reached"), got["noprefab"]
+
+
+_SG_ORACLE = _SD_CHILD_HEAD + r"""
+from pathlib import Path
+game = Path(sys.stdin.read().strip())
+before = {p.name: (p.stat().st_size, p.stat().st_mtime) for p in (game / "StreamingAssets").iterdir() if p.is_file()}
+got, problems = sd.g_oracle_read(game)
+after = {p.name: (p.stat().st_size, p.stat().st_mtime) for p in (game / "StreamingAssets").iterdir() if p.is_file()}
+print(json.dumps({"models": {str(m): [f["geo"], f["body"]] for m, f in got["models"].items()},
+                  "frames": got["idle_frames"], "problems": problems, "clips": len(got["clips"]), "same": before == after}))
+"""
+
+
+def test_the_s139_oracle_reads_the_install_as_the_audit_cites_it():
+    """INSTALL-GATED (READ-ONLY; skipped without an install or its kit caches): leg G's offline oracle on the real data --
+    every model it may expect reads its GEO name (the kit's table agreeing) and its own texture stem (220 GEO_NPC_F0_MOG
+    '220', 532 GEO_MAIN_F0_ZDD '532', ...), and the kit's clip reader gives the nine rig rows' idle frames exactly as the
+    audit's census [60, 45, 30, 60, 50, 40, 30, 45, 72] -- with no problem named and StreamingAssets untouched."""
+    from ff9mapkit import config
+    try:
+        game = config.find_game_path(None)
+    except Exception:                                       # noqa: BLE001 - no install configured: nothing to read
+        pytest.skip("no FF9 install configured")
+    if game is None or not (pathlib.Path(game) / "StreamingAssets" / "p0data5.bin").is_file():
+        pytest.skip("no FF9 install (StreamingAssets/p0data5.bin) on this machine")
+    for cache in (".ff9mapkit-events-bundle.txt", ".ff9mapkit-field-index.json"):
+        if not (pathlib.Path(game) / "StreamingAssets" / cache).is_file():
+            pytest.skip(f"the kit cache {cache} is missing from the install: this test would WRITE it there")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _SG_ORACLE, str(SCENARIOS), str(REPO / "tools"), str(REPO / "ff9mapkit")],
+                         env=env, input=str(game), capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0, out.stderr[-3000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    from ff9mapkit._modeldb import MODELS
+    assert got["frames"] == RIG_IDLE_FRAMES_CENSUS and got["same"] is True, got
+    remap_only = {k: v for k, v in got["problems"].items() if not k.startswith("remap")}
+    assert remap_only == {}, got["problems"]
+    for m in (98, 8, 185, 5489, 192, 273, 443, 509, 220, 532):
+        if str(m) in got["models"]:
+            assert got["models"][str(m)] == [MODELS[m], str(m)], (m, got["models"][str(m)])
+    assert set(got["models"]) == {str(m) for m in (98, 8, 185, 5489, 192, 273, 443, 509, 220, 532)} or got["problems"]
+    assert got["clips"] > 9000
+
+
+
+# ---- [ff9mapkit netsync s139] G9 (studies/test-harness/scenarios/coop_dress_wire.py): the duo leg's pure judges, off the
+# game -- section 8 on the relay tap, the guest's old readers stepping past it, the guest's own body, the host's TRANSPORT
+# site (the review's wire-1 / transport findings); each red on the shape it exists to catch, its calibration table
+_SG9_JUDGES = r"""
+import importlib.util, json, os, sys
+scen, tools, kit = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, tools)
+sys.path.insert(0, kit)
+spec = importlib.util.spec_from_file_location("coop_dress_wire", os.path.join(scen, "coop_dress_wire.py"))
+dw = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(dw)
+from harness import battlewire as BW, coop_peer as CP, fakegame as FG
+from ff9mapkit._animdb_all import ANIMATIONS
+from ff9mapkit._modeldb import MODELS
+def seat(c, i):
+    return (bytes((1, c, i, 10, 0)) + bytes(16) + bytes(10) + bytes((1,)) + b"P" + bytes(8) + bytes(4) + bytes(4)
+            + bytes(8) + bytes((0, 0)))
+def frame(dress, party=(0, 1, 2, 3)):
+    p = b"".join(seat(c, i) if c >= 0 else b"\x00" for i, c in enumerate(party))
+    payload = b""
+    for sid, body in ((0, bytes(2048)), (1, p), (5, bytes((1, 7))), (7, bytes(range(40)))) + (((8, dress),) if dress else ()):
+        payload = BW.append_section(payload, sid, body)
+    return CP.Record(0.1, CP.DIR_HOST, CP.build_frame(CP.TYPE_STATE, payload))
+class St:
+    def __init__(self, d):
+        self.raw = d
+vivi, garnet, moogle = bytes((8, 0, 1)), bytes((0xB9, 0, 2)), bytes((0xDC, 0, 0xFF))
+host_party = [0, 1, 2, 3]
+PH = [s for _c, s, _v in dw.PHASES]
+def tape(*runs):
+    return [frame(b) for b, n in runs for _ in range(n)]
+out = {"tape": {
+    "ok": dw.judge_tape(tape((vivi, 8), (garnet, 8), (moogle, 8)), host_party, PH),
+    "one_phase": dw.judge_tape(tape((vivi, 8)), host_party, [2]),
+    "s138": dw.judge_tape(tape((None, 24)), host_party, PH),
+    "wrong_body": dw.judge_tape(tape((moogle, 8)), host_party, [2]),
+    "back": dw.judge_tape(tape((vivi, 8), (garnet, 8), (vivi, 2), (moogle, 8)), host_party, PH),
+    "skip": dw.judge_tape(tape((vivi, 8), (moogle, 16)), host_party, PH),
+    "short": dw.judge_tape(tape((vivi, 8), (garnet, 2), (moogle, 8)), host_party, PH),
+    "stopped": dw.judge_tape(tape((vivi, 8), (garnet, 8)), host_party, PH),
+    "gap": dw.judge_tape(tape((vivi, 8), (None, 1), (garnet, 8), (moogle, 8)), host_party, PH),
+    "one_body": dw.judge_tape(tape((vivi, 24)), host_party, PH),
+    "same_bodies": dw.judge_tape(tape((vivi, 8), (moogle, 16)), [0, 1, -1, -1], PH),
+    "no_party": dw.judge_tape(tape((vivi, 8)), None, [2])}}
+out["bodies"] = [BW.hex_bytes(b) for b in dw.phase_bodies(host_party, PH)]
+def guest(mirror="SAME", mirroring=True, model=98, anim=200, have=True):
+    d = {"party": [0, -1, -1, -1]}
+    if have:
+        d["mirror_party"] = list(host_party) if mirror == "SAME" else mirror
+    return St({"ui_state": "FieldHUD", "player": {"model": model, "anim": anim, "body": str(model)},
+               "netsync": {"session": {"mirroring": mirroring, "ghost": True}, "dress": d}})
+out["mirror"] = {"ok": dw.judge_guest_mirror(True, guest(), host_party),
+                 "no_armed": dw.judge_guest_mirror(False, guest(), host_party),
+                 "not_mirroring": dw.judge_guest_mirror(True, guest(mirroring=False), host_party),
+                 "no_mirror": dw.judge_guest_mirror(True, guest(mirror=None), host_party),
+                 "other_party": dw.judge_guest_mirror(True, guest(mirror=[0, 1, -1, -1]), host_party),
+                 "s138": dw.judge_guest_mirror(True, guest(have=False), host_party)}
+out["body"] = {"ok": dw.judge_guest_body(guest()), "dressed": dw.judge_guest_body(guest(model=8)),
+               "every": dw.judge_guest_bodies([("GuestSlots 2", guest()), ("GuestSlots 4", guest()),
+                                               ("GuestSlots 0", guest())]),
+               "one_dressed": dw.judge_guest_bodies([("GuestSlots 2", guest()), ("GuestSlots 0", guest(model=220))]),
+               "none": dw.judge_guest_bodies([])}
+VIVI = {"model": 8, "rig": 1, "geo": "GEO_MAIN_F0_VIV", "body": "8", "clip": "ANH_MAIN_F0_VIV_IDLE", "playing": True,
+        "mode": "ini:auto"}
+GARNET = {"model": 185, "rig": 2, "geo": MODELS[185], "body": "185", "clip": ANIMATIONS[2089], "playing": True,
+          "mode": "ini:auto"}
+MOOG = {"model": 220, "rig": 8, "geo": "GEO_NPC_F0_MOG", "body": "220", "clip": ANIMATIONS[2904], "playing": True,
+        "mode": "ini:auto"}
+ZID = {"model": 98, "rig": -1, "geo": "GEO_MAIN_F0_ZDN", "body": "98", "clip": "ANH_MAIN_F0_ZDN_IDLE", "playing": True,
+       "mode": "ini:auto"}
+trans, rends = FG.ghost_renderer_tree(185)
+tree = {"geo": MODELS[185], "transforms": list(trans), "renderers": list(rends)}
+hides = BW.field_hides(tree["geo"], trans, rends, garnet_hair=0, scenario=0)
+rest = BW.visibility_mask(rends, hides)
+everything = BW.visibility_mask(rends, ())
+ONE_HAIR = {"rest_mask": rest, "shown_mask": rest, "hidden": list(hides)}
+BOTH_HAIRS = {"rest_mask": rest, "shown_mask": everything, "hidden": []}      # the mask line dropped: EnsureGhost's all-on
+def host(ghost, n=4, slots=2, base=VIVI):
+    g = dict(base, **ghost)
+    return [St({"ui_state": "FieldHUD", "scenario": 0, "netsync": {"session": {"ghost": True},
+                                                                  "battle": {"host": {"guest_slots": slots}},
+                                                                  "dress": {"ghost": dict(g)}}}) for _ in range(n)]
+def s138(ghost, slots):
+    return [St({"ui_state": "FieldHUD", "scenario": 0, "netsync": {"session": {"ghost": True},
+                                                                  "battle": {"host": {"guest_slots": slots}},
+                                                                  "dress": {"ghost": dict(ghost)}}})] * 3
+models = {m: {"geo": MODELS[m], "body": str(m)} for m in (8, 98, 185, 220, 5489)}
+clips = dict(ANIMATIONS)
+def jh(samples, g=None, slots=2, vis=False, party=host_party, t=tree):
+    return dw.judge_host_ghost(samples, g or guest(), party, models, clips, guest_slots=slots, visibility=vis, tree=t,
+                               garnet_hair=0)
+no_mode = {k: v for k, v in ZID.items() if k != "mode"}
+out["host"] = {"ok": jh(host({})),
+               "moving": jh(host({"clip": "ANH_MAIN_F0_VIV_WALK"}), guest(anim=25)),
+               "undressed": jh(host(ZID, base=ZID)),
+               "flattened": jh(host({"clip": "ANH_MAIN_F0_VIV_IDLE"}), guest(anim=25)),
+               "mode": jh(host({"mode": "ini:"})),
+               "s138": jh(s138({"model": 8}, 2)),
+               "shown": jh(host({"model": 5489, "rig": -1, "geo": "GEO_MAIN_F0_STN", "body": "5489",
+                                 "clip": "ANH_MAIN_F0_STN_IDLE"}), guest(model=5489, anim=2001)),
+               "held1": jh(host({}, n=1)),
+               "other_slots": jh(host({}, slots=4)),                    # the step not landed on these publishes
+               "garnet": jh(host(ONE_HAIR, slots=4, base=GARNET), slots=4, vis=True),
+               "garnet_both_hairs": jh(host(BOTH_HAIRS, slots=4, base=GARNET), slots=4, vis=True),
+               "garnet_no_vis": jh(host({}, slots=4, base=GARNET), slots=4, vis=True),
+               "garnet_no_tree": jh(host(ONE_HAIR, slots=4, base=GARNET), slots=4, vis=True, t=None),
+               "garnet_not_seated": jh(host(ONE_HAIR, slots=4, base=MOOG), slots=4, vis=True, party=[0, 1, -1, -1]),
+               "moogle": jh(host({}, slots=0, base=MOOG), slots=0),
+               "moogle_s138_rule": jh(host(ZID, slots=0, base=ZID), slots=0),        # the client branch: undressed
+               "moogle_on_s138": jh(s138(no_mode, 0), slots=0)}
+out["want"] = [dw.want_host_ghost(host_party, 98, 200), dw.want_host_ghost(host_party, 98, 912),
+               dw.want_host_ghost([0, -1, -1, -1], 98, 25), dw.want_host_ghost(host_party, 5489, 1996),
+               dw.want_host_ghost(host_party, 98, 200, 4), dw.want_host_ghost(host_party, 98, 200, 0)]
+# what the OLD (s138, client) rule gives at each phase: identical at 2 and 4 (only the mask line tells 4 apart), undressed at 0
+out["s138_rule"] = [list(BW.resolve_dress_s138("auto", s, BW.live_slot_chars(host_party))) for s in PH]
+cfg = __import__("harness.duo", fromlist=["MATCHERS"]).MATCHERS["config"]
+def cl(mid):
+    return cfg.search(f"[NetSync] config enabled=True role=host field=0{mid} relay=ws://127.0.0.1:1 code=ff9-X")
+out["cfg"] = [dw.cfg_guest_slots(cl(" guestSlots=4 ghostAs=auto")), dw.cfg_guest_slots(cl(" ghostAs=auto")),
+              dw.cfg_guest_slots(cl(" guestSlots=12"))]
+five = ["S139-G9a", "S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f"]
+out["cal"] = [dw.calibration(138, five), dw.calibration(138, ["S139-G9a"]), dw.calibration(139, []),
+              dw.calibration(138, five, ["S139-G9e"])]
+out["tables"] = {"checks": list(dw.G9_CHECKS), "old": {str(k): list(v) for k, v in dw.OLD_PREDICTED.items()},
+                 "extra": dw.PAIR["role_extra"], "has_setup": callable(dw.PAIR["host_setup"]),
+                 "phases": [list(p) for p in dw.PHASES],
+                 "stage": [dw.dress_stage(St({"netsync": {"dress": {"ghost": {}, "codec": None}}})),
+                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}}}})), dw.dress_stage(St({}))]}
+print(json.dumps(out))
+"""
+
+
+def test_the_g9_duo_legs_judges_read_the_wire_and_the_transport_site_and_can_fail():
+    """coop_dress_wire.py's pure judges (G9, the duo leg on the relay tap; the review's wire-1, transport, rhost-1 and
+    transport-blind findings). THE TAP (G9a): green when the host state frames' section-8 bodies run, in tape order, through
+    the twin's body for each stepped GuestSlots (08 00 01 Vivi -> B9 00 02 Garnet -> DC 00 FF the moogle), each phase 7+
+    frames; red on an s138 host (none), the wrong body, a step BACK, a SKIPPED phase, a short phase, a walk that stops
+    early, a frame without section 8 between phases, one body for a three-phase tape; "not reached" without a party or
+    when two adjacent phases ship the same body. G9b green only with the ARMED line, the story mirroring and the guest's
+    party mirror == the host's party; G9c the guest's own 98 at EVERY phase. THE TRANSPORT SITE (G9d-f), each on a publish
+    PUBLISHING the phase's GuestSlots: Vivi at 2 (translated to her walk for a walking guest, a non-Zidane body shown as
+    it is; red undressed, flattened, in the wrong mode, on an s138 host, held one publish, before the step landed); Garnet
+    at 4 WITH the rest mask -- red with both hairstyles shown (the transport site's mask line dropped: what the s138 client
+    branch also gives, since its dress is the same Garnet), "not reached" without the visibility keys' oracle or Garnet
+    seated; the moogle at 0 -- red on the s138 client rule's undressed Zidane, and on an s138 host (no mode) red naming
+    that Zidane. Its calibration is exactly OLD_PREDICTED[138] (G9a, G9b, G9d, G9e, G9f; G9c green), UNPROVEN when a
+    predicted red reads "not reached", none for an s139 host; PAIR seeds the host's party and sets ITS GhostAs auto and the
+    first phase's GuestSlots 2 through duo.Duo.role_extra."""
+    got = _sd_child(_SG9_JUDGES)
+    tp = got["tape"]
+    assert {k: v[0] for k, v in tp.items()} == {
+        "ok": True, "one_phase": True, "s138": False, "wrong_body": False, "back": False, "skip": False, "short": False,
+        "stopped": False, "gap": False, "one_body": False, "same_bodies": False, "no_party": False}, tp
+    assert got["bodies"] == ["08 00 01", "B9 00 02", "DC 00 FF"]
+    assert "none -- an s138-or-older host" in tp["s138"][1] and tp["no_party"][1].startswith("not reached")
+    assert tp["same_bodies"][1].startswith("not reached: ") and "same body DC 00 FF" in tp["same_bodies"][1]
+    assert "per phase [8, 8, 8]" in tp["ok"][1] and "SHORT" in tp["short"][1] and "out of order" in tp["back"][1]
+    assert "out of order" in tp["skip"][1] and "the walk stopped in phase 2 of 3" in tp["stopped"][1]
+    assert {k: v[0] for k, v in got["mirror"].items()} == {"ok": True, "no_armed": False, "not_mirroring": False,
+                                                           "no_mirror": False, "other_party": False, "s138": False}
+    assert "ABSENT" in got["mirror"]["s138"][1]
+    assert {k: v[0] for k, v in got["body"].items()} == {"ok": True, "dressed": False, "every": True,
+                                                         "one_dressed": False, "none": False}
+    assert "NOT 98 at ['GuestSlots 0']" in got["body"]["one_dressed"][1] and got["body"]["none"][1].startswith("not reached")
+    h = got["host"]
+    assert {k: v[0] for k, v in h.items()} == {
+        "ok": True, "moving": True, "undressed": False, "flattened": False, "mode": False, "s138": False, "shown": True,
+        "held1": False, "other_slots": False, "garnet": True, "garnet_both_hairs": False, "garnet_no_vis": False,
+        "garnet_no_tree": False, "garnet_not_seated": False, "moogle": True, "moogle_s138_rule": False,
+        "moogle_on_s138": False}, {k: v for k, v in h.items() if not v[0]}
+    assert h["s138"][1].startswith("netsync.dress.ghost.mode ABSENT on the host -- an engine before s139")
+    assert "GuestSlots 2 published (last: guest_slots 4" in h["other_slots"][1]
+    assert h["garnet"][1].startswith("VISIBILITY ") and "short_hair" in h["garnet"][1]
+    assert "ABSENT" in h["garnet_no_vis"][1] and h["garnet_no_tree"][1].startswith("not reached")
+    assert h["garnet_not_seated"][1].startswith("not reached: the rest mask's body is Garnet")
+    # the old DLL's behavioural red, named in the s138 detail: a spectator's ghost plain Zidane vs the twin's moogle
+    assert h["moogle_on_s138"][1].startswith("netsync.dress.ghost.mode ABSENT") and "'model': 98" in \
+        h["moogle_on_s138"][1] and "the twin's moogle: model 220" in h["moogle_on_s138"][1]
+    assert got["want"] == [{"model": 8, "rig": 1, "anim": 148}, {"model": 8, "rig": 1, "anim": 148},
+                           {"model": 220, "rig": 8, "anim": 2927}, {"model": 5489, "rig": -1, "anim": 1996},
+                           {"model": 185, "rig": 2, "anim": 2089}, {"model": 220, "rig": 8, "anim": 2904}]
+    # one dress cannot tell the s139 site from the s138 rule (2 and 4 dress alike); the phases can (0: undressed)
+    assert got["s138_rule"] == [[8, 1], [185, 2], [0, -1]]
+    assert got["cfg"] == [4, 0, 12]
+    assert [c[0] for c in got["cal"]] == [True, False, False, False] and "no calibration" in got["cal"][2][1]
+    assert "UNPROVEN (read 'not reached'): ['S139-G9e']" in got["cal"][3][1]
+    t = got["tables"]
+    assert t["checks"] == ["S139-G9a", "S139-G9b", "S139-G9c", "S139-G9d", "S139-G9e", "S139-G9f"]
+    assert t["old"] == {"138": ["S139-G9a", "S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f"]}
+    assert t["phases"] == [["S139-G9d", 2, False], ["S139-G9e", 4, True], ["S139-G9f", 0, False]]
+    assert t["extra"] == {"host": {"GhostAs": "auto", "GuestSlots": "2"}} and t["has_setup"]
+    assert t["stage"] == [139, 138, None]
+    doc = " ".join((SCENARIOS / "coop_dress_wire.py").read_text(encoding="utf-8").split())
+    for frag in ("cannot MIX DLLs -- bites only box B19", "no production code reads section 8 in s139",
+                 "py tools/harness/duo.py studies/test-harness/scenarios/coop_dress_wire.py", "OLD_PREDICTED",
+                 "THE PHASES -- THREE DRESSES, ONE TRANSPORT SITE", "duo.Duo.set_netsync",
+                 "`else if (hostRule) ApplyGhostMask(_ghostRestMask)`", "a guest WEARING another body: B28",
+                 "an s140+ laptop, B20", "08 00 01 (Vivi), then B9 00 02 (Garnet), then DC 00 FF (the moogle)"):
+        assert frag in doc, frag
+
+
+# ---- [ff9mapkit netsync s139] G9's RUN (coop_dress_wire.run_duo) against a STUB duo: the phases stepped in order through
+# Duo.set_netsync, each judged on publishes carrying its GuestSlots, the tap read LAST over the stepped phases -- and each
+# transport-site shape the review named turning exactly its rows red
+_SG9_RUN = r"""
+import importlib.util, json, os, sys, tempfile, pathlib, itertools
+scen, tools, kit = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, tools)
+sys.path.insert(0, kit)
+spec = importlib.util.spec_from_file_location("coop_dress_wire", os.path.join(scen, "coop_dress_wire.py"))
+dw = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(dw)
+from harness import battlewire as BW, coop_peer as CP, fakegame as FG
+from ff9mapkit._animdb_all import ANIMATIONS
+from ff9mapkit._modeldb import MODELS
+PARTY = [0, 1, 2, 3]
+for k, v in dict(SETTLE_S=0.0, MIRROR_S=0.3, CONFIG_S=0.3, GHOST_SETTLE_S=0.0, HOLD_S=0.15).items():
+    setattr(dw, k, v)
+def oracle(game, models, prefabs=()):
+    trees = {}
+    for m in prefabs:
+        t, r = FG.ghost_renderer_tree(m)
+        trees[m] = {"geo": MODELS[m], "transforms": list(t), "renderers": list(r)}
+    return {m: {"geo": MODELS[m], "body": str(m)} for m in models}, dict(ANIMATIONS), trees, {}
+dw._oracle = oracle
+def seat(c, i):
+    return (bytes((1, c, i, 10, 0)) + bytes(16) + bytes(10) + bytes((1,)) + b"P" + bytes(8) + bytes(4) + bytes(4)
+            + bytes(8) + bytes((0, 0)))
+def payload(dress):
+    p = b"".join(seat(c, i) for i, c in enumerate(PARTY))
+    out = b""
+    for sid, body in ((0, bytes(2048)), (1, p), (5, bytes((1, 7))), (7, bytes(range(40)))) + (((8, dress),) if dress else ()):
+        out = BW.append_section(out, sid, body)
+    return CP.build_frame(CP.TYPE_STATE, out)
+class St:
+    _n = itertools.count()
+    def __init__(self, d):
+        self.raw = d
+        self.frame = next(St._n)
+class Game:
+    def __init__(self, duo, role):
+        self.duo, self.role, self.game_path = duo, role, duo.run_dir
+    @property
+    def state(self):
+        return St(self.duo.doc(self.role))
+class Duo:
+    def __init__(self, mode, run_dir):
+        self.mode, self.run_dir, self.slots, self.strict = mode, run_dir, dw.HOST_GUEST_SLOTS, True
+        self.rows, self.notes, self.steps = [], [], []
+        self.s139 = not mode.startswith("s138")
+        self.tap = CP.TapeWriter(run_dir / "relay.f9tape", mode="test", flush_every=0.0)
+        self.host, self.guest = Game(self, "host"), Game(self, "guest")
+        self.feed()
+    def feed(self, n=9):
+        body = BW.host_dress_section("auto", self.slots, "host", False, PARTY) if self.s139 else None
+        for _ in range(n):
+            self.tap.write(CP.DIR_HOST, payload(body))
+    def set_netsync(self, role, updates, *, timeout=15.0, pred=None):
+        self.steps.append((role, dict(updates)))
+        if self.mode.endswith("no_echo"):
+            return []
+        self.slots = int(updates["GuestSlots"])
+        self.feed()
+        return [("t", "echo", None)]
+    def wait_line(self, role, name, timeout, **kw):
+        return [("t", "armed", None)]
+    def check(self, ok, what, detail="", *, role=None, cid=None):
+        self.rows.append([cid, bool(ok), detail[:700]])
+    def note(self, msg):
+        self.notes.append(msg)
+    def doc(self, role):
+        if role == "guest":
+            dress = {"ghost": {"model": -1}, "party": [0, -1, -1, -1]}
+            if self.s139:
+                dress.update(codec="ok", mirror_party=list(PARTY))
+            return {"ui_state": "FieldHUD", "player": {"model": 98, "anim": 200, "body": "98"},
+                    "netsync": {"session": {"mirroring": True, "ghost": True}, "dress": dress}}
+        chars = BW.live_slot_chars(PARTY)
+        old = self.mode in ("client_rule", "s138", "s138_no_echo")
+        m, rig = (BW.resolve_dress_s138("auto", self.slots, chars) if old else
+                  BW.resolve_dress_rule("auto", self.slots, True, chars))
+        model, rig = (m, rig) if m else (98, -1)
+        anim = BW.ghost_anim(m, rig, 98, BW.classify_loco(98, 200), 200)
+        ghost = {"model": model, "rig": rig, "geo": MODELS[model], "body": str(model), "clip": ANIMATIONS[anim],
+                 "playing": True}
+        if self.s139:
+            t, r = FG.ghost_renderer_tree(model)
+            hides = BW.field_hides(MODELS[model], t, r, garnet_hair=0, scenario=0)
+            rest = BW.visibility_mask(r, hides)
+            applied = self.mode not in ("mask_dropped", "client_rule")
+            ghost.update(bench_mask=-1, empty_mask=-1, rule=None, wire=-1, wire_anim=-1, mode="ini:auto", rest_mask=rest,
+                         shown_mask=rest if applied else BW.visibility_mask(r, ()), hidden=list(hides) if applied else [])
+        dress = {"ghost": ghost, "party": list(PARTY)}
+        if self.s139:
+            dress.update(codec="ok", rig_idle_frames=[60, 45, 30, 60, 50, 40, 30, 45, 72], mirror_party=None)
+        return {"ui_state": "FieldHUD", "scenario": 0, "player": {"model": 98, "anim": 200},
+                "netsync": {"session": {"ghost": True}, "battle": {"host": {"guest_slots": self.slots}}, "dress": dress}}
+out = {}
+for mode in ("s139", "mask_dropped", "client_rule", "no_echo", "s138", "s138_no_echo"):
+    run_dir = pathlib.Path(tempfile.mkdtemp())
+    d = Duo(mode, run_dir)
+    dw.cb.CALIBRATE = mode.startswith("s138")
+    dw.run_duo(d)
+    d.tap.close()
+    out[mode] = {"rows": d.rows, "steps": d.steps, "strict": d.strict}
+print(json.dumps(out))
+"""
+
+
+def test_the_g9_duo_leg_steps_its_phases_and_reads_the_tap_last_against_a_stub_duo():
+    """coop_dress_wire.run_duo against a STUB duo (its host publishing what the transport site would wear at each GuestSlots,
+    its tap fed the producer's section 8 per phase): on an s139 host every G9 row green, the host's GuestSlots stepped LIVE
+    2 -> 4 -> 0 through Duo.set_netsync (the first phase the pairing's own), the rows in run order G9b, G9d, G9e, G9f, G9c
+    and the tap (G9a) LAST over all three phases. RED exactly where the review said one dress could not see: the transport
+    site's mask line dropped -> G9e only; the whole s138 client rule at the transport site (Garnet both hairstyles, a
+    spectator undressed) -> G9e and G9f, the tap still green (the producer is HostDressSection's); a step the host never
+    echoes -> G9e / G9f "not reached", the tap judged over the phase that ran. On an s138 host COOP_CALIBRATE=1 is green on
+    exactly OLD_PREDICTED -- and red, UNPROVEN, when the predicted phase reds read "not reached". Strict mode is restored."""
+    got = _sd_child(_SG9_RUN, timeout=600.0)
+
+    def red(mode):
+        return sorted(cid for cid, ok, _d in got[mode]["rows"] if not ok)
+    rows = got["s139"]["rows"]
+    assert [r[0] for r in rows] == ["S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f", "S139-G9c", "S139-G9a"], rows
+    assert red("s139") == [], [r for r in rows if not r[1]]
+    assert got["s139"]["steps"] == [["host", {"GuestSlots": 4}], ["host", {"GuestSlots": 0}]]
+    g9a = dict((r[0], r[2]) for r in rows)["S139-G9a"]
+    assert "('08 00 01', 9), ('B9 00 02', 9), ('DC 00 FF', 9)" in g9a, g9a
+    assert red("mask_dropped") == ["S139-G9e"]
+    assert red("client_rule") == ["S139-G9e", "S139-G9f"]
+    detail = {r[0]: r[2] for r in got["client_rule"]["rows"]}
+    assert "shown_mask 15" in detail["S139-G9e"] and "'model': 98" in detail["S139-G9f"]
+    assert red("no_echo") == ["S139-G9e", "S139-G9f"]
+    ne = {r[0]: r[2] for r in got["no_echo"]["rows"]}
+    assert ne["S139-G9e"].startswith("not reached: the host never echoed") and ne["S139-G9f"].startswith("not reached")
+    assert got["no_echo"]["steps"] == [["host", {"GuestSlots": 4}]], got["no_echo"]["steps"]   # no step after a failed one
+    s138 = {r[0]: (r[1], r[2]) for r in got["s138"]["rows"]}
+    assert sorted(c for c, (ok, _d) in s138.items() if not ok and c != "S139-G9-CAL") == \
+        ["S139-G9a", "S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f"]
+    assert s138["S139-G9-CAL"][0] is True and s138["S139-G9c"][0] is True, s138["S139-G9-CAL"]
+    assert "'model': 98" in s138["S139-G9f"][1] and "the twin's moogle" in s138["S139-G9f"][1]
+    cal = {r[0]: (r[1], r[2]) for r in got["s138_no_echo"]["rows"]}["S139-G9-CAL"]
+    assert cal[0] is False and "UNPROVEN (read 'not reached'): ['S139-G9e', 'S139-G9f']" in cal[1], cal
+    assert all(got[m]["strict"] is True for m in got)
