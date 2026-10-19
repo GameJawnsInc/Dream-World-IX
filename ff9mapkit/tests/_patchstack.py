@@ -59,6 +59,39 @@ def net_lines(file_name, pattern, patches=None) -> list:
     return [text for text, n in count.items() for _ in range(n)]
 
 
+def net_lines_ordered(file_name, pattern, patches=None) -> list:
+    """[ff9mapkit netsync s141] :func:`net_lines` in FILE order. net_lines keeps first-ADDED order, so a later patch that
+    rewrites a line in place (s141's two rig rows) moves it to the end there; this replays each hunk's matching lines
+    against the running list instead -- a context line places the cursor after itself, a removed line's slot takes the
+    next added one, an added line with no cursor appends."""
+    if patches is None:
+        patches = live_patches()
+    rows: list = []
+    for blob in patches:
+        for path, sec in msr.sections(blob):
+            if not path or (file_name is not None and path.replace("\\", "/").rsplit("/", 1)[-1] != file_name):
+                continue
+            at = None
+            for ln in sec.decode("utf-8", "replace").splitlines():
+                if ln.startswith("@@"):
+                    at = None
+                    continue
+                if ln.startswith(("+++", "---")) or ln[:1] not in (" ", "+", "-") or not re.search(pattern, ln[1:]):
+                    continue
+                text = ln[1:].strip()
+                if ln[0] == " ":
+                    at = rows.index(text) + 1 if text in rows else at
+                elif ln[0] == "-":
+                    if text in rows:
+                        at = rows.index(text)
+                        rows.pop(at)
+                else:
+                    at = len(rows) if at is None else at
+                    rows.insert(at, text)
+                    at += 1
+    return rows
+
+
 def touches(file_name, patches=None) -> bool:
     """True when any live patch has a section for ``file_name`` -- a file no patch touches runs stock code."""
     if patches is None:
