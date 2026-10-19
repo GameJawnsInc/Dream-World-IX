@@ -159,6 +159,7 @@ def test_the_ghost_combo_offers_every_ghost_name_the_kit_writes(coop):
     assert len(data) == len(set(data)), data
     assert set(data) == {"", "auto"} | {folded.get(n, n) for n in kit.GHOST_NAMES}, data
     assert "moogle" in data
+    assert {"cinna", "marcus", "blank", "beatrix"} <= set(data)     # [ff9mapkit netsync s140] rig rows 9-12
 
 
 def test_the_kv_key_column_tracks_its_own_font(coop, app):

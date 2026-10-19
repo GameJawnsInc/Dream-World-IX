@@ -874,6 +874,8 @@ def _dress_through(doc: dict, rung: str) -> dict:
     out = dict(doc)
     d = {k: v for k, v in doc["dress"].items() if k in dress_keys}
     d["ghost"] = {k: v for k, v in doc["dress"]["ghost"].items() if k in ghost_keys}
+    if "rig_idle_frames" in d:                          # [ff9mapkit netsync s140] the rung's own rig-row count (9 on s139)
+        d["rig_idle_frames"] = list(d["rig_idle_frames"])[:BW.RIG_ROWS_BY_RUNG.get(rung, BW.RIG_ROW_COUNT)]
     out["dress"] = d
     return out
 
@@ -2290,7 +2292,8 @@ BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", 
                  "s136",                                      # [ff9mapkit netsync s136] fallback A
                  "s137",                                      # [ff9mapkit netsync s137] the trance burst timing
                  "s138",                                      # [ff9mapkit netsync s138] the dress instrument (keys only)
-                 "s139"]                                      # [ff9mapkit netsync s139] the host dress rule + `selfdress`
+                 "s139",                                      # [ff9mapkit netsync s139] the host dress rule + `selfdress`
+                 "s140"]                                      # [ff9mapkit netsync s140] the guest dresses itself (`self`)
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2572,7 +2575,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s138] the dress instrument (`netsync.dress`: the dress rungs join this one ladder, audit 3.1)
             "coop_dress_instr",
             # [ff9mapkit netsync s139] the host dress rule (`netsync.dress.ghost.bench_mask`; the `selfdress` sub-verb)
-            "coop_dress_host")
+            "coop_dress_host",
+            # [ff9mapkit netsync s140] the guest dresses itself (`netsync.dress.self`; the `selfdress self|gate|law` ops)
+            "coop_dress_self")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -6296,6 +6301,11 @@ def _proof_lines(fake) -> list:
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
               BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
+              BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29)]),
+    # [ff9mapkit netsync s140] s139 (s140's calibration red): the codec line's 29 rows, no 'self-dress' line
+    ("s139", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
               BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 29)]),
     # [ff9mapkit netsync s139] s138 (s139's calibration red): no 'dress codec' line
     ("s138", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
@@ -6336,7 +6346,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     fake = FakeGame(game)
     fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS,
                          "s132": S132_CAPS, "s133": S133_CAPS, "s134": S134_CAPS,
-                         "s135": S135_CAPS, "s136": S136_CAPS, "s138": S138_CAPS_}.get(caps) or _caps_at(caps)
+                         "s135": S135_CAPS, "s136": S136_CAPS, "s138": S138_CAPS_,
+                         "s139": FG.caps_through("dresshost")}.get(caps) or _caps_at(caps)
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6354,7 +6365,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
                                                                       BW.PROOF_REPLAY, BW.PROOF_HOLD,
                                                                       BW.PROOF_FALLBACK, BW.PROOF_TRANCE)) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"')) \
-        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS}"'))   # [netsync s139]
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS}"')) \
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_SELF_DRESS}"'))   # [s139 / s140]
 
 
 def _mlog_lines(fake, needle: str) -> list:
@@ -9429,7 +9441,7 @@ def test_the_action_replay_knob_is_a_behaviour_key_and_its_config_suffix_parses(
     """[Netsync] ActionReplay (default 1, quotes accepted) joins the behaviour signature (bsig) and the config line names
     ' actionReplay=0' only when off -- and the T2 benches' config matcher still reads such a line."""
     for piece in ('String arRaw = ini.GetSetting("Netsync", "ActionReplay", "1").Trim();', 'Boolean actionReplay = arRaw != "0";',
-                  '"|" + (actionReplay ? "1" : "0");', 'NetSyncDiorama.ActionReplay = actionReplay;',
+                  '"|" + (actionReplay ? "1" : "0")', 'NetSyncDiorama.ActionReplay = actionReplay;',
                   '(!actionReplay ? " actionReplay=0" : "") +'):
         assert any(piece in ln for ln in _stack_text("NetSyncClient.cs")), piece
     pb = _peer_bench()
@@ -14962,7 +14974,9 @@ import struct                                                           # noqa: 
 
 #: [ff9mapkit netsync s138] the FIXED sub-objects inside `netsync.dress`, BY PATH -> the patch that added each (s139 grows
 #: `ghost` with its levers; s140 adds `self`) -- a new container goes HERE, or :func:`_dress_leaves` never sees inside it.
-DRESS_CONTAINERS = {"ghost": "s138"}
+DRESS_CONTAINERS = {"ghost": "s138",
+                    # [ff9mapkit netsync s140] `self` (dress's LAST key) and its `law_off` levers
+                    "self": "s140", "self.law_off": "s140"}
 #: [ff9mapkit netsync s138] the `netsync.dress` records that may be published null where their accessor reads None (the
 #: BATTLE_NULLABLE twin; a null STRING reads "", so none at s138) -- a later rung's nullable record goes HERE.
 #: [ff9mapkit netsync s139] `ghost.hidden` (null = no ghost) and `mirror_party` (null = no party mirror): nullable LISTS
@@ -15239,7 +15253,9 @@ def test_the_folder_and_stem_twins_are_the_engines_rules_case_for_case():
                 continue
             assert BW.folder_of(ANIMATIONS.get(anim)) == MODELS[r["model"]], (name, k, anim, ANIMATIONS.get(anim))
     assert ANIMATIONS[200] == ANIMATIONS[324] == "ANH_MAIN_F0_ZDN_IDLE" and ANIMATIONS[0] == "ANH_MAIN_F0_STN_B"
-    assert [BW.rig_name(r) for r in (-1, 0, 7, 8, 9, True)] == [None, "zidane", "amarant", "moogle", None, None]
+    # [ff9mapkit netsync s140] rigs 9-12 are Cinna..Beatrix (CharacterId 8-11); the table ends at 12
+    assert [BW.rig_name(r) for r in (-1, 0, 7, 8, 9, 12, 13, True)] == [None, "zidane", "amarant", "moogle", "cinna",
+                                                                        "beatrix", None, None]
 
 
 def test_the_body_twin_reads_the_roots_own_mesh0_never_a_prop_or_the_overlay():
@@ -15424,7 +15440,10 @@ def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
     assert doc["dress"]["ghost"] == nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
     # the default stand-in carries every dress rung: the union of their frozen rows, in ladder order
     assert list(doc["dress"]["ghost"]) == [k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row]
-    assert (doc["dress"]["codec"], doc["dress"]["rig_idle_frames"]) == (None, [-1] * 9)   # [s139] no proof block yet
+    assert (doc["dress"]["codec"], doc["dress"]["rig_idle_frames"]) == (None, [-1] * 13)  # [s139] no proof block yet
+    # [ff9mapkit netsync s140] `self` -- its sentinels but the two the LIVE statics start at: the knob (SelfDress absent = 1)
+    # and the gate (on unless the selftest role's `gate 0`)
+    assert doc["dress"]["self"] == dict(BW.DRESS_SELF_SENTINELS, knob=True, gate=True), doc["dress"]["self"]
     assert doc["dress"]["party"] == [0, 1, -1, -1] == [m["char"] if m else -1 for m in fake.save_party]
     assert _battle_text("sb.Append(Try(() => PartyIndexOf(slot), -2).ToString(CultureInfo.InvariantCulture));")
 
@@ -15605,7 +15624,7 @@ print(json.dumps({
     "modes": {"default": mode(("I",), {}), "old": mode(("I",), {"COOP_DRESS_CAL": " OLD "}),
               "bad": mode(("I",), {"COOP_DRESS_CAL": "rule-s138"})},
     "sel": {"none": legs({}), "lower": legs({"COOP_DRESS_LEGS": "i"}), "dup": legs({"COOP_DRESS_LEGS": " I , i "}),
-            "bad": legs({"COOP_DRESS_LEGS": "I,X"})},
+            "bad": legs({"COOP_DRESS_LEGS": "I,Q"})},
     "consts": [sd.STOCK_FIELD, sd.BENCH_FIELD, sd.PARTY_FIELD, sd.DRESS_PROBE, sd.PLAYER_PROBE, list(sd.GHOST_AS_OK),
                sd.EVT_LANG, sd.STEADY_TICKS, sd.TAIL_TICKS, sd.GHOST_HOLD, sd.REST_STILL, sd.STOCK_ENTRANCE,
                sd.WALK_TICKS, sd.TICK_GAP, list(sd.KIT_CACHE_FILES), list(sd.S138_GHOST_KEYS)],
@@ -15647,8 +15666,9 @@ def test_the_s138_benchs_tables_are_its_docstring():
                                                         "close": "_i_close"},
                                 "pre": [30604, 30801], "oracle": ["stock", 30801], "oracle_extra": None,
                                 "old": {"137": [i_checks, []]}, "lever": {}} and got["steps_exist"]
-    assert list(got["legs"]) == ["I", "G"]                      # [ff9mapkit netsync s139] leg G (its own test pins it)
-    assert got["phases"] == ["stock", "seed", "seeded", "bench", "close"]
+    # [ff9mapkit netsync s139] leg G, [ff9mapkit netsync s140] legs S / W / X / N / T (their own tests pin them)
+    assert list(got["legs"]) == ["I", "G", "S", "W", "X", "N", "T"]
+    assert got["phases"] == ["stock", "seed", "seeded", "bench", "self", "close"]
     for k in ("p138", "p139"):
         assert c[k][0] is None and "no lever" in c[k][2] and "0269771f24b626c1" in c[k][2], (k, c[k])
     assert c["pnone"][0] is None and "TORN" in c["pnone"][2]
@@ -15669,10 +15689,11 @@ def test_the_s138_benchs_tables_are_its_docstring():
     assert c["pre_ifx"] == [30604, 30801, 30606]
     assert got["modes"]["default"] == got["modes"]["old"] == "old"
     assert got["modes"]["bad"].startswith("ValueError: COOP_DRESS_CAL='rule-s138' is no calibration mode")   # leg I alone
-    assert got["sel"]["lower"] == got["sel"]["dup"] == ["I"] and got["sel"]["none"] == ["I", "G"]   # [s139] every leg
-    assert got["sel"]["bad"].startswith("ValueError: COOP_DRESS_LEGS names ['X']")
+    assert got["sel"]["lower"] == got["sel"]["dup"] == ["I"]
+    assert got["sel"]["none"] == ["I", "G", "S", "W", "X", "N", "T"]       # [s139] [s140] every leg
+    assert got["sel"]["bad"].startswith("ValueError: COOP_DRESS_LEGS names ['Q']")
     assert got["consts"] == [250, 30801, 30604, "netsync.dress.ghost", "player.model", ["", "auto", "off", "0"], "us", 2, 1,
-                             2, 3, 0, 16, 4, [".ff9mapkit-events-bundle.txt"],
+                             2, 3, 0, 16, 4, [".ff9mapkit-events-bundle.txt", ".ff9mapkit-field-index.json"],
                              ["model", "geo", "clip", "rig", "playing", "body"]]
     assert got["probes"] == {str(k): v for k, v in BW.DRESS_PROBES.items()} == {
         "138": "netsync.dress.ghost", "139": "netsync.dress.codec", "140": "netsync.dress.self",
@@ -15966,6 +15987,8 @@ def make(case):
     (t / "StreamingAssets").mkdir()
     if case.get("cache", True):
         (t / "StreamingAssets" / ".ff9mapkit-events-bundle.txt").write_text("p0data7.bin", encoding="utf-8")
+    if case.get("index", case.get("cache", True)):
+        (t / "StreamingAssets" / ".ff9mapkit-field-index.json").write_text("{}", encoding="utf-8")
     for folder, evts in case.get("evts", {}).items():
         d = t.joinpath(folder, *sd.EVENT_DIR, "us")
         d.mkdir(parents=True, exist_ok=True)
@@ -15988,9 +16011,12 @@ out = {}
 for name, case in doc["cases"].items():
     t = make(case)
     oracle, why = sd.read_oracle(G(t), (250, 30801))
+    lists, lprob = sd.source_lists_read(t, (250, 30801), {30801: "TEST30801"})
     out[name] = {"fields": sorted(oracle["fields"]), "problems": {str(k): v for k, v in oracle["problems"].items()},
                  "party": oracle["party"], "why": why, "kit_missing": sd.kit_cache_missing(t),
                  "cache_written": (t / "StreamingAssets" / ".ff9mapkit-events-bundle.txt").exists(),
+                 "index_written": (t / "StreamingAssets" / ".ff9mapkit-field-index.json").exists(),
+                 "lists": {str(k): v for k, v in lists.items()}, "list_problems": lprob,
                  "npcs801": {str(k): v for k, v in (oracle["fields"].get(30801) or {}).get("npcs", {}).items()}}
 out["scan"] = [list(x) for x in sd.dictionary_remaps(make(doc["cases"]["remap"]), ["FF9CustomMap", "FF9CustomMap-msgs"],
                                                      [98, 217], [25])]
@@ -16089,6 +16115,7 @@ def test_the_s138_benchs_oracle_reads_per_field_and_never_writes_the_install():
              "remap_anim": {"evts": both, "dict": {"FF9CustomMap": "// a comment\n3DModelAnimation 54 25 ANH_NPC_F0_RMF_WALK\n"}},
              "unrelated": {"evts": both, "dict": {"FF9CustomMap": "3DModel 5489 GEO_X\n3DModelAnimation x 25 BAD\n3DModel\n"}},
              "nocache": {"evts": {"FF9CustomMap": {"EVT_TEST30801": eb801}}, "cache": False},
+             "noindex": {"evts": {"FF9CustomMap": {"EVT_TEST30801": eb801}}, "index": False},
              "missing801": {"evts": {"FF9CustomMap": {evt250: eb250}}}}
     got = _sd_child(_SD_ORACLE_OFFLINE, {"cases": cases})
     assert got["clean"]["fields"] == [250, 30801] and got["clean"]["problems"] == {}, got["clean"]
@@ -16102,7 +16129,17 @@ def test_the_s138_benchs_oracle_reads_per_field_and_never_writes_the_install():
     assert "3DModelAnimation 54 25 ANH_NPC_F0_RMF_WALK" in a["problems"]["250"]
     n = got["nocache"]
     assert n["fields"] == [30801] and list(n["problems"]) == ["250"] and "kit cache" in n["problems"]["250"], n
-    assert n["kit_missing"] == [".ff9mapkit-events-bundle.txt"] and n["cache_written"] is False
+    assert n["kit_missing"] == [".ff9mapkit-events-bundle.txt", ".ff9mapkit-field-index.json"]
+    assert n["cache_written"] is False and n["index_written"] is False
+    # [s140] the field index alone missing: the stock read is refused (never run -- the kit's resolve_field would BUILD it
+    # into the install), the kit field named by its registration; neither the oracle nor the SOURCE-list read writes it
+    ni = got["noindex"]
+    assert ni["fields"] == [30801] and list(ni["problems"]) == ["250"] and "kit cache" in ni["problems"]["250"], ni
+    assert ni["kit_missing"] == [".ff9mapkit-field-index.json"] and ni["index_written"] is False, ni
+    assert ni["lists"] == {"30801": 0} and list(ni["list_problems"]) == ["source list 250"], ni
+    assert "not reached" in ni["list_problems"]["source list 250"], ni
+    for case in ("nocache", "noindex"):
+        assert got[case]["index_written"] is False and got[case]["lists"].get("30801") == 0, (case, got[case])
     m = got["missing801"]
     assert m["fields"] == [250] and list(m["problems"]) == ["30801"] and "no `.eb` for field 30801" in m["problems"]["30801"]
     assert got["scan"] == [["FF9CustomMap-msgs", "3DModel 217 GEO_NPC_F0_RMF"]], got["scan"]
@@ -16264,22 +16301,25 @@ def test_the_s139_catch_line_closes_dress_with_the_host_rules_sentinels():
     rig_idle_frames nine -1s and mirror_party null after `party` (audit 3.1's table) -- and is s139's own
     line (s138's, with exactly those keys added: :func:`_dress_through`). AppendDress writes them in that order, each
     through its own Try and a NetSyncClient.HarnessDress* / NetSyncVisitor.HarnessRigIdleFrame getter, in EVERY role; the
-    harness protocol stays 5."""
-    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    harness protocol stays 5. [ff9mapkit netsync s140] the line AS s139 WROTE IT (its own patch, frozen): s140 rewrote it
+    (`rig_idle_frames` thirteen -1s, `self` after `mirror_party` -- its test pins the live one)."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', [_patch_bytes("s139")])
     assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
     _a, b = _literals(catch[0])
     assert b.endswith('\\"body\\":null,\\"bench_mask\\":-1,\\"empty_mask\\":-1,\\"rule\\":null,\\"wire\\":-1,\\"wire_anim\\":-1,'
                       '\\"mode\\":null,\\"rest_mask\\":-1,\\"shown_mask\\":-1,\\"hidden\\":null},\\"party\\":[-1,-1,-1,-1],'
                       '\\"codec\\":null,\\"rig_idle_frames\\":[-1,-1,-1,-1,-1,-1,-1,-1,-1],\\"mirror_party\\":null}}'), b[-320:]
     nothing = _agent_netsync_nothing()[0]
-    assert _catch_doc_in("s139") == nothing and nothing["dress"] == BW.DRESS_SENTINELS
-    assert list(nothing["dress"]) == [k for row in BW.DRESS_KEYS_BY_RUNG.values() for k in row] == \
+    s139 = _catch_doc_in("s139")
+    assert s139 == _dress_through(nothing, "dresshost") and nothing["dress"] == BW.DRESS_SENTINELS
+    assert list(s139["dress"]) == [k for r in ("dressinstr", "dresshost") for k in BW.DRESS_KEYS_BY_RUNG[r]] == \
         ["ghost", "party", "codec", "rig_idle_frames", "mirror_party"]
+    assert s139["dress"]["rig_idle_frames"] == [-1] * BW.RIG_ROW_COUNT_S139
     assert _dress_through(nothing, "dressinstr") == _catch_doc_in("s138")
     assert {k: nothing["dress"]["ghost"][k] for k in BW.DRESS_GHOST_KEYS_BY_RUNG["dresshost"]} == {
         "bench_mask": -1, "empty_mask": -1, "rule": None, "wire": -1, "wire_anim": -1, "mode": None, "rest_mask": -1,
         "shown_mask": -1, "hidden": None}
-    assert len(BW.DRESS_SENTINELS["rig_idle_frames"]) == BW.RIG_ROW_COUNT == 9
+    assert len(BW.DRESS_SENTINELS["rig_idle_frames"]) == BW.RIG_ROW_COUNT == 13 and BW.RIG_ROW_COUNT_S139 == 9
     new = [_strip_comment(t) for t in _s139_new("HarnessAgent.cs")]
     levers = [t for t in new if re.match(r'(?:Num|Str|StrList)\(sb, "(?:bench_mask|empty_mask|rule|wire|wire_anim|mode|'
                                          r'rest_mask|shown_mask|hidden)", ', t)]
@@ -16311,7 +16351,10 @@ def test_the_s139_catch_line_closes_dress_with_the_host_rules_sentinels():
         assert frag in client, frag
     assert (BW.DRESS_MODE_BENCH, BW.DRESS_MODE_INI) == ("bench:auto", "ini:")
     vis = " ".join(_stack_text("NetSyncVisitor.cs"))
-    assert "internal static readonly Int32[] RigIdleFrames = { -1, -1, -1, -1, -1, -1, -1, -1, -1 };" in vis
+    # [ff9mapkit netsync s140] nine as s139 wrote it; the live table's thirteen (rows 9-12)
+    assert "internal static readonly Int32[] RigIdleFrames = { -1, -1, -1, -1, -1, -1, -1, -1, -1 };" in _s139_new(
+        "NetSyncVisitor.cs")
+    assert "internal static readonly Int32[] RigIdleFrames = { " + ", ".join(["-1"] * 13) + " };" in vis
     assert "return rig >= 0 && rig < RigIdleFrames.Length ? RigIdleFrames[rig] : -1;" in vis
 
 
@@ -16351,8 +16394,8 @@ def test_the_s139_agent_prints_selfdress_last_and_the_driver_and_the_stand_in_ag
     assert re.search(r'^\s*139: "netsync\.dress\.codec",', src, re.M)
 
 
-def _agent_selfdress_ops() -> tuple:
-    lines = net_lines("NetSyncClient.cs", r"netsync selfdress: unknown op '")
+def _agent_selfdress_ops(patches=None) -> tuple:
+    lines = net_lines("NetSyncClient.cs", r"netsync selfdress: unknown op '", patches)
     assert len(lines) == 1, lines
     m = re.search(r"\(([a-z|]+)\)\";", lines[0])
     assert m, lines[0]
@@ -16364,12 +16407,22 @@ def test_the_selfdress_ops_and_usage_are_the_engines_in_its_order():
     refusal the driver quotes is one of its literals; and it refuses in ITS order -- the ROLE first, then the op, then the
     value (the driver mirrors that: it sends for the agent's own role refusal, and refuses an op / value before the step only
     on the selftest role)."""
+    # [ff9mapkit netsync s140] the LIVE list is s140's (+ self|gate|law, no `polish`); s139's own list, off its patch
     assert _agent_selfdress_ops() == Session.NETSYNC_SELFDRESS_OPS == FG.NETSYNC_SELFDRESS_OPS == BW.SELFDRESS_OPS == \
-        ("ghost", "empty", "rule", "wire", "clear")
-    assert FG.selfdress_ops(FG.caps_through("dresshost")) == BW.SELFDRESS_OPS and FG.selfdress_ops(S138_CAPS_) == ()
-    assert Session.NETSYNC_SELFDRESS_OP_CAPS == {}             # s140 adds `self` / `gate`, s141 `polish`
+        ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law")
+    assert _agent_selfdress_ops([_patch_bytes("s139")]) == Session.NETSYNC_SELFDRESS_OPS_S139 == \
+        FG.NETSYNC_SELFDRESS_OPS_S139 == BW.SELFDRESS_OPS_S139 == BW.S139.SELFDRESS_OPS == ("ghost", "empty", "rule",
+                                                                                            "wire", "clear")
+    assert FG.selfdress_ops(FG.caps_through("dresshost")) == BW.SELFDRESS_OPS_S139 and FG.selfdress_ops(S138_CAPS_) == ()
+    assert FG.selfdress_ops(FG.caps_through("dressself")) == BW.SELFDRESS_OPS
+    # s140 adds `self` / `gate` / `law` on `netsync.dress.self` (s141 will add `polish`): R3-FIELD-MODEL-AUDIT.md 3.1 + O6
+    assert set(Session.NETSYNC_SELFDRESS_OP_CAPS) == set(BW.SELFDRESS_SELF_OPS) == {"self", "gate", "law"}
+    assert {v[:3] for v in Session.NETSYNC_SELFDRESS_OP_CAPS.values()} == {("coop_dress_self", "netsync.dress.self",
+                                                                             "s140")}
     client = _stack_text("NetSyncClient.cs")
     for op, text in Session.NETSYNC_SELFDRESS_USAGE.items():
+        if op in BW.SELFDRESS_SELF_OPS:
+            continue                                   # [ff9mapkit netsync s140] test_the_s140_selfdress_ops_are_the_engines
         if op in ("ghost", "empty"):
             assert any('why = "netsync selfdress " + op + ": expected `" + op + " <mask 0-15>|off`";' in ln
                        for ln in client), op
@@ -16404,7 +16457,7 @@ DRESS_REFUSALS = [
     ("netsync selfdress: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["selfdress", "ghost", "2"])),
     ("netsync selfdress: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["selfdress", "bogus"])),
     ("netsync selfdress: unknown op '", lambda f: _sd(f)._netsync(["selfdress", "bogus"])),
-    ("' (ghost|empty|rule|wire|clear)", lambda f: _sd(f)._netsync(["selfdress"])),
+    ("' (ghost|empty|rule|wire|clear|self|gate|law)", lambda f: _sd(f)._netsync(["selfdress"])),   # [s140] the live list
     ("netsync selfdress ", lambda f: _sd(f)._netsync(["selfdress", "ghost", "16"])),
     (": expected `", lambda f: _sd(f)._netsync(["selfdress", "empty", "-1"])),
     (" <mask 0-15>|off`", lambda f: _sd(f)._netsync(["selfdress", "ghost"])),
@@ -16423,6 +16476,26 @@ DRESS_REFUSALS = [
     ("netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`",
      lambda f: _sd(f)._netsync(["selfdress", "wire", "8", "912", "1"])),
     ("netsync selfdress clear: takes no argument", lambda f: _sd(f)._netsync(["selfdress", "clear", "now"])),
+    # [ff9mapkit netsync s140] the guest's own dress -- `self` (the spec, then TrySetBenchSelf's mask rules), `gate`, `law`
+    ("netsync selfdress self: expected `self off|auto [mask 0-15]|<name>|moogle` (names: ",
+     lambda f: _sd(f)._netsync(["selfdress", "self", "kuja"])),
+    ("netsync selfdress self: expected `self off|auto [mask 0-15]|<name>|moogle` (names: ",
+     lambda f: _sd(f)._netsync(["selfdress", "self"])),
+    ("netsync selfdress self: expected `self off|auto [mask 0-15]|<name>|moogle` (names: ",
+     lambda f: _sd(f)._netsync(["selfdress", "self", "freya", "2"])),
+    ("netsync selfdress self: expected `self off|auto [mask 0-15]|<name>|moogle` (names: ",
+     lambda f: _sd(f)._netsync(["selfdress", "self", "auto", "-1"])),
+    ("netsync selfdress self off: takes no mask", lambda f: _sd(f)._netsync(["selfdress", "self", "off", "2"])),
+    ("netsync selfdress self auto: mask ", lambda f: _sd(f)._netsync(["selfdress", "self", "auto", "16"])),
+    (" is outside 0-15 (party slots 0-3)", lambda f: _sd(f)._netsync(["selfdress", "self", "AUTO", "99"])),
+    ("netsync selfdress gate: expected `gate 1|0`", lambda f: _sd(f)._netsync(["selfdress", "gate", "2"])),
+    ("netsync selfdress gate: expected `gate 1|0`", lambda f: _sd(f)._netsync(["selfdress", "gate", "1", "1"])),
+    ("netsync selfdress law: expected `law bframe|attach|alias|timeline on|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "law", "bframe"])),
+    ("netsync selfdress law: expected `law bframe|attach|alias|timeline on|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "law", "polish", "off"])),
+    ("netsync selfdress law: expected `law bframe|attach|alias|timeline on|off`",
+     lambda f: _sd(f)._netsync(["selfdress", "law", "alias", "0"])),
 ]
 
 
@@ -16430,12 +16503,14 @@ DRESS_REFUSALS = [
 def test_the_stand_in_refuses_selfdress_in_the_agents_words(game, fragment, provoke):
     """Every `selfdress` gate the stand-in models refuses with the agent's own words (each fragment one literal of the
     live stack, or a piece of one) -- the role first, then the op, then its value."""
-    assert _battle_text(fragment) or any(fragment in ln for ln in _stack_text("NetSyncClient.cs")), fragment
+    assert _battle_text(fragment) or any(fragment in ln for f in ("NetSyncClient.cs", "NetSyncSelfDress.cs")
+                                         for ln in _stack_text(f)), fragment     # [ff9mapkit netsync s140] + its own file
     fake = FakeGame(game)
     with pytest.raises(RuntimeError) as err:
         provoke(fake)
     assert fragment in str(err.value), str(err.value)
     assert fake._dress_bench == {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}   # nothing changed
+    assert fake._self_levers == {"spec": None, "mask": -1, "gate_off": False, "law_off": 0}       # [s140] ...nor here
 
 
 def test_the_driver_refuses_selfdress_before_the_step_in_the_engines_order(game):
@@ -16465,8 +16540,11 @@ def test_the_driver_refuses_selfdress_before_the_step_in_the_engines_order(game)
                 g.selfdress("bogus")                       # not the selftest role: the AGENT refuses (the role first)
             assert len(fake.executed) == n + 1 and fake.executed[-1] == ["netsync", "selfdress", "bogus"]
             g.netsync("selftest", 1)
-            for args, why in ((("bogus",), "netsync selfdress: unknown op 'bogus' (ghost|empty|rule|wire|clear)"),
-                              ((), "netsync selfdress: unknown op '' (ghost|empty|rule|wire|clear)"),
+            # [ff9mapkit netsync s140] the default stand-in is s140's: its eight ops (s139's five on the calibration engine)
+            for args, why in ((("bogus",), "netsync selfdress: unknown op 'bogus' (ghost|empty|rule|wire|clear|self|gate|law)"),
+                              ((), "netsync selfdress: unknown op '' (ghost|empty|rule|wire|clear|self|gate|law)"),
+                              (("polish", "on"), "netsync selfdress: unknown op 'polish' (ghost|empty|rule|wire|clear|self|"
+                                                 "gate|law)"),
                               (("ghost", 16), "netsync selfdress ghost: expected `ghost <mask 0-15>|off`"),
                               (("empty",), "netsync selfdress empty: expected `empty <mask 0-15>|off`"),
                               (("ghost", "0x2"), "netsync selfdress ghost: expected `ghost <mask 0-15>|off`"),
@@ -16590,6 +16668,9 @@ RIG_CENSUS = {
 MOOGLE_LOCO = {"model": 220, "idle": 2904, "walk": 2927, "run": 2907, "left": 2923, "right": 2911}
 #: the idle frame counts the kit's clip reader reads off the install's p0data5 (the audit's amendment 7 census)
 RIG_IDLE_FRAMES_CENSUS = [60, 45, 30, 60, 50, 40, 30, 45, 72]
+#: [ff9mapkit netsync s140] ...and the thirteen rows an s140 engine measures: + Cinna 40, Marcus 30, Blank 40, Beatrix 45
+#: (studies/battle-coop/dress-census/rigs_8_11.json `frames_13`, the same reader)
+RIG_IDLE_FRAMES_CENSUS_13 = RIG_IDLE_FRAMES_CENSUS + [40, 30, 40, 45]
 
 
 def _s139_rig_rows() -> list:
@@ -16614,7 +16695,8 @@ def test_the_rig_twin_is_the_engines_table_and_the_census():
     from ff9mapkit._animdb_all import ANIMATIONS
     from ff9mapkit._modeldb import MODELS
     rows = _s139_rig_rows()
-    assert rows == list(BW.RIGS) and len(rows) == BW.RIG_ROW_COUNT == 9, rows
+    # [ff9mapkit netsync s140] the s139 patch's own nine rows: battlewire's FROZEN s139 view (the live table has 13)
+    assert rows == list(BW.S139.RIGS) == list(BW.RIGS[:9]) and len(rows) == BW.S139.RIG_ROW_COUNT == 9, rows
     assert all(len(r) == len(BW.RIG_COLUMNS) == 16 for r in rows)
     sig = " ".join(_s139_block("NetSyncVisitor.cs", "public Rig(UInt16 model, UInt16 idle", "{"))
     names = re.findall(r"\b(?:UInt16|Byte|Int16) (\w+)", sig)
@@ -16624,8 +16706,8 @@ def test_the_rig_twin_is_the_engines_table_and_the_census():
                                                                        "run_step_a", "run_step_b", "step_sound",
                                                                        "idle_alias", "hand_bone", "hand_bone_end")], names
     assert tuple(_snake(n) for n in names) == BW.RIG_COLUMNS
-    for i, name in enumerate(BW.RIG_NAMES):
-        r = BW.rig_row(i)
+    for i, name in enumerate(BW.S139.RIG_NAMES):
+        r = BW.S139.rig_row(i)
         if i < 8:
             c = playerswap.CHARACTERS[name]
             assert (r["model"], r["eye"], r["idle"], r["walk"], r["run"], r["turn_l"], r["turn_r"]) == (
@@ -16668,10 +16750,14 @@ def test_the_kits_ghost_names_are_the_engines_name_to_rig_keys():
     from ff9mapkit import coop
     block = " ".join(_cs_block("NetSyncVisitor.cs", "private static readonly Dictionary<String, Int32> NameToRig", "};"))
     pairs = [(n, int(v)) for n, v in re.findall(r'\{ "(\w+)", (\d+) \}', block)]
-    assert dict(pairs) == BW.NAME_TO_RIG and len(pairs) == len(BW.NAME_TO_RIG) == 11
-    assert tuple(n for n, _v in pairs) == coop.GHOST_NAMES
+    assert dict(pairs) == BW.NAME_TO_RIG and len(pairs) == len(BW.NAME_TO_RIG) == 15
+    assert tuple(n for n, _v in pairs) == coop.GHOST_NAMES == BW.SELF_NAMES
     assert coop.parse_ghost_as("Moogle") == "moogle" and BW.NAME_TO_RIG["moogle"] == BW.RIG_MOOGLE
     assert "{ \"moogle\", 8 }," in block
+    # [ff9mapkit netsync s140] the owner's 8-11 rows by name (the HOST's named path dresses them; a client's cap refuses)
+    assert [(n, BW.NAME_TO_RIG[n]) for n in ("cinna", "marcus", "blank", "beatrix")] == [("cinna", 9), ("marcus", 10),
+                                                                                        ("blank", 11), ("beatrix", 12)]
+    assert all(coop.parse_ghost_as(n.title()) == n for n in ("cinna", "marcus", "blank", "beatrix"))
 
 
 _DRESS_TWINS = {          # C# method -> (the twin, the C# parameter names it takes, an `out` result folded into its return)
@@ -16709,17 +16795,22 @@ def test_the_dress_auto_table_is_the_engines_row_for_row():
             chars = BW.DRESS_PARTY4 if m.group(3) == "DressParty4" else None if m.group(3) == "null" else \
                 tuple(int(x) for x in m.group(4).split(","))
             rows.append((m.group(7), int(m.group(1), 0), m.group(2) == "true", chars, int(m.group(5)), int(m.group(6))))
-    assert len(rows) == len(BW.DRESS_AUTO_TABLE) == 14 and tuple(rows) == BW.DRESS_AUTO_TABLE, rows
+    # [ff9mapkit netsync s140] the s139 patch's own table against battlewire's FROZEN s139 view (s140's grown table is
+    # test_the_s140_dress_auto_table_is_the_engines_row_for_row's)
+    S = BW.S139
+    assert len(rows) == len(S.DRESS_AUTO_TABLE) == 14 and tuple(rows) == S.DRESS_AUTO_TABLE == BW.DRESS_AUTO_TABLE_S139, rows
     assert "private static readonly Int32[] DressParty4 = { 0, 1, 2, 3 };" in " ".join(_stack_text("NetSyncClient.cs"))
-    assert BW.dress_auto_table(BW.resolve_auto) is None
-    assert BW.dress_auto_table(BW.mutant_rigs_length_guard) == "Cinna (CharacterId 8) -> undressed, never the moogle row"
-    assert BW.dress_auto_table(BW.mutant_moogle_on_client) == "mask 0 -> undressed on a client"
+    assert S.dress_auto_table(S.resolve_auto) is None
+    assert S.dress_auto_table(S.mutant_rigs_length_guard) == "Cinna (CharacterId 8) -> undressed, never the moogle row"
+    assert S.dress_auto_table(S.mutant_moogle_on_client) == "mask 0 -> undressed on a client"
     # the audit's OVERRIDDEN recommendation (mask 0 -> undressed everywhere) is caught by the first row: owner D2 is pinned
-    assert BW.dress_auto_table(lambda m, w, c: (0, -1) if m & 0x0F == 0 else BW.resolve_auto(m, w, c)) == \
+    assert S.dress_auto_table(lambda m, w, c: (0, -1) if m & 0x0F == 0 else S.resolve_auto(m, w, c)) == \
         "mask 0 -> the moogle on the host / selftest (owner D2)"
     # ...and a rule without the skip (s138's first named bit) by the empty-first-slot row
-    assert BW.dress_auto_table(lambda m, w, c: BW.resolve_dress_s138("auto", m, c) if m & 0x0F else
-                               BW.resolve_auto(m, w, c)) == "an empty first named slot -> the next named member"
+    assert S.dress_auto_table(lambda m, w, c: BW.resolve_dress_s138("auto", m, c) if m & 0x0F else
+                              S.resolve_auto(m, w, c)) == "an empty first named slot -> the next named member"
+    # ...and the LIVE s140 rule fails the s139 table exactly at Cinna (the owner's decision, nothing else moved)
+    assert S.dress_auto_table(BW.resolve_auto) == "Cinna (CharacterId 8) -> undressed, never the moogle row"
 
 
 # ---- DressSelfTest's OWN rows, evaluated against the twins (the s139 proof block's 29 rows)
@@ -16737,21 +16828,28 @@ def _dress_frame_parts() -> list:
             (BW.SECTION_DIALOG, bytes(range(100, 160)))]
 
 
-def _dress_ns(**over) -> dict:
+def _dress_ns(stage: str = "s139", **over) -> dict:
     """The namespace DressSelfTest runs in: the twins under their C# names (an `out x` passed BY NAME, written into the
     namespace), BuildStateFrame / WireRoundTrip / PartyParsesAlike / HostDressSection as their Python stand-ins (the
     synthetic host frame, coop_peer's v14 frame codec, the s103 walkers' twins, the forced selftest's own config:
-    GuestSlots 0, GhostAs auto -- owner D2's DC 00 FF), and ``over`` replacing any twin (a MUTANT, to prove a row bites)."""
+    GuestSlots 0, GhostAs auto -- owner D2's DC 00 FF), and ``over`` replacing any twin (a MUTANT, to prove a row bites).
+    [ff9mapkit netsync s140] ``stage`` picks the engine the rows are: "s139" (the s139 patch's 29 rows) runs battlewire's
+    FROZEN s139 view (BW.S139: nine rows, Cinna..Beatrix undressed), "s140" (the live 38) the live twins with the owner's
+    8-11 rows and their maps."""
     from types import SimpleNamespace as NS
     from harness import coop_peer as CP
     from ff9mapkit._animdb_all import ANIMATIONS
-    tw = dict(resolve_auto=BW.resolve_auto, resolve_dress_rule=BW.resolve_dress_rule,
-              resolve_dress_s138=BW.resolve_dress_s138, ghost_guard=BW.ghost_guard, ghost_anim=BW.ghost_anim,
-              dress_char_id=BW.dress_char_id, dress_section_body=BW.dress_section_body,
+    R = BW.S139 if stage == "s139" else BW
+    tw = dict(resolve_auto=R.resolve_auto, resolve_dress_rule=R.resolve_dress_rule,
+              resolve_dress_s138=BW.resolve_dress_s138, ghost_guard=BW.ghost_guard, ghost_anim=R.ghost_anim,
+              dress_char_id=R.dress_char_id, dress_section_body=BW.dress_section_body,
               parse_dress_section=BW.parse_dress_section, moogle_when_empty=BW.moogle_when_empty,
               old_try_read_section=BW.old_try_read_section, old_apply_story=BW.old_apply_story,
-              old_party_sections=BW.old_party_sections, append_section=BW.append_section, rigs=BW.RIGS,
-              host_dress_section=lambda: BW.host_dress_section("auto", 0, "selftest", True, None))
+              old_party_sections=BW.old_party_sections, append_section=BW.append_section, rigs=R.RIGS,
+              host_dress_section=lambda: R.host_dress_section("auto", 0, "selftest", True, None),
+              # [ff9mapkit netsync s140] the CharacterId <-> rig map, the guest's charId check, the classifier / translation
+              char_to_rig=BW.char_to_rig, rig_to_char=BW.rig_to_char, dress_char_id_valid=BW.dress_char_id_valid,
+              classify_loco=R.classify_loco, loco_anim=R.loco_anim, rig_row_count=R.RIG_ROW_COUNT)
     tw.update(over)
     ns: dict = {}
 
@@ -16824,24 +16922,52 @@ def _dress_ns(**over) -> dict:
         return True
 
     rig_for = lambda m: next((i for i, r in enumerate(tw["rigs"]) if r[0] == m), -1)   # noqa: E731
+
+    def auto(*a):
+        """ResolveAuto as a VALUE (DressAutoTable(NetSyncVisitor.ResolveAuto): (model, rig)) or as a CALL with its `out`
+        named ([ff9mapkit netsync s140] a Cinna / Blank puppet end to end: the model, the rig written)."""
+        if len(a) == 4:
+            model, rig = tw["resolve_auto"](*a[:3])
+            out(a[3], rig)
+            return model
+        return tw["resolve_auto"](*a)
+
+    def sub_rigs_census():
+        return BW.sub_rigs_are_census(tw["rigs"])
+
+    def clips_own_folder():
+        return BW.rig_clips_in_own_folder(tw["rigs"])
+
+    def char_map_holds():
+        return BW.char_rig_map_holds(tw["char_to_rig"], tw["rig_to_char"])
     ns.update(
-        NetSyncVisitor=NS(RigCount=len(tw["rigs"]), RigRowCount=BW.RIG_ROW_COUNT, MainRigCount=BW.MAIN_RIG_COUNT,
-                          MoogleRig=BW.RIG_MOOGLE, RigForModel=rig_for, TryGetRig=try_get_rig, LocoAnim=BW.loco_anim,
-                          ClassifyLoco=BW.classify_loco, LocoWalk=BW.LOCO_WALK, LocoRun=BW.LOCO_RUN,
-                          LocoOther=BW.LOCO_OTHER, ResolveAuto=tw["resolve_auto"],
+        NetSyncVisitor=NS(RigCount=len(tw["rigs"]), RigRowCount=tw["rig_row_count"], MainRigCount=BW.MAIN_RIG_COUNT,
+                          MoogleRig=BW.RIG_MOOGLE, RigForModel=rig_for, TryGetRig=try_get_rig, LocoAnim=tw["loco_anim"],
+                          ClassifyLoco=tw["classify_loco"], LocoWalk=BW.LOCO_WALK, LocoRun=BW.LOCO_RUN,
+                          LocoOther=BW.LOCO_OTHER, LocoIdle=BW.LOCO_IDLE, LocoTurnL=BW.LOCO_TURN_L, ResolveAuto=auto,
                           ResolveDressRule=two(tw["resolve_dress_rule"]), ResolveDressS138=two(tw["resolve_dress_s138"]),
                           GhostGuard=tw["ghost_guard"], GhostAnim=tw["ghost_anim"], MoogleWhenEmpty=tw["moogle_when_empty"],
                           DressCharId=tw["dress_char_id"], DressSectionBody=tw["dress_section_body"],
                           TryParseDressSection=parse, DressBodyLen=BW.DRESS_BODY_LEN, CharNone=BW.CHAR_NONE,
-                          SectionDress=BW.SECTION_DRESS),
+                          SectionDress=BW.SECTION_DRESS,
+                          # [ff9mapkit netsync s140]
+                          SubRigFirst=BW.SUB_RIG_FIRST, SubCharFirst=BW.SUB_CHAR_FIRST, SubRigCount=BW.SUB_RIG_COUNT,
+                          CharToRig=tw["char_to_rig"], RigToChar=tw["rig_to_char"],
+                          DressCharIdValid=tw["dress_char_id_valid"]),
         NetSyncState=NS(TryReadSection=read, ApplyStoryTo=apply_story, AppendSection=tw["append_section"],
                         SectionDialog=BW.SECTION_DIALOG, SectionEvent=BW.SECTION_EVENT, SectionIntent=BW.SECTION_INTENT,
                         SectionTalk=BW.SECTION_TALK),
         SameRead=same_read,
         NetSyncWire=NS(MaxPayload=8192),
         DressParty4=list(BW.DRESS_PARTY4), RigColumnsHold=columns_hold,
-        DressAutoTable=BW.dress_auto_table, MutantRigsLengthGuard=BW.mutant_rigs_length_guard,
-        MutantMoogleOnClient=BW.mutant_moogle_on_client, MoogleRoleMutant=BW.mutant_role_not_client,
+        DressAutoTable=R.dress_auto_table, MutantRigsLengthGuard=BW.mutant_rigs_length_guard,
+        MutantMoogleOnClient=R.mutant_moogle_on_client, MoogleRoleMutant=BW.mutant_role_not_client,
+        # [ff9mapkit netsync s140] the grown rows' helpers and their mutants
+        SubRigsAreCensus=sub_rigs_census, RigClipsInOwnFolder=clips_own_folder, CharRigMapHolds=char_map_holds,
+        DressCharTable=BW.dress_char_table, DressCharIdValidTable=BW.dress_char_id_valid_table,
+        MutantCharIsRig=BW.mutant_char_is_rig, MutantMainsCap=BW.mutant_mains_cap,
+        MutantRigAsCharId=BW.mutant_rig_as_char_id, MutantCharIdMainsOnly=BW.mutant_char_id_mains_only,
+        MutantCharIdMainsValid=BW.mutant_char_id_mains_valid, MutantCharIdRigSpaceValid=BW.mutant_char_id_rig_space_valid,
         SwappedDressBody=BW.swapped_dress_body, BytesAre=lambda b, *w: b is not None and bytes(b) == bytes(w),
         BytesEqual=lambda a, b: a is not None and b is not None and bytes(a) == bytes(b),
         BytesEqualRange=lambda a, b, n: a is not None and b is not None and len(a) >= n and len(b) >= n
@@ -16912,9 +17038,10 @@ def test_the_dress_twins_evaluate_every_dress_selftest_row_off_the_stack():
     skipped by every old reader, refused when truncated, read forward when longer -- and the three mutants, each caught.
     Row for row the names battlewire.dress_selftest_offline reports for the rows it runs alone (1-15 and the mutants)."""
     names = _run_dress_rows(_dress_ns())
-    assert len(names) == BW.DRESS_SELFTEST_ROWS == 29 and len(set(names)) == 29, names
-    offline = [n for n, ok in BW.dress_selftest_offline()]
-    assert all(ok for _n, ok in BW.dress_selftest_offline())
+    # [ff9mapkit netsync s140] s139's own 29 rows (the live DressSelfTest has 38: the s140 test evaluates those)
+    assert len(names) == BW.DRESS_SELFTEST_ROWS_S139 == BW.S139.DRESS_SELFTEST_ROWS == 29 and len(set(names)) == 29, names
+    offline = [n for n, ok in BW.dress_selftest_offline_s139()]
+    assert all(ok for _n, ok in BW.dress_selftest_offline_s139())
     assert offline == names[:15] + names[-3:], (offline, names)
     assert names[4] == "auto: the table" and names[15].startswith("frame: BuildStateFrame's host frame gains exactly")
     # the proof line's shape and the codec key's two verdicts, off the stack
@@ -16926,7 +17053,7 @@ def test_the_dress_twins_evaluate_every_dress_selftest_row_off_the_stack():
                  'HostDressSection()));'):
         assert frag in client, frag
     assert (BW.DRESS_CODEC_OK, BW.DRESS_CODEC_FAIL) == ("ok", "fail: ")
-    assert BW.proof_ok(BW.PROOF_DRESS, BW.DRESS_SELFTEST_ROWS) == "dress codec selftest: OK (29 rows)"
+    assert BW.proof_ok(BW.PROOF_DRESS, BW.DRESS_SELFTEST_ROWS_S139) == "dress codec selftest: OK (29 rows)"
 
 
 @pytest.mark.parametrize("mutant,row", [
@@ -16951,22 +17078,22 @@ def test_each_dress_selftest_row_can_fail_on_the_twin_it_holds(mutant, row):
     `role != "client"` predicate, a reader that refuses a longer body, an old walker that refuses an id it does not know
     or STOPS at id 8, an EMPTY section-8 body, a broken idle alias, an unreadable party slot read as an empty seat) turns
     DressSelfTest's OWN row red -- the very row named."""
-    rigs = list(BW.RIGS)
+    rigs = list(BW.S139.RIGS)                          # [ff9mapkit netsync s140] s139's own nine rows
     rigs[3] = rigs[3][:13] + (2001 + 7,) + rigs[3][14:]
     over = {
         "swapped": {"dress_section_body": BW.swapped_dress_body,
                     "parse_dress_section": lambda b: None if b is None or len(b) < 3 else ((b[0] << 8) | b[1], b[2])},
-        "no_d2": {"resolve_auto": lambda m, w, c: (0, -1) if m & 0x0F == 0 else BW.resolve_auto(m, w, c)},
+        "no_d2": {"resolve_auto": lambda m, w, c: (0, -1) if m & 0x0F == 0 else BW.S139.resolve_auto(m, w, c)},
         "cap9": {"resolve_auto": BW.mutant_rigs_length_guard},
         "no_guard": {"ghost_guard": lambda d, w: d},
-        "flatten": {"ghost_anim": lambda dm, dr, wm, wl, wa: BW.loco_anim(dr, wl) if dm else wa},
+        "flatten": {"ghost_anim": lambda dm, dr, wm, wl, wa: BW.S139.loco_anim(dr, wl) if dm else wa},
         "typo_role": {"moogle_when_empty": lambda role, st: role != "client"},
         "no_forward": {"parse_dress_section": lambda b: None if b is None or len(b) != 3 else (b[0] | (b[1] << 8), b[2])},
         "strict_walker": {"old_try_read_section": lambda p, sid: None if sid == BW.SECTION_DRESS else
                           BW.old_try_read_section(p, sid)},
         "stop_at_8": {"old_try_read_section": _stop_at_8_walker},
         # a party-read FAULT (-2) read as an empty seat: the host would hand it the moogle (the review's nit)
-        "unreadable_moogle": {"resolve_auto": lambda m, w, c: BW.resolve_auto(
+        "unreadable_moogle": {"resolve_auto": lambda m, w, c: BW.S139.resolve_auto(
             m, w, [-1 if v == BW.PARTY_UNREADABLE else v for v in (c if c is not None else (-1, -1, -1, -1))])},
         "empty_body": {"host_dress_section": lambda: b""},
         "rig_alias": {"rigs": tuple(rigs)},
@@ -17053,8 +17180,11 @@ def test_the_selftest_dress_site_twin_is_the_engines_statement_for_statement():
     assert BW.selftest_dress(ghost_as="auto", role="guest", selftest_role=False, **me)["model"] == 98   # a typo'd role
     # GhostAs = moogle (the new name) dresses on any role; Cinna in the named slot never wears the moogle row
     assert BW.selftest_dress(ghost_as="moogle", **me)["model"] == 220
+    assert BW.S139.selftest_dress(ghost_as="auto", bench_mask=2, me_model=98, me_anim=200, party=[0, 8, -1, -1],
+                                  guest_slots=0)["model"] == 98
+    # [ff9mapkit netsync s140] OWNER (2026-10-17): on the live site Cinna wears her own rig 9 (107), never the moogle row
     assert BW.selftest_dress(ghost_as="auto", bench_mask=2, me_model=98, me_anim=200, party=[0, 8, -1, -1],
-                             guest_slots=0)["model"] == 98
+                             guest_slots=0) == {"model": 107, "rig": 9, "anim": 470, "mask": "rest"}
     # [ff9mapkit netsync s139] `wire <model> <anim>`: the stand-in guest PLAYS its pinned raw clip -- on its own dressed body
     # the s139 rule plays it raw (Vivi's break clip 912), the `rule s138` lever translates it to the dressed idle (148);
     # without the anim both rules give the same translated clip (the lever-blind G7b this pin closes)
@@ -17120,8 +17250,9 @@ def test_no_production_path_reads_section_8_in_s139():
     codec proof -- every `TryReadSection(..., NetSyncVisitor.SectionDress, ...)` and every TryParseDressSection call on the
     live stack sits inside DressSelfTest (or the proof block's log text), and NetSyncState.cs / NetSyncParty.cs (the s103
     walkers) are untouched by the patch. So an s139 GUEST's receive path IS an old guest's: a same-DLL duo (G9,
-    coop_dress_wire.py) is a valid old-reader witness. s140's guest-side reader must move this pin."""
-    client = _stack_text("NetSyncClient.cs")
+    coop_dress_wire.py) is a valid old-reader witness. [ff9mapkit netsync s140] moved: read off the stack UP TO s139 (s140's
+    guest reads section 8 in NetSyncSelfDress.ArmDecision -- test_the_s140_guest_reads_section_8_only_through_the_arm)."""
+    client = tuple(net_lines("NetSyncClient.cs", r".", _prefix("s139")))
     start = next(i for i, t in enumerate(client) if t.startswith("private Boolean DressSelfTest(out String detail)"))
     end = next(i for i in range(start + 1, len(client)) if client[i].startswith("private static readonly Int32[] DressParty4"))
     reads = [i for i, t in enumerate(client) if "NetSyncVisitor.SectionDress, out" in t or "TryParseDressSection(" in t]
@@ -17133,6 +17264,7 @@ def test_no_production_path_reads_section_8_in_s139():
         assert not any("SectionDress, out" in t for t in _stack_text(name)), name
     touched = {path.replace("\\", "/").rsplit("/", 1)[-1] for path, _sec in msr.sections(_patch_bytes("s139")) if path}
     assert not touched & {"NetSyncState.cs", "NetSyncParty.cs"}, touched
+    assert not net_lines("NetSyncSelfDress.cs", r".", _prefix("s139"))           # [s140] no guest reader before s140
 
 
 # ---- the stand-in's `dresshost` rung
@@ -17155,7 +17287,7 @@ def test_an_s138_stand_in_publishes_no_s139_key_and_the_dresshost_rung_every_one
                 assert st.coop_dress_mirror_party is None                    # no host frame is ever parsed here
                 assert list(d["ghost"])[6:] == list(FG.NETSYNC_DRESS_NESTED_KEYS["dresshost"]["ghost"])
                 st = g.wait_for(lambda s: s.coop_dress_codec == "ok", timeout=5.0, what="the proof block")
-                assert st.coop_dress_rig_idle_frames == list(FG.FAKE_RIG_IDLE_FRAMES) == RIG_IDLE_FRAMES_CENSUS
+                assert st.coop_dress_rig_idle_frames == list(FG.FAKE_RIG_IDLE_FRAMES_S139) == RIG_IDLE_FRAMES_CENSUS
                 assert _mlog_lines(fake, "dress codec selftest: OK (29 rows)")
                 assert _mlog_lines(fake, "dress section 8 as this machine would host now: 00 00 FF (model 0, charId 255)")
                 assert _mlog_lines(fake, "dress rig idle frames: 60,45,30,60,50,40,30,45,72 (9 of 9 measured)")
@@ -17340,10 +17472,9 @@ def test_the_s139_legs_tables_are_its_docstring():
     check is named in the docstring's leg G, and the docstring's CALIBRATION, RUN and s139 ACCEPTANCE say how to pull the
     lever, flip the ini's GhostAs and read the wire."""
     got = _sd_child(_SG_TABLES)
-    g_checks = ["S139-G0", "S139-G4", "S139-G6", "S139-G3a", "S139-G1", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m",
-                "S139-G3d", "S139-G5", "S139-G7a", "S139-G7b", "S139-G7c", "S139-G7d", "S139-G8"]
-    lever_reds = ["S139-G3a", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m", "S139-G3d", "S139-G7a", "S139-G7b", "S139-G7d",
-                  "S139-G8"]
+    # [ff9mapkit netsync s140] + G7e: the owner's 8-11 rows BY STAGE (`wire 5467`), red under the s138 rule as G7a / G7d
+    g_checks = list(G_CHECKS_S140)
+    lever_reds = list(G_LEVER_REDS_S140)
     assert got["checks"] == g_checks
     assert got["g"] == {"patch": 139, "steps": {"stock": "_g_stock", "seeded": "_g_seeded"}, "pre": [30604, 30801],
                         "oracle": ["stock"], "oracle_extra": "_g_oracle",
@@ -17352,7 +17483,8 @@ def test_the_s139_legs_tables_are_its_docstring():
     assert got["lever_reds"] == got["g"]["lever"]["rule-s138"][0] and set(got["lever_reds"]) < set(g_checks)
     assert got["seeded"] == g_checks[4:] and set(g_checks) <= set(got["cat"])
     assert got["stock_checks"] == g_checks[:4]
-    assert got["models"] == [98, 8, 185, 5489, 192, 273, 443, 509, 220, 532]
+    # [ff9mapkit netsync s140] every rig row's model (BW.RIGS: + Cinna..Beatrix's 107 / 109 / 5467 / 204), then the unrigged
+    assert got["models"] == [98, 8, 185, 5489, 192, 273, 443, 509, 220, 107, 109, 5467, 204, 532]
     assert got["consts"] == [5489, 532, 2.0, "rule-s138", {"mask": -1, "empty": -1, "rule": None, "wire": -1,
                                                            "wire_anim": -1}]
     # the lever's unproven rows: a lever row reading "not reached" (only under the lever, only at or past G's patch)
@@ -17364,7 +17496,7 @@ def test_the_s139_legs_tables_are_its_docstring():
     assert got["p139_lever"] == [got["lever_reds"], [], ""] == got["p140_lever"]
     assert got["p138_lever"] == got["p138"]                     # before G's patch: its `old` row, never its lever
     assert got["pre"] == [30604, 30801] and got["oracle"] == [250, 30801]
-    assert got["sel"] == ["I", "G"] and got["sel_g"] == ["G"]
+    assert got["sel"] == ["I", "G", "S", "W", "X", "N", "T"] and got["sel_g"] == ["G"]     # [s140] every leg
     doc = got["doc"]
     for cid in ("G0", "G3a", "G1", "G2", "G3", "G3c", "G3m", "G3d", "G4", "G5", "G6", "G7a-d", "G8", "G9"):
         assert re.search(rf"(?<![\w-]){re.escape(cid)}(?![\w-])", doc), cid
@@ -17432,7 +17564,7 @@ def _sg_doc(frame=1, *, ghost=None, party=None, levers=None, mode="ini:auto", an
     d = _sd_doc(frame, model=model, anim=anim, **kw)
     d["scenario"] = scenario
     d["netsync"]["dress"] = {"ghost": g, "party": [0, -1, -1, -1] if party is None else party, "codec": "ok",
-                             "rig_idle_frames": list(RIG_IDLE_FRAMES_CENSUS)}
+                             "rig_idle_frames": list(RIG_IDLE_FRAMES_CENSUS_13)}     # [s140] the live 13 rows
     return d
 
 
@@ -17521,17 +17653,17 @@ def test_the_s139_benchs_pure_judges_read_each_engine_and_can_fail():
            "latest": {"lines": [line + "00 00 FF (model 0, charId 255)", line + "DC 00 FF (model 220, charId 255)"],
                       "ghost_as": "auto"},
            "none_line": {"lines": ["nothing"], "ghost_as": "auto"}}
-    ok_line = "17.10.2026 12:00:00 |M| [NetSync] dress codec selftest: OK (29 rows)"
+    ok_line = "17.10.2026 12:00:00 |M| [NetSync] dress codec selftest: OK (38 rows)"    # [s140] the live 38 rows
     codec = {"green": {"d": {"codec": "ok"}, "lines": [ok_line]}, "fail": {"d": {"codec": "fail: auto: x"}, "lines": [
                  "|M| [NetSync] dress codec selftest: FAIL (row 'auto: x' failed (5 rows run))"]},
              "noline": {"d": {"codec": "ok"}, "lines": []}, "rows26": {"d": {"codec": "ok"}, "lines": [
-                 ok_line.replace("29", "28")]}, "s138": {"d": {"ghost": {}}, "lines": [ok_line]}, "none": {"d": None,
+                 ok_line.replace("38", "37")]}, "s138": {"d": {"ghost": {}}, "lines": [ok_line]}, "none": {"d": None,
                                                                                                          "lines": []}}
-    c = RIG_IDLE_FRAMES_CENSUS
+    c = RIG_IDLE_FRAMES_CENSUS_13                      # [ff9mapkit netsync s140] the live table's 13 rows
     frames = {"green": {"d": {"rig_idle_frames": list(c)}, "oracle": list(c)},
-              "off": {"d": {"rig_idle_frames": c[:8] + [73]}, "oracle": list(c)},
+              "off": {"d": {"rig_idle_frames": c[:8] + [73] + c[9:]}, "oracle": list(c)},
               "short": {"d": {"rig_idle_frames": c[:8]}, "oracle": list(c)},
-              "unmeasured": {"d": {"rig_idle_frames": [-1] * 9}, "oracle": list(c)},
+              "unmeasured": {"d": {"rig_idle_frames": [-1] * 13}, "oracle": list(c)},
               "nooracle": {"d": {"rig_idle_frames": list(c)}, "oracle": None},
               "s138": {"d": {"ghost": {}}, "oracle": list(c)}}
     s1 = {"seeded": [0, 1, 2, 3], "cinna": [0, 8, 2, -1], "empty": [0, -1, -1, -1], "lead": [1, -1, -1, -1],
@@ -17635,7 +17767,7 @@ def oracle_for(run):
 def g_oracle(run):
     def read(game):
         models = {m: {"geo": MODELS[m], "body": str(m)} for m in sd.G_MODELS if m not in run.get("drop_models", ())}
-        frames = None if run.get("no_frames") else [60, 45, 30, 60, 50, 40, 30, 45, 72]
+        frames = None if run.get("no_frames") else [60, 45, 30, 60, 50, 40, 30, 45, 72, 40, 30, 40, 45]   # [s140] 13
         problems = {"idle_frames": "the test dropped it"} if frames is None else {}
         trans, rends = FG.ghost_renderer_tree(185)                     # the stand-in's modelled prefab order
         prefabs = {} if run.get("no_prefab") else {185: {"geo": MODELS[185], "transforms": list(trans),
@@ -17730,15 +17862,17 @@ def test_the_s139_leg_runs_green_on_the_stand_in_and_red_exactly_where_its_check
             "release": {"ghost_as": "auto", "faults": ["release_keeps_levers"]}}
     got = _sd_child(_SG_SMOKE, {"fo": fo, "runs": runs}, timeout=1500.0)
     i_all = [f"S138-I{n}" for n in range(1, 10)]
-    g_all = ["S139-G0", "S139-G1", "S139-G2", "S139-G3", "S139-G3a", "S139-G3c", "S139-G3d", "S139-G3m", "S139-G4", "S139-G5",
-             "S139-G6", "S139-G7a", "S139-G7b", "S139-G7c", "S139-G7d", "S139-G8"]
+    g_all = sorted(G_CHECKS_S140)                                          # [ff9mapkit netsync s140] + G7e
     every = sorted(["S138-INI", "S138-OR", "S138-S0", "S138-P0", "S138-PRE", "S138-R"] + i_all + g_all)
     for name in ("auto", "none", "off"):
         assert got[name]["red"] == [] and got[name]["all"] == every, (name, got[name]["red"], got[name]["detail"])
         assert got[name]["levers_left"] == {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}, name
         # S138-R witnessed the HARNESS release: `rule s139` held into the reset (the last selfdress step), its release
         # line logged, every lever read back off
-        assert got[name]["steps"][-2:] == [["netsync", "selfdress", "clear"], ["netsync", "selfdress", "rule", "s139"]]
+        # [ff9mapkit netsync s140] the s140 stand-in holds `self off` + `law timeline off` into the same reset
+        assert got[name]["steps"][-4:] == [["netsync", "selfdress", "clear"], ["netsync", "selfdress", "rule", "s139"],
+                                           ["netsync", "selfdress", "self", "off"],
+                                           ["netsync", "selfdress", "law", "timeline", "off"]]
         assert "the selfdress levers after the reset {'mask': -1" in got[name]["detail"]["S138-R"], \
             got[name]["detail"]["S138-R"]
         assert "missing lines=[]" in got[name]["detail"]["S138-R"]
@@ -17754,14 +17888,13 @@ def test_the_s139_leg_runs_green_on_the_stand_in_and_red_exactly_where_its_check
         got["auto"]["detail"]["S139-G3m"]
     assert "short_hair" in got["auto"]["detail"]["S139-G8"] and "short_hair" in got["none"]["detail"]["S139-G8"]
     assert "wire 8 912" in got["auto"]["detail"]["S139-G7b"] or "`selfdress wire 8 912`" in got["auto"]["detail"]["S139-G7b"]
-    lever = sorted(["S139-G3a", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m", "S139-G3d", "S139-G7a", "S139-G7b",
-                    "S139-G7d", "S139-G8"])
+    lever = sorted(G_LEVER_REDS_S140)
     for name in ("lever", "lever_none"):
         assert got[name]["red"] == lever, (name, got[name]["red"])
         assert got[name]["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
         rules = [s for s in got[name]["steps"] if s[2:] == ["rule", "s138"]]
-        assert len(rules) >= 3 and got[name]["steps"][-2:] == [["netsync", "selfdress", "clear"],
-                                                               ["netsync", "selfdress", "rule", "s139"]], got[name]["steps"]
+        assert len(rules) >= 3 and got[name]["steps"][-4:-2] == [["netsync", "selfdress", "clear"],
+                                                                 ["netsync", "selfdress", "rule", "s139"]], got[name]["steps"]
     assert got["s138"]["red"] == g_all and got["s138"]["steps"] == [], got["s138"]
     assert got["s138"]["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
     assert got["s137"]["red"] == sorted(i_all + g_all) and got["s137"]["steps"] == []
@@ -17769,7 +17902,7 @@ def test_the_s139_leg_runs_green_on_the_stand_in_and_red_exactly_where_its_check
     assert got["cal139"]["red"] == ["S138-CAL"] and "no lever" in got["cal139"]["detail"]["S138-CAL"]
     assert got["codec"]["red"] == ["S139-G4"] and got["frames"]["red"] == ["S139-G6"]
     assert got["spect"]["red"] == ["S138-I7", "S139-G0", "S139-G3d", "S139-G5"], got["spect"]["red"]
-    assert got["guard"]["red"] == ["S139-G7a", "S139-G7d"] and got["sec8"]["red"] == ["S139-G3d"]
+    assert got["guard"]["red"] == ["S139-G7a", "S139-G7d", "S139-G7e"] and got["sec8"]["red"] == ["S139-G3d"]
     assert got["body"]["red"] == sorted(["S138-I7"] + [c for c in g_all if c not in ("S139-G4", "S139-G6")])
     assert got["vivi"]["red"] == ["S139-G3a"] and got["vivi"]["detail"]["S139-G3a"].startswith(
         "not reached: the save's slot 1 already holds CharacterId 1")
@@ -17827,13 +17960,15 @@ def test_the_s139_oracle_reads_the_install_as_the_audit_cites_it():
     assert out.returncode == 0, out.stderr[-3000:]
     got = json.loads(out.stdout.strip().splitlines()[-1])
     from ff9mapkit._modeldb import MODELS
-    assert got["frames"] == RIG_IDLE_FRAMES_CENSUS and got["same"] is True, got
+    # [ff9mapkit netsync s140] the oracle reads every rig row (BW.RIGS): thirteen idle frames, Cinna..Beatrix's models too
+    assert got["frames"] == RIG_IDLE_FRAMES_CENSUS_13 and got["same"] is True, got
     remap_only = {k: v for k, v in got["problems"].items() if not k.startswith("remap")}
     assert remap_only == {}, got["problems"]
-    for m in (98, 8, 185, 5489, 192, 273, 443, 509, 220, 532):
+    models = (98, 8, 185, 5489, 192, 273, 443, 509, 220, 107, 109, 5467, 204, 532)
+    for m in models:
         if str(m) in got["models"]:
             assert got["models"][str(m)] == [MODELS[m], str(m)], (m, got["models"][str(m)])
-    assert set(got["models"]) == {str(m) for m in (98, 8, 185, 5489, 192, 273, 443, 509, 220, 532)} or got["problems"]
+    assert set(got["models"]) == {str(m) for m in models} or got["problems"]
     assert got["clips"] > 9000
 
 
@@ -18182,3 +18317,2891 @@ def test_the_g9_duo_leg_steps_its_phases_and_reads_the_tap_last_against_a_stub_d
     cal = {r[0]: (r[1], r[2]) for r in got["s138_no_echo"]["rows"]}["S139-G9-CAL"]
     assert cal[0] is False and "UNPROVEN (read 'not reached'): ['S139-G9e', 'S139-G9f']" in cal[1], cal
     assert all(got[m]["strict"] is True for m in got)
+
+
+# =========================================================================================================== s140
+# [ff9mapkit netsync s140] THE GUEST DRESSES ITSELF -- the third of the guest's own field model's patches (studies/battle-coop/
+# R3-DESIGN.md 3.4.4 as amended by R3-FIELD-MODEL-AUDIT.md 2.3 -- amendments 1-14, decisions D1-D7 -- and its 3.1 key
+# design), with the owner's decision of 2026-10-17 folded in: Cinna, Marcus, Blank and Beatrix (CharacterId 8-11) get "their
+# own models" (rigs 9-12, ResolveAuto through CharToRig, section 8's charId 8-11). Pinned to the s140 patch: `netsync.dress`
+# gains `self` (a fixed sub-object, its LAST key) and `rig_idle_frames` thirteen rows; `selfdress` gains `self` / `gate` /
+# `law` (no new sub-verb: the `dressself` rung adds none); the proof block gains the self-dress line and the codec line reads
+# 38 rows. battlewire's twins EVALUATE DressSelfTest's 38 rows and NetSyncSelfDress.SelfTest's 29 rows off the stack (each
+# made to fail by a mutant twin); the stand-in models the arm at the field load, the dress order, the body's rig, the bench
+# field's conductors and each law lever, its FAULT LEVERS (FG.DRESS_SELF_FAULTS) each pinned to its own keys. s140's
+# calibration engine is s139: ``caps_through("dresshost")`` (S139_CAPS_).
+S139_CAPS_ = FG.caps_through("dresshost")                      # [ff9mapkit netsync s140] s140's calibration engine
+
+
+def _s140_new(file_name: str) -> list:
+    """The s140 patch's NEW-side lines (added and context) for ``file_name``, stripped."""
+    return [t for _h, _k, t in _new_side(file_name, _patch_bytes("s140"))]
+
+
+def _s140_added(file_name: str) -> list:
+    """The lines the s140 patch ADDS to ``file_name``, stripped."""
+    return [t for _h, k, t in _new_side(file_name, _patch_bytes("s140")) if k == "+"]
+
+
+def test_the_s140_catch_line_closes_dress_with_self_at_its_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s140: the live line (still ONE line of two literals around NetsyncF3Retired) carries
+    `rig_idle_frames` as thirteen -1s and closes `dress` with `self` -- AppendDressSelf's keys at their sentinels, `law_off`
+    a fixed sub-object of four falses (audit 3.1's table) -- after `mirror_party`; it is s140's own line (s139's with
+    exactly those changes: :func:`_dress_through`). AppendDress appends AppendDressSelf LAST, in EVERY role; AppendDressSelf
+    writes BW.DRESS_SELF_SENTINELS' keys in order, each through its own Try and a NetSyncSelfDress getter; the harness
+    protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    _a, b = _literals(catch[0])
+    sentinels = json.dumps(BW.DRESS_SELF_SENTINELS, separators=(",", ":")).replace('"', '\\"')
+    assert b.endswith('\\"rig_idle_frames\\":[' + ",".join(["-1"] * 13) + '],\\"mirror_party\\":null,\\"self\\":'
+                      + sentinels + "}}"), b[-700:]
+    nothing = _agent_netsync_nothing()[0]
+    assert _catch_doc_in("s140") == nothing and nothing["dress"] == BW.DRESS_SENTINELS
+    assert list(nothing["dress"]) == [k for row in BW.DRESS_KEYS_BY_RUNG.values() for k in row] == \
+        ["ghost", "party", "codec", "rig_idle_frames", "mirror_party", "self"]
+    assert nothing["dress"]["self"] == BW.DRESS_SELF_SENTINELS and list(nothing["dress"]["self"]) == list(BW.DRESS_SELF_KEYS)
+    assert _dress_through(nothing, "dresshost") == _catch_doc_in("s139")
+    # AppendDressSelf, read off the live stack: its keys (law_off's four inside its braces) in order, each through Try
+    body = _cs_block("HarnessAgent.cs", "private static void AppendDressSelf(StringBuilder sb)", stop="}")
+    text = " ".join(body)
+    keys = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', text)
+    flat = [k for k in BW.DRESS_SELF_KEYS if k != "law_off"]
+    flat[flat.index("bench_self") + 1:flat.index("bench_self") + 1] = list(BW.DRESS_SELF_LAW_OFF_KEYS)
+    assert keys == flat, keys
+    assert 'sb.Append("\\"self\\":{");' in body and 'sb.Append("\\"law_off\\":{");' in body
+    calls = [t for t in body if re.match(r"(?:Bool|Num|Str)\(sb, ", t)]
+    assert len(calls) == len(flat) and all(re.search(r"Try\(\(\) => (?:\(Int64\))?Memoria\.Netsync\.NetSyncSelfDress\.", t)
+                                           for t in calls), calls
+    for t in calls:
+        k = re.match(r'\w+\(sb, "(\w+)"', t).group(1)
+        want = BW.DRESS_SELF_SENTINELS.get(k, False)
+        if isinstance(want, bool):
+            assert t.startswith("Bool(") and ", false)" in t, t
+        elif isinstance(want, int):
+            assert t.startswith("Num(") and f", {want}L)" in t, t
+        else:
+            assert t.startswith("Str("), t
+    assert "IsSelfTestRole" not in text                       # published in EVERY role (a host reads its sentinels)
+    assert _added_after("s140", "HarnessAgent.cs", "IntList(sb, \"mirror_party\"", "AppendDressSelf(sb);")
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    # the getters: the arm and the counters off NetSyncSelfDress' statics, the body's off the CONTROLLED body
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    for frag in ("internal static Boolean Armed { get { return _arm && Knob; } }",
+                 "internal static Int32 HarnessBodyRig { get { return BodyRig(HarnessBody()); } }",
+                 "return ee != null ? ee.GetControlChar() : null;", "internal static Int32 WantRig = -1;",
+                 "internal static Boolean Knob = true;"):
+        assert frag in sd, frag
+
+
+def test_the_dressself_rung_is_s140s_and_its_key_is_self():
+    """THE LEVEL HOME for s140 (audit 3.1): the `dressself` rung rides the ONE ladder right after `dresshost`, adds no
+    sub-verb (FG.NETSYNC_BATTLE_CAPS) and nothing under `netsync.battle`; its one key is `self` inside `netsync.dress`
+    (NETSYNC_DRESS_CAP_KEYS, never a nested key of an older block); the probe ladder's 140 rung reads it; s140's calibration
+    is the prefix through `dresshost`; the capability accessor reads True on s140's catch line and False on s139's."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    assert names[names.index("dresshost") + 1] == "dressself" and FG.NETSYNC_BATTLE_CAPS["dressself"] == ("s140", ())
+    assert FG.NETSYNC_S140_CAPS == frozenset(("dressself",)) and FG.NETSYNC_BATTLE_CAP_KEYS["dressself"] == {}
+    assert FG.NETSYNC_DRESS_CAP_KEYS["dressself"] == BW.DRESS_KEYS_BY_RUNG["dressself"] == ("self",)
+    assert "dressself" not in FG.NETSYNC_DRESS_NESTED_KEYS and "dressself" not in FG.NETSYNC_BATTLE_NESTED_KEYS
+    assert S139_CAPS_ == FG.caps_through("dresshost") and "dressself" not in S139_CAPS_
+    assert BW.DRESS_PROBES[140] == "netsync.dress.self"
+    assert State({"frame": 1, "netsync": _catch_doc_in("s140")}).coop_dress_self is True
+    assert State({"frame": 1, "netsync": _catch_doc_in("s139")}).coop_dress_self is False
+    assert State({"frame": 1}).coop_dress_self is None
+    assert FG.netsync_subverbs(FG.caps_through("dressself")) == FG.netsync_subverbs(S139_CAPS_)   # no new sub-verb
+    assert _subverbs_in("s139") == _agent_subverbs()            # ...and the agent's list is s139's
+    # the op-capability key law (audit 3.1's table for `self` / `gate`, O6's `law`): a key the patch added
+    for op, (attr, key, patch, _what) in Session.NETSYNC_SELFDRESS_OP_CAPS.items():
+        assert (attr, key, patch) == ("coop_dress_self", "netsync.dress.self", "s140"), op
+        assert key[len("netsync.dress."):] in FG.NETSYNC_DRESS_CAP_KEYS["dressself"]
+
+
+def test_state_reads_the_self_dress_absent_as_cannot_never_as_nothing():
+    """On s139's catch block every `netsync.dress.self` accessor reads None and `coop_dress_self` False; on s140's the
+    sentinels and True (a null string ""); a published block reads its values (`law_off` copied), a mistyped value None."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s139")})
+    live = State({"frame": 1, "netsync": _catch_doc_in("s140")})
+    selfs = {p: n for p, n in State.NETSYNC_DRESS_ACCESSORS.items() if p == "self" or p.startswith("self.")}
+    assert len(selfs) == len(BW.DRESS_SELF_KEYS) + len(BW.DRESS_SELF_LAW_OFF_KEYS) + 1      # + the two `_block`s - law_off
+    for path, name in selfs.items():
+        assert getattr(old, name) is None, name
+        assert getattr(live, name) is not None, name
+    assert (live.coop_dress_self_why, live.coop_dress_self_from, live.coop_dress_self_bench_self,
+            live.coop_dress_self_selftest) == ("", "", "", "")
+    assert (live.coop_dress_self_rig, live.coop_dress_self_want_rig, live.coop_dress_self_knob) == (-1, -1, False)
+    d = dict(BW.DRESS_SELF_SENTINELS, knob=True, armed=True, want_model=107, want_char=8, want_rig=9, rig=9, why="dressed",
+             src=98, net_byte=10, uid=1, bench_self="cinna", law_off=dict(BW.DRESS_SELF_SENTINELS["law_off"], bframe=True),
+             selftest="ok")
+    st = State({"frame": 1, "netsync": {"enabled": True, "dress": {"self": d}}})
+    assert (st.coop_dress_self_rig, st.coop_dress_self_want_char, st.coop_dress_self_why, st.coop_dress_self_bench_self,
+            st.coop_dress_self_law_off_bframe, st.coop_dress_self_law_off_alias, st.coop_dress_self_src) == (
+        9, 8, "dressed", "cinna", True, False, 98)
+    blk = st.coop_dress_self_law_off_block
+    blk["bframe"] = False
+    assert st.coop_dress_self_law_off_bframe is True and st.coop_dress_self is True
+    bad = State({"frame": 1, "netsync": {"dress": {"self": dict(d, rig="9", knob=1, why=4)}}})
+    assert (bad.coop_dress_self_rig, bad.coop_dress_self_knob, bad.coop_dress_self_why) == (None, None, None)
+
+
+def test_the_s140_selfdress_ops_are_the_engines_in_its_order():
+    """HarnessSelfDress' s140 cases, read off the live stack, ARE what the driver and the stand-in refuse: the ROLE first,
+    then the op, then the value -- `self` (an n == 4 mask through NumberStyles.None, else n != 3 -> SelfUsage, then
+    TrySetBenchSelf: `off` takes no mask, `auto` a mask 0-15, a name its NameToRig row), `gate 1|0`, `law <name> on|off`
+    (n == 4, then TrySetLaw's name); the unknown-op list is s140's (no `polish`). NetSyncSelfDress' SelfNames ARE NameToRig's
+    keys in order (BW.SELF_NAMES == the driver's == coop.GHOST_NAMES); SelfUsage / LawUsage / the gate's and the two mask
+    refusals are the driver's and battlewire's words; LawNames and the law bits are BW's."""
+    from ff9mapkit import coop
+    body = _cs_block("NetSyncClient.cs", "public static Boolean HarnessSelfDress(String[] args, out String why)",
+                     stop="internal static void HarnessReleaseDress(String cause)")
+    text = " ".join(_strip_comment(t) for t in body)
+    i_self, i_gate, i_law = text.index('case "self":'), text.index('case "gate":'), text.index('case "law":')
+    assert text.index("if (!IsSelfTestRole)") < text.index("switch (op)") < i_self < i_gate < i_law
+    for frag in ("if (n == 4)", "if (!Int32.TryParse(maskVal, System.Globalization.NumberStyles.None, "
+                 "System.Globalization.CultureInfo.InvariantCulture, out selfMask))", "why = NetSyncSelfDress.SelfUsage;",
+                 "else if (n != 3)", "return NetSyncSelfDress.TrySetBenchSelf(val, selfMask, out why);",
+                 'if (n != 3 || (val != "1" && val != "0"))', 'why = "netsync selfdress gate: expected `gate 1|0`";',
+                 'NetSyncSelfDress.SetBenchGate(val == "1");', 'if (n != 4 || (lawVal != "on" && lawVal != "off"))',
+                 "why = NetSyncSelfDress.LawUsage;", 'return NetSyncSelfDress.TrySetLaw(val, lawVal == "on", out why);',
+                 "why = \"netsync selfdress: unknown op '\" + op + \"' (ghost|empty|rule|wire|clear|self|gate|law)\";"):
+        assert frag in text, frag
+    sd = _stack_text("NetSyncSelfDress.cs")
+    names_block = " ".join(_cs_block("NetSyncSelfDress.cs", "internal static readonly String[] SelfNames =", stop="};"))
+    names = tuple(re.findall(r'"(\w+)"', names_block))
+    assert names == BW.SELF_NAMES == Session.NETSYNC_SELFDRESS_SELF_NAMES == coop.GHOST_NAMES == tuple(BW.NAME_TO_RIG)
+    sdt = " ".join(sd)
+    assert ('get { return "netsync selfdress self: expected `self off|auto [mask 0-15]|<name>|moogle` (names: " + '
+            'String.Join(" ", SelfNames) + ")"; }') in sdt
+    assert BW.SELF_USAGE == Session.NETSYNC_SELFDRESS_USAGE["self"]
+    assert f'internal const String LawUsage = "{BW.LAW_USAGE}";' in sdt and BW.LAW_USAGE == Session.NETSYNC_SELFDRESS_USAGE["law"]
+    assert BW.GATE_USAGE == Session.NETSYNC_SELFDRESS_USAGE["gate"]
+    assert f'why = "{BW.SELF_OFF_NO_MASK}";' in sdt and BW.SELF_OFF_NO_MASK == Session.NETSYNC_SELFDRESS_SELF_REFUSALS["off_mask"]
+    assert ('why = "netsync selfdress self auto: mask " + autoMask + " is outside 0-15 (party slots 0-3)";' in sdt
+            and BW.self_auto_mask_refusal(16) == Session.NETSYNC_SELFDRESS_SELF_REFUSALS["auto_mask"].format(mask=16))
+    assert 'private static readonly String[] LawNames = { "bframe", "attach", "alias", "timeline" };' in sdt
+    assert BW.LAW_NAMES == Session.NETSYNC_SELFDRESS_LAWS == BW.DRESS_SELF_LAW_OFF_KEYS
+    assert "internal const Int32 LawBFrame = 1, LawAttach = 2, LawAlias = 4, LawTimeline = 8;" in sdt
+    assert (BW.LAW_BFRAME, BW.LAW_ATTACH, BW.LAW_ALIAS, BW.LAW_TIMELINE) == (1, 2, 4, 8)
+    # TrySetBenchSelf's order: off (no mask), auto (mask <= 15), else a name of the whole table (no mask)
+    tsb = " ".join(_cs_block("NetSyncSelfDress.cs", "internal static Boolean TrySetBenchSelf(",
+                             stop="internal static void SetBenchGate(Boolean on)"))
+    assert tsb.index('if (s == "off")') < tsb.index('else if (s == "auto")') < tsb.index(
+        "if (autoMask >= 0 || s.Length == 0 || NetSyncVisitor.ResolveNamed(s, NetSyncVisitor.RigCount, out rig) == 0)")
+
+
+def _s140_fake(game, caps=None, **over):
+    """A stand-in stepped BY HAND in the forced selftest role on FIELD (the default caps: s140's)."""
+    fake = FakeGame(game)
+    if caps is not None:
+        fake.netsync_caps = caps
+    fake.field_id, fake.ui_state, fake.control = FIELD, "FieldHUD", True
+    for k, v in over.items():
+        setattr(fake, k, v)
+    fake._netsync(["selftest", "1"])
+    return fake
+
+
+def test_the_driver_refuses_the_s140_ops_before_the_step_in_the_engines_order(game):
+    """On an s139 stand-in `selfdress self|gate|law` is refused BEFORE the step, naming `netsync.dress.self`, s140 and what
+    that engine answers after it ("unknown op ... (ghost|empty|rule|wire|clear)" -- the stand-in's own words, after the
+    step, exactly); on s140, outside the selftest role the step goes out and the agent's role refusal comes back; in the
+    role every malformed value is refused before the step in HarnessSelfDress' words (== the stand-in's), and well-made ops
+    land -- `bench_self`, `gate` and `law_off` read back as set."""
+    for caps in (S139_CAPS_, None):
+        fake = FakeGame(game)
+        if caps is not None:
+            fake.netsync_caps = caps
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            if caps is not None:
+                g.netsync("selftest", 1)
+                for op, args in (("self", ("freya",)), ("gate", (0,)), ("law", ("bframe", "off"))):
+                    n = len(fake.executed)
+                    with pytest.raises(HarnessError) as err:
+                        g.selfdress(op, *args)
+                    after = f"netsync selfdress: unknown op '{op}' (ghost|empty|rule|wire|clear)"
+                    assert str(err.value).startswith(f"netsync selfdress {op}: the deployed engine publishes no "
+                                                     f"`netsync.dress.self`") and "(memoria-patch s140)" in str(err.value)
+                    assert f'it would answer "{after}" only after the step' in str(err.value)
+                    assert len(fake.executed) == n
+                    with pytest.raises(RuntimeError, match=re.escape(after)):
+                        fake._netsync(["selfdress", op, *(str(a) for a in args)])
+                with pytest.raises(HarnessError, match=re.escape("unknown op 'polish' (ghost|empty|rule|wire|clear)")):
+                    g.selfdress("polish", "on")
+                continue
+            n = len(fake.executed)
+            with pytest.raises(HarnessError, match=r"needs the selftest role \(netsync selftest 1\)"):
+                g.selfdress_self("freya")                  # not the selftest role: the AGENT refuses (the role first)
+            assert len(fake.executed) == n + 1 and fake.executed[-1] == ["netsync", "selfdress", "self", "freya"]
+            g.netsync("selftest", 1)
+            for args, why in ((("self",), BW.SELF_USAGE), (("self", "kuja"), BW.SELF_USAGE),
+                              (("self", "freya", 2), BW.SELF_USAGE), (("self", "auto", "-1"), BW.SELF_USAGE),
+                              (("self", "auto", "x"), BW.SELF_USAGE), (("self", "auto", 1, 2), BW.SELF_USAGE),
+                              (("self", "off", 0), BW.SELF_OFF_NO_MASK), (("self", "auto", 16), BW.self_auto_mask_refusal(16)),
+                              (("self", "AUTO", 4096), BW.self_auto_mask_refusal(4096)), (("gate",), BW.GATE_USAGE),
+                              (("gate", 2), BW.GATE_USAGE), (("gate", "on"), BW.GATE_USAGE),
+                              (("law", "bframe"), BW.LAW_USAGE), (("law", "polish", "off"), BW.LAW_USAGE),
+                              (("law", "alias", 0), BW.LAW_USAGE), (("law", "alias", "off", "x"), BW.LAW_USAGE)):
+                n = len(fake.executed)
+                with pytest.raises(HarnessError) as err:
+                    g.selfdress(*args)
+                assert str(err.value) == why and len(fake.executed) == n, (args, str(err.value))
+                with pytest.raises(RuntimeError) as err2:
+                    fake._netsync(["selfdress", *(str(a) for a in args)])   # ...the agent's own words, after the step
+                assert str(err2.value) == why, (args, str(err2.value))
+            st = g.selfdress_self("Cinna")
+            assert st.coop_dress_self_bench_self == "cinna"
+            st = g.selfdress_self("auto", 6)
+            assert st.coop_dress_self_bench_self == "auto 6"
+            st = g.selfdress_self("auto")
+            assert st.coop_dress_self_bench_self == "auto"
+            st = g.selfdress_gate(False)
+            assert st.coop_dress_self_gate is False
+            st = g.selfdress_law("TIMELINE", False)
+            st = g.selfdress_law("bframe", False)
+            assert st.coop_dress_self_law_off_block == {"bframe": True, "attach": False, "alias": False, "timeline": True}
+            st = g.selfdress_law("timeline", True)
+            assert st.coop_dress_self_law_off_timeline is False and st.coop_dress_self_law_off_bframe is True
+            st = g.selfdress("clear")
+            assert (st.coop_dress_self_bench_self, st.coop_dress_self_gate, st.coop_dress_self_law_off_bframe) == (
+                "", True, False)
+
+
+def test_reset_and_every_release_path_free_every_s140_lever(game):
+    """NetSyncSelfDress.ReleaseBench rides HarnessReleaseDress -- from NetSyncBattle.HarnessReleaseBench (every
+    HarnessSelfTest(false): `reset`, `selftest 0`, disarm) and `selfdress clear` -- so each path frees `self`, `gate` and
+    every `law` lever (and clears a BENCH-made arm: `from` null, never a dressed body), its line once per path that held
+    one; the `self_release_keeps` fault (a stand-in whose harness release skips it) keeps them through `reset` and `selftest
+    0` -- `clear` still frees them. On the stack: the call, the statics' resets, the line, and the bench-only Clear."""
+    for path in ("reset", "selftest0", "clear"):
+        for fault in ((), ("self_release_keeps",)):
+            fake = FakeGame(game)
+            fake.dress_faults = set(fault)
+            cause = "selfdress clear" if path == "clear" else "released with the harness"
+            line = f"selfdress self / gate / law levers released ({cause})"
+            was = len(_mlog_lines(fake, line))
+            with session(game, fake) as g:
+                g.newgame(settle=0)
+                g.warp(FIELD)
+                g.netsync("selftest", 1)
+                g.selfdress_self("freya")
+                g.warp(FIELD)                              # the bench arm: at the field load
+                g.selfdress_gate(False)
+                st = g.selfdress_law("alias", False)
+                assert (st.coop_dress_self_bench_self, st.coop_dress_self_gate, st.coop_dress_self_law_off_alias,
+                        st.coop_dress_self_from, st.coop_dress_self_rig) == ("freya", False, True, "bench", 4), path
+                if path == "reset":
+                    g.send("reset")
+                    g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0, what="release")
+                    st = g.netsync("selftest", 1)
+                elif path == "selftest0":
+                    g.netsync("selftest", 0)
+                    st = g.netsync("selftest", 1)
+                else:
+                    st = g.selfdress("clear")
+                kept = bool(fault) and path != "clear"
+                got = (st.coop_dress_self_bench_self, st.coop_dress_self_gate, st.coop_dress_self_law_off_alias,
+                       st.coop_dress_self_from)
+                assert got == (("freya", False, True, "bench") if kept else ("", True, False, "")), (path, fault, got)
+                assert st.coop_dress_self_rig == 4, (path, fault)          # a dressed body stays dressed (teardown law)
+                assert len(_mlog_lines(fake, line)) == was + (0 if kept else 1), (path, fault)
+    rel = " ".join(_cs_block("NetSyncSelfDress.cs", "internal static void ReleaseBench(String cause)", stop="}"))
+    for frag in ("_benchSelf = null;", "_benchSelfMask = -1;", "_benchGateOff = false;", "_lawOff = 0;",
+                 'if (From == "bench")', "Clear(cause);",
+                 'Log.Message("[NetSync] harness: selfdress self / gate / law levers released (" + cause + ")");'):
+        assert frag in rel, frag
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    assert "NetSyncSelfDress.ReleaseBench(cause);" in client and 'HarnessReleaseDress("selfdress clear");' in client
+    assert 'NetSyncClient.HarnessReleaseDress("released with the harness");' in " ".join(_stack_text("NetSyncBattle.cs"))
+
+
+# ---- the owner's 8-11 rows and the grown DressSelfTest, against the twins
+def test_the_s140_rig_table_and_maps_are_the_engines():
+    """battlewire.RIGS IS the live stack's thirteen Rig rows (s139's nine + the s140 patch's four, the census's -- its own
+    test pins them to rigs_8_11.json), RIG_NAMES its rows' names; the constants (MainRigCount 8 = the mains only,
+    RigRowCount 13, SubRigFirst 9, SubCharFirst 8, SubRigCount 4, MoogleRig 8) the engine's; CharToRig / RigToChar /
+    DressCharIdValid ARE NetSyncVisitor's bodies, line for line, and hold over every CharacterId -2..255; ResolveAutoCore
+    maps the party through its `charToRig` (never the CharacterId as a rig); DressCharId through RigToChar; the client's
+    s138 rule is unchanged (its MainRigCount cap, by party and by name)."""
+    rows = [tuple(int(x) for x in m.group(1).split(",")) for t in net_lines("NetSyncVisitor.cs", r"new Rig\(")
+            for m in [re.match(r"new Rig\(([-\d,\s]+)\),", t)] if m]
+    assert rows == list(BW.RIGS) and len(rows) == BW.RIG_ROW_COUNT == 13, rows
+    assert BW.RIG_NAMES == ("zidane", "vivi", "garnet", "steiner", "freya", "quina", "eiko", "amarant", "moogle", "cinna",
+                            "marcus", "blank", "beatrix")
+    vis = " ".join(_stack_text("NetSyncVisitor.cs"))
+    for frag, val in (("internal const Int32 MainRigCount = ", BW.MAIN_RIG_COUNT),
+                      ("public const Int32 RigRowCount = ", BW.RIG_ROW_COUNT),
+                      ("internal const Int32 SubRigFirst = ", BW.SUB_RIG_FIRST),
+                      ("internal const Int32 SubCharFirst = ", BW.SUB_CHAR_FIRST),
+                      ("internal const Int32 SubRigCount = ", BW.SUB_RIG_COUNT),
+                      ("internal const Int32 MoogleRig = ", BW.RIG_MOOGLE)):
+        assert f"{frag}{val};" in vis, frag
+    c2r = " ".join(_cs_block("NetSyncVisitor.cs", "internal static Int32 CharToRig(Int32 charId)", stop="}"))
+    assert ("if (charId >= 0 && charId < MainRigCount) return charId; if (charId >= SubCharFirst && charId < SubCharFirst + "
+            "SubRigCount) return charId - SubCharFirst + SubRigFirst; return -1;") in c2r, c2r
+    r2c = " ".join(_cs_block("NetSyncVisitor.cs", "internal static Byte RigToChar(Int32 rigIdx)", stop="}"))
+    assert ("if (rigIdx >= 0 && rigIdx < MainRigCount) return (Byte)rigIdx; if (rigIdx >= SubRigFirst && rigIdx < "
+            "SubRigFirst + SubRigCount) return (Byte)(rigIdx - SubRigFirst + SubCharFirst); return CharNone;") in r2c, r2c
+    assert "return charId == CharNone || CharToRig(charId) >= 0;" in vis
+    assert "Int32 rig = charToRig != null ? charToRig(charId) : -1;" in vis and "if (rig < 0 || rig >= Rigs.Length)" in vis
+    assert "return ResolveAutoCore(mask, moogleWhenEmpty, slotChar, CharToRigMap, out rigIdx);" in vis
+    assert "private static readonly CharRigMap CharToRigMap = CharToRig;" in vis
+    assert "return model != 0 && rigIdx >= 0 ? RigToChar(rigIdx) : CharNone;" in vis
+    assert BW.char_rig_map_holds() and all(BW.dress_char_id_valid(c) == (c == 0xFF or 0 <= c < 12) for c in range(256))
+    # the client's s138 rule, byte for byte: its party guard and name cap at the mains (Cinna..Beatrix never dress there)
+    assert "return ResolveNamed(mode, MainRigCount, out rigIdx);" in vis
+    assert BW.resolve_dress_s138("cinna", 0, None) == BW.resolve_dress_s138("auto", 2, (0, 8, -1, -1)) == (0, -1)
+    # the host's rule dresses them, by party and by name
+    assert [BW.resolve_auto(2, True, (0, c, -1, -1)) for c in (8, 9, 10, 11, 12)] == [(107, 9), (109, 10), (5467, 11),
+                                                                                       (204, 12), (0, -1)]
+    assert [BW.resolve_dress_rule(n, 0, False, None) for n in ("cinna", "marcus", "blank", "beatrix")] == [
+        (107, 9), (109, 10), (5467, 11), (204, 12)]
+    assert [BW.dress_char_id(m, r) for m, r in ((107, 9), (109, 10), (5467, 11), (204, 12), (220, 8))] == [8, 9, 10, 11,
+                                                                                                          255]
+
+
+_S140_TWINS = {"Int32 CharToRig": "char_to_rig", "Byte RigToChar": "rig_to_char",
+               "Boolean DressCharIdValid": "dress_char_id_valid", "UInt16 ResolveAutoCore": "resolve_auto_core"}
+_SELF_TWINS = {"Byte LocoClassOf": "loco_class_of", "Int32 MapRigAnim": "map_rig_anim",
+               "Boolean IsLocoFamily": "is_loco_family", "Boolean IsGesture": "is_gesture",
+               "Int32 BFrameTarget": "bframe_target", "Boolean LawOnRule": "law_on_rule", "Int32 SkipRule": "skip_rule",
+               "Boolean ExcludedFieldId": "excluded_field_id", "Int32 SetModelRule": "set_model_rule",
+               "Byte[] BenchFrame": "bench_frame", "String ArmDecision": "arm_decision", "Boolean IsOwnClip": "is_own_clip",
+               "String RigGeo": "rig_geo", "Boolean ParseDefinesPlayer": "parse_defines_player"}
+
+
+def test_the_s140_twins_take_the_engines_parameters_in_its_order():
+    """Each s140 twin's parameters ARE its C# method's, in order (camelCase -> snake_case; a trailing `_` dodges a clash;
+    every `out` folded into the return): NetSyncVisitor's map (and ResolveAutoCore's new `charToRig`), and every PURE rule
+    of NetSyncSelfDress the hooks call."""
+    for file_name, table in (("NetSyncVisitor.cs", _S140_TWINS), ("NetSyncSelfDress.cs", _SELF_TWINS)):
+        for method, twin in table.items():
+            sig = " ".join(_strip_comment(t) for t in _cs_block(file_name, f"internal static {method}(", "{"))
+            inner = sig[sig.index("(") + 1:sig.rindex(")")]
+            cs = [_snake(p.split()[-1]) for p in inner.split(",") if p.strip() and p.split()[0] != "out"]
+            assert cs == _twin_params(getattr(BW, twin)), (method, cs, _twin_params(getattr(BW, twin)))
+
+
+def test_the_s140_dress_auto_table_is_the_engines_row_for_row():
+    """DressSelfTest's LIVE ResolveAuto table (s140: Cinna..Beatrix their rigs 9-12, a custom 12 undressed even when named
+    first) IS BW.DRESS_AUTO_TABLE, name for name and value for value; the production twin passes it; each s140 mutant fails
+    its own row -- the CharacterId used as the rig (Cinna in the moogle suit) and s139's cap at the mains at Cinna, the
+    client moogle at the client row, the s139 rule itself at Cinna."""
+    block = _cs_block("NetSyncClient.cs", "private static String DressAutoTable(DressAutoRule rule)", stop="}")
+    rows = []
+    for t in block:
+        m = re.match(r'if \(!AutoIs\(rule, (0x[0-9A-Fa-f]+|\d+), (true|false), (DressParty4|null|new Int32\[\] \{ ([-\d, ]+) \}),'
+                     r' (\d+), (-?\d+)\)\) return "((?:[^"\\]|\\.)*)";', t)
+        if m:
+            chars = BW.DRESS_PARTY4 if m.group(3) == "DressParty4" else None if m.group(3) == "null" else \
+                tuple(int(x) for x in m.group(4).split(","))
+            rows.append((m.group(7), int(m.group(1), 0), m.group(2) == "true", chars, int(m.group(5)), int(m.group(6))))
+    assert len(rows) == len(BW.DRESS_AUTO_TABLE) == 18 and tuple(rows) == BW.DRESS_AUTO_TABLE, rows
+    assert BW.dress_auto_table(BW.resolve_auto) is None
+    cinna = "Cinna (CharacterId 8) -> her own rig 9 (107), never the moogle row"
+    assert BW.dress_auto_table(BW.mutant_char_is_rig) == cinna == BW.dress_auto_table(BW.mutant_mains_cap)
+    assert BW.dress_auto_table(BW.S139.resolve_auto) == cinna
+    assert BW.dress_auto_table(BW.mutant_moogle_on_client) == "mask 0 -> undressed on a client"
+    # the mutants ARE the engine's: MutantMapCharIsRig / MutantMapMainsOnly (the map, as a parameter)
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    for frag in ("return charId >= 0 && charId < NetSyncVisitor.RigRowCount ? charId : -1;",
+                 "return charId >= 0 && charId < NetSyncVisitor.MainRigCount ? charId : -1;",
+                 "return NetSyncVisitor.ResolveAutoCore(mask, moogleWhenEmpty, slotChar, MutantMapCharIsRig, out rigIdx);",
+                 "return NetSyncVisitor.ResolveAutoCore(mask, moogleWhenEmpty, slotChar, MutantMapMainsOnly, out rigIdx);"):
+        assert frag in client, frag
+    assert [BW.mutant_char_is_rig(2, True, (0, c, -1, -1)) for c in (8, 10)] == [(220, 8), (109, 10)]
+
+
+def _dress_statements_s140() -> list:
+    """The LIVE DressSelfTest (s140's 38 rows, whole in one hunk) as statements -- its Array.Copy block folded to
+    ``cut = CutLast(rx)`` (the s139 reader's own fold); each row's computed name is kept for :func:`_row_name`."""
+    lines = _cs_block("NetSyncClient.cs", "private Boolean DressSelfTest(out String detail)", stop="catch (Exception err)")
+    text = " ".join(_strip_comment(t) for t in lines[1:] if _strip_comment(t) not in ("{", "}", "try"))
+    copy = "if (rx != null) cut = new Byte[rx.Length - 1]; Array.Copy(rx, 0, cut, 0, cut.Length);"
+    assert text.count(copy) == 1, text[text.find("if (rx"):][:200]
+    return _split_statements(text.replace(copy, "cut = CutLast(rx);"))
+
+
+def _top_split(text: str, sep: str = ",") -> list:
+    """``text`` split on top-level ``sep`` (outside parentheses, brackets, braces and string literals)."""
+    out, cur, depth, quoted, i = [], [], 0, False, 0
+    while i < len(text):
+        c = text[i]
+        if quoted:
+            cur.append(c)
+            if c == "\\" and i + 1 < len(text):
+                cur.append(text[i + 1])
+                i += 1
+            elif c == '"':
+                quoted = False
+        elif c == '"':
+            quoted = True
+            cur.append(c)
+        elif c in "([{":
+            depth += 1
+            cur.append(c)
+        elif c in ")]}":
+            depth -= 1
+            cur.append(c)
+        elif depth == 0 and text.startswith(sep, i):
+            out.append("".join(cur).strip())
+            cur = []
+            i += len(sep)
+            continue
+        else:
+            cur.append(c)
+        i += 1
+    if "".join(cur).strip():
+        out.append("".join(cur).strip())
+    return out
+
+
+def _row_name(name_expr: str, ns: dict, translate) -> str:
+    """A Row's (computed) name as C# builds it: its `+`-joined parts -- string literals, ``(x != null ? " -- " + x : "")``,
+    ``(x ?? "y")`` and any other value (a count) evaluated in ``ns``."""
+    out = []
+    for part in _top_split(name_expr, " + "):
+        part = part.strip()
+        if re.fullmatch(r'"((?:[^"\\]|\\.)*)"', part):
+            out.append(part[1:-1].replace('\\"', '"').replace("\\\\", "\\"))
+            continue
+        m = re.fullmatch(r'\((\w+) != null \? "((?:[^"\\]|\\.)*)" \+ \1 : ""\)', part)
+        if m:
+            v = ns[m.group(1)]
+            out.append("" if v is None else m.group(2) + str(v))
+            continue
+        m = re.fullmatch(r'\((\w+) \?\? "((?:[^"\\]|\\.)*)"\)', part)
+        if m:
+            v = ns[m.group(1)]
+            out.append(m.group(2) if v is None else str(v))
+            continue
+        out.append(str(eval(translate(part), ns)))                     # noqa: S307 -- a count the row names
+    return "".join(out)
+
+
+_ROW_CALL = re.compile(r"^(?:DressRow|Row)\((.*), ref rows, ref fail\)$", re.S)
+_DECL_MULTI = re.compile(r"^(?:Int32|UInt16|Byte|Boolean|String) (\w+(?:, \w+)+)$")
+
+
+def _run_dress_rows_s140(ns: dict) -> list:
+    """Run the LIVE DressSelfTest's statements in ``ns`` (:func:`_dress_ns`): each DressRow asserts its expression TRUE for
+    the twins (the failure names the row as C# builds it); declarations -- several per statement, or uninitialised --,
+    assignments and the `out` calls evaluate. Returns the row names in order."""
+    names = []
+    for st in _dress_statements_s140():
+        st = " ".join(st.split())
+        m = _ROW_CALL.match(st)
+        if m:
+            expr, name_expr = _top_split(m.group(1))
+            got = eval(_dress_cs(expr), ns)                                  # noqa: S307 -- the stack's own rows
+            name = _row_name(name_expr, ns, _dress_cs)
+            assert got is True, f"row {name!r} is {got!r} for the twins"
+            names.append(name)
+            continue
+        m = _DECL_MULTI.match(st)
+        if m:
+            ns.update({n: None for n in m.group(1).split(", ")})
+            continue
+        d = _DRESS_DECL.match(st)
+        body = d.group(1) if d else st
+        for part in re.split(r", (?=\w+ = )", body):
+            a = re.fullmatch(r"(\w+) = (.+)", part, re.S)
+            assert a, f"an unparsed DressSelfTest statement: {st!r}"
+            ns[a.group(1)] = eval(_dress_cs(a.group(2)), ns)                 # noqa: S307
+    return names
+
+
+def test_the_dress_twins_evaluate_every_s140_dress_selftest_row_off_the_stack():
+    """DressSelfTest's OWN 38 rows (the live s140 proof block, read off the stack), EVALUATED in order against the LIVE
+    twins: the thirteen-row table (the census rows, every clip in its own folder through the kit's copies of AnimationDB and
+    GEO, the CharToRig / RigToChar map), the auto table with Cinna..Beatrix dressed, the named path (cinna..beatrix their
+    rows), the client's unchanged s138 cap, the `sub` guard / loco / anim row, the charId table, their hand-checked bytes end
+    to end, the guest's charId check, the producer, the old-guest rows, and the mutants each caught. The proof line reads
+    38 rows; `netsync.dress.codec`'s verdict shape is unchanged."""
+    names = _run_dress_rows_s140(_dress_ns(stage="s140"))
+    assert len(names) == BW.DRESS_SELFTEST_ROWS == 38 and len(set(names)) == 38, names
+    assert names[0].startswith("rigs: thirteen rows") and names[7] == "auto: the table"
+    assert BW.proof_ok(BW.PROOF_DRESS, BW.DRESS_SELFTEST_ROWS) == "dress codec selftest: OK (38 rows)"
+    assert _battle_text('"[NetSync] dress codec selftest: "') or any(
+        '"[NetSync] dress codec selftest: "' in ln for ln in _stack_text("NetSyncClient.cs"))
+
+
+@pytest.mark.parametrize("mutant,row", [
+    ("mains_cap", "auto: Cinna (CharacterId 8) -> her own rig 9 (107), never the moogle row"),
+    ("char_is_rig", "auto: Cinna (CharacterId 8) -> her own rig 9 (107), never the moogle row"),
+    ("rig_as_char", "charId: a main's row, Cinna..Beatrix CharacterId 8-11 (never the rig index); 0xFF for the moogle and "
+                    "for no dress -- Cinna (rig 9) ships CharacterId 8, never 9 (Marcus)"),
+    ("char_mains_only", "charId: a main's row, Cinna..Beatrix CharacterId 8-11 (never the rig index); 0xFF for the moogle "
+                        "and for no dress -- Cinna (rig 9) ships CharacterId 8, never 9 (Marcus)"),
+    ("valid_mains", "codec: the guest accepts charId 0-11 and 0xFF; charId 12 parses but is malformed -- refused, undressed "
+                    "-- Cinna..Beatrix's charId (8-11) is accepted"),
+    ("valid_rig_space", "codec: the guest accepts charId 0-11 and 0xFF; charId 12 parses but is malformed -- refused, "
+                        "undressed -- a charId of 12-254 is malformed"),
+    ("census_row", "rigs: rows 9-12 are the census's Cinna, Marcus, Blank and Beatrix (rigs_8_11), every column"),
+    ("clip_folder", "rigs: every row's loco clips, idle alias and break clip load from its own model's folder (the "
+                    "GEO_SUB_F0 bodies too)"),
+    ("char_map", "map: CharToRig / RigToChar -- 0-7 the same, CharacterId 8-11 <-> rig 9-12, no CharacterId reaches the "
+                 "moogle, 12+ none"),
+    ("sub_classify", "sub: Cinna..Beatrix dress a plain Zidane or their own body; their loco clips classify and translate, "
+                     "raw on their own"),
+])
+def test_each_s140_dress_selftest_row_can_fail_on_the_twin_it_holds(mutant, row):
+    """A check that cannot fail is not a check: each s140 mutant twin -- s139's cap at the mains, the CharacterId used as
+    the rig, the rig index shipped as the charId, s139's 0xFF for Cinna..Beatrix, a guest charId check of the mains only or
+    the whole rig space, a census row edited, a clip out of its rig's folder, the CharacterId map off by one, the s139
+    classifier (no rows 9-12) -- turns the live DressSelfTest's OWN row red: the very row named (its computed name)."""
+    rigs = list(BW.RIGS)
+    over = {
+        "mains_cap": {"resolve_auto": BW.mutant_mains_cap},
+        "char_is_rig": {"resolve_auto": BW.mutant_char_is_rig},
+        "rig_as_char": {"dress_char_id": BW.mutant_rig_as_char_id},
+        "char_mains_only": {"dress_char_id": BW.mutant_char_id_mains_only},
+        "valid_mains": {"dress_char_id_valid": BW.mutant_char_id_mains_valid},
+        "valid_rig_space": {"dress_char_id_valid": BW.mutant_char_id_rig_space_valid},
+        "census_row": {"rigs": tuple(rigs[:11] + [rigs[11][:6] + (100,) + rigs[11][7:]] + rigs[12:])},   # Blank's eye
+        "clip_folder": {"rigs": tuple(rigs[:1] + [rigs[1][:2] + (25,) + rigs[1][3:]] + rigs[2:])},       # Vivi walks ZDN
+        "char_map": {"char_to_rig": lambda c: c + 2 if 8 <= c < 12 else BW.char_to_rig(c)},   # Cinna as Marcus
+        "sub_classify": {"classify_loco": BW.S139.classify_loco},
+    }[mutant]
+    with pytest.raises(AssertionError) as err:
+        _run_dress_rows_s140(_dress_ns(stage="s140", **over))
+    assert f"row {row!r}" in str(err.value), str(err.value)
+
+
+def test_the_s140_guest_reads_section_8_only_through_the_arm():
+    """[ff9mapkit netsync s140] THE OLD-GUEST STAND-IN LAW, moved: section 8 is READ on the live stack only by DressSelfTest
+    (the codec proof), DressSectionText (the proof's log) and NetSyncSelfDress -- ArmDecision (TryReadSection +
+    TryParseDressSection: the guest's arm) and its SelfTest fixtures; NetSyncState.cs / NetSyncParty.cs (the s103 walkers an
+    s117 laptop runs) stay untouched by s140, so the wire stays v14 with no new bytes."""
+    sd = _stack_text("NetSyncSelfDress.cs")
+    reads = [t for t in sd if "NetSyncVisitor.SectionDress, out" in t or "TryParseDressSection(" in t]
+    arm = _cs_block("NetSyncSelfDress.cs", "internal static String ArmDecision(", stop="}")
+    assert len(reads) == 3 and reads[0] in arm and reads[1] in arm, reads          # the arm's two real readers
+    assert reads[0].startswith("if (!NetSyncState.TryReadSection(payload, NetSyncVisitor.SectionDress, out body)")
+    assert reads[1].startswith("if (!NetSyncVisitor.TryParseDressSection(body, out m, out c))")
+    assert "cinnaFrame" in reads[2] and "ArmsAs(" in reads[2]                    # ...and SelfTest's own fixture read
+    touched = {path.replace("\\", "/").rsplit("/", 1)[-1] for path, _sec in msr.sections(_patch_bytes("s140")) if path}
+    assert not touched & {"NetSyncState.cs", "NetSyncParty.cs", "NetSyncSocket.cs", "NetSyncRelay.cs"}, touched
+    for name in ("NetSyncVisitor.cs", "NetSyncBattle.cs", "NetSyncState.cs", "NetSyncParty.cs", "NetSyncDiorama.cs",
+                 "NetSyncField.cs", "NetSyncSocket.cs", "NetSyncRelay.cs"):
+        assert not any("SectionDress, out" in t for t in _stack_text(name)), name
+    # ...and nothing s140 adds sends a frame (the guest only READS section 8; BenchFrame is a local frame nothing sends)
+    for f in ("NetSyncSelfDress.cs", "NetSyncClient.cs"):
+        assert not [t for t in _s140_added(f) if re.search(r"\b(?:Send|BuildFrame|BuildStateFrame)\(", t)], f
+
+
+# ---- NetSyncSelfDress.SelfTest's OWN rows, evaluated against the twins (the s140 proof block's self-dress line)
+def _self_program() -> list:
+    """NetSyncSelfDress.SelfTest's try body off the live stack, as a statement tree: a statement string, ``("for", init,
+    cond, step, body)``, ``("try", body, "finally" | "catch", handler)`` -- its comments stripped."""
+    lines = _cs_block("NetSyncSelfDress.cs", "internal static Boolean SelfTest(out String detail)",
+                      stop="catch (Exception err)")
+    text = " ".join(c for c in (_strip_comment(t) for t in lines) if c)
+    head = "Int32 rows = 0; String fail = null; try {"
+    i = text.index(head) + len(head)
+    assert text.rstrip().endswith("}"), text[-80:]
+    return _self_block(text[i:text.rstrip().rindex("}")])
+
+
+def _self_skip(text: str, i: int, open_c: str, close_c: str) -> int:
+    """The index just past the group opening at ``text[i]`` (string literals masked)."""
+    depth, quoted = 0, False
+    for k in range(i, len(text)):
+        c = text[k]
+        if quoted:
+            if c == "\\":
+                continue
+            if c == '"' and text[k - 1] != "\\":
+                quoted = False
+            continue
+        if c == '"':
+            quoted = True
+        elif c == open_c:
+            depth += 1
+        elif c == close_c:
+            depth -= 1
+            if depth == 0:
+                return k + 1
+    raise AssertionError(f"unbalanced {open_c}: {text[i:i + 80]!r}")
+
+
+def _self_block(text: str) -> list:
+    out, i = [], 0
+    while i < len(text):
+        while i < len(text) and text[i] == " ":
+            i += 1
+        if i >= len(text):
+            break
+        if text.startswith("for (", i):
+            j = _self_skip(text, i + 4, "(", ")")
+            init, cond, step = (p.strip() for p in text[i + 5:j - 1].split(";"))
+            while text[j] == " ":
+                j += 1
+            if text[j] == "{":
+                k = _self_skip(text, j, "{", "}")
+                body = _self_block(text[j + 1:k - 1])
+            else:
+                k = text.index(";", j) + 1
+                body = [text[j:k - 1].strip()]
+            out.append(("for", init, cond, step, body))
+            i = k
+            continue
+        if text.startswith("try {", i) or text.startswith("try{", i):
+            j = text.index("{", i)
+            k = _self_skip(text, j, "{", "}")
+            body = _self_block(text[j + 1:k - 1])
+            while text[k] == " ":
+                k += 1
+            kind = "finally" if text.startswith("finally", k) else "catch"
+            j2 = text.index("{", k)
+            k2 = _self_skip(text, j2, "{", "}")
+            out.append(("try", body, kind, _self_block(text[j2 + 1:k2 - 1])))
+            i = k2
+            continue
+        # one statement: up to the top-level `;` (a delegate's or an initialiser's braces kept whole)
+        depth, k, quoted = 0, i, False
+        while k < len(text):
+            c = text[k]
+            if quoted:
+                if c == '"' and text[k - 1] != "\\":
+                    quoted = False
+            elif c == '"':
+                quoted = True
+            elif c in "({[":
+                depth += 1
+            elif c in ")}]":
+                depth -= 1
+            elif c == ";" and depth == 0:
+                break
+            k += 1
+        out.append(text[i:k].strip())
+        i = k + 1
+    return out
+
+
+_SELF_TYPES = r"(?:Int32|UInt16|Boolean|String|Byte\[\]|Byte|NetSyncVisitor\.Rig|ArmSnapshot|PosObj|Func<Int32\[\]>|" \
+              r"HashSet<String>)"
+
+
+def _self_expr(expr: str) -> str:
+    """One SelfTest expression as Python: its casts, `new PosObj()`, `new HashSet<..>(..)`, a delegate returning an Int32
+    array, `x.Count`, `arr[k].Length`, the `Armed` property, a top-level ternary -- then :func:`_cs_expr` (outs by name)."""
+    expr = re.sub(r"\((?:Byte|UInt16|Int32)\)", "", expr.strip())
+    expr = expr.replace("new PosObj()", "PosObj()")
+    expr = re.sub(r"\bnew Byte\[(\d+)\]", r"bytes(\1)", expr)
+    expr = re.sub(r"new HashSet<String>\(StringComparer\.Ordinal\)", "HashSet_()", expr)
+    expr = re.sub(r"delegate \{ return new Int32\[\] \{ ([-\d, ]+) \}; \}", r"(lambda: [\1])", expr)
+    expr = re.sub(r"\b(\w+)\.Count\b", r"len(\1)", expr)
+    expr = re.sub(r"\b(\w+\[\w+\])\.Length\b", r"len(\1)", expr)
+    expr = re.sub(r"\bArmed\b", "Armed_()", expr)
+    m = re.fullmatch(r"([\w.]+) \? ([\w.-]+) : ([\w.-]+)", expr)
+    if m:
+        return f"(({_cs_expr(m.group(2), True)}) if ({_cs_expr(m.group(1), True)}) else ({_cs_expr(m.group(3), True)}))"
+    m = re.fullmatch(r"\{ ([0-9A-Fa-fx, ]+) \}", expr)
+    if m:
+        return f"bytes([{m.group(1)}])"
+    return _cs_expr(expr, True)
+
+
+def _self_ns(**over) -> dict:
+    """The namespace SelfTest runs in: NetSyncSelfDress' pure rules and helper tables as their battlewire twins, its
+    fixtures (EventSection / Frame8Body / Frame8 / Cat / BytesAre / Reason / ArmsAs) through the twins of the REAL frame and
+    body encoders and readers, its live statics (_arm, Knob, WantRig, Why, From, _quiet) as names ArmFromStateCore /
+    Clear / SaveArm / RestoreArm write, NetSyncVisitor / NetSyncState as namespaces -- ``over`` replacing any twin (a
+    MUTANT, to prove a row bites)."""
+    from types import SimpleNamespace as NS
+    tw = dict(char_to_rig=BW.char_to_rig, rig_to_char=BW.rig_to_char, arm_decision=BW.arm_decision,
+              loco_class_of=BW.loco_class_of, map_rig_anim=BW.map_rig_anim, bframe_target=BW.bframe_target,
+              is_gesture=BW.is_gesture, law_on_rule=BW.law_on_rule, skip_rule=BW.skip_rule,
+              excluded_field_id=BW.excluded_field_id, set_model_rule=BW.set_model_rule, bench_frame=BW.bench_frame,
+              parse_defines_player=BW.parse_defines_player, map_anim=BW.map_anim, resolve_named=BW.resolve_named,
+              self_names=BW.SELF_NAMES, rigs=BW.RIGS, body_rig=BW.body_rig, skip_why=BW.skip_why)
+    tw.update(over)
+    ns: dict = {"_arm": False, "Knob": True, "_quiet": False, "WantModel": -1, "WantChar": -1, "WantRig": -1, "Why": None,
+                "From": None}
+
+    def out(name, value):
+        ns[name] = value
+
+    def try_get_rig(i, name):
+        if not (isinstance(i, int) and 0 <= i < len(tw["rigs"])):
+            out(name, None)
+            return False
+        out(name, NS(**dict(zip(_RIG_CS, tw["rigs"][i]))))
+        return True
+
+    def resolve_named(mode, cap, name):
+        model, rig = tw["resolve_named"](mode, cap)
+        out(name, rig)
+        return model
+
+    def read_section(payload, sid, name):
+        got = BW.old_try_read_section(payload, sid)
+        out(name, got)
+        return got is not None
+
+    def arm_decision(payload, mname="m", cname="c", rname="r"):
+        why, m, c, r = tw["arm_decision"](payload)
+        out(mname, m)
+        out(cname, c)
+        out(rname, r)
+        return why
+
+    def arm_from_state_core(payload, frm):
+        why, m, c, r = tw["arm_decision"](payload)
+        ns.update(From=frm, WantModel=m, WantChar=c, WantRig=r, _arm=why == BW.WHY_ARMED, Why=why)
+
+    def clear(_cause):
+        ns.update(_arm=False, WantModel=-1, WantChar=-1, WantRig=-1, From=None, Why="cleared")
+
+    keys = ("_arm", "Knob", "_quiet", "WantModel", "WantChar", "WantRig", "Why", "From")
+
+    class HashSet_(set):
+        def Add(self, v):                                          # noqa: N802 -- C#'s HashSet.Add
+            if v in self:
+                return False
+            self.add(v)
+            return True
+
+    def event_section():
+        return BW.append_section(b"", BW.SECTION_EVENT, b"\x00\x00")
+
+    def frame8_body(*body):
+        return BW.append_section(event_section(), BW.SECTION_DRESS, bytes(body))
+
+    def reason(payload):
+        return tw["arm_decision"](payload)[0]
+
+    def arms_as(payload, model, char, rig):
+        return tuple(tw["arm_decision"](payload)) == (BW.WHY_ARMED, model, char, rig)
+
+    rig_for = lambda m: next((i for i, r in enumerate(tw["rigs"]) if r[0] == m), -1)   # noqa: E731
+    ns.update(
+        NetSyncVisitor=NS(CharToRig=tw["char_to_rig"], RigToChar=tw["rig_to_char"], MoogleRig=BW.RIG_MOOGLE,
+                          TryGetRig=try_get_rig, RigRowCount=len(tw["rigs"]), RigCount=len(tw["rigs"]),
+                          LocoOther=BW.LOCO_OTHER, LocoIdle=BW.LOCO_IDLE, LocoWalk=BW.LOCO_WALK, LocoRun=BW.LOCO_RUN,
+                          LocoTurnL=BW.LOCO_TURN_L, LocoTurnR=BW.LOCO_TURN_R, SectionDress=BW.SECTION_DRESS,
+                          ResolveNamed=resolve_named, DressNameCount=len(BW.NAME_TO_RIG), RigForModel=rig_for),
+        NetSyncState=NS(TryReadSection=read_section, SectionEvent=BW.SECTION_EVENT),
+        Array=NS(IndexOf=lambda arr, v: list(arr).index(v) if v in arr else -1),
+        PosObj=lambda: NS(netSelfDress=0), HashSet_=HashSet_,
+        ArmDecision=arm_decision, WhyArmed=BW.WHY_ARMED, ArmFromStateCore=arm_from_state_core, Clear=clear,
+        SaveArm=lambda: {k: ns[k] for k in keys}, RestoreArm=lambda snap: ns.update(snap),
+        Armed_=lambda: bool(ns["_arm"]) and bool(ns["Knob"]),
+        EventSection=event_section, Frame8Body=frame8_body,
+        Frame8=lambda model, char: frame8_body(*BW.dress_section_body(model, char)),
+        Cat=lambda a, *b: bytes(a) + bytes(b), BytesAre=lambda b, *w: b is not None and bytes(b) == bytes(w),
+        Reason=reason, ArmsAs=arms_as,
+        BenchFrame=lambda spec, mask, slots, mwe, read: tw["bench_frame"](spec, mask, slots, mwe, read),
+        LocoClassByName=BW.LOCO_CLASS_BY_NAME, LocoClassSuffixes=BW.LOCO_CLASS_SUFFIXES,
+        LocoClassOther=BW.LOCO_CLASS_OTHER, LocoClassIdle=BW.LOCO_CLASS_IDLE, LocoClassWalk=BW.LOCO_CLASS_WALK,
+        LocoClassRun=BW.LOCO_CLASS_RUN, LocoClassTurnL=BW.LOCO_CLASS_TURN_L, LocoClassTurnR=BW.LOCO_CLASS_TURN_R,
+        LocoClassInactive=BW.LOCO_CLASS_INACTIVE, LocoClassJumpLadder=BW.LOCO_CLASS_JUMP_LADDER,
+        LocoClassOf=tw["loco_class_of"], LocoTable=BW.loco_table, MutantSuffixClass=BW.mutant_suffix_class,
+        MapRigAnim=tw["map_rig_anim"], SitePlay=BW.SITE_PLAY, SiteIdle=BW.SITE_IDLE, SiteWalk=BW.SITE_WALK,
+        SiteRun=BW.SITE_RUN, SiteTurnL=BW.SITE_TURN_L, SiteTurnR=BW.SITE_TURN_R, SiteSleep=BW.SITE_SLEEP,
+        SiteJump=BW.SITE_JUMP,
+        AliasTable=lambda law: BW.alias_table(law, tw["map_rig_anim"]),
+        StoreIdempotent=lambda: BW.store_idempotent(tw["map_rig_anim"]),
+        MapAnim=(lambda body, anim, site: BW.mutant_map_on_arm(ns["WantRig"], body.netSelfDress, anim, site))
+        if tw["map_anim"] == "arm" else (lambda body, anim, site: tw["map_anim"](body.netSelfDress, anim, site, True)),
+        MutantMapOnArm=lambda body, anim, site: BW.mutant_map_on_arm(ns["WantRig"], body.netSelfDress, anim, site),
+        BodyRig=(lambda body: BW.mutant_body_rig_on_arm(ns["WantRig"], body.netSelfDress))
+        if tw["map_anim"] == "arm" else (lambda body: tw["body_rig"](body.netSelfDress)),
+        MutantBodyRigOnArm=lambda body: BW.mutant_body_rig_on_arm(ns["WantRig"], body.netSelfDress),
+        BFrameTarget=tw["bframe_target"], IsGesture=tw["is_gesture"],
+        OneTimelineLaw=lambda: BW.one_timeline_law(tw["is_gesture"], tw["bframe_target"]),
+        LawOnRule=tw["law_on_rule"], LawBFrame=BW.LAW_BFRAME, LawAttach=BW.LAW_ATTACH, LawAlias=BW.LAW_ALIAS,
+        LawTimeline=BW.LAW_TIMELINE, LawNames=BW.LAW_NAMES,
+        SkipTable=BW.skip_table, SkipRule=tw["skip_rule"], MutantNeverSticky=BW.mutant_never_sticky,
+        SkipWhy=tw["skip_why"], SkipDisarm=BW.SKIP_DISARM, SkipDisarmQuiet=BW.SKIP_DISARM_QUIET,
+        MutantStickyAnyRole=BW.mutant_sticky_any_role,
+        ExcludedFieldId=tw["excluded_field_id"], DressOrderTable=BW.dress_order_table, SetModelRule=tw["set_model_rule"],
+        MutantCtlFirst=BW.mutant_ctl_first, ParseDefinesPlayer=tw["parse_defines_player"], SelfNames=tw["self_names"])
+    return ns
+
+
+def _self_run(program: list, ns: dict) -> list:
+    """Run SelfTest's statement tree in ``ns``: each Row asserts its expression TRUE for the twins (the failure names the
+    row); declarations (several per statement, or uninitialised), assignments (an attribute's too), bare calls, the C-style
+    for loops, try / finally and try / catch run as C# would. Returns the row names in order."""
+    names = []
+    for st in program:
+        if isinstance(st, tuple) and st[0] == "for":
+            _tag, init, cond, step, body = st
+            _self_run([init], ns)
+            while eval(_self_expr(cond), ns):                               # noqa: S307
+                names += _self_run(body, ns)
+                m = re.fullmatch(r"(\w+)\+\+", step)
+                assert m, step
+                ns[m.group(1)] += 1
+            continue
+        if isinstance(st, tuple) and st[0] == "try":
+            _tag, body, kind, handler = st
+            if kind == "finally":
+                try:
+                    names += _self_run(body, ns)
+                finally:
+                    _self_run(handler, ns)
+            else:
+                try:
+                    names += _self_run(body, ns)
+                except Exception:                                            # noqa: BLE001 -- C#'s bare catch
+                    names += _self_run(handler, ns)
+            continue
+        st = " ".join(st.split())
+        m = _ROW_CALL.match(st)
+        if m:
+            expr, name_expr = _top_split(m.group(1))
+            got = eval(_self_expr(expr), ns)                                 # noqa: S307 -- the stack's own rows
+            name = _row_name(name_expr, ns, _self_expr)
+            assert got is True, f"row {name!r} is {got!r} for the twins"
+            names.append(name)
+            continue
+        m = re.fullmatch(_SELF_TYPES + r" (\w+(?:, \w+)*)", st)
+        if m:                                                                # Int32 m, c, r / NetSyncVisitor.Rig wr
+            ns.update({n: None for n in m.group(1).split(", ")})
+            continue
+        m = re.fullmatch(_SELF_TYPES + r" (\w+ = .+)", st)
+        body = m.group(1) if m else st
+        a = re.fullmatch(r"([\w.]+) = (.+)", body, re.S)
+        if a and "." in a.group(1):
+            obj, attr = a.group(1).rsplit(".", 1)
+            setattr(ns[obj], attr, eval(_self_expr(a.group(2)), ns))        # noqa: S307 -- body.netSelfDress = 4 + 1
+            continue
+        if a:
+            for part in _top_split(body):
+                pa = re.fullmatch(r"(\w+) = (.+)", part, re.S)
+                assert pa, f"an unparsed SelfTest statement: {st!r}"
+                ns[pa.group(1)] = eval(_self_expr(pa.group(2)), ns)         # noqa: S307
+            continue
+        assert re.fullmatch(r"[\w.]+\(.*\)", st), f"an unparsed SelfTest statement: {st!r}"
+        eval(_self_expr(st), ns)                                             # noqa: S307 -- a bare call
+    return names
+
+
+def test_the_self_dress_twins_evaluate_every_selftest_row_off_the_stack():
+    """NetSyncSelfDress.SelfTest's OWN 29 rows (the live s140 proof block's self-dress line, read off the stack), EVALUATED
+    in order against battlewire's twins: the CharacterId <-> rig map on REAL section-8 bytes, the closed loco table and its
+    sample (+ the suffix-rule mutant caught), the map (the alias, the walk, the break clip, by NAME), own clips passing,
+    the alias fallback on every rig 1-12 (+ the slot-id mutant), the slots, the idempotent store, THE BODY'S RIG on the live
+    statics (+ the arm-keyed mutant), THE B_FRAME LAW on every rig (+ `law bframe off`), the one timeline law, the law bits,
+    T2, the disarm reasons and the arming bytes through the real readers, the bench spec through the real encoders, the
+    sticky skip (+ two mutants), the knob (no arm state), the exclusion, the dress order (+ the control-first mutant), the
+    0x2C parse, the `self` names. The proof line reads 29 rows; `self.selftest`'s verdicts are "ok" / "fail: <row>"."""
+    names = _self_run(_self_program(), _self_ns())
+    assert len(names) == BW.SELF_DRESS_SELFTEST_ROWS == 29 and len(set(names)) == 29, names
+    assert names[0].startswith("map: section 8's charId 1-11 arms the rig its model is")
+    assert names[-1] == f"names: the `self` names are NameToRig's -- each resolves to its row, none twice, all " \
+                        f"{len(BW.SELF_NAMES)} of the table"
+    assert BW.proof_ok(BW.PROOF_SELF_DRESS, BW.SELF_DRESS_SELFTEST_ROWS) == "self-dress selftest: OK (29 rows)"
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    assert 'Log.Message("[NetSync] self-dress selftest: "' in client and \
+        '+ (selfOk ? "OK (" + selfDetail + ")" : "FAIL (" + selfDetail + ")"));' in client
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    assert '_selfTestVerdict = fail == null ? "ok" : "fail: " + fail;' in sd
+    assert (BW.SELF_DRESS_SELFTEST_OK, BW.SELF_DRESS_SELFTEST_FAIL) == ("ok", "fail: ")
+    # the proof line sits right after s139's rig idle frames line, on the selftest role's proof block
+    assert _added_after("s140", "NetSyncClient.cs", '"[NetSync] dress rig idle frames: "', "Boolean selfOk = "
+                                                                                          "NetSyncSelfDress.SelfTest(")
+
+
+def _self_mut_map_slot_id(rig, anim, site, alias):
+    return BW.map_rig_anim(rig, anim, site, False)                  # the alias law ignored: the slot id (its red)
+
+
+@pytest.mark.parametrize("mutant,row", [
+    ("char_map", "map: section 8's charId 1-11 arms the rig its model is (Cinna..Beatrix rigs 9-12), RigToChar back; never "
+                 "the moogle"),
+    ("suffix_rule", "loco: by NAME on the census sample"),
+    ("slot_id", "map: on Vivi CHO_WALK plays the idle ALIAS 573"),
+    ("arm_keyed", "body: BodyRig and MapAnim (MapAndAttach's map) key on the BODY's rig"),
+    ("bframe_stock", "bframe: GetAnimDuration on a dressed body answers a loco family's NATIVE clip"),
+    ("gesture_all", "timeline: a GESTURE keeps the source timeline"),
+    ("law_always", "laws: each `law <name> off` lever switches off ITS law only"),
+    ("no_charid", "arm: the disarm reasons from real bytes"),
+    ("auto_ignores_mask", "bench: `self auto` is the s139 host rule"),
+    ("never_sticky", "sticky: a skipped apply KEEPS the arm while a client mirrors"),
+    ("host_not_mirroring", "sticky: a skipped apply KEEPS the arm while a client mirrors"),
+    ("excluded_70", "exclusion: New Game's 70 and the ending's 3000-3012"),
+    ("ctl_first", "order: SetModel dresses only an armed 98 on a client / selftest role"),
+    ("parse_always", "parse: an entry slice running DefinePlayerCharacter"),
+    ("names_short", "names: the `self` names are NameToRig's"),
+])
+def test_each_self_dress_selftest_row_can_fail_on_the_twin_it_holds(mutant, row):
+    """A check that cannot fail is not a check: each mutant twin -- a CharacterId map off by one, the design's suffix rule,
+    the slot-id fallback, MapAnim and BodyRig keyed on the ARM, B_FRAME answering stock, every clip a gesture, a law lever
+    acting on every role, ArmDecision without its charId check, `self auto` ignoring its mask, a never-sticky skip, a host
+    publishing a client's 'not mirroring', an exclusion of field 70 alone, the control check first, a parse that finds 0x2C
+    everywhere, a `self` name list one short -- turns SelfTest's OWN row red (the row named by its leading words)."""
+    def no_charid(payload):
+        why, m, c, r = BW.arm_decision(payload)
+        return (BW.WHY_ARMED, m, c, r) if why == "charid" and r > 0 else (why, m, c, r)
+    over = {
+        "char_map": {"char_to_rig": lambda c: c + 2 if 8 <= c < 12 else BW.char_to_rig(c)},
+        "suffix_rule": {"loco_class_of": BW.mutant_suffix_class},
+        "slot_id": {"map_rig_anim": _self_mut_map_slot_id},
+        "arm_keyed": {"map_anim": "arm"},                       # MapAnim AND BodyRig keyed on WantRig
+        "bframe_stock": {"bframe_target": lambda rig, anim, law, alias: anim},
+        "gesture_all": {"is_gesture": lambda rig, raw: BW.anim_name(raw) is not None},
+        "law_always": {"law_on_rule": lambda off, law, st: (off & law) == 0},
+        "no_charid": {"arm_decision": no_charid},
+        "auto_ignores_mask": {"bench_frame": lambda spec, mask, slots, mwe, read: BW.bench_frame(spec, -1, slots, mwe, read)},
+        "never_sticky": {"skip_rule": BW.mutant_never_sticky},
+        "host_not_mirroring": {"skip_why": lambda rule: "not mirroring" if rule != BW.SKIP_KEEP else None},
+        "excluded_70": {"excluded_field_id": lambda eff: eff == 70},
+        "ctl_first": {"set_model_rule": BW.mutant_ctl_first},
+        "parse_always": {"parse_defines_player": lambda raw, sid=0: bool(raw) and len(raw) > 6},
+        "names_short": {"self_names": BW.SELF_NAMES[:-1]},
+    }[mutant]
+    with pytest.raises(AssertionError) as err:
+        _self_run(_self_program(), _self_ns(**over))
+    m = re.search(r"row (['\"])(.*?)\1 is ", str(err.value))
+    assert m and m.group(2).startswith(row), str(err.value)
+
+
+# ---- the hook sites (DoEventCode, DoCalcOperationExt, updateModelsToBeAdded, PosObj) and the client half, off the patch
+#: [ff9mapkit netsync s140] every line s140 ADDS to DoEventCode.cs, in order (the 13 hook sites, R3-FIELD-MODEL-AUDIT.md 2.3's
+#: live map) -- each gated on netSelfDress != 0, LoadHasDress or Armed (vanilla pays one field read per site)
+S140_DOEVENTCODE_ADDED = (
+    "if (Memoria.Netsync.NetSyncSelfDress.LoadHasDress && this.gMode == 1)",
+    "Memoria.Netsync.NetSyncSelfDress.NoteControl(this.gExec);",
+    "if (po.netSelfDress != 0 || Memoria.Netsync.NetSyncSelfDress.Armed)",
+    "Memoria.Netsync.NetSyncSelfDress.AtSetModel(this, po);",
+    "if (po.netSelfDress != 0)", "Memoria.Netsync.NetSyncSelfDress.AttachDress(po, false);",
+    "if (actor.netSelfDress != 0)",
+    "actor.idle = (UInt16)Memoria.Netsync.NetSyncSelfDress.MapAndAttach(actor, actor.idle, "
+    "Memoria.Netsync.NetSyncSelfDress.SiteIdle);",
+    "if (actor.netSelfDress != 0)",
+    "actor.walk = (UInt16)Memoria.Netsync.NetSyncSelfDress.MapAndAttach(actor, actor.walk, "
+    "Memoria.Netsync.NetSyncSelfDress.SiteWalk);",
+    "if (actor.netSelfDress != 0)",
+    "actor.run = (UInt16)Memoria.Netsync.NetSyncSelfDress.MapAndAttach(actor, actor.run, "
+    "Memoria.Netsync.NetSyncSelfDress.SiteRun);",
+    "Int32 dressPlay = actor.netSelfDress != 0 ? Memoria.Netsync.NetSyncSelfDress.MapAndAttach(actor, anim, "
+    "Memoria.Netsync.NetSyncSelfDress.SitePlay) : anim;",
+    "this.ExecAnim(actor, dressPlay);", "if (dressPlay != anim)",
+    "Memoria.Netsync.NetSyncSelfDress.KeepSourceTimeline(actor, anim);",
+    "if (actor.netSelfDress != 0)",
+    "actor.sleep = (UInt16)Memoria.Netsync.NetSyncSelfDress.MapAndAttach(actor, actor.sleep, "
+    "Memoria.Netsync.NetSyncSelfDress.SiteSleep);",
+    "if (actor.netSelfDress != 0)",
+    "actor.turnl = (UInt16)Memoria.Netsync.NetSyncSelfDress.MapAndAttach(actor, actor.turnl, "
+    "Memoria.Netsync.NetSyncSelfDress.SiteTurnL);",
+    "if (actor.netSelfDress != 0)",
+    "actor.turnr = (UInt16)Memoria.Netsync.NetSyncSelfDress.MapAndAttach(actor, actor.turnr, "
+    "Memoria.Netsync.NetSyncSelfDress.SiteTurnR);",
+    "if (actor.netSelfDress != 0)",
+    "actor.jump = (UInt16)Memoria.Netsync.NetSyncSelfDress.AtJumpSlot(actor, actor.jump);",
+    "if (actor.netSelfDress != 0)", "Memoria.Netsync.NetSyncSelfDress.KeepJumpTimeline(actor);",
+    "if (actor.netSelfDress != 0)", "Memoria.Netsync.NetSyncSelfDress.KeepJumpTimeline(actor);",
+    "if (actor.netSelfDress != 0)", "Memoria.Netsync.NetSyncSelfDress.KeepJumpTimeline(actor);",
+    "if (actor.netSelfDress != 0)", "Memoria.Netsync.NetSyncSelfDress.AtLogicalAnim(actor, kind, anim);",
+)
+
+
+def test_the_self_dress_hooks_sit_where_the_audit_says():
+    """THE HOOK SITES, off the s140 patch (each line its comment stripped): DoEventCode gains exactly the sixteen gated
+    sites (NoteControl at DefinePlayerCharacter, AtSetModel as the FIRST statement of the stock gMode-1 block -- before the
+    GEO lookup, the body's byte read before the static --, AttachDress (site a) inside `po.go != null`, the six slot
+    setters' MapAndAttach AFTER the stock code, the jump slot's AtJumpSlot, RunAnimation's `dressPlay`, KeepJumpTimeline
+    right after PREJUMP / POSTJUMP / SETVY3's ExecAnim(actor.jump), AANIM_EX's AtLogicalAnim) and drops one line:
+    `this.ExecAnim(actor, anim);` -- T2's STRUCTURAL HALF: the play id is the separate `dressPlay`, so every stock effMapNo
+    check of the site keeps reading the RAW `anim` (the hunk's own context after it: 307's `anim == 10328`), no added line
+    compares `dressPlay` to an id, and KeepSourceTimeline gets the raw id; DoCalcOperationExt's B_FRAME answers BFrame on a
+    DRESSED PosObj only (gCur as PosObj), stock otherwise; updateModelsToBeAdded re-attaches on the warm return (site b);
+    PosObj carries netSelfDress / netDressSrc / netJumpSrc through PosObj.copy; the csproj compiles the new file; the stack
+    replayer covers every touched file (audit 3.4)."""
+    added = [_strip_comment(t) for t in _s140_added("EventEngine.DoEventCode.cs")]
+    assert tuple(added) == S140_DOEVENTCODE_ADDED, added
+    removed = [ln[1:].strip() for path, sec in msr.sections(_patch_bytes("s140"))
+               if path and path.endswith("EventEngine.DoEventCode.cs")
+               for ln in sec.decode("utf-8", "replace").splitlines() if ln.startswith("-") and not ln.startswith("---")]
+    assert removed == ["this.ExecAnim(actor, anim);"], removed
+    new = [_strip_comment(t) for t in _s140_new("EventEngine.DoEventCode.cs")]
+    i = new.index("this.ExecAnim(actor, dressPlay);")
+    assert new[i + 3] == "if (effMapNo == 307 && actor.uid == 13 && anim == 10328)", new[i:i + 4]   # the raw id read
+    assert new.index("AnimationFactory.AddAnimWithAnimatioName(actor.go, FF9DBAll.AnimationDB.GetValue(anim));") < \
+        new.index(S140_DOEVENTCODE_ADDED[12]) < i                       # stock attaches the RAW clip first (the source)
+    assert not [t for t in added if re.search(r"dressPlay ==|== dressPlay", t)]
+    calc = [_strip_comment(t) for t in _s140_added("EventEngine.DoCalcOperationExt.cs")]
+    for frag in ("Int32 frameAnim = this.eBin.getv();", "PosObj framePo = this.gCur as PosObj;",
+                 "result = framePo != null && framePo.netSelfDress != 0 ? "
+                 "Memoria.Netsync.NetSyncSelfDress.BFrame(framePo, frameAnim)",
+                 ": EventEngineUtils.GetCharAnimFrame(this.gCur.go, frameAnim);"):
+        assert frag in calc, frag
+    assert [_strip_comment(t) for t in _s140_added("EventEngine.updateModelsToBeAdded.cs")] == [
+        "if (posObj.netSelfDress != 0)", "Memoria.Netsync.NetSyncSelfDress.AttachDress(posObj, true);"]
+    pos = [_strip_comment(t) for t in _s140_added("PosObj.cs")]
+    for frag in ("this.netSelfDress = po.netSelfDress;", "this.netDressSrc = po.netDressSrc;", "public Byte netSelfDress;",
+                 "public UInt16 netDressSrc;", "this.netJumpSrc = po.netJumpSrc;", "public UInt16 netJumpSrc;"):
+        assert frag in pos, frag
+    # AtSetModel is the FIRST statement of the stock gMode-1 block, ahead of the GEO lookup (one gMode read, not two)
+    k = new.index("if (po.netSelfDress != 0 || Memoria.Netsync.NetSyncSelfDress.Armed)")
+    assert new[k - 2:k] == ["if (this.gMode == 1)", "{"] and new[k + 2] == "String str = FF9BattleDB.GEO.GetValue(po.model);"
+    # every ExecAnim of the JUMP SLOT is followed by its gated KeepJumpTimeline (PREJUMP, POSTJUMP, SETVY3)
+    jumps = [k for k, t in enumerate(new) if t == "this.ExecAnim(actor, (Int32)actor.jump);"]
+    assert len(jumps) == 3 and all(new[k + 1:k + 3] == ["if (actor.netSelfDress != 0)",
+                                                        "Memoria.Netsync.NetSyncSelfDress.KeepJumpTimeline(actor);"]
+                                   for k in jumps), [new[k:k + 3] for k in jumps]
+    assert [t for t in _s140_added("Assembly-CSharp.csproj") if "NetSyncSelfDress.cs" in t] == [
+        '<Compile Include="Memoria\\Netsync\\NetSyncSelfDress.cs" /> <!-- [ff9mapkit netsync s140] the guest dresses itself -->']
+    for f in ("EventEngine.DoEventCode.cs", "PosObj.cs", "EventEngine.updateModelsToBeAdded.cs",
+              "EventEngine.DoCalcOperationExt.cs", "NetSyncSelfDress.cs"):
+        assert any(p.endswith("/" + f) for p in msr.DEFAULT_FILES), f
+    # every hunk of the patch is tagged (O5)
+    for path, sec in msr.sections(_patch_bytes("s140")):
+        for hunk in re.split(rb"(?m)^@@", sec)[1:]:
+            assert b"[ff9mapkit netsync s140]" in hunk, (path, hunk[:120])
+
+
+def test_the_client_arms_at_the_field_load_and_clears_at_its_boundaries():
+    """The client half (NetSyncClient, off the live stack): ApplyStoryBeforeEvents runs OnFieldLoad, then (the selftest
+    role) ArmBench with the live GuestSlots and the live role's moogle predicate; the ApplyStory SUCCESS branch arms from
+    the host's payload; each of its three skip paths (transport, no host snapshot, apply failed) takes OnApplySkipped with
+    the live role and _storyMirroring; Clear() runs at the exit ramp's FIRE (BEFORE ExitMirrorToOwnSave), in OnDestroy and
+    on a config change; IsClientOrSelfTestRole is positive, enabled-gated and live."""
+    client = _stack_text("NetSyncClient.cs")
+    text = " ".join(_strip_comment(t) for t in client)
+    for frag in ("NetSyncSelfDress.OnFieldLoad();", "if (IsSelfTestRole)",
+                 "NetSyncSelfDress.ArmBench(_guestSlots, NetSyncVisitor.MoogleWhenEmpty(_role, IsSelfTestRole), ReadSlotChars);",
+                 "NetSyncSelfDress.ArmFromState(host);", 'NetSyncSelfDress.Clear("config change");',
+                 'NetSyncSelfDress.Clear("the exit ramp");', 'NetSyncSelfDress.Clear("teardown");',
+                 'get { return _enabled && (_role == "client" || _role == "selftest"); }'):
+        assert frag in text, frag
+    assert sum(_strip_comment(t) == 'NetSyncSelfDress.OnApplySkipped(_role == "client", _storyMirroring);'
+               for t in client) == 3
+    new = [_strip_comment(t) for t in _s140_new("NetSyncClient.cs")]
+    i = new.index('NetSyncSelfDress.Clear("the exit ramp");')
+    assert any("NetSyncState.ExitMirrorToOwnSave()" in t for t in new[i + 1:i + 3]), new[i:i + 3]   # BEFORE the save swap
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    for frag in ("ArmFromStateCore(hostPayload, \"host\");", "ArmFromStateCore(BenchFrame(_benchSelf, _benchSelfMask, "
+                 "guestSlots, moogleWhenEmpty, readSlotChars), \"bench\");",
+                 "Int32 rule = SkipRule(NetSyncClient.IsSelfTestRole, clientRole, mirroring);",
+                 "Int32 outcome = SetModelRule(Armed, asked, NetSyncClient.IsClientOrSelfTestRole, ExcludedField, GateOn,",
+                 "return ExcludedFieldId(Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo));",
+                 "Int32 mapped = MapAnim(actor, raw, site);",
+                 "Int32 mapped = BFrameTarget(BodyRig(po), id, LawOn(LawBFrame), LawOn(LawAlias));",
+                 "if (rigIdx < 0 || !LawOn(LawTimeline) || !IsGesture(rigIdx, raw))",
+                 "if (!LawOn(LawAttach))", "return MapRigAnim(rigIdx, id, site, LawOn(LawAlias));",
+                 "return LawOnRule(_lawOff, law, NetSyncClient.IsSelfTestRole);",
+                 "get { return !_benchGateOff || !NetSyncClient.IsSelfTestRole; }"):
+        assert frag in sd, frag
+
+
+#: [ff9mapkit netsync s140] where NetSyncSelfDress may READ the arm's rig (WantRig / WantModel): the arm made, cleared, logged,
+#: snapshotted, the fresh dress written (AtSetModel, AFTER its `NetSyncVisitor.Rig rig;`) -- and SelfTest with its mutants. A
+#: hook that maps, attaches, times or answers B_FRAME reads the BODY's rig (BodyRig) and never these.
+S140_WANT_READERS = ("ArmFromStateCore", "OnApplySkipped", "Clear", "LogArm", "AtSetModel", "SaveArm", "RestoreArm",
+                     "SelfTest", "MutantMapOnArm", "MutantBodyRigOnArm")
+#: ...and every production site that resolves a rig, each through BodyRig (a WantRig-keyed hook fails these pins)
+S140_BODY_RIG_SITES = {"MapAnim": "Int32 rigIdx = BodyRig(body);",
+                       "MapAndAttach": "rigIdx = BodyRig(actor);",
+                       "KeepSourceTimeline": "Int32 rigIdx = BodyRig(actor);",
+                       "BFrame": "Int32 mapped = BFrameTarget(BodyRig(po), id, LawOn(LawBFrame), LawOn(LawAlias));",
+                       "AttachDress": "Int32 rigIdx = BodyRig(po);",
+                       "AtSetModel": "if (asked == NetSyncVisitor.PlainZidaneModel && NetSyncVisitor.TryGetRig(BodyRig(po), "
+                                     "out body))"}
+
+
+def _sd_methods() -> list:
+    """NetSyncSelfDress.cs IN ORDER (the s140 patch's new side: the file is created whole) as (method, stripped code line)
+    -- the method a line sits in (a static member declaration with a parameter list opens the next one), comments
+    stripped."""
+    out, cur = [], None
+    for raw_ln in _s140_new("NetSyncSelfDress.cs"):
+        m = re.match(r"(?:internal|private|public) static [\w<>\[\], .]*?\b(\w+)\s*\(", raw_ln)
+        if m and not raw_ln.rstrip().endswith(";"):
+            cur = m.group(1)
+        code = _strip_comment(raw_ln)
+        if code:
+            out.append((cur, code))
+    return out
+
+
+def test_every_self_dress_hook_resolves_its_rig_through_body_rig():
+    """THE BODY'S RIG IS ONE FUNCTION (amendment 5; the review's dead-twin finding): SelfTest's body row proves BodyRig and
+    MapAnim key on the BODY across a re-arm and a Clear() -- these pins make every PRODUCTION hook go through them, so a
+    hook re-keyed on the arm (Vivi ids on a Freya body after a re-arm, every anim collapsing after Clear()) fails here
+    statically: `netSelfDress - 1` appears ONLY in BodyRig; MapAndAttach maps through MapAnim (`Int32 mapped = MapAnim(
+    actor, raw, site);`), and MapAnim / MapAndAttach / KeepSourceTimeline / BFrame / AttachDress / the defence branch / the
+    harness `rig` read their rig off BodyRig; WantRig / WantModel are READ only where the arm is made, cleared, logged,
+    snapshotted or the FRESH dress is written (AtSetModel after its `NetSyncVisitor.Rig rig;`) -- and HarnessAgent reads
+    them for `want_*` only."""
+    lines = _sd_methods()
+    minus1 = sorted({m for m, t in lines if "netSelfDress - 1" in t})
+    assert minus1 == ["BodyRig"], minus1
+    assert ("BodyRig", "return body != null && body.netSelfDress != 0 ? body.netSelfDress - 1 : -1;") in lines
+    by = {}
+    for m, t in lines:
+        by.setdefault(m, []).append(t)
+    for meth, line in S140_BODY_RIG_SITES.items():
+        assert line in by.get(meth, []), (meth, line)
+    assert "Int32 mapped = MapAnim(actor, raw, site);" in by["MapAndAttach"]
+    assert not [t for t in by["MapAndAttach"] if "MapRigAnim(" in t]           # never its own map beside the proven one
+    assert "internal static Int32 HarnessBodyRig { get { return BodyRig(HarnessBody()); } }" in [t for _m, t in lines]
+    readers = sorted({m for m, t in lines if re.search(r"\bWant(?:Rig|Model)\b", t)
+                      and not re.match(r"internal static Int32 Want(?:Rig|Model) = -1;", t)})
+    assert set(readers) <= set(S140_WANT_READERS), readers
+    at = by["AtSetModel"]
+    k = at.index("NetSyncVisitor.Rig rig;")
+    assert not [t for t in at[:k] if re.search(r"\bWant(?:Rig|Model)\b", t)], at[:k]         # the fresh dress only
+    agent = [t for t in _stack_text("HarnessAgent.cs") if re.search(r"NetSyncSelfDress\.Want(?:Rig|Model)\b", t)]
+    assert len(agent) == 2 and all('"want_' in t for t in agent), agent
+
+
+def test_the_jump_slot_keeps_its_source_timeline():
+    """THE JUMP SLOT ON THE SOURCE TIMELINE (the review's ladder finding): the slot stores the idle ALIAS (amendment 10)
+    but its windows run on the SOURCE clip's frame count -- SetJumpAnimation and SetLogicalAnimationEx kind 6 go through
+    AtJumpSlot (the RAW id kept in PosObj.netJumpSrc BEFORE the map), PREJUMP / POSTJUMP / SETVY3 each call
+    KeepJumpTimeline right after ExecAnim(actor.jump) (the hook-site test pins the three sites), and it restores the source
+    count through KeepSourceTimeline (so `law timeline off` switches it off too); netJumpSrc rides PosObj.copy, AttachDress
+    keeps a pre-dress raw id and re-attaches the raw clip, and the defence branch's drop puts the raw jump id back and
+    clears the sleep slot (never a stored break clip or alias for the new go). battlewire's twin (jump_frame_n /
+    jump_ticks) is the census test's (test_dress_census.py: every stock jump window on every rig)."""
+    by = {}
+    for m, t in _sd_methods():
+        by.setdefault(m, []).append(t)
+    jslot = by["AtJumpSlot"]
+    assert jslot.index("actor.netJumpSrc = (UInt16)raw;") < jslot.index("return MapAndAttach(actor, raw, SiteJump);")
+    assert "case 6: actor.jump = (UInt16)AtJumpSlot(actor, raw); break;" in by["AtLogicalAnim"]
+    keep = by["KeepJumpTimeline"]
+    assert "if (actor.netJumpSrc != 0 && actor.netJumpSrc != actor.jump)" in keep and \
+        "KeepSourceTimeline(actor, actor.netJumpSrc);" in keep
+    att = by["AttachDress"]
+    assert "if (actor.netJumpSrc == 0)" in att and "actor.netJumpSrc = actor.jump;" in att and \
+        "AttachId(go, actor.netJumpSrc);" in att
+    assert att.index("actor.netJumpSrc = actor.jump;") < att.index(
+        "actor.jump = (UInt16)MapRigAnim(rigIdx, actor.jump, SiteJump, alias);")
+    for frag in ("dropped.sleep = 0;", "dropped.jump = po.netJumpSrc;", "po.netJumpSrc = 0;"):
+        assert frag in by["AtSetModel"], frag
+    added = [_strip_comment(t) for t in _s140_added("EventEngine.DoEventCode.cs")]
+    assert added.count("Memoria.Netsync.NetSyncSelfDress.KeepJumpTimeline(actor);") == 3
+    assert "actor.jump = (UInt16)Memoria.Netsync.NetSyncSelfDress.AtJumpSlot(actor, actor.jump);" in added
+    # the twin: on Freya LADDER_1_1 (8 frames, (2, 6)) lands in stock's 0 ticks with the hook, 42 on her 50-frame alias without
+    frames = {10687: 8, 2557: 50, 2556: 50}.get
+    assert BW.jump_ticks(BW.jump_frame_n(4, 10687, frames), 2, 6) == BW.jump_ticks(8, 2, 6) == (1, 0)
+    assert BW.jump_ticks(BW.jump_frame_n(4, 10687, frames, keep=False), 2, 6) == (1, 42)
+    assert BW.jump_frame_n(-1, 10687, frames) == 8                               # an undressed body: stock
+
+
+def test_the_self_dress_knob_is_a_behaviour_key_and_never_an_arm_state():
+    """[Netsync] SelfDress (default 1, quotes accepted) joins the behaviour signature (bsig) after ActionReplay, is
+    committed LIVE to NetSyncSelfDress.Knob (Armed = the arm && the knob: never an arm state, amendment 6), and the config
+    line names ' selfDress=0' only when off -- which the T2 benches' config matcher still reads."""
+    text = " ".join(_stack_text("NetSyncClient.cs"))
+    for piece in ('String sdRaw = ini.GetSetting("Netsync", "SelfDress", "1").Trim();',
+                  "if (sdRaw.Length >= 2 && sdRaw[0] == '\"' && sdRaw[sdRaw.Length - 1] == '\"')",
+                  'Boolean selfDress = sdRaw != "0";', '"|" + (actionReplay ? "1" : "0") +', '"|" + (selfDress ? "1" : "0");',
+                  "NetSyncSelfDress.Knob = selfDress;", '(!selfDress ? " selfDress=0" : "") +'):
+        assert piece in text, piece
+    pb = _peer_bench()
+    line = ("[NetSync] config enabled=True role=client field=0 actionReplay=0 selfDress=0 relay=ws://127.0.0.1:49201 "
+            "code=ff9-T2BENCH1")
+    m = pb.MATCHERS["config"].match(line)
+    assert m and m.group(2) == "client" and m.group(6) == "ff9-T2BENCH1" and "selfDress=0" in m.group(4)
+
+
+# ---- the stand-in's `dressself` rung
+BENCH_SELF = 30606                                              # the s140 bench field (studies/battle-coop/bench)
+
+
+def _sf():
+    """studies/test-harness/scenarios/_selfdress_field.py -- the bench field's contract -- from its file, privately."""
+    spec = importlib.util.spec_from_file_location("_selfdress_field_under_test", SCENARIOS / "_selfdress_field.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _bench_contract(sf) -> dict:
+    """The stand-in's ``dress_conductors`` row for the bench field, every number the contract's own."""
+    return {"ready": sf.READY, "io_bits": sf.IO_BITS, "trig": dict(sf.TRIGGERS), "done": dict(sf.DONES),
+            "wedged": dict(sf.WEDGES), "t3_loop": sf.T3_LOOP, "t3_end": sf.T3_END, "late_sid": sf.LATE_SID,
+            "anims": {"x": sf.ANIM_X, "t1": sf.ANIM_T1, "t3_walk": sf.ANIM_T3_WALK, "t3_stand": sf.ANIM_T3_STAND,
+                      "j": sf.ANIM_J},
+            "t1_threshold": sf.T1_THRESHOLD, "t1_limit": sf.T1_LIMIT, "t3_loop_limit": sf.T3_LOOP_LIMIT,
+            "j_windows": (sf.J_JUMP0, sf.J_JUMP1), "j_frames": sf.ANIM_J_FRAMES, "j_land": sf.J_LAND, "j_end": sf.J_END,
+            "j_limit": sf.J_LIMIT}
+
+
+def _bench_bodies(sf, *, late_defines: bool = True) -> list:
+    """The bench field's two other 98 entries: the TWIN (no DefinePlayerCharacter; its InitObject before the player's) and
+    the LATE entry (inited by the N3 conductor after the player's CC; its never-run function holds a CC)."""
+    return [{"x": -700.0, "z": -1100.0, "r": 100.0, "uid": sf.TWIN_SID, "sid": sf.TWIN_SID, "model": 98,
+             "defines_player": False},
+            {"x": 700.0, "z": -1100.0, "r": 100.0, "uid": sf.LATE_SID, "sid": sf.LATE_SID, "model": 98,
+             "defines_player": late_defines, "late": True}]
+
+
+def _step(fake, n: int = 1) -> None:
+    for _ in range(n):
+        fake.frame += 1
+        fake._step_self_dress()
+        fake._step_dress()
+
+
+def _selfdoc(fake) -> dict:
+    return fake._dress_doc()["self"]
+
+
+def _bench_fake(game, spec="freya", *, faults=(), late_defines=True, levers=(), **over):
+    """A by-hand stand-in on the bench field (its conductor contract, the twin and the late entry), `self <spec>` set and
+    the field loaded -- the `selfdress` lever ops in ``levers`` applied before the load."""
+    sf = _sf()
+    fake = _s140_fake(game, dress_conductors={BENCH_SELF: _bench_contract(sf)},
+                      blockers={BENCH_SELF: _bench_bodies(sf, late_defines=late_defines)}, **over)
+    fake.dress_faults = set(faults)
+    if spec is not None:
+        fake._execute(["netsync", "selfdress", "self", *str(spec).split()])
+    for op in levers:
+        fake._execute(["netsync", "selfdress", *op])
+    fake._execute(["warp", str(BENCH_SELF)])
+    return fake, sf
+
+
+def _conduct(fake, sf, name: str, limit: int = 600) -> str:
+    """Set one TRIG bit and step until the caller answers: "done", "wedged" or "timeout"."""
+    fake._execute(["flag", str(sf.TRIGGERS[name]), "1"])
+    for _ in range(limit):
+        _step(fake)
+        if fake._watched_bit(sf.DONES[name]):
+            return "done"
+        if name in sf.WEDGES and fake._watched_bit(sf.WEDGES[name]):
+            return "wedged"
+    return "timeout"
+
+
+def test_an_s139_stand_in_publishes_no_s140_key_and_the_dressself_rung_every_one(game):
+    """THE LEVEL HOME for s140: ``caps_through("dresshost")`` (s140's calibration) publishes s139's dress block exactly --
+    no `self`, nine idle frames, the codec line's 29 rows, no self-dress line, `selfdress self` refused before the step;
+    the `dressself` rung adds `self` LAST, thirteen idle frames (the census's), the codec line's 38 rows and the
+    self-dress line (`self.selftest` "ok"). Each s140 line the stand-in logs is the engine's own literals, spliced."""
+    for caps, has in ((S139_CAPS_, False), (None, True)):
+        fake = FakeGame(game)
+        if caps is not None:
+            fake.netsync_caps = caps
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            g.netsync("selftest", 1)
+            st = g.wait_for(lambda s: s.coop_dress_codec == "ok", timeout=5.0, what="the proof block")
+            d = st.netsync_dress
+            if has:
+                assert list(d) == ["ghost", "party", "codec", "rig_idle_frames", "mirror_party", "self"]
+                assert st.coop_dress_self and st.coop_dress_rig_idle_frames == RIG_IDLE_FRAMES_CENSUS_13
+                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) and st.coop_dress_self_selftest == "ok"
+                assert _mlog_lines(fake, "dress codec selftest: OK (38 rows)")
+                assert _mlog_lines(fake, "self-dress selftest: OK (29 rows)")
+                assert _mlog_lines(fake, "dress rig idle frames: 60,45,30,60,50,40,30,45,72,40,30,40,45 (13 of 13 measured)")
+            else:
+                assert list(d) == ["ghost", "party", "codec", "rig_idle_frames", "mirror_party"]
+                assert st.coop_dress_self is False and st.coop_dress_rig_idle_frames == RIG_IDLE_FRAMES_CENSUS
+                assert _mlog_lines(fake, "dress codec selftest: OK (29 rows)")
+                assert not _mlog_lines(fake, "self-dress selftest")
+                with pytest.raises(HarnessError, match="publishes no `netsync.dress.self`"):
+                    g.selfdress_self("freya")
+    sd = _stack_text("NetSyncSelfDress.cs")
+    for piece in ('"[NetSync] harness: selfdress self "', '" -- the selftest arm at the next field load (section 8 "',
+                  '"through the real encoder and reader)"', '"[NetSync] harness: selfdress gate "',
+                  '"0 -- CALIBRATION: the player gate is skipped (an NPC Zidane dresses too)"',
+                  '"[NetSync] harness: selfdress law "', '" OFF -- CALIBRATION: that s140 law is switched off "',
+                  '"on this selftest role"', '"[NetSync] harness: selfdress self / gate / law levers released ("'):
+        assert any(piece in ln for ln in sd), piece
+
+
+def test_the_dressself_stand_in_arms_at_the_field_load_only(game):
+    """THE ARM is a FIELD LOAD's (ApplyStoryBeforeEvents' ArmBench): a `self` op only sets the spec (`bench_self`) -- the
+    arm, `want_*` and the body move at the NEXT load (here a warp), never at the op; a later spec waits for the next load
+    too; the `arm_live` fault (the arm following the op at once) is the red this ordering exists to catch."""
+    fake = _s140_fake(game)
+    fake._execute(["netsync", "selfdress", "self", "freya"])
+    _step(fake, 3)
+    s = _selfdoc(fake)
+    assert (s["bench_self"], s["armed"], s["why"], s["want_rig"], s["rig"]) == ("freya", False, None, -1, -1)
+    assert fake._player_dress_doc()["model"] == 98
+    fake._execute(["warp", str(FIELD)])
+    s = _selfdoc(fake)
+    assert (s["armed"], s["why"], s["from"], s["want_model"], s["want_char"], s["want_rig"], s["rig"], s["net_byte"],
+            s["src"], s["uid"], s["confirmed"]) == (True, "dressed", "bench", 192, 4, 4, 4, 5, 98, FG.FAKE_PLAYER_SID, 1)
+    fake._execute(["netsync", "selfdress", "self", "cinna"])
+    _step(fake, 3)
+    assert (_selfdoc(fake)["want_rig"], _selfdoc(fake)["rig"], fake._player_dress_doc()["model"]) == (4, 4, 192)
+    fake._execute(["warp", str(FIELD)])
+    s = _selfdoc(fake)
+    assert (s["want_model"], s["want_char"], s["want_rig"], s["rig"]) == (107, 8, 9, 9)
+    assert fake._player_dress_doc()["model"] == 107
+    live = _s140_fake(game, dress_faults={"arm_live"})
+    live._execute(["netsync", "selfdress", "self", "freya"])
+    _step(live, 1)
+    assert (_selfdoc(live)["armed"], _selfdoc(live)["rig"], live._player_dress_doc()["model"]) == (True, 4, 192)
+
+
+#: the census's rows the stand-in dresses as (rig, model, SetModel's eye byte), every `self` name on the s140 table
+S140_DRESS_ROWS = {"vivi": (1, 8, 61), "dagger": (2, 185, 91), "steiner": (3, 5489, 104), "freya": (4, 192, 94),
+                   "quina": (5, 273, 92), "eiko": (6, 443, 63), "salamander": (7, 509, 122), "moogle": (8, 220, 50),
+                   "cinna": (9, 107, 87), "marcus": (10, 109, 100), "blank": (11, 5467, 87), "beatrix": (12, 204, 100)}
+
+
+def test_the_dressself_stand_in_wears_the_rig_the_census_says(game):
+    """What the stand-in models, each value honest and DERIVED (never a fixed id): `self <name>` at the next load dresses
+    the player as that rig -- model, eye (-4 x the byte), body (its texture stem), geo, the idle id and clip, anim_geo, the
+    census's frame_n -- and `want_char` is the CharacterId (RigToChar: Cinna..Beatrix 8-11, the moogle 255); `self zidane`
+    disarms ("zidane": every ZDN clip is rig 0's own); `self auto 2` + `empty 2` (S3) and `self auto` under the GuestSlots
+    pin 0 are the MOOGLE; `self auto 2` over Cinna is rig 9; `self off` (S4) is "model 0" -- undressed at the next load,
+    never before (the teardown law); the selftest mirror's ghost under the ini's GhostAs auto shows the dressed body as the
+    wire's own (S5: the s139 guard)."""
+    from ff9mapkit._animdb_all import ANIMATIONS
+    from ff9mapkit._modeldb import MODELS
+    for name, (rig, model, eye) in S140_DRESS_ROWS.items():
+        fake = _s140_fake(game)
+        fake._execute(["netsync", "selfdress", "self", name])
+        fake._execute(["warp", str(FIELD)])
+        p, s, r = fake._player_dress_doc(), _selfdoc(fake), BW.rig_row(rig)
+        assert (p["model"], p["eye"], p["body"], p["geo"], p["anim"], p["clip"], p["anim_geo"], p["frame_n"]) == (
+            model, -4 * eye, str(model), MODELS[model], r["idle"], ANIMATIONS[r["idle"]], MODELS[model],
+            BW.RIG_FRAMES[rig][0]), name
+        assert (s["want_char"], s["want_rig"], s["rig"]) == (BW.rig_to_char(rig), rig, rig), name
+    fake = _s140_fake(game)
+    for spec, why, model in (("zidane", "zidane", 98), ("auto", "dressed", 220), ("auto 1", "zidane", 98),
+                             ("off", "model 0", 98)):
+        fake._execute(["netsync", "selfdress", "self", *spec.split()])
+        fake._execute(["warp", str(FIELD)])
+        assert (_selfdoc(fake)["why"], fake._player_dress_doc()["model"]) == (why, model), spec
+    fake = _s140_fake(game)
+    for op in (("self", "auto", "2"), ("empty", "2")):
+        fake._execute(["netsync", "selfdress", *op])
+    fake._execute(["warp", str(FIELD)])
+    assert (fake._player_dress_doc()["model"], fake._player_dress_doc()["eye"], _selfdoc(fake)["want_char"]) == (220, -200,
+                                                                                                                   255)
+    fake = _s140_fake(game, save_party=[dict(FG.FAKE_PARTY[0]), {"char": 8, "name": "Cinna", "level": 1, "exp": 0,
+                                                                   "status": 0, "pa": [], "abils": []}, None, None])
+    fake._execute(["netsync", "selfdress", "self", "auto", "2"])
+    fake._execute(["warp", str(FIELD)])
+    assert (fake._player_dress_doc()["model"], _selfdoc(fake)["want_char"], _selfdoc(fake)["rig"]) == (107, 8, 9)
+    # S4's teardown law: `self off` changes nothing until the next load
+    fake = _s140_fake(game)
+    fake._execute(["netsync", "selfdress", "self", "freya"])
+    fake._execute(["warp", str(FIELD)])
+    fake._execute(["netsync", "selfdress", "self", "off"])
+    _step(fake, 5)
+    assert fake._player_dress_doc()["model"] == 192 and _selfdoc(fake)["rig"] == 4
+    fake._execute(["warp", str(FIELD)])
+    assert fake._player_dress_doc()["model"] == 98 and _selfdoc(fake)["rig"] == -1
+    # S5: the ghost of this guest (the mirror) under the ini's GhostAs auto: the moogle for the pin 0, guarded off the
+    # dressed WIRE body (192 is neither 98 nor the dress) -- it shows 192, undressed
+    fake = _s140_fake(game, ini_ghost_as="auto")
+    fake._execute(["netsync", "selfdress", "self", "freya"])
+    fake._execute(["warp", str(FIELD)])
+    _step(fake, 2)
+    gh = fake._dress_doc()["ghost"]
+    assert (gh["model"], gh["rig"], gh["body"]) == (192, -1, "192")
+    # the moving body: the stored walk / run are the rig's (MapAndAttach at the slot setters), its clips the rig's folder
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        g.selfdress_self("freya")
+        g.warp(FIELD)
+        st = g.wait_for(lambda s: s.control and s.player_model == 192, timeout=10.0, what="the dressed body")
+        assert (st.player_anim, st.player_anim_geo, st.coop_dress_self_rig) == (2556, "GEO_MAIN_F0_FRJ", 4)
+        g.hold("up", 40)
+        run = g.wait_for(lambda s: s.player_anim == 2558, timeout=5.0, what="the rig's run")
+        assert run.player_clip == "ANH_MAIN_F0_FRJ_RUN" and run.player_anim_geo == "GEO_MAIN_F0_FRJ"
+        g.wait_for(lambda s: s.player_anim == 2556, timeout=5.0, what="the rig's idle again")
+        g.hold("cancel", 60)
+        g.hold("up", 40)
+        walk = g.wait_for(lambda s: s.player_anim == 2553, timeout=5.0, what="the rig's walk")
+        assert walk.player_clip == "ANH_MAIN_F0_FRJ_WALK" and walk.player_frame_n == 24
+
+
+def test_the_dress_order_on_the_bench_field(game):
+    """THE DRESS ORDER at each 98 SetModel (the bench field's twin, its player, the late entry): the twin's InitObject
+    precedes the player's -- the player gate makes it skip_npc (N1: it stays 98) and the player dresses, its CC confirmed;
+    N3's late entry (a CC in a never-run function: the gate passes) under a dressed control char is skip_second (it stays
+    98); `gate 0` dresses the twin AND the player, skip_npc unmoved (N2); an undressed run moves no counter; the exclusion
+    (New Game's 70) skips at SetModel time with the arm kept. Faults: `no_gate` dresses the twin with the gate on;
+    `ctl_first` reads a late NPC Zidane (no CC) as skip_second, never skip_npc; `dress_excluded` dresses field 70."""
+    fake, sf = _bench_fake(game)
+    s = _selfdoc(fake)
+    models = {o["sid"]: o["model"] for o in fake._objects_doc()}
+    assert (s["skip_npc"], s["skip_second"], s["confirmed"], s["rig"]) == (1, 0, 1, 4) and models == {sf.TWIN_SID: 98}
+    assert _conduct(fake, sf, "n3") == "done"
+    s = _selfdoc(fake)
+    models = {o["sid"]: o["model"] for o in fake._objects_doc()}
+    assert (s["skip_npc"], s["skip_second"]) == (1, 1) and models == {sf.TWIN_SID: 98, sf.LATE_SID: 98}
+    fake, sf = _bench_fake(game, levers=(("gate", "0"),))
+    s = _selfdoc(fake)
+    assert (s["skip_npc"], s["gate"], s["uid"]) == (0, False, FG.FAKE_PLAYER_SID)
+    assert {o["sid"]: o["model"] for o in fake._objects_doc()} == {sf.TWIN_SID: 192}
+    assert fake._player_dress_doc()["model"] == 192
+    fake, sf = _bench_fake(game, "off")
+    assert _conduct(fake, sf, "n3") == "done"
+    s = _selfdoc(fake)
+    assert (s["skip_npc"], s["skip_second"], s["confirmed"], s["remaps"]) == (0, 0, 0, 0)
+    # the faults
+    fake, sf = _bench_fake(game, faults=("no_gate",))
+    assert {o["sid"]: o["model"] for o in fake._objects_doc()} == {sf.TWIN_SID: 192} and _selfdoc(fake)["gate"] is True
+    for faults, want in (((), (1, 0)), (("ctl_first",), (0, 1))):
+        fake, sf = _bench_fake(game, faults=faults, late_defines=False)
+        before = (_selfdoc(fake)["skip_npc"], _selfdoc(fake)["skip_second"])
+        assert _conduct(fake, sf, "n3") == "done"
+        after = (_selfdoc(fake)["skip_npc"], _selfdoc(fake)["skip_second"])
+        assert (after[0] - before[0], after[1] - before[1]) == want, faults
+    for faults, model in (((), 98), (("dress_excluded",), 192)):
+        fake = _s140_fake(game, dress_faults=set(faults))
+        fake._execute(["netsync", "selfdress", "self", "freya"])
+        fake._execute(["warp", "70"])
+        s = _selfdoc(fake)
+        assert fake._player_dress_doc()["model"] == model and s["armed"] is True, faults
+        assert s["why"] == ("excluded" if not faults else "dressed"), faults
+
+
+def test_the_bench_conductors_follow_the_s140_laws(game):
+    """The bench field's conductors on the stand-in, each law's green and its lever's / fault's red:
+    X (RunAnimationEx(250, 186) + WaitAnimationEx) on Freya plays the idle ALIAS (2557, clip ANH_MAIN_F0_FRJ_IDLE: X1
+    reads the NAME) on the SOURCE timeline (frame_n 70: timeline_kept + 1, remaps + 1), and after it the idle's own frame_n
+    (50: DefaultAnim's SetAnim saw another id -- X2); `law alias off` (and the `slot_fallback` fault) plays the idle id
+    itself and leaves the stretched 70 (X2's red). T1 (2572, then `frame < 58`) on Garnet's 30-frame idle ends on the
+    source timeline; `law timeline off` (and `no_timeline`) wedges it (WEDGED_T1). T3 (2705's loop) on Garnet ends with
+    bframe_remaps up (T3_LOOP / T3_END set); `law bframe off` (and `no_bframe`) wedges it (WEDGED_T3, no T3_END); the moogle
+    (a 16-frame walk) ends; an undressed body ends on 8847's own 40 frames with no remap. J (SetJumpAnimation(10687, 2,
+    6) / RunJumpAnimation / RunLandAnimation) plays the jump slot's ALIAS on LADDER_1_1's source 8 frames (J_LAND, J_END,
+    DONE_J); `law timeline off` (and `no_timeline`) the alias's own 50 (X3's red)."""
+    fake, sf = _bench_fake(game)
+    s0 = _selfdoc(fake)
+    fake._execute(["flag", str(sf.TRIGGERS["x"]), "1"])
+    _step(fake, 5)
+    p = fake._player_dress_doc()
+    assert (p["anim"], p["clip"], p["frame_n"]) == (2557, "ANH_MAIN_F0_FRJ_IDLE", 70)
+    for _ in range(200):
+        _step(fake)
+        if fake._watched_bit(sf.DONE_X):
+            break
+    p, s = fake._player_dress_doc(), _selfdoc(fake)
+    assert (p["anim"], p["frame_n"]) == (2556, 50)
+    assert (s["timeline_kept"] - s0["timeline_kept"], s["remaps"] - s0["remaps"]) == (1, 1)
+    for levers, faults in (((("law", "alias", "off"),), ()), ((), ("slot_fallback",))):
+        fake, sf = _bench_fake(game, levers=levers, faults=faults)
+        assert _conduct(fake, sf, "x") == "done"
+        assert (fake._player_dress_doc()["anim"], fake._player_dress_doc()["frame_n"]) == (2556, 70), (levers, faults)
+    for levers, faults, want in (((), (), "done"), ((("law", "timeline", "off"),), (), "wedged"),
+                                 ((), ("no_timeline",), "wedged")):
+        fake, sf = _bench_fake(game, "dagger", levers=levers, faults=faults)
+        assert _conduct(fake, sf, "t1") == want, (levers, faults)
+    for spec, levers, faults, want in (("dagger", (), (), "done"), ("dagger", (("law", "bframe", "off"),), (), "wedged"),
+                                       ("dagger", (), ("no_bframe",), "wedged"), ("moogle", (), (), "done"),
+                                       ("off", (), (), "done")):
+        fake, sf = _bench_fake(game, spec, levers=levers, faults=faults)
+        b0 = _selfdoc(fake)["bframe_remaps"]
+        assert _conduct(fake, sf, "t3") == want, (spec, levers, faults)
+        assert fake._watched_bit(sf.T3_LOOP) and fake._watched_bit(sf.T3_END) == (want == "done")
+        grew = _selfdoc(fake)["bframe_remaps"] - b0
+        assert (grew >= 1) == (want == "done" and spec != "off"), (spec, levers, faults, grew)
+    # J (field 404's ladder mount): the jump slot plays Freya's idle ALIAS on LADDER_1_1's SOURCE 8 frames; `law timeline
+    # off` (and `no_timeline`) leave it on the alias's own 50 (X3's red); an undressed body plays the raw clip on its 8
+    for spec, levers, faults, want in (("freya", (), (), (2557, 8)), ("freya", (("law", "timeline", "off"),), (), (2557, 50)),
+                                       ("freya", (), ("no_timeline",), (2557, 50)), ("off", (), (), (sf.ANIM_J, 8))):
+        fake, sf = _bench_fake(game, spec, levers=levers, faults=faults)
+        fake._execute(["flag", str(sf.TRIGGERS["j"]), "1"])
+        seen = set()
+        for _ in range(200):
+            _step(fake)
+            p = fake._player_dress_doc()
+            if p["anim"] not in (2556, 200):
+                seen.add((p["anim"], p["frame_n"]))
+            if fake._watched_bit(sf.DONE_J):
+                break
+        assert fake._watched_bit(sf.DONE_J) and fake._watched_bit(sf.J_LAND) and fake._watched_bit(sf.J_END), spec
+        assert seen == {want}, (spec, levers, faults, seen)
+
+
+def test_the_warm_return_keeps_the_dress_and_reattaches(game):
+    """W1 on the stand-in: a dressed body rides the diorama's WARM return (no SetModel: PosObj.copy carries the dress) -- it
+    still wears its rig after `dioleave`, re-attached AT THE REBUILD (attach_warm +1, attach_cold +0: site b, never a
+    last-write src_attached alone; src_attached > 0, the uid its own) and re-armed at the return's load; under `law attach
+    off` the warm return attaches nothing (src_attached 0: W1's red) while the body stays dressed. THE IDLE TIMER on the
+    rebuilt Steiner (``sleep_after``: CheckSleep on a dressed body): his BREAK clip (119, 110 frames -- the stored sleep
+    slot) plays by name only when site (b) re-attached it; the `no_warm_attach` fault (or `law attach off`) leaves the
+    rebuilt go without it -- ExecAnim's frameN 255 and NOTHING playing (W1's freeze witness)."""
+    for attach, want_src in ((True, True), (False, False)):
+        fake = FakeGame(game)
+        _dio_bench(fake)
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            g.netsync("selftest", 1)
+            g.selfdress_self("freya")
+            g.warp(FIELD)
+            g.wait_for(lambda s: s.coop_dress_self_rig == 4, timeout=5.0, what="dressed")
+            if not attach:
+                g.selfdress_law("attach", False)
+            _stand(g, fake, 320.0, -410.0)
+            returns = g.state.diorama_returns
+            a0 = (g.state.coop_dress_self_attach_cold, g.state.coop_dress_self_attach_warm)
+            g.netsync("dioboot", 4)
+            g.wait_for(lambda s: s.diorama_booted, timeout=4.0, what="the diorama")
+            g.wait_frames(fake.dio_swirl_frames)
+            g.netsync("dioleave")
+            st = g.wait_for(lambda s: s.diorama_returns == returns + 1 and s.ui_state == "FieldHUD", timeout=6.0,
+                            what="the return")
+            assert st.diorama_last_return == "warm"
+            assert (st.coop_dress_self_rig, st.player_model, st.coop_dress_self_uid) == (4, 192, FG.FAKE_PLAYER_SID)
+            assert (st.coop_dress_self_src_attached > 0) == want_src, st.coop_dress_self_src_attached
+            assert (st.coop_dress_self_attach_cold - a0[0], st.coop_dress_self_attach_warm - a0[1]) == (0, 1)
+    # the idle timer on the rebuilt body (by hand): Steiner's break clip plays only when site (b) re-attached it
+    for faults, levers, want in (((), (), ("ANH_MAIN_F0_STN_BREAK_1", 110, "GEO_MAIN_F0_STN", True)),
+                                 (("no_warm_attach",), (), (None, 255, None, False)),
+                                 ((), (("law", "attach", "off"),), (None, 255, None, False))):
+        fake = _s140_fake(game, player_body=dict(FG.FAKE_PLAYER_BODY, inactive=57), sleep_after=10,
+                          dress_faults=set(faults))
+        fake._execute(["netsync", "selfdress", "self", "steiner"])
+        fake._execute(["warp", str(FIELD)])
+        for op in levers:
+            fake._execute(["netsync", "selfdress", *op])
+        assert fake._self_body["slots"]["sleep"] == 119                          # 57 BREAK1_XARM -> his own break clip
+        w0 = _selfdoc(fake)["attach_warm"]
+        fake._self_on_load(cold=False)                                           # the warm rebuild
+        assert _selfdoc(fake)["attach_warm"] - w0 == (0 if faults else 1), faults
+        _step(fake, 12)
+        p = fake._player_dress_doc()
+        assert (p["clip"], p["frame_n"], p["anim_geo"], p["clip_playing"], p["anim"]) == want + (119,), (faults, levers, p)
+
+
+def test_the_knob_is_read_live_and_never_an_arm_state(game):
+    """[Netsync] SelfDress on the stand-in (``ini_self_dress``): 0 (quotes accepted) reads `knob` false and `armed` false
+    while the ARM stays (want_rig kept); the next load dresses nothing; back to 1, `armed` reads true with NO re-arm and the
+    next load dresses again (amendment 6)."""
+    fake = _s140_fake(game)
+    fake._execute(["netsync", "selfdress", "self", "freya"])
+    fake._execute(["warp", str(FIELD)])
+    for raw in ("0", '"0"', ' "0" '):
+        fake.ini_self_dress = raw
+        s = _selfdoc(fake)
+        assert (s["knob"], s["armed"], s["want_rig"]) == (False, False, 4), raw
+    fake._execute(["warp", str(FIELD)])
+    s = _selfdoc(fake)
+    assert (s["why"], s["want_rig"], s["rig"], fake._player_dress_doc()["model"]) == ("armed", 4, -1, 98)
+    fake.ini_self_dress = "1"
+    assert (_selfdoc(fake)["knob"], _selfdoc(fake)["armed"]) == (True, True)
+    fake._execute(["warp", str(FIELD)])
+    assert fake._player_dress_doc()["model"] == 192
+
+
+def test_a_live_role_keeps_or_drops_its_arm_by_the_sticky_skip(game):
+    """A live role's field load is a SKIPPED apply on the stand-in (no host frame reaches it): a CLIENT while mirroring
+    KEEPS its last arm (sticky through a blip -- and dresses: a client is a dressing role), not mirroring it disarms "not
+    mirroring"; a HOST disarms silently and never dresses -- its `why` null (SkipWhy: "not mirroring" is a CLIENT's
+    witness, B26); the `never_sticky` fault drops a mirroring client's arm."""
+    def run(role, mirroring, faults=()):
+        fake = FakeGame(game)
+        fake.field_id, fake.ui_state, fake.control = FIELD, "FieldHUD", True
+        fake.netsync.update(enabled=True, role=role, instance=True)
+        fake.story_mirroring = mirroring
+        fake.dress_faults = set(faults)
+        fake._self_arm = {"arm": True, "model": 192, "char": 4, "rig": 4, "why": "armed", "from": "host"}  # a host's sec 8
+        fake._execute(["warp", str(FIELD)])
+        s = _selfdoc(fake)
+        return s["armed"], s["why"], s["from"], fake._player_dress_doc()["model"]
+    assert run("client", True) == (True, "dressed", "host", 192)
+    assert run("client", False) == (False, "not mirroring", None, 98)
+    assert run("host", True) == (False, None, None, 98) and run("host", False) == (False, None, None, 98)
+    assert run("client", True, ("never_sticky",)) == (False, "not mirroring", None, 98)
+
+
+#: [ff9mapkit netsync s140] each s140 fault lever -> the one probe it moves (and no other fault moves it)
+#: (`no_gate` moves the late NPC's too: with no gate an NPC Zidane reaches the control check -- skip_second, never skip_npc)
+#: (`no_attach` -- AttachDress never runs -- moves every attach probe: the cold count, the warm count, the source list;
+#: `clear_undresses` the map-on-arm probe too: it reads the body after a `clear`)
+DRESS_SELF_FAULT_PROBES = {"arm_live": {"armlive"}, "never_sticky": {"sticky"}, "no_gate": {"npc", "late_npc"},
+                           "ctl_first": {"late_npc"}, "map_on_arm": {"maparm"},
+                           "no_attach": {"attach", "warmattach", "srclist"}, "slot_fallback": {"xframe"},
+                           "no_timeline": {"t1", "jframe"}, "no_bframe": {"t3"}, "dress_excluded": {"excluded"},
+                           "eye_unwritten": {"eye"}, "self_release_keeps": {"release"}, "selftest_fail": {"selftest"},
+                           "no_warm_attach": {"warmattach"}, "no_source_list": {"srclist"},
+                           "clear_undresses": {"teardown", "maparm"}, "twin_line_missing": {"twinline"}}
+
+
+def _self_probe(game, name: str, faults=()):
+    faults = set(faults)
+    if name == "armlive":
+        fake = _s140_fake(game, dress_faults=faults)
+        fake._execute(["netsync", "selfdress", "self", "freya"])
+        _step(fake)
+        return _selfdoc(fake)["armed"]
+    if name == "sticky":
+        fake = FakeGame(game)
+        fake.field_id, fake.ui_state = FIELD, "FieldHUD"
+        fake.netsync.update(enabled=True, role="client", instance=True)
+        fake.story_mirroring, fake.dress_faults = True, faults
+        fake._self_arm = {"arm": True, "model": 192, "char": 4, "rig": 4, "why": "armed", "from": "host"}
+        fake._execute(["warp", str(FIELD)])
+        return _selfdoc(fake)["armed"]
+    if name == "npc":
+        fake, sf = _bench_fake(game, faults=faults)
+        return {o["sid"]: o["model"] for o in fake._objects_doc()}[sf.TWIN_SID]
+    if name == "late_npc":
+        fake, sf = _bench_fake(game, faults=faults, late_defines=False)
+        before = (_selfdoc(fake)["skip_npc"], _selfdoc(fake)["skip_second"])
+        _conduct(fake, sf, "n3")
+        return (_selfdoc(fake)["skip_npc"] - before[0], _selfdoc(fake)["skip_second"] - before[1])
+    if name == "maparm":
+        fake = _s140_fake(game, dress_faults=faults)
+        fake._execute(["netsync", "selfdress", "self", "freya"])
+        fake._execute(["warp", str(FIELD)])
+        fake._execute(["netsync", "selfdress", "clear"])              # the arm cleared (a bench arm); the body dressed
+        fake._self_store_slots({"walk": 25})                          # a setter after: SetWalkAnimation(25)
+        return ((fake._self_body or {}).get("slots") or {}).get("walk")   # None: the clear undressed the body
+    if name == "attach":
+        fake, _sf_ = _bench_fake(game, faults=faults)
+        return _selfdoc(fake)["src_attached"] > 0
+    if name == "warmattach":
+        fake = _s140_fake(game, dress_faults=faults)
+        fake._execute(["netsync", "selfdress", "self", "freya"])
+        fake._execute(["warp", str(FIELD)])
+        w0 = _selfdoc(fake)["attach_warm"]
+        fake._self_on_load(cold=False)
+        return _selfdoc(fake)["attach_warm"] - w0
+    if name == "srclist":
+        fake, _sf_ = _bench_fake(game, faults=faults)
+        return _selfdoc(fake)["src_list_clips"]
+    if name == "teardown":
+        fake = _s140_fake(game, dress_faults=faults)
+        fake._execute(["netsync", "selfdress", "self", "freya"])
+        fake._execute(["warp", str(FIELD)])
+        fake._execute(["netsync", "selfdress", "clear"])
+        fake._execute(["netsync", "selfdress", "self", "off"])
+        return fake._player_dress_doc()["model"]
+    if name == "twinline":                                  # this load's twin dress lines (the log is per game dir)
+        sf = _sf()
+        def twin(f):
+            return len([ln for ln in _mlog_lines(f, "self-dress: field") if f" sid {sf.TWIN_SID}: Zidane" in ln])
+        n0 = twin(FakeGame(game))
+        fake, sf = _bench_fake(game, faults=faults, levers=(("gate", "0"),))
+        return twin(fake) - n0
+    if name == "jframe":
+        fake, sf = _bench_fake(game, faults=faults)
+        fake._execute(["flag", str(sf.TRIGGERS["j"]), "1"])
+        for _ in range(100):
+            _step(fake)
+            if (fake._self_cond or {}).get("name") == "j" and fake._self_play is not None:
+                return fake._self_play["frame_n"]               # the jump slot's timeline, whatever id it holds
+        return None
+    if name == "xframe":
+        fake, sf = _bench_fake(game, faults=faults)
+        _conduct(fake, sf, "x")
+        return fake._player_dress_doc()["frame_n"]
+    if name in ("t1", "t3"):
+        fake, sf = _bench_fake(game, "dagger", faults=faults)
+        return _conduct(fake, sf, name)
+    if name == "excluded":
+        fake = _s140_fake(game, dress_faults=faults)
+        fake._execute(["netsync", "selfdress", "self", "freya"])
+        fake._execute(["warp", "70"])
+        return fake._player_dress_doc()["model"]
+    if name == "eye":
+        fake = _s140_fake(game, dress_faults=faults)
+        fake._execute(["netsync", "selfdress", "self", "freya"])
+        fake._execute(["warp", str(FIELD)])
+        return fake._player_dress_doc()["eye"]
+    if name == "release":
+        fake = _s140_fake(game, dress_faults=faults)
+        fake._execute(["netsync", "selfdress", "self", "freya"])
+        fake._dress_release("released with the harness")
+        return _selfdoc(fake)["bench_self"]
+    if name == "selftest":
+        fake = _s140_fake(game, dress_faults=faults)
+        fake._proof_logged = False
+        fake._step_selftest_proof()
+        return _selfdoc(fake)["selftest"]
+    raise AssertionError(name)
+
+
+def test_each_self_dress_fault_lever_moves_its_own_probe_only(game):
+    """FakeGame.dress_faults over FG.DRESS_SELF_FAULTS: each turns exactly its own probe -- so the leg that reads it can be
+    shown red offline on the shape it exists to catch, and on nothing else -- each value OTHER than the right one, derived
+    from what is right (the clean probes are the s140 laws' greens)."""
+    assert set(DRESS_SELF_FAULT_PROBES) == set(FG.DRESS_SELF_FAULTS)
+    assert not set(FG.DRESS_SELF_FAULTS) & (set(FG.DRESS_FAULTS) | set(FG.DRESS_HOST_FAULTS))
+    clean = {n: _self_probe(game, n) for own in DRESS_SELF_FAULT_PROBES.values() for n in own}
+    assert clean == {"armlive": False, "sticky": True, "npc": 98, "late_npc": (1, 0), "maparm": 2553, "attach": True,
+                     "xframe": 50, "t1": "done", "t3": "done", "excluded": 98, "eye": -376, "release": None,
+                     "selftest": "ok", "warmattach": 1, "srclist": FG.FAKE_SOURCE_LIST_CLIPS, "teardown": 192,
+                     "twinline": 1, "jframe": 8}, clean
+    for fault, own in DRESS_SELF_FAULT_PROBES.items():
+        moved = {n for n in clean if _self_probe(game, n, (fault,)) != clean[n]}
+        assert moved == own, (fault, moved)
+    assert _self_probe(game, "selftest", ("selftest_fail",)).startswith(BW.SELF_DRESS_SELFTEST_FAIL + "map: ")
+    assert _self_probe(game, "maparm", ("map_on_arm",)) == 25 and _self_probe(game, "eye", ("eye_unwritten",)) == -372
+
+
+# ---- [ff9mapkit netsync s140] the s140 bench (coop_self_dress.py legs S / W / X / N / T, and leg G by stage), off the game:
+# its tables, its pure judges, the bench field's preflight failing CLOSED, and smokes against the stand-in -- every leg
+# green, the s139 calibration (OLD_PREDICTED), each lever (LEVER_PREDICTED), each fault -- each in a CHILD
+S140_BENCH_CHECKS = ["S140-S1", "S140-S2", "S140-S5", "S140-S3", "S140-S6", "S140-S4", "S140-S7", "S140-S8", "S140-W1",
+                     "S140-W2", "S140-X1", "S140-X2", "S140-X3", "S140-N1", "S140-N3", "S140-N2", "S140-T2", "S140-T1",
+                     "S140-T3"]
+S140_S, S140_W, S140_X = S140_BENCH_CHECKS[:8], S140_BENCH_CHECKS[8:10], S140_BENCH_CHECKS[10:13]
+S140_N, S140_T = S140_BENCH_CHECKS[13:16], S140_BENCH_CHECKS[16:]
+#: the rows the bench field 30606 carries (X, N, T1, T3 -- T2 reads the proof block, no field)
+S140_ON_30606 = [c for c in S140_X + S140_N + S140_T if c != "S140-T2"]
+#: each s140 lever's reds (coop_self_dress.LEVER_PREDICTED), restated: what each law exists to hold
+S140_LEVER_REDS = {"self-off": [c for c in S140_BENCH_CHECKS if c not in ("S140-S4", "S140-S8", "S140-T2")],
+                   "gate-0": ["S140-N1"], "law-bframe": ["S140-T3"], "law-attach": ["S140-S1", "S140-W1"],
+                   "law-alias": ["S140-X2"], "law-timeline": ["S140-X3", "S140-T1"]}
+G_CHECKS_S140 = ["S139-G0", "S139-G4", "S139-G6", "S139-G3a", "S139-G1", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m",
+                 "S139-G3d", "S139-G5", "S139-G7a", "S139-G7b", "S139-G7c", "S139-G7d", "S139-G7e", "S139-G8"]
+G_LEVER_REDS_S140 = ["S139-G3a", "S139-G2", "S139-G3", "S139-G3c", "S139-G3m", "S139-G3d", "S139-G7a", "S139-G7b",
+                     "S139-G7d", "S139-G7e", "S139-G8"]
+
+_SS_TABLES = _SD_CHILD_HEAD + r"""
+def pred(stage, legs, m="old"):
+    r, mb, w = sd.predicted(stage, legs, m)
+    return [None if r is None else list(r), list(mb), w]
+s140 = ("S", "W", "X", "N", "T")
+allg = tuple(sd.LEGS)
+out = {"legs": {k: {"patch": v["patch"], "steps": v["steps"], "pre": list(v["pre"]), "oracle": list(v["oracle"]),
+                    "oracle_extra": v["oracle_extra"], "preflight": v.get("preflight"), "checks": list(v["checks"]),
+                    "old": {str(s): [list(r), list(m)] for s, (r, m) in v["old"].items()},
+                    "lever": {k2: [list(r), list(m)] for k2, (r, m) in v["lever"].items()}}
+                for k, v in sd.LEGS.items() if k in s140},
+       "order": list(sd.LEGS), "phases": list(sd.PHASES), "modes": list(sd.cal_modes(allg)),
+       "old_predicted": list(sd.OLD_PREDICTED), "lever_predicted": {k: list(v) for k, v in sd.LEVER_PREDICTED.items()},
+       "s140_checks": list(sd.S140_CHECKS), "g_checks": list(sd.G_CHECKS), "g_lever": list(sd.G_LEVER_REDS),
+       "g_seeded": list(sd.G_SEEDED_CHECKS),
+       "p139": pred(139, allg), "p138": pred(138, allg), "p140_old": pred(140, allg),
+       "p140": {m: pred(140, allg, m) for m in sd.S140_LEVER_MODES},
+       "p140_s140": {m: pred(140, s140, m) for m in sd.S140_LEVER_MODES},
+       "p140_rule": pred(140, allg, "rule-s138"), "p140_none": pred(140, ("S",), "law-bframe"),
+       "p140_old_s": pred(140, ("S",)), "p139_lever": pred(139, s140, "law-alias"),
+       "unproven": {"lever": sd.lever_unproven(140, s140, "law-alias", {"S140-X2", "S140-T1"}),
+                    "old": sd.lever_unproven(139, s140, "law-alias", {"S140-X2"}),
+                    "none": sd.lever_unproven(140, s140, "law-alias", set())},
+       "cat_pf": ["S140-PF" in sd._catalog(legs, False) for legs in (("S",), ("W",), ("X",), ("N",), ("T",), ("I", "G"))],
+       "cat": sorted(sd._catalog(allg, True)), "pre": list(sd.pre_fields(s140)), "oracle": list(sd.oracle_fields(s140, 250)),
+       "sel": [list(sd.selected_legs({"COOP_DRESS_LEGS": v})) for v in ("S+W+X+N+T", "i, g ,s", "t", "")],
+       "consts": [sd.DIO_FIELD, sd.SELF_FIELD, sd.S_RIG, sd.S_MOOGLE, sd.S_AUTO_MASK, sd.S_SUB, sd.T1_RIG, sd.T1_CONTROL,
+                  list(sd.T3_RIGS), sd.CAL_SELF_OFF, sd.CAL_GATE_0, sd.CAL_LAWS, list(sd.SELF_DRESS_OK),
+                  {k: list(v) for k, v in sd.EYE_FIELDS.items()}, sd.RIG_GEO_NAMES, sd.G_WIRE_SUB,
+                  [list(o) for o in sd.HOLD_INTO_RESET_S140], sd.RELEASE_LINE_S140, sd.IDLE_PAST_S, sd.X_GRACE_S,
+                  sd.W_RIG, sd.S_SEAT, sd.SUB_PARTY_FIELD, sd.IDLE_NULL_RUN, sd.J_SLOP_S, sd.SOURCE_GEO],
+       "steps_exist": all(callable(getattr(sd, s, None)) for v in sd.LEGS.values() for s in v["steps"].values())
+                      and callable(sd._s_oracle) and callable(sd.bench_preflight),
+       "rules": [sd.stage_rules(139) is sd.BW.S139, sd.stage_rules(138) is sd.BW.S139, sd.stage_rules(140) is sd.BW,
+                 sd.stage_rules(141) is sd.BW, sd.stage_rules(None) is sd.BW],
+       "doc": " ".join((sd.__doc__ or "").split())}
+try:
+    sd.selected_legs({"COOP_DRESS_LEGS": "S+Q"})
+    out["sel_bad"] = None
+except ValueError as err:
+    out["sel_bad"] = str(err)
+print(json.dumps(out))
+"""
+
+
+def test_the_s140_legs_tables_are_its_docstring():
+    """coop_self_dress.py's s140 legs: S (the "self" phase, after "bench": the stock field again, every leg-G lever
+    released), W (30602), X / N / T (the bench field 30606, behind the preflight); each one's `old` row on s137-s139 is
+    EVERY one of its checks (the `self` op refused before the step) and its lever rows are LEVER_PREDICTED's -- self-off
+    every dressed row (S4, S8 -- the host's ghost -- and T2 stay green), gate-0 N1, law-bframe T3, law-attach S1 + W1,
+    law-alias X2, law-timeline T1 + X3; leg S needs COOPSUB (30605: the seated 8-11 member) registered;
+    on s139 legs I and G contribute NOTHING (green on the s139 rules); on s140 without a lever no calibration (naming the
+    levers); a lever that bites none of the selected legs is refused naming the legs it bites; a lever row reading "not
+    reached" is UNPROVEN, an `old` row's never; S140-PF joins the catalog only with a 30606 leg; COOP_DRESS_LEGS takes
+    '+' (the runners' ENV lists are comma-separated); leg G gains G7e (the owner's 8-11 rows by stage) in its seeded rows and
+    its lever row; the stage's rules are battlewire.S139 below s140. Every check is named in the docstring, with the
+    acceptance, the RUN line of a lever and what is not proven."""
+    got = _sd_child(_SS_TABLES)
+    S, W, X, N, T = S140_S, S140_W, S140_X, S140_N, S140_T
+    assert got["order"] == ["I", "G", "S", "W", "X", "N", "T"]
+    assert got["phases"] == ["stock", "seed", "seeded", "bench", "self", "close"]
+    assert got["s140_checks"] == got["old_predicted"] == S140_BENCH_CHECKS
+    assert got["lever_predicted"] == S140_LEVER_REDS
+    rows = {"S": (S, {"self": "_s_self"}, [30605], False), "W": (W, {"bench": "_w_bench"}, [30602], False),
+            "X": (X, {"bench": "_x_bench"}, [30606], True), "N": (N, {"bench": "_n_bench"}, [30606], True),
+            "T": (T, {"bench": "_t_bench"}, [30606], True)}
+    for leg, (checks, steps, pre, pf) in rows.items():
+        row = got["legs"][leg]
+        assert (row["patch"], row["checks"], row["steps"], row["pre"]) == (140, checks, steps, pre), leg
+        assert (row["oracle"], row["oracle_extra"], row["preflight"]) == ([], "_s_oracle", pf), leg
+        assert row["old"] == {str(s): [checks, []] for s in (137, 138, 139)}, leg
+        assert row["lever"] == {m: [[c for c in reds if c in checks], []] for m, reds in S140_LEVER_REDS.items()}, leg
+    assert got["steps_exist"]
+    assert got["g_checks"] == G_CHECKS_S140 and got["g_lever"] == G_LEVER_REDS_S140
+    assert got["g_seeded"] == G_CHECKS_S140[4:]
+    assert got["modes"] == ["old", "rule-s138", "self-off", "gate-0", "law-bframe", "law-attach", "law-alias",
+                            "law-timeline"]
+    assert got["p139"] == [S140_BENCH_CHECKS, [], ""]                     # legs I / G GREEN on s139's rules
+    assert got["p138"] == [G_CHECKS_S140 + S140_BENCH_CHECKS, [], ""]
+    assert got["p140_old"][0] is None and "COOP_DRESS_CAL=self-off|gate-0|law-bframe|law-attach|law-alias|law-timeline" in \
+        got["p140_old"][2] and "s138 has no lever" in got["p140_old"][2]
+    for mode, reds in S140_LEVER_REDS.items():
+        assert got["p140"][mode] == got["p140_s140"][mode] == [reds, [], ""], mode
+    assert got["p140_rule"] == [G_LEVER_REDS_S140, [], ""]
+    assert got["p140_none"][0] is None and "turns nothing red in legs S" in got["p140_none"][2] and \
+        "select a leg it bites (T)" in got["p140_none"][2]
+    assert got["p140_old_s"][0] is None and "COOP_DRESS_CAL=" in got["p140_old_s"][2]
+    assert got["p139_lever"] == [S140_BENCH_CHECKS, [], ""]                # before s140: the `old` row, never a lever
+    assert got["unproven"] == {"lever": ["S140-X2"], "old": [], "none": []}
+    assert got["cat_pf"] == [False, False, True, True, True, False]
+    assert set(S140_BENCH_CHECKS) | {"S140-PF", "S139-G7e", "S138-CAL"} <= set(got["cat"])
+    assert got["pre"] == [30605, 30602, 30606] and got["oracle"] == []
+    assert got["sel"] == [["S", "W", "X", "N", "T"], ["I", "G", "S"], ["T"], ["I", "G", "S", "W", "X", "N", "T"]]
+    assert got["sel_bad"].startswith("COOP_DRESS_LEGS names ['Q']")
+    assert got["consts"] == [30602, 30606, "freya", "moogle", 2, "blank", "garnet", "moogle", list(BW.RIG_NAMES),
+                             "self-off", "gate-0", {"law-bframe": "bframe", "law-attach": "attach", "law-alias": "alias",
+                                                    "law-timeline": "timeline"}, ["", "1"],
+                             {"moogle": [407], "cinna": [50], "marcus": [50], "blank": [50], "beatrix": [767]},
+                             {"moogle": "GEO_NPC_F0_MOG", "cinna": "GEO_SUB_F0_CNA", "marcus": "GEO_SUB_F0_MRC",
+                              "blank": "GEO_SUB_F0_BLN", "beatrix": "GEO_SUB_F0_BTX"}, 5467,
+                             [["self", "off"], ["law", "timeline", "off"]],
+                             "selfdress self / gate / law levers released (released with the harness)", 62.0, 5.0,
+                             "steiner", "blank", 30605, 5, 0.5, "GEO_MAIN_F0_ZDN"]
+    assert got["rules"] == [True] * 5
+    doc = got["doc"]
+    for cid in ("PF", "S1", "S2", "S5", "S3", "S6", "S4", "S7", "S8", "W1", "W2", "X1", "X2", "X3", "N1", "N3", "N2", "T2",
+                "T1", "T3", "G7e"):
+        assert re.search(rf"(?<![\w-]){re.escape(cid)}(?![\w-])", doc), cid
+    for frag in ("LEGS S / W / X / N / T (s140)", "their own models", "EVERY EXPECTED VALUE IS READ OFFLINE",
+                 "GEO_SUB_F0_BLN = 5467, never the Pluto Knight's 190", "CROSS-CHECKS", "FAILING CLOSED",
+                 "selfdress_bench.py deploy", "NOT PROVEN BY THE s140 LEGS", "LEG G BY STAGE", "OLD_PREDICTED",
+                 "LEVER_PREDICTED", "s140 ACCEPTANCE", "COOP_CALIBRATE=1 COOP_DRESS_CAL=law-bframe COOP_DRESS_LEGS=T",
+                 "full140.example.sh", "the teardown law", "by its BUILT sid 2, never by model", "THE TEARDOWN LAW",
+                 "COOPSUB (30605)", "FOR THE OWNER'S SITTING", "THE DISC-1 OPENING", "attach_cold +1 / attach_warm +0",
+                 "IDLE_NULL_RUN", "LADDER_1_1",
+                 "a control that does not end reads \"not reached\"", "rig 9 NOT CharacterId 9 (Marcus)"):
+        assert frag in doc, frag
+
+
+def test_the_s140_bench_runners_name_every_step():
+    """The repo's s140 runners (studies/battle-coop/bench/run): cal140 calibrates every leg on the live s139 (COOP_CALIBRATE=1)
+    after checking 30606 is registered, through the repo's selftest_block.sh (never another session's scratchpad), and the
+    blank-GhostAs pass; full140 runs the bench, EVERY s140 lever (one COOP_DRESS_CAL each, the legs '+'-joined -- the runners'
+    ENV lists are comma-separated), leg G's own lever, the blank-GhostAs legs, the duo G9, a fresh tape's section 8, block A,
+    the tape legs and the T2 cut legs. Both runners point WT= at a worktree (each operator edits it to theirs)."""
+    run = REPO / "studies" / "battle-coop" / "bench" / "run"
+    cal = (run / "cal140.example.sh").read_text(encoding="utf-8")
+    full = (run / "full140.example.sh").read_text(encoding="utf-8")
+    for text in (cal, full, (run / "selftest_block.sh").read_text(encoding="utf-8"),
+                 (run / "selftest_block_noghost.sh").read_text(encoding="utf-8")):
+        assert re.search(r"(?m)(^|; )WT=/c/gd/Dream-World-IX/\.claude/worktrees/[\w-]+\s*$", text)
+        assert "scratchpad" not in text
+        # a WT= that is gone STOPS the runner (never play.py from the operator's cwd or another checkout)
+        assert 'cd "$WT" || { echo "STOP: WT=$WT is missing' in text and not re.search(r'(?m)^cd "\$WT"\s*(;|$)', text)
+    assert 'SB="$D/selftest_block.sh"' in cal and 'NB="$D/selftest_block_noghost.sh"' in cal
+    # [ff9mapkit netsync s140] both runners need COOPSUB (S7 / S8's seat) registered; cal140 STOPS on a preflight that is
+    # not CLEAN (never a run whose every 30606 row would read "not reached")
+    assert "FieldScene 30605 " in cal and "FieldScene 30605 " in full and "coopsub.field.toml --id 30605" in cal
+    assert "sys.exit(0 if why is None else 1)\" || { echo \"STOP: the deployed bench field fails its preflight" in cal
+    assert "selfdress_cal139:250:coop_self_dress:COOP_CALIBRATE=1" in cal
+    assert "COOP_CALIBRATE=1,COOP_DRESS_LEGS=I+G+S" in cal and "FieldScene 30606 " in cal
+    assert "selfdress_bench.py deploy" in cal and "--id 30606 --mod-folder FF9CustomMap-msgs" in cal
+    for mode in S140_LEVER_REDS:
+        assert f"COOP_CALIBRATE=1,COOP_DRESS_CAL={mode},COOP_DRESS_LEGS=$S140" in full, mode
+    for frag in ('S140="S+W+X+N+T"', "selfdress:250:coop_self_dress", "COOP_DRESS_CAL=rule-s138,COOP_DRESS_LEGS=I+G",
+                 "selfdress_noghost:250:coop_self_dress:COOP_DRESS_LEGS=I+G+S", "coop_dress_wire.py", "coop_tape_record.py",
+                 "coop_peer.py dress", "dialogue_authority:30801:coop_dialogue_authority",
+                 "COOP_CUT_LEG=$l", "replaytape holdtape"):
+        assert frag in full, frag
+
+
+_SS_JUDGES = _SD_CHILD_HEAD + r"""
+from harness import battlewire as BW
+doc = json.loads(sys.stdin.read())
+class St:
+    def __init__(self, d):
+        self.raw = d
+        self.frame = d.get("frame", 0)
+        self.read_at = 0.0
+    def flag(self, bit):
+        return (self.raw.get("flags") or {}).get(str(bit))
+def sts(xs):
+    return [St(x) for x in xs]
+def run_of(r):
+    return dict(r, samples=sts(r["samples"]), before=St(r["before"]), trig=St(r["trig"]), end=St(r["end"]))
+ro = doc["ro"]
+fr, zo, mo, bo, so = ro["freya"], ro["zidane"], ro["moogle"], ro["blank"], ro["steiner"]
+out = {}
+for k, c in doc["self_dress"].items():
+    out.setdefault("self_dress", {})[k] = list(sd.judge_self_dress(
+        St(c["st"]), ro[c.get("ro", "freya")], rig=c.get("rig", 4), before=St(c["before"]) if c.get("before") else None,
+        lines=c.get("lines"), field=c.get("field"),
+        attach={"src_list": c["src_list"]} if "src_list" in c else None,
+        op=(St(c["op"][0]), St(c["op"][1]) if c["op"][1] else None) if c.get("op") else None, spec=c.get("spec")))
+out["self_off"] = {k: list(sd.judge_self_off(St(c["st"]), zo, prev=St(c["prev"]) if c.get("prev") else None,
+                                             clear=(St(c["clear"][0]), St(c["clear"][1]) if c["clear"][1] else None)
+                                             if c.get("clear") else None))
+                   for k, c in doc["self_off"].items()}
+out["x3"] = {k: list(sd.judge_x3(run_of(c), fr, src_frames=c.get("src", 8), jump0=2, jump1=6)) for k, c in doc["x3"].items()}
+out["seated"] = {k: list(sd.judge_seated(St(c["st"]), c["before"], c["want"], char=10)) for k, c in doc["seated"].items()}
+out["seat_party"] = [sd.seat_party([0, 1, 2, 3], (3,), (10,)), sd.seat_party([0, -1, -1, -1], (3,), (10,)),
+                     sd.seat_party([0, 1, 2, 10], (3,), (10,)), sd.seat_party(None, (3,), (10,)),
+                     sd.seat_party([0, 1, 2, 3], (), (10,))]
+out["break"] = {k: list(sd.judge_break_clip(sts(c), so)) for k, c in doc["break"].items()}
+out["rest"] = {k: list(sd.judge_rest_named(sts(c), fr)) for k, c in doc["rest"].items()}
+out["geo"] = {k: list(sd.judge_geo_throughout(sts(c), fr["geo"])) for k, c in doc["geo"].items()}
+models = {int(k): v for k, v in doc["models"].items()}
+out["ghost"] = {k: list(sd.judge_ghost_wears(sts(c), fr, ghost_as=doc["ghost_as"], models=models, clips=doc["clips_by_id"]
+                                             and {int(a): n for a, n in doc["clips_by_id"].items()}))
+                for k, c in doc["ghost"].items()}
+out["x1"] = {k: list(sd.judge_x1(run_of(c), fr)) for k, c in doc["x"].items()}
+out["x2"] = {k: list(sd.judge_x2(run_of(c), sts(c["after"]), fr, idle_frames=c.get("frames", 50), hold_s=70 / 30.0))
+             for k, c in doc["x"].items()}
+out["n1"] = {k: list(sd.judge_n1(St(c["st"]), St(c["before"]), fr, zo, lines=c.get("lines"))) for k, c in doc["n1"].items()}
+out["n2"] = {k: list(sd.judge_n2(St(c["st"]), St(c["before"]), fr, lines=c.get("lines"))) for k, c in doc["n2"].items()}
+out["n3"] = {k: list(sd.judge_n3(run_of(c), sts(c["after"]), fr, zo, uid=10)) for k, c in doc["n3"].items()}
+out["t1"] = {k: list(sd.judge_t1(c[0], c[1])) for k, c in doc["t1"].items()}
+out["t3"] = {k: list(sd.judge_t3(c)) for k, c in doc["t3"].items()}
+out["t2"] = {k: list(sd.judge_self_selftest(c["s"], c["lines"])) for k, c in doc["t2"].items()}
+out["w1"] = {k: list(sd.judge_w1(base=St(c["base"]), back=St(c["back"]), returns0=c["returns0"], lines=c["lines"],
+                                 rest=sts(c["rest"]), idle=sts(c["idle"]), walk=dict(c["walk"], samples=sts(c["walk"]["samples"])),
+                                 ro=ro[c.get("ro", "freya")], rig=c.get("rig", 4), src_list=c.get("src_list", 12)))
+             for k, c in doc["w1"].items()}
+out["lines"] = sd.dress_lines(doc["log"]), sd.dress_lines(doc["log"], 30602)
+out["delta"] = [sd.count_delta(St(doc["n1"]["green"]["before"]), St(doc["n1"]["green"]["st"]), "skip_npc"),
+                sd.count_delta(St({}), St(doc["n1"]["green"]["st"]), "skip_npc")]
+out["objmodel"] = [sd.object_model(St(doc["n1"]["green"]["st"]), 2), sd.object_model(St(doc["n1"]["green"]["st"]), 9),
+                   sd.object_model(St({"objects": None}), 2)]
+R139 = sd.stage_rules(139)
+f9, f13 = {"rig_idle_frames": doc["f9"]}, {"rig_idle_frames": doc["f13"]}
+out["by_stage"] = {"codec139": list(sd.judge_codec(*doc["codec139"], R139)),
+                   "codec139_live": list(sd.judge_codec(*doc["codec139"])), "codec140": list(sd.judge_codec(*doc["codec140"])),
+                   "frames139": list(sd.judge_idle_frames(f9, doc["f13"], R139)),
+                   "frames139_13": list(sd.judge_idle_frames(f13, doc["f13"], R139)),
+                   "frames140": list(sd.judge_idle_frames(f13, doc["f13"])),
+                   "frames140_9": list(sd.judge_idle_frames(f9, doc["f13"]))}
+print(json.dumps(out))
+"""
+
+
+def _ss_player(**over) -> dict:
+    """A published `player` block of a dressed Freya at rest (the s140 shape); a value "DROP" removes its key."""
+    p = {"x": 0.0, "y": 0.0, "z": 0.0, "control": True, "model": 192, "anim": 2556, "geo": "GEO_MAIN_F0_FRJ",
+         "anim_geo": "GEO_MAIN_F0_FRJ", "eye": -376, "uid": 10, "sid": 10, "body": "192", "clip": "ANH_MAIN_F0_FRJ_IDLE",
+         "clip_playing": True, "frame_n": 50, "anim_frame": 0, "meshflags": 0}
+    p.update(over)
+    return {k: v for k, v in p.items() if v != "DROP"}
+
+
+def _ss_self(**over) -> dict:
+    s = {k: (dict(v) if isinstance(v, dict) else v) for k, v in BW.DRESS_SELF_SENTINELS.items()}
+    s.update({"knob": True, "armed": True, "src": 98, "want_model": 192, "want_char": 4, "want_rig": 4, "rig": 4,
+              "why": "dressed", "uid": 10, "net_byte": 5, "from": "bench", "confirmed": 1, "gate": True,
+              "src_attached": 18, "src_list_clips": 12, "attach_cold": 1, "attach_warm": 0, "bench_self": "freya",
+              "selftest": "ok"})
+    s.update(over)
+    return s
+
+
+def _ss_doc(frame=1, *, player=None, self_=None, objects=None, dio=None, flags=None, rt=None, ghost=None, **pover) -> dict:
+    """A published document of the s140 shape: the dressed player, `netsync.dress.self`, the objects, the diorama."""
+    d = {"frame": frame, "ui_state": "FieldHUD", "field": {"id": 250}, "player": player or _ss_player(**pover),
+         "objects": objects if objects is not None else [], "flags": flags or {},
+         "netsync": {"enabled": True, "selftest": True, "forced": True, "session": {"ghost": True},
+                     "diorama": dio or {"returns": 0, "last_return": None},
+                     "dress": {"ghost": ghost or {"model": 192, "geo": "GEO_MAIN_F0_FRJ", "clip": "ANH_MAIN_F0_FRJ_IDLE",
+                                                  "rig": -1, "playing": True, "body": "192", "bench_mask": -1,
+                                                  "empty_mask": -1, "rule": None, "wire": -1, "wire_anim": -1,
+                                                  "mode": "ini:auto", "rest_mask": 3, "shown_mask": 3, "hidden": []},
+                               "party": [0, -1, -1, -1], "codec": "ok", "rig_idle_frames": list(RIG_IDLE_FRAMES_CENSUS_13),
+                               "mirror_party": None, "self": self_ if self_ is not None else _ss_self()}}}
+    if self_ == "DROP":                                    # an engine before s140: no `self` at all
+        del d["netsync"]["dress"]["self"]
+    if rt is not None:
+        d["rt"] = rt
+    return d
+
+
+def _ss_ro() -> dict:
+    """The s140 oracle's rows the judges read (the census's values: the shapes a stub oracle gives)."""
+    from ff9mapkit._animdb_all import ANIMATIONS
+    from ff9mapkit._modeldb import MODELS
+    out = {}
+    for name in ("freya", "zidane", "moogle", "blank", "steiner"):
+        rig = BW.NAME_TO_RIG[name]
+        r = BW.rig_row(rig)
+        out[name] = {"name": name, "model": r["model"], "geo": MODELS[r["model"]], "body": str(r["model"]), "eye": r["eye"],
+                     "idle": r["idle"], "walk": r["walk"], "run": r["run"], "inactive": r["inactive"] or None,
+                     "idle_clip": ANIMATIONS[r["idle"]], "walk_clip": ANIMATIONS[r["walk"]], "run_clip": ANIMATIONS[r["run"]],
+                     "inactive_clip": ANIMATIONS.get(r["inactive"]) if r["inactive"] else None,
+                     "idle_frames": BW.RIG_FRAMES[rig][0], "inactive_frames": BW.RIG_FRAMES[rig][5]}
+    return out
+
+
+def _ss_line(field=250, uid=10, geo="GEO_MAIN_F0_FRJ", model=192, rig=4, eye=-376, src="bench") -> str:
+    return (f"18.10.2026 12:00:00 |M| [NetSync] self-dress: field {field} uid {uid} sid {uid}: Zidane (98) -> {geo} (model "
+            f"{model}, rig {rig}, eye {eye}) [{src}]")
+
+
+def test_the_s140_benchs_pure_judges_read_each_engine_and_can_fail():
+    """The s140 legs' judges, PURE, on synthetic shapes -- each GREEN on the s140 shape and RED on every shape it exists to
+    catch: judge_self_dress (S1 / S3 / S6 / S7 / W2: a wrong model / body / geo / eye -- `eye_unwritten`'s -372 --, a ZDN
+    anim_geo, why, rig, want_char 255 for Freya, a foreign uid, confirmed +0, no / two / a wrong dress line, AttachDress
+    NOT AT THIS LOAD -- attach_cold +0 (a stale src_attached from an earlier load), attach_warm moved --, src_attached 0, a
+    SOURCE list off the field's oracle, the op MOVING the arm before the load -- `arm_live` --, an op never published, an
+    s139 engine), judge_self_off (S4: still dressed after the warp; and THE TEARDOWN LAW -- the live body CHANGED across
+    `clear` + `self off`, the ops' publish never read, a body that did not wear the load before's rig), judge_rest_named
+    (by NAME: the alias passes, a ZDN idle does not), judge_geo_throughout (one ZDN publish; nothing judged),
+    judge_ghost_wears (S5: the moogle is not 192), judge_x1 (a ZDN publish, remaps +0, nothing shown, wedged), judge_x2
+    (the stretched 70 -- `law alias off` --, control back late, no idle publish, no frame oracle), judge_x3 (X3: the jump
+    slot on the alias's own 50 frames, a slow landing, an undressed body, wedged, the phase bits never published; the alias
+    law off -- no alias publish -- judged on the landing alone), judge_n1 / n2 / n3 (the twin, the counters, the BODY --
+    its texture stem, never po.model alone -- and the dress lines per load: N1 one, the player's; N2 two, the twin's and
+    the player's; N3 none for the late sid), judge_seated and seat_party (S7's seat: CharacterId 10 where the seed's
+    RemoveParty / B_PARTYADD put him, never the old index 11), judge_t1 (a wedge, timeline +0, an undressed rig, a control
+    that did not end reads "not reached" -- the bench, not the law -- unless it was not dressed either), judge_t3 (a
+    wedge, Zidane remapped, a dressed rig not remapped, a rig not worn, a load not reached), judge_self_selftest (T2),
+    judge_w1 (a cold return, a re-dress line, src_attached 0, AttachDress not at the rebuild -- attach_warm +0, attach_cold
+    moved --, a SOURCE list off the oracle, the uid moved, the idle id, a ZDN publish idle or walking, no move) with
+    judge_break_clip on Steiner (his break clip by name, never a run of nothing playing, never the frameN-255 freeze), the
+    dress-line parser, the counter deltas, object_model by sid, and leg G BY STAGE: s139's 29 codec rows and nine idle
+    frames against s140's 38 and thirteen."""
+    from ff9mapkit._animdb_all import ANIMATIONS
+    from ff9mapkit._modeldb import MODELS
+    ro = _ss_ro()
+    before = _ss_doc(1, self_=_ss_self(confirmed=0, skip_npc=0, skip_second=0, remaps=0, timeline_kept=0, bframe_remaps=0,
+                                       attach_cold=0, attach_warm=0))
+    green = _ss_doc(2)
+    pre_op = _ss_doc(0, self_=_ss_self(armed=False, want_model=-1, want_rig=-1, want_char=-1, why="cleared",
+                                       bench_self=None), model=98, body="98", geo="GEO_MAIN_F0_ZDN", eye=-372)
+    post_op = _ss_doc(0, self_=_ss_self(armed=False, want_model=-1, want_rig=-1, want_char=-1, why="cleared",
+                                        bench_self="freya"), model=98, body="98", geo="GEO_MAIN_F0_ZDN", eye=-372)
+    moved_op = _ss_doc(0, self_=_ss_self(bench_self="freya"), model=98, body="98", geo="GEO_MAIN_F0_ZDN", eye=-372)
+    full = {"before": before, "lines": [_ss_line()], "field": 250, "src_list": 12, "op": [pre_op, post_op],
+            "spec": "freya"}
+    sdress = {"green": dict(full, st=green), "plain": {"st": green},
+              "model": dict(full, st=_ss_doc(model=98, body="98", geo="GEO_MAIN_F0_ZDN")),
+              "eye": dict(full, st=_ss_doc(eye=-372)), "geo_zdn": dict(full, st=_ss_doc(anim_geo="GEO_MAIN_F0_ZDN")),
+              "why": dict(full, st=_ss_doc(self_=_ss_self(why="armed"))), "rig": dict(full, st=_ss_doc(self_=_ss_self(rig=8))),
+              "char": dict(full, st=_ss_doc(self_=_ss_self(want_char=255))),
+              "uid": dict(full, st=_ss_doc(self_=_ss_self(uid=3))), "confirmed": dict(full, st=_ss_doc(self_=_ss_self(confirmed=0))),
+              "no_line": dict(full, st=green, lines=[]), "two_lines": dict(full, st=green, lines=[_ss_line(), _ss_line()]),
+              "wrong_line": dict(full, st=green, lines=[_ss_line(eye=-372)]),
+              "other_field": dict(full, st=green, lines=[_ss_line(field=30602)]),
+              "attach": dict(full, st=_ss_doc(self_=_ss_self(src_attached=0))),
+              "attach_stale": dict(full, st=_ss_doc(self_=_ss_self(attach_cold=0))),
+              "attach_warm": dict(full, st=_ss_doc(self_=_ss_self(attach_warm=1))),
+              "src_list": dict(full, st=_ss_doc(self_=_ss_self(src_list_clips=11))),
+              "src_list_unknown": dict(full, st=green, src_list=None),
+              "src_list_unknown_0": dict(full, st=_ss_doc(self_=_ss_self(src_list_clips=0)), src_list=None),
+              "arm_live": dict(full, st=green, op=[pre_op, moved_op]), "op_unpublished": dict(full, st=green, op=[pre_op, None]),
+              "s139": dict(full, st=_ss_doc(self_="DROP")),
+              "moogle": {"st": _ss_doc(model=220, body="220", geo="GEO_NPC_F0_MOG", eye=-200, anim_geo="GEO_NPC_F0_MOG",
+                                       self_=_ss_self(want_model=220, want_rig=8, rig=8, want_char=255, net_byte=9)),
+                         "ro": "moogle", "rig": 8},
+              "blank": {"st": _ss_doc(model=5467, body="5467", geo="GEO_SUB_F0_BLN", eye=-348, anim_geo="GEO_SUB_F0_BLN",
+                                      self_=_ss_self(want_model=5467, want_rig=11, rig=11, want_char=10, net_byte=12)),
+                        "ro": "blank", "rig": 11},
+              "blank_as_marcus": {"st": _ss_doc(model=5467, body="5467", geo="GEO_SUB_F0_BLN", eye=-348,
+                                                anim_geo="GEO_SUB_F0_BLN",
+                                                self_=_ss_self(want_model=5467, want_rig=11, rig=11, want_char=11,
+                                                               net_byte=12)), "ro": "blank", "rig": 11}}
+    zid = _ss_doc(model=98, body="98", geo="GEO_MAIN_F0_ZDN", eye=-372, anim=200, clip="ANH_MAIN_F0_ZDN_IDLE",
+                  anim_geo="GEO_MAIN_F0_ZDN", self_=_ss_self(why="model 0", rig=-1, net_byte=0, bench_self="off", src=0))
+    blank_load = _ss_doc(model=5467, body="5467", geo="GEO_SUB_F0_BLN", eye=-348, anim_geo="GEO_SUB_F0_BLN",
+                         self_=_ss_self(want_model=5467, want_rig=11, rig=11, want_char=10, net_byte=12,
+                                        bench_self="blank"))
+    blank_ops = _ss_doc(model=5467, body="5467", geo="GEO_SUB_F0_BLN", eye=-348, anim_geo="GEO_SUB_F0_BLN",
+                        self_=_ss_self(armed=False, want_model=0, want_rig=-1, want_char=255, why="cleared", rig=11,
+                                       net_byte=12, bench_self="off"))
+    undressed_ops = _ss_doc(model=98, body="98", geo="GEO_MAIN_F0_ZDN", eye=-372,
+                            self_=_ss_self(armed=False, why="cleared", rig=-1, net_byte=0, bench_self="off"))
+    soff = {"green": {"st": zid, "prev": blank_load, "clear": [blank_load, blank_ops]},
+            "no_bracket": {"st": zid, "prev": green},
+            "still": {"st": green, "prev": blank_load, "clear": [blank_load, blank_ops]},
+            "why": {"st": _ss_doc(model=98, body="98", geo="GEO_MAIN_F0_ZDN", eye=-372,
+                                  self_=_ss_self(why="section absent", rig=-1, net_byte=0, bench_self=None)),
+                    "prev": blank_load, "clear": [blank_load, blank_ops]},
+            "undressed_at_clear": {"st": zid, "prev": blank_load, "clear": [blank_load, undressed_ops]},
+            "ops_unread": {"st": zid, "prev": blank_load, "clear": [blank_load, None]},
+            "wrong_input": {"st": zid, "prev": blank_load, "clear": [green, green]},
+            "undressed_before": {"st": zid, "prev": zid, "clear": [zid, zid]}}
+    rest = {"green": [_ss_doc(i) for i in range(4)], "alias": [_ss_doc(i, anim=2557) for i in range(4)],
+            "zdn": [_ss_doc(i, anim=200, clip="ANH_MAIN_F0_ZDN_IDLE", anim_geo="GEO_MAIN_F0_ZDN") for i in range(4)],
+            "moving": [_ss_doc(i, x=float(i * 10)) for i in range(4)], "short": [_ss_doc(1)]}
+    geo = {"green": [_ss_doc(i) for i in range(4)], "one_zdn": [_ss_doc(1), _ss_doc(2, anim_geo="GEO_MAIN_F0_ZDN")],
+           "none": [_ss_doc(1, anim_geo=None)]}
+    moog = {"model": 220, "geo": "GEO_NPC_F0_MOG", "clip": "ANH_NPC_F0_MOG_IDLE", "rig": 8, "playing": True, "body": "220",
+            "bench_mask": -1, "empty_mask": -1, "rule": None, "wire": -1, "wire_anim": -1, "mode": "ini:auto",
+            "rest_mask": 3, "shown_mask": 3, "hidden": []}
+    ghost = {"green": [_ss_doc(i) for i in range(4)], "moogle": [_ss_doc(i, ghost=moog) for i in range(4)]}
+
+    def xrun(samples, *, outcome="done", rm=1, end=None, after=None, frames=50):
+        b = _ss_doc(0, rt=0.0, self_=_ss_self(remaps=0))
+        e = end or _ss_doc(99, rt=2.4, self_=_ss_self(remaps=rm))
+        return {"outcome": outcome, "samples": samples, "before": b, "trig": dict(b, rt=0.1), "end": e,
+                "after": after if after is not None else [_ss_doc(100 + i, rt=2.5) for i in range(3)], "frames": frames}
+    gest = [_ss_doc(1, anim=2557, frame_n=70), _ss_doc(2, anim=2557, frame_n=70)]
+    x = {"green": xrun(gest), "zdn": xrun(gest + [_ss_doc(3, anim=186, clip="ANH_MAIN_F0_ZDN_BREAK1_LOOK",
+                                                              anim_geo="GEO_MAIN_F0_ZDN")]),
+         "no_remap": xrun(gest, rm=0), "not_shown": xrun([_ss_doc(1), _ss_doc(2)]), "wedged": xrun(gest, outcome="timeout"),
+         "stretched": xrun(gest, end=_ss_doc(99, rt=2.4, frame_n=70, self_=_ss_self(remaps=1)),
+                           after=[_ss_doc(100 + i, rt=2.5, frame_n=70) for i in range(3)]),
+         "slow": xrun(gest, end=_ss_doc(99, rt=8.0, self_=_ss_self(remaps=1))),
+         "no_idle": xrun(gest, end=_ss_doc(99, rt=2.4, anim=2557, frame_n=70, self_=_ss_self(remaps=1)),
+                         after=[_ss_doc(100 + i, rt=2.5, anim=2557, frame_n=70) for i in range(3)]),
+         "no_frames": xrun(gest, frames=None)}
+    jl, je = str(_sf().J_LAND), str(_sf().J_END)
+
+    def jrun(*, n=8, land_rt=0.10, end_rt=0.15, outcome="done", model=192, alias=2557, bits=True, src=8):
+        b = _ss_doc(0, rt=0.0, model=model)
+        s = [dict(b, rt=0.01), _ss_doc(1, rt=0.05, anim=alias, frame_n=n),
+             _ss_doc(2, rt=land_rt, anim=alias, frame_n=n, flags={jl: True} if bits else {}),
+             _ss_doc(3, rt=end_rt, flags={jl: True, je: True} if bits else {})]
+        return {"outcome": outcome, "samples": s, "before": b, "trig": s[0], "end": s[-1], "after": [], "src": src}
+    x3 = {"green": jrun(), "alias_timeline": jrun(n=50), "slow": jrun(end_rt=1.5), "undressed": jrun(model=98),
+          "wedged": jrun(outcome="wedged"), "no_bits": jrun(bits=False), "alias_off": jrun(alias=2556, n=50),
+          "no_src": dict(jrun(), src=None)}
+    seated = {"green": {"st": _ss_doc(1), "before": [0, 1, 2, 3], "want": [0, 1, 2, 10]},
+              "old_index": {"st": _ss_doc(1), "before": [0, 1, 2, 3], "want": [0, 1, 2, 10]},
+              "wrong_slot": {"st": _ss_doc(1), "before": [0, 1, 2, 3], "want": [0, 1, 2, 10]},
+              "unseated": {"st": _ss_doc(1), "before": [0, 1, 2, 3], "want": [0, 1, 2, 10]}}
+    seated["green"]["st"]["netsync"]["dress"]["party"] = [0, 1, 2, 10]
+    seated["old_index"]["st"]["netsync"]["dress"]["party"] = [0, 1, 2, 11]
+    seated["wrong_slot"]["st"]["netsync"]["dress"]["party"] = [0, 10, 2, -1]
+    seated["unseated"]["st"]["netsync"]["dress"]["party"] = [0, 1, 2, 3]
+    stn = dict(model=5489, body="5489", geo="GEO_MAIN_F0_STN", eye=-416, anim=2001, clip="ANH_MAIN_F0_STN_IDLE",
+               anim_geo="GEO_MAIN_F0_STN", frame_n=60)
+    brk = dict(stn, anim=119, clip="ANH_MAIN_F0_STN_BREAK_1", frame_n=110)
+    idle_stn = [_ss_doc(i, **stn) for i in range(4)] + [_ss_doc(10 + i, **brk) for i in range(3)]
+    brk_cases = {"green": idle_stn, "no_break": [_ss_doc(i, **stn) for i in range(8)],
+                 "null_run": idle_stn + [_ss_doc(20 + i, **dict(stn, anim=119, clip=None, anim_geo=None)) for i in range(5)],
+                 "short_null": idle_stn + [_ss_doc(20 + i, **dict(stn, clip=None, anim_geo=None)) for i in range(2)],
+                 "frozen": [_ss_doc(i, **stn) for i in range(4)] + [_ss_doc(10, **dict(brk, frame_n=255,
+                                                                                         clip_playing=False))],
+                 "foreign_geo": [_ss_doc(i, **stn) for i in range(4)] + [_ss_doc(10, **dict(brk, anim_geo="GEO_MAIN_F0_ZDN"))]}
+    twin98 = [{"uid": 2, "sid": 2, "model": 98}]
+    l1, l2 = _ss_line(field=30606, uid=1), _ss_line(field=30606, uid=2)
+    n1 = {"green": {"before": _ss_doc(1, self_=_ss_self(skip_npc=0)), "st": _ss_doc(2, objects=twin98,
+                                                                                   self_=_ss_self(skip_npc=1)),
+                    "lines": [l1]},
+          "twin_dressed": {"before": _ss_doc(1, self_=_ss_self(skip_npc=0)),
+                           "st": _ss_doc(2, objects=[{"uid": 2, "sid": 2, "model": 192}], self_=_ss_self(skip_npc=0))},
+          "no_skip": {"before": _ss_doc(1, self_=_ss_self(skip_npc=1)), "st": _ss_doc(2, objects=twin98,
+                                                                                     self_=_ss_self(skip_npc=1))},
+          "undressed": {"before": _ss_doc(1, self_=_ss_self(skip_npc=0)),
+                        "st": _ss_doc(2, objects=twin98, model=98, self_=_ss_self(skip_npc=1))},
+          "no_objects": {"before": _ss_doc(1, self_=_ss_self(skip_npc=0)), "st": _ss_doc(2, self_=_ss_self(skip_npc=1))},
+          "body_only": {"before": _ss_doc(1, self_=_ss_self(skip_npc=0)),
+                        "st": _ss_doc(2, objects=twin98, body="98", self_=_ss_self(skip_npc=1)), "lines": [l1]},
+          "two_lines": {"before": _ss_doc(1, self_=_ss_self(skip_npc=0)),
+                        "st": _ss_doc(2, objects=twin98, self_=_ss_self(skip_npc=1)), "lines": [l2, l1]},
+          "no_line": {"before": _ss_doc(1, self_=_ss_self(skip_npc=0)),
+                      "st": _ss_doc(2, objects=twin98, self_=_ss_self(skip_npc=1)), "lines": []}}
+    twin192 = [{"uid": 2, "sid": 2, "model": 192}]
+    n2 = {"green": {"before": _ss_doc(1), "st": _ss_doc(2, objects=twin192, self_=_ss_self(gate=False)), "lines": [l2, l1]},
+          "skipped": {"before": _ss_doc(1, self_=_ss_self(skip_npc=0)),
+                      "st": _ss_doc(2, objects=twin98, self_=_ss_self(gate=False, skip_npc=1))},
+          "gate_on": {"before": _ss_doc(1), "st": _ss_doc(2, objects=twin192)},
+          "body_only": {"before": _ss_doc(1), "st": _ss_doc(2, objects=twin192, eye=-372, self_=_ss_self(gate=False)),
+                        "lines": [l2, l1]},
+          "one_line": {"before": _ss_doc(1), "st": _ss_doc(2, objects=twin192, self_=_ss_self(gate=False)),
+                       "lines": [l1]}}
+
+    def nrun(late_model=98, ds=1, lines=(), **pover):
+        b = _ss_doc(1, self_=_ss_self(skip_second=0))
+        e = _ss_doc(5, objects=[{"uid": 3, "sid": 3, "model": late_model}], self_=_ss_self(skip_second=ds), **pover)
+        return {"outcome": "done", "samples": [b, e], "before": b, "trig": b, "end": e, "after": [e], "lines": list(lines)}
+    n3 = {"green": nrun(), "late_dressed": nrun(192), "no_skip": nrun(ds=0), "uid_moved": nrun(uid=3),
+          "no_control": nrun(control=False), "late_line": nrun(lines=[_ss_line(field=30606, uid=3)]),
+          "body_only": nrun(body="98")}
+    dress_ok = {"name": "garnet", "outcome": "done", "model": 185, "want": 185, "timeline": 1}
+    ctl_ok = {"name": "moogle", "outcome": "done", "model": 220, "want": 220, "timeline": 1}
+    t1 = {"green": [dress_ok, ctl_ok], "wedged": [dict(dress_ok, outcome="wedged", timeline=0), ctl_ok],
+          "no_timeline": [dict(dress_ok, timeline=0), ctl_ok], "undressed": [dict(dress_ok, model=98, timeline=0), ctl_ok],
+          "control_wedged": [dress_ok, dict(ctl_ok, outcome="wedged")],
+          "both_undressed": [dict(dress_ok, model=98, timeline=0), dict(ctl_ok, model=98, outcome="wedged")]}
+
+    def t3(name, rig, outcome="done", remaps=None, model=None, end=True):
+        return {"name": name, "outcome": outcome, "model": BW.RIGS[rig][0] if model is None else model,
+                "want": BW.RIGS[rig][0], "remaps": (0 if rig == 0 else 19) if remaps is None else remaps, "loop_bit": True,
+                "end_bit": end}
+    t3_green = [t3(n, i) for i, n in enumerate(BW.RIG_NAMES)]
+    t3c = {"green": t3_green, "wedged": t3_green[:4] + [t3("freya", 4, "wedged", 0, end=False)] + t3_green[5:],
+           "zidane_remapped": [t3("zidane", 0, remaps=3)] + t3_green[1:],
+           "not_remapped": t3_green[:1] + [t3("vivi", 1, remaps=0)] + t3_green[2:],
+           "not_worn": t3_green[:2] + [t3("garnet", 2, model=98)] + t3_green[3:],
+           "unreached": [{"name": "zidane", "outcome": "not ready", "unreached": "`selfdress self zidane` refused"}],
+           "no_end": t3_green[:1] + [t3("vivi", 1, end=False)] + t3_green[2:], "none": []}
+    ok_line = "18.10.2026 12:00:00 |M| [NetSync] self-dress selftest: OK (29 rows)"
+    t2 = {"green": {"s": _ss_self(), "lines": [ok_line]},
+          "fail": {"s": _ss_self(selftest="fail: map"), "lines": [ok_line]},
+          "no_line": {"s": _ss_self(), "lines": []},
+          "fail_line": {"s": _ss_self(), "lines": [ok_line, "[NetSync] self-dress selftest: FAIL (row 'x' failed (3 rows run))"]},
+          "s139": {"s": None, "lines": []}}
+    base = _ss_doc(1, dio={"returns": 2, "last_return": "cold"}, self_=_ss_self(uid=1))
+    back = _ss_doc(2, dio={"returns": 3, "last_return": "warm"}, self_=_ss_self(uid=1, attach_warm=1))
+    walkd = {"dir": "up", "samples": [_ss_doc(10 + i, x=float(i * 10), anim=2553, clip="ANH_MAIN_F0_FRJ_WALK")
+                                      for i in range(9)]}
+    w = {"base": base, "back": back, "returns0": 2, "lines": [], "rest": [_ss_doc(i) for i in range(3)],
+         "idle": [_ss_doc(i) for i in range(5)], "walk": walkd}
+    stn_self = dict(want_model=5489, want_rig=3, rig=3, want_char=3, net_byte=4, uid=1)
+    stn_base = _ss_doc(1, dio={"returns": 2, "last_return": "cold"}, self_=_ss_self(**stn_self), **stn)
+    stn_back = _ss_doc(2, dio={"returns": 3, "last_return": "warm"}, self_=_ss_self(attach_warm=1, **stn_self), **stn)
+    stn_walk = {"dir": "up", "samples": [_ss_doc(10 + i, x=float(i * 10), **dict(stn, anim=1996, clip="ANH_MAIN_F0_STN_WALK"))
+                                         for i in range(9)]}
+    ws = {"base": stn_base, "back": stn_back, "returns0": 2, "lines": [], "rest": [_ss_doc(i, **stn) for i in range(3)],
+          "idle": idle_stn, "walk": stn_walk, "ro": "steiner", "rig": 3, "src_list": 0}
+    stn_back0 = _ss_doc(2, dio={"returns": 3, "last_return": "warm"}, self_=_ss_self(attach_warm=1, src_list_clips=0,
+                                                                                    **stn_self), **stn)
+    w1 = {"green": w, "cold": dict(w, back=_ss_doc(2, dio={"returns": 3, "last_return": "cold"},
+                                                    self_=_ss_self(uid=1, attach_warm=1))),
+          "no_return": dict(w, back=_ss_doc(2, dio={"returns": 2, "last_return": "warm"},
+                                            self_=_ss_self(uid=1, attach_warm=1))),
+          "redressed": dict(w, lines=[_ss_line(field=30602, uid=1)]),
+          "attach": dict(w, back=_ss_doc(2, dio={"returns": 3, "last_return": "warm"},
+                                         self_=_ss_self(uid=1, attach_warm=1, src_attached=0))),
+          "attach_stale": dict(w, back=_ss_doc(2, dio={"returns": 3, "last_return": "warm"}, self_=_ss_self(uid=1))),
+          "attach_cold": dict(w, back=_ss_doc(2, dio={"returns": 3, "last_return": "warm"},
+                                              self_=_ss_self(uid=1, attach_warm=1, attach_cold=2))),
+          "src_list": dict(w, src_list=0),
+          "uid": dict(w, back=_ss_doc(2, dio={"returns": 3, "last_return": "warm"}, self_=_ss_self(uid=2, attach_warm=1))),
+          "undressed": dict(w, back=_ss_doc(2, dio={"returns": 3, "last_return": "warm"}, model=98, body="98",
+                                            geo="GEO_MAIN_F0_ZDN", eye=-372,
+                                            self_=_ss_self(uid=1, net_byte=0, attach_warm=1))),
+          "rest_alias": dict(w, rest=[_ss_doc(i, anim=2557) for i in range(3)]),
+          "idle_zdn": dict(w, idle=[_ss_doc(1), _ss_doc(2, anim=57, clip="ANH_MAIN_F0_ZDN_BREAK1_HEAD",
+                                                       anim_geo="GEO_MAIN_F0_ZDN")]),
+          "walk_zdn": dict(w, walk={"dir": "up", "samples": [_ss_doc(10 + i, x=float(i * 10), anim=25,
+                                                                         clip="ANH_MAIN_F0_ZDN_WALK",
+                                                                         anim_geo="GEO_MAIN_F0_ZDN") for i in range(9)]}),
+          "no_move": dict(w, walk={"dir": None, "samples": [], "why": "no direction moved"}),
+          "steiner": dict(ws, back=stn_back0), "steiner_no_break": dict(ws, back=stn_back0, idle=brk_cases["no_break"]),
+          "steiner_freeze": dict(ws, back=stn_back0, idle=brk_cases["null_run"])}
+    log = [_ss_line(), "unrelated", _ss_line(field=30602, uid=1, geo="GEO_NPC_F0_MOG", model=220, rig=8, eye=-200)]
+    payload = {"ro": ro, "self_dress": sdress, "self_off": soff, "rest": rest, "geo": geo, "ghost": ghost, "x": x,
+               "x3": x3, "seated": seated, "break": brk_cases,
+               "n1": n1, "n2": n2, "n3": n3, "t1": t1, "t3": t3c, "t2": t2, "w1": w1, "log": log, "ghost_as": "auto",
+               "models": {str(m): {"geo": MODELS[m], "body": str(m)} for m in (98, 192, 220)},
+               "clips_by_id": {str(a): ANIMATIONS[a] for a in (200, 2556, 2557, 2904)},
+               "codec139": [{"codec": "ok"}, ["[NetSync] dress codec selftest: OK (29 rows)"]],
+               "codec140": [{"codec": "ok"}, ["[NetSync] dress codec selftest: OK (38 rows)"]],
+               "f9": list(RIG_IDLE_FRAMES_CENSUS), "f13": list(RIG_IDLE_FRAMES_CENSUS_13)}
+    got = _sd_child(_SS_JUDGES, json.loads(json.dumps(payload)))
+    sdv = {k: v[0] for k, v in got["self_dress"].items()}
+    assert sdv == {"green": True, "plain": True, "model": False, "eye": False, "geo_zdn": False, "why": False, "rig": False,
+                   "char": False, "uid": False, "confirmed": False, "no_line": False, "two_lines": False,
+                   "wrong_line": False, "other_field": False, "attach": False, "attach_stale": False,
+                   "attach_warm": False, "src_list": False, "src_list_unknown": True, "src_list_unknown_0": False,
+                   "arm_live": False, "op_unpublished": False,
+                   "s139": False, "moogle": True, "blank": True, "blank_as_marcus": False}, sdv
+    assert "MOVED the arm before the load" in got["self_dress"]["arm_live"][1]
+    assert "attach_cold +0 / attach_warm +0" in got["self_dress"]["attach_stale"][1]
+    assert got["self_dress"]["s139"][1].startswith("netsync.dress.self ABSENT")
+    assert {k: v[0] for k, v in got["self_off"].items()} == {
+        "green": True, "no_bracket": True, "still": False, "why": False, "undressed_at_clear": False, "ops_unread": False,
+        "wrong_input": False, "undressed_before": True}, got["self_off"]
+    assert "(the load before wore 5467)" in got["self_off"]["green"][1]
+    assert "CHANGED the live body" in got["self_off"]["undressed_at_clear"][1]
+    assert {k: v[0] for k, v in got["rest"].items()} == {"green": True, "alias": True, "zdn": False, "moving": False,
+                                                         "short": False}
+    assert {k: v[0] for k, v in got["geo"].items()} == {"green": True, "one_zdn": False, "none": False}
+    assert {k: v[0] for k, v in got["ghost"].items()} == {"green": True, "moogle": False}
+    assert {k: v[0] for k, v in got["x1"].items()} == {"green": True, "zdn": False, "no_remap": False, "not_shown": False,
+                                                       "wedged": False, "stretched": True, "slow": True, "no_idle": True,
+                                                       "no_frames": True}
+    assert {k: v[0] for k, v in got["x2"].items()} == {"green": True, "zdn": True, "no_remap": True, "not_shown": True,
+                                                       "wedged": False, "stretched": False, "slow": False, "no_idle": False,
+                                                       "no_frames": False}
+    assert got["x2"]["no_frames"][1].startswith("not reached") and "frame_n=70" in got["x2"]["stretched"][1]
+    assert {k: v[0] for k, v in got["x3"].items()} == {"green": True, "alias_timeline": False, "slow": False,
+                                                       "undressed": False, "wedged": False, "no_bits": False,
+                                                       "alias_off": True, "no_src": False}, got["x3"]
+    assert got["x3"]["no_src"][1].startswith("not reached") and "(2557, 50)" in got["x3"]["alias_timeline"][1]
+    assert {k: v[0] for k, v in got["seated"].items()} == {"green": True, "old_index": False, "wrong_slot": False,
+                                                           "unseated": False}
+    assert got["seat_party"] == [[0, 1, 2, 10], [0, 10, -1, -1], [0, 1, 2, 10], None, [0, 1, 2, 3]]
+    assert {k: v[0] for k, v in got["break"].items()} == {"green": True, "no_break": False, "null_run": False,
+                                                          "short_null": True, "frozen": False, "foreign_geo": False}
+    assert {k: v[0] for k, v in got["n1"].items()} == {"green": True, "twin_dressed": False, "no_skip": False,
+                                                       "undressed": False, "no_objects": False, "body_only": False,
+                                                       "two_lines": False, "no_line": False}
+    assert {k: v[0] for k, v in got["n2"].items()} == {"green": True, "skipped": False, "gate_on": False,
+                                                       "body_only": False, "one_line": False}
+    assert {k: v[0] for k, v in got["n3"].items()} == {"green": True, "late_dressed": False, "no_skip": False,
+                                                       "uid_moved": False, "no_control": False, "late_line": False,
+                                                       "body_only": False}
+    assert {k: v[0] for k, v in got["t1"].items()} == {"green": True, "wedged": False, "no_timeline": False,
+                                                       "undressed": False, "control_wedged": False,
+                                                       "both_undressed": False}
+    assert got["t1"]["control_wedged"][1].startswith("not reached: the CONTROL did not finish")
+    assert not got["t1"]["both_undressed"][1].startswith("not reached")      # an undressed control is a JUDGED red
+    assert {k: v[0] for k, v in got["t3"].items()} == {"green": True, "wedged": False, "zidane_remapped": False,
+                                                       "not_remapped": False, "not_worn": False, "unreached": False,
+                                                       "no_end": False, "none": False}
+    assert got["t3"]["unreached"][1].startswith("not reached: rig zidane")
+    assert {k: v[0] for k, v in got["t2"].items()} == {"green": True, "fail": False, "no_line": False, "fail_line": False,
+                                                       "s139": False}
+    assert {k: v[0] for k, v in got["w1"].items()} == {"green": True, "cold": False, "no_return": False, "redressed": False,
+                                                       "attach": False, "attach_stale": False, "attach_cold": False,
+                                                       "src_list": False, "uid": False, "undressed": False,
+                                                       "rest_alias": False, "idle_zdn": False, "walk_zdn": False,
+                                                       "no_move": False, "steiner": True, "steiner_no_break": False,
+                                                       "steiner_freeze": False}, got["w1"]
+    allr, d602 = got["lines"]
+    assert [(r["field"], r["uid"], r["geo"], r["model"], r["rig"], r["eye"], r["from"]) for r in allr] == [
+        (250, 10, "GEO_MAIN_F0_FRJ", 192, 4, -376, "bench"), (30602, 1, "GEO_NPC_F0_MOG", 220, 8, -200, "bench")]
+    assert [r["field"] for r in d602] == [30602]
+    assert got["delta"] == [1, None] and got["objmodel"] == [98, None, None]
+    st = {k: v[0] for k, v in got["by_stage"].items()}
+    assert st == {"codec139": True, "codec139_live": False, "codec140": True, "frames139": True, "frames139_13": False,
+                  "frames140": True, "frames140_9": False}, got["by_stage"]
+
+
+# the bench field's preflight, failing CLOSED (coop_self_dress.bench_preflight over _selfdress_field.preflight): a synthetic
+# bench .eb built by the kit's own encoders -- green, then one row broken at a time
+_SS_PREFLIGHT = _SD_CHILD_HEAD + r"""
+import struct, tempfile
+from pathlib import Path
+from ff9mapkit.eb import disasm as D, opcodes as O
+from ff9mapkit.eb.model import pack_entry
+sf = sd.sdf
+doc = json.loads(sys.stdin.read())
+def eb(entries, locs):
+    n = max(entries) + 1
+    head = bytearray(b"EV\x00" + bytes([n]) + b"\x00" * (0x80 - 4))
+    table, body, off = bytearray(), bytearray(), n * 8
+    for i in range(n):
+        e = entries.get(i, b"")
+        table += struct.pack("<HHBBH", off if e else 0, len(e), locs.get(i, 0), 0, 0)
+        body += e
+        off += len(e)
+    return bytes(head + table + body)
+def build(mut=""):
+    m = set(mut.split(","))
+    twin = O.init_object(sf.TWIN_SID, 0)
+    player = O.init_object(sf.PLAYER_SID, 0)
+    # the late entry's load-time InitObject behind the kit's guard (GlobBit[LATE_GATE] + JMP_IFNOT over it)
+    late0 = (b"" if "late_unguarded" in m else sf.glob_test(sf.LATE_GATE) + O.encode(0x02, 3)) + \
+        O.init_object(sf.LATE_SID, 0)
+    main = late0 + (player + twin if "order" in m else twin + player) + \
+        (b"" if "nocaller" in m else O.init_code(sf.CALLER_SID, 0))
+    # the player Init's own stand / walk / run immediates: what T3 restores, and what the preflight rebuilds t3_body from
+    ids = (200, 25, 38)
+    pl0 = O.set_model(98, 93) + O.set_stand_animation(ids[0]) + O.encode(0x34, ids[1]) + \
+        (b"" if "noids" in m else O.encode(0x35, ids[2])) + O.encode(0x2C)
+    jrows = [raw for _op, raw in sf._expected_j()]
+    if "jwrong" in m:
+        jrows[0] = O.set_jump_animation(sf.ANIM_J - 1, sf.J_JUMP0, sf.J_JUMP1)
+    jfun = [] if "noJ" in m else [(sf.J_TAG, b"".join(jrows))]
+    # T3 = the contract's own builder (what the seat writes); "bound" swaps 2705's bound for one id off
+    t3 = sf.t3_body(*ids)
+    if "bound" in m:
+        t3 = t3.replace(sf.T3_BOUND_STMT, bytes.fromhex("05 78 ff 07 7d 90 22 6a 7d 01 00 15 18 7f"))
+    if "t3_hollow" in m:
+        # the pre-fix synthetic T3: 2705's setters, its bound and a back edge -- no lane, no T3_LOOP / T3_END, no restore
+        head3 = O.encode(0x34, sf.ANIM_T3_WALK) + O.set_stand_animation(sf.ANIM_T3_STAND) + O.encode(0x25)
+        t3 = head3 + sf.T3_BOUND_STMT + O.encode(0x03, (-(len(head3) + len(sf.T3_BOUND_STMT) + 3)) & 0xFFFF) + \
+            O.encode(0x04)
+    twin0 = O.set_model(98, 93) + (O.encode(0x2C) if "twin_cc" in m else b"")
+    late = [(0, O.set_model(98, 93) + O.encode(0x04)), (sf.LATE_CC_TAG, O.encode(0x2C) + O.encode(0x04))]
+    # the caller = the contract's own builder; a row is broken by dropping ONE instruction (its first occurrence)
+    body = sf.caller_body()
+    ins = [body[i.off:i.end] for i in D.iter_code(body, 0, len(body))]
+    def drop(want):
+        k = ins.index(want)
+        del ins[k]
+    if "noX" in m:
+        drop(O.run_animation_ex(sf.CONTROL_UID, sf.ANIM_X))
+    if "noescape" in m:
+        drop(sf.glob_set(sf.WEDGED_T1, 1))
+    if "fewmoves" in m:
+        drop(O.ENABLE_MOVE)
+    caller = b"".join(ins)
+    if "caller_flat" in m:
+        # the pre-fix synthetic caller: every conductor / escape instruction present, in a flat list with no control flow
+        caller = b"".join([w for _l, w in sf._expected_caller_ops()] + [w for _l, w in sf._expected_caller_escape()] +
+                          [O.ENABLE_MOVE] * sf.CALLER_ENABLE_MOVES) + O.encode(0x04)
+    entries = {0: pack_entry(0, [(0, main + O.encode(0x04))]),
+               sf.PLAYER_SID: pack_entry(2, [(0, pl0 + O.encode(0x04)), (sf.T3_TAG, t3)] + jfun),
+               sf.TWIN_SID: pack_entry(2, [(0, twin0 + O.encode(0x04))]),
+               sf.LATE_SID: pack_entry(2, late),
+               sf.CUP_SID: pack_entry(2, [(0, O.set_model(234, 50) + O.encode(0x04))]),
+               sf.CALLER_SID: pack_entry(0, [(0, caller)])}
+    return eb(entries, {sf.CALLER_SID: sf.CALLER_LOC})
+out = {}
+for name, mut in doc["cases"].items():
+    t = Path(tempfile.mkdtemp())
+    (t / "Memoria.ini").write_text('[Mod]\nFolderNames = "FF9CustomMap", "FF9CustomMap-msgs"\n', encoding="utf-8")
+    d = t / "FF9CustomMap-msgs" / "StreamingAssets" / "assets" / "resources" / "commonasset" / "eventengine" / "eventbinary" / "field" / "us"
+    if mut != "absent":
+        d.mkdir(parents=True)
+        (d / "EVT_TEST30606.eb.bytes").write_bytes(b"not an eb" if mut == "garbage" else build(mut))
+    class G:
+        game_path = t
+    ok, why = sd.bench_preflight(G())
+    out[name] = [ok, why]
+print(json.dumps(out))
+"""
+
+
+def test_the_s140_bench_preflight_fails_closed():
+    """S140-PF (coop_self_dress.bench_preflight, READ-ONLY over the deployed folders): a synthetic bench .eb built by the
+    kit's own encoders and the CONTRACT's own builders -- the late entry's guarded load-time InitObject, the twin's
+    InitObject before the player's, the caller's InitCode after, the player's T3 function = _selfdress_field.t3_body of the
+    player Init's own stand / walk / run ids and its J function (field 404's ladder jump), the late entry's never-run CC, the
+    caller = _selfdress_field.caller_body() -- passes, naming the MAIN_INIT_ORDER; and it FAILS CLOSED on each broken row:
+    no .eb deployed (naming the deploy), bytes that are no .eb, the player's InitObject first, the caller missing, a CC in
+    the twin, a bound one id off, a conductor instruction missing, the late entry inited UNGUARDED at load, no J function,
+    J on another clip, a wedge write missing, an EnableMove short -- and on the two shapes the loose rows used to pass: a
+    HOLLOW T3 (2705's setters, its bound and a back edge, but no lane, no T3_LOOP / T3_END, no restore setters) and a FLAT
+    caller (every conductor and escape instruction present, no control flow), plus a player Init with no run setter (T3's
+    restore then has nothing to be checked against)."""
+    cases = {"clean": "", "absent": "absent", "garbage": "garbage", "order": "order", "nocaller": "nocaller",
+             "twin_cc": "twin_cc", "bound": "bound", "noX": "noX", "late_unguarded": "late_unguarded", "noJ": "noJ",
+             "jwrong": "jwrong", "noescape": "noescape", "fewmoves": "fewmoves", "t3_hollow": "t3_hollow",
+             "caller_flat": "caller_flat", "noids": "noids"}
+    got = _sd_child(_SS_PREFLIGHT, {"cases": cases})
+    assert got["clean"][0] is True and "every preflight row holds" in got["clean"][1] and \
+        "twin InitObject(2) at Main_Init+" in got["clean"][1], got["clean"]
+    for name in cases:
+        if name != "clean":
+            assert got[name][0] is False, (name, got[name])
+    assert "selfdress_bench.py" in got["absent"][1] and "does not parse" in got["garbage"][1]
+    assert "MAIN_INIT_ORDER" in got["order"][1] and "MAIN_INIT_ORDER" in got["nocaller"][1]
+    assert "SIDS" in got["twin_cc"][1] and "T3" in got["bound"][1] and "CALLER" in got["noX"][1]
+    assert "LATE GATE" in got["late_unguarded"][1] and "J: the player entry" in got["noJ"][1]
+    assert "J: function 50" in got["jwrong"][1] and "ESCAPE" in got["noescape"][1] and "WEDGED_T1" in got["noescape"][1]
+    assert "ESCAPE: the caller gives control back 6x" in got["fewmoves"][1]
+    assert "T3: function 48 is not the bench's t3_body(200, 25, 38) byte for byte" in got["t3_hollow"][1], got["t3_hollow"]
+    assert "CALLER: entry 5's tag-0 body is not the bench's caller_body() byte for byte" in got["caller_flat"][1], \
+        got["caller_flat"]
+    assert "T3: the player entry 1's Init lacks an immediate" in got["noids"][1], got["noids"]
+
+
+#: the REAL bench field -- the kit's build of selfdress.field.toml, seated by selfdress_bench.patch_mod -- in a scratch
+#: dir (never the install), through _selfdress_field.preflight in every language; then one mutation per preflight row,
+#: each required to read a reason (the build's 16-mutation red proof, plus the late gate, J and the escape protocol)
+_SS_BENCH_BUILD = _SD_CHILD_HEAD + r"""
+import tempfile
+from pathlib import Path
+sys.path.insert(0, str(Path(scen).resolve().parents[2] / "studies" / "battle-coop" / "bench"))
+import selfdress_bench as SB
+F = SB.F
+from ff9mapkit.config import LANGS, ModLayout
+from ff9mapkit.eb import EbScript, disasm as D, edit as E
+out = {"toml": F.toml_flag_problems()}
+tmp = Path(tempfile.mkdtemp(prefix="sd-bench-"))
+mod = tmp / "mod"
+SB.kit_build(mod)
+lay = ModLayout(mod)
+kit = lay.eb_path("us", f"EVT_{F.FIELD_NAME}.eb.bytes").read_bytes()
+seated = SB.patch_mod(mod, F.FIELD_NAME, write=lambda p, d: p.write_bytes(d))
+out["langs"] = {lang: F.preflight(lay.eb_path(lang, f"EVT_{F.FIELD_NAME}.eb.bytes").read_bytes()) for lang in seated}
+ea = lay.eventanimation_path(f"EVT_{F.FIELD_NAME}").read_text(encoding="utf-8")
+out["ea_zdn"] = sorted({n for ln in ea.splitlines() if ln.startswith("GEO_MAIN_F0_ZDN:") for n in ln.split(":", 1)[1].split(",") if n})
+eb = seated["us"]
+def at(ent, tag, pred):
+    s = EbScript.from_bytes(eb)
+    f = s.entry(ent).func_by_tag(tag)
+    return next(i for i in D.iter_code(eb, f.abs_start, f.abs_end) if pred(eb[i.off:i.end], i))
+def poke(data, off, new):
+    b = bytearray(data)
+    b[off:off + len(new)] = new
+    return bytes(b)
+i_twin = at(0, 0, lambda b, i: b == bytes([9, F.TWIN_SID, 0]))
+i_play = at(0, 0, lambda b, i: b == bytes([9, F.PLAYER_SID, 0]))
+_mc = list(D.iter_code(eb, EbScript.from_bytes(eb).entry(0).func_by_tag(0).abs_start,
+                       EbScript.from_bytes(eb).entry(0).func_by_tag(0).abs_end))
+i_late = _mc[next(k for k, i in enumerate(_mc) if eb[i.off:i.end] == bytes([9, F.LATE_SID, 0])) - 1]
+assert i_late.op == F.OP_JMP_IFNOT, i_late
+i_bound = at(F.PLAYER_SID, F.T3_TAG, lambda b, i: b == F.T3_BOUND_STMT)
+i_walkanim = at(F.PLAYER_SID, F.T3_TAG, lambda b, i: i.op == 0x34)
+i_cc = at(F.LATE_SID, F.LATE_CC_TAG, lambda b, i: i.op == 0x2C)
+i_rs = at(F.CALLER_SID, 0, lambda b, i: i.op == 0x12)
+i_ra = at(F.CALLER_SID, 0, lambda b, i: b == bytes.fromhex("bd 00 fa ba 00"))
+i_t1 = at(F.CALLER_SID, 0, lambda b, i: b == F.T1_WAIT_STMT)
+i_init3 = at(F.CALLER_SID, 0, lambda b, i: b == bytes([9, F.LATE_SID, 0]))
+i_cup = at(F.CUP_SID, 0, lambda b, i: i.op == 0x2F)
+i_jset = at(F.PLAYER_SID, F.J_TAG, lambda b, i: i.op == F.OP_SET_JUMP)
+i_jland = at(F.PLAYER_SID, F.J_TAG, lambda b, i: i.op == F.OP_RUN_LAND)
+i_wedge = at(F.CALLER_SID, 0, lambda b, i: b == F.glob_set(F.WEDGED_T1, 1))
+i_jlimit = at(F.CALLER_SID, 0, lambda b, i: b == F.int16_gt(0, F.J_LIMIT))
+i_move = at(F.CALLER_SID, 0, lambda b, i: i.op == F.OP_ENABLE_MOVE)
+ce = EbScript.from_bytes(eb).entry(F.CALLER_SID)
+main = EbScript.from_bytes(eb).entry(0).func_by_tag(0)
+i_code = at(0, 0, lambda b, i: i.op == 0x07)
+# the rows only the whole-body comparison holds (T3's phase bits and lane, the caller's control flow)
+t3f = EbScript.from_bytes(eb).entry(F.PLAYER_SID).func_by_tag(F.T3_TAG)
+END, LOOP = F.glob_set(F.T3_END, 1), F.glob_set(F.T3_LOOP, 1)
+i_t3end = at(F.PLAYER_SID, F.T3_TAG, lambda b, i: b == END)
+i_t3loop = at(F.PLAYER_SID, F.T3_TAG, lambda b, i: b == LOOP)
+i_walk = at(F.PLAYER_SID, F.T3_TAG, lambda b, i: i.op == F.OP_WALK)
+i_t3ok = at(F.CALLER_SID, 0, lambda b, i: b == F.glob_test(F.T3_END))
+_no_end = E.remove_in_function(eb, F.PLAYER_SID, F.T3_TAG, i_t3end.off - t3f.abs_start, len(END))
+cases = {
+    "kit_alone": kit,
+    "not_an_eb": b"\x00" * 40,
+    "order": poke(poke(eb, i_twin.off, bytes([9, F.PLAYER_SID, 0])), i_play.off, bytes([9, F.TWIN_SID, 0])),
+    "bound_8848": poke(eb, i_bound.off + 5, b"\x90\x22"),
+    "back_edge": poke(eb, i_bound.end, b"\x00\x00\x00"),
+    "t3_walk_25": poke(eb, i_walkanim.off + 2, b"\x19\x00"),
+    "late_cc_nop": poke(eb, i_cc.off, b"\x00"),
+    "twin_cc": E.add_function(eb, F.TWIN_SID, 60, b"\x2c\x04"),
+    "late_init_cc": E.insert_in_function(eb, F.LATE_SID, 0, 0, b"\x2c"),
+    "runscript_tag": poke(eb, i_rs.end - 1, b"\x2f"),
+    "x_anim_185": poke(eb, i_ra.off + 3, b"\xb9"),
+    "t1_57": poke(eb, i_t1.off + 5, b"\x39"),
+    "n3_sid2": poke(eb, i_init3.off + 1, bytes([F.TWIN_SID])),
+    "cup_235": poke(eb, i_cup.off + 2, b"\xeb"),
+    "caller_type": poke(eb, ce.abs_start, b"\x02"),
+    "no_initcode": E.remove_in_function(eb, 0, 0, i_code.off - main.abs_start, 3),
+    "late_unguarded": poke(eb, i_late.off, bytes([F.OP_JMP_IF])),
+    "j_clip": poke(eb, i_jset.off + 2, b"\xbe"),
+    "j_no_land": poke(eb, i_jland.off, bytes([F.OP_RUN_JUMP])),
+    "no_wedge_t1": poke(eb, i_wedge.off + 3, b"\x00"),
+    "j_limit": poke(eb, i_jlimit.end - 4, b"\x00"),
+    "fewer_moves": poke(eb, i_move.off, bytes([F.OP_DISABLE_MOVE])),
+    "t3_end_dropped": _no_end,
+    "t3_end_early": E.insert_in_function(_no_end, F.PLAYER_SID, F.T3_TAG, i_t3loop.off - t3f.abs_start, END),
+    "t3_loop_dropped": E.remove_in_function(eb, F.PLAYER_SID, F.T3_TAG, i_t3loop.off - t3f.abs_start, len(LOOP)),
+    "t3_lane": poke(eb, i_walk.off + 2, b"\x19"),
+    "caller_t3_ok": poke(eb, i_t3ok.off, F.glob_test(F.T3_LOOP)),
+}
+out["mutations"] = {k: F.preflight(v) for k, v in cases.items()}
+print(json.dumps(out))
+"""
+
+
+def test_the_seated_bench_field_passes_its_preflight_and_every_mutation_fails():
+    """TEMPLATE-GATED (the worktree skip trap: without the extracted blank-field template it SKIPS -- run it in the main
+    repo or the gate, or `ff9mapkit extract-templates` first): the REAL bench field -- selfdress_bench.kit_build (the
+    toml exactly as deploy_field.py builds it) + patch_mod (the seat: T3 and J into the player entry, LATE_CC, the caller)
+    into a scratch dir -- passes _selfdress_field.preflight in EVERY language, its rewritten EventAnimation list carries
+    the conductors' source clips on the GEO_MAIN_F0_ZDN line (the SOURCE list AttachDress adds), the toml's [[flag]]
+    table is the contract's (toml_flag_problems() == []); and each of 27 mutations of the seated .eb -- the kit build alone
+    (deploy_field.py without the seat), garbage, the MAIN_INIT_ORDER swapped, T3's bound / back edge / walk id, the late
+    CC NOPped or moved into the Init, a CC in the twin, the caller's RunScript / X / T1 / N3 operands, the cup, the
+    caller's entry type, its InitCode removed, the late entry UNGUARDED, J's clip / its landing, a WEDGED write, J's bound,
+    an EnableMove short, and the five only the WHOLE-BODY rows hold (T3_END dropped -- every rig reads WEDGED on a correct
+    engine; T3_END moved ahead of the loop -- DONE_T3 + T3_END can then never fail; T3_LOOP dropped; a lane Walk target
+    moved; the caller's t3_ok poll testing T3_LOOP instead of T3_END) -- reads a reason (the build's scratch red proof,
+    committed)."""
+    from ff9mapkit import provision
+    if not provision.templates_present():
+        pytest.skip("base templates not extracted (run `ff9mapkit extract-templates`)")
+    got = _sd_child(_SS_BENCH_BUILD, {}, timeout=900.0)
+    assert got["toml"] == [], got["toml"]
+    assert got["langs"] and all(v is None for v in got["langs"].values()), got["langs"]
+    assert set(got["langs"]) == {"us", "uk", "fr", "gr", "it", "es", "jp"}, got["langs"]
+    assert {"ANH_MAIN_F0_ZDN_BREAK1_LOOK", "ANH_MAIN_F0_ZDN_COLD_FAINT_1", "ANH_MAIN_F0_ZDN_LADDER_1_1"} <= \
+        set(got["ea_zdn"]), got["ea_zdn"]
+    missed = [k for k, v in got["mutations"].items() if v is None]
+    assert not missed and len(got["mutations"]) == 27, (missed, got["mutations"])
+    m = got["mutations"]
+    for k, row in (("order", "MAIN_INIT_ORDER"), ("late_unguarded", "LATE GATE"), ("j_clip", "J: function"),
+                   ("j_no_land", "J: function"), ("no_wedge_t1", "ESCAPE"), ("j_limit", "ESCAPE"),
+                   ("fewer_moves", "ESCAPE"), ("x_anim_185", "CALLER"),
+                   ("t3_end_dropped", "T3: function 48 is not the bench's t3_body"),
+                   ("t3_end_early", "T3: function 48 is not the bench's t3_body"),
+                   ("t3_loop_dropped", "T3: function 48 is not the bench's t3_body"),
+                   ("t3_lane", "T3: function 48 is not the bench's t3_body"),
+                   ("caller_t3_ok", "CALLER: entry 5's tag-0 body is not the bench's caller_body()")):
+        assert row in m[k], (k, m[k])
+
+
+_SS_ORACLE = _SD_CHILD_HEAD + r"""
+from pathlib import Path
+game = Path(sys.stdin.read().strip())
+before = {p.name: (p.stat().st_size, p.stat().st_mtime) for p in (game / "StreamingAssets").iterdir() if p.is_file()}
+got, problems = sd.s_oracle_read(game)
+lists, lprob = sd.source_lists_read(game, (250, 30602))
+after = {p.name: (p.stat().st_size, p.stat().st_mtime) for p in (game / "StreamingAssets").iterdir() if p.is_file()}
+print(json.dumps({"rigs": {n: {k: r[k] for k in ("model", "geo", "body", "eye", "idle_clip", "walk_clip", "run_clip",
+                                                 "idle_frames", "inactive_clip", "inactive_frames")}
+                           for n, r in got["rigs"].items()},
+                  "sources": got["sources"], "problems": problems, "same": before == after,
+                  "lists": {str(k): v for k, v in lists.items()}, "list_problems": lprob}))
+"""
+
+
+def test_the_s140_oracle_reads_the_install_as_the_census_says():
+    """INSTALL-GATED (READ-ONLY; skipped without an install or its kit caches): the s140 legs' offline oracle on the real
+    data reads every rig a row dresses as through the KIT'S readers -- a main off playerswap, the moogle and Cinna..Beatrix
+    by their GEO name (Blank's F0 body 5467, never the Pluto Knight's 190), each eye byte (the others' off a STOCK script:
+    407, 50, 767), each GEO name and texture stem, each idle's frame count off p0data5 -- and AGREES with the twin's rig
+    table and the census on every row (no problem named), the conductors' source clips 70 frames each (J's LADDER_1_1 8),
+    each break clip's frame count the census's (Steiner's 110: W1's witness), the SOURCE lists AttachDress reads (field
+    250's GEO_MAIN_F0_ZDN line: 1 clip; 30602 ships no EventAnimation list: 0), StreamingAssets untouched."""
+    from ff9mapkit import config
+    try:
+        game = config.find_game_path(None)
+    except Exception:                                       # noqa: BLE001 - no install configured: nothing to read
+        pytest.skip("no FF9 install configured")
+    if game is None or not (pathlib.Path(game) / "StreamingAssets" / "p0data5.bin").is_file():
+        pytest.skip("no FF9 install (StreamingAssets/p0data5.bin) on this machine")
+    for cache in (".ff9mapkit-events-bundle.txt", ".ff9mapkit-field-index.json"):
+        if not (pathlib.Path(game) / "StreamingAssets" / cache).is_file():
+            pytest.skip(f"the kit cache {cache} is missing from the install: this test would WRITE it there")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _SS_ORACLE, str(SCENARIOS), str(REPO / "tools"), str(REPO / "ff9mapkit")],
+                         env=env, input=str(game), capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0, out.stderr[-3000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    from ff9mapkit._animdb_all import ANIMATIONS
+    from ff9mapkit._modeldb import MODELS
+    remap_only = {k: v for k, v in got["problems"].items() if not k.startswith("remap")}
+    assert remap_only == {} and got["same"] is True, got["problems"]
+    assert list(got["rigs"]) == list(BW.RIG_NAMES)
+    for i, name in enumerate(BW.RIG_NAMES):
+        r, row = got["rigs"][name], BW.rig_row(i)
+        assert (r["model"], r["geo"], r["body"], r["eye"], r["idle_frames"]) == (
+            row["model"], MODELS[row["model"]], str(row["model"]), row["eye"], RIG_IDLE_FRAMES_CENSUS_13[i]), name
+        assert (r["idle_clip"], r["walk_clip"], r["run_clip"]) == (
+            ANIMATIONS[row["idle"]], ANIMATIONS[row["walk"]], ANIMATIONS[row["run"]]), name
+    assert got["rigs"]["blank"]["model"] == 5467 and got["sources"] == {"x": 70, "t1": 70, "j": 8}
+    # W1's rig: Steiner's break clip (playerswap's `inactive`, 119) and its frame count the census's (110)
+    stn = got["rigs"]["steiner"]
+    assert (stn["inactive_clip"], stn["inactive_frames"]) == (ANIMATIONS[BW.rig_row(3)["inactive"]], BW.RIG_FRAMES[3][5])
+    assert (stn["inactive_clip"], stn["inactive_frames"]) == ("ANH_MAIN_F0_STN_BREAK_1", 110)
+    assert got["lists"] == {"250": 1, "30602": 0} and got["list_problems"] == {}, (got["lists"], got["list_problems"])
+
+
+_SS_SMOKE = _SD_CHILD_HEAD + r"""
+import pathlib, tempfile
+from harness import Session, battlewire as BW, fakegame as FG
+from harness.fakegame import FakeGame
+from ff9mapkit._modeldb import MODELS
+from ff9mapkit._animdb_all import ANIMATIONS
+sf = sd.sdf
+doc = json.loads(sys.stdin.read())
+fo = {int(k): dict(v, npcs={int(s): m for s, m in v["npcs"].items()}) for k, v in doc["fo"].items()}
+def read_oracle(g, fields):
+    return ({"fields": {f: fo[f] for f in fields if f in fo}, "party": [0, 1, 2, 3], "problems": {}}, "the test's oracle")
+def g_oracle(game):
+    trans, rends = FG.ghost_renderer_tree(185)
+    return ({"models": {m: {"geo": MODELS[m], "body": str(m)} for m in sd.G_MODELS}, "clips": dict(ANIMATIONS),
+             "idle_frames": list(BW.RIG_IDLE_FRAMES),
+             "prefabs": {185: {"geo": MODELS[185], "transforms": list(trans), "renderers": list(rends)}}}, {})
+def s_oracle(game, known=None):
+    # the stub s140 oracle: the census's values in the shape the kit's readers give (the stand-in's bodies are the same)
+    rigs, models = {}, {}
+    for name in sd.S_ORACLE_RIGS:
+        i = BW.NAME_TO_RIG[name]
+        r = BW.rig_row(i)
+        m = r["model"]
+        models[m] = {"geo": MODELS[m], "body": str(m)}
+        rigs[name] = {"name": name, "model": m, "geo": MODELS[m], "body": str(m), "eye": r["eye"], "idle": r["idle"],
+                      "walk": r["walk"], "run": r["run"], "inactive": r["inactive"] or None,
+                      "idle_clip": ANIMATIONS[r["idle"]], "walk_clip": ANIMATIONS[r["walk"]],
+                      "run_clip": ANIMATIONS[r["run"]],
+                      "inactive_clip": ANIMATIONS.get(r["inactive"]) if r["inactive"] else None,
+                      "idle_frames": BW.RIG_FRAMES[i][0], "inactive_frames": BW.RIG_FRAMES[i][5]}
+    return {"rigs": rigs, "models": models, "clips": dict(ANIMATIONS), "sources": {"x": 70, "t1": 70, "j": 8}}, {}
+#: the SOURCE lists as the install reads them (250: BREAK1_XARM alone; 30602 ships none) -- the stand-in's own sizes
+LISTS = {250: 1, 30602: 0}
+sd.read_oracle = read_oracle
+sd.g_oracle_read = g_oracle
+sd.s_oracle_read = s_oracle
+sd.source_lists_read = lambda game, fields, regs=None: ({f: LISTS.get(f, FG.FAKE_SOURCE_LIST_CLIPS) for f in fields}, {})
+# the idle timer (fake.sleep_after: 160 stand-in frames still) must fire INSIDE W1's idle window on a loaded host (the
+# windows are wall-clock: at a ~40 fps worst case, (0.4 + 5.0) s is ~216 frames) and NEVER inside its rest window (at the
+# 240 fps cap, 0.4 s + the arrival's 10 frames is ~106)
+for k, v in {"REST_S": 0.4, "GHOST_SETTLE_S": 0.6, "IDLE_PAST_S": 5.0, "DRESS_READ_S": 0.3, "X_AFTER_S": 0.4,
+             "N3_AFTER_S": 0.3, "OP_SETTLE_S": 0.1}.items():
+    setattr(sd, k, v)
+DICT = ("FieldScene 30604 11 TEST30604 TEST30604 30604\nFieldScene 30801 11 TEST30801 TEST30801 30801\n"
+        "FieldScene 30602 11 TEST30602 TEST30602 30602\nFieldScene 30606 11 TEST30606 TEST30606 30606\n"
+        "FieldScene 30605 11 TEST30605 TEST30605 30605\n")
+results = {}
+for name, run in doc["runs"].items():
+    t = pathlib.Path(tempfile.mkdtemp())
+    (t / "x64").mkdir()
+    (t / "x64" / "FF9.exe").write_bytes(b"MZ")
+    (t / "x64" / "Memoria.log").write_text("fake log\n", encoding="utf-8")
+    mod = t / "FF9CustomMap"
+    mod.mkdir()
+    (mod / "DictionaryPatch.txt").write_text(run.get("dict", DICT), encoding="utf-8")
+    ga = run.get("ghost_as", "auto")
+    (t / "Memoria.ini").write_text("[Netsync]\nEnabled = 0\n" + (f"GhostAs = {ga}\n" if ga is not None else "")
+                                   + run.get("ini_extra", ""), encoding="utf-8")
+    pf = run.get("pf", [True, "the test's preflight"])
+    sd.bench_preflight = lambda g, pf=pf: (bool(pf[0]), pf[1])
+    fake = FakeGame(t, ticks="mean", render_fps=60.0)
+    fake.fps = 240
+    fake.ini_ghost_as = ga
+    if run.get("caps"):
+        fake.netsync_caps = FG.caps_through(run["caps"])
+    fake.party_adds = {30604: (1, 2, 3), 30605: (10,)}           # COOPPARTY; COOPSUB's B_PARTYADD(blank)
+    fake.player_sids = {250: 10, 30801: 1, 30606: sf.PLAYER_SID, 30602: 1}
+    fake.party_removes = {30605: (3,)}                             # ...after its RemoveParty(steiner)
+    fake.source_list_clips = dict(LISTS)
+    fake.player_body = dict(FG.FAKE_PLAYER_BODY, inactive=57)      # the kit player's SetInactiveAnimation(57)
+    fake.sleep_after = 160                                         # CheckSleep on a dressed body (W1's break clip)
+    fake.blockers = {30801: [{"x": -400.0, "z": 600.0, "r": 152.0, "uid": 2, "sid": 2, "model": 217},
+                             {"x": 400.0, "z": 600.0, "r": 152.0, "uid": 3, "sid": 3, "model": 217}],
+                     30606: [{"x": -700.0, "z": -1100.0, "r": 100.0, "uid": sf.TWIN_SID, "sid": sf.TWIN_SID, "model": 98,
+                              "defines_player": False},
+                             {"x": 700.0, "z": -1100.0, "r": 100.0, "uid": sf.LATE_SID, "sid": sf.LATE_SID, "model": 98,
+                              "defines_player": True, "late": True}]}
+    fake.dress_conductors = {30606: {"ready": sf.READY, "io_bits": sf.IO_BITS, "trig": dict(sf.TRIGGERS),
+                                     "done": dict(sf.DONES), "wedged": dict(sf.WEDGES), "t3_loop": sf.T3_LOOP,
+                                     "t3_end": sf.T3_END, "late_sid": sf.LATE_SID,
+                                     "anims": {"x": sf.ANIM_X, "t1": sf.ANIM_T1, "t3_walk": sf.ANIM_T3_WALK,
+                                               "t3_stand": sf.ANIM_T3_STAND, "j": sf.ANIM_J},
+                                     "t1_threshold": sf.T1_THRESHOLD, "t1_limit": sf.T1_LIMIT,
+                                     "t3_loop_limit": sf.T3_LOOP_LIMIT, "j_windows": (sf.J_JUMP0, sf.J_JUMP1),
+                                     "j_frames": sf.ANIM_J_FRAMES, "j_land": sf.J_LAND, "j_end": sf.J_END,
+                                     "j_limit": sf.J_LIMIT}}
+    fake.reinit_fields = {30602}
+    fake.encounter_fields = {30602}
+    fake.dress_faults = set(run.get("faults", ()))
+    fake.save_party = [dict(FG.FAKE_PARTY[0]), None, None, None]
+    sd.cb.CALIBRATE = bool(run.get("cal"))
+    if run.get("calmode") is not None:
+        os.environ["COOP_DRESS_CAL"] = run["calmode"]
+    else:
+        os.environ.pop("COOP_DRESS_CAL", None)
+    os.environ["COOP_DRESS_LEGS"] = run.get("legs", "")
+    g = Session(game_path=t, run_dir=t / "run", save_dir=t / "player-saves", pid_probe=lambda: [],
+                launcher=lambda exe, fake=fake: fake.start(), boot_timeout=15.0, verbose=False)
+    with g:
+        g._booted_once = True
+        sd.run(g)
+        rows = list(g.checks)
+    steps = [list(s) for s in fake.executed if s and s[:2] == ["netsync", "selfdress"]]
+    acted = [s for s in fake.executed if s and str(s[0]) in ("newgame", "warp")]
+    results[name] = {"red": sorted(r["what"].split(":")[0] for r in rows if not r["ok"]),
+                     "all": sorted(r["what"].split(":")[0] for r in rows), "acted": len(acted),
+                     "self_steps": [s for s in steps if len(s) > 2 and s[2] in ("self", "gate", "law")],
+                     "steps_tail": steps[-4:],
+                     "detail": {r["what"].split(":")[0]: r["detail"][:900] for r in rows}}
+print(json.dumps(results))
+"""
+
+_SS_FO = {"250": dict(_SD_FO, npcs={"7": 176}), "30801": dict(_SD_FO, sid=1, uid=1, npcs={"2": 217, "3": 217})}
+#: every check the whole file records on an s140 engine (legs I, G and the s140 legs, the shared rows and the preflight)
+S140_ALL_CHECKS = sorted(["S138-INI", "S138-OR", "S138-S0", "S138-P0", "S138-PRE", "S138-R", "S140-PF"]
+                         + [f"S138-I{n}" for n in range(1, 10)] + G_CHECKS_S140 + S140_BENCH_CHECKS)
+S140_LEGS_ONLY = sorted(["S138-INI", "S138-OR", "S138-S0", "S138-P0", "S138-PRE", "S138-R", "S140-PF"] + S140_BENCH_CHECKS)
+
+
+def test_the_s140_legs_run_green_on_the_stand_in_and_calibrate_on_s139():
+    """THE SMOKE (every leg, end to end, against the stand-in with stub oracles in the install's shape): GREEN on the s140
+    stand-in -- every leg, the bench field's conductors, the diorama's warm return, the reset holding `rule s139`, `self
+    off` and `law timeline off` and reading every lever back off (both release lines); legs I + G + S green with GhostAs
+    blank; legs I and G GREEN on the s139 stand-in (stage-keyed: Cinna..Beatrix undressed, 29 codec rows, nine frames); under
+    COOP_CALIBRATE=1 on the s139 stand-in EXACTLY OLD_PREDICTED red with S138-CAL green, no `self` / `gate` / `law` step ever
+    sent (refused before it), S4 and N1 "not reached" -- never green; on s140 without a lever S138-CAL red naming the levers;
+    [Netsync] SelfDress = 0 refuses the run at S138-INI (nothing acted); 30606 and 30605 unregistered read PRE red, the
+    30606 rows and S7 / S8 (COOPSUB's seat) "not reached" (W and S1-S6 still judged); a preflight failing CLOSED reads PF
+    red and the 30606 rows "not reached"."""
+    s140 = "S+W+X+N+T"
+    runs = {"all": {}, "noghost": {"ghost_as": "", "legs": "I+G+S"}, "s139_ig": {"caps": "dresshost", "legs": "I,G"},
+            "cal139": {"caps": "dresshost", "cal": True}, "cal140": {"cal": True, "legs": s140},
+            "selfdress0": {"legs": s140, "ini_extra": "SelfDress = 0\n"},
+            "unregistered": {"legs": s140, "dict": "FieldScene 30602 11 TEST30602 TEST30602 30602\n"},
+            "pf_red": {"legs": s140, "pf": [False, "MAIN_INIT_ORDER: the twin's InitObject is AFTER the player's"]}}
+    got = _sd_child(_SS_SMOKE, {"fo": _SS_FO, "runs": runs}, timeout=1500.0)
+    assert got["all"]["red"] == [] and got["all"]["all"] == S140_ALL_CHECKS, (got["all"]["red"], got["all"]["detail"])
+    assert got["all"]["steps_tail"] == [["netsync", "selfdress", "clear"], ["netsync", "selfdress", "rule", "s139"],
+                                        ["netsync", "selfdress", "self", "off"],
+                                        ["netsync", "selfdress", "law", "timeline", "off"]], got["all"]["steps_tail"]
+    r = got["all"]["detail"]["S138-R"]
+    assert "self.bench_self None" in r and "missing lines=[]" in r and "gate / law levers released" in r, r
+    d = got["all"]["detail"]
+    assert "dress lines [('GEO_MAIN_F0_FRJ', 192, 4, -376, 'bench')]" in d["S140-S1"] and "at the op: arm" in d["S140-S1"]
+    assert "GEO_SUB_F0_BLN" in d["S140-S6"] and "want_char': 10" in d["S140-S6"]
+    assert "13 rigs: zidane done +0" in d["S140-T3"] and "'last_return': 'warm'" in d["S140-W1"]
+    assert "ANH_SUB_F0_BLN_IDLE" in d["S139-G7e"]                              # s140: Blank's own loco clip
+    assert got["noghost"]["red"] == [] and len(got["noghost"]["all"]) == 40, got["noghost"]["red"]
+    assert "attach_cold +1, attach_warm +0" in d["S140-S1"] and "src_list_clips 1 (oracle 1)" in d["S140-S1"]
+    assert "attach_warm +1, attach_cold +0" in d["S140-W1"] and "break clip 'ANH_MAIN_F0_STN_BREAK_1'" in d["S140-W1"]
+    assert "dress.party [0, 1, 2, 10]" in d["S140-S7"] and "CharacterId 10 in slot 3" in d["S140-S7"]
+    assert "ghost (model, rig) (5467, 11)" in d["S140-S8"] and "MOVING" in d["S140-S8"]
+    assert "(2557, 8)" in d["S140-X3"] and "dress-line sids [1]" in d["S140-N1"] and "[1, 2]" in d["S140-N2"]
+    assert "across `clear` + `self off`: (5467, '5467'" in d["S140-S4"]
+    assert got["s139_ig"]["red"] == [], (got["s139_ig"]["red"], got["s139_ig"]["detail"])
+    s139d = got["s139_ig"]["detail"]
+    assert "ANH_MAIN_F0_ZDN_IDLE" in s139d["S139-G7e"] and "OK (29 rows)" in s139d["S139-G4"]
+    assert "[60, 45, 30, 60, 50, 40, 30, 45, 72]" in s139d["S139-G6"]
+    c = got["cal139"]
+    assert c["red"] == sorted(S140_BENCH_CHECKS), c["red"]
+    assert "S138-CAL" in c["all"] and c["self_steps"] == []                      # refused BEFORE the step
+    for cid in ("S140-S4", "S140-S8", "S140-N1"):
+        assert c["detail"][cid].startswith("not reached: "), (cid, c["detail"][cid])
+    assert c["detail"]["S140-T2"].startswith("netsync.dress.self(.selftest) ABSENT")
+    assert "S138-CAL" not in c["red"] and c["detail"]["S138-CAL"].startswith(
+        "predicted reds that stayed GREEN: none; unpredicted reds: none")
+    assert got["cal140"]["red"] == ["S138-CAL"] and "COOP_DRESS_CAL=self-off|gate-0" in got["cal140"]["detail"]["S138-CAL"]
+    s0 = got["selfdress0"]
+    assert "S138-INI" in s0["red"] and s0["acted"] == 0 and "SelfDress = '0'" in s0["detail"]["S138-INI"], s0["detail"]
+    u = got["unregistered"]
+    # T2 reads the proof block (no field): judged green even with 30606 unregistered
+    assert u["red"] == sorted(["S138-PRE", "S140-S7", "S140-S8"] + S140_ON_30606), u["red"]
+    assert all(u["detail"][c].startswith("not reached: field 30606 is not registered") for c in S140_ON_30606)
+    assert all(u["detail"][c].startswith("not reached: field 30605 is not registered") for c in ("S140-S7", "S140-S8"))
+    p = got["pf_red"]
+    assert p["red"] == sorted(["S140-PF"] + S140_ON_30606), p["red"]
+    assert p["detail"]["S140-X1"].startswith("not reached: the bench field's preflight failed CLOSED: MAIN_INIT_ORDER")
+
+
+def test_each_s140_lever_reds_exactly_its_rows_on_the_stand_in():
+    """THE LEVERS on the s140 stand-in, legs S / W / X / N / T under COOP_CALIBRATE=1 COOP_DRESS_CAL=<lever>: each reds
+    EXACTLY its LEVER_PREDICTED row -- each a JUDGED red, never "not reached" -- and S138-CAL is green: `self off` in place
+    of every dress spec (every dressed row; S4 and T2 green), `gate 0` (the twin dresses: N1), `law bframe off` (2705's loop
+    wedges on every dressed rig: T3), `law attach off` (src_attached 0: S1, W1 -- whose break clip then plays nothing),
+    `law alias off` (X2: the stretched frame_n), `law timeline off` (T1: the 30-frame alias never reaches 58; X3: the jump
+    slot on the alias's own 50 frames). The lever goes out before every load."""
+    runs = {m: {"legs": "S+W+X+N+T", "cal": True, "calmode": m} for m in S140_LEVER_REDS}
+    got = _sd_child(_SS_SMOKE, {"fo": _SS_FO, "runs": runs}, timeout=1500.0)
+    for mode, reds in S140_LEVER_REDS.items():
+        r = got[mode]
+        assert r["red"] == sorted(reds), (mode, r["red"])
+        assert r["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none"), mode
+        assert not any(r["detail"][c].startswith("not reached") for c in reds), (mode, {c: r["detail"][c] for c in reds})
+    assert all(s[3] == "off" for s in got["self-off"]["self_steps"] if s[2] == "self")
+    assert ["netsync", "selfdress", "gate", "0"] in got["gate-0"]["self_steps"]
+    for mode, law in (("law-bframe", "bframe"), ("law-attach", "attach"), ("law-alias", "alias"),
+                      ("law-timeline", "timeline")):
+        assert ["netsync", "selfdress", "law", law, "off"] in got[mode]["self_steps"], mode
+    assert "wedged" in got["law-bframe"]["detail"]["S140-T3"] and "frame_n=70" in got["law-alias"]["detail"]["S140-X2"]
+
+
+#: each fault lever the s140 rows exist to catch -> exactly the rows it reds (legs S / W / X / N / T). `arm_live` reds S1
+#: twice over (its op witness, and `why` 'armed' -- the arm re-made every frame) and so every dressed identity's `why`;
+#: s138's `anim_geo` / `playing` (a foreign folder, nothing playing) red every row that reads the witness.
+S140_FAULT_REDS = {"eye_unwritten": ["S140-S1", "S140-S3", "S140-S6", "S140-S7", "S140-W1", "S140-W2", "S140-N1",
+                                     "S140-N3", "S140-N2"],
+                   "no_attach": ["S140-S1", "S140-W1"], "slot_fallback": ["S140-X2"], "no_timeline": ["S140-X3", "S140-T1"],
+                   "no_bframe": ["S140-T3"], "no_gate": ["S140-N1"], "selftest_fail": ["S140-T2"],
+                   "arm_live": ["S140-S1", "S140-S3", "S140-S6", "S140-S7", "S140-W2"], "self_release_keeps": ["S138-R"],
+                   "object_model": ["S140-N1", "S140-N2", "S140-N3"],
+                   "anim_geo": ["S140-S1", "S140-S2", "S140-S3", "S140-S6", "S140-S7", "S140-W1", "S140-W2", "S140-X1"],
+                   "playing": ["S140-S2", "S140-S6", "S140-W1"],
+                   # [ff9mapkit netsync s140] the review's rows: site (b) alone (W1), the source list (S1: 30602 ships
+                   # none, so W1's oracle reads 0 either way), the teardown law (S4), the twin's own dress line (N2)
+                   "no_warm_attach": ["S140-W1"], "no_source_list": ["S140-S1"], "clear_undresses": ["S140-S4"],
+                   "twin_line_missing": ["S140-N2"],
+                   # the faults no in-game leg can see (the stand-in's own tests and the engine's SelfTest rows are their
+                   # home): the sticky skip on a live client, the control-first order, a map keyed on the arm (SelfTest's
+                   # body row AND the BodyRig source pins: test_every_self_dress_hook_resolves_its_rig_through_body_rig),
+                   # the exclusion
+                   "never_sticky": [], "ctl_first": [], "map_on_arm": [], "dress_excluded": []}
+_S140_FAULTS_A = ("eye_unwritten", "no_attach", "slot_fallback", "no_timeline", "no_bframe", "no_gate", "selftest_fail",
+                  "arm_live")
+
+
+@pytest.mark.parametrize("group", ["a", "b"])
+def test_each_s140_row_reds_on_its_fault_on_the_stand_in(group):
+    """THE FAULTS (FakeGame.dress_faults) on legs S / W / X / N / T: each a broken engine whose own law looks on, each red in
+    EXACTLY the rows that exist to catch it -- `eye_unwritten` (po.eye left Zidane's: every dressed identity, the N rows'
+    body included), `no_attach` (S1 at SetModel, W1 at the warm rebuild), `no_warm_attach` (site b ALONE: W1 -- its
+    attach_warm count and the break clip the rebuilt go lacks), `no_source_list` (S1's source list), `clear_undresses`
+    (S4: the teardown law), `twin_line_missing` (N2's line count), `slot_fallback` (X2), `no_timeline` (T1, X3),
+    `no_bframe` (T3), `no_gate` (N1), `selftest_fail` (T2), `arm_live` (the arm following the `self` op at once: S1's op
+    witness, every dressed `why`), `self_release_keeps` (the harness release keeping the s140 levers: S138-R),
+    `object_model` (no `objects[].model`: N1-N3), s138's `anim_geo` and `playing` (every row reading that witness); the
+    faults the bench cannot see in game stay green (S140_FAULT_REDS names them). Two groups, so the runs split across
+    workers."""
+    names = [f for f in S140_FAULT_REDS if (f in _S140_FAULTS_A) == (group == "a")]
+    runs = {f: {"legs": "S+W+X+N+T", "faults": [f]} for f in names}
+    got = _sd_child(_SS_SMOKE, {"fo": _SS_FO, "runs": runs}, timeout=1500.0)
+    for fault in names:
+        assert got[fault]["red"] == sorted(S140_FAULT_REDS[fault]), (fault, got[fault]["red"])
+    if group == "a":
+        assert "MOVED the arm before the load" in got["arm_live"]["detail"]["S140-S1"], got["arm_live"]["detail"]["S140-S1"]
+        assert "frame_n=70" in got["slot_fallback"]["detail"]["S140-X2"]

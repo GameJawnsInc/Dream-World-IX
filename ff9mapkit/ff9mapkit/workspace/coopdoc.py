@@ -218,8 +218,12 @@ class CoopDoc(QWidget):
 
         ghost_row = QHBoxLayout()
         ghost_lbl = QLabel("Their ghost appears on my screen as:")
-        ghost_lbl.setToolTip("Visitor mode: dress the other player's ghost as a real party member. "
-                             "Auto picks whoever they command in battle (needs a battle slot above).")
+        ghost_lbl.setToolTip("Visitor mode. Hosting: what your guest appears as on BOTH screens (an s140+ "
+                             "guest wears it itself unless its own [Netsync] SelfDress=0). Joining: dresses only "
+                             "your view of the host (the 8 mains) -- normally leave it at \"Their own model\": "
+                             "you already wear the host's pick, so the same pick on both machines shows you two "
+                             "of that character. Auto picks whoever they command in battle (needs a battle slot "
+                             "above).")
         self.combo_ghost = QComboBox()
         # Item labels are capped at minimumContentsLength characters (fenced) -- the CLOSED box renders
         # the selected item at the box's width and Qt HARD-CLIPS it, no ellipsis: the round-9 snaps
@@ -229,9 +233,11 @@ class CoopDoc(QWidget):
         # [ff9mapkit netsync s139] + the moogle (rig row 8): coop.GHOST_NAMES accepts it, so a combo without it would
         # load GhostAs=moogle as index 0 and the next apply would rewrite the user's value to "off" (a test pins these
         # data values to GHOST_NAMES, aliases folded). It dresses the HOST's ghost of its guest; a client stays undressed.
+        # [ff9mapkit netsync s140] + Cinna, Marcus, Blank, Beatrix (rig rows 9-12: "their own models") -- the same pin.
         for label, data in (("Zidane", "zidane"), ("Vivi", "vivi"), ("Garnet / Dagger", "dagger"),
                             ("Steiner", "steiner"), ("Freya", "freya"), ("Quina", "quina"),
-                            ("Eiko", "eiko"), ("Amarant", "amarant"), ("Moogle", "moogle")):
+                            ("Eiko", "eiko"), ("Amarant", "amarant"), ("Moogle", "moogle"),
+                            ("Cinna", "cinna"), ("Marcus", "marcus"), ("Blank", "blank"), ("Beatrix", "beatrix")):
             self.combo_ghost.addItem(label, data)
         ghost_lbl.setBuddy(self.combo_ghost)        # see the buddy note in the Session section
         ghost_row.addWidget(ghost_lbl)

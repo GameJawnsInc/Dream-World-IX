@@ -217,6 +217,19 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #:                    `party`; the proof block gains its three dress lines. Its calibration (s138:
 #:                    `selfdress` "unknown sub-verb", no `codec`) is ``caps_through("dressinstr")``. FakeGame._dress_doc says
 #:                    what it models (battlewire.selftest_dress -- the site's twin) and what it cannot.
+#:   "dressself"   -- s140, THE GUEST DRESSES ITSELF (+ the owner's CharacterId 8-11 rows: rigs 9-12, ResolveAuto through
+#:                    CharToRig, section 8's charId 8-11): no new sub-verb -- `selfdress` gains `self` / `gate` / `law` (the
+#:                    s140 op list, NETSYNC_SELFDRESS_OPS); `netsync.dress` gains `self` (a fixed sub-object, its LAST key:
+#:                    NETSYNC_DRESS_CAP_KEYS), `rig_idle_frames` grows to 13 entries, the proof block gains "self-dress
+#:                    selftest: OK (29 rows)" and the codec line reads 38 rows. The stand-in models the arm at the FIELD LOAD
+#:                    (the selftest `self` spec through the real encoder and reader -- battlewire.bench_frame /
+#:                    arm_decision; a client's sticky skip), the dress order at each 98 SetModel (the exclusion, the player
+#:                    gate BEFORE the control check), the dressed body's model / eye / mapped slots (keyed on the BODY's
+#:                    rig, never WantRig), the bench field's conductors (dress_conductors: X's gesture on the idle ALIAS,
+#:                    T1's source timeline, T3's B_FRAME law, N3's second Zidane) and each law lever; FakeGame._self_doc
+#:                    says what it models and what it cannot, its FAULT LEVERS are DRESS_SELF_FAULTS. Its calibration (s139:
+#:                    `selfdress self` "unknown op", no `self`, nine idle frames, 29 codec rows, Cinna..Beatrix undressed)
+#:                    is ``caps_through("dresshost")``.
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -247,7 +260,8 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "actfallback": ("s136", ()),
                        "acttrance": ("s137", ()),
                        "dressinstr": ("s138", ()),
-                       "dresshost": ("s139", ("selfdress",))}
+                       "dresshost": ("s139", ("selfdress",)),
+                       "dressself": ("s140", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -272,6 +286,8 @@ NETSYNC_S137_CAPS = frozenset(("acttrance",))
 NETSYNC_S138_CAPS = frozenset(("dressinstr",))
 #: [ff9mapkit netsync s139] The host-dress rung (its calibration, s138, is ``caps_through("dressinstr")``).
 NETSYNC_S139_CAPS = frozenset(("dresshost",))
+#: [ff9mapkit netsync s140] The self-dress rung (its calibration, s139, is ``caps_through("dresshost")``).
+NETSYNC_S140_CAPS = frozenset(("dressself",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -342,6 +358,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     # [ff9mapkit netsync s139] nothing under `netsync.battle`: its keys sit inside `netsync.dress` (NETSYNC_DRESS_CAP_KEYS,
     # NETSYNC_DRESS_NESTED_KEYS)
     "dresshost": {},
+    # [ff9mapkit netsync s140] nothing under `netsync.battle`: `self` sits inside `netsync.dress` (NETSYNC_DRESS_CAP_KEYS)
+    "dressself": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -365,7 +383,7 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
 #: [ff9mapkit netsync s138] The keys each dress rung adds INSIDE `netsync.dress`, in AppendDress's order (s139 appends
 #: `codec` and `rig_idle_frames`, s140 `self`) -- the dress key law: every one under `netsync.dress`, never `netsync.battle`
 #: (the action-replay audit's 4.3).
-NETSYNC_DRESS_CAP_KEYS = dict(BW.DRESS_KEYS_BY_RUNG)          # [ff9mapkit netsync s139] + `codec`, `rig_idle_frames`
+NETSYNC_DRESS_CAP_KEYS = dict(BW.DRESS_KEYS_BY_RUNG)          # [ff9mapkit netsync s139] + `codec`, `rig_idle_frames`; s140 `self`
 #: ...and the keys a later rung adds inside a dress block's FIXED sub-object, by path under `netsync.dress` (s139: its levers
 #: at the end of `ghost`).
 NETSYNC_DRESS_NESTED_KEYS: dict = {"dresshost": {"ghost": BW.DRESS_GHOST_KEYS_BY_RUNG["dresshost"]}}
@@ -512,14 +530,18 @@ def actbench_ops(caps) -> tuple:
 
 
 #: [ff9mapkit netsync s139] `selfdress <op>` (NetSyncClient.HarnessSelfDress), in its "unknown op" refusal's order -- s139's
-#: five (s140 adds `self` / `gate`, s141 `polish`: each told by its own key, Session.NETSYNC_SELFDRESS_OP_CAPS).
+#: five, [ff9mapkit netsync s140] + `self` / `gate` / `law` (each told by its own key, Session.NETSYNC_SELFDRESS_OP_CAPS; s141
+#: adds `polish`). The LIVE list; an s139 engine prints NETSYNC_SELFDRESS_OPS_S139.
 NETSYNC_SELFDRESS_OPS = BW.SELFDRESS_OPS
+NETSYNC_SELFDRESS_OPS_S139 = BW.SELFDRESS_OPS_S139
 
 
 def selfdress_ops(caps) -> tuple:
     """[ff9mapkit netsync s139] The `selfdress` ops an engine with these capabilities has (s139: ghost, empty, rule, wire,
-    clear; none before it -- the sub-verb itself is unknown there)."""
-    return NETSYNC_SELFDRESS_OPS if "dresshost" in caps else ()
+    clear; none before it -- the sub-verb itself is unknown there). [ff9mapkit netsync s140] + self, gate, law."""
+    if "dressself" in caps:
+        return NETSYNC_SELFDRESS_OPS
+    return NETSYNC_SELFDRESS_OPS_S139 if "dresshost" in caps else ()
 #: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
 NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
 #: [ff9mapkit netsync B4] `bbench <op>` (NetSyncBattle.HarnessStockBench): s106's two, then s107's bench feed -- each
@@ -641,10 +663,51 @@ DRESS_FAULTS = ("eye", "body", "anim_geo", "playing", "uid", "ghost_missing", "g
 DRESS_HOST_FAULTS = ("codec_fail", "idle_frames", "spectator_zidane", "no_guard", "section8_swapped", "ghost_body",
                      "translate_own_body", "rest_mask_cleared", "moogle_slides", "clear_publishes_only",
                      "ghost_keeps_ini_mode", "release_keeps_levers")
+#: [ff9mapkit netsync s140] THE SELF-DRESS's FAULT LEVERS (FakeGame.dress_faults too; the `dressself` rung): each a BROKEN
+#: engine whose own law looks on -- a value OTHER than the right one, derived from what is right -- so a leg's check can be
+#: shown red offline on the shape it exists to catch (each test-pinned to move exactly its keys / probe):
+#:   "arm_live"          the arm follows a `self` op AT ONCE (and the player re-dresses), never waiting for the field load --
+#:                       "arming at the field load only"
+#:   "never_sticky"      a skipped state apply disarms a MIRRORING client (amendment 6's sticky blip broken)
+#:   "no_gate"           the player gate skipped: an NPC Zidane twin dresses (N1; skip_npc stays 0)
+#:   "ctl_first"         the control check BEFORE the player gate: an NPC Zidane inited after the dressed player reads
+#:                       skip_second, never skip_npc (review dress F5)
+#:   "map_on_arm"        every map keyed on the ARM's WantRig, never the BODY's rig (amendment 5): after the arm is cleared a
+#:                       dressed body's slot setters store raw ids
+#:   "no_attach"         AttachDress never runs (amendment 2): src_attached and src_list_clips stay 0
+#:   "slot_fallback"     a gesture falls back to the rig's IDLE id, never the alias (amendment 4): after the gesture the idle
+#:                       keeps the gesture's stretched frame_n (X2)
+#:   "no_timeline"       KeepSourceTimeline never runs: a gesture plays the alias on its own short timeline (T1 wedges)
+#:   "no_bframe"         B_FRAME answers stock on a dressed body (amendment 1: T3's 2705 loop wedges, bframe_remaps 0)
+#:   "dress_excluded"    the exclusion skipped: New Game's field 70 is dressed
+#:   "eye_unwritten"     the dress writes po.model but leaves po.eye at Zidane's (-372) -- S1's eye
+#:   "self_release_keeps" the harness release keeps the s140 levers (self / gate / law) -- `selfdress clear` still frees them
+#:   "selftest_fail"     the self-dress proof fails (`self.selftest` "fail: <row>", the FAIL line)
+#:   "no_warm_attach"    AttachDress never runs at the WARM-return rebuild (amendment 2 site b, updateModelsToBeAdded):
+#:                       attach_warm stays, the rebuilt body lacks the rig's set -- its break clip plays nothing (W1)
+#:   "no_source_list"    AttachDress skips the SOURCE list (AddAnimToGameObject "GEO_MAIN_F0_ZDN"): src_list_clips 0,
+#:                       src_attached the rig set alone (S1)
+#:   "clear_undresses"   `selfdress clear` (ReleaseBench -> Clear) undresses the LIVE body at once -- the teardown law
+#:                       broken (S4's pre-warp read)
+#:   "twin_line_missing" a dressed NPC twin's SetModel logs no dress line (N2's line count)
+DRESS_SELF_FAULTS = ("arm_live", "never_sticky", "no_gate", "ctl_first", "map_on_arm", "no_attach", "slot_fallback",
+                     "no_timeline", "no_bframe", "dress_excluded", "eye_unwritten", "self_release_keeps", "selftest_fail",
+                     "no_warm_attach", "no_source_list", "clear_undresses", "twin_line_missing")
+#: [ff9mapkit netsync s140] `netsync.dress.self`'s per-process COUNTERS, in AppendDressSelf's order (each 0 at the sentinel).
+SELF_COUNT_KEYS = ("confirmed", "ctl_elsewhere", "skip_npc", "skip_second", "remaps", "timeline_kept", "bframe_remaps",
+                   "attach_cold", "attach_warm", "faults", "parse_fallback", "defence_kept", "defence_dropped")
+#: [ff9mapkit netsync s140] The SOURCE list's clips AttachDress adds (AddAnimToGameObject "GEO_MAIN_F0_ZDN": the field's own
+#: Zidane EventAnimation list) -- a MODELLED count (the stand-in reads no list; ``FakeGame.source_list_clips`` {field: n}
+#: overrides it per field, as a test's oracle says); `src_attached` is it plus the rig's own distinct clips (idle / walk /
+#: run / turns / break / alias).
+FAKE_SOURCE_LIST_CLIPS = 12
 #: [ff9mapkit netsync s139] `netsync.dress.rig_idle_frames` on the stand-in: the audit's census (R3-FIELD-MODEL-AUDIT.md 2.2
 #: amendment 7 -- read off the install's p0data5 by the kit's clip reader, round(length x rate) + 1), the value the engine
 #: MEASURES once per process in the proof block (-1 before it). A MODELLED value: the stand-in reads no clip.
-FAKE_RIG_IDLE_FRAMES = (60, 45, 30, 60, 50, 40, 30, 45, 72)
+#: [ff9mapkit netsync s140] thirteen rows on s140+ (battlewire.RIG_IDLE_FRAMES: rows 9-12 Cinna 40, Marcus 30, Blank 40,
+#: Beatrix 45 -- the census's rigs_8_11.json `frames_13`); an s139 stand-in publishes the first nine.
+FAKE_RIG_IDLE_FRAMES = BW.RIG_IDLE_FRAMES
+FAKE_RIG_IDLE_FRAMES_S139 = BW.RIG_IDLE_FRAMES[:BW.RIG_ROW_COUNT_S139]
 #: [ff9mapkit netsync s138] The bodies whose prefab carries the hidden Orichalcum overlay `battle_model` BEFORE `bone000`
 #: (a read-only walk of the install's p0data prefabs, R3-FIELD-MODEL-AUDIT.md's stock-01 evidence: 98 Zidane, 509 Amarant)
 #: -- its renderer disabled, its GameObject active, so a first-renderer read finds it first.
@@ -1190,9 +1253,43 @@ class FakeGame:
         #: the mask the SITE reads (== the published `bench_mask` but under the `clear_publishes_only` fault)
         self._dress_site_mask: int = -1
         self._dress_codec: str | None = None
-        self._rig_idle: list = [-1] * BW.RIG_ROW_COUNT
+        self._rig_idle: list | None = None          # [ff9mapkit netsync s140] None = not measured (one -1 per rung row)
         self._ghost_worn: tuple | None = None        # (model, rig, mask kind) the ghost wears THIS frame
         self._ghost_worn_next: tuple | None = None
+        #: [ff9mapkit netsync s140] THE GUEST'S OWN DRESS's stand-in (the `dressself` rung; :meth:`_self_doc` says what it
+        #: models): Memoria.ini [Netsync] SelfDress (None = absent = "1": the knob ON), the s140 `selfdress` levers (`self`'s
+        #: spec and mask, `gate 0`, the `law` bits: NetSyncSelfDress' statics, released with the harness), THE ARM
+        #: (ArmDecision's reason, section 8's model / charId / rig, where it came from -- set at a FIELD LOAD only), the
+        #: per-process counters, the dressed BODIES (the controlled player's rig + 1 and its stored slots; the other 98
+        #: entries' -- `blockers` bodies with ``model`` 98 -- by sid), the bench field's conductors (``dress_conductors``
+        #: {field: contract}: the TRIG / DONE bits a test names, :meth:`_step_self_dress`) and the proof's verdict.
+        self.ini_self_dress: str | None = None
+        self.dress_conductors: dict = {}
+        self._self_levers: dict = {"spec": None, "mask": -1, "gate_off": False, "law_off": 0}
+        self._self_arm: dict = {"arm": False, "model": -1, "char": -1, "rig": -1, "why": None, "from": None}
+        self._self_counts: dict = dict.fromkeys(SELF_COUNT_KEYS, 0)
+        self._self_ctl_field = -1
+        self._self_uid = -1
+        self._self_src = (0, 0)                      # (src_attached, src_list_clips) after the last AttachDress
+        self._self_verdict: str | None = None        # `self.selftest`: null until the proof block ran it
+        self._self_body: dict | None = None          # the controlled player's dress: {"rig", "slots": {idle, walk, run}}
+        self._self_entries: dict = {}                # this load's other 98 entries: sid -> rig + 1 (0 = undressed)
+        self._self_late: set = set()                 # sids of `late` bodies a conductor InitObject'd this load
+        self._self_play: dict | None = None          # a RunAnimation on the player (a conductor's gesture), playing
+        self._self_idle_frames: int | None = None    # the idle's frame_n after a gesture (DefaultAnim's SetAnim)
+        self._self_cond: dict | None = None          # the running bench conductor
+        self._self_load_has_dress = False
+        self._self_n3_done = False
+        self._self_ctl_bound = False                # the player's CC ran this load (control is bound)
+        #: [ff9mapkit netsync s140] per-field SOURCE-list sizes ({field: n}; FAKE_SOURCE_LIST_CLIPS elsewhere), the idle
+        #: timer (CheckSleep) on a DRESSED body (``sleep_after``: stand-in frames standing still with control before the
+        #: sleep slot's break clip plays; None = not modelled), the fields whose Main_Init REMOVES members (`party_removes`
+        #: {field: (CharacterId, ...)}: RemoveParty runs before the adds, freeing the seat), and the running break clip
+        self.source_list_clips: dict = {}
+        self.sleep_after: int | None = None
+        self.party_removes: dict = {}
+        self._self_still = 0
+        self._self_sleep: dict | None = None
         self._rng = random.Random()                 # the bench host's epoch draws (Guid bytes on the engine)
         #: [ff9mapkit netsync F3.3] C3 R9: the selftest bench HOST and its ring (:class:`_BenchHost`)
         self._bench = _BenchHost(self._rng)
@@ -1924,6 +2021,7 @@ class FakeGame:
                 self._step_script_poll()    # [ff9mapkit netsync F3.3] R5: the open polled line's script button-poll
                 self._step_diorama()        # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's leave and return
                 self._step_dress()          # [ff9mapkit netsync s138] the selftest mirror's ghost: one frame behind
+                self._step_self_dress()     # [ff9mapkit netsync s140] the guest's own dress: a gesture, the bench conductors
                 self._publish()
                 self._step_machine("agent_first")
             else:
@@ -2103,6 +2201,7 @@ class FakeGame:
             self.ui_state = "FieldHUD"
             self.field_id = 70
             self.control = True
+            self._self_on_load(cold=True)               # [ff9mapkit netsync s140] New Game's field 70 (excluded)
             # H17: New Game rebuilds every player with its CharacterDefaultName (FF9Play_New, ff9play.cs:131-144): a
             # name an earlier run saved never reaches this one's [STNR] pages (the review, research/o6_design.md 11.7 #2)
             self.names = {}
@@ -2119,6 +2218,7 @@ class FakeGame:
             self._party_adds_on_load()                  # [ff9mapkit netsync s138] a Main_Init's B_PARTYADD (`party_adds`)
             self._guest.field_load()                    # s96: every field load re-arms the panic unlock (a reload too)
             self.ui_state = "FieldHUD"
+            self._self_on_load(cold=True)               # [ff9mapkit netsync s140] the arm, then Main_Init's SetModels
             self.control = self.warp_arrive_control     # H9: False -- control zeroed at the field start, not given
             if self._movie is not None:
                 self._end_scene("warp")        # H9: the field load destroys MBG -- the movie and the scene it was in
@@ -2480,6 +2580,7 @@ class FakeGame:
                 self.field_id = dest
                 self.player = [0.0, 0.0, 0.0]
                 self.control = True
+                self._self_on_load(cold=True)           # [ff9mapkit netsync s140] a field load
         self._enter_regions()
         self._enter_freezes()
 
@@ -2768,12 +2869,15 @@ class FakeGame:
             self._lock = min(0.0, self._lock + calls)
 
     # -- the field's other actors (s89) ---------------------------------------------------------
-    def _bodies(self) -> list:
-        """This field's `blockers` as ``(index, dict)`` -- a tuple is ``(x, z, r[, solid])``."""
+    def _bodies(self, include_late: bool = False) -> list:
+        """This field's `blockers` as ``(index, dict)`` -- a tuple is ``(x, z, r[, solid])``. [ff9mapkit netsync s140] A
+        ``late`` body (a second 98 entry whose InitObject a bench conductor runs) is absent until it is inited this load."""
         out = []
         for i, b in enumerate(self.blockers.get(self.field_id, ())):
             if not isinstance(b, dict):
                 b = {"x": b[0], "z": b[1], "r": b[2], "solid": len(b) > 3 and bool(b[3])}
+            if b.get("late") and not include_late and int(b.get("sid", -1)) not in self._self_late:
+                continue
             out.append((i, b))
         return out
 
@@ -2927,6 +3031,9 @@ class FakeGame:
                 # [ff9mapkit netsync s138] PosObj.model, raw, after `sid` (AppendObjects): a body's own ``model``, else
                 # MODEL_NONE -- the stand-in's bodies run no SetModel unless a test gives them one
                 row["model"] = int(b.get("model", BW.MODEL_NONE))
+                worn = self._self_entries.get(int(b.get("sid", -1)), 0) if row["model"] == BW.PLAIN_ZIDANE_MODEL else 0
+                if worn:
+                    row["model"] = BW.rig_row(worn - 1)["model"]      # [ff9mapkit netsync s140] a dressed 98 entry
             out.append({**row,
                         "x": float(b["x"]), "y": float(b.get("y", 0.0)), "z": float(b["z"]),
                         "range": rr is not None, "talk": tr is not None,
@@ -3019,6 +3126,7 @@ class FakeGame:
         self.field_id = dest
         self._visit += 1
         self._guest.field_load()                   # s96: a gateway's load re-arms the panic unlock (to the same field too)
+        self._self_on_load(cold=True)              # [ff9mapkit netsync s140] a gateway's load (cold)
         self.player = [float(arrive[0]), 0.0, float(arrive[1])]
         if self._arrive_face is not None:          # the firing region's ``arrive_face`` (see `regions`)
             self._face_deg = float(self._arrive_face)
@@ -4018,6 +4126,7 @@ class FakeGame:
             self._bexit = None
             self.ui_state = "FieldHUD"
             self._guest.field_load()               # s96: the exit field's load re-arms the panic unlock
+            self._self_on_load(cold=False)         # [ff9mapkit netsync s140] a battle's return (Main_Reinit: WARM)
             self.control = bool(ex.get("arrive_control", False))
             self._visit += 1                       # a fresh load: a new visit's actor
             self._in_trigger.clear()
@@ -4614,8 +4723,13 @@ class FakeGame:
         return bool(has_position) and self.field_id > 0 and self.ui_state not in ("Title", "WorldHUD")
 
     def _dress_anim(self) -> int:
-        """PosObj.anim of the controlled player: the loco id the pad asks for this frame (no control: the idle)."""
-        b = self.player_body
+        """PosObj.anim of the controlled player: the loco id the pad asks for this frame (no control: the idle).
+        [ff9mapkit netsync s140] ...on the body as it IS now (a dressed body's stored slots), a running gesture first."""
+        if self._self_play is not None:
+            return int(self._self_play["anim"])
+        if self._self_sleep is not None:                # [ff9mapkit netsync s140] CheckSleep's break clip
+            return int(self._self_sleep["anim"])
+        b = self._self_now_body()
         if not self.control or self.ui_state != "FieldHUD" or self._frozen():
             return int(b["idle"])
         if not any(self._move_held(d) for d in ("up", "down", "left", "right")):
@@ -4628,19 +4742,40 @@ class FakeGame:
         if not self._dress_actor(has_position):
             return dict.fromkeys(BW.PLAYER_DRESS_KEYS)
         faults = self.dress_faults
-        b = self.player_body
+        b = self._self_now_body()                   # [ff9mapkit netsync s140] the dress's when dressed
         model = int(b["model"])
         anim = self._dress_anim()
         clip = _clip_name(anim)
         sid = int(self.player_sids.get(self.field_id, FAKE_PLAYER_SID))
         body = BW.body_of(body_renderers(model, self.player_props))   # BodyOf: the root's own mesh0, never a prop
+        frame_n, anim_frame = self._self_frame_pair(anim)
+        sl = self._self_sleep
+        if sl is not None and not sl["attached"]:
+            clip = None                                 # [ff9mapkit netsync s140] ExecAnim of a clip the go lacks: nothing plays
         return {"model": model, "anim": anim, "geo": _geo_name(model),
                 "anim_geo": None if "anim_geo" in faults else BW.folder_of(clip),
                 "eye": BW.eye_of(int(b["eye"]) + (1 if "eye" in faults else 0)),
                 "uid": sid + (1 if "uid" in faults else 0), "sid": sid,
                 "body": BW.texture_stem(f"{dress_fault_model(model)}_0") if "body" in faults else body, "clip": clip,
                 "clip_playing": clip is not None and "playing" not in faults,
-                "frame_n": FAKE_FRAME_N, "anim_frame": self.frame % FAKE_FRAME_N, "meshflags": 0}
+                "frame_n": frame_n, "anim_frame": anim_frame, "meshflags": 0}
+
+    def _self_frame_pair(self, anim: int) -> tuple:
+        """(frame_n, anim_frame) of the controlled body: s138's MODELLED FAKE_FRAME_N on an undressed body at rest or on the
+        move; [ff9mapkit netsync s140] a running gesture's own timeline, a dressed body's clip off the census's frame table
+        -- the idle after a gesture that played the idle id itself keeping the gesture's stretched frame_n."""
+        p = self._self_play
+        if p is not None:
+            return int(p["frame_n"]), max(0, min(self.frame - p["start"], int(p["frame_n"]) - 1))
+        sl = self._self_sleep
+        if sl is not None:                              # CheckSleep's clip: its own count (255 = not on the go)
+            return int(sl["frame_n"]), max(0, min(self.frame - sl["start"], int(sl["frame_n"]) - 1))
+        if not self._self_body:
+            return FAKE_FRAME_N, self.frame % FAKE_FRAME_N
+        n = self._self_frames(anim)
+        if self._self_idle_frames is not None and anim == self._self_now_body()["idle"]:
+            n = int(self._self_idle_frames)
+        return n, self.frame % max(1, n)
 
     def _ghost_live(self) -> bool:
         """The selftest mirror's ghost is spawned (`netsync.session.ghost`): an instance, the selftest role, a field in
@@ -4685,9 +4820,11 @@ class FakeGame:
         on BW.selftest_dress with the stand-in's ini, levers and party, the fault levers applied."""
         if not (self._ghost_live() and self._dress_actor(self.has_position)):
             return None
-        me_model, me_anim = int(self.player_body["model"]), self._dress_anim()
+        me_model, me_anim = int(self._self_now_body()["model"]), self._dress_anim()   # [s140] the body as it IS
         if "dresshost" not in self._nb_caps():
             return {"model": me_model, "rig": BW.RIG_NONE, "anim": me_anim, "mask": "local"}
+        # [ff9mapkit netsync s140] the stage's rules: s139's FROZEN (no Cinna..Beatrix rows) on the calibration engine
+        R = BW.dress_rules("dressself" if self._self_rung() else "dresshost")
         b, faults, role = self._dress_bench, self.dress_faults, self._nb_role()
         site_mask = self._dress_site_mask if "clear_publishes_only" in faults else b["mask"]
         kw = dict(me_model=me_model, me_anim=me_anim, party=self._dress_party(), role="selftest", selftest_role=role,
@@ -4695,30 +4832,30 @@ class FakeGame:
         if "ghost_keeps_ini_mode" in faults and role and site_mask >= 0:
             # the `ghost` lever replaced the MASK only: the site keeps the ini's GhostAs as its mode (an `auto` ini reads the
             # same either way -- which is why this fault needs a pass with the ini's GhostAs '')
-            return BW.selftest_dress(ghost_as=self.ini_ghost_as or "", guest_slots=site_mask, bench_mask=-1, **kw)
-        site = BW.selftest_dress(ghost_as=self.ini_ghost_as or "", guest_slots=0, bench_mask=site_mask, **kw)
+            return R.selftest_dress(ghost_as=self.ini_ghost_as or "", guest_slots=site_mask, bench_mask=-1, **kw)
+        site = R.selftest_dress(ghost_as=self.ini_ghost_as or "", guest_slots=0, bench_mask=site_mask, **kw)
         old_rule = role and b["rule"] == "s138"
         mask = site_mask if role and site_mask >= 0 else 0
         mode = "auto" if role and site_mask >= 0 else BW.dress_mode(self.ini_ghost_as)
         if "spectator_zidane" in faults and not old_rule and mode == "auto" and mask & 0x0F == 0:
-            site = BW.selftest_dress(ghost_as="", guest_slots=0, bench_mask=-1, **kw)   # the overridden recommendation
+            site = R.selftest_dress(ghost_as="", guest_slots=0, bench_mask=-1, **kw)   # the overridden recommendation
         if "no_guard" in faults and not old_rule:
             st_wire = b["wire"] if role and b["wire"] >= 0 else me_model
             chars = BW.live_slot_chars(kw["party"], b["empty"] if role and b["empty"] >= 0 else 0)
-            dress, rig = BW.resolve_dress_rule(mode, mask, BW.moogle_when_empty("selftest", role), chars)
+            dress, rig = R.resolve_dress_rule(mode, mask, BW.moogle_when_empty("selftest", role), chars)
             if dress:
                 pinned = role and b["wire"] >= 0 and b["wire_anim"] >= 0
-                loco = BW.classify_loco(st_wire, b["wire_anim"]) if pinned else BW.classify_loco(me_model, me_anim)
-                wire_rig = BW.rig_for_model(st_wire)
+                loco = R.classify_loco(st_wire, b["wire_anim"]) if pinned else R.classify_loco(me_model, me_anim)
+                wire_rig = R.rig_for_model(st_wire)
                 wire_anim = (b["wire_anim"] if pinned else me_anim if st_wire == me_model
-                             else BW.loco_anim(wire_rig, loco) if wire_rig >= 0 else me_anim)
-                site = {"model": dress, "rig": rig, "anim": BW.ghost_anim(dress, rig, st_wire, loco, wire_anim),
+                             else R.loco_anim(wire_rig, loco) if wire_rig >= 0 else me_anim)
+                site = {"model": dress, "rig": rig, "anim": R.ghost_anim(dress, rig, st_wire, loco, wire_anim),
                         "mask": "rest"}
         if "translate_own_body" in faults and not old_rule and site["rig"] >= 0:
             # GhostAnim flattened: the dressed rig's loco clip whatever body it rides (the wire's own included)
             pinned = role and b["wire"] >= 0 and b["wire_anim"] >= 0
-            loco = BW.classify_loco(b["wire"], b["wire_anim"]) if pinned else BW.classify_loco(me_model, me_anim)
-            site = dict(site, anim=BW.loco_anim(site["rig"], loco))
+            loco = R.classify_loco(b["wire"], b["wire_anim"]) if pinned else R.classify_loco(me_model, me_anim)
+            site = dict(site, anim=R.loco_anim(site["rig"], loco))
         moog = BW.rig_row(BW.RIG_MOOGLE)
         if "moogle_slides" in faults and site["model"] == BW.MOOGLE_MODEL and site["anim"] in (moog["walk"], moog["run"]):
             site = dict(site, anim=moog["idle"])                            # its walk / run never loaded: the idle
@@ -4758,6 +4895,12 @@ class FakeGame:
         self._dress_bench = {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}
         if not ("clear_publishes_only" in self.dress_faults and cause == "selfdress clear"):
             self._dress_site_mask = -1
+        # [ff9mapkit netsync s140] NetSyncSelfDress.ReleaseBench, BEFORE the s139 line: the self / gate / law levers (and a
+        # bench-made arm) -- the `self_release_keeps` fault skips it on the HARNESS release (`clear` still frees them)
+        if self._self_rung() and not ("self_release_keeps" in self.dress_faults and cause != "selfdress clear"):
+            self._self_release(cause)
+        if self._self_rung() and "clear_undresses" in self.dress_faults and cause == "selfdress clear":
+            self._self_body = None                      # the FAULT: Clear() undresses the live body (the teardown law)
         if any_set:
             self._mlog(f"[NetSync] harness: selfdress levers released ({cause}) -- the mirror's dress back to the pin, the "
                        f"ini's GhostAs and the host rule")
@@ -4811,34 +4954,39 @@ class FakeGame:
             if n != 2:
                 raise RuntimeError("netsync selfdress clear: takes no argument")
             self._dress_release("selfdress clear")
+        elif op in BW.SELFDRESS_SELF_OPS and self._self_rung():
+            self._selfdress_s140(args)                  # [ff9mapkit netsync s140] self / gate / law
         else:
-            raise RuntimeError(f"netsync selfdress: unknown op '{op}' ({'|'.join(NETSYNC_SELFDRESS_OPS)})")
+            raise RuntimeError(f"netsync selfdress: unknown op '{op}' ({'|'.join(selfdress_ops(self._nb_caps()))})")
 
     def _dress_proof(self) -> None:
         """[ff9mapkit netsync s139] The proof block's three dress lines (right after the trance line), once per process: the
         codec verdict (`netsync.dress.codec`), the section-8 body this machine would host now (HostDressSection: the ini's
         GhostAs under the GuestSlots pin 0), the idle frames (`rig_idle_frames`, measured once)."""
         faults = self.dress_faults
+        R = BW.dress_rules("dressself" if self._self_rung() else "dresshost")   # [ff9mapkit netsync s140] by stage
         if "codec_fail" in faults:
-            row = "auto: " + BW.DRESS_AUTO_TABLE[0][0]
+            row = "auto: " + R.DRESS_AUTO_TABLE[0][0]
             self._dress_codec = BW.DRESS_CODEC_FAIL + row
             self._mlog(f"[NetSync] {BW.PROOF_DRESS}FAIL (row '{row}' failed (5 rows run))")
         else:
             self._dress_codec = BW.DRESS_CODEC_OK
-            self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_DRESS, BW.DRESS_SELFTEST_ROWS))
+            self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_DRESS, R.DRESS_SELFTEST_ROWS))
         b = self._dress_bench
         chars = BW.live_slot_chars(self._dress_party(), b["empty"] if self._nb_role() and b["empty"] >= 0 else 0)
-        body = BW.host_dress_section(self.ini_ghost_as or "", 0, "selftest", self._nb_role(), chars)
+        body = R.host_dress_section(self.ini_ghost_as or "", 0, "selftest", self._nb_role(), chars)
         if "section8_swapped" in faults:
             model, char_id = BW.parse_dress_section(body)
             body = BW.swapped_dress_body(model, char_id)
         self._mlog("[NetSync] " + BW.PROOF_DRESS_SECTION + BW.dress_section_text(body))
-        frames = list(FAKE_RIG_IDLE_FRAMES)
+        frames = list(FAKE_RIG_IDLE_FRAMES if self._self_rung() else FAKE_RIG_IDLE_FRAMES_S139)
         if "idle_frames" in faults:
             frames[BW.RIG_MOOGLE] += 1
         self._rig_idle = frames
         self._mlog("[NetSync] " + BW.PROOF_RIG_IDLE + ",".join(str(f) for f in frames)
-                   + f" ({sum(1 for f in frames if f >= 0)} of {BW.RIG_ROW_COUNT} measured)")
+                   + f" ({sum(1 for f in frames if f >= 0)} of {len(frames)} measured)")
+        if self._self_rung():
+            self._self_proof()                          # [ff9mapkit netsync s140] right after the rig idle frames line
 
     def _dress_doc(self) -> dict:
         """HarnessAgent.AppendDress (s138): `ghost` (what the ghost WEARS: its sentinels with no ghost) then `party` (the
@@ -4877,13 +5025,588 @@ class FakeGame:
         doc = {"ghost": ghost, "party": party}
         if host:
             doc["codec"] = self._dress_codec                     # [ff9mapkit netsync s139] after `party`
-            doc["rig_idle_frames"] = list(self._rig_idle)
+            rows = BW.RIG_ROWS_BY_RUNG["dressself" if self._self_rung() else "dresshost"]
+            doc["rig_idle_frames"] = list(self._rig_idle) if self._rig_idle is not None else [-1] * rows
             doc["mirror_party"] = None                           # no host frame is ever parsed here
+        if self._self_rung():
+            doc["self"] = self._self_doc()                       # [ff9mapkit netsync s140] `dress`'s LAST key
         return doc
+
+    # -- [ff9mapkit netsync s140] THE GUEST'S OWN DRESS (the `dressself` rung) --------------------------------------------
+    # WHAT IT MODELS (battlewire's twins of NetSyncSelfDress' pure rules, on the stand-in's field player and its bodies):
+    #   * THE ARM, at a FIELD LOAD only (ApplyStoryBeforeEvents -- :meth:`_self_on_load` from every load path: a warp, a
+    #     gateway exit, a battle's return, a diorama's return): the selftest role's `self` spec through the REAL encoder and
+    #     reader (BW.bench_frame -> BW.arm_decision: no spec = "section absent", `off` = "model 0", `auto [mask]` the s139
+    #     host rule with the owner's 8-11 rows over the live party -- the `empty` lever applied -- and the GuestSlots pin 0,
+    #     a name its row); a CLIENT has no host frame here, so its load is a SKIPPED apply (BW.skip_rule: sticky while
+    #     ``story_mirroring``, else "not mirroring"); a host is disarmed silently. Armed = the arm AND [Netsync] SelfDress
+    #     (``ini_self_dress``, read live: never an arm state).
+    #   * THE DRESS ORDER at each 98 SetModel of a COLD load (BW.set_model_rule, its reads lazy): the `blockers` bodies with
+    #     ``model`` 98 first (a twin's InitObject precedes the player's -- the bench's MAIN_INIT_ORDER), then the player, then
+    #     each ``late`` body when a conductor InitObjects it; the exclusion (field 70, 3000-3012) first, then the player gate
+    #     (a body's ``defines_player``: False = an NPC Zidane -> skip_npc; `gate 0` skips it) BEFORE the control check (the
+    #     player holds control once its CC ran -> skip_second); the player's CC then counts confirmed / ctl_elsewhere.
+    #   * THE DRESSED BODY: the rig's model and eye, the stored slots mapped (BW.map_rig_anim, keyed on the BODY's rig --
+    #     never the arm's WantRig; the sleep slot too when ``player_body`` names an `inactive` clip), the source list + rig
+    #     set attached (src_list_clips the field's ``source_list_clips`` size, FAKE_SOURCE_LIST_CLIPS elsewhere; src_attached
+    #     that plus the rig's distinct clips; `law attach off` -> 0, 0), each AttachDress counted at its site (attach_cold
+    #     at SetModel, attach_warm at the rebuild), re-attached on a WARM return (no SetModel: the body keeps its dress --
+    #     PosObj.copy carries netSelfDress -- on a NEW go, whose rig set only site (b) puts back); THE IDLE TIMER
+    #     (``sleep_after``: CheckSleep on the dressed body -- the stored break clip plays on its own count, or NOTHING for
+    #     255 frames when the go lacks it); `player.*` publishes it (model, eye, anim, clip, anim_geo, body, frame_n -- the
+    #     census frame table, BW.RIG_FRAMES -- and anim_frame), and the selftest mirror's ghost reads it as the player's
+    #     model (the s139 guard then shows it as the wire body). A seed field's Main_Init: ``party_removes`` (RemoveParty)
+    #     then ``party_adds`` (B_PARTYADD into the first empty seat).
+    #   * THE BENCH FIELD'S CONDUCTORS (``dress_conductors`` {field: contract}, the TRIG / DONE / WEDGED bits a test names
+    #     from studies/test-harness/scenarios/_selfdress_field.py -- :meth:`_step_self_dress`): X (RunAnimationEx(250, 186) +
+    #     WaitAnimationEx: the gesture fallback -- the idle ALIAS on the source timeline; after it DefaultAnim's SetAnim(idle)
+    #     recomputes frame_n unless the gesture played the idle id itself), T1 (RunAnimationEx(250, 2572) + `while frame <
+    #     58`: KeepSourceTimeline or a wedge), T3 (the 2705 loop: SetWalkAnimation(8847) / SetStandAnimation(7922) through
+    #     MapAndAttach, `frame < GetAnimDuration(8847) - 1` through the B_FRAME law, bframe_remaps once per evaluation), N3
+    #     (InitObject of the `late` body after the player's CC -> its SetModel through the dress order), J (the jump slot:
+    #     AtJumpSlot's alias, PREJUMP / POSTJUMP on the SOURCE count -- KeepJumpTimeline -- unless `law timeline off`, J_LAND /
+    #     J_END around the landing), F8a / F8d (s141's: DONE only). One anim frame per stand-in frame (aspeed 16).
+    #   * The `law` levers (each law off on the selftest role only), `gate 0`, `self` -- released with the harness; the proof
+    #     block's line (SELF_DRESS_SELFTEST_ROWS) and `self.selftest`.
+    # WHAT IT CANNOT: a real host's section 8 off the wire (a client's load is always a skipped apply), the client's
+    # ApplyStory success path, the .eb itself (EntryDefinesPlayer is a body's ``defines_player``; parse_fallback stays 0),
+    # the defence branch (unreachable in stock: defence_* 0), a hook's caught fault (faults 0), DisableMove while a conductor
+    # runs, a real clip's length or the Animation component (frame counts are the census's), the 30 Hz tick vs the render
+    # frame, a walk's position (T3's lane), a script's own RunAnimation on any body but the player, the exit ramp and
+    # OnDestroy (Clear), and s141's polish (steps, light, props). The FAULT LEVERS (DRESS_SELF_FAULTS) show each check red.
+    def _self_rung(self) -> bool:
+        return "dressself" in self._nb_caps()
+
+    def _self_knob(self) -> bool:
+        """[Netsync] SelfDress as LoadConfigIfChanged reads it: trimmed, quotes accepted, "0" = off (default "1": on)."""
+        raw = ("1" if self.ini_self_dress is None else str(self.ini_self_dress)).strip()
+        if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+            raw = raw[1:-1].strip()
+        return raw != "0"
+
+    def _self_armed(self) -> bool:
+        """NetSyncSelfDress.Armed: the arm AND the knob (read live)."""
+        return bool(self._self_arm["arm"]) and self._self_knob()
+
+    def _self_law_on(self, law: int) -> bool:
+        """NetSyncSelfDress.LawOn: a law is on unless the SELFTEST role switched it off."""
+        return BW.law_on_rule(self._self_levers["law_off"], law, self._nb_role())
+
+    def _self_gate_on(self) -> bool:
+        """NetSyncSelfDress.GateOn: the player gate runs unless the selftest role's `gate 0`."""
+        return not self._self_levers["gate_off"] or not self._nb_role()
+
+    def _client_or_selftest_role(self) -> bool:
+        """NetSyncClient.IsClientOrSelfTestRole: enabled AND (role client OR selftest) -- read live."""
+        ns = self.netsync
+        return bool(ns["enabled"]) and (ns["role"] == "client" or self._nb_role())
+
+    def _self_rig(self) -> int:
+        """The CONTROLLED body's rig (netSelfDress - 1; -1 undressed) -- amendment 5: every map keys on THIS."""
+        return int(self._self_body["rig"]) if self._self_body else -1
+
+    def _self_map(self, anim: int, site: int) -> int:
+        """MapAnim on the controlled body (alias law live) -- keyed on the BODY's rig; the `map_on_arm` fault keys it on the
+        arm's WantRig instead (an undressed body maps nothing either way)."""
+        if not self._self_body:
+            return anim
+        rig = int(self._self_arm["rig"]) if "map_on_arm" in self.dress_faults else self._self_rig()
+        alias = self._self_law_on(BW.LAW_ALIAS) and "slot_fallback" not in self.dress_faults
+        return BW.map_rig_anim(rig, anim, site, alias)
+
+    def _self_set_arm(self, why: str, model: int, char: int, rig: int, src) -> None:
+        self._self_arm = {"arm": why == BW.WHY_ARMED, "model": model, "char": char, "rig": rig, "why": why, "from": src}
+
+    def _self_arm_bench(self) -> None:
+        """ArmBench: the `self` spec's frame through the real encoders, read back through the real reader."""
+        lv = self._self_levers
+        b = self._dress_bench
+        chars = BW.live_slot_chars(self._dress_party(), b["empty"] if self._nb_role() and b["empty"] >= 0 else 0)
+        frame = BW.bench_frame(lv["spec"], lv["mask"], 0, BW.moogle_when_empty(self.netsync["role"], self._nb_role()),
+                               lambda: chars)
+        why, model, char, rig = BW.arm_decision(frame)
+        self._self_set_arm(why, model, char, rig, "bench")
+
+    def _self_on_load(self, cold: bool = True) -> None:
+        """[ff9mapkit netsync s140] A FIELD LOAD (ApplyStoryBeforeEvents, then Main_Init): OnFieldLoad, the arm (the selftest
+        role's bench spec; a client's skipped apply; a host disarmed silently), then -- a COLD load -- every 98 SetModel in
+        Main_Init order through the dress order, or -- a WARM return -- the controlled body keeps its dress and AttachDress
+        re-runs (updateModelsToBeAdded). The bench field's conductor state resets with the load."""
+        if not self._self_rung():
+            return
+        self._self_load_has_dress = False
+        self._self_ctl_bound = False
+        self._self_late = set()
+        self._self_play = None
+        self._self_idle_frames = None
+        self._self_cond = None
+        self._self_n3_done = False
+        self._self_still = 0
+        self._self_sleep = None
+        role = self.netsync["role"]
+        if self._nb_role():
+            self._self_arm_bench()
+        elif self.netsync["enabled"]:
+            # no host frame ever reaches the stand-in: a live role's load is a SKIPPED apply (NetSyncSelfDress.SkipRule)
+            rule = BW.skip_rule(False, role == "client", bool(self.story_mirroring))
+            if rule == BW.SKIP_KEEP and "never_sticky" in self.dress_faults:
+                rule = BW.SKIP_DISARM
+            if rule != BW.SKIP_KEEP:
+                self._self_set_arm(BW.skip_why(rule), -1, -1, -1, None)   # a host's why null: never "not mirroring"
+        if cold:
+            self._self_body = None
+            self._self_entries = {}
+            for b in self._self_zidanes(late=False, before=True):
+                self._self_set_model(b)
+            self._self_set_model(None)                  # the player's own SetModel(98), then its CC
+            self._self_note_control()
+            for b in self._self_zidanes(late=False, before=False):
+                self._self_set_model(b)
+        elif self._self_body:
+            self._self_body["attached"] = False         # updateModelsToBeAdded: a NEW go (the stored slots carried)
+            if "no_warm_attach" not in self.dress_faults:
+                self._self_attach(warm=True)            # the warm return: site (b)
+        self._self_bench_ready()
+
+    def _self_zidanes(self, *, late: bool, before: bool | None = None) -> list:
+        """This field's `blockers` bodies that are 98 entries (``model`` 98): their InitObject order is the list order --
+        ``init_after_player`` False (the default: the bench's twin) before the player, True after; ``late`` ones only when a
+        conductor InitObjects them."""
+        out = []
+        for _i, b in self._bodies(include_late=True):
+            if int(b.get("model", BW.MODEL_NONE)) != BW.PLAIN_ZIDANE_MODEL or bool(b.get("late")) != late:
+                continue
+            if before is not None and bool(b.get("init_after_player")) == before:
+                continue
+            out.append(b)
+        return out
+
+    def _self_set_model(self, body: dict | None) -> int:
+        """One SetModel(98) through THE DRESS ORDER (BW.set_model_rule; the `ctl_first` fault its mutant): ``body`` a 98
+        entry of `blockers` (None = the controlled player). Returns the outcome and applies it."""
+        player = body is None
+        sid = int(self.player_sids.get(self.field_id, FAKE_PLAYER_SID)) if player else int(body.get("sid", -1))
+        defines = True if player else bool(body.get("defines_player", False))
+        faults = self.dress_faults
+        arm_live = self._self_armed()
+
+        def excluded() -> bool:
+            return BW.excluded_field_id(self.field_id) and "dress_excluded" not in faults
+
+        def other_ctl() -> bool:
+            # the controlled body once the player's CC ran: another DRESSED body holds control
+            return not player and self._self_ctl_bound and bool(self._self_body)
+        rule = BW.mutant_ctl_first if "ctl_first" in faults else BW.set_model_rule
+        gate = self._self_gate_on() and "no_gate" not in faults
+        outcome = rule(arm_live, BW.PLAIN_ZIDANE_MODEL, self._client_or_selftest_role(), excluded, gate,
+                       lambda: defines, other_ctl)
+        c = self._self_counts
+        if outcome == BW.DRESS_EXCLUDED:
+            self._self_arm["why"] = "excluded"
+        elif outcome == BW.DRESS_SKIP_NPC:
+            c["skip_npc"] += 1
+        elif outcome == BW.DRESS_SKIP_SECOND:
+            c["skip_second"] += 1
+        elif outcome == BW.DRESS_YES:
+            rig = int(self._self_arm["rig"])
+            self._self_uid = sid
+            self._self_load_has_dress = True
+            self._self_arm["why"] = "dressed"
+            r = BW.rig_row(rig) or {}
+            # AtSetModel's dress line, the engine's literal (uid == sid: every activation here passes uid 0)
+            if player or "twin_line_missing" not in faults:
+                self._mlog(f"[NetSync] self-dress: field {self.field_id} uid {sid} sid {sid}: Zidane "
+                           f"({BW.PLAIN_ZIDANE_MODEL}) -> {BW.rig_geo(rig) or '?'} (model {r.get('model')}, rig {rig}, eye "
+                           f"{BW.eye_of(r.get('eye', 0))}) [{self._self_arm.get('from')}]")
+            if player:
+                # `attached`: the go holds the rig's set (a cold go: its own setters' MapAndAttach attach what they map)
+                self._self_body = {"rig": rig, "slots": {}, "attached": True}
+                self._self_attach()                     # site (a): inside SetModel, after CreateModel
+                self._self_store_slots()                # the Init's own setters after SetModel (AIDLE / AWALK / ARUN)
+            else:
+                self._self_entries[sid] = rig + 1
+        if not player and outcome != BW.DRESS_YES:
+            self._self_entries.setdefault(sid, 0)
+        if player:
+            self._self_ctl_bound = False                # its CC runs right after (:meth:`_self_note_control`)
+        return outcome
+
+    def _self_note_control(self) -> None:
+        """The player's DefinePlayerCharacter (NoteControl, gated on LoadHasDress): confirmed when the dressed body is it,
+        else ctl_elsewhere (+ the field id)."""
+        self._self_ctl_bound = True
+        if not self._self_load_has_dress:
+            return
+        if self._self_body:
+            self._self_counts["confirmed"] += 1
+        else:
+            self._self_counts["ctl_elsewhere"] += 1
+            self._self_ctl_field = self.field_id
+
+    def _self_attach(self, warm: bool = False) -> None:
+        """AttachDress (amendment 2): counted per site (attach_cold at SetModel, attach_warm at the warm rebuild -- before
+        the `law attach` lever: the site RAN), then the source list (this field's modelled size, ``source_list_clips``)
+        and the rig's set (a MODELLED clip count), DressUid; `law attach off` (or the `no_attach` fault) attaches nothing:
+        src_attached = src_list_clips = 0; the `no_source_list` fault skips the source list alone."""
+        if self._self_body:
+            self._self_uid = int(self.player_sids.get(self.field_id, FAKE_PLAYER_SID))   # the player's uid == sid
+        self._self_load_has_dress = True
+        if "no_attach" in self.dress_faults:
+            self._self_src = (0, 0)                     # the FAULT: AttachDress never runs (no call counted)
+            return
+        self._self_counts["attach_warm" if warm else "attach_cold"] += 1
+        if not self._self_law_on(BW.LAW_ATTACH):
+            self._self_src = (0, 0)
+            return
+        r = BW.rig_row(self._self_rig()) or {}
+        own = {r.get(k) for k in ("idle", "walk", "run", "turn_l", "turn_r", "inactive", "idle_alias")} - {0, None}
+        lst = 0 if "no_source_list" in self.dress_faults else int(self.source_list_clips.get(self.field_id,
+                                                                                            FAKE_SOURCE_LIST_CLIPS))
+        self._self_src = (lst + len(own), lst)
+        if self._self_body:
+            self._self_body["attached"] = True
+
+    def _self_store_slots(self, ids: dict | None = None) -> None:
+        """The stand / walk / run setters on the dressed player (MapAndAttach at AIDLE / AWALK / ARUN): each raw id mapped
+        on the BODY's rig; a changed id counts a remap."""
+        if not self._self_body:
+            return
+        b = self.player_body
+        if not ids:
+            ids = {"idle": int(b["idle"]), "walk": int(b["walk"]), "run": int(b["run"])}
+            if b.get("inactive"):
+                ids["sleep"] = int(b["inactive"])      # the Init's SetInactiveAnimation (SiteSleep: the break clip or 0)
+        for slot, raw in ids.items():
+            site = {"idle": BW.SITE_IDLE, "walk": BW.SITE_WALK, "run": BW.SITE_RUN, "sleep": BW.SITE_SLEEP}[slot]
+            mapped = self._self_map(raw, site)
+            if mapped != raw:
+                self._self_counts["remaps"] += 1
+            self._self_body["slots"][slot] = mapped
+
+    def _self_now_body(self) -> dict:
+        """The controlled body as it IS now: ``model``, ``eye`` byte, the loco ids -- the dress's when dressed."""
+        b = self.player_body
+        if not self._self_body:
+            return {"model": int(b["model"]), "eye": int(b["eye"]), "idle": int(b["idle"]), "walk": int(b["walk"]),
+                    "run": int(b["run"])}
+        r = BW.rig_row(self._self_rig())
+        slots = self._self_body["slots"]
+        eye = int(b["eye"]) if "eye_unwritten" in self.dress_faults else r["eye"]
+        return {"model": r["model"], "eye": eye, "idle": slots.get("idle", r["idle"]),
+                "walk": slots.get("walk", r["walk"]), "run": slots.get("run", r["run"])}
+
+    def _self_frames(self, anim: int) -> int:
+        """frame_n of ``anim`` on the controlled body: the census's frame table on a dressed body (the rig's own clip, else
+        the source clip's); s138's modelled FAKE_FRAME_N on an undressed one."""
+        if not self._self_body:
+            return int(BW.SOURCE_FRAMES.get(anim, FAKE_FRAME_N)) if self._self_play else FAKE_FRAME_N
+        got = BW.rig_clip_frames(self._self_rig(), anim)
+        return int(got) if got else FAKE_FRAME_N
+
+    def _self_run_animation(self, raw: int) -> dict:
+        """RunAnimationEx(250, raw) on the controlled player (DoEventCode's RunAnimation site): the stock play of ``raw``, then
+        MapAndAttach (SitePlay) and -- a changed id -- KeepSourceTimeline for a GESTURE (the law on, not the `no_timeline`
+        fault: frame_n = the source clip's). Returns the play {anim, raw, frame_n, start}."""
+        if not self._self_body:
+            play = {"anim": raw, "raw": raw, "frame_n": int(BW.SOURCE_FRAMES.get(raw, FAKE_FRAME_N)), "start": self.frame}
+            self._self_play = play
+            return play
+        mapped = self._self_map(raw, BW.SITE_PLAY)
+        frame_n = self._self_frames(mapped)
+        if mapped != raw:
+            self._self_counts["remaps"] += 1
+            if self._self_law_on(BW.LAW_TIMELINE) and "no_timeline" not in self.dress_faults \
+                    and BW.is_gesture(self._self_rig(), raw) and raw in BW.SOURCE_FRAMES:
+                frame_n = int(BW.SOURCE_FRAMES[raw])
+                self._self_counts["timeline_kept"] += 1
+        play = {"anim": mapped, "raw": raw, "frame_n": frame_n, "start": self.frame}
+        self._self_play = play
+        return play
+
+    def _self_play_frame(self) -> int | None:
+        """The running gesture's frame (None = none running / it ended: then DefaultAnim's SetAnim(idle) -- frame_n the
+        idle's unless the gesture played the idle id itself: the stretched idle, amendment 4's red)."""
+        p = self._self_play
+        if p is None:
+            return None
+        elapsed = self.frame - p["start"]
+        if elapsed < p["frame_n"]:
+            return elapsed
+        idle = self._self_now_body()["idle"]
+        self._self_idle_frames = p["frame_n"] if p["anim"] == idle else None
+        self._self_play = None
+        return None
+
+    def _self_bframe(self, anim: int) -> int:
+        """GetAnimDuration(anim) evaluated by the controlled body (DoCalcOperationExt B_FRAME): on a dressed body the B_FRAME
+        law (BW.bframe_target: a loco family's native clip; the law off -- or the `no_bframe` fault -- stock), counting
+        bframe_remaps; stock otherwise (the source clip's frames)."""
+        if not self._self_body:
+            return int(BW.SOURCE_FRAMES.get(anim, FAKE_FRAME_N))
+        law = self._self_law_on(BW.LAW_BFRAME) and "no_bframe" not in self.dress_faults
+        tgt = BW.bframe_target(self._self_rig(), anim, law, self._self_law_on(BW.LAW_ALIAS))
+        if tgt != anim:
+            self._self_counts["bframe_remaps"] += 1
+            return self._self_frames(tgt)
+        return int(BW.SOURCE_FRAMES.get(anim, FAKE_FRAME_N))
+
+    # ---- the bench field's conductors (dress_conductors: studies/test-harness/scenarios/_selfdress_field.py's contract)
+    def _self_bit(self, bit: int, value: int | None = None):
+        if value is None:
+            return self._watched_bit(bit)
+        self.script_store(5, 0, -1, bit >> 3, "Bit", int(value), bit=bit)
+        return value
+
+    def _self_bench_ready(self) -> None:
+        """The caller's Init on a contract field: every IO bit zeroed, then READY."""
+        k = self.dress_conductors.get(self.field_id)
+        if not k:
+            return
+        for bit in k.get("io_bits", ()):
+            self._self_bit(bit, 0)
+        self._self_bit(k["ready"], 1)
+
+    def _step_self_dress(self) -> None:
+        """[ff9mapkit netsync s140] One frame of the s140 stand-in: the `arm_live` fault's re-arm, the running gesture, and the
+        bench field's caller (one conductor at a time, polled on its TRIG bits)."""
+        if not self._self_rung():
+            return
+        if "arm_live" in self.dress_faults and self._nb_role() and self.field_id > 0:
+            self._self_arm_bench()
+            if self._self_armed() and self._self_body is None and self.ui_state == "FieldHUD":
+                self._self_set_model(None)
+        self._self_play_frame()
+        self._self_check_sleep()
+        k = self.dress_conductors.get(self.field_id)
+        if not k or self.ui_state != "FieldHUD" or not self._self_bit(k["ready"]):
+            return
+        cond = self._self_cond
+        if cond is None:
+            for name in ("x", "t1", "t3", "n3", "f8a", "f8d", "j"):
+                trig = k["trig"].get(name)
+                if trig is not None and self._self_bit(trig):
+                    self._self_bit(trig, 0)              # the caller clears it FIRST
+                    self._self_cond = cond = {"name": name, "start": self.frame, "phase": 0}
+                    break
+            if cond is None:
+                return
+        getattr(self, "_self_cond_" + cond["name"])(k, cond)
+
+    def _self_check_sleep(self) -> None:
+        """[ff9mapkit netsync s140] EventEngine.CheckSleep on the DRESSED player (``sleep_after`` set): ``sleep_after``
+        frames standing still with control on FieldHUD (no gesture) play the stored sleep slot (the rig's break clip; 0 =
+        none) once -- on its own frame count when the go holds it, else nothing plays for 255 frames (ExecAnim's frameN of
+        a clip the go lacks: amendment 2's freeze); a move, a gesture or a lost control resets the timer."""
+        if self.sleep_after is None or not self._self_body:
+            self._self_still, self._self_sleep = 0, None
+            return
+        sl = self._self_sleep
+        if sl is not None:
+            if self.frame - sl["start"] >= int(sl["frame_n"]):
+                self._self_sleep, self._self_still = None, 0
+            return
+        idle = (self.control and self.ui_state == "FieldHUD" and self._self_play is None and not self._frozen()
+                and not any(self._move_held(d) for d in ("up", "down", "left", "right")))
+        self._self_still = self._self_still + 1 if idle else 0
+        sleep = int(self._self_body["slots"].get("sleep", 0) or 0)
+        if sleep and self._self_still >= int(self.sleep_after):
+            attached = bool(self._self_body.get("attached"))
+            n = self._self_frames(sleep) if attached else 255
+            self._self_sleep = {"anim": sleep, "start": self.frame, "frame_n": n, "attached": attached}
+
+    def _self_cond_done(self, k: dict, cond: dict, wedged: bool = False) -> None:
+        name = cond["name"]
+        self._self_bit(k["wedged"][name] if wedged else k["done"][name], 1)
+        self._self_cond = None
+
+    def _self_cond_x(self, k: dict, cond: dict) -> None:
+        """X: RunAnimationEx(250, 186) + WaitAnimationEx(250) -> DONE_X."""
+        if cond["phase"] == 0:
+            self._self_run_animation(int(k["anims"]["x"]))
+            cond["phase"] = 1
+        elif self._self_play is None:
+            self._self_cond_done(k, cond)
+
+    def _self_cond_t1(self, k: dict, cond: dict) -> None:
+        """T1: RunAnimationEx(250, 2572), then `while GetEntryAnimFrame(250) < 58` (bounded: WEDGED_T1), then WaitAnimationEx."""
+        if cond["phase"] == 0:
+            self._self_run_animation(int(k["anims"]["t1"]))
+            cond.update(phase=1, at=self.frame)
+            return
+        if cond["phase"] == 1:
+            p = self._self_play
+            frame = (self.frame - p["start"]) if p is not None else 0
+            if p is not None and frame >= int(k["t1_threshold"]):
+                cond["phase"] = 2
+            elif self.frame - cond["at"] >= int(k["t1_limit"]):
+                self._self_cond_done(k, cond, wedged=True)
+            return
+        if self._self_play is None:
+            self._self_cond_done(k, cond)
+
+    def _self_cond_t3(self, k: dict, cond: dict) -> None:
+        """T3: RunScript(2, 250, T3_TAG) -- the player's function: SetWalkAnimation(8847) / SetStandAnimation(7922) through
+        MapAndAttach, the walk, T3_LOOP, the 2705 loop `frame < GetAnimDuration(8847) - 1` (B_FRAME evaluated once a frame)
+        on the walk's native timeline, T3_END and the player's own ids back; the caller's limit -> WEDGED_T3."""
+        if cond["phase"] == 0:
+            walk_raw, stand_raw = int(k["anims"]["t3_walk"]), int(k["anims"]["t3_stand"])
+            if self._self_body:
+                self._self_store_slots({"walk": walk_raw, "idle": stand_raw})
+                walk = self._self_body["slots"]["walk"]
+            else:
+                walk = walk_raw
+            cond.update(phase=1, walk=walk, walk_raw=walk_raw, at=self.frame,
+                        walk_n=self._self_frames(walk) if self._self_body else int(BW.SOURCE_FRAMES.get(walk, FAKE_FRAME_N)))
+            self._self_bit(k["t3_loop"], 1)
+            return
+        if cond["phase"] == 1:
+            frame = (self.frame - cond["at"]) % max(1, cond["walk_n"])
+            bound = self._self_bframe(cond["walk_raw"]) - 1
+            if frame >= bound:
+                self._self_bit(k["t3_end"], 1)
+                if self._self_body:
+                    b = self.player_body
+                    self._self_store_slots({"idle": int(b["idle"]), "walk": int(b["walk"]), "run": int(b["run"])})
+                self._self_cond_done(k, cond)
+            elif self.frame - cond["at"] >= int(k["t3_loop_limit"]):
+                self._self_cond_done(k, cond, wedged=True)
+
+    def _self_cond_n3(self, k: dict, cond: dict) -> None:
+        """N3 (once per load): Wait(1), InitObject(LATE_SID, 0) -- its SetModel(98) through the dress order --, Wait(2)."""
+        if cond["phase"] == 0:
+            cond["phase"] = 1
+            return
+        if cond["phase"] == 1:
+            if not self._self_n3_done:
+                self._self_n3_done = True
+                late = int(k["late_sid"])
+                self._self_late.add(late)
+                for b in self._self_zidanes(late=True):
+                    if int(b.get("sid", -1)) == late:
+                        self._self_set_model(b)
+            cond.update(phase=2, at=self.frame)
+            return
+        if self.frame - cond["at"] >= 2:
+            self._self_cond_done(k, cond)
+
+    def _self_cond_j(self, k: dict, cond: dict) -> None:
+        """J: RunScript(2, 250, J_TAG) -- the player's function: SetJumpAnimation(raw, jump0, jump1) through AtJumpSlot (the
+        slot stores the idle ALIAS, netJumpSrc the raw id), RunJumpAnimation (inFrame 0 .. jump0 - 1) + WaitAnimation,
+        J_LAND, RunLandAnimation (jump1 + 1 .. frameN - 1) + WaitAnimation, J_END; frameN after each ExecAnim the alias's own
+        count unless KeepJumpTimeline (the timeline law on, a gesture) puts the SOURCE count back; the caller's limit ->
+        WEDGED_J. One anim frame per stand-in frame."""
+        if cond["phase"] == 0:
+            raw = int(k["anims"]["j"])
+            j0, j1 = int(k["j_windows"][0]), int(k["j_windows"][1])
+            if self._self_body:
+                mapped = self._self_map(raw, BW.SITE_JUMP)
+                if mapped != raw:
+                    self._self_counts["remaps"] += 1
+                keep = (self._self_law_on(BW.LAW_TIMELINE) and "no_timeline" not in self.dress_faults
+                        and mapped != raw and BW.is_gesture(self._self_rig(), raw))
+                n = int(k["j_frames"]) if keep else self._self_frames(mapped)
+                if keep:
+                    self._self_counts["timeline_kept"] += 2      # PREJUMP and POSTJUMP each keep it
+            else:
+                mapped, n = raw, int(k["j_frames"])
+            pre, land = BW.jump_ticks(n, j0, j1)
+            cond.update(phase=1, at=self.frame, pre=pre, land=land, anim=mapped, n=n, j1=j1)
+            self._self_play = {"anim": mapped, "raw": raw, "frame_n": n, "start": self.frame}
+            return
+        if cond["phase"] == 1:
+            if self.frame - cond["at"] >= cond["pre"] + 1:
+                self._self_bit(k["j_land"], 1)
+                cond.update(phase=2, at=self.frame)
+                self._self_play = {"anim": cond["anim"], "raw": cond["anim"], "frame_n": cond["n"],
+                                   "start": self.frame - (cond["j1"] + 1)}
+            elif self.frame - cond["at"] >= int(k["j_limit"]):
+                self._self_cond_done(k, cond, wedged=True)
+            return
+        if self.frame - cond["at"] >= cond["land"] + 1:
+            self._self_play = None
+            self._self_bit(k["j_end"], 1)
+            self._self_cond_done(k, cond)
+        elif self.frame - cond["at"] >= int(k["j_limit"]):
+            self._self_cond_done(k, cond, wedged=True)
+
+    def _self_cond_f8a(self, k: dict, cond: dict) -> None:
+        """F8 (s141's): AttachObject -- the stand-in models no prop remap; DONE only."""
+        self._self_cond_done(k, cond)
+
+    _self_cond_f8d = _self_cond_f8a
+
+    # ---- the `selfdress self|gate|law` ops, their release, the doc, the proof line
+    def _selfdress_s140(self, args: list) -> None:
+        """`netsync selfdress self|gate|law ...` (NetSyncClient.HarnessSelfDress' s140 cases; the role checked first by the
+        caller): BW.selfdress_s140_op's parse, in the engine's words; a refusal changes nothing."""
+        why, act = BW.selfdress_s140_op(args)
+        if why is not None:
+            raise RuntimeError(why)
+        lv = self._self_levers
+        if act[0] == "self":
+            lv["spec"], lv["mask"] = act[1], act[2]
+            self._mlog("[NetSync] harness: selfdress self " + BW.bench_self_text(lv["spec"], lv["mask"]) + " -- the selftest "
+                       "arm at the next field load (section 8 through the real encoder and reader)")
+        elif act[0] == "gate":
+            lv["gate_off"] = not act[1]
+            self._mlog("[NetSync] harness: selfdress gate " + ("1 -- the player gate (EntryDefinesPlayer) runs" if act[1]
+                       else "0 -- CALIBRATION: the player gate is skipped (an NPC Zidane dresses too)"))
+        else:
+            bit = 1 << BW.LAW_NAMES.index(act[1])
+            lv["law_off"] = (lv["law_off"] & ~bit) if act[2] else (lv["law_off"] | bit)
+            self._mlog("[NetSync] harness: selfdress law " + act[1] + (" on" if act[2] else " OFF -- CALIBRATION: that s140 "
+                       "law is switched off on this selftest role"))
+
+    def _self_release(self, cause: str) -> None:
+        """NetSyncSelfDress.ReleaseBench: the s140 levers off (one line when one was set) and a BENCH-made arm cleared --
+        never a live body (the teardown law)."""
+        lv = self._self_levers
+        any_set = lv["spec"] is not None or lv["mask"] >= 0 or lv["gate_off"] or lv["law_off"] != 0
+        self._self_levers = {"spec": None, "mask": -1, "gate_off": False, "law_off": 0}
+        if self._self_arm["from"] == "bench":
+            self._self_set_arm("cleared", -1, -1, -1, None)
+        if any_set:
+            self._mlog(f"[NetSync] harness: selfdress self / gate / law levers released ({cause})")
+
+    def _self_doc(self) -> dict:
+        """HarnessAgent.AppendDressSelf (`netsync.dress.self`, `dress`'s LAST key, every role), in its order."""
+        a, c, lv = self._self_arm, self._self_counts, self._self_levers
+        body = self._self_body
+        has = self._dress_actor(self.has_position)
+        return {"knob": self._self_knob(), "armed": self._self_armed(),
+                "src": (BW.PLAIN_ZIDANE_MODEL if body else 0) if has else -1,
+                "want_model": a["model"], "want_char": a["char"], "want_rig": a["rig"],
+                "rig": self._self_rig() if has else -1, "why": a["why"], "uid": self._self_uid,
+                "net_byte": (self._self_rig() + 1 if body else 0) if has else -1, "from": a["from"],
+                "confirmed": c["confirmed"], "ctl_elsewhere": c["ctl_elsewhere"], "ctl_elsewhere_field": self._self_ctl_field,
+                "skip_npc": c["skip_npc"], "skip_second": c["skip_second"], "remaps": c["remaps"],
+                "timeline_kept": c["timeline_kept"], "gate": self._self_gate_on(), "bframe_remaps": c["bframe_remaps"],
+                "src_attached": self._self_src[0], "src_list_clips": self._self_src[1],
+                "attach_cold": c["attach_cold"], "attach_warm": c["attach_warm"], "faults": c["faults"],
+                "parse_fallback": c["parse_fallback"], "defence_kept": c["defence_kept"],
+                "defence_dropped": c["defence_dropped"], "bench_self": BW.bench_self_text(lv["spec"], lv["mask"]),
+                "law_off": {n: bool(lv["law_off"] & (1 << i)) for i, n in enumerate(BW.LAW_NAMES)},
+                "selftest": self._self_verdict}
+
+    def _self_proof(self) -> None:
+        """The proof block's s140 line (right after the rig idle frames line), once per process."""
+        if "selftest_fail" in self.dress_faults:
+            row = "map: section 8's charId 1-11 arms the rig its model is (Cinna..Beatrix rigs 9-12), RigToChar back; never " \
+                  "the moogle"
+            self._self_verdict = BW.SELF_DRESS_SELFTEST_FAIL + row
+            self._mlog(f"[NetSync] {BW.PROOF_SELF_DRESS}FAIL (row '{row}' failed (1 rows run))")
+            return
+        self._self_verdict = BW.SELF_DRESS_SELFTEST_OK
+        self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_SELF_DRESS, BW.SELF_DRESS_SELFTEST_ROWS))
 
     def _party_adds_on_load(self) -> None:
         """[ff9mapkit netsync s138] A field whose Main_Init runs B_PARTYADD (`party_adds`): each member joins the first
         empty seat; one already seated is a no-op (the kit's [party] block is dedup- and overflow-guarded)."""
+        for char in self.party_removes.get(self.field_id, ()):    # [ff9mapkit netsync s140] RemoveParty: the seat cleared
+            for i, m in enumerate(self.save_party):
+                if m is not None and int(m["char"]) == int(char):
+                    self.save_party[i] = None
+                    break
         for char in self.party_adds.get(self.field_id, ()):
             if any(m is not None and int(m["char"]) == int(char) for m in self.save_party):
                 continue
@@ -8984,6 +9707,7 @@ class FakeGame:
         d.update(booted=False, primed=False, returns=d["returns"] + 1, last_return="warm" if warm else "cold",
                  last_return_field=fld)
         self._guest.field_load()                  # a field load re-arms the panic unlock
+        self._self_on_load(cold=not warm)         # [ff9mapkit netsync s140] W1: a warm return keeps the dress
         if not warm:
             x, z = self.field_spawn.get(fld, (0.0, 0.0))
             self.player = [float(x), self.player[1], float(z)]

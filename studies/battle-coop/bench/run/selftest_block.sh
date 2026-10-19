@@ -1,13 +1,36 @@
 #!/bin/bash
-# Run selftest-role benches with [Netsync] Enabled flipped to 0 (one byte); the owner's Memoria.ini restored byte-exact on
-# ANY exit. Usage: selftest_block.sh <outdir> <label>:<field>:<scenario>[:ENV=VAL,ENV=VAL] ...
+# Run selftest-role benches with [Netsync] Enabled flipped to 0 (one byte). The owner's Memoria.ini is SNAPSHOTTED at
+# start (the main repo's backups/, before any edit) and restored byte-exact from THAT snapshot on ANY exit -- never from
+# an old fixed backup, which would silently revert every owner edit since (a hand-set [Netsync] SelfDress, a kit `coop`
+# write, a first-launch SessionCode). Usage: selftest_block.sh <outdir> <label>:<field>:<scenario>[:ENV=VAL,ENV=VAL] ...
 set -u
-WT=/c/gd/Dream-World-IX/.claude/worktrees/zealous-dubinsky-016505
+WT=/c/gd/Dream-World-IX/.claude/worktrees/gallant-easley-04ab74
 G="/c/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
-BAK=/c/gd/Dream-World-IX/backups/Memoria.ini.pre-r3-phase1.20261014-222737
+BK=/c/gd/Dream-World-IX/backups
+# the s139-era fixed backup: a restore SOURCE only when the start snapshot cannot be taken AND the live INI is byte-identical
+# to it (then it IS the start state); otherwise the block refuses to start
+BAK="$BK/Memoria.ini.pre-r3-phase1.20261014-222737"
 OUT="$1"; shift; mkdir -p "$OUT"
-echo "INI at start $(sha256sum "$G/Memoria.ini" | cut -c1-16)"
-restore() { cp -p "$BAK" "$G/Memoria.ini"; echo "INI restored $(sha256sum "$G/Memoria.ini" | cut -c1-16)"; }
+START=$(sha256sum "$G/Memoria.ini" | cut -c1-64)
+echo "INI at start ${START:0:16}"
+SNAP="$BK/Memoria.ini.pre-selftest-block.$(date +%Y%m%d-%H%M%S).$$"
+if ! { mkdir -p "$BK" && cp -p "$G/Memoria.ini" "$SNAP" && [ "$(sha256sum "$SNAP" | cut -c1-64)" = "$START" ]; }; then
+  if [ -f "$BAK" ] && [ "$(sha256sum "$BAK" | cut -c1-64)" = "$START" ]; then
+    echo "INI snapshot FAILED ($SNAP); the live INI equals $BAK byte for byte -- restoring from that"; SNAP="$BAK"
+  else
+    echo "STOP: could not snapshot $G/Memoria.ini to $SNAP (and it differs from $BAK) -- nothing edited"; exit 1
+  fi
+fi
+echo "INI snapshot $SNAP"
+restore() {
+  cp -p "$SNAP" "$G/Memoria.ini"
+  NOW=$(sha256sum "$G/Memoria.ini" | cut -c1-64)
+  if [ "$NOW" = "$START" ]; then
+    echo "INI restored ${NOW:0:16} (byte-exact to the start, from $SNAP)"
+  else
+    echo "WARNING: INI restore MISMATCH ${NOW:0:16} != start ${START:0:16} -- copy $SNAP back by hand"
+  fi
+}
 trap restore EXIT
 INI="$G/Memoria.ini" py -I -c "
 import os,re
@@ -18,7 +41,7 @@ assert n==1, n
 open(p,'wb').write(b[:i]+new+b[j:])
 print('Enabled -> 0')
 " || exit 1
-cd "$WT"
+cd "$WT" || { echo "STOP: WT=$WT is missing -- point WT= at your checkout"; exit 1; }
 for spec in "$@"; do
   IFS=: read -r label field scen envs <<< "$spec"
   echo "=== $label $(date +%T)"

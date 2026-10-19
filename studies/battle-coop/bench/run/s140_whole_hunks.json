@@ -1,0 +1,5 @@
+{
+  "Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs": [["// THE SELFDRESS BENCH", "// `netsync.dress.ghost`'s s139 keys"], ["// THE DRESS CODEC PROOF", "// The type-5 frame codec a peer's transport runs"]],
+  "Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs": "all",
+  "Assembly-CSharp/Memoria/Harness/HarnessAgent.cs": [["private static void AppendDress(", "private static Int32 PartyIndexOf("]]
+}

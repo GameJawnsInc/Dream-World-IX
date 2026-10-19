@@ -2432,8 +2432,9 @@ class State:
     coop_dress_codec = _dress_prop("codec", str, "s139: the dress codec proof's verdict -- 'ok' or 'fail: <row>' "
                                                  "(NetSyncClient.DressSelfTest, once per process in the selftest proof "
                                                  "block); '' = not run yet.")
-    coop_dress_rig_idle_frames = _dress_prop("rig_idle_frames", list, "s139: nine ints, one per rig row (0-7 the "
-                                                                      "CharacterId rows, 8 the moogle) -- each idle clip's "
+    coop_dress_rig_idle_frames = _dress_prop("rig_idle_frames", list, "s139: one int per rig row (s139: nine -- 0-7 the "
+                                                                      "CharacterId rows, 8 the moogle; s140: thirteen, 9-12 "
+                                                                      "Cinna, Marcus, Blank, Beatrix) -- each idle clip's "
                                                                       "frame count, MEASURED once per process by the proof "
                                                                       "block (round(length x rate) + 1 on the clip loaded "
                                                                       "the AnimationFactory way); -1 = not measured. Judge "
@@ -2443,6 +2444,100 @@ class State:
                                                                 "a live guest the witness that its s103 walker stepped past "
                                                                 "the host's section 8; None = no mirror active (the key "
                                                                 "null) or an engine before s139.")
+
+    # ---- [ff9mapkit netsync s140] THE GUEST DRESSES ITSELF (R3-FIELD-MODEL-AUDIT.md 2.3, its 3.1 sentinels): `netsync.dress`
+    # gains `self`, its LAST key -- a FIXED sub-object (always whole, every role: a host reads its sentinels) with `law_off`
+    # a fixed sub-object inside it. The capability is `self`'s PRESENCE (:attr:`coop_dress_self`; the probe ladder's 140
+    # rung, battlewire.DRESS_PROBES). THE ARM (`armed` = the arm AND the knob; `want_*` / `why` / `from`) is set at a FIELD
+    # LOAD only (a `self` lever acts at the NEXT load); THE BODY's keys (`src`, `rig`, `net_byte`) read the CONTROLLED body --
+    # every map keys on it, never on `want_rig` (amendment 5): after a Clear() `want_rig` reads -1 while `rig` still reads the
+    # dress. `knob` is [Netsync] SelfDress read LIVE (never an arm state). Rig 9 is Cinna, CharacterId 9 Marcus: decode
+    # `rig` / `want_rig` through battlewire.RIG_NAMES, `want_char` as a CharacterId.
+    @property
+    def coop_dress_self(self) -> bool | None:
+        """s140: the guest's own dress (``netsync.dress.self``; the ``selfdress self|gate|law`` ops). False = an engine whose
+        guest never dresses itself (s139 and older -- it answers `selfdress self` with "unknown op ... (ghost|empty|rule|
+        wire|clear)")."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._dress_path("self", dict) is not None
+
+    coop_dress_self_block = _dress_prop("self", dict, "s140: the whole ``self`` block, copied (a FIXED sub-object; its whole "
+                                                      "accessor is `_block`-suffixed, never `coop_dress_self` -- the "
+                                                      "capability).")
+    coop_dress_self_knob = _dress_prop("self.knob", bool, "s140: [Netsync] SelfDress as read LIVE (default 1): 0 switches off "
+                                                          "only THIS guest's own dressing (owner D1) -- never an arm state.")
+    coop_dress_self_armed = _dress_prop("self.armed", bool, "s140: the arm AND the knob -- what SetModel's fresh dress reads.")
+    coop_dress_self_src = _dress_prop("self.src", int, "s140: the controlled body's netDressSrc -- 98 dressed, 0 undressed; -1 "
+                                                       "= no controlled body.")
+    coop_dress_self_want_model = _dress_prop("self.want_model", int, "s140: section 8's model as last read (the host's, or the "
+                                                                     "bench spec's); -1 = no section 8 read.")
+    coop_dress_self_want_char = _dress_prop("self.want_char", int, "s140: section 8's charId as last read (a CharacterId 0-11, "
+                                                                   "255 the moogle / no dress); -1 = no section 8 read.")
+    coop_dress_self_want_rig = _dress_prop("self.want_rig", int, "s140: the rig section 8's model is (RigForModel; 9-12 = "
+                                                                 "Cinna..Beatrix); -1 = none.")
+    coop_dress_self_rig = _dress_prop("self.rig", int, "s140: the rig the CONTROLLED body wears (netSelfDress - 1); -1 = "
+                                                       "undressed or no body. Every map keys on THIS, never want_rig.")
+    coop_dress_self_why = _dress_prop("self.why", str, "s140: the latest decision -- 'armed', a disarm reason ('section "
+                                                       "absent', 'section8_len', 'model 0', 'zidane', 'charid', 'no rig', 'not "
+                                                       "mirroring', 'fault', 'cleared') or a SetModel outcome ('excluded', "
+                                                       "'dressed'); '' = never decided.")
+    coop_dress_self_uid = _dress_prop("self.uid", int, "s140: the uid last dressed (or re-attached on a warm return); -1.")
+    coop_dress_self_net_byte = _dress_prop("self.net_byte", int, "s140: the controlled body's netSelfDress raw (rig + 1; 0 "
+                                                                 "undressed); -1 = no body.")
+    coop_dress_self_from = _dress_prop("self.from", str, "s140: where the arm came from -- 'host' (section 8 off the wire) or "
+                                                         "'bench' (the selftest `self` spec); '' = none.")
+    coop_dress_self_confirmed = _dress_prop("self.confirmed", int, "s140: DefinePlayerCharacter bound control to the dressed "
+                                                                   "body -- per process.")
+    coop_dress_self_ctl_elsewhere = _dress_prop("self.ctl_elsewhere", int, "s140: ...to ANOTHER body while one is dressed "
+                                                                           "(a co-actor binder, D3) -- per process.")
+    coop_dress_self_ctl_elsewhere_field = _dress_prop("self.ctl_elsewhere_field", int, "s140: the field of the last "
+                                                                                       "ctl_elsewhere; -1 = none.")
+    coop_dress_self_skip_npc = _dress_prop("self.skip_npc", int, "s140: a 98 SetModel on an entry that defines no player (the "
+                                                                 "player gate) -- per process.")
+    coop_dress_self_skip_second = _dress_prop("self.skip_second", int, "s140: a 98 SetModel while another DRESSED body holds "
+                                                                       "control -- per process.")
+    coop_dress_self_remaps = _dress_prop("self.remaps", int, "s140: a setter / RunAnimation id MapAndAttach changed -- per "
+                                                             "process.")
+    coop_dress_self_timeline_kept = _dress_prop("self.timeline_kept", int, "s140: a gesture kept its SOURCE frame count "
+                                                                           "(KeepSourceTimeline) -- per process.")
+    coop_dress_self_gate = _dress_prop("self.gate", bool, "s140: the player gate as it acts NOW -- false only under `selfdress "
+                                                          "gate 0` on the selftest role.")
+    coop_dress_self_bframe_remaps = _dress_prop("self.bframe_remaps", int, "s140: GetAnimDuration answered a loco family's "
+                                                                           "NATIVE clip (the B_FRAME law) -- per process.")
+    coop_dress_self_src_attached = _dress_prop("self.src_attached", int, "s140: the dressed body's clip count after the last "
+                                                                         "AttachDress (a LAST-WRITE value: read it across an "
+                                                                         "attach_cold / attach_warm delta); 0 = the attach law "
+                                                                         "was off or none ran.")
+    coop_dress_self_src_list_clips = _dress_prop("self.src_list_clips", int, "s140: of those, the SOURCE list's "
+                                                                             "(GEO_MAIN_F0_ZDN) clips.")
+    coop_dress_self_attach_cold = _dress_prop("self.attach_cold", int, "s140: AttachDress ran at site (a), SetModel after "
+                                                                       "CreateModel -- per process: a load's delta.")
+    coop_dress_self_attach_warm = _dress_prop("self.attach_warm", int, "s140: AttachDress ran at site (b), the warm-return "
+                                                                       "rebuild (updateModelsToBeAdded) -- per process.")
+    coop_dress_self_faults = _dress_prop("self.faults", int, "s140: a self-dress hook caught an exception -- per process.")
+    coop_dress_self_parse_fallback = _dress_prop("self.parse_fallback", int, "s140: EntryDefinesPlayer answered by the "
+                                                                             "character band after its parse threw.")
+    coop_dress_self_defence_kept = _dress_prop("self.defence_kept", int, "s140: SetModel's defence branch kept a dress (0 in "
+                                                                         "stock).")
+    coop_dress_self_defence_dropped = _dress_prop("self.defence_dropped", int, "s140: ...dropped one (0 in stock).")
+    coop_dress_self_bench_self = _dress_prop("self.bench_self", str, "s140: the `selfdress self` spec AS SET -- 'off' | 'auto' "
+                                                                     "| 'auto <mask>' | a name; '' = never set (no section "
+                                                                     "8).")
+    coop_dress_self_law_off_block = _dress_prop("self.law_off", dict, "s140: the whole ``law_off`` block, copied (a FIXED "
+                                                                      "sub-object: each s140 law's `law <name> off` lever AS "
+                                                                      "SET).")
+    coop_dress_self_law_off_bframe = _dress_prop("self.law_off.bframe", bool, "s140: `law bframe off` as set (the B_FRAME "
+                                                                              "remap; it acts on the selftest role only).")
+    coop_dress_self_law_off_attach = _dress_prop("self.law_off.attach", bool, "s140: `law attach off` as set (the source-list "
+                                                                              "attach + stored loco ids).")
+    coop_dress_self_law_off_alias = _dress_prop("self.law_off.alias", bool, "s140: `law alias off` as set (the idle-alias "
+                                                                            "fallback).")
+    coop_dress_self_law_off_timeline = _dress_prop("self.law_off.timeline", bool, "s140: `law timeline off` as set "
+                                                                                  "(KeepSourceTimeline).")
+    coop_dress_self_selftest = _dress_prop("self.selftest", str, "s140: the self-dress proof's verdict -- 'ok' or 'fail: "
+                                                                 "<row>' (NetSyncSelfDress.SelfTest, once per process in the "
+                                                                 "selftest proof block); '' = not run yet.")
 
     def unit_mot(self, slot: int) -> int | None:
         """[ff9mapkit netsync R3 s115] ``battle.units[].mot`` for btl ``slot``: the current clip as the unit's own motion

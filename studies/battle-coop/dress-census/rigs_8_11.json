@@ -1,0 +1,2576 @@
+{
+ "tool": "studies/battle-coop/dress-census/rigs_8_11.py",
+ "columns": [
+  "model",
+  "idle",
+  "walk",
+  "run",
+  "turn_l",
+  "turn_r",
+  "eye",
+  "inactive",
+  "walk_step_a",
+  "walk_step_b",
+  "run_step_a",
+  "run_step_b",
+  "step_sound",
+  "idle_alias",
+  "hand_bone",
+  "hand_bone_end"
+ ],
+ "sources": {
+  "exports": "817 HW exports, first language block",
+  "game": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX",
+  "memoria_tables": "FF9DBAll.Animation.cs + FF9BattleDB.GEO.cs (source order)",
+  "kit": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\gallant-easley-04ab74\\ff9mapkit\\ff9mapkit",
+  "kit_vs_memoria_anim_table": "0 differing ids []",
+  "kit_vs_memoria_geo_table": "0 differing ids []"
+ },
+ "rules": {
+  "eye": "SetModel's modal eye byte over every SetModel of the model (po.eye = -4 * eye)",
+  "loco": "the modal SetStand/Walk/Run/Left/RightAnimation id among the setters that FOLLOW a SetModel(model) in the same function; name-checked (_IDLE/_WALK/_RUN/_TURN_L/_TURN_R, FolderOf == the model's GEO)",
+  "inactive": "the modal SetInactiveAnimation in those same blocks; 0 = none (p.sleep == 0)",
+  "footfalls": "the two modal RunModelCode(16, clip, frame) frames over every id naming the walk / run clip; -1/-1 when none",
+  "step_sound": "the single sound id when every 16/17 registration of the walk+run clips uses one id, else 0",
+  "idle_alias": "the lowest OTHER AnimationDB id naming the idle's clip",
+  "hands": "bone_labels.labels_for: R_hand; R_hand_end, or R_hand when the skeleton has none labelled",
+  "frames": "p0data5 clip at catalog.locate_animation's folder, round(length x rate) + 1"
+ },
+ "calibration": {
+  "0 zidane": {
+   "diffs": {
+    "inactive": {
+     "s139": 57,
+     "census": 54
+    }
+   },
+   "explained": {
+    "inactive": "Zidane sets several break clips in stock (SetInactiveAnimation after SetModel(98): 54 x269, 55 x198, 57 x187, 56 x25, 59 x21); s139 took 57 from the kit's home-field extraction (playerswap.CHARACTERS) and the audit calls it moot (a Zidane dress disarms). The modal rule picks 54. Rows 9-12 have NO SetInactiveAnimation at all, so the ambiguity cannot reach them."
+   },
+   "evidence": {
+    "inactive": {
+     "init": {
+      "54": 269,
+      "55": 198,
+      "57": 187,
+      "56": 25,
+      "59": 21,
+      "4429": 1
+     },
+     "any_function": {
+      "54": 269,
+      "55": 198,
+      "57": 187,
+      "56": 25,
+      "59": 21,
+      "186": 1,
+      "4429": 1
+     },
+     "name": "ANH_MAIN_F0_ZDN_BREAK1_STRCH"
+    }
+   },
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      12
+     ],
+     [
+      13
+     ]
+    ]
+   },
+   "frames": {
+    "idle": 60,
+    "walk": 20,
+    "run": 18,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  },
+  "1 vivi": {
+   "diffs": {},
+   "explained": {},
+   "evidence": {},
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      16
+     ],
+     [
+      17
+     ]
+    ]
+   },
+   "frames": {
+    "idle": 45,
+    "walk": 20,
+    "run": 18,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  },
+  "2 garnet": {
+   "diffs": {},
+   "explained": {},
+   "evidence": {},
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      14
+     ],
+     [
+      15
+     ]
+    ]
+   },
+   "frames": {
+    "idle": 30,
+    "walk": 20,
+    "run": 18,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  },
+  "3 steiner": {
+   "diffs": {},
+   "explained": {},
+   "evidence": {},
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      14
+     ],
+     [
+      15
+     ]
+    ]
+   },
+   "frames": {
+    "idle": 60,
+    "walk": 20,
+    "run": 18,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  },
+  "4 freya": {
+   "diffs": {},
+   "explained": {},
+   "evidence": {},
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      12
+     ],
+     []
+    ]
+   },
+   "frames": {
+    "idle": 50,
+    "walk": 24,
+    "run": 18,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  },
+  "5 quina": {
+   "diffs": {},
+   "explained": {},
+   "evidence": {},
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      13
+     ],
+     [
+      14
+     ]
+    ]
+   },
+   "frames": {
+    "idle": 40,
+    "walk": 26,
+    "run": 22,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  },
+  "6 eiko": {
+   "diffs": {},
+   "explained": {},
+   "evidence": {},
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      14
+     ],
+     [
+      15
+     ]
+    ]
+   },
+   "frames": {
+    "idle": 30,
+    "walk": 24,
+    "run": 20,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  },
+  "7 amarant": {
+   "diffs": {},
+   "explained": {},
+   "evidence": {},
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      15
+     ],
+     [
+      16
+     ]
+    ]
+   },
+   "frames": {
+    "idle": 45,
+    "walk": 32,
+    "run": 24,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  },
+  "8 moogle": {
+   "diffs": {},
+   "explained": {},
+   "evidence": {},
+   "hands": {
+    "labels_source": "labels_for",
+    "geometry_ok": true,
+    "heuristic_hands": [
+     [
+      19
+     ],
+     []
+    ]
+   },
+   "frames": {
+    "idle": 72,
+    "walk": 16,
+    "run": 10,
+    "turn_l": 20,
+    "turn_r": 20
+   }
+  }
+ },
+ "candidates": {
+  "cinna": {
+   "char_id": 8,
+   "rig": 9,
+   "old_index": 9,
+   "token": "CNA",
+   "add_party_fields": [
+    50,
+    58,
+    62
+   ],
+   "stretch": "the disc-1 opening (Prima Vista, fields 50-69)",
+   "models": {
+    "107": {
+     "geo": "GEO_SUB_F0_CNA",
+     "setmodel_n": 24,
+     "eyes": {
+      "87": 24
+     },
+     "entries": 24,
+     "fields_n": 24,
+     "areas": {
+      "Prima Vista": 15,
+      "S. Gate": 3,
+      "Alexandria": 3,
+      "Ending": 2,
+      "Lindblum": 1
+     },
+     "hw_names": {
+      "Cinna": 24
+     },
+     "party_fields_worn": [
+      50,
+      58,
+      62
+     ],
+     "opening_50_69_worn": [
+      50,
+      51,
+      52,
+      53,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63
+     ],
+     "player_entry_fields": [
+      206,
+      809
+     ],
+     "full_loco_set_in_animdb": true,
+     "loco_ids_by_name": {
+      "idle": [
+       101,
+       470
+      ],
+      "walk": [
+       761,
+       762
+      ],
+      "run": [
+       105,
+       473
+      ],
+      "turn_l": [
+       104,
+       472
+      ],
+      "turn_r": [
+       107,
+       471
+      ]
+     }
+    },
+    "661": {
+     "geo": "GEO_SUB_F7_CNA",
+     "setmodel_n": 1,
+     "eyes": {
+      "100": 1
+     },
+     "entries": 1,
+     "fields_n": 1,
+     "areas": {
+      "Alexandria": 1
+     },
+     "hw_names": {
+      "CinnaB": 1
+     },
+     "party_fields_worn": [],
+     "opening_50_69_worn": [],
+     "player_entry_fields": [],
+     "full_loco_set_in_animdb": false,
+     "loco_ids_by_name": {
+      "idle": [],
+      "walk": [],
+      "run": [],
+      "turn_l": [],
+      "turn_r": []
+     }
+    }
+   },
+   "pick": 107,
+   "pick_why": "pick 107: a full loco set, then the most AddParty fields worn, then the most SetModels -- 107 GEO_SUB_F0_CNA (Cinna): 24 SetModels in 24 fields, worn in AddParty fields [50, 58, 62], full loco set True; 661 GEO_SUB_F7_CNA (CinnaB): 1 SetModels in 1 fields, worn in AddParty fields [], full loco set False"
+  },
+  "marcus": {
+   "char_id": 9,
+   "rig": 10,
+   "old_index": 10,
+   "token": "MRC",
+   "add_party_fields": [
+    50,
+    60,
+    62,
+    67,
+    350,
+    806,
+    811,
+    900,
+    908,
+    910,
+    1209
+   ],
+   "stretch": "the disc-1 opening + the disc-2 South Gate / Treno / Gargan Roo stretch",
+   "models": {
+    "109": {
+     "geo": "GEO_SUB_F0_MRC",
+     "setmodel_n": 41,
+     "eyes": {
+      "100": 41
+     },
+     "entries": 41,
+     "fields_n": 41,
+     "areas": {
+      "Prima Vista": 9,
+      "Treno": 8,
+      "Alexandria": 6,
+      "S. Gate": 6,
+      "A. Castle": 5,
+      "Gargan Roo": 3,
+      "Evil Forest": 1,
+      "Lindblum": 1,
+      "Hilda Garde": 1,
+      "Ending": 1
+     },
+     "hw_names": {
+      "MarcusA": 41
+     },
+     "party_fields_worn": [
+      50,
+      62,
+      67,
+      811,
+      900,
+      908,
+      910,
+      1209
+     ],
+     "opening_50_69_worn": [
+      50,
+      52,
+      62,
+      63,
+      65,
+      66,
+      67
+     ],
+     "player_entry_fields": [
+      152,
+      816,
+      900,
+      912,
+      2114,
+      2755
+     ],
+     "full_loco_set_in_animdb": true,
+     "loco_ids_by_name": {
+      "idle": [
+       363,
+       474
+      ],
+      "walk": [
+       367,
+       479
+      ],
+      "run": [
+       365,
+       476
+      ],
+      "turn_l": [
+       368,
+       478
+      ],
+      "turn_r": [
+       364,
+       475
+      ]
+     }
+    },
+    "660": {
+     "geo": "GEO_SUB_F7_MRC",
+     "setmodel_n": 3,
+     "eyes": {
+      "100": 3
+     },
+     "entries": 3,
+     "fields_n": 3,
+     "areas": {
+      "Gargan Roo": 1,
+      "A. Castle": 1,
+      "Alexandria": 1
+     },
+     "hw_names": {
+      "MarcusB": 3
+     },
+     "party_fields_worn": [],
+     "opening_50_69_worn": [],
+     "player_entry_fields": [],
+     "full_loco_set_in_animdb": false,
+     "loco_ids_by_name": {
+      "idle": [],
+      "walk": [],
+      "run": [],
+      "turn_l": [],
+      "turn_r": []
+     }
+    }
+   },
+   "pick": 109,
+   "pick_why": "pick 109: a full loco set, then the most AddParty fields worn, then the most SetModels -- 109 GEO_SUB_F0_MRC (MarcusA): 41 SetModels in 41 fields, worn in AddParty fields [50, 62, 67, 811, 900, 908, 910, 1209], full loco set True; 660 GEO_SUB_F7_MRC (MarcusB): 3 SetModels in 3 fields, worn in AddParty fields [], full loco set False"
+  },
+  "blank": {
+   "char_id": 10,
+   "rig": 11,
+   "old_index": 11,
+   "token": "BLN",
+   "add_party_fields": [
+    50,
+    58,
+    62,
+    257
+   ],
+   "stretch": "the disc-1 opening + Evil Forest",
+   "models": {
+    "190": {
+     "geo": "GEO_SUB_F1_BLN",
+     "setmodel_n": 6,
+     "eyes": {
+      "87": 6
+     },
+     "entries": 6,
+     "fields_n": 6,
+     "areas": {
+      "Prima Vista": 3,
+      "A. Castle": 3
+     },
+     "hw_names": {
+      "Blank Pluto Knight": 6
+     },
+     "party_fields_worn": [
+      58
+     ],
+     "opening_50_69_worn": [
+      51,
+      53,
+      58
+     ],
+     "player_entry_fields": [],
+     "full_loco_set_in_animdb": true,
+     "loco_ids_by_name": {
+      "idle": [
+       3268,
+       3269
+      ],
+      "walk": [
+       3266,
+       3267
+      ],
+      "run": [
+       3272,
+       3273
+      ],
+      "turn_l": [
+       3270,
+       3271
+      ],
+      "turn_r": [
+       3264,
+       3265
+      ]
+     }
+    },
+    "659": {
+     "geo": "GEO_SUB_F7_BLN",
+     "setmodel_n": 1,
+     "eyes": {
+      "87": 1
+     },
+     "entries": 1,
+     "fields_n": 1,
+     "areas": {
+      "Alexandria": 1
+     },
+     "hw_names": {
+      "BlankB": 1
+     },
+     "party_fields_worn": [],
+     "opening_50_69_worn": [],
+     "player_entry_fields": [],
+     "full_loco_set_in_animdb": false,
+     "loco_ids_by_name": {
+      "idle": [],
+      "walk": [],
+      "run": [],
+      "turn_l": [],
+      "turn_r": []
+     }
+    },
+    "5467": {
+     "geo": "GEO_SUB_F0_BLN",
+     "setmodel_n": 36,
+     "eyes": {
+      "87": 36
+     },
+     "entries": 36,
+     "fields_n": 35,
+     "areas": {
+      "Prima Vista": 14,
+      "Alexandria": 6,
+      "A. Castle": 3,
+      "Evil Forest": 3,
+      "Ending": 3,
+      "Lindblum": 2,
+      "L. Castle": 2,
+      "Blue Narciss": 2,
+      "Hilda Garde": 1
+     },
+     "hw_names": {
+      "Blank": 36
+     },
+     "party_fields_worn": [
+      50,
+      58,
+      62,
+      257
+     ],
+     "opening_50_69_worn": [
+      50,
+      52,
+      58,
+      60,
+      61,
+      62,
+      63,
+      64
+     ],
+     "player_entry_fields": [
+      152,
+      200,
+      2054,
+      3010
+     ],
+     "full_loco_set_in_animdb": true,
+     "loco_ids_by_name": {
+      "idle": [
+       462,
+       5221
+      ],
+      "walk": [
+       461,
+       5225
+      ],
+      "run": [
+       464,
+       5222
+      ],
+      "turn_l": [
+       463,
+       5223
+      ],
+      "turn_r": [
+       460,
+       5224
+      ]
+     }
+    }
+   },
+   "pick": 5467,
+   "pick_why": "pick 5467: a full loco set, then the most AddParty fields worn, then the most SetModels -- 5467 GEO_SUB_F0_BLN (Blank): 36 SetModels in 35 fields, worn in AddParty fields [50, 58, 62, 257], full loco set True; 190 GEO_SUB_F1_BLN (Blank Pluto Knight): 6 SetModels in 6 fields, worn in AddParty fields [58], full loco set True; 659 GEO_SUB_F7_BLN (BlankB): 1 SetModels in 1 fields, worn in AddParty fields [], full loco set False"
+  },
+  "beatrix": {
+   "char_id": 11,
+   "rig": 12,
+   "old_index": 8,
+   "token": "BTX",
+   "add_party_fields": [
+    1202,
+    1225,
+    2053
+   ],
+   "stretch": "the disc-3 Alexandria defence (A. Castle / Alexandria)",
+   "models": {
+    "204": {
+     "geo": "GEO_SUB_F0_BTX",
+     "setmodel_n": 34,
+     "eyes": {
+      "100": 34
+     },
+     "entries": 34,
+     "fields_n": 34,
+     "areas": {
+      "A. Castle": 14,
+      "Alexandria": 5,
+      "Cleyra": 4,
+      "Ending": 4,
+      "Red Rose": 3,
+      "Burmecia": 2,
+      "L. Castle": 1,
+      "last": 1
+     },
+     "hw_names": {
+      "Beatrix": 34
+     },
+     "party_fields_worn": [
+      1202,
+      1225,
+      2053
+     ],
+     "opening_50_69_worn": [],
+     "player_entry_fields": [
+      1109,
+      1225,
+      2009,
+      2932,
+      3002
+     ],
+     "full_loco_set_in_animdb": true,
+     "loco_ids_by_name": {
+      "idle": [
+       2977,
+       2978
+      ],
+      "walk": [
+       2975,
+       2976
+      ],
+      "run": [
+       2981,
+       2982
+      ],
+      "turn_l": [
+       2979,
+       2980
+      ],
+      "turn_r": [
+       2973,
+       2974
+      ]
+     }
+    }
+   },
+   "pick": 204,
+   "pick_why": "pick 204: a full loco set, then the most AddParty fields worn, then the most SetModels -- 204 GEO_SUB_F0_BTX (Beatrix): 34 SetModels in 34 fields, worn in AddParty fields [1202, 1225, 2053], full loco set True"
+  }
+ },
+ "rows": {
+  "9": {
+   "char_id": 8,
+   "name": "cinna",
+   "row": [
+    107,
+    470,
+    761,
+    105,
+    104,
+    107,
+    87,
+    0,
+    -1,
+    -1,
+    -1,
+    -1,
+    0,
+    101,
+    24,
+    25
+   ],
+   "cols": {
+    "model": 107,
+    "eye": 87,
+    "idle": 470,
+    "walk": 761,
+    "run": 105,
+    "turn_l": 104,
+    "turn_r": 107,
+    "inactive": 0,
+    "idle_alias": 101,
+    "walk_step_a": -1,
+    "walk_step_b": -1,
+    "run_step_a": -1,
+    "run_step_b": -1,
+    "step_sound": 0,
+    "hand_bone": 24,
+    "hand_bone_end": 25
+   },
+   "model_facts": {
+    "geo": "GEO_SUB_F0_CNA",
+    "prefab_geo": "GEO_SUB_F0_CNA",
+    "prefab_id": 107,
+    "texture_stems": [
+     "107"
+    ],
+    "renderers": [
+     "mesh0/field_model",
+     "mesh1/hi_0",
+     "mesh1/hi_1"
+    ],
+    "mode_subtrees": [
+     "field_model"
+    ]
+   },
+   "engine_create": {
+    "geo": "GEO_SUB_F0_CNA",
+    "check_upscale": "GEO_SUB_UP0_CNA",
+    "rename_back": "GEO_SUB_F0_CNA",
+    "rename_id": 107,
+    "round_trip_same_id": true,
+    "prefab": "GEO_SUB_F0_CNA",
+    "prefab_is_own": true,
+    "texture_stems": [
+     "107"
+    ],
+    "clip_folders": [
+     107
+    ],
+    "every_clip_in_own_folder": true,
+    "every_clip_on_disc": true,
+    "missing": {},
+    "field_mode_hides_battle_model": false,
+    "mode_subtrees": [
+     "field_model"
+    ],
+    "renderers": [
+     "mesh0/field_model",
+     "mesh1/hi_0",
+     "mesh1/hi_1"
+    ]
+   },
+   "evidence": {
+    "eye": {
+     "setmodel_n": 24,
+     "eyes": {
+      "87": 24
+     }
+    },
+    "idle": {
+     "init": {
+      "470": 24,
+      "3283": 1,
+      "1068": 1,
+      "1062": 1
+     },
+     "any_function": {
+      "470": 46,
+      "7801": 9,
+      "121": 7,
+      "1062": 4,
+      "1068": 3,
+      "1064": 3,
+      "5891": 2,
+      "1069": 1
+     },
+     "name": "ANH_SUB_F0_CNA_IDLE",
+     "name_ok": true
+    },
+    "walk": {
+     "init": {
+      "761": 24
+     },
+     "any_function": {
+      "761": 24
+     },
+     "name": "ANH_SUB_F0_CNA_WALK",
+     "name_ok": true
+    },
+    "run": {
+     "init": {
+      "105": 24
+     },
+     "any_function": {
+      "105": 24
+     },
+     "name": "ANH_SUB_F0_CNA_RUN",
+     "name_ok": true
+    },
+    "turn_l": {
+     "init": {
+      "104": 24
+     },
+     "any_function": {
+      "104": 24
+     },
+     "name": "ANH_SUB_F0_CNA_TURN_L",
+     "name_ok": true
+    },
+    "turn_r": {
+     "init": {
+      "107": 24
+     },
+     "any_function": {
+      "107": 24
+     },
+     "name": "ANH_SUB_F0_CNA_TURN_R",
+     "name_ok": true
+    },
+    "inactive": {
+     "init": {},
+     "any_function": {},
+     "name": null
+    },
+    "idle_alias": "ANH_SUB_F0_CNA_IDLE ids [470, 101]",
+    "walk_steps": "no RunModelCode(16) registration for any id of this clip",
+    "run_steps": "no RunModelCode(16) registration for any id of this clip",
+    "walk_step_census": {
+     "clip": 761,
+     "name": "ANH_SUB_F0_CNA_WALK",
+     "ids": [
+      762,
+      761
+     ],
+     "frames16": {},
+     "frames17": {},
+     "sounds": {},
+     "by_id": {},
+     "fields": 0,
+     "field_ids": []
+    },
+    "run_step_census": {
+     "clip": 105,
+     "name": "ANH_SUB_F0_CNA_RUN",
+     "ids": [
+      473,
+      105
+     ],
+     "frames16": {},
+     "frames17": {},
+     "sounds": {},
+     "by_id": {},
+     "fields": 0,
+     "field_ids": []
+    },
+    "step_sound": "no footstep registration",
+    "skeleton": {
+     "geo": "GEO_SUB_F0_CNA",
+     "prefab_id": 107,
+     "bones": 26,
+     "labels_source": "label_skeleton (labels_for names no R_hand)",
+     "R_hand": [
+      24
+     ],
+     "R_hand_end": [
+      25
+     ],
+     "hand_bone": 24,
+     "hand_bone_end": 25,
+     "end_fallback": false,
+     "geometry_ok": true,
+     "hand_world": [
+      142.3,
+      -164.6,
+      21.8
+     ],
+     "consensus_mesh_named_labels": [
+      "hi_0",
+      "hi_0_02",
+      "hi_0_03",
+      "hi_0_04",
+      "hi_0_05",
+      "hi_0_06",
+      "hi_0_07",
+      "hi_0_08",
+      "hi_0_09",
+      "hi_0_10",
+      "hi_0_11",
+      "hi_0_12",
+      "hi_1",
+      "hi_1_02",
+      "hi_1_03",
+      "hi_1_04",
+      "hi_1_05",
+      "hi_1_06",
+      "hi_1_07",
+      "hi_1_08",
+      "hi_1_09"
+     ],
+     "heuristic_hands": [
+      [
+       24
+      ],
+      [
+       25
+      ]
+     ]
+    },
+    "frames": {
+     "idle": {
+      "id": 470,
+      "located": [
+       470,
+       107
+      ],
+      "frames": 40,
+      "sample_rate": 30.0
+     },
+     "walk": {
+      "id": 761,
+      "located": [
+       762,
+       107
+      ],
+      "frames": 24,
+      "sample_rate": 30.0
+     },
+     "run": {
+      "id": 105,
+      "located": [
+       473,
+       107
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "turn_l": {
+      "id": 104,
+      "located": [
+       472,
+       107
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "turn_r": {
+      "id": 107,
+      "located": [
+       471,
+       107
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "inactive": {
+      "id": 0,
+      "frames": null
+     },
+     "idle_alias": {
+      "id": 101,
+      "located": [
+       470,
+       107
+      ],
+      "frames": 40,
+      "sample_rate": 30.0
+     }
+    },
+    "engine_paths": {
+     "idle": {
+      "name": "ANH_SUB_F0_CNA_IDLE",
+      "folder": "GEO_SUB_F0_CNA",
+      "folder_id": 107,
+      "key": 470,
+      "on_disc": true
+     },
+     "walk": {
+      "name": "ANH_SUB_F0_CNA_WALK",
+      "folder": "GEO_SUB_F0_CNA",
+      "folder_id": 107,
+      "key": 762,
+      "on_disc": true
+     },
+     "run": {
+      "name": "ANH_SUB_F0_CNA_RUN",
+      "folder": "GEO_SUB_F0_CNA",
+      "folder_id": 107,
+      "key": 473,
+      "on_disc": true
+     },
+     "turn_l": {
+      "name": "ANH_SUB_F0_CNA_TURN_L",
+      "folder": "GEO_SUB_F0_CNA",
+      "folder_id": 107,
+      "key": 472,
+      "on_disc": true
+     },
+     "turn_r": {
+      "name": "ANH_SUB_F0_CNA_TURN_R",
+      "folder": "GEO_SUB_F0_CNA",
+      "folder_id": 107,
+      "key": 471,
+      "on_disc": true
+     },
+     "idle_alias": {
+      "name": "ANH_SUB_F0_CNA_IDLE",
+      "folder": "GEO_SUB_F0_CNA",
+      "folder_id": 107,
+      "key": 470,
+      "on_disc": true
+     }
+    },
+    "names_ok": {
+     "idle": true,
+     "walk": true,
+     "run": true,
+     "turn_l": true,
+     "turn_r": true
+    },
+    "entries": 24,
+    "hw_names": {
+     "Cinna": 24
+    }
+   },
+   "issues": [],
+   "notes": [
+    "hands from the kit's live heuristic: labels_for (the baked family consensus) names no R_hand for this topology and carries mesh-node names as bone labels ['hi_0', 'hi_0_02', 'hi_0_03', 'hi_0_04', 'hi_0_05', 'hi_0_06', 'hi_0_07', 'hi_0_08', 'hi_0_09', 'hi_0_10', 'hi_0_11', 'hi_0_12', 'hi_1', 'hi_1_02', 'hi_1_03', 'hi_1_04', 'hi_1_05', 'hi_1_06', 'hi_1_07', 'hi_1_08', 'hi_1_09'] -- a kit _bonelabeldb defect; geometry_ok=True, R_hand at [142.3, -164.6, 21.8]",
+    "no stock footstep registration for its walk or run clip (the Quina / moogle precedent): -1/-1",
+    "idle 40 frames: a SHORT idle (< 58, wedges without KeepSourceTimeline); above ZDN jump1 24 (amendment 10's frame-safety holds: True)",
+    "walk 24 frames: 2705's GetAnimDuration(8847) - 1 = 39 is unreachable natively (the B_FRAME law)"
+   ]
+  },
+  "10": {
+   "char_id": 9,
+   "name": "marcus",
+   "row": [
+    109,
+    474,
+    367,
+    365,
+    368,
+    364,
+    100,
+    0,
+    4,
+    18,
+    0,
+    10,
+    0,
+    363,
+    5,
+    6
+   ],
+   "cols": {
+    "model": 109,
+    "eye": 100,
+    "idle": 474,
+    "walk": 367,
+    "run": 365,
+    "turn_l": 368,
+    "turn_r": 364,
+    "inactive": 0,
+    "idle_alias": 363,
+    "walk_step_a": 4,
+    "walk_step_b": 18,
+    "run_step_a": 0,
+    "run_step_b": 10,
+    "step_sound": 0,
+    "hand_bone": 5,
+    "hand_bone_end": 6
+   },
+   "model_facts": {
+    "geo": "GEO_SUB_F0_MRC",
+    "prefab_geo": "GEO_SUB_F0_MRC",
+    "prefab_id": 109,
+    "texture_stems": [
+     "109"
+    ],
+    "renderers": [
+     "mesh0/field_model",
+     "mesh1/hi_0",
+     "mesh1/hi_1"
+    ],
+    "mode_subtrees": [
+     "field_model"
+    ]
+   },
+   "engine_create": {
+    "geo": "GEO_SUB_F0_MRC",
+    "check_upscale": "GEO_SUB_UP0_MRC",
+    "rename_back": "GEO_SUB_F0_MRC",
+    "rename_id": 109,
+    "round_trip_same_id": true,
+    "prefab": "GEO_SUB_F0_MRC",
+    "prefab_is_own": true,
+    "texture_stems": [
+     "109"
+    ],
+    "clip_folders": [
+     109
+    ],
+    "every_clip_in_own_folder": true,
+    "every_clip_on_disc": true,
+    "missing": {},
+    "field_mode_hides_battle_model": false,
+    "mode_subtrees": [
+     "field_model"
+    ],
+    "renderers": [
+     "mesh0/field_model",
+     "mesh1/hi_0",
+     "mesh1/hi_1"
+    ]
+   },
+   "evidence": {
+    "eye": {
+     "setmodel_n": 41,
+     "eyes": {
+      "100": 41
+     }
+    },
+    "idle": {
+     "init": {
+      "474": 41,
+      "12027": 3,
+      "3311": 2,
+      "3240": 2,
+      "1094": 2,
+      "8085": 1
+     },
+     "any_function": {
+      "474": 64,
+      "139": 6,
+      "134": 5,
+      "1094": 4,
+      "5794": 4,
+      "12027": 4,
+      "1092": 2,
+      "3311": 2
+     },
+     "name": "ANH_SUB_F0_MRC_IDLE",
+     "name_ok": true
+    },
+    "walk": {
+     "init": {
+      "367": 41,
+      "3242": 1
+     },
+     "any_function": {
+      "367": 41,
+      "3242": 1,
+      "5231": 1,
+      "479": 1
+     },
+     "name": "ANH_SUB_F0_MRC_WALK",
+     "name_ok": true
+    },
+    "run": {
+     "init": {
+      "365": 41,
+      "3242": 1
+     },
+     "any_function": {
+      "365": 41,
+      "3242": 1,
+      "3318": 1
+     },
+     "name": "ANH_SUB_F0_MRC_RUN",
+     "name_ok": true
+    },
+    "turn_l": {
+     "init": {
+      "368": 41
+     },
+     "any_function": {
+      "368": 41
+     },
+     "name": "ANH_SUB_F0_MRC_TURN_L",
+     "name_ok": true
+    },
+    "turn_r": {
+     "init": {
+      "364": 41
+     },
+     "any_function": {
+      "364": 41
+     },
+     "name": "ANH_SUB_F0_MRC_TURN_R",
+     "name_ok": true
+    },
+    "inactive": {
+     "init": {},
+     "any_function": {},
+     "name": null
+    },
+    "idle_alias": "ANH_SUB_F0_MRC_IDLE ids [474, 363]",
+    "walk_steps": "modal two of [(4, 12), (18, 12), (8, 1)]",
+    "run_steps": "modal two of [(0, 12), (10, 12), (8, 1)]",
+    "walk_step_census": {
+     "clip": 367,
+     "name": "ANH_SUB_F0_MRC_WALK",
+     "ids": [
+      479,
+      367
+     ],
+     "frames16": {
+      "4": 12,
+      "18": 12,
+      "8": 1
+     },
+     "frames17": {
+      "4": 12,
+      "18": 12,
+      "8": 1
+     },
+     "sounds": {
+      "912": 24,
+      "915": 14,
+      "908": 4,
+      "924": 3,
+      "920": 2,
+      "907": 2,
+      "923": 1
+     },
+     "by_id": {
+      "367": 50
+     },
+     "fields": 12,
+     "field_ids": [
+      811,
+      815,
+      900,
+      902,
+      908,
+      914,
+      916,
+      950,
+      952,
+      954,
+      956,
+      1211
+     ]
+    },
+    "run_step_census": {
+     "clip": 365,
+     "name": "ANH_SUB_F0_MRC_RUN",
+     "ids": [
+      476,
+      365
+     ],
+     "frames16": {
+      "0": 12,
+      "10": 12,
+      "8": 1
+     },
+     "frames17": {
+      "0": 12,
+      "10": 12,
+      "8": 1
+     },
+     "sounds": {
+      "912": 24,
+      "915": 14,
+      "908": 4,
+      "924": 3,
+      "920": 2,
+      "907": 2,
+      "923": 1
+     },
+     "by_id": {
+      "365": 50
+     },
+     "fields": 12,
+     "field_ids": [
+      811,
+      815,
+      900,
+      902,
+      908,
+      914,
+      916,
+      950,
+      952,
+      954,
+      956,
+      1211
+     ]
+    },
+    "step_sound": "7 distinct sound ids [(912, 48), (915, 28), (908, 8), (924, 6), (920, 4), (907, 4)]",
+    "skeleton": {
+     "geo": "GEO_SUB_F0_MRC",
+     "prefab_id": 109,
+     "bones": 28,
+     "labels_source": "label_skeleton (labels_for names no R_hand)",
+     "R_hand": [
+      5
+     ],
+     "R_hand_end": [
+      6
+     ],
+     "hand_bone": 5,
+     "hand_bone_end": 6,
+     "end_fallback": false,
+     "geometry_ok": true,
+     "hand_world": [
+      173.5,
+      -214.9,
+      9.8
+     ],
+     "consensus_mesh_named_labels": [
+      "hi_0",
+      "hi_0_02",
+      "hi_0_03",
+      "hi_0_04",
+      "hi_0_05",
+      "hi_0_06",
+      "hi_0_07",
+      "hi_0_08",
+      "hi_0_09",
+      "hi_1",
+      "hi_1_02",
+      "hi_1_03",
+      "hi_1_04",
+      "hi_1_05",
+      "hi_1_06",
+      "hi_1_07",
+      "hi_1_08",
+      "hi_1_09"
+     ],
+     "heuristic_hands": [
+      [
+       5
+      ],
+      [
+       6
+      ]
+     ]
+    },
+    "frames": {
+     "idle": {
+      "id": 474,
+      "located": [
+       474,
+       109
+      ],
+      "frames": 30,
+      "sample_rate": 30.0
+     },
+     "walk": {
+      "id": 367,
+      "located": [
+       479,
+       109
+      ],
+      "frames": 28,
+      "sample_rate": 30.0
+     },
+     "run": {
+      "id": 365,
+      "located": [
+       476,
+       109
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "turn_l": {
+      "id": 368,
+      "located": [
+       478,
+       109
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "turn_r": {
+      "id": 364,
+      "located": [
+       475,
+       109
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "inactive": {
+      "id": 0,
+      "frames": null
+     },
+     "idle_alias": {
+      "id": 363,
+      "located": [
+       474,
+       109
+      ],
+      "frames": 30,
+      "sample_rate": 30.0
+     }
+    },
+    "engine_paths": {
+     "idle": {
+      "name": "ANH_SUB_F0_MRC_IDLE",
+      "folder": "GEO_SUB_F0_MRC",
+      "folder_id": 109,
+      "key": 474,
+      "on_disc": true
+     },
+     "walk": {
+      "name": "ANH_SUB_F0_MRC_WALK",
+      "folder": "GEO_SUB_F0_MRC",
+      "folder_id": 109,
+      "key": 479,
+      "on_disc": true
+     },
+     "run": {
+      "name": "ANH_SUB_F0_MRC_RUN",
+      "folder": "GEO_SUB_F0_MRC",
+      "folder_id": 109,
+      "key": 476,
+      "on_disc": true
+     },
+     "turn_l": {
+      "name": "ANH_SUB_F0_MRC_TURN_L",
+      "folder": "GEO_SUB_F0_MRC",
+      "folder_id": 109,
+      "key": 478,
+      "on_disc": true
+     },
+     "turn_r": {
+      "name": "ANH_SUB_F0_MRC_TURN_R",
+      "folder": "GEO_SUB_F0_MRC",
+      "folder_id": 109,
+      "key": 475,
+      "on_disc": true
+     },
+     "idle_alias": {
+      "name": "ANH_SUB_F0_MRC_IDLE",
+      "folder": "GEO_SUB_F0_MRC",
+      "folder_id": 109,
+      "key": 474,
+      "on_disc": true
+     }
+    },
+    "names_ok": {
+     "idle": true,
+     "walk": true,
+     "run": true,
+     "turn_l": true,
+     "turn_r": true
+    },
+    "entries": 41,
+    "hw_names": {
+     "MarcusA": 41
+    }
+   },
+   "issues": [],
+   "notes": [
+    "hands from the kit's live heuristic: labels_for (the baked family consensus) names no R_hand for this topology and carries mesh-node names as bone labels ['hi_0', 'hi_0_02', 'hi_0_03', 'hi_0_04', 'hi_0_05', 'hi_0_06', 'hi_0_07', 'hi_0_08', 'hi_0_09', 'hi_1', 'hi_1_02', 'hi_1_03', 'hi_1_04', 'hi_1_05', 'hi_1_06', 'hi_1_07', 'hi_1_08', 'hi_1_09'] -- a kit _bonelabeldb defect; geometry_ok=True, R_hand at [173.5, -214.9, 9.8]",
+    "idle 30 frames: a SHORT idle (< 58, wedges without KeepSourceTimeline); above ZDN jump1 24 (amendment 10's frame-safety holds: True)",
+    "walk 28 frames: 2705's GetAnimDuration(8847) - 1 = 39 is unreachable natively (the B_FRAME law)"
+   ]
+  },
+  "11": {
+   "char_id": 10,
+   "name": "blank",
+   "row": [
+    5467,
+    462,
+    5225,
+    5222,
+    5223,
+    5224,
+    87,
+    0,
+    7,
+    18,
+    6,
+    16,
+    0,
+    5221,
+    13,
+    14
+   ],
+   "cols": {
+    "model": 5467,
+    "eye": 87,
+    "idle": 462,
+    "walk": 5225,
+    "run": 5222,
+    "turn_l": 5223,
+    "turn_r": 5224,
+    "inactive": 0,
+    "idle_alias": 5221,
+    "walk_step_a": 7,
+    "walk_step_b": 18,
+    "run_step_a": 6,
+    "run_step_b": 16,
+    "step_sound": 0,
+    "hand_bone": 13,
+    "hand_bone_end": 14
+   },
+   "model_facts": {
+    "geo": "GEO_SUB_F0_BLN",
+    "prefab_geo": "GEO_SUB_F0_BLN",
+    "prefab_id": 5467,
+    "texture_stems": [
+     "5467"
+    ],
+    "renderers": [
+     "field_model",
+     "mesh0",
+     "mesh1"
+    ],
+    "mode_subtrees": [
+     "field_model"
+    ]
+   },
+   "engine_create": {
+    "geo": "GEO_SUB_F0_BLN",
+    "check_upscale": "GEO_SUB_UP0_BLN",
+    "rename_back": "GEO_SUB_F0_BLN",
+    "rename_id": 5467,
+    "round_trip_same_id": true,
+    "prefab": "GEO_SUB_F0_BLN",
+    "prefab_is_own": true,
+    "texture_stems": [
+     "5467"
+    ],
+    "clip_folders": [
+     5467
+    ],
+    "every_clip_in_own_folder": true,
+    "every_clip_on_disc": true,
+    "missing": {},
+    "field_mode_hides_battle_model": false,
+    "mode_subtrees": [
+     "field_model"
+    ],
+    "renderers": [
+     "field_model",
+     "mesh0",
+     "mesh1"
+    ]
+   },
+   "evidence": {
+    "eye": {
+     "setmodel_n": 36,
+     "eyes": {
+      "87": 36
+     }
+    },
+    "idle": {
+     "init": {
+      "462": 37,
+      "1328": 5,
+      "1953": 2,
+      "8620": 2,
+      "3263": 1,
+      "5043": 1,
+      "1321": 1,
+      "2387": 1
+     },
+     "any_function": {
+      "462": 66,
+      "14434": 12,
+      "1328": 10,
+      "11982": 8,
+      "1953": 3,
+      "8620": 3,
+      "1324": 2,
+      "5043": 2
+     },
+     "name": "ANH_SUB_F0_BLN_IDLE",
+     "name_ok": true
+    },
+    "walk": {
+     "init": {
+      "5225": 36,
+      "1959": 2
+     },
+     "any_function": {
+      "5225": 36,
+      "1959": 2
+     },
+     "name": "ANH_SUB_F0_BLN_WALK",
+     "name_ok": true
+    },
+    "run": {
+     "init": {
+      "5222": 36,
+      "1950": 2
+     },
+     "any_function": {
+      "5222": 37,
+      "1950": 2
+     },
+     "name": "ANH_SUB_F0_BLN_RUN",
+     "name_ok": true
+    },
+    "turn_l": {
+     "init": {
+      "5223": 36,
+      "1952": 2
+     },
+     "any_function": {
+      "5223": 36,
+      "1952": 2
+     },
+     "name": "ANH_SUB_F0_BLN_TURN_L",
+     "name_ok": true
+    },
+    "turn_r": {
+     "init": {
+      "5224": 36,
+      "1956": 2
+     },
+     "any_function": {
+      "5224": 36,
+      "1956": 2
+     },
+     "name": "ANH_SUB_F0_BLN_TURN_R",
+     "name_ok": true
+    },
+    "inactive": {
+     "init": {},
+     "any_function": {},
+     "name": null
+    },
+    "idle_alias": "ANH_SUB_F0_BLN_IDLE ids [462, 5221]",
+    "walk_steps": "modal two of [(7, 2), (18, 2)]",
+    "run_steps": "modal two of [(6, 2), (16, 2)]",
+    "walk_step_census": {
+     "clip": 5225,
+     "name": "ANH_SUB_F0_BLN_WALK",
+     "ids": [
+      461,
+      5225
+     ],
+     "frames16": {
+      "7": 2,
+      "18": 2
+     },
+     "frames17": {
+      "7": 2,
+      "18": 2
+     },
+     "sounds": {
+      "923": 4,
+      "914": 2,
+      "924": 2
+     },
+     "by_id": {
+      "5225": 8
+     },
+     "fields": 2,
+     "field_ids": [
+      50,
+      2161
+     ]
+    },
+    "run_step_census": {
+     "clip": 5222,
+     "name": "ANH_SUB_F0_BLN_RUN",
+     "ids": [
+      464,
+      5222
+     ],
+     "frames16": {
+      "6": 2,
+      "16": 2
+     },
+     "frames17": {
+      "6": 2,
+      "16": 2
+     },
+     "sounds": {
+      "923": 4,
+      "914": 2,
+      "924": 2
+     },
+     "by_id": {
+      "5222": 8
+     },
+     "fields": 2,
+     "field_ids": [
+      50,
+      2161
+     ]
+    },
+    "step_sound": "3 distinct sound ids [(923, 8), (914, 4), (924, 4)]",
+    "skeleton": {
+     "geo": "GEO_SUB_F0_BLN",
+     "prefab_id": 5467,
+     "bones": 24,
+     "labels_source": "labels_for",
+     "R_hand": [
+      13
+     ],
+     "R_hand_end": [
+      14
+     ],
+     "hand_bone": 13,
+     "hand_bone_end": 14,
+     "end_fallback": false,
+     "geometry_ok": true,
+     "hand_world": [
+      124.0,
+      -197.2,
+      8.9
+     ],
+     "consensus_mesh_named_labels": [
+      "hips"
+     ],
+     "heuristic_hands": [
+      [
+       13
+      ],
+      [
+       14
+      ]
+     ]
+    },
+    "frames": {
+     "idle": {
+      "id": 462,
+      "located": [
+       462,
+       5467
+      ],
+      "frames": 40,
+      "sample_rate": 30.0
+     },
+     "walk": {
+      "id": 5225,
+      "located": [
+       461,
+       5467
+      ],
+      "frames": 24,
+      "sample_rate": 30.0
+     },
+     "run": {
+      "id": 5222,
+      "located": [
+       464,
+       5467
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "turn_l": {
+      "id": 5223,
+      "located": [
+       463,
+       5467
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "turn_r": {
+      "id": 5224,
+      "located": [
+       460,
+       5467
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "inactive": {
+      "id": 0,
+      "frames": null
+     },
+     "idle_alias": {
+      "id": 5221,
+      "located": [
+       462,
+       5467
+      ],
+      "frames": 40,
+      "sample_rate": 30.0
+     }
+    },
+    "engine_paths": {
+     "idle": {
+      "name": "ANH_SUB_F0_BLN_IDLE",
+      "folder": "GEO_SUB_F0_BLN",
+      "folder_id": 5467,
+      "key": 462,
+      "on_disc": true
+     },
+     "walk": {
+      "name": "ANH_SUB_F0_BLN_WALK",
+      "folder": "GEO_SUB_F0_BLN",
+      "folder_id": 5467,
+      "key": 461,
+      "on_disc": true
+     },
+     "run": {
+      "name": "ANH_SUB_F0_BLN_RUN",
+      "folder": "GEO_SUB_F0_BLN",
+      "folder_id": 5467,
+      "key": 464,
+      "on_disc": true
+     },
+     "turn_l": {
+      "name": "ANH_SUB_F0_BLN_TURN_L",
+      "folder": "GEO_SUB_F0_BLN",
+      "folder_id": 5467,
+      "key": 463,
+      "on_disc": true
+     },
+     "turn_r": {
+      "name": "ANH_SUB_F0_BLN_TURN_R",
+      "folder": "GEO_SUB_F0_BLN",
+      "folder_id": 5467,
+      "key": 460,
+      "on_disc": true
+     },
+     "idle_alias": {
+      "name": "ANH_SUB_F0_BLN_IDLE",
+      "folder": "GEO_SUB_F0_BLN",
+      "folder_id": 5467,
+      "key": 462,
+      "on_disc": true
+     }
+    },
+    "names_ok": {
+     "idle": true,
+     "walk": true,
+     "run": true,
+     "turn_l": true,
+     "turn_r": true
+    },
+    "entries": 36,
+    "hw_names": {
+     "Blank": 36
+    }
+   },
+   "issues": [],
+   "notes": [
+    "idle 40 frames: a SHORT idle (< 58, wedges without KeepSourceTimeline); above ZDN jump1 24 (amendment 10's frame-safety holds: True)",
+    "walk 24 frames: 2705's GetAnimDuration(8847) - 1 = 39 is unreachable natively (the B_FRAME law)"
+   ]
+  },
+  "12": {
+   "char_id": 11,
+   "name": "beatrix",
+   "row": [
+    204,
+    2978,
+    2975,
+    2981,
+    2980,
+    2974,
+    100,
+    0,
+    7,
+    18,
+    6,
+    16,
+    0,
+    2977,
+    15,
+    16
+   ],
+   "cols": {
+    "model": 204,
+    "eye": 100,
+    "idle": 2978,
+    "walk": 2975,
+    "run": 2981,
+    "turn_l": 2980,
+    "turn_r": 2974,
+    "inactive": 0,
+    "idle_alias": 2977,
+    "walk_step_a": 7,
+    "walk_step_b": 18,
+    "run_step_a": 6,
+    "run_step_b": 16,
+    "step_sound": 0,
+    "hand_bone": 15,
+    "hand_bone_end": 16
+   },
+   "model_facts": {
+    "geo": "GEO_SUB_F0_BTX",
+    "prefab_geo": "GEO_SUB_F0_BTX",
+    "prefab_id": 204,
+    "texture_stems": [
+     "204"
+    ],
+    "renderers": [
+     "field_model",
+     "mesh0",
+     "mesh1"
+    ],
+    "mode_subtrees": [
+     "field_model"
+    ]
+   },
+   "engine_create": {
+    "geo": "GEO_SUB_F0_BTX",
+    "check_upscale": "GEO_SUB_UP0_BTX",
+    "rename_back": "GEO_SUB_F0_BTX",
+    "rename_id": 204,
+    "round_trip_same_id": true,
+    "prefab": "GEO_SUB_F0_BTX",
+    "prefab_is_own": true,
+    "texture_stems": [
+     "204"
+    ],
+    "clip_folders": [
+     204
+    ],
+    "every_clip_in_own_folder": true,
+    "every_clip_on_disc": true,
+    "missing": {},
+    "field_mode_hides_battle_model": false,
+    "mode_subtrees": [
+     "field_model"
+    ],
+    "renderers": [
+     "field_model",
+     "mesh0",
+     "mesh1"
+    ]
+   },
+   "evidence": {
+    "eye": {
+     "setmodel_n": 34,
+     "eyes": {
+      "100": 34
+     }
+    },
+    "idle": {
+     "init": {
+      "2978": 34,
+      "8202": 1,
+      "5328": 1
+     },
+     "any_function": {
+      "2978": 64,
+      "8202": 9,
+      "13220": 9,
+      "4417": 7,
+      "12916": 5,
+      "7442": 3,
+      "7454": 3,
+      "12914": 2
+     },
+     "name": "ANH_SUB_F0_BTX_IDLE",
+     "name_ok": true
+    },
+    "walk": {
+     "init": {
+      "2975": 34
+     },
+     "any_function": {
+      "2975": 34
+     },
+     "name": "ANH_SUB_F0_BTX_WALK",
+     "name_ok": true
+    },
+    "run": {
+     "init": {
+      "2981": 34
+     },
+     "any_function": {
+      "2981": 34
+     },
+     "name": "ANH_SUB_F0_BTX_RUN",
+     "name_ok": true
+    },
+    "turn_l": {
+     "init": {
+      "2980": 34
+     },
+     "any_function": {
+      "2980": 34
+     },
+     "name": "ANH_SUB_F0_BTX_TURN_L",
+     "name_ok": true
+    },
+    "turn_r": {
+     "init": {
+      "2974": 34
+     },
+     "any_function": {
+      "2974": 34
+     },
+     "name": "ANH_SUB_F0_BTX_TURN_R",
+     "name_ok": true
+    },
+    "inactive": {
+     "init": {},
+     "any_function": {},
+     "name": null
+    },
+    "idle_alias": "ANH_SUB_F0_BTX_IDLE ids [2978, 2977]",
+    "walk_steps": "modal two of [(7, 6), (18, 6)]",
+    "run_steps": "modal two of [(6, 6), (16, 6)]",
+    "walk_step_census": {
+     "clip": 2975,
+     "name": "ANH_SUB_F0_BTX_WALK",
+     "ids": [
+      2976,
+      2975
+     ],
+     "frames16": {
+      "7": 6,
+      "18": 6
+     },
+     "frames17": {
+      "7": 6,
+      "18": 6
+     },
+     "sounds": {
+      "914": 14,
+      "923": 6,
+      "912": 4
+     },
+     "by_id": {
+      "2975": 24
+     },
+     "fields": 5,
+     "field_ids": [
+      1108,
+      1109,
+      1110,
+      1223,
+      1225
+     ]
+    },
+    "run_step_census": {
+     "clip": 2981,
+     "name": "ANH_SUB_F0_BTX_RUN",
+     "ids": [
+      2982,
+      2981
+     ],
+     "frames16": {
+      "6": 6,
+      "16": 6
+     },
+     "frames17": {
+      "6": 6,
+      "16": 6
+     },
+     "sounds": {
+      "914": 14,
+      "923": 6,
+      "912": 4
+     },
+     "by_id": {
+      "2981": 24
+     },
+     "fields": 5,
+     "field_ids": [
+      1108,
+      1109,
+      1110,
+      1223,
+      1225
+     ]
+    },
+    "step_sound": "3 distinct sound ids [(914, 28), (923, 12), (912, 8)]",
+    "skeleton": {
+     "geo": "GEO_SUB_F0_BTX",
+     "prefab_id": 204,
+     "bones": 27,
+     "labels_source": "labels_for",
+     "R_hand": [
+      15
+     ],
+     "R_hand_end": [
+      16
+     ],
+     "hand_bone": 15,
+     "hand_bone_end": 16,
+     "end_fallback": false,
+     "geometry_ok": true,
+     "hand_world": [
+      128.4,
+      -228.1,
+      14.2
+     ],
+     "consensus_mesh_named_labels": [
+      "hips"
+     ],
+     "heuristic_hands": [
+      [
+       15
+      ],
+      [
+       16
+      ]
+     ]
+    },
+    "frames": {
+     "idle": {
+      "id": 2978,
+      "located": [
+       2978,
+       204
+      ],
+      "frames": 45,
+      "sample_rate": 30.0
+     },
+     "walk": {
+      "id": 2975,
+      "located": [
+       2976,
+       204
+      ],
+      "frames": 24,
+      "sample_rate": 30.0
+     },
+     "run": {
+      "id": 2981,
+      "located": [
+       2982,
+       204
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "turn_l": {
+      "id": 2980,
+      "located": [
+       2979,
+       204
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "turn_r": {
+      "id": 2974,
+      "located": [
+       2973,
+       204
+      ],
+      "frames": 20,
+      "sample_rate": 30.0
+     },
+     "inactive": {
+      "id": 0,
+      "frames": null
+     },
+     "idle_alias": {
+      "id": 2977,
+      "located": [
+       2978,
+       204
+      ],
+      "frames": 45,
+      "sample_rate": 30.0
+     }
+    },
+    "engine_paths": {
+     "idle": {
+      "name": "ANH_SUB_F0_BTX_IDLE",
+      "folder": "GEO_SUB_F0_BTX",
+      "folder_id": 204,
+      "key": 2978,
+      "on_disc": true
+     },
+     "walk": {
+      "name": "ANH_SUB_F0_BTX_WALK",
+      "folder": "GEO_SUB_F0_BTX",
+      "folder_id": 204,
+      "key": 2976,
+      "on_disc": true
+     },
+     "run": {
+      "name": "ANH_SUB_F0_BTX_RUN",
+      "folder": "GEO_SUB_F0_BTX",
+      "folder_id": 204,
+      "key": 2982,
+      "on_disc": true
+     },
+     "turn_l": {
+      "name": "ANH_SUB_F0_BTX_TURN_L",
+      "folder": "GEO_SUB_F0_BTX",
+      "folder_id": 204,
+      "key": 2979,
+      "on_disc": true
+     },
+     "turn_r": {
+      "name": "ANH_SUB_F0_BTX_TURN_R",
+      "folder": "GEO_SUB_F0_BTX",
+      "folder_id": 204,
+      "key": 2973,
+      "on_disc": true
+     },
+     "idle_alias": {
+      "name": "ANH_SUB_F0_BTX_IDLE",
+      "folder": "GEO_SUB_F0_BTX",
+      "folder_id": 204,
+      "key": 2978,
+      "on_disc": true
+     }
+    },
+    "names_ok": {
+     "idle": true,
+     "walk": true,
+     "run": true,
+     "turn_l": true,
+     "turn_r": true
+    },
+    "entries": 34,
+    "hw_names": {
+     "Beatrix": 34
+    }
+   },
+   "issues": [],
+   "notes": [
+    "idle 45 frames: a SHORT idle (< 58, wedges without KeepSourceTimeline); above ZDN jump1 24 (amendment 10's frame-safety holds: True)",
+    "walk 24 frames: 2705's GetAnimDuration(8847) - 1 = 39 is unreachable natively (the B_FRAME law)"
+   ]
+  }
+ },
+ "frames_13": {
+  "0": {
+   "name": "zidane",
+   "idle": 60,
+   "walk": 20,
+   "run": 18,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": 60,
+   "idle_alias": 60
+  },
+  "1": {
+   "name": "vivi",
+   "idle": 45,
+   "walk": 20,
+   "run": 18,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": 50,
+   "idle_alias": 45
+  },
+  "2": {
+   "name": "garnet",
+   "idle": 30,
+   "walk": 20,
+   "run": 18,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": 68,
+   "idle_alias": 30
+  },
+  "3": {
+   "name": "steiner",
+   "idle": 60,
+   "walk": 20,
+   "run": 18,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": 110,
+   "idle_alias": 60
+  },
+  "4": {
+   "name": "freya",
+   "idle": 50,
+   "walk": 24,
+   "run": 18,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": null,
+   "idle_alias": 50
+  },
+  "5": {
+   "name": "quina",
+   "idle": 40,
+   "walk": 26,
+   "run": 22,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": null,
+   "idle_alias": 40
+  },
+  "6": {
+   "name": "eiko",
+   "idle": 30,
+   "walk": 24,
+   "run": 20,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": 83,
+   "idle_alias": 30
+  },
+  "7": {
+   "name": "amarant",
+   "idle": 45,
+   "walk": 32,
+   "run": 24,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": null,
+   "idle_alias": 45
+  },
+  "8": {
+   "name": "moogle",
+   "idle": 72,
+   "walk": 16,
+   "run": 10,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": null,
+   "idle_alias": 72
+  },
+  "9": {
+   "name": "cinna",
+   "idle": 40,
+   "walk": 24,
+   "run": 20,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": null,
+   "idle_alias": 40
+  },
+  "10": {
+   "name": "marcus",
+   "idle": 30,
+   "walk": 28,
+   "run": 20,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": null,
+   "idle_alias": 30
+  },
+  "11": {
+   "name": "blank",
+   "idle": 40,
+   "walk": 24,
+   "run": 20,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": null,
+   "idle_alias": 40
+  },
+  "12": {
+   "name": "beatrix",
+   "idle": 45,
+   "walk": 24,
+   "run": 20,
+   "turn_l": 20,
+   "turn_r": 20,
+   "inactive": null,
+   "idle_alias": 45
+  }
+ },
+ "open_issues": [],
+ "calibration_reproduces_s139": true,
+ "calibration_note": "every column of rows 0-8 reproduced by the rules above except the explained diffs (CAL_EXPLAINED); none of them bears on rows 9-12",
+ "engine_create_0_8": {
+  "0": {
+   "geo": "GEO_MAIN_F0_ZDN",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": true,
+   "mode_subtrees": [
+    "battle_model"
+   ]
+  },
+  "1": {
+   "geo": "GEO_MAIN_F0_VIV",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": false,
+   "mode_subtrees": []
+  },
+  "2": {
+   "geo": "GEO_MAIN_F0_GRN",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": false,
+   "mode_subtrees": [
+    "long_hair",
+    "short_hair"
+   ]
+  },
+  "3": {
+   "geo": "GEO_MAIN_F0_STN",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": false,
+   "mode_subtrees": []
+  },
+  "4": {
+   "geo": "GEO_MAIN_F0_FRJ",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": false,
+   "mode_subtrees": []
+  },
+  "5": {
+   "geo": "GEO_MAIN_F0_KUI",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": false,
+   "mode_subtrees": []
+  },
+  "6": {
+   "geo": "GEO_MAIN_F0_EIK",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": false,
+   "mode_subtrees": []
+  },
+  "7": {
+   "geo": "GEO_MAIN_F0_SLM",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": true,
+   "mode_subtrees": [
+    "battle_model",
+    "field_model"
+   ]
+  },
+  "8": {
+   "geo": "GEO_NPC_F0_MOG",
+   "round_trip_same_id": true,
+   "prefab_is_own": true,
+   "every_clip_in_own_folder": true,
+   "every_clip_on_disc": true,
+   "missing": {},
+   "field_mode_hides_battle_model": false,
+   "mode_subtrees": []
+  }
+ },
+ "frames_check": {
+  "rig_idle_frames_0_8": [
+   60,
+   45,
+   30,
+   60,
+   50,
+   40,
+   30,
+   45,
+   72
+  ],
+  "s139_oracle": [
+   60,
+   45,
+   30,
+   60,
+   50,
+   40,
+   30,
+   45,
+   72
+  ],
+  "match": true,
+  "audit_table_diffs": {},
+  "rig_idle_frames_13": [
+   60,
+   45,
+   30,
+   60,
+   50,
+   40,
+   30,
+   45,
+   72,
+   40,
+   30,
+   40,
+   45
+  ]
+ },
+ "remaps": []
+}

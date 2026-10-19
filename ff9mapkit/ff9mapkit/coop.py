@@ -21,9 +21,14 @@ each is only written when its flag is given, so re-runs never clobber hand tunin
                            slots, "none" = spectate only)         -> GuestSlots (mask)
     --guest-wait 30        cap a guest turn's gauge-freeze at 30s; 0 = no cap
                                                                   -> GuestWaitMs
-    --ghost-as auto        visitor mode: dress their ghost as the party member they
-                           command ("auto"), a name (vivi, dagger, ...), or "off"
-                                                                  -> GhostAs
+    --ghost-as auto        visitor mode. HOST: what your guest appears as on BOTH
+                           screens -- an s140+ guest wears it itself unless its own
+                           [Netsync] SelfDress=0 -- "auto" (the member they command),
+                           a name (vivi, dagger, ..., cinna, marcus, blank, beatrix,
+                           moogle) or "off". GUEST: only your view of the host (the
+                           8 mains) -- normally off: an s140+ guest already wears
+                           the host's pick, so the same pick on both machines shows
+                           the guest two of that character        -> GhostAs
     --follow-host on       guest side: auto-warp to the host's field; your own
                            random encounters pause while paired   -> FollowHost
 
@@ -94,8 +99,13 @@ _CODE_RE = re.compile(r"(?i:ff9-)?[A-Za-z0-9]{1,32}")   # everything validate_co
 # `auto` rule shows for a spectator or an empty puppet slot. It dresses the HOST's ghost of its
 # guest only -- a client keeps the s138 rule and leaves the host's ghost undressed (the host is
 # never a moogle), as does an engine before s139. A test pins this tuple to NameToRig's keys.
+# [ff9mapkit netsync s140] + "cinna", "marcus", "blank", "beatrix" (rig rows 9-12, CharacterId 8-11:
+# the owner's "their own models" -- each row from the install's census). Like the moogle, a name
+# dresses the HOST's ghost of its guest only (a client's s138 rule caps names at the 8 mains); an
+# engine before s140 leaves them undressed.
 GHOST_NAMES = ("zidane", "vivi", "garnet", "dagger", "steiner",
-               "freya", "quina", "eiko", "amarant", "salamander", "moogle")
+               "freya", "quina", "eiko", "amarant", "salamander", "moogle",
+               "cinna", "marcus", "blank", "beatrix")
 
 
 def parse_guest_slots(spec: str) -> int:
@@ -534,6 +544,11 @@ def show_config(game: Path, *, out=print) -> int:
     ghost = key("GhostAs").lower()
     out(f"  ghost as:    " + ("their own model" if ghost in ("", "off", "0") else
                               "auto (the party member they command)" if ghost == "auto" else ghost))
+    # [ff9mapkit netsync s140] the guest's own dress opt-out (default 1: an s140+ guest wears what its host's GhostAs
+    # names); named only when switched off -- there is no kit writer for it (hand-edited)
+    if key("SelfDress", "1").strip('"').strip() == "0":
+        out("  self-dress:  OFF ([Netsync] SelfDress=0 -- as a guest my own body stays Zidane on my screen; the "
+            "host's ghost of me still follows ITS GhostAs)")
     out(f"  follow-host: " + ("ON (auto-warp + encounter pause; their battles boot live on my "
                               "screen)" if key("FollowHost") == "1" else "off"))
     return 0
@@ -683,6 +698,14 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         out("  visitor: their ghost appears as "
             + ("its own model" if not gv else
                "the party member they command in battle" if gv == "auto" else gv))
+        if role != "host" and gv:
+            # [ff9mapkit netsync s140] the guest DRESSES ITSELF from the host's GhostAs; a guest-side value only re-dresses
+            # the guest's own view of the HOST (the s138 client rule, kept byte for byte) -- the same pick on both
+            # machines shows the guest two of that character, and the two screens disagree about who the host is
+            out("  visitor: NOTE -- on an s140+ engine you already wear what the HOST's GhostAs names (your own "
+                "[Netsync] SelfDress=0 opts out). A GhostAs on your side re-dresses only YOUR view of the host (the 8 "
+                "mains): the same pick on both machines shows you two of that character. Normally leave it 'off' "
+                "when joining (`--ghost-as off`).")
     if "FollowHost" in style:
         out("  visitor: follow-host " + ("ON -- your game auto-warps to their field, your random "
                                          "encounters pause while paired, and their battles boot "

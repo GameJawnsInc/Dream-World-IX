@@ -94,6 +94,15 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Memoria/Battle/SFX/BattleActionCode.cs",
     "Assembly-CSharp/Memoria/Battle/Calculator/SBattleCalculator.cs",
     "Assembly-CSharp/Memoria/Battle/SFX/SFXData.cs",
+    # [ff9mapkit netsync s140] the guest dresses itself: its new file (NetSyncSelfDress.cs, created from /dev/null) and its stock hook
+    # sites -- DoEventCode.cs (DefinePlayerCharacter, SetModel, the loco setters, RunAnimation), PosObj.cs (netSelfDress / netDressSrc
+    # and PosObj.copy), updateModelsToBeAdded.cs (the warm-return re-attach) and DoCalcOperationExt.cs (the B_FRAME law) -- so a stale
+    # or mixed hunk in any of them cannot pass diag
+    "Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs",
+    "Assembly-CSharp/Global/PosObj.cs",
+    "Assembly-CSharp/Global/Event/Engine/EventEngine.updateModelsToBeAdded.cs",
+    "Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs",
+    "Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs",
 ]
 
 # Same-number ties, pinned explicitly.
