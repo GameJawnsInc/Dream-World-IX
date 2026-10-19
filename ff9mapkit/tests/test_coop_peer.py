@@ -1119,3 +1119,17 @@ def test_dress_judges_each_frame_against_its_own_party(tmp_path, capsys):
     _h, records, _t = CP.read_tape(stale)
     d = CP.tape_dress(records, CP.frame_expect("auto", 2))
     assert (d["disagree"], d["ok"]) == (2, False) and d["first_disagree"].startswith("section 8 08 00 01 on a frame")
+    # [ff9mapkit netsync s140] --stage: the RECORDING engine's rules -- an s139 host shipped 00 00 FF for a Cinna-led
+    # puppet slot (Cinna..Beatrix undressed there), an s140 host 6B 00 08 (her own model, rig 9); the default is s140
+    cinna = tmp_path / "cinna.f9tape"
+    undressed, worn = bytes((0x00, 0x00, 0xFF)), bytes((0x6B, 0x00, 0x08))
+    _dress_tape(cinna, [_host_state_frame(undressed, party=(0, 8, -1, -1))] * 3)
+    assert CP.main(["dress", str(cinna), "--ghost-as", "auto", "--guest-slots", "2", "--stage", "s139"]) == 0
+    assert "VERDICT: OK" in capsys.readouterr().out
+    assert CP.main(["dress", str(cinna), "--ghost-as", "auto", "--guest-slots", "2"]) == 1           # judged as s140
+    assert "VERDICT: FAIL" in capsys.readouterr().out
+    _dress_tape(cinna, [_host_state_frame(worn, party=(0, 8, -1, -1))] * 3)
+    assert CP.main(["dress", str(cinna), "--ghost-as", "auto", "--guest-slots", "2", "--stage", "s140"]) == 0
+    assert CP.main(["dress", str(cinna), "--ghost-as", "auto", "--guest-slots", "2", "--party", "0,8,-1,-1",
+                    "--stage", "s139"]) == 1
+    capsys.readouterr()

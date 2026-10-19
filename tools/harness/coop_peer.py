@@ -2122,15 +2122,24 @@ def tape_dress(records, expect=None) -> dict:
     return out
 
 
-def frame_expect(ghost_as, guest_slots: int):
+#: [ff9mapkit netsync s140] `dress --stage`: the host engine a tape was RECORDED on -> the dress rules its producer ran
+#: (battlewire.dress_rules: s139's frozen rules -- Cinna..Beatrix undressed, 00 00 FF -- or the live s140 table, rows 9-12)
+DRESS_STAGES = {"s139": "dresshost", "s140": "dressself"}
+
+
+def frame_expect(ghost_as, guest_slots: int, rules=None):
     """``payload -> bytes``: each host frame's OWN expected section 8 -- the twin's body for the host's ``ghost_as`` /
     ``guest_slots`` over the party THAT frame carries in its section 1 (its CharId bytes are PLAYER.info.slot_no, the very
-    PLAYER.Index the host's LiveSlotChars reads); None when the frame has no readable section 1."""
+    PLAYER.Index the host's LiveSlotChars reads); None when the frame has no readable section 1. [ff9mapkit netsync s140]
+    ``rules``: the recording engine's dress rules (:data:`DRESS_STAGES` -> battlewire.dress_rules; None = the live s140
+    table) -- an s139 tape with a CharacterId 8-11 member carried 00 00 FF, an s140 one 6B 00 08 .. CC 00 0B."""
+    R = rules or BW
+
     def expect(payload):
         party = BW.frame_slot_chars(payload)
         if party is None:
             return None
-        return BW.host_dress_section(ghost_as, int(guest_slots), "host", False, party)
+        return R.host_dress_section(ghost_as, int(guest_slots), "host", False, party)
     return expect
 
 
@@ -2165,10 +2174,11 @@ def _dress_expect(args):
         return None
     if args.guest_slots is None:
         raise ValueError("--ghost-as needs --guest-slots (the host's GuestSlots; 0 = a spectator: the moogle under auto)")
+    rules = BW.dress_rules(DRESS_STAGES[getattr(args, "stage", None) or "s140"])
     if args.party:
         party = [int(x) for x in args.party.split(",")]
-        return BW.host_dress_section(args.ghost_as, int(args.guest_slots), "host", False, party)
-    return frame_expect(args.ghost_as, int(args.guest_slots))
+        return rules.host_dress_section(args.ghost_as, int(args.guest_slots), "host", False, party)
+    return frame_expect(args.ghost_as, int(args.guest_slots), rules)
 def tape_home() -> Path:
     """Where the recorded tapes live: COOP_TAPE_DIR, else <the MAIN repo>/.harness-runs/coop-tapes -- the rule
     studies/test-harness/scenarios/_coop_peer_bench.tape_dir() records them by (gitignored, outliving any worktree). The
@@ -2310,6 +2320,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--party", default=None, metavar="C0,C1,C2,C3",
                    help="the host's party slots' CharacterIds, -1 empty (with --ghost-as auto), e.g. 0,1,2,3; omitted = "
                         "each frame's OWN party, read off its section 1")
+    p.add_argument("--stage", choices=tuple(DRESS_STAGES), default="s140",
+                   help="[s140] the host engine the tape was RECORDED on (with --ghost-as): s139's rules leave Cinna.."
+                        "Beatrix undressed (00 00 FF), s140's dress them (rigs 9-12) -- default s140")
     p.set_defaults(func=cmd_dress)
     return ap
 

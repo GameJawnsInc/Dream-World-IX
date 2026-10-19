@@ -1,0 +1,160 @@
+# SELFDRESS (field 30606) -- the s140 bench field: "the guest dresses itself" (R3 group 2; s141 reuses it).
+# Spec: studies/battle-coop/R3-FIELD-MODEL-AUDIT.md 4.1 (the shared bench field) and 4.4 (legs N, X, T).
+# The contract both sides read -- sids, flag bits, conductor operands, and the run-time preflight that re-checks the
+# DEPLOYED .eb and fails closed -- is studies/test-harness/scenarios/_selfdress_field.py. Keep the two in step:
+# `py -X utf8 studies/battle-coop/bench/selfdress_bench.py build` checks the [[flag]] table below against it.
+#
+# WHAT EACH PART IS FOR
+#   * [player]       the kit Zidane PLAYER: SetModel(98, 93) + DefinePlayerCharacter in its Init. sid/uid 1.
+#   * [[npc]] twin   a Zidane NPC with NO DefinePlayerCharacter anywhere in its entry. It is gated by an always-true
+#                    `requires_flag_clear` (sd_twin_gate: nothing sets it), so the kit activates it through a GUARDED
+#                    call that edit.activate_block inserts at Main_Init's START -- its InitObject precedes the
+#                    player's, which is the MAIN_INIT_ORDER row (N1 / N2: control is still null at its SetModel).
+#                    Identify it by its sid (2), never by model -- N2 dresses it. 806u from the spawn.
+#   * [[npc]] late   N3's second 98 entry. Its load-time InitObject requires sd_late_gate, which nothing sets, so it
+#                    never inits at load; the caller's N3 conductor InitObjects it AFTER the player's CC has run.
+#                    The seat step adds a never-run function holding DefinePlayerCharacter (EntryDefinesPlayer is
+#                    true, control never moves). sid 3. 806u from the spawn, 1400u from the twin.
+#   * [[prop]] cup   s141's F8: the caller's F8 conductor attaches it to the player's bone 13. sid 4.
+#   * the CALLER     NOT expressible in a field.toml -- a code entry (sid 5) whose loop polls the sd_trig_* bits and
+#                    runs one conductor each (X: RunAnimationEx(250, 186) + WaitAnimationEx; T1: RunAnimationEx(250,
+#                    2572) + `while GetEntryAnimFrame(250) < 58`; T3: RunScript(2, 250, 48); J: RunScript(2, 250, 50);
+#                    N3: InitObject(3); F8: AttachObject / DetachObject), plus T3's function INSIDE THE PLAYER'S ENTRY
+#                    (field 2705's `while GetEntryAnimFrame(255) < GetAnimDuration(8847) - 1` loop: B_FRAME evaluates
+#                    on gCur, the running object, so it must run there) and J's (field 404's ladder jump: the jump
+#                    ops act on the running object too). selfdress_bench.py SEATS them into every language's .eb
+#                    after the kit builds this toml (the photo-mode / sine-kit bench pattern: kit primitives
+#                    eb.edit.add_function / object.seat_entry / edit.activate_block, no kit code changes) and
+#                    regenerates the EventAnimation clip list from the seated script. A prebuilt .eb is never
+#                    committed: every kit build embeds the install-derived blank field (docs/PROVENANCE.md).
+#   * [[marker]]     build-inert: T3's walk (spawn -> the lane's west end -> 2000u east at speed 7), so
+#                    tools/field_layout_probe.py sweeps it. Keep the lane clear of the twin, the late entry, the cup.
+#   * [[flag]]       every bench bit (13200-13223, bytes 1650-1652 of the safe band; nothing else in the repo uses
+#                    13200-13239), declared so the kit's lint and its auto-flag allocator see them.
+#                    EXPOSURE: these sit in flags.py's CAMPAIGN LANE (the live opening campaign's per-member windows,
+#                    baked into a real save), and the caller WRITES them on every load (READY = 1, every IO bit 0):
+#                    harmless on the harness's newgame -- never enter 30606 from a real opening-campaign save.
+#
+# DEPLOY (a NEW id: the first deploy registers it -- one game RELAUNCH). Re-read every mod folder's
+# DictionaryPatch.txt first; 30606 was free in all five (FF9CustomMap, -world, -schema, -msgs, FF9Coop) on 2026-10-18:
+#   py studies/battle-coop/bench/selfdress_bench.py deploy
+# which runs exactly
+#   py tools/deploy_field.py studies/battle-coop/bench/selfdress.field.toml --id 30606 --mod-folder FF9CustomMap-msgs
+# and then seats the caller into the live EVT_TEST30606 .eb (every language) under the folder lock, re-running the
+# preflight on each. deploy_field.py ALONE ships the kit half only -- the bench's preflight then fails closed.
+# Revert: py tools/scroll_out/revert_deploy_30606.py (it deletes the seated files too).
+# Offline proof (no install writes, no deploy):  py -X utf8 studies/battle-coop/bench/selfdress_bench.py build
+# Offline check:  py -m ff9mapkit lint ../studies/battle-coop/bench/selfdress.field.toml   (from ff9mapkit/)
+
+[field]
+id = 30606
+name = "SELFDRESS"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1400, -100], [1400, -100], [1400, -2300], [-1400, -2300]]
+
+[player]
+spawn = [0, -1500]
+
+[[npc]]
+name = "twin"
+preset = "zidane"
+pos = [-700, -1100]
+dialogue = "(bench) The twin: a Zidane with no DefinePlayerCharacter."
+requires_flag_clear = "sd_twin_gate"
+
+[[npc]]
+name = "late"
+preset = "zidane"
+pos = [700, -1100]
+dialogue = "(bench) The late entry: N3's second Zidane."
+requires_flag = "sd_late_gate"
+
+[[prop]]
+name = "cup"
+prop = "cup"
+pos = [0, -700]
+collision = false
+
+[[marker]]
+name = "t3_lane"
+pos = [-1000, -1700]
+path = [[0, -1500], [-1000, -1700], [1000, -1700]]
+
+# ---- the bench bits (the contract: _selfdress_field.TOML_FLAGS) -------------------------------------------------
+[[flag]]
+name = "sd_twin_gate"     # NEVER set: the twin appears while it is clear
+index = 13200
+[[flag]]
+name = "sd_late_gate"     # NEVER set: the late entry never inits at load
+index = 13201
+[[flag]]
+name = "sd_ready"         # the caller zeroed every bench bit below, then set this
+index = 13202
+[[flag]]
+name = "sd_trig_x"
+index = 13203
+[[flag]]
+name = "sd_trig_t1"
+index = 13204
+[[flag]]
+name = "sd_trig_t3"
+index = 13205
+[[flag]]
+name = "sd_trig_n3"
+index = 13206
+[[flag]]
+name = "sd_trig_f8a"
+index = 13207
+[[flag]]
+name = "sd_trig_f8d"
+index = 13208
+[[flag]]
+name = "sd_done_x"
+index = 13209
+[[flag]]
+name = "sd_done_t1"
+index = 13210
+[[flag]]
+name = "sd_done_t3"
+index = 13211
+[[flag]]
+name = "sd_done_n3"
+index = 13212
+[[flag]]
+name = "sd_done_f8a"
+index = 13213
+[[flag]]
+name = "sd_done_f8d"
+index = 13214
+[[flag]]
+name = "sd_wedged_t1"     # T1's frame-wait timed out (red, no softlock)
+index = 13215
+[[flag]]
+name = "sd_wedged_t3"     # T3's 2705 loop did not end in time (red; warp to recover)
+index = 13216
+[[flag]]
+name = "sd_t3_loop"       # written by the PLAYER's T3 function: it entered the while-loop
+index = 13217
+[[flag]]
+name = "sd_t3_end"        # written by the PLAYER's T3 function: it got past the loop
+index = 13218
+[[flag]]
+name = "sd_trig_j"
+index = 13219
+[[flag]]
+name = "sd_done_j"
+index = 13220
+[[flag]]
+name = "sd_wedged_j"      # J's landing did not end in time (red; warp to recover)
+index = 13221
+[[flag]]
+name = "sd_j_land"        # written by the PLAYER's J function: right before RunLandAnimation
+index = 13222
+[[flag]]
+name = "sd_j_end"         # written by the PLAYER's J function: after the landing's WaitAnimation
+index = 13223

@@ -117,10 +117,14 @@ def test_parse_ghost_as():
     assert coop.parse_ghost_as("Vivi") == "vivi"
     assert coop.parse_ghost_as("DAGGER") == "dagger"       # the engine's garnet alias
     assert coop.parse_ghost_as("Moogle") == "moogle"       # [ff9mapkit netsync s139] rig row 8 (an older engine: undressed)
+    # [ff9mapkit netsync s140] the owner's 8-11 rows (rigs 9-12): "their own models" (an engine before s140: undressed)
+    assert [coop.parse_ghost_as(n) for n in ("Cinna", "MARCUS", " blank ", "Beatrix")] == ["cinna", "marcus", "blank",
+                                                                                           "beatrix"]
     for off_ish in ("", "off", "none", "0"):
         assert coop.parse_ghost_as(off_ish) == ""
-    with pytest.raises(ValueError):
-        coop.parse_ghost_as("beatrix")                     # no proven rig row -> refuse up front
+    for no_rig in ("kuja", "garland", "mog"):
+        with pytest.raises(ValueError):
+            coop.parse_ghost_as(no_rig)                    # no rig row (not a NameToRig name) -> refuse up front
 
 
 def test_playstyle_updates_only_what_was_given():
@@ -450,6 +454,11 @@ def test_show_config_reads_playstyle_in_human_terms(game):
     assert "auto (the party member they command)" in text
     assert "follow-host: ON" in text
     assert "diorama" not in text            # the knob is GONE (s42): follow-host implies the diorama
+    assert "self-dress" not in text         # [ff9mapkit netsync s140] SelfDress named only when switched off
+    coop.write_netsync(game, {"SelfDress": "0"}, out=lambda *_: None)
+    lines = []
+    assert coop.show_config(game, out=lines.append) == 0
+    assert any(ln.startswith("  self-dress:  OFF ([Netsync] SelfDress=0") for ln in lines), lines
 
 
 def test_coop_join_never_writes_diorama_key(game):
@@ -493,6 +502,26 @@ def test_coop_host_explicit_follow_host_overrides(game, monkeypatch):
     assert rc == 0
     text = (game / "Memoria.ini").read_text(encoding="utf-8")
     assert coop.read_ini_key(text, "Netsync", "FollowHost") == "1"
+
+
+def test_coop_join_with_a_ghost_pick_warns_the_guest_already_wears_the_hosts(game, monkeypatch):
+    # [ff9mapkit netsync s140] the guest dresses itself from the HOST's GhostAs; a guest-side GhostAs only re-dresses the
+    # guest's view of the host (the s138 client rule, kept byte for byte), so the same pick on both machines shows the
+    # guest two of that character. A joiner that names one is told (and the value is still written: a warning, not a
+    # refusal -- the Workspace's shared play-style panel passes the same argv to host and join); 'off' and hosting are not.
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+
+    def run(**kw):
+        lines = []
+        assert coop.run(_cli_args(game=str(game), no_room=True, **kw), out=lines.append) == 0
+        return [ln for ln in lines if "visitor: NOTE" in ln]
+    note = run(action="join", code="ff9-ABCD1234", lan="192.168.1.50", ghost_as="vivi")
+    assert len(note) == 1 and "two of that character" in note[0] and "SelfDress=0" in note[0], note
+    assert coop.read_ini_key((game / "Memoria.ini").read_text(encoding="utf-8"), "Netsync", "GhostAs") == "vivi"
+    assert len(run(action="join", code="ff9-ABCD1234", lan="192.168.1.50", ghost_as="auto")) == 1
+    assert run(action="join", code="ff9-ABCD1234", lan="192.168.1.50", ghost_as="off") == []
+    assert run(action="join", code="ff9-ABCD1234", lan="192.168.1.50") == []
+    assert run(action="host", lan="", ghost_as="vivi") == []
 
 
 def test_coop_join_does_not_force_follow_host(game):

@@ -8436,9 +8436,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="cap how long a guest's battle turn may freeze the ATB gauges "
                          "(seconds; 0 = no cap; engine default 30). Only written when given")
     co.add_argument("--ghost-as", default=None, metavar="WHO",
-                    help="visitor mode: dress the other player's ghost -- 'auto' (the party member "
-                         "they command in battle), a playable name (vivi, dagger, ...), or 'off' "
-                         "(their own model). Only written when given")
+                    help="visitor mode -- HOST: what your guest appears as on BOTH screens (an s140+ "
+                         "guest wears it itself unless its [Netsync] SelfDress=0): 'auto' (the party "
+                         "member they command in battle), a playable name (vivi, dagger, ..., cinna, "
+                         "marcus, blank, beatrix), moogle, or 'off' (their own model); GUEST: dresses "
+                         "only your view of the host (the 8 mains) -- normally 'off': an s140+ guest "
+                         "already wears the host's pick, so the same pick on both machines shows the "
+                         "guest two of that character. Only written when given")
     co.add_argument("--follow-host", choices=["on", "off"], default=None,
                     help="guest side: 'on' auto-warps your game to whatever field the host is on, "
                          "pauses your own random encounters while paired, and boots the host's "

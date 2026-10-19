@@ -1,0 +1,8690 @@
+{
+ "schema": "ff9mapkit.dress-census.loco-table/1",
+ "generator": "studies/battle-coop/dress-census/gen_loco_table.py",
+ "audit": "studies/battle-coop/R3-FIELD-MODEL-AUDIT.md 2.3 amendment 3 (D4); amendments 1, 4, 10",
+ "source": {
+  "file": "Assembly-CSharp/Global/ff9/FF9DBAll.Animation.cs",
+  "sha256": "61d9d975a397fb6bd504939bfe33985edd5e69e884d4c8be9c562149cd3dda5a",
+  "memoria_rev": "e570944ce0b1c102fd070641ecc8b8953b6c783b",
+  "open_source": true,
+  "kit_cross_check": "ff9mapkit._animdb_all.ANIMATIONS: 801 of 801 ZDN ids agree"
+ },
+ "folder": "GEO_MAIN_F0_ZDN",
+ "prefix": "ANH_MAIN_F0_ZDN_",
+ "counts": {
+  "names": 401,
+  "ids": 801,
+  "names_by_class": {
+   "OTHER": 361,
+   "IDLE": 5,
+   "WALK": 7,
+   "RUN": 3,
+   "TURN_L": 4,
+   "TURN_R": 4,
+   "INACTIVE": 7,
+   "JUMP_LADDER": 10
+  },
+  "ids_by_class": {
+   "OTHER": 722,
+   "IDLE": 10,
+   "WALK": 14,
+   "RUN": 6,
+   "TURN_L": 8,
+   "TURN_R": 8,
+   "INACTIVE": 14,
+   "JUMP_LADDER": 19
+  }
+ },
+ "classes": {
+  "OTHER": {
+   "code": 0,
+   "family": "gesture",
+   "s140_target": "IdleAlias",
+   "bframe_remap": "never",
+   "note": "the rig's IdleAlias (amendment 4: never the slot id); KeepSourceTimeline; B_FRAME stock"
+  },
+  "IDLE": {
+   "code": 1,
+   "family": "loco",
+   "s140_target": "Idle",
+   "bframe_remap": "always",
+   "note": "rig.Idle; native timeline; B_FRAME answers the mapped clip"
+  },
+  "WALK": {
+   "code": 2,
+   "family": "loco",
+   "s140_target": "Walk",
+   "bframe_remap": "always",
+   "note": "rig.Walk; native timeline; B_FRAME answers the mapped clip (2705's GetAnimDuration(8847) loop; 2802's TKE_WALK footstep frame)"
+  },
+  "RUN": {
+   "code": 3,
+   "family": "loco",
+   "s140_target": "Run",
+   "bframe_remap": "always",
+   "note": "rig.Run; native timeline; B_FRAME answers the mapped clip (1464/1554's MBG_RUN footstep frame)"
+  },
+  "TURN_L": {
+   "code": 4,
+   "family": "loco",
+   "s140_target": "TurnL",
+   "bframe_remap": "always",
+   "note": "rig.TurnL; native timeline; B_FRAME answers the mapped clip"
+  },
+  "TURN_R": {
+   "code": 5,
+   "family": "loco",
+   "s140_target": "TurnR",
+   "bframe_remap": "always",
+   "note": "rig.TurnR; native timeline; B_FRAME answers the mapped clip"
+  },
+  "INACTIVE": {
+   "code": 6,
+   "family": "loco",
+   "s140_target": "Inactive (0 -> slot 0 / RunAnimation IdleAlias)",
+   "bframe_remap": "iff rig.Inactive != 0",
+   "note": "rig.Inactive when != 0 (native, B_FRAME answers it); a rig with none (rig.Inactive == 0: Freya, Quina, Amarant, the moogle, and rows 9-12 per their census): the ASLEEP / AANIM_EX-5 slot gets 0 and a RunAnimation plays the IdleAlias on the GESTURE path (KeepSourceTimeline, B_FRAME stock: 400/1602's GetAnimDuration(185/186) then feed SetAnimationInOut on the source timeline)"
+  },
+  "JUMP_LADDER": {
+   "code": 7,
+   "family": "gesture",
+   "s140_target": "IdleAlias",
+   "bframe_remap": "never",
+   "note": "the IdleAlias in s140 (amendment 10, frame-safe); s141 amendment 7 maps it to the body rig's same-suffix clip when the AnimationDB has one"
+  }
+ },
+ "loco_families": [
+  "IDLE",
+  "WALK",
+  "RUN",
+  "TURN_L",
+  "TURN_R",
+  "INACTIVE"
+ ],
+ "gesture_families": [
+  "OTHER",
+  "JUMP_LADDER"
+ ],
+ "rules": {
+  "slot_tokens": {
+   "IDLE": "IDLE",
+   "WALK": "WALK",
+   "RUN": "RUN",
+   "TURN_L": "TURN_L",
+   "TURN_R": "TURN_R"
+  },
+  "stand_is_idle": false,
+  "qualifiers": [
+   "COLD",
+   "SWORD",
+   "FRA",
+   "MBG",
+   "POT",
+   "TKE"
+  ],
+  "qualifier_match": "EXACT <Q>_<slot token>: FRA_WALK_1 / FRA_WALK_3 fall to OTHER with no exception list",
+  "deliberate_other_qualified": [
+   "CAMP_IDLE",
+   "CHO_RUN",
+   "CHO_WALK",
+   "SIT_IDLE"
+  ],
+  "inactive_prefix": "BREAK1_",
+  "jump_ladder_pattern": "^(JUMP|JUMP1|JUMP_\\d+|LADDER_\\d+_\\d+)$",
+  "default": "OTHER",
+  "non_zdn_name": "OTHER",
+  "rig0_zidane": "every ZDN name is rig 0's OWN clip: MapAnim must pass it through (R3-DESIGN 3.4.4 'the dressed character's own clips pass through'); the table applies to a body whose rig is not GEO_MAIN_F0_ZDN"
+ },
+ "audit_literal_delta": [
+  {
+   "name": "STAND",
+   "ids": [
+    11185,
+    11187
+   ],
+   "audit": "IDLE",
+   "table": "OTHER",
+   "why": "no stock slot ever holds it; its only use is field 2934's four windowed RunAnimations (in/out 0-24, 25-36, 37-95, 96-133 under WaitAnimation): a >=134-frame stand-up gesture. Native (loco) would start the 96-133 window past frameN-1 and collapse the scene's timing; OTHER keeps the source timeline",
+   "flip": "STAND_IS_IDLE = True in gen_loco_table.py"
+  }
+ ],
+ "engine_copy": {
+  "form": "a static, closed name -> class map of the NON-OTHER names, default OTHER: one suffix row per class (LocoClassSuffixes, row index == code) expanded once into LocoClassByName; LocoClassOf(name)",
+  "entries": 40,
+  "map_chars": 1388,
+  "rule_set_chars": 1079,
+  "smaller": "rule_set",
+  "why": "the rule set is 309 chars smaller, but the map is kept AND it pins row for row: a pytest parses LocoClassSuffixes out of NetSyncSelfDress.cs and asserts it equals engine_map, so it equals the table on all 401 names (the rule set could only be pinned by sampled rows); it is closed (a mod-added name never becomes a slot by accident) and does no string parsing on the VM path",
+  "python_twin": "CLOSED, like the engine: a name is non-OTHER iff it is an engine_map row (battlewire can load this JSON or copy the rows). classify_name() here is the GENERATING rule: it equals the map on every AnimationDB name and differs only outside the DB (a mod-added TKE_RUN: rule RUN, map OTHER), where the closed map is the law",
+  "cs_verified": "--verify-cs compiles both C# forms in memory (PowerShell Add-Type) and runs them on all 401 names, null and 12 non-DB probes",
+  "prefix_reading_misfiles": [
+   "FRA_WALK_1",
+   "FRA_WALK_3"
+  ],
+  "design_suffix_rule_misfiles": {
+   "BREAK1_FLEX": [
+    "OTHER",
+    "INACTIVE"
+   ],
+   "BREAK1_FLEX2": [
+    "OTHER",
+    "INACTIVE"
+   ],
+   "BREAK1_HEAD": [
+    "OTHER",
+    "INACTIVE"
+   ],
+   "BREAK1_LOOK": [
+    "OTHER",
+    "INACTIVE"
+   ],
+   "BREAK1_LOOKB": [
+    "OTHER",
+    "INACTIVE"
+   ],
+   "BREAK1_STRCH": [
+    "OTHER",
+    "INACTIVE"
+   ],
+   "BREAK1_XARM": [
+    "OTHER",
+    "INACTIVE"
+   ],
+   "CAMP_IDLE": [
+    "IDLE",
+    "OTHER"
+   ],
+   "CHO_RUN": [
+    "RUN",
+    "OTHER"
+   ],
+   "CHO_WALK": [
+    "WALK",
+    "OTHER"
+   ],
+   "GRG_BREAK": [
+    "INACTIVE",
+    "OTHER"
+   ],
+   "SIT_IDLE": [
+    "IDLE",
+    "OTHER"
+   ],
+   "TIRED_TO_IDLE": [
+    "IDLE",
+    "OTHER"
+   ]
+  },
+  "reproduces_table": "401 of 401 names"
+ },
+ "engine_map": [
+  [
+   "ANH_MAIN_F0_ZDN_BREAK1_FLEX",
+   "INACTIVE",
+   6
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_BREAK1_FLEX2",
+   "INACTIVE",
+   6
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_BREAK1_HEAD",
+   "INACTIVE",
+   6
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_BREAK1_LOOK",
+   "INACTIVE",
+   6
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_BREAK1_LOOKB",
+   "INACTIVE",
+   6
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_BREAK1_STRCH",
+   "INACTIVE",
+   6
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_BREAK1_XARM",
+   "INACTIVE",
+   6
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_COLD_IDLE",
+   "IDLE",
+   1
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_COLD_TURN_L",
+   "TURN_L",
+   4
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_COLD_TURN_R",
+   "TURN_R",
+   5
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_COLD_WALK",
+   "WALK",
+   2
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_FRA_IDLE",
+   "IDLE",
+   1
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_FRA_WALK",
+   "WALK",
+   2
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_IDLE",
+   "IDLE",
+   1
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_JUMP",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_JUMP1",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_JUMP_1",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_JUMP_2",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_JUMP_3",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_LADDER_1_1",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_LADDER_1_2",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_LADDER_1_3",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_LADDER_2_1",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_LADDER_2_3",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_MBG_IDLE",
+   "IDLE",
+   1
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_MBG_RUN",
+   "RUN",
+   3
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_MBG_WALK",
+   "WALK",
+   2
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_POT_TURN_L",
+   "TURN_L",
+   4
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_POT_TURN_R",
+   "TURN_R",
+   5
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_POT_WALK",
+   "WALK",
+   2
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_RUN",
+   "RUN",
+   3
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_SWORD_IDLE",
+   "IDLE",
+   1
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_SWORD_RUN",
+   "RUN",
+   3
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_SWORD_TURN_L",
+   "TURN_L",
+   4
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_SWORD_TURN_R",
+   "TURN_R",
+   5
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_SWORD_WALK",
+   "WALK",
+   2
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_TKE_WALK",
+   "WALK",
+   2
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_TURN_L",
+   "TURN_L",
+   4
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_TURN_R",
+   "TURN_R",
+   5
+  ],
+  [
+   "ANH_MAIN_F0_ZDN_WALK",
+   "WALK",
+   2
+  ]
+ ],
+ "engine_cs": [
+  "// [ff9mapkit netsync s140] THE LOCO-CLASS TABLE (R3-FIELD-MODEL-AUDIT.md 2.3 amendment 3): generated by",
+  "// studies/battle-coop/dress-census/gen_loco_table.py from FF9DBAll.Animation.cs -- the 40 non-OTHER names of the",
+  "// 401 GEO_MAIN_F0_ZDN names, one row per class (row index == the class code; the suffix follows ANH_MAIN_F0_ZDN_).",
+  "// Any other name, every non-ZDN name included, is LocoClassOther (the rig's idle ALIAS). Classified by NAME: 200 and",
+  "// 324 are both ANH_MAIN_F0_ZDN_IDLE. Codes 0-5 == NetSyncVisitor.LocoOther..LocoTurnR.",
+  "internal const Byte LocoClassOther = 0, LocoClassIdle = 1, LocoClassWalk = 2, LocoClassRun = 3, LocoClassTurnL = 4,",
+  "    LocoClassTurnR = 5, LocoClassInactive = 6, LocoClassJumpLadder = 7;",
+  "private static readonly String[][] LocoClassSuffixes =",
+  "{",
+  "    new String[0],",
+  "    new String[] { \"COLD_IDLE\", \"FRA_IDLE\", \"IDLE\", \"MBG_IDLE\", \"SWORD_IDLE\" },   // 1 Idle",
+  "    new String[] { \"COLD_WALK\", \"FRA_WALK\", \"MBG_WALK\", \"POT_WALK\", \"SWORD_WALK\", \"TKE_WALK\", \"WALK\" },   // 2 Walk",
+  "    new String[] { \"MBG_RUN\", \"RUN\", \"SWORD_RUN\" },   // 3 Run",
+  "    new String[] { \"COLD_TURN_L\", \"POT_TURN_L\", \"SWORD_TURN_L\", \"TURN_L\" },   // 4 TurnL",
+  "    new String[] { \"COLD_TURN_R\", \"POT_TURN_R\", \"SWORD_TURN_R\", \"TURN_R\" },   // 5 TurnR",
+  "    new String[] { \"BREAK1_FLEX\", \"BREAK1_FLEX2\", \"BREAK1_HEAD\", \"BREAK1_LOOK\", \"BREAK1_LOOKB\", \"BREAK1_STRCH\", \"BREAK1_XARM\" },   // 6 Inactive",
+  "    new String[] { \"JUMP\", \"JUMP1\", \"JUMP_1\", \"JUMP_2\", \"JUMP_3\", \"LADDER_1_1\", \"LADDER_1_2\", \"LADDER_1_3\", \"LADDER_2_1\", \"LADDER_2_3\" },   // 7 JumpLadder",
+  "};",
+  "private static readonly Dictionary<String, Byte> LocoClassByName = BuildLocoClassByName();",
+  "private static Dictionary<String, Byte> BuildLocoClassByName()",
+  "{",
+  "    Dictionary<String, Byte> map = new Dictionary<String, Byte>(StringComparer.Ordinal);",
+  "    for (Int32 c = 1; c < LocoClassSuffixes.Length; c++)",
+  "        foreach (String s in LocoClassSuffixes[c])",
+  "            map[\"ANH_MAIN_F0_ZDN_\" + s] = (Byte)c;   // indexer: type init never throws (amendment 9)",
+  "    return map;",
+  "}",
+  "internal static Byte LocoClassOf(String name)   // pure; never throws (a null name -> Other)",
+  "{",
+  "    Byte c;",
+  "    return name != null && LocoClassByName.TryGetValue(name, out c) ? c : LocoClassOther;",
+  "}"
+ ],
+ "selftest_rows": [
+  [
+   12782,
+   "ANH_MAIN_F0_ZDN_CHO_WALK",
+   "OTHER",
+   0
+  ],
+  [
+   8847,
+   "ANH_MAIN_F0_ZDN_FRA_WALK",
+   "WALK",
+   2
+  ],
+  [
+   192,
+   "ANH_MAIN_F0_ZDN_BREAK1_FLEX",
+   "INACTIVE",
+   6
+  ],
+  [
+   200,
+   "ANH_MAIN_F0_ZDN_IDLE",
+   "IDLE",
+   1
+  ],
+  [
+   324,
+   "ANH_MAIN_F0_ZDN_IDLE",
+   "IDLE",
+   1
+  ],
+  [
+   9181,
+   "ANH_MAIN_F0_ZDN_FRA_WALK_1",
+   "OTHER",
+   0
+  ],
+  [
+   11187,
+   "ANH_MAIN_F0_ZDN_STAND",
+   "OTHER",
+   0
+  ],
+  [
+   11453,
+   "ANH_MAIN_F0_ZDN_LADDER_2_3",
+   "JUMP_LADDER",
+   7
+  ],
+  [
+   2575,
+   "ANH_MAIN_F0_ZDN_COLD_WALK",
+   "WALK",
+   2
+  ],
+  [
+   7935,
+   "ANH_MAIN_F0_ZDN_MBG_RUN",
+   "RUN",
+   3
+  ],
+  [
+   4041,
+   "ANH_MAIN_F0_ZDN_POT_TURN_L",
+   "TURN_L",
+   4
+  ],
+  [
+   3516,
+   "ANH_MAIN_F0_ZDN_SWORD_TURN_R",
+   "TURN_R",
+   5
+  ],
+  [
+   2556,
+   "ANH_MAIN_F0_FRJ_IDLE",
+   "OTHER",
+   0
+  ]
+ ],
+ "loco_names": {
+  "IDLE": [
+   {
+    "name": "COLD_IDLE",
+    "ids": [
+     2622,
+     2623
+    ]
+   },
+   {
+    "name": "FRA_IDLE",
+    "ids": [
+     7920,
+     7922
+    ]
+   },
+   {
+    "name": "IDLE",
+    "ids": [
+     200,
+     324
+    ]
+   },
+   {
+    "name": "MBG_IDLE",
+    "ids": [
+     7931,
+     7933
+    ]
+   },
+   {
+    "name": "SWORD_IDLE",
+    "ids": [
+     3511,
+     3512
+    ]
+   }
+  ],
+  "WALK": [
+   {
+    "name": "COLD_WALK",
+    "ids": [
+     2574,
+     2575
+    ]
+   },
+   {
+    "name": "FRA_WALK",
+    "ids": [
+     8846,
+     8847
+    ]
+   },
+   {
+    "name": "MBG_WALK",
+    "ids": [
+     7940,
+     7942
+    ]
+   },
+   {
+    "name": "POT_WALK",
+    "ids": [
+     4000,
+     4001
+    ]
+   },
+   {
+    "name": "SWORD_WALK",
+    "ids": [
+     3521,
+     3522
+    ]
+   },
+   {
+    "name": "TKE_WALK",
+    "ids": [
+     8554,
+     8555
+    ]
+   },
+   {
+    "name": "WALK",
+    "ids": [
+     25,
+     190
+    ]
+   }
+  ],
+  "RUN": [
+   {
+    "name": "MBG_RUN",
+    "ids": [
+     7935,
+     7937
+    ]
+   },
+   {
+    "name": "RUN",
+    "ids": [
+     38,
+     203
+    ]
+   },
+   {
+    "name": "SWORD_RUN",
+    "ids": [
+     3507,
+     3508
+    ]
+   }
+  ],
+  "TURN_L": [
+   {
+    "name": "COLD_TURN_L",
+    "ids": [
+     8283,
+     8284
+    ]
+   },
+   {
+    "name": "POT_TURN_L",
+    "ids": [
+     4039,
+     4041
+    ]
+   },
+   {
+    "name": "SWORD_TURN_L",
+    "ids": [
+     3509,
+     3510
+    ]
+   },
+   {
+    "name": "TURN_L",
+    "ids": [
+     40,
+     187
+    ]
+   }
+  ],
+  "TURN_R": [
+   {
+    "name": "COLD_TURN_R",
+    "ids": [
+     8285,
+     8286
+    ]
+   },
+   {
+    "name": "POT_TURN_R",
+    "ids": [
+     4043,
+     4045
+    ]
+   },
+   {
+    "name": "SWORD_TURN_R",
+    "ids": [
+     3515,
+     3516
+    ]
+   },
+   {
+    "name": "TURN_R",
+    "ids": [
+     41,
+     193
+    ]
+   }
+  ],
+  "INACTIVE": [
+   {
+    "name": "BREAK1_FLEX",
+    "ids": [
+     55,
+     192
+    ]
+   },
+   {
+    "name": "BREAK1_FLEX2",
+    "ids": [
+     120,
+     4796
+    ]
+   },
+   {
+    "name": "BREAK1_HEAD",
+    "ids": [
+     14586,
+     14587
+    ]
+   },
+   {
+    "name": "BREAK1_LOOK",
+    "ids": [
+     56,
+     186
+    ]
+   },
+   {
+    "name": "BREAK1_LOOKB",
+    "ids": [
+     59,
+     185
+    ]
+   },
+   {
+    "name": "BREAK1_STRCH",
+    "ids": [
+     54,
+     209
+    ]
+   },
+   {
+    "name": "BREAK1_XARM",
+    "ids": [
+     57,
+     182
+    ]
+   }
+  ],
+  "JUMP_LADDER": [
+   {
+    "name": "JUMP",
+    "ids": [
+     106,
+     206
+    ]
+   },
+   {
+    "name": "JUMP1",
+    "ids": [
+     179
+    ]
+   },
+   {
+    "name": "JUMP_1",
+    "ids": [
+     10446,
+     10447
+    ]
+   },
+   {
+    "name": "JUMP_2",
+    "ids": [
+     3519,
+     3520
+    ]
+   },
+   {
+    "name": "JUMP_3",
+    "ids": [
+     10444,
+     10445
+    ]
+   },
+   {
+    "name": "LADDER_1_1",
+    "ids": [
+     10686,
+     10687
+    ]
+   },
+   {
+    "name": "LADDER_1_2",
+    "ids": [
+     10538,
+     10539
+    ]
+   },
+   {
+    "name": "LADDER_1_3",
+    "ids": [
+     10684,
+     10685
+    ]
+   },
+   {
+    "name": "LADDER_2_1",
+    "ids": [
+     11454,
+     11455
+    ]
+   },
+   {
+    "name": "LADDER_2_3",
+    "ids": [
+     11452,
+     11453
+    ]
+   }
+  ]
+ },
+ "samples": {
+  "CHO_WALK": "OTHER",
+  "FRA_WALK": "WALK",
+  "BREAK1_FLEX": "INACTIVE",
+  "200": "IDLE",
+  "324": "IDLE"
+ },
+ "table": {
+  "AKIRERU": "OTHER",
+  "ANGRY_1_1": "OTHER",
+  "ANGRY_1_2": "OTHER",
+  "ANGRY_1_3": "OTHER",
+  "ANGRY_2_1": "OTHER",
+  "ANGRY_2_2": "OTHER",
+  "ANGRY_2_3": "OTHER",
+  "B": "OTHER",
+  "BEG_4": "OTHER",
+  "BEG_4_1": "OTHER",
+  "BEG_4_3": "OTHER",
+  "BEG_5": "OTHER",
+  "BELL_1": "OTHER",
+  "BELL_2": "OTHER",
+  "BELL_3": "OTHER",
+  "BRAKE": "OTHER",
+  "BRAKE_2": "OTHER",
+  "BREAK1_FLEX": "INACTIVE",
+  "BREAK1_FLEX2": "INACTIVE",
+  "BREAK1_HEAD": "INACTIVE",
+  "BREAK1_LOOK": "INACTIVE",
+  "BREAK1_LOOKB": "INACTIVE",
+  "BREAK1_STRCH": "INACTIVE",
+  "BREAK1_XARM": "INACTIVE",
+  "CAMP_FIRE": "OTHER",
+  "CAMP_IDLE": "OTHER",
+  "CAMP_LOOK_SKY": "OTHER",
+  "CATCH_EIK_1": "OTHER",
+  "CATCH_EIK_2": "OTHER",
+  "CATCH_EIK_3": "OTHER",
+  "CHO_RIDE_1": "OTHER",
+  "CHO_RIDE_2": "OTHER",
+  "CHO_RIDE_3": "OTHER",
+  "CHO_RUN": "OTHER",
+  "CHO_SEEK_1": "OTHER",
+  "CHO_SEEK_2": "OTHER",
+  "CHO_SEEK_3": "OTHER",
+  "CHO_SEEK_4": "OTHER",
+  "CHO_SEEK_5": "OTHER",
+  "CHO_WALK": "OTHER",
+  "CLEYRA_OTTOTTO_B": "OTHER",
+  "CLEYRA_OTTOTTO_B_1": "OTHER",
+  "CLEYRA_OTTOTTO_B_3": "OTHER",
+  "CLEYRA_OTTOTTO_F": "OTHER",
+  "CLEYRA_OTTOTTO_F_1": "OTHER",
+  "CLEYRA_OTTOTTO_F_3": "OTHER",
+  "CLEYRA_SWITCH_A": "OTHER",
+  "CLEYRA_SWITCH_B": "OTHER",
+  "CLIMB": "OTHER",
+  "CLIMB_LOOP": "OTHER",
+  "COLD_FAINT_1": "OTHER",
+  "COLD_FAINT_2": "OTHER",
+  "COLD_IDLE": "IDLE",
+  "COLD_KNEEL_1": "OTHER",
+  "COLD_KNEEL_2": "OTHER",
+  "COLD_KNEEL_3": "OTHER",
+  "COLD_KNEEL_4": "OTHER",
+  "COLD_TURN_L": "TURN_L",
+  "COLD_TURN_R": "TURN_R",
+  "COLD_WALK": "WALK",
+  "DASH_PAUSE_1": "OTHER",
+  "DASH_PAUSE_2": "OTHER",
+  "DASH_PAUSE_3": "OTHER",
+  "DESK_KNOCK": "OTHER",
+  "DINE_1": "OTHER",
+  "DINE_2": "OTHER",
+  "DINE_3": "OTHER",
+  "DINE_4": "OTHER",
+  "DINE_5": "OTHER",
+  "DINE_SLEEP_1": "OTHER",
+  "DINE_SLEEP_2": "OTHER",
+  "DINE_SLEEP_3": "OTHER",
+  "DINE_SLEEP_4": "OTHER",
+  "DINE_SLEEP_5": "OTHER",
+  "DISAPPOINTED_1": "OTHER",
+  "DISAPPOINTED_2": "OTHER",
+  "DISAPPOINTED_3": "OTHER",
+  "DOOR_CANT_OPEN": "OTHER",
+  "DOTSUKI": "OTHER",
+  "DRINK_1": "OTHER",
+  "DRINK_2": "OTHER",
+  "DRINK_3": "OTHER",
+  "DROP": "OTHER",
+  "EA_MIRROR_1": "OTHER",
+  "FAINT_SIT_2": "OTHER",
+  "FAINT_SIT_3": "OTHER",
+  "FI_MIRROR_1": "OTHER",
+  "FRA_DOWN_1": "OTHER",
+  "FRA_DOWN_2": "OTHER",
+  "FRA_IDLE": "IDLE",
+  "FRA_MOTARE_1": "OTHER",
+  "FRA_MOTARE_2": "OTHER",
+  "FRA_MOTARE_3": "OTHER",
+  "FRA_SIT_2": "OTHER",
+  "FRA_SIT_3": "OTHER",
+  "FRA_WALK": "WALK",
+  "FRA_WALK_1": "OTHER",
+  "FRA_WALK_3": "OTHER",
+  "FUMAN": "OTHER",
+  "GAME_1": "OTHER",
+  "GAME_10": "OTHER",
+  "GAME_2": "OTHER",
+  "GAME_3": "OTHER",
+  "GAME_4": "OTHER",
+  "GAME_5": "OTHER",
+  "GAME_6": "OTHER",
+  "GAME_7": "OTHER",
+  "GAME_8": "OTHER",
+  "GAME_9": "OTHER",
+  "GAS_1": "OTHER",
+  "GAS_2": "OTHER",
+  "GAS_3": "OTHER",
+  "GET_POTION": "OTHER",
+  "GET_TKE_1": "OTHER",
+  "GET_TKE_2": "OTHER",
+  "GET_TKE_3": "OTHER",
+  "GIROCHIN": "OTHER",
+  "GIVE_1_1": "OTHER",
+  "GIVE_1_2": "OTHER",
+  "GIVE_1_3": "OTHER",
+  "GRG_1": "OTHER",
+  "GRG_2": "OTHER",
+  "GRG_3": "OTHER",
+  "GRG_BREAK": "OTHER",
+  "GROUND_DECIDE": "OTHER",
+  "GROUND_NAYAMU": "OTHER",
+  "GROUND_THINK": "OTHER",
+  "HANDLE_L": "OTHER",
+  "HANDLE_R": "OTHER",
+  "HARA_PUNCH1": "OTHER",
+  "HARA_PUNCH2": "OTHER",
+  "HARA_PUNCH3": "OTHER",
+  "HELP": "OTHER",
+  "HIZA_1": "OTHER",
+  "HIZA_2": "OTHER",
+  "HIZA_3": "OTHER",
+  "HIZA_CHAIR": "OTHER",
+  "HIZA_NO": "OTHER",
+  "HIZA_OJIGI_1": "OTHER",
+  "HIZA_OJIGI_2": "OTHER",
+  "HIZA_UTSUMUKI": "OTHER",
+  "HOLD_1": "OTHER",
+  "HOLD_2": "OTHER",
+  "HURRY_UP_1": "OTHER",
+  "HURRY_UP_2": "OTHER",
+  "HURRY_UP_3": "OTHER",
+  "IDLE": "IDLE",
+  "JUMP": "JUMP_LADDER",
+  "JUMP1": "JUMP_LADDER",
+  "JUMP_1": "JUMP_LADDER",
+  "JUMP_2": "JUMP_LADDER",
+  "JUMP_3": "JUMP_LADDER",
+  "JUMP_KICK_1": "OTHER",
+  "JUMP_KICK_2": "OTHER",
+  "JUMP_OUCH": "OTHER",
+  "KAMAE_1": "OTHER",
+  "KAMAE_2": "OTHER",
+  "KAMAE_3": "OTHER",
+  "KANGAERU": "OTHER",
+  "KANGAERU_DAME": "OTHER",
+  "KANGAERU_DECIDE": "OTHER",
+  "KICK_STEINER_1": "OTHER",
+  "KICK_STEINER_2": "OTHER",
+  "KISSME_1": "OTHER",
+  "KISSME_2": "OTHER",
+  "KISSME_3": "OTHER",
+  "KNEEL_DRINK": "OTHER",
+  "KNOCK_DOOR_1": "OTHER",
+  "KNOCK_DOOR_2": "OTHER",
+  "KNOCK_DOOR_3": "OTHER",
+  "LADDER_1_1": "JUMP_LADDER",
+  "LADDER_1_2": "JUMP_LADDER",
+  "LADDER_1_3": "JUMP_LADDER",
+  "LADDER_2_1": "JUMP_LADDER",
+  "LADDER_2_3": "JUMP_LADDER",
+  "LADDER_TOUCH": "OTHER",
+  "LAST": "OTHER",
+  "LAST_2": "OTHER",
+  "LETSGO_1_1": "OTHER",
+  "LETSGO_1_2": "OTHER",
+  "LETSGO_1_3": "OTHER",
+  "LETSGO_2_1": "OTHER",
+  "LETSGO_2_2": "OTHER",
+  "LETSGO_2_3": "OTHER",
+  "LETSGO_L_1": "OTHER",
+  "LETSGO_L_2": "OTHER",
+  "LETSGO_L_3": "OTHER",
+  "LETSGO_R_1": "OTHER",
+  "LETSGO_R_2": "OTHER",
+  "LETSGO_R_3": "OTHER",
+  "LISTEN_1": "OTHER",
+  "LISTEN_2": "OTHER",
+  "LISTEN_3": "OTHER",
+  "LOOKD_1": "OTHER",
+  "LOOKD_2": "OTHER",
+  "LOOKD_3": "OTHER",
+  "LOOK_UP_1": "OTHER",
+  "LOOK_UP_2": "OTHER",
+  "LOOK_UP_3": "OTHER",
+  "LOSE": "OTHER",
+  "MATCH1": "OTHER",
+  "MATCH2": "OTHER",
+  "MATCH3": "OTHER",
+  "MATCH4": "OTHER",
+  "MATCH5": "OTHER",
+  "MATCH6": "OTHER",
+  "MATCH7": "OTHER",
+  "MATCH_0": "OTHER",
+  "MATCH_1": "OTHER",
+  "MATCH_2": "OTHER",
+  "MATCH_LEFT": "OTHER",
+  "MATCH_RIGHT": "OTHER",
+  "MATCH_WARK": "OTHER",
+  "MBG_102": "OTHER",
+  "MBG_A01": "OTHER",
+  "MBG_A02": "OTHER",
+  "MBG_A03": "OTHER",
+  "MBG_A04": "OTHER",
+  "MBG_A06": "OTHER",
+  "MBG_A07": "OTHER",
+  "MBG_B01": "OTHER",
+  "MBG_B02": "OTHER",
+  "MBG_C01": "OTHER",
+  "MBG_C02": "OTHER",
+  "MBG_C04": "OTHER",
+  "MBG_C05": "OTHER",
+  "MBG_D02": "OTHER",
+  "MBG_D04": "OTHER",
+  "MBG_D05": "OTHER",
+  "MBG_E01": "OTHER",
+  "MBG_E02": "OTHER",
+  "MBG_E03": "OTHER",
+  "MBG_F02": "OTHER",
+  "MBG_F05": "OTHER",
+  "MBG_F06": "OTHER",
+  "MBG_F07": "OTHER",
+  "MBG_F08": "OTHER",
+  "MBG_F09": "OTHER",
+  "MBG_G01": "OTHER",
+  "MBG_G02": "OTHER",
+  "MBG_G04": "OTHER",
+  "MBG_G05": "OTHER",
+  "MBG_IDLE": "IDLE",
+  "MBG_KJA": "OTHER",
+  "MBG_RUN": "RUN",
+  "MBG_SHIP": "OTHER",
+  "MBG_TIRED": "OTHER",
+  "MBG_WALK": "WALK",
+  "MIRROR_2": "OTHER",
+  "MIRROR_3": "OTHER",
+  "MOTARE": "OTHER",
+  "MOTARE_UDE": "OTHER",
+  "NAGURU": "OTHER",
+  "NO": "OTHER",
+  "NOZOKI_1": "OTHER",
+  "NOZOKI_2": "OTHER",
+  "NOZOKI_3": "OTHER",
+  "ON_BED": "OTHER",
+  "ON_BED_SLEEP": "OTHER",
+  "ON_BED_SLEEP_2": "OTHER",
+  "ON_BED_WAKEUP": "OTHER",
+  "OPEN_DOOR1": "OTHER",
+  "OPEN_DOOR2": "OTHER",
+  "P": "OTHER",
+  "POINT_DALI": "OTHER",
+  "POLE_1_1": "OTHER",
+  "POLE_1_2": "OTHER",
+  "POLE_1_3": "OTHER",
+  "POLE_2_1": "OTHER",
+  "POLE_2_2": "OTHER",
+  "POLE_2_3": "OTHER",
+  "POT_1": "OTHER",
+  "POT_2": "OTHER",
+  "POT_3": "OTHER",
+  "POT_LOOK": "OTHER",
+  "POT_TURN_L": "TURN_L",
+  "POT_TURN_R": "TURN_R",
+  "POT_WALK": "WALK",
+  "PULL_VINE": "OTHER",
+  "RECEIVE_1_1": "OTHER",
+  "RECEIVE_1_2": "OTHER",
+  "RECEIVE_1_3": "OTHER",
+  "RUN": "RUN",
+  "SAD_WITH_MAP": "OTHER",
+  "SEARCH_UP_1": "OTHER",
+  "SEARCH_UP_2": "OTHER",
+  "SEARCH_UP_3": "OTHER",
+  "SIT_1": "OTHER",
+  "SIT_2": "OTHER",
+  "SIT_3": "OTHER",
+  "SIT_DOWN": "OTHER",
+  "SIT_DOWN_3": "OTHER",
+  "SIT_GROUND_1_1": "OTHER",
+  "SIT_GROUND_1_2": "OTHER",
+  "SIT_GROUND_1_3": "OTHER",
+  "SIT_G_TALK_1": "OTHER",
+  "SIT_G_TALK_2": "OTHER",
+  "SIT_G_TALK_3": "OTHER",
+  "SIT_IDLE": "OTHER",
+  "SIT_KJA_1": "OTHER",
+  "SIT_KJA_2": "OTHER",
+  "SIT_LOOKUP": "OTHER",
+  "SIT_LOOK_KJA_1": "OTHER",
+  "SIT_LOOK_KJA_2": "OTHER",
+  "SIT_LOOK_UP_1": "OTHER",
+  "SIT_LOOK_UP_2": "OTHER",
+  "SIT_NO_1": "OTHER",
+  "SIT_NO_2": "OTHER",
+  "SIT_NO_3": "OTHER",
+  "SIT_PUNCH": "OTHER",
+  "SIT_TALK_1": "OTHER",
+  "SIT_TALK_2": "OTHER",
+  "SIT_TALK_3": "OTHER",
+  "STAIR_DOWN_1": "OTHER",
+  "STAIR_DOWN_2": "OTHER",
+  "STAIR_DOWN_3": "OTHER",
+  "STAIR_DOWN_4": "OTHER",
+  "STAND": "OTHER",
+  "STEER": "OTHER",
+  "STEER_TAIL": "OTHER",
+  "SURPRISED_1_1": "OTHER",
+  "SURPRISED_1_2": "OTHER",
+  "SURPRISED_1_3": "OTHER",
+  "SURPRISED_2_1": "OTHER",
+  "SURPRISED_2_2": "OTHER",
+  "SURPRISED_2_3": "OTHER",
+  "SWITCH": "OTHER",
+  "SWITCH_CANDLE": "OTHER",
+  "SWITCH_FOSSIL": "OTHER",
+  "SWORD_IDLE": "IDLE",
+  "SWORD_JUMP": "OTHER",
+  "SWORD_RUN": "RUN",
+  "SWORD_SIT_0": "OTHER",
+  "SWORD_SIT_1": "OTHER",
+  "SWORD_TALK": "OTHER",
+  "SWORD_THREAT": "OTHER",
+  "SWORD_TURN_L": "TURN_L",
+  "SWORD_TURN_R": "TURN_R",
+  "SWORD_WALK": "WALK",
+  "TALK": "OTHER",
+  "TALK_1_1": "OTHER",
+  "TALK_1_2": "OTHER",
+  "TALK_1_3": "OTHER",
+  "TALK_2_1": "OTHER",
+  "TALK_2_2": "OTHER",
+  "TALK_2_3": "OTHER",
+  "TALK_3_1": "OTHER",
+  "TALK_3_2": "OTHER",
+  "TALK_3_3": "OTHER",
+  "TALK_4_1": "OTHER",
+  "TALK_4_2": "OTHER",
+  "TALK_4_3": "OTHER",
+  "TALK_5_1": "OTHER",
+  "TALK_5_2": "OTHER",
+  "TALK_5_3": "OTHER",
+  "TAN": "OTHER",
+  "TELESCOPE_1": "OTHER",
+  "TELESCOPE_2": "OTHER",
+  "TELESCOPE_3": "OTHER",
+  "TENJYOU_END": "OTHER",
+  "TENJYOU_IDLE_1": "OTHER",
+  "TENJYOU_IDLE_2": "OTHER",
+  "THINK_1_1": "OTHER",
+  "THINK_1_2": "OTHER",
+  "THINK_1_3": "OTHER",
+  "THINK_2_1": "OTHER",
+  "THINK_2_2": "OTHER",
+  "THINK_2_3": "OTHER",
+  "THINK_3_1": "OTHER",
+  "THINK_3_2": "OTHER",
+  "THINK_3_3": "OTHER",
+  "THINK_4_1": "OTHER",
+  "THINK_4_2": "OTHER",
+  "THINK_4_3": "OTHER",
+  "THROW": "OTHER",
+  "THROW_GNT": "OTHER",
+  "TIRED": "OTHER",
+  "TIRED_TO_IDLE": "OTHER",
+  "TKE_WALK": "WALK",
+  "TRY_HOLD_1": "OTHER",
+  "TRY_HOLD_2": "OTHER",
+  "TSUBURE_1": "OTHER",
+  "TSUBURE_2": "OTHER",
+  "TSUBURE_3": "OTHER",
+  "TSUBURE_FRA": "OTHER",
+  "TUR": "OTHER",
+  "TURN_L": "TURN_L",
+  "TURN_R": "TURN_R",
+  "UDE_MOTARE": "OTHER",
+  "UTSUMUKI": "OTHER",
+  "UTSUMUKI_UDE": "OTHER",
+  "WALK": "WALK",
+  "WA_MIRROR_1": "OTHER",
+  "WI_MIRROR_1": "OTHER",
+  "XARM_1": "OTHER",
+  "XARM_2": "OTHER",
+  "XARM_3": "OTHER",
+  "YES": "OTHER",
+  "YOKE": "OTHER",
+  "YOKE_STN_1": "OTHER",
+  "YOKE_STN_2": "OTHER"
+ },
+ "by_id": {
+  "25": [
+   "WALK",
+   "WALK"
+  ],
+  "38": [
+   "RUN",
+   "RUN"
+  ],
+  "40": [
+   "TURN_L",
+   "TURN_L"
+  ],
+  "41": [
+   "TURN_R",
+   "TURN_R"
+  ],
+  "54": [
+   "BREAK1_STRCH",
+   "INACTIVE"
+  ],
+  "55": [
+   "BREAK1_FLEX",
+   "INACTIVE"
+  ],
+  "56": [
+   "BREAK1_LOOK",
+   "INACTIVE"
+  ],
+  "57": [
+   "BREAK1_XARM",
+   "INACTIVE"
+  ],
+  "59": [
+   "BREAK1_LOOKB",
+   "INACTIVE"
+  ],
+  "102": [
+   "CLIMB",
+   "OTHER"
+  ],
+  "103": [
+   "CLIMB_LOOP",
+   "OTHER"
+  ],
+  "106": [
+   "JUMP",
+   "JUMP_LADDER"
+  ],
+  "108": [
+   "NO",
+   "OTHER"
+  ],
+  "111": [
+   "YES",
+   "OTHER"
+  ],
+  "114": [
+   "TALK",
+   "OTHER"
+  ],
+  "120": [
+   "BREAK1_FLEX2",
+   "INACTIVE"
+  ],
+  "179": [
+   "JUMP1",
+   "JUMP_LADDER"
+  ],
+  "181": [
+   "MATCH_RIGHT",
+   "OTHER"
+  ],
+  "182": [
+   "BREAK1_XARM",
+   "INACTIVE"
+  ],
+  "184": [
+   "CLIMB",
+   "OTHER"
+  ],
+  "185": [
+   "BREAK1_LOOKB",
+   "INACTIVE"
+  ],
+  "186": [
+   "BREAK1_LOOK",
+   "INACTIVE"
+  ],
+  "187": [
+   "TURN_L",
+   "TURN_L"
+  ],
+  "188": [
+   "YES",
+   "OTHER"
+  ],
+  "189": [
+   "TALK",
+   "OTHER"
+  ],
+  "190": [
+   "WALK",
+   "WALK"
+  ],
+  "191": [
+   "MATCH_WARK",
+   "OTHER"
+  ],
+  "192": [
+   "BREAK1_FLEX",
+   "INACTIVE"
+  ],
+  "193": [
+   "TURN_R",
+   "TURN_R"
+  ],
+  "197": [
+   "MATCH_LEFT",
+   "OTHER"
+  ],
+  "200": [
+   "IDLE",
+   "IDLE"
+  ],
+  "201": [
+   "NO",
+   "OTHER"
+  ],
+  "203": [
+   "RUN",
+   "RUN"
+  ],
+  "204": [
+   "CLIMB_LOOP",
+   "OTHER"
+  ],
+  "205": [
+   "MATCH_2",
+   "OTHER"
+  ],
+  "206": [
+   "JUMP",
+   "JUMP_LADDER"
+  ],
+  "207": [
+   "MATCH_0",
+   "OTHER"
+  ],
+  "208": [
+   "MATCH_1",
+   "OTHER"
+  ],
+  "209": [
+   "BREAK1_STRCH",
+   "INACTIVE"
+  ],
+  "324": [
+   "IDLE",
+   "IDLE"
+  ],
+  "392": [
+   "MATCH_WARK",
+   "OTHER"
+  ],
+  "394": [
+   "MATCH_1",
+   "OTHER"
+  ],
+  "395": [
+   "MATCH_0",
+   "OTHER"
+  ],
+  "396": [
+   "MATCH_2",
+   "OTHER"
+  ],
+  "415": [
+   "HIZA_CHAIR",
+   "OTHER"
+  ],
+  "417": [
+   "HIZA_CHAIR",
+   "OTHER"
+  ],
+  "423": [
+   "MATCH_RIGHT",
+   "OTHER"
+  ],
+  "424": [
+   "MATCH_LEFT",
+   "OTHER"
+  ],
+  "486": [
+   "DINE_SLEEP_1",
+   "OTHER"
+  ],
+  "487": [
+   "DINE_SLEEP_1",
+   "OTHER"
+  ],
+  "488": [
+   "DINE_SLEEP_2",
+   "OTHER"
+  ],
+  "489": [
+   "DINE_SLEEP_2",
+   "OTHER"
+  ],
+  "496": [
+   "DINE_SLEEP_3",
+   "OTHER"
+  ],
+  "497": [
+   "DINE_SLEEP_3",
+   "OTHER"
+  ],
+  "529": [
+   "THINK_1_3",
+   "OTHER"
+  ],
+  "533": [
+   "THINK_1_3",
+   "OTHER"
+  ],
+  "534": [
+   "THINK_2_3",
+   "OTHER"
+  ],
+  "535": [
+   "THINK_2_3",
+   "OTHER"
+  ],
+  "538": [
+   "CLEYRA_OTTOTTO_B",
+   "OTHER"
+  ],
+  "581": [
+   "CLEYRA_OTTOTTO_B",
+   "OTHER"
+  ],
+  "582": [
+   "THINK_1_2",
+   "OTHER"
+  ],
+  "583": [
+   "THINK_1_2",
+   "OTHER"
+  ],
+  "584": [
+   "THINK_2_2",
+   "OTHER"
+  ],
+  "585": [
+   "THINK_2_2",
+   "OTHER"
+  ],
+  "587": [
+   "THINK_1_1",
+   "OTHER"
+  ],
+  "588": [
+   "THINK_1_1",
+   "OTHER"
+  ],
+  "590": [
+   "THINK_2_1",
+   "OTHER"
+  ],
+  "591": [
+   "THINK_2_1",
+   "OTHER"
+  ],
+  "593": [
+   "POINT_DALI",
+   "OTHER"
+  ],
+  "594": [
+   "POINT_DALI",
+   "OTHER"
+  ],
+  "595": [
+   "CLEYRA_OTTOTTO_F",
+   "OTHER"
+  ],
+  "784": [
+   "LETSGO_L_1",
+   "OTHER"
+  ],
+  "1070": [
+   "OPEN_DOOR2",
+   "OTHER"
+  ],
+  "1071": [
+   "OPEN_DOOR1",
+   "OTHER"
+  ],
+  "1072": [
+   "OPEN_DOOR2",
+   "OTHER"
+  ],
+  "1073": [
+   "OPEN_DOOR1",
+   "OTHER"
+  ],
+  "1146": [
+   "MOTARE",
+   "OTHER"
+  ],
+  "1147": [
+   "MOTARE",
+   "OTHER"
+  ],
+  "1148": [
+   "MOTARE_UDE",
+   "OTHER"
+  ],
+  "1149": [
+   "MOTARE_UDE",
+   "OTHER"
+  ],
+  "1150": [
+   "UDE_MOTARE",
+   "OTHER"
+  ],
+  "1151": [
+   "UDE_MOTARE",
+   "OTHER"
+  ],
+  "1382": [
+   "LOSE",
+   "OTHER"
+  ],
+  "1383": [
+   "LOSE",
+   "OTHER"
+  ],
+  "1389": [
+   "GIROCHIN",
+   "OTHER"
+  ],
+  "1390": [
+   "GIROCHIN",
+   "OTHER"
+  ],
+  "1410": [
+   "SWITCH_CANDLE",
+   "OTHER"
+  ],
+  "1412": [
+   "SWITCH_CANDLE",
+   "OTHER"
+  ],
+  "1445": [
+   "TELESCOPE_1",
+   "OTHER"
+  ],
+  "1446": [
+   "TELESCOPE_1",
+   "OTHER"
+  ],
+  "1447": [
+   "TELESCOPE_2",
+   "OTHER"
+  ],
+  "1448": [
+   "TELESCOPE_2",
+   "OTHER"
+  ],
+  "1449": [
+   "TELESCOPE_3",
+   "OTHER"
+  ],
+  "1450": [
+   "TELESCOPE_3",
+   "OTHER"
+  ],
+  "1504": [
+   "TRY_HOLD_1",
+   "OTHER"
+  ],
+  "2061": [
+   "LETSGO_L_1",
+   "OTHER"
+  ],
+  "2062": [
+   "LETSGO_L_2",
+   "OTHER"
+  ],
+  "2318": [
+   "TSUBURE_FRA",
+   "OTHER"
+  ],
+  "2350": [
+   "DASH_PAUSE_1",
+   "OTHER"
+  ],
+  "2351": [
+   "DASH_PAUSE_1",
+   "OTHER"
+  ],
+  "2352": [
+   "DASH_PAUSE_2",
+   "OTHER"
+  ],
+  "2353": [
+   "DASH_PAUSE_2",
+   "OTHER"
+  ],
+  "2440": [
+   "TRY_HOLD_1",
+   "OTHER"
+  ],
+  "2441": [
+   "TRY_HOLD_2",
+   "OTHER"
+  ],
+  "2442": [
+   "TRY_HOLD_2",
+   "OTHER"
+  ],
+  "2472": [
+   "BELL_3",
+   "OTHER"
+  ],
+  "2473": [
+   "BELL_3",
+   "OTHER"
+  ],
+  "2474": [
+   "YOKE",
+   "OTHER"
+  ],
+  "2475": [
+   "YOKE",
+   "OTHER"
+  ],
+  "2568": [
+   "COLD_FAINT_2",
+   "OTHER"
+  ],
+  "2569": [
+   "COLD_FAINT_2",
+   "OTHER"
+  ],
+  "2570": [
+   "KANGAERU_DECIDE",
+   "OTHER"
+  ],
+  "2571": [
+   "KANGAERU_DECIDE",
+   "OTHER"
+  ],
+  "2572": [
+   "COLD_FAINT_1",
+   "OTHER"
+  ],
+  "2573": [
+   "COLD_FAINT_1",
+   "OTHER"
+  ],
+  "2574": [
+   "COLD_WALK",
+   "WALK"
+  ],
+  "2575": [
+   "COLD_WALK",
+   "WALK"
+  ],
+  "2576": [
+   "BEG_5",
+   "OTHER"
+  ],
+  "2577": [
+   "BEG_5",
+   "OTHER"
+  ],
+  "2578": [
+   "GET_POTION",
+   "OTHER"
+  ],
+  "2579": [
+   "GET_POTION",
+   "OTHER"
+  ],
+  "2580": [
+   "HANDLE_L",
+   "OTHER"
+  ],
+  "2581": [
+   "HANDLE_L",
+   "OTHER"
+  ],
+  "2582": [
+   "TIRED",
+   "OTHER"
+  ],
+  "2583": [
+   "TIRED",
+   "OTHER"
+  ],
+  "2584": [
+   "SIT_DOWN",
+   "OTHER"
+  ],
+  "2585": [
+   "SIT_DOWN",
+   "OTHER"
+  ],
+  "2586": [
+   "BEG_4",
+   "OTHER"
+  ],
+  "2587": [
+   "BEG_4",
+   "OTHER"
+  ],
+  "2588": [
+   "COLD_KNEEL_2",
+   "OTHER"
+  ],
+  "2589": [
+   "COLD_KNEEL_2",
+   "OTHER"
+  ],
+  "2590": [
+   "HIZA_3",
+   "OTHER"
+  ],
+  "2591": [
+   "HIZA_3",
+   "OTHER"
+  ],
+  "2592": [
+   "UTSUMUKI",
+   "OTHER"
+  ],
+  "2593": [
+   "UTSUMUKI",
+   "OTHER"
+  ],
+  "2594": [
+   "UTSUMUKI_UDE",
+   "OTHER"
+  ],
+  "2595": [
+   "UTSUMUKI_UDE",
+   "OTHER"
+  ],
+  "2596": [
+   "KICK_STEINER_1",
+   "OTHER"
+  ],
+  "2597": [
+   "KICK_STEINER_1",
+   "OTHER"
+  ],
+  "2598": [
+   "GROUND_THINK",
+   "OTHER"
+  ],
+  "2599": [
+   "GROUND_THINK",
+   "OTHER"
+  ],
+  "2600": [
+   "CAMP_LOOK_SKY",
+   "OTHER"
+  ],
+  "2601": [
+   "CAMP_LOOK_SKY",
+   "OTHER"
+  ],
+  "2602": [
+   "COLD_KNEEL_3",
+   "OTHER"
+  ],
+  "2603": [
+   "COLD_KNEEL_3",
+   "OTHER"
+  ],
+  "2604": [
+   "HIZA_2",
+   "OTHER"
+  ],
+  "2605": [
+   "HIZA_2",
+   "OTHER"
+  ],
+  "2606": [
+   "HIZA_1",
+   "OTHER"
+  ],
+  "2607": [
+   "HIZA_1",
+   "OTHER"
+  ],
+  "2608": [
+   "HANDLE_R",
+   "OTHER"
+  ],
+  "2609": [
+   "HANDLE_R",
+   "OTHER"
+  ],
+  "2610": [
+   "DASH_PAUSE_3",
+   "OTHER"
+  ],
+  "2611": [
+   "DASH_PAUSE_3",
+   "OTHER"
+  ],
+  "2612": [
+   "COLD_KNEEL_1",
+   "OTHER"
+  ],
+  "2613": [
+   "COLD_KNEEL_1",
+   "OTHER"
+  ],
+  "2614": [
+   "KICK_STEINER_2",
+   "OTHER"
+  ],
+  "2615": [
+   "KICK_STEINER_2",
+   "OTHER"
+  ],
+  "2616": [
+   "TIRED_TO_IDLE",
+   "OTHER"
+  ],
+  "2617": [
+   "TIRED_TO_IDLE",
+   "OTHER"
+  ],
+  "2618": [
+   "KANGAERU_DAME",
+   "OTHER"
+  ],
+  "2619": [
+   "KANGAERU_DAME",
+   "OTHER"
+  ],
+  "2620": [
+   "PULL_VINE",
+   "OTHER"
+  ],
+  "2621": [
+   "PULL_VINE",
+   "OTHER"
+  ],
+  "2622": [
+   "COLD_IDLE",
+   "IDLE"
+  ],
+  "2623": [
+   "COLD_IDLE",
+   "IDLE"
+  ],
+  "2624": [
+   "CAMP_IDLE",
+   "OTHER"
+  ],
+  "2625": [
+   "CAMP_IDLE",
+   "OTHER"
+  ],
+  "2626": [
+   "CAMP_FIRE",
+   "OTHER"
+  ],
+  "2627": [
+   "CAMP_FIRE",
+   "OTHER"
+  ],
+  "2628": [
+   "HARA_PUNCH1",
+   "OTHER"
+  ],
+  "2629": [
+   "HARA_PUNCH1",
+   "OTHER"
+  ],
+  "2630": [
+   "KANGAERU",
+   "OTHER"
+  ],
+  "2631": [
+   "KANGAERU",
+   "OTHER"
+  ],
+  "2632": [
+   "SIT_IDLE",
+   "OTHER"
+  ],
+  "2633": [
+   "SIT_IDLE",
+   "OTHER"
+  ],
+  "2634": [
+   "COLD_KNEEL_4",
+   "OTHER"
+  ],
+  "2635": [
+   "COLD_KNEEL_4",
+   "OTHER"
+  ],
+  "2636": [
+   "HARA_PUNCH2",
+   "OTHER"
+  ],
+  "2637": [
+   "HARA_PUNCH2",
+   "OTHER"
+  ],
+  "2638": [
+   "GROUND_DECIDE",
+   "OTHER"
+  ],
+  "2639": [
+   "GROUND_DECIDE",
+   "OTHER"
+  ],
+  "2640": [
+   "GROUND_NAYAMU",
+   "OTHER"
+  ],
+  "2641": [
+   "GROUND_NAYAMU",
+   "OTHER"
+  ],
+  "2642": [
+   "FUMAN",
+   "OTHER"
+  ],
+  "2643": [
+   "FUMAN",
+   "OTHER"
+  ],
+  "2644": [
+   "HARA_PUNCH3",
+   "OTHER"
+  ],
+  "2645": [
+   "HARA_PUNCH3",
+   "OTHER"
+  ],
+  "2712": [
+   "MATCH3",
+   "OTHER"
+  ],
+  "2713": [
+   "MATCH3",
+   "OTHER"
+  ],
+  "2714": [
+   "MATCH2",
+   "OTHER"
+  ],
+  "2715": [
+   "MATCH2",
+   "OTHER"
+  ],
+  "2716": [
+   "MATCH1",
+   "OTHER"
+  ],
+  "2717": [
+   "MATCH1",
+   "OTHER"
+  ],
+  "2718": [
+   "MATCH7",
+   "OTHER"
+  ],
+  "2719": [
+   "MATCH7",
+   "OTHER"
+  ],
+  "2720": [
+   "MATCH6",
+   "OTHER"
+  ],
+  "2721": [
+   "MATCH6",
+   "OTHER"
+  ],
+  "2722": [
+   "MATCH5",
+   "OTHER"
+  ],
+  "2723": [
+   "MATCH5",
+   "OTHER"
+  ],
+  "2724": [
+   "MATCH4",
+   "OTHER"
+  ],
+  "2725": [
+   "MATCH4",
+   "OTHER"
+  ],
+  "2726": [
+   "TAN",
+   "OTHER"
+  ],
+  "2727": [
+   "TAN",
+   "OTHER"
+  ],
+  "2760": [
+   "LETSGO_L_2",
+   "OTHER"
+  ],
+  "2761": [
+   "GAME_3",
+   "OTHER"
+  ],
+  "2762": [
+   "GAME_3",
+   "OTHER"
+  ],
+  "2763": [
+   "GAME_2",
+   "OTHER"
+  ],
+  "2764": [
+   "GAME_2",
+   "OTHER"
+  ],
+  "2765": [
+   "GAME_1",
+   "OTHER"
+  ],
+  "2766": [
+   "GAME_1",
+   "OTHER"
+  ],
+  "2767": [
+   "GAME_7",
+   "OTHER"
+  ],
+  "2768": [
+   "GAME_7",
+   "OTHER"
+  ],
+  "2769": [
+   "GAME_6",
+   "OTHER"
+  ],
+  "2770": [
+   "GAME_6",
+   "OTHER"
+  ],
+  "2771": [
+   "GAME_5",
+   "OTHER"
+  ],
+  "2772": [
+   "GAME_5",
+   "OTHER"
+  ],
+  "2773": [
+   "GAME_4",
+   "OTHER"
+  ],
+  "2774": [
+   "GAME_4",
+   "OTHER"
+  ],
+  "2775": [
+   "GAME_9",
+   "OTHER"
+  ],
+  "2776": [
+   "GAME_9",
+   "OTHER"
+  ],
+  "2777": [
+   "GAME_8",
+   "OTHER"
+  ],
+  "2778": [
+   "GAME_8",
+   "OTHER"
+  ],
+  "3003": [
+   "SIT_1",
+   "OTHER"
+  ],
+  "3005": [
+   "SIT_1",
+   "OTHER"
+  ],
+  "3007": [
+   "SIT_2",
+   "OTHER"
+  ],
+  "3009": [
+   "SIT_2",
+   "OTHER"
+  ],
+  "3010": [
+   "SIT_3",
+   "OTHER"
+  ],
+  "3013": [
+   "SIT_3",
+   "OTHER"
+  ],
+  "3166": [
+   "GAME_10",
+   "OTHER"
+  ],
+  "3167": [
+   "GAME_10",
+   "OTHER"
+  ],
+  "3302": [
+   "LETSGO_L_3",
+   "OTHER"
+  ],
+  "3364": [
+   "LETSGO_1_1",
+   "OTHER"
+  ],
+  "3366": [
+   "LETSGO_1_1",
+   "OTHER"
+  ],
+  "3367": [
+   "SURPRISED_2_1",
+   "OTHER"
+  ],
+  "3368": [
+   "LETSGO_1_2",
+   "OTHER"
+  ],
+  "3397": [
+   "SURPRISED_2_1",
+   "OTHER"
+  ],
+  "3399": [
+   "SURPRISED_2_2",
+   "OTHER"
+  ],
+  "3401": [
+   "SURPRISED_2_2",
+   "OTHER"
+  ],
+  "3403": [
+   "SURPRISED_2_3",
+   "OTHER"
+  ],
+  "3405": [
+   "SURPRISED_2_3",
+   "OTHER"
+  ],
+  "3448": [
+   "TALK_5_1",
+   "OTHER"
+  ],
+  "3450": [
+   "TALK_5_1",
+   "OTHER"
+  ],
+  "3452": [
+   "TALK_5_2",
+   "OTHER"
+  ],
+  "3454": [
+   "TALK_5_2",
+   "OTHER"
+  ],
+  "3455": [
+   "TALK_5_3",
+   "OTHER"
+  ],
+  "3458": [
+   "TALK_5_3",
+   "OTHER"
+  ],
+  "3460": [
+   "ON_BED_SLEEP_2",
+   "OTHER"
+  ],
+  "3462": [
+   "ON_BED_SLEEP_2",
+   "OTHER"
+  ],
+  "3505": [
+   "SWORD_JUMP",
+   "OTHER"
+  ],
+  "3506": [
+   "SWORD_JUMP",
+   "OTHER"
+  ],
+  "3507": [
+   "SWORD_RUN",
+   "RUN"
+  ],
+  "3508": [
+   "SWORD_RUN",
+   "RUN"
+  ],
+  "3509": [
+   "SWORD_TURN_L",
+   "TURN_L"
+  ],
+  "3510": [
+   "SWORD_TURN_L",
+   "TURN_L"
+  ],
+  "3511": [
+   "SWORD_IDLE",
+   "IDLE"
+  ],
+  "3512": [
+   "SWORD_IDLE",
+   "IDLE"
+  ],
+  "3513": [
+   "ON_BED",
+   "OTHER"
+  ],
+  "3514": [
+   "ON_BED",
+   "OTHER"
+  ],
+  "3515": [
+   "SWORD_TURN_R",
+   "TURN_R"
+  ],
+  "3516": [
+   "SWORD_TURN_R",
+   "TURN_R"
+  ],
+  "3517": [
+   "DESK_KNOCK",
+   "OTHER"
+  ],
+  "3518": [
+   "DESK_KNOCK",
+   "OTHER"
+  ],
+  "3519": [
+   "JUMP_2",
+   "JUMP_LADDER"
+  ],
+  "3520": [
+   "JUMP_2",
+   "JUMP_LADDER"
+  ],
+  "3521": [
+   "SWORD_WALK",
+   "WALK"
+  ],
+  "3522": [
+   "SWORD_WALK",
+   "WALK"
+  ],
+  "3523": [
+   "ON_BED_WAKEUP",
+   "OTHER"
+  ],
+  "3524": [
+   "ON_BED_WAKEUP",
+   "OTHER"
+  ],
+  "3525": [
+   "ON_BED_SLEEP",
+   "OTHER"
+  ],
+  "3526": [
+   "ON_BED_SLEEP",
+   "OTHER"
+  ],
+  "3527": [
+   "SWORD_SIT_1",
+   "OTHER"
+  ],
+  "3528": [
+   "SWORD_SIT_1",
+   "OTHER"
+  ],
+  "3529": [
+   "SWORD_SIT_0",
+   "OTHER"
+  ],
+  "3530": [
+   "SWORD_SIT_0",
+   "OTHER"
+  ],
+  "3608": [
+   "LETSGO_1_2",
+   "OTHER"
+  ],
+  "3609": [
+   "LETSGO_1_3",
+   "OTHER"
+  ],
+  "3612": [
+   "LETSGO_1_3",
+   "OTHER"
+  ],
+  "3614": [
+   "LETSGO_2_1",
+   "OTHER"
+  ],
+  "3616": [
+   "LETSGO_2_1",
+   "OTHER"
+  ],
+  "3618": [
+   "LETSGO_2_2",
+   "OTHER"
+  ],
+  "3620": [
+   "LETSGO_2_2",
+   "OTHER"
+  ],
+  "3622": [
+   "LETSGO_2_3",
+   "OTHER"
+  ],
+  "3624": [
+   "LETSGO_2_3",
+   "OTHER"
+  ],
+  "3626": [
+   "LOOK_UP_1",
+   "OTHER"
+  ],
+  "3628": [
+   "LOOK_UP_1",
+   "OTHER"
+  ],
+  "3630": [
+   "LOOK_UP_2",
+   "OTHER"
+  ],
+  "3631": [
+   "LOOK_UP_2",
+   "OTHER"
+  ],
+  "3634": [
+   "LOOK_UP_3",
+   "OTHER"
+  ],
+  "3635": [
+   "LOOK_UP_3",
+   "OTHER"
+  ],
+  "3638": [
+   "THINK_4_1",
+   "OTHER"
+  ],
+  "3640": [
+   "THINK_4_1",
+   "OTHER"
+  ],
+  "3641": [
+   "THINK_4_2",
+   "OTHER"
+  ],
+  "3643": [
+   "THINK_4_2",
+   "OTHER"
+  ],
+  "3646": [
+   "THINK_4_3",
+   "OTHER"
+  ],
+  "3647": [
+   "THINK_4_3",
+   "OTHER"
+  ],
+  "3649": [
+   "LETSGO_L_3",
+   "OTHER"
+  ],
+  "3670": [
+   "DISAPPOINTED_1",
+   "OTHER"
+  ],
+  "3672": [
+   "DISAPPOINTED_1",
+   "OTHER"
+  ],
+  "3674": [
+   "DISAPPOINTED_2",
+   "OTHER"
+  ],
+  "3676": [
+   "DISAPPOINTED_2",
+   "OTHER"
+  ],
+  "3677": [
+   "DISAPPOINTED_3",
+   "OTHER"
+  ],
+  "3680": [
+   "DISAPPOINTED_3",
+   "OTHER"
+  ],
+  "3718": [
+   "DROP",
+   "OTHER"
+  ],
+  "3720": [
+   "DROP",
+   "OTHER"
+  ],
+  "3851": [
+   "EA_MIRROR_1",
+   "OTHER"
+  ],
+  "3853": [
+   "EA_MIRROR_1",
+   "OTHER"
+  ],
+  "3856": [
+   "FI_MIRROR_1",
+   "OTHER"
+  ],
+  "3857": [
+   "FI_MIRROR_1",
+   "OTHER"
+  ],
+  "3860": [
+   "MIRROR_2",
+   "OTHER"
+  ],
+  "3862": [
+   "MIRROR_2",
+   "OTHER"
+  ],
+  "3863": [
+   "MIRROR_3",
+   "OTHER"
+  ],
+  "3866": [
+   "MIRROR_3",
+   "OTHER"
+  ],
+  "3867": [
+   "WA_MIRROR_1",
+   "OTHER"
+  ],
+  "3869": [
+   "WA_MIRROR_1",
+   "OTHER"
+  ],
+  "3872": [
+   "WI_MIRROR_1",
+   "OTHER"
+  ],
+  "3873": [
+   "WI_MIRROR_1",
+   "OTHER"
+  ],
+  "3947": [
+   "THROW",
+   "OTHER"
+  ],
+  "3950": [
+   "THROW",
+   "OTHER"
+  ],
+  "3984": [
+   "POT_1",
+   "OTHER"
+  ],
+  "3985": [
+   "POT_1",
+   "OTHER"
+  ],
+  "3987": [
+   "POT_2",
+   "OTHER"
+  ],
+  "3989": [
+   "POT_2",
+   "OTHER"
+  ],
+  "3991": [
+   "POT_3",
+   "OTHER"
+  ],
+  "3994": [
+   "POT_3",
+   "OTHER"
+  ],
+  "3995": [
+   "POT_LOOK",
+   "OTHER"
+  ],
+  "3997": [
+   "POT_LOOK",
+   "OTHER"
+  ],
+  "4000": [
+   "POT_WALK",
+   "WALK"
+  ],
+  "4001": [
+   "POT_WALK",
+   "WALK"
+  ],
+  "4039": [
+   "POT_TURN_L",
+   "TURN_L"
+  ],
+  "4041": [
+   "POT_TURN_L",
+   "TURN_L"
+  ],
+  "4043": [
+   "POT_TURN_R",
+   "TURN_R"
+  ],
+  "4045": [
+   "POT_TURN_R",
+   "TURN_R"
+  ],
+  "4065": [
+   "SEARCH_UP_3",
+   "OTHER"
+  ],
+  "4067": [
+   "SEARCH_UP_3",
+   "OTHER"
+  ],
+  "4471": [
+   "SWORD_TALK",
+   "OTHER"
+  ],
+  "4472": [
+   "SWORD_TALK",
+   "OTHER"
+  ],
+  "4473": [
+   "SWORD_THREAT",
+   "OTHER"
+  ],
+  "4474": [
+   "SWORD_THREAT",
+   "OTHER"
+  ],
+  "4512": [
+   "CLEYRA_OTTOTTO_B_3",
+   "OTHER"
+  ],
+  "4513": [
+   "CLEYRA_OTTOTTO_B_3",
+   "OTHER"
+  ],
+  "4515": [
+   "CLEYRA_OTTOTTO_F_3",
+   "OTHER"
+  ],
+  "4517": [
+   "CLEYRA_OTTOTTO_F_3",
+   "OTHER"
+  ],
+  "4653": [
+   "BELL_2",
+   "OTHER"
+  ],
+  "4654": [
+   "BELL_2",
+   "OTHER"
+  ],
+  "4655": [
+   "KNEEL_DRINK",
+   "OTHER"
+  ],
+  "4656": [
+   "KNEEL_DRINK",
+   "OTHER"
+  ],
+  "4657": [
+   "BELL_1",
+   "OTHER"
+  ],
+  "4658": [
+   "BELL_1",
+   "OTHER"
+  ],
+  "4659": [
+   "DOOR_CANT_OPEN",
+   "OTHER"
+  ],
+  "4660": [
+   "DOOR_CANT_OPEN",
+   "OTHER"
+  ],
+  "4765": [
+   "THROW_GNT",
+   "OTHER"
+  ],
+  "4767": [
+   "THROW_GNT",
+   "OTHER"
+  ],
+  "4796": [
+   "BREAK1_FLEX2",
+   "INACTIVE"
+  ],
+  "5003": [
+   "CLEYRA_OTTOTTO_F",
+   "OTHER"
+  ],
+  "5184": [
+   "CLEYRA_OTTOTTO_B_1",
+   "OTHER"
+  ],
+  "5185": [
+   "CLEYRA_OTTOTTO_B_1",
+   "OTHER"
+  ],
+  "5186": [
+   "CLEYRA_OTTOTTO_F_1",
+   "OTHER"
+  ],
+  "5187": [
+   "CLEYRA_OTTOTTO_F_1",
+   "OTHER"
+  ],
+  "5307": [
+   "LETSGO_R_1",
+   "OTHER"
+  ],
+  "5310": [
+   "LETSGO_R_1",
+   "OTHER"
+  ],
+  "5312": [
+   "LETSGO_R_2",
+   "OTHER"
+  ],
+  "5314": [
+   "LETSGO_R_2",
+   "OTHER"
+  ],
+  "5316": [
+   "LETSGO_R_3",
+   "OTHER"
+  ],
+  "5318": [
+   "LETSGO_R_3",
+   "OTHER"
+  ],
+  "5661": [
+   "DINE_1",
+   "OTHER"
+  ],
+  "5663": [
+   "DINE_1",
+   "OTHER"
+  ],
+  "5665": [
+   "DINE_2",
+   "OTHER"
+  ],
+  "5667": [
+   "DINE_2",
+   "OTHER"
+  ],
+  "5669": [
+   "DINE_3",
+   "OTHER"
+  ],
+  "5671": [
+   "DINE_3",
+   "OTHER"
+  ],
+  "5673": [
+   "DINE_4",
+   "OTHER"
+  ],
+  "5674": [
+   "DINE_4",
+   "OTHER"
+  ],
+  "5677": [
+   "DINE_5",
+   "OTHER"
+  ],
+  "5678": [
+   "DINE_5",
+   "OTHER"
+  ],
+  "5869": [
+   "DINE_SLEEP_4",
+   "OTHER"
+  ],
+  "5871": [
+   "DINE_SLEEP_4",
+   "OTHER"
+  ],
+  "5873": [
+   "DINE_SLEEP_5",
+   "OTHER"
+  ],
+  "5875": [
+   "DINE_SLEEP_5",
+   "OTHER"
+  ],
+  "5876": [
+   "HIZA_OJIGI_1",
+   "OTHER"
+  ],
+  "5879": [
+   "HIZA_OJIGI_1",
+   "OTHER"
+  ],
+  "5881": [
+   "HIZA_OJIGI_2",
+   "OTHER"
+  ],
+  "5882": [
+   "HIZA_OJIGI_2",
+   "OTHER"
+  ],
+  "6044": [
+   "SIT_DOWN_3",
+   "OTHER"
+  ],
+  "6068": [
+   "SIT_DOWN_3",
+   "OTHER"
+  ],
+  "6124": [
+   "LISTEN_1",
+   "OTHER"
+  ],
+  "6126": [
+   "LISTEN_1",
+   "OTHER"
+  ],
+  "6128": [
+   "LISTEN_2",
+   "OTHER"
+  ],
+  "6130": [
+   "LISTEN_2",
+   "OTHER"
+  ],
+  "6131": [
+   "SIT_NO_1",
+   "OTHER"
+  ],
+  "6133": [
+   "LISTEN_3",
+   "OTHER"
+  ],
+  "6134": [
+   "LISTEN_3",
+   "OTHER"
+  ],
+  "6170": [
+   "HURRY_UP_1",
+   "OTHER"
+  ],
+  "6171": [
+   "HURRY_UP_1",
+   "OTHER"
+  ],
+  "6174": [
+   "HURRY_UP_2",
+   "OTHER"
+  ],
+  "6176": [
+   "HURRY_UP_2",
+   "OTHER"
+  ],
+  "6178": [
+   "HURRY_UP_3",
+   "OTHER"
+  ],
+  "6180": [
+   "HURRY_UP_3",
+   "OTHER"
+  ],
+  "6222": [
+   "LADDER_TOUCH",
+   "OTHER"
+  ],
+  "6224": [
+   "LADDER_TOUCH",
+   "OTHER"
+  ],
+  "6607": [
+   "TSUBURE_FRA",
+   "OTHER"
+  ],
+  "6723": [
+   "SIT_NO_1",
+   "OTHER"
+  ],
+  "6725": [
+   "SIT_NO_2",
+   "OTHER"
+  ],
+  "6728": [
+   "SIT_NO_2",
+   "OTHER"
+  ],
+  "6730": [
+   "SIT_NO_3",
+   "OTHER"
+  ],
+  "6732": [
+   "SIT_NO_3",
+   "OTHER"
+  ],
+  "6734": [
+   "SIT_PUNCH",
+   "OTHER"
+  ],
+  "6735": [
+   "SIT_PUNCH",
+   "OTHER"
+  ],
+  "6830": [
+   "SIT_LOOKUP",
+   "OTHER"
+  ],
+  "6832": [
+   "SIT_LOOKUP",
+   "OTHER"
+  ],
+  "7628": [
+   "MBG_A01",
+   "OTHER"
+  ],
+  "7630": [
+   "MBG_A01",
+   "OTHER"
+  ],
+  "7632": [
+   "MBG_A02",
+   "OTHER"
+  ],
+  "7634": [
+   "MBG_A02",
+   "OTHER"
+  ],
+  "7636": [
+   "MBG_A03",
+   "OTHER"
+  ],
+  "7638": [
+   "MBG_A03",
+   "OTHER"
+  ],
+  "7640": [
+   "MBG_A04",
+   "OTHER"
+  ],
+  "7642": [
+   "MBG_A04",
+   "OTHER"
+  ],
+  "7644": [
+   "MBG_A06",
+   "OTHER"
+  ],
+  "7645": [
+   "MBG_A06",
+   "OTHER"
+  ],
+  "7648": [
+   "MBG_A07",
+   "OTHER"
+  ],
+  "7649": [
+   "MBG_A07",
+   "OTHER"
+  ],
+  "7652": [
+   "MBG_B01",
+   "OTHER"
+  ],
+  "7654": [
+   "MBG_B01",
+   "OTHER"
+  ],
+  "7656": [
+   "MBG_B02",
+   "OTHER"
+  ],
+  "7657": [
+   "MBG_B02",
+   "OTHER"
+  ],
+  "7670": [
+   "MBG_C01",
+   "OTHER"
+  ],
+  "7672": [
+   "MBG_C01",
+   "OTHER"
+  ],
+  "7674": [
+   "MBG_C02",
+   "OTHER"
+  ],
+  "7676": [
+   "MBG_C02",
+   "OTHER"
+  ],
+  "7680": [
+   "MBG_C04",
+   "OTHER"
+  ],
+  "7707": [
+   "SIT_G_TALK_2",
+   "OTHER"
+  ],
+  "7708": [
+   "SIT_G_TALK_2",
+   "OTHER"
+  ],
+  "7709": [
+   "SIT_G_TALK_3",
+   "OTHER"
+  ],
+  "7710": [
+   "SIT_G_TALK_3",
+   "OTHER"
+  ],
+  "7711": [
+   "SIT_G_TALK_1",
+   "OTHER"
+  ],
+  "7712": [
+   "SIT_G_TALK_1",
+   "OTHER"
+  ],
+  "7713": [
+   "ANGRY_2_2",
+   "OTHER"
+  ],
+  "7714": [
+   "ANGRY_2_2",
+   "OTHER"
+  ],
+  "7715": [
+   "ANGRY_2_3",
+   "OTHER"
+  ],
+  "7716": [
+   "ANGRY_2_3",
+   "OTHER"
+  ],
+  "7717": [
+   "ANGRY_2_1",
+   "OTHER"
+  ],
+  "7718": [
+   "ANGRY_2_1",
+   "OTHER"
+  ],
+  "7719": [
+   "SIT_GROUND_1_1",
+   "OTHER"
+  ],
+  "7720": [
+   "SIT_GROUND_1_1",
+   "OTHER"
+  ],
+  "7721": [
+   "SIT_GROUND_1_3",
+   "OTHER"
+  ],
+  "7722": [
+   "SIT_GROUND_1_3",
+   "OTHER"
+  ],
+  "7723": [
+   "SIT_GROUND_1_2",
+   "OTHER"
+  ],
+  "7724": [
+   "SIT_GROUND_1_2",
+   "OTHER"
+  ],
+  "7725": [
+   "MBG_C04",
+   "OTHER"
+  ],
+  "7727": [
+   "MBG_C05",
+   "OTHER"
+  ],
+  "7729": [
+   "MBG_C05",
+   "OTHER"
+  ],
+  "7731": [
+   "MBG_D02",
+   "OTHER"
+  ],
+  "7733": [
+   "MBG_D02",
+   "OTHER"
+  ],
+  "7735": [
+   "MBG_D04",
+   "OTHER"
+  ],
+  "7737": [
+   "MBG_D04",
+   "OTHER"
+  ],
+  "7739": [
+   "MBG_D05",
+   "OTHER"
+  ],
+  "7741": [
+   "MBG_D05",
+   "OTHER"
+  ],
+  "7743": [
+   "MBG_E01",
+   "OTHER"
+  ],
+  "7745": [
+   "MBG_E01",
+   "OTHER"
+  ],
+  "7747": [
+   "MBG_E02",
+   "OTHER"
+  ],
+  "7749": [
+   "MBG_E02",
+   "OTHER"
+  ],
+  "7751": [
+   "MBG_E03",
+   "OTHER"
+  ],
+  "7753": [
+   "MBG_E03",
+   "OTHER"
+  ],
+  "7756": [
+   "MBG_F02",
+   "OTHER"
+  ],
+  "7757": [
+   "MBG_F02",
+   "OTHER"
+  ],
+  "7759": [
+   "MBG_F05",
+   "OTHER"
+  ],
+  "7762": [
+   "MBG_F05",
+   "OTHER"
+  ],
+  "7763": [
+   "MBG_F06",
+   "OTHER"
+  ],
+  "7766": [
+   "MBG_F06",
+   "OTHER"
+  ],
+  "7767": [
+   "MBG_F07",
+   "OTHER"
+  ],
+  "7769": [
+   "MBG_F07",
+   "OTHER"
+  ],
+  "7771": [
+   "MBG_F08",
+   "OTHER"
+  ],
+  "7773": [
+   "MBG_F08",
+   "OTHER"
+  ],
+  "7776": [
+   "MBG_F09",
+   "OTHER"
+  ],
+  "7778": [
+   "MBG_F09",
+   "OTHER"
+  ],
+  "7779": [
+   "MBG_G01",
+   "OTHER"
+  ],
+  "7781": [
+   "MBG_G01",
+   "OTHER"
+  ],
+  "7783": [
+   "MBG_G02",
+   "OTHER"
+  ],
+  "7786": [
+   "MBG_G02",
+   "OTHER"
+  ],
+  "7787": [
+   "MBG_G04",
+   "OTHER"
+  ],
+  "7789": [
+   "MBG_G04",
+   "OTHER"
+  ],
+  "7791": [
+   "MBG_G05",
+   "OTHER"
+  ],
+  "7793": [
+   "MBG_G05",
+   "OTHER"
+  ],
+  "7912": [
+   "FAINT_SIT_2",
+   "OTHER"
+  ],
+  "7914": [
+   "FAINT_SIT_2",
+   "OTHER"
+  ],
+  "7916": [
+   "FAINT_SIT_3",
+   "OTHER"
+  ],
+  "7918": [
+   "FAINT_SIT_3",
+   "OTHER"
+  ],
+  "7920": [
+   "FRA_IDLE",
+   "IDLE"
+  ],
+  "7922": [
+   "FRA_IDLE",
+   "IDLE"
+  ],
+  "7924": [
+   "FRA_SIT_2",
+   "OTHER"
+  ],
+  "7926": [
+   "FRA_SIT_2",
+   "OTHER"
+  ],
+  "7927": [
+   "FRA_SIT_3",
+   "OTHER"
+  ],
+  "7930": [
+   "FRA_SIT_3",
+   "OTHER"
+  ],
+  "7931": [
+   "MBG_IDLE",
+   "IDLE"
+  ],
+  "7933": [
+   "MBG_IDLE",
+   "IDLE"
+  ],
+  "7935": [
+   "MBG_RUN",
+   "RUN"
+  ],
+  "7937": [
+   "MBG_RUN",
+   "RUN"
+  ],
+  "7940": [
+   "MBG_WALK",
+   "WALK"
+  ],
+  "7942": [
+   "MBG_WALK",
+   "WALK"
+  ],
+  "8060": [
+   "FRA_MOTARE_1",
+   "OTHER"
+  ],
+  "8081": [
+   "NAGURU",
+   "OTHER"
+  ],
+  "8082": [
+   "NAGURU",
+   "OTHER"
+  ],
+  "8101": [
+   "GIVE_1_1",
+   "OTHER"
+  ],
+  "8102": [
+   "GIVE_1_1",
+   "OTHER"
+  ],
+  "8103": [
+   "GIVE_1_2",
+   "OTHER"
+  ],
+  "8104": [
+   "GIVE_1_2",
+   "OTHER"
+  ],
+  "8105": [
+   "GIVE_1_3",
+   "OTHER"
+  ],
+  "8106": [
+   "GIVE_1_3",
+   "OTHER"
+  ],
+  "8107": [
+   "RECEIVE_1_3",
+   "OTHER"
+  ],
+  "8108": [
+   "RECEIVE_1_3",
+   "OTHER"
+  ],
+  "8109": [
+   "RECEIVE_1_2",
+   "OTHER"
+  ],
+  "8110": [
+   "RECEIVE_1_2",
+   "OTHER"
+  ],
+  "8111": [
+   "RECEIVE_1_1",
+   "OTHER"
+  ],
+  "8112": [
+   "RECEIVE_1_1",
+   "OTHER"
+  ],
+  "8189": [
+   "BRAKE",
+   "OTHER"
+  ],
+  "8190": [
+   "BRAKE",
+   "OTHER"
+  ],
+  "8191": [
+   "BRAKE_2",
+   "OTHER"
+  ],
+  "8192": [
+   "BRAKE_2",
+   "OTHER"
+  ],
+  "8193": [
+   "KAMAE_3",
+   "OTHER"
+  ],
+  "8194": [
+   "KAMAE_3",
+   "OTHER"
+  ],
+  "8195": [
+   "KAMAE_2",
+   "OTHER"
+  ],
+  "8196": [
+   "KAMAE_2",
+   "OTHER"
+  ],
+  "8197": [
+   "KAMAE_1",
+   "OTHER"
+  ],
+  "8198": [
+   "KAMAE_1",
+   "OTHER"
+  ],
+  "8205": [
+   "FRA_MOTARE_1",
+   "OTHER"
+  ],
+  "8206": [
+   "FRA_MOTARE_2",
+   "OTHER"
+  ],
+  "8208": [
+   "FRA_MOTARE_2",
+   "OTHER"
+  ],
+  "8210": [
+   "FRA_MOTARE_3",
+   "OTHER"
+  ],
+  "8212": [
+   "FRA_MOTARE_3",
+   "OTHER"
+  ],
+  "8231": [
+   "DRINK_3",
+   "OTHER"
+  ],
+  "8232": [
+   "DRINK_3",
+   "OTHER"
+  ],
+  "8233": [
+   "DRINK_2",
+   "OTHER"
+  ],
+  "8234": [
+   "DRINK_2",
+   "OTHER"
+  ],
+  "8235": [
+   "DRINK_1",
+   "OTHER"
+  ],
+  "8236": [
+   "DRINK_1",
+   "OTHER"
+  ],
+  "8283": [
+   "COLD_TURN_L",
+   "TURN_L"
+  ],
+  "8284": [
+   "COLD_TURN_L",
+   "TURN_L"
+  ],
+  "8285": [
+   "COLD_TURN_R",
+   "TURN_R"
+  ],
+  "8286": [
+   "COLD_TURN_R",
+   "TURN_R"
+  ],
+  "8395": [
+   "STEER",
+   "OTHER"
+  ],
+  "8396": [
+   "STEER",
+   "OTHER"
+  ],
+  "8397": [
+   "TENJYOU_END",
+   "OTHER"
+  ],
+  "8398": [
+   "TENJYOU_END",
+   "OTHER"
+  ],
+  "8399": [
+   "TENJYOU_IDLE_2",
+   "OTHER"
+  ],
+  "8400": [
+   "TENJYOU_IDLE_2",
+   "OTHER"
+  ],
+  "8401": [
+   "TENJYOU_IDLE_1",
+   "OTHER"
+  ],
+  "8402": [
+   "TENJYOU_IDLE_1",
+   "OTHER"
+  ],
+  "8403": [
+   "YOKE_STN_1",
+   "OTHER"
+  ],
+  "8404": [
+   "YOKE_STN_1",
+   "OTHER"
+  ],
+  "8405": [
+   "YOKE_STN_2",
+   "OTHER"
+  ],
+  "8406": [
+   "YOKE_STN_2",
+   "OTHER"
+  ],
+  "8407": [
+   "STEER_TAIL",
+   "OTHER"
+  ],
+  "8408": [
+   "STEER_TAIL",
+   "OTHER"
+  ],
+  "8461": [
+   "FRA_DOWN_1",
+   "OTHER"
+  ],
+  "8462": [
+   "FRA_DOWN_1",
+   "OTHER"
+  ],
+  "8465": [
+   "FRA_DOWN_2",
+   "OTHER"
+  ],
+  "8466": [
+   "FRA_DOWN_2",
+   "OTHER"
+  ],
+  "8467": [
+   "GET_TKE_1",
+   "OTHER"
+  ],
+  "8468": [
+   "GET_TKE_1",
+   "OTHER"
+  ],
+  "8548": [
+   "GET_TKE_2",
+   "OTHER"
+  ],
+  "8549": [
+   "GET_TKE_2",
+   "OTHER"
+  ],
+  "8551": [
+   "GET_TKE_3",
+   "OTHER"
+  ],
+  "8552": [
+   "GET_TKE_3",
+   "OTHER"
+  ],
+  "8554": [
+   "TKE_WALK",
+   "WALK"
+  ],
+  "8555": [
+   "TKE_WALK",
+   "WALK"
+  ],
+  "8731": [
+   "STAIR_DOWN_1",
+   "OTHER"
+  ],
+  "8733": [
+   "STAIR_DOWN_1",
+   "OTHER"
+  ],
+  "8734": [
+   "STAIR_DOWN_2",
+   "OTHER"
+  ],
+  "8736": [
+   "STAIR_DOWN_2",
+   "OTHER"
+  ],
+  "8738": [
+   "STAIR_DOWN_3",
+   "OTHER"
+  ],
+  "8739": [
+   "STAIR_DOWN_3",
+   "OTHER"
+  ],
+  "8741": [
+   "STAIR_DOWN_4",
+   "OTHER"
+  ],
+  "8742": [
+   "STAIR_DOWN_4",
+   "OTHER"
+  ],
+  "8744": [
+   "SIT_TALK_1",
+   "OTHER"
+  ],
+  "8745": [
+   "SIT_TALK_1",
+   "OTHER"
+  ],
+  "8747": [
+   "SIT_TALK_2",
+   "OTHER"
+  ],
+  "8748": [
+   "SIT_TALK_2",
+   "OTHER"
+  ],
+  "8750": [
+   "SIT_TALK_3",
+   "OTHER"
+  ],
+  "8751": [
+   "SIT_TALK_3",
+   "OTHER"
+  ],
+  "8795": [
+   "LOOKD_1",
+   "OTHER"
+  ],
+  "8796": [
+   "LOOKD_1",
+   "OTHER"
+  ],
+  "8798": [
+   "LOOKD_2",
+   "OTHER"
+  ],
+  "8799": [
+   "LOOKD_2",
+   "OTHER"
+  ],
+  "8801": [
+   "LOOKD_3",
+   "OTHER"
+  ],
+  "8802": [
+   "LOOKD_3",
+   "OTHER"
+  ],
+  "8846": [
+   "FRA_WALK",
+   "WALK"
+  ],
+  "8847": [
+   "FRA_WALK",
+   "WALK"
+  ],
+  "9180": [
+   "FRA_WALK_1",
+   "OTHER"
+  ],
+  "9181": [
+   "FRA_WALK_1",
+   "OTHER"
+  ],
+  "9183": [
+   "FRA_WALK_3",
+   "OTHER"
+  ],
+  "9184": [
+   "FRA_WALK_3",
+   "OTHER"
+  ],
+  "9199": [
+   "B",
+   "OTHER"
+  ],
+  "9200": [
+   "P",
+   "OTHER"
+  ],
+  "9201": [
+   "P",
+   "OTHER"
+  ],
+  "9551": [
+   "MBG_102",
+   "OTHER"
+  ],
+  "9553": [
+   "MBG_102",
+   "OTHER"
+  ],
+  "9604": [
+   "B",
+   "OTHER"
+  ],
+  "9702": [
+   "XARM_3",
+   "OTHER"
+  ],
+  "9703": [
+   "XARM_3",
+   "OTHER"
+  ],
+  "9704": [
+   "XARM_2",
+   "OTHER"
+  ],
+  "9705": [
+   "XARM_2",
+   "OTHER"
+  ],
+  "9706": [
+   "XARM_1",
+   "OTHER"
+  ],
+  "9707": [
+   "XARM_1",
+   "OTHER"
+  ],
+  "9776": [
+   "DOTSUKI",
+   "OTHER"
+  ],
+  "9777": [
+   "DOTSUKI",
+   "OTHER"
+  ],
+  "9778": [
+   "AKIRERU",
+   "OTHER"
+  ],
+  "9779": [
+   "AKIRERU",
+   "OTHER"
+  ],
+  "9780": [
+   "SEARCH_UP_2",
+   "OTHER"
+  ],
+  "9781": [
+   "SEARCH_UP_2",
+   "OTHER"
+  ],
+  "9792": [
+   "SEARCH_UP_1",
+   "OTHER"
+  ],
+  "9793": [
+   "SEARCH_UP_1",
+   "OTHER"
+  ],
+  "9794": [
+   "SAD_WITH_MAP",
+   "OTHER"
+  ],
+  "9795": [
+   "SAD_WITH_MAP",
+   "OTHER"
+  ],
+  "10196": [
+   "SWITCH",
+   "OTHER"
+  ],
+  "10198": [
+   "SWITCH",
+   "OTHER"
+  ],
+  "10282": [
+   "SWITCH_FOSSIL",
+   "OTHER"
+  ],
+  "10284": [
+   "SWITCH_FOSSIL",
+   "OTHER"
+  ],
+  "10312": [
+   "TUR",
+   "OTHER"
+  ],
+  "10314": [
+   "TUR",
+   "OTHER"
+  ],
+  "10360": [
+   "GAS_1",
+   "OTHER"
+  ],
+  "10361": [
+   "GAS_1",
+   "OTHER"
+  ],
+  "10362": [
+   "GAS_2",
+   "OTHER"
+  ],
+  "10363": [
+   "GAS_2",
+   "OTHER"
+  ],
+  "10364": [
+   "GAS_3",
+   "OTHER"
+  ],
+  "10365": [
+   "GAS_3",
+   "OTHER"
+  ],
+  "10378": [
+   "ANGRY_1_2",
+   "OTHER"
+  ],
+  "10379": [
+   "ANGRY_1_2",
+   "OTHER"
+  ],
+  "10380": [
+   "TALK_1_1",
+   "OTHER"
+  ],
+  "10381": [
+   "TALK_1_1",
+   "OTHER"
+  ],
+  "10382": [
+   "TALK_3_1",
+   "OTHER"
+  ],
+  "10383": [
+   "TALK_3_1",
+   "OTHER"
+  ],
+  "10384": [
+   "ANGRY_1_3",
+   "OTHER"
+  ],
+  "10385": [
+   "ANGRY_1_3",
+   "OTHER"
+  ],
+  "10386": [
+   "TALK_1_2",
+   "OTHER"
+  ],
+  "10387": [
+   "TALK_1_2",
+   "OTHER"
+  ],
+  "10388": [
+   "TALK_3_2",
+   "OTHER"
+  ],
+  "10389": [
+   "TALK_3_2",
+   "OTHER"
+  ],
+  "10390": [
+   "TALK_1_3",
+   "OTHER"
+  ],
+  "10391": [
+   "TALK_1_3",
+   "OTHER"
+  ],
+  "10392": [
+   "TALK_3_3",
+   "OTHER"
+  ],
+  "10393": [
+   "TALK_3_3",
+   "OTHER"
+  ],
+  "10394": [
+   "ANGRY_1_1",
+   "OTHER"
+  ],
+  "10395": [
+   "ANGRY_1_1",
+   "OTHER"
+  ],
+  "10444": [
+   "JUMP_3",
+   "JUMP_LADDER"
+  ],
+  "10445": [
+   "JUMP_3",
+   "JUMP_LADDER"
+  ],
+  "10446": [
+   "JUMP_1",
+   "JUMP_LADDER"
+  ],
+  "10447": [
+   "JUMP_1",
+   "JUMP_LADDER"
+  ],
+  "10538": [
+   "LADDER_1_2",
+   "JUMP_LADDER"
+  ],
+  "10539": [
+   "LADDER_1_2",
+   "JUMP_LADDER"
+  ],
+  "10540": [
+   "TALK_2_1",
+   "OTHER"
+  ],
+  "10541": [
+   "TALK_2_1",
+   "OTHER"
+  ],
+  "10542": [
+   "TALK_2_2",
+   "OTHER"
+  ],
+  "10543": [
+   "TALK_2_2",
+   "OTHER"
+  ],
+  "10544": [
+   "TALK_2_3",
+   "OTHER"
+  ],
+  "10545": [
+   "TALK_2_3",
+   "OTHER"
+  ],
+  "10550": [
+   "SURPRISED_1_1",
+   "OTHER"
+  ],
+  "10551": [
+   "SURPRISED_1_1",
+   "OTHER"
+  ],
+  "10552": [
+   "SURPRISED_1_2",
+   "OTHER"
+  ],
+  "10553": [
+   "SURPRISED_1_2",
+   "OTHER"
+  ],
+  "10554": [
+   "SURPRISED_1_3",
+   "OTHER"
+  ],
+  "10555": [
+   "SURPRISED_1_3",
+   "OTHER"
+  ],
+  "10556": [
+   "TALK_4_1",
+   "OTHER"
+  ],
+  "10557": [
+   "TALK_4_1",
+   "OTHER"
+  ],
+  "10558": [
+   "TALK_4_2",
+   "OTHER"
+  ],
+  "10559": [
+   "TALK_4_2",
+   "OTHER"
+  ],
+  "10560": [
+   "TALK_4_3",
+   "OTHER"
+  ],
+  "10561": [
+   "TALK_4_3",
+   "OTHER"
+  ],
+  "10568": [
+   "NOZOKI_1",
+   "OTHER"
+  ],
+  "10569": [
+   "NOZOKI_1",
+   "OTHER"
+  ],
+  "10570": [
+   "NOZOKI_2",
+   "OTHER"
+  ],
+  "10571": [
+   "NOZOKI_2",
+   "OTHER"
+  ],
+  "10572": [
+   "NOZOKI_3",
+   "OTHER"
+  ],
+  "10573": [
+   "NOZOKI_3",
+   "OTHER"
+  ],
+  "10629": [
+   "GRG_1",
+   "OTHER"
+  ],
+  "10631": [
+   "GRG_1",
+   "OTHER"
+  ],
+  "10633": [
+   "GRG_2",
+   "OTHER"
+  ],
+  "10635": [
+   "GRG_2",
+   "OTHER"
+  ],
+  "10637": [
+   "GRG_3",
+   "OTHER"
+  ],
+  "10639": [
+   "GRG_3",
+   "OTHER"
+  ],
+  "10684": [
+   "LADDER_1_3",
+   "JUMP_LADDER"
+  ],
+  "10685": [
+   "LADDER_1_3",
+   "JUMP_LADDER"
+  ],
+  "10686": [
+   "LADDER_1_1",
+   "JUMP_LADDER"
+  ],
+  "10687": [
+   "LADDER_1_1",
+   "JUMP_LADDER"
+  ],
+  "11185": [
+   "STAND",
+   "OTHER"
+  ],
+  "11187": [
+   "STAND",
+   "OTHER"
+  ],
+  "11233": [
+   "HOLD_2",
+   "OTHER"
+  ],
+  "11235": [
+   "HOLD_2",
+   "OTHER"
+  ],
+  "11351": [
+   "SIT_KJA_1",
+   "OTHER"
+  ],
+  "11352": [
+   "SIT_KJA_1",
+   "OTHER"
+  ],
+  "11353": [
+   "SIT_KJA_2",
+   "OTHER"
+  ],
+  "11355": [
+   "SIT_KJA_2",
+   "OTHER"
+  ],
+  "11452": [
+   "LADDER_2_3",
+   "JUMP_LADDER"
+  ],
+  "11453": [
+   "LADDER_2_3",
+   "JUMP_LADDER"
+  ],
+  "11454": [
+   "LADDER_2_1",
+   "JUMP_LADDER"
+  ],
+  "11455": [
+   "LADDER_2_1",
+   "JUMP_LADDER"
+  ],
+  "11456": [
+   "TSUBURE_2",
+   "OTHER"
+  ],
+  "11457": [
+   "TSUBURE_2",
+   "OTHER"
+  ],
+  "11458": [
+   "TSUBURE_3",
+   "OTHER"
+  ],
+  "11459": [
+   "TSUBURE_3",
+   "OTHER"
+  ],
+  "11460": [
+   "TSUBURE_1",
+   "OTHER"
+  ],
+  "11461": [
+   "TSUBURE_1",
+   "OTHER"
+  ],
+  "11641": [
+   "LAST",
+   "OTHER"
+  ],
+  "11643": [
+   "LAST",
+   "OTHER"
+  ],
+  "11680": [
+   "BEG_4_3",
+   "OTHER"
+  ],
+  "11681": [
+   "BEG_4_3",
+   "OTHER"
+  ],
+  "11682": [
+   "BEG_4_1",
+   "OTHER"
+  ],
+  "11683": [
+   "BEG_4_1",
+   "OTHER"
+  ],
+  "11730": [
+   "KNOCK_DOOR_3",
+   "OTHER"
+  ],
+  "11731": [
+   "KNOCK_DOOR_3",
+   "OTHER"
+  ],
+  "11732": [
+   "KNOCK_DOOR_2",
+   "OTHER"
+  ],
+  "11733": [
+   "KNOCK_DOOR_2",
+   "OTHER"
+  ],
+  "11734": [
+   "KNOCK_DOOR_1",
+   "OTHER"
+  ],
+  "11735": [
+   "KNOCK_DOOR_1",
+   "OTHER"
+  ],
+  "11852": [
+   "LAST_2",
+   "OTHER"
+  ],
+  "11854": [
+   "LAST_2",
+   "OTHER"
+  ],
+  "11949": [
+   "HELP",
+   "OTHER"
+  ],
+  "11951": [
+   "HELP",
+   "OTHER"
+  ],
+  "12000": [
+   "THINK_3_3",
+   "OTHER"
+  ],
+  "12001": [
+   "THINK_3_3",
+   "OTHER"
+  ],
+  "12002": [
+   "THINK_3_2",
+   "OTHER"
+  ],
+  "12003": [
+   "THINK_3_2",
+   "OTHER"
+  ],
+  "12004": [
+   "THINK_3_1",
+   "OTHER"
+  ],
+  "12005": [
+   "THINK_3_1",
+   "OTHER"
+  ],
+  "12141": [
+   "MBG_TIRED",
+   "OTHER"
+  ],
+  "12142": [
+   "MBG_TIRED",
+   "OTHER"
+  ],
+  "12174": [
+   "HOLD_1",
+   "OTHER"
+  ],
+  "12186": [
+   "HOLD_1",
+   "OTHER"
+  ],
+  "12419": [
+   "SIT_LOOK_KJA_1",
+   "OTHER"
+  ],
+  "12421": [
+   "SIT_LOOK_KJA_1",
+   "OTHER"
+  ],
+  "12423": [
+   "SIT_LOOK_KJA_2",
+   "OTHER"
+  ],
+  "12425": [
+   "SIT_LOOK_KJA_2",
+   "OTHER"
+  ],
+  "12427": [
+   "SIT_LOOK_UP_1",
+   "OTHER"
+  ],
+  "12429": [
+   "SIT_LOOK_UP_1",
+   "OTHER"
+  ],
+  "12431": [
+   "SIT_LOOK_UP_2",
+   "OTHER"
+  ],
+  "12433": [
+   "SIT_LOOK_UP_2",
+   "OTHER"
+  ],
+  "12455": [
+   "GRG_BREAK",
+   "OTHER"
+  ],
+  "12456": [
+   "GRG_BREAK",
+   "OTHER"
+  ],
+  "12499": [
+   "MBG_SHIP",
+   "OTHER"
+  ],
+  "12501": [
+   "MBG_SHIP",
+   "OTHER"
+  ],
+  "12729": [
+   "CATCH_EIK_1",
+   "OTHER"
+  ],
+  "12730": [
+   "CATCH_EIK_1",
+   "OTHER"
+  ],
+  "12731": [
+   "CATCH_EIK_3",
+   "OTHER"
+  ],
+  "12732": [
+   "CATCH_EIK_3",
+   "OTHER"
+  ],
+  "12733": [
+   "CATCH_EIK_2",
+   "OTHER"
+  ],
+  "12734": [
+   "CATCH_EIK_2",
+   "OTHER"
+  ],
+  "12745": [
+   "CHO_RIDE_1",
+   "OTHER"
+  ],
+  "12748": [
+   "CHO_RIDE_1",
+   "OTHER"
+  ],
+  "12750": [
+   "CHO_RIDE_2",
+   "OTHER"
+  ],
+  "12752": [
+   "CHO_RIDE_2",
+   "OTHER"
+  ],
+  "12754": [
+   "CHO_RIDE_3",
+   "OTHER"
+  ],
+  "12756": [
+   "CHO_RIDE_3",
+   "OTHER"
+  ],
+  "12758": [
+   "CHO_SEEK_1",
+   "OTHER"
+  ],
+  "12760": [
+   "CHO_SEEK_1",
+   "OTHER"
+  ],
+  "12762": [
+   "CHO_SEEK_2",
+   "OTHER"
+  ],
+  "12764": [
+   "CHO_SEEK_2",
+   "OTHER"
+  ],
+  "12766": [
+   "CHO_SEEK_3",
+   "OTHER"
+  ],
+  "12768": [
+   "CHO_SEEK_3",
+   "OTHER"
+  ],
+  "12770": [
+   "CHO_SEEK_4",
+   "OTHER"
+  ],
+  "12772": [
+   "CHO_SEEK_4",
+   "OTHER"
+  ],
+  "12774": [
+   "CHO_SEEK_5",
+   "OTHER"
+  ],
+  "12776": [
+   "CHO_SEEK_5",
+   "OTHER"
+  ],
+  "12778": [
+   "CHO_RUN",
+   "OTHER"
+  ],
+  "12780": [
+   "CHO_RUN",
+   "OTHER"
+  ],
+  "12782": [
+   "CHO_WALK",
+   "OTHER"
+  ],
+  "12784": [
+   "CHO_WALK",
+   "OTHER"
+  ],
+  "12929": [
+   "JUMP_OUCH",
+   "OTHER"
+  ],
+  "12930": [
+   "JUMP_OUCH",
+   "OTHER"
+  ],
+  "12931": [
+   "JUMP_KICK_2",
+   "OTHER"
+  ],
+  "12932": [
+   "JUMP_KICK_2",
+   "OTHER"
+  ],
+  "12933": [
+   "JUMP_KICK_1",
+   "OTHER"
+  ],
+  "12934": [
+   "JUMP_KICK_1",
+   "OTHER"
+  ],
+  "13006": [
+   "HIZA_UTSUMUKI",
+   "OTHER"
+  ],
+  "13007": [
+   "HIZA_UTSUMUKI",
+   "OTHER"
+  ],
+  "13008": [
+   "HIZA_NO",
+   "OTHER"
+  ],
+  "13009": [
+   "HIZA_NO",
+   "OTHER"
+  ],
+  "13050": [
+   "POLE_1_1",
+   "OTHER"
+  ],
+  "13051": [
+   "POLE_1_1",
+   "OTHER"
+  ],
+  "13052": [
+   "POLE_2_1",
+   "OTHER"
+  ],
+  "13053": [
+   "POLE_2_1",
+   "OTHER"
+  ],
+  "13054": [
+   "POLE_1_2",
+   "OTHER"
+  ],
+  "13055": [
+   "POLE_1_2",
+   "OTHER"
+  ],
+  "13056": [
+   "POLE_1_3",
+   "OTHER"
+  ],
+  "13057": [
+   "POLE_1_3",
+   "OTHER"
+  ],
+  "13058": [
+   "POLE_2_3",
+   "OTHER"
+  ],
+  "13059": [
+   "POLE_2_3",
+   "OTHER"
+  ],
+  "13072": [
+   "POLE_2_2",
+   "OTHER"
+  ],
+  "13073": [
+   "POLE_2_2",
+   "OTHER"
+  ],
+  "13209": [
+   "MBG_KJA",
+   "OTHER"
+  ],
+  "13211": [
+   "MBG_KJA",
+   "OTHER"
+  ],
+  "14480": [
+   "KISSME_1",
+   "OTHER"
+  ],
+  "14481": [
+   "KISSME_1",
+   "OTHER"
+  ],
+  "14482": [
+   "KISSME_3",
+   "OTHER"
+  ],
+  "14483": [
+   "KISSME_3",
+   "OTHER"
+  ],
+  "14484": [
+   "KISSME_2",
+   "OTHER"
+  ],
+  "14485": [
+   "KISSME_2",
+   "OTHER"
+  ],
+  "14586": [
+   "BREAK1_HEAD",
+   "INACTIVE"
+  ],
+  "14587": [
+   "BREAK1_HEAD",
+   "INACTIVE"
+  ],
+  "14592": [
+   "CLEYRA_SWITCH_A",
+   "OTHER"
+  ],
+  "14593": [
+   "CLEYRA_SWITCH_A",
+   "OTHER"
+  ],
+  "14594": [
+   "CLEYRA_SWITCH_B",
+   "OTHER"
+  ],
+  "14595": [
+   "CLEYRA_SWITCH_B",
+   "OTHER"
+  ]
+ },
+ "evidence": {
+  "source": "the field-script exports (C:\\gd\\FFIX\\reference\\test2, not in the repo): counts, field ids and numeric frame windows only",
+  "files": 817,
+  "ops": {
+   "SetStandAnimation": "AIDLE",
+   "SetWalkAnimation": "AWALK",
+   "SetRunAnimation": "ARUN",
+   "SetLeftAnimation": "ATURNL",
+   "SetRightAnimation": "ATURNR",
+   "SetInactiveAnimation": "ASLEEP",
+   "SetJumpAnimation": "AJUMP",
+   "RunAnimation": "ANIM",
+   "RunAnimationEx": "ANIM_EX"
+  },
+  "player_entry": "SetModel( 98, ..) + DefinePlayerCharacter in one entry (RunAnimationEx: its target entry)",
+  "loco_and_qualified": {
+   "BREAK1_FLEX": {
+    "class": "INACTIVE",
+    "ids": [
+     55,
+     192
+    ],
+    "uses": {
+     "SetInactiveAnimation": {
+      "fields": 198,
+      "n": 372,
+      "player_n": 362,
+      "field_ids": [
+       300,
+       301,
+       302,
+       303,
+       304,
+       305,
+       306,
+       307,
+       308,
+       309,
+       310,
+       311,
+       312,
+       350,
+       351,
+       352,
+       353,
+       354,
+       355,
+       356,
+       357,
+       358,
+       359,
+       450,
+       453,
+       454,
+       455,
+       456,
+       457,
+       500,
+       501,
+       502,
+       503,
+       504,
+       505,
+       507,
+       800,
+       801,
+       802,
+       803
+      ]
+     },
+     "RunAnimation": {
+      "fields": 7,
+      "n": 13,
+      "player_n": 13,
+      "field_ids": [
+       565,
+       611,
+       852,
+       1652,
+       2502,
+       2508,
+       2933
+      ]
+     },
+     "RunAnimationEx": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       207
+      ]
+     }
+    }
+   },
+   "BREAK1_FLEX2": {
+    "class": "INACTIVE",
+    "ids": [
+     120,
+     4796
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 7,
+      "n": 14,
+      "player_n": 14,
+      "field_ids": [
+       1601,
+       1603,
+       1605,
+       1650,
+       1755,
+       2261,
+       2933
+      ]
+     }
+    }
+   },
+   "BREAK1_HEAD": {
+    "class": "INACTIVE",
+    "ids": [
+     14586,
+     14587
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 35,
+      "n": 112,
+      "player_n": 110,
+      "field_ids": [
+       51,
+       350,
+       503,
+       505,
+       565,
+       611,
+       612,
+       615,
+       1424,
+       1450,
+       1600,
+       1601,
+       1605,
+       1606,
+       1608,
+       1609,
+       1757,
+       1800,
+       1866,
+       2105,
+       2113,
+       2114,
+       2161,
+       2168,
+       2169,
+       2172,
+       2402,
+       2404,
+       2457,
+       2500,
+       2505,
+       2604,
+       2907,
+       2930,
+       2934
+      ]
+     },
+     "RunAnimationEx": {
+      "fields": 3,
+      "n": 4,
+      "player_n": 3,
+      "field_ids": [
+       571,
+       1315,
+       1370
+      ]
+     }
+    }
+   },
+   "BREAK1_LOOK": {
+    "class": "INACTIVE",
+    "ids": [
+     56,
+     186
+    ],
+    "uses": {
+     "SetInactiveAnimation": {
+      "fields": 25,
+      "n": 55,
+      "player_n": 55,
+      "field_ids": [
+       350,
+       351,
+       352,
+       353,
+       354,
+       355,
+       356,
+       357,
+       358,
+       400,
+       402,
+       403,
+       404,
+       405,
+       406,
+       407,
+       408,
+       1550,
+       1551,
+       1552,
+       1553,
+       1554,
+       1555,
+       1556,
+       1557
+      ]
+     },
+     "RunAnimation": {
+      "fields": 19,
+      "n": 57,
+      "player_n": 55,
+      "field_ids": [
+       57,
+       262,
+       352,
+       353,
+       502,
+       503,
+       852,
+       1602,
+       1607,
+       1757,
+       2105,
+       2113,
+       2114,
+       2150,
+       2161,
+       2169,
+       2254,
+       2502,
+       2510
+      ]
+     },
+     "RunAnimationEx": {
+      "fields": 2,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       554,
+       611
+      ]
+     }
+    }
+   },
+   "BREAK1_LOOKB": {
+    "class": "INACTIVE",
+    "ids": [
+     59,
+     185
+    ],
+    "uses": {
+     "SetInactiveAnimation": {
+      "fields": 21,
+      "n": 28,
+      "player_n": 28,
+      "field_ids": [
+       2700,
+       2701,
+       2702,
+       2703,
+       2704,
+       2705,
+       2706,
+       2707,
+       2708,
+       2709,
+       2710,
+       2711,
+       2712,
+       2713,
+       2714,
+       2715,
+       2716,
+       2717,
+       2718,
+       2719,
+       2720
+      ]
+     },
+     "RunAnimation": {
+      "fields": 6,
+      "n": 14,
+      "player_n": 14,
+      "field_ids": [
+       53,
+       259,
+       400,
+       1663,
+       2719,
+       2930
+      ]
+     }
+    }
+   },
+   "BREAK1_STRCH": {
+    "class": "INACTIVE",
+    "ids": [
+     54,
+     209
+    ],
+    "uses": {
+     "SetInactiveAnimation": {
+      "fields": 269,
+      "n": 415,
+      "player_n": 399,
+      "field_ids": [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55,
+       56,
+       57,
+       58,
+       59,
+       61,
+       62,
+       63,
+       64,
+       65,
+       66,
+       67,
+       70,
+       166,
+       650,
+       651,
+       652,
+       653,
+       654,
+       655,
+       656,
+       657,
+       658,
+       659,
+       660,
+       661,
+       662,
+       663,
+       701,
+       702,
+       703,
+       704,
+       705,
+       706,
+       707
+      ]
+     },
+     "RunAnimation": {
+      "fields": 10,
+      "n": 23,
+      "player_n": 21,
+      "field_ids": [
+       262,
+       350,
+       352,
+       403,
+       565,
+       1602,
+       1605,
+       2161,
+       2211,
+       2261
+      ]
+     },
+     "RunAnimationEx": {
+      "fields": 4,
+      "n": 13,
+      "player_n": 13,
+      "field_ids": [
+       554,
+       570,
+       1304,
+       2104
+      ]
+     }
+    }
+   },
+   "BREAK1_XARM": {
+    "class": "INACTIVE",
+    "ids": [
+     57,
+     182
+    ],
+    "uses": {
+     "SetInactiveAnimation": {
+      "fields": 187,
+      "n": 321,
+      "player_n": 317,
+      "field_ids": [
+       200,
+       201,
+       202,
+       203,
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       250,
+       251,
+       252,
+       253,
+       254,
+       255,
+       256,
+       257,
+       258,
+       259,
+       260,
+       261,
+       262,
+       550,
+       551,
+       552,
+       553,
+       554,
+       555,
+       556,
+       557,
+       558,
+       559,
+       560,
+       561,
+       562,
+       563,
+       564,
+       565,
+       566
+      ]
+     },
+     "RunAnimation": {
+      "fields": 7,
+      "n": 16,
+      "player_n": 15,
+      "field_ids": [
+       501,
+       554,
+       615,
+       1650,
+       2105,
+       2168,
+       2172
+      ]
+     },
+     "RunAnimationEx": {
+      "fields": 2,
+      "n": 3,
+      "player_n": 3,
+      "field_ids": [
+       208,
+       620
+      ]
+     }
+    }
+   },
+   "CAMP_IDLE": {
+    "class": "OTHER",
+    "ids": [
+     2624,
+     2625
+    ],
+    "uses": {}
+   },
+   "CHO_RUN": {
+    "class": "OTHER",
+    "ids": [
+     12778,
+     12780
+    ],
+    "uses": {
+     "SetRunAnimation": {
+      "fields": 5,
+      "n": 16,
+      "player_n": 10,
+      "field_ids": [
+       2950,
+       2951,
+       2952,
+       2954,
+       2955
+      ]
+     }
+    }
+   },
+   "CHO_WALK": {
+    "class": "OTHER",
+    "ids": [
+     12782,
+     12784
+    ],
+    "uses": {
+     "SetWalkAnimation": {
+      "fields": 5,
+      "n": 16,
+      "player_n": 10,
+      "field_ids": [
+       2950,
+       2951,
+       2952,
+       2954,
+       2955
+      ]
+     }
+    }
+   },
+   "COLD_FAINT_1": {
+    "class": "OTHER",
+    "ids": [
+     2572,
+     2573
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       307
+      ]
+     }
+    }
+   },
+   "COLD_FAINT_2": {
+    "class": "OTHER",
+    "ids": [
+     2568,
+     2569
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       307
+      ]
+     }
+    }
+   },
+   "COLD_IDLE": {
+    "class": "IDLE",
+    "ids": [
+     2622,
+     2623
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 2,
+      "n": 9,
+      "player_n": 9,
+      "field_ids": [
+       307,
+       308
+      ]
+     }
+    }
+   },
+   "COLD_KNEEL_1": {
+    "class": "OTHER",
+    "ids": [
+     2612,
+     2613
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       307
+      ]
+     }
+    }
+   },
+   "COLD_KNEEL_2": {
+    "class": "OTHER",
+    "ids": [
+     2588,
+     2589
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 1,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       307
+      ]
+     }
+    }
+   },
+   "COLD_KNEEL_3": {
+    "class": "OTHER",
+    "ids": [
+     2602,
+     2603
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       307
+      ]
+     }
+    }
+   },
+   "COLD_KNEEL_4": {
+    "class": "OTHER",
+    "ids": [
+     2634,
+     2635
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       307
+      ]
+     }
+    }
+   },
+   "COLD_TURN_L": {
+    "class": "TURN_L",
+    "ids": [
+     8283,
+     8284
+    ],
+    "uses": {
+     "SetLeftAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       307
+      ]
+     }
+    }
+   },
+   "COLD_TURN_R": {
+    "class": "TURN_R",
+    "ids": [
+     8285,
+     8286
+    ],
+    "uses": {
+     "SetRightAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       307
+      ]
+     }
+    }
+   },
+   "COLD_WALK": {
+    "class": "WALK",
+    "ids": [
+     2574,
+     2575
+    ],
+    "uses": {
+     "SetWalkAnimation": {
+      "fields": 2,
+      "n": 7,
+      "player_n": 7,
+      "field_ids": [
+       307,
+       308
+      ]
+     }
+    }
+   },
+   "FRA_DOWN_1": {
+    "class": "OTHER",
+    "ids": [
+     8461,
+     8462
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       2928
+      ]
+     }
+    }
+   },
+   "FRA_DOWN_2": {
+    "class": "OTHER",
+    "ids": [
+     8465,
+     8466
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       2928
+      ]
+     }
+    }
+   },
+   "FRA_IDLE": {
+    "class": "IDLE",
+    "ids": [
+     7920,
+     7922
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 5,
+      "n": 11,
+      "player_n": 11,
+      "field_ids": [
+       2705,
+       2706,
+       2707,
+       2708,
+       2928
+      ]
+     }
+    }
+   },
+   "FRA_MOTARE_1": {
+    "class": "OTHER",
+    "ids": [
+     8060,
+     8205
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 2,
+      "n": 3,
+      "player_n": 3,
+      "field_ids": [
+       2706,
+       2708
+      ]
+     }
+    }
+   },
+   "FRA_MOTARE_2": {
+    "class": "OTHER",
+    "ids": [
+     8206,
+     8208
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 3,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       2706,
+       2707,
+       2708
+      ]
+     }
+    }
+   },
+   "FRA_MOTARE_3": {
+    "class": "OTHER",
+    "ids": [
+     8210,
+     8212
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 3,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       2706,
+       2707,
+       2708
+      ]
+     }
+    }
+   },
+   "FRA_SIT_2": {
+    "class": "OTHER",
+    "ids": [
+     7924,
+     7926
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       2705
+      ]
+     }
+    }
+   },
+   "FRA_SIT_3": {
+    "class": "OTHER",
+    "ids": [
+     7927,
+     7930
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       2705
+      ]
+     }
+    }
+   },
+   "FRA_WALK": {
+    "class": "WALK",
+    "ids": [
+     8846,
+     8847
+    ],
+    "uses": {
+     "SetWalkAnimation": {
+      "fields": 5,
+      "n": 7,
+      "player_n": 7,
+      "field_ids": [
+       2705,
+       2706,
+       2707,
+       2708,
+       2928
+      ]
+     }
+    }
+   },
+   "FRA_WALK_1": {
+    "class": "OTHER",
+    "ids": [
+     9180,
+     9181
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 5,
+      "n": 18,
+      "player_n": 18,
+      "field_ids": [
+       2705,
+       2706,
+       2707,
+       2708,
+       2928
+      ]
+     }
+    }
+   },
+   "FRA_WALK_3": {
+    "class": "OTHER",
+    "ids": [
+     9183,
+     9184
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 5,
+      "n": 13,
+      "player_n": 13,
+      "field_ids": [
+       2705,
+       2706,
+       2707,
+       2708,
+       2928
+      ]
+     }
+    }
+   },
+   "IDLE": {
+    "class": "IDLE",
+    "ids": [
+     200,
+     324
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 701,
+      "n": 3065,
+      "player_n": 3002,
+      "field_ids": [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55,
+       56,
+       57,
+       58,
+       59,
+       61,
+       62,
+       63,
+       64,
+       65,
+       66,
+       67,
+       70,
+       166,
+       200,
+       201,
+       202,
+       203,
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       250,
+       251,
+       252,
+       253,
+       254,
+       255,
+       256,
+       257,
+       258,
+       259,
+       260
+      ]
+     },
+     "SetWalkAnimation": {
+      "fields": 1,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       404
+      ]
+     },
+     "RunAnimation": {
+      "fields": 4,
+      "n": 7,
+      "player_n": 7,
+      "field_ids": [
+       2905,
+       2907,
+       2908,
+       2917
+      ]
+     }
+    }
+   },
+   "JUMP": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     106,
+     206
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       956
+      ]
+     }
+    }
+   },
+   "JUMP1": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     179
+    ],
+    "uses": {}
+   },
+   "JUMP_1": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     10446,
+     10447
+    ],
+    "uses": {
+     "SetJumpAnimation": {
+      "fields": 34,
+      "n": 77,
+      "player_n": 77,
+      "field_ids": [
+       259,
+       301,
+       310,
+       403,
+       404,
+       407,
+       408,
+       507,
+       766,
+       808,
+       1017,
+       1018,
+       1050,
+       1100,
+       1202,
+       1206,
+       1223,
+       1251,
+       1423,
+       1652,
+       1654,
+       1755,
+       1759,
+       1812,
+       2260,
+       2404,
+       2602,
+       2605,
+       2651,
+       2652,
+       2702,
+       2703,
+       2712,
+       2926
+      ]
+     },
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       1755
+      ]
+     }
+    }
+   },
+   "JUMP_2": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     3519,
+     3520
+    ],
+    "uses": {
+     "SetJumpAnimation": {
+      "fields": 20,
+      "n": 35,
+      "player_n": 35,
+      "field_ids": [
+       402,
+       407,
+       408,
+       454,
+       615,
+       752,
+       759,
+       762,
+       766,
+       1014,
+       1052,
+       1150,
+       1460,
+       1602,
+       2702,
+       2901,
+       2913,
+       2925,
+       2934,
+       3059
+      ]
+     },
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       1108
+      ]
+     }
+    }
+   },
+   "JUMP_3": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     10444,
+     10445
+    ],
+    "uses": {
+     "SetJumpAnimation": {
+      "fields": 31,
+      "n": 74,
+      "player_n": 72,
+      "field_ids": [
+       53,
+       55,
+       206,
+       259,
+       307,
+       407,
+       408,
+       615,
+       755,
+       955,
+       1005,
+       1150,
+       1254,
+       1255,
+       1460,
+       1609,
+       1757,
+       1800,
+       1866,
+       1910,
+       1916,
+       1917,
+       2458,
+       2504,
+       2505,
+       2554,
+       2704,
+       2901,
+       2913,
+       2925,
+       3059
+      ]
+     },
+     "RunAnimation": {
+      "fields": 3,
+      "n": 6,
+      "player_n": 6,
+      "field_ids": [
+       56,
+       767,
+       768
+      ]
+     }
+    }
+   },
+   "LADDER_1_1": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     10686,
+     10687
+    ],
+    "uses": {
+     "SetJumpAnimation": {
+      "fields": 40,
+      "n": 98,
+      "player_n": 98,
+      "field_ids": [
+       207,
+       307,
+       353,
+       356,
+       404,
+       504,
+       557,
+       565,
+       706,
+       801,
+       1006,
+       1017,
+       1018,
+       1312,
+       1455,
+       1460,
+       1550,
+       1551,
+       1553,
+       1863,
+       1865,
+       1912,
+       1914,
+       1950,
+       1952,
+       2112,
+       2173,
+       2212,
+       2350,
+       2456,
+       2505,
+       2506,
+       2507,
+       2605,
+       2606,
+       2853,
+       2917,
+       2918,
+       3054,
+       3059
+      ]
+     }
+    }
+   },
+   "LADDER_1_2": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     10538,
+     10539
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 47,
+      "n": 237,
+      "player_n": 229,
+      "field_ids": [
+       207,
+       307,
+       353,
+       356,
+       357,
+       404,
+       454,
+       504,
+       507,
+       557,
+       565,
+       706,
+       801,
+       1006,
+       1017,
+       1018,
+       1050,
+       1100,
+       1312,
+       1420,
+       1455,
+       1460,
+       1550,
+       1551,
+       1553,
+       1863,
+       1865,
+       1912,
+       1914,
+       1950,
+       1952,
+       2112,
+       2173,
+       2212,
+       2350,
+       2353,
+       2456,
+       2505,
+       2506,
+       2507
+      ]
+     }
+    }
+   },
+   "LADDER_1_3": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     10684,
+     10685
+    ],
+    "uses": {
+     "SetJumpAnimation": {
+      "fields": 35,
+      "n": 100,
+      "player_n": 100,
+      "field_ids": [
+       207,
+       307,
+       357,
+       507,
+       557,
+       565,
+       1006,
+       1050,
+       1100,
+       1312,
+       1420,
+       1455,
+       1460,
+       1550,
+       1551,
+       1553,
+       1863,
+       1865,
+       1912,
+       1914,
+       1950,
+       2112,
+       2173,
+       2212,
+       2350,
+       2353,
+       2456,
+       2505,
+       2506,
+       2507,
+       2605,
+       2853,
+       2918,
+       3054,
+       3059
+      ]
+     }
+    }
+   },
+   "LADDER_2_1": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     11454,
+     11455
+    ],
+    "uses": {
+     "SetJumpAnimation": {
+      "fields": 35,
+      "n": 96,
+      "player_n": 96,
+      "field_ids": [
+       207,
+       307,
+       357,
+       454,
+       557,
+       565,
+       1006,
+       1050,
+       1100,
+       1312,
+       1420,
+       1455,
+       1460,
+       1550,
+       1551,
+       1553,
+       1863,
+       1865,
+       1912,
+       1914,
+       1950,
+       2112,
+       2212,
+       2350,
+       2351,
+       2353,
+       2456,
+       2505,
+       2506,
+       2507,
+       2605,
+       2853,
+       2918,
+       3054,
+       3059
+      ]
+     }
+    }
+   },
+   "LADDER_2_3": {
+    "class": "JUMP_LADDER",
+    "ids": [
+     11452,
+     11453
+    ],
+    "uses": {
+     "SetJumpAnimation": {
+      "fields": 39,
+      "n": 101,
+      "player_n": 101,
+      "field_ids": [
+       207,
+       307,
+       353,
+       356,
+       404,
+       504,
+       557,
+       565,
+       706,
+       801,
+       1006,
+       1017,
+       1018,
+       1312,
+       1455,
+       1460,
+       1550,
+       1551,
+       1553,
+       1863,
+       1865,
+       1912,
+       1914,
+       1950,
+       1952,
+       2112,
+       2212,
+       2350,
+       2353,
+       2456,
+       2505,
+       2506,
+       2507,
+       2605,
+       2853,
+       2917,
+       2918,
+       3054,
+       3059
+      ]
+     }
+    }
+   },
+   "MBG_102": {
+    "class": "OTHER",
+    "ids": [
+     9551,
+     9553
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 0,
+      "field_ids": [
+       209
+      ]
+     }
+    }
+   },
+   "MBG_A01": {
+    "class": "OTHER",
+    "ids": [
+     7628,
+     7630
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 4,
+      "player_n": 1,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_A02": {
+    "class": "OTHER",
+    "ids": [
+     7632,
+     7634
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_A03": {
+    "class": "OTHER",
+    "ids": [
+     7636,
+     7638
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_A04": {
+    "class": "OTHER",
+    "ids": [
+     7640,
+     7642
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_A06": {
+    "class": "OTHER",
+    "ids": [
+     7644,
+     7645
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_A07": {
+    "class": "OTHER",
+    "ids": [
+     7648,
+     7649
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_B01": {
+    "class": "OTHER",
+    "ids": [
+     7652,
+     7654
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_B02": {
+    "class": "OTHER",
+    "ids": [
+     7656,
+     7657
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_C01": {
+    "class": "OTHER",
+    "ids": [
+     7670,
+     7672
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_C02": {
+    "class": "OTHER",
+    "ids": [
+     7674,
+     7676
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_C04": {
+    "class": "OTHER",
+    "ids": [
+     7680,
+     7725
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_C05": {
+    "class": "OTHER",
+    "ids": [
+     7727,
+     7729
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_D02": {
+    "class": "OTHER",
+    "ids": [
+     7731,
+     7733
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_D04": {
+    "class": "OTHER",
+    "ids": [
+     7735,
+     7737
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_D05": {
+    "class": "OTHER",
+    "ids": [
+     7739,
+     7741
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_E01": {
+    "class": "OTHER",
+    "ids": [
+     7743,
+     7745
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_E02": {
+    "class": "OTHER",
+    "ids": [
+     7747,
+     7749
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_E03": {
+    "class": "OTHER",
+    "ids": [
+     7751,
+     7753
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_F02": {
+    "class": "OTHER",
+    "ids": [
+     7756,
+     7757
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_F05": {
+    "class": "OTHER",
+    "ids": [
+     7759,
+     7762
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_F06": {
+    "class": "OTHER",
+    "ids": [
+     7763,
+     7766
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_F07": {
+    "class": "OTHER",
+    "ids": [
+     7767,
+     7769
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_F08": {
+    "class": "OTHER",
+    "ids": [
+     7771,
+     7773
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_F09": {
+    "class": "OTHER",
+    "ids": [
+     7776,
+     7778
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_G01": {
+    "class": "OTHER",
+    "ids": [
+     7779,
+     7781
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_G02": {
+    "class": "OTHER",
+    "ids": [
+     7783,
+     7786
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_G04": {
+    "class": "OTHER",
+    "ids": [
+     7787,
+     7789
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_G05": {
+    "class": "OTHER",
+    "ids": [
+     7791,
+     7793
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 3,
+      "player_n": 0,
+      "field_ids": [
+       2933
+      ]
+     }
+    }
+   },
+   "MBG_IDLE": {
+    "class": "IDLE",
+    "ids": [
+     7931,
+     7933
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 2,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       1464,
+       1554
+      ]
+     }
+    }
+   },
+   "MBG_KJA": {
+    "class": "OTHER",
+    "ids": [
+     13209,
+     13211
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       2934
+      ]
+     }
+    }
+   },
+   "MBG_RUN": {
+    "class": "RUN",
+    "ids": [
+     7935,
+     7937
+    ],
+    "uses": {
+     "SetRunAnimation": {
+      "fields": 2,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       1464,
+       1554
+      ]
+     }
+    }
+   },
+   "MBG_SHIP": {
+    "class": "OTHER",
+    "ids": [
+     12499,
+     12501
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       454
+      ]
+     }
+    }
+   },
+   "MBG_TIRED": {
+    "class": "OTHER",
+    "ids": [
+     12141,
+     12142
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       2929
+      ]
+     }
+    }
+   },
+   "MBG_WALK": {
+    "class": "WALK",
+    "ids": [
+     7940,
+     7942
+    ],
+    "uses": {}
+   },
+   "POT_1": {
+    "class": "OTHER",
+    "ids": [
+     3984,
+     3985
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 2,
+      "n": 44,
+      "player_n": 44,
+      "field_ids": [
+       1606,
+       2513
+      ]
+     }
+    }
+   },
+   "POT_2": {
+    "class": "OTHER",
+    "ids": [
+     3987,
+     3989
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 4,
+      "n": 25,
+      "player_n": 25,
+      "field_ids": [
+       454,
+       1606,
+       1607,
+       2513
+      ]
+     }
+    }
+   },
+   "POT_3": {
+    "class": "OTHER",
+    "ids": [
+     3991,
+     3994
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 3,
+      "n": 45,
+      "player_n": 45,
+      "field_ids": [
+       403,
+       454,
+       2513
+      ]
+     }
+    }
+   },
+   "POT_LOOK": {
+    "class": "OTHER",
+    "ids": [
+     3995,
+     3997
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 9,
+      "player_n": 9,
+      "field_ids": [
+       2513
+      ]
+     }
+    }
+   },
+   "POT_TURN_L": {
+    "class": "TURN_L",
+    "ids": [
+     4039,
+     4041
+    ],
+    "uses": {
+     "SetLeftAnimation": {
+      "fields": 4,
+      "n": 25,
+      "player_n": 25,
+      "field_ids": [
+       454,
+       1606,
+       1607,
+       2513
+      ]
+     }
+    }
+   },
+   "POT_TURN_R": {
+    "class": "TURN_R",
+    "ids": [
+     4043,
+     4045
+    ],
+    "uses": {
+     "SetRightAnimation": {
+      "fields": 4,
+      "n": 25,
+      "player_n": 25,
+      "field_ids": [
+       454,
+       1606,
+       1607,
+       2513
+      ]
+     }
+    }
+   },
+   "POT_WALK": {
+    "class": "WALK",
+    "ids": [
+     4000,
+     4001
+    ],
+    "uses": {
+     "SetWalkAnimation": {
+      "fields": 4,
+      "n": 25,
+      "player_n": 25,
+      "field_ids": [
+       454,
+       1606,
+       1607,
+       2513
+      ]
+     }
+    }
+   },
+   "RUN": {
+    "class": "RUN",
+    "ids": [
+     38,
+     203
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 2,
+      "n": 3,
+      "player_n": 2,
+      "field_ids": [
+       166,
+       1150
+      ]
+     },
+     "SetWalkAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       2363
+      ]
+     },
+     "SetRunAnimation": {
+      "fields": 701,
+      "n": 1203,
+      "player_n": 1167,
+      "field_ids": [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55,
+       56,
+       57,
+       58,
+       59,
+       61,
+       62,
+       63,
+       64,
+       65,
+       66,
+       67,
+       70,
+       166,
+       200,
+       201,
+       202,
+       203,
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       250,
+       251,
+       252,
+       253,
+       254,
+       255,
+       256,
+       257,
+       258,
+       259,
+       260
+      ]
+     },
+     "RunAnimation": {
+      "fields": 3,
+      "n": 9,
+      "player_n": 9,
+      "field_ids": [
+       1654,
+       1655,
+       1704
+      ]
+     }
+    }
+   },
+   "SIT_IDLE": {
+    "class": "OTHER",
+    "ids": [
+     2632,
+     2633
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 2,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       52,
+       1861
+      ]
+     }
+    }
+   },
+   "STAND": {
+    "class": "OTHER",
+    "ids": [
+     11185,
+     11187
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 8,
+      "player_n": 8,
+      "field_ids": [
+       2934
+      ]
+     }
+    }
+   },
+   "SWORD_IDLE": {
+    "class": "IDLE",
+    "ids": [
+     3511,
+     3512
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 2,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       61,
+       63
+      ]
+     }
+    }
+   },
+   "SWORD_JUMP": {
+    "class": "OTHER",
+    "ids": [
+     3505,
+     3506
+    ],
+    "uses": {
+     "SetJumpAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       63
+      ]
+     }
+    }
+   },
+   "SWORD_RUN": {
+    "class": "RUN",
+    "ids": [
+     3507,
+     3508
+    ],
+    "uses": {
+     "SetRunAnimation": {
+      "fields": 3,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       62,
+       63,
+       64
+      ]
+     }
+    }
+   },
+   "SWORD_SIT_0": {
+    "class": "OTHER",
+    "ids": [
+     3529,
+     3530
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       61
+      ]
+     }
+    }
+   },
+   "SWORD_SIT_1": {
+    "class": "OTHER",
+    "ids": [
+     3527,
+     3528
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       61
+      ]
+     }
+    }
+   },
+   "SWORD_TALK": {
+    "class": "OTHER",
+    "ids": [
+     4471,
+     4472
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 3,
+      "n": 3,
+      "player_n": 3,
+      "field_ids": [
+       63,
+       2704,
+       2933
+      ]
+     }
+    }
+   },
+   "SWORD_THREAT": {
+    "class": "OTHER",
+    "ids": [
+     4473,
+     4474
+    ],
+    "uses": {
+     "RunAnimation": {
+      "fields": 1,
+      "n": 1,
+      "player_n": 1,
+      "field_ids": [
+       63
+      ]
+     }
+    }
+   },
+   "SWORD_TURN_L": {
+    "class": "TURN_L",
+    "ids": [
+     3509,
+     3510
+    ],
+    "uses": {
+     "SetLeftAnimation": {
+      "fields": 3,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       62,
+       63,
+       64
+      ]
+     }
+    }
+   },
+   "SWORD_TURN_R": {
+    "class": "TURN_R",
+    "ids": [
+     3515,
+     3516
+    ],
+    "uses": {
+     "SetRightAnimation": {
+      "fields": 3,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       62,
+       63,
+       64
+      ]
+     }
+    }
+   },
+   "SWORD_WALK": {
+    "class": "WALK",
+    "ids": [
+     3521,
+     3522
+    ],
+    "uses": {
+     "SetWalkAnimation": {
+      "fields": 3,
+      "n": 4,
+      "player_n": 4,
+      "field_ids": [
+       62,
+       63,
+       64
+      ]
+     }
+    }
+   },
+   "TKE_WALK": {
+    "class": "WALK",
+    "ids": [
+     8554,
+     8555
+    ],
+    "uses": {
+     "SetWalkAnimation": {
+      "fields": 1,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       2802
+      ]
+     }
+    }
+   },
+   "TURN_L": {
+    "class": "TURN_L",
+    "ids": [
+     40,
+     187
+    ],
+    "uses": {
+     "SetLeftAnimation": {
+      "fields": 701,
+      "n": 1202,
+      "player_n": 1168,
+      "field_ids": [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55,
+       56,
+       57,
+       58,
+       59,
+       61,
+       62,
+       63,
+       64,
+       65,
+       66,
+       67,
+       70,
+       166,
+       200,
+       201,
+       202,
+       203,
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       250,
+       251,
+       252,
+       253,
+       254,
+       255,
+       256,
+       257,
+       258,
+       259,
+       260
+      ]
+     }
+    }
+   },
+   "TURN_R": {
+    "class": "TURN_R",
+    "ids": [
+     41,
+     193
+    ],
+    "uses": {
+     "SetRightAnimation": {
+      "fields": 701,
+      "n": 1202,
+      "player_n": 1168,
+      "field_ids": [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55,
+       56,
+       57,
+       58,
+       59,
+       61,
+       62,
+       63,
+       64,
+       65,
+       66,
+       67,
+       70,
+       166,
+       200,
+       201,
+       202,
+       203,
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       250,
+       251,
+       252,
+       253,
+       254,
+       255,
+       256,
+       257,
+       258,
+       259,
+       260
+      ]
+     }
+    }
+   },
+   "WALK": {
+    "class": "WALK",
+    "ids": [
+     25,
+     190
+    ],
+    "uses": {
+     "SetStandAnimation": {
+      "fields": 2,
+      "n": 2,
+      "player_n": 2,
+      "field_ids": [
+       1150,
+       2921
+      ]
+     },
+     "SetWalkAnimation": {
+      "fields": 701,
+      "n": 1408,
+      "player_n": 1366,
+      "field_ids": [
+       50,
+       51,
+       52,
+       53,
+       54,
+       55,
+       56,
+       57,
+       58,
+       59,
+       61,
+       62,
+       63,
+       64,
+       65,
+       66,
+       67,
+       70,
+       166,
+       200,
+       201,
+       202,
+       203,
+       204,
+       205,
+       206,
+       207,
+       208,
+       209,
+       250,
+       251,
+       252,
+       253,
+       254,
+       255,
+       256,
+       257,
+       258,
+       259,
+       260
+      ]
+     },
+     "RunAnimation": {
+      "fields": 6,
+      "n": 14,
+      "player_n": 14,
+      "field_ids": [
+       1002,
+       1418,
+       1419,
+       1420,
+       1605,
+       1704
+      ]
+     }
+    }
+   }
+  },
+  "other_names_in_slot_ops": {
+   "ANGRY_1_2": {
+    "SetStandAnimation": {
+     "fields": 8,
+     "player_n": 44
+    }
+   },
+   "ANGRY_2_2": {
+    "SetStandAnimation": {
+     "fields": 7,
+     "player_n": 16
+    }
+   },
+   "BEG_4": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "BELL_2": {
+    "SetStandAnimation": {
+     "fields": 4,
+     "player_n": 12
+    }
+   },
+   "CATCH_EIK_2": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 3
+    }
+   },
+   "CHO_RIDE_1": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 4
+    }
+   },
+   "CHO_RIDE_2": {
+    "SetStandAnimation": {
+     "fields": 5,
+     "player_n": 10
+    }
+   },
+   "CHO_RIDE_3": {
+    "SetJumpAnimation": {
+     "fields": 2,
+     "player_n": 8
+    }
+   },
+   "CHO_RUN": {
+    "SetRunAnimation": {
+     "fields": 5,
+     "player_n": 10
+    }
+   },
+   "CHO_WALK": {
+    "SetWalkAnimation": {
+     "fields": 5,
+     "player_n": 10
+    }
+   },
+   "CLEYRA_OTTOTTO_B": {
+    "SetStandAnimation": {
+     "fields": 4,
+     "player_n": 10
+    },
+    "SetRunAnimation": {
+     "fields": 1,
+     "player_n": 2
+    },
+    "SetJumpAnimation": {
+     "fields": 4,
+     "player_n": 34
+    }
+   },
+   "CLEYRA_OTTOTTO_B_3": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "CLEYRA_OTTOTTO_F": {
+    "SetStandAnimation": {
+     "fields": 3,
+     "player_n": 4
+    },
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 4
+    }
+   },
+   "CLEYRA_OTTOTTO_F_1": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 4
+    }
+   },
+   "COLD_KNEEL_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 4
+    }
+   },
+   "DASH_PAUSE_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "DINE_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 3
+    }
+   },
+   "DINE_SLEEP_4": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 3
+    }
+   },
+   "DISAPPOINTED_2": {
+    "SetStandAnimation": {
+     "fields": 10,
+     "player_n": 17
+    }
+   },
+   "DRINK_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 4
+    }
+   },
+   "FAINT_SIT_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "FRA_DOWN_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "FRA_MOTARE_2": {
+    "SetStandAnimation": {
+     "fields": 3,
+     "player_n": 4
+    }
+   },
+   "FRA_SIT_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "GAME_1": {
+    "SetStandAnimation": {
+     "fields": 5,
+     "player_n": 8
+    }
+   },
+   "GAME_10": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "GAS_2": {
+    "SetStandAnimation": {
+     "fields": 12,
+     "player_n": 12
+    }
+   },
+   "GET_TKE_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "GIROCHIN": {
+    "SetRunAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "GIVE_1_2": {
+    "SetStandAnimation": {
+     "fields": 6,
+     "player_n": 12
+    }
+   },
+   "GRG_1": {
+    "SetJumpAnimation": {
+     "fields": 12,
+     "player_n": 12
+    }
+   },
+   "GRG_2": {
+    "SetStandAnimation": {
+     "fields": 19,
+     "player_n": 26
+    }
+   },
+   "GRG_3": {
+    "SetJumpAnimation": {
+     "fields": 13,
+     "player_n": 13
+    }
+   },
+   "GROUND_NAYAMU": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    },
+    "SetWalkAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "HARA_PUNCH2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "HIZA_2": {
+    "SetStandAnimation": {
+     "fields": 254,
+     "player_n": 611
+    }
+   },
+   "HIZA_OJIGI_2": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 4
+    }
+   },
+   "HOLD_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "HURRY_UP_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "JUMP_KICK_1": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "JUMP_KICK_2": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "JUMP_OUCH": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "KAMAE_1": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    },
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "KAMAE_2": {
+    "SetStandAnimation": {
+     "fields": 73,
+     "player_n": 177
+    }
+   },
+   "KANGAERU": {
+    "SetWalkAnimation": {
+     "fields": 3,
+     "player_n": 5
+    }
+   },
+   "KISSME_2": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 2
+    }
+   },
+   "LAST_2": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 1
+    }
+   },
+   "LETSGO_1_2": {
+    "SetStandAnimation": {
+     "fields": 3,
+     "player_n": 8
+    }
+   },
+   "LETSGO_2_2": {
+    "SetStandAnimation": {
+     "fields": 3,
+     "player_n": 5
+    }
+   },
+   "LETSGO_L_2": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 4
+    }
+   },
+   "LETSGO_R_2": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 4
+    }
+   },
+   "LOOKD_2": {
+    "SetStandAnimation": {
+     "fields": 4,
+     "player_n": 6
+    }
+   },
+   "LOOK_UP_2": {
+    "SetStandAnimation": {
+     "fields": 43,
+     "player_n": 101
+    }
+   },
+   "LOSE": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "MATCH2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "MATCH3": {
+    "SetWalkAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "MATCH4": {
+    "SetRightAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "MATCH5": {
+    "SetLeftAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "MATCH7": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 2
+    }
+   },
+   "MBG_TIRED": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "MIRROR_2": {
+    "SetStandAnimation": {
+     "fields": 3,
+     "player_n": 14
+    }
+   },
+   "MOTARE": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 5
+    }
+   },
+   "NOZOKI_2": {
+    "SetStandAnimation": {
+     "fields": 15,
+     "player_n": 35
+    }
+   },
+   "ON_BED": {
+    "SetStandAnimation": {
+     "fields": 3,
+     "player_n": 6
+    }
+   },
+   "ON_BED_SLEEP_2": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 7
+    }
+   },
+   "OPEN_DOOR2": {
+    "SetWalkAnimation": {
+     "fields": 87,
+     "player_n": 165
+    }
+   },
+   "POLE_1_1": {
+    "SetJumpAnimation": {
+     "fields": 2,
+     "player_n": 5
+    }
+   },
+   "POLE_1_3": {
+    "SetJumpAnimation": {
+     "fields": 2,
+     "player_n": 8
+    }
+   },
+   "POLE_2_1": {
+    "SetJumpAnimation": {
+     "fields": 3,
+     "player_n": 7
+    }
+   },
+   "POLE_2_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    },
+    "SetWalkAnimation": {
+     "fields": 1,
+     "player_n": 2
+    },
+    "SetRunAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "POLE_2_3": {
+    "SetJumpAnimation": {
+     "fields": 4,
+     "player_n": 15
+    }
+   },
+   "POT_2": {
+    "SetStandAnimation": {
+     "fields": 4,
+     "player_n": 25
+    }
+   },
+   "RECEIVE_1_2": {
+    "SetStandAnimation": {
+     "fields": 3,
+     "player_n": 6
+    }
+   },
+   "SEARCH_UP_2": {
+    "SetStandAnimation": {
+     "fields": 16,
+     "player_n": 43
+    }
+   },
+   "SIT_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "SIT_GROUND_1_2": {
+    "SetStandAnimation": {
+     "fields": 9,
+     "player_n": 15
+    }
+   },
+   "SIT_IDLE": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 4
+    }
+   },
+   "SIT_KJA_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "SIT_LOOK_KJA_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "SIT_LOOK_UP_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "STAIR_DOWN_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "STAIR_DOWN_4": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "SURPRISED_1_1": {
+    "SetRunAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "SURPRISED_1_2": {
+    "SetStandAnimation": {
+     "fields": 10,
+     "player_n": 14
+    }
+   },
+   "SURPRISED_2_1": {
+    "SetWalkAnimation": {
+     "fields": 1,
+     "player_n": 1
+    },
+    "SetJumpAnimation": {
+     "fields": 3,
+     "player_n": 4
+    }
+   },
+   "SURPRISED_2_2": {
+    "SetStandAnimation": {
+     "fields": 13,
+     "player_n": 19
+    }
+   },
+   "SWORD_JUMP": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "SWORD_SIT_0": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "TALK_1_2": {
+    "SetStandAnimation": {
+     "fields": 34,
+     "player_n": 87
+    }
+   },
+   "TALK_2_2": {
+    "SetStandAnimation": {
+     "fields": 22,
+     "player_n": 62
+    }
+   },
+   "TALK_3_2": {
+    "SetStandAnimation": {
+     "fields": 25,
+     "player_n": 56
+    }
+   },
+   "TALK_4_2": {
+    "SetStandAnimation": {
+     "fields": 20,
+     "player_n": 50
+    }
+   },
+   "TALK_5_2": {
+    "SetStandAnimation": {
+     "fields": 7,
+     "player_n": 21
+    }
+   },
+   "TELESCOPE_2": {
+    "SetStandAnimation": {
+     "fields": 2,
+     "player_n": 2
+    }
+   },
+   "THINK_1_2": {
+    "SetStandAnimation": {
+     "fields": 46,
+     "player_n": 128
+    }
+   },
+   "THINK_2_2": {
+    "SetStandAnimation": {
+     "fields": 42,
+     "player_n": 101
+    }
+   },
+   "THINK_4_2": {
+    "SetStandAnimation": {
+     "fields": 14,
+     "player_n": 22
+    }
+   },
+   "TIRED": {
+    "SetStandAnimation": {
+     "fields": 3,
+     "player_n": 4
+    }
+   },
+   "TRY_HOLD_2": {
+    "SetStandAnimation": {
+     "fields": 1,
+     "player_n": 1
+    }
+   },
+   "TSUBURE_2": {
+    "SetStandAnimation": {
+     "fields": 5,
+     "player_n": 8
+    }
+   },
+   "UTSUMUKI_UDE": {
+    "SetStandAnimation": {
+     "fields": 10,
+     "player_n": 22
+    }
+   },
+   "XARM_2": {
+    "SetStandAnimation": {
+     "fields": 31,
+     "player_n": 126
+    }
+   },
+   "YOKE_STN_1": {
+    "SetJumpAnimation": {
+     "fields": 1,
+     "player_n": 2
+    }
+   },
+   "YOKE_STN_2": {
+    "SetJumpAnimation": {
+     "fields": 2,
+     "player_n": 3
+    }
+   }
+  },
+  "get_anim_duration_zdn": {
+   "185": {
+    "name": "BREAK1_LOOKB",
+    "class": "INACTIVE",
+    "family": "loco",
+    "fields": [
+     400
+    ],
+    "n": 1
+   },
+   "186": {
+    "name": "BREAK1_LOOK",
+    "class": "INACTIVE",
+    "family": "loco",
+    "fields": [
+     1602
+    ],
+    "n": 2
+   },
+   "2592": {
+    "name": "UTSUMUKI",
+    "class": "OTHER",
+    "family": "gesture",
+    "fields": [
+     352,
+     504,
+     505
+    ],
+    "n": 8
+   },
+   "2607": {
+    "name": "HIZA_1",
+    "class": "OTHER",
+    "family": "gesture",
+    "fields": [
+     702
+    ],
+    "n": 3
+   },
+   "2719": {
+    "name": "MATCH7",
+    "class": "OTHER",
+    "family": "gesture",
+    "fields": [
+     1205
+    ],
+    "n": 2
+   },
+   "3994": {
+    "name": "POT_3",
+    "class": "OTHER",
+    "family": "gesture",
+    "fields": [
+     403
+    ],
+    "n": 2
+   },
+   "7935": {
+    "name": "MBG_RUN",
+    "class": "RUN",
+    "family": "loco",
+    "fields": [
+     1464,
+     1554
+    ],
+    "n": 6
+   },
+   "8555": {
+    "name": "TKE_WALK",
+    "class": "WALK",
+    "family": "loco",
+    "fields": [
+     2802
+    ],
+    "n": 6
+   },
+   "8847": {
+    "name": "FRA_WALK",
+    "class": "WALK",
+    "family": "loco",
+    "fields": [
+     2705
+    ],
+    "n": 6
+   },
+   "10445": {
+    "name": "JUMP_3",
+    "class": "JUMP_LADDER",
+    "family": "gesture",
+    "fields": [
+     56
+    ],
+    "n": 2
+   },
+   "13053": {
+    "name": "POLE_2_1",
+    "class": "OTHER",
+    "family": "gesture",
+    "fields": [
+     2351,
+     2361
+    ],
+    "n": 10
+   }
+  },
+  "get_anim_duration_loco_family_ids": [
+   185,
+   186,
+   7935,
+   8555,
+   8847
+  ],
+  "windowed_runs": {
+   "BREAK1_HEAD": {
+    "class": "INACTIVE",
+    "windows": [
+     [
+      505,
+      0,
+      42
+     ],
+     [
+      505,
+      42,
+      48
+     ],
+     [
+      505,
+      48,
+      255
+     ]
+    ]
+   },
+   "BREAK1_LOOK": {
+    "class": "INACTIVE",
+    "windows": [
+     [
+      1602,
+      "expr",
+      0
+     ]
+    ]
+   },
+   "BREAK1_LOOKB": {
+    "class": "INACTIVE",
+    "windows": [
+     [
+      53,
+      0,
+      14
+     ],
+     [
+      53,
+      14,
+      0
+     ],
+     [
+      1663,
+      0,
+      14
+     ],
+     [
+      1663,
+      14,
+      24
+     ]
+    ]
+   },
+   "BREAK1_STRCH": {
+    "class": "INACTIVE",
+    "windows": [
+     [
+      1602,
+      "expr",
+      0
+     ]
+    ]
+   },
+   "IDLE": {
+    "class": "IDLE",
+    "windows": [
+     [
+      2905,
+      0,
+      0
+     ],
+     [
+      2907,
+      0,
+      0
+     ],
+     [
+      2908,
+      0,
+      0
+     ],
+     [
+      2917,
+      0,
+      0
+     ]
+    ]
+   },
+   "JUMP_3": {
+    "class": "JUMP_LADDER",
+    "windows": [
+     [
+      56,
+      "expr",
+      "expr"
+     ]
+    ]
+   },
+   "LADDER_1_2": {
+    "class": "JUMP_LADDER",
+    "windows": [
+     [
+      207,
+      "expr",
+      "expr"
+     ],
+     [
+      307,
+      "expr",
+      "expr"
+     ],
+     [
+      353,
+      4,
+      4
+     ],
+     [
+      353,
+      "expr",
+      "expr"
+     ],
+     [
+      356,
+      0,
+      0
+     ],
+     [
+      356,
+      "expr",
+      "expr"
+     ],
+     [
+      357,
+      0,
+      0
+     ],
+     [
+      357,
+      "expr",
+      "expr"
+     ],
+     [
+      404,
+      0,
+      0
+     ],
+     [
+      404,
+      "expr",
+      "expr"
+     ],
+     [
+      454,
+      0,
+      0
+     ],
+     [
+      504,
+      0,
+      0
+     ],
+     [
+      504,
+      "expr",
+      "expr"
+     ],
+     [
+      507,
+      0,
+      0
+     ],
+     [
+      507,
+      "expr",
+      "expr"
+     ],
+     [
+      557,
+      "expr",
+      "expr"
+     ],
+     [
+      565,
+      "expr",
+      "expr"
+     ],
+     [
+      706,
+      0,
+      0
+     ],
+     [
+      706,
+      "expr",
+      "expr"
+     ],
+     [
+      801,
+      "expr",
+      "expr"
+     ],
+     [
+      1006,
+      "expr",
+      "expr"
+     ],
+     [
+      1017,
+      0,
+      0
+     ],
+     [
+      1017,
+      "expr",
+      "expr"
+     ],
+     [
+      1018,
+      0,
+      0
+     ],
+     [
+      1018,
+      "expr",
+      "expr"
+     ],
+     [
+      1050,
+      0,
+      0
+     ],
+     [
+      1050,
+      "expr",
+      "expr"
+     ],
+     [
+      1100,
+      0,
+      0
+     ],
+     [
+      1100,
+      "expr",
+      "expr"
+     ],
+     [
+      1312,
+      "expr",
+      "expr"
+     ],
+     [
+      1420,
+      11,
+      11
+     ],
+     [
+      1420,
+      "expr",
+      "expr"
+     ],
+     [
+      1455,
+      0,
+      0
+     ],
+     [
+      1455,
+      "expr",
+      "expr"
+     ],
+     [
+      1460,
+      "expr",
+      "expr"
+     ],
+     [
+      1550,
+      "expr",
+      "expr"
+     ],
+     [
+      1551,
+      "expr",
+      "expr"
+     ],
+     [
+      1553,
+      "expr",
+      "expr"
+     ],
+     [
+      1863,
+      "expr",
+      "expr"
+     ],
+     [
+      1865,
+      "expr",
+      "expr"
+     ],
+     [
+      1912,
+      "expr",
+      "expr"
+     ],
+     [
+      1914,
+      "expr",
+      "expr"
+     ],
+     [
+      1950,
+      "expr",
+      "expr"
+     ],
+     [
+      1952,
+      "expr",
+      "expr"
+     ],
+     [
+      2112,
+      "expr",
+      "expr"
+     ],
+     [
+      2173,
+      "expr",
+      "expr"
+     ],
+     [
+      2212,
+      "expr",
+      "expr"
+     ],
+     [
+      2350,
+      "expr",
+      "expr"
+     ],
+     [
+      2353,
+      "expr",
+      "expr"
+     ],
+     [
+      2456,
+      "expr",
+      "expr"
+     ],
+     [
+      2505,
+      "expr",
+      "expr"
+     ],
+     [
+      2506,
+      0,
+      0
+     ],
+     [
+      2506,
+      "expr",
+      "expr"
+     ],
+     [
+      2507,
+      0,
+      0
+     ],
+     [
+      2507,
+      "expr",
+      "expr"
+     ],
+     [
+      2605,
+      "expr",
+      "expr"
+     ],
+     [
+      2606,
+      "expr",
+      "expr"
+     ],
+     [
+      2853,
+      "expr",
+      "expr"
+     ],
+     [
+      2917,
+      0,
+      0
+     ],
+     [
+      2917,
+      "expr",
+      "expr"
+     ],
+     [
+      2918,
+      0,
+      0
+     ],
+     [
+      2918,
+      "expr",
+      "expr"
+     ],
+     [
+      3054,
+      0,
+      0
+     ],
+     [
+      3054,
+      "expr",
+      "expr"
+     ],
+     [
+      3059,
+      "expr",
+      "expr"
+     ]
+    ]
+   },
+   "RUN": {
+    "class": "RUN",
+    "windows": [
+     [
+      1655,
+      "expr",
+      "expr"
+     ]
+    ]
+   },
+   "STAND": {
+    "class": "OTHER",
+    "windows": [
+     [
+      2934,
+      0,
+      24
+     ],
+     [
+      2934,
+      25,
+      36
+     ],
+     [
+      2934,
+      37,
+      95
+     ],
+     [
+      2934,
+      96,
+      133
+     ]
+    ]
+   },
+   "WALK": {
+    "class": "WALK",
+    "windows": [
+     [
+      1418,
+      19,
+      0
+     ],
+     [
+      1419,
+      19,
+      0
+     ],
+     [
+      1420,
+      19,
+      0
+     ]
+    ]
+   }
+  },
+  "jump_windows": {
+   "by_name": {
+    "CHO_RIDE_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       7,
+       17
+      ]
+     ]
+    },
+    "CHO_RIDE_3": {
+     "class": "OTHER",
+     "windows": [
+      [
+       6,
+       16
+      ]
+     ]
+    },
+    "CLEYRA_OTTOTTO_B": {
+     "class": "OTHER",
+     "windows": [
+      [
+       0,
+       4
+      ],
+      [
+       0,
+       5
+      ],
+      [
+       0,
+       9
+      ],
+      [
+       6,
+       11
+      ],
+      [
+       10,
+       19
+      ],
+      [
+       12,
+       17
+      ],
+      [
+       18,
+       23
+      ],
+      [
+       20,
+       29
+      ],
+      [
+       24,
+       29
+      ]
+     ]
+    },
+    "CLEYRA_OTTOTTO_B_3": {
+     "class": "OTHER",
+     "windows": [
+      [
+       8,
+       28
+      ]
+     ]
+    },
+    "CLEYRA_OTTOTTO_F": {
+     "class": "OTHER",
+     "windows": [
+      [
+       0,
+       10
+      ]
+     ]
+    },
+    "CLEYRA_OTTOTTO_F_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       0,
+       7
+      ]
+     ]
+    },
+    "GAME_10": {
+     "class": "OTHER",
+     "windows": [
+      [
+       3,
+       20
+      ]
+     ]
+    },
+    "GRG_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       12,
+       18
+      ]
+     ]
+    },
+    "GRG_3": {
+     "class": "OTHER",
+     "windows": [
+      [
+       4,
+       12
+      ]
+     ]
+    },
+    "JUMP_1": {
+     "class": "JUMP_LADDER",
+     "windows": [
+      [
+       4,
+       14
+      ],
+      [
+       5,
+       15
+      ]
+     ]
+    },
+    "JUMP_2": {
+     "class": "JUMP_LADDER",
+     "windows": [
+      [
+       8,
+       22
+      ]
+     ]
+    },
+    "JUMP_3": {
+     "class": "JUMP_LADDER",
+     "windows": [
+      [
+       8,
+       24
+      ],
+      [
+       9,
+       25
+      ]
+     ]
+    },
+    "JUMP_KICK_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       9,
+       23
+      ]
+     ]
+    },
+    "JUMP_KICK_2": {
+     "class": "OTHER",
+     "windows": [
+      [
+       3,
+       16
+      ]
+     ]
+    },
+    "JUMP_OUCH": {
+     "class": "OTHER",
+     "windows": [
+      [
+       9,
+       42
+      ]
+     ]
+    },
+    "KAMAE_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       4,
+       14
+      ]
+     ]
+    },
+    "LADDER_1_1": {
+     "class": "JUMP_LADDER",
+     "windows": [
+      [
+       2,
+       6
+      ]
+     ]
+    },
+    "LADDER_1_3": {
+     "class": "JUMP_LADDER",
+     "windows": [
+      [
+       2,
+       10
+      ]
+     ]
+    },
+    "LADDER_2_1": {
+     "class": "JUMP_LADDER",
+     "windows": [
+      [
+       3,
+       9
+      ]
+     ]
+    },
+    "LADDER_2_3": {
+     "class": "JUMP_LADDER",
+     "windows": [
+      [
+       2,
+       8
+      ]
+     ]
+    },
+    "POLE_1_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       2,
+       4
+      ]
+     ]
+    },
+    "POLE_1_3": {
+     "class": "OTHER",
+     "windows": [
+      [
+       2,
+       8
+      ]
+     ]
+    },
+    "POLE_2_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       3,
+       6
+      ]
+     ]
+    },
+    "POLE_2_3": {
+     "class": "OTHER",
+     "windows": [
+      [
+       2,
+       6
+      ]
+     ]
+    },
+    "SURPRISED_2_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       0,
+       13
+      ],
+      [
+       1,
+       10
+      ],
+      [
+       2,
+       12
+      ]
+     ]
+    },
+    "SWORD_JUMP": {
+     "class": "OTHER",
+     "windows": [
+      [
+       9,
+       25
+      ]
+     ]
+    },
+    "YOKE_STN_1": {
+     "class": "OTHER",
+     "windows": [
+      [
+       12,
+       18
+      ]
+     ]
+    },
+    "YOKE_STN_2": {
+     "class": "OTHER",
+     "windows": [
+      [
+       3,
+       14
+      ]
+     ]
+    }
+   },
+   "max_jump1_zdn": 42,
+   "max_jump1_any_clip": 42,
+   "max_jump1_any_clip_field": 451
+  },
+  "non_zdn_clips_on_player_entries": {
+   "GEO_MAIN_F0_KUI": 6,
+   "GEO_MAIN_F0_GRN": 1
+  },
+  "unused_names": [
+   "B",
+   "CAMP_IDLE",
+   "CLIMB",
+   "CLIMB_LOOP",
+   "DINE_5",
+   "JUMP1",
+   "MATCH_0",
+   "MATCH_1",
+   "MATCH_2",
+   "MATCH_LEFT",
+   "MATCH_RIGHT",
+   "MATCH_WARK",
+   "MBG_WALK",
+   "P",
+   "SIT_3",
+   "THINK_3_1",
+   "THINK_3_2",
+   "THINK_3_3",
+   "THROW"
+  ]
+ }
+}

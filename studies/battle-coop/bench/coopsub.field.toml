@@ -1,0 +1,33 @@
+# COOPSUB -- the s140 bench's 8-11 PARTY SEEDER (studies/test-harness/scenarios/coop_self_dress.py, rows S140-S7 / S8).
+#
+# WHY IT EXISTS. The owner's 8-11 decision (Blank, Marcus, Cinna and Beatrix get "their own models", rigs 9-12) runs
+# through a LIVE party read on both sides: the host's ResolveAuto over FF9.party.member[i].Index (CharacterId) and the
+# guest's `self auto` arm. COOPPARTY (30604) seats only mains, and the mains are the one id range where CharacterOldIndex
+# and CharacterId agree -- so no bench could tell a party read in the wrong id space. Warping here runs this field's
+# Main_Init, whose [party] block prepends RemoveParty(steiner) then B_PARTYADD(blank) (CharacterOldIndex 11 ->
+# CharacterId 10): after COOPPARTY's [0, 1, 2, 3] the party reads [0, 1, 2, 10]; on the New-Game base [0, 10, -1, -1].
+# A second visit is a no-op (the remove finds no Steiner, the add finds Blank seated). Nothing else here is used.
+#
+# Deploy (a NEW id: the first deploy registers it -- one game RELAUNCH). Re-read every mod folder's DictionaryPatch.txt
+# first; 30605 was free in all of them on 2026-10-18 (FF9CustomMap-msgs holds 30601-30604; 30606 is the s140 bench field):
+#   py tools/deploy_field.py studies/battle-coop/bench/coopsub.field.toml --id 30605 --mod-folder FF9CustomMap-msgs
+# Offline check:  py -m ff9mapkit lint ../studies/battle-coop/bench/coopsub.field.toml   (from ff9mapkit/)
+
+[field]
+id = 30605
+name = "COOPSUB"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+# RemoveParty runs first (frees Steiner's seat, a no-op when he is not seated), then Blank joins the first empty seat.
+[party]
+remove = ["steiner"]
+add = ["blank"]

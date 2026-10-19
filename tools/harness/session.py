@@ -8410,19 +8410,39 @@ class Session:
     }
     #: [ff9mapkit netsync s139] `selfdress <op>` (NetSyncClient.HarnessSelfDress), in the engine's order -- the list its
     #: "unknown op" refusal prints. Every op is selftest-role only, released with the harness (HarnessReleaseBench). Later
-    #: ops are told by their own keys (:attr:`NETSYNC_SELFDRESS_OP_CAPS`: s140 adds `self` / `gate` on
-    #: `netsync.dress.self`, s141 `polish` on `netsync.dress.self.steps` -- none yet: an s139 engine answers them "unknown
-    #: op" with this list).
-    NETSYNC_SELFDRESS_OPS = ("ghost", "empty", "rule", "wire", "clear")
-    NETSYNC_SELFDRESS_OP_CAPS: dict = {}
-    #: [ff9mapkit netsync s139] HarnessSelfDress' refusal of a malformed op, in its words (after the role and the op)
+    #: ops are told by their own keys (:attr:`NETSYNC_SELFDRESS_OP_CAPS`). [ff9mapkit netsync s140] THE LIVE LIST: s139's five
+    #: + `self` / `gate` / `law` (the guest's own dress, on `netsync.dress.self`); an s139 engine prints
+    #: :attr:`NETSYNC_SELFDRESS_OPS_S139` (and answers an s140 op "unknown op" with it); s141's `polish` (on
+    #: `netsync.dress.self.steps`) is no op yet -- an s140 engine answers it "unknown op" with this list.
+    NETSYNC_SELFDRESS_OPS = ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law")
+    NETSYNC_SELFDRESS_OPS_S139 = ("ghost", "empty", "rule", "wire", "clear")
+    #: [ff9mapkit netsync s140] the ops a LATER patch added, each told by its own key: (the State capability accessor, the key,
+    #: the patch, what it is) -- R3-FIELD-MODEL-AUDIT.md 3.1's table (+ the orchestrator's O6 `law`).
+    NETSYNC_SELFDRESS_OP_CAPS = {
+        op: ("coop_dress_self", "netsync.dress.self", "s140",
+             "the s140 guest self-dress bench (the selftest arm's `self` spec, the `gate 0` and `law <name> off` calibration "
+             "levers)")
+        for op in ("self", "gate", "law")}
+    #: [ff9mapkit netsync s139] HarnessSelfDress' refusal of a malformed op, in its words (after the role and the op).
+    #: [ff9mapkit netsync s140] + `self` (NetSyncSelfDress.SelfUsage: the spec forms and the fifteen names), `gate`, `law`
+    #: (NetSyncSelfDress.LawUsage); `self`'s two value refusals are :attr:`NETSYNC_SELFDRESS_SELF_REFUSALS`.
+    NETSYNC_SELFDRESS_SELF_NAMES = ("zidane", "vivi", "garnet", "dagger", "steiner", "freya", "quina", "eiko", "amarant",
+                                    "salamander", "moogle", "cinna", "marcus", "blank", "beatrix")
+    NETSYNC_SELFDRESS_LAWS = ("bframe", "attach", "alias", "timeline")
     NETSYNC_SELFDRESS_USAGE = {
         "ghost": "netsync selfdress ghost: expected `ghost <mask 0-15>|off`",
         "empty": "netsync selfdress empty: expected `empty <mask 0-15>|off`",
         "rule": "netsync selfdress rule: expected `rule s138|s139`",
         "wire": "netsync selfdress wire: expected `wire <model 1-65534> [anim 0-65535]|off`",
         "clear": "netsync selfdress clear: takes no argument",
+        "self": "netsync selfdress self: expected `self off|auto [mask 0-15]|<name>|moogle` (names: "
+                + " ".join(NETSYNC_SELFDRESS_SELF_NAMES) + ")",
+        "gate": "netsync selfdress gate: expected `gate 1|0`",
+        "law": "netsync selfdress law: expected `law bframe|attach|alias|timeline on|off`",
     }
+    NETSYNC_SELFDRESS_SELF_REFUSALS = {"off_mask": "netsync selfdress self off: takes no mask",
+                                       "auto_mask": "netsync selfdress self auto: mask {mask} is outside 0-15 (party "
+                                                    "slots 0-3)"}
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -8738,6 +8758,14 @@ class Session:
         HarnessSelfDress' order and words -- the ROLE first (so it is sent, for the agent's own role refusal, when this
         machine is not the selftest role), then the op, then its value.
 
+        [ff9mapkit netsync s140] the guest's own dress adds three ``selfdress`` ops, told by ``netsync.dress.self``
+        (:attr:`State.coop_dress_self`; NETSYNC_SELFDRESS_OP_CAPS): ``self off|auto [mask 0-15]|<name>|moogle`` (the
+        selftest arm's section 8 at the NEXT field load, through the real encoder and reader), ``gate 1|0`` (0 =
+        CALIBRATION: the player gate skipped) and ``law bframe|attach|alias|timeline on|off`` (each s140 law's calibration
+        lever) -- :meth:`selfdress_self`, :meth:`selfdress_gate`, :meth:`selfdress_law`. On an s139 engine they are refused
+        before the step (it answers "unknown op" with its five only after it); on s140 a malformed value is refused before
+        the step in its words. Every one is released with the harness and by ``selfdress clear``.
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
@@ -8960,13 +8988,15 @@ class Session:
         n = len(args) + 1                                   # the agent's s.Args: "selfdress" first
         op = str(args[0]).strip().lower() if args else ""
         val = str(args[1]).strip().lower() if len(args) > 1 else ""
+        # [ff9mapkit netsync s140] the list THIS engine prints: s140's eight, an s139 engine's five
+        ops = self.NETSYNC_SELFDRESS_OPS if st.coop_dress_self else self.NETSYNC_SELFDRESS_OPS_S139
         cap = self.NETSYNC_SELFDRESS_OP_CAPS.get(op)
         if cap is not None and not getattr(st, cap[0]):
             return (f"netsync selfdress {op}: the deployed engine publishes no `{cap[1]}` -- `selfdress {op}` is {cap[3]} "
                     f"(memoria-patch {cap[2]}); it would answer \"netsync selfdress: unknown op '{op}' "
-                    f"({'|'.join(self.NETSYNC_SELFDRESS_OPS)})\" only after the step. Rebuild the DLL, or update the driver.")
-        if op not in self.NETSYNC_SELFDRESS_OPS and cap is None:
-            return f"netsync selfdress: unknown op '{op}' ({'|'.join(self.NETSYNC_SELFDRESS_OPS)})"
+                    f"({'|'.join(ops)})\" only after the step. Rebuild the DLL, or update the driver.")
+        if op not in ops:
+            return f"netsync selfdress: unknown op '{op}' ({'|'.join(ops)})"
         num = int(val) if val.isascii() and val.isdigit() and int(val) < 2 ** 31 else None    # NumberStyles.None
         usage = self.NETSYNC_SELFDRESS_USAGE
         if op in ("ghost", "empty") and (n != 3 or not (val == "off" or (num is not None and 0 <= num <= 0x0F))):
@@ -8982,7 +9012,51 @@ class Session:
                 return usage["wire"]
         if op == "clear" and n != 2:
             return usage["clear"]
+        if op == "self":
+            # [ff9mapkit netsync s140] HarnessSelfDress' `self` case then NetSyncSelfDress.TrySetBenchSelf, in that order
+            mask = -1
+            if n == 4:
+                raw = str(args[2]).strip().lower()
+                mask = int(raw) if raw.isascii() and raw.isdigit() and int(raw) < 2 ** 31 else None
+                if mask is None:
+                    return usage["self"]
+            elif n != 3:
+                return usage["self"]
+            if val == "off":
+                if mask >= 0:
+                    return self.NETSYNC_SELFDRESS_SELF_REFUSALS["off_mask"]
+            elif val == "auto":
+                if mask > 0x0F:
+                    return self.NETSYNC_SELFDRESS_SELF_REFUSALS["auto_mask"].format(mask=mask)
+            elif mask >= 0 or val not in self.NETSYNC_SELFDRESS_SELF_NAMES:
+                return usage["self"]
+        if op == "gate" and (n != 3 or val not in ("1", "0")):
+            return usage["gate"]
+        if op == "law":
+            on = str(args[2]).strip().lower() if len(args) > 2 else ""
+            if n != 4 or on not in ("on", "off") or val not in self.NETSYNC_SELFDRESS_LAWS:
+                return usage["law"]
         return None
+
+    def selfdress_self(self, spec, mask: int | None = None, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s140] ``netsync selfdress self off|auto [mask]|<name>|moogle`` (selftest role): the selftest
+        arm's section 8 at the NEXT field load -- through the real encoder and reader (NetSyncSelfDress.ArmBench): `off` = 00
+        00 FF ("model 0"), `auto` = the s139 host rule's ResolveAuto (``mask``, else the GuestSlots pin 0: the moogle), a
+        name its NameToRig row (cinna / marcus / blank / beatrix included). Warp or reload for it to take effect; read
+        ``netsync.dress.self`` (``bench_self`` as set, then ``armed`` / ``why`` / ``rig`` after the load)."""
+        args = (str(spec),) if mask is None else (str(spec), int(mask))
+        return self.selfdress("self", *args, timeout=timeout)
+
+    def selfdress_gate(self, on: bool, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s140] ``netsync selfdress gate 1|0`` (selftest role): 0 = CALIBRATION -- the player gate
+        (EntryDefinesPlayer) skipped, so an NPC Zidane dresses too (leg N2). Released with the harness."""
+        return self.selfdress("gate", 1 if on else 0, timeout=timeout)
+
+    def selfdress_law(self, law: str, on: bool, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s140] ``netsync selfdress law bframe|attach|alias|timeline on|off`` (selftest role): one s140
+        law switched off -- the B_FRAME remap, the source-list attach + stored loco ids, the idle-alias fallback,
+        KeepSourceTimeline -- so its red shows in game ON the s140 DLL. Released with the harness."""
+        return self.selfdress("law", str(law), "on" if on else "off", timeout=timeout)
 
     def selfdress(self, op: str, *args, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s139] ``netsync selfdress <op> [value]`` (selftest role): ``ghost <mask 0-15>|off``,
