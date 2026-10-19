@@ -18160,7 +18160,7 @@ def test_the_g9_duo_legs_judges_read_the_wire_and_the_transport_site_and_can_fai
     assert [c[0] for c in got["cal"]] == [True, False, False, False] and "no calibration" in got["cal"][2][1]
     assert "UNPROVEN (read 'not reached'): ['S139-G9e']" in got["cal"][3][1]
     t = got["tables"]
-    assert t["checks"] == ["S139-G9a", "S139-G9b", "S139-G9c", "S139-G9d", "S139-G9e", "S139-G9f"]
+    assert t["checks"] == ["S139-G9a", "S139-G9b", "S139-G9c", "S139-G9d", "S139-G9e", "S139-G9f", "S140-G9t"]
     assert t["old"] == {"138": ["S139-G9a", "S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f"]}
     assert t["phases"] == [["S139-G9d", 2, False], ["S139-G9e", 4, True], ["S139-G9f", 0, False]]
     assert t["extra"] == {"host": {"GhostAs": "auto", "GuestSlots": "2"}} and t["has_setup"]
@@ -18218,14 +18218,26 @@ class Game:
     @property
     def state(self):
         return St(self.duo.doc(self.role))
+    def warp(self, field, **kw):
+        self.duo.warped(self.role, field)
 class Duo:
     def __init__(self, mode, run_dir):
         self.mode, self.run_dir, self.slots, self.strict = mode, run_dir, dw.HOST_GUEST_SLOTS, True
-        self.rows, self.notes, self.steps = [], [], []
+        self.rows, self.notes, self.steps, self.warps = [], [], [], []
         self.s139 = not mode.startswith("s138")
+        self.s140 = mode.startswith("s140")
+        self.gmodel = self.dress_model() if self.s140 else 98      # an s140 guest armed at the pairing's field load
         self.tap = CP.TapeWriter(run_dir / "relay.f9tape", mode="test", flush_every=0.0)
         self.host, self.guest = Game(self, "host"), Game(self, "guest")
         self.feed()
+    def dress_model(self):
+        return dw.section8_model(BW.host_dress_section("auto", self.slots, "host", False, PARTY))
+    def warped(self, role, field):
+        self.warps.append((role, int(field)))
+        if role == "guest" and self.s140 and self.mode != "s140_stale":
+            self.gmodel = self.dress_model()                        # the re-arm at the field load
+    def ganim(self):
+        return 200 if self.gmodel == 98 else BW.RIGS[BW.rig_for_model(self.gmodel)][1]
     def feed(self, n=9):
         body = BW.host_dress_section("auto", self.slots, "host", False, PARTY) if self.s139 else None
         for _ in range(n):
@@ -18236,6 +18248,8 @@ class Duo:
             return []
         self.slots = int(updates["GuestSlots"])
         self.feed()
+        if self.mode == "s140_eager":                               # an engine that re-dresses a LIVE body (no teardown law)
+            self.gmodel = self.dress_model()
         return [("t", "echo", None)]
     def wait_line(self, role, name, timeout, **kw):
         return [("t", "armed", None)]
@@ -18248,14 +18262,19 @@ class Duo:
             dress = {"ghost": {"model": -1}, "party": [0, -1, -1, -1]}
             if self.s139:
                 dress.update(codec="ok", mirror_party=list(PARTY))
-            return {"ui_state": "FieldHUD", "player": {"model": 98, "anim": 200, "body": "98"},
+            if self.s140:
+                dress["self"] = {"why": "dressed", "from": "host", "want_model": self.gmodel}
+            return {"ui_state": "FieldHUD", "player": {"model": self.gmodel, "anim": self.ganim(), "body": str(self.gmodel)},
                     "netsync": {"session": {"mirroring": True, "ghost": True}, "dress": dress}}
         chars = BW.live_slot_chars(PARTY)
         old = self.mode in ("client_rule", "s138", "s138_no_echo")
         m, rig = (BW.resolve_dress_s138("auto", self.slots, chars) if old else
                   BW.resolve_dress_rule("auto", self.slots, True, chars))
-        model, rig = (m, rig) if m else (98, -1)
-        anim = BW.ghost_anim(m, rig, 98, BW.classify_loco(98, 200), 200)
+        wire, wanim = self.gmodel, self.ganim()
+        m = BW.ghost_guard(m, wire) if self.s140 else m             # the s139 guard on the guest's REAL wire body
+        rig = rig if m else -1
+        model, rig = (m, rig) if m else (wire, -1)
+        anim = BW.ghost_anim(m, rig, wire, BW.classify_loco(wire, wanim), wanim)
         ghost = {"model": model, "rig": rig, "geo": MODELS[model], "body": str(model), "clip": ANIMATIONS[anim],
                  "playing": True}
         if self.s139:
@@ -18271,13 +18290,13 @@ class Duo:
         return {"ui_state": "FieldHUD", "scenario": 0, "player": {"model": 98, "anim": 200},
                 "netsync": {"session": {"ghost": True}, "battle": {"host": {"guest_slots": self.slots}}, "dress": dress}}
 out = {}
-for mode in ("s139", "mask_dropped", "client_rule", "no_echo", "s138", "s138_no_echo"):
+for mode in ("s139", "mask_dropped", "client_rule", "no_echo", "s138", "s138_no_echo", "s140", "s140_stale", "s140_eager"):
     run_dir = pathlib.Path(tempfile.mkdtemp())
     d = Duo(mode, run_dir)
     dw.cb.CALIBRATE = mode.startswith("s138")
     dw.run_duo(d)
     d.tap.close()
-    out[mode] = {"rows": d.rows, "steps": d.steps, "strict": d.strict}
+    out[mode] = {"rows": d.rows, "steps": d.steps, "strict": d.strict, "warps": d.warps}
 print(json.dumps(out))
 """
 
@@ -18317,6 +18336,25 @@ def test_the_g9_duo_leg_steps_its_phases_and_reads_the_tap_last_against_a_stub_d
     cal = {r[0]: (r[1], r[2]) for r in got["s138_no_echo"]["rows"]}["S139-G9-CAL"]
     assert cal[0] is False and "UNPROVEN (read 'not reached'): ['S139-G9e', 'S139-G9f']" in cal[1], cal
     assert all(got[m]["strict"] is True for m in got)
+    # [s140] AN s140 GUEST DRESSES ITSELF off the host's section 8 at each field load: every phase after a live step
+    # re-loads the guest's field (a warp to 250), G9c judges the section-8 dress (Vivi, Garnet, the moogle) and G9t the
+    # teardown law across each step; an s139 guest is never warped
+    assert got["s139"]["warps"] == [] and got["s140"]["warps"] == [["guest", 250], ["guest", 250]], got["s140"]["warps"]
+    rows140 = got["s140"]["rows"]
+    assert [r[0] for r in rows140] == ["S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f", "S139-G9c", "S140-G9t",
+                                       "S139-G9a"], rows140
+    assert red("s140") == [], [r for r in rows140 if not r[1]]
+    d140 = {r[0]: r[2] for r in rows140}
+    assert "guest player.model 8 " in d140["S139-G9c"] and "guest player.model 185 " in d140["S139-G9c"] \
+        and "guest player.model 220 " in d140["S139-G9c"] and "from 'host'" in d140["S139-G9c"], d140["S139-G9c"]
+    assert "guest still 8 (want the previous dress 8), host ghost 8" in d140["S140-G9t"] \
+        and "guest still 185 (want the previous dress 185), host ghost 185" in d140["S140-G9t"], d140["S140-G9t"]
+    # a guest that never re-arms is red on its stale body (G9c, G9e, G9f) -- never a pass on what it still wears -- and its
+    # second step breaks the expected previous dress (G9t); an engine that re-dresses a LIVE body breaks G9t alone
+    assert red("s140_stale") == ["S139-G9c", "S139-G9e", "S139-G9f", "S140-G9t"], red("s140_stale")
+    stale = {r[0]: r[2] for r in got["s140_stale"]["rows"]}
+    assert "is not this phase's section-8 dress 185" in stale["S139-G9e"], stale["S139-G9e"]
+    assert red("s140_eager") == ["S140-G9t"], red("s140_eager")
 
 
 # =========================================================================================================== s140

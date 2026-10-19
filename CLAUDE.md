@@ -296,7 +296,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Overworld interior topography — the two-ground landmass (Rung F): ACCEPTED; the generator fold-back ★ DONE (36-gate one-command junction_compose; THE ONE-SITE WORLD LAW: the map holds exactly one landmass of this class) → `studies/overworld-topography/`
 - Narrative-state ENGINE — ★★ rungs 0-2 + the chain/HUB lane PROVEN: New Game → hub pick → derived mid-story boot played the whole Dali morning and handed off to the real game at the zone edge → `studies/narrative-state/PLAN.md`
 - Co-op dialogue — ★★ F3.2 no warp + lock TWO-MACHINE PROVEN; F3.3 warm battle return + v14 ring + key relay TWO-MACHINE PROVEN (s97-s99) → `studies/field-coop/F1-BUILD.md`
-- Battle co-op (stock menu, reward follow, start sync, Wait parity, flee/defeat, cut hold, replay) — ★★ s133-s139 built, s133-s135 owner-confirmed; next s140 → `studies/battle-coop/R3-GROUP2-BUILD.md`
+- Battle co-op (menu, rewards, start sync, Wait, flee/defeat, cut hold, replay, guest model) — ★★ s133-s140 built, s133-s135 owner-confirmed; next s141 → `studies/battle-coop/R3-GROUP2-BUILD.md`
 - Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir

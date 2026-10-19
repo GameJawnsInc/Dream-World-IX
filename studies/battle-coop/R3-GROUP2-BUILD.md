@@ -13,7 +13,8 @@ stack replays by number:
 | s137 | s126 | trance burst timing | ★ deployed, solo-proven |
 | s138 | s127 | the dress instrument (keys only) | ★ deployed, solo-proven |
 | s139 | s128 | the host's dress rule + wire section 8 | ★ deployed, solo-proven + real-wire duo |
-| s140-s141 | s129-s130 | the guest dresses itself; polish | next: s140 |
+| s140 | s129 | the guest dresses itself (+ rig rows 9-12 for CharacterId 8-11) | ★ deployed, solo-proven + real-wire duo |
+| s141 | s130 | polish | next: s141 |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -341,3 +342,90 @@ The 6.1 regression set at baseline; wait parity (W-A5b 'not reached': every ATB 
 Marcus / Cinna, and s139 leaves a named slot holding one of them (CharacterId 8-11) undressed -- so the host sees two
 Zidanes, the case D2 called weird. Options: real rig rows for the four (they are playable, so their field rigs exist),
 or the moogle for them.
+
+## s140: the guest dresses itself, and the 8-11 rigs (2026-10-18)
+
+**The owner's 8-11 decision first** (2026-10-17, after s139): Blank, Marcus, Cinna and Beatrix (CharacterId 8-11) get "their
+own models" instead of s139's undressed result. Folded into s140.
+
+**What it does.** A client (and the selftest role) arms at each field load from the host's section 8, read through the real
+reader, and dresses its own SetModel(98) PLAYER entry:
+- the player gate first (Zidane NPCs stay 98), then a second dressed control body is refused;
+- fields 70 and 3000-3012 are skipped at SetModel;
+- the rig is keyed on the BODY (`PosObj.netSelfDress`, carried through the warm return) at every hook.
+
+The laws:
+- loco families (a closed NAME table) play the rig's native clip, and B_FRAME answers its native length, so field 2705's
+  frame-wait ends on every rig;
+- gestures play the rig's idle ALIAS on the source timeline;
+- the jump slot plays the alias on the source clip's frame count;
+- AttachDress attaches the source EventAnimation list plus the rig's set and stores the mapped loco ids, at SetModel and at
+  the warm rebuild.
+
+Rig rows 9-12 come from an install census: Cinna 107, Marcus 109, Blank 5467 (his plain body, not the Pluto Knight's 190),
+Beatrix 204. CharToRig / RigToChar sit at every party guard, section 8 carries charId 8-11, and the host's ghost wears them
+too. `[Netsync] SelfDress` (default 1) is the guest's local knob (owner D1). The wire is unchanged; the guest only READS
+section 8.
+
+**Built** by two workflows:
+- a census: rows 9-12, the loco-class table (401 ZDN names), and a B_FRAME census over 650 stock frame-threshold sites, 0
+  unreachable on all 13 rigs (`dress-census/`);
+- three engine stages (the rigs, the self-dress core and its hooks, then the keys / ops / selftest / capture);
+- the harness, then the bench and the bench field;
+- then a 5-lens review with two skeptics per finding. 9 + 6 findings survived; all were fixed. Among them: the jump slot's
+  native-length landing, every hook's rig read unified through `BodyRig`, witnesses for the warm/cold attach, the source
+  list, the teardown law and the N legs, and the 8-11 PARTY path seeded live (COOPSUB 30605).
+
+The patch: 9 files, 40 hunks, +2331/-53 (new NetSyncSelfDress.cs). `diag` 34/34. 2289 domain tests pass.
+
+**Two census corrections to the audit:**
+- STAND is a gesture, not a loco family: field 2934's RunAnimation(11187) is a 134-frame stand-up.
+- An INACTIVE id remaps B_FRAME only when the rig has a break clip.
+
+**The owner's call before the deploy** (2026-10-18): in the disc-1 opening a guest puppeting Cinna / Marcus / Blank stands
+beside that member's own NPC (field 63 after battle 338: two Cinnas; fields 50-57 the moogle, the slot empty at load). The
+owner: **"Accept it"**. The audit's 2.3 amendment 13 ("the opening fields 50-69 are never dressed") no longer holds.
+
+**Calibrated on s139 first** (the live DLL `1365959f2efca2e7`): coop_self_dress under COOP_CALIBRATE=1 failed exactly the 19
+s140 rows, each "not reached" (s139 refuses `self`). Legs I / G and the setup rows were green, and so was S138-CAL. The same
+held with GhostAs blank.
+
+**Deployed** 2026-10-18 (`build_memoria.py`, backup `20261018-233617`; Assembly-CSharp `2be623db3bb2ecb5`).
+
+**Proven on s140:**
+- coop_self_dress **52/52** on its first in-game run, including:
+  - T3: the 2705 loop ends on all 13 rigs;
+  - X3: the ladder on stock ticks (frame_n 8, landing 0.03 s);
+  - X2: the alias proof (frame_n 50);
+  - W1: Steiner's break clip by name after a warm return;
+  - S7 / S8: Blank through the live party (`[0, 1, 2, 10]`) on the guest's body and on the host's ghost;
+  - N1-N3: the twin, gate 0, and the late 98+CC entry.
+- Each of the six levers failed exactly its LEVER_PREDICTED rows, with S138-CAL green each. Under `law bframe off` the
+  loop wedges.
+- rule-s138 on I+G was exact. GhostAs blank 40/40.
+- A fresh host tape: section 8 on all 4817 frames, old readers identical.
+- Block A at baseline, after a wait_parity W-A5b rerun (12/12) and with S9-C4L unreachable solo. The tape legs, and the T2
+  cut legs (+78, +15, +94 ms).
+
+**The duo G9, rebuilt for s140: 19/19.** Its first run read 16/18. G9c still asserted s139's invariant ("the guest's own
+body stays 98"), but an s140 guest correctly DRESSES ITSELF from the host's section 8. And G9f had PASSED on a stale Vivi
+body, because its twin judged the guest's real wire. On an s140 guest the bench now:
+- re-loads the guest's field after each live GuestSlots step;
+- judges G9c as the section-8 dress: Vivi, then Garnet, then the moogle, from 'host';
+- adds G9t, the teardown law on the wire: the live body is unchanged until the re-load, and the host shows it as it is;
+- requires G9d-f's wire to BE the phase's dress.
+
+This is the first proof of a CLIENT arming off a real host over a real wire. Stub modes `s140_stale` / `s140_eager` turn
+exactly their rows red.
+
+**LESSONS:**
+- A later patch can turn an earlier bench's invariant into a stage fact. Re-run every earlier duo leg on each new patch,
+  and key its expectations by the GUEST's stage.
+- A twin that judges the actual wire can pass a stale body. Pin the phase's intended dress as well.
+- A census can overturn an audit literal (STAND, the jump windows); trust the bytes.
+
+**Next: s141** (polish, audit 2.4). It owes:
+- Cinna walks silently (no stock footstep registration);
+- Cinna's and Marcus's hand bones come from the heuristic (read the rig table, not labels_for);
+- the bench flag bits 13200-13218 sit in the campaign lane;
+- `objects[].body` was deferred.

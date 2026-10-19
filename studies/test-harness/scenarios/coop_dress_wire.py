@@ -57,6 +57,19 @@ mask line and its D2 rule are shown red OFFLINE: each judge fed the s138 client 
 NOT PROVEN HERE (sitting boxes): the guard's non-98 half on the transport site (a guest WEARING another body: B28) and the
 raw wire anim on the guest's own dressed body (a guest whose wire body IS the dress: an s140+ laptop, B20) -- a same-DLL
 duo guest always sends 98; an OLD laptop dressed by a new host (B19: the duo cannot mix DLLs).
+[s140] AN s140 GUEST DRESSES ITSELF off the host's section 8 at each FIELD LOAD (NetSyncSelfDress.ArmFromState at the
+ApplyStory success branch), so on an s140+ guest (it publishes `netsync.dress.self`) each phase after a live GuestSlots step
+first RE-LOADS the guest's field (a warp to 250 at entrance 0) and waits for its re-arm (REWARP_S). This is the first proof of
+the CLIENT arm off a REAL host's section 8 over a real wire (the solo bench arms only from the selftest spec):
+  G9c  (s140+) the guest's own body at EVERY phase is the dress that phase's section 8 carries (BW.host_dress_section ->
+       its model; `body` that model's texture stem off the install), `netsync.dress.self` why 'dressed', from 'host',
+       want_model that model -- Vivi, then Garnet, then the moogle (a spectator, owner D2).
+  G9t  (s140+) THE TEARDOWN LAW ON THE WIRE: right after each live step and BEFORE the guest's re-load, its live body is
+       still the previous phase's dress (nothing undresses a live body; the arm moves at the next field load only), and
+       the host shows that wire body AS IT IS (GhostGuard: a non-98 wire that is not the new dress).
+  G9d-f (s140+) judged as above, and the guest's wire body must BE the phase's dress (the twin's want == the section-8
+       model): a guest that never re-armed is red, never a pass on its stale body.
+On an s139 guest nothing changes (no re-load; G9c plain Zidane; no G9t).
 PRECONDITIONS: as duo.py's (both roots built, nobody at the keyboard, no controller); COOPPARTY (30604) registered.
 """
 from __future__ import annotations
@@ -97,6 +110,8 @@ CONFIG_S = 15.0
 GHOST_SETTLE_S = 3.0
 #: each phase's host publishes are sampled this long (its last held pick judged)
 HOLD_S = 2.5
+#: [s140] how long an s140 guest's re-load of the field is waited for until it wears the phase's section-8 dress
+REWARP_S = 30.0
 #: a phase's run on the tap must hold this many host state frames (~1 s at 7 Hz): a blip is not a phase
 MIN_PHASE_FRAMES = 7
 #: duo.py's CLI calls ``d.pair(**PAIR)``: the host's party seeded (COOPPARTY) before the bench warp, the host's own
@@ -110,7 +125,9 @@ CATALOG = {
                 "GuestSlots over the host's PUBLISHED party (08 00 01 Vivi -> B9 00 02 Garnet -> DC 00 FF the moogle)",
     "S139-G9b": "the guest's old readers stepped past it: 'state-mirror ARMED', `session.mirroring` true and its party "
                 "mirror (`netsync.dress.mirror_party`) == the host's published `dress.party`",
-    "S139-G9c": "the guest's own body stays plain Zidane at every phase: `player.model` 98",
+    "S139-G9c": "the guest's own body at every phase: plain Zidane (`player.model` 98) on an s139 guest; on an s140+ guest "
+                "the dress the phase's section 8 carries, armed at its field load (`netsync.dress.self` why 'dressed' from "
+                "'host', the model and its texture stem off the install)",
     "S139-G9d": "THE TRANSPORT SITE at GuestSlots 2: the host's ghost of the guest wears the twin's host rule over the guest's "
                 "real wire body (GhostGuard keeps the dress on 98) -- Vivi: model, rig, the install's GEO and stem, the "
                 "dressed loco clip, `mode` 'ini:auto'",
@@ -118,7 +135,11 @@ CATALOG = {
                 "prefab's field-mode mask, `hidden` its hides (one hairstyle)",
     "S139-G9f": "THE TRANSPORT SITE at GuestSlots 0: a spectator wears the MOOGLE (owner D2) -- 220, rig 8, GEO_NPC_F0_MOG, "
                 "its loco clip",
+    "S140-G9t": "[s140] THE TEARDOWN LAW ON THE WIRE: after each live GuestSlots step, before the guest's re-load, its live "
+                "body is still the previous phase's dress and the host's ghost shows that wire body as it is",
 }
+#: [s140] the rows only an s140+ GUEST runs (an s139 guest dresses nothing of its own)
+S140_ONLY = ("S140-G9t",)
 G9_CHECKS = tuple(CATALOG)
 #: COOP_CALIBRATE=1's prediction by the HOST's dress stage (battlewire.DRESS_PROBES): on s138 no section 8, no
 #: `mirror_party`, no `ghost.mode` / visibility keys, and a spectator's ghost plain Zidane -- G9c stays green (an s138
@@ -150,6 +171,17 @@ def phase_bodies(host_party, slots) -> list:
     """(PURE) The section-8 body the host ships at each stepped GuestSlots: the twin's (BW.host_dress_section) for GhostAs
     auto over the host's party."""
     return [BW.host_dress_section(HOST_GHOST_AS, int(s), "host", False, host_party) for s in slots]
+
+
+def section8_model(body) -> int:
+    """(PURE) The model a section-8 body carries (0 = none or malformed)."""
+    got = BW.parse_dress_section(body)
+    return int(got[0]) if got else 0
+
+
+def phase_dress_models(host_party, slots) -> list:
+    """(PURE) [s140] The model an s140 guest dresses itself in at each stepped GuestSlots: its section 8's (the host's)."""
+    return [section8_model(b) for b in phase_bodies(host_party, slots)]
 
 
 def frame_bodies(records) -> list:
@@ -247,19 +279,83 @@ def judge_guest_body(guest) -> tuple:
     return sd._int(p.get("model")) == BW.PLAIN_ZIDANE_MODEL, f"guest player.model {p.get('model')!r} body {p.get('body')!r}"
 
 
-def judge_guest_bodies(reads) -> tuple:
+def judge_guest_dress(guest, want_model: int, models: dict) -> tuple:
+    """G9c on one read of an s140+ guest (PURE): its controlled body wears the phase's section-8 model -- `player.model`
+    and its texture stem (`body`, off the install: ``models``) -- and `netsync.dress.self` says why: 'dressed', from 'host'
+    (the wire, never the selftest's 'bench'), want_model that model."""
+    p = sd._player(guest)
+    me = cb.path(guest, "netsync.dress.self")
+    me = me if isinstance(me, dict) else {}
+    facts = models.get(int(want_model)) or {}
+    if not facts.get("body"):
+        return False, f"{_NR}: no install oracle for model {want_model}"
+    ok = (sd._int(p.get("model")) == int(want_model) and p.get("body") == facts["body"] and me.get("why") == "dressed"
+          and me.get("from") == "host" and sd._int(me.get("want_model")) == int(want_model))
+    return ok, (f"guest player.model {p.get('model')!r} body {p.get('body')!r}; self why {me.get('why')!r} from "
+                f"{me.get('from')!r} want_model {me.get('want_model')!r} (want {want_model}, body {facts['body']!r})")
+
+
+def judge_guest_bodies(reads, wants=None, models=None) -> tuple:
     """G9c over the run (PURE): :func:`judge_guest_body` at EVERY phase read (``reads``: (label, guest state) pairs, one per
-    phase judged); "not reached" with none."""
+    phase judged); [s140] with ``wants`` (one section-8 model per read) :func:`judge_guest_dress` instead; "not reached"
+    with none."""
     reads = list(reads)
     if not reads:
         return False, f"{_NR}: no phase read the guest"
+    if wants is not None and len(list(wants)) != len(reads):
+        return False, f"{_NR}: {len(reads)} phase reads but {len(list(wants))} section-8 dresses"
     bad, parts = [], []
-    for label, st in reads:
-        ok, why = judge_guest_body(st)
+    for i, (label, st) in enumerate(reads):
+        ok, why = judge_guest_body(st) if wants is None else judge_guest_dress(st, list(wants)[i], models or {})
         parts.append(f"{label}: {why}")
         if not ok:
             bad.append(label)
-    return not bad, "; ".join(parts) + (f" -- NOT 98 at {bad}" if bad else "")
+    return not bad, "; ".join(parts) + ((f" -- NOT 98 at {bad}" if wants is None else f" -- WRONG at {bad}") if bad else "")
+
+
+def last_ghost_model(samples: list, guest_slots: int):
+    """The host ghost's `model` on the LAST publish carrying ``guest_slots`` with `session.ghost` true (None: none)."""
+    for s in reversed(samples or []):
+        if cb.path(s, "netsync.battle.host.guest_slots") == int(guest_slots) and cb.path(s, "netsync.session.ghost") is True:
+            return sd._int(cb.path(s, "netsync.dress.ghost.model"))
+    return None
+
+
+def judge_teardown(steps) -> tuple:
+    """G9t (PURE): at each live step (``steps``: (label, the guest's state BEFORE its re-load, the previous phase's dress
+    model, the host ghost's model on its last publish of the new GuestSlots)), the guest's live body is STILL the previous
+    dress and the host shows it as it is (its ghost model == that wire body); "not reached" with no step."""
+    steps = list(steps)
+    if not steps:
+        return False, f"{_NR}: no live GuestSlots step ran"
+    bad, parts = [], []
+    for label, st, prev, ghost in steps:
+        p = sd._player(st)
+        wire = sd._int(p.get("model"))
+        ok = prev is not None and wire == int(prev) and ghost == wire
+        parts.append(f"{label}: guest still {wire!r} (want the previous dress {prev}), host ghost {ghost!r} (want as is)")
+        if not ok:
+            bad.append(label)
+    return not bad, "; ".join(parts) + (f" -- BROKEN at {bad}" if bad else "")
+
+
+def rewarp_guest(guest, want_model: int, timeout: float = None) -> tuple:
+    """[s140] Re-load the guest's field (a warp to FIELD at entrance 0) and wait until it wears ``want_model`` with
+    `netsync.dress.self.why` 'dressed' -- (ok, why)."""
+    timeout = REWARP_S if timeout is None else timeout
+    try:
+        guest.warp(FIELD, entrance=0)
+    except Exception as err:                               # noqa: BLE001 - a refused re-load reads in G9c's detail
+        return False, f"the guest's re-load of {FIELD} raised {type(err).__name__}: {str(err)[:160]}"
+    deadline = time.time() + timeout
+    st = guest.state
+    while True:
+        if sd._int(sd._player(st).get("model")) == int(want_model) and cb.path(st, "netsync.dress.self.why") == "dressed":
+            return True, ""
+        if time.time() >= deadline:
+            return False, f"the guest re-loaded {FIELD} but did not wear {want_model} within {timeout:g}s"
+        time.sleep(0.5)
+        st = guest.state
 
 
 def want_host_ghost(host_party, wire_model: int, wire_anim: int, guest_slots: int = HOST_GUEST_SLOTS) -> dict:
@@ -290,14 +386,16 @@ def _host_pick(samples: list, guest_slots: int, hold: int):
 
 
 def judge_host_ghost(samples: list, guest, host_party, models: dict, clips: dict, *, guest_slots: int = HOST_GUEST_SLOTS,
-                     hold: int = 2, visibility: bool = False, tree=None, garnet_hair=0) -> tuple:
+                     hold: int = 2, visibility: bool = False, tree=None, garnet_hair=0, want_dress=None) -> tuple:
     """G9d / G9e / G9f (PURE): on :func:`_host_pick` (the phase's GuestSlots published), the ghost wears
     :func:`want_host_ghost` for the guest's own model and anim at ``guest_slots`` -- its model and rig, the GEO and texture
     stem the INSTALL gives that model (``models``), the clip NAME of the twin's anim (playing, where it lives in the worn
     folder) -- and `ghost.mode` reads 'ini:' + the host's GhostAs; with ``visibility`` (G9e) ALSO the rest mask on that
     publish (coop_self_dress.rest_mask_verdict over ``tree``, the prefab, with ``garnet_hair`` and the publish's own
     scenario counter). An engine without `ghost.mode` (s138) is red, its detail still naming what the ghost wears (a
-    spectator's plain Zidane is the old DLL's behavioural red)."""
+    spectator's plain Zidane is the old DLL's behavioural red). [s140] ``want_dress`` (an s140+ guest: the phase's
+    section-8 model): the guest's wire body must BE that dress, so the twin's want equals it -- a guest that never re-armed
+    is red on its stale body, never a pass."""
     if not samples:
         return False, "no host publishes"
     gp = sd._player(guest)
@@ -330,6 +428,9 @@ def judge_host_ghost(samples: list, guest, host_party, models: dict, clips: dict
             and gh.get("clip") == want_clip and (not judged_play or gh.get("playing") is True))
     if absent:
         return False, pre + detail
+    if want_dress is not None and want["model"] != int(want_dress):
+        return False, (f"the guest's wire body {wire} is not this phase's section-8 dress {want_dress} (an s140 guest that "
+                       f"did not re-arm): {detail}")
     ok = worn and gh.get("mode") == want_mode
     if not visibility:
         return ok, detail
@@ -399,7 +500,10 @@ def run_duo(d) -> None:
         host, guest = d.host, d.guest
         host_party = _party(host.state)
         stage = dress_stage(host.state)
-        d.note(f"G9: host dress stage s{stage}, party {host_party}; guest stage s{dress_stage(guest.state)}")
+        gstage = dress_stage(guest.state)
+        selfdress = gstage is not None and gstage >= 140      # [s140] the guest dresses itself off section 8
+        d.note(f"G9: host dress stage s{stage}, party {host_party}; guest stage s{gstage}"
+               + (" (it dresses itself: each step re-loads its field)" if selfdress else ""))
         # G9b first: the guest's old readers stepped past section 8 since the pairing (it needs no phase)
         armed = bool(d.wait_line("guest", "armed", 1.0))
         deadline = time.time() + MIRROR_S
@@ -411,13 +515,16 @@ def run_duo(d) -> None:
         # the offline oracle for every phase's expected dress (the guest's wire body as it is now) and Garnet's prefab
         wire0 = sd._int(sd._player(guest.state).get("model")) or BW.PLAIN_ZIDANE_MODEL
         want_models = [want_host_ghost(host_party, wire0, 0, s)["model"] for _c, s, _v in PHASES] if host_party else []
+        dresses = phase_dress_models(host_party, [s for _c, s, _v in PHASES]) if host_party else []
+        want_models += [m for m in dresses if m]           # [s140] what the guest wears at each phase
         models, clips, trees, problems = _oracle(Path(host.game_path), want_models, (GARNET_PREFAB,))
         if problems:
             d.note(f"G9 oracle problems (their judges read 'not reached'): {problems}")
         hair = (cb.ini_value(host, "Graphics", "GarnetHair") or "").strip()     # the HOST root's ini, READ-ONLY
         garnet_hair = int(hair) if hair.lstrip("-").isdigit() else 0
         reads, stepped, blocked = [], [], None
-        for cid, slots, vis in PHASES:
+        wants, teardown, prev_dress = [], [], None         # [s140] each judged phase's section-8 dress; the steps' reads
+        for i, (cid, slots, vis) in enumerate(PHASES):
             if blocked is not None:
                 check(cid, False, f"{_NR}: {blocked}")
                 continue
@@ -429,13 +536,25 @@ def run_duo(d) -> None:
                     check(cid, False, f"{_NR}: {blocked}")
                     continue
                 time.sleep(GHOST_SETTLE_S)
+                if selfdress and dresses:                  # [s140] the teardown law, then the re-arm at a field load
+                    hs = cb.hold_for(host, HOLD_S)
+                    teardown.append((f"GuestSlots {slots}", guest.state, prev_dress, last_ghost_model(hs, slots)))
+                    ok_w, why_w = rewarp_guest(guest, dresses[i])
+                    if not ok_w:
+                        d.note(f"G9 [s140]: {why_w}")
+                    time.sleep(GHOST_SETTLE_S)
             stepped.append(slots)
+            want_dress = dresses[i] if (selfdress and dresses) else None
             samples = cb.hold_for(host, HOLD_S)
             gst = guest.state
             reads.append((f"GuestSlots {slots}", gst))
+            wants.append(want_dress)
             check(cid, *judge_host_ghost(samples, gst, host_party, models, clips, guest_slots=slots, visibility=vis,
-                                         tree=trees.get(GARNET_PREFAB), garnet_hair=garnet_hair))
-        check("S139-G9c", *judge_guest_bodies(reads))
+                                         tree=trees.get(GARNET_PREFAB), garnet_hair=garnet_hair, want_dress=want_dress))
+            prev_dress = want_dress
+        check("S139-G9c", *judge_guest_bodies(reads, wants if selfdress else None, models))
+        if selfdress:
+            check("S140-G9t", *judge_teardown(teardown))
         # G9a LAST: the tap now holds every phase the run stepped
         try:
             _h, records, torn = CP.read_tape(d.run_dir / "relay.f9tape")
