@@ -18144,9 +18144,98 @@ out["cal"] = [dw.calibration(138, five), dw.calibration(138, ["S139-G9a"]), dw.c
               dw.calibration(138, five, ["S139-G9e"])]
 out["tables"] = {"checks": list(dw.G9_CHECKS), "old": {str(k): list(v) for k, v in dw.OLD_PREDICTED.items()},
                  "extra": dw.PAIR["role_extra"], "has_setup": callable(dw.PAIR["host_setup"]),
-                 "phases": [list(p) for p in dw.PHASES],
+                 "phases": [list(p) for p in dw.PHASES], "s140_only": list(dw.S140_ONLY),
+                 "s141_only": list(dw.S141_ONLY),
                  "stage": [dw.dress_stage(St({"netsync": {"dress": {"ghost": {}, "codec": None}}})),
-                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}}}})), dw.dress_stage(St({}))]}
+                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}}}})), dw.dress_stage(St({})),
+                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}, "codec": None, "self": {}}}})),
+                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}, "codec": None, "self": {"steps": []}}}}))]}
+# ---- [s141] the polish rows' pure judges (G9s / G9w / G9l): the oracle off the census's own twins over field 250's ops and
+# its MapConfigData (battlewire's copies of both: numbers only), each judge red on the shape it exists to catch
+from ff9mapkit import mapconfig as MC
+m_ = BW.FIELD250_MCF
+mcf = MC.MapConfig(attr=0, version=0, bg_no=0, light_use=len(m_["lights"]), char_use=len(m_["chars"]),
+                   lights=tuple(MC.MapLight(t, 0, 0, 0, tuple(c), tuple(f)) for t, c, f in m_["lights"]),
+                   chars=tuple(MC.MapChar(g, si, sr, tuple(c), 0) for g, si, sr, c in m_["chars"]))
+pc = dw.sd._polish_census()
+doc = dw.sd.polish_census_doc()
+po, pprob = dw.polish_expect([8, 185, 220], BW.FIELD250_STEPS, doc, pc, mcf, 4)
+out["polish_oracle"] = {str(k): {"name": v["name"], "rig": v["rig"], "steps": v["steps"], "light2": v["light"][2],
+                                 "floors": sorted(str(f) for f in v["light"])} for k, v in po.items()}
+out["polish_problems"] = pprob
+blind, _p = dw.polish_expect([8], None, doc, pc, None, 0)
+out["polish_blind"] = [blind[8]["steps"], blind[8]["light"]]
+_c, out["polish_unknown"] = dw.polish_expect([5], BW.FIELD250_STEPS, doc, pc, mcf, 4)
+bad_doc = json.loads(json.dumps(doc))
+for k, v in bad_doc["b_steps"]["rigs"].items():
+    if k.endswith(" vivi"):
+        v["census"]["walk_pair"] = [4, 13]                  # a census row that disagrees with the twin's rig row
+_c, out["polish_twin"] = dw.polish_expect([8], BW.FIELD250_STEPS, bad_doc, pc, mcf, 4)
+ZID_KEYS = [[25, 4, 919], [25, 13, 919], [38, 0, 919], [38, 8, 919]]
+def pg(model, rig, steps=None, dropped=0, passed=0, fired=0, fplayer=0, row=98, rgb=(56, 72, 88), floor=2, have=True,
+       x=2921.0, z=-1830.0, srig=None):
+    s = {"why": "dressed", "from": "host", "want_model": model, "rig": rig if srig is None else srig}
+    if have:
+        s.update(steps=steps if steps is not None else [], steps_dropped=dropped, steps_passed=passed, steps_fired=fired,
+                 steps_fired_player=fplayer, light_row=row, light_rgb=list(rgb) if rgb is not None else None,
+                 light_floor=floor)
+    return St({"ui_state": "FieldHUD", "field": {"id": 250},
+               "player": {"model": model, "anim": 200, "x": x, "z": z, "control": True},
+               "netsync": {"dress": {"self": s}}})
+V, G, M = po[8], po[185], po[220]
+out["psteps"] = {"vivi": dw.judge_polish_steps(pg(8, 1, V["steps"]["steps"]), V),
+                 "garnet": dw.judge_polish_steps(pg(185, 2, G["steps"]["steps"]), G),
+                 "moogle": dw.judge_polish_steps(pg(220, 8, [], dropped=12), M),
+                 "unmapped": dw.judge_polish_steps(pg(8, 1, ZID_KEYS), V),
+                 "other_rig": dw.judge_polish_steps(pg(185, 2, V["steps"]["steps"]), G),
+                 "sound": dw.judge_polish_steps(pg(8, 1, [[a, f, 912] for a, f, _s in V["steps"]["steps"]]), V),
+                 "moogle_kept": dw.judge_polish_steps(pg(220, 8, ZID_KEYS), M),
+                 "moogle_24": dw.judge_polish_steps(pg(220, 8, [], dropped=24), M),
+                 "s140": dw.judge_polish_steps(pg(8, 1, have=False), V),
+                 "zidane_body": dw.judge_polish_steps(pg(98, -1, ZID_KEYS), V),
+                 "no_oracle": dw.judge_polish_steps(pg(8, 1, V["steps"]["steps"]), None)}
+on2 = lambda x, z: [2]
+out["plight"] = {"vivi": dw.judge_polish_light(pg(8, 1), V, on2),
+                 "moogle": dw.judge_polish_light(pg(220, 8), M, on2),
+                 "default": dw.judge_polish_light(pg(8, 1, row=65535, rgb=(104, 104, 96)), V, on2),
+                 "row_only": dw.judge_polish_light(pg(8, 1, rgb=(104, 104, 96)), V, on2),
+                 "floor0": dw.judge_polish_light(pg(8, 1, floor=0), V, lambda x, z: [0]),
+                 "kit_disagrees": dw.judge_polish_light(pg(8, 1), V, lambda x, z: [0]),
+                 "no_floor": dw.judge_polish_light(pg(8, 1, floor=-1), V, on2),
+                 "no_kit": dw.judge_polish_light(pg(8, 1), V, None),
+                 "s140": dw.judge_polish_light(pg(8, 1, have=False), V, on2),
+                 "no_oracle": dw.judge_polish_light(pg(8, 1), dict(V, light=None), on2)}
+def walk(model, rig, fired=6, fplayer=0, n=40, left=False):
+    samples = [pg(model, rig, x=2921.0 + 20 * i) for i in range(n)]
+    return {"dir": "up", "samples": samples, "left": left, "why": "a battle" if left else None,
+            "before": pg(model, rig, fired=3), "after": pg(model, rig, fired=3 + fired, fplayer=fplayer)}
+out["pwalk"] = {"vivi": dw.judge_polish_walk(walk(8, 1), V),
+                "garnet": dw.judge_polish_walk(walk(185, 2, fired=2), G),
+                "vivi_silent": dw.judge_polish_walk(walk(8, 1, fired=0), V),
+                "vivi_player": dw.judge_polish_walk(walk(8, 1, fplayer=4), V),
+                "moogle": dw.judge_polish_walk(walk(220, 8, fired=0), M),
+                "moogle_fires": dw.judge_polish_walk(walk(220, 8, fired=2), M),
+                "moogle_player": dw.judge_polish_walk(walk(220, 8, fired=0, fplayer=2), M),
+                "moogle_short": dw.judge_polish_walk(walk(220, 8, fired=0, n=10), M),
+                "moogle_left": dw.judge_polish_walk(walk(220, 8, fired=0, left=True), M),
+                "moogle_wrong_body": dw.judge_polish_walk(walk(8, 1, fired=0), M),
+                "no_bracket": dw.judge_polish_walk({"left": False, "before": None, "after": None, "why": "x"}, V),
+                "no_oracle": dw.judge_polish_walk(walk(8, 1), None)}
+class Reload:                                               # a guest whose same-dress re-load does (or does not) happen
+    def __init__(self, grow):
+        self.cold, self.grow = 3, grow
+    def warp(self, field, **kw):
+        self.cold += 1 if self.grow else 0
+    @property
+    def state(self):
+        return St({"player": {"model": 8}, "netsync": {"dress": {"self": {"why": "dressed", "attach_cold": self.cold}}}})
+out["rewarp"] = [dw.rewarp_guest(Reload(True), 8, 0.6, fresh_load=True),
+                 dw.rewarp_guest(Reload(False), 8, 0.6, fresh_load=True), dw.rewarp_guest(Reload(False), 8, 0.6)]
+NR = (False, "not reached: x")
+out["pphases"] = [dw.judge_phases([("a", (True, "ok")), ("b", (True, "ok"))]),
+                  dw.judge_phases([("a", (True, "ok")), ("b", (False, "WRONG: y"))]),
+                  dw.judge_phases([("a", (True, "ok")), ("b", NR)]), dw.judge_phases([("a", NR), ("b", (False, "WRONG"))]),
+                  dw.judge_phases([])]
 print(json.dumps(out))
 """
 
@@ -18166,7 +18255,11 @@ def test_the_g9_duo_legs_judges_read_the_wire_and_the_transport_site_and_can_fai
     seated; the moogle at 0 -- red on the s138 client rule's undressed Zidane, and on an s138 host (no mode) red naming
     that Zidane. Its calibration is exactly OLD_PREDICTED[138] (G9a, G9b, G9d, G9e, G9f; G9c green), UNPROVEN when a
     predicted red reads "not reached", none for an s139 host; PAIR seeds the host's party and sets ITS GhostAs auto and the
-    first phase's GuestSlots 2 through duo.Duo.role_extra."""
+    first phase's GuestSlots 2 through duo.Duo.role_extra. [ff9mapkit netsync s141] THE POLISH ROWS (an s141+ GUEST, keyed by
+    its stage): the oracle is the census's own twins (polish_census.expected_steps / light_color) over field 250's twelve
+    ops and mapconfig -- Vivi 571@4/14 + 419@0/9, Garnet 2086@4/15 + 2091@0/9, the moogle [] with 12 dropped, the 98 row's
+    tint per floor; G9s, G9l and G9w (a stepping rig fires +2 or more, the moogle walks SILENT) each red on the shape it
+    exists to catch and "not reached" on a body that is not the phase's dress."""
     got = _sd_child(_SG9_JUDGES)
     tp = got["tape"]
     assert {k: v[0] for k, v in tp.items()} == {
@@ -18206,11 +18299,69 @@ def test_the_g9_duo_legs_judges_read_the_wire_and_the_transport_site_and_can_fai
     assert [c[0] for c in got["cal"]] == [True, False, False, False] and "no calibration" in got["cal"][2][1]
     assert "UNPROVEN (read 'not reached'): ['S139-G9e']" in got["cal"][3][1]
     t = got["tables"]
-    assert t["checks"] == ["S139-G9a", "S139-G9b", "S139-G9c", "S139-G9d", "S139-G9e", "S139-G9f", "S140-G9t"]
+    assert t["checks"] == ["S139-G9a", "S139-G9b", "S139-G9c", "S139-G9d", "S139-G9e", "S139-G9f", "S140-G9t",
+                           "S141-G9s", "S141-G9w", "S141-G9l"]
     assert t["old"] == {"138": ["S139-G9a", "S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f"]}
+    assert t["s140_only"] == ["S140-G9t"] and t["s141_only"] == ["S141-G9s", "S141-G9w", "S141-G9l"]
     assert t["phases"] == [["S139-G9d", 2, False], ["S139-G9e", 4, True], ["S139-G9f", 0, False]]
     assert t["extra"] == {"host": {"GhostAs": "auto", "GuestSlots": "2"}} and t["has_setup"]
-    assert t["stage"] == [139, 138, None]
+    assert t["stage"] == [139, 138, None, 140, 141]           # the GUEST's stage keys G9t (s140+) and the polish (s141+)
+    # [s141] THE POLISH ORACLE: the census's own twins over field 250's twelve ops and its mapconfig -- Vivi 571@4/14 +
+    # 419@0/9, Garnet 2086@4/15 + 2091@0/9 (919 each), the moogle [] with all twelve dropped; every rig lit by the 98 row
+    # ((56, 72, 88) on 250's floor 2; the default row's (104, 104, 96)) on every walkmesh floor and 255
+    po = got["polish_oracle"]
+    assert {m: [v["name"], v["rig"]] for m, v in po.items()} == {"8": ["vivi", 1], "185": ["garnet", 2], "220": ["moogle", 8]}
+    assert po["8"]["steps"] == {"steps": [[571, 4, 919], [571, 14, 919], [419, 0, 919], [419, 9, 919]],
+                                "steps_dropped": 0, "steps_passed": 0}
+    assert po["185"]["steps"] == {"steps": [[2086, 4, 919], [2086, 15, 919], [2091, 0, 919], [2091, 9, 919]],
+                                  "steps_dropped": 0, "steps_passed": 0}
+    assert po["220"]["steps"] == {"steps": [], "steps_dropped": 12, "steps_passed": 0}
+    assert all(v["light2"] == {"s141": {"row": 98, "rgb": [56, 72, 88]}, "off": {"row": 65535, "rgb": [104, 104, 96]}}
+               and v["floors"] == ["0", "1", "2", "255", "3"] for v in po.values())
+    assert got["polish_problems"] == {} and got["polish_blind"] == [None, None]
+    assert got["polish_unknown"] == {"census 5": "no census row for model 5 (rig -1, None)"}
+    assert got["polish_twin"] == {"twin vivi": "the twin's rig row disagrees with the census: walk_step_b 14 vs 13"}
+    # G9s: green on each phase's replay; red on Zidane's keys left unmapped (the client lane's MapFootstep missing), another
+    # rig's keys, the wrong sound, the moogle KEEPING the keys, a drop count that is not one load's, an s140 guest (ABSENT);
+    # "not reached" on a body that is not the dress or no oracle
+    ps = got["psteps"]
+    assert {k: v[0] for k, v in ps.items()} == {
+        "vivi": True, "garnet": True, "moogle": True, "unmapped": False, "other_rig": False, "sound": False,
+        "moogle_kept": False, "moogle_24": False, "s140": False, "zidane_body": False, "no_oracle": False}, ps
+    assert ps["unmapped"][1].startswith("WRONG: steps (anim, frame) [(25, 4), (25, 13), (38, 0), (38, 8)]")
+    assert "want 919 on every key" in ps["sound"][1] and "steps_dropped 24 (want 12: one load's)" in ps["moogle_24"][1]
+    assert ps["s140"][1].startswith("netsync.dress.self.steps ABSENT -- an engine before s141")
+    assert ps["zidane_body"][1].startswith("not reached: the body is not the one asked for")
+    assert ps["no_oracle"][1].startswith("not reached")
+    # G9l: green on the 98 row's tint at the published floor; red on the default row, the default tint under the right row,
+    # the wrong floor's tint, a floor the kit walkmesh disagrees with (or cannot read), no floor, an s140 guest
+    pl = got["plight"]
+    assert {k: v[0] for k, v in pl.items()} == {
+        "vivi": True, "moogle": True, "default": False, "row_only": False, "floor0": False, "kit_disagrees": False,
+        "no_floor": False, "no_kit": False, "s140": False, "no_oracle": False}, pl
+    assert "light_row 65535 (want the source row 98)" in pl["default"][1]
+    assert "want the source row's tint on floor 0: [80, 96, 120]" in pl["floor0"][1]
+    assert "the two disagree" in pl["kit_disagrees"][1] and pl["s140"][1].startswith("netsync.dress.self.light_row ABSENT")
+    assert pl["no_oracle"][1].startswith("not reached")
+    # G9w: a stepping rig fires +2 or more on its own clip with steps_fired_player +0; the moogle walks SILENT (+0 / +0);
+    # "not reached" on a short walk, a taken-over hold, the wrong body, no bracket, no oracle
+    pw = got["pwalk"]
+    assert {k: v[0] for k, v in pw.items()} == {
+        "vivi": True, "garnet": True, "vivi_silent": False, "vivi_player": False, "moogle": True, "moogle_fires": False,
+        "moogle_player": False, "moogle_short": False, "moogle_left": False, "moogle_wrong_body": False,
+        "no_bracket": False, "no_oracle": False}, pw
+    assert "WRONG: a drop rig fired a footfall" in pw["moogle_fires"][1]
+    assert all(pw[k][1].startswith("not reached") for k in ("moogle_short", "moogle_left", "moogle_wrong_body",
+                                                             "no_bracket", "no_oracle"))
+    # the first phase's SAME-dress re-load is witnessed by attach_cold growing (the dress alone is worn before and after);
+    # without fresh_load the s140 wait is the dress alone
+    rw = got["rewarp"]
+    assert [r[0] for r in rw] == [True, False, True] and "(attach_cold 3 -> 3: want it grown)" in rw[1][1], rw
+    # one row over the phases: green only when every phase is; "not reached" when every red phase is, or none judged
+    ph = got["pphases"]
+    assert [p[0] for p in ph] == [True, False, False, False, False]
+    assert not ph[1][1].startswith("not reached") and ph[2][1].startswith("not reached: ") and "RED at ['b']" in ph[2][1]
+    assert not ph[3][1].startswith("not reached") and ph[4][1].startswith("not reached")
     doc = " ".join((SCENARIOS / "coop_dress_wire.py").read_text(encoding="utf-8").split())
     for frag in ("cannot MIX DLLs -- bites only box B19", "no production code reads section 8 in s139",
                  "py tools/harness/duo.py studies/test-harness/scenarios/coop_dress_wire.py", "OLD_PREDICTED",
@@ -18244,6 +18395,18 @@ def oracle(game, models, prefabs=()):
         trees[m] = {"geo": MODELS[m], "transforms": list(t), "renderers": list(r)}
     return {m: {"geo": MODELS[m], "body": str(m)} for m in models}, dict(ANIMATIONS), trees, {}
 dw._oracle = oracle
+# [s141] the polish oracle: the scenario's own polish_expect (the census twins) over battlewire's copies of field 250's ops
+# and mapconfig, the kit walkmesh's floor under the spawn (2); the guest's walk is the stub duo's
+from ff9mapkit import mapconfig as MC
+m_ = BW.FIELD250_MCF
+MCF = MC.MapConfig(attr=0, version=0, bg_no=0, light_use=len(m_["lights"]), char_use=len(m_["chars"]),
+                   lights=tuple(MC.MapLight(t, 0, 0, 0, tuple(c), tuple(f)) for t, c, f in m_["lights"]),
+                   chars=tuple(MC.MapChar(g, si, sr, tuple(c), 0) for g, si, sr, c in m_["chars"]))
+def polish_oracle(game, models, regs=None):
+    got, prob = dw.polish_expect(models, BW.FIELD250_STEPS, dw.sd.polish_census_doc(), dw.sd._polish_census(), MCF, 4)
+    return got, (lambda x, z: [2]), prob
+dw._polish_oracle = polish_oracle
+dw.walk_guest = lambda g: g.duo.walk()
 def seat(c, i):
     return (bytes((1, c, i, 10, 0)) + bytes(16) + bytes(10) + bytes((1,)) + b"P" + bytes(8) + bytes(4) + bytes(4)
             + bytes(8) + bytes((0, 0)))
@@ -18271,8 +18434,12 @@ class Duo:
         self.mode, self.run_dir, self.slots, self.strict = mode, run_dir, dw.HOST_GUEST_SLOTS, True
         self.rows, self.notes, self.steps, self.warps = [], [], [], []
         self.s139 = not mode.startswith("s138")
-        self.s140 = mode.startswith("s140")
+        self.s140 = mode.startswith(("s140", "s141"))
+        self.s141 = mode.startswith("s141")
         self.gmodel = self.dress_model() if self.s140 else 98      # an s140 guest armed at the pairing's field load
+        self.fired = 0                                              # [s141] steps_fired, per field load
+        self.cold = 1 if self.s140 else 0                           # attach_cold: per process, +1 per dressed load
+        self.walks = []
         self.tap = CP.TapeWriter(run_dir / "relay.f9tape", mode="test", flush_every=0.0)
         self.host, self.guest = Game(self, "host"), Game(self, "guest")
         self.feed()
@@ -18282,8 +18449,33 @@ class Duo:
         self.warps.append((role, int(field)))
         if role == "guest" and self.s140 and self.mode != "s140_stale":
             self.gmodel = self.dress_model()                        # the re-arm at the field load
+        if role == "guest":
+            self.fired = 0                                          # every s141 counter is per field load
+            self.cold += 1 if self.s140 else 0
     def ganim(self):
         return 200 if self.gmodel == 98 else BW.RIGS[BW.rig_for_model(self.gmodel)][1]
+    def table(self):
+        # [s141] the guest's own footstep table after its load: field 250's twelve ops through the engine twin's MapFootstep
+        # (an engine whose client lane never maps -- s141_unmapped -- registers Zidane's keys as read)
+        return BW.replay_steps(BW.rig_for_model(self.gmodel), BW.FIELD250_STEPS,
+                               map_footstep=self.mode != "s141_unmapped", polish=True)
+    def polish(self):
+        rep = self.table()
+        lit = BW.mcf_light_color(BW.FIELD250_MCF, self.gmodel, 2, 98, self.mode != "s141_light_default")
+        return {"steps": rep["steps"], "steps_dropped": rep["steps_dropped"], "steps_passed": rep["steps_passed"],
+                "steps_fired": self.fired, "steps_fired_player": 0, "light_row": lit["row"], "light_rgb": lit["rgb"],
+                "light_floor": 2}
+    def walk(self):
+        # FF9Snd's match: a footfall fires where the body's PLAYING clip (the rig's own walk / run) holds a registered key
+        before = St(self.doc("guest"))
+        row = BW.rig_row(BW.rig_for_model(self.gmodel))
+        plays = {row["walk"], row["run"]} if row else {25, 38}
+        if any(s[0] in plays for s in self.table()["steps"]) and self.mode != "s141_fired_lost":
+            self.fired += 6
+        samples = [St(self.doc("guest", x=2921.0 + 20.0 * i)) for i in range(40)]
+        self.walks.append(self.gmodel)
+        return {"dir": "up", "samples": samples, "left": False, "why": None, "before": before,
+                "after": St(self.doc("guest"))}
     def feed(self, n=9):
         body = BW.host_dress_section("auto", self.slots, "host", False, PARTY) if self.s139 else None
         for _ in range(n):
@@ -18303,14 +18495,19 @@ class Duo:
         self.rows.append([cid, bool(ok), detail[:700]])
     def note(self, msg):
         self.notes.append(msg)
-    def doc(self, role):
+    def doc(self, role, x=2921.0):
         if role == "guest":
             dress = {"ghost": {"model": -1}, "party": [0, -1, -1, -1]}
             if self.s139:
                 dress.update(codec="ok", mirror_party=list(PARTY))
             if self.s140:
-                dress["self"] = {"why": "dressed", "from": "host", "want_model": self.gmodel}
-            return {"ui_state": "FieldHUD", "player": {"model": self.gmodel, "anim": self.ganim(), "body": str(self.gmodel)},
+                dress["self"] = {"why": "dressed", "from": "host", "want_model": self.gmodel,
+                                 "rig": BW.rig_for_model(self.gmodel), "attach_cold": self.cold}
+            if self.s141:
+                dress["self"].update(self.polish())
+            return {"ui_state": "FieldHUD", "field": {"id": 250},
+                    "player": {"model": self.gmodel, "anim": self.ganim(), "body": str(self.gmodel), "x": x, "z": -1830.0,
+                               "control": True},
                     "netsync": {"session": {"mirroring": True, "ghost": True}, "dress": dress}}
         chars = BW.live_slot_chars(PARTY)
         old = self.mode in ("client_rule", "s138", "s138_no_echo")
@@ -18336,13 +18533,15 @@ class Duo:
         return {"ui_state": "FieldHUD", "scenario": 0, "player": {"model": 98, "anim": 200},
                 "netsync": {"session": {"ghost": True}, "battle": {"host": {"guest_slots": self.slots}}, "dress": dress}}
 out = {}
-for mode in ("s139", "mask_dropped", "client_rule", "no_echo", "s138", "s138_no_echo", "s140", "s140_stale", "s140_eager"):
+for mode in ("s139", "mask_dropped", "client_rule", "no_echo", "s138", "s138_no_echo", "s140", "s140_stale", "s140_eager",
+             "s141", "s141_unmapped", "s141_fired_lost", "s141_light_default", "s141_no_echo"):
     run_dir = pathlib.Path(tempfile.mkdtemp())
     d = Duo(mode, run_dir)
     dw.cb.CALIBRATE = mode.startswith("s138")
     dw.run_duo(d)
     d.tap.close()
-    out[mode] = {"rows": d.rows, "steps": d.steps, "strict": d.strict, "warps": d.warps}
+    out[mode] = {"rows": d.rows, "steps": d.steps, "strict": d.strict, "warps": d.warps, "walks": d.walks,
+                 "notes": d.notes}
 print(json.dumps(out))
 """
 
@@ -18355,7 +18554,11 @@ def test_the_g9_duo_leg_steps_its_phases_and_reads_the_tap_last_against_a_stub_d
     site's mask line dropped -> G9e only; the whole s138 client rule at the transport site (Garnet both hairstyles, a
     spectator undressed) -> G9e and G9f, the tap still green (the producer is HostDressSection's); a step the host never
     echoes -> G9e / G9f "not reached", the tap judged over the phase that ran. On an s138 host COOP_CALIBRATE=1 is green on
-    exactly OLD_PREDICTED -- and red, UNPROVEN, when the predicted phase reds read "not reached". Strict mode is restored."""
+    exactly OLD_PREDICTED -- and red, UNPROVEN, when the predicted phase reds read "not reached". Strict mode is restored.
+    [ff9mapkit netsync s141] An s141 GUEST (it publishes `netsync.dress.self.steps`; its witnesses computed by battlewire's
+    engine twins, the oracle by the census's) adds G9s / G9w / G9l, all green; s141_unmapped (the client lane never maps a
+    footstep) reds G9s + G9w, s141_fired_lost G9w alone, s141_light_default G9l alone, s141_no_echo the stepped phases
+    "not reached"; no s139 / s140 guest runs them."""
     got = _sd_child(_SG9_RUN, timeout=600.0)
 
     def red(mode):
@@ -18401,6 +18604,40 @@ def test_the_g9_duo_leg_steps_its_phases_and_reads_the_tap_last_against_a_stub_d
     stale = {r[0]: r[2] for r in got["s140_stale"]["rows"]}
     assert "is not this phase's section-8 dress 185" in stale["S139-G9e"], stale["S139-G9e"]
     assert red("s140_eager") == ["S140-G9t"], red("s140_eager")
+    # [s141] AN s141 GUEST'S POLISH off the host's section 8, keyed by the GUEST's stage: an s140 guest (no `steps`) runs
+    # none of the polish rows (and keeps its two re-loads); an s141 guest runs G9s / G9w / G9l after G9t (the tap still
+    # last), each phase judged on a fresh load at entrance 0 -- the first phase's an extra re-load in the same dress,
+    # witnessed by attach_cold -- and a guest walk: Vivi, Garnet, the moogle (silent)
+    assert not any(r[0].startswith("S141") for m in ("s139", "s140", "s140_stale", "s140_eager") for r in got[m]["rows"])
+    rows141 = got["s141"]["rows"]
+    assert [r[0] for r in rows141] == ["S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f", "S139-G9c", "S140-G9t",
+                                       "S141-G9s", "S141-G9w", "S141-G9l", "S139-G9a"], rows141
+    assert red("s141") == [], [r for r in rows141 if not r[1]]
+    assert got["s141"]["warps"] == [["guest", 250]] * 3 and got["s141"]["walks"] == [8, 185, 220]
+    assert not any("G9 [s14" in n for n in got["s141"]["notes"]), got["s141"]["notes"]     # every re-load witnessed
+    d141 = {r[0]: r[2] for r in rows141}
+    assert d141["S141-G9s"].startswith("GuestSlots 2: steps [[571, 4, 919], [571, 14, 919], [419, 0, 919], [419, 9, 919]]")
+    assert "GuestSlots 4: steps [[2086, 4, 919], [2086, 15, 919], [2091, 0, 919], [2091, 9, 919]]" in d141["S141-G9s"]
+    assert "GuestSlots 0: steps [] dropped 12 passed 0" in d141["S141-G9s"], d141["S141-G9s"]
+    assert d141["S141-G9w"].startswith("GuestSlots 2: steps_fired +6, steps_fired_player +0") \
+        and "GuestSlots 0: steps_fired +0, steps_fired_player +0 across the walk (want +0 / +0: silent)" in d141["S141-G9w"]
+    assert d141["S141-G9l"].startswith("GuestSlots 2: light_row 98 light_rgb [56, 72, 88] on light_floor 2")
+    # each polish row has its predicted-red mode, turning exactly its rows red -- the client lane's MapFootstep missing
+    # (Zidane's keys registered as read: no table and no footfall on the rig's clip; the moogle's walk stays silent), the
+    # fired count lost (the table right), the light on the default row; a step never echoed leaves the stepped phases
+    # "not reached" (the rows red, never a pass over the one phase that ran)
+    assert red("s141_unmapped") == ["S141-G9s", "S141-G9w"], red("s141_unmapped")
+    um = {r[0]: r[2] for r in got["s141_unmapped"]["rows"]}
+    assert um["S141-G9s"].startswith("GuestSlots 2: WRONG: steps (anim, frame) [(25, 4), (25, 13), (38, 0), (38, 8)]")
+    assert um["S141-G9w"].endswith("RED at ['GuestSlots 2', 'GuestSlots 4']"), um["S141-G9w"]
+    assert red("s141_fired_lost") == ["S141-G9w"], red("s141_fired_lost")
+    assert red("s141_light_default") == ["S141-G9l"], red("s141_light_default")
+    assert {r[0]: r[2] for r in got["s141_light_default"]["rows"]}["S141-G9l"].startswith(
+        "GuestSlots 2: WRONG: light_row 65535 (want the source row 98)")
+    assert red("s141_no_echo") == ["S139-G9e", "S139-G9f", "S140-G9t", "S141-G9l", "S141-G9s", "S141-G9w"]
+    ne141 = {r[0]: r[2] for r in got["s141_no_echo"]["rows"]}
+    assert all(ne141[c].startswith("not reached: GuestSlots 2: ") for c in ("S141-G9s", "S141-G9w", "S141-G9l"))
+    assert got["s141_no_echo"]["walks"] == [8] and got["s141_no_echo"]["warps"] == [["guest", 250]]
 
 
 # =========================================================================================================== s140

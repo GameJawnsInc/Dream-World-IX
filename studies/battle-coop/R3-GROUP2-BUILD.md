@@ -529,7 +529,17 @@ red. Every other leg was green, and S138-CAL was green under GhostAs auto and bl
   90 degrees on Freya, Amarant and the moogle; about 174 degrees on Cinna's bone 12). Cosmetic.
 - A kit's whole-body HideObject is dropped along with every other mesh op on a dressed body.
 - `steps` publishes only code 16's sound slot. Steiner's slot 1 (925) is proven by the proof's foot row, not in game.
-- Not proven in game: a real CLIENT's footsteps off a real host's section 8 (the duo judges the dress, not the steps).
+
+**The duo G9 polish rows (after the deploy): 22/22.** `coop_dress_wire.py` gains G9s / G9w / G9l, run on an s141+ GUEST
+only (keyed by the guest's stage: an s140 guest publishes none of these keys). At each phase, on a fresh load at entrance 0,
+the guest's own body was judged against the census twin's replay of field 250's ops:
+- G9s, the footstep table: Vivi 571@4/14 + 419@0/9 and Garnet 2086@4/15 + 2091@0/9 (919 each), the moogle [] with 12
+  dropped.
+- G9w, a harness walk on the guest: +12 fires for Vivi and for Garnet over ~86 ticks, the moogle silent (+0 / +0).
+- G9l, the light: row 98 at (56, 72, 88) on floor 2 for all three.
+The first phase re-loads in the SAME dress, so `attach_cold` growing witnesses that load. Stub modes `s141_unmapped`,
+`s141_fired_lost`, `s141_light_default` and `s141_no_echo` turn exactly their rows red. The ghosts' lighting is not judged
+on the wire: both ghosts land on a 98 row that s140 gives too.
 
 **LESSONS:**
 - A table every check reads from cannot be checked by those checks. Steiner's hand pair was wrong since s139, and the

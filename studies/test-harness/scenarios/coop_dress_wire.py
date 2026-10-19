@@ -70,6 +70,30 @@ the CLIENT arm off a REAL host's section 8 over a real wire (the solo bench arms
   G9d-f (s140+) judged as above, and the guest's wire body must BE the phase's dress (the twin's want == the section-8
        model): a guest that never re-armed is red, never a pass on its stale body.
 On an s139 guest nothing changes (no re-load; G9c plain Zidane; no G9t).
+[s141] AN s141 GUEST'S DRESS POLISH OFF A REAL HOST'S SECTION 8. The solo bench (coop_self_dress.py leg F) proves the polish
+on the SELFTEST role only; here the CLIENT lane: the same body-gated hooks (MapFootstep at CHRFX, fldmcf's source-row
+fallback) on a body armed from the host's wire. An s141+ guest publishes `netsync.dress.self.steps`; an s140 guest publishes
+none of these keys, so these rows run on an s141+ GUEST only (every expectation keyed by the GUEST's stage). At each phase,
+on a fresh field load at entrance 0 (the re-load after each live step; for GuestSlots 2 an extra re-load in the SAME dress,
+witnessed by `self.attach_cold` growing -- the pairing leaves the guest wherever `warp 250 -1` put it, and the walk needs the
+spawn), against the OFFLINE oracle --
+field 250's player footstep ops off the `.eb` the guest loads (coop_self_dress.eb_footsteps: Zidane_Init's twelve), each
+rig's walk / run ids, footfall pairs and step sound off the install census (studies/battle-coop/dress-census/polish.json
+`b_steps`), replayed by the census's own twin (polish_census.expected_steps), and the light through polish_census.light_color
+over field 250's MapConfigData:
+  G9s  (s141+) `netsync.dress.self.steps` (anim, frame) in table order == the replay for the phase's rig, every key's
+       sndEffectID[0] the oracle's -- Vivi 571@4/14 + 419@0/9, Garnet 2086@4/15 + 2091@0/9 (919 each), the moogle [] with
+       steps_dropped 12 (its pairs are -1: all twelve ops drop) -- and steps_dropped / steps_passed one load's.
+  G9w  (s141+) a guest WALK (harness input on the guest: coop_self_dress._f_walk, four alternating holds, F_MIN_MOVE_TICKS+
+       field ticks moved, else "not reached"): a stepping rig fires its own footfalls -- `steps_fired` +2 or more,
+       `steps_fired_player` +0 (FF9Snd's own frame match on the rig's clip: the witness the table cannot give) -- and the
+       moogle walks SILENT (both +0: the drop holds on a real walk).
+  G9l  (s141+) `light_row` 98 (the source row: none of 8 / 185 / 220 has its own on 250) and `light_rgb` == the census tint
+       of the 98 row on the published `light_floor` (the floor fldmcf lit the body by: the oracle's input), the kit
+       walkmesh's floor(s) under the publish's x / z beside it (a disagreement is red).
+NOT JUDGED BY G9 (leg F owns them): the ghosts' lighting (the host's ghost of the guest falls back to the HOST's plain-98
+player row -- the 98 row s140 gives too -- and the guest's ghost of the host is 98, its own row: neither can show the s141
+stand-in rule), held props and the mesh-op drop (no conductor on 250).
 PRECONDITIONS: as duo.py's (both roots built, nobody at the keyboard, no controller); COOPPARTY (30604) registered.
 """
 from __future__ import annotations
@@ -137,9 +161,20 @@ CATALOG = {
                 "its loco clip",
     "S140-G9t": "[s140] THE TEARDOWN LAW ON THE WIRE: after each live GuestSlots step, before the guest's re-load, its live "
                 "body is still the previous phase's dress and the host's ghost shows that wire body as it is",
+    "S141-G9s": "[s141] the guest's own footstep table at every phase, one fresh load each: `netsync.dress.self.steps` == "
+                "the census twin's replay of field 250's own ops for the phase's rig (Vivi 571@4/14 + 419@0/9, Garnet "
+                "2086@4/15 + 2091@0/9, the moogle [] with 12 dropped), steps_dropped / steps_passed one load's",
+    "S141-G9w": "[s141] a guest walk at every phase (harness input): a stepping rig fires its own footfalls "
+                "(`steps_fired` +2 or more, `steps_fired_player` +0); the moogle walks silent (both +0)",
+    "S141-G9l": "[s141] the guest's own light at every phase: `light_row` 98 (the source row) and `light_rgb` == the "
+                "census tint of the 98 row on the published `light_floor`, the kit walkmesh's floor beside it",
 }
 #: [s140] the rows only an s140+ GUEST runs (an s139 guest dresses nothing of its own)
 S140_ONLY = ("S140-G9t",)
+#: [s141] the rows only an s141+ GUEST runs (an s140 guest publishes no polish key: `netsync.dress.self.steps` and on)
+S141_ONLY = ("S141-G9s", "S141-G9w", "S141-G9l")
+#: [s141] the SOURCE body (Zidane's 98): the row a dressed body's light falls back to, the walk / run MapFootstep maps from
+SOURCE_MODEL = BW.PLAIN_ZIDANE_MODEL
 G9_CHECKS = tuple(CATALOG)
 #: COOP_CALIBRATE=1's prediction by the HOST's dress stage (battlewire.DRESS_PROBES): on s138 no section 8, no
 #: `mirror_party`, no `ghost.mode` / visibility keys, and a spectator's ghost plain Zidane -- G9c stays green (an s138
@@ -339,10 +374,13 @@ def judge_teardown(steps) -> tuple:
     return not bad, "; ".join(parts) + (f" -- BROKEN at {bad}" if bad else "")
 
 
-def rewarp_guest(guest, want_model: int, timeout: float = None) -> tuple:
+def rewarp_guest(guest, want_model: int, timeout: float = None, *, fresh_load: bool = False) -> tuple:
     """[s140] Re-load the guest's field (a warp to FIELD at entrance 0) and wait until it wears ``want_model`` with
-    `netsync.dress.self.why` 'dressed' -- (ok, why)."""
+    `netsync.dress.self.why` 'dressed' -- (ok, why). [s141] ``fresh_load``: ALSO wait for `self.attach_cold` (s140's
+    per-process count of AttachDress at a load's SetModel) to grow past its value before the warp -- the witness that a
+    re-load in the SAME dress happened (the dress alone cannot tell it: it is worn before and after)."""
     timeout = REWARP_S if timeout is None else timeout
+    cold0 = sd.self_count(guest.state, "attach_cold") if fresh_load else None
     try:
         guest.warp(FIELD, entrance=0)
     except Exception as err:                               # noqa: BLE001 - a refused re-load reads in G9c's detail
@@ -350,10 +388,13 @@ def rewarp_guest(guest, want_model: int, timeout: float = None) -> tuple:
     deadline = time.time() + timeout
     st = guest.state
     while True:
-        if sd._int(sd._player(st).get("model")) == int(want_model) and cb.path(st, "netsync.dress.self.why") == "dressed":
+        cold = sd.self_count(st, "attach_cold")
+        if (sd._int(sd._player(st).get("model")) == int(want_model) and cb.path(st, "netsync.dress.self.why") == "dressed"
+                and (not fresh_load or (cold0 is not None and cold is not None and cold > cold0))):
             return True, ""
         if time.time() >= deadline:
-            return False, f"the guest re-loaded {FIELD} but did not wear {want_model} within {timeout:g}s"
+            return False, (f"the guest re-loaded {FIELD} but did not wear {want_model} within {timeout:g}s"
+                           + (f" (attach_cold {cold0!r} -> {cold!r}: want it grown)" if fresh_load else ""))
         time.sleep(0.5)
         st = guest.state
 
@@ -442,6 +483,136 @@ def judge_host_ghost(samples: list, guest, host_party, models: dict, clips: dict
     return ok and v_ok, (nr if v_why.startswith(nr) else "") + f"VISIBILITY {v_why.removeprefix(nr)}; WORN {detail}"
 
 
+def polish_expect(models, ops, doc, pc, mcf=None, nfloors: int = 0) -> tuple:
+    """(PURE over the census and the field's own reads) [s141] G9s / G9w / G9l's oracle for each section-8 model in
+    ``models`` -- ({model: {"name", "model", "rig", "steps": {steps, steps_dropped, steps_passed} or None, "light": {floor:
+    {"s141": {row, rgb}, "off": {row, rgb}}} or None}}, {what: why}). ``ops`` field 250's player footstep ops in script
+    order (coop_self_dress.eb_footsteps over the `.eb` the guest loads; None: no steps oracle); ``doc`` the install census
+    (polish.json): each rig's walk / run ids, footfall pairs and step sound off its `b_steps` row -- the ids stock
+    REGISTERS footsteps on and the modal RunModelCode(16) frames, -1 / -1 for the moogle -- Zidane's the SOURCE pair;
+    ``pc`` the census module, whose own twins replay it (expected_steps: MapFootstep on the DRESSED body, then stock
+    FF9Snd's table) and light it (light_color, the source row 98 with the polish on / off) over ``mcf`` (the field's
+    MapConfigData; None: no light oracle) on every walkmesh floor 0..``nfloors``-1 and 255 (none: the default light).
+    Cross-check, each disagreement a named problem: the census's rig row against battlewire's (pairs, step sound)."""
+    out, problems = {}, {}
+    zc = sd._census_rig(doc, "zidane")
+    zid = None
+    if zc is not None:
+        zid = {"walk": int(zc["walk"]["id"]), "run": int(zc["run"]["id"]),
+               "walk_step_a": int(zc["census"]["walk_pair"][0]), "walk_step_b": int(zc["census"]["walk_pair"][1]),
+               "run_step_a": int(zc["census"]["run_pair"][0]), "run_step_b": int(zc["census"]["run_pair"][1])}
+    else:
+        problems["census zidane"] = "no census row for the source rig (zidane)"
+    for m in dict.fromkeys(int(x) for x in models):
+        rig = BW.rig_for_model(m)
+        name = pc.RIG_NAMES[rig] if 0 <= rig < len(pc.RIG_NAMES) else None
+        c = sd._census_rig(doc, name) if name else None
+        if c is None:
+            problems[f"census {m}"] = f"no census row for model {m} (rig {rig}, {name!r})"
+            continue
+        cen = c["census"]
+        r = {"name": name, "model": m, "walk": int(c["walk"]["id"]), "run": int(c["run"]["id"]),
+             "walk_step_a": int(cen["walk_pair"][0]), "walk_step_b": int(cen["walk_pair"][1]),
+             "run_step_a": int(cen["run_pair"][0]), "run_step_b": int(cen["run_pair"][1]),
+             "step_sound": int(cen["step_sound"])}
+        tw = BW.rig_row(rig)
+        diff = [f"{k} {tw[k]} vs {r[k]}" for k in ("walk_step_a", "walk_step_b", "run_step_a", "run_step_b", "step_sound")
+                if tw is not None and tw[k] != r[k]]
+        if diff:
+            problems[f"twin {name}"] = "the twin's rig row disagrees with the census: " + ", ".join(diff)
+        steps = None
+        if ops is not None and zid is not None:
+            got = pc.expected_steps(r, [tuple(o) for o in ops], polish=True, dressed=True, zidane=zid)
+            steps = {k: got[k] for k in ("steps", "steps_dropped", "steps_passed")}
+            if got["faults"]:
+                problems[f"faults {name}"] = f"the replay throws in stock: {got['faults'][:2]}"
+        light = None
+        if mcf is not None:
+            light = {f: {k: {kk: pc.light_color(mcf, m, f, SOURCE_MODEL, pol)[kk] for kk in ("row", "rgb")}
+                         for k, pol in (("s141", True), ("off", False))} for f in list(range(int(nfloors))) + [255]}
+        out[m] = {"name": name, "model": m, "rig": rig, "steps": steps, "light": light}
+    return out, problems
+
+
+def _polish_ro(want: dict) -> dict:
+    """coop_self_dress's `ro` (the row's asked-for body) for one phase's oracle: its name and model."""
+    return {"name": want["name"], "model": want["model"]}
+
+
+def judge_polish_steps(st, want) -> tuple:
+    """S141-G9s on one phase (PURE): coop_self_dress.judge_f_steps on the guest's publish ``st`` (its fresh load, settled)
+    against ``want`` (:func:`polish_expect`'s row for the phase's section-8 model) -- the body pinned first (player.model
+    the dress, `self.rig` its rig, else "not reached"), `steps` (anim, frame) in table order == the replay's, no duplicate
+    key, steps_dropped / steps_passed one load's, and -- when the oracle's keys share one sound -- every key's
+    sndEffectID[0] that sound (Vivi's and Garnet's 919: the step_sound-0 rigs keep the source's Arg4)."""
+    if not want or want.get("steps") is None:
+        return False, f"{_NR}: no steps oracle for this phase's dress"
+    sounds = {r[2] for r in want["steps"]["steps"]}
+    return sd.judge_f_steps(st, want["steps"], _polish_ro(want), rig=want["rig"],
+                            sound=sounds.pop() if len(sounds) == 1 else None)
+
+
+def judge_walk_silent(walk: dict, ro: dict, *, rig: int) -> tuple:
+    """(PURE) A DROP rig's walk (the moogle: every footstep op dropped at the load, its table empty): coop_self_dress
+    .judge_f_fired's premises (no take-over, the bracket read, the body asked for, F_MIN_MOVE_TICKS+ field ticks moved --
+    else "not reached") and then SILENCE: `steps_fired` +0 AND `steps_fired_player` +0 across the walk (nothing is
+    registered on the dressed body's clip, and the 98 keys it dropped never reach it)."""
+    if walk.get("left"):
+        return False, f"{_NR}: the walk's hold was TAKEN OVER ({walk.get('why')})"
+    before, after = walk.get("before"), walk.get("after")
+    if before is None or after is None:
+        return False, f"{_NR}: the walk did not run ({walk.get('why')})"
+    pin = sd.f_dress_pin(before, ro, rig)
+    if pin:
+        return False, f"{_NR}: the body is not the one asked for: {pin}"
+    ticks = sd.walk_ticks(walk.get("samples") or [])
+    moved = f"the walk moved {ticks} field ticks ({walk.get('dir')!r})"
+    if ticks < sd.F_MIN_MOVE_TICKS:
+        return False, f"{_NR}: {moved} -- want {sd.F_MIN_MOVE_TICKS}+ (silence on so short a walk proves nothing)"
+    if sd._polish(after) is None:
+        return False, f"{sd._f_absent(after, 'steps_fired')}; {moved}"
+    d, o = sd.count_delta(before, after, "steps_fired"), sd.count_delta(before, after, "steps_fired_player")
+    ok = d == 0 and o == 0
+    return ok, (("" if ok else "WRONG: a drop rig fired a footfall -- ")
+                + f"steps_fired +{d}, steps_fired_player +{o} across the walk (want +0 / +0: silent); {moved}")
+
+
+def judge_polish_walk(walk: dict, want) -> tuple:
+    """S141-G9w on one phase (PURE): the guest's walk (``walk``: coop_self_dress._f_walk's bracket) keyed by the phase's
+    oracle -- a rig whose replay registers keys (Vivi, Garnet) fires its own footfalls (coop_self_dress.judge_f_fired:
+    `steps_fired` +F_FIRED_MIN or more, `steps_fired_player` +0); a rig whose replay registers none (the moogle) walks
+    SILENT (:func:`judge_walk_silent`)."""
+    if not want or want.get("steps") is None:
+        return False, f"{_NR}: no steps oracle for this phase's dress"
+    ro = _polish_ro(want)
+    if want["steps"]["steps"]:
+        return sd.judge_f_fired(walk, ro, rig=want["rig"], key="steps_fired", other="steps_fired_player")
+    return judge_walk_silent(walk, ro, rig=want["rig"])
+
+
+def judge_polish_light(st, want, floors_at=None) -> tuple:
+    """S141-G9l on one phase (PURE): coop_self_dress.judge_f4 on the guest's publish ``st`` -- the body pinned, `light_row`
+    == the source row 98 and `light_rgb` == its census tint on the engine's `light_floor`, the kit walkmesh's floors under
+    the publish's x / z (``floors_at``: (x, z) -> floors; None unread -- a red with both shown) beside it."""
+    if not want or want.get("light") is None:
+        return False, f"{_NR}: no light oracle (field {FIELD}'s MapConfigData unread)"
+    floors = sd._f_floors({"floors_at": floors_at}, st)
+    return sd.judge_f4(st, want["light"], _polish_ro(want), rig=want["rig"], floors=floors, src=SOURCE_MODEL)
+
+
+def judge_phases(parts) -> tuple:
+    """(PURE) One polish row over the run's phases (``parts``: (label, (ok, why)) per phase, a blocked phase's "not
+    reached" among them): green when every phase is; "not reached" with none, or when every red phase reads "not reached"
+    (a row that judged nothing proves nothing); else red naming the phases."""
+    parts = list(parts)
+    if not parts:
+        return False, f"{_NR}: no phase judged the guest's polish"
+    bad = [label for label, (ok, _w) in parts if not ok]
+    nr = bool(bad) and all(str(w).startswith(_NR) for _label, (ok, w) in parts if not ok)
+    detail = "; ".join(f"{label}: {why}" for label, (_ok, why) in parts) + (f" -- RED at {bad}" if bad else "")
+    return not bad, (f"{_NR}: " if nr else "") + detail
+
+
 def calibration(stage, failed, unreached=()) -> tuple:
     """(PURE) COOP_CALIBRATE=1's verdict: exactly OLD_PREDICTED[stage] red (no row for that stage: no calibration), and no
     predicted red reading "not reached" (``unreached``: a red that proves nothing -- UNPROVEN)."""
@@ -483,6 +654,62 @@ def _oracle(game: Path, models, prefabs=()) -> tuple:
     return facts, dict(ANIMATIONS), trees, problems
 
 
+def _polish_oracle(game: Path, models, regs=None) -> tuple:
+    """[s141] (:func:`polish_expect`'s {model: oracle}, the kit walkmesh's (x, z) -> floors lookup or None, {what: why}) --
+    field 250's player footstep ops off the `.eb` the guest's root loads (coop_self_dress.field_eb + eb_footsteps), its
+    MapConfigData (polish_census.load_mcf) and stock walkmesh (the kit's), all READ-ONLY off the install NOW, and the
+    census JSON. A part that cannot be read is named and its judge reads "not reached"; the kit cache missing leaves the
+    install half out (a read that would WRITE into the install)."""
+    sd._kit()
+    pc = sd._polish_census()
+    from ff9mapkit import extract as X
+    game, problems = Path(game), {}
+    install_ok = not sd.kit_cache_missing(game)
+    ops = None
+    try:
+        data, src = sd.field_eb(game, FIELD, reg_name=(regs or {}).get(FIELD), install_ok=install_ok)
+        if data is None:
+            problems["ops"] = src
+        else:
+            fs = sd.eb_footsteps(data)
+            ops = [tuple(o) for o in fs["load"]]
+            if fs["problems"]:
+                problems["ops eb"] = f"{src}: {fs['problems']}"
+            if tuple(ops) != BW.FIELD250_STEPS:
+                problems["twin ops"] = f"{src}: field {FIELD}'s ops {ops} vs battlewire.FIELD250_STEPS"
+    except Exception as err:                               # noqa: BLE001 - an unread part reads "not reached"
+        problems["ops"] = f"the .eb read raised {type(err).__name__}: {str(err)[:200]}"
+    mcf, floors_at, nfloors = None, None, 0
+    try:
+        if not install_ok:
+            raise RuntimeError(f"the kit cache {sd.KIT_CACHE_FILES} is missing from the install (the mapconfig and "
+                               f"walkmesh reads would WRITE it -- run any ff9mapkit read once, by hand)")
+        mcf = pc.load_mcf(FIELD, game)
+        if mcf is None:
+            raise RuntimeError(f"field {FIELD} has no MapConfigData")
+        wm = X.stock_walkmesh(FIELD, game=game)
+        nfloors, floors_at = len(wm.floors), wm.floors_at
+    except Exception as err:                               # noqa: BLE001
+        mcf = None
+        problems["light"] = f"{type(err).__name__}: {str(err)[:240]}"
+    try:
+        got, more = polish_expect(models, ops, sd.polish_census_doc(), pc, mcf, nfloors)
+    except Exception as err:                               # noqa: BLE001
+        got, more = {}, {"census": f"{type(err).__name__}: {str(err)[:200]}"}
+    return got, floors_at, dict(problems, **more)
+
+
+def walk_guest(guest) -> dict:
+    """[s141] G9w's walk on the GUEST's own body: coop_self_dress._f_walk (harness input -- THE UNATTENDED LAW: nobody at the
+    keyboard --, four alternating holds sized at the measured render rate, each publish watched, its before / after
+    bracket). A walk that raises reads "not reached" in G9w's detail (no bracket)."""
+    try:
+        return sd._f_walk(guest, FIELD)
+    except Exception as err:                               # noqa: BLE001 - a refused hold is the row's "not reached"
+        return {"dir": None, "samples": [], "left": False, "before": None, "after": None,
+                "why": f"the walk raised {type(err).__name__}: {str(err)[:160]}"}
+
+
 def run_duo(d) -> None:
     calibrate = cb.CALIBRATE
     strict, d.strict = d.strict, False                     # every G9 row is recorded (a calibration needs them all)
@@ -502,8 +729,10 @@ def run_duo(d) -> None:
         stage = dress_stage(host.state)
         gstage = dress_stage(guest.state)
         selfdress = gstage is not None and gstage >= 140      # [s140] the guest dresses itself off section 8
+        polish = gstage is not None and gstage >= 141         # [s141] ...and polishes the dress (steps, its light)
         d.note(f"G9: host dress stage s{stage}, party {host_party}; guest stage s{gstage}"
-               + (" (it dresses itself: each step re-loads its field)" if selfdress else ""))
+               + (" (it dresses itself: each step re-loads its field)" if selfdress else "")
+               + (" (its polish judged: G9s / G9w / G9l)" if polish else ""))
         # G9b first: the guest's old readers stepped past section 8 since the pairing (it needs no phase)
         armed = bool(d.wait_line("guest", "armed", 1.0))
         deadline = time.time() + MIRROR_S
@@ -522,11 +751,24 @@ def run_duo(d) -> None:
             d.note(f"G9 oracle problems (their judges read 'not reached'): {problems}")
         hair = (cb.ini_value(host, "Graphics", "GarnetHair") or "").strip()     # the HOST root's ini, READ-ONLY
         garnet_hair = int(hair) if hair.lstrip("-").isdigit() else 0
+        poracle, floors_at = {}, None                      # [s141] the polish rows' oracle, read off the GUEST's root
+        if polish:
+            try:
+                regs = guest.registered_fields()[0]
+            except Exception:                              # noqa: BLE001 - no registrations: the stock .eb is read
+                regs = {}
+            poracle, floors_at, pprob = _polish_oracle(Path(guest.game_path), [m for m in dresses if m], regs)
+            if pprob:
+                d.note(f"G9 [s141] polish oracle problems (their judges read 'not reached'): {pprob}")
+        psteps, pwalk, plight = [], [], []                 # [s141] (label, verdict) per phase
         reads, stepped, blocked = [], [], None
         wants, teardown, prev_dress = [], [], None         # [s140] each judged phase's section-8 dress; the steps' reads
         for i, (cid, slots, vis) in enumerate(PHASES):
             if blocked is not None:
                 check(cid, False, f"{_NR}: {blocked}")
+                if polish:
+                    for rows in (psteps, pwalk, plight):
+                        rows.append((f"GuestSlots {slots}", (False, f"{_NR}: {blocked}")))
                 continue
             if stepped:                                    # the first phase is the pairing's own GuestSlots
                 echo = d.set_netsync("host", {"GuestSlots": slots}, timeout=CONFIG_S,
@@ -534,6 +776,9 @@ def run_duo(d) -> None:
                 if not echo:
                     blocked = f"the host never echoed its live GuestSlots {slots} step within {CONFIG_S:g}s"
                     check(cid, False, f"{_NR}: {blocked}")
+                    if polish:
+                        for rows in (psteps, pwalk, plight):
+                            rows.append((f"GuestSlots {slots}", (False, f"{_NR}: {blocked}")))
                     continue
                 time.sleep(GHOST_SETTLE_S)
                 if selfdress and dresses:                  # [s140] the teardown law, then the re-arm at a field load
@@ -543,6 +788,11 @@ def run_duo(d) -> None:
                     if not ok_w:
                         d.note(f"G9 [s140]: {why_w}")
                     time.sleep(GHOST_SETTLE_S)
+            elif polish and dresses:                       # [s141] the first phase on a KNOWN fresh load too: entrance 0
+                ok_w, why_w = rewarp_guest(guest, dresses[i], fresh_load=True)     # (the pairing's spot is wherever
+                if not ok_w:                                                      # `warp 250 -1` left the guest)
+                    d.note(f"G9 [s141]: {why_w}")
+                time.sleep(GHOST_SETTLE_S)
             stepped.append(slots)
             want_dress = dresses[i] if (selfdress and dresses) else None
             samples = cb.hold_for(host, HOLD_S)
@@ -552,9 +802,18 @@ def run_duo(d) -> None:
             check(cid, *judge_host_ghost(samples, gst, host_party, models, clips, guest_slots=slots, visibility=vis,
                                          tree=trees.get(GARNET_PREFAB), garnet_hair=garnet_hair, want_dress=want_dress))
             prev_dress = want_dress
+            if polish:                                     # [s141] on this load's settled publish, then a guest walk
+                label, pw = f"GuestSlots {slots}", poracle.get(int(dresses[i])) if dresses else None
+                psteps.append((label, judge_polish_steps(gst, pw)))
+                plight.append((label, judge_polish_light(gst, pw, floors_at)))
+                pwalk.append((label, judge_polish_walk(walk_guest(guest), pw)))
         check("S139-G9c", *judge_guest_bodies(reads, wants if selfdress else None, models))
         if selfdress:
             check("S140-G9t", *judge_teardown(teardown))
+        if polish:
+            check("S141-G9s", *judge_phases(psteps))
+            check("S141-G9w", *judge_phases(pwalk))
+            check("S141-G9l", *judge_phases(plight))
         # G9a LAST: the tap now holds every phase the run stepped
         try:
             _h, records, torn = CP.read_tape(d.run_dir / "relay.f9tape")

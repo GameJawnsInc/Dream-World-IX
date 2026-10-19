@@ -73,9 +73,9 @@ echo "######## STEP 2c: leg G's own lever (rule-s138: G_LEVER_REDS) $(date +%T)"
 bash "$SB" "$OUT/s2" "lever_rule_s138:250:coop_self_dress:COOP_CALIBRATE=1,COOP_DRESS_CAL=rule-s138,COOP_DRESS_LEGS=I+G"
 echo "######## STEP 3: legs I + G + S + F with GhostAs blank $(date +%T)"
 bash "$NB" "$OUT/s3" "selfdress_noghost:250:coop_self_dress:COOP_DRESS_LEGS=I+G+S+F"
-echo "######## STEP 3b: the s139 / s140 duo G9 (the host's transport site; GuestSlots 2 / 4 / 0; an s140+ guest dresses itself) $(date +%T)"
+echo "######## STEP 3b: the s139 / s140 / s141 duo G9 (the host's transport site; GuestSlots 2 / 4 / 0; an s140+ guest dresses itself, an s141+ guest's polish) $(date +%T)"
 PYTHONIOENCODING=utf-8 py tools/harness/duo.py studies/test-harness/scenarios/coop_dress_wire.py > "$OUT/t/duo_g9.txt" 2>&1; echo "duo exit $?"
-grep -E "^duo .*checks passed|\[duo\] (PASS|FAIL)  S139" "$OUT/t/duo_g9.txt" | cut -c1-300
+grep -E "^duo .*checks passed|\[duo\] (PASS|FAIL)  S1(39|4[01])" "$OUT/t/duo_g9.txt" | cut -c1-300
 echo "######## STEP 4: an s141 host tape (its own dir: latest.json of the default home untouched) $(date +%T)"
 env COOP_TAPE_DIR="$(cygpath -w "$DRESSDIR")" PYTHONIOENCODING=utf-8 py tools/play.py studies/test-harness/scenarios/coop_tape_record.py > "$OUT/t/tape_record.txt" 2>&1
 grep -E "checks passed|^  FAIL|REC-F" "$OUT/t/tape_record.txt" | cut -c1-220
