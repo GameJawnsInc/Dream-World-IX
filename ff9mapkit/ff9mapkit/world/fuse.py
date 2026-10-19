@@ -361,20 +361,29 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         from . import interior as IN
         pt, exact = _row_point(table, row)
         loc = dict(center=pt if exact else None, near=None if exact else pt)
+        # The shape handles are the verbs' own parameters under the CLI's names (world-forest
+        # --spread/--rot, world-mountain --rot/--rock-height), passed through unclamped: the
+        # ceilings live in the verb, so a recipe and the CLI refuse alike. An absent key is the
+        # CLI's default, so a row without one carves the bytes it always did.
         if table == "hill":
             _strict_keys(table, row, {"center", "near", "height", "radius"})
             radius = float(row.get("radius", 18.0))
             reach = max(96.0, radius + 10.0)
         else:
-            _strict_keys(table, row, {"center", "near", "donor", "reach", "ground"}
-                         if table == "mountain" else {"center", "near", "donor", "reach"})
+            _strict_keys(table, row, {"center", "near", "donor", "reach", "ground", "rot",
+                                      "rock_height"}
+                         if table == "mountain" else {"center", "near", "donor", "reach",
+                                                      "spread", "rot"})
             reach = float(row.get("reach", 96.0))
+        rot = None if "rot" not in row else float(row["rot"])
         blocks = IN.read_deployed_blocks(mod_folder, near=pt, reach=reach, disc=disc,
                                          game=game, target_disc=target_disc)
         soup = IN.soup_from_blocks(blocks)
         if table == "forest":
-            res = IN.carve_forest(soup, donor=tuple(int(v) for v in row["donor"]),
-                                  disc=disc, game=game, **loc)
+            spec = row.get("donor", IN.FOREST_DONOR)
+            donor = tuple(int(v) for v in (spec.split(",") if isinstance(spec, str) else spec))
+            res = IN.carve_forest(soup, donor=donor, disc=disc, game=game,
+                                  spread=float(row.get("spread", 1.0)), rot_deg=rot, **loc)
             IN.census_gate(res["changed"], disc=disc, game=game,
                            probe=(res["center"], 37), baseline=blocks)
         elif table == "hill":
@@ -383,12 +392,14 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks)
         else:                                                # mountain
             extra = {"ground": row["ground"]} if "ground" in row else {}
+            donor = _parse_block_rect(row.get("donor", [IN.MOUNTAIN_DONOR]))
             from .donors import home_ground_note
-            note = home_ground_note(_parse_block_rect(row["donor"]), row.get("ground", "grass"))
+            note = home_ground_note(donor, row.get("ground", "grass"))
             if note:
                 print(note)
-            res = IN.carve_mountain(soup, donor=_parse_block_rect(row["donor"]),
-                                    disc=disc, game=game, **loc, **extra)
+            res = IN.carve_mountain(soup, donor=donor, disc=disc, game=game,
+                                    rock_height=float(row.get("rock_height", 1.0)),
+                                    rot_deg=rot, **loc, **extra)
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,
                            parts=res.get("changed_parts"))
         if not dry_run:
