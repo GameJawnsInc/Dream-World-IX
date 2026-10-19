@@ -1,0 +1,57 @@
+diff --git a/Assembly-CSharp/Global/JournalUI.cs b/Assembly-CSharp/Global/JournalUI.cs
+index 13c435f..12d7369 100644
+--- a/Assembly-CSharp/Global/JournalUI.cs
++++ b/Assembly-CSharp/Global/JournalUI.cs
+@@ -1117,9 +1117,10 @@ public static class JournalRegistry
+     }
+ }
+ 
+-// The s81 feature gate: Memoria.ini [Journal] Enabled, DEFAULT ON ("1") -- the Journal is core to
+-// the Dream World IX bundle (it takes Folklore's menu seat per the owner's direction), and
+-// [Journal] Enabled=0 is the off switch that also un-hides Folklore (MainMenuUI's row mint reads
++// The s81 feature gate: Memoria.ini [Journal] Enabled, DEFAULT OFF ("0") since s150 -- the Journal
++// is not finished enough to show every bundle user (owner, 2026-10-19), so the stock main menu is
++// untouched unless [Journal] Enabled=1. On, it takes Folklore's menu seat (owner ratification
++// 2026-08-26); off, [Folklore] Enabled=1 still mints Folklore's row (MainMenuUI's row mint reads
+ // both gates). Read once per process; the s45 FolkloreConfig idiom.
+ internal static class JournalConfig
+ {
+@@ -1134,12 +1135,12 @@ internal static class JournalConfig
+                 try
+                 {
+                     IniFile ini = new IniFile(IniFile.MemoriaIniPath);
+-                    _enabled = ini.GetSetting("Journal", "Enabled", "1").Trim() == "1" ? 1 : 0;
++                    _enabled = ini.GetSetting("Journal", "Enabled", "0").Trim() == "1" ? 1 : 0;
+                 }
+                 catch (Exception err)
+                 {
+                     Log.Error(err);
+-                    _enabled = 1;                          // unreadable ini -> the bundle default
++                    _enabled = 0;                          // unreadable ini -> the bundle default (off, s150)
+                 }
+             }
+             return _enabled > 0;
+diff --git a/Assembly-CSharp/Global/MainMenuUI.cs b/Assembly-CSharp/Global/MainMenuUI.cs
+index 6bbc666..d7989bf 100644
+--- a/Assembly-CSharp/Global/MainMenuUI.cs
++++ b/Assembly-CSharp/Global/MainMenuUI.cs
+@@ -213,7 +213,7 @@ public class MainMenuUI : UIScene
+                             this.Hide(delegate
+                             {
+                                 // ff9mapkit s81 -- the seat's OWNER decides the descend: with
+-                                // [Journal] on (the bundle default) this row IS the Journal and
++                                // [Journal] Enabled=1 (off by default since s150) this row IS the Journal and
+                                 // Folklore is hidden entirely (owner ratification 2026-08-26);
+                                 // [Journal] Enabled=0 restores the s45 Folklore descend.
+                                 PersistenSingleton<UIManager>.Instance.ChangeUIState(
+@@ -779,8 +779,8 @@ public class MainMenuUI : UIScene
+         // Folklore -> Config). Gated on Memoria.ini [Folklore] Enabled; absent = vanilla bytes-for-
+         // bytes behavior. The generalized manual layout loop replaces the Party block's hardcoded
+         // 8-row walk whenever Folklore is present (the UITable is disabled; there is NO auto-reflow).
+-        // ff9mapkit s81 -- the seat now has two possible OWNERS: the Journal (the bundle default,
+-        // [Journal] Enabled=1) or s45's Folklore ([Journal] off + [Folklore] on). One row either
++        // ff9mapkit s81 -- the seat now has two possible OWNERS: the Journal ([Journal] Enabled=1;
++        // off by default since s150) or s45's Folklore ([Journal] off + [Folklore] on). One row either
+         // way; with the Journal on, Folklore is hidden ENTIRELY (owner ratification 2026-08-26 --
+         // its screen class stays compiled and one ini flip re-exposes it).
+         if (this.FolkloreSubMenu == null && (JournalConfig.Enabled || FolkloreConfig.Enabled))
