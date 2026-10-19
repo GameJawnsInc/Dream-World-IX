@@ -14,7 +14,7 @@ stack replays by number:
 | s138 | s127 | the dress instrument (keys only) | ★ deployed, solo-proven |
 | s139 | s128 | the host's dress rule + wire section 8 | ★ deployed, solo-proven + real-wire duo |
 | s140 | s129 | the guest dresses itself (+ rig rows 9-12 for CharacterId 8-11) | ★ deployed, solo-proven + real-wire duo |
-| s141 | s130 | polish | next: s141 |
+| s141 | s130 | polish: footsteps, held props, the mesh-op drop, lighting | ★ deployed, solo-proven + real-wire duo |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -429,3 +429,122 @@ exactly their rows red.
 - Cinna's and Marcus's hand bones come from the heuristic (read the rig table, not labels_for);
 - the bench flag bits 13200-13218 sit in the campaign lane;
 - `objects[].body` was deferred.
+
+## s141: the dress polish (2026-10-19)
+
+**What it does.** The guest's self-dressed body (s140) now steps, holds props and is lit like the member it wears. Every
+hook is gated on the BODY (`netSelfDress` / `netDressSrc`) first, so host, solo and vanilla behaviour does not change.
+- **Footsteps (MapFootstep, at CHRFX).** Codes 16-19 on Zidane's walk 25 {4, 13} / run 38 {0, 8} keys move to the worn
+  rig's walk / run clip at the same-ordinal footfall frame, read from the rig table. Steiner puts 925 on codes 16 and 17
+  (D4). The moogle, Quina and Cinna DROP all four codes. Any other anim or frame passes through unmapped.
+- **The empty-table guard.** A code 19 headed for an EMPTY table is dropped. Stock DeleteChar would index
+  `charSoundArray[-1]` and throw inside the VM. Field 2930 reaches this case on a drop rig: its player Init runs 19s on
+  190 / 203 right after the 16-18 the rig dropped.
+- **Witnesses.** `steps` is the engine's own FF9Snd table for the controlled uid. `steps_fired` / `steps_fired_player` are
+  counted in FF9Snd's match branch. Every counter is per field load, reset beside the stock table reset
+  (HonoluluFieldMain), so a warm return reads one load.
+- **Held props (D3).** A dressed carrier's bone 12 / 13 maps to the rig's R_hand / R_hand_end before geoAttach.
+  `attach_last.parent` is the carried object's LIVE transform parent.
+- **The mesh-op drop.** MESHSHOW / MESHHIDE on a dressed body are dropped. This defends kit content only: stock never
+  mesh-ops a player body (0 of 817).
+- **Lighting (D6).** fldmcf falls back to the source (98) row before the default row. The guest-side ghost's stand-in row
+  goes through the same pure core. Witnesses: `light_row`, `light_rgb` (read off the BODY's renderer, never a held prop)
+  and `light_floor`, plus `ghost.light_row` / `ghost.light_rgb`.
+- **The lever (D7).** `selfdress polish on|off` is selftest only. Off bypasses all five paths; the witnesses keep reading.
+- **The proof line:** "dress polish selftest: OK (20 rows)".
+
+**Decisions taken here.**
+- **Cinna walks silently.** No Cinna body (107, 661) carries a stock footstep registration in any of the 817 scripts, so
+  she gets the moogle's and Quina's rule: her 16-19 are dropped. Inventing footfall frames would break verbatim-first. A
+  later census row can change it without code. Bench row F2c pins it.
+- **Not built:** amendment 7's twin ladder / jump clips (s140's jump slot keeps stock ticks on the idle alias), and the
+  shadow size on the 98 fallback (field 250 calls DisableShadow every frame, and kit fields have no MCF, so no bench could
+  see it).
+
+**Built** by two workflows. The build workflow had six stages:
+- the leg-F census (`dress-census/polish_census.py` -> `polish.json`);
+- the bench field's F5 conductors;
+- two engine stages (the hooks, then the keys, the lever, the selftest and the capture);
+- the harness (rung `dresspolish`);
+- leg F.
+
+The review workflow used five lenses with two skeptics per finding. Round 1 had 30 findings; all 14 serious ones were
+upheld and fixed, along with the cheap nits. The re-review had 16 findings; 5 of its 6 serious ones were upheld and fixed.
+Among the fixes:
+- **Steiner's and Amarant's hand bones, s139 rows corrected.** s139's rows had both one bone toward the shoulder (Steiner
+  14 / 15, Amarant 15 / 16): a labels_for read, which every check also used, so none could fail on it. They are re-derived
+  from the skin and cross-checked against stock's own AttachObject. Stock puts the prop it gives Zidane at bone 13 on
+  Steiner's bone 16, 8 of 8 times. Steiner is now 15 / 16 and Amarant 16 / 16, a leaf hand.
+- `light_rgb` read a held prop's renderer once a prop sat on the hand. It now reads the body's mesh0.
+- F2's "no code-19 fault" could not fail on field 250, which runs no code 19. New bench row F2d replays field 2930's
+  `RunModelCode(19, 190, 4, 0)` on the dressed moogle with an empty table.
+- F4's floor came from the kit's walkmesh. The engine now publishes `light_floor`, the floor it lit the body by.
+- The tests that pin the C# rules to their Python twins were subset checks. They now freeze every s141 member statement
+  by statement.
+
+The patch: 8 files, 24 hunks, +1524/-13. `diag` reads 37 of 37 (DEFAULT_FILES gained fldmcf.cs, FF9Snd.cs and
+HonoluluFieldMain.cs). A forced recompile gives 0 errors and the 186 baseline warnings. 2392 domain tests pass.
+
+**Audit numbers that did not reproduce** (the verdicts did):
+- Freya's footfall frames sit in 40 and 40 fields, not "54 and 44".
+- The per-rig sound-reuse counts differ by scope, and no one scope matches all six of the audit's.
+- The audit's "F3 green on s140" assumed a key s140 never publishes: there, F3 reads red like every other F row.
+
+**Calibrated on s140 first** (the live DLL `2be623db3bb2ecb5`, after re-seating 30606). coop_self_dress under
+COOP_CALIBRATE=1 failed exactly the 13 leg-F rows (FP, F1, F1b, F2, F2c, F2d, F3, F4, F4g, F5, F6, F7, F8), each a judged
+red. Every other leg was green, and S138-CAL was green under GhostAs auto and blank. On s140, F5's HideObject really hides
+(meshflags 2), and F2d's 19 is stock's no-op on a table still holding Zidane's records.
+
+**Deployed** 2026-10-19 (`build_memoria.py`, backup `20261019-141201`; Assembly-CSharp `0293cb46ffa176f6`).
+
+**Proven on s141:**
+- **coop_self_dress 65/65** on its first in-game run. Every leg-F value equals the offline oracle:
+  - Freya's four keys;
+  - 12 fires in an 86-tick walk;
+  - a warm return reading 12 before the boot, 0 at the return, then +12;
+  - the moogle and Cinna each dropping 12 with no fault;
+  - F2d's guard firing once;
+  - Steiner's keys at 925;
+  - the body and the ghost on row 98 at (56, 72, 88) on floor 2;
+  - the cup on `bone016`;
+  - a mesh hide dropped.
+- **The polish-off lever** turned exactly its 11 rows red (F1, F1b, F2, F2c, F2d, F4, F4g, F5, F6, F7, F8), with F3 and FP
+  green. Each red was behavioural: Zidane's keys on Freya, the default row (104, 104, 96), the cup on `bone013`.
+- **The six s140 levers and rule-s138** were each exact, with S138-CAL green on every run.
+- GhostAs blank: 54/54.
+- **The duo G9: 19/19**, a real host and an s141 guest over the relay.
+- A fresh host tape: section 8 on all 4815 frames (`08 00 01`), and the old readers identical with or without it.
+- Block A at baseline: trance 24/24, fallback 27/27, hold 27/27, replay 35/35, act host 20/20, start hold 24/24,
+  handback live 18/18, intro mirror 18/18, flee/defeat 53/53, host gates 20/20, containment 23/23, stock menu 27/27,
+  stock menu live 40/40, end host 23/23, end guest 49/49, handback 21/21, diorama return 22/22, talk relay 28/28,
+  dialogue authority 147/147; result replay 50/51 (S9-C4L, unreachable solo); wait parity 12/12 and stock menu content
+  35/35 on a rerun (first runs: W-A5b moved after 0.52 s; S7-E2's cursor never reached Fire -- both known flakes).
+- The tape legs (replay 16/16, hold 12/12) and the T2 cut legs (cal 10/10; readopt +62, s119 +0, s120-battle +78 ms).
+
+**KNOWN:**
+- Footstep keys on Zidane's VARIANT walk / run ids (COLD_ / SWORD_ / POT_ / MBG_ / TKE_ / FRA_WALK, 190 / 203) pass
+  unmapped and never fire. Those fields also register the plain 25 / 38 keys, which do fire, so the dressed body steps on
+  62-64 and even on 2705's FRA_WALK, where stock Zidane is silent.
+- A held prop keeps Zidane's bone-local offset and an identity rotation, so it can sit turned in the rig's hand (about
+  90 degrees on Freya, Amarant and the moogle; about 174 degrees on Cinna's bone 12). Cosmetic.
+- A kit's whole-body HideObject is dropped along with every other mesh op on a dressed body.
+- `steps` publishes only code 16's sound slot. Steiner's slot 1 (925) is proven by the proof's foot row, not in game.
+
+**The duo G9 polish rows (after the deploy): 22/22.** `coop_dress_wire.py` gains G9s / G9w / G9l, run on an s141+ GUEST
+only (keyed by the guest's stage: an s140 guest publishes none of these keys). At each phase, on a fresh load at entrance 0,
+the guest's own body was judged against the census twin's replay of field 250's ops:
+- G9s, the footstep table: Vivi 571@4/14 + 419@0/9 and Garnet 2086@4/15 + 2091@0/9 (919 each), the moogle [] with 12
+  dropped.
+- G9w, a harness walk on the guest: +12 fires for Vivi and for Garnet over ~86 ticks, the moogle silent (+0 / +0).
+- G9l, the light: row 98 at (56, 72, 88) on floor 2 for all three.
+The first phase re-loads in the SAME dress, so `attach_cold` growing witnesses that load. Stub modes `s141_unmapped`,
+`s141_fired_lost`, `s141_light_default` and `s141_no_echo` turn exactly their rows red. The ghosts' lighting is not judged
+on the wire: both ghosts land on a 98 row that s140 gives too.
+
+**LESSONS:**
+- A table every check reads from cannot be checked by those checks. Steiner's hand pair was wrong since s139, and the
+  census, the selftest and F8 all agreed with it. Only a second source (the skin, plus stock's own AttachObject on that
+  body) found it.
+- A first-renderer read finds whatever is parented first. Witness the body by name (mesh0), never by order.
+
+**Next: s142** (the selftest Leave-mid-swirl strand fix, queued since s134).

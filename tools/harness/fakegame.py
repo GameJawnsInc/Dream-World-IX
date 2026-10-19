@@ -230,6 +230,18 @@ NETSYNC_HOST_OPS = ("open", "shut", "adv", "choice", "key", "gap", "epoch", "fre
 #:                    says what it models and what it cannot, its FAULT LEVERS are DRESS_SELF_FAULTS. Its calibration (s139:
 #:                    `selfdress self` "unknown op", no `self`, nine idle frames, 29 codec rows, Cinna..Beatrix undressed)
 #:                    is ``caps_through("dresshost")``.
+#:   "dresspolish" -- s141, THE DRESS POLISH (the fourth and last of s138-s141): no new sub-verb and no new `netsync.dress`
+#:                    key -- `selfdress` gains `polish on|off` (the calibration lever; the s141 op list), `netsync.dress.self`
+#:                    gains the polish keys after `selftest` and `netsync.dress.ghost` gains `light_row` at its end
+#:                    (NETSYNC_DRESS_NESTED_KEYS), the proof block gains "dress polish selftest: OK (20 rows)" after the
+#:                    self-dress line, and ReleaseBench's line names `polish`. The stand-in models MapFootstep over the rig
+#:                    rows into the stock FF9Snd table (a field's footstep ops, ``field_footsteps``: field 250's twelve by
+#:                    default), the drops, the footsteps the dressed walk FIRES, the light rows (``mapconfigs``: field 250's
+#:                    three rows by default) and the tint, the ghost's stand-in row, the held-prop remap with its LIVE
+#:                    parent name, the mesh-op drop, the lever -- per field load (the comment above FakeGame._polish_rung says
+#:                    what it models and what it cannot; its FAULT LEVERS are DRESS_POLISH_FAULTS). Its calibration (s140: `selfdress polish`
+#:                    "unknown op", no `self.steps`; a dressed body keeps Zidane-frame steps and 0 drops) is
+#:                    ``caps_through("dressself")``.
 NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "containment": ("s101", ("containment", "bctl")),
                        "stockmenu": ("s102", ("bmenu",)),
@@ -261,7 +273,8 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "acttrance": ("s137", ()),
                        "dressinstr": ("s138", ()),
                        "dresshost": ("s139", ("selfdress",)),
-                       "dressself": ("s140", ())}
+                       "dressself": ("s140", ()),
+                       "dresspolish": ("s141", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -288,6 +301,8 @@ NETSYNC_S138_CAPS = frozenset(("dressinstr",))
 NETSYNC_S139_CAPS = frozenset(("dresshost",))
 #: [ff9mapkit netsync s140] The self-dress rung (its calibration, s139, is ``caps_through("dresshost")``).
 NETSYNC_S140_CAPS = frozenset(("dressself",))
+#: [ff9mapkit netsync s141] The dress-polish rung (its calibration, s140, is ``caps_through("dressself")``).
+NETSYNC_S141_CAPS = frozenset(("dresspolish",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -360,6 +375,9 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "dresshost": {},
     # [ff9mapkit netsync s140] nothing under `netsync.battle`: `self` sits inside `netsync.dress` (NETSYNC_DRESS_CAP_KEYS)
     "dressself": {},
+    # [ff9mapkit netsync s141] nothing under `netsync.battle` (nor a new `netsync.dress` key): the polish keys sit inside
+    # `netsync.dress.self` and `netsync.dress.ghost` (NETSYNC_DRESS_NESTED_KEYS)
+    "dresspolish": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -386,7 +404,11 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
 NETSYNC_DRESS_CAP_KEYS = dict(BW.DRESS_KEYS_BY_RUNG)          # [ff9mapkit netsync s139] + `codec`, `rig_idle_frames`; s140 `self`
 #: ...and the keys a later rung adds inside a dress block's FIXED sub-object, by path under `netsync.dress` (s139: its levers
 #: at the end of `ghost`).
-NETSYNC_DRESS_NESTED_KEYS: dict = {"dresshost": {"ghost": BW.DRESS_GHOST_KEYS_BY_RUNG["dresshost"]}}
+NETSYNC_DRESS_NESTED_KEYS: dict = {"dresshost": {"ghost": BW.DRESS_GHOST_KEYS_BY_RUNG["dresshost"]},
+                                   # [ff9mapkit netsync s141] `ghost.light_row` (its end) and the polish keys inside `self`
+                                   # (after `selftest`) -- the rung's whole surface: NETSYNC_DRESS_CAP_KEYS' row is empty
+                                   "dresspolish": {"ghost": BW.DRESS_GHOST_KEYS_BY_RUNG["dresspolish"],
+                                                   "self": BW.DRESS_SELF_KEYS_BY_RUNG["dresspolish"]}}
 #: [ff9mapkit netsync s138] `netsync.dress.ghost` as the LIVE stack writes it, in AppendDress's order (a FIXED sub-object:
 #: always whole, never null) -- the union of every rung's frozen row (BW.DRESS_GHOST_KEYS_BY_RUNG), read only by the
 #: live-catch pins; a per-rung reader (the probe, the stand-in) takes its rung's row.
@@ -534,13 +556,17 @@ def actbench_ops(caps) -> tuple:
 #: adds `polish`). The LIVE list; an s139 engine prints NETSYNC_SELFDRESS_OPS_S139.
 NETSYNC_SELFDRESS_OPS = BW.SELFDRESS_OPS
 NETSYNC_SELFDRESS_OPS_S139 = BW.SELFDRESS_OPS_S139
+NETSYNC_SELFDRESS_OPS_S140 = BW.SELFDRESS_OPS_S140     # [ff9mapkit netsync s141] s140's eight (no `polish`)
 
 
 def selfdress_ops(caps) -> tuple:
     """[ff9mapkit netsync s139] The `selfdress` ops an engine with these capabilities has (s139: ghost, empty, rule, wire,
-    clear; none before it -- the sub-verb itself is unknown there). [ff9mapkit netsync s140] + self, gate, law."""
-    if "dressself" in caps:
+    clear; none before it -- the sub-verb itself is unknown there). [ff9mapkit netsync s140] + self, gate, law.
+    [ff9mapkit netsync s141] + polish."""
+    if "dresspolish" in caps:
         return NETSYNC_SELFDRESS_OPS
+    if "dressself" in caps:
+        return NETSYNC_SELFDRESS_OPS_S140
     return NETSYNC_SELFDRESS_OPS_S139 if "dresshost" in caps else ()
 #: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
 NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -701,6 +727,57 @@ SELF_COUNT_KEYS = ("confirmed", "ctl_elsewhere", "skip_npc", "skip_second", "rem
 #: overrides it per field, as a test's oracle says); `src_attached` is it plus the rig's own distinct clips (idle / walk /
 #: run / turns / break / alias).
 FAKE_SOURCE_LIST_CLIPS = 12
+#: [ff9mapkit netsync s141] THE DRESS POLISH's FAULT LEVERS (FakeGame.dress_faults too; the `dresspolish` rung): each a BROKEN
+#: s141 engine whose own law looks on -- a value OTHER than the right one, derived from what is right -- so a leg-F check can
+#: be shown red offline on the shape it exists to catch (each test-pinned to move exactly its probes):
+#:   "steps_unmapped"     MapFootstep sends every footstep op through as read (no map, no drop: s140's footsteps on s141)
+#:   "ordinal_swap"       a mapped key lands on the OTHER ordinal of the rig's pair (FootstepRule's swapped-ordinal mutant)
+#:   "no_step_sound"      the rig's StepSound never overrides (Steiner steps with Zidane's 919)
+#:   "keep_drop_rig"      a rig with no footfalls (Quina, the moogle, Cinna) keeps Zidane's keys, nothing dropped
+#:   "cumulative_steps"   the s141 counters are never reset at a field load (a warm return reads two loads: 24 drops)
+#:   "no_fired_split"     FF9Snd's match counts steps_fired on an UNDRESSED body too (F3's steps_fired_player stays 0)
+#:   "no_light_fallback"  DressedCharRow skips the 98 row (s140's default row on s141)
+#:   "src_row_first"      the source row before a rig model's OWN row (LightRowRule's mutant)
+#:   "ghost_lp_model"     ApplyGhostLighting's stand-in row stays the local player's po.model (s140)
+#:   "ghost_tint_lost"    ApplyGhostLighting sets its row (`ghost.light_row`) but its tint never reaches the material
+#:                        (`ghost.light_rgb` reads the ghost's untinted base, FAKE_GHOST_BASE_RGB)
+#:   "no_empty_guard"     MapFootstep's empty-table guard reads the table use as 1 (its INPUT wired wrong): a 19 headed for an
+#:                        EMPTY table reaches stock DeleteChar -- the throw, logged -- instead of being dropped
+#:   "no_mesh_drop"       a mesh op on the dressed body runs (meshflags set)
+#:   "no_bone_remap"      ATTACH on a dressed carrier keeps Zidane's bone (s140's prop on the wrong rig part)
+#:   "bone_swap"          12 -> R_hand_end, 13 -> R_hand (AttachBoneRule's mutant)
+#:   "polish_lever_dead"  `polish off` publishes as set but bypasses nothing (a lever that cannot calibrate)
+#:   "polish_release_keeps" the harness release leaves `polish off` (`selfdress clear` still frees it)
+#:   "polish_selftest_fail" the dress polish proof fails (its FAIL line)
+DRESS_POLISH_FAULTS = ("steps_unmapped", "ordinal_swap", "no_step_sound", "keep_drop_rig", "cumulative_steps",
+                       "no_fired_split", "no_light_fallback", "src_row_first", "ghost_lp_model", "no_mesh_drop",
+                       "no_bone_remap", "bone_swap", "polish_lever_dead", "polish_release_keeps", "polish_selftest_fail",
+                       "ghost_tint_lost", "no_empty_guard")
+#: [ff9mapkit netsync s141] the ghost's material `_Color` before ApplyGhostLighting writes it (the `ghost_tint_lost` fault's
+#: read): a MODELLED untinted base, distinct from every tint the mapconfig rows give.
+FAKE_GHOST_BASE_RGB = [255, 255, 255]
+#: [ff9mapkit netsync s141] the line stock's VM throw leaves in Memoria.log (HonoluluFieldMain.Update's catch,
+#: Memoria.Prime.Log.Error(Exception): the exception's own text) when DeleteChar indexes charSoundArray[-1].
+FAKE_DELETECHAR_THROW = "System.IndexOutOfRangeException: Array index is out of range."
+#: [ff9mapkit netsync s141] `netsync.dress.self`'s per-LOAD polish counters, in AppendDressPolish's order (each 0 after
+#: OnSoundTableReset).
+POLISH_COUNT_KEYS = ("steps_dropped", "steps_passed", "steps_fired", "steps_fired_player", "mesh_drops", "attach_remaps",
+                     "attach_notes")
+#: [ff9mapkit netsync s141] The footstep ops a field's player entry runs at a load (Main_Init's player Init) and again on a
+#: warm return (Main_Reinit) -- (code, anim, frame, Arg4) in script order. MODELLED from the census (polish.json
+#: `a_field250`: field 250's Zidane_Init and Zidane_13, the same twelve) and, for the bench field 30606, from the seated kit
+#: build (battlewire.KIT_PLAYER_STEPS: the kit player's twelve on the same keys); FakeGame.field_footsteps overrides it.
+FAKE_FIELD_FOOTSTEPS = {250: BW.FIELD250_STEPS, 30606: BW.KIT_PLAYER_STEPS}
+#: [ff9mapkit netsync s141] The fields' mapconfigs the stand-in lights by (BW's MCF shape) -- MODELLED from the census
+#: (polish.json `d_lighting.field250`); a field absent here is a kit field (no MCF: the service returns early, light_row
+#: stays -1). FakeGame.mapconfigs overrides it.
+FAKE_MAPCONFIGS = {250: BW.FIELD250_MCF}
+#: [ff9mapkit netsync s141] the row the `polish_selftest_fail` fault names: PolishSelfTest's FIRST row (its name as the C#
+#: builds it with the table green -- a test pins it to the row the stack's own program names first).
+POLISH_SELFTEST_FAIL_ROW = ("foot: Zidane's four pair keys x codes 16-19 on every rig 0-12 map to the census pair at the SAME "
+                            "ordinal (Zidane to himself; Freya 2553 {4,16} / 2558 {0,9}; Steiner 1996 {4,14} / 2005 {0,9} "
+                            "with 925 on 16 and 17 only); Quina, the moogle and Cinna drop all four codes, 19 included; "
+                            "another frame or anim passes unmapped; every other CHRFX code is untouched")
 #: [ff9mapkit netsync s139] `netsync.dress.rig_idle_frames` on the stand-in: the audit's census (R3-FIELD-MODEL-AUDIT.md 2.2
 #: amendment 7 -- read off the install's p0data5 by the kit's clip reader, round(length x rate) + 1), the value the engine
 #: MEASURES once per process in the proof block (-1 before it). A MODELLED value: the stand-in reads no clip.
@@ -1290,6 +1367,26 @@ class FakeGame:
         self.party_removes: dict = {}
         self._self_still = 0
         self._self_sleep: dict | None = None
+        #: [ff9mapkit netsync s141] THE DRESS POLISH's stand-in (the `dresspolish` rung; :meth:`_polish_doc` says what it
+        #: models): the footstep ops each field's player runs at a load (``field_footsteps``, FAKE_FIELD_FOOTSTEPS), the
+        #: fields' mapconfigs (``mapconfigs``, FAKE_MAPCONFIGS), the floor the controlled body STANDS on for its light
+        #: (``light_floor`` -- the published `player.floor` is s83's dead battle-entry snapshot, never this), the stock
+        #: FF9Snd table of the controlled body (per load), the per-load counters and witnesses (OnSoundTableReset's), the
+        #: player's meshflags, the carried prop's parent, and the `polish` lever (NetSyncSelfDress._polishOff).
+        self.field_footsteps: dict = dict(FAKE_FIELD_FOOTSTEPS)
+        self.mapconfigs: dict = dict(FAKE_MAPCONFIGS)
+        self.light_floor: int = 0
+        self._polish_off = False
+        self._polish_table: list = []
+        self._polish_counts: dict = dict.fromkeys(POLISH_COUNT_KEYS, 0)
+        self._polish_light_row = -1
+        self._polish_rgb: list | None = None         # the dressed body's material _Color rgb (what fldchar last wrote)
+        self._polish_rgb_floor: int | None = None    # the floor fldmcf last recomputed the tint on (None = not yet)
+        self._polish_ghost_row = -1
+        self._polish_ghost_rgb: list | None = None   # the tint ApplyGhostLighting last WROTE on the ghost's material
+        self._polish_attach: dict = {"uid": -1, "bone_in": -1, "bone_out": -1, "parent": None}
+        self._polish_meshflags = 0
+        self._polish_logged: set = set()             # the once-per-load s141 lines already logged this load
         self._rng = random.Random()                 # the bench host's epoch draws (Guid bytes on the engine)
         #: [ff9mapkit netsync F3.3] C3 R9: the selftest bench HOST and its ring (:class:`_BenchHost`)
         self._bench = _BenchHost(self._rng)
@@ -4758,7 +4855,10 @@ class FakeGame:
                 "uid": sid + (1 if "uid" in faults else 0), "sid": sid,
                 "body": BW.texture_stem(f"{dress_fault_model(model)}_0") if "body" in faults else body, "clip": clip,
                 "clip_playing": clip is not None and "playing" not in faults,
-                "frame_n": frame_n, "anim_frame": anim_frame, "meshflags": 0}
+                "frame_n": frame_n, "anim_frame": anim_frame,
+                # [ff9mapkit netsync s141] PosObj.meshflags: the bench's F5 conductors' HideObject / ShowObject on the player
+                # (stock sets / clears bit 1 << mesh; s141 drops the op on a dressed body) -- 0 otherwise
+                "meshflags": self._polish_meshflags}
 
     def _self_frame_pair(self, anim: int) -> tuple:
         """(frame_n, anim_frame) of the controlled body: s138's MODELLED FAKE_FRAME_N on an undressed body at rest or on the
@@ -4956,6 +5056,16 @@ class FakeGame:
             self._dress_release("selfdress clear")
         elif op in BW.SELFDRESS_SELF_OPS and self._self_rung():
             self._selfdress_s140(args)                  # [ff9mapkit netsync s140] self / gate / law
+        elif op in BW.SELFDRESS_POLISH_OPS and self._polish_rung():
+            # [ff9mapkit netsync s141] `polish on|off`: the arity, then TrySetPolish's value (its words; a refusal changes
+            # nothing)
+            if n != 3:
+                raise RuntimeError(BW.POLISH_USAGE)
+            ok, why, off = BW.try_set_polish(args[2])
+            if not ok:
+                raise RuntimeError(why)
+            self._polish_off = off
+            self._mlog(BW.POLISH_OFF_LOG if off else BW.POLISH_ON_LOG)
         else:
             raise RuntimeError(f"netsync selfdress: unknown op '{op}' ({'|'.join(selfdress_ops(self._nb_caps()))})")
 
@@ -4987,6 +5097,8 @@ class FakeGame:
                    + f" ({sum(1 for f in frames if f >= 0)} of {len(frames)} measured)")
         if self._self_rung():
             self._self_proof()                          # [ff9mapkit netsync s140] right after the rig idle frames line
+        if self._polish_rung():
+            self._polish_proof()                        # [ff9mapkit netsync s141] right after the self-dress line
 
     def _dress_doc(self) -> dict:
         """HarnessAgent.AppendDress (s138): `ghost` (what the ghost WEARS: its sentinels with no ghost) then `party` (the
@@ -5020,6 +5132,10 @@ class FakeGame:
             ghost.update(bench_mask=b["mask"], empty_mask=b["empty"], rule=b["rule"], wire=b["wire"],
                          wire_anim=b["wire_anim"], mode=self._dress_mode(), rest_mask=vis[0] if vis else -1,
                          shown_mask=vis[1] if vis else -1, hidden=vis[2] if vis else None)
+        if self._polish_rung():
+            ghost["light_row"] = self._polish_ghost_row          # [ff9mapkit netsync s141] `ghost`'s last two keys
+            ghost["light_rgb"] = (list(self._polish_ghost_rgb) if self._ghost_live() and self._polish_ghost_rgb is not None
+                                  else list(FAKE_GHOST_BASE_RGB) if self._ghost_live() else None)
         seats = (list(self.save_party) + [None] * 4)[:4]
         party = [-1] * 4 if "party_empty" in faults else [int(m["char"]) if m else -1 for m in seats]
         doc = {"ghost": ghost, "party": party}
@@ -5073,7 +5189,8 @@ class FakeGame:
     # the defence branch (unreachable in stock: defence_* 0), a hook's caught fault (faults 0), DisableMove while a conductor
     # runs, a real clip's length or the Animation component (frame counts are the census's), the 30 Hz tick vs the render
     # frame, a walk's position (T3's lane), a script's own RunAnimation on any body but the player, the exit ramp and
-    # OnDestroy (Clear), and s141's polish (steps, light, props). The FAULT LEVERS (DRESS_SELF_FAULTS) show each check red.
+    # OnDestroy (Clear) -- s141's polish (steps, light, props) is the `dresspolish` block's. The FAULT LEVERS
+    # (DRESS_SELF_FAULTS) show each check red.
     def _self_rung(self) -> bool:
         return "dressself" in self._nb_caps()
 
@@ -5166,6 +5283,7 @@ class FakeGame:
             self._self_body["attached"] = False         # updateModelsToBeAdded: a NEW go (the stored slots carried)
             if "no_warm_attach" not in self.dress_faults:
                 self._self_attach(warm=True)            # the warm return: site (b)
+        self._polish_on_load(cold)                      # [ff9mapkit netsync s141] the per-load reset, then the footstep ops
         self._self_bench_ready()
 
     def _self_zidanes(self, *, late: bool, before: bool | None = None) -> list:
@@ -5377,12 +5495,13 @@ class FakeGame:
                 self._self_set_model(None)
         self._self_play_frame()
         self._self_check_sleep()
+        self._step_polish()                             # [ff9mapkit netsync s141] the light rows, the footsteps that fire
         k = self.dress_conductors.get(self.field_id)
         if not k or self.ui_state != "FieldHUD" or not self._self_bit(k["ready"]):
             return
         cond = self._self_cond
         if cond is None:
-            for name in ("x", "t1", "t3", "n3", "f8a", "f8d", "j"):
+            for name in ("x", "t1", "t3", "n3", "f8a", "f8d", "j", "f5h", "f5s", "f2d"):   # [s141] + F5's two, F2d's
                 trig = k["trig"].get(name)
                 if trig is not None and self._self_bit(trig):
                     self._self_bit(trig, 0)              # the caller clears it FIRST
@@ -5530,10 +5649,40 @@ class FakeGame:
             self._self_cond_done(k, cond, wedged=True)
 
     def _self_cond_f8a(self, k: dict, cond: dict) -> None:
-        """F8 (s141's): AttachObject -- the stand-in models no prop remap; DONE only."""
+        """F8 attach (s141): AttachObject(CUP_SID, 250, ATTACH_BONE) -- on a DRESSED carrier of an s141 engine through
+        AtAttach (:meth:`_polish_attach_op`), else stock geoAttach at the bone as asked -- then DONE_F8A."""
+        self._polish_attach_op(int(k.get("cup_sid", 4)), int(k.get("attach_bone", 13)))
         self._self_cond_done(k, cond)
 
-    _self_cond_f8d = _self_cond_f8a
+    def _self_cond_f8d(self, k: dict, cond: dict) -> None:
+        """F8 detach (s141): DetachObject(CUP_SID) -- the prop leaves the bone (geoDetach parents it under the CARRIER's own
+        parent, a scene node the stand-in has no name for: `attach_last.parent` then reads null) -- then DONE_F8D."""
+        if self._polish_attach["uid"] == int(k.get("cup_sid", 4)):
+            self._polish_attach["parent"] = None
+        self._self_cond_done(k, cond)
+
+    def _self_cond_f5h(self, k: dict, cond: dict) -> None:
+        """F5 hide (s141): HideObject(250, F5_MESH) -- MESHHIDE on the controlled body (:meth:`_polish_mesh_op`) -- DONE_F5H."""
+        self._polish_mesh_op(int(k.get("f5_mesh", 1)), show=False)
+        self._self_cond_done(k, cond)
+
+    def _self_cond_f2d(self, k: dict, cond: dict) -> None:
+        """F2d (s141): RunScript(2, 250, F2D_TAG) -- field 2930's RunModelCode(19, 190, 4, 0) on the controlled player
+        (:meth:`_polish_footstep`: MapFootstep when hooked, else stock fldchar -- a 19 on an EMPTY table is stock's VM throw,
+        logged, and the function resumes PAST the op on the next tick, as the VM does) -- then F2D_END and DONE_F2D."""
+        if cond["phase"] == 0:
+            code, anim, frame, arg4 = k.get("f2d_op", (19, 190, 4, 0))
+            self._polish_footstep(int(code), int(anim), int(frame), int(arg4))
+            cond["phase"] = 1
+            return
+        if k.get("f2d_end") is not None:
+            self._self_bit(k["f2d_end"], 1)
+        self._self_cond_done(k, cond)
+
+    def _self_cond_f5s(self, k: dict, cond: dict) -> None:
+        """F5 show (s141): ShowObject(250, F5_MESH) -- MESHSHOW on the controlled body -- DONE_F5S."""
+        self._polish_mesh_op(int(k.get("f5_mesh", 1)), show=True)
+        self._self_cond_done(k, cond)
 
     # ---- the `selfdress self|gate|law` ops, their release, the doc, the proof line
     def _selfdress_s140(self, args: list) -> None:
@@ -5563,10 +5712,18 @@ class FakeGame:
         lv = self._self_levers
         any_set = lv["spec"] is not None or lv["mask"] >= 0 or lv["gate_off"] or lv["law_off"] != 0
         self._self_levers = {"spec": None, "mask": -1, "gate_off": False, "law_off": 0}
+        polish = self._polish_rung()
+        if polish:
+            # [ff9mapkit netsync s141] ...and the polish lever back on (its default) -- the `polish_release_keeps` fault
+            # leaves it off on the HARNESS release (`selfdress clear` still frees it)
+            any_set = any_set or self._polish_off
+            if not ("polish_release_keeps" in self.dress_faults and cause != "selfdress clear"):
+                self._polish_off = False
         if self._self_arm["from"] == "bench":
             self._self_set_arm("cleared", -1, -1, -1, None)
         if any_set:
-            self._mlog(f"[NetSync] harness: selfdress self / gate / law levers released ({cause})")
+            self._mlog("[NetSync] harness: " + (BW.SELF_RELEASE_LINE if polish else BW.SELF_RELEASE_LINE_S140) + cause
+                       + ")")
 
     def _self_doc(self) -> dict:
         """HarnessAgent.AppendDressSelf (`netsync.dress.self`, `dress`'s LAST key, every role), in its order."""
@@ -5586,7 +5743,9 @@ class FakeGame:
                 "parse_fallback": c["parse_fallback"], "defence_kept": c["defence_kept"],
                 "defence_dropped": c["defence_dropped"], "bench_self": BW.bench_self_text(lv["spec"], lv["mask"]),
                 "law_off": {n: bool(lv["law_off"] & (1 << i)) for i, n in enumerate(BW.LAW_NAMES)},
-                "selftest": self._self_verdict}
+                "selftest": self._self_verdict,
+                # [ff9mapkit netsync s141] AppendDressPolish, inside `self` after `selftest`
+                **(self._polish_doc() if self._polish_rung() else {})}
 
     def _self_proof(self) -> None:
         """The proof block's s140 line (right after the rig idle frames line), once per process."""
@@ -5598,6 +5757,226 @@ class FakeGame:
             return
         self._self_verdict = BW.SELF_DRESS_SELFTEST_OK
         self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_SELF_DRESS, BW.SELF_DRESS_SELFTEST_ROWS))
+
+    # -- [ff9mapkit netsync s141] THE DRESS POLISH (the `dresspolish` rung) -----------------------------------------------
+    # WHAT IT MODELS (battlewire's twins of NetSyncSelfDress' s141 rules, on the stand-in's controlled player):
+    #   * THE FOOTSTEP TABLE, per FIELD LOAD (:meth:`_polish_on_load`, from every load path through :meth:`_self_on_load`):
+    #     OnSoundTableReset beside the stock table reset (the `cumulative_steps` fault skips OUR reset only), then the
+    #     field's player footstep ops (``field_footsteps``: field 250's twelve, Zidane_Init's -- and Main_Reinit's on a
+    #     warm return: the same twelve) -- on a DRESSED body of an s141 engine through MapFootstep (BW.footstep_decision on
+    #     the BODY's rig, the lever live: a map, a drop -- steps_dropped -- or a pass -- steps_passed), into the stock FF9Snd
+    #     table (BW.fldchar_footstep: find-or-create, DeleteChar's top shrink); an undressed body, or a dressed one on s140
+    #     (no hook), registers the ops as read -- so a pre-s141 dressed body keeps ZIDANE-frame keys and 0 drops. `steps`
+    #     is that table ([anim, frame, sndEffectID[0]]).
+    #   * THE FOOTSTEPS THAT FIRE (FF9Snd.ff9fieldSoundCharService's match, :meth:`_step_polish`): each stand-in frame, on a
+    #     client / selftest role, a record whose (anim, frame) is the controlled body's published (anim, anim_frame) --
+    #     steps_fired on a dressed body, steps_fired_player on an undressed one (F3's control). One anim frame a frame.
+    #   * THE LIGHT (fldmcf's actor row, every frame; ``mapconfigs``: field 250's three rows): the row BW.light_row_rule picks
+    #     -- the dressed CONTROLLED body's `light_row` (own / 98 / 65535) -- and the tint fldchar writes (`light_rgb`, BW.mcf_tint
+    #     under the floor's light, ``light_floor``), recomputed on the first frame after a load and on a floor change only
+    #     (a mid-field `polish` toggle moves `light_row` first); a field without a mapconfig (a kit field) writes nothing
+    #     (`light_row` -1, `light_rgb` null). THE GHOST's tint row (ApplyGhostLighting, BW.ghost_mcf_light_color: its worn
+    #     model's row, else the local player's stand-in row -- 98 when dressed and the polish on -- else 65535).
+    #   * THE BENCH FIELD's F8 / F5 / F2d conductors: ATTACH on the dressed carrier (BW.attach_bone_rule on the RIG TABLE: a
+    #     remap or a note; `attach_last` with its LIVE parent "bone%03d"), DetachObject (the parent null), MESHHIDE / MESHSHOW
+    #     (a dressed body's op dropped -- mesh_drops -- else stock: meshflags bit 1 << mesh), each line once per load; F2d's
+    #     2930 code 19 on the player (its Init's twelve keys -- BW.KIT_PLAYER_STEPS -- first, at the load): through
+    #     MapFootstep when hooked, else stock's table -- a 19 on an EMPTY table is the VM throw, logged (FAKE_DELETECHAR_THROW).
+    #   * THE LEVER (`polish on|off`, selftest role only: BW.polish_on_rule), released with the harness, and the proof line.
+    # WHAT IT CANNOT: other bodies' footstep records (the table holds the controlled player's alone: charSoundUse is every
+    # body's in the engine, so the empty-table guard reads only this body's -- on 30606 the kit player's twelve ARE the only
+    # records), any CHRFX code but 16-19, a footstep op a script runs at any time but the load and F2d's conductor, an
+    # animation speed other than one frame a tick (a record can fire twice on a
+    # slowed clip in game), the material's own _Color off an MCF service (a kit field: null here), the ladder light,
+    # mapconfigs beyond ``mapconfigs``, the shadow size, the post-detach parent's real name (the carrier's own parent node:
+    # null here), a warm return's re-attach (stock's RestoreAttachModel runs on 1508 only; elsewhere a re-run AttachObject
+    # passes the hook again -- the witness is reset with the load either way), a prop carried by any body but the player,
+    # and every caught hook fault (`faults` stays the s140 count). The FAULT LEVERS (DRESS_POLISH_FAULTS) show each leg-F
+    # check red.
+    def _polish_rung(self) -> bool:
+        return "dresspolish" in self._nb_caps()
+
+    def _polish_on(self) -> bool:
+        """NetSyncSelfDress.PolishOn: on unless the SELFTEST role's `polish off` (the `polish_lever_dead` fault: always on)."""
+        if "polish_lever_dead" in self.dress_faults:
+            return True
+        return BW.polish_on_rule(self._polish_off, self._nb_role())
+
+    def _polish_hooked(self) -> bool:
+        """An s141 hook runs on the controlled body: the `dresspolish` rung and the body DRESSED (netSelfDress != 0)."""
+        return self._polish_rung() and bool(self._self_body)
+
+    def _polish_reset(self) -> None:
+        """HonoluluFieldMain.ff9InitStateFieldMap: FF9StateFieldMap.ff9ResetStateFieldMap (the stock footstep table: empty)
+        then NetSyncSelfDress.OnSoundTableReset (every s141 counter and witness back to its sentinel -- the
+        `cumulative_steps` fault skips this half)."""
+        self._polish_table = []
+        self._polish_rgb, self._polish_rgb_floor = None, None   # a new go: fldmcf recomputes its tint on its first frame
+        self._polish_ghost_rgb = None                    # ...and a new ghost go: untinted until ApplyGhostLighting runs
+        if "cumulative_steps" in self.dress_faults:
+            return
+        self._polish_counts = dict.fromkeys(POLISH_COUNT_KEYS, 0)
+        self._polish_light_row = -1
+        self._polish_ghost_row = -1
+        self._polish_attach = {"uid": -1, "bone_in": -1, "bone_out": -1, "parent": None}
+        self._polish_logged = set()
+
+    def _polish_log_once(self, kind: str, line: str) -> None:
+        """One of the s141 hooks' lines -- each once per field load (the engine's _logged* flags, reset with the load)."""
+        if kind not in self._polish_logged:
+            self._polish_logged.add(kind)
+            self._mlog(line)
+
+    def _polish_on_load(self, cold: bool) -> None:
+        """[ff9mapkit netsync s141] A FIELD LOAD: the reset, a COLD load's fresh PosObj (meshflags 0), then the field's
+        player footstep ops (``field_footsteps``) on the controlled body -- after its SetModel, so a dressed body's ops go
+        through MapFootstep on an s141 engine."""
+        self._polish_reset()
+        if cold:
+            self._polish_meshflags = 0
+        for code, anim, frame, arg4 in self.field_footsteps.get(self.field_id, ()):
+            self._polish_footstep(int(code), int(anim), int(frame), int(arg4))
+
+    def _polish_decision(self, rig: int, code: int, anim: int, frame: int, sound: int, polish: bool) -> tuple:
+        """FootstepDecision on the body's rig (the table use this body's records), the fault levers applied."""
+        faults = self.dress_faults
+        if code < 16 or code > 19:
+            return BW.STEP_UNTOUCHED, anim, frame, sound
+        if "steps_unmapped" in faults:
+            return BW.STEP_BYPASSED, anim, frame, sound     # the hook sends every op through as read (s140's footsteps)
+        r = BW.rig_row(rig)
+        if "no_step_sound" in faults and r is not None:
+            r = dict(r, step_sound=0)
+        rule = BW.mutant_ordinal_swap if "ordinal_swap" in faults else BW.footstep_rule
+        if polish:
+            got = rule(r if r is not None else rig, code, anim, frame, sound)
+            if got[0] == BW.STEP_DROPPED and "keep_drop_rig" in faults:
+                got = (BW.STEP_PASSED, anim, frame, sound)  # a drop rig keeps Zidane's keys
+        else:
+            got = (BW.STEP_BYPASSED, anim, frame, sound)
+        if got[0] == BW.STEP_DROPPED:
+            return got
+        use = 1 if "no_empty_guard" in faults else len(self._polish_table)   # the guard's input wired wrong (its fault)
+        if BW.unbind_on_empty_rule(code, use):
+            return (BW.STEP_DROPPED_EMPTY,) + tuple(got[1:])
+        return got
+
+    def _polish_footstep(self, code: int, anim: int, frame: int, arg4: int) -> None:
+        """One CHRFX op on the controlled body: MapFootstep when hooked (its counts and its drop line, once per load), then
+        the stock table (a 19 on an EMPTY table is a throw in game: no record changes here)."""
+        if self._polish_hooked():
+            rig = self._self_rig()
+            v, anim, frame, arg4 = self._polish_decision(rig, code, anim, frame, arg4, self._polish_on())
+            c = self._polish_counts
+            sid = int(self.player_sids.get(self.field_id, FAKE_PLAYER_SID))
+            if v == BW.STEP_DROPPED:
+                c["steps_dropped"] += 1
+                self._polish_log_once("drop", f"[NetSync] self-dress: uid {sid} wears rig {rig} ({BW.rig_geo(rig) or '?'}), "
+                                              f"which has no footfall frames (as in stock) -- its footstep ops are dropped")
+                return
+            if v == BW.STEP_DROPPED_EMPTY:
+                c["steps_dropped"] += 1
+                self._polish_log_once("empty", f"[NetSync] self-dress: uid {sid} unbinds a footstep ({anim}, {frame}) from "
+                                               f"an EMPTY table -- dropped (stock DeleteChar would throw)")
+                return
+            if v == BW.STEP_PASSED:
+                c["steps_passed"] += 1
+        if BW.fldchar_footstep(self._polish_table, code, anim, frame, arg4):
+            self._mlog(FAKE_DELETECHAR_THROW)            # stock DeleteChar on an EMPTY table: the VM throw, logged
+
+    def _polish_attach_op(self, carried: int, bone: int) -> None:
+        """ATTACH (gMode 1) of ``carried`` on the controlled player at ``bone``: AtAttach on a dressed carrier of an s141
+        engine (BW.attach_bone_rule on the BODY's rig -- the `no_bone_remap` fault skips the hook, `bone_swap` its mutant),
+        its counts, `attach_last` and the parent geoAttach gives the carried go ("bone%03d" of the bone it got)."""
+        if not self._polish_hooked() or "no_bone_remap" in self.dress_faults:
+            return                                      # stock geoAttach at the bone asked: no witness recorded
+        rig = self._self_rig()
+        rule = BW.mutant_bone_swap if "bone_swap" in self.dress_faults else BW.attach_bone_rule
+        out, v = rule(rig, bone, self._polish_on())
+        c = self._polish_counts
+        if v == BW.ATTACH_REMAP:
+            c["attach_remaps"] += 1
+        elif v == BW.ATTACH_NOTE:
+            c["attach_notes"] += 1
+        self._polish_attach = {"uid": carried, "bone_in": bone, "bone_out": out, "parent": BW.bone_name(out)}
+        sid = int(self.player_sids.get(self.field_id, FAKE_PLAYER_SID))
+        self._polish_log_once("attach", f"[NetSync] self-dress: uid {carried} attached to the dressed uid {sid} (rig {rig}) "
+                                        f"at bone {bone} -> {out}" + (" (the rig's hand)" if v == BW.ATTACH_REMAP else
+                                                                      " (not a hand bone: left alone)"
+                                                                      if v == BW.ATTACH_NOTE else " (polish off: bypassed)"))
+
+    def _polish_mesh_op(self, mesh: int, show: bool) -> None:
+        """MESHSHOW / MESHHIDE on the controlled player: dropped on a dressed body of an s141 engine while the polish is on
+        (mesh_drops; the `no_mesh_drop` fault runs it), else PosObj.geoMeshShow / geoMeshHide (meshflags)."""
+        if self._polish_hooked() and "no_mesh_drop" not in self.dress_faults \
+                and not BW.keep_mesh_rule(True, self._polish_on()):
+            self._polish_counts["mesh_drops"] += 1
+            sid = int(self.player_sids.get(self.field_id, FAKE_PLAYER_SID))
+            self._polish_log_once("mesh", f"[NetSync] self-dress: {'ShowObject' if show else 'HideObject'}(uid {sid}, mesh "
+                                          f"{mesh}) on the dressed body -- dropped (a Zidane mesh index means nothing on the "
+                                          f"rig)")
+            return
+        self._polish_meshflags = BW.mesh_op(self._polish_meshflags, mesh, show)
+
+    def _step_polish(self) -> None:
+        """[ff9mapkit netsync s141] One frame: fldmcf's actor row on the controlled body (`light_row` while dressed, the tint
+        on the recompute gate), the ghost's tint row, and FF9Snd's footstep match (steps_fired / steps_fired_player)."""
+        faults = self.dress_faults
+        has = self._dress_actor(self.has_position)
+        dressed = has and bool(self._self_body)
+        hooked = dressed and self._polish_rung()
+        mcf = self.mapconfigs.get(self.field_id)
+        model = int(self._self_now_body()["model"])
+        if mcf and has:
+            polish = hooked and self._polish_on() and "no_light_fallback" not in faults
+            src = BW.PLAIN_ZIDANE_MODEL if hooked else 0
+            rule = BW.mutant_src_first if "src_row_first" in faults else BW.light_row_rule
+            row = rule(model, BW.mcf_char(mcf, model) is not None, src,
+                       src != 0 and BW.mcf_char(mcf, src) is not None, polish)
+            if hooked:
+                self._polish_light_row = row             # DressedCharRow: the CONTROLLED dressed body's row, every frame
+            if self._polish_rgb_floor != self.light_floor:
+                lt = BW.mcf_floor_light(mcf, self.light_floor) or next((x for x in mcf["lights"] if x[0] == 1), None)
+                self._polish_rgb = BW.mcf_tint(BW.mcf_char(mcf, row)[3], lt[1] if lt is not None else (0, 0, 0))
+                self._polish_rgb_floor = self.light_floor
+        if mcf and self._polish_rung() and self._ghost_live():
+            # the model the ghost WEARS (what EnsureGhost built: one frame behind -- this frame's site before the first step)
+            site = self._dress_site() if self._ghost_worn is None else None
+            worn = self._ghost_worn[0] if self._ghost_worn is not None else site["model"] if site else None
+            if worn is not None:
+                lp_src = BW.PLAIN_ZIDANE_MODEL if dressed and "ghost_lp_model" not in faults else 0
+                lit = BW.ghost_mcf_light_color(mcf, int(worn), model, self.light_floor, lp_src, self._polish_on())
+                self._polish_ghost_row = lit["row"]
+                if "ghost_tint_lost" not in faults:
+                    self._polish_ghost_rgb = list(lit["rgb"])
+        if self._polish_rung() and has and self._client_or_selftest_role():
+            anim = self._dress_anim()
+            _n, frame = self._self_frame_pair(anim)
+            hits = sum(1 for r in self._polish_table if r[0] == anim and r[1] == frame)
+            if hits:
+                key = "steps_fired" if dressed or "no_fired_split" in faults else "steps_fired_player"
+                self._polish_counts[key] += hits
+
+    def _polish_doc(self) -> dict:
+        """HarnessAgent.AppendDressPolish (inside `self`, after `selftest`; every role), in its order."""
+        c = self._polish_counts
+        has = self._dress_actor(self.has_position)
+        dressed = has and bool(self._self_body)
+        lit = dressed and self._polish_light_row != -1 and self._polish_rgb_floor is not None
+        return {"steps": BW.steps_of(self._polish_table) if has else [],
+                "steps_dropped": c["steps_dropped"], "steps_passed": c["steps_passed"], "steps_fired": c["steps_fired"],
+                "steps_fired_player": c["steps_fired_player"], "light_row": self._polish_light_row,
+                "light_rgb": list(self._polish_rgb) if dressed and self._polish_rgb is not None else None,
+                "light_floor": int(self._polish_rgb_floor) & 0xFF if lit else -1,
+                "mesh_drops": c["mesh_drops"], "attach_remaps": c["attach_remaps"], "attach_notes": c["attach_notes"],
+                "attach_last": dict(self._polish_attach), "polish": not self._polish_off}
+
+    def _polish_proof(self) -> None:
+        """The proof block's s141 line (right after the self-dress line), once per process."""
+        if "polish_selftest_fail" in self.dress_faults:
+            self._mlog(f"[NetSync] {BW.PROOF_DRESS_POLISH}FAIL (row '{POLISH_SELFTEST_FAIL_ROW}' failed (1 rows run))")
+            return
+        self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_DRESS_POLISH, BW.DRESS_POLISH_SELFTEST_ROWS))
 
     def _party_adds_on_load(self) -> None:
         """[ff9mapkit netsync s138] A field whose Main_Init runs B_PARTYADD (`party_adds`): each member joins the first

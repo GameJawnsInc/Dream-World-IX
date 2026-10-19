@@ -2539,6 +2539,87 @@ class State:
                                                                  "<row>' (NetSyncSelfDress.SelfTest, once per process in the "
                                                                  "selftest proof block); '' = not run yet.")
 
+    # ---- [ff9mapkit netsync s141] THE DRESS POLISH (R3-FIELD-MODEL-AUDIT.md 2.4, its 3.1 sentinels; the orchestrator's O4-O9):
+    # `netsync.dress.self` gains its polish keys after `selftest` and `netsync.dress.ghost` gains `light_row` / `light_rgb` at its end --
+    # no new `netsync.dress` key. The capability is `self.steps`' PRESENCE (:attr:`coop_dress_polish`; the probe ladder's
+    # 141 rung, battlewire.DRESS_PROBES). EVERY count and witness is PER FIELD LOAD (reset beside the stock footstep table:
+    # a warm return reads one load). `steps` is the engine's OWN FF9Snd table filtered to the controlled uid -- a WITNESS, in
+    # every role (a host or an undressed body reads Zidane's own keys there, never [] -- [] is the catch line's sentinel);
+    # `light_rgb` the dressed body's material `_Color` read live (it recomputes on a floor change only: set a lever, then
+    # LOAD); `attach_last.parent` the carried go's LIVE parent name. `polish` is the lever AS SET (true = on).
+    @property
+    def coop_dress_polish(self) -> bool | None:
+        """s141: the dress polish (``netsync.dress.self.steps``; the ``selfdress polish`` op). False = an engine whose dressed
+        body walks with Zidane's footstep keys (silently), takes the default mapconfig row and holds props on Zidane's bone
+        index (s140 and older -- it answers `selfdress polish` with "unknown op ... (ghost|empty|rule|wire|clear|self|gate|
+        law)")."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._dress_path("self.steps", list) is not None
+
+    coop_dress_self_steps = _dress_prop("self.steps", list, "s141: the engine's OWN footstep table (FF9StateFieldMap."
+                                                            "charSoundArray[0 .. charSoundUse-1]) filtered to the CONTROLLED "
+                                                            "uid, read live: [anim, frame, sndEffectID[0]] triples in table "
+                                                            "order ([] = none -- never null live).")
+    coop_dress_self_steps_dropped = _dress_prop("self.steps_dropped", int, "s141: footstep ops (16-19) MapFootstep dropped: a "
+                                                                           "rig with no footfalls (Quina, the moogle, Cinna) or "
+                                                                           "a 19 headed for an EMPTY table -- per load (none "
+                                                                           "under `polish off`).")
+    coop_dress_self_steps_passed = _dress_prop("self.steps_passed", int, "s141: footstep ops on a dressed body sent through "
+                                                                         "UNMAPPED (another anim or frame) -- per load (none "
+                                                                         "under `polish off`).")
+    coop_dress_self_steps_fired = _dress_prop("self.steps_fired", int, "s141: footsteps that FIRED (FF9Snd's own frame match) "
+                                                                       "on the controlled body while DRESSED -- per load; "
+                                                                       "counted on a client / selftest role only.")
+    coop_dress_self_steps_fired_player = _dress_prop("self.steps_fired_player", int, "s141: ...while UNDRESSED (F3's "
+                                                                                     "control) -- per load.")
+    coop_dress_self_light_row = _dress_prop("self.light_row", int, "s141: the mapconfig row the CONTROLLED dressed body's tint "
+                                                                   "and shadow use -- its own model id, 98 (the source row: "
+                                                                   "the s141 fallback) or 65535 (the default row); -1 = no "
+                                                                   "mapconfig service for a dressed controlled body this "
+                                                                   "load (a kit field, or undressed).")
+    coop_dress_self_light_rgb = _dress_prop("self.light_rgb", list, "s141: [r, g, b] (0-255) of the dressed controlled body's "
+                                                                    "OWN first mesh renderer material `_Color` (never a held "
+                                                                    "prop's), read live (what fldchar wrote); None = "
+                                                                    "undressed, no body or no renderer (the key null) -- or "
+                                                                    "an engine before s141.")
+    coop_dress_self_light_floor = _dress_prop("self.light_floor", int, "s141: the walkmesh floor fldmcf lit the CONTROLLED "
+                                                                       "dressed body by (its FF9FieldCharState.floor: the "
+                                                                       "light_rgb oracle's input; 255 = none); -1 = no "
+                                                                       "mapconfig service for it this load.")
+    coop_dress_self_mesh_drops = _dress_prop("self.mesh_drops", int, "s141: ShowObject / HideObject ops on the dressed body "
+                                                                     "dropped -- per load.")
+    coop_dress_self_attach_remaps = _dress_prop("self.attach_remaps", int, "s141: ATTACH ops on a dressed carrier at bone 12 / "
+                                                                           "13 sent to the rig's R_hand / R_hand_end (the rig "
+                                                                           "table) -- per load.")
+    coop_dress_self_attach_notes = _dress_prop("self.attach_notes", int, "s141: ...at any other bone, left alone -- per load "
+                                                                         "(none under `polish off`).")
+    coop_dress_self_attach_last_block = _dress_prop("self.attach_last", dict, "s141: the whole ``attach_last`` block, copied (a "
+                                                                              "FIXED sub-object: the last ATTACH on a dressed "
+                                                                              "carrier this load).")
+    coop_dress_self_attach_last_uid = _dress_prop("self.attach_last.uid", int, "s141: the CARRIED object's uid; -1 = no ATTACH "
+                                                                               "on a dressed carrier this load.")
+    coop_dress_self_attach_last_bone_in = _dress_prop("self.attach_last.bone_in", int, "s141: the bone the script asked for "
+                                                                                       "(after the stock 62 / 3010 "
+                                                                                       "override); -1.")
+    coop_dress_self_attach_last_bone_out = _dress_prop("self.attach_last.bone_out", int, "s141: the bone geo.geoAttach got; "
+                                                                                         "-1.")
+    coop_dress_self_attach_last_parent = _dress_prop("self.attach_last.parent", str, "s141: the carried object's LIVE "
+                                                                                     "transform.parent name, read at "
+                                                                                     "publish ('bone%03d' under geoAttach); "
+                                                                                     "'' = none, no parent or no go.")
+    coop_dress_self_polish = _dress_prop("self.polish", bool, "s141: the `selfdress polish on|off` lever AS SET (True = on, "
+                                                              "the default; it acts on the selftest role only).")
+    coop_dress_ghost_light_row = _dress_prop("ghost.light_row", int, "s141: the mapconfig row the ghost's tint used at its last "
+                                                                     "re-tint (ApplyGhostLighting): the ghost model's own row, "
+                                                                     "else the LOCAL player's stand-in row (98 when dressed "
+                                                                     "and the polish on, else its model), else 65535; -1 = "
+                                                                     "no re-tint this field load.")
+    coop_dress_ghost_light_rgb = _dress_prop("ghost.light_rgb", list, "s141: [r, g, b] (0-255) of the ghost's first renderer "
+                                                                      "material `_Color`, read live: the tint ApplyGhostLighting "
+                                                                      "WROTE (beside the row it decided on); None = no ghost "
+                                                                      "or no renderer -- or an engine before s141.")
+
     def unit_mot(self, slot: int) -> int | None:
         """[ff9mapkit netsync R3 s115] ``battle.units[].mot`` for btl ``slot``: the current clip as the unit's own motion
         index (a player's 17 = MP_ESCAPE, 4 = MP_DISABLE; -1 = none of its own). None = no such unit / before s115."""

@@ -103,6 +103,13 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Global/Event/Engine/EventEngine.updateModelsToBeAdded.cs",
     "Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs",
     "Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs",
+    # [ff9mapkit netsync s141] the dress polish's stock hook sites not yet listed -- fldmcf.cs (the dressed body's mapconfig row: the
+    # FIRST netsync patch to touch it), FF9Snd.cs (the footstep witness in ff9fieldSoundCharService's match branch) and
+    # HonoluluFieldMain.cs (the per-load reset beside the stock footstep-table reset) -- so a stale or mixed hunk cannot pass diag
+    # (DoEventCode.cs, NetSyncSelfDress.cs, NetSyncClient.cs and HarnessAgent.cs are listed above; fldchar.cs / geo.cs are untouched)
+    "Assembly-CSharp/Global/fldmcf.cs",
+    "Assembly-CSharp/Global/ff9/Snd/FF9Snd.cs",
+    "Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs",
 ]
 
 # Same-number ties, pinned explicitly.

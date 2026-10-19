@@ -35,7 +35,7 @@ import sys
 
 import pytest
 
-from ._patchstack import msr, net_lines
+from ._patchstack import msr, net_lines, net_lines_ordered
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 CENSUS = REPO / "studies" / "battle-coop" / "dress-census"
@@ -106,7 +106,7 @@ def test_the_rig_rows_9_to_12_are_the_census_the_patch_and_the_twin():
     assert rj["calibration_reproduces_s139"] is True
     new = _rig_rows(_added("NetSyncVisitor.cs", "s140"))
     assert new == list(BW.RIGS[9:13]), new
-    live = _rig_rows(net_lines("NetSyncVisitor.cs", r"new Rig\("))
+    live = _rig_rows(net_lines_ordered("NetSyncVisitor.cs", r"new Rig\("))          # FILE order (s141 rewrites 3 / 7)
     assert live == list(BW.RIGS) and len(live) == BW.RIG_ROW_COUNT == 13, live
     assert _rig_rows(_added("NetSyncVisitor.cs", "s139")) == list(BW.S139.RIGS)       # s139's nine, as it wrote them
     lits = [tuple(int(x) for x in m.group(1).split(","))

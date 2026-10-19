@@ -3,7 +3,7 @@
 # snapshotted at start and restored byte-exact from that snapshot on ANY exit (as selftest_block.sh: never an old fixed
 # backup). Usage: selftest_block_noghost.sh <outdir> <label>:<field>:<scenario>[:ENV=VAL,...]
 set -u
-WT=/c/gd/Dream-World-IX/.claude/worktrees/gallant-easley-04ab74
+WT=/c/gd/Dream-World-IX/.claude/worktrees/dreamy-allen-a2375f
 G="/c/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 BK=/c/gd/Dream-World-IX/backups
 # the s139-era fixed backup: a restore SOURCE only when the start snapshot cannot be taken AND the live INI is byte-identical

@@ -8412,17 +8412,23 @@ class Session:
     #: "unknown op" refusal prints. Every op is selftest-role only, released with the harness (HarnessReleaseBench). Later
     #: ops are told by their own keys (:attr:`NETSYNC_SELFDRESS_OP_CAPS`). [ff9mapkit netsync s140] THE LIVE LIST: s139's five
     #: + `self` / `gate` / `law` (the guest's own dress, on `netsync.dress.self`); an s139 engine prints
-    #: :attr:`NETSYNC_SELFDRESS_OPS_S139` (and answers an s140 op "unknown op" with it); s141's `polish` (on
-    #: `netsync.dress.self.steps`) is no op yet -- an s140 engine answers it "unknown op" with this list.
-    NETSYNC_SELFDRESS_OPS = ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law")
+    #: :attr:`NETSYNC_SELFDRESS_OPS_S139` (and answers an s140 op "unknown op" with it). [ff9mapkit netsync s141] + `polish`
+    #: (the dress polish's calibration lever, on `netsync.dress.self.steps`): an s140 engine prints
+    #: :attr:`NETSYNC_SELFDRESS_OPS_S140` (and answers `polish` "unknown op" with it).
+    NETSYNC_SELFDRESS_OPS = ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law", "polish")
+    NETSYNC_SELFDRESS_OPS_S140 = ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law")
     NETSYNC_SELFDRESS_OPS_S139 = ("ghost", "empty", "rule", "wire", "clear")
     #: [ff9mapkit netsync s140] the ops a LATER patch added, each told by its own key: (the State capability accessor, the key,
     #: the patch, what it is) -- R3-FIELD-MODEL-AUDIT.md 3.1's table (+ the orchestrator's O6 `law`).
+    #: [ff9mapkit netsync s141] + `polish` -> ("coop_dress_polish", "netsync.dress.self.steps", "s141") (audit 3.1).
     NETSYNC_SELFDRESS_OP_CAPS = {
-        op: ("coop_dress_self", "netsync.dress.self", "s140",
-             "the s140 guest self-dress bench (the selftest arm's `self` spec, the `gate 0` and `law <name> off` calibration "
-             "levers)")
-        for op in ("self", "gate", "law")}
+        **{op: ("coop_dress_self", "netsync.dress.self", "s140",
+                "the s140 guest self-dress bench (the selftest arm's `self` spec, the `gate 0` and `law <name> off` "
+                "calibration levers)")
+           for op in ("self", "gate", "law")},
+        "polish": ("coop_dress_polish", "netsync.dress.self.steps", "s141",
+                   "the s141 dress polish's calibration lever (`polish off` bypasses MapFootstep, the mesh-op drop, the prop "
+                   "remap and both lighting fallbacks together)")}
     #: [ff9mapkit netsync s139] HarnessSelfDress' refusal of a malformed op, in its words (after the role and the op).
     #: [ff9mapkit netsync s140] + `self` (NetSyncSelfDress.SelfUsage: the spec forms and the fifteen names), `gate`, `law`
     #: (NetSyncSelfDress.LawUsage); `self`'s two value refusals are :attr:`NETSYNC_SELFDRESS_SELF_REFUSALS`.
@@ -8439,6 +8445,8 @@ class Session:
                 + " ".join(NETSYNC_SELFDRESS_SELF_NAMES) + ")",
         "gate": "netsync selfdress gate: expected `gate 1|0`",
         "law": "netsync selfdress law: expected `law bframe|attach|alias|timeline on|off`",
+        # [ff9mapkit netsync s141] NetSyncSelfDress.PolishUsage (the arity and TrySetPolish's value alike)
+        "polish": "netsync selfdress polish: expected `polish on|off`",
     }
     NETSYNC_SELFDRESS_SELF_REFUSALS = {"off_mask": "netsync selfdress self off: takes no mask",
                                        "auto_mask": "netsync selfdress self auto: mask {mask} is outside 0-15 (party "
@@ -8766,6 +8774,13 @@ class Session:
         before the step (it answers "unknown op" with its five only after it); on s140 a malformed value is refused before
         the step in its words. Every one is released with the harness and by ``selfdress clear``.
 
+        [ff9mapkit netsync s141] the dress polish adds one ``selfdress`` op, told by ``netsync.dress.self.steps``
+        (:attr:`State.coop_dress_polish`; NETSYNC_SELFDRESS_OP_CAPS): ``polish on|off`` (selftest role; off = CALIBRATION:
+        MapFootstep, the mesh-op drop, the prop remap and both lighting fallbacks bypassed together, the witnesses still
+        reading) -- :meth:`selfdress_polish`. On an s140 engine it is refused before the step (it answers "unknown op" with
+        its eight only after it); on s141 a malformed value is refused before the step in PolishUsage's words. It is
+        released with the harness and by ``selfdress clear`` (back on).
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
@@ -8988,8 +9003,10 @@ class Session:
         n = len(args) + 1                                   # the agent's s.Args: "selfdress" first
         op = str(args[0]).strip().lower() if args else ""
         val = str(args[1]).strip().lower() if len(args) > 1 else ""
-        # [ff9mapkit netsync s140] the list THIS engine prints: s140's eight, an s139 engine's five
-        ops = self.NETSYNC_SELFDRESS_OPS if st.coop_dress_self else self.NETSYNC_SELFDRESS_OPS_S139
+        # [ff9mapkit netsync s140] the list THIS engine prints: s140's eight, an s139 engine's five -- [ff9mapkit netsync
+        # s141] s141's nine (+ `polish`)
+        ops = (self.NETSYNC_SELFDRESS_OPS if st.coop_dress_polish else
+               self.NETSYNC_SELFDRESS_OPS_S140 if st.coop_dress_self else self.NETSYNC_SELFDRESS_OPS_S139)
         cap = self.NETSYNC_SELFDRESS_OP_CAPS.get(op)
         if cap is not None and not getattr(st, cap[0]):
             return (f"netsync selfdress {op}: the deployed engine publishes no `{cap[1]}` -- `selfdress {op}` is {cap[3]} "
@@ -9036,6 +9053,8 @@ class Session:
             on = str(args[2]).strip().lower() if len(args) > 2 else ""
             if n != 4 or on not in ("on", "off") or val not in self.NETSYNC_SELFDRESS_LAWS:
                 return usage["law"]
+        if op == "polish" and (n != 3 or val not in ("on", "off")):
+            return usage["polish"]                     # [ff9mapkit netsync s141] the arity, then TrySetPolish's value
         return None
 
     def selfdress_self(self, spec, mask: int | None = None, *, timeout: float = 20.0) -> State:
@@ -9057,6 +9076,14 @@ class Session:
         law switched off -- the B_FRAME remap, the source-list attach + stored loco ids, the idle-alias fallback,
         KeepSourceTimeline -- so its red shows in game ON the s140 DLL. Released with the harness."""
         return self.selfdress("law", str(law), "on" if on else "off", timeout=timeout)
+
+    def selfdress_polish(self, on: bool, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s141] ``netsync selfdress polish on|off`` (selftest role): off = CALIBRATION -- MapFootstep, the
+        mesh-op drop, the prop remap and both lighting fallbacks bypassed together on this selftest role (the witnesses keep
+        reading: `steps`, the fired counts, `light_row`, `light_rgb`, `attach_last`), so leg F's reds show in game ON the
+        s141 DLL. Read back as ``netsync.dress.self.polish`` (as set). Set it, THEN load the field: the footstep ops run at a
+        load and the tint recomputes on a floor change. Released with the harness (back on)."""
+        return self.selfdress("polish", "on" if on else "off", timeout=timeout)
 
     def selfdress(self, op: str, *args, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s139] ``netsync selfdress <op> [value]`` (selftest role): ``ghost <mask 0-15>|off``,

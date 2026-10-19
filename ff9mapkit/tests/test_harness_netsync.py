@@ -19,7 +19,7 @@ import sys
 
 import pytest
 
-from ._patchstack import msr, net_lines
+from ._patchstack import msr, net_lines, net_lines_ordered
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
@@ -876,6 +876,9 @@ def _dress_through(doc: dict, rung: str) -> dict:
     d["ghost"] = {k: v for k, v in doc["dress"]["ghost"].items() if k in ghost_keys}
     if "rig_idle_frames" in d:                          # [ff9mapkit netsync s140] the rung's own rig-row count (9 on s139)
         d["rig_idle_frames"] = list(d["rig_idle_frames"])[:BW.RIG_ROWS_BY_RUNG.get(rung, BW.RIG_ROW_COUNT)]
+    if "self" in d:                                     # [ff9mapkit netsync s141] `self`'s keys by rung (s141's polish keys)
+        self_keys = [k for r in upto for k in BW.DRESS_SELF_KEYS_BY_RUNG.get(r, ())]
+        d["self"] = {k: v for k, v in doc["dress"]["self"].items() if k in self_keys}
     out["dress"] = d
     return out
 
@@ -2293,7 +2296,8 @@ BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", 
                  "s137",                                      # [ff9mapkit netsync s137] the trance burst timing
                  "s138",                                      # [ff9mapkit netsync s138] the dress instrument (keys only)
                  "s139",                                      # [ff9mapkit netsync s139] the host dress rule + `selfdress`
-                 "s140"]                                      # [ff9mapkit netsync s140] the guest dresses itself (`self`)
+                 "s140",                                      # [ff9mapkit netsync s140] the guest dresses itself (`self`)
+                 "s141"]                                      # [ff9mapkit netsync s141] the dress polish (`self.steps`)
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2577,7 +2581,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s139] the host dress rule (`netsync.dress.ghost.bench_mask`; the `selfdress` sub-verb)
             "coop_dress_host",
             # [ff9mapkit netsync s140] the guest dresses itself (`netsync.dress.self`; the `selfdress self|gate|law` ops)
-            "coop_dress_self")
+            "coop_dress_self",
+            # [ff9mapkit netsync s141] the dress polish (`netsync.dress.self.steps`; the `selfdress polish` op)
+            "coop_dress_polish")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -6301,6 +6307,12 @@ def _proof_lines(fake) -> list:
     ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
               BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
+              BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29),
+              BW.proof_ok(BW.PROOF_DRESS_POLISH, 20)]),
+    # [ff9mapkit netsync s141] s140 (s141's calibration red): no 'dress polish' line
+    ("s140", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
               BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29)]),
     # [ff9mapkit netsync s140] s139 (s140's calibration red): the codec line's 29 rows, no 'self-dress' line
     ("s139", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
@@ -6347,7 +6359,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
     fake.netsync_caps = {"live": fake.netsync_caps, "s117": S117_CAPS, "s121": S121_CAPS,
                          "s132": S132_CAPS, "s133": S133_CAPS, "s134": S134_CAPS,
                          "s135": S135_CAPS, "s136": S136_CAPS, "s138": S138_CAPS_,
-                         "s139": FG.caps_through("dresshost")}.get(caps) or _caps_at(caps)
+                         "s139": FG.caps_through("dresshost"),
+                         "s140": FG.caps_through("dressself")}.get(caps) or _caps_at(caps)   # [ff9mapkit netsync s141]
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6366,7 +6379,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
                                                                       BW.PROOF_FALLBACK, BW.PROOF_TRANCE)) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"')) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS}"')) \
-        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_SELF_DRESS}"'))   # [s139 / s140]
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_SELF_DRESS}"')) \
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS_POLISH}"'))   # [s139-s141]
 
 
 def _mlog_lines(fake, needle: str) -> list:
@@ -14976,11 +14990,15 @@ import struct                                                           # noqa: 
 #: `ghost` with its levers; s140 adds `self`) -- a new container goes HERE, or :func:`_dress_leaves` never sees inside it.
 DRESS_CONTAINERS = {"ghost": "s138",
                     # [ff9mapkit netsync s140] `self` (dress's LAST key) and its `law_off` levers
-                    "self": "s140", "self.law_off": "s140"}
+                    "self": "s140", "self.law_off": "s140",
+                    # [ff9mapkit netsync s141] the polish's `attach_last` (a fixed sub-object inside `self`)
+                    "self.attach_last": "s141"}
 #: [ff9mapkit netsync s138] the `netsync.dress` records that may be published null where their accessor reads None (the
 #: BATTLE_NULLABLE twin; a null STRING reads "", so none at s138) -- a later rung's nullable record goes HERE.
 #: [ff9mapkit netsync s139] `ghost.hidden` (null = no ghost) and `mirror_party` (null = no party mirror): nullable LISTS
-DRESS_NULLABLE = ("ghost.hidden", "mirror_party")
+DRESS_NULLABLE = ("ghost.hidden", "mirror_party",
+                  "self.light_rgb",             # [ff9mapkit netsync s141] null = undressed / no renderer (a nullable list)
+                  "ghost.light_rgb")            # [ff9mapkit netsync s141] null = no ghost / no renderer
 
 
 def _dress_of(doc: dict) -> dict:
@@ -15183,7 +15201,10 @@ def test_the_live_dress_writers_are_their_level_homes_in_ladder_order(game):
     # read per rung (s139 rewrote AppendDress in hunks that do not hold the whole method): each rung's row is exactly the
     # ghost writer lines its OWN patch adds (a key an earlier rung owns, re-added in a rewrite, stays that rung's), and every
     # ghost writer line is net-present ONCE in the live stack
-    ghost_line = re.compile(r'^(?:Bool|Num|Str|StrList)\(sb, "(\w+)", Try\(.*NetSyncClient\.Harness(?:Ghost|Dress)')
+    # ([ff9mapkit netsync s141] `light_row` reads its witness off NetSyncSelfDress: the ghost's tint row ApplyGhostLighting set;
+    # `light_rgb` the tint it wrote, an IntList off NetSyncClient.HarnessGhostLightRgb)
+    ghost_line = re.compile(r'^(?:Bool|Num|Str|StrList|IntList)\(sb, "(\w+)", Try\(.*(?:NetSyncClient\.Harness(?:Ghost|Dress)|'
+                            r'NetSyncSelfDress\.GhostLightRow)')
     ghost, seen = [], set()
     for rung in BW.DRESS_GHOST_KEYS_BY_RUNG:
         new = _new_side("HarnessAgent.cs", _patch_bytes(FG.NETSYNC_BATTLE_CAPS[rung][0]))
@@ -15443,7 +15464,9 @@ def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
     assert (doc["dress"]["codec"], doc["dress"]["rig_idle_frames"]) == (None, [-1] * 13)  # [s139] no proof block yet
     # [ff9mapkit netsync s140] `self` -- its sentinels but the two the LIVE statics start at: the knob (SelfDress absent = 1)
     # and the gate (on unless the selftest role's `gate 0`)
-    assert doc["dress"]["self"] == dict(BW.DRESS_SELF_SENTINELS, knob=True, gate=True), doc["dress"]["self"]
+    # [ff9mapkit netsync s141] ...then the polish keys, at their sentinels but the lever's live default (`polish` on)
+    assert doc["dress"]["self"] == dict(BW.DRESS_SELF_LIVE_SENTINELS, knob=True, gate=True, polish=True), \
+        doc["dress"]["self"]
     assert doc["dress"]["party"] == [0, 1, -1, -1] == [m["char"] if m else -1 for m in fake.save_party]
     assert _battle_text("sb.Append(Try(() => PartyIndexOf(slot), -2).ToString(CultureInfo.InvariantCulture));")
 
@@ -15667,7 +15690,7 @@ def test_the_s138_benchs_tables_are_its_docstring():
                                 "pre": [30604, 30801], "oracle": ["stock", 30801], "oracle_extra": None,
                                 "old": {"137": [i_checks, []]}, "lever": {}} and got["steps_exist"]
     # [ff9mapkit netsync s139] leg G, [ff9mapkit netsync s140] legs S / W / X / N / T (their own tests pin them)
-    assert list(got["legs"]) == ["I", "G", "S", "W", "X", "N", "T"]
+    assert list(got["legs"]) == ["I", "G", "S", "W", "X", "N", "T", "F"]       # [ff9mapkit netsync s141] + leg F
     assert got["phases"] == ["stock", "seed", "seeded", "bench", "self", "close"]
     for k in ("p138", "p139"):
         assert c[k][0] is None and "no lever" in c[k][2] and "0269771f24b626c1" in c[k][2], (k, c[k])
@@ -15690,7 +15713,7 @@ def test_the_s138_benchs_tables_are_its_docstring():
     assert got["modes"]["default"] == got["modes"]["old"] == "old"
     assert got["modes"]["bad"].startswith("ValueError: COOP_DRESS_CAL='rule-s138' is no calibration mode")   # leg I alone
     assert got["sel"]["lower"] == got["sel"]["dup"] == ["I"]
-    assert got["sel"]["none"] == ["I", "G", "S", "W", "X", "N", "T"]       # [s139] [s140] every leg
+    assert got["sel"]["none"] == ["I", "G", "S", "W", "X", "N", "T", "F"]       # [s139] [s140] [s141] every leg
     assert got["sel"]["bad"].startswith("ValueError: COOP_DRESS_LEGS names ['Q']")
     assert got["consts"] == [250, 30801, 30604, "netsync.dress.ghost", "player.model", ["", "auto", "off", "0"], "us", 2, 1,
                              2, 3, 0, 16, 4, [".ff9mapkit-events-bundle.txt", ".ff9mapkit-field-index.json"],
@@ -16407,22 +16430,29 @@ def test_the_selfdress_ops_and_usage_are_the_engines_in_its_order():
     refusal the driver quotes is one of its literals; and it refuses in ITS order -- the ROLE first, then the op, then the
     value (the driver mirrors that: it sends for the agent's own role refusal, and refuses an op / value before the step only
     on the selftest role)."""
-    # [ff9mapkit netsync s140] the LIVE list is s140's (+ self|gate|law, no `polish`); s139's own list, off its patch
+    # [ff9mapkit netsync s141] the LIVE list is s141's (+ polish); s140's and s139's own lists, each off its own patch
     assert _agent_selfdress_ops() == Session.NETSYNC_SELFDRESS_OPS == FG.NETSYNC_SELFDRESS_OPS == BW.SELFDRESS_OPS == \
-        ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law")
+        ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law", "polish")
+    assert _agent_selfdress_ops([_patch_bytes("s140")]) == Session.NETSYNC_SELFDRESS_OPS_S140 == \
+        FG.NETSYNC_SELFDRESS_OPS_S140 == BW.SELFDRESS_OPS_S140 == ("ghost", "empty", "rule", "wire", "clear", "self",
+                                                                   "gate", "law")
     assert _agent_selfdress_ops([_patch_bytes("s139")]) == Session.NETSYNC_SELFDRESS_OPS_S139 == \
         FG.NETSYNC_SELFDRESS_OPS_S139 == BW.SELFDRESS_OPS_S139 == BW.S139.SELFDRESS_OPS == ("ghost", "empty", "rule",
                                                                                             "wire", "clear")
     assert FG.selfdress_ops(FG.caps_through("dresshost")) == BW.SELFDRESS_OPS_S139 and FG.selfdress_ops(S138_CAPS_) == ()
-    assert FG.selfdress_ops(FG.caps_through("dressself")) == BW.SELFDRESS_OPS
-    # s140 adds `self` / `gate` / `law` on `netsync.dress.self` (s141 will add `polish`): R3-FIELD-MODEL-AUDIT.md 3.1 + O6
-    assert set(Session.NETSYNC_SELFDRESS_OP_CAPS) == set(BW.SELFDRESS_SELF_OPS) == {"self", "gate", "law"}
-    assert {v[:3] for v in Session.NETSYNC_SELFDRESS_OP_CAPS.values()} == {("coop_dress_self", "netsync.dress.self",
-                                                                             "s140")}
+    assert FG.selfdress_ops(FG.caps_through("dressself")) == BW.SELFDRESS_OPS_S140
+    assert FG.selfdress_ops(FG.caps_through("dresspolish")) == BW.SELFDRESS_OPS
+    # s140 adds `self` / `gate` / `law` on `netsync.dress.self`, s141 `polish` on `netsync.dress.self.steps`:
+    # R3-FIELD-MODEL-AUDIT.md 3.1 + O6
+    assert set(Session.NETSYNC_SELFDRESS_OP_CAPS) == set(BW.SELFDRESS_SELF_OPS + BW.SELFDRESS_POLISH_OPS) == \
+        {"self", "gate", "law", "polish"}
+    assert {v[:3] for v in Session.NETSYNC_SELFDRESS_OP_CAPS.values()} == {
+        ("coop_dress_self", "netsync.dress.self", "s140"), ("coop_dress_polish", "netsync.dress.self.steps", "s141")}
     client = _stack_text("NetSyncClient.cs")
     for op, text in Session.NETSYNC_SELFDRESS_USAGE.items():
-        if op in BW.SELFDRESS_SELF_OPS:
+        if op in BW.SELFDRESS_SELF_OPS + BW.SELFDRESS_POLISH_OPS:
             continue                                   # [ff9mapkit netsync s140] test_the_s140_selfdress_ops_are_the_engines
+            #                                            (and [s141] test_the_s141_polish_op_is_the_engines_in_its_order)
         if op in ("ghost", "empty"):
             assert any('why = "netsync selfdress " + op + ": expected `" + op + " <mask 0-15>|off`";' in ln
                        for ln in client), op
@@ -16457,7 +16487,7 @@ DRESS_REFUSALS = [
     ("netsync selfdress: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["selfdress", "ghost", "2"])),
     ("netsync selfdress: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["selfdress", "bogus"])),
     ("netsync selfdress: unknown op '", lambda f: _sd(f)._netsync(["selfdress", "bogus"])),
-    ("' (ghost|empty|rule|wire|clear|self|gate|law)", lambda f: _sd(f)._netsync(["selfdress"])),   # [s140] the live list
+    ("' (ghost|empty|rule|wire|clear|self|gate|law|polish)", lambda f: _sd(f)._netsync(["selfdress"])),   # [s141] live
     ("netsync selfdress ", lambda f: _sd(f)._netsync(["selfdress", "ghost", "16"])),
     (": expected `", lambda f: _sd(f)._netsync(["selfdress", "empty", "-1"])),
     (" <mask 0-15>|off`", lambda f: _sd(f)._netsync(["selfdress", "ghost"])),
@@ -16496,6 +16526,11 @@ DRESS_REFUSALS = [
      lambda f: _sd(f)._netsync(["selfdress", "law", "polish", "off"])),
     ("netsync selfdress law: expected `law bframe|attach|alias|timeline on|off`",
      lambda f: _sd(f)._netsync(["selfdress", "law", "alias", "0"])),
+    # [ff9mapkit netsync s141] the dress polish's lever -- the arity (HarnessSelfDress' `n != 3`), then TrySetPolish's value
+    ("netsync selfdress polish: expected `polish on|off`", lambda f: _sd(f)._netsync(["selfdress", "polish"])),
+    ("netsync selfdress polish: expected `polish on|off`", lambda f: _sd(f)._netsync(["selfdress", "polish", "on", "x"])),
+    ("netsync selfdress polish: expected `polish on|off`", lambda f: _sd(f)._netsync(["selfdress", "polish", "1"])),
+    ("netsync selfdress polish: expected `polish on|off`", lambda f: _sd(f)._netsync(["selfdress", "polish", "maybe"])),
 ]
 
 
@@ -16511,6 +16546,7 @@ def test_the_stand_in_refuses_selfdress_in_the_agents_words(game, fragment, prov
     assert fragment in str(err.value), str(err.value)
     assert fake._dress_bench == {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}   # nothing changed
     assert fake._self_levers == {"spec": None, "mask": -1, "gate_off": False, "law_off": 0}       # [s140] ...nor here
+    assert fake._polish_off is False                                                               # [s141] ...nor here
 
 
 def test_the_driver_refuses_selfdress_before_the_step_in_the_engines_order(game):
@@ -16541,10 +16577,11 @@ def test_the_driver_refuses_selfdress_before_the_step_in_the_engines_order(game)
             assert len(fake.executed) == n + 1 and fake.executed[-1] == ["netsync", "selfdress", "bogus"]
             g.netsync("selftest", 1)
             # [ff9mapkit netsync s140] the default stand-in is s140's: its eight ops (s139's five on the calibration engine)
-            for args, why in ((("bogus",), "netsync selfdress: unknown op 'bogus' (ghost|empty|rule|wire|clear|self|gate|law)"),
-                              ((), "netsync selfdress: unknown op '' (ghost|empty|rule|wire|clear|self|gate|law)"),
-                              (("polish", "on"), "netsync selfdress: unknown op 'polish' (ghost|empty|rule|wire|clear|self|"
-                                                 "gate|law)"),
+            # [ff9mapkit netsync s141] ...now s141's nine (`polish` an op: its refusal is a malformed value)
+            ops = "ghost|empty|rule|wire|clear|self|gate|law|polish"
+            for args, why in ((("bogus",), f"netsync selfdress: unknown op 'bogus' ({ops})"),
+                              ((), f"netsync selfdress: unknown op '' ({ops})"),
+                              (("polish", "1"), "netsync selfdress polish: expected `polish on|off`"),
                               (("ghost", 16), "netsync selfdress ghost: expected `ghost <mask 0-15>|off`"),
                               (("empty",), "netsync selfdress empty: expected `empty <mask 0-15>|off`"),
                               (("ghost", "0x2"), "netsync selfdress ghost: expected `ghost <mask 0-15>|off`"),
@@ -16643,7 +16680,9 @@ def test_reset_and_every_release_path_free_every_selfdress_lever(game):
 #: field-script exports and the clips in p0data5): the columns the kit's playerswap.CHARACTERS does not carry, per rig row
 #: (0-7 the CharacterId rows, 8 the moogle) -- the eye byte (98->93 .. 220->50), the idle-break clip (0 = none: Freya,
 #: Quina, Amarant and the moogle set none in stock), the walk / run footfall frames (-1 = none), the step-sound override
-#: (Steiner 925), the idle alias and the R_hand / R_hand_end bones.
+#: (Steiner 925), the idle alias and the R_hand / R_hand_end bones. [ff9mapkit netsync s141] s139's hand pairs were
+#: labels_for reads: Steiner's and Amarant's sit one bone toward the shoulder, and s141 corrects them IN THE LIVE TABLE
+#: (rlook-1 / 2: 15 / 16 and 16 / 16, the install's skin and stock's AttachObject) -- this census pins s139's FROZEN view.
 RIG_CENSUS = {
     "zidane": {"eye": 93, "inactive": 57, "walk_steps": (4, 13), "run_steps": (0, 8), "step_sound": 0, "idle_alias": 324,
                "hand": (12, 13)},
@@ -16696,7 +16735,11 @@ def test_the_rig_twin_is_the_engines_table_and_the_census():
     from ff9mapkit._modeldb import MODELS
     rows = _s139_rig_rows()
     # [ff9mapkit netsync s140] the s139 patch's own nine rows: battlewire's FROZEN s139 view (the live table has 13)
-    assert rows == list(BW.S139.RIGS) == list(BW.RIGS[:9]) and len(rows) == BW.S139.RIG_ROW_COUNT == 9, rows
+    assert rows == list(BW.S139.RIGS) and len(rows) == BW.S139.RIG_ROW_COUNT == 9, rows
+    # [ff9mapkit netsync s141] the live rows 0-8 are s139's but for s141's two in-place hand corrections (rlook-1 / 2)
+    assert [r[:14] for r in BW.RIGS[:9]] == [r[:14] for r in BW.S139.RIGS]
+    assert {i: (BW.S139.RIGS[i][14:], BW.RIGS[i][14:]) for i in range(9) if BW.RIGS[i] != BW.S139.RIGS[i]} == \
+        BW.RIG_HAND_FIX_S141 == {3: ((14, 15), (15, 16)), 7: ((15, 16), (16, 16))}
     assert all(len(r) == len(BW.RIG_COLUMNS) == 16 for r in rows)
     sig = " ".join(_s139_block("NetSyncVisitor.cs", "public Rig(UInt16 model, UInt16 idle", "{"))
     names = re.findall(r"\b(?:UInt16|Byte|Int16) (\w+)", sig)
@@ -17496,7 +17539,7 @@ def test_the_s139_legs_tables_are_its_docstring():
     assert got["p139_lever"] == [got["lever_reds"], [], ""] == got["p140_lever"]
     assert got["p138_lever"] == got["p138"]                     # before G's patch: its `old` row, never its lever
     assert got["pre"] == [30604, 30801] and got["oracle"] == [250, 30801]
-    assert got["sel"] == ["I", "G", "S", "W", "X", "N", "T"] and got["sel_g"] == ["G"]     # [s140] every leg
+    assert got["sel"] == ["I", "G", "S", "W", "X", "N", "T", "F"] and got["sel_g"] == ["G"]     # [s140] [s141] every leg
     doc = got["doc"]
     for cid in ("G0", "G3a", "G1", "G2", "G3", "G3c", "G3m", "G3d", "G4", "G5", "G6", "G7a-d", "G8", "G9"):
         assert re.search(rf"(?<![\w-]){re.escape(cid)}(?![\w-])", doc), cid
@@ -17869,10 +17912,12 @@ def test_the_s139_leg_runs_green_on_the_stand_in_and_red_exactly_where_its_check
         assert got[name]["levers_left"] == {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}, name
         # S138-R witnessed the HARNESS release: `rule s139` held into the reset (the last selfdress step), its release
         # line logged, every lever read back off
-        # [ff9mapkit netsync s140] the s140 stand-in holds `self off` + `law timeline off` into the same reset
-        assert got[name]["steps"][-4:] == [["netsync", "selfdress", "clear"], ["netsync", "selfdress", "rule", "s139"],
+        # [ff9mapkit netsync s140] the s140 stand-in holds `self off` + `law timeline off` into the same reset --
+        # [ff9mapkit netsync s141] and the (default) s141 one `polish off` too
+        assert got[name]["steps"][-5:] == [["netsync", "selfdress", "clear"], ["netsync", "selfdress", "rule", "s139"],
                                            ["netsync", "selfdress", "self", "off"],
-                                           ["netsync", "selfdress", "law", "timeline", "off"]]
+                                           ["netsync", "selfdress", "law", "timeline", "off"],
+                                           ["netsync", "selfdress", "polish", "off"]]
         assert "the selfdress levers after the reset {'mask': -1" in got[name]["detail"]["S138-R"], \
             got[name]["detail"]["S138-R"]
         assert "missing lines=[]" in got[name]["detail"]["S138-R"]
@@ -17893,7 +17938,8 @@ def test_the_s139_leg_runs_green_on_the_stand_in_and_red_exactly_where_its_check
         assert got[name]["red"] == lever, (name, got[name]["red"])
         assert got[name]["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
         rules = [s for s in got[name]["steps"] if s[2:] == ["rule", "s138"]]
-        assert len(rules) >= 3 and got[name]["steps"][-4:-2] == [["netsync", "selfdress", "clear"],
+        # [ff9mapkit netsync s141] the (default) s141 stand-in holds `polish off` into the reset after the s140 two
+        assert len(rules) >= 3 and got[name]["steps"][-5:-3] == [["netsync", "selfdress", "clear"],
                                                                  ["netsync", "selfdress", "rule", "s139"]], got[name]["steps"]
     assert got["s138"]["red"] == g_all and got["s138"]["steps"] == [], got["s138"]
     assert got["s138"]["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
@@ -18098,9 +18144,98 @@ out["cal"] = [dw.calibration(138, five), dw.calibration(138, ["S139-G9a"]), dw.c
               dw.calibration(138, five, ["S139-G9e"])]
 out["tables"] = {"checks": list(dw.G9_CHECKS), "old": {str(k): list(v) for k, v in dw.OLD_PREDICTED.items()},
                  "extra": dw.PAIR["role_extra"], "has_setup": callable(dw.PAIR["host_setup"]),
-                 "phases": [list(p) for p in dw.PHASES],
+                 "phases": [list(p) for p in dw.PHASES], "s140_only": list(dw.S140_ONLY),
+                 "s141_only": list(dw.S141_ONLY),
                  "stage": [dw.dress_stage(St({"netsync": {"dress": {"ghost": {}, "codec": None}}})),
-                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}}}})), dw.dress_stage(St({}))]}
+                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}}}})), dw.dress_stage(St({})),
+                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}, "codec": None, "self": {}}}})),
+                           dw.dress_stage(St({"netsync": {"dress": {"ghost": {}, "codec": None, "self": {"steps": []}}}}))]}
+# ---- [s141] the polish rows' pure judges (G9s / G9w / G9l): the oracle off the census's own twins over field 250's ops and
+# its MapConfigData (battlewire's copies of both: numbers only), each judge red on the shape it exists to catch
+from ff9mapkit import mapconfig as MC
+m_ = BW.FIELD250_MCF
+mcf = MC.MapConfig(attr=0, version=0, bg_no=0, light_use=len(m_["lights"]), char_use=len(m_["chars"]),
+                   lights=tuple(MC.MapLight(t, 0, 0, 0, tuple(c), tuple(f)) for t, c, f in m_["lights"]),
+                   chars=tuple(MC.MapChar(g, si, sr, tuple(c), 0) for g, si, sr, c in m_["chars"]))
+pc = dw.sd._polish_census()
+doc = dw.sd.polish_census_doc()
+po, pprob = dw.polish_expect([8, 185, 220], BW.FIELD250_STEPS, doc, pc, mcf, 4)
+out["polish_oracle"] = {str(k): {"name": v["name"], "rig": v["rig"], "steps": v["steps"], "light2": v["light"][2],
+                                 "floors": sorted(str(f) for f in v["light"])} for k, v in po.items()}
+out["polish_problems"] = pprob
+blind, _p = dw.polish_expect([8], None, doc, pc, None, 0)
+out["polish_blind"] = [blind[8]["steps"], blind[8]["light"]]
+_c, out["polish_unknown"] = dw.polish_expect([5], BW.FIELD250_STEPS, doc, pc, mcf, 4)
+bad_doc = json.loads(json.dumps(doc))
+for k, v in bad_doc["b_steps"]["rigs"].items():
+    if k.endswith(" vivi"):
+        v["census"]["walk_pair"] = [4, 13]                  # a census row that disagrees with the twin's rig row
+_c, out["polish_twin"] = dw.polish_expect([8], BW.FIELD250_STEPS, bad_doc, pc, mcf, 4)
+ZID_KEYS = [[25, 4, 919], [25, 13, 919], [38, 0, 919], [38, 8, 919]]
+def pg(model, rig, steps=None, dropped=0, passed=0, fired=0, fplayer=0, row=98, rgb=(56, 72, 88), floor=2, have=True,
+       x=2921.0, z=-1830.0, srig=None):
+    s = {"why": "dressed", "from": "host", "want_model": model, "rig": rig if srig is None else srig}
+    if have:
+        s.update(steps=steps if steps is not None else [], steps_dropped=dropped, steps_passed=passed, steps_fired=fired,
+                 steps_fired_player=fplayer, light_row=row, light_rgb=list(rgb) if rgb is not None else None,
+                 light_floor=floor)
+    return St({"ui_state": "FieldHUD", "field": {"id": 250},
+               "player": {"model": model, "anim": 200, "x": x, "z": z, "control": True},
+               "netsync": {"dress": {"self": s}}})
+V, G, M = po[8], po[185], po[220]
+out["psteps"] = {"vivi": dw.judge_polish_steps(pg(8, 1, V["steps"]["steps"]), V),
+                 "garnet": dw.judge_polish_steps(pg(185, 2, G["steps"]["steps"]), G),
+                 "moogle": dw.judge_polish_steps(pg(220, 8, [], dropped=12), M),
+                 "unmapped": dw.judge_polish_steps(pg(8, 1, ZID_KEYS), V),
+                 "other_rig": dw.judge_polish_steps(pg(185, 2, V["steps"]["steps"]), G),
+                 "sound": dw.judge_polish_steps(pg(8, 1, [[a, f, 912] for a, f, _s in V["steps"]["steps"]]), V),
+                 "moogle_kept": dw.judge_polish_steps(pg(220, 8, ZID_KEYS), M),
+                 "moogle_24": dw.judge_polish_steps(pg(220, 8, [], dropped=24), M),
+                 "s140": dw.judge_polish_steps(pg(8, 1, have=False), V),
+                 "zidane_body": dw.judge_polish_steps(pg(98, -1, ZID_KEYS), V),
+                 "no_oracle": dw.judge_polish_steps(pg(8, 1, V["steps"]["steps"]), None)}
+on2 = lambda x, z: [2]
+out["plight"] = {"vivi": dw.judge_polish_light(pg(8, 1), V, on2),
+                 "moogle": dw.judge_polish_light(pg(220, 8), M, on2),
+                 "default": dw.judge_polish_light(pg(8, 1, row=65535, rgb=(104, 104, 96)), V, on2),
+                 "row_only": dw.judge_polish_light(pg(8, 1, rgb=(104, 104, 96)), V, on2),
+                 "floor0": dw.judge_polish_light(pg(8, 1, floor=0), V, lambda x, z: [0]),
+                 "kit_disagrees": dw.judge_polish_light(pg(8, 1), V, lambda x, z: [0]),
+                 "no_floor": dw.judge_polish_light(pg(8, 1, floor=-1), V, on2),
+                 "no_kit": dw.judge_polish_light(pg(8, 1), V, None),
+                 "s140": dw.judge_polish_light(pg(8, 1, have=False), V, on2),
+                 "no_oracle": dw.judge_polish_light(pg(8, 1), dict(V, light=None), on2)}
+def walk(model, rig, fired=6, fplayer=0, n=40, left=False):
+    samples = [pg(model, rig, x=2921.0 + 20 * i) for i in range(n)]
+    return {"dir": "up", "samples": samples, "left": left, "why": "a battle" if left else None,
+            "before": pg(model, rig, fired=3), "after": pg(model, rig, fired=3 + fired, fplayer=fplayer)}
+out["pwalk"] = {"vivi": dw.judge_polish_walk(walk(8, 1), V),
+                "garnet": dw.judge_polish_walk(walk(185, 2, fired=2), G),
+                "vivi_silent": dw.judge_polish_walk(walk(8, 1, fired=0), V),
+                "vivi_player": dw.judge_polish_walk(walk(8, 1, fplayer=4), V),
+                "moogle": dw.judge_polish_walk(walk(220, 8, fired=0), M),
+                "moogle_fires": dw.judge_polish_walk(walk(220, 8, fired=2), M),
+                "moogle_player": dw.judge_polish_walk(walk(220, 8, fired=0, fplayer=2), M),
+                "moogle_short": dw.judge_polish_walk(walk(220, 8, fired=0, n=10), M),
+                "moogle_left": dw.judge_polish_walk(walk(220, 8, fired=0, left=True), M),
+                "moogle_wrong_body": dw.judge_polish_walk(walk(8, 1, fired=0), M),
+                "no_bracket": dw.judge_polish_walk({"left": False, "before": None, "after": None, "why": "x"}, V),
+                "no_oracle": dw.judge_polish_walk(walk(8, 1), None)}
+class Reload:                                               # a guest whose same-dress re-load does (or does not) happen
+    def __init__(self, grow):
+        self.cold, self.grow = 3, grow
+    def warp(self, field, **kw):
+        self.cold += 1 if self.grow else 0
+    @property
+    def state(self):
+        return St({"player": {"model": 8}, "netsync": {"dress": {"self": {"why": "dressed", "attach_cold": self.cold}}}})
+out["rewarp"] = [dw.rewarp_guest(Reload(True), 8, 0.6, fresh_load=True),
+                 dw.rewarp_guest(Reload(False), 8, 0.6, fresh_load=True), dw.rewarp_guest(Reload(False), 8, 0.6)]
+NR = (False, "not reached: x")
+out["pphases"] = [dw.judge_phases([("a", (True, "ok")), ("b", (True, "ok"))]),
+                  dw.judge_phases([("a", (True, "ok")), ("b", (False, "WRONG: y"))]),
+                  dw.judge_phases([("a", (True, "ok")), ("b", NR)]), dw.judge_phases([("a", NR), ("b", (False, "WRONG"))]),
+                  dw.judge_phases([])]
 print(json.dumps(out))
 """
 
@@ -18120,7 +18255,11 @@ def test_the_g9_duo_legs_judges_read_the_wire_and_the_transport_site_and_can_fai
     seated; the moogle at 0 -- red on the s138 client rule's undressed Zidane, and on an s138 host (no mode) red naming
     that Zidane. Its calibration is exactly OLD_PREDICTED[138] (G9a, G9b, G9d, G9e, G9f; G9c green), UNPROVEN when a
     predicted red reads "not reached", none for an s139 host; PAIR seeds the host's party and sets ITS GhostAs auto and the
-    first phase's GuestSlots 2 through duo.Duo.role_extra."""
+    first phase's GuestSlots 2 through duo.Duo.role_extra. [ff9mapkit netsync s141] THE POLISH ROWS (an s141+ GUEST, keyed by
+    its stage): the oracle is the census's own twins (polish_census.expected_steps / light_color) over field 250's twelve
+    ops and mapconfig -- Vivi 571@4/14 + 419@0/9, Garnet 2086@4/15 + 2091@0/9, the moogle [] with 12 dropped, the 98 row's
+    tint per floor; G9s, G9l and G9w (a stepping rig fires +2 or more, the moogle walks SILENT) each red on the shape it
+    exists to catch and "not reached" on a body that is not the phase's dress."""
     got = _sd_child(_SG9_JUDGES)
     tp = got["tape"]
     assert {k: v[0] for k, v in tp.items()} == {
@@ -18160,11 +18299,69 @@ def test_the_g9_duo_legs_judges_read_the_wire_and_the_transport_site_and_can_fai
     assert [c[0] for c in got["cal"]] == [True, False, False, False] and "no calibration" in got["cal"][2][1]
     assert "UNPROVEN (read 'not reached'): ['S139-G9e']" in got["cal"][3][1]
     t = got["tables"]
-    assert t["checks"] == ["S139-G9a", "S139-G9b", "S139-G9c", "S139-G9d", "S139-G9e", "S139-G9f", "S140-G9t"]
+    assert t["checks"] == ["S139-G9a", "S139-G9b", "S139-G9c", "S139-G9d", "S139-G9e", "S139-G9f", "S140-G9t",
+                           "S141-G9s", "S141-G9w", "S141-G9l"]
     assert t["old"] == {"138": ["S139-G9a", "S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f"]}
+    assert t["s140_only"] == ["S140-G9t"] and t["s141_only"] == ["S141-G9s", "S141-G9w", "S141-G9l"]
     assert t["phases"] == [["S139-G9d", 2, False], ["S139-G9e", 4, True], ["S139-G9f", 0, False]]
     assert t["extra"] == {"host": {"GhostAs": "auto", "GuestSlots": "2"}} and t["has_setup"]
-    assert t["stage"] == [139, 138, None]
+    assert t["stage"] == [139, 138, None, 140, 141]           # the GUEST's stage keys G9t (s140+) and the polish (s141+)
+    # [s141] THE POLISH ORACLE: the census's own twins over field 250's twelve ops and its mapconfig -- Vivi 571@4/14 +
+    # 419@0/9, Garnet 2086@4/15 + 2091@0/9 (919 each), the moogle [] with all twelve dropped; every rig lit by the 98 row
+    # ((56, 72, 88) on 250's floor 2; the default row's (104, 104, 96)) on every walkmesh floor and 255
+    po = got["polish_oracle"]
+    assert {m: [v["name"], v["rig"]] for m, v in po.items()} == {"8": ["vivi", 1], "185": ["garnet", 2], "220": ["moogle", 8]}
+    assert po["8"]["steps"] == {"steps": [[571, 4, 919], [571, 14, 919], [419, 0, 919], [419, 9, 919]],
+                                "steps_dropped": 0, "steps_passed": 0}
+    assert po["185"]["steps"] == {"steps": [[2086, 4, 919], [2086, 15, 919], [2091, 0, 919], [2091, 9, 919]],
+                                  "steps_dropped": 0, "steps_passed": 0}
+    assert po["220"]["steps"] == {"steps": [], "steps_dropped": 12, "steps_passed": 0}
+    assert all(v["light2"] == {"s141": {"row": 98, "rgb": [56, 72, 88]}, "off": {"row": 65535, "rgb": [104, 104, 96]}}
+               and v["floors"] == ["0", "1", "2", "255", "3"] for v in po.values())
+    assert got["polish_problems"] == {} and got["polish_blind"] == [None, None]
+    assert got["polish_unknown"] == {"census 5": "no census row for model 5 (rig -1, None)"}
+    assert got["polish_twin"] == {"twin vivi": "the twin's rig row disagrees with the census: walk_step_b 14 vs 13"}
+    # G9s: green on each phase's replay; red on Zidane's keys left unmapped (the client lane's MapFootstep missing), another
+    # rig's keys, the wrong sound, the moogle KEEPING the keys, a drop count that is not one load's, an s140 guest (ABSENT);
+    # "not reached" on a body that is not the dress or no oracle
+    ps = got["psteps"]
+    assert {k: v[0] for k, v in ps.items()} == {
+        "vivi": True, "garnet": True, "moogle": True, "unmapped": False, "other_rig": False, "sound": False,
+        "moogle_kept": False, "moogle_24": False, "s140": False, "zidane_body": False, "no_oracle": False}, ps
+    assert ps["unmapped"][1].startswith("WRONG: steps (anim, frame) [(25, 4), (25, 13), (38, 0), (38, 8)]")
+    assert "want 919 on every key" in ps["sound"][1] and "steps_dropped 24 (want 12: one load's)" in ps["moogle_24"][1]
+    assert ps["s140"][1].startswith("netsync.dress.self.steps ABSENT -- an engine before s141")
+    assert ps["zidane_body"][1].startswith("not reached: the body is not the one asked for")
+    assert ps["no_oracle"][1].startswith("not reached")
+    # G9l: green on the 98 row's tint at the published floor; red on the default row, the default tint under the right row,
+    # the wrong floor's tint, a floor the kit walkmesh disagrees with (or cannot read), no floor, an s140 guest
+    pl = got["plight"]
+    assert {k: v[0] for k, v in pl.items()} == {
+        "vivi": True, "moogle": True, "default": False, "row_only": False, "floor0": False, "kit_disagrees": False,
+        "no_floor": False, "no_kit": False, "s140": False, "no_oracle": False}, pl
+    assert "light_row 65535 (want the source row 98)" in pl["default"][1]
+    assert "want the source row's tint on floor 0: [80, 96, 120]" in pl["floor0"][1]
+    assert "the two disagree" in pl["kit_disagrees"][1] and pl["s140"][1].startswith("netsync.dress.self.light_row ABSENT")
+    assert pl["no_oracle"][1].startswith("not reached")
+    # G9w: a stepping rig fires +2 or more on its own clip with steps_fired_player +0; the moogle walks SILENT (+0 / +0);
+    # "not reached" on a short walk, a taken-over hold, the wrong body, no bracket, no oracle
+    pw = got["pwalk"]
+    assert {k: v[0] for k, v in pw.items()} == {
+        "vivi": True, "garnet": True, "vivi_silent": False, "vivi_player": False, "moogle": True, "moogle_fires": False,
+        "moogle_player": False, "moogle_short": False, "moogle_left": False, "moogle_wrong_body": False,
+        "no_bracket": False, "no_oracle": False}, pw
+    assert "WRONG: a drop rig fired a footfall" in pw["moogle_fires"][1]
+    assert all(pw[k][1].startswith("not reached") for k in ("moogle_short", "moogle_left", "moogle_wrong_body",
+                                                             "no_bracket", "no_oracle"))
+    # the first phase's SAME-dress re-load is witnessed by attach_cold growing (the dress alone is worn before and after);
+    # without fresh_load the s140 wait is the dress alone
+    rw = got["rewarp"]
+    assert [r[0] for r in rw] == [True, False, True] and "(attach_cold 3 -> 3: want it grown)" in rw[1][1], rw
+    # one row over the phases: green only when every phase is; "not reached" when every red phase is, or none judged
+    ph = got["pphases"]
+    assert [p[0] for p in ph] == [True, False, False, False, False]
+    assert not ph[1][1].startswith("not reached") and ph[2][1].startswith("not reached: ") and "RED at ['b']" in ph[2][1]
+    assert not ph[3][1].startswith("not reached") and ph[4][1].startswith("not reached")
     doc = " ".join((SCENARIOS / "coop_dress_wire.py").read_text(encoding="utf-8").split())
     for frag in ("cannot MIX DLLs -- bites only box B19", "no production code reads section 8 in s139",
                  "py tools/harness/duo.py studies/test-harness/scenarios/coop_dress_wire.py", "OLD_PREDICTED",
@@ -18198,6 +18395,18 @@ def oracle(game, models, prefabs=()):
         trees[m] = {"geo": MODELS[m], "transforms": list(t), "renderers": list(r)}
     return {m: {"geo": MODELS[m], "body": str(m)} for m in models}, dict(ANIMATIONS), trees, {}
 dw._oracle = oracle
+# [s141] the polish oracle: the scenario's own polish_expect (the census twins) over battlewire's copies of field 250's ops
+# and mapconfig, the kit walkmesh's floor under the spawn (2); the guest's walk is the stub duo's
+from ff9mapkit import mapconfig as MC
+m_ = BW.FIELD250_MCF
+MCF = MC.MapConfig(attr=0, version=0, bg_no=0, light_use=len(m_["lights"]), char_use=len(m_["chars"]),
+                   lights=tuple(MC.MapLight(t, 0, 0, 0, tuple(c), tuple(f)) for t, c, f in m_["lights"]),
+                   chars=tuple(MC.MapChar(g, si, sr, tuple(c), 0) for g, si, sr, c in m_["chars"]))
+def polish_oracle(game, models, regs=None):
+    got, prob = dw.polish_expect(models, BW.FIELD250_STEPS, dw.sd.polish_census_doc(), dw.sd._polish_census(), MCF, 4)
+    return got, (lambda x, z: [2]), prob
+dw._polish_oracle = polish_oracle
+dw.walk_guest = lambda g: g.duo.walk()
 def seat(c, i):
     return (bytes((1, c, i, 10, 0)) + bytes(16) + bytes(10) + bytes((1,)) + b"P" + bytes(8) + bytes(4) + bytes(4)
             + bytes(8) + bytes((0, 0)))
@@ -18225,8 +18434,12 @@ class Duo:
         self.mode, self.run_dir, self.slots, self.strict = mode, run_dir, dw.HOST_GUEST_SLOTS, True
         self.rows, self.notes, self.steps, self.warps = [], [], [], []
         self.s139 = not mode.startswith("s138")
-        self.s140 = mode.startswith("s140")
+        self.s140 = mode.startswith(("s140", "s141"))
+        self.s141 = mode.startswith("s141")
         self.gmodel = self.dress_model() if self.s140 else 98      # an s140 guest armed at the pairing's field load
+        self.fired = 0                                              # [s141] steps_fired, per field load
+        self.cold = 1 if self.s140 else 0                           # attach_cold: per process, +1 per dressed load
+        self.walks = []
         self.tap = CP.TapeWriter(run_dir / "relay.f9tape", mode="test", flush_every=0.0)
         self.host, self.guest = Game(self, "host"), Game(self, "guest")
         self.feed()
@@ -18236,8 +18449,33 @@ class Duo:
         self.warps.append((role, int(field)))
         if role == "guest" and self.s140 and self.mode != "s140_stale":
             self.gmodel = self.dress_model()                        # the re-arm at the field load
+        if role == "guest":
+            self.fired = 0                                          # every s141 counter is per field load
+            self.cold += 1 if self.s140 else 0
     def ganim(self):
         return 200 if self.gmodel == 98 else BW.RIGS[BW.rig_for_model(self.gmodel)][1]
+    def table(self):
+        # [s141] the guest's own footstep table after its load: field 250's twelve ops through the engine twin's MapFootstep
+        # (an engine whose client lane never maps -- s141_unmapped -- registers Zidane's keys as read)
+        return BW.replay_steps(BW.rig_for_model(self.gmodel), BW.FIELD250_STEPS,
+                               map_footstep=self.mode != "s141_unmapped", polish=True)
+    def polish(self):
+        rep = self.table()
+        lit = BW.mcf_light_color(BW.FIELD250_MCF, self.gmodel, 2, 98, self.mode != "s141_light_default")
+        return {"steps": rep["steps"], "steps_dropped": rep["steps_dropped"], "steps_passed": rep["steps_passed"],
+                "steps_fired": self.fired, "steps_fired_player": 0, "light_row": lit["row"], "light_rgb": lit["rgb"],
+                "light_floor": 2}
+    def walk(self):
+        # FF9Snd's match: a footfall fires where the body's PLAYING clip (the rig's own walk / run) holds a registered key
+        before = St(self.doc("guest"))
+        row = BW.rig_row(BW.rig_for_model(self.gmodel))
+        plays = {row["walk"], row["run"]} if row else {25, 38}
+        if any(s[0] in plays for s in self.table()["steps"]) and self.mode != "s141_fired_lost":
+            self.fired += 6
+        samples = [St(self.doc("guest", x=2921.0 + 20.0 * i)) for i in range(40)]
+        self.walks.append(self.gmodel)
+        return {"dir": "up", "samples": samples, "left": False, "why": None, "before": before,
+                "after": St(self.doc("guest"))}
     def feed(self, n=9):
         body = BW.host_dress_section("auto", self.slots, "host", False, PARTY) if self.s139 else None
         for _ in range(n):
@@ -18257,14 +18495,19 @@ class Duo:
         self.rows.append([cid, bool(ok), detail[:700]])
     def note(self, msg):
         self.notes.append(msg)
-    def doc(self, role):
+    def doc(self, role, x=2921.0):
         if role == "guest":
             dress = {"ghost": {"model": -1}, "party": [0, -1, -1, -1]}
             if self.s139:
                 dress.update(codec="ok", mirror_party=list(PARTY))
             if self.s140:
-                dress["self"] = {"why": "dressed", "from": "host", "want_model": self.gmodel}
-            return {"ui_state": "FieldHUD", "player": {"model": self.gmodel, "anim": self.ganim(), "body": str(self.gmodel)},
+                dress["self"] = {"why": "dressed", "from": "host", "want_model": self.gmodel,
+                                 "rig": BW.rig_for_model(self.gmodel), "attach_cold": self.cold}
+            if self.s141:
+                dress["self"].update(self.polish())
+            return {"ui_state": "FieldHUD", "field": {"id": 250},
+                    "player": {"model": self.gmodel, "anim": self.ganim(), "body": str(self.gmodel), "x": x, "z": -1830.0,
+                               "control": True},
                     "netsync": {"session": {"mirroring": True, "ghost": True}, "dress": dress}}
         chars = BW.live_slot_chars(PARTY)
         old = self.mode in ("client_rule", "s138", "s138_no_echo")
@@ -18290,13 +18533,15 @@ class Duo:
         return {"ui_state": "FieldHUD", "scenario": 0, "player": {"model": 98, "anim": 200},
                 "netsync": {"session": {"ghost": True}, "battle": {"host": {"guest_slots": self.slots}}, "dress": dress}}
 out = {}
-for mode in ("s139", "mask_dropped", "client_rule", "no_echo", "s138", "s138_no_echo", "s140", "s140_stale", "s140_eager"):
+for mode in ("s139", "mask_dropped", "client_rule", "no_echo", "s138", "s138_no_echo", "s140", "s140_stale", "s140_eager",
+             "s141", "s141_unmapped", "s141_fired_lost", "s141_light_default", "s141_no_echo"):
     run_dir = pathlib.Path(tempfile.mkdtemp())
     d = Duo(mode, run_dir)
     dw.cb.CALIBRATE = mode.startswith("s138")
     dw.run_duo(d)
     d.tap.close()
-    out[mode] = {"rows": d.rows, "steps": d.steps, "strict": d.strict, "warps": d.warps}
+    out[mode] = {"rows": d.rows, "steps": d.steps, "strict": d.strict, "warps": d.warps, "walks": d.walks,
+                 "notes": d.notes}
 print(json.dumps(out))
 """
 
@@ -18309,7 +18554,11 @@ def test_the_g9_duo_leg_steps_its_phases_and_reads_the_tap_last_against_a_stub_d
     site's mask line dropped -> G9e only; the whole s138 client rule at the transport site (Garnet both hairstyles, a
     spectator undressed) -> G9e and G9f, the tap still green (the producer is HostDressSection's); a step the host never
     echoes -> G9e / G9f "not reached", the tap judged over the phase that ran. On an s138 host COOP_CALIBRATE=1 is green on
-    exactly OLD_PREDICTED -- and red, UNPROVEN, when the predicted phase reds read "not reached". Strict mode is restored."""
+    exactly OLD_PREDICTED -- and red, UNPROVEN, when the predicted phase reds read "not reached". Strict mode is restored.
+    [ff9mapkit netsync s141] An s141 GUEST (it publishes `netsync.dress.self.steps`; its witnesses computed by battlewire's
+    engine twins, the oracle by the census's) adds G9s / G9w / G9l, all green; s141_unmapped (the client lane never maps a
+    footstep) reds G9s + G9w, s141_fired_lost G9w alone, s141_light_default G9l alone, s141_no_echo the stepped phases
+    "not reached"; no s139 / s140 guest runs them."""
     got = _sd_child(_SG9_RUN, timeout=600.0)
 
     def red(mode):
@@ -18355,6 +18604,40 @@ def test_the_g9_duo_leg_steps_its_phases_and_reads_the_tap_last_against_a_stub_d
     stale = {r[0]: r[2] for r in got["s140_stale"]["rows"]}
     assert "is not this phase's section-8 dress 185" in stale["S139-G9e"], stale["S139-G9e"]
     assert red("s140_eager") == ["S140-G9t"], red("s140_eager")
+    # [s141] AN s141 GUEST'S POLISH off the host's section 8, keyed by the GUEST's stage: an s140 guest (no `steps`) runs
+    # none of the polish rows (and keeps its two re-loads); an s141 guest runs G9s / G9w / G9l after G9t (the tap still
+    # last), each phase judged on a fresh load at entrance 0 -- the first phase's an extra re-load in the same dress,
+    # witnessed by attach_cold -- and a guest walk: Vivi, Garnet, the moogle (silent)
+    assert not any(r[0].startswith("S141") for m in ("s139", "s140", "s140_stale", "s140_eager") for r in got[m]["rows"])
+    rows141 = got["s141"]["rows"]
+    assert [r[0] for r in rows141] == ["S139-G9b", "S139-G9d", "S139-G9e", "S139-G9f", "S139-G9c", "S140-G9t",
+                                       "S141-G9s", "S141-G9w", "S141-G9l", "S139-G9a"], rows141
+    assert red("s141") == [], [r for r in rows141 if not r[1]]
+    assert got["s141"]["warps"] == [["guest", 250]] * 3 and got["s141"]["walks"] == [8, 185, 220]
+    assert not any("G9 [s14" in n for n in got["s141"]["notes"]), got["s141"]["notes"]     # every re-load witnessed
+    d141 = {r[0]: r[2] for r in rows141}
+    assert d141["S141-G9s"].startswith("GuestSlots 2: steps [[571, 4, 919], [571, 14, 919], [419, 0, 919], [419, 9, 919]]")
+    assert "GuestSlots 4: steps [[2086, 4, 919], [2086, 15, 919], [2091, 0, 919], [2091, 9, 919]]" in d141["S141-G9s"]
+    assert "GuestSlots 0: steps [] dropped 12 passed 0" in d141["S141-G9s"], d141["S141-G9s"]
+    assert d141["S141-G9w"].startswith("GuestSlots 2: steps_fired +6, steps_fired_player +0") \
+        and "GuestSlots 0: steps_fired +0, steps_fired_player +0 across the walk (want +0 / +0: silent)" in d141["S141-G9w"]
+    assert d141["S141-G9l"].startswith("GuestSlots 2: light_row 98 light_rgb [56, 72, 88] on light_floor 2")
+    # each polish row has its predicted-red mode, turning exactly its rows red -- the client lane's MapFootstep missing
+    # (Zidane's keys registered as read: no table and no footfall on the rig's clip; the moogle's walk stays silent), the
+    # fired count lost (the table right), the light on the default row; a step never echoed leaves the stepped phases
+    # "not reached" (the rows red, never a pass over the one phase that ran)
+    assert red("s141_unmapped") == ["S141-G9s", "S141-G9w"], red("s141_unmapped")
+    um = {r[0]: r[2] for r in got["s141_unmapped"]["rows"]}
+    assert um["S141-G9s"].startswith("GuestSlots 2: WRONG: steps (anim, frame) [(25, 4), (25, 13), (38, 0), (38, 8)]")
+    assert um["S141-G9w"].endswith("RED at ['GuestSlots 2', 'GuestSlots 4']"), um["S141-G9w"]
+    assert red("s141_fired_lost") == ["S141-G9w"], red("s141_fired_lost")
+    assert red("s141_light_default") == ["S141-G9l"], red("s141_light_default")
+    assert {r[0]: r[2] for r in got["s141_light_default"]["rows"]}["S141-G9l"].startswith(
+        "GuestSlots 2: WRONG: light_row 65535 (want the source row 98)")
+    assert red("s141_no_echo") == ["S139-G9e", "S139-G9f", "S140-G9t", "S141-G9l", "S141-G9s", "S141-G9w"]
+    ne141 = {r[0]: r[2] for r in got["s141_no_echo"]["rows"]}
+    assert all(ne141[c].startswith("not reached: GuestSlots 2: ") for c in ("S141-G9s", "S141-G9w", "S141-G9l"))
+    assert got["s141_no_echo"]["walks"] == [8] and got["s141_no_echo"]["warps"] == [["guest", 250]]
 
 
 # =========================================================================================================== s140
@@ -18381,24 +18664,37 @@ def _s140_added(file_name: str) -> list:
     return [t for _h, k, t in _new_side(file_name, _patch_bytes("s140")) if k == "+"]
 
 
+def _s140_block(file_name: str, start: str, stop: str) -> list:
+    """[ff9mapkit netsync s141] One block AS THE s140 PATCH WROTE IT (its new side, ONE hunk): from the line starting
+    ``start`` up to the first line equal to ``stop`` -- the frozen read for a block s141 rewrote in a hunk of its own (the
+    live read, :func:`_cs_block`, refuses a block whose lines a later patch removed)."""
+    new = _new_side(file_name, _patch_bytes("s140"))
+    i = next(k for k, (_h, _kk, t) in enumerate(new) if t.startswith(start))
+    j = next(k for k in range(i, len(new)) if new[k][2] == stop and new[k][0] == new[i][0])
+    assert all(h == new[i][0] for h, _k, _t in new[i:j]), (file_name, start)
+    return [t for _h, _k, t in new[i:j]]
+
+
 def test_the_s140_catch_line_closes_dress_with_self_at_its_sentinels():
     """THE CATCH-LITERAL RE-PIN for s140: the live line (still ONE line of two literals around NetsyncF3Retired) carries
     `rig_idle_frames` as thirteen -1s and closes `dress` with `self` -- AppendDressSelf's keys at their sentinels, `law_off`
     a fixed sub-object of four falses (audit 3.1's table) -- after `mirror_party`; it is s140's own line (s139's with
     exactly those changes: :func:`_dress_through`). AppendDress appends AppendDressSelf LAST, in EVERY role; AppendDressSelf
     writes BW.DRESS_SELF_SENTINELS' keys in order, each through its own Try and a NetSyncSelfDress getter; the harness
-    protocol stays 5."""
-    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    protocol stays 5. [ff9mapkit netsync s141] the line AS s140 WROTE IT (its own patch, frozen): s141 rewrote it (`ghost`
+    gains `light_row`, `self` the polish keys -- its test pins the live one)."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', [_patch_bytes("s140")])
     assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
     _a, b = _literals(catch[0])
     sentinels = json.dumps(BW.DRESS_SELF_SENTINELS, separators=(",", ":")).replace('"', '\\"')
     assert b.endswith('\\"rig_idle_frames\\":[' + ",".join(["-1"] * 13) + '],\\"mirror_party\\":null,\\"self\\":'
                       + sentinels + "}}"), b[-700:]
     nothing = _agent_netsync_nothing()[0]
-    assert _catch_doc_in("s140") == nothing and nothing["dress"] == BW.DRESS_SENTINELS
-    assert list(nothing["dress"]) == [k for row in BW.DRESS_KEYS_BY_RUNG.values() for k in row] == \
+    s140 = _catch_doc_in("s140")
+    assert s140 == _dress_through(nothing, "dressself") and nothing["dress"] == BW.DRESS_SENTINELS
+    assert list(s140["dress"]) == [k for row in BW.DRESS_KEYS_BY_RUNG.values() for k in row] == \
         ["ghost", "party", "codec", "rig_idle_frames", "mirror_party", "self"]
-    assert nothing["dress"]["self"] == BW.DRESS_SELF_SENTINELS and list(nothing["dress"]["self"]) == list(BW.DRESS_SELF_KEYS)
+    assert s140["dress"]["self"] == BW.DRESS_SELF_SENTINELS and list(s140["dress"]["self"]) == list(BW.DRESS_SELF_KEYS)
     assert _dress_through(nothing, "dresshost") == _catch_doc_in("s139")
     # AppendDressSelf, read off the live stack: its keys (law_off's four inside its braces) in order, each through Try
     body = _cs_block("HarnessAgent.cs", "private static void AppendDressSelf(StringBuilder sb)", stop="}")
@@ -18450,7 +18746,10 @@ def test_the_dressself_rung_is_s140s_and_its_key_is_self():
     assert FG.netsync_subverbs(FG.caps_through("dressself")) == FG.netsync_subverbs(S139_CAPS_)   # no new sub-verb
     assert _subverbs_in("s139") == _agent_subverbs()            # ...and the agent's list is s139's
     # the op-capability key law (audit 3.1's table for `self` / `gate`, O6's `law`): a key the patch added
-    for op, (attr, key, patch, _what) in Session.NETSYNC_SELFDRESS_OP_CAPS.items():
+    # ([ff9mapkit netsync s141] s141's `polish` rides its own rung: test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self)
+    s140_ops = {op: v for op, v in Session.NETSYNC_SELFDRESS_OP_CAPS.items() if v[2] == "s140"}
+    assert set(s140_ops) == set(BW.SELFDRESS_SELF_OPS)
+    for op, (attr, key, patch, _what) in s140_ops.items():
         assert (attr, key, patch) == ("coop_dress_self", "netsync.dress.self", "s140"), op
         assert key[len("netsync.dress."):] in FG.NETSYNC_DRESS_CAP_KEYS["dressself"]
 
@@ -18460,7 +18759,9 @@ def test_state_reads_the_self_dress_absent_as_cannot_never_as_nothing():
     sentinels and True (a null string ""); a published block reads its values (`law_off` copied), a mistyped value None."""
     old = State({"frame": 1, "netsync": _catch_doc_in("s139")})
     live = State({"frame": 1, "netsync": _catch_doc_in("s140")})
-    selfs = {p: n for p, n in State.NETSYNC_DRESS_ACCESSORS.items() if p == "self" or p.startswith("self.")}
+    # [ff9mapkit netsync s141] s140's OWN `self` accessors (the polish keys' are s141's: their own test)
+    selfs = {p: n for p, n in State.NETSYNC_DRESS_ACCESSORS.items()
+             if p == "self" or (p.startswith("self.") and p.split(".")[1] in BW.DRESS_SELF_KEYS)}
     assert len(selfs) == len(BW.DRESS_SELF_KEYS) + len(BW.DRESS_SELF_LAW_OFF_KEYS) + 1      # + the two `_block`s - law_off
     for path, name in selfs.items():
         assert getattr(old, name) is None, name
@@ -18488,10 +18789,12 @@ def test_the_s140_selfdress_ops_are_the_engines_in_its_order():
     TrySetBenchSelf: `off` takes no mask, `auto` a mask 0-15, a name its NameToRig row), `gate 1|0`, `law <name> on|off`
     (n == 4, then TrySetLaw's name); the unknown-op list is s140's (no `polish`). NetSyncSelfDress' SelfNames ARE NameToRig's
     keys in order (BW.SELF_NAMES == the driver's == coop.GHOST_NAMES); SelfUsage / LawUsage / the gate's and the two mask
-    refusals are the driver's and battlewire's words; LawNames and the law bits are BW's."""
+    refusals are the driver's and battlewire's words; LawNames and the law bits are BW's. [ff9mapkit netsync s141] the
+    method AS s140 WROTE IT (its own patch): s141 rewrote its unknown-op line (+ `polish`) and added the `polish` case --
+    test_the_s141_polish_op_is_the_engines_in_its_order pins the live one."""
     from ff9mapkit import coop
-    body = _cs_block("NetSyncClient.cs", "public static Boolean HarnessSelfDress(String[] args, out String why)",
-                     stop="internal static void HarnessReleaseDress(String cause)")
+    body = _s140_block("NetSyncClient.cs", "public static Boolean HarnessSelfDress(String[] args, out String why)",
+                       stop="internal static void HarnessReleaseDress(String cause)")
     text = " ".join(_strip_comment(t) for t in body)
     i_self, i_gate, i_law = text.index('case "self":'), text.index('case "gate":'), text.index('case "law":')
     assert text.index("if (!IsSelfTestRole)") < text.index("switch (op)") < i_self < i_gate < i_law
@@ -18611,13 +18914,15 @@ def test_reset_and_every_release_path_free_every_s140_lever(game):
     HarnessSelfTest(false): `reset`, `selftest 0`, disarm) and `selfdress clear` -- so each path frees `self`, `gate` and
     every `law` lever (and clears a BENCH-made arm: `from` null, never a dressed body), its line once per path that held
     one; the `self_release_keeps` fault (a stand-in whose harness release skips it) keeps them through `reset` and `selftest
-    0` -- `clear` still frees them. On the stack: the call, the statics' resets, the line, and the bench-only Clear."""
+    0` -- `clear` still frees them. On the stack: the call, the statics' resets, the line, and the bench-only Clear.
+    [ff9mapkit netsync s141] the default stand-in is s141's: ReleaseBench's ONE line names `polish` too (s140's own line,
+    off its patch, did not)."""
     for path in ("reset", "selftest0", "clear"):
         for fault in ((), ("self_release_keeps",)):
             fake = FakeGame(game)
             fake.dress_faults = set(fault)
             cause = "selfdress clear" if path == "clear" else "released with the harness"
-            line = f"selfdress self / gate / law levers released ({cause})"
+            line = f"{BW.SELF_RELEASE_LINE}{cause})"
             was = len(_mlog_lines(fake, line))
             with session(game, fake) as g:
                 g.newgame(settle=0)
@@ -18647,8 +18952,10 @@ def test_reset_and_every_release_path_free_every_s140_lever(game):
     rel = " ".join(_cs_block("NetSyncSelfDress.cs", "internal static void ReleaseBench(String cause)", stop="}"))
     for frag in ("_benchSelf = null;", "_benchSelfMask = -1;", "_benchGateOff = false;", "_lawOff = 0;",
                  'if (From == "bench")', "Clear(cause);",
-                 'Log.Message("[NetSync] harness: selfdress self / gate / law levers released (" + cause + ")");'):
+                 f'Log.Message("[NetSync] harness: {BW.SELF_RELEASE_LINE}" + cause + ")");'):
         assert frag in rel, frag
+    assert any(f'Log.Message("[NetSync] harness: {BW.SELF_RELEASE_LINE_S140}" + cause + ")");' in t
+               for t in _s140_added("NetSyncSelfDress.cs"))             # [ff9mapkit netsync s141] s140's own line
     client = " ".join(_stack_text("NetSyncClient.cs"))
     assert "NetSyncSelfDress.ReleaseBench(cause);" in client and 'HarnessReleaseDress("selfdress clear");' in client
     assert 'NetSyncClient.HarnessReleaseDress("released with the harness");' in " ".join(_stack_text("NetSyncBattle.cs"))
@@ -18662,7 +18969,7 @@ def test_the_s140_rig_table_and_maps_are_the_engines():
     DressCharIdValid ARE NetSyncVisitor's bodies, line for line, and hold over every CharacterId -2..255; ResolveAutoCore
     maps the party through its `charToRig` (never the CharacterId as a rig); DressCharId through RigToChar; the client's
     s138 rule is unchanged (its MainRigCount cap, by party and by name)."""
-    rows = [tuple(int(x) for x in m.group(1).split(",")) for t in net_lines("NetSyncVisitor.cs", r"new Rig\(")
+    rows = [tuple(int(x) for x in m.group(1).split(",")) for t in net_lines_ordered("NetSyncVisitor.cs", r"new Rig\(")
             for m in [re.match(r"new Rig\(([-\d,\s]+)\),", t)] if m]
     assert rows == list(BW.RIGS) and len(rows) == BW.RIG_ROW_COUNT == 13, rows
     assert BW.RIG_NAMES == ("zidane", "vivi", "garnet", "steiner", "freya", "quina", "eiko", "amarant", "moogle", "cinna",
@@ -19629,7 +19936,9 @@ def test_an_s139_stand_in_publishes_no_s140_key_and_the_dressself_rung_every_one
             if has:
                 assert list(d) == ["ghost", "party", "codec", "rig_idle_frames", "mirror_party", "self"]
                 assert st.coop_dress_self and st.coop_dress_rig_idle_frames == RIG_IDLE_FRAMES_CENSUS_13
-                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) and st.coop_dress_self_selftest == "ok"
+                # [ff9mapkit netsync s141] the default stand-in is s141's: s140's keys, then the polish keys
+                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) + list(BW.DRESS_POLISH_KEYS)
+                assert st.coop_dress_self_selftest == "ok"
                 assert _mlog_lines(fake, "dress codec selftest: OK (38 rows)")
                 assert _mlog_lines(fake, "self-dress selftest: OK (29 rows)")
                 assert _mlog_lines(fake, "dress rig idle frames: 60,45,30,60,50,40,30,45,72,40,30,40,45 (13 of 13 measured)")
@@ -19645,8 +19954,12 @@ def test_an_s139_stand_in_publishes_no_s140_key_and_the_dressself_rung_every_one
                   '"through the real encoder and reader)"', '"[NetSync] harness: selfdress gate "',
                   '"0 -- CALIBRATION: the player gate is skipped (an NPC Zidane dresses too)"',
                   '"[NetSync] harness: selfdress law "', '" OFF -- CALIBRATION: that s140 law is switched off "',
-                  '"on this selftest role"', '"[NetSync] harness: selfdress self / gate / law levers released ("'):
+                  '"on this selftest role"'):
         assert any(piece in ln for ln in sd), piece
+    # [ff9mapkit netsync s141] ReleaseBench's line AS s140 WROTE IT (its own patch); s141 rewrote it with `polish`
+    assert any('"[NetSync] harness: selfdress self / gate / law levers released ("' in ln
+               for ln in _s140_added("NetSyncSelfDress.cs"))
+    assert any(f'"[NetSync] harness: {BW.SELF_RELEASE_LINE}"' in ln for ln in sd)
 
 
 def test_the_dressself_stand_in_arms_at_the_field_load_only(game):
@@ -20099,7 +20412,8 @@ def pred(stage, legs, m="old"):
     r, mb, w = sd.predicted(stage, legs, m)
     return [None if r is None else list(r), list(mb), w]
 s140 = ("S", "W", "X", "N", "T")
-allg = tuple(sd.LEGS)
+# [ff9mapkit netsync s141] the legs an s140 engine's run knew (I .. T): leg F's own test pins the grown registry
+allg = tuple(k for k in sd.LEGS if sd.LEGS[k]["patch"] <= 140)
 out = {"legs": {k: {"patch": v["patch"], "steps": v["steps"], "pre": list(v["pre"]), "oracle": list(v["oracle"]),
                     "oracle_extra": v["oracle_extra"], "preflight": v.get("preflight"), "checks": list(v["checks"]),
                     "old": {str(s): [list(r), list(m)] for s, (r, m) in v["old"].items()},
@@ -20153,7 +20467,7 @@ def test_the_s140_legs_tables_are_its_docstring():
     acceptance, the RUN line of a lever and what is not proven."""
     got = _sd_child(_SS_TABLES)
     S, W, X, N, T = S140_S, S140_W, S140_X, S140_N, S140_T
-    assert got["order"] == ["I", "G", "S", "W", "X", "N", "T"]
+    assert got["order"] == ["I", "G", "S", "W", "X", "N", "T", "F"]      # [ff9mapkit netsync s141] + leg F (its own test)
     assert got["phases"] == ["stock", "seed", "seeded", "bench", "self", "close"]
     assert got["s140_checks"] == got["old_predicted"] == S140_BENCH_CHECKS
     assert got["lever_predicted"] == S140_LEVER_REDS
@@ -20186,7 +20500,7 @@ def test_the_s140_legs_tables_are_its_docstring():
     assert got["cat_pf"] == [False, False, True, True, True, False]
     assert set(S140_BENCH_CHECKS) | {"S140-PF", "S139-G7e", "S138-CAL"} <= set(got["cat"])
     assert got["pre"] == [30605, 30602, 30606] and got["oracle"] == []
-    assert got["sel"] == [["S", "W", "X", "N", "T"], ["I", "G", "S"], ["T"], ["I", "G", "S", "W", "X", "N", "T"]]
+    assert got["sel"] == [["S", "W", "X", "N", "T"], ["I", "G", "S"], ["T"], ["I", "G", "S", "W", "X", "N", "T", "F"]]
     assert got["sel_bad"].startswith("COOP_DRESS_LEGS names ['Q']")
     assert got["consts"] == [30602, 30606, "freya", "moogle", 2, "blank", "garnet", "moogle", list(BW.RIG_NAMES),
                              "self-off", "gate-0", {"law-bframe": "bframe", "law-attach": "attach", "law-alias": "alias",
@@ -20724,6 +21038,9 @@ def build(mut=""):
     if "jwrong" in m:
         jrows[0] = O.set_jump_animation(sf.ANIM_J - 1, sf.J_JUMP0, sf.J_JUMP1)
     jfun = [] if "noJ" in m else [(sf.J_TAG, b"".join(jrows))]
+    # [ff9mapkit netsync s141] the player's F2d function (field 2930's RunModelCode(19, 190, 4, 0)); "f2d_203" another id
+    f2d = sf.f2d_body() if "f2d_203" not in m else sf.f2d_body().replace(bytes.fromhex("13 be 00"), bytes.fromhex("13 cb 00"))
+    jfun += [] if "noF2d" in m else [(sf.F2D_TAG, f2d)]
     # T3 = the contract's own builder (what the seat writes); "bound" swaps 2705's bound for one id off
     t3 = sf.t3_body(*ids)
     if "bound" in m:
@@ -20747,7 +21064,14 @@ def build(mut=""):
         drop(sf.glob_set(sf.WEDGED_T1, 1))
     if "fewmoves" in m:
         drop(O.ENABLE_MOVE)
+    if "noF5" in m:
+        drop(O.encode(sf.OP_MESH_HIDE, sf.CONTROL_UID, sf.F5_MESH))
+    if "noF2dCall" in m:
+        drop(O.run_script(sf.SCRIPT_LEVEL, sf.CONTROL_UID, sf.F2D_TAG))
     caller = b"".join(ins)
+    if "s140_caller" in m:
+        # [ff9mapkit netsync s141] the s140 seat's caller, byte for byte: no F5 / F2d polls, bits or conductors
+        caller = sf.caller_body("s140")
     if "caller_flat" in m:
         # the pre-fix synthetic caller: every conductor / escape instruction present, in a flat list with no control flow
         caller = b"".join([w for _l, w in sf._expected_caller_ops()] + [w for _l, w in sf._expected_caller_escape()] +
@@ -20786,11 +21110,16 @@ def test_the_s140_bench_preflight_fails_closed():
     J on another clip, a wedge write missing, an EnableMove short -- and on the two shapes the loose rows used to pass: a
     HOLLOW T3 (2705's setters, its bound and a back edge, but no lane, no T3_LOOP / T3_END, no restore setters) and a FLAT
     caller (every conductor and escape instruction present, no control flow), plus a player Init with no run setter (T3's
-    restore then has nothing to be checked against)."""
+    restore then has nothing to be checked against). [ff9mapkit netsync s141] And the F5 / F2d reds: a caller without F5's
+    HideObject(250, 1) names that conductor, a caller without F2d's RunScript(2, 250, 51) names it, a player entry with no
+    F2d function (or one running RunModelCode(19, 203, ..), not 2930's 190) names F2D, and THE STALE SEAT -- the s140
+    caller byte for byte (_selfdress_field.caller_body("s140"): no F5 / F2d polls, bits or conductors) -- reads STALE
+    naming the deploy (ahead of the F2D row), so S140-PF refuses an s140-seated 30606 instead of judging F5 / F2d on it."""
     cases = {"clean": "", "absent": "absent", "garbage": "garbage", "order": "order", "nocaller": "nocaller",
              "twin_cc": "twin_cc", "bound": "bound", "noX": "noX", "late_unguarded": "late_unguarded", "noJ": "noJ",
              "jwrong": "jwrong", "noescape": "noescape", "fewmoves": "fewmoves", "t3_hollow": "t3_hollow",
-             "caller_flat": "caller_flat", "noids": "noids"}
+             "caller_flat": "caller_flat", "noids": "noids", "noF5": "noF5", "s140_caller": "s140_caller",
+             "s140_seat": "s140_caller,noF2d", "noF2d": "noF2d", "f2d_203": "f2d_203", "noF2dCall": "noF2dCall"}
     got = _sd_child(_SS_PREFLIGHT, {"cases": cases})
     assert got["clean"][0] is True and "every preflight row holds" in got["clean"][1] and \
         "twin InitObject(2) at Main_Init+" in got["clean"][1], got["clean"]
@@ -20807,6 +21136,86 @@ def test_the_s140_bench_preflight_fails_closed():
     assert "CALLER: entry 5's tag-0 body is not the bench's caller_body() byte for byte" in got["caller_flat"][1], \
         got["caller_flat"]
     assert "T3: the player entry 1's Init lacks an immediate" in got["noids"][1], got["noids"]
+    assert "CALLER: missing the conductor instruction F5: HideObject(250, 1) (3a 00 fa 01)" in got["noF5"][1], got["noF5"]
+    for k in ("s140_caller", "s140_seat"):
+        assert "CALLER: entry 5 is the s140 seat byte for byte (no f5h, f5s, f2d conductors)" in got[k][1] and \
+            "STALE" in got[k][1] and "selfdress_bench.py deploy" in got[k][1], got[k]
+    assert "F2D: the player entry 1 has no function 51" in got["noF2d"][1], got["noF2d"]
+    assert "F2D: function 51 is" in got["f2d_203"][1] and "RunModelCode(19, 190, 4, 0)" in got["f2d_203"][1], got["f2d_203"]
+    assert "CALLER: missing the conductor instruction F2D: RunScript(2, 250, F2D_TAG) (12 00 02 fa 33)" in \
+        got["noF2dCall"][1], got["noF2dCall"]
+
+
+def test_the_s141_f5_conductors_ride_the_bench_contract_and_its_toml():
+    """[ff9mapkit netsync s141] UNGATED (no template: it holds in a worktree too): leg F's conductors on the bench field
+    30606. F5's four bits sit right after the s140 bits (TRIG_F5H / TRIG_F5S / DONE_F5H / DONE_F5S = 13224-13227), F2d's
+    four right after them (TRIG_F2D / DONE_F2D / WEDGED_F2D / F2D_END = 13228-13231), inside the safe band and the bench's
+    13200-13239 window, and the toml declares them (toml_flag_problems() == []) -- a toml without them names each one (the
+    check can fail). The s141 caller zeroes all eight at load, polls each F5 / F2d trigger once, and runs each mesh op
+    exactly once between its TRIG clear and DONE set, in field 1403's op form (Gargant_Loop's `HideObject( 1, 1 )` /
+    `ShowObject( 1, 1 )`: 0x3A / 0x39, argFlag 0, an immediate uid, mesh 1) on uid 250; F2d's RunScript(2, 250, 51) into
+    the PLAYER's function (field 2930's RunModelCode( 19, 190, 4, 0 ) verbatim -- 88 00 13 be 00 04 00 00 00 -- then
+    F2D_END, RET) polled under its own bound F2D_LIMIT to DONE_F2D / WEDGED_F2D; none holds DisableMove. The s140 stage is
+    the s141 caller MINUS exactly those instructions: every other conductor's bytes are the same (jump offsets aside), and
+    the s140 seat is what the preflight's STALE row reads."""
+    import tomllib
+    from collections import Counter
+    from ff9mapkit.eb import disasm as D, opcodes as O
+    sf = _sf()
+    f5 = (sf.TRIG_F5H, sf.TRIG_F5S, sf.DONE_F5H, sf.DONE_F5S)
+    f2d = (sf.TRIG_F2D, sf.DONE_F2D, sf.WEDGED_F2D, sf.F2D_END)
+    assert f5 == (13224, 13225, 13226, 13227) and f2d == (13228, 13229, 13230, 13231)
+    assert max(b for b in sf.ALL_FLAGS if b not in f5 + f2d) == 13223
+    assert set(f5 + f2d) <= set(sf.IO_BITS) and set(f5 + f2d) <= set(sf.ALL_FLAGS) and max(sf.ALL_FLAGS) < 13240
+    assert (sf.TRIGGERS["f5h"], sf.TRIGGERS["f5s"], sf.DONES["f5h"], sf.DONES["f5s"]) == f5
+    assert (sf.TRIGGERS["f2d"], sf.DONES["f2d"], sf.WEDGES["f2d"], sf.PHASE_BITS["f2d"]) == (13228, 13229, 13230, (13231,))
+    assert sf.KEY_BITS["f2d"] == f2d and sf.KEY_BITS["f5h"] == (sf.TRIG_F5H, sf.DONE_F5H)
+    assert sf.STAGE_CONDUCTORS[sf.SEAT_STAGE] == tuple(sf.TRIGGERS) and sf.SEAT_STAGE == "s141"
+    assert sf.STAGE_CONDUCTORS["s140"] == tuple(k for k in sf.TRIGGERS if not k.startswith(("f5", "f2d")))
+    assert (sf.F2D_TAG, sf.F2D_OP, sf.F2D_FIELD) == (51, (19, 190, 4, 0), 2930) and sf.F2D_OP == BW.GUARD_2930[0]
+    assert sf.f2d_body().hex(" ") == "88 00 13 be 00 04 00 00 00 " + sf.glob_set(sf.F2D_END, 1).hex(" ") + " 04"
+    assert sf.F2D_LIMIT not in (sf.T1_LIMIT, sf.T3_LOOP_LIMIT, sf.T3_TOTAL_LIMIT, sf.J_LIMIT)   # its bound is its own bytes
+    assert sf.toml_flag_problems() == []
+    raw = tomllib.loads(sf.TOML.read_text(encoding="utf-8"))
+    raw["flag"] = [r for r in raw["flag"] if r["index"] not in f5 + f2d]
+    probs = sf.toml_flag_problems(raw)
+    assert len(probs) == 8 and all(any(n in p for p in probs) for n in (
+        "sd_trig_f5h", "sd_trig_f5s", "sd_done_f5h", "sd_done_f5s", "sd_trig_f2d", "sd_done_f2d", "sd_wedged_f2d",
+        "sd_f2d_end")), probs
+    call = O.run_script(sf.SCRIPT_LEVEL, sf.CONTROL_UID, sf.F2D_TAG)
+    assert call.hex(" ") == "12 00 02 fa 33" and ("F2D: RunScript(2, 250, F2D_TAG)", call) in sf._expected_caller_ops()
+    assert ("F2D: Int16[0] > F2D_LIMIT", sf.int16_gt(0, sf.F2D_LIMIT)) in sf._expected_caller_escape()
+    hide, show = O.encode(sf.OP_MESH_HIDE, sf.CONTROL_UID, sf.F5_MESH), O.encode(sf.OP_MESH_SHOW, sf.CONTROL_UID, sf.F5_MESH)
+    assert (hide.hex(" "), show.hex(" ")) == ("3a 00 fa 01", "39 00 fa 01")     # field 1403: 3a 00 01 01 / 39 00 01 01
+    assert ("F5: HideObject(250, 1)", hide) in sf._expected_caller_ops() and \
+        ("F5: ShowObject(250, 1)", show) in sf._expected_caller_ops()
+
+    def ins(body):
+        return [body[i.off:i.end] for i in D.iter_code(body, 0, len(body))]
+    new, old = ins(sf.caller_body()), ins(sf.caller_body("s140"))
+    for key, op in (("f5h", hide), ("f5s", show)):
+        assert new.count(op) == 1, key
+        k = new.index(op)
+        assert new[k - 1] == sf.glob_set(sf.TRIGGERS[key], 0) and new[k + 1] == sf.glob_set(sf.DONES[key], 1), key
+        assert new.count(sf.glob_test(sf.TRIGGERS[key])) == 1, key
+    assert new.count(call) == 1 and new.count(sf.glob_test(sf.TRIG_F2D)) == 1
+    k = new.index(call)
+    assert new[k - 2:k] == [sf.glob_set(sf.TRIG_F2D, 0), sf.glob_set(sf.F2D_END, 0)] and \
+        new[k + 1:k + 3] == [sf.int16_set(0, 0), sf.glob_test(sf.F2D_END)]
+    assert new[:len(sf.IO_BITS)] == [sf.glob_set(b, 0) for b in sf.IO_BITS]
+    assert new.count(O.DISABLE_MOVE) == old.count(O.DISABLE_MOVE) and \
+        new.count(O.ENABLE_MOVE) == old.count(O.ENABLE_MOVE) == sf.CALLER_ENABLE_MOVES
+    jumps = (sf.OP_JMP, sf.OP_JMP_IF, sf.OP_JMP_IFNOT)
+    added = Counter(b for b in new if b[0] not in jumps) - Counter(b for b in old if b[0] not in jumps)
+    removed = Counter(b for b in old if b[0] not in jumps) - Counter(b for b in new if b[0] not in jumps)
+    assert removed == Counter() and added == Counter(
+        [hide, show] + [sf.glob_set(b, 0) for b in f5] + [sf.glob_set(sf.TRIG_F5H, 0), sf.glob_set(sf.TRIG_F5S, 0)] +
+        [sf.glob_test(sf.TRIG_F5H), sf.glob_test(sf.TRIG_F5S), sf.glob_set(sf.DONE_F5H, 1), sf.glob_set(sf.DONE_F5S, 1)] +
+        [sf.glob_set(b, 0) for b in f2d] + [sf.glob_set(sf.TRIG_F2D, 0), sf.glob_set(sf.F2D_END, 0), call,
+                                             sf.int16_set(0, 0), sf.glob_test(sf.F2D_END), sf.int16_inc(0),
+                                             sf.int16_gt(0, sf.F2D_LIMIT), O.wait(1), sf.glob_test(sf.TRIG_F2D),
+                                             sf.glob_set(sf.DONE_F2D, 1), sf.glob_set(sf.WEDGED_F2D, 1)]), added
+    assert all(op not in old for op in (hide, show, call))
 
 
 #: the REAL bench field -- the kit's build of selfdress.field.toml, seated by selfdress_bench.patch_mod -- in a scratch
@@ -20869,6 +21278,34 @@ i_t3loop = at(F.PLAYER_SID, F.T3_TAG, lambda b, i: b == LOOP)
 i_walk = at(F.PLAYER_SID, F.T3_TAG, lambda b, i: i.op == F.OP_WALK)
 i_t3ok = at(F.CALLER_SID, 0, lambda b, i: b == F.glob_test(F.T3_END))
 _no_end = E.remove_in_function(eb, F.PLAYER_SID, F.T3_TAG, i_t3end.off - t3f.abs_start, len(END))
+# [ff9mapkit netsync s141] F5's rows: its two mesh ops, its DONE write, its poll; and THE STALE SEAT -- the kit build
+# seated exactly as s140 seated it (the same steps as patch_eb, the caller built for stage "s140")
+i_hide = at(F.CALLER_SID, 0, lambda b, i: i.op == F.OP_MESH_HIDE)
+i_show = at(F.CALLER_SID, 0, lambda b, i: i.op == F.OP_MESH_SHOW)
+from ff9mapkit.eb import opcodes as O
+i_f5done = at(F.CALLER_SID, 0, lambda b, i: b == F.glob_set(F.DONE_F5H, 1))
+i_f5poll = at(F.CALLER_SID, 0, lambda b, i: b == F.glob_test(F.TRIG_F5H))
+# [ff9mapkit netsync s141] F2d's rows: the player's code-19 op, its phase bit, the caller's RunScript and bound
+i_f2dop = at(F.PLAYER_SID, F.F2D_TAG, lambda b, i: i.op == F.OP_CHRFX)
+i_f2dcall = at(F.CALLER_SID, 0, lambda b, i: b == O.run_script(F.SCRIPT_LEVEL, F.CONTROL_UID, F.F2D_TAG))
+i_f2dlimit = at(F.CALLER_SID, 0, lambda b, i: b == F.int16_gt(0, F.F2D_LIMIT))
+pinit = EbScript.from_bytes(eb).entry(F.PLAYER_SID).func_by_tag(0)
+out["player_regs"] = [list(i.imm(k) for k in range(4)) for i in D.iter_code(eb, pinit.abs_start, pinit.abs_end)
+                      if i.op == F.OP_CHRFX]
+import struct
+from ff9mapkit.content import object as _object
+s140 = E.add_function(kit, F.PLAYER_SID, F.T3_TAG, SB.t3_body(*SB.player_ids(kit)))
+s140 = E.add_function(s140, F.PLAYER_SID, F.J_TAG, SB.j_body())
+s140 = E.add_function(s140, F.LATE_SID, F.LATE_CC_TAG, SB.late_cc_body())
+s140, _slot = _object.seat_entry(s140, bytes([F.CODE_ENTRY_TYPE, 1]) + struct.pack("<HH", 0, 4) + F.caller_body("s140"),
+                                 slot=F.CALLER_SID, loc=F.CALLER_LOC)
+s140 = E.activate_block(s140, O.init_code(F.CALLER_SID, 0), after_player=True)
+def _funcs(data):
+    s = EbScript.from_bytes(data)
+    return {(e.index, f.tag): data[f.abs_start:f.abs_end] for e in s.entries if not e.empty for f in e.funcs}
+fa, fb = _funcs(s140), _funcs(eb)
+# the stale seat differs from the s141 seat in the caller's tag-0 function ONLY (every s140 row is the same bytes)
+out["s140_differs"] = sorted(str(k) for k in set(fa) | set(fb) if fa.get(k) != fb.get(k))
 cases = {
     "kit_alone": kit,
     "not_an_eb": b"\x00" * 40,
@@ -20897,8 +21334,21 @@ cases = {
     "t3_loop_dropped": E.remove_in_function(eb, F.PLAYER_SID, F.T3_TAG, i_t3loop.off - t3f.abs_start, len(LOOP)),
     "t3_lane": poke(eb, i_walk.off + 2, b"\x19"),
     "caller_t3_ok": poke(eb, i_t3ok.off, F.glob_test(F.T3_LOOP)),
+    "f5_mesh_2": poke(eb, i_hide.off + 3, b"\x02"),
+    "f5_show_self": poke(eb, i_show.off + 2, bytes([F.SELF_UID])),
+    "f5_no_done": poke(eb, i_f5done.off + 3, b"\x00"),
+    "f5_poll_f5s": poke(eb, i_f5poll.off, F.glob_test(F.TRIG_F5S)),
+    "s140_seat": s140,
+    "f2d_203": poke(eb, i_f2dop.off + 3, b"\xcb"),
+    "f2d_call_tag": poke(eb, i_f2dcall.end - 1, bytes([F.J_TAG])),
+    "f2d_limit": poke(eb, i_f2dlimit.end - 4, b"\x00"),
+    # [ff9mapkit netsync s141] F2D TABLE (rbench-1): the twin registering a footstep at the load (another body's record
+    # in the GLOBAL table the guard reads), and a code 19 in the player's Init (one the oracle's replay never runs)
+    "f2d_twin_step": E.insert_in_function(eb, F.TWIN_SID, 0, 0, O.encode(F.OP_CHRFX, 16, 25, 4, 919)),
+    "f2d_init_19": E.insert_in_function(eb, F.PLAYER_SID, 0, 0, O.encode(F.OP_CHRFX, 19, 25, 4, 0)),
 }
 out["mutations"] = {k: F.preflight(v) for k, v in cases.items()}
+out["footsteps"] = [list(s) for s in F.facts(eb)["footsteps"]]
 print(json.dumps(out))
 """
 
@@ -20909,14 +21359,22 @@ def test_the_seated_bench_field_passes_its_preflight_and_every_mutation_fails():
     toml exactly as deploy_field.py builds it) + patch_mod (the seat: T3 and J into the player entry, LATE_CC, the caller)
     into a scratch dir -- passes _selfdress_field.preflight in EVERY language, its rewritten EventAnimation list carries
     the conductors' source clips on the GEO_MAIN_F0_ZDN line (the SOURCE list AttachDress adds), the toml's [[flag]]
-    table is the contract's (toml_flag_problems() == []); and each of 27 mutations of the seated .eb -- the kit build alone
+    table is the contract's (toml_flag_problems() == []); and each of 35 mutations of the seated .eb -- the kit build alone
     (deploy_field.py without the seat), garbage, the MAIN_INIT_ORDER swapped, T3's bound / back edge / walk id, the late
     CC NOPped or moved into the Init, a CC in the twin, the caller's RunScript / X / T1 / N3 operands, the cup, the
     caller's entry type, its InitCode removed, the late entry UNGUARDED, J's clip / its landing, a WEDGED write, J's bound,
     an EnableMove short, and the five only the WHOLE-BODY rows hold (T3_END dropped -- every rig reads WEDGED on a correct
     engine; T3_END moved ahead of the loop -- DONE_T3 + T3_END can then never fail; T3_LOOP dropped; a lane Walk target
     moved; the caller's t3_ok poll testing T3_LOOP instead of T3_END) -- reads a reason (the build's scratch red proof,
-    committed)."""
+    committed). [ff9mapkit netsync s141] Plus F5's five: HideObject on mesh 2, ShowObject on uid 255, the DONE_F5H write
+    moved off its bit, the F5H poll testing TRIG_F5S (only the whole body holds that one), and THE STALE SEAT -- the kit
+    build seated as s140 seated it (the caller built for stage "s140" and no F2d function; it differs from the s141 seat in
+    the caller and F2d's player function ONLY, so every s140 row holds on the s141 seat byte for byte) -- which reads STALE,
+    naming the deploy. Plus F2d's three: the player's code 19 on 203 (not 2930's 190), the caller's RunScript into J's tag,
+    its bound zeroed; and the kit player's own footstep registrations ARE battlewire.KIT_PLAYER_STEPS (the stand-in's model
+    and F2d's precondition: the twelve a drop rig drops). Plus F2D TABLE's two (rbench-1): the twin registering a footstep
+    at the load and a 19 in the player's Init -- the player Init must be the GLOBAL table's only writer (every footstep
+    site of the seated .eb is the player Init's twelve and F2d's own 19)."""
     from ff9mapkit import provision
     if not provision.templates_present():
         pytest.skip("base templates not extracted (run `ff9mapkit extract-templates`)")
@@ -20927,7 +21385,11 @@ def test_the_seated_bench_field_passes_its_preflight_and_every_mutation_fails():
     assert {"ANH_MAIN_F0_ZDN_BREAK1_LOOK", "ANH_MAIN_F0_ZDN_COLD_FAINT_1", "ANH_MAIN_F0_ZDN_LADDER_1_1"} <= \
         set(got["ea_zdn"]), got["ea_zdn"]
     missed = [k for k, v in got["mutations"].items() if v is None]
-    assert not missed and len(got["mutations"]) == 27, (missed, got["mutations"])
+    assert not missed and len(got["mutations"]) == 37, (missed, got["mutations"])
+    assert [tuple(s) for s in got["footsteps"]] == [(1, 0) + tuple(o) for o in BW.KIT_PLAYER_STEPS] + [
+        (1, 51) + tuple(_sf().F2D_OP)], got["footsteps"]
+    assert got["s140_differs"] == sorted([str((5, 0)), str((1, 51))]), got["s140_differs"]
+    assert [tuple(r) for r in got["player_regs"]] == list(BW.KIT_PLAYER_STEPS), got["player_regs"]
     m = got["mutations"]
     for k, row in (("order", "MAIN_INIT_ORDER"), ("late_unguarded", "LATE GATE"), ("j_clip", "J: function"),
                    ("j_no_land", "J: function"), ("no_wedge_t1", "ESCAPE"), ("j_limit", "ESCAPE"),
@@ -20936,8 +21398,19 @@ def test_the_seated_bench_field_passes_its_preflight_and_every_mutation_fails():
                    ("t3_end_early", "T3: function 48 is not the bench's t3_body"),
                    ("t3_loop_dropped", "T3: function 48 is not the bench's t3_body"),
                    ("t3_lane", "T3: function 48 is not the bench's t3_body"),
-                   ("caller_t3_ok", "CALLER: entry 5's tag-0 body is not the bench's caller_body()")):
+                   ("caller_t3_ok", "CALLER: entry 5's tag-0 body is not the bench's caller_body()"),
+                   ("f5_mesh_2", "CALLER: missing the conductor instruction F5: HideObject(250, 1)"),
+                   ("f5_show_self", "CALLER: missing the conductor instruction F5: ShowObject(250, 1)"),
+                   ("f5_no_done", "ESCAPE: the caller lacks `DONE_F5H = 1`"),
+                   ("f5_poll_f5s", "CALLER: entry 5's tag-0 body is not the bench's caller_body()"),
+                   ("s140_seat", "CALLER: entry 5 is the s140 seat byte for byte (no f5h, f5s, f2d conductors)"),
+                   ("f2d_203", "F2D: function 51 is"),
+                   ("f2d_call_tag", "CALLER: missing the conductor instruction F2D: RunScript(2, 250, F2D_TAG)"),
+                   ("f2d_limit", "ESCAPE: the caller lacks `F2D: Int16[0] > F2D_LIMIT`"),
+                   ("f2d_twin_step", "F2D TABLE: 1 footstep op(s) outside the player Init's registrations"),
+                   ("f2d_init_19", "F2D TABLE: 1 footstep op(s) outside the player Init's registrations")):
         assert row in m[k], (k, m[k])
+    assert "(2, 0, 16, 25, 4, 919)" in m["f2d_twin_step"] and "(1, 0, 19, 25, 4, 0)" in m["f2d_init_19"]
 
 
 _SS_ORACLE = _SD_CHILD_HEAD + r"""
@@ -21035,11 +21508,50 @@ sd.read_oracle = read_oracle
 sd.g_oracle_read = g_oracle
 sd.s_oracle_read = s_oracle
 sd.source_lists_read = lambda game, fields, regs=None: ({f: LISTS.get(f, FG.FAKE_SOURCE_LIST_CLIPS) for f in fields}, {})
+# [ff9mapkit netsync s141] leg F's oracle runs its REAL reader (f_oracle_read: the census JSON, the census's own twins,
+# the cross-checks) over STUBBED install reads: field 250's player footstep ops (battlewire.FIELD250_STEPS -- the census's
+# a_field250, pinned there), its mapconfig built from battlewire.FIELD250_MCF as ff9mapkit.mapconfig's dataclasses, a
+# walkmesh whose floors_at names the run's floor (the stand-in's ``light_floor``), and Steiner's hand bones off the census's
+# e_hands -- the stand-in lights / steps / attaches by the same numbers
+import ff9mapkit.extract as KX
+from ff9mapkit import mapconfig as MC
+PC = sd._polish_census()
+CUR = {"floor": 0}
+def _mcf_stub(fid, game=None, index=None):
+    if int(fid) != 250:
+        return None
+    m = BW.FIELD250_MCF
+    lights = tuple(MC.MapLight(type=ty, no=0, shadow_i=0, shadow_r=0, clr=tuple(c) + (0,), floor=tuple(fl))
+                   for ty, c, fl in m["lights"])
+    chars = tuple(MC.MapChar(geo=g_, shadow_i=si, shadow_r=sr, clr=tuple(c) + (0,), shadow_z=0) for g_, si, sr, c in m["chars"])
+    return MC.MapConfig(attr=0, version=0, bg_no=0, light_use=len(lights), char_use=len(chars), lights=lights, chars=chars)
+class _Walkmesh:
+    floors = [0, 1, 2, 3]
+    def floors_at(self, x, z):
+        return [CUR["floor"]]
+PC.load_mcf = _mcf_stub
+KX.stock_walkmesh = lambda fid, game=None: _Walkmesh()
+sd.kit_cache_missing = lambda game: []
+sd.field_eb = lambda game, fid, reg_name=None, install_ok=True: (b"stub", f"the test's {fid} .eb")
+sd.eb_footsteps = lambda data: {"sid": 10, "uid": 10, "load": list(BW.FIELD250_STEPS), "reinit": list(BW.FIELD250_STEPS),
+                                "reinit_tags": [13], "problems": []}
+_HANDS = sd.polish_census_doc()["e_hands"]
+def _hand_stub(game, model):
+    row = next(v for v in _HANDS.values() if v["model"] == int(model))
+    return {"model": int(model), "geo": row["geo"], "hand": row["expected"][0], "hand_end": row["expected"][1],
+            "end_name": "bone%03d" % row["expected"][1], "names": ["bone%03d" % i for i in range(row["bones"])],
+            "source": "the census's e_hands"}
+sd.hand_oracle_read = _hand_stub
+# [ff9mapkit netsync s141] F2d's oracle: the bench field's registrations (the stand-in's FAKE_FIELD_FOOTSTEPS[30606], the
+# kit player's twelve) and field 2930's op (its stock form)
+sd.bench_player_steps = lambda game: ([list(o) for o in BW.KIT_PLAYER_STEPS], "the test's 30606 .eb")
+sd.bench_table_writers = lambda game: ([], "the test's 30606 .eb")       # the player Init the table's only writer
+sd.stock_f2d_form = lambda game, regs=None, install_ok=True: (True, "the test's 2930 .eb: entry 3's Init")
 # the idle timer (fake.sleep_after: 160 stand-in frames still) must fire INSIDE W1's idle window on a loaded host (the
 # windows are wall-clock: at a ~40 fps worst case, (0.4 + 5.0) s is ~216 frames) and NEVER inside its rest window (at the
 # 240 fps cap, 0.4 s + the arrival's 10 frames is ~106)
 for k, v in {"REST_S": 0.4, "GHOST_SETTLE_S": 0.6, "IDLE_PAST_S": 5.0, "DRESS_READ_S": 0.3, "X_AFTER_S": 0.4,
-             "N3_AFTER_S": 0.3, "OP_SETTLE_S": 0.1}.items():
+             "N3_AFTER_S": 0.3, "OP_SETTLE_S": 0.1, "F_GHOST_LIGHT_S": 0.6, "F_AFTER_S": 0.2}.items():
     setattr(sd, k, v)
 DICT = ("FieldScene 30604 11 TEST30604 TEST30604 30604\nFieldScene 30801 11 TEST30801 TEST30801 30801\n"
         "FieldScene 30602 11 TEST30602 TEST30602 30602\nFieldScene 30606 11 TEST30606 TEST30606 30606\n"
@@ -21083,9 +21595,15 @@ for name, run in doc["runs"].items():
                                      "t1_threshold": sf.T1_THRESHOLD, "t1_limit": sf.T1_LIMIT,
                                      "t3_loop_limit": sf.T3_LOOP_LIMIT, "j_windows": (sf.J_JUMP0, sf.J_JUMP1),
                                      "j_frames": sf.ANIM_J_FRAMES, "j_land": sf.J_LAND, "j_end": sf.J_END,
-                                     "j_limit": sf.J_LIMIT}}
-    fake.reinit_fields = {30602}
-    fake.encounter_fields = {30602}
+                                     "j_limit": sf.J_LIMIT,
+                                     # [ff9mapkit netsync s141] F8's cup and bone, F5's mesh, F2d's op and phase bit
+                                     # (the contract's own numbers)
+                                     "cup_sid": sf.CUP_SID, "attach_bone": sf.ATTACH_BONE, "f5_mesh": sf.F5_MESH,
+                                     "f2d_op": sf.F2D_OP, "f2d_end": sf.F2D_END}}
+    # [ff9mapkit netsync s141] + the stock field 250 (Main_Reinit + random battles: F6's warm return)
+    fake.reinit_fields = {30602, 250}
+    fake.encounter_fields = {30602, 250}
+    CUR["floor"] = fake.light_floor = int(run.get("floor", 0))
     fake.dress_faults = set(run.get("faults", ()))
     fake.save_party = [dict(FG.FAKE_PARTY[0]), None, None, None]
     sd.cb.CALIBRATE = bool(run.get("cal"))
@@ -21105,7 +21623,8 @@ for name, run in doc["runs"].items():
     results[name] = {"red": sorted(r["what"].split(":")[0] for r in rows if not r["ok"]),
                      "all": sorted(r["what"].split(":")[0] for r in rows), "acted": len(acted),
                      "self_steps": [s for s in steps if len(s) > 2 and s[2] in ("self", "gate", "law")],
-                     "steps_tail": steps[-4:],
+                     "polish_steps": [s for s in steps if len(s) > 2 and s[2] == "polish"],
+                     "steps_tail": steps[-5:],
                      "detail": {r["what"].split(":")[0]: r["detail"][:900] for r in rows}}
 print(json.dumps(results))
 """
@@ -21128,18 +21647,24 @@ def test_the_s140_legs_run_green_on_the_stand_in_and_calibrate_on_s139():
     30606 rows and S7 / S8 (COOPSUB's seat) "not reached" (W and S1-S6 still judged); a preflight failing CLOSED reads PF
     red and the 30606 rows "not reached"."""
     s140 = "S+W+X+N+T"
-    runs = {"all": {}, "noghost": {"ghost_as": "", "legs": "I+G+S"}, "s139_ig": {"caps": "dresshost", "legs": "I,G"},
-            "cal139": {"caps": "dresshost", "cal": True}, "cal140": {"cal": True, "legs": s140},
+    # [ff9mapkit netsync s141] "all" / "cal139" name the s140-era legs (I .. T): leg F has its own smokes
+    runs = {"all": {"legs": "I,G,S,W,X,N,T"}, "noghost": {"ghost_as": "", "legs": "I+G+S"},
+            "s139_ig": {"caps": "dresshost", "legs": "I,G"},
+            "cal139": {"caps": "dresshost", "cal": True, "legs": "I,G,S,W,X,N,T"}, "cal140": {"cal": True, "legs": s140},
             "selfdress0": {"legs": s140, "ini_extra": "SelfDress = 0\n"},
             "unregistered": {"legs": s140, "dict": "FieldScene 30602 11 TEST30602 TEST30602 30602\n"},
             "pf_red": {"legs": s140, "pf": [False, "MAIN_INIT_ORDER: the twin's InitObject is AFTER the player's"]}}
     got = _sd_child(_SS_SMOKE, {"fo": _SS_FO, "runs": runs}, timeout=1500.0)
     assert got["all"]["red"] == [] and got["all"]["all"] == S140_ALL_CHECKS, (got["all"]["red"], got["all"]["detail"])
+    # [ff9mapkit netsync s141] the default stand-in is s141's: `polish off` is held into the reset too
     assert got["all"]["steps_tail"] == [["netsync", "selfdress", "clear"], ["netsync", "selfdress", "rule", "s139"],
                                         ["netsync", "selfdress", "self", "off"],
-                                        ["netsync", "selfdress", "law", "timeline", "off"]], got["all"]["steps_tail"]
+                                        ["netsync", "selfdress", "law", "timeline", "off"],
+                                        ["netsync", "selfdress", "polish", "off"]], got["all"]["steps_tail"]
     r = got["all"]["detail"]["S138-R"]
-    assert "self.bench_self None" in r and "missing lines=[]" in r and "gate / law levers released" in r, r
+    # [ff9mapkit netsync s141] the default stand-in is s141's: ReleaseBench's line names `polish` too (coop_self_dress's
+    # RELEASE_LINE_S141 by stage)
+    assert "self.bench_self None" in r and "missing lines=[]" in r and "gate / law / polish levers released" in r, r
     d = got["all"]["detail"]
     assert "dress lines [('GEO_MAIN_F0_FRJ', 192, 4, -376, 'bench')]" in d["S140-S1"] and "at the op: arm" in d["S140-S1"]
     assert "GEO_SUB_F0_BLN" in d["S140-S6"] and "want_char': 10" in d["S140-S6"]
@@ -21243,3 +21768,3186 @@ def test_each_s140_row_reds_on_its_fault_on_the_stand_in(group):
     if group == "a":
         assert "MOVED the arm before the load" in got["arm_live"]["detail"]["S140-S1"], got["arm_live"]["detail"]["S140-S1"]
         assert "frame_n=70" in got["slot_fallback"]["detail"]["S140-X2"]
+
+
+# =========================================================================================================== s141
+# [ff9mapkit netsync s141] THE DRESS POLISH -- the fourth and last of the guest's own field model's patches (studies/battle-coop/
+# R3-DESIGN.md 3.4.5 as amended by R3-FIELD-MODEL-AUDIT.md 2.4 -- amendments 1-6 and 8, decisions D3-D7 -- its 3.1 key design,
+# and the orchestrator's O1-O9). Pinned to the s141 patch: `netsync.dress.self` gains the polish keys after `selftest`
+# (steps, steps_dropped, steps_passed, steps_fired, steps_fired_player, light_row, light_rgb, mesh_drops, attach_remaps,
+# attach_notes, attach_last, polish) and `netsync.dress.ghost` gains `light_row` at its end -- no new `netsync.dress` key,
+# no sub-verb (the `dresspolish` rung); `selfdress` gains `polish on|off`; the proof block gains "dress polish selftest: OK (20
+# rows)". battlewire's twins EVALUATE NetSyncSelfDress.PolishSelfTest's 20 rows off the stack (each made to fail by a mutant
+# twin); the stand-in models MapFootstep into the stock FF9Snd table, the footsteps the dressed walk fires, the light rows
+# and the tint, the ghost's stand-in row, the prop remap with its live parent, the mesh-op drop and the lever -- its FAULT
+# LEVERS (FG.DRESS_POLISH_FAULTS) each pinned to its own probes. s141's calibration engine is s140: ``caps_through("dressself")``.
+S140_CAPS_ = FG.caps_through("dressself")                      # [ff9mapkit netsync s141] s141's calibration engine
+FIELD250 = 250                                                  # leg F's stock field (EVT_EFOREST1_EF_ENT_0)
+
+
+def _s141_new(file_name: str) -> list:
+    """The s141 patch's NEW-side lines (added and context) for ``file_name``, stripped."""
+    return [t for _h, _k, t in _new_side(file_name, _patch_bytes("s141"))]
+
+
+def _s141_added(file_name: str) -> list:
+    """The lines the s141 patch ADDS to ``file_name``, stripped."""
+    return [t for _h, k, t in _new_side(file_name, _patch_bytes("s141")) if k == "+"]
+
+
+def _polish_census() -> dict:
+    return json.loads((REPO / "studies" / "battle-coop" / "dress-census" / "polish.json").read_text(encoding="utf-8"))
+
+
+def _s141_func(start: str) -> str:
+    """ONE member of the s141 NetSyncSelfDress additions, brace-balanced from the added line starting with ``start``
+    (comments stripped, joined): its signature and its whole body, never the next member's -- a fragment pinned in it is
+    THIS member's, never a mutant's copy of the same statement."""
+    lines = [_strip_comment(t) for t in _s141_added("NetSyncSelfDress.cs")]
+    i = next(k for k, t in enumerate(lines) if t.startswith(start))
+    depth, out, opened = 0, [], False
+    for t in lines[i:]:
+        out.append(t)
+        bare = re.sub(r'"(?:[^"\\]|\\.)*"', '""', t)           # a brace inside a string literal is no block
+        depth += bare.count("{") - bare.count("}")
+        opened = opened or "{" in bare
+        if opened and depth == 0:
+            break
+    return " ".join(c for c in out if c)
+
+
+def _in_order(body: str, frags) -> list:
+    """The fragments of ``frags`` NOT found in ``body`` in order (each searched after the previous one's end). A SUBSET
+    check: it sees a deleted or reordered fragment, never an INSERTED statement -- :func:`_pin_problems` is the exact pin
+    (rselftest-1); these fragments only name what drifted."""
+    missing, at = [], 0
+    for frag in frags:
+        k = body.find(frag, at)
+        if k < 0:
+            missing.append(frag)
+            continue
+        at = k + len(frag)
+    return missing
+
+
+def _statements(body: str) -> list:
+    """[ff9mapkit netsync s141] A member's comment-stripped text (:func:`_s141_func`) as its WHOLE statement list (rselftest-1):
+    split on `;`, `{` and `}` outside string and char literals, each brace an item of its own (so a statement moved into or
+    out of a block changes the list), whitespace runs collapsed -- an inserted `return null;` is one more item, a guard
+    bypass two."""
+    out, cur, i, quoted = [], [], 0, None
+    while i < len(body):
+        c = body[i]
+        if quoted:
+            cur.append(c)
+            if c == "\\" and i + 1 < len(body):
+                cur.append(body[i + 1])
+                i += 1
+            elif c == quoted:
+                quoted = None
+        elif c in "\"'":
+            quoted = c
+            cur.append(c)
+        elif c in ";{}":
+            s = " ".join("".join(cur).split())
+            if s:
+                out.append(s + ";" if c == ";" else s)
+            if c != ";":
+                out.append(c)
+            cur = []
+        else:
+            cur.append(c)
+        i += 1
+    tail = " ".join("".join(cur).split())
+    if tail:
+        out.append(tail)
+    return out
+
+
+def _exact_problems(got: list, want, body: str = "", frags=()) -> list:
+    """[] when ``got`` IS ``want`` statement for statement; else what drifted -- the counts and the first diverging
+    statement, and (naming it) the decisive ``frags`` now missing from ``body`` in order."""
+    got, want = list(got), list(want)
+    if got == want:
+        return []
+    k = next((n for n, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
+    out = [f"{len(got)} statements, frozen {len(want)}; first difference at #{k}: {got[k] if k < len(got) else None!r} "
+           f"(frozen {want[k] if k < len(want) else None!r})"]
+    missing = _in_order(body, frags) if body else []
+    if missing:
+        out.append(f"decisive statements missing in order: {missing}")
+    return out
+
+
+def _pin_problems(start: str, frags=()) -> list:
+    """THE EXACT PIN (rselftest-1): [] when the s141 NetSyncSelfDress member starting ``start`` IS its frozen
+    S141_MEMBER_STATEMENTS entry, statement for statement -- an inserted, deleted, reordered or moved statement reads red
+    -- else what drifted (:func:`_exact_problems`, ``frags`` naming the decisive statements missing)."""
+    body = _s141_func(start)
+    return _exact_problems(_statements(body), S141_MEMBER_STATEMENTS[start], body, frags)
+
+
+_S141_MEMBER_RE = re.compile(r"^(?:internal|private|public)(?: static)? (?!const\b|readonly\b|delegate\b)"
+                             r"[\w<>\[\],?.]+(?: [\w<>\[\],?.]+)? (\w+)\(")
+
+
+def _s141_members() -> list:
+    """Every member (method) the s141 patch ADDS to NetSyncSelfDress, as the ``start`` :func:`_s141_func` takes (its
+    signature through the open paren), in file order."""
+    out = []
+    for t in (_strip_comment(x) for x in _s141_added("NetSyncSelfDress.cs")):
+        if _S141_MEMBER_RE.match(t) and not t.rstrip().endswith(";"):
+            out.append(t[:t.index("(") + 1])
+    return out
+
+
+def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
+    """THE LEVEL HOME for s141 (audit 3.1): the `dresspolish` rung rides the ONE ladder right after `dressself` and LAST, adds
+    no sub-verb and nothing under `netsync.battle`, and no new `netsync.dress` key (NETSYNC_DRESS_CAP_KEYS' row empty) --
+    its keys sit INSIDE the fixed sub-objects (NETSYNC_DRESS_NESTED_KEYS: `ghost.light_row` / `ghost.light_rgb` at its end,
+    the thirteen polish keys inside `self` after `selftest`, read off the s140 and s141 catch lines); the probe ladder's 141 rung reads
+    `self.steps`; s141's calibration is the prefix through `dressself`; the capability accessor reads True on s141's catch
+    line and False on s140's; the `polish` op's capability key is a key s141 added."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    assert names[-1] == "dresspolish" and names[names.index("dressself") + 1] == "dresspolish"
+    assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
+    assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
+    assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()
+    assert FG.NETSYNC_DRESS_NESTED_KEYS["dresspolish"] == {"ghost": ("light_row", "light_rgb"), "self": BW.DRESS_POLISH_KEYS}
+    assert BW.DRESS_POLISH_KEYS == ("steps", "steps_dropped", "steps_passed", "steps_fired", "steps_fired_player",
+                                    "light_row", "light_rgb", "light_floor", "mesh_drops", "attach_remaps", "attach_notes",
+                                    "attach_last", "polish")
+    was, now = _catch_doc_in("s140")["dress"], _catch_doc_in("s141")["dress"]
+    assert list(now) == list(was)                                # no new `netsync.dress` key
+    assert [k for k in now["ghost"] if k not in was["ghost"]] == ["light_row", "light_rgb"] and \
+        list(now["ghost"])[-2:] == ["light_row", "light_rgb"]
+    assert [k for k in now["self"] if k not in was["self"]] == list(BW.DRESS_POLISH_KEYS)
+    assert list(now["self"])[:len(was["self"])] == list(was["self"])           # appended after `selftest`, s140's untouched
+    assert S140_CAPS_ == FG.caps_through("dressself") and "dresspolish" not in S140_CAPS_
+    assert BW.DRESS_PROBES[141] == "netsync.dress.self.steps"
+    assert State({"frame": 1, "netsync": _catch_doc_in("s141")}).coop_dress_polish is True
+    assert State({"frame": 1, "netsync": _catch_doc_in("s140")}).coop_dress_polish is False
+    assert State({"frame": 1}).coop_dress_polish is None
+    assert FG.netsync_subverbs(FG.caps_through("dresspolish")) == FG.netsync_subverbs(S140_CAPS_)   # no new sub-verb
+    attr, key, patch, _what = Session.NETSYNC_SELFDRESS_OP_CAPS["polish"]
+    assert (attr, key, patch) == ("coop_dress_polish", "netsync.dress.self.steps", "s141")
+    path = key[len("netsync.dress."):].split(".")
+    assert path[0] in FG.NETSYNC_DRESS_NESTED_KEYS["dresspolish"] and path[1] in FG.NETSYNC_DRESS_NESTED_KEYS["dresspolish"][
+        path[0]] and BW.DRESS_PROBES[141] == key
+
+
+def test_the_s141_catch_line_closes_self_with_the_polish_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s141: the live line stays ONE line of exactly two literals around NetsyncF3Retired; its
+    SECOND literal closes `ghost` with `light_row` -1 and `light_rgb` null and `self` with the polish keys at their
+    sentinels (audit 3.1's table + `light_floor` -1 + `attach_last` written whole + `polish` false) after `selftest`; it is
+    s141's own line (s140's with exactly those keys
+    added: :func:`_dress_through`). AppendDressPolish writes BW.DRESS_POLISH_SENTINELS' keys in order -- `attach_last`'s four
+    inside its braces --, each through its own Try and a NetSyncSelfDress getter, `steps` through IntRows (never null);
+    AppendDressSelf calls it after `selftest`; `ghost.light_row` reads NetSyncSelfDress.GhostLightRow after `hidden`, then
+    `ghost.light_rgb` NetSyncClient.HarnessGhostLightRgb (the tint the re-tint WROTE); light_rgb reads the body's OWN mesh
+    renderer (mesh0's, else the first whose nearest FieldMapActor is the body's: never a held prop's); light_floor the
+    FF9FieldCharState.floor fldmcf lit it by; the harness protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    _a, b = _literals(catch[0])
+    esc = lambda d: json.dumps(d, separators=(",", ":")).replace('"', '\\"')     # noqa: E731
+    assert '\\"hidden\\":null,\\"light_row\\":-1,\\"light_rgb\\":null},\\"party\\":[-1,-1,-1,-1]' in b, b[-2200:]
+    assert b.endswith(esc(BW.DRESS_SELF_LIVE_SENTINELS) + "}}"), b[-900:]
+    assert b.endswith('\\"selftest\\":null,\\"steps\\":[],\\"steps_dropped\\":0,\\"steps_passed\\":0,\\"steps_fired\\":0,'
+                      '\\"steps_fired_player\\":0,\\"light_row\\":-1,\\"light_rgb\\":null,\\"light_floor\\":-1,'
+                      '\\"mesh_drops\\":0,'
+                      '\\"attach_remaps\\":0,\\"attach_notes\\":0,\\"attach_last\\":{\\"uid\\":-1,\\"bone_in\\":-1,'
+                      '\\"bone_out\\":-1,\\"parent\\":null},\\"polish\\":false}}}'), b[-600:]
+    assert "return NetSyncSelfDress.ReadRendererRgb(r);" in " ".join(_stack_text("NetSyncClient.cs"))
+    nothing = _agent_netsync_nothing()[0]
+    assert _catch_doc_in("s141") == nothing and nothing["dress"] == BW.DRESS_SENTINELS
+    assert nothing["dress"]["self"] == BW.DRESS_SELF_LIVE_SENTINELS and nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
+    assert _dress_through(nothing, "dressself") == _catch_doc_in("s140")
+    body = _cs_block("HarnessAgent.cs", "private static void AppendDressPolish(StringBuilder sb)", stop="}")
+    text = " ".join(body)
+    keys = re.findall(r'(?:Bool|Num|Str|IntList|IntRows)\(sb, "(\w+)"', text)
+    flat = [k for k in BW.DRESS_POLISH_KEYS if k != "attach_last"]
+    flat[flat.index("attach_notes") + 1:flat.index("attach_notes") + 1] = list(BW.DRESS_POLISH_ATTACH_LAST_KEYS)
+    assert keys == flat, keys
+    assert 'sb.Append("\\"attach_last\\":{");' in body
+    calls = [t for t in body if re.match(r"(?:Bool|Num|Str|IntList|IntRows)\(sb, ", t)]
+    assert len(calls) == len(flat) and all(re.search(r"Try\(\(\) => (?:\(Int64\))?Memoria\.Netsync\.NetSyncSelfDress\.", t)
+                                           for t in calls), calls
+    sent = dict(BW.DRESS_POLISH_SENTINELS, **{k: BW.DRESS_POLISH_SENTINELS["attach_last"][k]
+                                              for k in BW.DRESS_POLISH_ATTACH_LAST_KEYS})
+    for t in calls:
+        k = re.match(r'\w+\(sb, "(\w+)"', t).group(1)
+        want = sent[k]
+        if k == "steps":
+            assert t.startswith("IntRows(") and "HarnessSteps(), new Int32[0][])" in t, t
+        elif k == "light_rgb":
+            assert t.startswith("IntList(") and "HarnessLightRgb)" in t, t
+        elif k == "light_floor":
+            assert t.startswith("Num(") and "HarnessLightFloor, -1L)" in t, t
+        elif isinstance(want, bool):
+            assert t.startswith("Bool(") and ", false)" in t, t
+        elif isinstance(want, int):
+            assert t.startswith("Num(") and f", {want}L)" in t, t
+        else:
+            assert t.startswith("Str("), t
+    assert "IsSelfTestRole" not in text                        # published in EVERY role (a host reads its sentinels)
+    assert _added_after("s141", "HarnessAgent.cs", 'Str(sb, "selftest", Try(', "AppendDressPolish(sb);")
+    assert _added_after("s141", "HarnessAgent.cs", 'StrList(sb, "hidden", Try(',
+                        'Num(sb, "light_row", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.GhostLightRow, -1L));')
+    assert _added_after("s141", "HarnessAgent.cs", 'Num(sb, "light_row", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.'
+                        'GhostLightRow, -1L));', 'IntList(sb, "light_rgb", Try(() => Memoria.Netsync.NetSyncClient.'
+                        'HarnessGhostLightRgb));')
+    rows = " ".join(_cs_block("HarnessAgent.cs", "private static void IntRows(StringBuilder sb, String key, Int32[][] rows)",
+                              stop="}"))
+    assert "for (Int32 r = 0; rows != null && r < rows.Length; r++)" in rows     # a null list writes [] (never null)
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    for frag in ("internal static Boolean HarnessPolish { get { return !_polishOff; } }",
+                 "return ctl != null && ctl.netSelfDress != 0 ? ReadLightRgb(ctl) : null;",
+                 "Mathf.RoundToInt(c.r * 255f), Mathf.RoundToInt(c.g * 255f), Mathf.RoundToInt(c.b * 255f)",
+                 "return ReadRendererRgb(BodyRenderer(body.go));", 'Transform m0 = go.transform.Find("mesh0");',
+                 "if (r != null && r.GetComponentInParent<FieldMapActor>() == own)",
+                 "Material mat = r != null ? r.sharedMaterial : null;",
+                 "if (ctl == null || ctl.netSelfDress == 0 || LightRow == -1)", "return st.floor & 0xFF;",
+                 "if (r != null && r.uid == ctl.uid)",
+                 "rows.Add(new Int32[] { r.anmID, r.frame, r.sndEffectID != null && r.sndEffectID.Length > 0 ? "
+                 "r.sndEffectID[0] : 0 });", "Transform parent = go.transform.parent;",
+                 "return parent != null ? parent.name : null;"):
+        assert frag in sd, frag
+
+
+def test_state_reads_the_dress_polish_absent_as_cannot_never_as_nothing():
+    """On s140's catch block every polish accessor (and `ghost.light_row` / `ghost.light_rgb`) reads None and `coop_dress_polish` False; on
+    s141's the sentinels and True (`steps` [], a null string "", `light_rgb` None -- a nullable list); a published block
+    reads its values (lists and dicts COPIED), a mistyped value None."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s140")})
+    live = State({"frame": 1, "netsync": _catch_doc_in("s141")})
+    table = State.NETSYNC_DRESS_ACCESSORS
+    mine = {p: n for p, n in table.items() if p in ("ghost.light_row", "ghost.light_rgb") or (p.startswith("self.") and p.split(".")[1] in
+                                                                         BW.DRESS_POLISH_KEYS)}
+    assert len(mine) == len(BW.DRESS_POLISH_KEYS) + len(BW.DRESS_POLISH_ATTACH_LAST_KEYS) + 2, sorted(mine)
+    for path, name in mine.items():
+        assert getattr(old, name) is None, name
+        assert getattr(live, name) is not None or path in DRESS_NULLABLE, name
+    assert (live.coop_dress_self_steps, live.coop_dress_self_light_row, live.coop_dress_self_light_rgb,
+            live.coop_dress_self_attach_last_parent, live.coop_dress_self_polish, live.coop_dress_ghost_light_row,
+            live.coop_dress_self_light_floor, live.coop_dress_ghost_light_rgb) == ([], -1, None, "", False, -1, -1, None)
+    d = dict(BW.DRESS_SELF_LIVE_SENTINELS, steps=[[2553, 4, 919], [2553, 16, 919]], steps_dropped=0, steps_fired=3,
+             light_row=98, light_rgb=[80, 96, 120], light_floor=2, attach_remaps=1,
+             attach_last={"uid": 4, "bone_in": 13, "bone_out": 12, "parent": "bone012"}, polish=True)
+    st = State({"frame": 1, "netsync": {"enabled": True, "dress": {"self": d, "ghost": {"light_row": 98,
+                                                                                         "light_rgb": [56, 72, 88]}}}})
+    assert (st.coop_dress_self_light_floor, st.coop_dress_ghost_light_rgb) == (2, [56, 72, 88])
+    assert (st.coop_dress_self_steps, st.coop_dress_self_steps_fired, st.coop_dress_self_light_row,
+            st.coop_dress_self_light_rgb, st.coop_dress_self_attach_last_bone_out, st.coop_dress_self_attach_last_parent,
+            st.coop_dress_self_polish, st.coop_dress_ghost_light_row, st.coop_dress_polish) == (
+        [[2553, 4, 919], [2553, 16, 919]], 3, 98, [80, 96, 120], 12, "bone012", True, 98, True)
+    got = st.coop_dress_self_steps
+    got.append([1, 2, 3])
+    blk = st.coop_dress_self_attach_last_block
+    blk["parent"] = "x"
+    assert len(st.coop_dress_self_steps) == 2 and st.coop_dress_self_attach_last_parent == "bone012"
+    bad = State({"frame": 1, "netsync": {"dress": {"self": dict(d, steps={"0": 1}, light_row="98", polish=1)}}})
+    assert (bad.coop_dress_self_steps, bad.coop_dress_self_light_row, bad.coop_dress_self_polish, bad.coop_dress_polish) == (
+        None, None, None, False)
+
+
+# ---- the `polish` op: the engine's order and words, the driver's refusals, the release
+def test_the_s141_polish_op_is_the_engines_in_its_order():
+    """HarnessSelfDress' s141 case, read off the live stack, IS what the driver and the stand-in refuse: the ROLE first,
+    then the op, then the value -- `polish`: `n != 3` -> PolishUsage, then TrySetPolish (DressMode's trim + lower, `on` /
+    `off`, anything else PolishUsage and nothing changed); the unknown-op list is s141's (`polish` last), s140's off its own
+    patch. PolishUsage, TrySetPolish's two lines, HarnessPolish (`polish` AS SET) and PolishOn (the selftest role only:
+    PolishOnRule short-circuited) are battlewire's words and rules."""
+    body = _cs_block("NetSyncClient.cs", 'case "polish":', stop="default:")
+    text = " ".join(_strip_comment(t) for t in body)
+    for frag in ("if (n != 3)", "why = NetSyncSelfDress.PolishUsage;", "return false;",
+                 "return NetSyncSelfDress.TrySetPolish(val, out why);"):
+        assert frag in text, frag
+    assert text.index("if (n != 3)") < text.index("return NetSyncSelfDress.TrySetPolish(val, out why);")
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    assert ("why = \"netsync selfdress: unknown op '\" + op + \"' (" + "|".join(BW.SELFDRESS_OPS) + ")\";") in client
+    assert ("why = \"netsync selfdress: unknown op '\" + op + \"' (" + "|".join(BW.SELFDRESS_OPS_S140) + ")\";") in \
+        " ".join(_s140_added("NetSyncClient.cs"))
+    order = " ".join(_strip_comment(t) for t in _s141_new("NetSyncClient.cs"))
+    assert order.index('case "polish":') < order.index("default:")       # the case sits before the refusal
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    assert f'internal const String PolishUsage = "{BW.POLISH_USAGE}";' in sd
+    assert BW.POLISH_USAGE == Session.NETSYNC_SELFDRESS_USAGE["polish"]
+    tsp = " ".join(_cs_block("NetSyncSelfDress.cs", "internal static Boolean TrySetPolish(String val, out String why)",
+                             stop="return true;"))
+    for frag in ("Int32 v = PolishValueRule(val);", "if (v < 0)", "why = PolishUsage;", "_polishOff = v == 0;"):
+        assert frag in tsp, frag
+    pvr = _s141_func("internal static Int32 PolishValueRule(")
+    assert not _in_order(pvr, ("String v = NetSyncVisitor.DressMode(val);", 'return v == "on" ? 1 : v == "off" ? 0 : -1;'))
+    for val, want in (("on", 1), (" OFF ", 0), ("On", 1), ("maybe", -1), (None, -1), ("1", -1), ("", -1)):
+        assert BW.polish_value_rule(val) == want, val
+    on_log = '"[NetSync] harness: selfdress polish " + (v == 1 ? ' + '"' + BW.POLISH_ON_LOG[len(
+        "[NetSync] harness: selfdress polish "):] + '"'
+    assert on_log in tsp, tsp
+    assert "".join(re.findall(r'"([^"]+)"', tsp[tsp.index(': "OFF -- '):])) == \
+        BW.POLISH_OFF_LOG[len("[NetSync] harness: selfdress polish "):]
+    assert BW.POLISH_OFF_LOG == ("[NetSync] harness: selfdress polish OFF -- CALIBRATION: MapFootstep, the mesh-op drop, "
+                                 "the prop remap and both lighting fallbacks are bypassed on this selftest role (the "
+                                 "witnesses keep reading)")
+    assert "get { return !_polishOff || !NetSyncClient.IsSelfTestRole; }" in sd
+    assert "return !polishOff || !selfTestRole;" in sd
+    for val, want in (("on", (True, None, False)), (" OFF ", (True, None, True)), ("maybe", (False, BW.POLISH_USAGE, None)),
+                      (None, (False, BW.POLISH_USAGE, None)), ("1", (False, BW.POLISH_USAGE, None))):
+        assert BW.try_set_polish(val) == want, val
+
+
+def test_the_driver_refuses_polish_before_the_step_in_the_engines_order(game):
+    """On an s140 stand-in `selfdress polish` is refused BEFORE the step, naming `netsync.dress.self.steps`, s141 and what
+    that engine answers after it ("unknown op ... (ghost|empty|rule|wire|clear|self|gate|law)" -- the stand-in's own words,
+    after the step, exactly); on s141 outside the selftest role the step goes out and the agent's role refusal comes back;
+    in the role every malformed value is refused before the step in PolishUsage (== the stand-in's), and a well-made op
+    lands -- `polish` read back as set, `clear` putting it back on."""
+    for caps in (S140_CAPS_, None):
+        fake = FakeGame(game)
+        if caps is not None:
+            fake.netsync_caps = caps
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            if caps is not None:
+                g.netsync("selftest", 1)
+                n = len(fake.executed)
+                with pytest.raises(HarnessError) as err:
+                    g.selfdress_polish(False)
+                after = "netsync selfdress: unknown op 'polish' (" + "|".join(BW.SELFDRESS_OPS_S140) + ")"
+                assert str(err.value).startswith("netsync selfdress polish: the deployed engine publishes no "
+                                                 "`netsync.dress.self.steps`") and "(memoria-patch s141)" in str(err.value)
+                assert f'it would answer "{after}" only after the step' in str(err.value) and len(fake.executed) == n
+                with pytest.raises(RuntimeError, match=re.escape(after)):
+                    fake._netsync(["selfdress", "polish", "off"])
+                continue
+            n = len(fake.executed)
+            with pytest.raises(HarnessError, match=r"needs the selftest role \(netsync selftest 1\)"):
+                g.selfdress_polish(False)                  # not the selftest role: the AGENT refuses (the role first)
+            assert len(fake.executed) == n + 1 and fake.executed[-1] == ["netsync", "selfdress", "polish", "off"]
+            g.netsync("selftest", 1)
+            for args in (("polish",), ("polish", "1"), ("polish", "maybe"), ("polish", "on", "x"), ("polish", "0")):
+                n = len(fake.executed)
+                with pytest.raises(HarnessError) as err:
+                    g.selfdress(*args)
+                assert str(err.value) == BW.POLISH_USAGE and len(fake.executed) == n, (args, str(err.value))
+                with pytest.raises(RuntimeError) as err2:
+                    fake._netsync(["selfdress", *args])                  # ...the agent's own words, after the step
+                assert str(err2.value) == BW.POLISH_USAGE, (args, str(err2.value))
+            assert g.state.coop_dress_self_polish is True                # on by default
+            st = g.selfdress_polish(False)
+            assert st.coop_dress_self_polish is False and _mlog_lines(fake, BW.POLISH_OFF_LOG)
+            st = g.selfdress("POLISH", "On")
+            assert st.coop_dress_self_polish is True and _mlog_lines(fake, BW.POLISH_ON_LOG)
+            g.selfdress_polish(False)
+            st = g.selfdress("clear")
+            assert st.coop_dress_self_polish is True
+
+
+@pytest.mark.parametrize("stage", ["s138", "s139", "s140", "s141"])
+def test_each_engine_answers_selfdress_polish_in_its_own_words(game, stage):
+    """`selfdress polish off` on the selftest role, engine by engine (FG.selfdress_ops; the stand-in's words == the stack's
+    own lines): s138 has no `selfdress` at all ("unknown sub-verb", its own list), s139 lists its five ops, s140 its eight
+    (no `polish`), s141 takes it (`polish` read back off)."""
+    caps = {"s138": S138_CAPS_, "s139": S139_CAPS_, "s140": S140_CAPS_, "s141": FG.caps_through("dresspolish")}[stage]
+    fake = FakeGame(game)
+    fake.netsync_caps = caps
+    _sd(fake)
+    if stage == "s141":
+        fake._netsync(["selfdress", "polish", "off"])
+        assert fake._dress_doc()["self"]["polish"] is False and FG.selfdress_ops(caps) == BW.SELFDRESS_OPS
+        return
+    with pytest.raises(RuntimeError) as err:
+        fake._netsync(["selfdress", "polish", "off"])
+    if stage == "s138":
+        assert str(err.value) == f"netsync: unknown sub-verb 'selfdress' ({'|'.join(fake._netsync_subverbs())})"
+        assert FG.selfdress_ops(caps) == () and "selfdress" not in fake._netsync_subverbs()
+        return
+    ops = {"s139": BW.SELFDRESS_OPS_S139, "s140": BW.SELFDRESS_OPS_S140}[stage]
+    assert FG.selfdress_ops(caps) == ops
+    assert str(err.value) == f"netsync selfdress: unknown op 'polish' ({'|'.join(ops)})"
+    assert _agent_selfdress_ops([_patch_bytes(stage)]) == ops                   # that engine's own refusal line
+
+
+def test_reset_and_every_release_path_free_the_polish_lever(game):
+    """NetSyncSelfDress.ReleaseBench frees `polish` with the s140 levers (`_polishOff = false`, `any` naming it) on every path
+    -- `reset`, `selftest 0` (HarnessSelfTest(false) -> NetSyncBattle.HarnessReleaseBench -> HarnessReleaseDress) and
+    `selfdress clear` -- its ONE line, s141's (naming `polish`), once per path that held a lever; the `polish_release_keeps`
+    fault (a stand-in whose harness release leaves the lever off) keeps it through `reset` and `selftest 0` -- `clear` still
+    frees it. On the stack: ReleaseBench's statements, and no new release site (the chain s140 built)."""
+    for path in ("reset", "selftest0", "clear"):
+        for fault in ((), ("polish_release_keeps",)):
+            fake = FakeGame(game)
+            fake.dress_faults = set(fault)
+            cause = "selfdress clear" if path == "clear" else "released with the harness"
+            line = f"{BW.SELF_RELEASE_LINE}{cause})"
+            was = len(_mlog_lines(fake, line))
+            with session(game, fake) as g:
+                g.newgame(settle=0)
+                g.warp(FIELD)
+                g.netsync("selftest", 1)
+                st = g.selfdress_polish(False)
+                assert st.coop_dress_self_polish is False, path
+                if path == "reset":
+                    g.send("reset")
+                    g.wait_for(lambda s: s.netsync is not None and not s.netsync["forced"], timeout=5.0, what="release")
+                    st = g.netsync("selftest", 1)
+                elif path == "selftest0":
+                    g.netsync("selftest", 0)
+                    st = g.netsync("selftest", 1)
+                else:
+                    st = g.selfdress("clear")
+                kept = bool(fault) and path != "clear"
+                assert st.coop_dress_self_polish is (not kept), (path, fault)
+                assert len(_mlog_lines(fake, line)) == was + 1, (path, fault)       # the polish lever alone names it
+    rel = " ".join(_cs_block("NetSyncSelfDress.cs", "internal static void ReleaseBench(String cause)", stop="}"))
+    for frag in ("Boolean any = _benchSelf != null || _benchSelfMask >= 0 || _benchGateOff || _lawOff != 0 || _polishOff;",
+                 "_polishOff = false;", f'Log.Message("[NetSync] harness: {BW.SELF_RELEASE_LINE}" + cause + ")");'):
+        assert frag in rel, frag
+    assert "NetSyncSelfDress.ReleaseBench(cause);" in " ".join(_stack_text("NetSyncClient.cs"))
+    assert not [t for t in _s141_added("NetSyncClient.cs") if "ReleaseBench(" in _strip_comment(t)]   # no new release site
+
+
+# ---- the pure rules: the twins, line for line, and the census's own twins case for case
+#: [ff9mapkit netsync s141] each s141 pure rule -> (its battlewire twin, the C# parameter names in order -- an `out` folded into
+#: the twin's return)
+_POLISH_TWINS = {"Int32 FootstepRule": (BW.footstep_rule, ["rig", "code", "anim", "frame", "sound", "out animOut",
+                                                           "out frameOut", "out soundOut"]),
+                 "Boolean UnbindOnEmptyRule": (BW.unbind_on_empty_rule, ["code", "tableUse"]),
+                 "Int32 FootstepDecision": (BW.footstep_decision, ["rig", "code", "anim", "frame", "sound", "polish",
+                                                                   "tableUse", "out animOut", "out frameOut",
+                                                                   "out soundOut"]),
+                 "Int32 AttachBoneRule": (BW.attach_bone_rule, ["rig", "bone", "polish", "out verdict"]),
+                 "Boolean KeepMeshRule": (BW.keep_mesh_rule, ["dressed", "polish"]),
+                 "Int32 LightRowRule": (BW.light_row_rule, ["model", "hasOwnRow", "dressSrc", "hasSrcRow", "polish"]),
+                 "Int32 GhostLpRowRule": (BW.ghost_lp_row_rule, ["lpModel", "lpDressSrc", "polish"]),
+                 "Boolean PolishOnRule": (BW.polish_on_rule, ["polishOff", "selfTestRole"]),
+                 "Int32 PolishValueRule": (BW.polish_value_rule, ["val"]),
+                 "DMSMapChar? DressedRowCore": (BW.dressed_row_core, ["mcf", "model", "dressSrc", "own", "polish",
+                                                                     "out used"]),
+                 "DMSMapChar? GhostRowCore": (BW.ghost_row_core, ["mcf", "ghostModel", "hasLp", "lpModel", "lpDressSrc",
+                                                                 "polish", "out used"])}
+
+
+def test_the_s141_twins_take_the_engines_parameters_in_its_order():
+    """Each s141 pure rule's C# signature (read off the live stack) takes exactly the parameters its battlewire twin does,
+    in the same order (an `out` folded into the twin's return); the verdict codes, DefaultMcfRow and SourceRig are the
+    engine's constants."""
+    for sig, (twin, params) in _POLISH_TWINS.items():
+        head = " ".join(_strip_comment(t) for t in _cs_block("NetSyncSelfDress.cs", f"internal static {sig}(", "{"))
+        inner = head[head.index("(") + 1:head.rindex(")")]
+        got = [" ".join(p.split()[:-2] + [p.split()[-1]]) if p.split()[0] in ("ref", "out") else p.split()[-1]
+               for p in inner.split(",")]
+        assert got == params, sig
+        ins = [p for p in params if not p.startswith("out ")]
+        twin_ins = [p for p in _twin_params(twin) if p != "rule"]               # try_set_polish's mutant seam aside
+        assert twin_ins == [_snake(p) for p in ins], (sig, _twin_params(twin))
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    for frag in ("internal const Int32 StepUntouched = 0, StepMapped = 1, StepDropped = 2, StepPassed = 3;",
+                 "internal const Int32 StepBypassed = 4, StepDroppedEmpty = 5;",
+                 "internal const Int32 AttachBypass = 0, AttachRemap = 1, AttachNote = 2;",
+                 "internal const Int32 DefaultMcfRow = 0xFFFF;", "internal const Int32 SourceRig = 0;"):
+        assert frag in sd, frag
+    assert (BW.STEP_UNTOUCHED, BW.STEP_MAPPED, BW.STEP_DROPPED, BW.STEP_PASSED, BW.STEP_BYPASSED,
+            BW.STEP_DROPPED_EMPTY) == (0, 1, 2, 3, 4, 5)
+    assert (BW.ATTACH_BYPASS, BW.ATTACH_REMAP, BW.ATTACH_NOTE, BW.DEFAULT_MCF_ROW, BW.SOURCE_RIG) == (0, 1, 2, 0xFFFF, 0)
+
+
+#: [ff9mapkit netsync s141] each s141 rule / hook member -> its decisive statements IN ORDER, read off ITS OWN body
+#: (:func:`_s141_func`: a mutant repeating a statement never satisfies the rule's pin) -- the twins' logic, statement for
+#: statement; MapFootstep's row pins the guard's WIRING (the table use it hands the decision, the StepDroppedEmpty branch
+#: that returns false before fldchar's dispatch), DressedCharRow's its core and its witness
+S141_RULE_STATEMENTS = {
+    "internal static Int32 FootstepRule(": (
+        "if (code < 16 || code > 19)", "return StepUntouched;", "if (!NetSyncVisitor.TryGetRig(SourceRig, out src))",
+        "return StepPassed;", "if (anim == src.Walk)", "srcA = src.WalkStepA;", "srcB = src.WalkStepB;",
+        "dstA = rig.WalkStepA;", "dstB = rig.WalkStepB;", "dstAnim = rig.Walk;", "else if (anim == src.Run)",
+        "srcA = src.RunStepA;", "srcB = src.RunStepB;", "dstA = rig.RunStepA;", "dstB = rig.RunStepB;", "dstAnim = rig.Run;",
+        "return StepPassed;", "Int32 ordinal = frame == srcA ? 0 : frame == srcB ? 1 : -1;", "if (ordinal < 0)",
+        "return StepPassed;", "if (dstA < 0 || dstB < 0)", "return StepDropped;", "animOut = dstAnim;",
+        "frameOut = ordinal == 0 ? dstA : dstB;", "if (rig.StepSound != 0 && (code == 16 || code == 17))",
+        "soundOut = rig.StepSound;", "return StepMapped;"),
+    "internal static Boolean UnbindOnEmptyRule(": ("return code == 19 && tableUse <= 0;",),
+    "internal static Int32 FootstepDecision(": (
+        "if (code < 16 || code > 19)", "return StepUntouched;",
+        "Int32 verdict = polish ? FootstepRule(rig, code, anim, frame, sound, out animOut, out frameOut, out soundOut) : "
+        "StepBypassed;", "if (verdict == StepDropped)", "return StepDropped;", "if (UnbindOnEmptyRule(code, tableUse))",
+        "return StepDroppedEmpty;", "return verdict;"),
+    "internal static Boolean MapFootstep(": (
+        "if (code < 16 || code > 19)", "return true;", "Int32 rigIdx = BodyRig(body);",
+        "if (!NetSyncVisitor.TryGetRig(rigIdx, out rig))", "Faults++;", 'LogFault("footstep rig " + rigIdx,',
+        "Int32 verdict = FootstepDecision(rig, code, anim, frame, sound, PolishOn, code == 19 ? SoundTableUse() : 1, out a, "
+        "out f, out s);", "if (verdict == StepDropped)", "StepsDropped++;", "return false;",
+        "if (verdict == StepDroppedEmpty)", "StepsDropped++;", "return false;", "if (verdict == StepPassed)", "StepsPassed++;",
+        "anim = a;", "frame = f;", "sound = s;", "return true;", "Faults++;", 'LogFault("footstep " + code, err);',
+        "return true;"),
+    "private static Int32 SoundTableUse(": ("return FF9StateSystem.Field.FF9Field.loc.map.charSoundUse;",),
+    "internal static void NoteStepFired(": (
+        "PosObj ctl = HarnessBody();", "if (ctl == null || ctl.uid != body.uid)", "if (body.netSelfDress != 0)",
+        "StepsFired++;", "StepsFiredPlayer++;", "catch (Exception err)", "Faults++;", 'LogFault("step fired", err);'),
+    "internal static Int32 AttachBoneRule(": (
+        "if (!polish || !NetSyncVisitor.TryGetRig(SourceRig, out src))", "verdict = AttachBypass;", "return bone;",
+        "if (bone == src.HandBone)", "verdict = AttachRemap;", "return rig.HandBone;", "if (bone == src.HandBoneEnd)",
+        "verdict = AttachRemap;", "return rig.HandBoneEnd;", "verdict = AttachNote;", "return bone;"),
+    "internal static Int32 AtAttach(": (
+        "Int32 rigIdx = BodyRig(carrier);", "if (!NetSyncVisitor.TryGetRig(rigIdx, out rig))", "Faults++;",
+        'LogFault("attach rig " + rigIdx,', "return bone;", "Int32 outBone = AttachBoneRule(rig, bone, PolishOn, out verdict);",
+        "AttachRemaps++;", "AttachNotes++;", "AttachLastBoneOut = outBone;", "return outBone;"),
+    "internal static Boolean KeepMeshRule(": ("return !dressed || !polish;",),
+    "internal static Int32 LightRowRule(": (
+        "if (hasOwnRow)", "return model & 0xFFFF;", "if (dressSrc != 0 && polish && hasSrcRow)", "return dressSrc & 0xFFFF;",
+        "return DefaultMcfRow;"),
+    "internal static DMSMapChar? DressedRowCore(": (
+        "DMSMapChar? src = own == null && polish && dressSrc != 0 ? fldmcf.ff9fieldMCFGetCharByID(mcf, dressSrc) : null;",
+        "DMSMapChar? row = own != null ? own : src;", "used = row != null ? (Int32)row.Value.geoNo : DefaultMcfRow;",
+        "return row;"),
+    "internal static DMSMapChar? DressedCharRow(": (
+        "DMSMapChar? row = DressedRowCore(mcf, po.model, po.netDressSrc, own, PolishOn, out used);",
+        "PosObj ctl = HarnessBody();", "if (ctl != null && ctl.uid == po.uid)", "LightRow = used;", "return row;",
+        "Faults++;", 'LogFault("light row", err);', "return own;"),
+    "internal static Int32 GhostLpRowRule(": ("return lpDressSrc != 0 && polish ? lpDressSrc : lpModel;",),
+    "internal static DMSMapChar? GhostRowCore(": (
+        "used = ghostModel & 0xFFFF;", "DMSMapChar? row = fldmcf.ff9fieldMCFGetCharByID(mcf, ghostModel);",
+        "if (row == null && hasLp)", "used = GhostLpRowRule(lpModel, lpDressSrc, polish) & 0xFFFF;",
+        "row = fldmcf.ff9fieldMCFGetCharByID(mcf, used);", "if (row == null)", "used = DefaultMcfRow;",
+        "row = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);", "return row;"),
+    "internal static DMSMapChar? GhostRow(": (
+        "Boolean dressed = lp != null && lp.netDressSrc != 0;",
+        "return GhostRowCore(mcf, ghostModel, lp != null, lp != null ? lp.model : 0, dressed ? lp.netDressSrc : 0, "
+        "dressed ? PolishOn : true, out used);"),
+    "internal static Int32 PolishValueRule(": (
+        "String v = NetSyncVisitor.DressMode(val);", 'return v == "on" ? 1 : v == "off" ? 0 : -1;'),
+    "internal static Boolean TrySetPolish(": (
+        "Int32 v = PolishValueRule(val);", "if (v < 0)", "why = PolishUsage;", "return false;", "_polishOff = v == 0;",
+        "return true;"),
+}
+
+
+def test_the_s141_rule_bodies_are_the_engines_statement_for_statement():
+    """The rules' and hooks' bodies, off the live stack, are the twins' -- every decisive statement IN ORDER, each group read
+    off ITS OWN member (S141_RULE_STATEMENTS through :func:`_s141_func`: the PolishSelfTest mutants repeat several of these
+    statements, so a search of every added line would stay green with the rule itself reverted): FootstepRule (the source
+    row, the pair ordinal, the -1 drop, the 16 / 17 sound), FootstepDecision (the lever, the drop FIRST, then the guard),
+    MapFootstep (THE GUARD'S WIRING: the live charSoundUse on a 19, the StepDroppedEmpty branch returning false before
+    fldchar's dispatch), UnbindOnEmptyRule, AttachBoneRule (the source row's hand bones -> the rig's, never labels_for),
+    KeepMeshRule, LightRowRule (own, then the source when dressed and on, then the default), DressedRowCore / DressedCharRow
+    (the row RETURNED names the witness), GhostLpRowRule, GhostRowCore (ApplyGhostLighting's ONE core: the ghost's own
+    row, then the stand-in, then the default -- the row RETURNED names the witness) and GhostRow (netDressSrc read FIRST),
+    PolishValueRule / TrySetPolish. The rule is never its mutant: LightRowRule tests its own row BEFORE the source
+    (MutantSrcFirst the reverse); FootstepDecision checks the rule's drop BEFORE the guard. EXACT (rselftest-1): each
+    member's WHOLE statement list is its frozen S141_MEMBER_STATEMENTS entry (:func:`_pin_problems` -- an inserted early
+    return, a guard bypass, a moved block read red, never only a deleted statement); the decisive fragments name what
+    drifted."""
+    for start, frags in S141_RULE_STATEMENTS.items():
+        assert _in_order(_s141_func(start), frags) == [], start
+        assert _pin_problems(start, frags) == [], start
+    lr = _s141_func("internal static Int32 LightRowRule(")
+    ms = _s141_func("private static Int32 MutantSrcFirst(")
+    assert lr.index("if (hasOwnRow)") < lr.index("if (dressSrc != 0 && polish && hasSrcRow)")
+    assert ms.index("if (dressSrc != 0 && polish && hasSrcRow)") < ms.index("return hasOwnRow ?")
+    fd = _s141_func("internal static Int32 FootstepDecision(")
+    assert fd.index("if (verdict == StepDropped)") < fd.index("if (UnbindOnEmptyRule(code, tableUse))")
+    # the s140 LightRowRule (no source fallback) -- the build-stage gap: the old whole-file search found these two
+    # statements in MutantSrcFirst and stayed green
+    reverted = lr.replace("if (dressSrc != 0 && polish && hasSrcRow) return dressSrc & 0xFFFF;", "")
+    assert reverted != lr and _in_order(reverted, S141_RULE_STATEMENTS["internal static Int32 LightRowRule("])
+    unwired = _s141_func("internal static Boolean MapFootstep(").replace("code == 19 ? SoundTableUse() : 1", "1")
+    assert _in_order(unwired, S141_RULE_STATEMENTS["internal static Boolean MapFootstep("])
+    full = " ".join(_strip_comment(t) for t in _s141_added("NetSyncSelfDress.cs"))
+    assert "labels_for" not in full.replace("never labels_for", "")
+
+
+def _census_mod():
+    spec = importlib.util.spec_from_file_location("_polish_census_under_test",
+                                                  REPO / "studies" / "battle-coop" / "dress-census" / "polish_census.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _census_mcf(mcf):
+    """battlewire's MCF shape as the census twin's MapConfig (``.char``, ``.light_use``, ``.lights``, ``.default_light``)."""
+    from types import SimpleNamespace as NS
+    chars = {c[0]: NS(clr=tuple(c[3])) for c in mcf["chars"]}
+    lights = [NS(type=t, clr=tuple(clr) + (0,), floor=tuple(fl)) for t, clr, fl in mcf["lights"]]
+    return NS(char=lambda geo: chars.get(int(geo) & 0xFFFF), light_use=len(lights), lights=lights,
+              default_light=lambda: next((x for x in lights if x.type == 1), None))
+
+
+def test_the_polish_twins_are_the_census_twins_case_for_case():
+    """battlewire's twins (the engine's rules) and the census's own (polish_census.py: map_footstep, expected_steps,
+    remap_attach_bone, light_color, ghost_light_color -- written apart, from the audit) agree on every case: the footstep
+    rule over every rig x codes 0-25 x walk / run / idle / other anims x frames 0-24 (the census has no empty-table guard: a
+    non-empty table is its whole domain); the stock table replay of field 250 per rig both lever states; the bone remap
+    over every rig x bones 0-33 x the lever; the light and the ghost's row and tint per rig x floor 0-3 x the lever on
+    field 250's mapconfig. And the engine's guard is the ONE place they part by DEFAULT: a 19 headed for an empty table --
+    the census twin's opt-in `guard` (expected_steps(guard=True)) closes it, case for case."""
+    pc = _census_mod()
+    rigs = [BW.rig_row(i) for i in range(BW.RIG_ROW_COUNT)]
+    n = 0
+    for rig in rigs:
+        for code in range(26):
+            for anim in (25, 38, 200, 2553, 190, 1996, 8847):
+                for frame in range(25):
+                    for sound in (919, 0, 1):
+                        v, a, f, s = BW.footstep_rule(rig, code, anim, frame, sound)
+                        assert (BW.STEP_CENSUS_NAMES[v], a, f, s) == tuple(pc.map_footstep(rig, code, anim, frame, sound,
+                                                                                           zidane=rigs[0])), \
+                            (rig["model"], code, anim, frame, sound)
+                        n += 1
+        for polish in (True, False):
+            mine = BW.replay_steps(rig, BW.FIELD250_STEPS, polish=polish)
+            theirs = pc.expected_steps(rig, [list(o) for o in BW.FIELD250_STEPS], polish=polish, zidane=rigs[0])
+            assert (mine["steps"], mine["table"], mine["steps_dropped"], mine["steps_passed"]) == (
+                theirs["steps"], theirs["table"], theirs["steps_dropped"], theirs["steps_passed"]), rig["model"]
+        for bone in range(34):
+            for polish in (True, False):
+                got, v = BW.attach_bone_rule(rig, bone, polish)
+                assert (got, BW.ATTACH_CENSUS_NAMES[v]) == tuple(pc.remap_attach_bone(rig, bone, polish)), (rig, bone)
+    assert n == 13 * 26 * 7 * 25 * 3
+    mcf, cm = BW.FIELD250_MCF, _census_mcf(BW.FIELD250_MCF)
+    for rig in rigs:
+        for floor in range(4):
+            for polish in (True, False):
+                for src in (0, 98):
+                    mine = BW.mcf_light_color(mcf, rig["model"], floor, src, polish)
+                    theirs = pc.light_color(cm, rig["model"], floor, src, polish)
+                    assert (mine["row"], mine["rgb"]) == (theirs["row"], theirs["rgb"]), (rig["model"], floor, polish)
+                    g_mine = BW.ghost_mcf_light_color(mcf, rig["model"], 98, floor, src, polish)
+                    g_theirs = pc.ghost_light_color(cm, rig["model"], 98, floor, src, polish)
+                    assert (g_mine["row"], g_mine["rgb"]) == (g_theirs["row"], g_theirs["rgb"]), (rig["model"], floor)
+    assert BW.mcf_light_color(None, 192, 0, 98) == {"row": -1, "rgb": None}     # a kit field: nothing written
+    # where they part: the engine's empty-table guard (the census twin records stock's throw instead)
+    moogle_ops = [(16, 25, 4, 919), (19, 25, 4, 0)]
+    freya = rigs[4]
+    empty19 = [(19, 25, 13, 0)]
+    assert BW.replay_steps(freya, empty19)["steps_dropped"] == 1 and BW.replay_steps(freya, empty19)["faults"] == []
+    assert pc.expected_steps(freya, [list(o) for o in empty19])["faults"]              # stock throws there
+    assert BW.replay_steps(rigs[8], moogle_ops)["steps_dropped"] == 2                  # a drop rig's 19 is the rig's drop
+    # ...and with the census twin's guard ON the two agree on every op mix the guard can see, both lever states
+    mixes = [empty19, moogle_ops, list(BW.GUARD_2930), list(BW.FIELD250_STEPS) + list(BW.GUARD_2930),
+             list(BW.FIELD250_STEPS) + list(BW.GUARD_KEY19), list(BW.KIT_PLAYER_STEPS) + list(BW.GUARD_2930)]
+    for rig in rigs:
+        for ops in mixes:
+            for polish in (True, False):
+                mine = BW.replay_steps(rig, ops, polish=polish)
+                theirs = pc.expected_steps(rig, [list(o) for o in ops], polish=polish, zidane=rigs[0], guard=True)
+                assert (mine["steps"], mine["steps_dropped"], mine["steps_passed"], mine["faults"]) == (
+                    theirs["steps"], theirs["steps_dropped"], theirs["steps_passed"], theirs["faults"]), (rig["model"], ops)
+
+
+# ---- NetSyncSelfDress.PolishSelfTest's OWN rows, evaluated against the twins (the s141 proof block's polish line)
+def _polish_program() -> list:
+    """NetSyncSelfDress.PolishSelfTest's try body off the live stack, as a statement tree (:func:`_self_block`)."""
+    lines = _cs_block("NetSyncSelfDress.cs", "internal static Boolean PolishSelfTest(out String detail)",
+                      stop="catch (Exception err)")
+    text = " ".join(c for c in (_strip_comment(t) for t in lines) if c)
+    head = "Int32 rows = 0; String fail = null; try {"
+    i = text.index(head) + len(head)
+    assert text.rstrip().endswith("}"), text[-80:]
+    return _self_block(text[i:text.rstrip().rindex("}")])
+
+
+def _polish_ns(**over) -> dict:
+    """The namespace PolishSelfTest runs in: its rules, helper tables and mutants as their battlewire twins (the helper
+    tables read the rules HANDED to them -- each `FootTable(FootstepRule)` call runs the namespace's rule), its live static
+    `_polishOff` as a name TrySetPolish writes and the `finally` restores -- ``over`` replacing any twin (a MUTANT, to prove a
+    row bites): footstep_rule, footstep_decision, unbind_on_empty_rule, fldchar_footstep, attach_bone_rule, keep_mesh_rule,
+    light_row_rule, ghost_lp_row_rule, mcf_tint, polish_on_rule, try_set_polish, on_sound_table_reset, rigs,
+    dressed_row_core, ghost_row_core -- and the
+    helper TABLES themselves (foot_table, bone_table, light_table: a lenient table lets its mutant row through)."""
+    tw = dict(footstep_rule=BW.footstep_rule, footstep_decision=BW.footstep_decision,
+              unbind_on_empty_rule=BW.unbind_on_empty_rule, fldchar_footstep=BW.fldchar_footstep,
+              attach_bone_rule=BW.attach_bone_rule, keep_mesh_rule=BW.keep_mesh_rule, light_row_rule=BW.light_row_rule,
+              ghost_lp_row_rule=BW.ghost_lp_row_rule, mcf_tint=BW.mcf_tint, polish_on_rule=BW.polish_on_rule,
+              try_set_polish=BW.try_set_polish, on_sound_table_reset=BW.on_sound_table_reset, rigs=BW.RIGS,
+              foot_table=BW.foot_table, bone_table=BW.bone_table, light_table=BW.light_table,
+              polish_value_rule=BW.polish_value_rule, dressed_row_core=BW.dressed_row_core,
+              ghost_row_core=BW.ghost_row_core)
+    tw.update(over)
+    ns: dict = {"_polishOff": False}
+
+    def try_set_polish(val, why_name):
+        ok, why, off = tw["try_set_polish"](val, tw["polish_value_rule"])
+        ns[why_name] = why
+        if ok:
+            ns["_polishOff"] = off
+        return ok
+
+    def decide(rig, code, anim, frame, sound, polish, table_use):
+        return tw["footstep_decision"](rig, code, anim, frame, sound, polish, table_use)
+    ns.update(
+        FootTable=lambda rule: tw["foot_table"](rule, tw["rigs"]), FootstepRule=tw["footstep_rule"],
+        DecisionPolishOn=lambda rig, c, a, f, s: decide(rig, c, a, f, s, True, 1),
+        MutantOrdinalSwap=BW.mutant_ordinal_swap, MutantNineteenHarmless=BW.mutant_nineteen_harmless,
+        MutantSoundAnyCode=BW.mutant_sound_any_code, MutantAnyFrame=BW.mutant_any_frame,
+        BypassTable=lambda: BW.bypass_table(decide, tw["rigs"]),
+        GuardRows=lambda: BW.guard_rows(decide, tw["unbind_on_empty_rule"]),
+        GuardReplayRows=lambda: BW.guard_replay_rows(decide, tw["fldchar_footstep"], tw["rigs"]),
+        Field250Table=lambda polish: BW.field250_table(polish, decide, tw["rigs"], tw["fldchar_footstep"]),
+        BoneTable=lambda rule: tw["bone_table"](rule, tw["rigs"]), AttachBoneRule=tw["attach_bone_rule"],
+        MutantBoneSwap=BW.mutant_bone_swap, MutantBoneAny=BW.mutant_bone_any,
+        MeshTable=BW.mesh_table, KeepMeshRule=tw["keep_mesh_rule"], MutantMeshLeverBlind=BW.mutant_mesh_lever_blind,
+        LightTable=tw["light_table"], LightRowRule=tw["light_row_rule"], MutantSrcFirst=BW.mutant_src_first,
+        MutantNoSrcFallback=BW.mutant_no_src_fallback,
+        GhostTable=BW.ghost_table, GhostLpRowRule=tw["ghost_lp_row_rule"], MutantGhostModel=BW.mutant_ghost_model,
+        Mcf250Table=lambda: BW.mcf250_table(tw["light_row_rule"], tw["ghost_lp_row_rule"], tint_fn=tw["mcf_tint"],
+                                            core=tw["dressed_row_core"], ghost_core=tw["ghost_row_core"]),
+        PolishOnTable=BW.polish_on_table, PolishOnRule=tw["polish_on_rule"], MutantPolishAnyRole=BW.mutant_polish_any_role,
+        TrySetPolish=try_set_polish, PolishUsage=BW.POLISH_USAGE, PolishValueRule=tw["polish_value_rule"],
+        ResetRow=lambda: BW.reset_row(tw["on_sound_table_reset"]))
+    return ns
+
+
+def test_the_polish_twins_evaluate_every_polish_selftest_row_off_the_stack():
+    """NetSyncSelfDress.PolishSelfTest's OWN 20 rows (the live s141 proof block's "dress polish" line, read off the stack),
+    EVALUATED in order against battlewire's twins: the footstep table on every rig (+ the decision with the polish on, and
+    four mutants each caught), the lever's bypass, the empty-table guard, field 250's one load per rig both lever states
+    (leg F's oracle), the bone table (+ two mutants), the mesh rule (+ its lever-blind mutant), the light table (+ two
+    mutants), the ghost's row (+ s140's), field 250's mapconfig through the lookup and the tint, the lever's role rule (+ the
+    any-role mutant), TrySetPolish's refusal and the value rule's accepted on / off (the lever restored by the `finally`),
+    the per-load reset (the carried go a live object first, the lever left as set). The proof line reads 20 rows; it sits
+    right after s140's self-dress line on the selftest role's proof block; the stand-in's FAIL row is the program's first
+    row, its "(1 rows run)" the engine's count (Row counts a row BEFORE it records the failure)."""
+    ns = _polish_ns()
+    names = _self_run(_polish_program(), ns)
+    assert len(names) == BW.DRESS_POLISH_SELFTEST_ROWS == 20 and len(set(names)) == 20, names
+    assert names[0] == FG.POLISH_SELFTEST_FAIL_ROW
+    assert names[-1].startswith("reset: OnSoundTableReset puts every s141 counter and witness back to its sentinel")
+    assert ns["_polishOff"] is False                             # the refusal row's `finally` restored the lever
+    assert BW.proof_ok(BW.PROOF_DRESS_POLISH, BW.DRESS_POLISH_SELFTEST_ROWS) == "dress polish selftest: OK (20 rows)"
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    assert 'Log.Message("[NetSync] dress polish selftest: "' in client and \
+        '+ (polishOk ? "OK (" + polishDetail + ")" : "FAIL (" + polishDetail + ")"));' in client
+    assert _added_after("s141", "NetSyncClient.cs", '+ (selfOk ? "OK (" + selfDetail + ")" : "FAIL (" + selfDetail + ")"));',
+                        "Boolean polishOk = NetSyncSelfDress.PolishSelfTest(out polishDetail);")
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    assert "detail = fail == null ? rows + \" rows\" : \"row '\" + fail + \"' failed (\" + rows + \" rows run)\";" in sd
+    row = " ".join(_s140_block("NetSyncSelfDress.cs", "private static void Row(Boolean ok, String name, ref Int32 rows, "
+                                                      "ref String fail)", "}"))
+    assert row.index("rows++;") < row.index("fail = name;")           # a first-row failure reads "(1 rows run)"
+
+
+def _mut_freya_pair(rig, code, anim, frame, sound):
+    """FootstepRule with Freya's walk pair read as {4, 15} (one table cell off)."""
+    r = BW._rig_cols(rig)
+    if r["model"] == 192:
+        r = dict(r, walk_step_b=15)
+    return BW.footstep_rule(r, code, anim, frame, sound)
+
+
+def _mut_decision_ignores_lever(rig, code, anim, frame, sound, polish, table_use):
+    return BW.footstep_decision(rig, code, anim, frame, sound, True, table_use)
+
+
+def _mut_decision_no_guard(rig, code, anim, frame, sound, polish, table_use):
+    return BW.footstep_decision(rig, code, anim, frame, sound, polish, 1)
+
+
+def _mut_dispatch_new_record(table, code, anim, frame, arg4):
+    """fldchar with codes 17 / 18 creating a record of their own (never finding 16's)."""
+    if code in (17, 18):
+        table.append([anim, frame, 0, 0, 0])
+        return None
+    return BW.fldchar_footstep(table, code, anim, frame, arg4)
+
+
+def _mut_reset_keeps_light(statics):
+    keep = statics["LightRow"]
+    BW.on_sound_table_reset(statics)
+    statics["LightRow"] = keep
+
+
+def _mut_decision_17_passes(rig, code, anim, frame, sound, polish, table_use):
+    """FootstepDecision sending code 17 through unmapped (FootstepRule itself right)."""
+    if code == 17 and polish:
+        return BW.STEP_PASSED, anim, frame, sound
+    return BW.footstep_decision(rig, code, anim, frame, sound, polish, table_use)
+
+
+def _lenient_foot_table(rule, rigs=None):
+    """FootTable blind to the frame and the sound (it judges the verdict alone): a mutant with the right verdicts passes."""
+    def blind(rig, code, anim, frame, sound):
+        v, a, f, s = rule(rig, code, anim, frame, sound)
+        want = BW.footstep_rule(rig, code, anim, frame, sound)
+        return (v,) + tuple(want[1:]) if v == want[0] else (v, a, f, s)
+    return BW.foot_table(blind, rigs)
+
+
+def _lenient_bone_table(rule, rigs=None):
+    """BoneTable blind to WHICH bone (the verdict alone)."""
+    def blind(rig, bone, polish):
+        got, v = rule(rig, bone, polish)
+        want = BW.attach_bone_rule(rig, bone, polish)
+        return (want[0], v) if v == want[1] else (got, v)
+    return BW.bone_table(blind, rigs)
+
+
+def _light_table_no_own_rows(rule):
+    """LightTable without its own-row cases (a model WITH a row answered right whatever the rule)."""
+    return BW.light_table(lambda m, h, d, hs, p: BW.light_row_rule(m, h, d, hs, p) if h else rule(m, h, d, hs, p))
+
+
+@pytest.mark.parametrize("mutant,row", [
+    ("foot_rule", "foot: Zidane's four pair keys x codes 16-19 on every rig 0-12 map to the census pair"),
+    ("rig_cell", "foot: Zidane's four pair keys x codes 16-19 on every rig 0-12 map to the census pair"),
+    ("decision_17", "foot: FootstepDecision with the polish on and a non-empty table answers the same table"),
+    ("foot_table_blind", "mutant: the swapped ordinal (the rig pair's A <-> B) is caught"),
+    ("bone_table_blind", "mutant: the swapped hand pair (12 -> R_hand_end) and a remap of every bone are each caught"),
+    ("light_table_no_own", "mutant: the source row before an own row, and no source fallback (s140), are each caught"),
+    ("lever_blind", "lever: under `polish off` FootstepDecision sends every 16-19 op"),
+    ("no_guard", "guard: a 19 headed for an EMPTY table is dropped"),
+    # (fldchar's table semantics serve the guard's replay rows too -- the earlier row -- and field 250's: both bite)
+    ("table_semantics", "guard: a 19 headed for an EMPTY table is dropped"),
+    ("bone_rule", "bone: on every rig 0-12 bone 12 / 13 -> the census R_hand / R_hand_end"),
+    ("mesh_rule", "mesh: an undressed body's op and every op under `polish off` are kept"),
+    ("light_rule", "light: own row -> own; no own row on a dressed body -> its SOURCE row 98"),
+    ("ghost_rule", "ghost: the local player's stand-in row is its netDressSrc when dressed"),
+    ("tint", "mcf: field 250's rows through the REAL lookup"),
+    ("lever_any_role", "lever: the polish is on by default; `polish off` acts on the selftest role only"),
+    ("try_set_accepts_1", "lever: `polish` takes on|off only"),
+    ("value_refuses_all", "lever: `polish` takes on|off only"),
+    ("reset_keeps_light", "reset: OnSoundTableReset puts every s141 counter and witness back to its sentinel"),
+    ("reset_keeps_go", "reset: OnSoundTableReset puts every s141 counter and witness back to its sentinel"),
+    ("reset_releases_lever", "reset: OnSoundTableReset puts every s141 counter and witness back to its sentinel"),
+    ("replay_no_shrink", "guard: a 19 headed for an EMPTY table is dropped"),
+    ("core_own_only", "mcf: field 250's rows through the REAL lookup"),
+    ("core_witness_lies", "mcf: field 250's rows through the REAL lookup"),
+    ("ghost_core_default_first", "mcf: field 250's rows through the REAL lookup"),
+    ("ghost_core_witness_lies", "mcf: field 250's rows through the REAL lookup"),
+    ("ghost_core_lp_first", "mcf: field 250's rows through the REAL lookup"),
+])
+def test_each_polish_selftest_row_can_fail_on_the_twin_it_holds(mutant, row):
+    """A check that cannot fail is not a check: each mutant twin -- Freya's walk pair one frame off (in the rule, and in the
+    rig TABLE itself: the proof's literals are the census's, never the table's), a decision sending 17 through unmapped,
+    a footstep / bone / light TABLE too lenient to catch its mutant row's mutant, a decision blind to the lever, one without
+    the empty-table guard, fldchar's 17 / 18 making records of their own, Cinna's hand bones from labels_for (none), a mesh
+    drop that never drops, the s140 light row, s140's ghost row, a tint without the << 3, a lever acting on a client, a
+    TrySetPolish taking `1`, a value rule refusing `on` / `off` too, a reset that keeps light_row / keeps the carried go /
+    releases the lever, a replay whose DeleteChar never shrinks the table, DressedCharRow's core returning its own row only
+    (no source fallback) or naming a witness it did not return, ApplyGhostLighting's core taking the default row BEFORE the
+    local player's stand-in, naming the ghost's model for whatever row it used, or asking the stand-in BEFORE the ghost's
+    own row -- turns PolishSelfTest's OWN row red (the row named by its leading words), never an earlier one."""
+    rigs = list(BW.RIGS)
+    rigs[4] = rigs[4][:9] + (15,) + rigs[4][10:]                 # Freya's walk_step_b, one cell off
+    over = {
+        "foot_rule": {"footstep_rule": _mut_freya_pair},
+        "rig_cell": {"rigs": tuple(rigs)},
+        "decision_17": {"footstep_decision": _mut_decision_17_passes},
+        "foot_table_blind": {"foot_table": _lenient_foot_table},
+        "bone_table_blind": {"bone_table": _lenient_bone_table},
+        "light_table_no_own": {"light_table": _light_table_no_own_rows},
+        "lever_blind": {"footstep_decision": _mut_decision_ignores_lever},
+        "no_guard": {"footstep_decision": _mut_decision_no_guard},
+        "table_semantics": {"fldchar_footstep": _mut_dispatch_new_record},
+        "bone_rule": {"attach_bone_rule": lambda rig, bone, polish: (bone, BW.ATTACH_NOTE) if polish and bone in (12, 13)
+                      and BW._rig_cols(rig)["model"] == 107 else BW.attach_bone_rule(rig, bone, polish)},
+        "mesh_rule": {"keep_mesh_rule": lambda dressed, polish: True},
+        "light_rule": {"light_row_rule": BW.mutant_no_src_fallback},
+        "ghost_rule": {"ghost_lp_row_rule": BW.mutant_ghost_model},
+        "tint": {"mcf_tint": lambda c, l: [int(c[i]) + int(l[i]) for i in range(3)]},
+        "lever_any_role": {"polish_on_rule": BW.mutant_polish_any_role},
+        "try_set_accepts_1": {"try_set_polish": lambda v, rule=None: (True, None, False) if v == "1"
+                              else BW.try_set_polish(v, rule)},
+        "value_refuses_all": {"polish_value_rule": lambda v: -1},
+        "reset_keeps_light": {"on_sound_table_reset": _mut_reset_keeps_light},
+        "reset_keeps_go": {"on_sound_table_reset": lambda s: (BW.on_sound_table_reset(s),
+                                                              s.update(_attachLastGo=object()))},
+        "reset_releases_lever": {"on_sound_table_reset": lambda s: (BW.on_sound_table_reset(s), s.update(_polishOff=False))},
+        "replay_no_shrink": {"fldchar_footstep": lambda t, c, a, f, s: None if c == 19 and t else
+                             BW.fldchar_footstep(t, c, a, f, s)},
+        "core_own_only": {"dressed_row_core": lambda m, model, src, own, pol: (own, int(own[0]) if own else
+                                                                               BW.DEFAULT_MCF_ROW)},
+        "core_witness_lies": {"dressed_row_core": lambda m, model, src, own, pol: (
+            BW.dressed_row_core(m, model, src, own, pol)[0], int(model) & 0xFFFF)},
+        "ghost_core_default_first": {"ghost_row_core": lambda m, gm, has, lpm, src, pol, rule=None: (
+            (BW.mcf_char(m, gm), int(gm) & 0xFFFF) if BW.mcf_char(m, gm) is not None
+            else (BW.mcf_char(m, -1), BW.DEFAULT_MCF_ROW))},
+        "ghost_core_witness_lies": {"ghost_row_core": lambda m, gm, has, lpm, src, pol, rule=None: (
+            BW.ghost_row_core(m, gm, has, lpm, src, pol, rule)[0], int(gm) & 0xFFFF)},
+        "ghost_core_lp_first": {"ghost_row_core": lambda m, gm, has, lpm, src, pol, rule=None: (
+            BW.ghost_row_core(m, -2, has, lpm, src, pol, rule) if has and BW.mcf_char(
+                m, BW.ghost_lp_row_rule(lpm, src, pol)) is not None else BW.ghost_row_core(m, gm, has, lpm, src, pol, rule))},
+    }[mutant]
+    with pytest.raises(AssertionError) as err:
+        _self_run(_polish_program(), _polish_ns(**over))
+    m = re.search(r"row (['\"])(.*?)\1 is ", str(err.value), re.S)
+    assert m and m.group(2).startswith(row), str(err.value)[:400]
+    if mutant == "table_semantics":                    # ...and field 250's row bites on it by itself
+        assert BW.field250_table(True, dispatch=_mut_dispatch_new_record) is not None
+
+
+#: [ff9mapkit netsync s141] PolishSelfTest's HELPER tables and mutants -> their decisive statements IN ORDER, read off each
+#: member's own body (:func:`_s141_func`) -- what each battlewire twin does (BW.foot_table, bypass_table, guard_rows,
+#: guard_replay_rows, replay_ops, field250_table, bone_table, mesh_table, light_table, ghost_table, polish_on_table,
+#: mcf250_table, reset_row and the mutant_* twins): the program test EVALUATES the C# rows against these twins, so a C#
+#: helper that drifts from its twin (a lenient check, another search order, a missing branch) must read here first
+S141_HELPER_STATEMENTS = {
+    "private static String FootTable(": (
+        "if (PolishFootOracle.GetLength(0) != NetSyncVisitor.RigRowCount)", "for (Int32 i = 0; i < NetSyncVisitor.RigRowCount; i++)",
+        "Boolean drop = PolishFootOracle[i, 0] < 0;", "for (Int32 code = 16; code <= 19; code++)",
+        "for (Int32 k = 0; k < PolishKeyAnim.Length; k++)",
+        "Int32 anim = PolishKeyAnim[k], frame = PolishKeyFrame[k], sound = 900 + code;",
+        "v = rule(rig, code, anim, frame, sound, out a, out f, out s);",
+        "if (v != StepDropped || a != anim || f != frame || s != sound)", "Boolean walk = anim == 25;",
+        "Int32 wantAnim = PolishFootOracle[i, walk ? 0 : 3];", "Int32 wantFrame = PolishFootOracle[i, (walk ? 1 : 4) + (k & 1)];",
+        "Int32 wantSound = PolishFootOracle[i, 6] != 0 && (code == 16 || code == 17) ? PolishFootOracle[i, 6] : sound;",
+        "if (v != StepMapped || a != wantAnim || f != wantFrame || s != wantSound)",
+        "for (Int32 p = 0; p < PolishPassAnim.Length; p++)", "for (Int32 code = 16; code <= 19; code++)",
+        "v = rule(rig, code, PolishPassAnim[p], PolishPassFrame[p], 919, out a, out f, out s);",
+        "if (v != StepPassed || a != PolishPassAnim[p] || f != PolishPassFrame[p] || s != 919)",
+        "foreach (Int32 code in PolishOtherCodes)", "v = rule(rig, code, 25, 4, 919, out a, out f, out s);",
+        "if (v != StepUntouched || a != 25 || f != 4 || s != 919)", "return null;"),
+    "private static Int32 DecisionPolishOn(": (
+        "return FootstepDecision(rig, code, anim, frame, sound, true, 1, out animOut, out frameOut, out soundOut);",),
+    "private static String BypassTable(": (
+        "for (Int32 code = 16; code <= 19; code++)", "for (Int32 k = 0; k < PolishKeyAnim.Length; k++)",
+        "if (FootstepDecision(rig, code, PolishKeyAnim[k], PolishKeyFrame[k], 919, false, 1, out a, out f, out s) != StepBypassed",
+        "|| a != PolishKeyAnim[k] || f != PolishKeyFrame[k] || s != 919)",
+        "if (FootstepDecision(rig, 4, 1, -100, 0, false, 1, out a, out f, out s) != StepUntouched)", "return null;"),
+    "private static Boolean GuardRows(": (
+        "if (!NetSyncVisitor.TryGetRig(4, out freya) || !NetSyncVisitor.TryGetRig(NetSyncVisitor.MoogleRig, out moogle))",
+        "return UnbindOnEmptyRule(19, 0) && UnbindOnEmptyRule(19, -1) && !UnbindOnEmptyRule(19, 1) && !UnbindOnEmptyRule(16, 0)",
+        "&& !UnbindOnEmptyRule(17, 0) && !UnbindOnEmptyRule(18, 0)",
+        "&& FootstepDecision(freya, 19, 25, 13, 0, true, 0, out a, out f, out s) == StepDroppedEmpty",
+        "&& FootstepDecision(freya, 19, 25, 13, 0, true, 4, out a, out f, out s) == StepMapped && a == 2553 && f == 16",
+        "&& FootstepDecision(freya, 19, 25, 13, 0, false, 0, out a, out f, out s) == StepDroppedEmpty",
+        "&& FootstepDecision(freya, 19, 25, 13, 0, false, 4, out a, out f, out s) == StepBypassed && a == 25 && f == 13",
+        "&& FootstepDecision(freya, 19, 190, 4, 0, true, 0, out a, out f, out s) == StepDroppedEmpty",
+        "&& FootstepDecision(freya, 19, 190, 4, 0, true, 2, out a, out f, out s) == StepPassed && a == 190 && f == 4",
+        "&& FootstepDecision(freya, 16, 25, 4, 919, true, 0, out a, out f, out s) == StepMapped && a == 2553 && f == 4",
+        "&& FootstepDecision(freya, 18, 38, 8, 1, false, 0, out a, out f, out s) == StepBypassed",
+        "&& FootstepDecision(moogle, 19, 25, 4, 0, true, 0, out a, out f, out s) == StepDropped",
+        "&& FootstepDecision(moogle, 19, 25, 4, 0, true, 4, out a, out f, out s) == StepDropped",
+        "&& FootstepDecision(moogle, 19, 25, 4, 0, false, 0, out a, out f, out s) == StepDroppedEmpty",
+        "&& FootstepDecision(moogle, 4, 1, -100, 0, true, 0, out a, out f, out s) == StepUntouched;"),
+    "private static String Field250Table(": (
+        "if (Field250Oracle.Length != NetSyncVisitor.RigRowCount)", "String steps = Replay(rig, polish, out dropped, Field250Steps);",
+        "String want = polish ? Field250Oracle[i] : Field250Oracle[0];",
+        'Int32 wantDropped = polish && want == "[]" ? Field250Steps.GetLength(0) : 0;',
+        "if (steps != want || dropped != wantDropped)", "return null;"),
+    "private static String Replay(": (
+        "List<Int32[]> table = new List<Int32[]>();", "dropped = 0;", "foreach (Int32[,] ops in blocks)",
+        "for (Int32 i = 0; i < ops.GetLength(0); i++)",
+        "Int32 v = FootstepDecision(rig, code, ops[i, 1], ops[i, 2], ops[i, 3], polish, table.Count, out a, out f, out s);",
+        "if (v == StepDropped || v == StepDroppedEmpty)", "dropped++;", "continue;", "if (code < 16 || code > 19)",
+        "if (code == 19)", "if (table.Count == 0)", 'return "throw";', "for (Int32 r = 0; r < table.Count; r++)",
+        "if (table[r][0] == a && table[r][1] == f)", "hits++;", "table.RemoveRange(table.Count - hits, hits);",
+        "for (Int32 r = table.Count - 1; r >= 0 && rec == null; r--)", "if (table[r][0] == a && table[r][1] == f)",
+        "rec = table[r];", "if (rec == null)", "rec = new Int32[] { a, f, 0, 0, 0 };", "table.Add(rec);", "if (code == 16)",
+        "rec[2] = s & 0xFFFF;", "else if (code == 17)", "rec[3] = s & 0xFFFF;", "rec[4] = s == 0 ? 0 : 1;",
+        '.Append("[").Append(table[r][0]).Append(",").Append(table[r][1]).Append(",").Append(table[r][2]).Append("]");'),
+    "private static String BoneTable(": (
+        "if (PolishHandOracle.GetLength(0) != NetSyncVisitor.RigRowCount)", "for (Int32 p = 0; p < 2; p++)",
+        "Boolean polish = p == 0;", "foreach (Int32 bone in PolishBoneSample)", "Int32 got = rule(rig, bone, polish, out v);",
+        "Int32 want = !polish ? bone : bone == 12 ? PolishHandOracle[i, 0] : bone == 13 ? PolishHandOracle[i, 1] : bone;",
+        "Int32 wantV = !polish ? AttachBypass : bone == 12 || bone == 13 ? AttachRemap : AttachNote;",
+        "if (got != want || v != wantV)", "return null;"),
+    "private static String MeshTable(": (
+        "if (!keep(false, true) || !keep(false, false))", "if (keep(true, true))", "if (!keep(true, false))", "return null;"),
+    "private static String LightTable(": (
+        "if (rule(192, true, 98, true, true) != 192)",
+        "if (rule(192, false, 98, true, true) != 98 || rule(5467, false, 98, true, true) != 98)",
+        "if (rule(192, false, 98, false, true) != DefaultMcfRow)", "if (rule(220, false, 0, true, true) != DefaultMcfRow)",
+        "if (rule(98, true, 0, true, true) != 98)", "if (rule(192, false, 98, true, false) != DefaultMcfRow)",
+        "if (rule(192, true, 98, true, false) != 192)", "return null;"),
+    "private static String GhostTable(": (
+        "if (rule(192, 98, true) != 98 || rule(220, 98, true) != 98)", "if (rule(98, 0, true) != 98 || rule(5489, 0, true) != 5489)",
+        "if (rule(192, 98, false) != 192)", "return null;"),
+    "private static String PolishOnTable(": (
+        "if (!rule(false, true) || !rule(false, false))", "if (rule(true, true))", "if (!rule(true, false))", "return null;"),
+    "private static String Mcf250Table(": (
+        "DMSMapConf mcf = McfOf(McfChar(0xFFFF, 16, 11, 16, 16, 16), McfChar(176, 1, 8, 8, 10, 13), McfChar(98, 1, 10, 10, 12, 15));",
+        "DMSMapConf no98 = McfOf(McfChar(0xFFFF, 16, 11, 16, 16, 16), McfChar(176, 1, 8, 8, 10, 13));",
+        "DMSMapChar? stockDefault = fldmcf.ff9fieldMCFGetCharByID(mcf, -1), mine = fldmcf.ff9fieldMCFGetCharByID(mcf, DefaultMcfRow);",
+        "if (stockDefault == null || mine == null || stockDefault.Value.geoNo != mine.Value.geoNo || mine.Value.geoNo != 0xFFFF)",
+        "Int32 on = CoreRow(mcf, 192, 98, true, out rOn), off = CoreRow(mcf, 192, 98, false, out rOff);",
+        "if (on != 98 || off != DefaultMcfRow || rOff != null)",
+        "String t0 = McfTint(rOn, 0, 0, 0), t1 = McfTint(rOn, -3, -3, -4);", 'if (t0 != "80,96,120" || t1 != "56,72,88")',
+        "DMSMapChar? lit = rOff != null ? rOff : stockDefault;", "String d0 = McfTint(lit, 0, 0, 0), d1 = McfTint(lit, -3, -3, -4);",
+        'if (d0 != "128,128,128" || d1 != "104,104,96")', "if (CoreRow(no98, 192, 98, true, out rNo98) != DefaultMcfRow || rNo98 != null)",
+        'if (CoreRow(mcf, 98, 0, true, out rZid) != 98 || McfTint(rZid, 0, 0, 0) != "80,96,120")',
+        "DMSMapChar? rg = GhostRowCore(mcf, 192, true, 192, 98, true, out g), rgOff = GhostRowCore(mcf, 192, true, 192, 98, "
+        "false, out gOff);",
+        'if (g != 98 || gOff != DefaultMcfRow || McfTint(rg, 0, 0, 0) != "80,96,120" || McfTint(rgOff, 0, 0, 0) != '
+        '"128,128,128")',
+        "DMSMapChar? rgOwn = GhostRowCore(mcf, 176, true, 192, 98, true, out gOwn);",
+        'if (gOwn != 176 || McfTint(rgOwn, 0, 0, 0) != "64,80,104")',
+        "if (GhostRowCore(mcf, 192, true, 98, 0, true, out gZid) == null || gZid != 98)",
+        "DMSMapChar? rgNoLp = GhostRowCore(mcf, 192, false, 192, 98, true, out gNoLp);",
+        'if (gNoLp != DefaultMcfRow || McfTint(rgNoLp, 0, 0, 0) != "128,128,128")',
+        "if (GhostRowCore(no98, 192, true, 192, 98, true, out gNo98) == null || gNo98 != DefaultMcfRow)",
+        "return null;"),
+    "private static Int32 CoreRow(": (
+        "DMSMapChar? own = fldmcf.ff9fieldMCFGetCharByID(mcf, model);",
+        "row = DressedRowCore(mcf, model, dressSrc, own, polish, out used);",
+        "Boolean hasSrc = dressSrc != 0 && fldmcf.ff9fieldMCFGetCharByID(mcf, dressSrc) != null;",
+        "return used == LightRowRule(model, own != null, dressSrc, hasSrc, polish) ? used : -1;"),
+    "private static String McfTint(": (
+        'if (row == null)', 'return "none";',
+        'return (Byte)(((Int32)c[0] + lr) << 3) + "," + (Byte)(((Int32)c[1] + lg) << 3) + "," + (Byte)(((Int32)c[2] + lb) << 3);'),
+    "private static Int32 MutantOrdinalSwap(": (
+        "Int32 v = FootstepRule(rig, code, anim, frame, sound, out animOut, out frameOut, out soundOut);", "if (v == StepMapped)",
+        "frameOut = frameOut == pa ? pb : pa;", "return v;"),
+    "private static Int32 MutantNineteenHarmless(": ("return v == StepDropped && code == 19 ? StepPassed : v;",),
+    "private static Int32 MutantSoundAnyCode(": ("if (v == StepMapped && rig.StepSound != 0)", "soundOut = rig.StepSound;", "return v;"),
+    "private static Int32 MutantAnyFrame(": (
+        "if (v == StepPassed && (anim == 25 || anim == 38))", "animOut = anim == 25 ? rig.Walk : rig.Run;", "return StepMapped;"),
+    "private static Int32 MutantBoneSwap(": (
+        "if (polish && (bone == 12 || bone == 13))", "return bone == 12 ? rig.HandBoneEnd : rig.HandBone;",
+        "return AttachBoneRule(rig, bone, polish, out verdict);"),
+    "private static Int32 MutantBoneAny(": ("verdict = polish ? AttachRemap : AttachBypass;", "return polish ? rig.HandBone : bone;"),
+    "private static Boolean MutantMeshLeverBlind(": ("return !dressed;",),
+    "private static Int32 MutantSrcFirst(": (
+        "if (dressSrc != 0 && polish && hasSrcRow)", "return dressSrc & 0xFFFF;", "return hasOwnRow ? model & 0xFFFF : DefaultMcfRow;"),
+    "private static Int32 MutantNoSrcFallback(": ("return hasOwnRow ? model & 0xFFFF : DefaultMcfRow;",),
+    "private static Int32 MutantGhostModel(": ("return lpModel;",),
+    "private static Boolean MutantPolishAnyRole(": ("return !polishOff;",),
+}
+#: ...and the members whose WHOLE body is a statement list the twin evaluates as a table (GuardReplayRows: its literals are
+#: pinned by the fixtures test against BW.GUARD_REPLAY_ORACLE and the census)
+
+
+def test_the_polish_selftest_helpers_are_their_twins_statement_for_statement():
+    """[ff9mapkit netsync s141] PolishSelfTest's own HELPER TABLES and MUTANTS (the program test evaluates the C# Row calls
+    against battlewire's twins of these helpers -- so the C# helpers themselves must BE those twins): every decisive
+    statement of FootTable, DecisionPolishOn, BypassTable, GuardRows, Field250Table, Replay (FootstepDecision first, 19's
+    DeleteChar top shrink, a dispatched 19 on an empty table "throw", the TOP-down find-or-create), BoneTable, MeshTable,
+    LightTable, GhostTable, PolishOnTable, Mcf250Table (through CoreRow: DressedCharRow's own core, its witness against
+    LightRowRule; and through GhostRowCore itself -- ApplyGhostLighting's LIVE core, never a selftest copy: the ghost's
+    own row first, an undressed stand-in, no local player, no 98 row), CoreRow, McfTint and every Mutant*, IN ORDER off
+    its own member (S141_HELPER_STATEMENTS) -- and EXACT: each member's whole statement list is its frozen
+    S141_MEMBER_STATEMENTS entry (:func:`_pin_problems`), so an INSERTED statement reads red as well as a removed or
+    reordered one (the fragments name what drifted). The twins agree with the C# shape where it decides: battlewire's
+    replay finds the TOP record (as Replay's reversed loop) and a dispatched 19 on an empty table is its fault ("throw")."""
+    for start, frags in S141_HELPER_STATEMENTS.items():
+        assert _in_order(_s141_func(start), frags) == [], start
+        assert _pin_problems(start, frags) == [], start
+    # each pin bites: Replay with its top-down find turned bottom-up, DeleteChar's shrink removed, the throw branch gone
+    rp = _s141_func("private static String Replay(")
+    pins = S141_HELPER_STATEMENTS["private static String Replay("]
+    for cut in ("for (Int32 r = table.Count - 1; r >= 0 && rec == null; r--)", "table.RemoveRange(table.Count - hits, hits);",
+                'return "throw";'):
+        assert cut in rp and _in_order(rp.replace(cut, ""), pins), cut
+    ct = _s141_func("private static Int32 CoreRow(")
+    assert _in_order(ct.replace("LightRowRule(", "MutantNoSrcFallback("), S141_HELPER_STATEMENTS["private static Int32 CoreRow("])
+    # the twins' shape where the C# decides: a top-down find (a record created twice would be found at the TOP), the throw
+    assert BW.replay_ops(BW.rig_row(4), True, BW.GUARD_2930) == ("[]", 1)
+    assert BW.replay_ops(BW.rig_row(4), True, BW.GUARD_2930, decision=lambda r, c, a, f, s, p, t: (BW.STEP_PASSED, a, f, s))[0] \
+        == "throw"
+    table = [[25, 4, 919, 0, 0], [25, 4, 1, 0, 0]]
+    BW.fldchar_footstep(table, 17, 25, 4, 914)
+    assert table == [[25, 4, 919, 0, 0], [25, 4, 1, 914, 0]]            # GetChar's find is the TOP record's
+    rows = [k for k in S141_HELPER_STATEMENTS if k.startswith("private static Int32 Mutant") or k.startswith(
+        "private static Boolean Mutant")]
+    declared = [t for t in (_strip_comment(x) for x in _s141_added("NetSyncSelfDress.cs"))
+                if re.match(r"private static \w+ Mutant\w+\(", t)]
+    assert sorted(r.split()[3].split("(")[0] for r in rows) == sorted(t.split()[3].split("(")[0] for t in declared), declared
+
+
+def test_the_polish_selftest_fixtures_are_the_engines_and_the_census():
+    """PolishSelfTest's literals (the s141 patch's own lines) ARE battlewire's fixtures AND the census's (polish.json, read
+    from the install through the kit's readers -- never the engine's rig table): PolishFootOracle (every rig's walk / run
+    pair and step sound; Quina, the moogle and Cinna -1), PolishHandOracle (R_hand / R_hand_end), the key / pass / other
+    samples, Field250Steps (Zidane_Init's twelve) and Field250Oracle (leg F's per-rig `steps`), the bone sample, field 250's
+    three mapconfig rows and the tints Mcf250Table asserts. And the census's columns ARE the live rig table's (so a wrong
+    table cell turns the proof red in game)."""
+    lines = _s141_added("NetSyncSelfDress.cs")
+    text = " ".join(_strip_comment(t) for t in lines)
+
+    def block(start):
+        i = next(k for k, t in enumerate(lines) if t.startswith(start))
+        j = next(k for k in range(i, len(lines)) if lines[k].startswith("};"))
+        return " ".join(_strip_comment(t) for t in lines[i:j])
+    foot = [tuple(int(x) for x in m.group(1).split(",")) for m in re.finditer(r"\{\s*(-?\d+(?:\s*,\s*-?\d+){6})\s*\}",
+                                                                                block("private static readonly Int32[,] "
+                                                                                      "PolishFootOracle"))]
+    assert tuple(foot) == BW.POLISH_FOOT_ORACLE and len(foot) == 13, foot
+    hand = [tuple(int(x) for x in m.groups()) for m in re.finditer(r"\{ (\d+), (\d+) \}",
+                                                                    block("private static readonly Int32[,] PolishHandOracle"))]
+    assert tuple(hand) == BW.POLISH_HAND_ORACLE, hand
+    for name, want in (("PolishKeyAnim", BW.POLISH_KEY_ANIM), ("PolishKeyFrame", BW.POLISH_KEY_FRAME),
+                       ("PolishPassAnim", BW.POLISH_PASS_ANIM), ("PolishPassFrame", BW.POLISH_PASS_FRAME),
+                       ("PolishOtherCodes", BW.POLISH_OTHER_CODES), ("PolishBoneSample", BW.POLISH_BONE_SAMPLE)):
+        m = re.search(rf"private static readonly Int32\[\] {name} = \{{ ([\d, ]+) \}};", text)
+        assert m and tuple(int(x) for x in m.group(1).split(",")) == want, name
+    steps = [tuple(int(x) for x in m.groups()) for m in re.finditer(r"\{ (\d+), (\d+), (\d+), (\d+) \}",
+                                                                     block("private static readonly Int32[,] Field250Steps"))]
+    assert tuple(steps) == BW.FIELD250_STEPS, steps
+    oracle = re.findall(r'"(\[[^"]*\])"', block("private static readonly String[] Field250Oracle"))
+    assert oracle == [BW.steps_text(s) for s in BW.FIELD250_ORACLE], oracle
+    chars = [(int(m.group(1), 0),) + tuple(int(x) for x in m.groups()[1:3]) + (tuple(int(x) for x in m.groups()[3:]),)
+             for m in re.finditer(r"McfChar\((0x[0-9A-F]+|\d+), (\d+), (\d+), (\d+), (\d+), (\d+)\)",
+                                  text[text.index("DMSMapConf mcf = McfOf("):text.index("DMSMapConf no98")])]
+    assert tuple(chars) == BW.FIELD250_MCF["chars"], chars
+    for tint in ('"80,96,120"', '"56,72,88"', '"128,128,128"', '"104,104,96"'):
+        assert tint in text, tint
+    assert "String t0 = McfTint(rOn, 0, 0, 0), t1 = McfTint(rOn, -3, -3, -4);" in text
+    # the guard's replay rows: 2930's op (the bench's F2d op, field 2930's bytes) and the census literals they assert
+    g2930 = re.search(r"private static readonly Int32\[,\] Guard2930 = \{ \{ (\d+), (\d+), (\d+), (\d+) \} \};", text)
+    gkey = re.search(r"private static readonly Int32\[,\] GuardKey19 = \{ \{ (\d+), (\d+), (\d+), (\d+) \} \};", text)
+    assert g2930 and tuple(int(x) for x in g2930.groups()) == BW.GUARD_2930[0] == _sf().F2D_OP
+    assert gkey and tuple(int(x) for x in gkey.groups()) == BW.GUARD_KEY19[0]
+    grr = _s141_func("private static Boolean GuardReplayRows(")
+    for rig, polish, names, want, dropped in BW.GUARD_REPLAY_ORACLE:
+        blocks = ", ".join({"FIELD250_STEPS": "Field250Steps", "GUARD_2930": "Guard2930", "GUARD_KEY19": "GuardKey19"}[n]
+                           for n in names)
+        who = "moogle" if rig == BW.RIG_MOOGLE else "freya"
+        assert re.search(rf'Replay\({who}, {str(polish).lower()}, out d\d, {re.escape(blocks)}\) == "{re.escape(want)}"'
+                         rf'\s*&& d\d == {dropped}', grr), (rig, polish, names)
+    # ...the census (polish.json) the literals came from
+    pj = _polish_census()
+    per = pj["a_field250"]["per_rig"]
+    for i, name in enumerate(BW.RIG_NAMES):
+        row = per[f"{i} {name}"]
+        assert row["s141"]["steps"] == BW.FIELD250_ORACLE[i], name
+        assert row["s141_polish_off"]["steps"] == BW.FIELD250_ORACLE[0], name
+        hb = pj["e_hands"][f"{i} {name}"]
+        assert (hb["hand_bone"], hb["hand_bone_end"]) == BW.POLISH_HAND_ORACLE[i] == tuple(hb["expected"]), name
+        r = pj["rigs"][i]
+        assert tuple(r[c] for c in BW.RIG_COLUMNS) == BW.RIGS[i], name
+        o = BW.POLISH_FOOT_ORACLE[i]
+        if o[0] < 0:
+            assert (r["walk_step_a"], r["run_step_a"]) == (-1, -1), name
+        else:
+            assert (r["walk"], r["walk_step_a"], r["walk_step_b"], r["run"], r["run_step_a"], r["run_step_b"],
+                    r["step_sound"]) == o, name
+    assert [(o["code"], o["anim"], o["frame"], o["arg4"]) for o in pj["a_field250"]["load_ops"]] == list(BW.FIELD250_STEPS)
+    d250 = pj["d_lighting"]["field250"]
+    assert tuple((c["geo"], c["shadowI"], c["shadowR"], tuple(c["clr"])) for c in d250["chars"]) == BW.FIELD250_MCF["chars"]
+    assert tuple((lt["type"], tuple(lt["clr"]), tuple(lt["floor"])) for lt in d250["lights"]) == BW.FIELD250_MCF["lights"]
+
+
+#: [ff9mapkit netsync s141] THE EXACT PINS (rselftest-1): EVERY member the s141 patch adds to NetSyncSelfDress
+#: -> its WHOLE statement list (:func:`_statements` over :func:`_s141_func`: comments stripped, braces kept),
+#: frozen. A subset pin (:func:`_in_order`) sees only a deleted or reordered statement; this one sees an INSERTED
+#: one too (an early `return null;` in a proof table, a guard bypass in a hook): any edit to an s141 member is a
+#: deliberate re-freeze here (S141_RULE_STATEMENTS / S141_HELPER_STATEMENTS' fragments name what drifted).
+S141_MEMBER_STATEMENTS = {
+    "public static void OnSoundTableReset(": (
+        "public static void OnSoundTableReset()", "{",
+        "StepsDropped = StepsPassed = StepsFired = StepsFiredPlayer = 0;",
+        "MeshDrops = AttachRemaps = AttachNotes = 0;", "LightRow = GhostLightRow = -1;",
+        "AttachLastUid = AttachLastBoneIn = AttachLastBoneOut = -1;", "_attachLastGo = null;",
+        "_loggedStepDrop = _loggedUnbindEmpty = _loggedMeshDrop = _loggedAttach = false;", "}",
+    ),
+    "internal static Boolean PolishOnRule(": (
+        "internal static Boolean PolishOnRule(Boolean polishOff, Boolean selfTestRole)", "{",
+        "return !polishOff || !selfTestRole;", "}",
+    ),
+    "internal static Int32 PolishValueRule(": (
+        "internal static Int32 PolishValueRule(String val)", "{", "String v = NetSyncVisitor.DressMode(val);",
+        'return v == "on" ? 1 : v == "off" ? 0 : -1;', "}",
+    ),
+    "internal static Boolean TrySetPolish(": (
+        "internal static Boolean TrySetPolish(String val, out String why)", "{", "why = null;",
+        "Int32 v = PolishValueRule(val);", "if (v < 0)", "{", "why = PolishUsage;", "return false;", "}",
+        "_polishOff = v == 0;",
+        'Log.Message("[NetSync] harness: selfdress polish " + (v == 1 ? "on -- the s141 polish (footsteps, the '
+        'mesh-op drop, the prop remap, both lighting fallbacks)" : "OFF -- CALIBRATION: MapFootstep, the mesh-op '
+        'drop, the prop remap and both lighting fallbacks are bypassed on this " + "selftest role (the witnesses keep '
+        'reading)"));',
+        "return true;", "}",
+    ),
+    "internal static Int32 FootstepRule(": (
+        "internal static Int32 FootstepRule(NetSyncVisitor.Rig rig, Int32 code, Int32 anim, Int32 frame, Int32 sound, "
+        "out Int32 animOut, out Int32 frameOut, out Int32 soundOut)",
+        "{", "animOut = anim;", "frameOut = frame;", "soundOut = sound;",
+        "if (code < 16 || code > 19) return StepUntouched;", "NetSyncVisitor.Rig src;",
+        "if (!NetSyncVisitor.TryGetRig(SourceRig, out src)) return StepPassed;",
+        "Int32 srcA, srcB, dstA, dstB, dstAnim;", "if (anim == src.Walk)", "{", "srcA = src.WalkStepA;",
+        "srcB = src.WalkStepB;", "dstA = rig.WalkStepA;", "dstB = rig.WalkStepB;", "dstAnim = rig.Walk;", "}",
+        "else if (anim == src.Run)", "{", "srcA = src.RunStepA;", "srcB = src.RunStepB;", "dstA = rig.RunStepA;",
+        "dstB = rig.RunStepB;", "dstAnim = rig.Run;", "}", "else return StepPassed;",
+        "Int32 ordinal = frame == srcA ? 0 : frame == srcB ? 1 : -1;", "if (ordinal < 0) return StepPassed;",
+        "if (dstA < 0 || dstB < 0) return StepDropped;", "animOut = dstAnim;", "frameOut = ordinal == 0 ? dstA : dstB;",
+        "if (rig.StepSound != 0 && (code == 16 || code == 17)) soundOut = rig.StepSound;", "return StepMapped;", "}",
+    ),
+    "internal static Boolean UnbindOnEmptyRule(": (
+        "internal static Boolean UnbindOnEmptyRule(Int32 code, Int32 tableUse)", "{",
+        "return code == 19 && tableUse <= 0;", "}",
+    ),
+    "internal static Int32 FootstepDecision(": (
+        "internal static Int32 FootstepDecision(NetSyncVisitor.Rig rig, Int32 code, Int32 anim, Int32 frame, Int32 "
+        "sound, Boolean polish, Int32 tableUse, out Int32 animOut, out Int32 frameOut, out Int32 soundOut)",
+        "{", "animOut = anim;", "frameOut = frame;", "soundOut = sound;",
+        "if (code < 16 || code > 19) return StepUntouched;",
+        "Int32 verdict = polish ? FootstepRule(rig, code, anim, frame, sound, out animOut, out frameOut, out "
+        "soundOut) : StepBypassed;",
+        "if (verdict == StepDropped) return StepDropped;",
+        "if (UnbindOnEmptyRule(code, tableUse)) return StepDroppedEmpty;", "return verdict;", "}",
+    ),
+    "internal static Boolean MapFootstep(": (
+        "internal static Boolean MapFootstep(PosObj body, Int32 code, ref Int32 anim, ref Int32 frame, ref Int32 "
+        "sound)",
+        "{", "try", "{", "if (code < 16 || code > 19) return true;", "Int32 rigIdx = BodyRig(body);",
+        "NetSyncVisitor.Rig rig;", "if (!NetSyncVisitor.TryGetRig(rigIdx, out rig))", "{", "Faults++;",
+        'LogFault("footstep rig " + rigIdx, new InvalidOperationException("no rig row " + rigIdx));', "return true;",
+        "}", "Int32 a, f, s;",
+        "Int32 verdict = FootstepDecision(rig, code, anim, frame, sound, PolishOn, code == 19 ? SoundTableUse() : 1, "
+        "out a, out f, out s);",
+        "if (verdict == StepDropped)", "{", "StepsDropped++;", "if (!_loggedStepDrop)", "{", "_loggedStepDrop = true;",
+        'Log.Message("[NetSync] self-dress: uid " + body.uid + " wears rig " + rigIdx + " (" + (RigGeo(rigIdx) ?? '
+        '"?") + "), which has " + "no footfall frames (as in stock) -- its footstep ops are dropped");',
+        "}", "return false;", "}", "if (verdict == StepDroppedEmpty)", "{", "StepsDropped++;",
+        "if (!_loggedUnbindEmpty)", "{", "_loggedUnbindEmpty = true;",
+        'Log.Message("[NetSync] self-dress: uid " + body.uid + " unbinds a footstep (" + a + ", " + f + ") from an '
+        'EMPTY table -- " + "dropped (stock DeleteChar would throw)");',
+        "}", "return false;", "}", "if (verdict == StepPassed) StepsPassed++;", "anim = a;", "frame = f;", "sound = s;",
+        "return true;", "}", "catch (Exception err)", "{", "Faults++;", 'LogFault("footstep " + code, err);',
+        "return true;", "}", "}",
+    ),
+    "private static Int32 SoundTableUse(": (
+        "private static Int32 SoundTableUse()", "{", "return FF9StateSystem.Field.FF9Field.loc.map.charSoundUse;", "}",
+    ),
+    "internal static void NoteStepFired(": (
+        "internal static void NoteStepFired(PosObj body)", "{", "try", "{", "if (body == null) return;",
+        "PosObj ctl = HarnessBody();", "if (ctl == null || ctl.uid != body.uid) return;",
+        "if (body.netSelfDress != 0) StepsFired++;", "else StepsFiredPlayer++;", "}", "catch (Exception err)", "{",
+        "Faults++;", 'LogFault("step fired", err);', "}", "}",
+    ),
+    "internal static Int32[][] HarnessSteps(": (
+        "internal static Int32[][] HarnessSteps()", "{", "List<Int32[]> rows = new List<Int32[]>();", "try", "{",
+        "PosObj ctl = HarnessBody();", "FF9StateFieldMap map = FF9StateSystem.Field.FF9Field.loc.map;",
+        "if (ctl != null && map != null && map.charSoundArray != null)", "{",
+        "Int32 use = Math.Min(map.charSoundUse, map.charSoundArray.Length);", "for (Int32 i = 0;", "i < use;", "i++)",
+        "{", "FF9FieldCharSound r = map.charSoundArray[i];", "if (r != null && r.uid == ctl.uid) rows.Add(new Int32[]",
+        "{", "r.anmID, r.frame, r.sndEffectID != null && r.sndEffectID.Length > 0 ? r.sndEffectID[0] : 0", "}", ");",
+        "}", "}", "}", "catch", "{", "rows.Clear();", "}", "return rows.ToArray();", "}",
+    ),
+    "internal static Int32 AttachBoneRule(": (
+        "internal static Int32 AttachBoneRule(NetSyncVisitor.Rig rig, Int32 bone, Boolean polish, out Int32 verdict)",
+        "{", "NetSyncVisitor.Rig src;", "if (!polish || !NetSyncVisitor.TryGetRig(SourceRig, out src))", "{",
+        "verdict = AttachBypass;", "return bone;", "}", "if (bone == src.HandBone)", "{", "verdict = AttachRemap;",
+        "return rig.HandBone;", "}", "if (bone == src.HandBoneEnd)", "{", "verdict = AttachRemap;",
+        "return rig.HandBoneEnd;", "}", "verdict = AttachNote;", "return bone;", "}",
+    ),
+    "internal static Int32 AtAttach(": (
+        "internal static Int32 AtAttach(Obj carried, PosObj carrier, Int32 bone)", "{", "try", "{",
+        "Int32 rigIdx = BodyRig(carrier);", "NetSyncVisitor.Rig rig;",
+        "if (!NetSyncVisitor.TryGetRig(rigIdx, out rig))", "{", "Faults++;",
+        'LogFault("attach rig " + rigIdx, new InvalidOperationException("no rig row " + rigIdx));', "return bone;", "}",
+        "Int32 verdict;", "Int32 outBone = AttachBoneRule(rig, bone, PolishOn, out verdict);",
+        "if (verdict == AttachRemap) AttachRemaps++;", "else if (verdict == AttachNote) AttachNotes++;",
+        "AttachLastUid = carried != null ? (Int32)carried.uid : -1;", "AttachLastBoneIn = bone;",
+        "AttachLastBoneOut = outBone;", "_attachLastGo = carried != null ? carried.go : null;", "if (!_loggedAttach)",
+        "{", "_loggedAttach = true;",
+        'Log.Message("[NetSync] self-dress: uid " + AttachLastUid + " attached to the dressed uid " + carrier.uid + " '
+        '(rig " + rigIdx + ") at bone " + bone + " -> " + outBone + (verdict == AttachRemap ? " (the rig\'s hand)" : '
+        'verdict == AttachNote ? " (not a hand bone: left alone)" : " (polish off: bypassed)"));',
+        "}", "return outBone;", "}", "catch (Exception err)", "{", "Faults++;", 'LogFault("attach bone " + bone, err);',
+        "return bone;", "}", "}",
+    ),
+    "internal static Boolean KeepMeshRule(": (
+        "internal static Boolean KeepMeshRule(Boolean dressed, Boolean polish)", "{", "return !dressed || !polish;",
+        "}",
+    ),
+    "internal static Boolean KeepMeshOp(": (
+        "internal static Boolean KeepMeshOp(PosObj body, Int32 mesh, Boolean show)", "{", "try", "{",
+        "if (KeepMeshRule(body.netSelfDress != 0, PolishOn)) return true;", "MeshDrops++;", "if (!_loggedMeshDrop)",
+        "{", "_loggedMeshDrop = true;",
+        'Log.Message("[NetSync] self-dress: " + (show ? "ShowObject" : "HideObject") + "(uid " + body.uid + ", mesh " '
+        '+ mesh + ") on the " + "dressed body -- dropped (a Zidane mesh index means nothing on the rig)");',
+        "}", "return false;", "}", "catch (Exception err)", "{", "Faults++;", 'LogFault("mesh " + mesh, err);',
+        "return true;", "}", "}",
+    ),
+    "internal static Int32 LightRowRule(": (
+        "internal static Int32 LightRowRule(Int32 model, Boolean hasOwnRow, Int32 dressSrc, Boolean hasSrcRow, "
+        "Boolean polish)",
+        "{", "if (hasOwnRow) return model & 0xFFFF;",
+        "if (dressSrc != 0 && polish && hasSrcRow) return dressSrc & 0xFFFF;", "return DefaultMcfRow;", "}",
+    ),
+    "internal static DMSMapChar? DressedRowCore(": (
+        "internal static DMSMapChar? DressedRowCore(DMSMapConf mcf, Int32 model, Int32 dressSrc, DMSMapChar? own, "
+        "Boolean polish, out Int32 used)",
+        "{",
+        "DMSMapChar? src = own == null && polish && dressSrc != 0 ? fldmcf.ff9fieldMCFGetCharByID(mcf, dressSrc) : "
+        "null;",
+        "DMSMapChar? row = own != null ? own : src;", "used = row != null ? (Int32)row.Value.geoNo : DefaultMcfRow;",
+        "return row;", "}",
+    ),
+    "internal static DMSMapChar? DressedCharRow(": (
+        "internal static DMSMapChar? DressedCharRow(DMSMapConf mcf, PosObj po, DMSMapChar? own)", "{", "try", "{",
+        "Int32 used;", "DMSMapChar? row = DressedRowCore(mcf, po.model, po.netDressSrc, own, PolishOn, out used);",
+        "PosObj ctl = HarnessBody();", "if (ctl != null && ctl.uid == po.uid) LightRow = used;", "return row;", "}",
+        "catch (Exception err)", "{", "Faults++;", 'LogFault("light row", err);', "return own;", "}", "}",
+    ),
+    "internal static Int32 GhostLpRowRule(": (
+        "internal static Int32 GhostLpRowRule(Int32 lpModel, Int32 lpDressSrc, Boolean polish)", "{",
+        "return lpDressSrc != 0 && polish ? lpDressSrc : lpModel;", "}",
+    ),
+    "internal static DMSMapChar? GhostRowCore(": (
+        "internal static DMSMapChar? GhostRowCore(DMSMapConf mcf, Int32 ghostModel, Boolean hasLp, Int32 lpModel, "
+        "Int32 lpDressSrc, Boolean polish, out Int32 used)",
+        "{", "used = ghostModel & 0xFFFF;", "DMSMapChar? row = fldmcf.ff9fieldMCFGetCharByID(mcf, ghostModel);",
+        "if (row == null && hasLp)", "{", "used = GhostLpRowRule(lpModel, lpDressSrc, polish) & 0xFFFF;",
+        "row = fldmcf.ff9fieldMCFGetCharByID(mcf, used);", "}", "if (row == null)", "{", "used = DefaultMcfRow;",
+        "row = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);", "}", "return row;", "}",
+    ),
+    "internal static DMSMapChar? GhostRow(": (
+        "internal static DMSMapChar? GhostRow(DMSMapConf mcf, Int32 ghostModel, PosObj lp, out Int32 used)", "{",
+        "Boolean dressed = lp != null && lp.netDressSrc != 0;",
+        "return GhostRowCore(mcf, ghostModel, lp != null, lp != null ? lp.model : 0, dressed ? lp.netDressSrc : 0, "
+        "dressed ? PolishOn : true, out used);",
+        "}",
+    ),
+    "internal static Int32[] ReadLightRgb(": (
+        "internal static Int32[] ReadLightRgb(PosObj body)", "{", "try", "{",
+        "if (body == null || body.go == null) return null;", "return ReadRendererRgb(BodyRenderer(body.go));", "}",
+        "catch", "{", "return null;", "}", "}",
+    ),
+    "internal static Renderer BodyRenderer(": (
+        "internal static Renderer BodyRenderer(GameObject go)", "{", "if (go == null) return null;",
+        'Transform m0 = go.transform.Find("mesh0");', "Renderer r0 = m0 != null ? m0.GetComponent<Renderer>() : null;",
+        "if (r0 != null) return r0;", "FieldMapActor own = go.GetComponent<FieldMapActor>();",
+        "foreach (Renderer r in go.GetComponentsInChildren<Renderer>()) if (r != null && "
+        "r.GetComponentInParent<FieldMapActor>() == own) return r;",
+        "return null;", "}",
+    ),
+    "internal static Int32[] ReadRendererRgb(": (
+        "internal static Int32[] ReadRendererRgb(Renderer r)", "{", "try", "{",
+        "Material mat = r != null ? r.sharedMaterial : null;",
+        'if (mat == null || !mat.HasProperty("_Color")) return null;', 'Color c = mat.GetColor("_Color");',
+        "return new Int32[]", "{",
+        "Mathf.RoundToInt(c.r * 255f), Mathf.RoundToInt(c.g * 255f), Mathf.RoundToInt(c.b * 255f)", "}", "}", "catch",
+        "{", "return null;", "}", "}",
+    ),
+    "internal static Boolean PolishSelfTest(": (
+        "internal static Boolean PolishSelfTest(out String detail)", "{", "Int32 rows = 0;", "String fail = null;",
+        "try", "{", "String foot = FootTable(FootstepRule);",
+        'Row(foot == null, "foot: Zidane\'s four pair keys x codes 16-19 on every rig 0-12 map to the census pair at '
+        'the SAME ordinal " + "(Zidane to himself; Freya 2553 {4,16} / 2558 {0,9}; Steiner 1996 {4,14} / 2005 {0,9} '
+        'with 925 on 16 and 17 only); " + "Quina, the moogle and Cinna drop all four codes, 19 included; another '
+        'frame or anim passes unmapped; every other " + "CHRFX code is untouched" + (foot != null ? " -- " + foot : '
+        '""), ref rows, ref fail);',
+        "String decided = FootTable(DecisionPolishOn);",
+        'Row(decided == null, "foot: FootstepDecision with the polish on and a non-empty table answers the same table '
+        '(what " + "MapFootstep dispatches)" + (decided != null ? " -- " + decided : ""), ref rows, ref fail);',
+        'Row(FootTable(MutantOrdinalSwap) != null, "mutant: the swapped ordinal (the rig pair\'s A <-> B) is caught", '
+        "ref rows, ref fail);",
+        'Row(FootTable(MutantNineteenHarmless) != null, "mutant: \\"19 is harmless\\" (a drop rig\'s 19 sent on to '
+        'stock DeleteChar) is caught", ref rows, ref fail);',
+        'Row(FootTable(MutantSoundAnyCode) != null, "mutant: the step sound on codes 18 / 19 too (18\'s Arg4 is the '
+        'pitch flag) is caught", ref rows, ref fail);',
+        'Row(FootTable(MutantAnyFrame) != null, "mutant: any frame of 25 / 38 mapped (no pair check) is caught", ref '
+        "rows, ref fail);",
+        "String bypass = BypassTable();",
+        'Row(bypass == null, "lever: under `polish off` FootstepDecision sends every 16-19 op on every rig 0-12 '
+        'through as read " + "(bypassed: no map, no drop, no count); other codes stay untouched" + (bypass != null ? '
+        '" -- " + bypass : ""), ref rows, ref fail);',
+        'Row(GuardRows() && GuardReplayRows(), "guard: a 19 headed for an EMPTY table is dropped (stock DeleteChar '
+        'indexes " + "charSoundArray[-1]) under either lever state, on a mapped and a passed op alike (field 2930\'s '
+        '190); never a 16-18, " + "never a non-empty table; a drop rig\'s 19 is the rig\'s drop (the rule first); in '
+        'a load\'s replay the moogle\'s twelve " + "then 2930\'s RunModelCode(19, 190, 4, 0) read [] with 13 dropped '
+        '(the bench\'s F2d), `polish off` Zidane\'s four, and " + "Freya\'s 19 on (25, 13) DeleteChar\'s top shrink", '
+        "ref rows, ref fail);",
+        "String f250 = Field250Table(true);",
+        'Row(f250 == null, "250: Zidane_Init\'s twelve footstep ops per load -- F1 Freya '
+        '[[2553,4,919],[2553,16,919],[2558,0,919]," + "[2558,9,919]], F7 Steiner [[1996,4,925],...,[2005,9,925]], F2 '
+        'the moogle / F2c Cinna / Quina [] with 12 dropped, F3 " + "Zidane his own four; every other rig its census '
+        'pair" + (f250 != null ? " -- " + f250 : ""), ref rows, ref fail);',
+        "String f250Off = Field250Table(false);",
+        'Row(f250Off == null, "250: under `polish off` every rig 0-12 reads Zidane\'s four '
+        '([[25,4,919],[25,13,919],[38,0,919]," + "[38,8,919]]) with 0 dropped -- the calibration red of F1, F2, F2c '
+        'and F7" + (f250Off != null ? " -- " + f250Off : ""), ref rows, ref fail);',
+        "String bone = BoneTable(AttachBoneRule);",
+        'Row(bone == null, "bone: on every rig 0-12 bone 12 / 13 -> the census R_hand / R_hand_end (Vivi 16 / 17, '
+        'Steiner 15 / 16, " + "Freya 12 / 12, Amarant 16 / 16, the moogle 19 / 19, Cinna 24 / 25, Marcus 5 / 6), any '
+        'other bone left alone (a " + "note); `polish off` leaves every bone (a bypass)" + (bone != null ? " -- " + '
+        'bone : ""), ref rows, ref fail);',
+        'Row(BoneTable(MutantBoneSwap) != null && BoneTable(MutantBoneAny) != null, "mutant: the swapped hand pair '
+        '(12 -> R_hand_end) and a remap of every bone are each caught", ref rows, ref fail);',
+        'Row(MeshTable(KeepMeshRule) == null && MeshTable(MutantMeshLeverBlind) != null, "mesh: an undressed body\'s '
+        'op and every op under `polish off` are kept, a dressed body\'s is dropped; the lever-blind " + "mutant is '
+        'caught", ref rows, ref fail);',
+        "String light = LightTable(LightRowRule);",
+        'Row(light == null, "light: own row -> own; no own row on a dressed body -> its SOURCE row 98; no 98 row (344 '
+        'mapconfigs) or " + "an undressed body -> the default 65535; `polish off` -> the default, an own row kept" + '
+        '(light != null ? " -- " + light : ""), ref rows, ref fail);',
+        'Row(LightTable(MutantSrcFirst) != null && LightTable(MutantNoSrcFallback) != null, "mutant: the source row '
+        'before an own row, and no source fallback (s140), are each caught", ref rows, ref fail);',
+        "String ghost = GhostTable(GhostLpRowRule);",
+        'Row(ghost == null && GhostTable(MutantGhostModel) != null, "ghost: the local player\'s stand-in row is its '
+        'netDressSrc when dressed, its model otherwise and under `polish off`; " + "s140\'s lp.model is caught" + '
+        '(ghost != null ? " -- " + ghost : ""), ref rows, ref fail);',
+        "String mcf = Mcf250Table();",
+        'Row(mcf == null, "mcf: field 250\'s rows through the REAL lookup and DressedCharRow\'s and '
+        'ApplyGhostLighting\'s own cores " + "-- the dressed Freya (F4) and the ghost wearing her model (F4g) take '
+        'row 98: (80,96,120) on floor 0, (56,72,88) on " + "floors 1-2; `polish off` the default row: (128,128,128) / '
+        '(104,104,96); DefaultMcfRow is stock\'s own default row; " + "no 98 row -> the default; the body core\'s '
+        'witness is LightRowRule\'s; the ghost\'s own row wins, an undressed local " + "player stands in with its '
+        'model, no local player reads the default" + (mcf != null ? " -- " + mcf : ""), ref rows, ref fail);',
+        'Row(PolishOnTable(PolishOnRule) == null && PolishOnTable(MutantPolishAnyRole) != null, "lever: the polish is '
+        'on by default; `polish off` acts on the selftest role only (a client never reads it) -- the " + "any-role '
+        'mutant is caught", ref rows, ref fail);',
+        "Boolean savedOff = _polishOff;", "Boolean refused;", "try", "{", "String why1, why2, why3;",
+        'refused = !TrySetPolish("maybe", out why1) && why1 == PolishUsage && _polishOff == savedOff && '
+        '!TrySetPolish(null, out why2) && why2 == PolishUsage && _polishOff == savedOff && !TrySetPolish("1", out '
+        "why3) && why3 == PolishUsage && _polishOff == savedOff;",
+        "}", "finally", "{", "_polishOff = savedOff;", "}",
+        'Row(refused && PolishValueRule(" OFF ") == 0 && PolishValueRule("On") == 1 && PolishValueRule("maybe") == -1 '
+        '&& PolishValueRule(null) == -1 && PolishValueRule("1") == -1, "lever: `polish` takes on|off only -- `maybe`, '
+        'none and `1` are refused with the usage, the lever unchanged; ` OFF ` " + "and `On` are taken (the value '
+        'rule: DressMode\'s trim + lower-case)", ref rows, ref fail);',
+        'Row(ResetRow(), "reset: OnSoundTableReset puts every s141 counter and witness back to its sentinel (0, -1, '
+        'null; the " + "carried go a live object first) and leaves the lever as set -- the per-load law: a warm '
+        'return reads one load, " + "never 24 (the live values restored after)", ref rows, ref fail);',
+        "}", "catch (Exception err)", "{",
+        'if (fail == null) fail = "threw " + err.GetType().Name + " after " + rows + " rows";', "}",
+        'detail = fail == null ? rows + " rows" : "row \'" + fail + "\' failed (" + rows + " rows run)";',
+        "return fail == null;", "}",
+    ),
+    "private static String FootTable(": (
+        "private static String FootTable(FootRuleFn rule)", "{",
+        'if (PolishFootOracle.GetLength(0) != NetSyncVisitor.RigRowCount) return "the oracle covers " + '
+        'PolishFootOracle.GetLength(0) + " rigs, the table " + NetSyncVisitor.RigRowCount;',
+        "for (Int32 i = 0;", "i < NetSyncVisitor.RigRowCount;", "i++)", "{", "NetSyncVisitor.Rig rig;",
+        'if (!NetSyncVisitor.TryGetRig(i, out rig)) return "rig " + i + ": no row";',
+        "Boolean drop = PolishFootOracle[i, 0] < 0;", "Int32 a, f, s, v;", "for (Int32 code = 16;", "code <= 19;",
+        "code++) for (Int32 k = 0;", "k < PolishKeyAnim.Length;", "k++)", "{",
+        "Int32 anim = PolishKeyAnim[k], frame = PolishKeyFrame[k], sound = 900 + code;",
+        "v = rule(rig, code, anim, frame, sound, out a, out f, out s);",
+        'String at = "rig " + i + " code " + code + " (" + anim + ", " + frame + ")";', "if (drop)", "{",
+        'if (v != StepDropped || a != anim || f != frame || s != sound) return at + ": verdict " + v + ", not '
+        'dropped";',
+        "continue;", "}", "Boolean walk = anim == 25;", "Int32 wantAnim = PolishFootOracle[i, walk ? 0 : 3];",
+        "Int32 wantFrame = PolishFootOracle[i, (walk ? 1 : 4) + (k & 1)];",
+        "Int32 wantSound = PolishFootOracle[i, 6] != 0 && (code == 16 || code == 17) ? PolishFootOracle[i, 6] : sound;",
+        'if (v != StepMapped || a != wantAnim || f != wantFrame || s != wantSound) return at + " -> (" + a + ", " + f '
+        '+ ", " + s + ") verdict " + v + ", want (" + wantAnim + ", " + wantFrame + ", " + wantSound + ") mapped";',
+        "}", "for (Int32 p = 0;", "p < PolishPassAnim.Length;", "p++) for (Int32 code = 16;", "code <= 19;", "code++)",
+        "{", "v = rule(rig, code, PolishPassAnim[p], PolishPassFrame[p], 919, out a, out f, out s);",
+        'if (v != StepPassed || a != PolishPassAnim[p] || f != PolishPassFrame[p] || s != 919) return "rig " + i + " '
+        'code " + code + " (" + PolishPassAnim[p] + ", " + PolishPassFrame[p] + "): verdict " + v + ", not passed '
+        'unmapped";',
+        "}", "foreach (Int32 code in PolishOtherCodes)", "{", "v = rule(rig, code, 25, 4, 919, out a, out f, out s);",
+        'if (v != StepUntouched || a != 25 || f != 4 || s != 919) return "rig " + i + " code " + code + ": touched '
+        '(verdict " + v + ")";',
+        "}", "}", "return null;", "}",
+    ),
+    "private static Int32 DecisionPolishOn(": (
+        "private static Int32 DecisionPolishOn(NetSyncVisitor.Rig rig, Int32 code, Int32 anim, Int32 frame, Int32 "
+        "sound, out Int32 animOut, out Int32 frameOut, out Int32 soundOut)",
+        "{",
+        "return FootstepDecision(rig, code, anim, frame, sound, true, 1, out animOut, out frameOut, out soundOut);",
+        "}",
+    ),
+    "private static String BypassTable(": (
+        "private static String BypassTable()", "{", "for (Int32 i = 0;", "i < NetSyncVisitor.RigRowCount;", "i++)", "{",
+        "NetSyncVisitor.Rig rig;", 'if (!NetSyncVisitor.TryGetRig(i, out rig)) return "rig " + i + ": no row";',
+        "Int32 a, f, s;", "for (Int32 code = 16;", "code <= 19;", "code++) for (Int32 k = 0;",
+        "k < PolishKeyAnim.Length;",
+        "k++) if (FootstepDecision(rig, code, PolishKeyAnim[k], PolishKeyFrame[k], 919, false, 1, out a, out f, out "
+        's) != StepBypassed || a != PolishKeyAnim[k] || f != PolishKeyFrame[k] || s != 919) return "rig " + i + " '
+        'code " + code + " (" + PolishKeyAnim[k] + ", " + PolishKeyFrame[k] + ") not bypassed";',
+        'if (FootstepDecision(rig, 4, 1, -100, 0, false, 1, out a, out f, out s) != StepUntouched) return "rig " + i '
+        '+ ": code 4 touched under polish off";',
+        "}", "return null;", "}",
+    ),
+    "private static Boolean GuardRows(": (
+        "private static Boolean GuardRows()", "{", "NetSyncVisitor.Rig freya, moogle;",
+        "if (!NetSyncVisitor.TryGetRig(4, out freya) || !NetSyncVisitor.TryGetRig(NetSyncVisitor.MoogleRig, out "
+        "moogle)) return false;",
+        "Int32 a, f, s;",
+        "return UnbindOnEmptyRule(19, 0) && UnbindOnEmptyRule(19, -1) && !UnbindOnEmptyRule(19, 1) && "
+        "!UnbindOnEmptyRule(16, 0) && !UnbindOnEmptyRule(17, 0) && !UnbindOnEmptyRule(18, 0) && "
+        "FootstepDecision(freya, 19, 25, 13, 0, true, 0, out a, out f, out s) == StepDroppedEmpty && "
+        "FootstepDecision(freya, 19, 25, 13, 0, true, 4, out a, out f, out s) == StepMapped && a == 2553 && f == 16 "
+        "&& FootstepDecision(freya, 19, 25, 13, 0, false, 0, out a, out f, out s) == StepDroppedEmpty && "
+        "FootstepDecision(freya, 19, 25, 13, 0, false, 4, out a, out f, out s) == StepBypassed && a == 25 && f == 13 "
+        "&& FootstepDecision(freya, 19, 190, 4, 0, true, 0, out a, out f, out s) == StepDroppedEmpty && "
+        "FootstepDecision(freya, 19, 190, 4, 0, true, 2, out a, out f, out s) == StepPassed && a == 190 && f == 4 && "
+        "FootstepDecision(freya, 16, 25, 4, 919, true, 0, out a, out f, out s) == StepMapped && a == 2553 && f == 4 "
+        "&& FootstepDecision(freya, 18, 38, 8, 1, false, 0, out a, out f, out s) == StepBypassed && "
+        "FootstepDecision(moogle, 19, 25, 4, 0, true, 0, out a, out f, out s) == StepDropped && "
+        "FootstepDecision(moogle, 19, 25, 4, 0, true, 4, out a, out f, out s) == StepDropped && "
+        "FootstepDecision(moogle, 19, 25, 4, 0, false, 0, out a, out f, out s) == StepDroppedEmpty && "
+        "FootstepDecision(moogle, 4, 1, -100, 0, true, 0, out a, out f, out s) == StepUntouched;",
+        "}",
+    ),
+    "private static Boolean GuardReplayRows(": (
+        "private static Boolean GuardReplayRows()", "{", "NetSyncVisitor.Rig freya, moogle;",
+        "if (!NetSyncVisitor.TryGetRig(4, out freya) || !NetSyncVisitor.TryGetRig(NetSyncVisitor.MoogleRig, out "
+        "moogle)) return false;",
+        "Int32 d1, d2, d3, d4;",
+        'return Replay(moogle, true, out d1, Field250Steps, Guard2930) == "[]" && d1 == 13 && Replay(moogle, false, '
+        'out d2, Field250Steps, Guard2930) == "[[25,4,919],[25,13,919],[38,0,919],[38,8,919]]" && d2 == 0 && '
+        'Replay(freya, true, out d3, Field250Steps, GuardKey19) == "[[2553,4,919],[2553,16,919],[2558,0,919]]" && d3 '
+        '== 0 && Replay(freya, true, out d4, Guard2930) == "[]" && d4 == 1;',
+        "}",
+    ),
+    "private static String Field250Table(": (
+        "private static String Field250Table(Boolean polish)", "{",
+        'if (Field250Oracle.Length != NetSyncVisitor.RigRowCount) return "the oracle covers " + Field250Oracle.Length '
+        '+ " rigs, the table " + NetSyncVisitor.RigRowCount;',
+        "for (Int32 i = 0;", "i < NetSyncVisitor.RigRowCount;", "i++)", "{", "NetSyncVisitor.Rig rig;",
+        'if (!NetSyncVisitor.TryGetRig(i, out rig)) return "rig " + i + ": no row";', "Int32 dropped;",
+        "String steps = Replay(rig, polish, out dropped, Field250Steps);",
+        "String want = polish ? Field250Oracle[i] : Field250Oracle[0];",
+        'Int32 wantDropped = polish && want == "[]" ? Field250Steps.GetLength(0) : 0;',
+        'if (steps != want || dropped != wantDropped) return "rig " + i + ": steps " + steps + " dropped " + dropped '
+        '+ ", want " + want + " dropped " + wantDropped;',
+        "}", "return null;", "}",
+    ),
+    "private static String Replay(": (
+        "private static String Replay(NetSyncVisitor.Rig rig, Boolean polish, out Int32 dropped, params Int32[][,] "
+        "blocks)",
+        "{", "List<Int32[]> table = new List<Int32[]>();", "dropped = 0;",
+        "foreach (Int32[,] ops in blocks) for (Int32 i = 0;", "i < ops.GetLength(0);", "i++)", "{",
+        "Int32 code = ops[i, 0], a, f, s;",
+        "Int32 v = FootstepDecision(rig, code, ops[i, 1], ops[i, 2], ops[i, 3], polish, table.Count, out a, out f, "
+        "out s);",
+        "if (v == StepDropped || v == StepDroppedEmpty)", "{", "dropped++;", "continue;", "}",
+        "if (code < 16 || code > 19) continue;", "if (code == 19)", "{", 'if (table.Count == 0) return "throw";',
+        "Int32 hits = 0;", "for (Int32 r = 0;", "r < table.Count;",
+        "r++) if (table[r][0] == a && table[r][1] == f) hits++;", "table.RemoveRange(table.Count - hits, hits);",
+        "continue;", "}", "Int32[] rec = null;", "for (Int32 r = table.Count - 1;", "r >= 0 && rec == null;",
+        "r--) if (table[r][0] == a && table[r][1] == f) rec = table[r];", "if (rec == null)", "{", "rec = new Int32[]",
+        "{", "a, f, 0, 0, 0", "}", "table.Add(rec);", "}", "if (code == 16) rec[2] = s & 0xFFFF;",
+        "else if (code == 17) rec[3] = s & 0xFFFF;", "else rec[4] = s == 0 ? 0 : 1;", "}",
+        'System.Text.StringBuilder sb = new System.Text.StringBuilder("[");', "for (Int32 r = 0;", "r < table.Count;",
+        'r++) sb.Append(r > 0 ? "," : '
+        '"").Append("[").Append(table[r][0]).Append(",").Append(table[r][1]).Append(",").Append(table[r][2]).Append('
+        '"]");',
+        'return sb.Append("]").ToString();', "}",
+    ),
+    "private static Int32 MutantOrdinalSwap(": (
+        "private static Int32 MutantOrdinalSwap(NetSyncVisitor.Rig rig, Int32 code, Int32 anim, Int32 frame, Int32 "
+        "sound, out Int32 animOut, out Int32 frameOut, out Int32 soundOut)",
+        "{", "Int32 v = FootstepRule(rig, code, anim, frame, sound, out animOut, out frameOut, out soundOut);",
+        "if (v == StepMapped)", "{", "Boolean walk = animOut == rig.Walk;",
+        "Int32 pa = walk ? rig.WalkStepA : rig.RunStepA, pb = walk ? rig.WalkStepB : rig.RunStepB;",
+        "frameOut = frameOut == pa ? pb : pa;", "}", "return v;", "}",
+    ),
+    "private static Int32 MutantNineteenHarmless(": (
+        "private static Int32 MutantNineteenHarmless(NetSyncVisitor.Rig rig, Int32 code, Int32 anim, Int32 frame, "
+        "Int32 sound, out Int32 animOut, out Int32 frameOut, out Int32 soundOut)",
+        "{", "Int32 v = FootstepRule(rig, code, anim, frame, sound, out animOut, out frameOut, out soundOut);",
+        "return v == StepDropped && code == 19 ? StepPassed : v;", "}",
+    ),
+    "private static Int32 MutantSoundAnyCode(": (
+        "private static Int32 MutantSoundAnyCode(NetSyncVisitor.Rig rig, Int32 code, Int32 anim, Int32 frame, Int32 "
+        "sound, out Int32 animOut, out Int32 frameOut, out Int32 soundOut)",
+        "{", "Int32 v = FootstepRule(rig, code, anim, frame, sound, out animOut, out frameOut, out soundOut);",
+        "if (v == StepMapped && rig.StepSound != 0) soundOut = rig.StepSound;", "return v;", "}",
+    ),
+    "private static Int32 MutantAnyFrame(": (
+        "private static Int32 MutantAnyFrame(NetSyncVisitor.Rig rig, Int32 code, Int32 anim, Int32 frame, Int32 "
+        "sound, out Int32 animOut, out Int32 frameOut, out Int32 soundOut)",
+        "{", "Int32 v = FootstepRule(rig, code, anim, frame, sound, out animOut, out frameOut, out soundOut);",
+        "if (v == StepPassed && (anim == 25 || anim == 38))", "{", "animOut = anim == 25 ? rig.Walk : rig.Run;",
+        "return StepMapped;", "}", "return v;", "}",
+    ),
+    "private static String BoneTable(": (
+        "private static String BoneTable(BoneRuleFn rule)", "{",
+        'if (PolishHandOracle.GetLength(0) != NetSyncVisitor.RigRowCount) return "the oracle covers " + '
+        'PolishHandOracle.GetLength(0) + " rigs, the table " + NetSyncVisitor.RigRowCount;',
+        "for (Int32 i = 0;", "i < NetSyncVisitor.RigRowCount;", "i++)", "{", "NetSyncVisitor.Rig rig;",
+        'if (!NetSyncVisitor.TryGetRig(i, out rig)) return "rig " + i + ": no row";', "for (Int32 p = 0;", "p < 2;",
+        "p++)", "{", "Boolean polish = p == 0;", "foreach (Int32 bone in PolishBoneSample)", "{", "Int32 v;",
+        "Int32 got = rule(rig, bone, polish, out v);",
+        "Int32 want = !polish ? bone : bone == 12 ? PolishHandOracle[i, 0] : bone == 13 ? PolishHandOracle[i, 1] : "
+        "bone;",
+        "Int32 wantV = !polish ? AttachBypass : bone == 12 || bone == 13 ? AttachRemap : AttachNote;",
+        'if (got != want || v != wantV) return "rig " + i + " bone " + bone + (polish ? "" : " (polish off)") + " -> '
+        '" + got + " (verdict " + v + "), want " + want + " (verdict " + wantV + ")";',
+        "}", "}", "}", "return null;", "}",
+    ),
+    "private static Int32 MutantBoneSwap(": (
+        "private static Int32 MutantBoneSwap(NetSyncVisitor.Rig rig, Int32 bone, Boolean polish, out Int32 verdict)",
+        "{", "if (polish && (bone == 12 || bone == 13))", "{", "verdict = AttachRemap;",
+        "return bone == 12 ? rig.HandBoneEnd : rig.HandBone;", "}",
+        "return AttachBoneRule(rig, bone, polish, out verdict);", "}",
+    ),
+    "private static Int32 MutantBoneAny(": (
+        "private static Int32 MutantBoneAny(NetSyncVisitor.Rig rig, Int32 bone, Boolean polish, out Int32 verdict)",
+        "{", "verdict = polish ? AttachRemap : AttachBypass;", "return polish ? rig.HandBone : bone;", "}",
+    ),
+    "private static String MeshTable(": (
+        "private static String MeshTable(Func<Boolean, Boolean, Boolean> keep)", "{",
+        'if (!keep(false, true) || !keep(false, false)) return "an undressed body\'s op is kept";',
+        'if (keep(true, true)) return "a dressed body\'s op is dropped";',
+        'if (!keep(true, false)) return "`polish off` keeps a dressed body\'s op";', "return null;", "}",
+    ),
+    "private static Boolean MutantMeshLeverBlind(": (
+        "private static Boolean MutantMeshLeverBlind(Boolean dressed, Boolean polish)", "{", "return !dressed;", "}",
+    ),
+    "private static String LightTable(": (
+        "private static String LightTable(LightRowFn rule)", "{",
+        'if (rule(192, true, 98, true, true) != 192) return "a dressed Freya whose model HAS a row keeps it";',
+        'if (rule(192, false, 98, true, true) != 98 || rule(5467, false, 98, true, true) != 98) return "a dressed '
+        'body with no own row takes its SOURCE row 98";',
+        'if (rule(192, false, 98, false, true) != DefaultMcfRow) return "no own row and no 98 row -> the default row";',
+        'if (rule(220, false, 0, true, true) != DefaultMcfRow) return "an undressed body with no own row -> the '
+        'default row, never 98";',
+        'if (rule(98, true, 0, true, true) != 98) return "an undressed Zidane keeps his own row";',
+        'if (rule(192, false, 98, true, false) != DefaultMcfRow) return "`polish off` -> the default row (s140)";',
+        'if (rule(192, true, 98, true, false) != 192) return "`polish off` keeps an own row";', "return null;", "}",
+    ),
+    "private static Int32 MutantSrcFirst(": (
+        "private static Int32 MutantSrcFirst(Int32 model, Boolean hasOwnRow, Int32 dressSrc, Boolean hasSrcRow, "
+        "Boolean polish)",
+        "{", "if (dressSrc != 0 && polish && hasSrcRow) return dressSrc & 0xFFFF;",
+        "return hasOwnRow ? model & 0xFFFF : DefaultMcfRow;", "}",
+    ),
+    "private static Int32 MutantNoSrcFallback(": (
+        "private static Int32 MutantNoSrcFallback(Int32 model, Boolean hasOwnRow, Int32 dressSrc, Boolean hasSrcRow, "
+        "Boolean polish)",
+        "{", "return hasOwnRow ? model & 0xFFFF : DefaultMcfRow;", "}",
+    ),
+    "private static String GhostTable(": (
+        "private static String GhostTable(GhostRowFn rule)", "{",
+        'if (rule(192, 98, true) != 98 || rule(220, 98, true) != 98) return "a dressed local player: its SOURCE row '
+        '98";',
+        'if (rule(98, 0, true) != 98 || rule(5489, 0, true) != 5489) return "an undressed local player: its model";',
+        'if (rule(192, 98, false) != 192) return "`polish off`: s140\'s lp.model";', "return null;", "}",
+    ),
+    "private static Int32 MutantGhostModel(": (
+        "private static Int32 MutantGhostModel(Int32 lpModel, Int32 lpDressSrc, Boolean polish)", "{",
+        "return lpModel;", "}",
+    ),
+    "private static String PolishOnTable(": (
+        "private static String PolishOnTable(PolishOnFn rule)", "{",
+        'if (!rule(false, true) || !rule(false, false)) return "on by default, any role";',
+        'if (rule(true, true)) return "`polish off` turns it off on the selftest role";',
+        'if (!rule(true, false)) return "`polish off` never acts off the selftest role";', "return null;", "}",
+    ),
+    "private static Boolean MutantPolishAnyRole(": (
+        "private static Boolean MutantPolishAnyRole(Boolean polishOff, Boolean selfTestRole)", "{",
+        "return !polishOff;", "}",
+    ),
+    "private static String Mcf250Table(": (
+        "private static String Mcf250Table()", "{",
+        "DMSMapConf mcf = McfOf(McfChar(0xFFFF, 16, 11, 16, 16, 16), McfChar(176, 1, 8, 8, 10, 13), McfChar(98, 1, "
+        "10, 10, 12, 15));",
+        "DMSMapConf no98 = McfOf(McfChar(0xFFFF, 16, 11, 16, 16, 16), McfChar(176, 1, 8, 8, 10, 13));",
+        "DMSMapChar? stockDefault = fldmcf.ff9fieldMCFGetCharByID(mcf, -1), mine = fldmcf.ff9fieldMCFGetCharByID(mcf, "
+        "DefaultMcfRow);",
+        "if (stockDefault == null || mine == null || stockDefault.Value.geoNo != mine.Value.geoNo || mine.Value.geoNo "
+        '!= 0xFFFF) return "DefaultMcfRow is not the row stock\'s default lookup (-1) finds";',
+        "DMSMapChar? rOn, rOff, rNo98, rZid;",
+        "Int32 on = CoreRow(mcf, 192, 98, true, out rOn), off = CoreRow(mcf, 192, 98, false, out rOff);",
+        'if (on != 98 || off != DefaultMcfRow || rOff != null) return "the dressed Freya\'s row: polish on " + on + '
+        '", off " + off + " (want 98 / 65535; -1 = the core\'s witness and " + "LightRowRule part)";',
+        "String t0 = McfTint(rOn, 0, 0, 0), t1 = McfTint(rOn, -3, -3, -4);",
+        'if (t0 != "80,96,120" || t1 != "56,72,88") return "the 98 row\'s tint " + t0 + " / " + t1;',
+        "DMSMapChar? lit = rOff != null ? rOff : stockDefault;",
+        "String d0 = McfTint(lit, 0, 0, 0), d1 = McfTint(lit, -3, -3, -4);",
+        'if (d0 != "128,128,128" || d1 != "104,104,96") return "the default row\'s tint " + d0 + " / " + d1;',
+        'if (CoreRow(no98, 192, 98, true, out rNo98) != DefaultMcfRow || rNo98 != null) return "a mapconfig with no '
+        '98 row did not fall to the default";',
+        'if (CoreRow(mcf, 98, 0, true, out rZid) != 98 || McfTint(rZid, 0, 0, 0) != "80,96,120") return "an undressed '
+        'Zidane did not read his own 98 row";',
+        "Int32 g, gOff, gOwn, gZid, gNoLp, gNo98;",
+        "DMSMapChar? rg = GhostRowCore(mcf, 192, true, 192, 98, true, out g), rgOff = GhostRowCore(mcf, 192, true, "
+        "192, 98, false, out gOff);",
+        'if (g != 98 || gOff != DefaultMcfRow || McfTint(rg, 0, 0, 0) != "80,96,120" || McfTint(rgOff, 0, 0, 0) != '
+        '"128,128,128") return "the ghost wearing the dressed Freya: polish on " + g + " " + McfTint(rg, 0, 0, 0) + '
+        '", off " + gOff + " " + McfTint(rgOff, 0, 0, 0) + " (want 98 80,96,120 / 65535 128,128,128)";',
+        "DMSMapChar? rgOwn = GhostRowCore(mcf, 176, true, 192, 98, true, out gOwn);",
+        'if (gOwn != 176 || McfTint(rgOwn, 0, 0, 0) != "64,80,104") return "a ghost whose own model has a row (176) '
+        'read " + gOwn + " (the stand-in before the ghost\'s own row)";',
+        'if (GhostRowCore(mcf, 192, true, 98, 0, true, out gZid) == null || gZid != 98) return "an undressed local '
+        'player (Zidane) did not stand in with its model: " + gZid;',
+        "DMSMapChar? rgNoLp = GhostRowCore(mcf, 192, false, 192, 98, true, out gNoLp);",
+        'if (gNoLp != DefaultMcfRow || McfTint(rgNoLp, 0, 0, 0) != "128,128,128") return "no local player: the ghost '
+        'read " + gNoLp + " (want the default 65535)";',
+        'if (GhostRowCore(no98, 192, true, 192, 98, true, out gNo98) == null || gNo98 != DefaultMcfRow) return "a '
+        'mapconfig with no 98 row: the ghost read " + gNo98 + " (want the default 65535)";',
+        "return null;", "}",
+    ),
+    "private static DMSMapChar McfChar(": (
+        "private static DMSMapChar McfChar(Int32 geoNo, SByte shadowI, SByte shadowR, SByte r, SByte g, SByte b)", "{",
+        "DMSMapChar c = default(DMSMapChar);", "c.geoNo = (UInt16)geoNo;", "c.shadowI = shadowI;",
+        "c.shadowR = shadowR;", "c.clr = new SByte[]", "{", "r, g, b", "}", "return c;", "}",
+    ),
+    "private static DMSMapConf McfOf(": (
+        "private static DMSMapConf McfOf(params DMSMapChar[] chars)", "{", "DMSMapConf m = default(DMSMapConf);",
+        "m.DMSMapChar = chars;", "m.charCount = (Byte)chars.Length;", "m.charUse = (Byte)chars.Length;", "return m;",
+        "}",
+    ),
+    "private static Int32 CoreRow(": (
+        "private static Int32 CoreRow(DMSMapConf mcf, Int32 model, Int32 dressSrc, Boolean polish, out DMSMapChar? "
+        "row)",
+        "{", "DMSMapChar? own = fldmcf.ff9fieldMCFGetCharByID(mcf, model);", "Int32 used;",
+        "row = DressedRowCore(mcf, model, dressSrc, own, polish, out used);",
+        "Boolean hasSrc = dressSrc != 0 && fldmcf.ff9fieldMCFGetCharByID(mcf, dressSrc) != null;",
+        "return used == LightRowRule(model, own != null, dressSrc, hasSrc, polish) ? used : -1;", "}",
+    ),
+    "private static String McfTint(": (
+        "private static String McfTint(DMSMapChar? row, Int32 lr, Int32 lg, Int32 lb)", "{",
+        'if (row == null) return "none";', "SByte[] c = row.Value.clr;",
+        'return (Byte)(((Int32)c[0] + lr) << 3) + "," + (Byte)(((Int32)c[1] + lg) << 3) + "," + (Byte)(((Int32)c[2] + '
+        "lb) << 3);",
+        "}",
+    ),
+    "private static Boolean ResetRow(": (
+        "private static Boolean ResetRow()", "{",
+        "Int32 sd = StepsDropped, sp = StepsPassed, sf = StepsFired, sfp = StepsFiredPlayer, md = MeshDrops, ar = "
+        "AttachRemaps, an = AttachNotes, lr = LightRow, glr = GhostLightRow, au = AttachLastUid, abi = "
+        "AttachLastBoneIn, abo = AttachLastBoneOut;",
+        "GameObject go = _attachLastGo;", "Boolean off = _polishOff;",
+        "Boolean l1 = _loggedStepDrop, l2 = _loggedUnbindEmpty, l3 = _loggedMeshDrop, l4 = _loggedAttach;", "try", "{",
+        "EventEngine ee = PersistenSingleton<EventEngine>.Instance;",
+        "GameObject probe = ee != null ? ee.gameObject : null;", "if (probe == null) return false;",
+        "StepsDropped = StepsPassed = StepsFired = StepsFiredPlayer = MeshDrops = AttachRemaps = AttachNotes = 7;",
+        "LightRow = GhostLightRow = 98;", "AttachLastUid = AttachLastBoneIn = AttachLastBoneOut = 13;",
+        "_attachLastGo = probe;", "_polishOff = true;",
+        "_loggedStepDrop = _loggedUnbindEmpty = _loggedMeshDrop = _loggedAttach = true;", "OnSoundTableReset();",
+        "return StepsDropped == 0 && StepsPassed == 0 && StepsFired == 0 && StepsFiredPlayer == 0 && MeshDrops == 0 "
+        "&& AttachRemaps == 0 && AttachNotes == 0 && LightRow == -1 && GhostLightRow == -1 && AttachLastUid == -1 && "
+        "AttachLastBoneIn == -1 && AttachLastBoneOut == -1 && ReferenceEquals(_attachLastGo, null) && "
+        "!_loggedStepDrop && !_loggedUnbindEmpty && !_loggedMeshDrop && !_loggedAttach && _polishOff;",
+        "}", "finally", "{", "StepsDropped = sd;", "StepsPassed = sp;", "StepsFired = sf;", "StepsFiredPlayer = sfp;",
+        "MeshDrops = md;", "AttachRemaps = ar;", "AttachNotes = an;", "LightRow = lr;", "GhostLightRow = glr;",
+        "AttachLastUid = au;", "AttachLastBoneIn = abi;", "AttachLastBoneOut = abo;", "_attachLastGo = go;",
+        "_polishOff = off;", "_loggedStepDrop = l1;", "_loggedUnbindEmpty = l2;", "_loggedMeshDrop = l3;",
+        "_loggedAttach = l4;", "}", "}",
+    ),
+}
+
+
+#: [ff9mapkit netsync s141] rselftest-1's INSERTIONS: (member, anchor, a statement inserted right after it) -- each one the
+#: subset pin (:func:`_in_order`) cannot see, each required to read red on the exact pin: an early `return null;` in every
+#: proof table (its in-engine row would turn unconditionally green), FootTable checking rig 0 only, MapFootstep's
+#: empty-table guard bypassed (the VM-throw hazard back), DressedCharRow returning the stock row before its core,
+#: GhostRowCore taking the default row first
+S141_PIN_INSERTIONS = tuple((f"private static String {t}(", "{", " return null;")
+                            for t in ("FootTable", "BypassTable", "Field250Table", "BoneTable", "MeshTable", "LightTable",
+                                      "GhostTable", "PolishOnTable", "Mcf250Table")) + (
+    ("private static String FootTable(", 'return "rig " + i + ": no row";', " if (i > 0) break;"),
+    ("internal static Boolean MapFootstep(", "Int32 a, f, s;", " if (code == 19) return true;"),
+    ("internal static DMSMapChar? DressedCharRow(", "Int32 used;", " return own;"),
+    ("internal static DMSMapChar? GhostRowCore(", "{", " used = DefaultMcfRow; return fldmcf.ff9fieldMCFGetCharByID(mcf, -1);"),
+    ("private static Boolean ResetRow(", "{", " return true;"),
+)
+
+
+def test_every_s141_member_is_pinned_exactly():
+    """THE EXACT PINS (rselftest-1): EVERY member the s141 patch adds to NetSyncSelfDress -- the rules, the hooks, the
+    proof (PolishSelfTest) and its helper tables, mutants and fixtures' builders -- IS its frozen S141_MEMBER_STATEMENTS
+    entry, statement for statement (:func:`_statements`: braces kept, so a statement moved into or out of a block reads
+    too), and the frozen set is exactly the declared set (a new member must be frozen to land). The decisive fragments of
+    S141_RULE_STATEMENTS / S141_HELPER_STATEMENTS name what drifted."""
+    declared = _s141_members()
+    assert len(declared) == len(set(declared)), declared
+    assert list(S141_MEMBER_STATEMENTS) == declared, (sorted(set(declared) - set(S141_MEMBER_STATEMENTS)),
+                                                      sorted(set(S141_MEMBER_STATEMENTS) - set(declared)))
+    for start in declared:
+        frags = S141_RULE_STATEMENTS.get(start) or S141_HELPER_STATEMENTS.get(start) or ()
+        assert _pin_problems(start, frags) == [], start
+    for start in list(S141_RULE_STATEMENTS) + list(S141_HELPER_STATEMENTS):
+        assert start in S141_MEMBER_STATEMENTS, start                  # every fragment pin names a frozen member
+
+
+@pytest.mark.parametrize("start,anchor,ins", S141_PIN_INSERTIONS,
+                         ids=[f"{s.split()[3].split('(')[0]}:{i.strip()[:24]}" for s, _a, i in S141_PIN_INSERTIONS])
+def test_an_inserted_statement_reads_red_on_the_exact_pin(start, anchor, ins):
+    """A check that cannot fail is not a check (rselftest-1): each INSERTION (S141_PIN_INSERTIONS) leaves the old subset
+    pin GREEN -- the gap: every decisive fragment is still there, in order -- and turns the exact pin RED, naming the
+    first diverging statement."""
+    body = _s141_func(start)
+    assert anchor in body, (start, anchor)
+    mutated = body.replace(anchor, anchor + ins, 1)
+    frags = S141_RULE_STATEMENTS.get(start) or S141_HELPER_STATEMENTS.get(start) or ()
+    assert _in_order(mutated, frags) == []                                # the subset pin alone stays green
+    red = _exact_problems(_statements(mutated), S141_MEMBER_STATEMENTS[start], mutated, frags)
+    assert red and "first difference" in red[0], red
+    assert _exact_problems(_statements(body), S141_MEMBER_STATEMENTS[start], body, frags) == []
+
+
+def test_the_exact_pin_reads_a_moved_or_reordered_statement():
+    """The exact pin also reads what is neither inserted nor deleted: GhostRowCore with its default fallback swapped ahead
+    of the local player's stand-in (rselftest-2's own example), MapFootstep's StepsPassed count moved out of its `if`
+    (the same statements, another block), and a statement's text changed in place."""
+    gc = _s141_func("internal static DMSMapChar? GhostRowCore(")
+    a = "if (row == null && hasLp) { used = GhostLpRowRule(lpModel, lpDressSrc, polish) & 0xFFFF; " \
+        "row = fldmcf.ff9fieldMCFGetCharByID(mcf, used); }"
+    b = "if (row == null) { used = DefaultMcfRow; row = fldmcf.ff9fieldMCFGetCharByID(mcf, -1); }"
+    assert a in gc and b in gc
+    swapped = gc.replace(a, "@@").replace(b, a).replace("@@", b)
+    assert swapped != gc and _exact_problems(_statements(swapped), S141_MEMBER_STATEMENTS[
+        "internal static DMSMapChar? GhostRowCore("])
+    mf = _s141_func("internal static Boolean MapFootstep(")
+    moved = mf.replace("if (verdict == StepPassed) StepsPassed++;", "if (verdict == StepPassed) { } StepsPassed++;")
+    assert moved != mf and _exact_problems(_statements(moved), S141_MEMBER_STATEMENTS["internal static Boolean MapFootstep("])
+    lr = _s141_func("internal static Int32 LightRowRule(")
+    edited = lr.replace("return DefaultMcfRow;", "return dressSrc & 0xFFFF;")
+    assert edited != lr and _exact_problems(_statements(edited), S141_MEMBER_STATEMENTS["internal static Int32 LightRowRule("])
+    # the splitter: a brace or `;` inside a string literal is no statement boundary
+    src = 'a = "{x;}"; if (b) { c(' + "'}'" + '); }'
+    assert _statements(src) == ['a = "{x;}";', "if (b)", "{", "c('}');", "}"], _statements(src)
+
+
+#: [ff9mapkit netsync s141] ApplyGhostLighting's s141 window (rselftest-2), EXACT: from the local player's read through the
+#: witness write -- the row is GhostRow's (the ONE core the proof's Mcf250Table runs, never a copy), the witness is the
+#: row the core RETURNED, written only after the null return
+S141_GHOST_SITE = ("Actor lp = ee.GetControlChar() as Actor;", "Int32 lightRow;",
+                   "DMSMapChar? mapChar = NetSyncSelfDress.GhostRow(mcf, (Int32)model, lp, out lightRow);",
+                   "if (mapChar == null) return;", "NetSyncSelfDress.GhostLightRow = lightRow & 0xFFFF;")
+
+
+def _ghost_site() -> list:
+    """ApplyGhostLighting's s141 window off the s141 patch's NetSyncClient hunk that calls GhostRow: its new-side statements
+    (comments stripped) from `Actor lp = ...` through the GhostLightRow write."""
+    new = _new_side("NetSyncClient.cs", _patch_bytes("s141"))
+    hunk = next(h for h, _k, t in new if "NetSyncSelfDress.GhostRow(" in t)
+    lines = [_strip_comment(t) for h, _k, t in new if h == hunk]
+    i = next(k for k, t in enumerate(lines) if t.startswith("Actor lp = ee.GetControlChar() as Actor;"))
+    j = next(k for k, t in enumerate(lines) if t.startswith("NetSyncSelfDress.GhostLightRow = "))
+    return _statements(" ".join(t for t in lines[i:j + 1] if t))
+
+
+# ---- the hook sites (DoEventCode, fldmcf, FF9Snd, HonoluluFieldMain) and the client half, off the patch
+#: [ff9mapkit netsync s141] every line s141 ADDS to the four stock files, comments stripped, in order -- each gated on the body
+#: FIRST (netSelfDress / netDressSrc) or the role (FF9Snd: one static read per matched record); each ONE call
+S141_STOCK_ADDED = {
+    "EventEngine.DoEventCode.cs": (
+        "if (po != null && po.netSelfDress != 0 && !Memoria.Netsync.NetSyncSelfDress.KeepMeshOp(po, mesh, true))", "return 0;",
+        "if (po != null && po.netSelfDress != 0 && !Memoria.Netsync.NetSyncSelfDress.KeepMeshOp(po, mesh, false))", "return 0;",
+        "PosObj dressCarrier = carryingObj as PosObj;", "if (dressCarrier != null && dressCarrier.netSelfDress != 0)",
+        "bone_index = Memoria.Netsync.NetSyncSelfDress.AtAttach(attachedObj, dressCarrier, bone_index);",
+        "if (po != null && po.netSelfDress != 0 && !Memoria.Netsync.NetSyncSelfDress.MapFootstep(po, param, ref arg2, ref "
+        "arg3, ref arg4))", "return 0;"),
+    "fldmcf.cs": ("if (activeActorByUID.netDressSrc != 0)",
+                  "dmsmapChar3 = Memoria.Netsync.NetSyncSelfDress.DressedCharRow(mcfPtr.Value, activeActorByUID, "
+                  "dmsmapChar3);"),
+    "FF9Snd.cs": ("if (Memoria.Netsync.NetSyncClient.IsClientOrSelfTestRole)",
+                  "Memoria.Netsync.NetSyncSelfDress.NoteStepFired(ff9Char.evt);"),
+    "HonoluluFieldMain.cs": ("Memoria.Netsync.NetSyncSelfDress.OnSoundTableReset();",),
+}
+
+
+def test_the_s141_hooks_sit_where_the_audit_says():
+    """THE HOOK SITES, off the s141 patch: DoEventCode gains exactly MESHSHOW's and MESHHIDE's drop (before the stock
+    geoMeshShow / geoMeshHide), AtAttach in the gMode-1 ATTACH branch AFTER the 62 / 3010 bone-19 override and BEFORE
+    geo.geoAttach (so attachTargetBoneIndex stores the dressed index), MapFootstep in CHRFX after the three getv2 and BEFORE
+    fldchar's dispatch (the TARGET body in hand; fldchar.cs untouched); fldmcf's DressedCharRow right after the stock own-row
+    lookup (netDressSrc read FIRST: vanilla pays one field read); FF9Snd's witness inside the match branch; HonoluluFieldMain's
+    reset right after the stock ff9ResetStateFieldMap -- nothing else in those files; every hook body catches (Faults++)
+    and never throws into the VM; the ghost's row (ApplyGhostLighting) is GhostRow's -- the ONE core the proof runs, its
+    s141 window pinned EXACTLY (S141_GHOST_SITE) and no other mapconfig row lookup left in NetSyncClient -- its witness
+    after the null return."""
+    for f, want in S141_STOCK_ADDED.items():
+        got = tuple(c for c in (_strip_comment(t) for t in _s141_added(f)) if c)
+        assert got == want, (f, got)
+    names = [p for p, _s in msr.sections(_patch_bytes("s141")) if p]
+    assert not any(n.replace("\\", "/").endswith(("/fldchar.cs", "/geo.cs", "/PosObj.cs")) for n in names), names
+    assert _added_after("s141", "EventEngine.DoEventCode.cs", "Int32 mesh = this.getv1(); // arg2: mesh list to show",
+                        "KeepMeshOp(po, mesh, true)")
+    new = [t for _h, _k, t in _new_side("EventEngine.DoEventCode.cs", _patch_bytes("s141"))]
+    at = next(i for i, t in enumerate(new) if "AtAttach(" in t)
+    assert "bone_index = 19;" in new[at - 3] and new[at + 1].startswith("geo.geoAttach(attachedGo, carryingGo, bone_index);")
+    mf = next(i for i, t in enumerate(new) if "MapFootstep(" in t)
+    assert new[mf - 1] == "Int32 arg4 = this.getv2();" and \
+        new[mf + 2] == "fldchar.FF9FieldCharDispatch((Int32)po.uid, param, arg2, arg3, arg4);"
+    km = [i for i, t in enumerate(new) if "KeepMeshOp(" in t]
+    assert [new[i + 2] for i in km] == ["if (po != null)", "if (po != null)"] and \
+        [new[i + 3] for i in km] == ["po.geoMeshShow(mesh);", "po.geoMeshHide(mesh);"]
+    fm = _s141_new("fldmcf.cs")
+    k = next(i for i, t in enumerate(fm) if t.startswith("if (activeActorByUID.netDressSrc != 0)"))
+    assert fm[k - 1] == "DMSMapChar? dmsmapChar3 = fldmcf.ff9fieldMCFGetCharByID(mcfPtr.Value, (Int32)activeActorByUID.model);"
+    hf = _s141_new("HonoluluFieldMain.cs")
+    k = next(i for i, t in enumerate(hf) if "OnSoundTableReset" in t)
+    assert hf[k - 1] == "map.ff9ResetStateFieldMap();"
+    sn = _s141_new("FF9Snd.cs")
+    k = next(i for i, t in enumerate(sn) if "NoteStepFired" in t)
+    assert "ff9FieldCharSound.frame == (Int16)ff9Char.evt.animFrame" in sn[k - 3]
+    # every hook body catches: a fault counts and the stock path continues
+    for start in ("internal static Boolean MapFootstep(", "internal static Int32 AtAttach(", "internal static Boolean KeepMeshOp(",
+                  "internal static DMSMapChar? DressedCharRow("):
+        body = " ".join(_cs_block("NetSyncSelfDress.cs", start, stop="catch (Exception err)"))
+        assert body.count("try") >= 1, start
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    for frag in ('LogFault("footstep " + code, err);', 'LogFault("attach bone " + bone, err);', 'LogFault("mesh " + mesh, err);',
+                 'LogFault("light row", err);', 'LogFault("step fired", err);',
+                 'LogFault("footstep rig " + rigIdx, new InvalidOperationException("no rig row " + rigIdx));',
+                 'LogFault("attach rig " + rigIdx, new InvalidOperationException("no rig row " + rigIdx));'):
+        assert frag in sd, frag
+    # no s141 hook counts a fault in silence: every `Faults++;` is followed by a LogFault (vmsafety-2)
+    added = [_strip_comment(t) for t in _s141_added("NetSyncSelfDress.cs")]
+    hooks = " ".join(_s141_func(s) for s in ("internal static Boolean MapFootstep(", "internal static void NoteStepFired(",
+                                              "internal static Int32 AtAttach(", "internal static Boolean KeepMeshOp(",
+                                              "internal static DMSMapChar? DressedCharRow("))
+    assert hooks.count("Faults++;") == hooks.count("LogFault(") == 7 and added
+    client = " ".join(_strip_comment(t) for t in _s141_added("NetSyncClient.cs"))
+    for frag in ("Int32 lightRow;", "DMSMapChar? mapChar = NetSyncSelfDress.GhostRow(mcf, (Int32)model, lp, out lightRow);",
+                 "NetSyncSelfDress.GhostLightRow = lightRow & 0xFFFF;", "public static Int32[] HarnessGhostLightRgb",
+                 "if (i == null || i._ghost == null || i._ghostRends == null)", "foreach (Renderer r in i._ghostRends)",
+                 "return NetSyncSelfDress.ReadRendererRgb(r);"):
+        assert frag in client, frag
+    assert _ghost_site() == list(S141_GHOST_SITE), _ghost_site()
+    # ...its ONE call site (the live ghost path), and the core's only callers the wrapper and the proof's Mcf250Table
+    assert sum("NetSyncSelfDress.GhostRow(" in _strip_comment(t) for t in _stack_text("NetSyncClient.cs")) == 1
+    core_calls = [m for m in _s141_members() if "GhostRowCore(" in _s141_func(m).split("{", 1)[1]]
+    assert core_calls == ["internal static DMSMapChar? GhostRow(", "private static String Mcf250Table("], core_calls
+    # the ghost's row is the core's ONLY: no mapconfig row lookup is left anywhere in NetSyncClient (s140's own-row /
+    # lp.model / -1 lookups all moved into GhostRowCore)
+    assert not [t for t in _stack_text("NetSyncClient.cs") if "ff9fieldMCFGetCharByID" in _strip_comment(t)]
+
+
+def test_the_per_load_reset_is_one_field_load_each():
+    """THE PER-LOAD LAW (O5): OnSoundTableReset sets exactly BW.POLISH_LOAD_SENTINELS' statics (every s141 counter and
+    witness, the carried go, the once-per-load log flags) back to their sentinels -- its body, statement for statement --
+    and the statics are DECLARED at those sentinels; it runs right after the stock footstep table's own reset (the hook
+    test), and nothing else resets them (a warm return re-registers, never doubles)."""
+    body = " ".join(_strip_comment(t) for t in _cs_block("NetSyncSelfDress.cs", "public static void OnSoundTableReset()",
+                                                          stop="}"))
+    literal = {"null": None, "false": False, "true": True}
+    got = {}
+    for st in body.split(";"):
+        parts = [p.strip() for p in st.split("=")]
+        if len(parts) < 2:
+            continue
+        value = literal[parts[-1]] if parts[-1] in literal else int(parts[-1])     # a chained `a = b = <literal>`
+        for name in parts[:-1]:
+            got[name.split("{")[-1].strip()] = value
+    assert got == BW.POLISH_LOAD_SENTINELS, got
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    for name, v in BW.POLISH_LOAD_SENTINELS.items():
+        if isinstance(v, int) and not isinstance(v, bool) and v == -1:
+            assert f"internal static Int32 {name} = -1;" in sd, name
+    # its callers: the stock reset site and the proof's ResetRow (which restores the live values after) -- nothing else
+    assert len([t for t in _stack_text("HonoluluFieldMain.cs") if "NetSyncSelfDress.OnSoundTableReset();" in t]) == 1
+    assert [_strip_comment(t) for t in _stack_text("NetSyncSelfDress.cs") if "OnSoundTableReset()" in t] == [
+        "public static void OnSoundTableReset()", "OnSoundTableReset();"]
+    assert not [t for f in ("NetSyncClient.cs", "EventEngine.DoEventCode.cs", "fldmcf.cs", "FF9Snd.cs")
+                for t in _stack_text(f) if "OnSoundTableReset" in t]
+    statics = {k: 7 for k in BW.POLISH_LOAD_SENTINELS}
+    BW.on_sound_table_reset(statics)
+    assert statics == BW.POLISH_LOAD_SENTINELS
+    assert BW.reset_row() is True and BW.reset_row(lambda s: None) is False
+    assert "_polishOff" not in BW.POLISH_LOAD_SENTINELS and "_polishOff" not in body          # a load never releases it
+    # the proof's ResetRow can FAIL on each statement it pins: a reset that skips the go (the go is a LIVE object first --
+    # the EventEngine's own; no object, no row), and one that releases the lever
+    assert BW.reset_row(lambda s: (BW.on_sound_table_reset(s), s.update(_attachLastGo=object()))) is False
+    assert BW.reset_row(lambda s: (BW.on_sound_table_reset(s), s.update(_polishOff=False))) is False
+    rr = _s141_func("private static Boolean ResetRow(")
+    assert not _in_order(rr, ("GameObject go = _attachLastGo;", "Boolean off = _polishOff;",
+                              "EventEngine ee = PersistenSingleton<EventEngine>.Instance;",
+                              "GameObject probe = ee != null ? ee.gameObject : null;", "if (probe == null)", "return false;",
+                              "_attachLastGo = probe;", "_polishOff = true;", "OnSoundTableReset();",
+                              "&& ReferenceEquals(_attachLastGo, null)", "&& _polishOff;", "_attachLastGo = go;",
+                              "_polishOff = off;")), rr
+
+
+# ---- the stand-in's `dresspolish` rung
+def _polish_fake(game, spec="freya", *, caps=None, faults=(), levers=(), field=FIELD250, **over):
+    """A by-hand stand-in in the forced selftest role, `self <spec>` (None: undressed) and the ``levers`` ops set, then
+    ``field`` loaded (a warp)."""
+    fake = _s140_fake(game, caps=caps, **over)
+    fake.dress_faults = set(faults)
+    if spec is not None:
+        fake._execute(["netsync", "selfdress", "self", *str(spec).split()])
+    for op in levers:
+        fake._execute(["netsync", "selfdress", *op])
+    fake._execute(["warp", str(field)])
+    return fake
+
+
+def _walk(fake, frames: int = 60) -> None:
+    """Hold a direction (the pad: the stand-in runs -- or walks with `cancel`) for ``frames`` stand-in frames."""
+    fake.down_at["up"] = fake.frame
+    fake.held["up"] = fake.frame + frames + 1
+    _step(fake, frames)
+    fake.held.pop("up", None)
+
+
+def test_an_s140_stand_in_publishes_no_s141_key_and_the_dresspolish_rung_every_one(game):
+    """THE LEVEL HOME for s141: ``caps_through("dressself")`` (s141's calibration) publishes s140's dress block exactly --
+    no polish key in `self`, no `ghost.light_row` / `ghost.light_rgb`, no 'dress polish' line, `selfdress polish` refused
+    before the step; the `dresspolish` rung adds the thirteen keys after `selftest`, `light_row` / `light_rgb` at the ghost's
+    end and the polish line."""
+    for caps, has in ((S140_CAPS_, False), (None, True)):
+        fake = FakeGame(game)
+        if caps is not None:
+            fake.netsync_caps = caps
+        with session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(FIELD)
+            g.netsync("selftest", 1)
+            st = g.wait_for(lambda s: s.coop_dress_self_selftest == "ok", timeout=5.0, what="the proof block")
+            d = st.netsync_dress
+            if has:
+                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) + list(BW.DRESS_POLISH_KEYS)
+                assert list(d["ghost"])[-2:] == ["light_row", "light_rgb"] and st.coop_dress_polish is True
+                assert _mlog_lines(fake, "dress polish selftest: OK (20 rows)")
+            else:
+                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) and "light_row" not in d["ghost"] and \
+                    "light_rgb" not in d["ghost"]
+                assert st.coop_dress_polish is False and not _mlog_lines(fake, "dress polish selftest")
+                with pytest.raises(HarnessError, match="publishes no `netsync.dress.self.steps`"):
+                    g.selfdress_polish(False)
+
+
+def test_the_dresspolish_stand_in_maps_field_250s_footsteps_per_rig(game):
+    """MAPFOOTSTEP on the stand-in (O4), against the census's leg-F oracle (polish.json `a_field250.per_rig`, FIELD250_ORACLE):
+    every `self` rig on field 250 reads its own `steps` after one load -- Freya's pair, Steiner's 925 (F7), the moogle /
+    Cinna / Quina [] with 12 dropped (F2, F2c: O1), and undressed (`self off`) Zidane's own four (F3); `polish off` reads
+    Zidane's four on every rig with 0 dropped (the calibration red); and on THE s140 ENGINE (no hook) a dressed body keeps
+    Zidane-frame keys and drops nothing -- the stand-in's internal table, the s141 keys being absent there."""
+    per = _polish_census()["a_field250"]["per_rig"]
+    for i, name in enumerate(BW.RIG_NAMES):
+        spec = "off" if name == "zidane" else name
+        s = _selfdoc(_polish_fake(game, spec))
+        want = per[f"{i} {name}"]["s141"]
+        assert (s["steps"], s["steps_dropped"], s["steps_passed"]) == (want["steps"], want["steps_dropped"],
+                                                                         want["steps_passed"]), name
+        assert s["steps"] == BW.FIELD250_ORACLE[i], name
+        off = _selfdoc(_polish_fake(game, spec, levers=(("polish", "off"),)))
+        assert (off["steps"], off["steps_dropped"], off["polish"]) == (BW.FIELD250_ORACLE[0], 0, False), name
+        old = _polish_fake(game, spec, caps=S140_CAPS_)
+        assert BW.steps_of(old._polish_table) == BW.FIELD250_ORACLE[0] and "steps" not in _selfdoc(old), name
+    assert _selfdoc(_polish_fake(game, "moogle"))["steps_dropped"] == 12
+    assert _mlog_lines(_polish_fake(game, "cinna"), "which has no footfall frames (as in stock) -- its footstep ops are "
+                                                    "dropped")
+
+
+def test_the_dressed_walk_fires_its_mapped_footsteps_per_load(game):
+    """THE WITNESS the table cannot give (O5): walking the dressed Freya fires her mapped keys -- steps_fired >= 2, never
+    steps_fired_player (F1b); undressed Zidane's walk fires steps_fired_player (F3's control); a drop rig fires nothing; on
+    s140's table (Zidane's keys on a dressed body) nothing ever fires -- judged on the TABLE against every (clip, frame) the
+    dressed walk plays (s140 publishes no fired count to read: the stand-in's counter is the rung's, 0 there whatever
+    happens). EVERY count is per FIELD LOAD: a warm return (Main_Reinit's
+    twelve again) reads ONE load -- the same four triples, no duplicates, the moogle's 12 drops (never 24) -- and the
+    `cumulative_steps` fault (OUR reset skipped) reads two."""
+    fake = _polish_fake(game, "freya")
+    _walk(fake, 60)
+    s = _selfdoc(fake)
+    assert s["steps_fired"] >= 2 and s["steps_fired_player"] == 0, s
+    zid = _polish_fake(game, "off")
+    _walk(zid, 70)
+    s = _selfdoc(zid)
+    assert s["steps_fired_player"] >= 2 and s["steps_fired"] == 0, s
+    moog = _polish_fake(game, "moogle")
+    _walk(moog, 60)
+    assert _selfdoc(moog)["steps_fired"] == 0
+    old = _polish_fake(game, "freya", caps=S140_CAPS_)
+    played = set()
+    for _ in range(60):                                           # every (clip, frame) the dressed body plays on s140
+        old.down_at.setdefault("up", old.frame)
+        old.held["up"] = old.frame + 2
+        _step(old)
+        anim = old._dress_anim()
+        played.add((anim, old._self_frame_pair(anim)[1]))
+    old.held.pop("up", None)
+    assert BW.steps_of(old._polish_table) == BW.FIELD250_ORACLE[0] and {a for a, _f in played} - {25, 38}, played
+    assert not [r for r in old._polish_table if (r[0], r[1]) in played]    # Zidane's keys never match the rig's clip
+    # ...and the same check reads a match where one exists (the s141 table on the same walk)
+    new = _polish_fake(game, "freya")
+    seen = set()
+    for _ in range(60):
+        new.down_at.setdefault("up", new.frame)
+        new.held["up"] = new.frame + 2
+        _step(new)
+        anim = new._dress_anim()
+        seen.add((anim, new._self_frame_pair(anim)[1]))
+    assert [r for r in new._polish_table if (r[0], r[1]) in seen]
+    for faults, want_dropped in (((), 12), (("cumulative_steps",), 24)):
+        m = _polish_fake(game, "moogle", faults=faults)
+        m._self_on_load(cold=False)                               # the warm return: the dress kept, the ops re-run
+        assert _selfdoc(m)["steps_dropped"] == want_dropped, faults
+    f = _polish_fake(game, "freya")
+    f._self_on_load(cold=False)
+    s = _selfdoc(f)
+    assert s["steps"] == BW.FIELD250_ORACLE[4] and s["steps_dropped"] == 0 and s["steps_fired"] == 0
+    _walk(f, 60)
+    assert _selfdoc(f)["steps_fired"] >= 2                        # F6: it fires again after the return
+
+
+def test_the_light_rows_and_the_tint_are_the_census_oracle(game):
+    """THE LIGHTING FALLBACK (O8) on the stand-in, against the census (polish.json `bench` F4 / F4g): a dressed Freya on
+    field 250 reads `light_row` 98 and `light_rgb` the 98 row's tint on each floor ((80, 96, 120) on 0, (56, 72, 88) on 1-2,
+    (32, 48, 64) on 3); `polish off` (set, then LOAD) reads 65535 and the default row's tint; the selftest mirror's ghost
+    (wearing the dressed model) reads 98 / 65535 (F4g) and its `light_rgb` the tint that row gives on the player's floor
+    (the `ghost_tint_lost` fault: the untinted base); `light_floor` names the floor the tint was computed on (-1 on a kit
+    field / an undressed body); a rig whose OWN model has a row keeps it; a kit field writes nothing (-1, null); an
+    undressed body publishes no light_rgb; a mid-field toggle moves `light_row` before the tint."""
+    bench = _polish_census()["bench"]
+    fake = _polish_fake(game, "freya")
+    _step(fake, 2)
+    s = _selfdoc(fake)
+    f4 = bench["F4 light floor0"]
+    assert (s["light_row"], s["light_rgb"]) == (f4["s141"]["light_row"], f4["s141"]["light_rgb"]) == (98, [80, 96, 120])
+    assert fake._dress_doc()["ghost"]["light_row"] == bench["F4g ghost light_row"]["4 freya"]["s141"]["row"] == 98
+    assert s["light_floor"] == 0 and fake._dress_doc()["ghost"]["light_rgb"] == [80, 96, 120]
+    for floor, rgb in f4["per_floor_s141"].items():
+        fake.light_floor = int(floor)
+        _step(fake)
+        assert _selfdoc(fake)["light_rgb"] == rgb and _selfdoc(fake)["light_floor"] == int(floor), floor
+        assert fake._dress_doc()["ghost"]["light_rgb"] == rgb, floor        # the ghost lit by the player's floor
+    lost = _polish_fake(game, "freya", faults=("ghost_tint_lost",))
+    _step(lost, 2)
+    assert (lost._dress_doc()["ghost"]["light_row"], lost._dress_doc()["ghost"]["light_rgb"]) == (98, FG.FAKE_GHOST_BASE_RGB)
+    off = _polish_fake(game, "freya", levers=(("polish", "off"),))
+    _step(off, 2)
+    s = _selfdoc(off)
+    assert (s["light_row"], s["light_rgb"]) == (f4["s141_polish_off"]["light_row"], f4["s141_polish_off"]["light_rgb"])
+    assert off._dress_doc()["ghost"]["light_row"] == bench["F4g ghost light_row"]["4 freya"]["polish_off"]["row"] == 65535
+    assert off._dress_doc()["ghost"]["light_rgb"] == [128, 128, 128]
+    toggle = _polish_fake(game, "freya")
+    _step(toggle, 2)
+    toggle._execute(["netsync", "selfdress", "polish", "off"])
+    _step(toggle, 2)
+    s = _selfdoc(toggle)
+    assert (s["light_row"], s["light_rgb"]) == (65535, [80, 96, 120])     # the row moved, the tint waits for a load
+    own = _polish_fake(game, "freya", mapconfigs={FIELD250: {"chars": BW.FIELD250_MCF["chars"] + ((192, 1, 9, (11, 11, 11)),),
+                                                            "lights": BW.FIELD250_MCF["lights"]}})
+    _step(own, 2)
+    assert (_selfdoc(own)["light_row"], _selfdoc(own)["light_rgb"]) == (192, [88, 88, 88])
+    kit = _polish_fake(game, "freya", field=FIELD)
+    _step(kit, 2)
+    assert (_selfdoc(kit)["light_row"], _selfdoc(kit)["light_rgb"], kit._dress_doc()["ghost"]["light_row"],
+            _selfdoc(kit)["light_floor"]) == (-1, None, -1, -1)
+    und = _polish_fake(game, "off")
+    _step(und, 2)
+    assert (_selfdoc(und)["light_row"], _selfdoc(und)["light_rgb"], _selfdoc(und)["light_floor"]) == (-1, None, -1)
+
+
+def test_the_bench_fields_f5_and_f8_follow_the_s141_laws(game):
+    """THE BENCH FIELD's s141 conductors on the stand-in (the contract's own numbers): F5's HideObject(250, 1) on a dressed
+    body is DROPPED (mesh_drops 1, meshflags 0) and its ShowObject too; `polish off` lets both run (meshflags 2, then 0); F8's
+    AttachObject(cup, 250, 13) on a dressed Steiner lands on his R_hand_end (attach_remaps 1, attach_last {cup, 13, 16,
+    "bone016"}: the census's F8 parent), on Freya on her R_hand (bone012: no R_hand_end), and `polish off` leaves bone 13
+    (bypassed: no count, the parent "bone013"); the detach leaves the parent null; on s140 nothing is recorded."""
+    sf = _sf()
+    contract = dict(_bench_contract(sf), cup_sid=sf.CUP_SID, attach_bone=sf.ATTACH_BONE, f5_mesh=sf.F5_MESH)
+    f8 = _polish_census()["bench"]["F8 attach parent"]
+
+    def bench(spec, faults=(), levers=(), caps=None):
+        fake = _polish_fake(game, spec, caps=caps, faults=faults, levers=levers, field=BENCH_SELF,
+                            dress_conductors={BENCH_SELF: contract},
+                            blockers={BENCH_SELF: _bench_bodies(sf)})
+        return fake
+    fake = bench("steiner")
+    assert _conduct(fake, sf, "f5h") == "done"
+    assert (_selfdoc(fake)["mesh_drops"], fake._player_dress_doc()["meshflags"]) == (1, 0)
+    assert _conduct(fake, sf, "f5s") == "done" and _selfdoc(fake)["mesh_drops"] == 2
+    assert _conduct(fake, sf, "f8a") == "done"
+    s = _selfdoc(fake)
+    assert (s["attach_remaps"], s["attach_notes"], s["attach_last"]) == (
+        1, 0, {"uid": sf.CUP_SID, "bone_in": 13, "bone_out": 16, "parent": f8["3 steiner"]["bone13_s141"]})
+    assert f8["3 steiner"]["bone13_s141"] == "bone016"
+    assert _conduct(fake, sf, "f8d") == "done" and _selfdoc(fake)["attach_last"]["parent"] is None
+    fr = bench("freya")
+    _conduct(fr, sf, "f8a")
+    assert _selfdoc(fr)["attach_last"]["parent"] == f8["4 freya"]["bone13_s141"] == "bone012"
+    off = bench("steiner", levers=(("polish", "off"),))
+    _conduct(off, sf, "f5h")
+    assert (_selfdoc(off)["mesh_drops"], off._player_dress_doc()["meshflags"]) == (0, 2)
+    _conduct(off, sf, "f5s")
+    assert off._player_dress_doc()["meshflags"] == 0
+    _conduct(off, sf, "f8a")
+    s = _selfdoc(off)
+    assert (s["attach_remaps"], s["attach_notes"], s["attach_last"]["bone_out"], s["attach_last"]["parent"]) == (
+        0, 0, 13, f8["3 steiner"]["bone13_polish_off"])
+    old = bench("steiner", caps=S140_CAPS_)
+    _conduct(old, sf, "f5h")
+    _conduct(old, sf, "f8a")
+    assert old._player_dress_doc()["meshflags"] == 2 and old._polish_attach["uid"] == -1
+    # F2d (s141): the moogle drops the kit player's twelve, so 2930's 19 on 190 meets an EMPTY table -- the guard drops it
+    # (+1, its line, no throw); `polish off` registers the twelve (Zidane's four): the 19 is stock's no-op (+0); s140 the
+    # same table (no hook, no key); with NO registrations a dressed body's 19 on s140 is stock's throw (logged)
+    contract2 = dict(contract, f2d_op=sf.F2D_OP, f2d_end=sf.F2D_END)
+
+    def f2d(spec, faults=(), levers=(), caps=None, **over):
+        fake = _polish_fake(game, spec, caps=caps, faults=faults, levers=levers, field=BENCH_SELF,
+                            dress_conductors={BENCH_SELF: contract2}, blockers={BENCH_SELF: _bench_bodies(sf)}, **over)
+        before = dict(fake._polish_counts)
+        n = len(_mlog_lines(fake, FG.FAKE_DELETECHAR_THROW))
+        return fake, _conduct(fake, sf, "f2d"), before, n
+    assert FG.FAKE_FIELD_FOOTSTEPS[BENCH_SELF] == BW.KIT_PLAYER_STEPS
+    m, out, before, n = f2d("moogle")
+    s = _selfdoc(m)
+    assert out == "done" and (s["steps_dropped"] - before["steps_dropped"], s["steps_passed"], s["steps"]) == (1, 0, [])
+    assert before["steps_dropped"] == 12 and _mlog_lines(m, "from an EMPTY table -- dropped")
+    assert len(_mlog_lines(m, FG.FAKE_DELETECHAR_THROW)) == n and m._watched_bit(sf.F2D_END)
+    p, out, before, _n = f2d("moogle", levers=(("polish", "off"),))
+    assert out == "done" and (_selfdoc(p)["steps_dropped"] - before["steps_dropped"], _selfdoc(p)["steps"]) == (
+        0, [[25, 4, 912], [25, 13, 912], [38, 0, 912], [38, 8, 912]])
+    o, out, _b, n = f2d("moogle", caps=S140_CAPS_)
+    assert out == "done" and "steps" not in _selfdoc(o) and len(o._polish_table) == 4
+    assert len(_mlog_lines(o, FG.FAKE_DELETECHAR_THROW)) == n                # s140 on this field: no throw (4 records)
+    bare, out, _b, n = f2d("moogle", caps=S140_CAPS_, field_footsteps={BENCH_SELF: ()})
+    assert out == "done" and len(_mlog_lines(bare, FG.FAKE_DELETECHAR_THROW)) == n + 1     # stock's throw, the op resumed
+    g, out, before, n = f2d("moogle", faults=("no_empty_guard",))
+    assert (_selfdoc(g)["steps_dropped"] - before["steps_dropped"], len(_mlog_lines(g, FG.FAKE_DELETECHAR_THROW))) == (0, n + 1)
+
+
+#: [ff9mapkit netsync s141] each s141 fault lever -> the probes it moves (and no other)
+DRESS_POLISH_FAULT_PROBES = {"steps_unmapped": {"f1", "f7", "f2", "fired", "f2d"}, "ordinal_swap": {"f1", "f7"},
+                             "no_step_sound": {"f7"}, "keep_drop_rig": {"f2", "f2d"}, "cumulative_steps": {"warm"},
+                             "no_fired_split": {"f3"}, "no_light_fallback": {"f4"}, "src_row_first": {"own_row"},
+                             "ghost_lp_model": {"f4g"}, "no_mesh_drop": {"f5"}, "no_bone_remap": {"f8"},
+                             "bone_swap": {"f8"}, "polish_lever_dead": {"lever"}, "polish_release_keeps": {"release"},
+                             "polish_selftest_fail": {"selftest"}, "ghost_tint_lost": {"f4g"},
+                             "no_empty_guard": {"f2d"}}
+
+
+def _polish_probe(game, name: str, faults=()):
+    if name in ("f1", "f7", "f2"):
+        s = _selfdoc(_polish_fake(game, {"f1": "freya", "f7": "steiner", "f2": "moogle"}[name], faults=faults))
+        return s["steps"], s["steps_dropped"]
+    if name == "fired":
+        fake = _polish_fake(game, "freya", faults=faults)
+        _walk(fake, 60)
+        return _selfdoc(fake)["steps_fired"] >= 2
+    if name == "f3":
+        fake = _polish_fake(game, "off", faults=faults)
+        _walk(fake, 70)
+        s = _selfdoc(fake)
+        return s["steps_fired_player"] >= 2, s["steps_fired"]
+    if name == "warm":                                    # a warm return's count less the cold load's: one load each -> 0
+        fake = _polish_fake(game, "moogle", faults=faults)
+        cold = _selfdoc(fake)["steps_dropped"]
+        fake._self_on_load(cold=False)
+        return _selfdoc(fake)["steps_dropped"] - cold
+    if name in ("f4", "f4g", "own_row"):
+        over = {}
+        if name == "own_row":
+            over["mapconfigs"] = {FIELD250: {"chars": BW.FIELD250_MCF["chars"] + ((192, 1, 9, (11, 11, 11)),),
+                                             "lights": BW.FIELD250_MCF["lights"]}}
+        fake = _polish_fake(game, "freya", faults=faults, **over)
+        _step(fake, 2)
+        if name == "f4g":
+            return fake._dress_doc()["ghost"]["light_row"], fake._dress_doc()["ghost"]["light_rgb"]
+        return _selfdoc(fake)["light_row"], _selfdoc(fake)["light_rgb"]
+    if name == "f2d":                                   # the guard's drop on the moogle's emptied table: +1, no throw
+        sf = _sf()
+        contract = dict(_bench_contract(sf), f2d_op=sf.F2D_OP, f2d_end=sf.F2D_END)
+        fake = _polish_fake(game, "moogle", faults=faults, field=BENCH_SELF, dress_conductors={BENCH_SELF: contract},
+                            blockers={BENCH_SELF: _bench_bodies(sf)})
+        before, n = fake._polish_counts["steps_dropped"], len(_mlog_lines(fake, FG.FAKE_DELETECHAR_THROW))
+        _conduct(fake, sf, "f2d")
+        return (_selfdoc(fake)["steps_dropped"] - before, _selfdoc(fake)["steps"],
+                len(_mlog_lines(fake, FG.FAKE_DELETECHAR_THROW)) - n)
+    if name in ("f5", "f8"):
+        sf = _sf()
+        contract = dict(_bench_contract(sf), cup_sid=sf.CUP_SID, attach_bone=sf.ATTACH_BONE, f5_mesh=sf.F5_MESH)
+        fake = _polish_fake(game, "steiner", faults=faults, field=BENCH_SELF, dress_conductors={BENCH_SELF: contract},
+                            blockers={BENCH_SELF: _bench_bodies(sf)})
+        if name == "f5":
+            _conduct(fake, sf, "f5h")
+            return _selfdoc(fake)["mesh_drops"], fake._player_dress_doc()["meshflags"]
+        _conduct(fake, sf, "f8a")
+        return _selfdoc(fake)["attach_last"]["parent"], _selfdoc(fake)["attach_remaps"]
+    if name == "lever":
+        s = _selfdoc(_polish_fake(game, "freya", faults=faults, levers=(("polish", "off"),)))
+        return s["steps"], s["polish"]
+    if name == "release":
+        fake = _polish_fake(game, "freya", faults=faults, levers=(("polish", "off"),))
+        fake._dress_release("released with the harness")
+        return _selfdoc(fake)["polish"]
+    if name == "selftest":                              # a NEW FAIL line (the log is the game dir's: shared by the probes)
+        fake = _s140_fake(game, dress_faults=set(faults))
+        fake._proof_logged = False
+        n = len(_mlog_lines(fake, "dress polish selftest: FAIL"))
+        fake._step_selftest_proof()
+        return len(_mlog_lines(fake, "dress polish selftest: FAIL")) > n
+    raise AssertionError(name)
+
+
+def test_each_polish_fault_lever_moves_its_own_probe_only(game):
+    """FakeGame.dress_faults over FG.DRESS_POLISH_FAULTS: each turns exactly its own probes -- so the leg-F check that reads
+    it can be shown red offline on the shape it exists to catch, and on nothing else -- each value OTHER than the right one,
+    derived from what is right (the clean probes are the s141 laws' greens, the census's numbers)."""
+    assert set(DRESS_POLISH_FAULT_PROBES) == set(FG.DRESS_POLISH_FAULTS)
+    assert not set(FG.DRESS_POLISH_FAULTS) & (set(FG.DRESS_FAULTS) | set(FG.DRESS_HOST_FAULTS) | set(FG.DRESS_SELF_FAULTS))
+    clean = {n: _polish_probe(game, n) for own in DRESS_POLISH_FAULT_PROBES.values() for n in own}
+    assert clean == {"f1": (BW.FIELD250_ORACLE[4], 0), "f7": (BW.FIELD250_ORACLE[3], 0), "f2": ([], 12), "fired": True,
+                     "warm": 0, "f3": (True, 0), "f4": (98, [80, 96, 120]), "own_row": (192, [88, 88, 88]),
+                     "f4g": (98, [80, 96, 120]), "f5": (1, 0), "f8": ("bone016", 1), "lever": (BW.FIELD250_ORACLE[0], False),
+                     "release": True, "selftest": False, "f2d": (1, [], 0)}, clean
+    for fault, own in DRESS_POLISH_FAULT_PROBES.items():
+        moved = {n for n in clean if _polish_probe(game, n, (fault,)) != clean[n]}
+        assert moved == own, (fault, moved)
+    assert _polish_probe(game, "f7", ("no_step_sound",))[0] == [[1996, 4, 919], [1996, 14, 919], [2005, 0, 919],
+                                                               [2005, 9, 919]]
+    assert _polish_probe(game, "f8", ("no_bone_remap",)) == (None, 0)          # the hook skipped: no witness recorded
+    assert _polish_probe(game, "f2d", ("no_empty_guard",)) == (0, [], 1)        # stock's throw, the op resumed
+    fake = _s140_fake(game, dress_faults={"polish_selftest_fail"})
+    fake._proof_logged = False
+    fake._step_selftest_proof()
+    assert _mlog_lines(fake, f"failed (1 rows run))")                            # the engine's count: Row counts first
+
+
+def test_the_polish_lever_acts_on_the_selftest_role_only(game):
+    """PolishOn on the stand-in is PolishOnRule over the LIVE role: a `polish off` left set while the role is NOT the
+    selftest's bypasses nothing (a client's dressed body still maps) -- and the lever cannot be set off the role (the
+    agent's role refusal)."""
+    fake = _polish_fake(game, "freya")
+    fake._polish_off = True
+    assert fake._polish_on() is False
+    fake.netsync.update(selftest=False, role="client")
+    assert fake._polish_on() is True and BW.polish_on_rule(True, False) is True
+    with pytest.raises(RuntimeError, match=re.escape("netsync selfdress: needs the selftest role (netsync selftest 1)")):
+        fake._netsync(["selfdress", "polish", "off"])
+
+
+# ---- [ff9mapkit netsync s141] LEG F (coop_self_dress.py) -- THE DRESS POLISH bench, off the game: its registry and calibration
+# tables, its pure judges (each green on the s141 shape and red on the shape it exists to catch -- "not reached" only where
+# its PREMISE failed), its offline oracle reader (the census's twins over stubbed install reads, every cross-check made to
+# fire), the install-gated read of the real install, the runners, and smokes against the stand-in -- green on s141, its
+# calibration on s140 / s139 (S141_OLD_PREDICTED) and under its lever (polish-off: S141_LEVER_PREDICTED), each fault on the
+# rows that exist to catch it -- each in a CHILD
+S141_F_CHECKS = ["S141-F1", "S141-F1b", "S141-F2", "S141-F2c", "S141-F2d", "S141-F3", "S141-F4", "S141-F4g", "S141-F5",
+                 "S141-F6", "S141-F7", "S141-F8", "S141-FP"]
+#: leg F's lever row (coop_self_dress.S141_LEVER_PREDICTED), restated: every row a DRESSED body's s141 hook decides -- never
+#: F3 (an undressed body: no hook) nor FP (the proof never reads the live lever). F2d TOO, though the guard holds under the
+#: lever: the bench field's player REGISTERS twelve keys, so the empty table F2d's 19 meets is the polish's own drop --
+#: under `polish off` they register, the table holds Zidane's four and the 19 is stock's no-op (+0, a judged red)
+S141_F_LEVER_REDS = {"polish-off": ["S141-F1", "S141-F1b", "S141-F2", "S141-F2c", "S141-F2d", "S141-F4", "S141-F4g",
+                                    "S141-F5", "S141-F6", "S141-F7", "S141-F8"]}
+
+_SF_TABLES = _SD_CHILD_HEAD + r"""
+def pred(stage, legs, m="old"):
+    r, mb, w = sd.predicted(stage, legs, m)
+    return [None if r is None else list(r), list(mb), w]
+allg = tuple(sd.LEGS)
+f = sd.LEGS["F"]
+ctx_cal = {"calibrate": True, "cal_mode": "polish-off"}
+ctx_gate = {"calibrate": True, "cal_mode": "gate-0"}
+ctx_plain = {"calibrate": False, "cal_mode": None}
+out = {"row": {"patch": f["patch"], "checks": list(f["checks"]), "steps": f["steps"], "pre": list(f["pre"]),
+               "oracle": list(f["oracle"]), "oracle_extra": f["oracle_extra"], "preflight": f["preflight"],
+               "old": {str(s): [list(r), list(m)] for s, (r, m) in f["old"].items()},
+               "lever": {k: [list(r), list(m)] for k, (r, m) in f["lever"].items()}},
+       "order": list(sd.LEGS), "phases": list(sd.PHASES), "modes": list(sd.cal_modes(allg)),
+       "modes_f": list(sd.cal_modes(("F",))),
+       "old_predicted": list(sd.S141_OLD_PREDICTED),
+       "lever_predicted": {k: list(v) for k, v in sd.S141_LEVER_PREDICTED.items()},
+       "p140": pred(140, allg), "p140_f": pred(140, ("F",)), "p139": pred(139, allg), "p139_f": pred(139, ("F",)),
+       "p137_f": pred(137, ("F",)), "p141_lever": pred(141, ("F",), "polish-off"),
+       "p141_lever_all": pred(141, allg, "polish-off"), "p141_old": pred(141, ("F",)),
+       "p141_s": pred(141, ("S",), "polish-off"), "p140_lever": pred(140, ("F",), "polish-off"),
+       "p141_gate": pred(141, allg, "gate-0"),
+       "unproven": {"lever": sd.lever_unproven(141, ("F",), "polish-off", {"S141-F1", "S141-F3"}),
+                    "old": sd.lever_unproven(140, ("F",), "polish-off", {"S141-F1"})},
+       "bench": list(sd.F_BENCH_CHECKS), "stock": list(sd.F_STOCK_CHECKS),
+       "pre": list(sd.pre_fields(("F",))), "cat_pf": "S140-PF" in sd._catalog(("F",), False),
+       "cat": sorted(sd._catalog(("F",), True)),
+       "lever_ops": {"F_cal": sd._lever_ops(dict(ctx_cal), "F"), "s140_cal": sd._lever_ops(dict(ctx_cal), "s140"),
+                     "F_gate": sd._lever_ops(dict(ctx_gate), "F"), "s140_gate": sd._lever_ops(dict(ctx_gate), "s140"),
+                     "F_plain": sd._lever_ops(dict(ctx_plain), "F")},
+       "consts": [sd.F_RIG, sd.F_DROP, sd.F_CINNA, sd.F_STEINER, sd.F8_RIG, sd.F8_BONE, sd.F_ZIDANE, list(sd.F_STEP_RIGS),
+                  sd.F_WALK_TICKS, sd.F_WALK_HOLDS, sd.F_MIN_MOVE_TICKS, sd.F_FIRED_MIN, sd.F_PROOF_LINE,
+                  list(sd.F_FAULT_LINES), sd.CAL_POLISH_OFF, [list(o) for o in sd.HOLD_INTO_RESET_S141],
+                  sd.RELEASE_LINE_S141, sd.OP_CHRFX, list(sd.OP_RUN_SCRIPTS),
+                  {k: sd.COND_TIMEOUT_S[k] for k in ("f5h", "f5s", "f8a", "f8d")}],
+       "census": [str(sd.POLISH_CENSUS_JSON.relative_to(sd.cb.REPO)).replace("\\", "/"),
+                  str(sd.POLISH_CENSUS_PY.relative_to(sd.cb.REPO)).replace("\\", "/")],
+       "steps_exist": all(callable(getattr(sd, s, None)) for s in f["steps"].values()) and callable(sd._f_oracle)
+                      and callable(sd.f_oracle_read) and callable(sd._f_walk),
+       "cal_text": sd._shared_catalog(True, ("F",))["S138-CAL"], "r_text": sd._shared_catalog(False, ("F",))["S138-R"],
+       "f2d": [sd.F2D_GUARD_LINE, sd.COND_TIMEOUT_S["f2d"], list(sd.F_S140_PROBLEM_KEYS),
+               sorted(sd._f_s140_problems({"rig freya": 1, "seat": 2, "source x": 3, "census": 4, "twin vivi": 5,
+                                           "census cinna": 6, "frames": 7}, ("F",))),
+               sd._f_s140_problems({"rig freya": 1}, ("S", "F"))],
+       "doc": " ".join((sd.__doc__ or "").split())}
+print(json.dumps(out))
+"""
+
+
+def test_leg_f_is_s141s_and_its_tables_are_its_docstring():
+    """coop_self_dress.py's leg F (s141, last in the registry): its twelve rows, its steps in the "bench" phase (FP, then F5 /
+    F8 on 30606 -- after leg T) and the "self" phase (the rest on the stock field -- after leg S), 30606 registered (PRE) and
+    its preflight (PF, failing CLOSED: an s140-seated .eb reads STALE); its `old` row on s137-s140 is EVERY F row and on the
+    live s140 it is the WHOLE prediction (every earlier leg green on its own engine); its one lever, polish-off, reds exactly
+    S141_LEVER_PREDICTED (F3 and FP green) -- before s141 the old row, never the lever; a polish-off red reading "not
+    reached" is UNPROVEN; an s140 lever bites no F row (leg F pulls only its own: `polish off`, never `gate 0` / `law`; the
+    s140 rows never pull `polish`); S138-R holds `polish off` into the reset on s141; the docstring names every row, the
+    oracle's sources, the calibration, the acceptance and the RUN line of its lever."""
+    got = _sd_child(_SF_TABLES)
+    assert got["order"] == ["I", "G", "S", "W", "X", "N", "T", "F"]
+    assert got["phases"] == ["stock", "seed", "seeded", "bench", "self", "close"]
+    assert got["row"] == {"patch": 141, "checks": S141_F_CHECKS, "steps": {"bench": "_f_bench", "self": "_f_self"},
+                          "pre": [30606], "oracle": [], "oracle_extra": "_f_oracle", "preflight": True,
+                          "old": {str(s): [S141_F_CHECKS, []] for s in (137, 138, 139, 140)},
+                          "lever": {"polish-off": [S141_F_LEVER_REDS["polish-off"], []]}}
+    assert got["old_predicted"] == S141_F_CHECKS and got["lever_predicted"] == S141_F_LEVER_REDS
+    assert got["modes"][-1] == "polish-off" and got["modes_f"] == ["old", "polish-off"]
+    assert got["p140"] == got["p140_f"] == [S141_F_CHECKS, [], ""]                      # every earlier leg GREEN on s140
+    assert got["p139"] == [S140_BENCH_CHECKS + S141_F_CHECKS, [], ""] and got["p139_f"] == got["p137_f"] == [
+        S141_F_CHECKS, [], ""]
+    assert got["p141_lever"] == got["p141_lever_all"] == [S141_F_LEVER_REDS["polish-off"], [], ""]
+    assert got["p140_lever"] == [S141_F_CHECKS, [], ""]                       # before s141: its old row, never its lever
+    assert got["p141_old"][0] is None and "COOP_DRESS_CAL=polish-off" in got["p141_old"][2]
+    assert got["p141_s"][0] is None and "no selected leg (S) has the lever 'polish-off'" in got["p141_s"][2]
+    assert got["p141_gate"] == [["S140-N1"], [], ""]                            # leg F has no row for an s140 lever
+    assert got["unproven"] == {"lever": ["S141-F1"], "old": []}
+    assert got["bench"] == ["S141-F5", "S141-F8", "S141-F2d"]
+    assert got["stock"] == [c for c in S141_F_CHECKS if c not in ("S141-F5", "S141-F8", "S141-F2d", "S141-FP")]
+    # F2d's guard line and bound; the s140 oracle's problems leg F names: only its own rigs' (and none after an s140 leg)
+    assert got["f2d"] == ["from an EMPTY table -- dropped", 10.0, ["census", "hook"],
+                          ["s140 census", "s140 census cinna", "s140 rig freya"], {}]
+    assert got["pre"] == [30606] and got["cat_pf"] is True
+    assert set(S141_F_CHECKS) | {"S140-PF", "S138-CAL", "S138-R"} <= set(got["cat"])
+    assert got["lever_ops"] == {"F_cal": [["polish", "off"]], "s140_cal": [], "F_gate": [], "s140_gate": [["gate", 0]],
+                                "F_plain": []}
+    assert got["consts"] == ["freya", "moogle", "cinna", "steiner", "steiner", 13, "zidane",
+                             ["zidane", "freya", "moogle", "cinna", "steiner"], 22, 4, 30, 2,
+                             "dress polish selftest: OK (20 rows)", ["self-dress fault", "IndexOutOfRangeException"],
+                             "polish-off", [["polish", "off"]],
+                             "selfdress self / gate / law / polish levers released (released with the harness)", 0x88,
+                             [0x10, 0x12, 0x14], {"f5h": 10.0, "f5s": 10.0, "f8a": 10.0, "f8d": 10.0}]
+    assert got["census"] == ["studies/battle-coop/dress-census/polish.json",
+                             "studies/battle-coop/dress-census/polish_census.py"]
+    assert got["steps_exist"]
+    assert "leg F on s137-s140: every s141 check" in got["cal_text"] and "S141_LEVER_PREDICTED" in got["cal_text"]
+    assert "on s141+ `polish off`" in got["r_text"]
+    doc = got["doc"]
+    for cid in ("F1", "F1b", "F2", "F2c", "F2d", "F3", "F4", "F4g", "F5", "F6", "F7", "F8", "FP"):
+        assert re.search(rf"(?<![\w-]){re.escape(cid)}(?![\w-])", doc), cid
+    for frag in ("LEG F (s141) -- THE DRESS POLISH", "EVERY EXPECTED VALUE IS READ OFFLINE", "S141_OLD_PREDICTED",
+                 "S141_LEVER_PREDICTED", "s141 ACCEPTANCE", "full141.example.sh", "NOT PROVEN BY LEG F",
+                 "COOP_CALIBRATE=1 COOP_DRESS_CAL=polish-off COOP_DRESS_LEGS=F py tools/play.py "
+                 "studies/test-harness/scenarios/coop_self_dress.py --field 250",
+                 "the audit's \"F3 green on s140\" assumed `steps`", "dead battle-entry snapshot", "reads STALE",
+                 "polish_census.expected_steps", "PER FIELD LOAD", "never an s140 lever", "a JUDGED red",
+                 "his HandBoneEnd is 16", "NEVER labels_for", "the player Init is the footstep table's ONLY writer", "(O1)", "D4", "two-machine proven", "THE EMPTY-TABLE GUARD's in-game witness",
+                 "RunModelCode(19, 190, 4, 0)", "the hazard is the polish's own drop", "RESEAT=yes", "light_floor",
+                 "a STOCK invariant", "the kit walkmesh's floor under the published x / z reported beside it"):
+        assert frag in doc, frag
+    assert "no synthetic RunModelCode(19, ..) conductor" not in doc
+
+
+_SF_JUDGES = _SD_CHILD_HEAD + r"""
+doc = json.loads(sys.stdin.read())
+class St:
+    def __init__(self, d):
+        self.raw = d
+        self.frame = d.get("frame", 0)
+        self.read_at = 0.0
+def conv(x):
+    if isinstance(x, dict):
+        if "__st__" in x:
+            return St(x["__st__"])
+        if "__sts__" in x:
+            return [St(d) for d in x["__sts__"]]
+        if "__int_keys__" in x:
+            return {int(k): conv(v) for k, v in x["__int_keys__"].items()}
+        return {k: conv(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [conv(v) for v in x]
+    return x
+out = {}
+for name, (fn, args, kw) in doc["cases"].items():
+    try:
+        out[name] = list(getattr(sd, fn)(*conv(args), **conv(kw)))
+    except Exception as err:                       # noqa: BLE001 - a judge that raises is a test failure, named
+        out[name] = ["RAISED", f"{type(err).__name__}: {err}"]
+out["pairs"] = [sd.step_pairs([[25, 4, 919]]), sd.step_pairs([[25, 4]]), sd.step_pairs(None), sd.step_pairs([])]
+out["ticks"] = sd.walk_ticks(conv({"__sts__": doc["tick_samples"]}))
+print(json.dumps(out))
+"""
+
+_SF_FREYA = [[2553, 4, 919], [2553, 16, 919], [2558, 0, 919], [2558, 9, 919]]
+_SF_ZIDANE = [[25, 4, 919], [25, 13, 919], [38, 0, 919], [38, 8, 919]]
+_SF_STEINER = [[1996, 4, 925], [1996, 14, 925], [2005, 0, 925], [2005, 9, 925]]
+
+
+def _sf_self(rig=4, **over) -> dict:
+    """A published `netsync.dress.self` of the s141 shape (a dressed Freya at a fresh load); "DROP" removes a key, and
+    ``polish=False`` gives s140's shape (no polish key at all)."""
+    s = {"rig": rig, "faults": 0, "steps": [list(r) for r in _SF_FREYA], "steps_dropped": 0, "steps_passed": 0,
+         "steps_fired": 0, "steps_fired_player": 0, "light_row": 98, "light_rgb": [80, 96, 120], "light_floor": 0,
+         "mesh_drops": 0,
+         "attach_remaps": 0, "attach_notes": 0, "attach_last": {"uid": -1, "bone_in": -1, "bone_out": -1, "parent": None},
+         "polish": True}
+    if over.pop("s140", False):
+        s = {"rig": rig, "faults": 0}
+    s.update(over)
+    return {k: v for k, v in s.items() if v != "DROP"}
+
+
+def _sf_doc(frame=1, *, model=192, x=0.0, z=0.0, meshflags=0, self_=None, ghost=None, dio=None, sess_ghost=True,
+            field=250) -> dict:
+    return {"frame": frame, "field": {"id": field}, "ui_state": "FieldHUD", "fading": False,
+            "player": {"x": float(x), "y": 0.0, "z": float(z), "control": True, "model": model, "anim": 2556,
+                       "clip": "ANH_MAIN_F0_FRJ_IDLE", "meshflags": meshflags, "uid": 10},
+            "netsync": {"selftest": True, "forced": True, "session": {"ghost": sess_ghost},
+                        "dress": {"ghost": ghost if ghost is not None else {"model": model, "light_row": 98,
+                                                                            "light_rgb": [80, 96, 120]},
+                                  "party": [0, -1, -1, -1], "self": self_ if self_ is not None else _sf_self()},
+                        **({"diorama": dio} if dio is not None else {})}}
+
+
+def _sf_st(**kw) -> dict:
+    return {"__st__": _sf_doc(**kw)}
+
+
+def _sf_walk(*, before_self=None, after_self=None, n=40, step=40.0, left=False, model=192) -> dict:
+    """A walk dict as _f_walk returns it: ``n`` samples each MOVED ``step`` units on (and so ``n - 1`` field ticks)."""
+    samples = [_sf_doc(frame=i, model=model, x=i * step, self_=before_self) for i in range(n)]
+    return {"dir": "up", "left": left, "why": "taken over at frame 9" if left else None, "tried": ["up"],
+            "samples": {"__sts__": samples}, "before": {"__st__": _sf_doc(model=model, self_=before_self)},
+            "after": {"__st__": _sf_doc(model=model, self_=after_self)}}
+
+
+_SF_RO = {"freya": {"name": "freya", "model": 192}, "zidane": {"name": "zidane", "model": 98},
+          "steiner": {"name": "steiner", "model": 5489}, "moogle": {"name": "moogle", "model": 220}}
+_SF_LIGHT = {"__int_keys__": {"0": {"s141": {"row": 98, "rgb": [80, 96, 120]}, "off": {"row": 65535, "rgb": [128, 128, 128]}},
+                              "2": {"s141": {"row": 98, "rgb": [56, 72, 88]}, "off": {"row": 65535, "rgb": [104, 104, 96]}}}}
+_SF_OWN = {"__int_keys__": {"0": {"s141": {"row": 192, "rgb": [88, 88, 88]}, "off": {"row": 192, "rgb": [88, 88, 88]}}}}
+_SF_HAND = {"model": 5489, "hand": 15, "hand_end": 16, "end_name": "bone016", "names": [f"bone{i:03d}" for i in range(28)],
+            "source": "the skin (polish_census.skin_hand)"}
+
+
+def _sf_run(*, outcome="done", before_self=None, end_self=None, end_meshflags=0, model=5489, lines=None) -> dict:
+    return {"outcome": outcome, "why": None if outcome == "done" else "no DONE bit after 10.0 s",
+            "before": {"__st__": _sf_doc(model=model, self_=before_self, field=30606)},
+            "end": {"__st__": _sf_doc(model=model, self_=end_self, meshflags=end_meshflags, field=30606)},
+            "lines": list(lines or [])}
+
+
+def _sf_cases() -> dict:
+    """{name: (judge, args, kwargs)} -- every leg-F judge on the s141 green shape and on each shape it exists to catch."""
+    fr, zo, so, mo = _SF_RO["freya"], _SF_RO["zidane"], _SF_RO["steiner"], _SF_RO["moogle"]
+    want_f = {"steps": _SF_FREYA, "steps_dropped": 0, "steps_passed": 0}
+    want_z = {"steps": _SF_ZIDANE, "steps_dropped": 0, "steps_passed": 0}
+    want_s = {"steps": _SF_STEINER, "steps_dropped": 0, "steps_passed": 0}
+    want_m = {"steps": [], "steps_dropped": 12, "steps_passed": 0}
+    s140 = _sf_self(s140=True)
+    s140_3 = _sf_self(rig=3, s140=True)                         # s140's `self` on the dressed Steiner (F5 / F8)
+    moog = _sf_self(rig=8, steps=[], steps_dropped=12)
+    c = {}
+    # ---- F1 / F2 / F3 / F7 (judge_f_steps)
+    c["f1_green"] = ("judge_f_steps", [_sf_st(), want_f, fr], {"rig": 4})
+    c["f1_s140"] = ("judge_f_steps", [_sf_st(self_=s140), want_f, fr], {"rig": 4})
+    c["f1_zidane_keys"] = ("judge_f_steps", [_sf_st(self_=_sf_self(steps=_SF_ZIDANE)), want_f, fr], {"rig": 4})
+    c["f1_order"] = ("judge_f_steps", [_sf_st(self_=_sf_self(steps=[_SF_FREYA[1], _SF_FREYA[0]] + _SF_FREYA[2:])),
+                                       want_f, fr], {"rig": 4})
+    c["f1_dup"] = ("judge_f_steps", [_sf_st(self_=_sf_self(steps=_SF_FREYA + [_SF_FREYA[0]])),
+                                     {"steps": _SF_FREYA + [_SF_FREYA[0]], "steps_dropped": 0, "steps_passed": 0}, fr],
+                   {"rig": 4})
+    c["f1_passed"] = ("judge_f_steps", [_sf_st(self_=_sf_self(steps_passed=4)), want_f, fr], {"rig": 4})
+    c["f1_not_freya"] = ("judge_f_steps", [_sf_st(model=98), want_f, fr], {"rig": 4})
+    c["f1_rig"] = ("judge_f_steps", [_sf_st(self_=_sf_self(rig=3)), want_f, fr], {"rig": 4})
+    c["f1_malformed"] = ("judge_f_steps", [_sf_st(self_=_sf_self(steps=[[2553, 4]])), want_f, fr], {"rig": 4})
+    c["f2_green"] = ("judge_f_steps", [_sf_st(model=220, self_=moog), want_m, mo],
+                     {"rig": 8, "before": _sf_st(model=98, self_=_sf_self(rig=-1)), "lines": ["fake log"]})
+    c["f2_kept"] = ("judge_f_steps", [_sf_st(model=220, self_=_sf_self(rig=8, steps=_SF_ZIDANE)), want_m, mo],
+                    {"rig": 8, "before": _sf_st(model=98, self_=_sf_self(rig=-1)), "lines": []})
+    c["f2_24"] = ("judge_f_steps", [_sf_st(model=220, self_=_sf_self(rig=8, steps=[], steps_dropped=24)), want_m, mo],
+                  {"rig": 8})
+    c["f2_fault"] = ("judge_f_steps", [_sf_st(model=220, self_=_sf_self(rig=8, steps=[], steps_dropped=12, faults=1)),
+                                       want_m, mo], {"rig": 8, "before": _sf_st(model=98, self_=_sf_self(rig=-1))})
+    c["f2_throw"] = ("judge_f_steps", [_sf_st(model=220, self_=moog), want_m, mo],
+                     {"rig": 8, "lines": ["12:00 | [Error] IndexOutOfRangeException: Array index is out of range"]})
+    c["f7_green"] = ("judge_f_steps", [_sf_st(model=5489, self_=_sf_self(rig=3, steps=_SF_STEINER)), want_s, so],
+                     {"rig": 3, "sound": 925})
+    c["f7_919"] = ("judge_f_steps", [_sf_st(model=5489, self_=_sf_self(rig=3, steps=[[a, f, 919] for a, f, _ in _SF_STEINER])),
+                                     want_s, so], {"rig": 3, "sound": 925})
+    c["f3_green"] = ("judge_f_steps", [_sf_st(model=98, self_=_sf_self(rig=-1, steps=_SF_ZIDANE)), want_z, zo], {"rig": -1})
+    c["f3_dressed"] = ("judge_f_steps", [_sf_st(model=192), want_z, zo], {"rig": -1})
+    # ---- F1b / F3 / F6's walk (judge_f_fired)
+    fired = _sf_self(steps_fired=3)
+    c["fired_green"] = ("judge_f_fired", [_sf_walk(after_self=fired), fr], {"rig": 4, "key": "steps_fired",
+                                                                            "other": "steps_fired_player"})
+    c["fired_one"] = ("judge_f_fired", [_sf_walk(after_self=_sf_self(steps_fired=1)), fr],
+                      {"rig": 4, "key": "steps_fired", "other": "steps_fired_player"})
+    c["fired_split"] = ("judge_f_fired", [_sf_walk(after_self=_sf_self(steps_fired=3, steps_fired_player=2)), fr],
+                        {"rig": 4, "key": "steps_fired", "other": "steps_fired_player"})
+    c["fired_short"] = ("judge_f_fired", [_sf_walk(after_self=fired, n=12), fr],
+                        {"rig": 4, "key": "steps_fired", "other": "steps_fired_player"})
+    c["fired_still"] = ("judge_f_fired", [_sf_walk(after_self=fired, step=0.5), fr],
+                        {"rig": 4, "key": "steps_fired", "other": "steps_fired_player"})
+    c["fired_left"] = ("judge_f_fired", [_sf_walk(after_self=fired, left=True), fr],
+                       {"rig": 4, "key": "steps_fired", "other": "steps_fired_player"})
+    c["fired_s140"] = ("judge_f_fired", [_sf_walk(before_self=s140, after_self=s140), fr],
+                       {"rig": 4, "key": "steps_fired", "other": "steps_fired_player"})
+    c["fired_not_freya"] = ("judge_f_fired", [_sf_walk(after_self=fired, model=5489), fr],
+                            {"rig": 4, "key": "steps_fired", "other": "steps_fired_player"})
+    zb, za = _sf_self(rig=-1, steps=_SF_ZIDANE), _sf_self(rig=-1, steps=_SF_ZIDANE, steps_fired_player=4)
+    c["f3_walk_green"] = ("judge_f_fired", [_sf_walk(before_self=zb, after_self=za, model=98), zo],
+                          {"rig": -1, "key": "steps_fired_player", "other": "steps_fired"})
+    c["f3_walk_unsplit"] = ("judge_f_fired", [_sf_walk(before_self=zb, after_self=_sf_self(rig=-1, steps_fired=4),
+                                                       model=98), zo],
+                            {"rig": -1, "key": "steps_fired_player", "other": "steps_fired"})
+    # ---- F4 (judge_f4)
+    c["f4_green"] = ("judge_f4", [_sf_st(), _SF_LIGHT, fr], {"rig": 4, "floors": [0], "src": 98})
+    c["f4_floor2"] = ("judge_f4", [_sf_st(self_=_sf_self(light_rgb=[56, 72, 88], light_floor=2)), _SF_LIGHT, fr],
+                      {"rig": 4, "floors": [2], "src": 98})
+    c["f4_wrong_floor"] = ("judge_f4", [_sf_st(self_=_sf_self(light_floor=2)), _SF_LIGHT, fr],
+                           {"rig": 4, "floors": [2], "src": 98})          # floor 2 lit, floor 0's tint
+    c["f4_floor_disagree"] = ("judge_f4", [_sf_st(), _SF_LIGHT, fr], {"rig": 4, "floors": [2], "src": 98})
+    c["f4_no_floor"] = ("judge_f4", [_sf_st(self_=_sf_self(light_floor=-1)), _SF_LIGHT, fr],
+                        {"rig": 4, "floors": [0], "src": 98})
+    c["f4_default"] = ("judge_f4", [_sf_st(self_=_sf_self(light_row=65535, light_rgb=[128, 128, 128])), _SF_LIGHT, fr],
+                       {"rig": 4, "floors": [0], "src": 98})
+    c["f4_row_only"] = ("judge_f4", [_sf_st(self_=_sf_self(light_rgb=[128, 128, 128])), _SF_LIGHT, fr],
+                        {"rig": 4, "floors": [0], "src": 98})
+    c["f4_zidane"] = ("judge_f4", [_sf_st(model=98, self_=_sf_self(rig=-1, light_row=-1, light_rgb=None)), _SF_LIGHT, fr],
+                      {"rig": 4, "floors": [0], "src": 98})
+    c["f4_off_mesh"] = ("judge_f4", [_sf_st(), _SF_LIGHT, fr], {"rig": 4, "floors": [], "src": 98})
+    c["f4_own_row"] = ("judge_f4", [_sf_st(), _SF_OWN, fr], {"rig": 4, "floors": [0], "src": 98})
+    c["f4_s140"] = ("judge_f4", [_sf_st(self_=s140), _SF_LIGHT, fr], {"rig": 4, "floors": [0], "src": 98})
+    # ---- F4g (judge_f4g)
+    lit = [_sf_doc(frame=i, ghost={"model": 192, "light_row": -1 if i < 2 else 98, "light_rgb": [80, 96, 120]})
+           for i in range(4)]
+    c["f4g_green"] = ("judge_f4g", [{"__sts__": lit}, _SF_LIGHT, fr], {"rig": 4, "floors": [0], "src": 98})
+    c["f4g_default"] = ("judge_f4g", [{"__sts__": [_sf_doc(ghost={"model": 192, "light_row": 65535,
+                                                                 "light_rgb": [128, 128, 128]})]}, _SF_LIGHT, fr],
+                        {"rig": 4, "floors": [0], "src": 98})
+    c["f4g_tint_lost"] = ("judge_f4g", [{"__sts__": [_sf_doc(ghost={"model": 192, "light_row": 98,
+                                                                   "light_rgb": [255, 255, 255]})]}, _SF_LIGHT, fr],
+                          {"rig": 4, "floors": [0], "src": 98})
+    c["f4g_floor2"] = ("judge_f4g", [{"__sts__": [_sf_doc(ghost={"model": 192, "light_row": 98, "light_rgb": [56, 72, 88]},
+                                                          self_=_sf_self(light_floor=2))]}, _SF_LIGHT, fr],
+                       {"rig": 4, "floors": [2], "src": 98})
+    c["f4g_floor_disagree"] = ("judge_f4g", [{"__sts__": lit}, _SF_LIGHT, fr], {"rig": 4, "floors": [2], "src": 98})
+    c["f4g_never"] = ("judge_f4g", [{"__sts__": [_sf_doc(ghost={"model": 192, "light_row": -1})] * 3}, _SF_LIGHT, fr],
+                      {"rig": 4, "floors": [0], "src": 98})
+    c["f4g_other_model"] = ("judge_f4g", [{"__sts__": [_sf_doc(ghost={"model": 220, "light_row": 98})]}, _SF_LIGHT, fr],
+                            {"rig": 4, "floors": [0], "src": 98})
+    c["f4g_no_ghost"] = ("judge_f4g", [{"__sts__": [_sf_doc(sess_ghost=False)]}, _SF_LIGHT, fr],
+                         {"rig": 4, "floors": [0], "src": 98})
+    c["f4g_s140"] = ("judge_f4g", [{"__sts__": [_sf_doc(self_=s140, ghost={"model": 192})]}, _SF_LIGHT, fr],
+                     {"rig": 4, "floors": [0], "src": 98})
+    c["f4g_own_row"] = ("judge_f4g", [{"__sts__": lit}, _SF_OWN, fr], {"rig": 4, "floors": [0], "src": 98})
+    # ---- F5 (judge_f5)
+    st5 = _sf_self(rig=3, steps=_SF_STEINER)
+    d5 = _sf_self(rig=3, steps=_SF_STEINER, mesh_drops=1)
+    after5 = {"__sts__": [_sf_doc(model=5489, self_=d5, field=30606)]}
+    show = _sf_run(before_self=d5, end_self=_sf_self(rig=3, mesh_drops=2))
+    c["f5_green"] = ("judge_f5", [_sf_run(before_self=st5, end_self=d5), after5, show, after5, so], {"rig": 3})
+    c["f5_hidden"] = ("judge_f5", [_sf_run(before_self=st5, end_self=st5, end_meshflags=2),
+                                   {"__sts__": [_sf_doc(model=5489, self_=st5, meshflags=2, field=30606)]}, show, after5, so],
+                      {"rig": 3})
+    c["f5_not_restored"] = ("judge_f5", [_sf_run(before_self=st5, end_self=d5), after5,
+                                         _sf_run(before_self=d5, end_self=d5, end_meshflags=2),
+                                         {"__sts__": [_sf_doc(model=5489, self_=d5, meshflags=2, field=30606)]}, so],
+                            {"rig": 3})
+    c["f5_no_done"] = ("judge_f5", [_sf_run(outcome="timeout", before_self=st5, end_self=st5), after5, show, after5, so],
+                       {"rig": 3})
+    c["f5_s140"] = ("judge_f5", [_sf_run(before_self=s140_3, end_self=s140_3, end_meshflags=2),
+                                 {"__sts__": [_sf_doc(model=5489, self_=s140_3, meshflags=2, field=30606)]}, show, after5,
+                                 so],
+                    {"rig": 3})
+    # ---- F6 (judge_f6)
+    warm = {"last_return": "warm", "returns": 1}
+    back = _sf_st(self_=_sf_self(steps_fired=0), dio=warm)
+    base = _sf_st(self_=_sf_self(steps_fired=7))
+    walk6 = _sf_walk(after_self=_sf_self(steps_fired=3))
+    c["f6_green"] = ("judge_f6", [], {"base": base, "back": back, "returns0": 0, "want": want_f, "walk": walk6, "ro": fr,
+                                      "rig": 4})
+    c["f6_cold"] = ("judge_f6", [], {"base": base, "back": _sf_st(dio={"last_return": "cold", "returns": 1}), "returns0": 0,
+                                     "want": want_f, "walk": walk6, "ro": fr, "rig": 4})
+    c["f6_cumulative"] = ("judge_f6", [], {"base": base, "back": _sf_st(self_=_sf_self(steps_fired=7), dio=warm),
+                                           "returns0": 0, "want": want_f,
+                                           "walk": _sf_walk(before_self=_sf_self(steps_fired=7),
+                                                            after_self=_sf_self(steps_fired=10)), "ro": fr, "rig": 4})
+    c["f6_dup"] = ("judge_f6", [], {"base": base, "back": _sf_st(self_=_sf_self(steps=_SF_FREYA + _SF_FREYA), dio=warm),
+                                    "returns0": 0, "want": want_f, "walk": walk6, "ro": fr, "rig": 4})
+    c["f6_silent"] = ("judge_f6", [], {"base": base, "back": back, "returns0": 0, "want": want_f,
+                                       "walk": _sf_walk(after_self=_sf_self(steps_fired=0)), "ro": fr, "rig": 4})
+    c["f6_s140"] = ("judge_f6", [], {"base": _sf_st(self_=s140), "back": _sf_st(self_=s140, dio=warm), "returns0": 0,
+                                     "want": want_f, "walk": walk6, "ro": fr, "rig": 4})
+    c["f6_undressed"] = ("judge_f6", [], {"base": base, "back": _sf_st(model=98, dio=warm), "returns0": 0, "want": want_f,
+                                          "walk": walk6, "ro": fr, "rig": 4})
+    # the reset half's premise: a base that carried no fire cannot witness the per-load reset ("not reached")
+    c["f6_base_cold"] = ("judge_f6", [], {"base": _sf_st(self_=_sf_self(steps_fired=0)), "back": back, "returns0": 0,
+                                          "want": want_f, "walk": walk6, "ro": fr, "rig": 4})
+    # a JUDGED red at the return is the verdict even when the walk after it was taken over (never masked as "not reached")
+    c["f6_red_walk_nr"] = ("judge_f6", [], {"base": base, "back": _sf_st(self_=_sf_self(steps=_SF_ZIDANE), dio=warm),
+                                            "returns0": 0, "want": want_f, "walk": _sf_walk(after_self=fired, left=True),
+                                            "ro": fr, "rig": 4})
+    # ---- F8 (judge_f8)
+    a0 = _sf_self(rig=3, steps=_SF_STEINER)
+    a1 = _sf_self(rig=3, steps=_SF_STEINER, attach_remaps=1,
+                  attach_last={"uid": 4, "bone_in": 13, "bone_out": 16, "parent": "bone016"})
+    d1 = dict(a1, attach_last={"uid": 4, "bone_in": 13, "bone_out": 16, "parent": "field_root"})
+    aft = {"__sts__": [_sf_doc(model=5489, self_=a1, field=30606)]}
+    det = _sf_run(before_self=a1, end_self=d1)
+    kw8 = {"rig": 3, "cup": 4, "bone": 13}
+    c["f8_green"] = ("judge_f8", [_sf_run(before_self=a0, end_self=a1), aft, det, [], _SF_HAND, so], kw8)
+    c["f8_bypass"] = ("judge_f8", [_sf_run(before_self=a0, end_self=dict(a0, attach_last={"uid": 4, "bone_in": 13,
+                                                                                          "bone_out": 13,
+                                                                                          "parent": "bone013"})),
+                                   [], det, [], _SF_HAND, so], kw8)
+    c["f8_swap"] = ("judge_f8", [_sf_run(before_self=a0, end_self=dict(a1, attach_last={"uid": 4, "bone_in": 13,
+                                                                                        "bone_out": 15,
+                                                                                        "parent": "bone015"})),
+                                 [], det, [], _SF_HAND, so], kw8)
+    c["f8_note"] = ("judge_f8", [_sf_run(before_self=a0, end_self=dict(a1, attach_notes=1)), [], det, [], _SF_HAND, so], kw8)
+    c["f8_stale_parent"] = ("judge_f8", [_sf_run(before_self=a0, end_self=a1), aft, _sf_run(before_self=a1, end_self=a1),
+                                         [], _SF_HAND, so], kw8)
+    c["f8_no_done"] = ("judge_f8", [_sf_run(outcome="timeout", before_self=a0, end_self=a0), [], None, [], _SF_HAND, so], kw8)
+    c["f8_s140"] = ("judge_f8", [_sf_run(before_self=s140_3, end_self=s140_3), [], det, [], _SF_HAND, so], kw8)
+    c["f8_no_oracle"] = ("judge_f8", [_sf_run(before_self=a0, end_self=a1), aft, det, [],
+                                      dict(_SF_HAND, end_name="bone099"), so], kw8)
+    # ---- F2d (judge_f2d): the moogle's emptied table, 2930's 19 on 190
+    want_d = {"steps": [], "steps_dropped": 1, "steps_passed": 0}
+    m0 = _sf_self(rig=8, steps=[], steps_dropped=12)
+    m1 = _sf_self(rig=8, steps=[], steps_dropped=13)
+    guard = ["12:00 | [NetSync] self-dress: uid 1 unbinds a footstep (190, 4) from an EMPTY table -- dropped (stock "
+             "DeleteChar would throw)"]
+    throw = ["12:00 | [ERROR] System.IndexOutOfRangeException: Array index is out of range."]
+    kw_d = {"rig": 8, "want": want_d}
+    c["f2d_green"] = ("judge_f2d", [_sf_run(before_self=m0, end_self=m1, model=220, lines=guard), [], mo], kw_d)
+    c["f2d_s140"] = ("judge_f2d", [_sf_run(before_self=_sf_self(rig=8, s140=True), end_self=_sf_self(rig=8, s140=True),
+                                           model=220), [], mo], kw_d)
+    c["f2d_polish_off"] = ("judge_f2d", [_sf_run(before_self=_sf_self(rig=8, steps=_SF_ZIDANE, steps_dropped=0),
+                                                 end_self=_sf_self(rig=8, steps=_SF_ZIDANE, steps_dropped=0), model=220),
+                                         [], mo], kw_d)
+    c["f2d_throw"] = ("judge_f2d", [_sf_run(before_self=m0, end_self=m0, model=220, lines=throw), [], mo], kw_d)
+    c["f2d_no_guard_line"] = ("judge_f2d", [_sf_run(before_self=m0, end_self=m1, model=220), [], mo], kw_d)
+    c["f2d_passed"] = ("judge_f2d", [_sf_run(before_self=m0, end_self=_sf_self(rig=8, steps=[], steps_dropped=12,
+                                                                                   steps_passed=1), model=220,
+                                             lines=guard), [], mo], kw_d)
+    c["f2d_fault"] = ("judge_f2d", [_sf_run(before_self=m0, end_self=dict(m1, faults=1), model=220, lines=guard), [], mo],
+                      kw_d)
+    c["f2d_wedged"] = ("judge_f2d", [_sf_run(outcome="wedged", before_self=m0, end_self=m1, model=220, lines=guard), [], mo],
+                       kw_d)
+    c["f2d_timeout"] = ("judge_f2d", [_sf_run(outcome="timeout", before_self=m0, end_self=m0, model=220), [], mo], kw_d)
+    c["f2d_not_moogle"] = ("judge_f2d", [_sf_run(before_self=m0, end_self=m1, model=192, lines=guard), [], mo], kw_d)
+    # ---- FP (judge_f_proof)
+    ok = "12:00 | [NetSync] dress polish selftest: OK (20 rows)"
+    c["fp_green"] = ("judge_f_proof", [["x", ok]], {})
+    c["fp_absent"] = ("judge_f_proof", [["x"]], {})
+    c["fp_fail"] = ("judge_f_proof", [[ok, "12:01 | [NetSync] dress polish selftest: FAIL (row 'foot' failed (0 rows run))"]],
+                    {})
+    c["fp_rows"] = ("judge_f_proof", [["12:00 | [NetSync] dress polish selftest: OK (19 rows)"]], {})
+    return c
+
+
+#: each leg-F judge's case -> "green" / "red" (a JUDGED red: the detail does not read "not reached") / "nr" (its premise
+#: failed: "not reached")
+_SF_VERDICTS = {
+    "f1_green": "green", "f1_s140": "red", "f1_zidane_keys": "red", "f1_order": "red", "f1_dup": "red", "f1_passed": "red",
+    "f1_not_freya": "nr", "f1_rig": "nr", "f1_malformed": "red", "f2_green": "green", "f2_kept": "red", "f2_24": "red",
+    "f2_fault": "red", "f2_throw": "red", "f7_green": "green", "f7_919": "red", "f3_green": "green", "f3_dressed": "nr",
+    "fired_green": "green", "fired_one": "red", "fired_split": "red", "fired_short": "nr", "fired_still": "nr",
+    "fired_left": "nr", "fired_s140": "red", "fired_not_freya": "nr", "f3_walk_green": "green", "f3_walk_unsplit": "red",
+    "f4_green": "green", "f4_floor2": "green", "f4_wrong_floor": "red", "f4_default": "red", "f4_row_only": "red",
+    "f4_zidane": "nr", "f4_off_mesh": "red", "f4_own_row": "nr", "f4_s140": "red", "f4_floor_disagree": "red",
+    "f4_no_floor": "red",
+    "f4g_green": "green", "f4g_default": "red", "f4g_never": "red", "f4g_other_model": "nr", "f4g_no_ghost": "nr",
+    "f4g_s140": "red", "f4g_own_row": "nr", "f4g_tint_lost": "red", "f4g_floor2": "green", "f4g_floor_disagree": "red",
+    "f5_green": "green", "f5_hidden": "red", "f5_not_restored": "red", "f5_no_done": "nr", "f5_s140": "red",
+    "f6_green": "green", "f6_cold": "nr", "f6_cumulative": "red", "f6_dup": "red", "f6_silent": "red", "f6_s140": "red",
+    "f6_undressed": "nr", "f6_base_cold": "nr", "f6_red_walk_nr": "red",
+    "f2d_green": "green", "f2d_s140": "red", "f2d_polish_off": "red", "f2d_throw": "red", "f2d_no_guard_line": "red",
+    "f2d_passed": "red", "f2d_fault": "red", "f2d_wedged": "red", "f2d_timeout": "nr", "f2d_not_moogle": "nr",
+    "f8_green": "green", "f8_bypass": "red", "f8_swap": "red", "f8_note": "red", "f8_stale_parent": "red", "f8_no_done": "nr",
+    "f8_s140": "red", "f8_no_oracle": "nr",
+    "fp_green": "green", "fp_absent": "red", "fp_fail": "red", "fp_rows": "red",
+}
+
+
+def test_leg_fs_pure_judges_read_each_engine_and_can_fail():
+    """Every leg-F judge, PURE, on synthetic publishes: GREEN on the s141 shape (the census's numbers), a JUDGED red on each
+    shape it exists to catch -- Zidane's keys on a dressed body (s140's footsteps / `polish off`), the table out of order,
+    a duplicate key (a cumulative table), a passed or a kept drop-rig key, 24 drops (two loads), a hook fault or a VM throw
+    since the warp, Steiner on 919, one or no footfall fired, a fired count on the wrong side of the dressed / undressed
+    split, the default row or its tint, the wrong floor's tint, a ghost on the default row or never re-tinted, the mesh
+    hidden or not restored, a warm return whose counters did not reset, the prop on bone 13 / a swapped bone / a note, a
+    parent still on the hand after the detach, the proof's FAIL line or another row count, the engine's light floor and
+    the kit walkmesh's disagreeing (or no light floor), a ghost row whose tint was never written, F2d's 19 not dropped
+    (+0, a pass, a fault, a throw, no guard line, WEDGED); and s140's shape (the keys ABSENT) red, never "not reached" --
+    while a FAILED PREMISE reads "not reached": the body not the one asked for, a walk too short / standing still / taken
+    over, a rig with its own row, a ghost not wearing the dressed model (or none), a conductor with no answer, a cold
+    return, a base before the boot that carried no fire (F6's reset half), no skeleton oracle -- and a JUDGED red is never
+    masked as "not reached" by another half's premise."""
+    cases = _sf_cases()
+    assert set(cases) == set(_SF_VERDICTS)
+    tick_samples = [_sf_doc(frame=i, x=(i // 2) * 40.0) for i in range(10)]           # a tick every other publish
+    got = _sd_child(_SF_JUDGES, {"cases": cases, "tick_samples": tick_samples})
+    for name, want in _SF_VERDICTS.items():
+        ok, detail = got[name]
+        assert ok != "RAISED", (name, detail)
+        nr = str(detail).startswith("not reached")
+        assert (ok, nr) == {"green": (True, False), "red": (False, False), "nr": (False, True)}[want], (name, ok, detail)
+    d = {k: v[1] for k, v in got.items() if isinstance(v, list) and len(v) == 2}
+    assert "ABSENT -- an engine before s141" in d["f1_s140"] and "s140 dresses the body" in d["f1_s140"]
+    assert "meshflags after it ['2']" in d["f5_s140"] and "ABSENT" in d["f5_s140"]
+    assert "want 925 on every key" in d["f7_919"] and "duplicate keys" in d["f1_dup"]
+    assert "(0, 0)" in d["f4_green"] or "floor(s) [0]" in d["f4_green"]
+    assert "the default row's [128, 128, 128]" in d["f4_default"] and "OWN row" in d["f4_own_row"]
+    assert "the two disagree" in d["f4_floor_disagree"] and "the two disagree" in d["f4_off_mesh"]
+    assert "the tint the re-tint WROTE" in d["f4g_tint_lost"] and "the two disagree" in d["f4g_floor_disagree"]
+    assert "NOT JUDGED" in d["f6_base_cold"] and d["f6_red_walk_nr"].startswith("WRONG")
+    assert "ABSENT" in d["f2d_s140"] and "no guard line" in d["f2d_no_guard_line"] and "WEDGED" in d["f2d_wedged"]
+    assert "IndexOutOfRangeException" in d["f2d_throw"] and "steps_passed +1" in d["f2d_passed"]
+    assert "want 0: ONE load's count" in d["f6_cumulative"] and "'warm'" in d["f6_cold"]
+    assert "'parent': 'bone013'" in d["f8_bypass"] and "OFF bone016" in d["f8_stale_parent"]
+    assert got["pairs"] == [[[25, 4]], None, None, []]
+    assert got["ticks"] == 4                                    # 10 publishes, a tick every other one: 4 moves
+
+
+_SF_ORACLE = _SD_CHILD_HEAD + r"""
+import copy
+from harness import battlewire as BW
+import ff9mapkit.extract as KX
+from ff9mapkit import mapconfig as MC
+doc = json.loads(sys.stdin.read())
+PC = sd._polish_census()
+real_doc = copy.deepcopy(sd.polish_census_doc())
+def mcf(chars=None, lights=None):
+    m = BW.FIELD250_MCF
+    lt = tuple(MC.MapLight(type=ty, no=0, shadow_i=0, shadow_r=0, clr=tuple(c) + (0,), floor=tuple(fl))
+               for ty, c, fl in (lights or m["lights"]))
+    ch = tuple(MC.MapChar(geo=g_, shadow_i=si, shadow_r=sr, clr=tuple(c) + (0,), shadow_z=0)
+               for g_, si, sr, c in (chars or m["chars"]))
+    return MC.MapConfig(attr=0, version=0, bg_no=0, light_use=len(lt), char_use=len(ch), lights=lt, chars=ch)
+class WM:
+    floors = [0, 1, 2, 3]
+    def floors_at(self, x, z):
+        return [0] if (x, z) == (0.0, 0.0) else [2]
+def so_stub():
+    rigs = {}
+    for name in BW.RIG_NAMES:
+        r = BW.rig_row(BW.NAME_TO_RIG[name])
+        rigs[name] = {"name": name, "model": r["model"], "walk": r["walk"], "run": r["run"]}
+    return {"rigs": rigs}
+HANDS = real_doc["e_hands"]
+def hand(game, model):
+    row = next(v for v in HANDS.values() if v["model"] == int(model))
+    return {"model": int(model), "geo": row["geo"], "hand": row["expected"][0], "hand_end": row["expected"][1],
+            "end_name": "bone%03d" % row["expected"][1], "names": ["bone%03d" % i for i in range(row["bones"])],
+            "source": "the census"}
+def run(mut=""):
+    sd._CENSUS_DOC.clear()
+    cdoc = copy.deepcopy(real_doc)
+    sd._CENSUS_DOC[str(sd.POLISH_CENSUS_JSON)] = cdoc
+    ops = list(BW.FIELD250_STEPS)
+    if mut == "census_pair":
+        sd._census_rig(cdoc, "freya")["census"]["walk_pair"] = [4, 15]
+    if mut == "census_clip":
+        sd._census_rig(cdoc, "steiner")["walk"]["id"] = 2553        # another clip (an alias id of his own walk is the same)
+    sd.kit_cache_missing = (lambda game: [".ff9mapkit-events-bundle.txt"]) if mut == "no_cache" else (lambda game: [])
+    sd.field_eb = lambda game, fid, reg_name=None, install_ok=True: (b"stub", "the test's .eb")
+    sd.eb_footsteps = lambda data: {"sid": 10, "uid": 10, "load": ops if mut != "ops" else ops[:9],
+                                    "reinit": ops, "reinit_tags": [13], "problems": []}
+    PC.load_mcf = (lambda fid, game=None, index=None: None) if mut == "no_mcf" else (
+        lambda fid, game=None, index=None: mcf(chars=BW.FIELD250_MCF["chars"][:2] + ((98, 1, 10, (10, 12, 14)),))
+        if mut == "mcf" else mcf())
+    KX.stock_walkmesh = lambda fid, game=None: WM()
+    sd.hand_oracle_read = (lambda game, model: dict(hand(game, model), hand=13, hand_end=14, end_name="bone014")) \
+        if mut == "hands" else hand
+    kit = [list(o) for o in BW.KIT_PLAYER_STEPS]
+    if mut == "kit_steps":
+        kit = [[c, a, f, 919 if s == 912 else s] for c, a, f, s in kit]
+    sd.bench_player_steps = (lambda game: (None, "EVT_TEST30606.eb.bytes (us) is in none of [...]")) if mut == "no_bench" \
+        else (lambda game: (kit, "the test's 30606 .eb"))
+    sd.stock_f2d_form = (lambda game, regs=None, install_ok=True: (False, "no Init runs RunModelCode(19, 190, 4, 0)")) \
+        if mut == "no_stock" else (lambda game, regs=None, install_ok=True: (True, "the test's 2930 .eb: entry 3's Init"))
+    # F2d's precondition (rbench-1): a twin that registers a footstep at the load -- the GLOBAL table is not the player's
+    sd.bench_table_writers = (lambda game: ([[2, 0, 16, 25, 4, 919]], "the test's 30606 .eb")) if mut == "f2d_table" \
+        else (lambda game: (None, "the test's 30606 .eb: does not parse")) if mut == "f2d_table_unread" \
+        else (lambda game: ([], "the test's 30606 .eb"))
+    if mut == "census_hands":                                   # the census's own stock cross-check disagreeing
+        cdoc["e_hands"]["3 steiner"]["stock"]["agrees"] = False
+    got, problems = sd.f_oracle_read(pathlib.Path("."), 250, so_stub(), {})
+    fo = {"steps": got["steps"], "steps_off": got["steps_off"], "reinit": got["reinit"], "rigs": got["rigs"],
+          "light": {str(k): v for k, v in (got["light"] or {}).items()},
+          "ghost_light": {str(k): v for k, v in (got["ghost_light"] or {}).items()}, "src": got["src_model"],
+          "hands": got["hands"], "floors": [got["floors_at"](0.0, 0.0), got["floors_at"](2921.0, -1830.0)]
+          if callable(got["floors_at"]) else None, "ops": got["ops"], "f2d": got["f2d"], "f2d_why": got["f2d_why"]}
+    return {"fo": fo, "problems": problems}
+import pathlib
+print(json.dumps({m: run(m) for m in doc["muts"]}))
+"""
+
+
+def test_leg_fs_oracle_reads_the_census_and_names_every_disagreement():
+    """coop_self_dress.f_oracle_read over STUBBED install reads (field 250's ops, its mapconfig, a walkmesh, the skeleton):
+    the census's own twins give each judged rig one load's `steps` -- Freya's pair, Steiner's 925, the moogle / Cinna []
+    with 12 dropped, undressed Zidane his four -- and under `polish off` Zidane's four on every rig (never computed from the
+    engine's table: battlewire's FIELD250_ORACLE agrees), the warm return's the same; per floor the 98 row's tint and the
+    default row's for the F rig, the ghost's 98 / 65535; Steiner's R_hand_end bone016 (the skin's); NO problem. Each
+    disagreement is a NAMED problem (S138-OR red): a census pair that is not the twin's, a census clip that is not the
+    kit's, the field's ops not battlewire.FIELD250_STEPS, a mapconfig row not FIELD250_MCF, a skin whose R_hand_end is not
+    the twin's (and the census's e_hands whose stock cross-check disagrees); a kit
+    cache missing or no mapconfig leaves the light out, named ("not reached"). [ff9mapkit netsync s141] F2d's part: the
+    bench field's twelve registrations (the DEPLOYED .eb) + field 2930's op through the census twin WITH the guard ->
+    want {steps [], +1 dropped, +0 passed}; the light table carries floor 255 (none: the default light) for a `light_floor`
+    the engine names; registrations that are not battlewire.KIT_PLAYER_STEPS (the stand-in's) or an op that is not field
+    2930's are NAMED problems; no deployed bench leaves the part out with its why (the preflight's to name). F2d's
+    PRECONDITION (rbench-1) is checked, not assumed: a footstep writer besides the player Init in the deployed .eb (the
+    guard reads the GLOBAL table, the replay the player's alone) -- or a deploy that cannot be read for it -- is the NAMED
+    problem `f2d table` and leaves F2d out ("not reached"), never a WRONG on a correct engine."""
+    muts = ["", "census_pair", "census_clip", "ops", "mcf", "no_mcf", "no_cache", "hands", "kit_steps", "no_stock", "no_bench",
+            "f2d_table", "f2d_table_unread", "census_hands"]
+    got = _sd_child(_SF_ORACLE, {"muts": muts})
+    clean = got[""]
+    assert clean["problems"] == {}, clean["problems"]
+    fo = clean["fo"]
+    for i, name in ((4, "freya"), (3, "steiner"), (8, "moogle"), (9, "cinna")):
+        assert fo["steps"][name]["steps"] == BW.FIELD250_ORACLE[i], name
+        assert fo["steps_off"][name] == {"steps": BW.FIELD250_ORACLE[0], "steps_dropped": 0, "steps_passed": 0}, name
+        assert fo["reinit"][name] == fo["steps"][name], name
+    assert fo["steps"]["moogle"]["steps_dropped"] == fo["steps"]["cinna"]["steps_dropped"] == 12
+    assert fo["steps"]["zidane"] == {"steps": BW.FIELD250_ORACLE[0], "steps_dropped": 0, "steps_passed": 0}
+    assert fo["rigs"]["steiner"]["step_sound"] == 925 and fo["rigs"]["cinna"]["walk_step_a"] == -1
+    bench = _polish_census()["bench"]["F4 light floor0"]
+    for floor, rgb in bench["per_floor_s141"].items():
+        assert fo["light"][floor] == {"s141": {"row": 98, "rgb": rgb},
+                                      "off": {"row": 65535, "rgb": bench["per_floor_polish_off"][floor]}}, floor
+        assert fo["ghost_light"][floor]["s141"]["row"] == 98 and fo["ghost_light"][floor]["off"]["row"] == 65535
+    assert fo["src"] == 98 and fo["floors"] == [[0], [2]]
+    assert fo["hands"]["steiner"]["end_name"] == "bone016" and fo["hands"]["steiner"]["hand_end"] == 16
+    assert fo["f2d"]["want"] == {"steps": [], "steps_dropped": 1, "steps_passed": 0} and fo["f2d"]["op"] == [19, 190, 4, 0]
+    assert fo["f2d"]["load"] == [list(o) for o in BW.KIT_PLAYER_STEPS] and fo["f2d_why"] is None
+    assert fo["light"]["255"]["s141"] == {"row": 98, "rgb": [80, 96, 120]}          # no floor: the default light (0, 0, 0)
+    named = {"census_pair": "twin freya", "census_clip": "census steiner", "ops": "twin ops", "mcf": "twin mcf",
+             "no_mcf": "light", "no_cache": "light", "hands": "twin hands steiner", "kit_steps": "twin kit steps",
+             "no_stock": "f2d stock", "f2d_table": "f2d table", "f2d_table_unread": "f2d table",
+             "census_hands": "census hands steiner"}
+    for mut, key in named.items():
+        assert key in got[mut]["problems"], (mut, got[mut]["problems"])
+    assert "not reached: the kit cache" in got["no_cache"]["problems"]["light"]
+    assert got["no_cache"]["fo"]["light"] == {} and got["no_mcf"]["fo"]["light"] == {}
+    assert "no MapConfigData" in got["no_mcf"]["problems"]["light"]
+    # a census pair the twin disagrees with moves the ORACLE (never the twin's): Freya's walk key at the census's 15
+    assert got["census_pair"]["fo"]["steps"]["freya"]["steps"][1] == [2553, 15, 919]
+    nb = got["no_bench"]
+    assert nb["fo"]["f2d"] is None and "in none of" in nb["fo"]["f2d_why"] and not [k for k in nb["problems"] if "f2d" in k]
+    assert "census hands steiner" in got["hands"]["problems"]           # a skin off the census's pair names it too
+    for mut in ("f2d_table", "f2d_table_unread"):
+        ft = got[mut]
+        assert ft["fo"]["f2d"] is None and "precondition" in ft["fo"]["f2d_why"], (mut, ft["fo"]["f2d_why"])
+        assert [k for k in ft["problems"] if "f2d" in k] == ["f2d table"], (mut, ft["problems"])
+    ft = got["f2d_table"]["problems"]["f2d table"]
+    assert "F2D TABLE" in ft and "[2, 0, 16, 25, 4, 919]" in ft and "GLOBAL charSoundUse" in ft, ft
+
+
+_SF_INSTALL = _SD_CHILD_HEAD + r"""
+import pathlib
+game = pathlib.Path(sys.stdin.read().strip())
+sa = game / "StreamingAssets"
+before = {p.name: p.stat().st_mtime for p in sa.iterdir()}
+so, sprob = sd.s_oracle_read(game)
+got, problems = sd.f_oracle_read(game, 250, so, {})
+after = {p.name: p.stat().st_mtime for p in sa.iterdir()}
+print(json.dumps({"problems": problems, "sprob": sprob, "ops": got["ops"],
+                  "steps": got["steps"], "steps_off": got["steps_off"], "reinit": got["reinit"],
+                  "light": {str(k): v for k, v in (got["light"] or {}).items()},
+                  "ghost": {str(k): v for k, v in (got["ghost_light"] or {}).items()},
+                  "hands": got["hands"], "src": got["src_model"],
+                  "spawn": got["floors_at"](2921.0, -1830.0) if callable(got["floors_at"]) else None,
+                  "f2d": got["f2d"], "f2d_why": got["f2d_why"], "same": before == after}))
+"""
+
+
+def test_leg_fs_oracle_reads_the_install_as_the_census_says():
+    """INSTALL-GATED (READ-ONLY; skipped without an install or its kit caches): leg F's oracle on the real install -- field
+    250's own `.eb` gives the player's twelve footstep ops at a load and the same twelve through Main_Reinit's
+    RunScriptAsync(0, 250, 13) (battlewire.FIELD250_STEPS both); the census twin over them gives every judged rig's
+    `steps` (FIELD250_ORACLE: Freya, Steiner with 925, the moogle / Cinna [] with 12 dropped, Zidane), Zidane's four under
+    `polish off`; 250's MapConfigData through the census's light_color gives the 98 row's tint per floor ((80, 96, 120) on
+    floor 0 ...) and the default's; Steiner's SKIN (polish_census.skin_hand, never labels_for) puts his R_hand_end on
+    bone016; the kit's walkmesh names
+    the floor under 250's entrance-0 spawn (2921, -1830) -- floor 2 (the F4 oracle follows the LIVE x / z, never floor 0 by
+    assumption); NO problem named; StreamingAssets untouched."""
+    from ff9mapkit import config
+    try:
+        game = config.find_game_path(None)
+    except Exception:                                       # noqa: BLE001 - no install configured: nothing to read
+        pytest.skip("no FF9 install configured")
+    if game is None or not (pathlib.Path(game) / "StreamingAssets" / "p0data5.bin").is_file():
+        pytest.skip("no FF9 install (StreamingAssets/p0data5.bin) on this machine")
+    for cache in (".ff9mapkit-events-bundle.txt", ".ff9mapkit-field-index.json"):
+        if not (pathlib.Path(game) / "StreamingAssets" / cache).is_file():
+            pytest.skip(f"the kit cache {cache} is missing from the install: this test would WRITE it there")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-c", _SF_INSTALL, str(SCENARIOS), str(REPO / "tools"), str(REPO / "ff9mapkit")],
+                         env=env, input=str(game), capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0, out.stderr[-3000:]
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["problems"] == {} and got["same"] is True, (got["problems"], got["sprob"])
+    assert [tuple(o) for o in got["ops"]["load"]] == list(BW.FIELD250_STEPS) == [tuple(o) for o in got["ops"]["reinit"]]
+    assert got["ops"]["reinit_tags"] == [13] and got["ops"]["sid"] == 10
+    for i, name in ((0, "zidane"), (4, "freya"), (3, "steiner"), (8, "moogle"), (9, "cinna")):
+        assert got["steps"][name]["steps"] == BW.FIELD250_ORACLE[i] == got["reinit"][name]["steps"], name
+        assert got["steps_off"][name]["steps"] == BW.FIELD250_ORACLE[0], name
+    bench = _polish_census()["bench"]["F4 light floor0"]
+    for floor, rgb in bench["per_floor_s141"].items():
+        assert got["light"][floor]["s141"] == {"row": 98, "rgb": rgb}, floor
+        assert got["light"][floor]["off"] == {"row": 65535, "rgb": bench["per_floor_polish_off"][floor]}, floor
+    assert got["hands"]["steiner"]["end_name"] == "bone016" and got["hands"]["steiner"]["hand"] == 15 and got["src"] == 98
+    assert got["spawn"] == [2]
+    # F2d: the deployed bench field's player registers the kit's twelve (read-only; a missing deploy leaves the part out)
+    if got["f2d"] is not None:
+        assert got["f2d"]["load"] == [list(o) for o in BW.KIT_PLAYER_STEPS] and "entry 3" in got["f2d"]["stock"]
+        assert got["f2d"]["want"] == {"steps": [], "steps_dropped": 1, "steps_passed": 0}
+    else:
+        assert got["f2d_why"], got
+
+
+#: each fault lever the leg-F rows exist to catch -> exactly the rows it reds (leg F alone, on the s141 stand-in). The
+#: per-load counters (`cumulative_steps`) red every row whose count a LATER load reads (F2d's moogle load of 30606 comes
+#: first, in the bench phase -- F2d judges a DELTA across its conductor, so it stays green -- and its 13 drops then ride
+#: into every stock-field load: F1's 0, F2's 12, Cinna's, Steiner's and the control's drops, F6's fired count); the faults
+#: no in-game leg-F row can see read
+#: [] here, with their home named: `src_row_first` (no rig has its own row on 250 -- the stand-in's own_row probe and the
+#: engine's PolishSelfTest light row), `polish_lever_dead` (a lever that bypasses nothing: S138-CAL under polish-off, the
+#: next test)
+S141_F_FAULT_REDS = {"steps_unmapped": ["S141-F1", "S141-F1b", "S141-F2", "S141-F2c", "S141-F2d", "S141-F6", "S141-F7"],
+                     "ordinal_swap": ["S141-F1", "S141-F6", "S141-F7"], "no_step_sound": ["S141-F7"],
+                     "keep_drop_rig": ["S141-F2", "S141-F2c", "S141-F2d"],
+                     "cumulative_steps": ["S141-F1", "S141-F2", "S141-F2c", "S141-F3", "S141-F6", "S141-F7"],
+                     "no_fired_split": ["S141-F3"], "no_light_fallback": ["S141-F4"], "src_row_first": [],
+                     "ghost_lp_model": ["S141-F4g"], "no_mesh_drop": ["S141-F5"], "no_bone_remap": ["S141-F8"],
+                     "bone_swap": ["S141-F8"], "polish_lever_dead": [], "polish_release_keeps": ["S138-R"],
+                     "polish_selftest_fail": ["S141-FP"], "ghost_tint_lost": ["S141-F4g"],
+                     "no_empty_guard": ["S141-F2d"]}
+#: every check a leg-F run records (the shared rows and the preflight)
+S141_F_RUN_CHECKS = sorted(["S138-INI", "S138-OR", "S138-S0", "S138-P0", "S138-PRE", "S138-R", "S140-PF"] + S141_F_CHECKS)
+
+
+def test_leg_f_runs_green_on_the_stand_in_and_calibrates_on_s140_s139_and_its_lever():
+    """THE SMOKE (leg F, end to end, against the stand-in with the oracle's REAL reader over stubbed install reads): GREEN
+    on the s141 stand-in -- the bench field's F5 / F8 conductors, the stock field's loads, the walks, the diorama's WARM
+    return on 250, the reset holding `polish off` and reading it back ON; green with GhostAs blank and on a body standing on
+    floor 2 (the oracle follows the walkmesh: (56, 72, 88)); under COOP_CALIBRATE=1 on the s140 stand-in EXACTLY
+    S141_OLD_PREDICTED red -- each a JUDGED red on the keys s140 lacks (F5 reads meshflags 2), never "not reached" -- with
+    S138-CAL green, no `polish` step ever sent -- and with COOP_DRESS_CAL=polish-off there, `polish off` refused BEFORE the
+    step (every F row but FP "not reached": an old row accepts it); on the s139 stand-in every F row but FP "not reached"
+    (`self` refused before the step), S138-CAL green; under COOP_DRESS_CAL=polish-off on s141 EXACTLY S141_LEVER_PREDICTED red, each
+    judged, F3 and FP green, `polish off` sent before EVERY F load (eight: F2d's moogle load of 30606 too); on s141 without
+    a lever no calibration; with 30606 unregistered F5 / F8 / F2d "not reached" (PRE red), the rest judged; a preflight
+    failing CLOSED reds PF and F5 / F8 / F2d "not reached"."""
+    runs = {"f": {"legs": "F"}, "noghost": {"legs": "F", "ghost_as": ""}, "floor2": {"legs": "F", "floor": 2},
+            "cal140": {"legs": "F", "cal": True, "caps": "dressself"}, "cal139": {"legs": "F", "cal": True, "caps": "dresshost"},
+            "cal140_polish": {"legs": "F", "cal": True, "caps": "dressself", "calmode": "polish-off"},
+            "polish_off": {"legs": "F", "cal": True, "calmode": "polish-off"}, "cal141": {"legs": "F", "cal": True},
+            "unregistered": {"legs": "F", "dict": "FieldScene 30602 11 TEST30602 TEST30602 30602\n"},
+            "pf_red": {"legs": "F", "pf": [False, "STALE: entry 5 is the s140 seat byte for byte (no f5h, f5s, f2d "
+                                              "conductors)"]}}
+    got = _sd_child(_SS_SMOKE, {"fo": _SS_FO, "runs": runs}, timeout=2400.0)
+    for name in ("f", "noghost", "floor2"):
+        assert got[name]["red"] == [] and got[name]["all"] == S141_F_RUN_CHECKS, (name, got[name]["red"],
+                                                                                   got[name]["detail"])
+    d = got["f"]["detail"]
+    assert "self.polish True (want true: released back on)" in d["S138-R"] and "polish levers released" in d["S138-R"]
+    assert got["f"]["steps_tail"][-1] == ["netsync", "selfdress", "polish", "off"]        # held into the reset
+    assert "[[2553, 4, 919], [2553, 16, 919], [2558, 0, 919], [2558, 9, 919]]" in d["S141-F1"]
+    assert "'last_return': 'warm'" in d["S141-F6"] and "-> 0 at the return" in d["S141-F6"]
+    assert "'parent': 'bone016'" in d["S141-F8"] and "light_rgb [80, 96, 120]" in d["S141-F4"]
+    assert "light_rgb [56, 72, 88]" in got["floor2"]["detail"]["S141-F4"] and "light_floor 2" in got["floor2"]["detail"]["S141-F4"]
+    assert "steps_dropped +1, steps_passed +0, steps []" in d["S141-F2d"] and "1 guard line(s)" in d["S141-F2d"]
+    assert "light_rgb [80, 96, 120]" in d["S141-F4g"]
+    c = got["cal140"]
+    assert c["red"] == sorted(S141_F_CHECKS) and c["polish_steps"] == [], c["red"]
+    assert c["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
+    for cid in S141_F_CHECKS:
+        assert not c["detail"][cid].startswith("not reached"), (cid, c["detail"][cid])
+    assert "meshflags after it ['2']" in c["detail"]["S141-F5"]
+    # ...and the lever asked of s140: `polish off` refused BEFORE the step (the driver: no `netsync.dress.self.steps`) --
+    # every F row but FP "not reached", which an `old` row accepts (s140 is BEFORE leg F's patch): S138-CAL green
+    c = got["cal140_polish"]
+    assert c["red"] == sorted(S141_F_CHECKS) and c["polish_steps"] == [], c["red"]
+    assert c["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
+    assert all(c["detail"][cid].startswith("not reached: ") and "publishes no `netsync.dress.self.steps`" in c["detail"][cid]
+               for cid in S141_F_CHECKS if cid != "S141-FP"), c["detail"]
+    c = got["cal139"]
+    assert c["red"] == sorted(S141_F_CHECKS) and "S138-CAL" in c["all"]
+    assert c["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
+    assert all(c["detail"][cid].startswith("not reached: ") for cid in S141_F_CHECKS if cid != "S141-FP")
+    p = got["polish_off"]
+    assert p["red"] == sorted(S141_F_LEVER_REDS["polish-off"]), p["red"]
+    assert p["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
+    assert not any(p["detail"][cid].startswith("not reached") for cid in S141_F_LEVER_REDS["polish-off"])
+    assert len([s for s in p["polish_steps"] if s == ["netsync", "selfdress", "polish", "off"]]) == 8
+    assert "steps_dropped +0" in p["detail"]["S141-F2d"] and "[25, 4, 912]" in p["detail"]["S141-F2d"]
+    assert "light_row 65535 light_rgb [128, 128, 128]" in p["detail"]["S141-F4"]
+    assert "'bone_out': 13, 'parent': 'bone013'" in p["detail"]["S141-F8"]
+    assert got["cal141"]["red"] == ["S138-CAL"] and "COOP_DRESS_CAL=polish-off" in got["cal141"]["detail"]["S138-CAL"]
+    u = got["unregistered"]
+    assert u["red"] == ["S138-PRE", "S141-F2d", "S141-F5", "S141-F8"], u["red"]
+    assert all(u["detail"][cid].startswith("not reached: field 30606 is not registered")
+               for cid in ("S141-F5", "S141-F8", "S141-F2d"))
+    pf = got["pf_red"]
+    assert pf["red"] == ["S140-PF", "S141-F2d", "S141-F5", "S141-F8"], pf["red"]
+    assert pf["detail"]["S141-F5"].startswith("not reached: the bench field's preflight failed CLOSED: STALE")
+
+
+def test_every_leg_runs_green_together_on_the_s141_stand_in_and_calibrates_on_s140():
+    """Every leg in one run on the s141 stand-in (I, G, S, W, X, N, T, then F: F's 30606 rows after T in the bench phase, its
+    stock-field rows after S in the self phase -- each leg's levers released before the next) is GREEN; and COOP_CALIBRATE=1
+    with every leg on the s140 stand-in reds EXACTLY leg F's old row (S141_OLD_PREDICTED) -- every earlier leg GREEN on its
+    own engine (THE COMBINATION RULE) -- with S138-CAL green."""
+    runs = {"all": {}, "cal140": {"cal": True, "caps": "dressself"}}
+    got = _sd_child(_SS_SMOKE, {"fo": _SS_FO, "runs": runs}, timeout=2400.0)
+    assert got["all"]["red"] == [], (got["all"]["red"], {k: got["all"]["detail"][k] for k in got["all"]["red"]})
+    assert set(S141_F_CHECKS) | set(S140_BENCH_CHECKS) | set(G_CHECKS_S140) <= set(got["all"]["all"])
+    c = got["cal140"]
+    assert c["red"] == sorted(S141_F_CHECKS), c["red"]
+    assert c["detail"]["S138-CAL"].startswith("predicted reds that stayed GREEN: none; unpredicted reds: none")
+
+
+_S141_FAULTS_A = ("steps_unmapped", "ordinal_swap", "no_step_sound", "keep_drop_rig", "cumulative_steps")
+_S141_FAULTS_B = ("no_fired_split", "no_light_fallback", "src_row_first", "ghost_lp_model", "no_mesh_drop")
+
+
+@pytest.mark.parametrize("group", ["a", "b", "c"])
+def test_each_leg_f_row_reds_on_its_fault_on_the_stand_in(group):
+    """THE FAULTS (FakeGame.dress_faults over FG.DRESS_POLISH_FAULTS) on leg F: each a broken s141 engine whose own law
+    looks on, each red in EXACTLY the rows that exist to catch it (S141_F_FAULT_REDS) -- and `polish_lever_dead` (a lever
+    that publishes as set but bypasses nothing) turns S138-CAL red under COOP_DRESS_CAL=polish-off: the predicted reds
+    stayed GREEN (a lever that cannot calibrate). Three groups, so the runs split across workers."""
+    names = [f for f in S141_F_FAULT_REDS
+             if {"a": f in _S141_FAULTS_A, "b": f in _S141_FAULTS_B}.get(group, f not in _S141_FAULTS_A + _S141_FAULTS_B)]
+    assert set(S141_F_FAULT_REDS) == set(FG.DRESS_POLISH_FAULTS)
+    runs = {f: {"legs": "F", "faults": [f]} for f in names}
+    if group == "c":
+        runs["lever_dead_cal"] = {"legs": "F", "faults": ["polish_lever_dead"], "cal": True, "calmode": "polish-off"}
+    got = _sd_child(_SS_SMOKE, {"fo": _SS_FO, "runs": runs}, timeout=2400.0)
+    for fault in names:
+        assert got[fault]["red"] == sorted(S141_F_FAULT_REDS[fault]), (fault, got[fault]["red"])
+    if group == "c":
+        r = got["lever_dead_cal"]
+        assert r["red"] == ["S138-CAL"] and "predicted reds that stayed GREEN: [" in r["detail"]["S138-CAL"], r
+    if group == "a":
+        assert "sounds [919, 919, 919, 919] (want 925 on every key)" in got["no_step_sound"]["detail"]["S141-F7"]
+        assert "(want 12: one load's)" in got["cumulative_steps"]["detail"]["S141-F2c"]
+    if group == "c":
+        assert "IndexOutOfRangeException" in got["no_empty_guard"]["detail"]["S141-F2d"]
+        assert "[255, 255, 255]" in got["ghost_tint_lost"]["detail"]["S141-F4g"]
+
+
+def test_the_s141_bench_runners_name_every_step():
+    """The repo's s141 runners (studies/battle-coop/bench/run): cal141 RE-SEATS the bench field first (its caller gained F5's
+    conductors: an s140 seat reads STALE), stops on a preflight that is not CLEAN, then calibrates EVERY leg on the live
+    s140 (COOP_CALIBRATE=1: exactly leg F's old row) and the blank-GhostAs pass; full141 runs the bench, leg F's lever
+    (polish-off on F), EVERY s140 lever on S / W / X / N / T, leg G's own lever, legs I + G + S + F under GhostAs blank,
+    the s139 / s140 duo G9, block A, the tape legs and the T2 cut legs -- every output OUTSIDE the repo (.harness-runs/s141),
+    WT= this checkout. The selftest blocks point WT= at the same checkout."""
+    run = REPO / "studies" / "battle-coop" / "bench" / "run"
+    cal = (run / "cal141.example.sh").read_text(encoding="utf-8")
+    full = (run / "full141.example.sh").read_text(encoding="utf-8")
+    wt = "WT=/c/gd/Dream-World-IX/.claude/worktrees/dreamy-allen-a2375f"
+    for text in (cal, full, (run / "selftest_block.sh").read_text(encoding="utf-8"),
+                 (run / "selftest_block_noghost.sh").read_text(encoding="utf-8")):
+        assert re.search(r"(?m)(^|; )WT=/c/gd/Dream-World-IX/\.claude/worktrees/[\w-]+\s*$", text)
+        assert "scratchpad" not in text
+        assert 'cd "$WT" || { echo "STOP: WT=$WT is missing' in text and not re.search(r'(?m)^cd "\$WT"\s*(;|$)', text)
+    for text in (cal, full):
+        assert wt in text and "OUT=/c/gd/Dream-World-IX/.harness-runs/s141" in text
+        assert 'SB="$D/selftest_block.sh"' in text and 'NB="$D/selftest_block_noghost.sh"' in text
+        assert "FieldScene 30606 " in text and "FieldScene 30605 " in text
+    # cal141: the re-seat FIRST, the preflight CLEAN before any run, then every leg calibrated on s140
+    assert cal.index("py -X utf8 studies/battle-coop/bench/selfdress_bench.py deploy") < cal.index("sf.preflight(eb)") <         cal.index('bash "$SB"')
+    assert "sys.exit(0 if why is None else 1)\" || { echo \"STOP: the deployed bench field fails its preflight" in cal
+    assert "selfdress_cal140:250:coop_self_dress:COOP_CALIBRATE=1" in cal and "2be623db3bb2ecb5" in cal
+    assert "COOP_CALIBRATE=1,COOP_DRESS_LEGS=I+G+S+F" in cal
+    assert "COOP_CALIBRATE=1,COOP_DRESS_CAL=polish-off,COOP_DRESS_LEGS=F" in full
+    # THE RE-SEAT IS A DEPLOY: only under RESEAT=yes (the owner's yes), else nothing deployed and a STALE seat STOPs
+    for text in (cal, full):
+        k = text.index("py -X utf8 studies/battle-coop/bench/selfdress_bench.py deploy")
+        assert text.rfind('if [ "${RESEAT:-}" = yes ]; then', 0, k) > text.rfind("\nfi", 0, k), "an ungated deploy"
+        assert "RESEAT unset: NOTHING deployed" in text and "RESEAT=yes bash $0" in text
+    # ...and each runner STOPs on the wrong DLL: cal141 on anything but s140's, full141 on anything but S141_DLL
+    assert 'if [ "$DLL" != 2be623db3bb2ecb5 ]; then' in cal and "STOP: the live DLL is $DLL" in cal
+    assert 'if [ -z "${S141_DLL:-}" ]; then' in full and '[ "$DLL" != "$S141_DLL" ]' in full and "2be623db3bb2ecb5" in full
+    assert "controllers OFF (THE UNATTENDED LAW" in full and "FF9" in full
+    for mode in S140_LEVER_REDS:
+        assert f"COOP_CALIBRATE=1,COOP_DRESS_CAL={mode},COOP_DRESS_LEGS=$S140" in full, mode
+    for frag in ('S140="S+W+X+N+T"', "selfdress:250:coop_self_dress", "COOP_DRESS_CAL=rule-s138,COOP_DRESS_LEGS=I+G",
+                 "selfdress_noghost:250:coop_self_dress:COOP_DRESS_LEGS=I+G+S+F", "coop_dress_wire.py",
+                 "dialogue_authority:30801:coop_dialogue_authority", "COOP_CUT_LEG=$l", "replaytape holdtape",
+                 "selfdress_bench.py deploy"):
+        assert frag in full, frag
