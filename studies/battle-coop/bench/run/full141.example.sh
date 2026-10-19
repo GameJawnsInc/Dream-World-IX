@@ -3,7 +3,7 @@
 # acceptance steps (coop_self_dress.py's docstring, "s141 ACCEPTANCE"), then BLOCK A (the regression set: s141 grew a hook
 # at CHRFX, MESHSHOW / MESHHIDE, ATTACH, fldmcf's actor row, FF9Snd's match and the field load's table reset), the tape
 # legs and the T2 cut legs.
-#   0. the bench field 30606 re-seated (idempotent: the s141 caller) and its preflight CLEAN
+#   0. the bench field 30606 on the s141 seat -- re-seated only under RESEAT=yes (idempotent) -- and its preflight CLEAN
 #   1. the bench, every leg (I, G, S, W, X, N, T, F), GhostAs auto (the owner's ini): green
 #   2. leg F's lever (polish-off on F): exactly S141_LEVER_PREDICTED red, S138-CAL green
 #   2b. each s140 lever on legs S / W / X / N / T: exactly LEVER_PREDICTED[<lever>] red, S138-CAL green each
@@ -11,8 +11,13 @@
 #   3. legs I + G + S + F again with GhostAs blank, and the s139 / s140 duo G9 (coop_dress_wire.py)
 #   4. a fresh host tape's section 8 (coop_tape_record + `coop_peer.py dress`): still 08 00 01 for the COOPPARTY party
 #      (s141 adds NO wire byte: the wire stays v14)
-# STEP 0 IS A DEPLOY of the bench field (FF9CustomMap-msgs): covered by the owner's yes to the s141 run. Nothing here
-# touches the engine DLL. Every output goes OUTSIDE the repo ($OUT); the selftest blocks snapshot and restore Memoria.ini.
+# STEP 0's RE-SEAT IS A DEPLOY of the bench field (FF9CustomMap-msgs): it runs ONLY under RESEAT=yes (the owner's yes);
+# without it nothing is deployed and the runner STOPs on a preflight that is not CLEAN. Nothing here touches the engine DLL.
+# Every output goes OUTSIDE the repo ($OUT); the selftest blocks snapshot and restore Memoria.ini.
+# PREREQUISITE (the operator): the game running on the deployed s141 DLL -- S141_DLL=<its Assembly-CSharp.dll sha256, first
+# 16> in the environment (the runner STOPs when unset, when the live DLL differs, or when it is still s140's
+# 2be623db3bb2ecb5) --, controllers OFF (THE UNATTENDED LAW: duo G9 and every leg-F walk inject harness input), FF9
+# unfocused; 30606 and the 8-11 seed 30605 (COOPSUB) registered in FF9CustomMap-msgs.
 set -u
 D="$(dirname "$0")"; WT=/c/gd/Dream-World-IX/.claude/worktrees/dreamy-allen-a2375f
 G="/c/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
@@ -23,23 +28,35 @@ DRESSDIR=/c/gd/Dream-World-IX/.harness-runs/coop-tapes/dress-s141
 S140="S+W+X+N+T"
 cd "$WT" || { echo "STOP: WT=$WT is missing -- point WT= at your checkout"; exit 1; }
 mkdir -p "$OUT/s0" "$OUT/s1" "$OUT/s2" "$OUT/s3" "$OUT/t" "$OUT/c" "$OUT/a" "$DRESSDIR"
-echo "INI at start $(sha256sum "$G/Memoria.ini" | cut -c1-16); DLL $(sha256sum "$G/x64/FF9_Data/Managed/Assembly-CSharp.dll" | cut -c1-16)"
+DLL=$(sha256sum "$G/x64/FF9_Data/Managed/Assembly-CSharp.dll" | cut -c1-16)
+echo "INI at start $(sha256sum "$G/Memoria.ini" | cut -c1-16); DLL $DLL (want S141_DLL=${S141_DLL:-unset})"
+if [ -z "${S141_DLL:-}" ]; then
+  echo "STOP: set S141_DLL=<the deployed s141 Assembly-CSharp.dll's sha256, first 16> -- this runner PROVES s141"; exit 1
+fi
+if [ "$DLL" = 2be623db3bb2ecb5 ] || [ "$DLL" != "$S141_DLL" ]; then
+  echo "STOP: the live DLL is $DLL, not the s141 build S141_DLL=$S141_DLL (2be623db3bb2ecb5 is s140's)"; exit 1
+fi
 if ! grep -qE "^FieldScene 30606 " "$G/FF9CustomMap-msgs/DictionaryPatch.txt"; then
   echo "STOP: 30606 is not registered in FF9CustomMap-msgs -- deploy it (selfdress_bench.py deploy) and relaunch first"; exit 1
 fi
 if ! grep -qE "^FieldScene 30605 " "$G/FF9CustomMap-msgs/DictionaryPatch.txt"; then
   echo "STOP: 30605 (COOPSUB, the 8-11 seed: S7 / S8) is not registered in FF9CustomMap-msgs -- py tools/deploy_field.py studies/battle-coop/bench/coopsub.field.toml --id 30605 --mod-folder FF9CustomMap-msgs, then relaunch"; exit 1
 fi
-echo "######## STEP 0: re-seat the bench field 30606 (the s141 caller) and its preflight $(date +%T)"
-PYTHONIOENCODING=utf-8 py -X utf8 studies/battle-coop/bench/selfdress_bench.py deploy > "$OUT/s0/reseat.txt" 2>&1 \
-  || { echo "STOP: the re-seat failed -- see $OUT/s0/reseat.txt"; exit 1; }
+echo "######## STEP 0: the bench field 30606 on the s141 seat and its preflight $(date +%T)"
+if [ "${RESEAT:-}" = yes ]; then
+  echo "RESEAT=yes: re-seating -- a DEPLOY of the bench field into FF9CustomMap-msgs (the owner said yes)"
+  PYTHONIOENCODING=utf-8 py -X utf8 studies/battle-coop/bench/selfdress_bench.py deploy > "$OUT/s0/reseat.txt" 2>&1 \
+    || { echo "STOP: the re-seat failed -- see $OUT/s0/reseat.txt"; exit 1; }
+else
+  echo "RESEAT unset: NOTHING deployed -- the deployed seat must already read CLEAN below"
+fi
 PYTHONIOENCODING=utf-8 py -X utf8 -c "
 import sys; sys.path.insert(0, 'studies/test-harness/scenarios')
 import _selfdress_field as sf
 eb, where = sf.deployed_eb(r'C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX')
 why = sf.preflight(eb) if eb is not None else 'absent'
 print(where, '->', 'CLEAN' if why is None else why)
-sys.exit(0 if why is None else 1)" || { echo "STOP: the deployed bench field fails its preflight -- re-run selfdress_bench.py deploy"; exit 1; }
+sys.exit(0 if why is None else 1)" || { echo "STOP: the deployed bench field fails its preflight -- re-seat it (a DEPLOY: needs the owner's yes): RESEAT=yes bash $0   (it runs py -X utf8 studies/battle-coop/bench/selfdress_bench.py deploy)"; exit 1; }
 echo "######## STEP 1: the bench, every leg (GhostAs auto) $(date +%T)"
 bash "$SB" "$OUT/s1" "selfdress:250:coop_self_dress"
 echo "######## STEP 2: leg F's lever (want S138-CAL green: exactly S141_LEVER_PREDICTED red, F3 and FP green) $(date +%T)"

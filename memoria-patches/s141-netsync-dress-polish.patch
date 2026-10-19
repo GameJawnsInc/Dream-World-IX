@@ -1,15 +1,16 @@
 diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-index 4f96dfb..7019eee 100644
+index 4f96dfb..3a48e12 100644
 --- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -272,6 +272,15 @@ namespace Memoria.Harness
+@@ -272,6 +272,16 @@ namespace Memoria.Harness
          // `gate 1|0` (the player gate) and `law bframe|attach|alias|timeline on|off` (each s140 law's calibration lever). A driver checks
          // for `netsync.dress.self` -- absent = an engine whose guest never dresses itself (an s139 engine answers `selfdress self` with
          // "unknown op ... (ghost|empty|rule|wire|clear)").
 +        // [ff9mapkit netsync s141] (the dress polish; studies/battle-coop/R3-DESIGN.md 3.4.5 as amended by R3-FIELD-MODEL-AUDIT.md 2.4 and
 +        // 3.1), also additive under 5: `netsync.dress.self` gains the polish keys after `selftest` (steps, steps_dropped, steps_passed,
-+        // steps_fired, steps_fired_player, light_row, light_rgb, mesh_drops, attach_remaps, attach_notes, attach_last, polish; see
-+        // AppendDressPolish), `netsync.dress.ghost` gains `light_row` at its end, the selftest proof block gains one line, "dress polish
++        // steps_fired, steps_fired_player, light_row, light_rgb, light_floor, mesh_drops, attach_remaps, attach_notes, attach_last,
++        // polish; see AppendDressPolish), `netsync.dress.ghost` gains `light_row` and `light_rgb` at its end, the selftest proof block
++        // gains one line, "dress polish
 +        // selftest: OK (N rows)" (NetSyncSelfDress.PolishSelfTest), and `selfdress` gains one op (selftest role only): `polish on|off`
 +        // (the calibration lever: off bypasses MapFootstep, the mesh-op drop, the prop remap and both lighting fallbacks together). A
 +        // driver checks for `netsync.dress.self.steps` -- absent = an engine whose dressed body walks with Zidane's footstep keys, takes
@@ -18,7 +19,7 @@ index 4f96dfb..7019eee 100644
          public const Int32 ProtocolVersion = 5;
  
          // ---- arming ----------------------------------------------------------------------------
-@@ -1899,6 +1908,11 @@ namespace Memoria.Harness
+@@ -1899,6 +1909,11 @@ namespace Memoria.Harness
                              //   `selfdress law bframe|attach|alias|timeline on|off`  one s140 law switched off (each law's calibration red).
                              // Read back: `netsync.dress.self` (bench_self, gate, law_off). An unknown op answers the s140 list
                              // (ghost|empty|rule|wire|clear|self|gate|law); `clear` and every harness release drop these levers too.
@@ -30,18 +31,19 @@ index 4f96dfb..7019eee 100644
                              if (!Memoria.Netsync.NetSyncClient.HarnessSelfDress(s.Args, out why))
                                  throw new InvalidOperationException(why ?? "netsync selfdress refused");
                              break;
-@@ -3564,7 +3578,9 @@ namespace Memoria.Harness
+@@ -3564,7 +3579,10 @@ namespace Memoria.Harness
                  // [ff9mapkit netsync s140] `rig_idle_frames` carries 13 sentinels (RigRowCount: rows 9-12 = Cinna, Marcus, Blank, Beatrix).
                  // [ff9mapkit netsync s140] ...and `dress` gains `self` after `mirror_party` -- AppendDressSelf's keys at their sentinels
                  // (`law_off` a fixed sub-object of four falses).
 -                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null}}}");
-+                // [ff9mapkit netsync s141] `ghost` gains `light_row` (-1) at its end, and `self` gains the polish keys after `selftest` --
-+                // AppendDressPolish's keys at their sentinels (`steps` [], `light_rgb` null, `attach_last` a fixed sub-object, `polish` false).
-+                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false}}}");
++                // [ff9mapkit netsync s141] `ghost` gains `light_row` (-1) and `light_rgb` (null) at its end, and `self` gains the polish keys
++                // after `selftest` -- AppendDressPolish's keys at their sentinels (`steps` [], `light_rgb` null, `light_floor` -1,
++                // `attach_last` a fixed sub-object, `polish` false).
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false}}}");
                  return;
              }
              outer.Append("\"netsync\":{").Append(sb).Append("}");
-@@ -3609,6 +3625,11 @@ namespace Memoria.Harness
+@@ -3609,6 +3627,14 @@ namespace Memoria.Harness
          //   path under the ghost's root (["short_hair"]; [] = none hidden; null = no ghost).
          //   `mirror_party` (after `rig_idle_frames`) -- the PARTY MIRROR an old reader landed (NetSyncParty.Slots' CharacterIds, -1 an
          //   absent slot; null = no mirror active): on a live guest, the witness that its s103 walker stepped past section 8.
@@ -50,19 +52,24 @@ index 4f96dfb..7019eee 100644
 +        //   ghost is driven; NetSyncSelfDress.GhostLightRow): the ghost model's own row, else the LOCAL player's stand-in row (its
 +        //   netDressSrc, 98, when it is dressed and the polish is on; else its model), else 65535 (the default row); -1 = no re-tint this
 +        //   field load (no ghost, or no mapconfig: a kit field). Per field load (reset where the stock footstep table is).
++        //   `ghost.light_rgb` (after `light_row`) -- WITNESS: [r, g, b] (0-255) of the ghost's first renderer's material `_Color`, read
++        //   live (NetSyncClient.HarnessGhostLightRgb): the tint ApplyGhostLighting WROTE, beside the row it decided on (a re-tint that
++        //   set the row and failed the write shows here); null = no ghost or no renderer.
          private static void AppendDress(StringBuilder sb)
          {
              sb.Append("\"dress\":{\"ghost\":{");
-@@ -3627,6 +3648,8 @@ namespace Memoria.Harness
+@@ -3627,6 +3653,10 @@ namespace Memoria.Harness
              Num(sb, "rest_mask", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessGhostRestMask, -1L)); sb.Append(",");     // [ff9mapkit netsync s139]
              Num(sb, "shown_mask", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessGhostShownMask, -1L)); sb.Append(",");   // [ff9mapkit netsync s139]
              StrList(sb, "hidden", Try(() => Memoria.Netsync.NetSyncClient.HarnessGhostHidden));                                  // [ff9mapkit netsync s139]
 +            sb.Append(",");                                                                             // [ff9mapkit netsync s141]
 +            Num(sb, "light_row", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.GhostLightRow, -1L));                         // [ff9mapkit netsync s141]
++            sb.Append(",");                                                                             // [ff9mapkit netsync s141]
++            IntList(sb, "light_rgb", Try(() => Memoria.Netsync.NetSyncClient.HarnessGhostLightRgb));                             // [ff9mapkit netsync s141]
              sb.Append("},\"party\":[");
              for (Int32 i = 0; i < 4; i++)
              {
-@@ -3680,7 +3703,7 @@ namespace Memoria.Harness
+@@ -3680,7 +3710,7 @@ namespace Memoria.Harness
          //   0` on the selftest role), `bench_self` (the `self` spec as set: "off" | "auto" | "auto <mask>" | a name; null = never set,
          //   no section 8), `law_off` (a FIXED sub-object, each s140 law's `law <name> off` lever AS SET: bframe, attach, alias,
          //   timeline). `selftest` -- the self-dress proof's verdict (null until the selftest proof block ran it, then "ok" | "fail:
@@ -71,7 +78,7 @@ index 4f96dfb..7019eee 100644
          private static void AppendDressSelf(StringBuilder sb)
          {
              sb.Append("\"self\":{");
-@@ -3720,9 +3743,79 @@ namespace Memoria.Harness
+@@ -3720,9 +3750,83 @@ namespace Memoria.Harness
              Bool(sb, "timeline", Try(() => Memoria.Netsync.NetSyncSelfDress.HarnessLawOff("timeline"), false));
              sb.Append("},");
              Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncSelfDress.SelfTestVerdict));
@@ -97,8 +104,11 @@ index 4f96dfb..7019eee 100644
 +        //   `light_row` -- the mapconfig row the CONTROLLED dressed body's tint and shadow use (fldmcf's row lookup): its own model id,
 +        //   98 (the source row: the s141 fallback) or 65535 (the default row); -1 = no mapconfig service ran for a dressed controlled
 +        //   body this load (a kit field has no mapconfig; an undressed body is never recorded). `light_rgb` -- WITNESS: [r, g, b] (0-255)
-+        //   of the dressed controlled body's FIRST renderer material `_Color`, read live (what fldchar wrote; it recomputes on a floor
-+        //   change, so set a lever, then load); null = undressed, no body or no renderer.
++        //   of the dressed controlled body's OWN first mesh renderer's material `_Color` (its mesh0's, else the first renderer whose
++        //   nearest FieldMapActor is the body's -- never a held prop's, parented under a bone), read live (what fldchar wrote; it
++        //   recomputes on a floor change, so set a lever, then load); null = undressed, no body or no renderer. `light_floor` -- the
++        //   walkmesh floor fldmcf lit that body by (its FF9FieldCharState.floor, written with the tint: the light_rgb oracle's INPUT;
++        //   255 = none, the default light); -1 = no mapconfig service for a dressed controlled body this load (light_row -1).
 +        //   `mesh_drops` (a ShowObject / HideObject on a dressed body dropped), `attach_remaps` (an ATTACH on a dressed carrier at bone 12
 +        //   / 13 sent to the rig's R_hand / R_hand_end), `attach_notes` (...at any other bone, left alone; not under `polish off`).
 +        //   `attach_last` -- a FIXED sub-object, the last ATTACH on a dressed carrier this load: `uid` (the CARRIED object; -1 = none),
@@ -115,6 +125,7 @@ index 4f96dfb..7019eee 100644
 +            Num(sb, "steps_fired_player", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.StepsFiredPlayer, 0L)); sb.Append(",");
 +            Num(sb, "light_row", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.LightRow, -1L)); sb.Append(",");
 +            IntList(sb, "light_rgb", Try(() => Memoria.Netsync.NetSyncSelfDress.HarnessLightRgb)); sb.Append(",");
++            Num(sb, "light_floor", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.HarnessLightFloor, -1L)); sb.Append(",");
 +            Num(sb, "mesh_drops", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.MeshDrops, 0L)); sb.Append(",");
 +            Num(sb, "attach_remaps", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.AttachRemaps, 0L)); sb.Append(",");
 +            Num(sb, "attach_notes", Try(() => (Int64)Memoria.Netsync.NetSyncSelfDress.AttachNotes, 0L)); sb.Append(",");
@@ -152,7 +163,7 @@ index 4f96dfb..7019eee 100644
          private static void StrList(StringBuilder sb, String key, String[] list)
          {
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index 6bbf8ba..118e533 100644
+index 6bbf8ba..715444f 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 @@ -1480,6 +1480,10 @@ namespace Memoria.Netsync
@@ -166,7 +177,30 @@ index 6bbf8ba..118e533 100644
                      }
                      // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
                      // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
-@@ -5198,6 +5202,10 @@ namespace Memoria.Netsync
+@@ -5093,6 +5097,22 @@ namespace Memoria.Netsync
+             }
+         }
+         public static GameObject HarnessGhostObject { get { NetSyncClient i = _instance; return i == null || i._ghost == null ? null : i._ghost; } }
++        // [ff9mapkit netsync s141] `netsync.dress.ghost.light_rgb`: the tint ApplyGhostLighting last WROTE, read back off the ghost's
++        // first renderer's material `_Color` (every one of _ghostRends carries it; NetSyncSelfDress.ReadRendererRgb) -- the effect
++        // beside `light_row`, the row it decided on. Null = no ghost or no renderer. Never throws.
++        public static Int32[] HarnessGhostLightRgb
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                if (i == null || i._ghost == null || i._ghostRends == null)
++                    return null;
++                foreach (Renderer r in i._ghostRends)
++                    if (r != null)
++                        return NetSyncSelfDress.ReadRendererRgb(r);
++                return null;
++            }
++        }
+ 
+         // ============================================================================================================================
+         // [ff9mapkit netsync s139] THE HOST'S DRESS RULE AND WIRE SECTION 8 (studies/battle-coop/R3-DESIGN.md 3.4.3 as amended by
+@@ -5198,6 +5218,10 @@ namespace Memoria.Netsync
          //                              s140 DLL): the B_FRAME remap, the source-list attach + stored loco ids, the idle-alias
          //                              fallback, KeepSourceTimeline
          // Read back: `netsync.dress.self` (bench_self, gate, law_off{...}). Released with every other selfdress lever (ReleaseBench).
@@ -177,7 +211,7 @@ index 6bbf8ba..118e533 100644
          public static Boolean HarnessSelfDress(String[] args, out String why)
          {
              why = null;
-@@ -5316,8 +5324,15 @@ namespace Memoria.Netsync
+@@ -5316,8 +5340,15 @@ namespace Memoria.Netsync
                          }
                          return NetSyncSelfDress.TrySetLaw(val, lawVal == "on", out why);
                      }
@@ -194,7 +228,7 @@ index 6bbf8ba..118e533 100644
                          return false;
                  }
              }
-@@ -5338,6 +5353,7 @@ namespace Memoria.Netsync
+@@ -5338,6 +5369,7 @@ namespace Memoria.Netsync
              _benchDressWire = -1;
              _benchDressWireAnim = -1;
              NetSyncSelfDress.ReleaseBench(cause);           // [ff9mapkit netsync s140] the self / gate / law levers (and a bench-made arm) off
@@ -202,29 +236,27 @@ index 6bbf8ba..118e533 100644
              if (any)
                  Log.Message("[NetSync] harness: selfdress levers released (" + cause + ") -- the mirror's dress back to the pin, the ini's "
                              + "GhostAs and the host rule");
-@@ -6694,17 +6710,27 @@ namespace Memoria.Netsync
+@@ -6693,18 +6725,21 @@ namespace Memoria.Netsync
+                     return;
                  DMSMapConf mcf = mcfPtr.Value;
                  Actor lp = ee.GetControlChar() as Actor;
-                 DMSMapChar? mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)model);
-+                Int32 lightRow = model;                     // [ff9mapkit netsync s141] the row this tint used (netsync.dress.ghost.light_row)
+-                DMSMapChar? mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)model);
                  // A DRESSED ghost usually wears a model this field's mapconfig has no entry for (the
                  // config lists the field's own cast) -- the LOCAL PLAYER's entry is the right stand-in
                  // (same scene, correct shading; a fellow party member's tint, not the generic default,
                  // which reads visibly wrong -- playtest: "non-Zidane ghosts aren't getting the proper
                  // lighting").
-+                // [ff9mapkit netsync s141] ...and a DRESSED local player's own (rig) model has no entry either: its SOURCE (98) row,
-+                // as the body's own lookup (fldmcf) -- (lp.netDressSrc != 0 ? lp.netDressSrc : lp.model); `polish off` = lp.model (s140).
-                 if (mapChar == null && lp != null)
+-                if (mapChar == null && lp != null)
 -                    mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)lp.model);
-+                {
-+                    lightRow = NetSyncSelfDress.GhostLpRow(lp);    // [ff9mapkit netsync s141] was (Int32)lp.model
-+                    mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, lightRow);
-+                }
-                 if (mapChar == null)
-+                {
-+                    lightRow = NetSyncSelfDress.DefaultMcfRow;     // [ff9mapkit netsync s141]
-                     mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);   // the mapconfig's default char entry
-+                }
+-                if (mapChar == null)
+-                    mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);   // the mapconfig's default char entry
++                // [ff9mapkit netsync s141] ONE core picks the row (NetSyncSelfDress.GhostRow -> GhostRowCore: the ghost model's own row,
++                // else the local player's stand-in, else the mapconfig's default char entry -- the proof runs the SAME core, never a
++                // copy): for a DRESSED local player the stand-in is its SOURCE (98) row whenever the polish is on -- deliberately NOT
++                // the body's own lookup, which keeps the rig model's own row where the mapconfig has one: the ghost wears the peer's
++                // body; `polish off` = lp.model (s140). `lightRow` = the row the core RETURNED (netsync.dress.ghost.light_row).
++                Int32 lightRow;
++                DMSMapChar? mapChar = NetSyncSelfDress.GhostRow(mcf, (Int32)model, lp, out lightRow);   // [ff9mapkit netsync s141]
                  if (mapChar == null)
                      return;
 +                NetSyncSelfDress.GhostLightRow = lightRow & 0xFFFF;     // [ff9mapkit netsync s141] the witness (per field load; -1 = none)
@@ -232,7 +264,7 @@ index 6bbf8ba..118e533 100644
                  DMSMapLight? ladder = null;
                  if (lp != null)
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs
-index a964da3..ea73fd3 100644
+index a964da3..adcec02 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs
 @@ -388,20 +388,21 @@ namespace Memoria.Netsync
@@ -260,7 +292,7 @@ index a964da3..ea73fd3 100644
              }
              catch
              {
-@@ -1147,6 +1148,1163 @@ namespace Memoria.Netsync
+@@ -1147,6 +1148,1357 @@ namespace Memoria.Netsync
                  AnimationFactory.AddAnimWithAnimatioName(go, name);
          }
  
@@ -287,24 +319,39 @@ index a964da3..ea73fd3 100644
 +        //                   witness `steps` (the table) cannot give.
 +        //   AtAttach        DoEventCode ATTACH (0x4C), gMode 1, after the 62 / 3010 bone-19 override and BEFORE geo.geoAttach (D3): a
 +        //                   DRESSED carrier's bone 12 / 13 (Zidane's R_hand / R_hand_end) -> the RIG TABLE's HandBone / HandBoneEnd
-+        //                   (attach_remaps; never labels_for -- Cinna's and Marcus's came from the kit's geometry heuristic); any other
++        //                   (attach_remaps; never labels_for, which sits one bone toward the shoulder on Steiner's and Amarant's arms:
++        //                   the pair is the install's -- the bone owning the hand's skin and its child, else the hand itself, checked
++        //                   against stock's own AttachObject on each body: Steiner 15 / 16, Amarant 16 / 16); any other
 +        //                   bone is left alone (attach_notes: the Qu's Marsh frogs' bone 0); attach_last records what geoAttach got. The
-+        //                   remap runs first, so attachTargetBoneIndex stores the dressed index and RestoreAttachModel re-attaches it
-+        //                   right on a warm return.
++        //                   remap runs first, so attachTargetBoneIndex stores the dressed index; stock restores it only on 1508
++        //                   (FieldMap.RestoreAttachModel, Conde Petie / Inn) -- elsewhere a warm return re-attaches a prop only
++        //                   through a re-run AttachObject, which passes this hook again.
 +        //   KeepMeshOp      DoEventCode MESHSHOW (0x39) / MESHHIDE (0x3A): an op on a dressed body is dropped (mesh_drops) -- a kit /
 +        //                   modded-content defence only (stock never mesh-ops a player body: 0 of 817 scripts).
 +        //   DressedCharRow  fldmcf.ff9fieldMCFService's actor row (D6): a dressed body whose own (rig) model has no row takes its SOURCE
-+        //                   (netDressSrc, 98) row before the default 0xFFFF row (LightRowRule; light_row = the row the CONTROLLED dressed
-+        //                   body used). The ghost's lighting (NetSyncClient.ApplyGhostLighting) asks GhostLpRow for the LOCAL player's
-+        //                   row the same way: (lp.netDressSrc != 0 ? lp.netDressSrc : lp.model) -- GhostLightRow its witness.
++        //                   (netDressSrc, 98) row before the default 0xFFFF row (DressedRowCore; light_row = the row the CONTROLLED
++        //                   dressed body's tint used, light_floor the floor fldmcf lit it by). The ghost's lighting
++        //                   (NetSyncClient.ApplyGhostLighting) takes its row from GhostRow -> GhostRowCore (the ghost model's row, else
++        //                   the LOCAL player's stand-in row, else the default; the proof runs the SAME core): the stand-in is its netDressSrc
++        //                   (98) whenever it is dressed and the polish is on -- deliberately NOT the body's own lookup (it never asks
++        //                   whether the rig model has a row of its own: a Zidane ghost in a field with no 98 row lands on the default
++        //                   row, as stock Zidane does there; a dressed ghost reads 98 where the body reads its rig's own row) --
++        //                   GhostLightRow its witness, ghost.light_rgb the tint it wrote.
 +        // Every counter is PER FIELD LOAD (OnSoundTableReset, called where the stock footstep table is reset -- HonoluluFieldMain.
 +        // ff9InitStateFieldMap, right after FF9StateFieldMap.ff9ResetStateFieldMap -- so a warm return reads one load, never 24).
 +        // THE CALIBRATION LEVER (O9, `selfdress polish on|off`, selftest role only, default on): off bypasses MapFootstep (its map, drop and
 +        // counts), the mesh-op drop, the prop remap and BOTH lighting fallbacks together; the witnesses keep reading (`steps`, steps_fired,
 +        // steps_fired_player, light_row, light_rgb, attach_last). Released with every other selfdress lever (ReleaseBench).
-+        // Out of s141 (KNOWN): the twin ladder / jump clips (amendment 7: s140's jump-slot law stays), the shadow SIZE on the 98 fallback
-+        // (amendment 4's nit: risk 11), footstep keys a Zidane entry registers on other walk / run ids (COLD_WALK, SWORD_WALK, ...: they
-+        // pass unmapped and never fire on the rig's clip -- the dressed body walks silently there).
++        // Out of s141 (KNOWN): the twin ladder / jump clips (amendment 7: s140's jump-slot law stays); the shadow SIZE on the 98 fallback
++        // (amendment 4's nit: risk 11); footstep keys a Zidane entry registers on OTHER walk / run ids (COLD_WALK, SWORD_WALK, ...) pass
++        // unmapped and never fire -- but every such stock field (62-64, 307, 1464, 1554, 1606, 1607, 2513, 2802, 2928) also registers
++        // the plain 25 / 38 keys, which DO fire on the rig's native walk / run (s140 maps the variant clip to it): the dressed body steps
++        // with the plain-walk sound at its own footfalls (on 62-64 Blank and Marcus; Cinna and the moogle silent), and on 2705's
++        // FRA_WALK, where stock Zidane is silent; a held prop keeps Zidane's bone-local offset and an identity rotation
++        // (FieldMapActor.UpdateGeoAttach), so it sits in the rig's hand turned to THAT bone's axes (~94 degrees on bone 13 for Freya,
++        // Amarant and the moogle -- a leaf hand, no end bone --, ~174 on Cinna's bone 12, Steiner's 15 / 16 within 11: rest-pose world
++        // rotations against Zidane's 12 / 13; cosmetic -- a per-rig rest-frame correction is a later patch's); a
++        // kit whole-body HideObject (both of Zidane's meshes) is dropped with the rest -- the dressed body stays visible.
 +
 +        // ---------------------------------------------------------------- per field load (OnSoundTableReset); `netsync.dress.self`
 +        internal static Int32 StepsDropped;            // a footstep op (16-19) dropped: a rig with no footfalls, or a 19 on an empty table
@@ -355,18 +402,25 @@ index a964da3..ea73fd3 100644
 +
 +        internal const String PolishUsage = "netsync selfdress polish: expected `polish on|off`";
 +
++        // `polish`'s value (pure; the proof pins it): DressMode's trim + lower-case, then 1 = on, 0 = off, -1 = refused.
++        internal static Int32 PolishValueRule(String val)
++        {
++            String v = NetSyncVisitor.DressMode(val);
++            return v == "on" ? 1 : v == "off" ? 0 : -1;
++        }
++
 +        // `selfdress polish on|off` (the caller checks the role). False + why on anything else; nothing changes then.
 +        internal static Boolean TrySetPolish(String val, out String why)
 +        {
 +            why = null;
-+            String v = NetSyncVisitor.DressMode(val);
-+            if (v != "on" && v != "off")
++            Int32 v = PolishValueRule(val);
++            if (v < 0)
 +            {
 +                why = PolishUsage;
 +                return false;
 +            }
-+            _polishOff = v == "off";
-+            Log.Message("[NetSync] harness: selfdress polish " + (v == "on"
++            _polishOff = v == 0;
++            Log.Message("[NetSync] harness: selfdress polish " + (v == 1
 +                        ? "on -- the s141 polish (footsteps, the mesh-op drop, the prop remap, both lighting fallbacks)"
 +                        : "OFF -- CALIBRATION: MapFootstep, the mesh-op drop, the prop remap and both lighting fallbacks are bypassed on this "
 +                          + "selftest role (the witnesses keep reading)"));
@@ -475,6 +529,7 @@ index a964da3..ea73fd3 100644
 +                if (!NetSyncVisitor.TryGetRig(rigIdx, out rig))
 +                {
 +                    Faults++;
++                    LogFault("footstep rig " + rigIdx, new InvalidOperationException("no rig row " + rigIdx));
 +                    return true;
 +                }
 +                Int32 a, f, s;
@@ -537,9 +592,10 @@ index a964da3..ea73fd3 100644
 +                else
 +                    StepsFiredPlayer++;
 +            }
-+            catch
++            catch (Exception err)
 +            {
 +                Faults++;
++                LogFault("step fired", err);
 +            }
 +        }
 +
@@ -611,6 +667,7 @@ index a964da3..ea73fd3 100644
 +                if (!NetSyncVisitor.TryGetRig(rigIdx, out rig))
 +                {
 +                    Faults++;
++                    LogFault("attach rig " + rigIdx, new InvalidOperationException("no rig row " + rigIdx));
 +                    return bone;
 +                }
 +                Int32 verdict;
@@ -706,20 +763,32 @@ index a964da3..ea73fd3 100644
 +            return DefaultMcfRow;
 +        }
 +
++        // THE ROW CORE (pure over the mapconfig; the proof runs it through the REAL lookup): `own` when the mapconfig has the actor's own
++        // row, else -- on a dressed body (dressSrc != 0) with the polish on -- its SOURCE row (fldmcf.ff9fieldMCFGetCharByID), else null
++        // (the stock default row, dmsmapChar2). `used` names the row it RETURNED (its geoNo; DefaultMcfRow for null), so the light_row
++        // witness can never name a row the tint did not use (LightRowRule is its pure twin: the proof requires the two to agree).
++        internal static DMSMapChar? DressedRowCore(DMSMapConf mcf, Int32 model, Int32 dressSrc, DMSMapChar? own, Boolean polish,
++                                                   out Int32 used)
++        {
++            DMSMapChar? src = own == null && polish && dressSrc != 0 ? fldmcf.ff9fieldMCFGetCharByID(mcf, dressSrc) : null;
++            DMSMapChar? row = own != null ? own : src;
++            used = row != null ? (Int32)row.Value.geoNo : DefaultMcfRow;
++            return row;
++        }
++
 +        // fldmcf.ff9fieldMCFService, right after the stock row lookup of the actor's own po.model (the caller gates on po.netDressSrc != 0):
-+        // the row to use -- `own` when the mapconfig has one, else the SOURCE (netDressSrc) row while the polish is on, else null (the stock
-+        // default row, dmsmapChar2). Records light_row when `po` is the controlled body. Never throws: a fault returns `own` (stock).
++        // DressedRowCore with the live lever. Records light_row when `po` is the controlled body. Never throws: a fault returns `own`
++        // (stock).
 +        internal static DMSMapChar? DressedCharRow(DMSMapConf mcf, PosObj po, DMSMapChar? own)
 +        {
 +            try
 +            {
-+                Boolean polish = PolishOn;
-+                DMSMapChar? src = own == null && polish ? fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)po.netDressSrc) : null;
-+                Int32 used = LightRowRule(po.model, own != null, po.netDressSrc, src != null, polish);
++                Int32 used;
++                DMSMapChar? row = DressedRowCore(mcf, po.model, po.netDressSrc, own, PolishOn, out used);
 +                PosObj ctl = HarnessBody();
 +                if (ctl != null && ctl.uid == po.uid)
 +                    LightRow = used;
-+                return own != null ? own : src;
++                return row;
 +            }
 +            catch (Exception err)
 +            {
@@ -730,32 +799,89 @@ index a964da3..ea73fd3 100644
 +        }
 +
 +        // THE GHOST'S STAND-IN ROW (pure; the census twin polish_census.ghost_light_color): the LOCAL player's row id the ghost's tint
-+        // falls back to when its own model has none -- the player's SOURCE model (netDressSrc) when it is dressed and the polish is on
-+        // (its rig model has no row either), else its po.model (s140).
++        // falls back to when its own model has none -- the player's SOURCE model (netDressSrc) when it is dressed and the polish is on,
++        // else its po.model (s140). It deliberately ignores whether the rig model has a row of its own (NOT DressedRowCore's order):
++        // the ghost wears the peer's body, and 98 is the stand-in for any dressed local player.
 +        internal static Int32 GhostLpRowRule(Int32 lpModel, Int32 lpDressSrc, Boolean polish)
 +        {
 +            return lpDressSrc != 0 && polish ? lpDressSrc : lpModel;
 +        }
 +
-+        // NetSyncClient.ApplyGhostLighting's local-player row (netDressSrc read FIRST; PolishOn only on a dressed player).
-+        internal static Int32 GhostLpRow(PosObj lp)
++        // THE GHOST'S ROW CORE (pure over the mapconfig; NetSyncClient.ApplyGhostLighting's own row choice -- the proof runs this core
++        // through the REAL lookup, never a copy): the ghost model's own row; else, with a local player (hasLp), that player's stand-in
++        // row (GhostLpRowRule); else stock's default row (lookup -1). `used` names the row it RETURNED (the model id; DefaultMcfRow for
++        // the default), so the ghost.light_row witness can never name a row the tint did not use; null = no row at all (no tint).
++        internal static DMSMapChar? GhostRowCore(DMSMapConf mcf, Int32 ghostModel, Boolean hasLp, Int32 lpModel, Int32 lpDressSrc,
++                                                 Boolean polish, out Int32 used)
 +        {
-+            return lp.netDressSrc != 0 ? GhostLpRowRule(lp.model, lp.netDressSrc, PolishOn) : lp.model;
++            used = ghostModel & 0xFFFF;
++            DMSMapChar? row = fldmcf.ff9fieldMCFGetCharByID(mcf, ghostModel);
++            if (row == null && hasLp)
++            {
++                used = GhostLpRowRule(lpModel, lpDressSrc, polish) & 0xFFFF;
++                row = fldmcf.ff9fieldMCFGetCharByID(mcf, used);
++            }
++            if (row == null)
++            {
++                used = DefaultMcfRow;
++                row = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);
++            }
++            return row;
 +        }
 +
-+        // light_rgb: [r, g, b] (0-255, rounded) of the body's FIRST renderer's material `_Color` -- what fldchar.ff9fieldCharEffectService
-+        // wrote ((char + light) << 3, rgb only, on every instanced material) -- read live through sharedMaterial (the instance once fldchar
-+        // has written; never instantiates one itself); null for no body, no go, no renderer or a failed read. Never throws.
++        // NetSyncClient.ApplyGhostLighting's row: GhostRowCore with the LOCAL player `lp` (null = none) and the live lever --
++        // netDressSrc read FIRST, PolishOn only on a dressed player (an undressed one's stand-in is its model either way).
++        internal static DMSMapChar? GhostRow(DMSMapConf mcf, Int32 ghostModel, PosObj lp, out Int32 used)
++        {
++            Boolean dressed = lp != null && lp.netDressSrc != 0;
++            return GhostRowCore(mcf, ghostModel, lp != null, lp != null ? lp.model : 0, dressed ? lp.netDressSrc : 0,
++                                dressed ? PolishOn : true, out used);
++        }
++
++        // light_rgb: [r, g, b] (0-255, rounded) of the body's OWN first mesh renderer's material `_Color` (BodyRenderer) -- what
++        // fldchar.ff9fieldCharEffectService wrote ((char + light) << 3, rgb only, on every instanced material) -- read live through
++        // sharedMaterial (the instance once fldchar has written; never instantiates one itself); null for no body, no go, no renderer
++        // or a failed read. Never throws.
 +        internal static Int32[] ReadLightRgb(PosObj body)
 +        {
 +            try
 +            {
 +                if (body == null || body.go == null)
 +                    return null;
-+                Renderer[] rends = body.go.GetComponentsInChildren<Renderer>();
-+                if (rends == null || rends.Length == 0 || rends[0] == null)
-+                    return null;
-+                Material mat = rends[0].sharedMaterial;
++                return ReadRendererRgb(BodyRenderer(body.go));
++            }
++            catch
++            {
++                return null;
++            }
++        }
++
++        // The body's OWN first mesh renderer: its mesh0's (HarnessAgent.BodyOf's choice), else the first renderer whose nearest
++        // FieldMapActor is the body's own (Cinna's and Marcus's mesh0 carry none of their own). Never the first renderer in hierarchy
++        // order: geoAttach parents a held prop under a boneNNN, and on 11 of the 13 rigs bone000 comes before the meshes -- that read
++        // would be the PROP's material (its own actor's tint). Null when none.
++        internal static Renderer BodyRenderer(GameObject go)
++        {
++            if (go == null)
++                return null;
++            Transform m0 = go.transform.Find("mesh0");
++            Renderer r0 = m0 != null ? m0.GetComponent<Renderer>() : null;
++            if (r0 != null)
++                return r0;
++            FieldMapActor own = go.GetComponent<FieldMapActor>();
++            foreach (Renderer r in go.GetComponentsInChildren<Renderer>())
++                if (r != null && r.GetComponentInParent<FieldMapActor>() == own)
++                    return r;
++            return null;
++        }
++
++        // [r, g, b] (0-255, rounded) of one renderer's material `_Color`, read through sharedMaterial; null for no renderer, no
++        // material, no `_Color` or a failed read (light_rgb's and the ghost's light_rgb's reader). Never throws.
++        internal static Int32[] ReadRendererRgb(Renderer r)
++        {
++            try
++            {
++                Material mat = r != null ? r.sharedMaterial : null;
 +                if (mat == null || !mat.HasProperty("_Color"))
 +                    return null;
 +                Color c = mat.GetColor("_Color");
@@ -777,6 +903,31 @@ index a964da3..ea73fd3 100644
 +            }
 +        }
 +
++        // light_floor: the walkmesh floor fldmcf lit the CONTROLLED dressed body's tint by -- its FF9FieldCharState.floor, which the
++        // service writes with the tint on every recompute (the floor BGI_charGetInfo names; 255 = none: the default light). -1 =
++        // undressed, no body, or no mapconfig service for it this load (light_row -1). A witness the engine computes for its OWN use:
++        // the bench names the light the census expects on THIS floor and reports the kit walkmesh's floor beside it. Never throws.
++        internal static Int32 HarnessLightFloor
++        {
++            get
++            {
++                try
++                {
++                    PosObj ctl = HarnessBody();
++                    if (ctl == null || ctl.netSelfDress == 0 || LightRow == -1)
++                        return -1;
++                    FF9FieldCharState st;
++                    if (!FF9StateSystem.Field.FF9Field.loc.map.charStateArray.TryGetValue((Int32)ctl.uid, out st) || st == null)
++                        return -1;
++                    return st.floor & 0xFF;
++                }
++                catch
++                {
++                    return -1;
++                }
++            }
++        }
++
 +        // ================================================================ s141: THE DRESS-POLISH PROOF (the selftest role; once, with the proof block)
 +        // [ff9mapkit netsync s141] "[NetSync] dress polish selftest: OK (N rows)" (NetSyncClient's proof block, right after s140's
 +        // "self-dress selftest" line). Every s141 rule above as rows on HAND-CHECKED literals -- the install census (studies/battle-coop/
@@ -792,23 +943,30 @@ index a964da3..ea73fd3 100644
 +        //           non-empty table answers the same table (what MapFootstep dispatches);
 +        //   lever   FootstepDecision under `polish off` sends every 16-19 op through as read (bypassed, counted nowhere); THE EMPTY-TABLE
 +        //           GUARD drops a 19 headed for an empty table under either lever state, never a 16-18 or a non-empty table, and a drop
-+        //           rig's 19 is the rig's drop (the rule first);
++        //           rig's 19 is the rig's drop (the rule first) -- and inside a load's replay: the moogle's twelve dropped, then field
++        //           2930's RunModelCode(19, 190, 4, 0) on the table they emptied (the bench's F2d) dropped too ([] with 13), under
++        //           `polish off` stock's no-op on Zidane's four, and a dispatched 19 on Freya's mapped key DeleteChar's top shrink;
 +        //   250     field 250's twelve Zidane_Init footstep ops (test2_67.txt:1092-1109) replayed per load through FootstepDecision into
-+        //           fldchar's table semantics (16-18 find or create the (anim, frame) record): every rig's `steps` and `steps_dropped`
-+        //           equal the census's leg-F oracle (F1 Freya, F7 Steiner, F2 the moogle, F2c Cinna, F3 Zidane), and under `polish off`
-+        //           every rig reads Zidane's four with 0 dropped (the calibration red);
-+        //   bone    AttachBoneRule on every rig 0-12: bone 12 / 13 -> the census R_hand / R_hand_end (Freya 12 / 12, the moogle 19 / 19,
-+        //           Cinna 24 / 25, Marcus 5 / 6 -- the rig table, never labels_for), any other bone left alone (a note); `polish off`
++        //           fldchar's table semantics (16-18 find the TOP (anim, frame) record or create one; 19 DeleteChar's top shrink):
++        //           every rig's `steps` and `steps_dropped` equal the census's leg-F oracle (F1 Freya, F7 Steiner, F2 the moogle, F2c
++        //           Cinna, F3 Zidane), and under `polish off` every rig reads Zidane's four with 0 dropped (the calibration red);
++        //   bone    AttachBoneRule on every rig 0-12: bone 12 / 13 -> the census R_hand / R_hand_end (Steiner 15 / 16, Freya 12 / 12,
++        //           Amarant 16 / 16, the moogle 19 / 19, Cinna 24 / 25, Marcus 5 / 6 -- the install's skin and stock's own AttachObject,
++        //           never labels_for), any other bone left alone (a note); `polish off`
 +        //           returns the bone unchanged (a bypass);
 +        //   mesh    KeepMeshRule: an undressed body's op and every op under `polish off` are kept, a dressed body's is dropped;
 +        //   light   LightRowRule (own row -> own; missing + netDressSrc -> 98; no own row and no 98 row, or no source -> the default
 +        //           65535; `polish off` -> the default) and GhostLpRowRule (a dressed local player's netDressSrc, else its model; `polish
 +        //           off` -> s140's lp.model); then field 250's three mapconfig rows (polish.json) through the REAL lookup
-+        //           (fldmcf.ff9fieldMCFGetCharByID) and fldmcf's tint: the dressed body (F4) and the ghost wearing its model (F4g) read
++        //           (fldmcf.ff9fieldMCFGetCharByID) and DressedCharRow's own core (DressedRowCore: the row it returns, its `used` witness
++        //           agreeing with LightRowRule), ApplyGhostLighting's own core (GhostRowCore: the ghost's own row first, then the
++        //           local player's stand-in, then the default -- with no local player, the default) and fldmcf's tint: the dressed
++        //           body (F4) and the ghost wearing its model (F4g) read
 +        //           (80, 96, 120) on floor 0 and (56, 72, 88) on floors 1-2, the default row (128, 128, 128) / (104, 104, 96);
 +        //           DefaultMcfRow is the row stock's own default lookup (-1) finds; a mapconfig with no 98 row falls to the default;
-+        //   lever   PolishOnRule (`polish off` acts on the selftest role only), TrySetPolish's refusal, and the per-load reset (every s141
-+        //           counter and witness back to its sentinel);
++        //   lever   PolishOnRule (`polish off` acts on the selftest role only), the value rule (PolishValueRule: TrySetPolish's refusal
++        //           and its accepted on / off), and the per-load reset (every s141 counter and witness -- the carried go a LIVE object
++        //           first -- back to its sentinel, the lever untouched);
 +        //   mutants the swapped ordinal, "19 is harmless", the step sound on 18 / 19, any frame of 25 / 38 mapped, the swapped hand pair,
 +        //           every bone remapped, a lever-blind mesh drop, the source row before an own row, no source fallback, the ghost's s140
 +        //           lp.model, a lever acting off the selftest role -- each required to be caught.
@@ -838,9 +996,11 @@ index a964da3..ea73fd3 100644
 +                Row(bypass == null, "lever: under `polish off` FootstepDecision sends every 16-19 op on every rig 0-12 through as read "
 +                    + "(bypassed: no map, no drop, no count); other codes stay untouched" + (bypass != null ? " -- " + bypass : ""),
 +                    ref rows, ref fail);
-+                Row(GuardRows(), "guard: a 19 headed for an EMPTY table is dropped (stock DeleteChar indexes charSoundArray[-1]) under "
-+                    + "either lever state, on a mapped and a passed op alike (field 2930's 190); never a 16-18, never a non-empty table; a "
-+                    + "drop rig's 19 is the rig's drop (the rule first)", ref rows, ref fail);
++                Row(GuardRows() && GuardReplayRows(), "guard: a 19 headed for an EMPTY table is dropped (stock DeleteChar indexes "
++                    + "charSoundArray[-1]) under either lever state, on a mapped and a passed op alike (field 2930's 190); never a 16-18, "
++                    + "never a non-empty table; a drop rig's 19 is the rig's drop (the rule first); in a load's replay the moogle's twelve "
++                    + "then 2930's RunModelCode(19, 190, 4, 0) read [] with 13 dropped (the bench's F2d), `polish off` Zidane's four, and "
++                    + "Freya's 19 on (25, 13) DeleteChar's top shrink", ref rows, ref fail);
 +                // --- field 250, one load (leg F's oracle)
 +                String f250 = Field250Table(true);
 +                Row(f250 == null, "250: Zidane_Init's twelve footstep ops per load -- F1 Freya [[2553,4,919],[2553,16,919],[2558,0,919],"
@@ -852,9 +1012,9 @@ index a964da3..ea73fd3 100644
 +                    ref rows, ref fail);
 +                // --- the held-prop remap (O6; amendment 5, D3)
 +                String bone = BoneTable(AttachBoneRule);
-+                Row(bone == null, "bone: on every rig 0-12 bone 12 / 13 -> the census R_hand / R_hand_end (Vivi 16 / 17, Freya 12 / 12, "
-+                    + "the moogle 19 / 19, Cinna 24 / 25, Marcus 5 / 6), any other bone left alone (a note); `polish off` leaves every "
-+                    + "bone (a bypass)" + (bone != null ? " -- " + bone : ""), ref rows, ref fail);
++                Row(bone == null, "bone: on every rig 0-12 bone 12 / 13 -> the census R_hand / R_hand_end (Vivi 16 / 17, Steiner 15 / 16, "
++                    + "Freya 12 / 12, Amarant 16 / 16, the moogle 19 / 19, Cinna 24 / 25, Marcus 5 / 6), any other bone left alone (a "
++                    + "note); `polish off` leaves every bone (a bypass)" + (bone != null ? " -- " + bone : ""), ref rows, ref fail);
 +                Row(BoneTable(MutantBoneSwap) != null && BoneTable(MutantBoneAny) != null,
 +                    "mutant: the swapped hand pair (12 -> R_hand_end) and a remap of every bone are each caught", ref rows, ref fail);
 +                // --- the mesh-op drop (O7; amendment 6)
@@ -873,9 +1033,11 @@ index a964da3..ea73fd3 100644
 +                    "ghost: the local player's stand-in row is its netDressSrc when dressed, its model otherwise and under `polish off`; "
 +                    + "s140's lp.model is caught" + (ghost != null ? " -- " + ghost : ""), ref rows, ref fail);
 +                String mcf = Mcf250Table();
-+                Row(mcf == null, "mcf: field 250's rows through the REAL lookup -- the dressed Freya (F4) and the ghost wearing her model "
-+                    + "(F4g) take row 98: (80,96,120) on floor 0, (56,72,88) on floors 1-2; `polish off` the default row: (128,128,128) / "
-+                    + "(104,104,96); DefaultMcfRow is stock's own default row; no 98 row -> the default" + (mcf != null ? " -- " + mcf : ""),
++                Row(mcf == null, "mcf: field 250's rows through the REAL lookup and DressedCharRow's and ApplyGhostLighting's own cores "
++                    + "-- the dressed Freya (F4) and the ghost wearing her model (F4g) take row 98: (80,96,120) on floor 0, (56,72,88) on "
++                    + "floors 1-2; `polish off` the default row: (128,128,128) / (104,104,96); DefaultMcfRow is stock's own default row; "
++                    + "no 98 row -> the default; the body core's witness is LightRowRule's; the ghost's own row wins, an undressed local "
++                    + "player stands in with its model, no local player reads the default" + (mcf != null ? " -- " + mcf : ""),
 +                    ref rows, ref fail);
 +                // --- the calibration lever (O9) and the per-load reset (O5)
 +                Row(PolishOnTable(PolishOnRule) == null && PolishOnTable(MutantPolishAnyRole) != null,
@@ -894,10 +1056,13 @@ index a964da3..ea73fd3 100644
 +                {
 +                    _polishOff = savedOff;
 +                }
-+                Row(refused, "lever: `polish` takes on|off only -- `maybe`, none and `1` are refused with the usage, the lever unchanged",
-+                    ref rows, ref fail);
-+                Row(ResetRow(), "reset: OnSoundTableReset puts every s141 counter and witness back to its sentinel (0, -1, null) -- the "
-+                    + "per-load law: a warm return reads one load, never 24 (the live values restored after)", ref rows, ref fail);
++                Row(refused && PolishValueRule(" OFF ") == 0 && PolishValueRule("On") == 1 && PolishValueRule("maybe") == -1
++                    && PolishValueRule(null) == -1 && PolishValueRule("1") == -1,
++                    "lever: `polish` takes on|off only -- `maybe`, none and `1` are refused with the usage, the lever unchanged; ` OFF ` "
++                    + "and `On` are taken (the value rule: DressMode's trim + lower-case)", ref rows, ref fail);
++                Row(ResetRow(), "reset: OnSoundTableReset puts every s141 counter and witness back to its sentinel (0, -1, null; the "
++                    + "carried go a live object first) and leaves the lever as set -- the per-load law: a warm return reads one load, "
++                    + "never 24 (the live values restored after)", ref rows, ref fail);
 +            }
 +            catch (Exception err)
 +            {
@@ -928,10 +1093,11 @@ index a964da3..ea73fd3 100644
 +            { 2975, 7,  18, 2981,  6, 16, 0 },     // 12 Beatrix
 +        };
 +
-+        // Per rig 0-12: { R_hand, R_hand_end } (read_skeleton; Cinna's and Marcus's from the kit's geometry heuristic).
++        // Per rig 0-12: { R_hand, R_hand_end } -- polish.json e_hands (the install's skin: the hand's bone and its child, else the hand
++        // itself; cross-checked against stock's own AttachObject on each body), never labels_for.
 +        private static readonly Int32[,] PolishHandOracle =
 +        {
-+            { 12, 13 }, { 16, 17 }, { 14, 15 }, { 14, 15 }, { 12, 12 }, { 13, 14 }, { 14, 15 }, { 15, 16 }, { 19, 19 },
++            { 12, 13 }, { 16, 17 }, { 14, 15 }, { 15, 16 }, { 12, 12 }, { 13, 14 }, { 14, 15 }, { 16, 16 }, { 19, 19 },
 +            { 24, 25 }, { 5, 6 }, { 13, 14 }, { 15, 16 },
 +        };
 +
@@ -1045,6 +1211,29 @@ index a964da3..ea73fd3 100644
 +                && FootstepDecision(moogle, 4, 1, -100, 0, true, 0, out a, out f, out s) == StepUntouched;
 +        }
 +
++        // Field 2930's RunModelCode(19, 190, 4, 0) (Zidane_Init, test2_790.txt:515 -- the bench field's F2d conductor runs the same op)
++        // and a 19 on Zidane's walk key (25, 13).
++        private static readonly Int32[,] Guard2930 = { { 19, 190, 4, 0 } };
++        private static readonly Int32[,] GuardKey19 = { { 19, 25, 13, 0 } };
++
++        // THE GUARD INSIDE A LOAD'S REPLAY (the census twin, polish_census.expected_steps with the guard): the moogle's twelve drop
++        // (the rule) and 2930's 19 on 190 then meets the table they emptied (the guard) -- [] with 13 dropped (the bench's F2d shape:
++        // the kit player registers the same twelve keys); `polish off` registers the twelve, so the 19 is stock's no-op on a
++        // non-empty table (Zidane's four, 0 dropped); Freya's 19 on (25, 13) maps to (2553, 16) and DeleteChar shrinks from the TOP
++        // (the matched record stays, (2558, 9) leaves); a lone 19 on an empty table is the guard's.
++        private static Boolean GuardReplayRows()
++        {
++            NetSyncVisitor.Rig freya, moogle;
++            if (!NetSyncVisitor.TryGetRig(4, out freya) || !NetSyncVisitor.TryGetRig(NetSyncVisitor.MoogleRig, out moogle))
++                return false;
++            Int32 d1, d2, d3, d4;
++            return Replay(moogle, true, out d1, Field250Steps, Guard2930) == "[]" && d1 == 13
++                && Replay(moogle, false, out d2, Field250Steps, Guard2930) == "[[25,4,919],[25,13,919],[38,0,919],[38,8,919]]"
++                && d2 == 0
++                && Replay(freya, true, out d3, Field250Steps, GuardKey19) == "[[2553,4,919],[2553,16,919],[2558,0,919]]" && d3 == 0
++                && Replay(freya, true, out d4, Guard2930) == "[]" && d4 == 1;
++        }
++
 +        // Field 250's twelve Zidane_Init footstep ops (test2_67.txt:1092-1109; Zidane_13 runs the same twelve on a warm return), in
 +        // script order: { code, anim, frame, Arg4 }.
 +        private static readonly Int32[,] Field250Steps =
@@ -1083,7 +1272,7 @@ index a964da3..ea73fd3 100644
 +                if (!NetSyncVisitor.TryGetRig(i, out rig))
 +                    return "rig " + i + ": no row";
 +                Int32 dropped;
-+                String steps = Replay250(rig, polish, out dropped);
++                String steps = Replay(rig, polish, out dropped, Field250Steps);
 +                String want = polish ? Field250Oracle[i] : Field250Oracle[0];
 +                Int32 wantDropped = polish && want == "[]" ? Field250Steps.GetLength(0) : 0;
 +                if (steps != want || dropped != wantDropped)
@@ -1092,39 +1281,55 @@ index a964da3..ea73fd3 100644
 +            return null;
 +        }
 +
-+        // One load of field 250's ops on a body wearing `rig` (the polish as given) into fldchar's table semantics: 16-18 find the
-+        // (anim, frame) record or create one, then set sndEffectID[0] / [1] / the pitch flag. Returns `steps` as published
-+        // ([anim, frame, sndEffectID[0]] in table order) and the ops dropped.
-+        private static String Replay250(NetSyncVisitor.Rig rig, Boolean polish, out Int32 dropped)
++        // One load's footstep ops (each block in order) on a body wearing `rig` (the polish as given) through FootstepDecision into
++        // fldchar's table semantics, engine-exact: 16-18 find the TOP (anim, frame) record (FF9Snd.ff9fieldSoundGetChar scans down
++        // from the top) or create one (NewChar appends), then set sndEffectID[0] / [1] / the pitch flag; 19 runs DeleteChar -- one
++        // charSoundUse-- per matching record, so the TOP records leave whichever matched -- and on an EMPTY table stock indexes
++        // charSoundArray[-1] and throws ("throw": no steps to read). Returns `steps` as published ([anim, frame, sndEffectID[0]] in
++        // table order) and the ops dropped.
++        private static String Replay(NetSyncVisitor.Rig rig, Boolean polish, out Int32 dropped, params Int32[][,] blocks)
 +        {
 +            List<Int32[]> table = new List<Int32[]>();
 +            dropped = 0;
-+            for (Int32 i = 0; i < Field250Steps.GetLength(0); i++)
-+            {
-+                Int32 code = Field250Steps[i, 0], a, f, s;
-+                Int32 v = FootstepDecision(rig, code, Field250Steps[i, 1], Field250Steps[i, 2], Field250Steps[i, 3], polish, table.Count,
-+                                           out a, out f, out s);
-+                if (v == StepDropped || v == StepDroppedEmpty)
++            foreach (Int32[,] ops in blocks)
++                for (Int32 i = 0; i < ops.GetLength(0); i++)
 +                {
-+                    dropped++;
-+                    continue;
++                    Int32 code = ops[i, 0], a, f, s;
++                    Int32 v = FootstepDecision(rig, code, ops[i, 1], ops[i, 2], ops[i, 3], polish, table.Count, out a, out f, out s);
++                    if (v == StepDropped || v == StepDroppedEmpty)
++                    {
++                        dropped++;
++                        continue;
++                    }
++                    if (code < 16 || code > 19)
++                        continue;
++                    if (code == 19)
++                    {
++                        if (table.Count == 0)
++                            return "throw";
++                        Int32 hits = 0;
++                        for (Int32 r = 0; r < table.Count; r++)
++                            if (table[r][0] == a && table[r][1] == f)
++                                hits++;
++                        table.RemoveRange(table.Count - hits, hits);
++                        continue;
++                    }
++                    Int32[] rec = null;
++                    for (Int32 r = table.Count - 1; r >= 0 && rec == null; r--)
++                        if (table[r][0] == a && table[r][1] == f)
++                            rec = table[r];
++                    if (rec == null)
++                    {
++                        rec = new Int32[] { a, f, 0, 0, 0 };
++                        table.Add(rec);
++                    }
++                    if (code == 16)
++                        rec[2] = s & 0xFFFF;
++                    else if (code == 17)
++                        rec[3] = s & 0xFFFF;
++                    else
++                        rec[4] = s == 0 ? 0 : 1;
 +                }
-+                Int32[] rec = null;
-+                for (Int32 r = 0; r < table.Count && rec == null; r++)
-+                    if (table[r][0] == a && table[r][1] == f)
-+                        rec = table[r];
-+                if (rec == null)
-+                {
-+                    rec = new Int32[] { a, f, 0, 0, 0 };
-+                    table.Add(rec);
-+                }
-+                if (code == 16)
-+                    rec[2] = s & 0xFFFF;
-+                else if (code == 17)
-+                    rec[3] = s & 0xFFFF;
-+                else if (code == 18)
-+                    rec[4] = s == 0 ? 0 : 1;
-+            }
 +            System.Text.StringBuilder sb = new System.Text.StringBuilder("[");
 +            for (Int32 r = 0; r < table.Count; r++)
 +                sb.Append(r > 0 ? "," : "").Append("[").Append(table[r][0]).Append(",").Append(table[r][1]).Append(",").Append(table[r][2]).Append("]");
@@ -1312,25 +1517,40 @@ index a964da3..ea73fd3 100644
 +        {
 +            DMSMapConf mcf = McfOf(McfChar(0xFFFF, 16, 11, 16, 16, 16), McfChar(176, 1, 8, 8, 10, 13), McfChar(98, 1, 10, 10, 12, 15));
 +            DMSMapConf no98 = McfOf(McfChar(0xFFFF, 16, 11, 16, 16, 16), McfChar(176, 1, 8, 8, 10, 13));
-+            Int32 on = ChosenRow(mcf, 192, 98, true), off = ChosenRow(mcf, 192, 98, false);
-+            if (on != 98 || off != DefaultMcfRow)
-+                return "the dressed Freya's row: polish on " + on + ", off " + off + " (want 98 / 65535)";
-+            String t0 = McfTint(fldmcf.ff9fieldMCFGetCharByID(mcf, on), 0, 0, 0), t1 = McfTint(fldmcf.ff9fieldMCFGetCharByID(mcf, on), -3, -3, -4);
-+            if (t0 != "80,96,120" || t1 != "56,72,88")
-+                return "the 98 row's tint " + t0 + " / " + t1;
-+            String d0 = McfTint(fldmcf.ff9fieldMCFGetCharByID(mcf, off), 0, 0, 0), d1 = McfTint(fldmcf.ff9fieldMCFGetCharByID(mcf, off), -3, -3, -4);
-+            if (d0 != "128,128,128" || d1 != "104,104,96")
-+                return "the default row's tint " + d0 + " / " + d1;
 +            DMSMapChar? stockDefault = fldmcf.ff9fieldMCFGetCharByID(mcf, -1), mine = fldmcf.ff9fieldMCFGetCharByID(mcf, DefaultMcfRow);
 +            if (stockDefault == null || mine == null || stockDefault.Value.geoNo != mine.Value.geoNo || mine.Value.geoNo != 0xFFFF)
 +                return "DefaultMcfRow is not the row stock's default lookup (-1) finds";
-+            if (ChosenRow(no98, 192, 98, true) != DefaultMcfRow)
++            DMSMapChar? rOn, rOff, rNo98, rZid;
++            Int32 on = CoreRow(mcf, 192, 98, true, out rOn), off = CoreRow(mcf, 192, 98, false, out rOff);
++            if (on != 98 || off != DefaultMcfRow || rOff != null)
++                return "the dressed Freya's row: polish on " + on + ", off " + off + " (want 98 / 65535; -1 = the core's witness and "
++                       + "LightRowRule part)";
++            String t0 = McfTint(rOn, 0, 0, 0), t1 = McfTint(rOn, -3, -3, -4);
++            if (t0 != "80,96,120" || t1 != "56,72,88")
++                return "the 98 row's tint " + t0 + " / " + t1;
++            DMSMapChar? lit = rOff != null ? rOff : stockDefault;             // fldmcf: the core's null -> the stock default row
++            String d0 = McfTint(lit, 0, 0, 0), d1 = McfTint(lit, -3, -3, -4);
++            if (d0 != "128,128,128" || d1 != "104,104,96")
++                return "the default row's tint " + d0 + " / " + d1;
++            if (CoreRow(no98, 192, 98, true, out rNo98) != DefaultMcfRow || rNo98 != null)
 +                return "a mapconfig with no 98 row did not fall to the default";
-+            if (ChosenRow(mcf, 98, 0, true) != 98)
++            if (CoreRow(mcf, 98, 0, true, out rZid) != 98 || McfTint(rZid, 0, 0, 0) != "80,96,120")
 +                return "an undressed Zidane did not read his own 98 row";
-+            Int32 g = GhostRowChosen(mcf, 192, 192, 98, true), gOff = GhostRowChosen(mcf, 192, 192, 98, false);
-+            if (g != 98 || gOff != DefaultMcfRow || McfTint(fldmcf.ff9fieldMCFGetCharByID(mcf, g), 0, 0, 0) != "80,96,120")
-+                return "the ghost wearing the dressed Freya: polish on " + g + ", off " + gOff + " (want 98 / 65535)";
++            Int32 g, gOff, gOwn, gZid, gNoLp, gNo98;
++            DMSMapChar? rg = GhostRowCore(mcf, 192, true, 192, 98, true, out g), rgOff = GhostRowCore(mcf, 192, true, 192, 98, false, out gOff);
++            if (g != 98 || gOff != DefaultMcfRow || McfTint(rg, 0, 0, 0) != "80,96,120" || McfTint(rgOff, 0, 0, 0) != "128,128,128")
++                return "the ghost wearing the dressed Freya: polish on " + g + " " + McfTint(rg, 0, 0, 0) + ", off " + gOff + " "
++                       + McfTint(rgOff, 0, 0, 0) + " (want 98 80,96,120 / 65535 128,128,128)";
++            DMSMapChar? rgOwn = GhostRowCore(mcf, 176, true, 192, 98, true, out gOwn);
++            if (gOwn != 176 || McfTint(rgOwn, 0, 0, 0) != "64,80,104")
++                return "a ghost whose own model has a row (176) read " + gOwn + " (the stand-in before the ghost's own row)";
++            if (GhostRowCore(mcf, 192, true, 98, 0, true, out gZid) == null || gZid != 98)
++                return "an undressed local player (Zidane) did not stand in with its model: " + gZid;
++            DMSMapChar? rgNoLp = GhostRowCore(mcf, 192, false, 192, 98, true, out gNoLp);
++            if (gNoLp != DefaultMcfRow || McfTint(rgNoLp, 0, 0, 0) != "128,128,128")
++                return "no local player: the ghost read " + gNoLp + " (want the default 65535)";
++            if (GhostRowCore(no98, 192, true, 192, 98, true, out gNo98) == null || gNo98 != DefaultMcfRow)
++                return "a mapconfig with no 98 row: the ghost read " + gNo98 + " (want the default 65535)";
 +            return null;
 +        }
 +
@@ -1353,21 +1573,16 @@ index a964da3..ea73fd3 100644
 +            return m;
 +        }
 +
-+        // DressedCharRow's choice through the REAL lookup (the lever as given): the row id the body's tint and shadow use.
-+        private static Int32 ChosenRow(DMSMapConf mcf, Int32 model, Int32 dressSrc, Boolean polish)
++        // DressedCharRow's own core through the REAL lookup (the lever as given): fldmcf's own-row lookup first (as the stock service
++        // does), then DressedRowCore -- `row` the row it returns (null = the stock default row), the result its `used` witness; -1
++        // when that witness and the pure LightRowRule part (the two can never disagree).
++        private static Int32 CoreRow(DMSMapConf mcf, Int32 model, Int32 dressSrc, Boolean polish, out DMSMapChar? row)
 +        {
-+            Boolean own = fldmcf.ff9fieldMCFGetCharByID(mcf, model) != null;
-+            Boolean src = dressSrc != 0 && fldmcf.ff9fieldMCFGetCharByID(mcf, dressSrc) != null;
-+            return LightRowRule(model, own, dressSrc, src, polish);
-+        }
-+
-+        // ApplyGhostLighting's choice: the ghost model's row, else the local player's stand-in row (GhostLpRowRule), else the default.
-+        private static Int32 GhostRowChosen(DMSMapConf mcf, Int32 ghostModel, Int32 lpModel, Int32 lpDressSrc, Boolean polish)
-+        {
-+            if (fldmcf.ff9fieldMCFGetCharByID(mcf, ghostModel) != null)
-+                return ghostModel & 0xFFFF;
-+            Int32 lp = GhostLpRowRule(lpModel, lpDressSrc, polish);
-+            return fldmcf.ff9fieldMCFGetCharByID(mcf, lp) != null ? lp & 0xFFFF : DefaultMcfRow;
++            DMSMapChar? own = fldmcf.ff9fieldMCFGetCharByID(mcf, model);
++            Int32 used;
++            row = DressedRowCore(mcf, model, dressSrc, own, polish, out used);
++            Boolean hasSrc = dressSrc != 0 && fldmcf.ff9fieldMCFGetCharByID(mcf, dressSrc) != null;
++            return used == LightRowRule(model, own != null, dressSrc, hasSrc, polish) ? used : -1;
 +        }
 +
 +        // fldmcf.ff9fieldMCFService's tint, engine-exact: (Byte)((char clr + light clr) << 3) per channel -- what fldchar writes into
@@ -1380,24 +1595,34 @@ index a964da3..ea73fd3 100644
 +            return (Byte)(((Int32)c[0] + lr) << 3) + "," + (Byte)(((Int32)c[1] + lg) << 3) + "," + (Byte)(((Int32)c[2] + lb) << 3);
 +        }
 +
-+        // The per-load reset on the live statics, restored after: every s141 counter and witness back to its sentinel.
++        // The per-load reset on the live statics, restored after: every s141 counter and witness set AWAY from its sentinel first --
++        // the carried go to a LIVE object (the EventEngine's own; none to probe with = a failed row) --, the lever held OFF, then
++        // OnSoundTableReset: every one back to its sentinel, and the lever STILL off (a load never releases the bench's lever: only
++        // ReleaseBench does).
 +        private static Boolean ResetRow()
 +        {
 +            Int32 sd = StepsDropped, sp = StepsPassed, sf = StepsFired, sfp = StepsFiredPlayer, md = MeshDrops, ar = AttachRemaps,
 +                  an = AttachNotes, lr = LightRow, glr = GhostLightRow, au = AttachLastUid, abi = AttachLastBoneIn, abo = AttachLastBoneOut;
 +            GameObject go = _attachLastGo;
++            Boolean off = _polishOff;
 +            Boolean l1 = _loggedStepDrop, l2 = _loggedUnbindEmpty, l3 = _loggedMeshDrop, l4 = _loggedAttach;
 +            try
 +            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                GameObject probe = ee != null ? ee.gameObject : null;
++                if (probe == null)
++                    return false;
 +                StepsDropped = StepsPassed = StepsFired = StepsFiredPlayer = MeshDrops = AttachRemaps = AttachNotes = 7;
 +                LightRow = GhostLightRow = 98;
 +                AttachLastUid = AttachLastBoneIn = AttachLastBoneOut = 13;
++                _attachLastGo = probe;
++                _polishOff = true;
 +                _loggedStepDrop = _loggedUnbindEmpty = _loggedMeshDrop = _loggedAttach = true;
 +                OnSoundTableReset();
 +                return StepsDropped == 0 && StepsPassed == 0 && StepsFired == 0 && StepsFiredPlayer == 0 && MeshDrops == 0
 +                       && AttachRemaps == 0 && AttachNotes == 0 && LightRow == -1 && GhostLightRow == -1 && AttachLastUid == -1
 +                       && AttachLastBoneIn == -1 && AttachLastBoneOut == -1 && ReferenceEquals(_attachLastGo, null)
-+                       && !_loggedStepDrop && !_loggedUnbindEmpty && !_loggedMeshDrop && !_loggedAttach;
++                       && !_loggedStepDrop && !_loggedUnbindEmpty && !_loggedMeshDrop && !_loggedAttach && _polishOff;
 +            }
 +            finally
 +            {
@@ -1414,6 +1639,7 @@ index a964da3..ea73fd3 100644
 +                AttachLastBoneIn = abi;
 +                AttachLastBoneOut = abo;
 +                _attachLastGo = go;
++                _polishOff = off;
 +                _loggedStepDrop = l1;
 +                _loggedUnbindEmpty = l2;
 +                _loggedMeshDrop = l3;
@@ -1424,8 +1650,39 @@ index a964da3..ea73fd3 100644
          // ================================================================ THE SELF-DRESS PROOF (the selftest role; once, with the proof block)
          // "[NetSync] self-dress selftest: OK (N rows)" (NetSyncClient's proof block, beside the s139 dress lines) and
          // `netsync.dress.self.selftest` (null until it ran, then "ok" | "fail: <row>"). Every s140 rule as a row, run where the engine's
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
+index a375f77..7a62c48 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
+@@ -71,6 +71,12 @@ namespace Memoria.Netsync
+         //   StepSound  the step-sound override (Steiner 925, both slots); 0 = keep the source key's id.
+         //   IdleAlias  the second id naming the same idle clip (Zidane 200 / 324 share ANH_MAIN_F0_ZDN_IDLE: classify by NAME).
+         //   HandBone / HandBoneEnd   R_hand / R_hand_end (s141's prop remap).
++        // [ff9mapkit netsync s141] ...re-derived for s141 off the INSTALL, never labels_for (which sits one bone toward the shoulder
++        //              on Steiner's and Amarant's arms): HandBone = the bone owning the HAND's skin (the third skinned bone of the
++        //              right arm: upper arm, forearm, hand), HandBoneEnd = its child (Zidane's 0-vertex end leaf; Cinna's hammer
++        //              bone), else the hand itself (a vertex-owning leaf: Freya, Amarant, the moogle) -- cross-checked against stock's
++        //              own AttachObject on the same body (studies/battle-coop/dress-census/polish.json e_hands): Steiner 15 / 16
++        //              (stock's Sword at 16, Purple_Bottle at 15 -- Zidane's at 13 / 12), Amarant 16 / 16 (stock carries Vivi at 16).
+         // Internal (TryGetRig) so s140's self-dress reads the same rows; no engine path but the dress reads them.
+         internal struct Rig
+         {
+@@ -97,11 +103,11 @@ namespace Memoria.Netsync
+             new Rig(98,   200,  25,   38,   40,   41,    93,  57,    4,  13,     0,  8,     0,    324,   12, 13),   // 0 Zidane
+             new Rig(8,    148,  571,  419,  917,  918,   61,  912,   4,  14,     0,  9,     0,    573,   16, 17),   // 1 Vivi
+             new Rig(185,  2089, 2086, 2091, 2088, 2084,  91,  3160,  4,  15,     0,  9,     0,    2090,  14, 15),   // 2 Garnet
+-            new Rig(5489, 2001, 1996, 2005, 1986, 2010,  104, 119,   4,  14,     0,  9,     925,  2002,  14, 15),   // 3 Steiner
++            new Rig(5489, 2001, 1996, 2005, 1986, 2010,  104, 119,   4,  14,     0,  9,     925,  2002,  15, 16),   // 3 Steiner [ff9mapkit netsync s141] hand 15 / 16 (was 14 / 15: his elbow / wrist)
+             new Rig(192,  2556, 2553, 2558, 2555, 2551,  94,  0,     4,  16,     0,  9,     0,    2557,  12, 12),   // 4 Freya
+             new Rig(273,  3228, 3237, 3230, 3235, 3227,  92,  0,     -1, -1,     -1, -1,    0,    3229,  13, 14),   // 5 Quina
+             new Rig(443,  7503, 7518, 7506, 7516, 7514,  63,  9590,  1,  13,     0,  9,     0,    7504,  14, 15),   // 6 Eiko
+-            new Rig(509,  8307, 8316, 8312, 8310, 8314,  122, 0,     6,  23,     10, 21,    0,    8308,  15, 16),   // 7 Amarant
++            new Rig(509,  8307, 8316, 8312, 8310, 8314,  122, 0,     6,  23,     10, 21,    0,    8308,  16, 16),   // 7 Amarant [ff9mapkit netsync s141] hand 16 / 16, a leaf (was 15 / 16: his elbow)
+             new Rig(220,  2904, 2927, 2907, 2923, 2911,  50,  0,     -1, -1,     -1, -1,    0,    2905,  19, 19),   // 8 the MOOGLE [ff9mapkit netsync s139]
+             // [ff9mapkit netsync s140] CharacterId 8-11, each its census row (rigs_8_11.json; "model eye" = SetModel's modal pair)
+             new Rig(107,  470,  761,  105,  104,  107,   87,  0,     -1, -1,     -1, -1,    0,    101,   24, 25),   // 9  Cinna   (CharacterId 8)  GEO_SUB_F0_CNA: SetModel(107, 87) 24 of 24; no stock footsteps; R_hand 24 / 25 (the hammer bone)
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
-index 6743a64..3855595 100644
+index 6743a64..100e646 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoEventCode.cs
 @@ -1283,6 +1283,8 @@ public partial class EventEngine
@@ -1451,7 +1708,7 @@ index 6743a64..3855595 100644
                              if (this.gCur.sid == 8 && effMapNo == 62 || this.gCur.sid == 2 && effMapNo == 3010)
                                  bone_index = 19;
 +                            PosObj dressCarrier = carryingObj as PosObj; // [ff9mapkit netsync s141]
-+                            if (dressCarrier != null && dressCarrier.netSelfDress != 0) // [ff9mapkit netsync s141] D3: a DRESSED carrier's bone 12 / 13 -> its rig's R_hand / R_hand_end (the rig table), BEFORE geoAttach stores attachTargetBoneIndex (the warm return re-attaches it)
++                            if (dressCarrier != null && dressCarrier.netSelfDress != 0) // [ff9mapkit netsync s141] D3: a DRESSED carrier's bone 12 / 13 -> its rig's R_hand / R_hand_end (the rig table), BEFORE geoAttach stores attachTargetBoneIndex (the dressed index; stock restores it only on 1508 -- elsewhere a warm return re-attaches only through a re-run AttachObject, which passes this hook again)
 +                                bone_index = Memoria.Netsync.NetSyncSelfDress.AtAttach(attachedObj, dressCarrier, bone_index);
                              geo.geoAttach(attachedGo, carryingGo, bone_index);
                          }

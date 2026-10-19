@@ -7433,8 +7433,9 @@ DRESS_GHOST_SENTINELS = {"model": -1, "geo": None, "clip": None, "rig": -1, "pla
                          "rest_mask": -1, "shown_mask": -1, "hidden": None,
                          # [ff9mapkit netsync s141] the mapconfig row the ghost's tint used (ApplyGhostLighting: the ghost
                          # model's own row, else the LOCAL player's stand-in row -- its netDressSrc when dressed and the
-                         # polish is on, else its model -- else 65535); -1 = no re-tint this field load
-                         "light_row": -1}
+                         # polish is on, else its model -- else 65535); -1 = no re-tint this field load; then the tint it
+                         # WROTE, read back off the ghost's first renderer's `_Color` (null = no ghost / no renderer)
+                         "light_row": -1, "light_rgb": None}
 #: [ff9mapkit netsync s138] Each dress rung's OWN `ghost` keys, frozen at its patch, in AppendDress's order -- the rows the
 #: bench probe (coop_self_dress.probe), the stand-in's per-rung ghost (fakegame) and the s138 patch pin read; only the
 #: live-catch pins read the union (:data:`DRESS_GHOST_SENTINELS`). s139 adds its row ("dresshost": its five levers).
@@ -7443,8 +7444,9 @@ DRESS_GHOST_KEYS_BY_RUNG = {"dressinstr": ("model", "geo", "clip", "rig", "playi
                             # ghost's visibility
                             "dresshost": ("bench_mask", "empty_mask", "rule", "wire", "wire_anim", "mode", "rest_mask",
                                           "shown_mask", "hidden"),
-                            # [ff9mapkit netsync s141] the ghost's lighting row, at the END of `ghost` (after `hidden`)
-                            "dresspolish": ("light_row",)}
+                            # [ff9mapkit netsync s141] the ghost's lighting row and the tint it wrote, at the END of `ghost`
+                            # (after `hidden`)
+                            "dresspolish": ("light_row", "light_rgb")}
 #: `netsync.dress.party`'s two non-member values: an EMPTY slot (FF9.party.member[i] null) and an UNREADABLE one (its read
 #: threw: AppendDress's Try fallback) -- never read -2 as an empty seat the engine's ResolveAuto saw. The catch line's
 #: [-1 x 4] means the whole block failed to build.
@@ -7464,13 +7466,15 @@ DRESS_SELF_SENTINELS = {"knob": False, "armed": False, "src": -1, "want_model": 
 #: [ff9mapkit netsync s141] THE DRESS POLISH's keys inside `netsync.dress.self`, after `selftest` -- AppendDressPolish's
 #: order and sentinels (audit 3.1's table + the orchestrator's `attach_last` and `polish`): `steps` [] (the engine's OWN
 #: footstep table filtered to the controlled uid, [anim, frame, sndEffectID[0]] triples -- never null live), the per-load
-#: counts 0, `light_row` -1, `light_rgb` null (a nullable list), `attach_last` a FIXED sub-object written whole (its
+#: counts 0, `light_row` -1, `light_rgb` null (a nullable list; the body's OWN first mesh renderer's `_Color`),
+#: `light_floor` -1 (the floor fldmcf lit the body by: light_rgb's oracle input), `attach_last` a FIXED sub-object written whole (its
 #: `parent` a nullable string: the carried go's LIVE transform.parent name) and `polish` false (the lever AS SET; its live
 #: default is true -- the house rule for a boolean sentinel, as s140's `knob` / `gate`). :data:`DRESS_SELF_SENTINELS`
 #: stays s140's own frozen row; the LIVE `self` is the two in order (:data:`DRESS_SELF_KEYS_BY_RUNG`).
 DRESS_POLISH_ATTACH_LAST_KEYS = ("uid", "bone_in", "bone_out", "parent")
 DRESS_POLISH_SENTINELS = {"steps": [], "steps_dropped": 0, "steps_passed": 0, "steps_fired": 0, "steps_fired_player": 0,
-                          "light_row": -1, "light_rgb": None, "mesh_drops": 0, "attach_remaps": 0, "attach_notes": 0,
+                          "light_row": -1, "light_rgb": None, "light_floor": -1, "mesh_drops": 0, "attach_remaps": 0,
+                          "attach_notes": 0,
                           "attach_last": {"uid": -1, "bone_in": -1, "bone_out": -1, "parent": None}, "polish": False}
 DRESS_POLISH_KEYS = tuple(DRESS_POLISH_SENTINELS)
 #: [ff9mapkit netsync s141] Each rung's OWN keys inside `netsync.dress.self`, frozen at its patch (the stand-in publishes its
@@ -7595,18 +7599,21 @@ def eye_of(eye_byte: int) -> int:
 #:   walk_step_a/b, run_step_a/b   the footfall frames (RunModelCode(16, clip, frame)); -1 = none (Quina, the moogle)
 #:   step_sound the step-sound override (Steiner 925); 0 = keep the source key's id
 #:   idle_alias the second id naming the same idle clip (classify by NAME)
-#:   hand_bone / hand_bone_end   R_hand / R_hand_end (s141's prop remap)
+#:   hand_bone / hand_bone_end   R_hand / R_hand_end (s141's prop remap) -- [ff9mapkit netsync s141] the INSTALL's pair, never
+#:              labels_for (one bone toward the shoulder on Steiner's and Amarant's arms): the skin's hand (the right arm's
+#:              third skinned bone) and its end (the next bone, else the hand), checked against stock's own AttachObject on
+#:              each body (polish.json e_hands) -- Steiner 15 / 16 (was 14 / 15), Amarant 16 / 16 (was 15 / 16)
 RIG_COLUMNS = ("model", "idle", "walk", "run", "turn_l", "turn_r", "eye", "inactive", "walk_step_a", "walk_step_b",
                "run_step_a", "run_step_b", "step_sound", "idle_alias", "hand_bone", "hand_bone_end")
 RIGS = (
     (98, 200, 25, 38, 40, 41, 93, 57, 4, 13, 0, 8, 0, 324, 12, 13),                 # 0 Zidane
     (8, 148, 571, 419, 917, 918, 61, 912, 4, 14, 0, 9, 0, 573, 16, 17),             # 1 Vivi
     (185, 2089, 2086, 2091, 2088, 2084, 91, 3160, 4, 15, 0, 9, 0, 2090, 14, 15),    # 2 Garnet
-    (5489, 2001, 1996, 2005, 1986, 2010, 104, 119, 4, 14, 0, 9, 925, 2002, 14, 15),  # 3 Steiner
+    (5489, 2001, 1996, 2005, 1986, 2010, 104, 119, 4, 14, 0, 9, 925, 2002, 15, 16),  # 3 Steiner (s141: hand 15 / 16)
     (192, 2556, 2553, 2558, 2555, 2551, 94, 0, 4, 16, 0, 9, 0, 2557, 12, 12),        # 4 Freya
     (273, 3228, 3237, 3230, 3235, 3227, 92, 0, -1, -1, -1, -1, 0, 3229, 13, 14),     # 5 Quina
     (443, 7503, 7518, 7506, 7516, 7514, 63, 9590, 1, 13, 0, 9, 0, 7504, 14, 15),     # 6 Eiko
-    (509, 8307, 8316, 8312, 8310, 8314, 122, 0, 6, 23, 10, 21, 0, 8308, 15, 16),     # 7 Amarant
+    (509, 8307, 8316, 8312, 8310, 8314, 122, 0, 6, 23, 10, 21, 0, 8308, 16, 16),     # 7 Amarant (s141: hand 16 / 16, a leaf)
     (220, 2904, 2927, 2907, 2923, 2911, 50, 0, -1, -1, -1, -1, 0, 2905, 19, 19),     # 8 the MOOGLE
     # [ff9mapkit netsync s140] OWNER (2026-10-17): CharacterId 8-11 get "their own models" -- each row ONLY from the install's
     # census (studies/battle-coop/dress-census/rigs_8_11.json `rows`; a test pins these to it AND to the s140 patch)
@@ -7623,6 +7630,12 @@ RIGS = (
 MAIN_RIG_COUNT = 8
 RIG_ROW_COUNT = 13
 RIG_ROW_COUNT_S139 = 9                   # [ff9mapkit netsync s140] the s139 engine's Rigs.Length (rig_idle_frames: 9)
+#: [ff9mapkit netsync s141] the s139 patch's OWN nine rows, frozen: s141 corrected two hand pairs IN PLACE (rlook-1 / 2:
+#: Steiner 14 / 15 -> 15 / 16, Amarant 15 / 16 -> 16 / 16 -- s139's were labels_for reads, one bone toward the shoulder),
+#: so the s139 view keeps s139's literals (no s139 or s140 path reads the hand columns: s141's prop remap is their consumer)
+RIG_HAND_FIX_S141 = {3: ((14, 15), (15, 16)), 7: ((15, 16), (16, 16))}
+RIGS_S139 = tuple(r[:14] + RIG_HAND_FIX_S141[i][0] if i in RIG_HAND_FIX_S141 else r
+                  for i, r in enumerate(RIGS[:RIG_ROW_COUNT_S139]))
 SUB_RIG_FIRST = 9                        # [ff9mapkit netsync s140] rig 9 = CharacterId 8 (Cinna) .. rig 12 = 11 (Beatrix)
 SUB_CHAR_FIRST = 8                       # [ff9mapkit netsync s140] CharacterId 8, the first non-main with a rig
 SUB_RIG_COUNT = 4                        # [ff9mapkit netsync s140] Cinna, Marcus, Blank, Beatrix
@@ -8986,7 +8999,8 @@ def parse_defines_player(raw, sid=0) -> bool:
 
 # ---- s140's frozen view of s139 (an s139 engine -- the calibration engine of s140, `caps_through("dresshost")`)
 def _s139_rig_row(rig) -> dict | None:
-    return rig_row(rig) if isinstance(rig, int) and not isinstance(rig, bool) and 0 <= rig < RIG_ROW_COUNT_S139 else None
+    return dict(zip(RIG_COLUMNS, RIGS_S139[rig])) if isinstance(rig, int) and not isinstance(rig, bool) and \
+        0 <= rig < RIG_ROW_COUNT_S139 else None
 
 
 def _s139_rig_for_model(model) -> int:
@@ -9046,7 +9060,7 @@ def _s139_mutant_moogle_on_client(mask, mwe, slot_char) -> tuple:
 #: calibration engine for s140 (``caps_through("dresshost")``) runs. Every name here is the live module's twin of the
 #: same name, frozen at s139.
 S139 = SimpleNamespace(
-    RIGS=RIGS[:RIG_ROW_COUNT_S139], RIG_ROW_COUNT=RIG_ROW_COUNT_S139,
+    RIGS=RIGS_S139, RIG_ROW_COUNT=RIG_ROW_COUNT_S139,
     NAME_TO_RIG={k: v for k, v in NAME_TO_RIG.items() if v < RIG_ROW_COUNT_S139},
     RIG_NAMES=RIG_NAMES[:RIG_ROW_COUNT_S139], DRESS_SELFTEST_ROWS=DRESS_SELFTEST_ROWS_S139,
     SELFDRESS_OPS=SELFDRESS_OPS_S139, DRESS_AUTO_TABLE=DRESS_AUTO_TABLE_S139,
@@ -9414,19 +9428,41 @@ def mcf_light_color(mcf, model, floor, dress_src: int = 0, polish: bool = True, 
     return {"row": row_id, "rgb": mcf_tint(row[3], lt[1] if lt is not None else (0, 0, 0))}
 
 
+def dressed_row_core(mcf, model, dress_src, own, polish) -> tuple:
+    """NetSyncSelfDress.DressedRowCore -> (row, used): ``own`` (the mapconfig's row for the actor's own model, or None) when
+    it has one, else -- on a dressed body (dress_src != 0) with the polish on -- the SOURCE row (:func:`mcf_char`), else
+    None (the stock default row); ``used`` names the row RETURNED (its geoNo; DEFAULT_MCF_ROW for None)."""
+    src = mcf_char(mcf, dress_src) if own is None and polish and dress_src != 0 else None
+    row = own if own is not None else src
+    return row, (int(row[0]) if row is not None else DEFAULT_MCF_ROW)
+
+
+def ghost_row_core(mcf, ghost_model, has_lp, lp_model, lp_dress_src, polish, rule=None) -> tuple:
+    """NetSyncSelfDress.GhostRowCore (ApplyGhostLighting's own row choice, through GhostRow) -> (row, used): the ghost
+    model's own row; else, with a local player (``has_lp``), its stand-in row (:func:`ghost_lp_row_rule`, ``rule``
+    replacing it); else the stock default row (lookup -1); ``used`` names the row RETURNED (DEFAULT_MCF_ROW for the
+    default); row None = no row at all."""
+    used = int(ghost_model) & 0xFFFF
+    row = mcf_char(mcf, ghost_model)
+    if row is None and has_lp:
+        used = int((rule or ghost_lp_row_rule)(lp_model, lp_dress_src, polish)) & 0xFFFF
+        row = mcf_char(mcf, used)
+    if row is None:
+        used = DEFAULT_MCF_ROW
+        row = mcf_char(mcf, -1)
+    return row, used
+
+
 def ghost_mcf_light_color(mcf, ghost_model, lp_model, lp_floor, lp_dress_src: int = 0, polish: bool = True) -> dict:
-    """NetSyncClient.ApplyGhostLighting with s141's GhostLpRow -> {"row", "rgb"}: the ghost model's own row, else the LOCAL
-    player's stand-in row (:func:`ghost_lp_row_rule`), else the default row; the light the local player's floor light,
-    else the default light. `netsync.dress.ghost.light_row` is the row; -1 / None with no mapconfig (a kit field)."""
+    """NetSyncClient.ApplyGhostLighting with s141's GhostRow -> {"row", "rgb"}: :func:`ghost_row_core` with a local player
+    (the ghost model's own row, else the LOCAL player's stand-in row, else the default row); the light the local player's
+    floor light, else the default light. `netsync.dress.ghost.light_row` is the row; -1 / None with no mapconfig (a kit
+    field)."""
     if not mcf:
         return {"row": -1, "rgb": None}
-    if mcf_char(mcf, ghost_model) is not None:
-        row_id = int(ghost_model) & 0xFFFF
-    else:
-        lp = ghost_lp_row_rule(lp_model, lp_dress_src, polish)
-        row_id = int(lp) & 0xFFFF if mcf_char(mcf, lp) is not None else DEFAULT_MCF_ROW
+    row, row_id = ghost_row_core(mcf, ghost_model, True, lp_model, lp_dress_src, polish)
     lt = mcf_floor_light(mcf, lp_floor) or next((x for x in mcf["lights"] if x[0] == 1), None)
-    return {"row": row_id, "rgb": mcf_tint(mcf_char(mcf, row_id)[3], lt[1] if lt is not None else (0, 0, 0))}
+    return {"row": row_id, "rgb": mcf_tint(row[3], lt[1] if lt is not None else (0, 0, 0))}
 
 
 # ---- the calibration lever (O9)
@@ -9435,17 +9471,24 @@ def polish_on_rule(polish_off, self_test_role) -> bool:
     return not polish_off or not self_test_role
 
 
-def try_set_polish(val) -> tuple:
-    """NetSyncSelfDress.TrySetPolish -> (ok, why, polish_off): DressMode's trim + lower-case, then `on` / `off`; anything
-    else (null, `1`, `maybe`) is refused with :data:`POLISH_USAGE` and changes nothing (polish_off None)."""
+def polish_value_rule(val) -> int:
+    """NetSyncSelfDress.PolishValueRule: DressMode's trim + lower-case, then 1 = `on`, 0 = `off`, -1 = refused."""
     v = dress_mode(val)
-    if v not in ("on", "off"):
+    return 1 if v == "on" else 0 if v == "off" else -1
+
+
+def try_set_polish(val, rule=None) -> tuple:
+    """NetSyncSelfDress.TrySetPolish -> (ok, why, polish_off): :func:`polish_value_rule` (``rule`` replaces it); a
+    refusal (null, `1`, `maybe`) answers :data:`POLISH_USAGE` and changes nothing (polish_off None)."""
+    v = (rule or polish_value_rule)(val)
+    if v < 0:
         return False, POLISH_USAGE, None
-    return True, None, v == "off"
+    return True, None, v == 0
 
 
 #: NetSyncSelfDress.OnSoundTableReset's statics at their sentinels (the per-load law: HonoluluFieldMain.ff9InitStateFieldMap
-#: right after FF9StateFieldMap.ff9ResetStateFieldMap -- one field load each; a test pins the C# body statement for statement).
+#: right after FF9StateFieldMap.ff9ResetStateFieldMap -- one field load each; a test pins the C# body statement for statement;
+#: the `polish` lever, `_polishOff`, is NOT one of them: a load never releases it, only ReleaseBench does).
 POLISH_LOAD_SENTINELS = {"StepsDropped": 0, "StepsPassed": 0, "StepsFired": 0, "StepsFiredPlayer": 0, "MeshDrops": 0,
                          "AttachRemaps": 0, "AttachNotes": 0, "LightRow": -1, "GhostLightRow": -1, "AttachLastUid": -1,
                          "AttachLastBoneIn": -1, "AttachLastBoneOut": -1, "_attachLastGo": None, "_loggedStepDrop": False,
@@ -9465,8 +9508,9 @@ POLISH_FOOT_ORACLE = (
     (2553, 4, 16, 2558, 0, 9, 0), (-1, -1, -1, -1, -1, -1, 0), (7518, 1, 13, 7506, 0, 9, 0), (8316, 6, 23, 8312, 10, 21, 0),
     (-1, -1, -1, -1, -1, -1, 0), (-1, -1, -1, -1, -1, -1, 0), (367, 4, 18, 365, 0, 10, 0), (5225, 7, 18, 5222, 6, 16, 0),
     (2975, 7, 18, 2981, 6, 16, 0))
-#: PolishHandOracle: per rig 0-12 {R_hand, R_hand_end} (read_skeleton; Cinna's and Marcus's from the kit's geometry heuristic).
-POLISH_HAND_ORACLE = ((12, 13), (16, 17), (14, 15), (14, 15), (12, 12), (13, 14), (14, 15), (15, 16), (19, 19), (24, 25),
+#: PolishHandOracle: per rig 0-12 {R_hand, R_hand_end} -- polish.json e_hands (the install's skin: the hand's bone and its end,
+#: else the hand itself; cross-checked against stock's own AttachObject on each body), never labels_for.
+POLISH_HAND_ORACLE = ((12, 13), (16, 17), (14, 15), (15, 16), (12, 12), (13, 14), (14, 15), (16, 16), (19, 19), (24, 25),
                       (5, 6), (13, 14), (15, 16))
 POLISH_KEY_ANIM = (25, 25, 38, 38)
 POLISH_KEY_FRAME = (4, 13, 0, 8)
@@ -9580,11 +9624,50 @@ def guard_rows(decision=None, unbind=None) -> bool:
             and d(moogle, 4, 1, -100, 0, True, 0)[0] == STEP_UNTOUCHED)
 
 
+def replay_ops(rig, polish, *blocks, decision=None, dispatch=None) -> tuple:
+    """PolishSelfTest's Replay -> (`steps` text -- "throw" when stock DeleteChar would index charSoundArray[-1] -- , ops
+    dropped): each block's ops in order through FootstepDecision into fldchar's table semantics (16-18 find the TOP (anim,
+    frame) record or create one; 19 DeleteChar's top shrink)."""
+    got = replay_steps(rig, [op for block in blocks for op in block], polish=polish, decision=decision, dispatch=dispatch)
+    return ("throw" if got["faults"] else steps_text(got["steps"])), got["steps_dropped"]
+
+
 def replay250(rig, polish, decision=None, dispatch=None) -> tuple:
-    """PolishSelfTest's Replay250 -> (`steps` text, ops dropped): field 250's twelve ops through FootstepDecision into
-    fldchar's table semantics (16-18 find the (anim, frame) record or create one)."""
-    got = replay_steps(rig, FIELD250_STEPS, polish=polish, decision=decision, dispatch=dispatch)
-    return steps_text(got["steps"]), got["steps_dropped"]
+    """PolishSelfTest's Replay over field 250's twelve ops (:data:`FIELD250_STEPS`)."""
+    return replay_ops(rig, polish, FIELD250_STEPS, decision=decision, dispatch=dispatch)
+
+
+#: Guard2930: field 2930 Zidane_Init's RunModelCode(19, 190, 4, 0) (test2_790.txt:515 -- the bench field's F2d op);
+#: GuardKey19: a 19 on Zidane's walk key (25, 13).
+GUARD_2930 = ((19, 190, 4, 0),)
+GUARD_KEY19 = ((19, 25, 13, 0),)
+#: GuardReplayRows' literals -- polish_census.expected_steps(guard=True) over the same ops (a test pins them there):
+#: (rig, polish, blocks, steps text, dropped)
+GUARD_REPLAY_ORACLE = (
+    (RIG_MOOGLE, True, ("FIELD250_STEPS", "GUARD_2930"), "[]", 13),
+    (RIG_MOOGLE, False, ("FIELD250_STEPS", "GUARD_2930"), "[[25,4,919],[25,13,919],[38,0,919],[38,8,919]]", 0),
+    (4, True, ("FIELD250_STEPS", "GUARD_KEY19"), "[[2553,4,919],[2553,16,919],[2558,0,919]]", 0),
+    (4, True, ("GUARD_2930",), "[]", 1))
+
+
+def guard_replay_rows(decision=None, dispatch=None, rigs=None) -> bool:
+    """PolishSelfTest's GuardReplayRows: THE GUARD INSIDE A LOAD'S REPLAY (:data:`GUARD_REPLAY_ORACLE`) -- the moogle's
+    twelve dropped then 2930's 19 on the emptied table ([] with 13: the bench's F2d), `polish off` stock's no-op on
+    Zidane's four, Freya's 19 on (25, 13) DeleteChar's top shrink, a lone 19 on an empty table the guard's."""
+    table = _rigs_of(rigs)
+    for rig, polish, names, want, want_dropped in GUARD_REPLAY_ORACLE:
+        blocks = [globals()[n] for n in names]
+        if replay_ops(table[rig], polish, *blocks, decision=decision, dispatch=dispatch) != (want, want_dropped):
+            return False
+    return True
+
+
+#: THE KIT PLAYER'S footstep registrations (the bench field 30606's player Init: the blank template's RunModelCode 16 / 17 /
+#: 18 on Zidane's four keys, Arg4 912 / 912 / 1 -- read off the seated build; a template-gated test pins them there): the
+#: stand-in's FAKE_FIELD_FOOTSTEPS[30606], F2d's precondition (a drop rig drops all twelve, so 2930's 19 meets an EMPTY table).
+KIT_PLAYER_STEPS = ((16, 25, 4, 912), (17, 25, 4, 912), (18, 25, 4, 1), (16, 25, 13, 912), (17, 25, 13, 912),
+                    (18, 25, 13, 1), (16, 38, 0, 912), (17, 38, 0, 912), (18, 38, 0, 1), (16, 38, 8, 912),
+                    (17, 38, 8, 912), (18, 38, 8, 1))
 
 
 def field250_table(polish, decision=None, rigs=None, dispatch=None) -> str | None:
@@ -9673,54 +9756,76 @@ def polish_on_table(rule) -> str | None:
     return None
 
 
-def mcf250_table(light_rule=None, ghost_rule=None, mcf=None, tint_fn=None) -> str | None:
+def mcf250_table(light_rule=None, ghost_rule=None, mcf=None, tint_fn=None, core=None, ghost_core=None) -> str | None:
     """PolishSelfTest's Mcf250Table: field 250's three rows (``mcf``, default :data:`FIELD250_MCF`) through the lookup's
-    twin (:func:`mcf_char`) and fldmcf's tint -- the dressed Freya (F4) and the ghost wearing her model (F4g) take row 98:
-    (80, 96, 120) on floor 0, (56, 72, 88) on floors 1-2; `polish off` the default row (128, 128, 128) / (104, 104, 96);
-    DefaultMcfRow is the row the stock -1 lookup finds; no 98 row -> the default; an undressed Zidane reads his own 98."""
-    lr, gr, tf = light_rule or light_row_rule, ghost_rule or ghost_lp_row_rule, tint_fn or mcf_tint
+    twin (:func:`mcf_char`), DressedCharRow's OWN core (:func:`dressed_row_core`, ``core`` replacing it: CoreRow -- its
+    `used` witness required to equal :func:`light_row_rule`'s answer, ``light_rule`` replacing that), ApplyGhostLighting's
+    OWN core (:func:`ghost_row_core`, ``ghost_core`` replacing it; ``ghost_rule`` the stand-in rule it is handed) and
+    fldmcf's tint -- the dressed Freya (F4) and the ghost wearing her model (F4g) take row 98: (80, 96, 120) on floor 0,
+    (56, 72, 88) on floors 1-2; `polish off` the default row (128, 128, 128) / (104, 104, 96); DefaultMcfRow is the row the
+    stock -1 lookup finds; no 98 row -> the default; an undressed Zidane reads his own 98; the ghost's OWN row (176) wins
+    over the stand-in, an undressed local player (Zidane) stands in with his 98, no local player reads the default."""
+    lr, gr, tf, cr = light_rule or light_row_rule, ghost_rule or ghost_lp_row_rule, tint_fn or mcf_tint, core or dressed_row_core
+    gc = ghost_core or ghost_row_core
     mcf = FIELD250_MCF if mcf is None else mcf
     no98 = {"chars": tuple(c for c in mcf["chars"] if c[0] != 98), "lights": mcf["lights"]}
 
-    def chosen(m, model, src, polish):
-        return lr(model, mcf_char(m, model) is not None, src, src != 0 and mcf_char(m, src) is not None, polish)
+    def core_row(m, model, src, polish):
+        own = mcf_char(m, model)
+        row, used = cr(m, model, src, own, polish)
+        has_src = src != 0 and mcf_char(m, src) is not None
+        return (used if used == lr(model, own is not None, src, has_src, polish) else -1), row
 
-    def tint(row_id, light):
-        row = mcf_char(mcf, row_id)
+    def tint_of(row, light):
         return "none" if row is None else ",".join(str(x) for x in tf(row[3], light))
 
-    on, off = chosen(mcf, 192, 98, True), chosen(mcf, 192, 98, False)
-    if on != 98 or off != DEFAULT_MCF_ROW:
-        return f"the dressed Freya's row: polish on {on}, off {off} (want 98 / 65535)"
-    t0, t1 = tint(on, (0, 0, 0)), tint(on, (-3, -3, -4))
-    if t0 != "80,96,120" or t1 != "56,72,88":
-        return f"the 98 row's tint {t0} / {t1}"
-    d0, d1 = tint(off, (0, 0, 0)), tint(off, (-3, -3, -4))
-    if d0 != "128,128,128" or d1 != "104,104,96":
-        return f"the default row's tint {d0} / {d1}"
     stock, mine = mcf_char(mcf, -1), mcf_char(mcf, DEFAULT_MCF_ROW)
     if stock is None or mine is None or stock[0] != mine[0] or mine[0] != 0xFFFF:
         return "DefaultMcfRow is not the row stock's default lookup (-1) finds"
-    if chosen(no98, 192, 98, True) != DEFAULT_MCF_ROW:
+    (on, r_on), (off, r_off) = core_row(mcf, 192, 98, True), core_row(mcf, 192, 98, False)
+    if on != 98 or off != DEFAULT_MCF_ROW or r_off is not None:
+        return (f"the dressed Freya's row: polish on {on}, off {off} (want 98 / 65535; -1 = the core's witness and "
+                f"LightRowRule part)")
+    t0, t1 = tint_of(r_on, (0, 0, 0)), tint_of(r_on, (-3, -3, -4))
+    if t0 != "80,96,120" or t1 != "56,72,88":
+        return f"the 98 row's tint {t0} / {t1}"
+    lit = r_off if r_off is not None else stock
+    d0, d1 = tint_of(lit, (0, 0, 0)), tint_of(lit, (-3, -3, -4))
+    if d0 != "128,128,128" or d1 != "104,104,96":
+        return f"the default row's tint {d0} / {d1}"
+    no98_used, no98_row = core_row(no98, 192, 98, True)
+    if no98_used != DEFAULT_MCF_ROW or no98_row is not None:
         return "a mapconfig with no 98 row did not fall to the default"
-    if chosen(mcf, 98, 0, True) != 98:
+    zid_used, zid_row = core_row(mcf, 98, 0, True)
+    if zid_used != 98 or tint_of(zid_row, (0, 0, 0)) != "80,96,120":
         return "an undressed Zidane did not read his own 98 row"
 
-    def ghost_chosen(ghost_model, lp_model, lp_src, polish):
-        if mcf_char(mcf, ghost_model) is not None:
-            return ghost_model & 0xFFFF
-        lp = gr(lp_model, lp_src, polish)
-        return lp & 0xFFFF if mcf_char(mcf, lp) is not None else DEFAULT_MCF_ROW
-    g, g_off = ghost_chosen(192, 192, 98, True), ghost_chosen(192, 192, 98, False)
-    if g != 98 or g_off != DEFAULT_MCF_ROW or tint(g, (0, 0, 0)) != "80,96,120":
-        return f"the ghost wearing the dressed Freya: polish on {g}, off {g_off} (want 98 / 65535)"
+    (rg, g), (rg_off, g_off) = gc(mcf, 192, True, 192, 98, True, rule=gr), gc(mcf, 192, True, 192, 98, False, rule=gr)
+    if g != 98 or g_off != DEFAULT_MCF_ROW or tint_of(rg, (0, 0, 0)) != "80,96,120" or \
+            tint_of(rg_off, (0, 0, 0)) != "128,128,128":
+        return (f"the ghost wearing the dressed Freya: polish on {g} {tint_of(rg, (0, 0, 0))}, off {g_off} "
+                f"{tint_of(rg_off, (0, 0, 0))} (want 98 80,96,120 / 65535 128,128,128)")
+    rg_own, g_own = gc(mcf, 176, True, 192, 98, True, rule=gr)
+    if g_own != 176 or tint_of(rg_own, (0, 0, 0)) != "64,80,104":
+        return f"a ghost whose own model has a row (176) read {g_own} (the stand-in before the ghost's own row)"
+    rg_zid, g_zid = gc(mcf, 192, True, 98, 0, True, rule=gr)
+    if rg_zid is None or g_zid != 98:
+        return f"an undressed local player (Zidane) did not stand in with its model: {g_zid}"
+    rg_nolp, g_nolp = gc(mcf, 192, False, 192, 98, True, rule=gr)
+    if g_nolp != DEFAULT_MCF_ROW or tint_of(rg_nolp, (0, 0, 0)) != "128,128,128":
+        return f"no local player: the ghost read {g_nolp} (want the default 65535)"
+    rg_no98, g_no98 = gc(no98, 192, True, 192, 98, True, rule=gr)
+    if rg_no98 is None or g_no98 != DEFAULT_MCF_ROW:
+        return f"a mapconfig with no 98 row: the ghost read {g_no98} (want the default 65535)"
     return None
 
 
 def reset_row(reset=None) -> bool:
     """PolishSelfTest's ResetRow over a model of the per-load statics: every one set away from its sentinel (counts 7, the
-    light rows 98, the attach ids 13, the logged flags true, the go a stand-in object), then OnSoundTableReset (``reset``,
-    default :func:`on_sound_table_reset`) -- True when every one reads its sentinel after."""
+    light rows 98, the attach ids 13, the logged flags true, the go a LIVE stand-in object -- the engine probes with the
+    EventEngine's own) and the `polish` lever held OFF (``_polishOff`` True), then OnSoundTableReset (``reset``, default
+    :func:`on_sound_table_reset`) -- True when every one reads its sentinel after AND the lever is still off (a load never
+    releases it)."""
     away = {}
     for k, v in POLISH_LOAD_SENTINELS.items():
         if v is None:
@@ -9731,8 +9836,10 @@ def reset_row(reset=None) -> bool:
             away[k] = 98
         else:
             away[k] = 7 if v == 0 else 13
+    away["_polishOff"] = True
     (reset or on_sound_table_reset)(away)
-    return away == POLISH_LOAD_SENTINELS
+    lever = away.pop("_polishOff", None)
+    return away == POLISH_LOAD_SENTINELS and lever is True
 
 
 # ---- PolishSelfTest's mutants (each required to be caught by its table)

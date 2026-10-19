@@ -441,39 +441,62 @@ those and stays green under each. EVERY EXPECTED VALUE IS READ OFFLINE -- the or
   * the expected `steps` per rig: the census's OWN pure twin (polish_census.expected_steps: MapFootstep, then stock
     FF9Snd's find-or-create table) replayed over those ops -- polish on, off, and the warm return's;
   * the light: the stock field's MapConfigData (the census's load_mcf: ff9mapkit.mapconfig.parse) through the census's pure
-    light_color / ghost_light_color, per WALKMESH FLOOR; the floor the player stands on is named by the kit's stock walkmesh
-    (floors_at) at the LIVE published x / z -- the published `player.floor` is s83's dead battle-entry snapshot (channel.py
+    light_color / ghost_light_color, per WALKMESH FLOOR (and 255, none: the default light); the floor is the ENGINE's
+    `self.light_floor` -- the FF9FieldCharState.floor fldmcf lit the body by, written with the tint: the oracle's INPUT,
+    never its answer -- and the kit's stock walkmesh (floors_at) at the LIVE published x / z is reported beside it (the two
+    disagreeing is a red with both shown); the published `player.floor` is s83's dead battle-entry snapshot (channel.py
     player_floor_battle_snapshot), never read. Field 250's rows: 0xFFFF (16, 16, 16), 176, 98 (10, 12, 15); floor 0's
     light (0, 0, 0) -> the 98 row (80, 96, 120), the default (128, 128, 128); floors 1-2 (-3, -3, -4) -> (56, 72, 88) /
-    (104, 104, 96). (The kit's walkmesh puts 250's entrance-0 spawn (2921, -1830) on floor 2: (56, 72, 88) there --
-    whichever floor the player stands on, the oracle follows it.);
-  * F8's rig skeleton (models.bone_labels.read_skeleton + labels_for, :func:`hand_oracle_read`): its R_hand_end bone NAME.
+    (104, 104, 96). (The kit's walkmesh puts 250's entrance-0 spawn (2921, -1830) on floor 2: (56, 72, 88) there.);
+  * F2d's: the bench field's player footstep registrations off the DEPLOYED 30606 .eb (the kit template's twelve: 16 /
+    17 / 18 on 25 @ 4 / 13, 38 @ 0 / 8, Arg4 912) and the conductor's op checked against field 2930's own bytes (the
+    stock form), replayed for the moogle through the census twin WITH the engine's guard (expected_steps(guard=True)):
+    one load, then the op -- +1 dropped, +0 passed, steps [] -- and its PRECONDITION checked, not assumed: the player Init
+    is the footstep table's ONLY writer (:func:`bench_table_writers`: every other CHRFX 16-18 in the deployed .eb is the
+    named problem `f2d table` and F2d reads "not reached" -- the engine's guard reads the GLOBAL table, the replay the
+    player's registrations alone);
+  * F8's rig hand off the install's SKIN (polish_census.skin_hand over the kit's models.extract.read_model -- NEVER
+    labels_for, which sits one bone toward the shoulder on Steiner's arm: :func:`hand_oracle_read`), cross-checked
+    against the census's e_hands (stock's own AttachObject on the same body): its R_hand_end bone NAME.
   CROSS-CHECKS, each a named problem: the census's clip ids against the kit's, the twin's rig row (battlewire.RIGS: pairs,
-  step sound, hand bones), 250's ops and mapconfig rows against battlewire.FIELD250_STEPS / FIELD250_MCF.
+  step sound, hand bones), 250's ops and mapconfig rows against battlewire.FIELD250_STEPS / FIELD250_MCF, 30606's player
+  registrations against battlewire.KIT_PLAYER_STEPS (the stand-in's), the F2d op against field 2930's.
   -- the "bench" phase (after leg T): the proof, then the bench field 30606 (S140-PF: its preflight FAILS CLOSED, and an
-     s140-seated .eb -- no F5 conductors -- reads STALE until `selfdress_bench.py deploy` re-seats it) --
+     s140-seated .eb -- no F5 / F2d conductors -- reads STALE until `selfdress_bench.py deploy` re-seats it) --
   FP    the dress polish proof: 'dress polish selftest: OK (20 rows)' (the proof block, at S0; no key publishes it -- the
         line is the record).
   F5    `self steiner` + a warp: the caller's F5H (HideObject(250, 1)) on the dressed body -> DONE_F5H, mesh_drops +1 or more
         across it and `player.meshflags` 0 on every publish after it (the op DROPPED: stock sets bit 1 << 1 = 2); then F5S
         (ShowObject(250, 1)) -> DONE_F5S and meshflags 0 (restored in every mode: PosObj.copy carries meshflags into a warm
         return).
-  F8    the same load -- STEINER: his HandBoneEnd is 15 (bone015, labels_for's R_hand_end), never 13; his skeleton HAS a
-        bone013 (his R_forearm), so `polish off` attaches there and reads a real parent 'bone013' (a judged red); his R_hand
-        / R_hand_end are distinct, so a swapped pair shows too (Freya's R_hand is a leaf: 12 / 12) --: F8A (AttachObject(the
+  F8    the same load -- STEINER: his HandBoneEnd is 16 (bone016, the 0-vertex end leaf under his gauntlet bone 15: the
+        skin's, and where stock's own AttachObject puts the Sword on his body), never 13; his skeleton HAS a bone013 (his
+        upper arm), so `polish off` attaches there and reads a real parent 'bone013' (a judged red); his R_hand / R_hand_end
+        are distinct (15 / 16), so a swapped pair shows too (Freya's hand is a leaf: 12 / 12) --: F8A (AttachObject(the
         cup 4, 250, 13)) -> DONE_F8A, attach_remaps +1 and attach_notes +0 across it, `attach_last` == {uid 4, bone_in 13,
-        bone_out 15, parent 'bone015'} (the parent the carried go's LIVE transform parent, matched by NAME against the
-        skeleton's R_hand_end); F8D (DetachObject(4)) -> DONE_F8D and the parent no longer that bone (read live, never a
+        bone_out 16, parent 'bone016'} (the parent the carried go's LIVE transform parent, matched by NAME against the
+        skin's R_hand_end); F8D (DetachObject(4)) -> DONE_F8D and the parent no longer that bone (read live, never a
         value cached at the attach).
+  F2d   THE EMPTY-TABLE GUARD's in-game witness: `self moogle` + a fresh load of 30606 (the player's Init registers the
+        twelve keys, the moogle DROPS them all: the table is EMPTY), then the caller's F2d -- RunScript(2, 250, 51) into the
+        PLAYER's entry (CHRFX acts on gCur): field 2930's RunModelCode(19, 190, 4, 0) verbatim (a code 19 on a NON-pair id:
+        the rule passes it, only the guard can drop it) -> DONE_F2D, steps_dropped +1, steps_passed +0, `steps` [], the
+        s140 `faults` +0, no fault / IndexOutOfRangeException line since the trigger, and the guard's own line ("from an
+        EMPTY table -- dropped"). WEDGED_F2D (the player's function never returned: the caller's bound) is a judged red,
+        recovered by a warp.
   -- the "self" phase, on the stock field (250), after leg S --
   F1    `self freya` + a FRESH load (entrance 0): `steps` as (anim, frame) pairs in TABLE order == the oracle's Freya set
-        [(2553, 4), (2553, 16), (2558, 0), (2558, 9)], no duplicate key, steps_dropped 0, steps_passed 0 (per load). Every F
-        row first PINS the body it asked for (player.model the oracle's, self.rig), else "not reached".
+        [(2553, 4), (2553, 16), (2558, 0), (2558, 9)], steps_dropped 0, steps_passed 0 (per load) -- and no duplicate key
+        (a STOCK invariant, never a polish witness: fldchar's find-or-create never appends a key twice). Every F row first
+        PINS the body it asked for (player.model the oracle's, self.rig), else "not reached".
   F4    the same publish: light_row 98 (the SOURCE row: her 192 has none on 250) and light_rgb == the census tint of the 98
-        row on the floor the walkmesh puts the published x / z on -- with player.model 192 (an UNDRESSED Zidane reads his
-        OWN 98 row's colour and publishes no light_row: the colour alone proves nothing).
+        row on `light_floor` (the floor fldmcf lit her by), the kit walkmesh's floor under the published x / z reported
+        beside it (a disagreement is red) -- with player.model 192 (an UNDRESSED Zidane reads his OWN 98 row's colour and
+        publishes no light_row: the colour alone proves nothing).
   F4g   the selftest mirror's ghost wearing the dressed model (192: GhostGuard shows the dressed wire as it is) re-tints by
-        the LOCAL player's stand-in row: `netsync.dress.ghost.light_row` 98 (-1 until its first re-tint this load).
+        the LOCAL player's stand-in row: `netsync.dress.ghost.light_row` 98 (-1 until its first re-tint this load) AND
+        `ghost.light_rgb` -- the tint ApplyGhostLighting WROTE, read off the ghost's material -- the 98 row's on the
+        player's `light_floor` (the witness the row cannot give: a re-tint that set the row and lost the write).
   F1b   walk the dressed Freya ~3 s (harness input: four ALTERNATING holds of F_WALK_TICKS ticks -- never more than one hold
         from the spawn, 250's exits sit 3000u+ away --, each watched; it must MOVE F_MIN_MOVE_TICKS+ field ticks, else "not
         reached") -> steps_fired +2 or more across the walk (FF9Snd's own frame match on HER clip: the witness the table
@@ -482,23 +505,29 @@ those and stays green under each. EVERY EXPECTED VALUE IS READ OFFLINE -- the or
         SetRandomBattleFrequency(128), encratio > 0; `noencounter` is a booster, never encratio -- so the diorama primes a
         WARM return; the warm diorama return on 250 is two-machine proven): last_return 'warm' (else "not reached"), the body
         still Freya, `steps` == the oracle's warm-return replay (Main_Reinit re-runs the twelve into the table the load
-        reset cleared: the same four, no duplicate), the counters ONE load's (steps_fired 0 at the return: the per-load
-        reset -- before the boot it held F1b's fires), then a walk -> steps_fired +2 or more.
+        reset cleared: the same four), the counters ONE load's (steps_fired 0 at the return: the per-load reset -- judged
+        only when the publish before the boot CARRIED F_FIRED_MIN+ fires: F1b's settled publish, or a fresh walk's when
+        F1b's was taken over -- else "not reached"), then a walk -> steps_fired +2 or more.
   F2    `self moogle` + a fresh load: steps [], steps_dropped 12 (the field's twelve, per load), steps_passed 0, the s140
-        `faults` +0 and no 'self-dress fault' / IndexOutOfRangeException line since the warp. (250 runs no code 19, so this
-        half cannot fail HERE: no synthetic RunModelCode(19, ..) conductor exists -- the engine's guard row is its home.)
+        `faults` +0 and no 'self-dress fault' / IndexOutOfRangeException line since the warp. (250 runs no code 19: this
+        half catches a HOOK fault only -- the code-19 guard's in-game witness is the bench row F2d.)
   F2c   (O1) `self cinna`: as F2 -- no stock footstep registration for any Cinna body (107 / 661), so her ops drop.
-  F7    `self steiner`: his set [(1996, 4), (1996, 14), (2005, 0), (2005, 9)] with sound 925 on EVERY key (D4).
+  F7    `self steiner`: his set [(1996, 4), (1996, 14), (2005, 0), (2005, 9)] with sndEffectID[0] -- code 16's slot, the
+        one `steps` publishes -- 925 on EVERY key (D4; code 17's slot [1] is PolishSelfTest's foot row's, never read here).
   F3    (the control) `self off` + a fresh load: Zidane's own set [(25, 4), (25, 13), (38, 0), (38, 8)], 0 dropped (no hook
         on an undressed body); a walk -> steps_fired_player +2 or more, steps_fired +0.
   Every lever is released at each step's end (`clear`: the polish back on); S138-R holds `polish off` into the reset on an
   s141 engine and reads `self.polish` back TRUE (ReleaseBench's line names `polish`).
-NOT PROVEN BY LEG F: the empty-table code-19 guard in game (no stock field 250 code 19; the engine's PolishSelfTest guard
-row and the stand-in's twin hold it), footstep keys on Zidane's OTHER walk / run ids (COLD_WALK, SWORD_WALK / RUN on 62-64,
-... pass unmapped: the dressed body walks silently there -- KNOWN, census open issue 1), the twin ladder / jump clips
-(amendment 7: not built, O2), the shadow SIZE on the 98 fallback (amendment 4's nit: not built, O3 -- 250 calls
-DisableShadow every frame), a prop on a non-player carrier, RestoreAttachModel on a warm return (the remapped index is what
-attachTargetBoneIndex stores: the census's O6 note), the other hard-coded geoAttach sites (field 112's glasses carry on NPCs;
+NOT PROVEN BY LEG F: footstep keys on Zidane's OTHER walk / run ids (COLD_WALK, SWORD_WALK / RUN on 62-64, ...) pass
+unmapped and never fire -- but every such stock field also registers the plain 25 / 38 keys, which DO fire on the rig's
+native walk / run (s140 maps the variant clip there): the dressed body steps with the plain-walk sound at its own footfalls
+(Blank and Marcus on 62-64, Cinna and the moogle silent; on 2705's FRA_WALK, where stock Zidane is silent) -- KNOWN, census
+open issue 1; a held prop's ORIENTATION (it keeps Zidane's bone-local offset and an identity rotation: in the rig's hand,
+turned to that bone's axes -- KNOWN, cosmetic); a kit whole-body HideObject (dropped with every mesh op: the dressed body
+stays visible -- KNOWN); the twin ladder / jump clips (amendment 7: not built, O2), the shadow SIZE on the 98 fallback
+(amendment 4's nit: not built, O3 -- 250 calls DisableShadow every frame), a prop on a non-player carrier, a prop on a warm
+return (stock restores attachTargetBoneIndex only on 1508; elsewhere a re-run AttachObject passes the hook again), the
+other hard-coded geoAttach sites (field 112's glasses carry on NPCs;
 the 62 / 3010 bone-19 override keys on King Leo's entry), a REAL client's footsteps off a host's section 8 (the selftest
 role's lane: the same hooks; a duo or sitting box), and a kit field's light (no MCF: light_row -1 -- the stand-in's row).
 CALIBRATION (s141): on the live s140 (COOP_CALIBRATE=1) exactly S141_OLD_PREDICTED -- EVERY F row, each red on what s140
@@ -506,19 +535,23 @@ lacks (the dress itself runs there): F1 / F2 / F2c / F6 / F7 read `steps` ABSENT
 s140" assumed `steps`: s140 publishes no footstep table and no fired count -- only the s138 instrument, player.anim / clip,
 25 / 38 while moving, can be read there); F4 / F4g read `light_row` / `ghost.light_row` absent (the body IS on the default
 row there, unwitnessed); F5 reads mesh_drops absent with meshflags 2 (the mesh hidden: the behavioural red); F8 reads
-`attach_last` absent; FP finds no proof line. Before s140 (s137-s139) `self` is refused before the step: every F row "not
-reached" (FP red: no line). On s141, COOP_CALIBRATE=1 COOP_DRESS_CAL=polish-off reds exactly S141_LEVER_PREDICTED -- F1,
-F1b, F2, F2c, F4, F4g, F5, F6, F7, F8 -- each a JUDGED red (a row reading "not reached" is UNPROVEN: S138-CAL fails naming
-it): every footstep op registers as read (Zidane's four keys on every rig, nothing dropped; nothing fires on the rig's own
-clip), the default row (65535) for the body and the ghost, the mesh op runs (meshflags 2), the prop stays on bone 13
-('bone013'). F3 (an undressed body: no hook) and FP (the proof never reads the live lever) stay GREEN. OFFLINE: the
+`attach_last` absent; F2d reads `steps_dropped` absent -- and NO throw there: with no hook the player Init's twelve
+register, the table holds Zidane's four and 2930's 19 on 190 is stock's no-op (the hazard is the polish's own drop); FP
+finds no proof line. Before s140 (s137-s139) `self` is refused before the step: every F row "not reached" (FP red: no
+line). On s141, COOP_CALIBRATE=1 COOP_DRESS_CAL=polish-off reds exactly S141_LEVER_PREDICTED -- F1, F1b, F2, F2c, F2d, F4,
+F4g, F5, F6, F7, F8 -- each a JUDGED red (a row reading "not reached" is UNPROVEN: S138-CAL fails naming it): every
+footstep op registers as read (Zidane's four keys on every rig, nothing dropped; nothing fires on the rig's own clip; F2d's
+19 meets Zidane's four, so the guard has nothing to guard: +0), the default row (65535) for the body and the ghost, the
+mesh op runs (meshflags 2), the prop stays on bone 13 ('bone013'). F3 (an undressed body: no hook) and FP (the proof never
+reads the live lever) stay GREEN. OFFLINE: the
 stand-in's `dresspolish` rung (fakegame) models MapFootstep into the stock table, the fired footsteps, the light rows and
 the tint, the ghost's row, the mesh-op drop and the prop remap per load, and its FAULT LEVERS (fakegame.DRESS_POLISH_FAULTS)
 turn each row red on the shape it exists to catch; test_harness_netsync.py smokes leg F against it in every mode.
 
 s141 ACCEPTANCE (the order matters: the calibration BEFORE the deploy):
-  0. re-seat the bench field (its caller gained F5's conductors): `py studies/battle-coop/bench/selfdress_bench.py deploy`
-     (30606 is registered: it re-deploys in place, no relaunch); S140-PF then reads CLEAN, never STALE.
+  0. re-seat the bench field (its caller gained F5's and F2d's conductors, its player F2d's function), with the owner's yes:
+     `py studies/battle-coop/bench/selfdress_bench.py deploy` (30606 is registered: it re-deploys in place, no relaunch;
+     the runners do it only under RESEAT=yes); S140-PF then reads CLEAN, never STALE.
   1. on the live s140: COOP_CALIBRATE=1 -> S138-CAL green (exactly S141_OLD_PREDICTED red; every earlier leg green).
   2. deploy s141; then this bench (GhostAs auto) green, COOP_CALIBRATE=1 COOP_DRESS_CAL=polish-off COOP_DRESS_LEGS=F ->
      S138-CAL green, and each s140 lever again on legs S / W / X / N / T.
@@ -749,8 +782,9 @@ X_GRACE_S = 5.0                            # X2: control back within the gesture
 X_AFTER_S = 1.5                            # X2: the publishes after DONE_X it judges
 COND_READY_S = 20.0                        # 30606: the caller's READY bit (and control) after a load
 COND_TIMEOUT_S = {"x": 20.0, "t1": 20.0, "t3": 40.0, "n3": 10.0, "j": 10.0,
-                  # [ff9mapkit netsync s141] F5 / F8: one instant op each (no DisableMove), DONE on the caller's next tick
-                  "f5h": 10.0, "f5s": 10.0, "f8a": 10.0, "f8d": 10.0}
+                  # [ff9mapkit netsync s141] F5 / F8: one instant op each (no DisableMove), DONE on the caller's next tick;
+                  # F2d: RunScript into the player, its F2D_END within ~2 ticks (the caller's own bound: F2D_LIMIT)
+                  "f5h": 10.0, "f5s": 10.0, "f8a": 10.0, "f8d": 10.0, "f2d": 10.0}
 N3_AFTER_S = 1.0                           # N3: the publishes after DONE_N3 its late entry is read on
 IDLE_PAST_S = 62.0                         # W1: past the idle timer's longest draw ((200 + 255) << 2 = 1820 ticks at 30 Hz)
 TICK_HZ = 30.0                             # the field tick: a clip's frames play at aspeed 16 = one frame a tick
@@ -900,13 +934,13 @@ LEVER_PREDICTED = {
 # ---- [ff9mapkit netsync s141] LEG F -- THE DRESS POLISH (see the docstring's LEG F)
 #: the rigs leg F dresses as (by NAME, NetSyncSelfDress.SelfNames); every VALUE comes from the s141 oracle (`_f_oracle`)
 F_RIG = "freya"                            # F1 / F1b / F4 / F4g / F6: rig 4, a census pair of her own, no row on 250
-F_DROP = "moogle"                          # F2: rig 8, no stock footfall registration (the audit's own drop rig)
+F_DROP = "moogle"                          # F2 / F2d: rig 8, no stock footfall registration (the audit's own drop rig)
 F_CINNA = "cinna"                          # F2c (O1): rig 9 -- no stock footstep registration for any Cinna body
 F_STEINER = "steiner"                      # F7 (D4): rig 3 -- 925 in both slots in every stock registration
-#: F5 / F8's rig (the bench field): Steiner -- his HandBoneEnd is 15 (bone015, labels_for's R_hand_end), never 13, and his
-#: skeleton HAS a bone013 (his R_forearm), so `polish off` attaches there and reads a real parent 'bone013' (a JUDGED red,
-#: never "not reached"); his R_hand / R_hand_end are DISTINCT (14 / 15), so a swapped pair shows too -- Freya's 12 / 12 (her
-#: R_hand is a leaf: no R_hand_end) would hide it
+#: F5 / F8's rig (the bench field): Steiner -- his HandBoneEnd is 16 (bone016, the skin's end leaf under his gauntlet 15 --
+#: stock's own Sword sits there on his body), never 13, and his skeleton HAS a bone013 (his upper arm), so `polish off`
+#: attaches there and reads a real parent 'bone013' (a JUDGED red, never "not reached"); his R_hand / R_hand_end are
+#: DISTINCT (15 / 16), so a swapped pair shows too -- Freya's 12 / 12 (her hand is a leaf: no end bone) would hide it
 F8_RIG = "steiner"
 F8_BONE = sdf.ATTACH_BONE                  # F8's bone: stock's held-item bone on Zidane (13 -- R_hand_end)
 F_ZIDANE = "zidane"                        # F3's control: `self off` -- the undressed body's own keys
@@ -921,9 +955,11 @@ F_GHOST_LIGHT_S = 3.0                      # F4g: ApplyGhostLighting re-tints ~7
 F_AFTER_S = 0.5                            # F5 / F8: the publishes after a conductor's DONE it judges
 #: the dress polish proof (no key publishes its verdict: the line is the record)
 F_PROOF_LINE = BW.proof_ok(BW.PROOF_DRESS_POLISH, BW.DRESS_POLISH_SELFTEST_ROWS)
-#: the lines a footstep fault would leave (F2 / F2c): the s140 hook's caught-fault line, and a VM throw (stock DeleteChar
-#: indexing charSoundArray[-1] on an EMPTY table)
+#: the lines a footstep fault would leave (F2 / F2c / F2d): the s140 hook's caught-fault line, and a VM throw (stock
+#: DeleteChar indexing charSoundArray[-1] on an EMPTY table -- 250 runs no code 19: F2d is where a 19 meets one)
 F_FAULT_LINES = ("self-dress fault", "IndexOutOfRangeException")
+#: the empty-table guard's OWN line (MapFootstep's StepDroppedEmpty branch, once per load): F2d's 19 took that branch
+F2D_GUARD_LINE = "from an EMPTY table -- dropped"
 #: the install census the footfall pairs come from (studies/battle-coop/dress-census: polish.json, built by polish_census.py
 #: from the 817 stock scripts and the install through the kit's readers; `--check` re-derives it) -- its pure twins
 #: (expected_steps, light_color, ghost_light_color, load_mcf) are the oracle's arithmetic, never battlewire's
@@ -940,30 +976,40 @@ def _catalog_f() -> dict:
     return {
         "S141-F1": "`self freya` + a FRESH load of the stock field: `steps` (as (anim, frame) pairs, in table order) == the "
                    "oracle's Freya set [(2553, 4), (2553, 16), (2558, 0), (2558, 9)] (the census pairs replayed over the "
-                   "field's own footstep ops), no duplicates, steps_dropped 0, steps_passed 0 -- per load",
+                   "field's own footstep ops), steps_dropped 0, steps_passed 0 -- per load (no duplicate key: a stock "
+                   "invariant, not a polish witness)",
         "S141-F1b": "walk the dressed Freya ~3 s (harness input, moving F_MIN_MOVE_TICKS+ field ticks) -> steps_fired +2 or "
                     "more, steps_fired_player +0 (FF9Snd's own frame match on her clip: the witness the table cannot give)",
         "S141-F2": "`self moogle` + a fresh load -> steps [], steps_dropped == the field's footstep op count (12 on 250, per "
-                   "load), steps_passed 0, `faults` +0 and no fault / IndexOutOfRangeException line since the warp",
+                   "load), steps_passed 0, `faults` +0 and no fault / IndexOutOfRangeException line since the warp (250 runs "
+                   "no code 19: a hook fault only -- F2d is the guard's)",
         "S141-F2c": "(O1) `self cinna` -> as F2: no stock footstep registration for any Cinna body, so her ops are DROPPED",
+        "S141-F2d": "30606, `self moogle` (its Init's twelve keys dropped: an EMPTY table): the caller's F2d -- field 2930's "
+                    "RunModelCode(19, 190, 4, 0) in the player's own entry -> DONE_F2D, steps_dropped +1 (the GUARD: the rule "
+                    "passes a 190), steps_passed +0, steps [], `faults` +0, no fault / IndexOutOfRangeException line, the "
+                    "guard's own line logged (WEDGED_F2D a judged red)",
         "S141-F3": "(the control) `self off` + a fresh load -> Zidane's own set [(25, 4), (25, 13), (38, 0), (38, 8)], 0 "
                    "dropped; a walk -> steps_fired_player +2 or more, steps_fired +0",
         "S141-F4": "the F1 load: light_row 98 (the SOURCE row: the rig model has none) and light_rgb == the census tint of the "
-                   "98 row on the floor the walkmesh puts the published x / z on ((80, 96, 120) on 250's floor 0), the body "
-                   "Freya (an undressed Zidane reads his own 98 row's colour: the colour alone proves nothing)",
-        "S141-F4g": "the F1 load: the selftest mirror's ghost wears the dressed model and `netsync.dress.ghost.light_row` == "
-                    "98 (ApplyGhostLighting's stand-in row: the LOCAL player's netDressSrc)",
+                   "98 row on `light_floor`, the floor fldmcf lit the body by ((56, 72, 88) at 250's entrance-0 spawn, floor "
+                   "2; (80, 96, 120) on floor 0), the kit walkmesh's floor under the live x / z beside it (a disagreement "
+                   "is red), the body Freya (an undressed Zidane reads his own 98 row's colour: the colour alone proves "
+                   "nothing)",
+        "S141-F4g": "the F1 load: the selftest mirror's ghost wears the dressed model, `netsync.dress.ghost.light_row` == 98 "
+                    "(ApplyGhostLighting's stand-in row: the LOCAL player's netDressSrc) and `ghost.light_rgb` == that row's "
+                    "tint on the player's `light_floor` (the tint it WROTE, read off the ghost's material)",
         "S141-F5": "30606, `self steiner`: the caller's F5H (HideObject(250, 1)) -> mesh_drops +1 or more and "
                    "`player.meshflags` 0 after it (the op DROPPED on the dressed body); F5S (ShowObject(250, 1)) -> "
                    "meshflags 0 (restored)",
         "S141-F6": "the F1 load, then `dioboot` / `dioleave` (a WARM return) -> the body still Freya, `steps` == the oracle's "
-                   "warm-return set (Main_Reinit's twelve again: the same four, no duplicates), the counters ONE load's "
-                   "(steps_fired 0 at the return), then a walk -> steps_fired +2 or more",
-        "S141-F7": "`self steiner` + a fresh load -> his set [(1996, 4), (1996, 14), (2005, 0), (2005, 9)] with sound 925 on "
-                   "EVERY key (D4: his armour in both slots)",
-        "S141-F8": "30606, `self steiner` (HandBoneEnd 15): F8A (AttachObject(cup, 250, 13)) -> attach_remaps +1, "
-                   "attach_notes +0, `attach_last` {uid 4, bone_in 13, bone_out 15, parent 'bone015'} -- the parent the "
-                   "carried go's LIVE transform parent, matched by NAME against the skeleton's R_hand_end (the oracle); "
+                   "warm-return set (Main_Reinit's twelve again: the same four), the counters ONE load's (steps_fired 0 at "
+                   "the return, judged when the publish before the boot carried 2+ fires), then a walk -> steps_fired +2 or "
+                   "more",
+        "S141-F7": "`self steiner` + a fresh load -> his set [(1996, 4), (1996, 14), (2005, 0), (2005, 9)] with sndEffectID[0] "
+                   "(code 16's slot, the one `steps` publishes) 925 on EVERY key (D4; slot 1 is the proof's foot row's)",
+        "S141-F8": "30606, `self steiner` (HandBoneEnd 16): F8A (AttachObject(cup, 250, 13)) -> attach_remaps +1, "
+                   "attach_notes +0, `attach_last` {uid 4, bone_in 13, bone_out 16, parent 'bone016'} -- the parent the "
+                   "carried go's LIVE transform parent, matched by NAME against the skin's R_hand_end (the oracle); "
                    "F8D (DetachObject) -> the parent no longer that bone",
         "S141-FP": "the dress polish proof: 'dress polish selftest: OK (20 rows)' logged by the proof block (no key "
                    "publishes it: the line is the record)",
@@ -973,21 +1019,25 @@ def _catalog_f() -> dict:
 F_CHECKS = tuple(_catalog_f())
 #: COOP_CALIBRATE=1 on an engine BEFORE s141 -- EVERY F row. On s140 (the live DLL at writing) each is red on the keys s140
 #: lacks (the dress itself runs there: `steps`, the fired counts, `light_row` / `light_rgb`, `ghost.light_row`, mesh_drops,
-#: attach_* are ABSENT; F5 also reads meshflags 2, the behavioural red; FP has no proof line) -- F3 TOO: the audit's "F3
-#: green on s140" assumed `steps`, which s140 never publishes. Before s140 `self` is refused before the step ("not reached").
+#: attach_* are ABSENT; F5 also reads meshflags 2, the behavioural red; F2d reads steps_dropped absent -- no throw there:
+#: with no hook 30606's twelve register, so 2930's 19 meets Zidane's four, stock's no-op; FP has no proof line) -- F3 TOO:
+#: the audit's "F3 green on s140" assumed `steps`, which s140 never publishes. Before s140 `self` is refused before the step
+#: ("not reached").
 S141_OLD_PREDICTED = F_CHECKS
 #: ...on s141 under its lever (COOP_DRESS_CAL=polish-off: `selfdress polish off` before every F load), exactly these red --
 #: each a JUDGED red (a lever row that reads "not reached" is the lever UNPROVEN): every footstep op registers as read
-#: (Zidane's keys on every rig, nothing dropped, nothing fires on the rig's clip: F1 F1b F2 F2c F6 F7), the default row
-#: (65535) for the body and the ghost (F4 F4g), the mesh op runs (F5: meshflags 2), the prop stays on bone 13 ('bone013':
-#: F8). F3 (an undressed body: no hook) and FP (the proof never reads the live lever) stay GREEN.
+#: (Zidane's keys on every rig, nothing dropped, nothing fires on the rig's clip: F1 F1b F2 F2c F6 F7 -- and F2d: the
+#: moogle's twelve REGISTER, so 2930's 19 meets Zidane's four and the guard, though it holds under the lever, has nothing
+#: to guard: +0 dropped, steps Zidane's four -- the empty table is the polish's own drop), the default row (65535) for the
+#: body and the ghost (F4 F4g), the mesh op runs (F5: meshflags 2), the prop stays on bone 13 ('bone013': F8). F3 (an
+#: undressed body: no hook) and FP (the proof never reads the live lever) stay GREEN.
 S141_LEVER_PREDICTED = {
-    CAL_POLISH_OFF: ("S141-F1", "S141-F1b", "S141-F2", "S141-F2c", "S141-F4", "S141-F4g", "S141-F5", "S141-F6", "S141-F7",
-                     "S141-F8"),
+    CAL_POLISH_OFF: ("S141-F1", "S141-F1b", "S141-F2", "S141-F2c", "S141-F2d", "S141-F4", "S141-F4g", "S141-F5", "S141-F6",
+                     "S141-F7", "S141-F8"),
 }
 #: the F rows each phase judges: the 30606 bench rows ("bench", after FP -- the proof block, no field), the stock field's
 #: ("self")
-F_BENCH_CHECKS = ("S141-F5", "S141-F8")
+F_BENCH_CHECKS = ("S141-F5", "S141-F8", "S141-F2d")
 F_STOCK_CHECKS = tuple(c for c in F_CHECKS if c not in F_BENCH_CHECKS + ("S141-FP",))
 
 
@@ -2412,7 +2462,9 @@ def judge_f_steps(st, want: dict, ro: dict, *, rig: int, sound=None, before=None
     for (:func:`f_dress_pin`, else "not reached"): `steps` as (anim, frame) pairs in TABLE order == the oracle's, no
     duplicate key, steps_dropped / steps_passed == the oracle's (ONE load's); with ``sound`` every key's sndEffectID[0] ==
     it (F7: Steiner's 925); with ``before`` (the publish before the warp) the s140 `faults` counter +0 across the load and
-    with ``lines`` (Memoria.log since the warp) no :data:`F_FAULT_LINES` line (F2 / F2c: no code-19 fault)."""
+    with ``lines`` (Memoria.log since the warp) no :data:`F_FAULT_LINES` line (F2 / F2c: a hook fault -- field 250 runs no
+    code 19, so the empty-table guard is F2d's to witness, never these rows'). The duplicate-key half is a STOCK invariant
+    (fldchar's find-or-create never appends a key twice), kept as a malformed-witness check, never as a polish witness."""
     pin = f_dress_pin(st, ro, rig)
     if pin:
         return False, f"{_NR}the body is not the one asked for: {pin}"
@@ -2484,55 +2536,68 @@ def judge_f_fired(walk: dict, ro: dict, *, rig: int, key: str, other: str) -> tu
                 + f"{key} +{d}, {other} +{o} across the walk; {moved}")
 
 
+def _light_floor_read(x, floors) -> tuple:
+    """(the engine's `self.light_floor` as an int or None, the kit walkmesh's floors as a sorted list or None, the text
+    naming both) -- the F4 / F4g oracle's INPUT and its cross-check."""
+    lf = _int((_polish(x) or {}).get("light_floor"))
+    kit = sorted(int(f) for f in floors) if floors is not None else None
+    return lf, kit, f"light_floor {lf!r} (the kit walkmesh puts (x, z) {_pos(x)} on floor(s) {kit})"
+
+
 def judge_f4(st, light: dict, ro: dict, *, rig: int, floors, src: int) -> tuple:
     """F4 (PURE): the dressed body's light on the F1 load's settled publish -- on the body the row asked for (the rig's model,
-    never 98: an UNDRESSED Zidane reads his own 98 row's colour, so the colour alone proves nothing); ``floors`` the
-    walkmesh floors under the publish's OWN x / z (the kit's stock_walkmesh, read offline -- the published `player.floor`
-    is s83's dead battle-entry snapshot, never read); ``light`` the oracle's per-floor table for the rig model ({floor:
-    {"s141": {row, rgb}, "off": {row, rgb}}}: the census's light_color over the field's own MapConfigData): `light_row` ==
-    the source row ``src`` (98) and `light_rgb` == its tint on that floor. A rig model with its OWN row here cannot show the
-    fallback ("not reached"); a point on no floor names no light ("not reached")."""
+    never 98: an UNDRESSED Zidane reads his own 98 row's colour, so the colour alone proves nothing). THE FLOOR is the
+    ENGINE's `light_floor` (the FF9FieldCharState.floor fldmcf lit the body by, written with the tint -- the oracle's INPUT,
+    never its answer); ``light`` the oracle's per-floor table for the rig model ({floor: {"s141": {row, rgb}, "off": {row,
+    rgb}}}: the census's light_color over the field's own MapConfigData, every walkmesh floor and 255 = none): `light_row`
+    == the source row ``src`` (98) and `light_rgb` == its tint on `light_floor`; ``floors`` the kit's stock walkmesh floors
+    under the publish's OWN x / z (read offline -- the published `player.floor` is s83's dead battle-entry snapshot, never
+    read), REPORTED beside it: `light_floor` not among them is a red with both shown, never silently passed. A rig model
+    with its OWN row on that floor cannot show the fallback ("not reached"); no `light_floor` (-1: no mapconfig service for
+    the dressed body) is red."""
     pin = f_dress_pin(st, ro, rig)
     if pin:
         return False, f"{_NR}the body is not the one asked for: {pin}"
-    xz = _pos(st)
-    if not floors:
-        return False, f"{_NR}the published x / z {xz} lie on no walkmesh floor of the field (the oracle names no light)"
-    wants = {int(f): light.get(int(f)) for f in floors}
-    if any(w is None for w in wants.values()):
-        return False, f"{_NR}no oracle light for floor(s) {[f for f, w in wants.items() if w is None]}"
-    if {w["s141"]["row"] for w in wants.values()} != {src}:
-        return False, (f"{_NR}the rig model {ro.get('model')} has its OWN row here ({[w['s141']['row'] for w in wants.values()]}):"
-                       f" F4 cannot see the source-row fallback")
     s = _polish(st)
     if s is None:
         return False, _f_absent(st, "light_row")
     row, rgb = s.get("light_row"), s.get("light_rgb")
-    rgbs = [w["s141"]["rgb"] for w in wants.values()]
-    ok = row == src and isinstance(rgb, list) and list(rgb) in [list(c) for c in rgbs]
-    return ok, (("" if ok else "WRONG -- ") + f"light_row {row!r} light_rgb {rgb!r} at (x, z) {xz} on floor(s) {sorted(wants)} "
-                f"(oracle: row {src}, the source row's tint {rgbs}; the default row's {[w['off']['rgb'] for w in wants.values()]}) "
-                f"on {ro.get('name')} model {ro.get('model')}")
+    lf, kit, where = _light_floor_read(st, floors)
+    if lf is None or lf < 0:
+        return False, f"WRONG -- light_row {row!r} light_rgb {rgb!r}, {where}: no floor the engine lit the dressed body by"
+    w = light.get(lf)
+    if w is None:
+        return False, f"{_NR}no oracle light for {where}"
+    if w["s141"]["row"] != src:
+        return False, (f"{_NR}the rig model {ro.get('model')} has its OWN row on floor {lf} ({w['s141']['row']}): F4 cannot "
+                       f"see the source-row fallback")
+    bad = []
+    if row != src:
+        bad.append(f"light_row {row!r} (want the source row {src})")
+    if not (isinstance(rgb, list) and list(rgb) == list(w["s141"]["rgb"])):
+        bad.append(f"light_rgb {rgb!r} (want the source row's tint on floor {lf}: {w['s141']['rgb']})")
+    if kit is None or lf not in kit:
+        bad.append(f"the engine lit floor {lf}, the kit walkmesh names {kit} at (x, z) {_pos(st)}: the two disagree")
+    return not bad, ((f"WRONG: {'; '.join(bad)} -- " if bad else "")
+                     + f"light_row {row!r} light_rgb {rgb!r} on {where} (oracle: row {src}, the source row's tint "
+                     f"{w['s141']['rgb']}; the default row's {w['off']['rgb']}) on {ro.get('name')} model {ro.get('model')}")
 
 
 def judge_f4g(samples: list, ghost_light: dict, ro: dict, *, rig: int, floors, src: int) -> tuple:
     """F4g (PURE): the ghost's lighting fallback -- on the LAST publish of ``samples`` (the F1 load, FieldHUD, the ghost
     driven) whose ghost has RE-TINTED (`ghost.light_row` != -1, its per-load sentinel) while wearing the dressed body's
-    model (ghost.model == player.model == the rig's: GhostGuard shows the dressed wire as it is), `ghost.light_row` == the
-    oracle's ghost row on the player's floor (``ghost_light``: the census's ghost_light_color -- the ghost model has no row,
-    so ApplyGhostLighting falls to the LOCAL player's stand-in row: 98 while dressed). A ghost model with its own row
-    cannot show it ("not reached"); a ghost that never re-tinted on the dressed model is red."""
+    model (ghost.model == player.model == the rig's: GhostGuard shows the dressed wire as it is): `ghost.light_row` == the
+    oracle's ghost row (``ghost_light``: the census's ghost_light_color -- the ghost model has no row, so ApplyGhostLighting
+    falls to the LOCAL player's stand-in row: 98 while dressed) AND `ghost.light_rgb` -- the tint it WROTE, read off the
+    ghost's material: the witness the row (the engine's own decision) cannot give -- that row's tint on the player's
+    `light_floor` (the ghost is lit by the LOCAL player's floor light); the kit walkmesh's floors (``floors``) reported beside
+    it, a disagreement red. A ghost model with its own row cannot show it ("not reached"); a ghost that never re-tinted on
+    the dressed model is red."""
     if not samples:
         return False, f"{_NR}no publish on the field after the load"
     pin = f_dress_pin(samples[-1], ro, rig)
     if pin:
         return False, f"{_NR}the body is not the one asked for: {pin}"
-    if not floors:
-        return False, f"{_NR}the published x / z {_pos(samples[-1])} lie on no walkmesh floor (the oracle names no light)"
-    wants = {int(f): ghost_light.get(int(f)) for f in floors}
-    if any(w is None for w in wants.values()) or {w["s141"]["row"] for w in wants.values()} != {src}:
-        return False, (f"{_NR}the oracle's ghost rows on floor(s) {sorted(wants)} are {wants} (want the stand-in row {src}: "
-                       f"a ghost model with its own row cannot show the fallback)")
     gh = ((_dress(samples[-1]) or {}).get("ghost") or {})
     if "light_row" not in gh:
         return False, (f"netsync.dress.ghost.light_row ABSENT -- an engine before s141 (the ghost wears "
@@ -2547,11 +2612,30 @@ def judge_f4g(samples: list, ghost_light: dict, ro: dict, *, rig: int, floors, s
                        f"{((_raw(samples[-1]).get('netsync') or {}).get('session') or {}).get('ghost')!r})")
     if not tinted:
         return False, f"the ghost wore {ro.get('model')} on {len(worn)} publishes but never re-tinted (light_row -1)"
-    row = _int(((_dress(tinted[-1]) or {}).get("ghost") or {}).get("light_row"))
-    ok = row == src
-    return ok, (("" if ok else "WRONG -- ") + f"ghost.light_row {row!r} on the dressed model {ro.get('model')} "
-                f"({len(tinted)} re-tinted publishes; oracle {src}: the local player's stand-in row, the default "
-                f"{[w['off']['row'] for w in wants.values()]} under `polish off`)")
+    last = tinted[-1]
+    g = (_dress(last) or {}).get("ghost") or {}
+    row, rgb = _int(g.get("light_row")), g.get("light_rgb")
+    lf, kit, where = _light_floor_read(last, floors)
+    if lf is None or lf < 0:
+        return False, f"WRONG -- ghost.light_row {row!r} light_rgb {rgb!r}, {where}: no floor the engine lit the player by"
+    w = ghost_light.get(lf)
+    if w is None:
+        return False, f"{_NR}no oracle ghost light for {where}"
+    if w["s141"]["row"] != src:
+        return False, (f"{_NR}the oracle's ghost row on floor {lf} is {w['s141']['row']} (want the stand-in row {src}: a "
+                       f"ghost model with its own row cannot show the fallback)")
+    bad = []
+    if row != src:
+        bad.append(f"ghost.light_row {row!r} (want the stand-in row {src})")
+    if not (isinstance(rgb, list) and list(rgb) == list(w["s141"]["rgb"])):
+        bad.append(f"ghost.light_rgb {rgb!r} (want the {src} row's tint on floor {lf}: {w['s141']['rgb']} -- the tint the "
+                   f"re-tint WROTE)")
+    if kit is None or lf not in kit:
+        bad.append(f"the engine lit floor {lf}, the kit walkmesh names {kit} at (x, z) {_pos(last)}: the two disagree")
+    return not bad, ((f"WRONG: {'; '.join(bad)} -- " if bad else "")
+                     + f"ghost.light_row {row!r} light_rgb {rgb!r} on the dressed model {ro.get('model')} "
+                     f"({len(tinted)} re-tinted publishes; {where}; oracle {src} / {w['s141']['rgb']}: the local player's "
+                     f"stand-in row, the default {w['off']['row']} / {w['off']['rgb']} under `polish off`)")
 
 
 def judge_f5(hide: dict, after_hide: list, show: dict | None, after_show: list, ro: dict, *, rig: int) -> tuple:
@@ -2585,10 +2669,11 @@ def judge_f5(hide: dict, after_hide: list, show: dict | None, after_show: list, 
 def judge_f6(*, base, back, returns0, want: dict, walk: dict, ro: dict, rig: int) -> tuple:
     """F6 (PURE): THE WARM RETURN on the stock field -- last_return 'warm', returns +1 (else "not reached": the row is about a
     warm return; the body at the return the rig asked for, else "not reached"); `steps` == the oracle's warm-return replay
-    ``want`` (Main_Reinit re-runs the player's footstep ops into the table the load reset cleared: the same keys, no
-    duplicate), steps_dropped / steps_passed ONE load's, and steps_fired 0 at the return -- the per-load reset (``base``,
-    the last publish before the boot, carries the cold load's fires: a cumulative counter would read them still); then the
-    walk after the return (:func:`judge_f_fired`) fires +2 or more."""
+    ``want`` (Main_Reinit re-runs the player's footstep ops into the table the load reset cleared: the same keys),
+    steps_dropped / steps_passed ONE load's, and steps_fired 0 at the return -- the per-load reset, judged only when
+    ``base`` (the last publish before the boot) CARRIED F_FIRED_MIN+ fires (else the half cannot fail: "not reached"); then
+    the walk after the return (:func:`judge_f_fired`) fires +2 or more. A JUDGED red in any half is the verdict, even when
+    another half did not run ("not reached" only when no judged half is red)."""
     d = cb.dio(back)
     if d.get("last_return") != "warm" or not (isinstance(returns0, int) and d.get("returns") == returns0 + 1):
         return False, (f"{_NR}the return: last_return {d.get('last_return')!r} returns {returns0!r} -> {d.get('returns')!r} "
@@ -2599,22 +2684,30 @@ def judge_f6(*, base, back, returns0, want: dict, walk: dict, ro: dict, rig: int
     if _polish(back) is None:
         return False, f"at the return: {why_s}"
     fired_back, fired_base = self_count(back, "steps_fired"), self_count(base, "steps_fired")
+    reset_judged = isinstance(fired_base, int) and fired_base >= F_FIRED_MIN
     reset_ok = fired_back == 0
     ok_w, why_w = judge_f_fired(walk, ro, rig=rig, key="steps_fired", other="steps_fired_player")
-    if why_w.startswith(_NR):
-        return False, f"{_NR}the walk after the return: {why_w[len(_NR):]}"
-    ok = ok_s and reset_ok and ok_w
-    return ok, (("" if ok else "WRONG -- ")
-                + f"return {cb.pick(d, 'last_return', 'returns')}; at the return {why_s}; steps_fired {fired_base!r} before "
-                f"the boot -> {fired_back!r} at the return (want 0: ONE load's count); after the return {why_w}")
+    walk_nr = why_w.startswith(_NR)
+    reset_why = (f"steps_fired {fired_base!r} before the boot -> {fired_back!r} at the return (want 0: ONE load's count)"
+                 if reset_judged else f"the reset half NOT JUDGED: steps_fired {fired_base!r} before the boot (want "
+                                      f"{F_FIRED_MIN}+ to witness the per-load reset), {fired_back!r} at the return")
+    detail = (f"return {cb.pick(d, 'last_return', 'returns')}; at the return {why_s}; {reset_why}; after the return "
+              f"{why_w.removeprefix(_NR)}")
+    judged_red = (not ok_s) or (reset_judged and not reset_ok) or (not walk_nr and not ok_w)
+    if judged_red:
+        return False, "WRONG -- " + detail
+    if walk_nr or not reset_judged:
+        return False, _NR + detail
+    return True, detail
 
 
 def judge_f8(attach: dict, after_a: list, detach: dict | None, after_d: list, hand: dict, ro: dict, *, rig: int,
              cup: int, bone: int) -> tuple:
     """F8 (PURE): F8A on the dressed carrier -- DONE_F8A (else "not reached"); attach_remaps +1 and attach_notes +0 across
     [the READY publish, the last publish after it]; `attach_last` on that last publish == {uid: the cup, bone_in: ``bone``
-    (13, stock's held-item bone), bone_out: the skeleton's R_hand_end, parent: its NAME} -- ``hand``, the oracle read off
-    the rig's skeleton (labels_for, never the engine's table); the parent is read LIVE (the carried go's transform parent:
+    (13, stock's held-item bone), bone_out: the skin's R_hand_end, parent: its NAME} -- ``hand``, the oracle read off the
+    rig's SKIN (:func:`hand_oracle_read`: never labels_for, never the engine's table); the parent is read LIVE (the carried
+    go's transform parent:
     geoAttach's 'bone%03d'). Then F8D: DONE_F8D and the parent no longer that bone (a live read, never a value the engine
     cached at the attach)."""
     if attach.get("outcome") != "done":
@@ -2650,6 +2743,53 @@ def judge_f8(attach: dict, after_a: list, detach: dict | None, after_d: list, ha
     return not bad, ((f"WRONG: {'; '.join(bad)} -- " if bad else "")
                      + f"attach_last {got}, attach_remaps +{dr}, attach_notes +{dn}; {det} (oracle: {ro.get('name')}'s "
                      f"R_hand_end bone {hand['hand_end']} = {hand['end_name']!r}, by {hand.get('source')})")
+
+
+def judge_f2d(run: dict, after: list, ro: dict, *, rig: int, want: dict) -> tuple:
+    """F2d (PURE): THE EMPTY-TABLE GUARD's in-game witness -- the bench field's F2d run (:func:`_conduct`) on the dressed DROP
+    rig (the moogle) after a fresh load whose twelve footstep registrations the rig DROPPED (the table is EMPTY): field 2930's
+    RunModelCode(19, 190, 4, 0) in the player's own entry (a 190: the rule PASSES it, so only the guard can drop it). The
+    caller's DONE (WEDGED -- the player's function never set F2D_END within the caller's bound -- is a JUDGED red; no answer
+    at all "not reached"); across [the READY publish, the last publish after it] steps_dropped and steps_passed move by the
+    oracle's ``want`` (the census twin WITH the guard over the deployed .eb's own registrations + the op: +1 / +0), `steps`
+    ends the oracle's ([]), the s140 `faults` +0, no :data:`F_FAULT_LINES` line since the trigger (stock DeleteChar's
+    IndexOutOfRangeException would be one) and the guard's OWN line (:data:`F2D_GUARD_LINE`) logged -- the branch the 19
+    took. s140's shape (no `steps_dropped`) is red; so is `polish off`'s (the twelve register: the 19 is stock's no-op)."""
+    outcome = run.get("outcome")
+    if outcome not in ("done", "wedged"):
+        return False, f"{_NR}F2d: {run.get('why')} ({outcome})"
+    pin = f_dress_pin(run.get("before"), ro, rig)
+    if pin:
+        return False, f"{_NR}the body is not the one asked for: {pin}"
+    last = ([run["end"]] + list(after or []))[-1] if run.get("end") is not None else run.get("before")
+    lines = list(run.get("lines") or [])
+    hits = [ln for ln in lines if any(n in ln for n in F_FAULT_LINES)]
+    guard = [ln for ln in lines if F2D_GUARD_LINE in ln]
+    s = _polish(last)
+    if s is None:
+        return False, (f"{_f_absent(last, 'steps_dropped')}; F2d {outcome}, {len(hits)} fault line(s) since the trigger"
+                       + (f": {cb.grep(hits, *F_FAULT_LINES, limit=240)}" if hits else ""))
+    before = run.get("before")
+    dd, dp, df = (count_delta(before, last, k) for k in ("steps_dropped", "steps_passed", "faults"))
+    bad = []
+    if outcome != "done":
+        bad.append(f"F2d WEDGED ({run.get('why')}: the player's function never set F2D_END -- the op did not return)")
+    if dd != want["steps_dropped"]:
+        bad.append(f"steps_dropped +{dd} (want +{want['steps_dropped']}: the guard's drop)")
+    if dp != want["steps_passed"]:
+        bad.append(f"steps_passed +{dp} (want +{want['steps_passed']}: a drop is never a pass)")
+    if s.get("steps") != want["steps"]:
+        bad.append(f"steps {s.get('steps')!r} (want {want['steps']})")
+    if df != 0:
+        bad.append(f"faults +{df} (want +0: no hook fault)")
+    if hits:
+        bad.append(f"{len(hits)} fault line(s) since the trigger: {cb.grep(hits, *F_FAULT_LINES, limit=240)}")
+    if not guard:
+        bad.append(f"no guard line ('{F2D_GUARD_LINE}') since the trigger: the 19 took another branch")
+    return not bad, ((f"WRONG: {'; '.join(bad)} -- " if bad else "")
+                     + f"F2d {outcome}: steps_dropped +{dd}, steps_passed +{dp}, steps {s.get('steps')!r}, faults +{df}, "
+                     f"{len(hits)} fault line(s), {len(guard)} guard line(s) since the trigger (oracle {want}) on "
+                     f"{ro.get('name')} (model {ro.get('model')}, rig {rig})")
 
 
 def judge_f_proof(lines: list) -> tuple:
@@ -3659,25 +3799,98 @@ def eb_footsteps(data: bytes) -> dict:
 
 
 def hand_oracle_read(game: Path, model: int) -> dict:
-    """A rig model's right-hand bones off its SKELETON (READ-ONLY: models.bone_labels.read_skeleton, labels_for -- or the
-    kit's geometry heuristic label_skeleton where labels_for names no R_hand, Cinna's and Marcus's case): {"model", "geo",
-    "hand", "hand_end", "end_name" ('bone%03d' -- geoAttach's parent node), "names" (every bone name), "source"}. An R_hand
-    with no R_hand_end (a leaf: Freya, the moogle) lands both on R_hand, the table's rule."""
+    """A rig model's right-hand bones off the INSTALL's SKIN (READ-ONLY: the kit's models.extract.read_model through the
+    census's polish_census.skin_hand -- the right arm's third skinned bone is the hand, the next bone on the arm its end,
+    else the hand itself; NEVER labels_for, which sits one bone toward the shoulder on Steiner's and Amarant's arms):
+    {"model", "geo", "hand", "hand_end", "end_name" ('bone%03d' -- geoAttach's parent node), "names" (every bone name),
+    "source", "arm" (the skin's right arm, root to tip: [bone, skinned verts, rest x])}. A vertex-owning LEAF hand (Freya,
+    Amarant, the moogle) lands both on the hand, the table's rule."""
     _kit()
-    from ff9mapkit.models import bone_labels as BL
-    sk = BL.read_skeleton(str(int(model)), game=game)
-    bones = sk["bones"]
-    lab, source = BL.labels_for(bones, prefab_id=sk.get("prefab_id"), geo=sk.get("geo")), "labels_for"
-    if not any(v == "R_hand" for v in lab.values()):
-        geo = str(sk.get("geo") or "")
-        lab, source = BL.label_skeleton(bones, group=geo.split("_")[1].lower() if "_" in geo else None), "label_skeleton"
-    rh = sorted(n for n, v in lab.items() if v == "R_hand")
-    rhe = sorted(n for n, v in lab.items() if v == "R_hand_end")
-    hand = rh[0] if rh else None
-    end = rhe[0] if rhe else hand
-    return {"model": int(model), "geo": sk.get("geo"), "hand": hand, "hand_end": end,
+    pc = _polish_census()
+    from ff9mapkit.models import extract as MX
+    md = MX.read_model(str(int(model)), game=game)
+    sk = pc.skin_hand(md["bones"], md["meshes"])
+    hand, end = sk["hand"], sk["end"]
+    return {"model": int(model), "geo": md.get("geo"), "hand": hand, "hand_end": end,
             "end_name": BW.bone_name(end) if end is not None else None,
-            "names": sorted(str(b["name"]) for b in bones), "source": source}
+            "names": sorted(str(b["name"]) for b in md["bones"]), "source": "the skin (polish_census.skin_hand)",
+            "arm": sk["arm"]}
+
+
+def entry_chrfx(data: bytes, sid: int, tag: int) -> list | None:
+    """(PURE over a field script; the kit's .eb reader) Entry ``sid``'s function ``tag``'s CHRFX (0x88) footstep ops (codes
+    16-19) as (code, anim, frame, Arg4) in script order; None when there is no such function (a computed operand is
+    skipped)."""
+    _kit()
+    from ff9mapkit.eb import disasm
+    from ff9mapkit.eb.model import EbScript
+    s = EbScript(data)
+    if not (0 < sid < len(s.entries)) or s.entries[sid].empty:
+        return None
+    f = s.entries[sid].func_by_tag(tag)
+    if f is None:
+        return None
+    ops = []
+    for ins in disasm.iter_code(s.data, f.abs_start, f.abs_end):
+        if ins.op != OP_CHRFX:
+            continue
+        args = [ins.imm(i) for i in range(4)]
+        if any(a is None for a in args) or int(args[0]) not in BW.FOOTSTEP_CODES:
+            continue
+        ops.append(tuple(int(a) for a in args))
+    return ops
+
+
+def bench_player_steps(game: Path) -> tuple:
+    """F2d's precondition, READ-ONLY: the bench field's player Init footstep registrations off the DEPLOYED 30606 .eb (the
+    one the engine loads: :func:`_selfdress_field.deployed_eb`) -> (ops, where) or (None, why). A missing or unparseable
+    deploy is the preflight's to name (S140-PF), never an oracle problem."""
+    try:
+        eb, where = sdf.deployed_eb(Path(game))
+    except Exception as err:                 # noqa: BLE001 - an unreadable deploy is a reason
+        return None, f"the deployed 30606 .eb read raised {type(err).__name__}: {str(err)[:200]}"
+    if eb is None:
+        return None, where
+    try:
+        ops = entry_chrfx(eb, sdf.PLAYER_SID, 0)
+    except Exception as err:                 # noqa: BLE001
+        return None, f"{where}: does not parse ({type(err).__name__}: {str(err)[:160]})"
+    if ops is None:
+        return None, f"{where}: no player entry {sdf.PLAYER_SID} Init"
+    return ops, where
+
+
+def bench_table_writers(game: Path) -> tuple:
+    """F2d's OTHER precondition, READ-ONLY (rbench-1): the footstep table the engine's empty-table guard (and stock
+    DeleteChar) reads is the GLOBAL one -- charSoundUse counts EVERY body's records -- while F2d's oracle replays the
+    player Init's registrations alone, so the player Init must be the table's ONLY writer. -> (strays, where):
+    :func:`_selfdress_field.f2d_table_strays` over the DEPLOYED 30606 .eb ([] = it holds), or (None, why) when the deploy
+    cannot be read."""
+    try:
+        eb, where = sdf.deployed_eb(Path(game))
+    except Exception as err:                 # noqa: BLE001 - an unreadable deploy is a reason
+        return None, f"the deployed 30606 .eb read raised {type(err).__name__}: {str(err)[:200]}"
+    if eb is None:
+        return None, where
+    try:
+        return sdf.f2d_table_strays(sdf.facts(eb)), where
+    except Exception as err:                 # noqa: BLE001
+        return None, f"{where}: does not parse ({type(err).__name__}: {str(err)[:160]})"
+
+
+def stock_f2d_form(game: Path, regs: dict | None = None, install_ok: bool = True) -> tuple:
+    """The F2d op's STOCK form, READ-ONLY: field 2930's own `.eb` (the one the engine loads) holds RunModelCode(19, 190, 4,
+    0) in an entry's Init (Zidane_Init, test2_790.txt:515) -> (True, where) or (False, why)."""
+    _kit()
+    from ff9mapkit.eb.model import EbScript
+    data, src = field_eb(Path(game), sdf.F2D_FIELD, reg_name=(regs or {}).get(sdf.F2D_FIELD), install_ok=install_ok)
+    if data is None:
+        return False, src
+    s = EbScript(data)
+    for e in s.entries[1:]:
+        if not e.empty and tuple(sdf.F2D_OP) in (entry_chrfx(data, e.index, 0) or []):
+            return True, f"{src}: entry {e.index}'s Init"
+    return False, f"{src}: no Init runs RunModelCode{tuple(sdf.F2D_OP)} (the F2d op is not field {sdf.F2D_FIELD}'s)"
 
 
 def _census_rig(doc: dict, name: str) -> dict | None:
@@ -3687,7 +3900,8 @@ def _census_rig(doc: dict, name: str) -> dict | None:
 
 def f_oracle_read(game: Path, stock: int, so: dict | None, regs: dict | None = None) -> tuple:
     """Leg F's OFFLINE oracle (S138-OR, read once): ({"field", "ops", "rigs", "steps", "steps_off", "reinit", "light",
-    "ghost_light", "floors_at", "src_model", "hands"}, {key: why}) -- every expected value read through the KIT'S readers
+    "ghost_light", "floors_at", "src_model", "hands", "f2d", "f2d_why"}, {key: why}) -- every expected value read through
+    the KIT'S readers
     and the install census, never the engine's tables:
       * ``ops``: the stock field's player footstep ops (:func:`eb_footsteps` over the `.eb` the engine loads -- :func:`field_eb`);
       * ``rigs``: each judged rig's model off the s140 oracle ``so`` (the kit's tables), its walk / run ids, footfall pairs
@@ -3697,10 +3911,17 @@ def f_oracle_read(game: Path, stock: int, so: dict | None, regs: dict | None = N
       * ``steps`` / ``steps_off`` / ``reinit``: one load's replay per rig (the census twin polish_census.expected_steps:
         MapFootstep on a dressed body -- Zidane UNDRESSED, F3's control --, then stock FF9Snd's table) with the polish on /
         off, and the warm return's (Main_Reinit's ops into the table the load reset cleared);
-      * ``light`` / ``ghost_light``: per walkmesh floor, the census's light_color / ghost_light_color of the F rig's model
-        over the field's own MapConfigData (polish_census.load_mcf), dressed (source row 98) with the polish on / off;
-        ``floors_at`` the kit's stock walkmesh lookup (x, z) -> floors; ``src_model`` the source body (Zidane's 98);
-      * ``hands``: F8's rig skeleton (:func:`hand_oracle_read`).
+      * ``light`` / ``ghost_light``: per walkmesh floor (and 255: no floor -- the default light), the census's light_color
+        / ghost_light_color of the F rig's model over the field's own MapConfigData (polish_census.load_mcf), dressed
+        (source row 98) with the polish on / off -- keyed by the floor the ENGINE names (`light_floor`); ``floors_at`` the
+        kit's stock walkmesh lookup (x, z) -> floors (reported beside it); ``src_model`` the source body (Zidane's 98);
+      * ``hands``: F8's rig hand off the install's skin (:func:`hand_oracle_read`), cross-checked against the census's
+        e_hands (the skin's pair AND stock's own AttachObject on the body agreeing);
+      * ``f2d``: the bench field's player registrations (:func:`bench_player_steps`, the DEPLOYED .eb) and the F2d op, its
+        stock form (:func:`stock_f2d_form`), replayed for the moogle through the census twin WITH the guard -- ``want``
+        {steps, steps_dropped, steps_passed} the op's deltas; None with ``f2d_why`` when the deploy cannot be read (the
+        preflight's to name) or F2d's precondition does not hold (:func:`bench_table_writers`: a footstep writer besides
+        the player Init -- the problem `f2d table`, F2d "not reached", never a WRONG on a correct engine).
     The kit cache missing (a read that would WRITE into the install) leaves the install half out, named "not reached".
     CROSS-CHECKS, each disagreement a named problem: the census's clip ids against the kit's, the twin's rig row
     (battlewire.RIGS: pairs, sound, hand bones), field 250's ops and mapconfig against battlewire.FIELD250_STEPS /
@@ -3710,7 +3931,7 @@ def f_oracle_read(game: Path, stock: int, so: dict | None, regs: dict | None = N
     from ff9mapkit import extract as X
     game, stock, problems = Path(game), int(stock), {}
     out = {"field": stock, "ops": None, "rigs": {}, "steps": {}, "steps_off": {}, "reinit": {}, "light": None,
-           "ghost_light": None, "floors_at": None, "src_model": None, "hands": {}}
+           "ghost_light": None, "floors_at": None, "src_model": None, "hands": {}, "f2d": None, "f2d_why": None}
     install_ok = not kit_cache_missing(game)
     # (a) the stock field's player footstep ops, off the .eb the engine loads
     try:
@@ -3737,7 +3958,7 @@ def f_oracle_read(game: Path, stock: int, so: dict | None, regs: dict | None = N
     try:
         from ff9mapkit._animdb_all import ANIMATIONS
         doc = polish_census_doc()
-        for name in dict.fromkeys(F_STEP_RIGS + (F8_RIG,)):
+        for name in dict.fromkeys(F_STEP_RIGS + (F8_RIG, F_DROP)):
             ro, c = ((so or {}).get("rigs") or {}).get(name), _census_rig(doc, name)
             if ro is None or c is None:
                 problems[f"rig {name}"] = (f"no {'s140 oracle row' if ro is None else 'census row'} for {name} "
@@ -3793,7 +4014,7 @@ def f_oracle_read(game: Path, stock: int, so: dict | None, regs: dict | None = N
             raise RuntimeError("no rig row for the light (see the rig problems)")
         src_m, model = z["model"], fr["model"]
         light, ghost = {}, {}
-        for f in range(len(wm.floors)):
+        for f in list(range(len(wm.floors))) + [255]:          # 255: no floor (fldmcf's default light)
             light[f] = {k: {kk: pc.light_color(mcf, model, f, src_m, pol)[kk] for kk in ("row", "rgb")}
                         for k, pol in (("s141", True), ("off", False))}
             ghost[f] = {k: dict(pc.ghost_light_color(mcf, model, model, f, src_m, pol)) for k, pol in (("s141", True),
@@ -3811,19 +4032,75 @@ def f_oracle_read(game: Path, stock: int, so: dict | None, regs: dict | None = N
         tw = BW.rig_row(BW.NAME_TO_RIG[F8_RIG])
         if (tw["hand_bone"], tw["hand_bone_end"]) != (hand["hand"], hand["hand_end"]):
             problems[f"twin hands {F8_RIG}"] = (f"the twin's hand bones {tw['hand_bone']} / {tw['hand_bone_end']} vs the "
-                                                f"skeleton's {hand['hand']} / {hand['hand_end']} ({hand['source']})")
+                                                f"skin's {hand['hand']} / {hand['hand_end']} ({hand['source']})")
+        eh = next((v for v in (polish_census_doc().get("e_hands") or {}).values()
+                   if isinstance(v, dict) and v.get("model") == int(r8["model"])), None)
+        if eh is None or tuple(eh.get("expected") or ()) != (hand["hand"], hand["hand_end"]) or \
+                not (eh.get("stock") or {}).get("agrees"):
+            problems[f"census hands {F8_RIG}"] = (
+                f"the census's e_hands for {F8_RIG} ({None if eh is None else eh.get('expected')}, stock agrees "
+                f"{None if eh is None else (eh.get('stock') or {}).get('agrees')}) vs the skin's {hand['hand']} / "
+                f"{hand['hand_end']}")
         if hand["hand_end"] == F8_BONE or hand["end_name"] not in hand["names"]:
             problems[f"hands {F8_RIG}"] = (f"{F8_RIG}'s R_hand_end {hand['hand_end']} ({hand['end_name']!r}) cannot "
                                            f"discriminate (want a bone other than {F8_BONE}, on the skeleton)")
     except Exception as err:                 # noqa: BLE001
         problems[f"hands {F8_RIG}"] = f"{type(err).__name__}: {str(err)[:200]}"
+    # (f) F2d: the bench field's player registrations (the DEPLOYED .eb) and field 2930's op (its stock form), replayed for
+    # the drop rig through the census twin WITH the engine's guard: one load, then the op -- the deltas F2d judges
+    mo = out["rigs"].get(F_DROP)
+    try:
+        if mo is None or z is None:
+            raise RuntimeError(f"no rig row for {F_DROP} / {F_ZIDANE} (see the rig problems)")
+        load, where = bench_player_steps(game)
+        strays, swhere = bench_table_writers(game) if load is not None else ([], where)
+        if load is None:
+            out["f2d_why"] = f"the bench field's player registrations: {where}"
+        elif strays is None or strays:
+            problems["f2d table"] = swhere if strays is None else f"{swhere}: {sdf.f2d_table_why(strays)}"
+            out["f2d_why"] = f"F2d's precondition does not hold (the oracle's `f2d table`): {problems['f2d table'][:200]}"
+        else:
+            found, fsrc = stock_f2d_form(game, regs, install_ok)
+            if not found:
+                problems["f2d stock"] = fsrc
+            if tuple(tuple(o) for o in load) != BW.KIT_PLAYER_STEPS:
+                problems["twin kit steps"] = (f"{where}: the player Init's footstep ops {load} vs battlewire.KIT_PLAYER_STEPS "
+                                              f"{list(BW.KIT_PLAYER_STEPS)} (the stand-in's)")
+            zid = {k: z[k] for k in ("walk", "run", "walk_step_a", "walk_step_b", "run_step_a", "run_step_b")}
+            ops = [list(o) for o in load]
+            base = pc.expected_steps(mo, ops, polish=True, dressed=True, zidane=zid, guard=True)
+            full = pc.expected_steps(mo, ops + [list(sdf.F2D_OP)], polish=True, dressed=True, zidane=zid, guard=True)
+            if full["faults"]:
+                problems["f2d replay"] = f"the guarded replay still throws: {full['faults'][:2]}"
+            out["f2d"] = {"load": ops, "op": list(sdf.F2D_OP), "src": where, "stock": fsrc,
+                          "want": {"steps": full["steps"], "steps_dropped": full["steps_dropped"] - base["steps_dropped"],
+                                   "steps_passed": full["steps_passed"] - base["steps_passed"]}}
+    except Exception as err:                 # noqa: BLE001
+        problems["f2d"] = f"{type(err).__name__}: {str(err)[:200]}"
     return out, problems
+
+
+#: the s140 oracle's problem keys leg F reads through (the rows of its own rigs, the 8-11 census, a raised hook) -- every
+#: other s140 problem (the COOPSUB seat, the 30602 source lists, another rig's p0data5 frames) is an s140 leg's to name
+F_S140_PROBLEM_KEYS = ("census", "hook")
+
+
+def _f_s140_problems(sprob: dict, legs) -> dict:
+    """The s140 oracle's problems leg F names (``s140 <key>``): none when an s140 leg is selected (it named them first --
+    :func:`_s_oracle` memoises the read and hands its problems to the FIRST caller only), else only those about the rigs leg
+    F reads (rig / twin / census rows of F_STEP_RIGS, F8_RIG) and :data:`F_S140_PROBLEM_KEYS`."""
+    if any(leg in legs for leg in ("S", "W", "X", "N", "T")):
+        return {}
+    mine = set(F_STEP_RIGS + (F8_RIG, F_DROP))
+    return {f"s140 {k}": v for k, v in (sprob or {}).items()
+            if k in F_S140_PROBLEM_KEYS or str(k).split(" ", 1)[-1] in mine and str(k).split(" ", 1)[0] in ("rig", "twin",
+                                                                                                         "census")}
 
 
 def _f_oracle(g, ctx: dict) -> tuple:
     """Leg F's `oracle_extra` hook: :func:`f_oracle_read` on the run's install and stock field, over the s140 oracle (the
-    rigs' models and clip ids -- read once per run: :func:`_s_oracle` memoises it; its problems named here only when no s140
-    leg named them first)."""
+    rigs' models and clip ids -- read once per run: :func:`_s_oracle` memoises it). Of the s140 oracle's problems it names
+    only :func:`_f_s140_problems`' -- those about the rigs leg F reads, and only when no s140 leg named them first."""
     so, sprob = _s_oracle(g, ctx)
     try:
         regs = g.registered_fields()[0]
@@ -3831,7 +4108,7 @@ def _f_oracle(g, ctx: dict) -> tuple:
         regs = {}
     got, problems = f_oracle_read(Path(g.game_path), ctx["stock"], so, regs)
     got["s140"] = so
-    return got, dict({f"s140 {k}": v for k, v in (sprob or {}).items()}, **problems)
+    return got, dict(_f_s140_problems(sprob, ctx.get("legs") or ()), **problems)
 
 
 def _f_oracle_of(ctx: dict) -> tuple:
@@ -4718,22 +4995,60 @@ def _f_floors(fo: dict, st) -> list | None:
 
 def _f_bench(g, led: cb.Ledger, ctx: dict) -> None:
     """[ff9mapkit netsync s141] FP (the proof block's dress polish line: no field needed), then on the bench field 30606 one
-    `self steiner` load: F5 (the caller's F5H, then F5S) and F8 (F8A, then F8D)."""
+    `self steiner` load: F5 (the caller's F5H, then F5S) and F8 (F8A, then F8D); then a `self moogle` load: F2d (the
+    caller's F2d -- field 2930's code 19 on the table the moogle's drops emptied)."""
     led.check("S141-FP", *judge_f_proof(cb.log_lines(g)))
     why = _bench_pre(ctx, SELF_FIELD)
     fo, fwhy = _f_oracle_of(ctx)
+    if why or fo is None:
+        led.unreached(F_BENCH_CHECKS, why or fwhy)
+        return
+    _f_bench_steiner(g, led, ctx, fo)
+    _f_bench_f2d(g, led, ctx, fo)
+    _s_release(g, ctx, SELF_FIELD)
+
+
+def _f_bench_f2d(g, led: cb.Ledger, ctx: dict, fo: dict) -> None:
+    """[ff9mapkit netsync s141] F2d: `self moogle` + a FRESH load of 30606 (the player's twelve registrations dropped: an
+    EMPTY table), then the caller's F2d -- a WEDGED_F2D (the player's function never returned) is recovered by a warp."""
+    ro, rig, owhy = _f_rig(ctx, F_DROP)
+    pwhy = owhy or (None if fo.get("f2d") else f"no s141 F2d oracle ({fo.get('f2d_why') or _f_part(fo, ctx, 'f2d')})")
+    if pwhy:
+        led.unreached(("S141-F2d",), pwhy)
+        return
+    ld = _s_load(g, ctx, SELF_FIELD, F_DROP, leg="F")
+    if ld["st"] is None:
+        led.unreached(("S141-F2d",), f"{ld['label']}: {ld['why']}")
+        return
+    run = _conduct(g, "f2d")
+    if run["outcome"] == "not ready":
+        led.unreached(("S141-F2d",), f"{ld['label']}: {run['why']}")
+        return
+    after = on_field_prefix(cb.hold_for(g, F_AFTER_S), SELF_FIELD)
+    led.check("S141-F2d", *_labelled(f"{ld['label']} + TRIG_F2D", *judge_f2d(run, after, ro, rig=rig,
+                                                                               want=fo["f2d"]["want"])))
+    if run["outcome"] != "done":
+        _s_send(g, ctx, "clear")
+        try:
+            g.warp(SELF_FIELD)                      # a wedged player function dies with the field
+        except HarnessError as err:
+            g.note(f"the recovery warp after an F2d that did not finish failed: {str(err)[:200]}")
+
+
+def _f_bench_steiner(g, led: cb.Ledger, ctx: dict, fo: dict) -> None:
+    """[ff9mapkit netsync s141] F5 and F8 on one `self steiner` load of 30606."""
+    rows = ("S141-F5", "S141-F8")
     ro, rig, owhy = _f_rig(ctx, F8_RIG)
-    if why or fo is None or ro is None:
-        led.unreached(F_BENCH_CHECKS, why or fwhy or owhy)
+    if ro is None:
+        led.unreached(rows, owhy)
         return
     ld = _s_load(g, ctx, SELF_FIELD, F8_RIG, leg="F")
     if ld["st"] is None:
-        led.unreached(F_BENCH_CHECKS, f"{ld['label']}: {ld['why']}")
+        led.unreached(rows, f"{ld['label']}: {ld['why']}")
         return
     hide = _conduct(g, "f5h")
     if hide["outcome"] == "not ready":
-        led.unreached(F_BENCH_CHECKS, f"{ld['label']}: {hide['why']}")
-        _s_release(g, ctx, SELF_FIELD)
+        led.unreached(rows, f"{ld['label']}: {hide['why']}")
         return
     after_h = on_field_prefix(cb.hold_for(g, F_AFTER_S), SELF_FIELD)
     show = _conduct(g, "f5s")                       # ALWAYS: a set meshflags bit would ride PosObj.copy into a later return
@@ -4756,7 +5071,6 @@ def _f_bench(g, led: cb.Ledger, ctx: dict) -> None:
                                             *judge_f8(attach, after_a, detach if detach and detach["outcome"] != "not ready"
                                                       else None, after_d, fo["hands"][F8_RIG], ro, rig=rig,
                                                       cup=sdf.CUP_SID, bone=F8_BONE)))
-    _s_release(g, ctx, SELF_FIELD)
 
 
 def _f_load(g, ctx: dict, field: int, name: str) -> dict:
@@ -4825,9 +5139,14 @@ def _f_freya(g, led: cb.Ledger, ctx: dict, fo: dict, field: int) -> None:
                                                                                other="steps_fired_player")))
     if walk["left"]:
         _recover(g, field)
-    # F6: a diorama's WARM return on this load (W1's lane, on the stock field)
+    # F6: a diorama's WARM return on this load (W1's lane, on the stock field). Its per-load-reset half needs a publish
+    # before the boot that CARRIES fires: F1b's settled one -- or, when F1b's walk was taken over (the recover warp is a cold
+    # load: it reset the counts), a fresh walk's
+    pre = walk if not walk["left"] and walk.get("after") is not None else _f_walk(g, field)
+    if pre is not walk and pre["left"]:
+        _recover(g, field)
     wlabel = f"{ld['label']} + `dioboot` / `dioleave`"
-    base = g.state
+    base = pre["after"] if not pre["left"] and pre.get("after") is not None else g.state
     returns0 = cb.dio(base).get("returns")
     ok, bwhy = cb.boot(g)
     if not ok:
@@ -4867,7 +5186,10 @@ def _f_control(g, led: cb.Ledger, ctx: dict, fo: dict, field: int) -> None:
     ok_w, why_w = judge_f_fired(walk, ro, rig=rig, key="steps_fired_player", other="steps_fired")
     if walk["left"]:
         _recover(g, field)
-    nr = _NR if (why_s.startswith(_NR) or why_w.startswith(_NR)) else ""
+    # "not reached" only when NO judged half is red (a judged red at the load is the verdict whatever the walk did)
+    nr_s, nr_w = why_s.startswith(_NR), why_w.startswith(_NR)
+    judged_red = (not nr_s and not ok_s) or (not nr_w and not ok_w)
+    nr = _NR if (nr_s or nr_w) and not judged_red else ""
     led.check("S141-F3", *_labelled(ld["label"], ok_s and ok_w, f"{nr}AT THE LOAD {why_s.removeprefix(_NR)}; WALKING "
                                                                 f"{why_w.removeprefix(_NR)}"))
 

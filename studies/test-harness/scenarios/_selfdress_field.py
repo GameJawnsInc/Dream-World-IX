@@ -1,12 +1,12 @@
 """THE s140 BENCH FIELD's contract -- field 30606 SELFDRESS (studies/battle-coop/bench/selfdress.field.toml), importable.
 
-R3 group 2's legs N / X / T (studies/battle-coop/R3-FIELD-MODEL-AUDIT.md 4.1 and 4.4; s141's F5, F8 ride it too) run on a
+R3 group 2's legs N / X / T (studies/battle-coop/R3-FIELD-MODEL-AUDIT.md 4.1 and 4.4; s141's F5, F8, F2d ride it too) run on a
 kit field whose .eb is the kit's build of the toml PLUS a seat step (studies/battle-coop/bench/selfdress_bench.py): the
 toml builds the player, the TWIN and the LATE entry with the kit's own blocks; the seat adds the CALLER (a code entry
-of conductors), the T3 function inside the PLAYER's entry, and DefinePlayerCharacter in a never-run function of the
-LATE entry. This module is the ONE home of the numbers both sides share -- the sids, the flag indices, the conductor
-operands --, of the two seated bodies (:func:`t3_body`, :func:`caller_body`: the seat writes them, the preflight compares
-the deployed bytes to them), and of :func:`preflight`, which re-checks the .eb the bench reads from the DEPLOYED mod folder at run time
+of conductors), the T3, J and F2d functions inside the PLAYER's entry, and DefinePlayerCharacter in a never-run function of
+the LATE entry. This module is the ONE home of the numbers both sides share -- the sids, the flag indices, the conductor
+operands --, of the seated bodies (:func:`t3_body`, :func:`caller_body`, :func:`f2d_body`: the seat writes them, the preflight
+compares the deployed bytes to them), and of :func:`preflight`, which re-checks the .eb the bench reads from the DEPLOYED mod folder at run time
 and FAILS CLOSED: it returns a reason string unless every row holds (None = clean). Nothing here writes the install
 or touches the game: :func:`deployed_eb` only reads the mod folders, and every other function is pure over the bytes
 it is handed.
@@ -16,7 +16,11 @@ THE ENTRIES (sid == uid: every InitObject / InitCode here passes uid 0, which is
                   T3_TAG, the field-2705 loop. B_FRAME (GetAnimDuration) evaluates on gCur, the RUNNING object
                   (EventEngine.DoCalcOperationExt.cs:24-26), so the loop must run as a function of THIS entry. The
                   seat also adds J_TAG, field 404's ladder jump (SetJumpAnimation / RunJumpAnimation / RunLandAnimation
-                  act on the running object too).
+                  act on the running object too), and (s141) F2D_TAG, field 2930's RunModelCode(19, 190, 4, 0) (CHRFX
+                  acts on gCur too: EventEngine.DoEventCode.cs:28-33 binds `po` to the running object). The kit player's
+                  Init REGISTERS twelve footstep ops (the blank template's RunModelCode 16 / 17 / 18 on 25 @ 4 / 13 and
+                  38 @ 0 / 8, Arg4 912 / 912 / 1: the same keys as field 250's) -- F2d's oracle reads them off the
+                  deployed .eb.
     TWIN_SID 2    a Zidane [[npc]] (SetModel(98, 93)), NO DefinePlayerCharacter anywhere in its entry, activated
                   behind `requires_flag_clear = TWIN_GATE` -- a guarded call, so the kit's activate_block inserts it
                   at Main_Init's START: its InitObject precedes the player's (THE MAIN_INIT_ORDER ROW). Identify it by
@@ -82,6 +86,14 @@ install's own bytes, read-only):
         (audit 2.4 amendment 6), so F5 is synthetic by design: s141 drops both ops on a dressed body (mesh_drops + 1,
         player.meshflags stays 0); under `polish off` F5H sets meshflags 2 and F5S clears it again, so a later row
         starts from a whole body either way. Neither holds DisableMove: each is one instant op, like F8.
+    F2D (s141) RunScript(2, 250, F2D_TAG) -- the T3 / J call form --, then poll F2D_END (bounded: F2D_LIMIT ticks ->
+        WEDGED_F2D, a red without a softlock; a warp recovers). The player function is field 2930's Zidane_Init op
+        `RunModelCode( 19, 190, 4, 0 )` VERBATIM (test2_790.txt:515: a code 19 on a NON-pair id), F2D_END, RET -- the
+        empty-table guard's in-game witness: on a DROP rig (the moogle) the twelve footstep keys the player's Init
+        registers are dropped by the rule, so the 19 meets an EMPTY table (stock DeleteChar would index
+        charSoundArray[-1]) and s141 drops it (steps_dropped + 1, no throw). Under `polish off` -- and on s140 -- the
+        twelve register, the table holds Zidane's four and the 19 is stock's no-op (the guard has nothing to guard: the
+        hazard is the polish's own drop). No DisableMove: one instant op, like F8 / F5.
 """
 from __future__ import annotations
 
@@ -134,6 +146,11 @@ J_JUMP0, J_JUMP1 = 2, 6                  # field 404's SetJumpAnimation(10687, 2
 J_LIMIT = 120                            # ticks after RunScript: stock ends in ~3, an alias-timed landing in <= ~70
                                          # (never T1_LIMIT's 150: each bound's statement must be its own bytes)
 F5_MESH = 1                              # F5's mesh index: HideObject(250, 1) (audit 4.5); 1403's HideObject( 1, 1 )
+F2D_TAG = 51                             # the player-entry function the seat adds (s141's F2d: field 2930's code-19 op)
+#: F2d's op, (code, anim, frame, Arg4): field 2930 Zidane_Init's RunModelCode( 19, 190, 4, 0 ) (test2_790.txt:515)
+F2D_OP = (19, 190, 4, 0)
+F2D_FIELD = 2930                         # the stock field F2D_OP is copied from (Memoria/To the Origin; manifest test2_790)
+F2D_LIMIT = 60                           # ticks after RunScript: the function ends in 1-2 (never another bound's bytes)
 
 # ------------------------------------------------------------------------------------------------ the flags
 TWIN_GATE = 13200        # never set: the twin's InitObject requires it CLEAR (requires_flag_clear)
@@ -146,23 +163,30 @@ T3_LOOP, T3_END = 13217, 13218           # written by the PLAYER's T3 function (
 TRIG_J, DONE_J, WEDGED_J = 13219, 13220, 13221
 J_LAND, J_END = 13222, 13223             # written by the PLAYER's J function: right before RunLandAnimation / after it
 TRIG_F5H, TRIG_F5S, DONE_F5H, DONE_F5S = 13224, 13225, 13226, 13227   # s141's F5: HideObject / ShowObject(250, 1)
+TRIG_F2D, DONE_F2D, WEDGED_F2D = 13228, 13229, 13230                    # s141's F2d: RunScript(2, 250, F2D_TAG)
+F2D_END = 13231                          # written by the PLAYER's F2d function: after the code-19 op
 TRIGGERS = {"x": TRIG_X, "t1": TRIG_T1, "t3": TRIG_T3, "n3": TRIG_N3, "f8a": TRIG_F8A, "f8d": TRIG_F8D, "j": TRIG_J,
-            "f5h": TRIG_F5H, "f5s": TRIG_F5S}
+            "f5h": TRIG_F5H, "f5s": TRIG_F5S, "f2d": TRIG_F2D}
 DONES = {"x": DONE_X, "t1": DONE_T1, "t3": DONE_T3, "n3": DONE_N3, "f8a": DONE_F8A, "f8d": DONE_F8D, "j": DONE_J,
-         "f5h": DONE_F5H, "f5s": DONE_F5S}
-WEDGES = {"t1": WEDGED_T1, "t3": WEDGED_T3, "j": WEDGED_J}
-IO_BITS = tuple(TRIGGERS.values()) + tuple(DONES.values()) + tuple(WEDGES.values()) + (T3_LOOP, T3_END, J_LAND, J_END)
+         "f5h": DONE_F5H, "f5s": DONE_F5S, "f2d": DONE_F2D}
+WEDGES = {"t1": WEDGED_T1, "t3": WEDGED_T3, "j": WEDGED_J, "f2d": WEDGED_F2D}
+#: the phase bits a conductor's PLAYER function writes (the caller zeroes them at every load and before each run)
+PHASE_BITS = {"t3": (T3_LOOP, T3_END), "j": (J_LAND, J_END), "f2d": (F2D_END,)}
+IO_BITS = tuple(TRIGGERS.values()) + tuple(DONES.values()) + tuple(WEDGES.values()) + tuple(
+    b for k in PHASE_BITS for b in PHASE_BITS[k])
+#: every bit a conductor OWNS (its TRIG / DONE, its WEDGED, its phase bits): a seat stage without the conductor has none
+KEY_BITS = {k: (TRIGGERS[k], DONES[k]) + ((WEDGES[k],) if k in WEDGES else ()) + PHASE_BITS.get(k, ()) for k in TRIGGERS}
 #: the toml's [[flag]] table, name -> index (the kit's lint + allocator see every bench bit through it)
 TOML_FLAGS = {"sd_twin_gate": TWIN_GATE, "sd_late_gate": LATE_GATE, "sd_ready": READY,
               **{f"sd_trig_{k}": v for k, v in TRIGGERS.items()}, **{f"sd_done_{k}": v for k, v in DONES.items()},
               **{f"sd_wedged_{k}": v for k, v in WEDGES.items()}, "sd_t3_loop": T3_LOOP, "sd_t3_end": T3_END,
-              "sd_j_land": J_LAND, "sd_j_end": J_END}
+              "sd_j_land": J_LAND, "sd_j_end": J_END, "sd_f2d_end": F2D_END}
 ALL_FLAGS = tuple(sorted(TOML_FLAGS.values()))
 #: the conductors each seat STAGE carries, in TRIGGERS order (a later stage only ADDS: the s140 seat is the s141 caller
-#: minus F5's two conductors and their four bits). :func:`caller_body` builds any stage; :func:`preflight` wants
-#: SEAT_STAGE and names an older stage's seat as STALE (a deploy to redo), never as a verdict on F5.
+#: minus F5's two conductors, F2d's and their eight bits). :func:`caller_body` builds any stage; :func:`preflight` wants
+#: SEAT_STAGE and names an older stage's seat as STALE (a deploy to redo), never as a verdict on F5 / F2d.
 STAGE_CONDUCTORS = {"s140": ("x", "t1", "t3", "n3", "f8a", "f8d", "j"),
-                    "s141": ("x", "t1", "t3", "n3", "f8a", "f8d", "j", "f5h", "f5s")}
+                    "s141": ("x", "t1", "t3", "n3", "f8a", "f8d", "j", "f5h", "f5s", "f2d")}
 SEAT_STAGE = "s141"
 
 # ------------------------------------------------------------------------------------------------ opcodes
@@ -172,6 +196,7 @@ OP_RUN_SCRIPT, OP_WAIT, OP_WALK, OP_INIT_WALK, OP_WALK_SPEED = 0x12, 0x22, 0x23,
 OP_DEFINE_PLAYER, OP_DISABLE_MOVE, OP_ENABLE_MOVE, OP_SET_MODEL = 0x2C, 0x2D, 0x2E, 0x2F
 OP_STAND, OP_WALK_ANIM, OP_RUN_ANIM = 0x33, 0x34, 0x35
 OP_MESH_SHOW, OP_MESH_HIDE = 0x39, 0x3A  # ShowObject / HideObject (MESHSHOW / MESHHIDE): object uid, mesh index
+OP_CHRFX = 0x88                          # RunModelCode (CHRFX): code, then three 2-byte args -- on gCur
 OP_ATTACH, OP_DETACH, OP_ANIM_LOOP, OP_RUN_ANIM_EX, OP_WAIT_ANIM_EX = 0x4C, 0x4D, 0x98, 0xBD, 0xBE
 OP_WAIT_ANIM, OP_SET_JUMP, OP_RUN_JUMP, OP_RUN_LAND = 0x41, 0x94, 0x9C, 0x9D
 CODE_ENTRY_TYPE = 0x00
@@ -297,7 +322,7 @@ def caller_body(stage: str = SEAT_STAGE) -> bytes:
     from ff9mapkit.eb import opcodes as O
     from ff9mapkit.eb.labelasm import JMP, JMP_IF, JMP_IFNOT, asm, label
     keys = STAGE_CONDUCTORS[stage]
-    absent = {bit for key in TRIGGERS if key not in keys for bit in (TRIGGERS[key], DONES[key])}
+    absent = {bit for key in TRIGGERS if key not in keys for bit in KEY_BITS[key]}
     B = [glob_set(b, 0) for b in IO_BITS if b not in absent] + [glob_set(READY, 1), label("top")]
     for key in TRIGGERS:
         if key in keys:
@@ -346,8 +371,23 @@ def caller_body(stage: str = SEAT_STAGE) -> bytes:
     if "f5s" in keys:
         B += [label("do_f5s"), glob_set(TRIG_F5S, 0), O.encode(OP_MESH_SHOW, CONTROL_UID, F5_MESH),
               glob_set(DONE_F5S, 1), (JMP, "top")]
+    # F2d (s141) -- field 2930's code-19 op in the PLAYER's own entry (CHRFX acts on gCur), the T3 / J call form, then poll
+    # its F2D_END (bounded: a wedged player function reads WEDGED_F2D, never a softlock); no DisableMove (one instant op)
+    if "f2d" in keys:
+        B += [label("do_f2d"), glob_set(TRIG_F2D, 0), glob_set(F2D_END, 0),
+              O.run_script(SCRIPT_LEVEL, CONTROL_UID, F2D_TAG), int16_set(0, 0),
+              label("f2d_poll"), glob_test(F2D_END), (JMP_IF, "f2d_ok"),
+              int16_inc(0), int16_gt(0, F2D_LIMIT), (JMP_IF, "f2d_wedged"), O.wait(1), (JMP, "f2d_poll"),
+              label("f2d_ok"), glob_set(DONE_F2D, 1), (JMP, "top"),
+              label("f2d_wedged"), glob_set(WEDGED_F2D, 1), (JMP, "top")]
     B += [O.RETURN]
     return asm(B)
+
+
+def f2d_body() -> bytes:
+    """The player-entry function F2D_TAG: field 2930's `RunModelCode( 19, 190, 4, 0 )` VERBATIM (Zidane_Init,
+    test2_790.txt:515 -- the op runs on gCur, so it must be a function of the PLAYER's own entry), then F2D_END, RET."""
+    return b"".join(raw for _op, raw in _expected_f2d())
 
 
 def player_ids(eb: bytes) -> tuple | None:
@@ -366,13 +406,15 @@ def facts(eb: bytes) -> dict:
 
     {"main_init": [(op, offset, sid, uid)] for every InitObject/InitCode in Main_Init (offset = Main_Init-relative),
      "entries": {sid: {"type", "funcs" [tags], "init_model" (model, animset) | None, "define_tags" [tags holding a
-     DefinePlayerCharacter]}}, "t3": the player's T3 function's facts (its whole "body" among them) or None, "caller":
-     the caller's instructions and whole tag-0 "body", "player_ids": the player Init's own (stand, walk, run) or None}."""
+     DefinePlayerCharacter]}}, "t3": the player's T3 function's facts (its whole "body" among them) or None, "j" / "f2d":
+     the player's J / F2d function as (op, bytes) rows or None, "caller": the caller's instructions and whole tag-0 "body",
+     "player_ids": the player Init's own (stand, walk, run) or None, "footsteps": every CHRFX footstep site (codes 16-19,
+     or a computed code) in EVERY entry's every function as (sid, tag, code, anim, frame, arg4)}."""
     _kit()
     from ff9mapkit.eb.model import EbScript
     s = EbScript(eb)
-    out = {"main_init": [], "entries": {}, "t3": None, "caller": None, "late_cc": None, "j": None, "late_guard": [],
-           "player_ids": None}
+    out = {"main_init": [], "entries": {}, "t3": None, "caller": None, "late_cc": None, "j": None, "f2d": None,
+           "late_guard": [], "player_ids": None, "footsteps": []}
     f0 = s.main.func_by_tag(0) if s.entries else None
     if f0 is None:
         raise ValueError("no Main_Init (entry 0 tag 0)")
@@ -399,6 +441,15 @@ def facts(eb: bytes) -> dict:
                 if sm is not None:
                     info["init_model"] = (sm.imm(0), sm.imm(1))
         out["entries"][e.index] = info
+    for e in s.entries:                                   # Main's own functions too: a footstep op runs on gCur
+        if e.empty:
+            continue
+        for f in e.funcs:
+            for i in _code(eb, f):
+                if i.op == OP_CHRFX:
+                    args = tuple(i.imm(k) for k in range(4))
+                    if args[0] is None or args[0] in (16, 17, 18, 19):
+                        out["footsteps"].append((e.index, f.tag) + args)
     pe = s.entries[PLAYER_SID] if PLAYER_SID < len(s.entries) and not s.entries[PLAYER_SID].empty else None
     p0 = pe.func_by_tag(0) if pe is not None else None
     if p0 is not None:
@@ -416,6 +467,9 @@ def facts(eb: bytes) -> dict:
     jf = pe.func_by_tag(J_TAG) if pe is not None else None
     if jf is not None:
         out["j"] = [(i.op, eb[i.off:i.end]) for i in _code(eb, jf)]
+    ff = pe.func_by_tag(F2D_TAG) if pe is not None else None
+    if ff is not None:
+        out["f2d"] = [(i.op, eb[i.off:i.end]) for i in _code(eb, ff)]
     le = s.entries[LATE_SID] if LATE_SID < len(s.entries) and not s.entries[LATE_SID].empty else None
     lf = le.func_by_tag(LATE_CC_TAG) if le is not None else None
     if lf is not None:
@@ -428,6 +482,26 @@ def facts(eb: bytes) -> dict:
                          "raw": [eb[i.off:i.end] for i in code], "ops": [i.op for i in code],
                          "body": bytes(eb[f0c.abs_start:f0c.abs_end])}
     return out
+
+
+def f2d_table_strays(f: dict) -> list:
+    """F2D TABLE's offenders over :func:`facts`' "footsteps" (rbench-1): every CHRFX footstep site that is NOT the player
+    Init's 16-18 (PLAYER_SID, tag 0) or F2d's own 19 (PLAYER_SID, F2D_TAG) -- a computed code included. [] = the player
+    Init is the footstep table's ONLY writer: the engine's empty-table guard and stock DeleteChar read the GLOBAL table
+    (charSoundUse counts EVERY body's records), while F2d's oracle (coop_self_dress.f_oracle_read) replays the player's
+    registrations alone -- another body's record at the load would leave the table non-empty and a correct s141 would pass
+    2930's 19 (stock's no-op), reading F2d WRONG on a correct engine."""
+    return [s for s in f["footsteps"]
+            if not ((s[2] in (16, 17, 18) and (s[0], s[1]) == (PLAYER_SID, 0))
+                    or (s[2] == 19 and (s[0], s[1]) == (PLAYER_SID, F2D_TAG)))]
+
+
+def f2d_table_why(strays: list) -> str:
+    """The F2D TABLE reason for :func:`f2d_table_strays`' offenders (shared by the preflight and leg F's oracle)."""
+    return (f"F2D TABLE: {len(strays)} footstep op(s) outside the player Init's registrations and F2d's own 19 -- "
+            f"(sid, tag, code, anim, frame, arg4) {strays[:4]}: the empty-table guard reads the GLOBAL charSoundUse "
+            f"(every body's records) while F2d's oracle replays the player Init's alone, so the player Init must be the "
+            f"table's only writer")
 
 
 def _loop_closes(eb: bytes, code: list) -> bool:
@@ -454,7 +528,8 @@ def _expected_caller_ops() -> list:
             ("F8: AttachObject(CUP_SID, 250, 13)", O.encode(OP_ATTACH, CUP_SID, CONTROL_UID, ATTACH_BONE)),
             ("F8: DetachObject(CUP_SID)", O.encode(OP_DETACH, CUP_SID)),
             (f"F5: HideObject(250, {F5_MESH})", O.encode(OP_MESH_HIDE, CONTROL_UID, F5_MESH)),
-            (f"F5: ShowObject(250, {F5_MESH})", O.encode(OP_MESH_SHOW, CONTROL_UID, F5_MESH))]
+            (f"F5: ShowObject(250, {F5_MESH})", O.encode(OP_MESH_SHOW, CONTROL_UID, F5_MESH)),
+            ("F2D: RunScript(2, 250, F2D_TAG)", O.run_script(SCRIPT_LEVEL, CONTROL_UID, F2D_TAG))]
 
 
 #: the caller's ESCAPE PROTOCOL: every wedge and completion write, every bound, and the EnableMove before each DONE / WEDGED
@@ -469,8 +544,16 @@ def _expected_caller_escape() -> list:
     rows += [(f"DONE_{k.upper()} = 1", glob_set(b, 1)) for k, b in DONES.items()]
     rows += [("T1: Int16[0] > T1_LIMIT", int16_gt(0, T1_LIMIT)),
              ("T3: Int16[2] > T3_TOTAL_LIMIT", int16_gt(2, T3_TOTAL_LIMIT)),
-             ("T3: Int16[0] > T3_LOOP_LIMIT", int16_gt(0, T3_LOOP_LIMIT)), ("J: Int16[0] > J_LIMIT", int16_gt(0, J_LIMIT))]
+             ("T3: Int16[0] > T3_LOOP_LIMIT", int16_gt(0, T3_LOOP_LIMIT)), ("J: Int16[0] > J_LIMIT", int16_gt(0, J_LIMIT)),
+             ("F2D: Int16[0] > F2D_LIMIT", int16_gt(0, F2D_LIMIT))]
     return rows
+
+
+def _expected_f2d() -> list:
+    """F2D_TAG's body as (op, bytes) rows -- field 2930's RunModelCode(19, 190, 4, 0), the phase bit, RET."""
+    _kit()
+    from ff9mapkit.eb import opcodes as O
+    return [(OP_CHRFX, O.encode(OP_CHRFX, *F2D_OP)), (OP_EXPR, glob_set(F2D_END, 1)), (OP_RET, O.RETURN)]
 
 
 def _expected_j() -> list:
@@ -518,9 +601,12 @@ def preflight(eb: bytes) -> str | None:
     SetStandAnimation(7922) ahead of it, and the WHOLE function is :func:`t3_body` of the player Init's own stand / walk /
     run ids byte for byte (the phase bits, the lane, the speeds, the restore setters); LATE GATE -- the late entry's load-time InitObject is the kit's guarded call
     (GlobBit[LATE_GATE] + JMP_IFNOT); J -- the player entry's J_TAG is field 404's ladder jump (:func:`_expected_j`);
-    CALLER -- the caller is not an OLDER stage's seat (:data:`STAGE_CONDUCTORS`: an s140 seat, which has no F5, reads as
-    STALE) and every conductor instruction is present (:func:`_expected_caller_ops`, F5's HideObject / ShowObject(250, 1)
-    among them); ESCAPE -- every WEDGED / DONE write,
+    CALLER -- the caller is not an OLDER stage's seat (:data:`STAGE_CONDUCTORS`: an s140 seat, which has no F5 / F2d,
+    reads as STALE); F2D -- the player entry's F2D_TAG is field 2930's code-19 op (:func:`_expected_f2d`); every conductor
+    instruction is present (:func:`_expected_caller_ops`, F5's HideObject / ShowObject(250, 1) and F2d's RunScript among
+    them); F2D TABLE -- the player Init is the footstep table's ONLY writer (:func:`f2d_table_strays`: every CHRFX 16-18
+    in the script is the player Init's, every 19 F2d's own -- the guard reads the GLOBAL table, F2d's oracle the player's
+    registrations alone); ESCAPE -- every WEDGED / DONE write,
     every bound and >= CALLER_ENABLE_MOVES EnableMoves (:func:`_expected_caller_escape`); and the caller's whole tag-0
     body is :func:`caller_body` byte for byte (the structure: which bit each poll tests, where each branch lands). The
     named rows come first so a broken deploy reads the specific reason; the whole-body rows catch everything else."""
@@ -596,6 +682,14 @@ def preflight(eb: bytes) -> str | None:
             lack = [k for k in STAGE_CONDUCTORS[SEAT_STAGE] if k not in STAGE_CONDUCTORS[older[0]]]
             return (f"CALLER: entry {CALLER_SID} is the {older[0]} seat byte for byte (no {', '.join(lack)} "
                     f"conductors) -- a STALE deploy the {SEAT_STAGE} legs cannot read: re-seat with `{' '.join(DEPLOY)}`")
+        if f["f2d"] is None:
+            return f"F2D: the player entry {PLAYER_SID} has no function {F2D_TAG} (a stale seat: re-seat with `{' '.join(DEPLOY)}`)"
+        if f["f2d"] != _expected_f2d():
+            return (f"F2D: function {F2D_TAG} is {[(hex(op), raw.hex(' ')) for op, raw in f['f2d']]} (want field "
+                    f"{F2D_FIELD}'s RunModelCode{F2D_OP}, F2D_END, RET)")
+        strays = f2d_table_strays(f)
+        if strays:
+            return f2d_table_why(strays)
         raw = cal["raw"]
         for label, want in _expected_caller_ops():
             if want not in raw:

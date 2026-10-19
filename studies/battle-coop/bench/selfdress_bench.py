@@ -7,12 +7,13 @@ wait, a function inside the PLAYER's entry whose loop bound is B_FRAME (GetAnimD
 object -- EventEngine.DoCalcOperationExt.cs:24-26 -- so field 2705's loop exercises s140's hook only from the player's
 own entry), a ladder jump in the player's own entry (SetJumpAnimation / RunJumpAnimation / RunLandAnimation act on the
 running object too), an entry InitObject'd at run time, or s141's conductors (F8's AttachObject / DetachObject on the
-cup; F5's HideObject / ShowObject(250, 1): the kit emits no 0x39 / 0x3A at all -- audit 2.4 amendment 6). The caller is
+cup; F5's HideObject / ShowObject(250, 1): the kit emits no 0x39 / 0x3A at all -- audit 2.4 amendment 6; F2d's field-2930
+RunModelCode(19, 190, 4, 0) in the player's own entry: CHRFX acts on the running object). The caller is
 built for a seat STAGE (_selfdress_field.STAGE_CONDUCTORS; this checkout seats SEAT_STAGE, s141): a live s140 seat reads
 STALE in the preflight until `deploy` re-seats it. A prebuilt .eb cannot be committed either: every kit build embeds the
 install-derived blank field (docs/PROVENANCE.md; test_provenance_tripwire.py). So, as the photo-mode and sine-kit rung-0
-benches do, this script seats them with the kit's own primitives after the kit build -- eb.edit.add_function (T3 and J into the
-player entry, LATE_CC into the late entry), content.object.seat_entry (the caller code entry) and eb.edit.activate_block
+benches do, this script seats them with the kit's own primitives after the kit build -- eb.edit.add_function (T3, J and F2d
+into the player entry, LATE_CC into the late entry), content.object.seat_entry (the caller code entry) and eb.edit.activate_block
 (its InitCode, after the player's InitObject) -- into EVERY language's .eb, structurally located in each, and rewrites the
 field's EventAnimation clip list from the seated script (ff9mapkit.eventanim: the clip list a model is (re)created with,
 which s140's AttachDress reads as the SOURCE list). No kit code changes. The contract (sids, bits, operands, preflight) is
@@ -120,14 +121,15 @@ def player_ids(eb: bytes) -> tuple:
 
 
 def patch_eb(eb0: bytes) -> bytes:
-    """Seat T3 and J (player), LATE_CC (late entry) and the caller (+ its InitCode after the player's InitObject). Refuses a
-    layout it does not recognise, and any NEW eblint error."""
+    """Seat T3, J and F2d (player), LATE_CC (late entry) and the caller (+ its InitCode after the player's InitObject).
+    Refuses a layout it does not recognise, and any NEW eblint error."""
     bad = kit_layout_problems(eb0)
     if bad:
         raise SystemExit("the kit build is not the layout the seat expects:\n  " + "\n  ".join(bad))
     baseline = {str(p) for p in eblint.lint_eb(eb0)}
     out = eb_edit.add_function(eb0, F.PLAYER_SID, F.T3_TAG, t3_body(*player_ids(eb0)))
     out = eb_edit.add_function(out, F.PLAYER_SID, F.J_TAG, j_body())
+    out = eb_edit.add_function(out, F.PLAYER_SID, F.F2D_TAG, F.f2d_body())
     out = eb_edit.add_function(out, F.LATE_SID, F.LATE_CC_TAG, late_cc_body())
     out, slot = _object.seat_entry(out, caller_entry(), slot=F.CALLER_SID, loc=F.CALLER_LOC)
     if slot != F.CALLER_SID:
@@ -203,6 +205,8 @@ def stock_forms(game: Path) -> dict:
         "1403 HideObject(1, 1)": (1403, None, None, lambda b: b == O.encode(F.OP_MESH_HIDE, 1, F.F5_MESH)),
         "1403 ShowObject(1, 1)": (1403, None, None, lambda b: b == O.encode(F.OP_MESH_SHOW, 1, F.F5_MESH)),
         "1405 AttachObject(4, 13, 13)": (1405, None, None, lambda b: b == O.encode(F.OP_ATTACH, 4, 13, F.ATTACH_BONE)),
+        # s141: F2d's code-19 op, VERBATIM (field 2930 Zidane_Init, test2_790.txt:515)
+        "2930 RunModelCode(19, 190, 4, 0)": (F.F2D_FIELD, None, 0, lambda b: b == O.encode(F.OP_CHRFX, *F.F2D_OP)),
     }
     cache, out = {}, {}
     for lab, (fid, ent, tag, pred) in want.items():
@@ -256,6 +260,13 @@ def proof(eb: bytes, game: Path | None) -> list:
     L += _dis(eb, s.entry(F.PLAYER_SID).func_by_tag(F.T3_TAG))
     L += ["== (3b) J: function %d of the PLAYER entry %d (field 404's ladder jump, no arc)" % (F.J_TAG, F.PLAYER_SID)]
     L += _dis(eb, s.entry(F.PLAYER_SID).func_by_tag(F.J_TAG))
+    L += ["== (3c) F2d: function %d of the PLAYER entry %d (field 2930's RunModelCode(19, 190, 4, 0): CHRFX acts on gCur)"
+          % (F.F2D_TAG, F.PLAYER_SID)]
+    L += _dis(eb, s.entry(F.PLAYER_SID).func_by_tag(F.F2D_TAG))
+    init = s.entry(F.PLAYER_SID).func_by_tag(0)
+    regs = [eb[i.off:i.end].hex(' ') for i in D.iter_code(eb, init.abs_start, init.abs_end) if i.op == F.OP_CHRFX]
+    L.append(f"  the player Init's own footstep registrations (F2d's precondition: a drop rig drops them all): {len(regs)} -- "
+             + " | ".join(regs))
     L += ["== (4) the late entry %d: Init (tag 0) has no 0x2C; function %d holds it and nothing calls it" % (F.LATE_SID, F.LATE_CC_TAG)]
     L += _dis(eb, s.entry(F.LATE_SID).func_by_tag(F.LATE_CC_TAG))
     callers = [(e.index, g.tag) for e in s.entries if not e.empty for g in e.funcs

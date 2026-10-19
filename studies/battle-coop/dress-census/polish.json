@@ -5,7 +5,7 @@
  "sources": {
   "exports": "817 HW exports, first language block",
   "game": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX",
-  "rig_table": "Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs sha256/16 02468cda4c6f691f (13 rows)",
+  "rig_table": "Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs sha256/16 0de46bfcf616529e (13 rows)",
   "kit": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\dreamy-allen-a2375f\\ff9mapkit\\ff9mapkit"
  },
  "rigs": [
@@ -84,8 +84,8 @@
    "run_step_b": 9,
    "step_sound": 925,
    "idle_alias": 2002,
-   "hand_bone": 14,
-   "hand_bone_end": 15,
+   "hand_bone": 15,
+   "hand_bone_end": 16,
    "rig": 3,
    "name": "steiner"
   },
@@ -164,7 +164,7 @@
    "run_step_b": 21,
    "step_sound": 0,
    "idle_alias": 8308,
-   "hand_bone": 15,
+   "hand_bone": 16,
    "hand_bone_end": 16,
    "rig": 7,
    "name": "amarant"
@@ -4303,7 +4303,7 @@
      }
     }
    },
-   "note": "O4 matches anim by ID (25 / 38). A WALK/RUN-class key on another id (190 / 203 = the second ids naming ANH_MAIN_F0_ZDN_WALK / _RUN; the qualified COLD_/SWORD_/POT_/MBG_/TKE_/FRA_ variants) PASSES unmapped, while s140's MapAnim maps those clips by NAME class to rig.walk / rig.run (loco_table.json), so the dressed body's evt.anim is never that id and the key can never fire: a dressed body walks SILENTLY there (cosmetic, no fault) -- except code 19, see open_issues (the empty-table throw)"
+   "note": "O4 matches anim by ID (25 / 38). A WALK/RUN-class key on another id (190 / 203 = the second ids naming ANH_MAIN_F0_ZDN_WALK / _RUN; the qualified COLD_/SWORD_/POT_/MBG_/TKE_/FRA_ variants) PASSES unmapped, while s140's MapAnim maps those clips by NAME class to rig.walk / rig.run (loco_table.json), so the dressed body's evt.anim is never that id and that key can never fire -- but every such stock field ALSO registers the plain 25 / 38 keys, which DO fire on the rig's native walk / run (s140 maps the variant clip there): the dressed body steps with the plain-walk sound at its own footfalls (cosmetic, no fault) -- except code 19, see open_issues (the empty-table throw)"
   },
   "code19": [
    {
@@ -6223,48 +6223,217 @@
    "hand_bone_name": "bone012",
    "hand_bone_end_name": "bone013",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    12
-   ],
-   "labels_for_R_hand_end": [
-    13
-   ],
-   "heuristic_R_hand": [
-    12
-   ],
-   "heuristic_R_hand_end": [
-    13
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      1,
+      299,
+      0.0
+     ],
+     [
+      9,
+      15,
+      0.0
+     ],
+     [
+      10,
+      130,
+      47.5
+     ],
+     [
+      11,
+      157,
+      95.4
+     ],
+     [
+      12,
+      246,
+      152.6
+     ],
+     [
+      13,
+      0,
+      159.1
+     ]
+    ],
+    "skinned": [
+     10,
+     11,
+     12
+    ],
+    "hand": 12,
+    "end": 13,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "12": 17,
+     "13": 39
+    },
+    "arm_bones": {
+     "12": 17,
+     "13": 39
+    },
+    "off_arm_bones": {},
+    "pairs": {
+     "12": {
+      "12": 17
+     },
+     "13": {
+      "13": 39
+     }
+    },
+    "pairs_detail": [
+     [
+      [
+       "GEO_ACC_F0_BIN"
+      ],
+      12,
+      12,
+      2
+     ],
+     [
+      [
+       "GEO_ACC_F0_CUP"
+      ],
+      12,
+      12,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F0_TUR"
+      ],
+      12,
+      12,
+      2
+     ],
+     [
+      [
+       "GEO_ACC_F0_HKG"
+      ],
+      12,
+      12,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F0_ORD"
+      ],
+      12,
+      12,
+      7
+     ],
+     [
+      [
+       "GEO_ACC_F1_HKG"
+      ],
+      12,
+      12,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F2_HKG"
+      ],
+      12,
+      12,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F3_HKG"
+      ],
+      12,
+      12,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F0_HSK"
+      ],
+      12,
+      12,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F0_MAP"
+      ],
+      13,
+      13,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F0_SWD"
+      ],
+      13,
+      13,
+      4
+     ],
+     [
+      [
+       "GEO_ACC_F0_HDB"
+      ],
+      13,
+      13,
+      7
+     ],
+     [
+      [
+       "GEO_SUB_F1_CID"
+      ],
+      13,
+      13,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F0_GAS"
+      ],
+      13,
+      13,
+      24
+     ],
+     [
+      [
+       "GEO_ACC_F0_GNT"
+      ],
+      13,
+      13,
+      2
+     ]
+    ],
+    "pair_majority": {
+     "12": 12,
+     "13": 13
+    },
+    "agrees": true,
+    "evidence": "stock attaches on the right arm, 56 paired with Zidane's 12 / 13"
+   },
    "expected": [
     12,
     13
    ],
    "agree": true,
-   "hand_children": [
-    13
-   ],
-   "hand_parent": 11,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "R_hand",
-    "label_skeleton": "R_hand",
-    "use": "R_hand",
-    "parent": 11,
-    "parent_use": "R_forearm",
-    "children": [
-     13
-    ]
+    "on_right_arm": true,
+    "verts": 246,
+    "role": "hand"
    },
    "bone13": {
-    "labels_for": "R_hand_end",
-    "label_skeleton": "R_hand_end",
-    "use": "R_hand_end",
-    "parent": 12,
-    "parent_use": "R_hand",
-    "children": []
+    "on_right_arm": true,
+    "verts": 0,
+    "role": "end"
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6284,52 +6453,87 @@
    "hand_bone_name": "bone016",
    "hand_bone_end_name": "bone017",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    16
-   ],
-   "labels_for_R_hand_end": [
-    17
-   ],
-   "heuristic_R_hand": [
-    16
-   ],
-   "heuristic_R_hand_end": [
-    17
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      12,
+      143,
+      0.0
+     ],
+     [
+      13,
+      8,
+      -0.0
+     ],
+     [
+      14,
+      60,
+      44.3
+     ],
+     [
+      15,
+      49,
+      81.9
+     ],
+     [
+      16,
+      149,
+      118.8
+     ],
+     [
+      17,
+      0,
+      128.5
+     ]
+    ],
+    "skinned": [
+     14,
+     15,
+     16
+    ],
+    "hand": 16,
+    "end": 17,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "16": 7,
+     "27": 5
+    },
+    "arm_bones": {
+     "16": 7
+    },
+    "off_arm_bones": {
+     "27": 5
+    },
+    "pairs": {},
+    "pairs_detail": [],
+    "pair_majority": {},
+    "agrees": true,
+    "evidence": "stock attaches on the right arm"
+   },
    "expected": [
     16,
     17
    ],
    "agree": true,
-   "hand_children": [
-    17
-   ],
-   "hand_parent": 15,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "spine",
-    "label_skeleton": "spine",
-    "use": "spine",
-    "parent": 0,
-    "parent_use": "root",
-    "children": [
-     13,
-     18,
-     24
-    ]
+    "on_right_arm": true,
+    "verts": 143,
+    "role": null
    },
    "bone13": {
-    "labels_for": "chest",
-    "label_skeleton": "chest",
-    "use": "chest",
-    "parent": 12,
-    "parent_use": "spine",
-    "children": [
-     14
-    ]
+    "on_right_arm": true,
+    "verts": 8,
+    "role": null
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6349,50 +6553,101 @@
    "hand_bone_name": "bone014",
    "hand_bone_end_name": "bone015",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    14
-   ],
-   "labels_for_R_hand_end": [
-    15
-   ],
-   "heuristic_R_hand": [
-    14
-   ],
-   "heuristic_R_hand_end": [
-    15
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      10,
+      137,
+      0.0
+     ],
+     [
+      11,
+      94,
+      0.0
+     ],
+     [
+      12,
+      44,
+      42.8
+     ],
+     [
+      13,
+      49,
+      83.0
+     ],
+     [
+      14,
+      174,
+      123.8
+     ],
+     [
+      15,
+      0,
+      134.2
+     ]
+    ],
+    "skinned": [
+     12,
+     13,
+     14
+    ],
+    "hand": 14,
+    "end": 15,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "14": 1,
+     "15": 3
+    },
+    "arm_bones": {
+     "14": 1,
+     "15": 3
+    },
+    "off_arm_bones": {},
+    "pairs": {
+     "13": {
+      "15": 1
+     }
+    },
+    "pairs_detail": [
+     [
+      [
+       "GEO_ACC_F0_GNT"
+      ],
+      13,
+      15,
+      1
+     ]
+    ],
+    "pair_majority": {
+     "13": 15
+    },
+    "agrees": true,
+    "evidence": "stock attaches on the right arm, 1 paired with Zidane's 12 / 13"
+   },
    "expected": [
     14,
     15
    ],
    "agree": true,
-   "hand_children": [
-    15
-   ],
-   "hand_parent": 13,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "R_upper_arm",
-    "label_skeleton": "R_upper_arm",
-    "use": "R_upper_arm",
-    "parent": 11,
-    "parent_use": "chest",
-    "children": [
-     13
-    ]
+    "on_right_arm": true,
+    "verts": 44,
+    "role": "upper arm"
    },
    "bone13": {
-    "labels_for": "R_forearm",
-    "label_skeleton": "R_forearm",
-    "use": "R_forearm",
-    "parent": 12,
-    "parent_use": "R_upper_arm",
-    "children": [
-     14
-    ]
+    "on_right_arm": true,
+    "verts": 49,
+    "role": "forearm"
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6407,62 +6662,129 @@
    "bones": 28,
    "max_bone": 27,
    "name_format_ok": true,
-   "hand_bone": 14,
-   "hand_bone_end": 15,
-   "hand_bone_name": "bone014",
-   "hand_bone_end_name": "bone015",
+   "hand_bone": 15,
+   "hand_bone_end": 16,
+   "hand_bone_name": "bone015",
+   "hand_bone_end_name": "bone016",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    14
-   ],
-   "labels_for_R_hand_end": [
-    15
-   ],
-   "heuristic_R_hand": [
-    14
-   ],
-   "heuristic_R_hand_end": [
-    15
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      10,
+      272,
+      0.0
+     ],
+     [
+      11,
+      0,
+      0.0
+     ],
+     [
+      12,
+      0,
+      48.5
+     ],
+     [
+      13,
+      87,
+      92.0
+     ],
+     [
+      14,
+      48,
+      161.5
+     ],
+     [
+      15,
+      170,
+      211.8
+     ],
+     [
+      16,
+      0,
+      231.5
+     ]
+    ],
+    "skinned": [
+     13,
+     14,
+     15
+    ],
+    "hand": 15,
+    "end": 16,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "15": 3,
+     "16": 9
+    },
+    "arm_bones": {
+     "15": 3,
+     "16": 9
+    },
+    "off_arm_bones": {},
+    "pairs": {
+     "12": {
+      "15": 1
+     },
+     "13": {
+      "16": 8
+     }
+    },
+    "pairs_detail": [
+     [
+      [
+       "GEO_ACC_F0_BIN"
+      ],
+      12,
+      15,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F0_SWD"
+      ],
+      13,
+      16,
+      8
+     ]
+    ],
+    "pair_majority": {
+     "12": 15,
+     "13": 16
+    },
+    "agrees": true,
+    "evidence": "stock attaches on the right arm, 9 paired with Zidane's 12 / 13"
+   },
    "expected": [
-    14,
-    15
+    15,
+    16
    ],
    "agree": true,
-   "hand_children": [
-    15
-   ],
-   "hand_parent": 13,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "R_upper_arm",
-    "label_skeleton": "R_upper_arm",
-    "use": "R_upper_arm",
-    "parent": 11,
-    "parent_use": "chest",
-    "children": [
-     13
-    ]
+    "on_right_arm": true,
+    "verts": 0,
+    "role": null
    },
    "bone13": {
-    "labels_for": "R_forearm",
-    "label_skeleton": "R_forearm",
-    "use": "R_forearm",
-    "parent": 12,
-    "parent_use": "R_upper_arm",
-    "children": [
-     14,
-     17
-    ]
+    "on_right_arm": true,
+    "verts": 87,
+    "role": "upper arm"
    },
    "bone12_exists": true,
    "bone13_exists": true,
-   "f8_parent_bone13_s141": "bone015",
+   "f8_parent_bone13_s141": "bone016",
    "f8_parent_bone13_polish_off": "bone013",
-   "f8_parent_bone12_s141": "bone014",
+   "f8_parent_bone12_s141": "bone015",
    "f8_parent_bone12_polish_off": "bone012"
   },
   "4 freya": {
@@ -6476,43 +6798,84 @@
    "hand_bone_name": "bone012",
    "hand_bone_end_name": "bone012",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    12
-   ],
-   "labels_for_R_hand_end": [],
-   "heuristic_R_hand": [
-    12
-   ],
-   "heuristic_R_hand_end": [],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      1,
+      86,
+      0.0
+     ],
+     [
+      9,
+      30,
+      0.0
+     ],
+     [
+      10,
+      123,
+      42.0
+     ],
+     [
+      11,
+      69,
+      100.7
+     ],
+     [
+      12,
+      144,
+      168.6
+     ]
+    ],
+    "skinned": [
+     10,
+     11,
+     12
+    ],
+    "hand": 12,
+    "end": 12,
+    "leaf_hand": true
+   },
+   "stock": {
+    "by_bone": {
+     "5": 1,
+     "6": 1,
+     "12": 2
+    },
+    "arm_bones": {
+     "12": 2
+    },
+    "off_arm_bones": {
+     "5": 1,
+     "6": 1
+    },
+    "pairs": {},
+    "pairs_detail": [],
+    "pair_majority": {},
+    "agrees": true,
+    "evidence": "stock attaches on the right arm"
+   },
    "expected": [
     12,
     12
    ],
    "agree": true,
-   "hand_children": [],
-   "hand_parent": 11,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": true,
-   "why_end_is_hand": "bone012 (R_hand) is a LEAF -- no child bone, so no R_hand_end exists to label; the table uses R_hand for both (bone 12 and 13 both land on bone012)",
+   "why_end_is_hand": "bone012 (the hand) is a vertex-owning LEAF -- no end bone below it; the table uses the hand for both (bone 12 and 13 both land on bone012)",
    "bone12": {
-    "labels_for": "R_hand",
-    "label_skeleton": "R_hand",
-    "use": "R_hand",
-    "parent": 11,
-    "parent_use": "R_forearm",
-    "children": []
+    "on_right_arm": true,
+    "verts": 144,
+    "role": "hand"
    },
    "bone13": {
-    "labels_for": null,
-    "label_skeleton": null,
-    "use": "pivot of L_flap_01+L_thigh",
-    "parent": 0,
-    "parent_use": "root",
-    "children": [
-     14,
-     15
-    ]
+    "on_right_arm": false,
+    "verts": null,
+    "role": null
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6532,50 +6895,80 @@
    "hand_bone_name": "bone013",
    "hand_bone_end_name": "bone014",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    13
-   ],
-   "labels_for_R_hand_end": [
-    14
-   ],
-   "heuristic_R_hand": [
-    13
-   ],
-   "heuristic_R_hand_end": [
-    14
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      1,
+      165,
+      0.0
+     ],
+     [
+      10,
+      38,
+      0.0
+     ],
+     [
+      11,
+      29,
+      72.8
+     ],
+     [
+      12,
+      121,
+      136.0
+     ],
+     [
+      13,
+      152,
+      197.1
+     ],
+     [
+      14,
+      0,
+      216.5
+     ]
+    ],
+    "skinned": [
+     11,
+     12,
+     13
+    ],
+    "hand": 13,
+    "end": 14,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {},
+    "arm_bones": {},
+    "off_arm_bones": {},
+    "pairs": {},
+    "pairs_detail": [],
+    "pair_majority": {},
+    "agrees": true,
+    "evidence": "no stock attach on the right arm"
+   },
    "expected": [
     13,
     14
    ],
    "agree": true,
-   "hand_children": [
-    14
-   ],
-   "hand_parent": 12,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "R_forearm",
-    "label_skeleton": "R_forearm",
-    "use": "R_forearm",
-    "parent": 11,
-    "parent_use": "R_upper_arm",
-    "children": [
-     13
-    ]
+    "on_right_arm": true,
+    "verts": 121,
+    "role": "forearm"
    },
    "bone13": {
-    "labels_for": "R_hand",
-    "label_skeleton": "R_hand",
-    "use": "R_hand",
-    "parent": 12,
-    "parent_use": "R_forearm",
-    "children": [
-     14
-    ]
+    "on_right_arm": true,
+    "verts": 152,
+    "role": "hand"
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6595,50 +6988,84 @@
    "hand_bone_name": "bone014",
    "hand_bone_end_name": "bone015",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    14
-   ],
-   "labels_for_R_hand_end": [
-    15
-   ],
-   "heuristic_R_hand": [
-    14
-   ],
-   "heuristic_R_hand_end": [
-    15
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      10,
+      160,
+      0.0
+     ],
+     [
+      11,
+      33,
+      0.0
+     ],
+     [
+      12,
+      45,
+      31.8
+     ],
+     [
+      13,
+      50,
+      69.6
+     ],
+     [
+      14,
+      194,
+      108.3
+     ],
+     [
+      15,
+      0,
+      129.2
+     ]
+    ],
+    "skinned": [
+     12,
+     13,
+     14
+    ],
+    "hand": 14,
+    "end": 15,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "23": 3
+    },
+    "arm_bones": {},
+    "off_arm_bones": {
+     "23": 3
+    },
+    "pairs": {},
+    "pairs_detail": [],
+    "pair_majority": {},
+    "agrees": true,
+    "evidence": "no stock attach on the right arm"
+   },
    "expected": [
     14,
     15
    ],
    "agree": true,
-   "hand_children": [
-    15
-   ],
-   "hand_parent": 13,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "R_upper_arm",
-    "label_skeleton": "R_upper_arm",
-    "use": "R_upper_arm",
-    "parent": 11,
-    "parent_use": "chest",
-    "children": [
-     13
-    ]
+    "on_right_arm": true,
+    "verts": 45,
+    "role": "upper arm"
    },
    "bone13": {
-    "labels_for": "R_forearm",
-    "label_skeleton": "R_forearm",
-    "use": "R_forearm",
-    "parent": 12,
-    "parent_use": "R_upper_arm",
-    "children": [
-     14
-    ]
+    "on_right_arm": true,
+    "verts": 50,
+    "role": "forearm"
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6653,61 +7080,103 @@
    "bones": 27,
    "max_bone": 26,
    "name_format_ok": true,
-   "hand_bone": 15,
+   "hand_bone": 16,
    "hand_bone_end": 16,
-   "hand_bone_name": "bone015",
+   "hand_bone_name": "bone016",
    "hand_bone_end_name": "bone016",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    15
-   ],
-   "labels_for_R_hand_end": [
-    16
-   ],
-   "heuristic_R_hand": [
-    15
-   ],
-   "heuristic_R_hand_end": [
-    16
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      10,
+      112,
+      0.0
+     ],
+     [
+      11,
+      158,
+      0.0
+     ],
+     [
+      12,
+      27,
+      0.0
+     ],
+     [
+      13,
+      4,
+      52.4
+     ],
+     [
+      14,
+      197,
+      79.4
+     ],
+     [
+      15,
+      98,
+      167.0
+     ],
+     [
+      16,
+      196,
+      264.5
+     ]
+    ],
+    "skinned": [
+     14,
+     15,
+     16
+    ],
+    "hand": 16,
+    "end": 16,
+    "leaf_hand": true
+   },
+   "stock": {
+    "by_bone": {
+     "16": 1,
+     "23": 1
+    },
+    "arm_bones": {
+     "16": 1
+    },
+    "off_arm_bones": {
+     "23": 1
+    },
+    "pairs": {},
+    "pairs_detail": [],
+    "pair_majority": {},
+    "agrees": true,
+    "evidence": "stock attaches on the right arm"
+   },
    "expected": [
-    15,
+    16,
     16
    ],
    "agree": true,
-   "hand_children": [
-    16
-   ],
-   "hand_parent": 14,
-   "hand_parent_label": "R_forearm",
-   "end_is_hand": false,
-   "why_end_is_hand": null,
+   "end_is_hand": true,
+   "why_end_is_hand": "bone016 (the hand) is a vertex-owning LEAF -- no end bone below it; the table uses the hand for both (bone 12 and 13 both land on bone016)",
    "bone12": {
-    "labels_for": "chest",
-    "label_skeleton": "chest",
-    "use": "chest",
-    "parent": 11,
-    "parent_use": "spine_01",
-    "children": [
-     13
-    ]
+    "on_right_arm": true,
+    "verts": 27,
+    "role": null
    },
    "bone13": {
-    "labels_for": "R_upper_arm",
-    "label_skeleton": "R_upper_arm",
-    "use": "R_upper_arm",
-    "parent": 12,
-    "parent_use": "chest",
-    "children": [
-     14
-    ]
+    "on_right_arm": true,
+    "verts": 4,
+    "role": null
    },
    "bone12_exists": true,
    "bone13_exists": true,
    "f8_parent_bone13_s141": "bone016",
    "f8_parent_bone13_polish_off": "bone013",
-   "f8_parent_bone12_s141": "bone015",
+   "f8_parent_bone12_s141": "bone016",
    "f8_parent_bone12_polish_off": "bone012"
   },
   "8 moogle": {
@@ -6721,44 +7190,82 @@
    "hand_bone_name": "bone019",
    "hand_bone_end_name": "bone019",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    19
-   ],
-   "labels_for_R_hand_end": [],
-   "heuristic_R_hand": [
-    19
-   ],
-   "heuristic_R_hand_end": [],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      1,
+      260,
+      0.0
+     ],
+     [
+      16,
+      70,
+      0.0
+     ],
+     [
+      17,
+      21,
+      38.7
+     ],
+     [
+      18,
+      53,
+      54.1
+     ],
+     [
+      19,
+      64,
+      70.9
+     ]
+    ],
+    "skinned": [
+     17,
+     18,
+     19
+    ],
+    "hand": 19,
+    "end": 19,
+    "leaf_hand": true
+   },
+   "stock": {
+    "by_bone": {
+     "19": 2,
+     "30": 1
+    },
+    "arm_bones": {
+     "19": 2
+    },
+    "off_arm_bones": {
+     "30": 1
+    },
+    "pairs": {},
+    "pairs_detail": [],
+    "pair_majority": {},
+    "agrees": true,
+    "evidence": "stock attaches on the right arm"
+   },
    "expected": [
     19,
     19
    ],
    "agree": true,
-   "hand_children": [],
-   "hand_parent": 18,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": true,
-   "why_end_is_hand": "bone019 (R_hand) is a LEAF -- no child bone, so no R_hand_end exists to label; the table uses R_hand for both (bone 12 and 13 both land on bone019)",
+   "why_end_is_hand": "bone019 (the hand) is a vertex-owning LEAF -- no end bone below it; the table uses the hand for both (bone 12 and 13 both land on bone019)",
    "bone12": {
-    "labels_for": "head",
-    "label_skeleton": "head",
-    "use": "head",
-    "parent": 11,
-    "parent_use": "neck_01",
-    "children": [
-     13
-    ]
+    "on_right_arm": false,
+    "verts": null,
+    "role": null
    },
    "bone13": {
-    "labels_for": "crest_01",
-    "label_skeleton": "crest_01",
-    "use": "crest_01",
-    "parent": 12,
-    "parent_use": "head",
-    "children": [
-     14
-    ]
+    "on_right_arm": false,
+    "verts": null,
+    "role": null
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6778,46 +7285,85 @@
    "hand_bone_name": "bone024",
    "hand_bone_end_name": "bone025",
    "hand_bones_exist": true,
-   "labels_source": "label_skeleton (labels_for names no R_hand)",
-   "labels_for_R_hand": [],
-   "labels_for_R_hand_end": [
-    25
-   ],
-   "heuristic_R_hand": [
-    24
-   ],
-   "heuristic_R_hand_end": [
-    25
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      10,
+      154,
+      0.0
+     ],
+     [
+      21,
+      2,
+      -0.1
+     ],
+     [
+      22,
+      82,
+      52.7
+     ],
+     [
+      23,
+      109,
+      97.8
+     ],
+     [
+      24,
+      139,
+      142.3
+     ],
+     [
+      25,
+      149,
+      156.4
+     ]
+    ],
+    "skinned": [
+     22,
+     23,
+     24,
+     25
+    ],
+    "hand": 24,
+    "end": 25,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "20": 1
+    },
+    "arm_bones": {},
+    "off_arm_bones": {
+     "20": 1
+    },
+    "pairs": {},
+    "pairs_detail": [],
+    "pair_majority": {},
+    "agrees": true,
+    "evidence": "no stock attach on the right arm"
+   },
    "expected": [
     24,
     25
    ],
    "agree": true,
-   "hand_children": [
-    25
-   ],
-   "hand_parent": 23,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "hi_1_05",
-    "label_skeleton": "head_01",
-    "use": "head_01",
-    "parent": 11,
-    "parent_use": "neck",
-    "children": []
+    "on_right_arm": false,
+    "verts": null,
+    "role": null
    },
    "bone13": {
-    "labels_for": "head",
-    "label_skeleton": "head",
-    "use": "head",
-    "parent": 11,
-    "parent_use": "neck",
-    "children": [
-     14
-    ]
+    "on_right_arm": false,
+    "verts": null,
+    "role": null
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6855,46 +7401,102 @@
    "hand_bone_name": "bone005",
    "hand_bone_end_name": "bone006",
    "hand_bones_exist": true,
-   "labels_source": "label_skeleton (labels_for names no R_hand)",
-   "labels_for_R_hand": [],
-   "labels_for_R_hand_end": [
-    6
-   ],
-   "heuristic_R_hand": [
-    5
-   ],
-   "heuristic_R_hand_end": [
-    6
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      1,
+      241,
+      0.0
+     ],
+     [
+      2,
+      0,
+      0.2
+     ],
+     [
+      3,
+      102,
+      84.2
+     ],
+     [
+      4,
+      68,
+      138.4
+     ],
+     [
+      5,
+      150,
+      173.5
+     ],
+     [
+      6,
+      0,
+      192.0
+     ]
+    ],
+    "skinned": [
+     3,
+     4,
+     5
+    ],
+    "hand": 5,
+    "end": 6,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "6": 3,
+     "27": 1
+    },
+    "arm_bones": {
+     "6": 3
+    },
+    "off_arm_bones": {
+     "27": 1
+    },
+    "pairs": {
+     "13": {
+      "6": 3
+     }
+    },
+    "pairs_detail": [
+     [
+      [
+       "GEO_ACC_F0_SWD"
+      ],
+      13,
+      6,
+      3
+     ]
+    ],
+    "pair_majority": {
+     "13": 6
+    },
+    "agrees": true,
+    "evidence": "stock attaches on the right arm, 3 paired with Zidane's 12 / 13"
+   },
    "expected": [
     5,
     6
    ],
    "agree": true,
-   "hand_children": [
-    6
-   ],
-   "hand_parent": 4,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "hi_0_06",
-    "label_skeleton": "crest_03",
-    "use": "crest_03",
-    "parent": 11,
-    "parent_use": "crest_02",
-    "children": []
+    "on_right_arm": false,
+    "verts": null,
+    "role": null
    },
    "bone13": {
-    "labels_for": "L_shoulder",
-    "label_skeleton": "L_shoulder",
-    "use": "L_shoulder",
-    "parent": 1,
-    "parent_use": "spine",
-    "children": [
-     14
-    ]
+    "on_right_arm": false,
+    "verts": null,
+    "role": null
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6932,50 +7534,122 @@
    "hand_bone_name": "bone013",
    "hand_bone_end_name": "bone014",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    13
-   ],
-   "labels_for_R_hand_end": [
-    14
-   ],
-   "heuristic_R_hand": [
-    13
-   ],
-   "heuristic_R_hand_end": [
-    14
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      1,
+      347,
+      0.0
+     ],
+     [
+      10,
+      0,
+      -0.1
+     ],
+     [
+      11,
+      71,
+      44.3
+     ],
+     [
+      12,
+      80,
+      81.8
+     ],
+     [
+      13,
+      153,
+      124.0
+     ],
+     [
+      14,
+      0,
+      131.8
+     ]
+    ],
+    "skinned": [
+     11,
+     12,
+     13
+    ],
+    "hand": 13,
+    "end": 14,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "13": 3,
+     "14": 5
+    },
+    "arm_bones": {
+     "13": 3,
+     "14": 5
+    },
+    "off_arm_bones": {},
+    "pairs": {
+     "12": {
+      "13": 2
+     },
+     "13": {
+      "13": 1,
+      "14": 4
+     }
+    },
+    "pairs_detail": [
+     [
+      [
+       "GEO_ACC_F0_BIN"
+      ],
+      12,
+      13,
+      2
+     ],
+     [
+      [
+       "GEO_ACC_F0_MAP"
+      ],
+      13,
+      13,
+      1
+     ],
+     [
+      [
+       "GEO_ACC_F0_SWD"
+      ],
+      13,
+      14,
+      4
+     ]
+    ],
+    "pair_majority": {
+     "12": 13,
+     "13": 14
+    },
+    "agrees": true,
+    "evidence": "stock attaches on the right arm, 7 paired with Zidane's 12 / 13"
+   },
    "expected": [
     13,
     14
    ],
    "agree": true,
-   "hand_children": [
-    14
-   ],
-   "hand_parent": 12,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "R_forearm",
-    "label_skeleton": "R_forearm",
-    "use": "R_forearm",
-    "parent": 11,
-    "parent_use": "R_upper_arm",
-    "children": [
-     13
-    ]
+    "on_right_arm": true,
+    "verts": 80,
+    "role": "forearm"
    },
    "bone13": {
-    "labels_for": "R_hand",
-    "label_skeleton": "R_hand",
-    "use": "R_hand",
-    "parent": 12,
-    "parent_use": "R_forearm",
-    "children": [
-     14
-    ]
+    "on_right_arm": true,
+    "verts": 153,
+    "role": "hand"
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -6995,50 +7669,87 @@
    "hand_bone_name": "bone015",
    "hand_bone_end_name": "bone016",
    "hand_bones_exist": true,
-   "labels_source": "labels_for",
-   "labels_for_R_hand": [
-    15
-   ],
-   "labels_for_R_hand_end": [
-    16
-   ],
-   "heuristic_R_hand": [
-    15
-   ],
-   "heuristic_R_hand_end": [
-    16
-   ],
+   "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+   "skin": {
+    "arm": [
+     [
+      0,
+      0,
+      0.0
+     ],
+     [
+      11,
+      636,
+      0.0
+     ],
+     [
+      12,
+      0,
+      0.0
+     ],
+     [
+      13,
+      206,
+      44.6
+     ],
+     [
+      14,
+      88,
+      86.1
+     ],
+     [
+      15,
+      221,
+      128.4
+     ],
+     [
+      16,
+      0,
+      139.1
+     ]
+    ],
+    "skinned": [
+     13,
+     14,
+     15
+    ],
+    "hand": 15,
+    "end": 16,
+    "leaf_hand": false
+   },
+   "stock": {
+    "by_bone": {
+     "16": 14,
+     "25": 1
+    },
+    "arm_bones": {
+     "16": 14
+    },
+    "off_arm_bones": {
+     "25": 1
+    },
+    "pairs": {},
+    "pairs_detail": [],
+    "pair_majority": {},
+    "agrees": true,
+    "evidence": "stock attaches on the right arm"
+   },
    "expected": [
     15,
     16
    ],
    "agree": true,
-   "hand_children": [
-    16
-   ],
-   "hand_parent": 14,
-   "hand_parent_label": "R_forearm",
    "end_is_hand": false,
    "why_end_is_hand": null,
    "bone12": {
-    "labels_for": "chest",
-    "label_skeleton": "chest",
-    "use": "chest",
-    "parent": 11,
-    "parent_use": "spine",
-    "children": [
-     13
-    ]
+    "on_right_arm": true,
+    "verts": 0,
+    "role": null
    },
    "bone13": {
-    "labels_for": "R_upper_arm",
-    "label_skeleton": "R_upper_arm",
-    "use": "R_upper_arm",
-    "parent": 12,
-    "parent_use": "chest",
-    "children": [
-     14
-    ]
+    "on_right_arm": true,
+    "verts": 206,
+    "role": "upper arm"
    },
    "bone12_exists": true,
    "bone13_exists": true,
@@ -8886,8 +9597,8 @@
    "nineteen_harmless": 3,
    "sound_on_18": 2,
    "any_frame_maps": 13,
-   "bone_swap": 22,
-   "bone_any": 24
+   "bone_swap": 20,
+   "bone_any": 23
   },
   "every_mutant_caught": true,
   "light_rows": {
@@ -9467,9 +10178,9 @@
     "bone12_polish_off": "bone012"
    },
    "3 steiner": {
-    "bone13_s141": "bone015",
+    "bone13_s141": "bone016",
     "bone13_polish_off": "bone013",
-    "bone12_s141": "bone014",
+    "bone12_s141": "bone015",
     "bone12_polish_off": "bone012"
    },
    "4 freya": {
@@ -9493,7 +10204,7 @@
    "7 amarant": {
     "bone13_s141": "bone016",
     "bone13_polish_off": "bone013",
-    "bone12_s141": "bone015",
+    "bone12_s141": "bone016",
     "bone12_polish_off": "bone012"
    },
    "8 moogle": {
@@ -9530,14 +10241,14 @@
  },
  "table_disagreements": [],
  "open_issues": [
-  "O4 MATCHES BY ID, s140's MapAnim BY NAME: a Zidane player entry registers CHRFX 16-19 on WALK/RUN-class ids other than 25/38 -- 190 ANH_MAIN_F0_ZDN_WALK (2 ops, codes {19: 2}, frames16 {}, fields [2930]); 203 ANH_MAIN_F0_ZDN_RUN (2 ops, codes {19: 2}, frames16 {}, fields [2930]); 2575 ANH_MAIN_F0_ZDN_COLD_WALK (6 ops, codes {16: 2, 17: 2, 18: 2}, frames16 {'10': 1, '19': 1}, fields [307]); 3508 ANH_MAIN_F0_ZDN_SWORD_RUN (18 ops, codes {16: 6, 17: 6, 18: 6}, frames16 {'0': 3, '9': 3}, fields [62, 63, 64]); 3521 ANH_MAIN_F0_ZDN_SWORD_WALK (18 ops, codes {16: 6, 17: 6, 18: 6}, frames16 {'4': 3, '13': 3}, fields [62, 63, 64]); 4001 ANH_MAIN_F0_ZDN_POT_WALK (54 ops, codes {16: 18, 17: 18, 18: 18}, frames16 {'14': 9, '3': 6, '4': 3}, fields [1606, 1607, 2513]); 7935 ANH_MAIN_F0_ZDN_MBG_RUN (12 ops, codes {16: 4, 17: 4, 18: 4}, frames16 {'1': 2, 'computed': 2}, fields [1464, 1554]); 8555 ANH_MAIN_F0_ZDN_TKE_WALK (6 ops, codes {16: 2, 17: 2, 18: 2}, frames16 {'4': 1, 'computed': 1}, fields [2802]); 8847 ANH_MAIN_F0_ZDN_FRA_WALK (3 ops, codes {16: 1, 17: 1, 18: 1}, frames16 {'11': 1}, fields [2928]). Each PASSES unmapped while the dressed body plays rig.walk/run (evt.anim = the rig id), so the dressed body walks SILENTLY in those fields (incl. the disc-1 opening 62-64, SWORD_WALK/RUN). Cosmetic; extending O4 to the loco CLASS would need each variant's own frame pair (listed) -> the rig's pair. Recommend KNOWN in the README unless the engine stage widens the key.",
+  "O4 MATCHES BY ID, s140's MapAnim BY NAME: a Zidane player entry registers CHRFX 16-19 on WALK/RUN-class ids other than 25/38 -- 190 ANH_MAIN_F0_ZDN_WALK (2 ops, codes {19: 2}, frames16 {}, fields [2930]); 203 ANH_MAIN_F0_ZDN_RUN (2 ops, codes {19: 2}, frames16 {}, fields [2930]); 2575 ANH_MAIN_F0_ZDN_COLD_WALK (6 ops, codes {16: 2, 17: 2, 18: 2}, frames16 {'10': 1, '19': 1}, fields [307]); 3508 ANH_MAIN_F0_ZDN_SWORD_RUN (18 ops, codes {16: 6, 17: 6, 18: 6}, frames16 {'0': 3, '9': 3}, fields [62, 63, 64]); 3521 ANH_MAIN_F0_ZDN_SWORD_WALK (18 ops, codes {16: 6, 17: 6, 18: 6}, frames16 {'4': 3, '13': 3}, fields [62, 63, 64]); 4001 ANH_MAIN_F0_ZDN_POT_WALK (54 ops, codes {16: 18, 17: 18, 18: 18}, frames16 {'14': 9, '3': 6, '4': 3}, fields [1606, 1607, 2513]); 7935 ANH_MAIN_F0_ZDN_MBG_RUN (12 ops, codes {16: 4, 17: 4, 18: 4}, frames16 {'1': 2, 'computed': 2}, fields [1464, 1554]); 8555 ANH_MAIN_F0_ZDN_TKE_WALK (6 ops, codes {16: 2, 17: 2, 18: 2}, frames16 {'4': 1, 'computed': 1}, fields [2802]); 8847 ANH_MAIN_F0_ZDN_FRA_WALK (3 ops, codes {16: 1, 17: 1, 18: 1}, frames16 {'11': 1}, fields [2928]). Each PASSES unmapped while the dressed body plays rig.walk/run (evt.anim = the rig id), so those variant keys never fire -- but every such field's Zidane_Init ALSO registers the plain 25 / 38 keys unconditionally (no 19 after them but 2930's), which MapFootstep maps to rig.walk / rig.run, the very clip s140 plays for the variant: the dressed body STEPS there with the plain-walk sound at the rig's own footfalls (the disc-1 opening 62-64: Blank and Marcus step, Cinna and the moogle are silent), and steps where stock Zidane is silent on 2705's FRA_WALK. Cosmetic; extending O4 to the loco CLASS would need each variant's own frame pair (listed) -> the rig's pair. Recommend KNOWN in the README unless the engine stage widens the key.",
   "gesture-class footstep keys on Zidane players pass as designed (steps_passed): 2630 ANH_MAIN_F0_ZDN_KANGAERU (6 ops, fields [201]); 2713 ANH_MAIN_F0_ZDN_MATCH3 (18 ops, fields [50])",
   "EMPTY-TABLE THROW (O4 as written): field 2930 Zidane_Init (entry 3, first in Main_Init's InitObject order [3, 2, 5, 6, 7, 4, 9, 8, 10]) registers 16-18 on 25/38 then runs code 19 on the ALIAS ids 190/203 (a stock no-op: no record has those ids). On a DROP rig (5 quina, 8 moogle, 9 cinna) the 16-18 are dropped and the 19s PASS, so if no other body has registered yet stock DeleteChar indexes charSoundArray[-1] (FF9Snd.cs DeleteChar) and throws inside the VM -- stock itself never faults there (no fault). Fix that keeps stock semantics: MapFootstep DROPS (counts) a code 19 whose (anim', frame') has NO record in the table -- stock's DeleteChar is a no-op then except for that throw. (Init order across entries is a runtime fact: PLAUSIBLE, not proven.)",
-  "F2 / F2c's 'no code-19 fault' CANNOT FAIL on field 250: its player entry runs no code 19 at all (only 16/17/18 x4 keys, at load and at Main_Reinit). To make the 19-drop checkable, the bench needs a synthetic RunModelCode(19, 25, 4, 0) on the dressed drop-rig body (e.g. the 30606 caller after the dress): s141 drops it (steps_dropped 12 -> 13, steps stays [], no fault); under `polish off` the table holds the 4 UNMAPPED Zidane records, so the 19 matches (25, 4) and stock DeleteChar's charSoundUse-- drops the TOP record (steps 4 -> 3 rows, steps_dropped 0) -- the calibration red. Only an EMPTY table makes a passed 19 throw (see the field-2930 row).",
+  "F2 / F2c's 'no code-19 fault' CANNOT FAIL on field 250: its player entry runs no code 19 at all (only 16/17/18 x4 keys, at load and at Main_Reinit). The code-19 guard's in-game witness is the bench field's F2d conductor instead: 30606's player Init registers the same twelve keys (the kit template's, Arg4 912), then F2d runs field 2930's RunModelCode(19, 190, 4, 0) in the player's own entry: on the dressed moogle the twelve are dropped, the 19 meets an EMPTY table and s141 drops it (steps_dropped 12 -> 13, steps stays [], no throw); under `polish off` (and on s140) the twelve register, the table holds Zidane's four and the 19 on 190 is stock's no-op (steps_dropped +0: the calibration red -- the hazard IS the polish's own drop). Only an EMPTY table makes a passed 19 throw (see the field-2930 row).",
   "O4's sound override must touch codes 16 and 17 only (sndEffectID[0]/[1], the 'both slots'); code 18's Arg4 is the random-pitch FLAG (fldchar.cs: pitchRand = Arg4 == 0 ? 0 : 1) and 19 ignores Arg4. Every stock code-18 Arg4 on 25/38 and on Steiner's 1996/2005 is 1, so the difference is invisible in stock data; the twin (map_footstep) and its 'sound_on_18' mutant pin the 16/17-only reading.",
   "AUDIT COUNTS that do not reproduce exactly (the verdicts do): Freya's keys register in 40 / 40 fields (2553 / 2558; the audit says 54 / 44) with frames {4,16} / {0,9} as the audit says; Zidane's per-field sound-id reuse (exact in EVERY co-registering field, Steiner in none) counts vivi 83/83 (player-entry scope 81/81; audit 79), garnet 73/73 (player-entry scope 69/69; audit 70), steiner 0/63 (player-entry scope 0/59; audit 59), freya 44/44 (player-entry scope 42/42; audit 40), eiko 47/47 (player-entry scope 45/45; audit 47), amarant 13/13 (player-entry scope 12/12; audit 10). Steiner's 59 reproduces in the player-entry scope only; no single scope reproduces all six.",
   "ATTACH: the audit's bone 13 x37 / 12 x17 in 29 fields reproduces; the only OTHER bone a Zidane player / 250 carries is bone 0 x16 (fields [656, 657, 658, 659]: Qu's Marsh frogs, AttachObject(255, 250, 0) in Frog_*_SpeakBTN, carrier 250 on fields whose player entries are Zidane 98 and Quina 273) -> attach_notes, left alone (bone000 is every rig's root).",
-  "O6 OTHER geoAttach SITES: 112 glasses :1560 (carrier uid 2): entries [2] {'2': ['126 GEO_NPC_F0_WRK']} player=False; 112 glasses :3295 (carrier uid 4): entries [4] {'4': ['120 GEO_NPC_F0_RMM']} player=False; 62 bone-19 override (gCur.sid 8): entries [8] {'8': ['5501 GEO_SUB_F1_BAK']} player=False; 3010 bone-19 override (gCur.sid 2): entries [2] {'2': ['5501 GEO_SUB_F1_BAK']} player=False -- none carries on a Zidane player entry, so no dressed body reaches them (FieldMap.cs:535's RestoreAttachModel re-uses attachTargetBoneIndex, which the remap already wrote).",
+  "O6 OTHER geoAttach SITES: 112 glasses :1560 (carrier uid 2): entries [2] {'2': ['126 GEO_NPC_F0_WRK']} player=False; 112 glasses :3295 (carrier uid 4): entries [4] {'4': ['120 GEO_NPC_F0_RMM']} player=False; 62 bone-19 override (gCur.sid 8): entries [8] {'8': ['5501 GEO_SUB_F1_BAK']} player=False; 3010 bone-19 override (gCur.sid 2): entries [2] {'2': ['5501 GEO_SUB_F1_BAK']} player=False -- none carries on a Zidane player entry, so no dressed body reaches them (FieldMap.cs:535's RestoreAttachModel -- called on fldMapNo 1508 only, Conde Petie / Inn -- re-uses attachTargetBoneIndex, which the remap already wrote; elsewhere a warm return re-attaches only through a re-run AttachObject, which passes the hook again).",
   "MESH: 0 of 817 exports show/hide a Zidane player entry's object or 250 (the audit's 0 of 817 reproduces). 942 mesh ops DO target NON-Zidane player-defining entries ({'306 GEO_ACC_F1_GRG': 942}) -- rideable / vehicle bodies, never dressed, so O7's netSelfDress gate never sees them.",
   "LIGHT: 818 MCFs, every one with the 0xFFFF row, 344 lack a 98 row (the audit's 818 / 344 reproduce). On those 344 the fallback cannot fire and a dressed body keeps the default row on s141 too; kit fields (30606) carry no MCF, so light_row reads -1 there.",
   "F3 on s140: `steps`, `steps_fired_player` and every s141 key are ABSENT on s140, so F3's assertions read NOT REACHED there, not green; only the s138 instrument (player.model 98, anim 25/38 while moving) is readable. On s141 under `polish off`: F1, F1b, F2, F2c, F4, F4g, F5, F6, F7, F8 red and F3 green (bench.* below holds both stages)."

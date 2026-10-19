@@ -12,8 +12,12 @@ Re-derives -- never trusts -- every number the audit gives for s141 and writes t
   (d) LIGHTING: field 250's MapConfigData rows and lights through ff9mapkit.mapconfig.parse, the `_Color` oracle per
       floor under the 98 row (the s141 fallback) and the default row (s140 / polish off) as PURE functions the bench
       imports (light_color / ghost_light_color), and the fallback's reach over all 818 MCFs per rig model.
-  (e) HAND BONES: per rig, the table's HandBone / HandBoneEnd as the engine's bone NAMES ("bone%03d"), the skeleton's
-      bone count (models.bone_labels.read_skeleton), labels_for's R_hand / R_hand_end, and what bones 12 / 13 are.
+  (e) HAND BONES: per rig, the table's HandBone / HandBoneEnd as the engine's bone NAMES ("bone%03d") against THE
+      INSTALL's pair -- the SKIN (models.extract.read_model: the right arm's third skinned bone is the hand, the next
+      bone on the arm its end, else the hand itself) cross-checked against stock's OWN AttachObject on the same body
+      (every stock bone on the right arm is the hand or the end; a prop stock attaches to Zidane at 12 / 13 lands on the
+      hand / the end) -- NEVER labels_for (one bone toward the shoulder on Steiner's and Amarant's arms) -- and what
+      bones 12 / 13 are.
   (f) THE ATTACH CENSUS: every AttachObject (0x4C) whose CARRYING object is a Zidane player entry (SetModel 98 +
       DefinePlayerCharacter) or 250.
   (g) THE MESH-OP CENSUS: every ShowObject / HideObject (0x39 / 0x3A) whose target is a player entry's object or 250.
@@ -22,7 +26,7 @@ READ-ONLY. Sources: the 817 Hades Workshop exports (``--exports``; test2_N.txt, 
 reference/field-manifest.tsv maps it to the field id), first language block only; the Memoria clone (``--memoria``:
 NetSyncVisitor.cs for the rig table, FF9DBAll.Animation.cs / FF9BattleDB.GEO.cs for open-source names); the install
 through THIS worktree's kit readers (mapconfig.parse over the event bundle's MapConfigData; bone_labels.read_skeleton
-/ labels_for / label_skeleton over p0data4). The output holds numbers and open-source names only -- zero game bytes,
+/ extract.read_model's skin over p0data4). The output holds numbers and open-source names only -- zero game bytes,
 no script text.
 
     py -X utf8 studies/battle-coop/dress-census/polish_census.py            # (re)write polish.json
@@ -117,22 +121,34 @@ def map_footstep(rig: dict, code: int, anim: int, frame: int, arg4: int, zidane:
     return ("map", dst_anim, dst[src.index(frame)], snd)
 
 
-def expected_steps(rig: dict, ops: list, polish: bool = True, dressed: bool = True, zidane: dict | None = None) -> dict:
+def expected_steps(rig: dict, ops: list, polish: bool = True, dressed: bool = True, zidane: dict | None = None,
+                   guard: bool = False) -> dict:
     """Replay one field load's CHRFX ops (code, anim, frame, arg4 -- in script order) on ONE body through stock's
     FF9Snd table semantics (fldchar.cs:123-149 + FF9Snd.cs GetChar/NewChar/DeleteChar), after MapFootstep when the
     body is dressed and the polish lever is on. Returns the table rows in insertion order ([anim, frame, snd0, snd1,
-    pitch]), the published `steps` triples ([anim, frame, sndEffectID[0]]) and the per-load counters."""
+    pitch]), the published `steps` triples ([anim, frame, sndEffectID[0]]) and the per-load counters.
+
+    ``guard`` (OPT-IN: the default keeps this twin the HAZARD DETECTOR -- b_steps.code19_empty_table_hazard books stock's
+    throw as a fault) applies the s141 engine's EMPTY-TABLE GUARD as it ships: on a DRESSED body (either lever state -- a
+    fault guard, not polish) a code 19 the rule did not drop, headed for an empty table, is DROPPED and counted in
+    steps_dropped (never in steps_passed: the engine decides the drop before it counts a pass). The table here is this one
+    body's records (the engine's guard reads charSoundUse, every body's: a field where another body registered first
+    keeps the 19 -- the bench's F2d field has only the player's)."""
     table, dropped, passed, faults = [], 0, 0, []
     for code, anim, frame, arg4 in ops:
         if code not in FOOTSTEP_CODES:
             continue
+        verdict = None
         if dressed and polish:
             verdict, anim, frame, arg4 = map_footstep(rig, code, anim, frame, arg4, zidane)
             if verdict == "drop":
                 dropped += 1
                 continue
-            if verdict == "pass":
-                passed += 1
+        if guard and dressed and code == 19 and not table:
+            dropped += 1                                 # the engine's StepDroppedEmpty: stock would throw here
+            continue
+        if verdict == "pass":
+            passed += 1
         rec = next((r for r in reversed(table) if r[0] == anim and r[1] == frame), None)
         if code == 19:
             if not table:
@@ -640,8 +656,10 @@ def census_steps(exl: list, rigs: list, tables: dict) -> dict:
         "note": "O4 matches anim by ID (25 / 38). A WALK/RUN-class key on another id (190 / 203 = the second ids naming "
                 "ANH_MAIN_F0_ZDN_WALK / _RUN; the qualified COLD_/SWORD_/POT_/MBG_/TKE_/FRA_ variants) PASSES unmapped, "
                 "while s140's MapAnim maps those clips by NAME class to rig.walk / rig.run (loco_table.json), so the "
-                "dressed body's evt.anim is never that id and the key can never fire: a dressed body walks SILENTLY "
-                "there (cosmetic, no fault) -- except code 19, see open_issues (the empty-table throw)"}
+                "dressed body's evt.anim is never that id and that key can never fire -- but every such stock field "
+                "ALSO registers the plain 25 / 38 keys, which DO fire on the rig's native walk / run (s140 maps the "
+                "variant clip there): the dressed body steps with the plain-walk sound at its own footfalls (cosmetic, "
+                "no fault) -- except code 19, see open_issues (the empty-table throw)"}
     out["code19"] = [{"field": fid, "anim": a, "anim_name": tables["anim"].get(a), "frame": fr, "func": k[2],
                       "entry": k[1], "models": list(m), "zidane_player": None}
                      for a, rs in sorted(regs.items()) for (c, fr, _a4, fid, k, m) in rs if c == 19]
@@ -803,65 +821,139 @@ def census_lighting(exl: list, rigs: list, game) -> tuple:
 
 
 # ================================================================================================ (e) hand bones
-def census_hands(rigs: list, game) -> dict:
+SKIN_MIN_VERTS = 10      # a bone OWNS skin with at least this many dominant-weight vertices (Amarant's 4-vertex 13 is a pivot)
+MIDLINE_X = 20.0         # a bone whose rest x sits under this is on the spine (a clavicle pivot), never the arm
+
+
+def skin_hand(bones: list, meshes: list) -> dict:
+    """THE HAND OFF THE SKIN (pure over a ``models.extract.read_model`` dict's ``bones`` / ``meshes``; NEVER labels_for,
+    which sits one bone toward the shoulder on Steiner's and Amarant's arms). The RIGHT ARM is the bone path from the root
+    to the leaf whose rest x is GREATEST (the character's right, +x); along it, the bones that own skin (>= SKIN_MIN_VERTS
+    dominant-weight vertices) off the midline (rest x >= MIDLINE_X) are the upper arm, the forearm and the HAND, in that
+    order -- the hand is the THIRD; its END is the next bone on the path (Zidane's 0-vertex end leaf under his hand, Cinna's
+    hammer bone) when there is one, else the hand itself (a vertex-owning leaf: Freya, Amarant, the moogle). -> {"arm":
+    [[bone, verts, rest x]...] root to tip, "skinned", "hand", "end", "leaf_hand"}; hand / end None when the arm has
+    fewer than three skinned bones."""
     from ff9mapkit.models import bone_labels as BL
-    out, bundle = {}, None
+    rest = BL.rest_world(bones)
+    parent = {BL.bone_num_lenient(b["name"]): (BL.bone_num_lenient(b["parent"]) if b["parent"] else None) for b in bones}
+    kids = collections.defaultdict(list)
+    for c, p in parent.items():
+        kids[p].append(c)
+    own = collections.Counter()
+    for me in meshes:
+        for wt in me["weights"]:
+            if wt:
+                own[max(list(wt), key=lambda t: t[1])[0]] += 1
+    leaves = [n for n in parent if n is not None and not kids.get(n) and n in rest]
+    path, n = [], max(leaves, key=lambda x: (rest[x][0], -x))
+    while n is not None:
+        path.append(n)
+        n = parent.get(n)
+    path.reverse()
+    skinned = [x for x in path if own[x] >= SKIN_MIN_VERTS and rest[x][0] >= MIDLINE_X]
+    hand = skinned[2] if len(skinned) >= 3 else None
+    end = None if hand is None else (path[path.index(hand) + 1] if path.index(hand) + 1 < len(path) else hand)
+    return {"arm": [[x, own[x], round(rest[x][0], 1)] for x in path], "skinned": skinned, "hand": hand, "end": end,
+            "leaf_hand": hand is not None and hand == end}
+
+
+def stock_attach_by_model(exl: list) -> dict:
+    """{carrier model: Counter({(carried models, bone): ops})} over every AttachObject (0x4C) of the 817 exports (first
+    language block) whose CARRIER resolves to entries of exactly ONE model -- stock's own choice of bone per body (a
+    computed or multi-model carrier is left out)."""
+    out = collections.defaultdict(collections.Counter)
+    for ex in exl:
+        for e in ex.entries:
+            for f in e["funcs"]:
+                for op, args, _c, _n in f["ops"]:
+                    if op != "AttachObject" or len(args) < 3 or ival(args[2]) is None:
+                        continue
+                    _k, ents = ex.resolve(args[1], e["idx"])
+                    ms = {m for x in ents for m in ex.models.get(x, set())}
+                    if len(ms) != 1:
+                        continue
+                    _k2, carried = ex.resolve(args[0], e["idx"])
+                    cms = tuple(sorted({m for x in carried for m in ex.models.get(x, set())}))
+                    out[next(iter(ms))][(cms, ival(args[2]))] += 1
+    return out
+
+
+def stock_hand_check(sa: dict, model: int, arm: list, hand, end, geo_names: dict | None = None) -> dict:
+    """Stock's own AttachObject on ``model`` against the skin's (hand, end): every stock bone ON the right arm must be the
+    hand or the end; and per prop stock attaches to BOTH this body and Zidane's (98) at his 12 / 13, the modal bone this
+    body takes it on must be the hand (Zidane's 12) / the end (Zidane's 13) -- Steiner's Purple_Bottle 12 -> 15 and Sword
+    13 -> 16. -> {"by_bone", "arm_bones", "off_arm_bones", "pairs", "pair_majority", "agrees", "evidence"}."""
+    geo_names = geo_names or {}
+    on_arm = {a[0] for a in arm}
+    mine = sa.get(int(model), collections.Counter())
+    zb = collections.defaultdict(collections.Counter)
+    for (cms, b), k in sa.get(98, collections.Counter()).items():
+        if b in (12, 13) and cms:
+            zb[cms][b] += k
+    by_bone = collections.Counter()
+    pairs = {12: collections.Counter(), 13: collections.Counter()}
+    detail = []
+    for (cms, b), k in sorted(mine.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        by_bone[b] += k
+        if b in on_arm and cms in zb:
+            bz = zb[cms].most_common(1)[0][0]
+            pairs[bz][b] += k
+            detail.append([[geo_names.get(m, m) for m in cms], bz, b, k])
+    arm_bones = {b: k for b, k in by_bone.items() if b in on_arm}
+    majority = {bz: c.most_common(1)[0][0] for bz, c in pairs.items() if c}
+    want = {12: hand, 13: end}
+    agrees = hand is not None and all(b in (hand, end) for b in arm_bones) and all(
+        majority[bz] == want[bz] for bz in majority)
+    return {"by_bone": {str(b): k for b, k in sorted(by_bone.items())},
+            "arm_bones": {str(b): k for b, k in sorted(arm_bones.items())},
+            "off_arm_bones": {str(b): k for b, k in sorted(by_bone.items()) if b not in on_arm},
+            "pairs": {str(bz): {str(b): k for b, k in sorted(c.items())} for bz, c in pairs.items() if c},
+            "pairs_detail": detail, "pair_majority": {str(bz): b for bz, b in majority.items()}, "agrees": agrees,
+            "evidence": ("stock attaches on the right arm" if arm_bones else "no stock attach on the right arm")
+            + (f", {sum(sum(c.values()) for c in pairs.values())} paired with Zidane's 12 / 13" if majority else "")}
+
+
+def census_hands(rigs: list, game, exl: list, tables: dict) -> dict:
+    """(e) per rig: the table's HandBone / HandBoneEnd against THE INSTALL's -- the skin (:func:`skin_hand` over the kit's
+    read_model) cross-checked against stock's own AttachObject on the same body (:func:`stock_hand_check`) -- NEVER
+    labels_for. `agree` = the table is the skin's pair AND stock agrees; F8's parent names both lever states."""
+    from ff9mapkit.models import bone_labels as BL
+    from ff9mapkit.models import extract as MX
+    sa = stock_attach_by_model(exl)
+    out = {}
     for i, rig in enumerate(rigs):
         m = rig["model"]
-        sk = BL.read_skeleton(str(int(m)), game=game, bundle=bundle)
-        bundle = sk.get("bundle")
-        bones = sk["bones"]
+        md = MX.read_model(str(int(m)), game=game)
+        bones = md["bones"]
         nums = sorted(BL.bone_num_lenient(b["name"]) for b in bones)
         names = {BL.bone_num_lenient(b["name"]): b["name"] for b in bones}
-        parent = {BL.bone_num_lenient(b["name"]): (BL.bone_num_lenient(b["parent"]) if b["parent"] else None)
-                  for b in bones}
-        children = collections.defaultdict(list)
-        for c, p in parent.items():
-            if p is not None:
-                children[p].append(c)
-        lab = BL.labels_for(bones, prefab_id=sk.get("prefab_id"), geo=sk.get("geo"))
-        grp = str(sk.get("geo") or "").split("_")[1].lower() if "_" in str(sk.get("geo") or "") else None
-        heur = BL.label_skeleton(bones, group=grp)
-        lf_rh = sorted(n for n, x in lab.items() if x == "R_hand")
-        lf_rhe = sorted(n for n, x in lab.items() if x == "R_hand_end")
+        skin = skin_hand(bones, md["meshes"])
         hb, he = rig["hand_bone"], rig["hand_bone_end"]
-        lf_has_hand = bool(lf_rh)
-        src = lab if lf_has_hand else heur
-        exp_hb = (lf_rh or sorted(n for n, x in heur.items() if x == "R_hand") or [None])[0]
-        exp_he_l = lf_rhe if lf_has_hand else sorted(n for n, x in heur.items() if x == "R_hand_end")
-        exp_he = exp_he_l[0] if exp_he_l else exp_hb
+        exp = [skin["hand"], skin["end"]]
+        stock = stock_hand_check(sa, m, skin["arm"], skin["hand"], skin["end"], tables.get("geo"))
+        role = {x: r for x, r in zip(skin["skinned"], ("upper arm", "forearm", "hand"))}
+        if skin["end"] is not None and skin["end"] != skin["hand"]:
+            role[skin["end"]] = "end"
+        arm = {a[0]: a for a in skin["arm"]}
 
-        def part(n, deep=True):
-            a, b = lab.get(n), heur.get(n)
-            meshy = bool(a) and bool(re.match(r"^(hi|mesh|field_model)", str(a)))
-            out_ = {"labels_for": a, "label_skeleton": b, "use": b if (meshy or not a) else a}
-            if deep:
-                p = parent.get(n)
-                out_["parent"] = p
-                out_["parent_use"] = part(p, False)["use"] if p is not None else None
-                out_["children"] = sorted(children.get(n, []))
-                if out_["use"] is None and out_["children"]:          # an unlabelled zero-length pivot: name its subtree
-                    out_["use"] = "pivot of " + "+".join(str(part(c, False)["use"]) for c in out_["children"])
-            return out_
+        def part(n):
+            a = arm.get(n)
+            return {"on_right_arm": a is not None, "verts": a[1] if a else None, "role": role.get(n)}
         out[f"{i} {RIG_NAMES[i]}"] = {
-            "model": m, "geo": sk.get("geo"), "bones": len(bones), "max_bone": max(nums) if nums else None,
+            "model": m, "geo": md.get("geo"), "bones": len(bones), "max_bone": max(nums) if nums else None,
             "name_format_ok": all(names[n] == f"bone{n:03d}" for n in nums),
             "hand_bone": hb, "hand_bone_end": he,
             "hand_bone_name": f"bone{hb:03d}", "hand_bone_end_name": f"bone{he:03d}",
             "hand_bones_exist": hb in names and he in names,
-            "labels_source": "labels_for" if lf_has_hand else "label_skeleton (labels_for names no R_hand)",
-            "labels_for_R_hand": lf_rh, "labels_for_R_hand_end": lf_rhe,
-            "heuristic_R_hand": sorted(n for n, x in heur.items() if x == "R_hand"),
-            "heuristic_R_hand_end": sorted(n for n, x in heur.items() if x == "R_hand_end"),
-            "expected": [exp_hb, exp_he], "agree": [hb, he] == [exp_hb, exp_he],
-            "hand_children": sorted(children.get(hb, [])), "hand_parent": parent.get(hb),
-            "hand_parent_label": part(parent.get(hb), False)["use"] if parent.get(hb) is not None else None,
+            "source": "the skin (skin_hand) + stock's own AttachObject (stock_hand_check) -- never labels_for",
+            "skin": skin, "stock": stock,
+            "expected": exp, "agree": [hb, he] == exp and stock["agrees"],
             "end_is_hand": hb == he,
-            "why_end_is_hand": (f"bone{hb:03d} (R_hand) is a LEAF -- no child bone, so no R_hand_end exists to label; "
-                                f"the table uses R_hand for both (bone 12 and 13 both land on bone{hb:03d})")
-            if hb == he and not children.get(hb) else None,
-            "bone12": part(12) if 12 in names else None, "bone13": part(13) if 13 in names else None,
-            "bone12_exists": 12 in names, "bone13_exists": 13 in names,
+            "why_end_is_hand": (f"bone{hb:03d} (the hand) is a vertex-owning LEAF -- no end bone below it; the table "
+                                f"uses the hand for both (bone 12 and 13 both land on bone{hb:03d})")
+            if hb == he and skin["leaf_hand"] else None,
+            "bone12": part(12), "bone13": part(13), "bone12_exists": 12 in names, "bone13_exists": 13 in names,
             "f8_parent_bone13_s141": f"bone{he:03d}", "f8_parent_bone13_polish_off": "bone013" if 13 in names else None,
             "f8_parent_bone12_s141": f"bone{hb:03d}", "f8_parent_bone12_polish_off": "bone012" if 12 in names else None}
     return out
@@ -952,7 +1044,7 @@ def build(exports: Path, memoria: Path, game) -> dict:
     out["c_subs"] = census_subs(exl, regs, rigs, tables)
     light, _idx = census_lighting(exl, rigs, game)
     out["d_lighting"] = light
-    out["e_hands"] = census_hands(rigs, game)
+    out["e_hands"] = census_hands(rigs, game, exl, tables)
     try:                                                       # rigs_8_11.json's heuristic evidence for rows 9-10
         r811 = json.loads((HERE / "rigs_8_11.json").read_text(encoding="utf-8"))["rows"]
         for i in (9, 10):
@@ -968,7 +1060,8 @@ def build(exports: Path, memoria: Path, game) -> dict:
     out["twin_selftest"] = twin_selftest(rigs, out)
     out["bench"] = bench_expectations(out, rigs)
     out["table_disagreements"] = list(steps["table_disagreements"]) + [
-        f"rig {k}: hand bones table {[v['hand_bone'], v['hand_bone_end']]} vs labels {v['expected']}"
+        f"rig {k}: hand bones table {[v['hand_bone'], v['hand_bone_end']]} vs the skin {v['expected']} (stock agrees: "
+        f"{v['stock']['agrees']})"
         for k, v in out["e_hands"].items() if not v["agree"]]
     out["open_issues"] = open_issues(out, rigs)
     return out
@@ -1113,10 +1206,14 @@ def open_issues(out: dict, rigs: list) -> list:
                    "ids other than 25/38 -- " + "; ".join(
                        f"{k} ({v['ops']} ops, codes {v['codes']}, frames16 {v['frames16']}, fields {v['fields']})"
                        for k, v in walkrun.items()) +
-                   ". Each PASSES unmapped while the dressed body plays rig.walk/run (evt.anim = the rig id), so the "
-                   "dressed body walks SILENTLY in those fields (incl. the disc-1 opening 62-64, SWORD_WALK/RUN). "
-                   "Cosmetic; extending O4 to the loco CLASS would need each variant's own frame pair (listed) -> the "
-                   "rig's pair. Recommend KNOWN in the README unless the engine stage widens the key.")
+                   ". Each PASSES unmapped while the dressed body plays rig.walk/run (evt.anim = the rig id), so those "
+                   "variant keys never fire -- but every such field's Zidane_Init ALSO registers the plain 25 / 38 keys "
+                   "unconditionally (no 19 after them but 2930's), which MapFootstep maps to rig.walk / rig.run, the "
+                   "very clip s140 plays for the variant: the dressed body STEPS there with the plain-walk sound at the "
+                   "rig's own footfalls (the disc-1 opening 62-64: Blank and Marcus step, Cinna and the moogle are "
+                   "silent), and steps where stock Zidane is silent on 2705's FRA_WALK. Cosmetic; extending O4 to the "
+                   "loco CLASS would need each variant's own frame pair (listed) -> the rig's pair. Recommend KNOWN in "
+                   "the README unless the engine stage widens the key.")
     if gest:
         iss.append("gesture-class footstep keys on Zidane players pass as designed (steps_passed): " + "; ".join(
             f"{k} ({v['ops']} ops, fields {v['fields']})" for k, v in gest.items()))
@@ -1134,12 +1231,14 @@ def open_issues(out: dict, rigs: list) -> list:
     n19 = [o for o in out["a_field250"]["player_entry_chrfx_all"] if o["code"] == 19]
     if not n19:
         iss.append("F2 / F2c's 'no code-19 fault' CANNOT FAIL on field 250: its player entry runs no code 19 at all (only "
-                   "16/17/18 x4 keys, at load and at Main_Reinit). To make the 19-drop checkable, the bench needs a "
-                   "synthetic RunModelCode(19, 25, 4, 0) on the dressed drop-rig body (e.g. the 30606 caller after the "
-                   "dress): s141 drops it (steps_dropped 12 -> 13, steps stays [], no fault); under `polish off` the "
-                   "table holds the 4 UNMAPPED Zidane records, so the 19 matches (25, 4) and stock DeleteChar's "
-                   "charSoundUse-- drops the TOP record (steps 4 -> 3 rows, steps_dropped 0) -- the calibration red. "
-                   "Only an EMPTY table makes a passed 19 throw (see the field-2930 row).")
+                   "16/17/18 x4 keys, at load and at Main_Reinit). The code-19 guard's in-game witness is the bench "
+                   "field's F2d conductor instead: 30606's player Init registers the same twelve keys (the kit "
+                   "template's, Arg4 912), then F2d runs field 2930's RunModelCode(19, 190, 4, 0) in the player's own "
+                   "entry: on the dressed moogle the twelve are dropped, the 19 meets an EMPTY table and s141 drops it "
+                   "(steps_dropped 12 -> 13, steps stays [], no throw); under `polish off` (and on s140) the twelve "
+                   "register, the table holds Zidane's four and the 19 on 190 is stock's no-op (steps_dropped +0: the "
+                   "calibration red -- the hazard IS the polish's own drop). Only an EMPTY table makes a passed 19 "
+                   "throw (see the field-2930 row).")
     iss.append("O4's sound override must touch codes 16 and 17 only (sndEffectID[0]/[1], the 'both slots'); code 18's "
                "Arg4 is the random-pitch FLAG (fldchar.cs: pitchRand = Arg4 == 0 ? 0 : 1) and 19 ignores Arg4. Every "
                "stock code-18 Arg4 on 25/38 and on Steiner's 1996/2005 is 1, so the difference is invisible in stock "
@@ -1166,7 +1265,9 @@ def open_issues(out: dict, rigs: list) -> list:
         f"{k}: entries {v['entries']} {v['models']} player={v['is_player_entry']}" for k, v in oth.items() if v)
         + (f" -- REACHABLE by a dressed Zidane player: {reach}" if reach else
            " -- none carries on a Zidane player entry, so no dressed body reaches them (FieldMap.cs:535's "
-           "RestoreAttachModel re-uses attachTargetBoneIndex, which the remap already wrote)."))
+           "RestoreAttachModel -- called on fldMapNo 1508 only, Conde Petie / Inn -- re-uses attachTargetBoneIndex, "
+           "which the remap already wrote; elsewhere a warm return re-attaches only through a re-run AttachObject, "
+           "which passes the hook again)."))
     mesh = out["fg_ops"]["mesh"]
     iss.append(f"MESH: 0 of {mesh['exports']} exports show/hide a Zidane player entry's object or 250 (the audit's 0 of "
                f"817 reproduces). {mesh['ops_on_other_player_entries']} mesh ops DO target NON-Zidane player-defining "

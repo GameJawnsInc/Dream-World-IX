@@ -739,6 +739,10 @@ FAKE_SOURCE_LIST_CLIPS = 12
 #:   "no_light_fallback"  DressedCharRow skips the 98 row (s140's default row on s141)
 #:   "src_row_first"      the source row before a rig model's OWN row (LightRowRule's mutant)
 #:   "ghost_lp_model"     ApplyGhostLighting's stand-in row stays the local player's po.model (s140)
+#:   "ghost_tint_lost"    ApplyGhostLighting sets its row (`ghost.light_row`) but its tint never reaches the material
+#:                        (`ghost.light_rgb` reads the ghost's untinted base, FAKE_GHOST_BASE_RGB)
+#:   "no_empty_guard"     MapFootstep's empty-table guard reads the table use as 1 (its INPUT wired wrong): a 19 headed for an
+#:                        EMPTY table reaches stock DeleteChar -- the throw, logged -- instead of being dropped
 #:   "no_mesh_drop"       a mesh op on the dressed body runs (meshflags set)
 #:   "no_bone_remap"      ATTACH on a dressed carrier keeps Zidane's bone (s140's prop on the wrong rig part)
 #:   "bone_swap"          12 -> R_hand_end, 13 -> R_hand (AttachBoneRule's mutant)
@@ -747,15 +751,23 @@ FAKE_SOURCE_LIST_CLIPS = 12
 #:   "polish_selftest_fail" the dress polish proof fails (its FAIL line)
 DRESS_POLISH_FAULTS = ("steps_unmapped", "ordinal_swap", "no_step_sound", "keep_drop_rig", "cumulative_steps",
                        "no_fired_split", "no_light_fallback", "src_row_first", "ghost_lp_model", "no_mesh_drop",
-                       "no_bone_remap", "bone_swap", "polish_lever_dead", "polish_release_keeps", "polish_selftest_fail")
+                       "no_bone_remap", "bone_swap", "polish_lever_dead", "polish_release_keeps", "polish_selftest_fail",
+                       "ghost_tint_lost", "no_empty_guard")
+#: [ff9mapkit netsync s141] the ghost's material `_Color` before ApplyGhostLighting writes it (the `ghost_tint_lost` fault's
+#: read): a MODELLED untinted base, distinct from every tint the mapconfig rows give.
+FAKE_GHOST_BASE_RGB = [255, 255, 255]
+#: [ff9mapkit netsync s141] the line stock's VM throw leaves in Memoria.log (HonoluluFieldMain.Update's catch,
+#: Memoria.Prime.Log.Error(Exception): the exception's own text) when DeleteChar indexes charSoundArray[-1].
+FAKE_DELETECHAR_THROW = "System.IndexOutOfRangeException: Array index is out of range."
 #: [ff9mapkit netsync s141] `netsync.dress.self`'s per-LOAD polish counters, in AppendDressPolish's order (each 0 after
 #: OnSoundTableReset).
 POLISH_COUNT_KEYS = ("steps_dropped", "steps_passed", "steps_fired", "steps_fired_player", "mesh_drops", "attach_remaps",
                      "attach_notes")
 #: [ff9mapkit netsync s141] The footstep ops a field's player entry runs at a load (Main_Init's player Init) and again on a
 #: warm return (Main_Reinit) -- (code, anim, frame, Arg4) in script order. MODELLED from the census (polish.json
-#: `a_field250`: field 250's Zidane_Init and Zidane_13, the same twelve); FakeGame.field_footsteps overrides it per field.
-FAKE_FIELD_FOOTSTEPS = {250: BW.FIELD250_STEPS}
+#: `a_field250`: field 250's Zidane_Init and Zidane_13, the same twelve) and, for the bench field 30606, from the seated kit
+#: build (battlewire.KIT_PLAYER_STEPS: the kit player's twelve on the same keys); FakeGame.field_footsteps overrides it.
+FAKE_FIELD_FOOTSTEPS = {250: BW.FIELD250_STEPS, 30606: BW.KIT_PLAYER_STEPS}
 #: [ff9mapkit netsync s141] The fields' mapconfigs the stand-in lights by (BW's MCF shape) -- MODELLED from the census
 #: (polish.json `d_lighting.field250`); a field absent here is a kit field (no MCF: the service returns early, light_row
 #: stays -1). FakeGame.mapconfigs overrides it.
@@ -1371,6 +1383,7 @@ class FakeGame:
         self._polish_rgb: list | None = None         # the dressed body's material _Color rgb (what fldchar last wrote)
         self._polish_rgb_floor: int | None = None    # the floor fldmcf last recomputed the tint on (None = not yet)
         self._polish_ghost_row = -1
+        self._polish_ghost_rgb: list | None = None   # the tint ApplyGhostLighting last WROTE on the ghost's material
         self._polish_attach: dict = {"uid": -1, "bone_in": -1, "bone_out": -1, "parent": None}
         self._polish_meshflags = 0
         self._polish_logged: set = set()             # the once-per-load s141 lines already logged this load
@@ -5120,7 +5133,9 @@ class FakeGame:
                          wire_anim=b["wire_anim"], mode=self._dress_mode(), rest_mask=vis[0] if vis else -1,
                          shown_mask=vis[1] if vis else -1, hidden=vis[2] if vis else None)
         if self._polish_rung():
-            ghost["light_row"] = self._polish_ghost_row          # [ff9mapkit netsync s141] `ghost`'s LAST key
+            ghost["light_row"] = self._polish_ghost_row          # [ff9mapkit netsync s141] `ghost`'s last two keys
+            ghost["light_rgb"] = (list(self._polish_ghost_rgb) if self._ghost_live() and self._polish_ghost_rgb is not None
+                                  else list(FAKE_GHOST_BASE_RGB) if self._ghost_live() else None)
         seats = (list(self.save_party) + [None] * 4)[:4]
         party = [-1] * 4 if "party_empty" in faults else [int(m["char"]) if m else -1 for m in seats]
         doc = {"ghost": ghost, "party": party}
@@ -5486,7 +5501,7 @@ class FakeGame:
             return
         cond = self._self_cond
         if cond is None:
-            for name in ("x", "t1", "t3", "n3", "f8a", "f8d", "j", "f5h", "f5s"):   # [s141] + F5's two (when the seat has)
+            for name in ("x", "t1", "t3", "n3", "f8a", "f8d", "j", "f5h", "f5s", "f2d"):   # [s141] + F5's two, F2d's
                 trig = k["trig"].get(name)
                 if trig is not None and self._self_bit(trig):
                     self._self_bit(trig, 0)              # the caller clears it FIRST
@@ -5651,6 +5666,19 @@ class FakeGame:
         self._polish_mesh_op(int(k.get("f5_mesh", 1)), show=False)
         self._self_cond_done(k, cond)
 
+    def _self_cond_f2d(self, k: dict, cond: dict) -> None:
+        """F2d (s141): RunScript(2, 250, F2D_TAG) -- field 2930's RunModelCode(19, 190, 4, 0) on the controlled player
+        (:meth:`_polish_footstep`: MapFootstep when hooked, else stock fldchar -- a 19 on an EMPTY table is stock's VM throw,
+        logged, and the function resumes PAST the op on the next tick, as the VM does) -- then F2D_END and DONE_F2D."""
+        if cond["phase"] == 0:
+            code, anim, frame, arg4 = k.get("f2d_op", (19, 190, 4, 0))
+            self._polish_footstep(int(code), int(anim), int(frame), int(arg4))
+            cond["phase"] = 1
+            return
+        if k.get("f2d_end") is not None:
+            self._self_bit(k["f2d_end"], 1)
+        self._self_cond_done(k, cond)
+
     def _self_cond_f5s(self, k: dict, cond: dict) -> None:
         """F5 show (s141): ShowObject(250, F5_MESH) -- MESHSHOW on the controlled body -- DONE_F5S."""
         self._polish_mesh_op(int(k.get("f5_mesh", 1)), show=True)
@@ -5749,18 +5777,22 @@ class FakeGame:
     #     (a mid-field `polish` toggle moves `light_row` first); a field without a mapconfig (a kit field) writes nothing
     #     (`light_row` -1, `light_rgb` null). THE GHOST's tint row (ApplyGhostLighting, BW.ghost_mcf_light_color: its worn
     #     model's row, else the local player's stand-in row -- 98 when dressed and the polish on -- else 65535).
-    #   * THE BENCH FIELD's F8 / F5 conductors: ATTACH on the dressed carrier (BW.attach_bone_rule on the RIG TABLE: a remap
-    #     or a note; `attach_last` with its LIVE parent "bone%03d"), DetachObject (the parent null), MESHHIDE / MESHSHOW (a
-    #     dressed body's op dropped -- mesh_drops -- else stock: meshflags bit 1 << mesh), each line once per load.
+    #   * THE BENCH FIELD's F8 / F5 / F2d conductors: ATTACH on the dressed carrier (BW.attach_bone_rule on the RIG TABLE: a
+    #     remap or a note; `attach_last` with its LIVE parent "bone%03d"), DetachObject (the parent null), MESHHIDE / MESHSHOW
+    #     (a dressed body's op dropped -- mesh_drops -- else stock: meshflags bit 1 << mesh), each line once per load; F2d's
+    #     2930 code 19 on the player (its Init's twelve keys -- BW.KIT_PLAYER_STEPS -- first, at the load): through
+    #     MapFootstep when hooked, else stock's table -- a 19 on an EMPTY table is the VM throw, logged (FAKE_DELETECHAR_THROW).
     #   * THE LEVER (`polish on|off`, selftest role only: BW.polish_on_rule), released with the harness, and the proof line.
     # WHAT IT CANNOT: other bodies' footstep records (the table holds the controlled player's alone: charSoundUse is every
-    # body's in the engine, so the empty-table guard reads only this body's), any CHRFX code but 16-19, a footstep op a
-    # script runs at any time but the load, an animation speed other than one frame a tick (a record can fire twice on a
+    # body's in the engine, so the empty-table guard reads only this body's -- on 30606 the kit player's twelve ARE the only
+    # records), any CHRFX code but 16-19, a footstep op a script runs at any time but the load and F2d's conductor, an
+    # animation speed other than one frame a tick (a record can fire twice on a
     # slowed clip in game), the material's own _Color off an MCF service (a kit field: null here), the ladder light,
     # mapconfigs beyond ``mapconfigs``, the shadow size, the post-detach parent's real name (the carrier's own parent node:
-    # null here), a warm return's RestoreAttachModel (the prop stays on the remapped bone in game; the witness is reset
-    # with the load either way), a prop carried by any body but the player, and every caught hook fault (`faults` stays the
-    # s140 count). The FAULT LEVERS (DRESS_POLISH_FAULTS) show each leg-F check red.
+    # null here), a warm return's re-attach (stock's RestoreAttachModel runs on 1508 only; elsewhere a re-run AttachObject
+    # passes the hook again -- the witness is reset with the load either way), a prop carried by any body but the player,
+    # and every caught hook fault (`faults` stays the s140 count). The FAULT LEVERS (DRESS_POLISH_FAULTS) show each leg-F
+    # check red.
     def _polish_rung(self) -> bool:
         return "dresspolish" in self._nb_caps()
 
@@ -5780,6 +5812,7 @@ class FakeGame:
         `cumulative_steps` fault skips this half)."""
         self._polish_table = []
         self._polish_rgb, self._polish_rgb_floor = None, None   # a new go: fldmcf recomputes its tint on its first frame
+        self._polish_ghost_rgb = None                    # ...and a new ghost go: untinted until ApplyGhostLighting runs
         if "cumulative_steps" in self.dress_faults:
             return
         self._polish_counts = dict.fromkeys(POLISH_COUNT_KEYS, 0)
@@ -5823,7 +5856,8 @@ class FakeGame:
             got = (BW.STEP_BYPASSED, anim, frame, sound)
         if got[0] == BW.STEP_DROPPED:
             return got
-        if BW.unbind_on_empty_rule(code, len(self._polish_table)):
+        use = 1 if "no_empty_guard" in faults else len(self._polish_table)   # the guard's input wired wrong (its fault)
+        if BW.unbind_on_empty_rule(code, use):
             return (BW.STEP_DROPPED_EMPTY,) + tuple(got[1:])
         return got
 
@@ -5847,7 +5881,8 @@ class FakeGame:
                 return
             if v == BW.STEP_PASSED:
                 c["steps_passed"] += 1
-        BW.fldchar_footstep(self._polish_table, code, anim, frame, arg4)
+        if BW.fldchar_footstep(self._polish_table, code, anim, frame, arg4):
+            self._mlog(FAKE_DELETECHAR_THROW)            # stock DeleteChar on an EMPTY table: the VM throw, logged
 
     def _polish_attach_op(self, carried: int, bone: int) -> None:
         """ATTACH (gMode 1) of ``carried`` on the controlled player at ``bone``: AtAttach on a dressed carrier of an s141
@@ -5910,8 +5945,10 @@ class FakeGame:
             worn = self._ghost_worn[0] if self._ghost_worn is not None else site["model"] if site else None
             if worn is not None:
                 lp_src = BW.PLAIN_ZIDANE_MODEL if dressed and "ghost_lp_model" not in faults else 0
-                self._polish_ghost_row = BW.ghost_mcf_light_color(mcf, int(worn), model, self.light_floor, lp_src,
-                                                                  self._polish_on())["row"]
+                lit = BW.ghost_mcf_light_color(mcf, int(worn), model, self.light_floor, lp_src, self._polish_on())
+                self._polish_ghost_row = lit["row"]
+                if "ghost_tint_lost" not in faults:
+                    self._polish_ghost_rgb = list(lit["rgb"])
         if self._polish_rung() and has and self._client_or_selftest_role():
             anim = self._dress_anim()
             _n, frame = self._self_frame_pair(anim)
@@ -5925,17 +5962,19 @@ class FakeGame:
         c = self._polish_counts
         has = self._dress_actor(self.has_position)
         dressed = has and bool(self._self_body)
+        lit = dressed and self._polish_light_row != -1 and self._polish_rgb_floor is not None
         return {"steps": BW.steps_of(self._polish_table) if has else [],
                 "steps_dropped": c["steps_dropped"], "steps_passed": c["steps_passed"], "steps_fired": c["steps_fired"],
                 "steps_fired_player": c["steps_fired_player"], "light_row": self._polish_light_row,
                 "light_rgb": list(self._polish_rgb) if dressed and self._polish_rgb is not None else None,
+                "light_floor": int(self._polish_rgb_floor) & 0xFF if lit else -1,
                 "mesh_drops": c["mesh_drops"], "attach_remaps": c["attach_remaps"], "attach_notes": c["attach_notes"],
                 "attach_last": dict(self._polish_attach), "polish": not self._polish_off}
 
     def _polish_proof(self) -> None:
         """The proof block's s141 line (right after the self-dress line), once per process."""
         if "polish_selftest_fail" in self.dress_faults:
-            self._mlog(f"[NetSync] {BW.PROOF_DRESS_POLISH}FAIL (row '{POLISH_SELFTEST_FAIL_ROW}' failed (0 rows run))")
+            self._mlog(f"[NetSync] {BW.PROOF_DRESS_POLISH}FAIL (row '{POLISH_SELFTEST_FAIL_ROW}' failed (1 rows run))")
             return
         self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_DRESS_POLISH, BW.DRESS_POLISH_SELFTEST_ROWS))
 

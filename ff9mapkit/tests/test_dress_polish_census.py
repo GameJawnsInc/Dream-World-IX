@@ -14,7 +14,10 @@ battlewire's twins, and to the census JSON that derived it -- and each pin is sh
   * THE LIGHTING ORACLE (`d_lighting`): field 250's three mapconfig rows and five lights == BW.FIELD250_MCF; every floor's
     tint under the 98 row and the default row == BW.mcf_light_color; F4 / F4g; the 818 / 474 / 344 mapconfig counts.
   * THE HAND BONES (`e_hands`): every rig's R_hand / R_hand_end == the rig table's HandBone / HandBoneEnd == the proof's
-    literals; F8's parent names == "bone%03d" of BW.attach_bone_rule's bone, both lever states.
+    literals == THE INSTALL's pair -- the SKIN (polish_census.skin_hand: the right arm's third skinned bone, its end the
+    next bone, else the hand) with stock's own AttachObject on the same body agreeing (stock_hand_check) -- NEVER
+    labels_for (one bone toward the shoulder on Steiner's and Amarant's arms: rlook-1 / rlook-2); F8's parent names ==
+    "bone%03d" of BW.attach_bone_rule's bone, both lever states.
   * THE CENSUS'S OWN TWINS' selftest (`twin_selftest`): every row green, every mutant caught.
   * THE REGENERATION from the install (polish_census.py --check) -- INSTALL-GATED: it skips cleanly without the install,
     the 817 HW exports, UnityPy or the Memoria clone (and, per the worktree skip trap, read a skip as "not run", never green).
@@ -29,7 +32,7 @@ import sys
 
 import pytest
 
-from ._patchstack import msr, net_lines
+from ._patchstack import msr, net_lines, net_lines_ordered
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 CENSUS = REPO / "studies" / "battle-coop" / "dress-census"
@@ -124,6 +127,11 @@ def _problems(doc: dict) -> list:
         if (h["hand_bone"], h["hand_bone_end"]) != pair or tuple(h["expected"]) != pair or not h["agree"] or \
                 pair != BW.POLISH_HAND_ORACLE[i] or not h["hand_bones_exist"] or not h["name_format_ok"]:
             out.append(f"P5 {_key(i)} hand bones {h['hand_bone']}/{h['hand_bone_end']} table {pair}")
+        skin, stock = h.get("skin") or {}, h.get("stock") or {}
+        if [skin.get("hand"), skin.get("end")] != list(h["expected"]) or not stock.get("agrees") or \
+                "labels_for" in str(h.get("source", "")).replace("never labels_for", ""):
+            out.append(f"P5 {_key(i)} the oracle: skin {skin.get('hand')}/{skin.get('end')}, stock agrees "
+                       f"{stock.get('agrees')}, source {h.get('source')!r}")
         if (h["hand_bone_name"], h["hand_bone_end_name"]) != (BW.bone_name(pair[0]), BW.bone_name(pair[1])):
             out.append(f"P5 {_key(i)} names")
         for bone in (12, 13):
@@ -175,8 +183,12 @@ def _mutant(name: str) -> dict:
         doc["d_lighting"]["field250"]["chars"][2]["clr"] = [10, 12, 16]
     elif name == "P4_floor":                       # a floor's tint off the default row
         doc["d_lighting"]["field250"]["floors"]["0"]["dressed_98_row"]["rgb"] = [128, 128, 128]
-    elif name == "P5_hand":                        # Cinna's labels_for hand (none) taken for her R_hand
-        doc["e_hands"]["9 cinna"]["hand_bone"] = 12
+    elif name == "P5_hand":                        # Steiner's labels_for hand (14: his ELBOW) taken for his R_hand
+        doc["e_hands"]["3 steiner"]["hand_bone"] = 14
+    elif name == "P5_stock":                       # stock's own AttachObject on Amarant disagreeing with the skin
+        doc["e_hands"]["7 amarant"]["stock"]["agrees"] = False
+    elif name == "P5_source":                      # an oracle that came from labels_for
+        doc["e_hands"]["4 freya"]["source"] = "labels_for"
     elif name == "P5_parent":                      # F8's parent from the swapped pair
         doc["e_hands"]["3 steiner"]["f8_parent_bone13_s141"] = "bone014"
     elif name == "P6_twin":                        # a census twin mutant that went uncaught
@@ -185,7 +197,7 @@ def _mutant(name: str) -> dict:
 
 
 @pytest.mark.parametrize("name", ["P1_cell", "P2_steps", "P2_warm", "P2_reinit", "P3_cinna", "P4_row", "P4_floor", "P5_hand",
-                                  "P5_parent", "P6_twin"])
+                                  "P5_stock", "P5_source", "P5_parent", "P6_twin"])
 def test_each_census_pin_can_fail(name):
     """A check that cannot fail is not a check: each planted fault in the census document turns ITS pin red."""
     problems = _problems(_mutant(name))
@@ -196,18 +208,47 @@ def test_each_census_pin_can_fail(name):
 def test_the_census_rig_table_is_the_stacks():
     """The census's `rigs` (the clone's NetSyncVisitor.Rigs, parsed by polish_census.parse_rigs) == the live stack's thirteen
     Rig rows (read off memoria-patches/) == battlewire.RIGS; its sha line names the 13 rows."""
-    live = _rig_rows(net_lines("NetSyncVisitor.cs", r"new Rig\("))
+    live = _rig_rows(net_lines_ordered("NetSyncVisitor.cs", r"new Rig\("))          # FILE order (s141 rewrites 3 / 7)
     doc = _doc()
     assert live == list(BW.RIGS) == [tuple(r[c] for c in BW.RIG_COLUMNS) for r in doc["rigs"]], live
     assert doc["sources"]["rig_table"].endswith("(13 rows)") and "NetSyncVisitor.cs" in doc["sources"]["rig_table"]
     assert doc["schema"] == "ff9mapkit.dress-census.polish/1"
 
 
+def _foot_oracle_problems(doc: dict) -> list:
+    """PolishFootOracle (battlewire's copy of the s141 proof's literals) against the INSTALL census: per rig, `b_steps.rigs`'
+    `census` columns -- the modal RunModelCode(16) frames per rig walk / run clip and the step-sound rule over the 817 stock
+    scripts ([-1, -1] for the drop rigs) -- and every `agree` flag (the census vs the table) true. [] = they agree."""
+    out = []
+    for i in range(BW.RIG_ROW_COUNT):
+        b = doc["b_steps"]["rigs"][_key(i)]
+        o = BW.POLISH_FOOT_ORACLE[i]
+        want = ([-1, -1], [-1, -1], o[6]) if o[0] < 0 else ([o[1], o[2]], [o[4], o[5]], o[6])
+        got = (list(b["census"]["walk_pair"]), list(b["census"]["run_pair"]), b["census"]["step_sound"])
+        if got != want:
+            out.append(f"{_key(i)}: the install census {got}, the proof {want}")
+        if not all(b["agree"].values()):
+            out.append(f"{_key(i)}: the census and the table disagree {b['agree']}")
+    return out
+
+
 def test_the_proofs_literals_are_the_censuss():
-    """PolishSelfTest's PolishFootOracle (read off the s141 patch) states, per rig, the census's walk / run pair and step
-    sound (polish.json `a_field250.per_rig[*].pairs` / `step_sound`; -1 for the drop rigs), and its PolishHandOracle the
-    census's R_hand / R_hand_end -- the proof's literals are the install's, never the rig table's."""
-    per, hands = _doc()["a_field250"]["per_rig"], _doc()["e_hands"]
+    """PolishSelfTest's literals against the census, two pins. THE INSTALL'S: its PolishFootOracle (read off the s141 patch)
+    states, per rig, the INSTALL census's walk / run footfall pair and step sound (polish.json `b_steps.rigs[*].census`:
+    the modal stock registrations, never the rig table; -1 for the drop rigs) with every `agree` flag true, and its
+    PolishHandOracle the install's R_hand / R_hand_end (`e_hands[*].expected`: the skin's pair, stock's own AttachObject
+    agreeing -- never labels_for). THE
+    TABLE'S (a copy of the rig table, kept as the table pin): `a_field250.per_rig[*].pairs` / `walk` / `run` / `step_sound`.
+    Each pin is shown able to fail on a planted cell."""
+    doc = _doc()
+    assert _foot_oracle_problems(doc) == []
+    bad = copy.deepcopy(doc)
+    bad["b_steps"]["rigs"]["4 freya"]["census"]["walk_pair"] = [4, 15]               # the install census one cell off
+    assert _foot_oracle_problems(bad) == ["4 freya: the install census ([4, 15], [0, 9], 0), the proof ([4, 16], [0, 9], 0)"]
+    bad = copy.deepcopy(doc)
+    bad["b_steps"]["rigs"]["3 steiner"]["agree"]["step_sound"] = False
+    assert _foot_oracle_problems(bad) and "disagree" in _foot_oracle_problems(bad)[0]
+    per, hands = doc["a_field250"]["per_rig"], doc["e_hands"]
     for i in range(BW.RIG_ROW_COUNT):
         row = per[_key(i)]
         o = BW.POLISH_FOOT_ORACLE[i]
@@ -220,6 +261,74 @@ def test_the_proofs_literals_are_the_censuss():
     text = " ".join(t for path, sec in msr.sections(_patch_from("s141")) if path and path.endswith("NetSyncSelfDress.cs")
                     for t in [sec.decode("utf-8", "replace")])
     assert "{ 1996, 4,  14, 2005,  0,  9, 925 }," in text and "{ 24, 25 }, { 5, 6 }, { 13, 14 }, { 15, 16 }," in text
+
+
+# ================================================================================================ the hand oracle (rlook-1 / 2)
+def _census_pure(name: str):
+    spec = importlib.util.spec_from_file_location(name, CENSUS / "polish_census.py")
+    pc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pc)
+    return pc
+
+
+def _arm(chain, mirror=False) -> list:
+    """A synthetic skeleton: (name, parent, local x, local y, dominant-weight verts) rows -> read_model-shaped bones."""
+    s = -1.0 if mirror else 1.0
+    return [{"name": n, "parent": p, "pos": (s * x, y, 0.0), "rot": (0.0, 0.0, 0.0, 1.0), "scale": (1.0, 1.0, 1.0)}
+            for n, p, x, y, _v in chain]
+
+
+def _skin_model(leaf_hand: bool = False) -> tuple:
+    """Steiner's arm SHAPE (studies/battle-coop/dress-census/polish.json e_hands['3 steiner'].skin.arm): a 0-vertex
+    clavicle and shoulder pivot, then the upper arm (13), the forearm (14), the gauntlet (15) and a 0-vertex end leaf
+    (16); a mirrored left arm, two legs. ``leaf_hand`` drops the end leaf (Amarant's / Freya's shape)."""
+    trunk = [("bone000", None, 0, 0, 0), ("bone010", "bone000", 0, -300, 270), ("bone011", "bone010", 0, -60, 0)]
+    right = [("bone012", "bone011", 48, 0, 0), ("bone013", "bone012", 44, 10, 87), ("bone014", "bone013", 69, 70, 48),
+             ("bone015", "bone014", 51, 50, 170)] + ([] if leaf_hand else [("bone016", "bone015", 20, 48, 0)])
+    left = [("bone020", "bone011", 48, 0, 0), ("bone021", "bone020", 44, 10, 87), ("bone022", "bone021", 69, 70, 48),
+            ("bone023", "bone022", 51, 50, 170)]
+    legs = [("bone030", "bone000", 40, 0, 120), ("bone031", "bone030", 0, 100, 90),
+            ("bone040", "bone000", -40, 0, 120), ("bone041", "bone040", 0, 100, 90)]
+    rows = trunk + right + legs
+    bones = _arm(rows) + _arm(left, mirror=True)
+    weights = [[(int(n[4:]), 1.0)] for n, _p, _x, _y, v in rows + left for _k in range(v)]
+    return bones, [{"weights": weights}]
+
+
+def test_the_hand_oracle_is_the_skin_and_stock_never_labels_for():
+    """rlook-1 / rlook-2: THE HAND ORACLE can fail on the table it once agreed with. PURE (no install): the skin rule
+    (polish_census.skin_hand) over Steiner's arm SHAPE answers 15 / 16 -- the gauntlet and its 0-vertex end leaf, never
+    labels_for's 14 / 15 (his elbow / his wrist) -- and over a vertex-owning leaf hand answers the hand for both; stock's
+    own AttachObject (stock_hand_check: a prop Zidane holds at 12 / 13 lands on the body's hand / end) agrees with 15 / 16
+    and reads 14 / 15 as a disagreement. Then THE FROZEN CENSUS: Steiner's and Amarant's pairs are the skin's AND stock's
+    (Steiner's Purple_Bottle 12 -> 15, Sword 13 -> 16; Amarant carries Vivi on his leaf hand 16), and the pre-fix table
+    (Steiner 14 / 15, Amarant 15 / 16) would read `agree` false there."""
+    pc = _census_pure("_polish_census_hands")
+    bones, meshes = _skin_model()
+    sk = pc.skin_hand(bones, meshes)
+    assert (sk["hand"], sk["end"], sk["leaf_hand"]) == (15, 16, False) and sk["skinned"] == [13, 14, 15], sk
+    assert [a[0] for a in sk["arm"]] == [0, 10, 11, 12, 13, 14, 15, 16]
+    leaf = pc.skin_hand(*_skin_model(leaf_hand=True))
+    assert (leaf["hand"], leaf["end"], leaf["leaf_hand"]) == (15, 15, True), leaf
+    import collections
+    sa = {98: collections.Counter({((227,), 12): 2, ((243,), 13): 4, ((487,), 12): 7}),
+          5489: collections.Counter({((227,), 15): 1, ((243,), 16): 8, ((31,), 15): 2})}
+    good = pc.stock_hand_check(sa, 5489, sk["arm"], 15, 16)
+    assert good["agrees"] and good["pair_majority"] == {"12": 15, "13": 16} and good["arm_bones"] == {"15": 3, "16": 8}
+    assert not pc.stock_hand_check(sa, 5489, sk["arm"], 14, 15)["agrees"]          # labels_for's pair: stock disagrees
+    assert not pc.stock_hand_check(sa, 5489, sk["arm"], None, None)["agrees"]      # no skin hand: never vacuously true
+    doc = _doc()
+    st, am = doc["e_hands"]["3 steiner"], doc["e_hands"]["7 amarant"]
+    assert (st["skin"]["hand"], st["skin"]["end"], st["stock"]["pair_majority"]) == (15, 16, {"12": 15, "13": 16}), st
+    assert st["bone13"]["role"] == "upper arm" and st["stock"]["agrees"]
+    assert (am["skin"]["hand"], am["skin"]["end"], am["skin"]["leaf_hand"]) == (16, 16, True), am
+    assert am["stock"]["arm_bones"] == {"16": 1} and am["stock"]["agrees"]
+    for key, old in (("3 steiner", [14, 15]), ("7 amarant", [15, 16])):        # the pre-fix rows read as disagreements
+        h = doc["e_hands"][key]
+        assert old != h["expected"] and h["agree"] and [h["hand_bone"], h["hand_bone_end"]] == h["expected"]
+    for key, h in doc["e_hands"].items():
+        if isinstance(h, dict) and "skin" in h:
+            assert "labels_for" not in h["source"].replace("never labels_for", ""), key
 
 
 def _patch_from(stem: str) -> bytes:
@@ -270,20 +379,64 @@ def _install_gate():
             return None, f"no Memoria clone file {rel}"
     if importlib.util.find_spec("UnityPy") is None:
         return None, "UnityPy is not installed"
+    # the census reads the install's MapConfigData through the kit's events-bundle index, which the kit WRITES into
+    # StreamingAssets when it is missing: this test never writes the install (the sibling install-gated tests' rule)
+    for cache in (".ff9mapkit-events-bundle.txt", ".ff9mapkit-field-index.json"):
+        if not (game / "StreamingAssets" / cache).is_file():
+            return None, f"the kit cache {cache} is missing from the install: this test would WRITE it there"
+    # the census parses the rig table out of the SHARED clone: a clone carrying another session's unmerged rig-table edits
+    # is not this tree's stack -- a drift there says nothing about this tree
+    clone = _rig_rows(t.strip() for t in (MEMORIA / "Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs").read_text(
+        encoding="utf-8-sig", errors="replace").splitlines()
+        if t.strip().startswith("new Rig("))
+    stack = _rig_rows(net_lines_ordered("NetSyncVisitor.cs", r"new Rig\("))
+    if clone != stack:
+        return None, "the shared clone's NetSyncVisitor.Rigs is not this tree's stack (another session's in-flight edits)"
     return game, None
 
 
 def test_the_census_regenerates_from_the_install():
-    """INSTALL-GATED (READ-ONLY): polish_census.py --check rebuilds the census in memory off the 817 exports, the install's
+    """INSTALL-GATED (READ-ONLY: skipped when the kit's caches are missing -- the read would WRITE them into the install --,
+    and when the shared clone's rig table is not this tree's stack): polish_census.py --check rebuilds the census in memory
+    off the 817 exports, the install's
     mapconfigs and skeletons (the kit's readers) and the clone's rig table, and diffs every oracle key (rigs, a_field250,
     b_steps, c_subs, d_lighting, e_hands, fg_ops, o6_other_sites, twin_selftest, bench, table_disagreements) against the
     frozen polish.json: the pins above tie the patch, the twins and the JSON to EACH OTHER, so an edit made to all three
-    together would stay green -- this one re-reads the install. Skips cleanly without it."""
+    together would stay green -- this one re-reads the install. Skips cleanly without it. StreamingAssets is untouched."""
     game, why = _install_gate()
     if game is None:
         pytest.skip(why)
+    sa = game / "StreamingAssets"
+    before = {p.name: p.stat().st_mtime for p in sa.iterdir()}
     out = subprocess.run([sys.executable, "-X", "utf8", str(CENSUS / "polish_census.py"), "--check", "--game", str(game),
                           "--exports", str(EXPORTS), "--memoria", str(MEMORIA)], capture_output=True, text=True,
                          timeout=1500)
     assert out.returncode == 0 and "OK: polish.json regenerates exactly" in out.stdout, (out.stdout[-3000:],
                                                                                        out.stderr[-2000:])
+    assert {p.name: p.stat().st_mtime for p in sa.iterdir()} == before          # READ-ONLY: nothing written there
+
+
+def test_the_census_twin_takes_the_engines_guard_opt_in():
+    """expected_steps' `guard` is OPT-IN: off (the default) the twin books stock's throw for a 19 on an EMPTY table -- the
+    hazard detector b_steps.code19_empty_table_hazard reads (field 2930's on the moogle / Quina / Cinna) --; on, it drops
+    and counts it as the shipping engine does (StepDroppedEmpty, either lever state, never a pass), and agrees with
+    battlewire's replay case for case: the bench's F2d shape (the moogle's twelve, then 2930's 19 on 190: [] with 13),
+    `polish off` (Zidane's four, the 19 stock's no-op), Freya's 19 on (25, 13) (DeleteChar's top shrink), a lone 19."""
+    spec = importlib.util.spec_from_file_location("_polish_census_guard", CENSUS / "polish_census.py")
+    pc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pc)
+    rigs = [dict(zip(BW.RIG_COLUMNS, r)) for r in BW.RIGS]
+    lone = [list(o) for o in BW.GUARD_2930]
+    assert pc.expected_steps(rigs[4], lone, zidane=rigs[0])["faults"]                      # the hazard detector's default
+    got = pc.expected_steps(rigs[4], lone, zidane=rigs[0], guard=True)
+    assert (got["steps"], got["steps_dropped"], got["steps_passed"], got["faults"]) == ([], 1, 0, [])
+    off = pc.expected_steps(rigs[4], lone, polish=False, zidane=rigs[0], guard=True)
+    assert (off["steps_dropped"], off["faults"]) == (1, [])                                  # under `polish off` too
+    assert pc.expected_steps(rigs[4], lone, dressed=False, zidane=rigs[0], guard=True)["faults"]   # never an undressed body
+    for rig, polish, names, want, dropped in BW.GUARD_REPLAY_ORACLE:
+        ops = [list(o) for n in names for o in getattr(BW, n)]
+        theirs = pc.expected_steps(rigs[rig], ops, polish=polish, zidane=rigs[0], guard=True)
+        assert (BW.steps_text(theirs["steps"]), theirs["steps_dropped"], theirs["faults"]) == (want, dropped, []), names
+        assert BW.replay_ops(rigs[rig], polish, *[getattr(BW, n) for n in names]) == (want, dropped), names
+    haz = _doc()["b_steps"]["code19_empty_table_hazard"]
+    assert [h["field"] for h in haz] == [2930] and sorted(haz[0]["s141_faults_by_rig"]) == ["5 quina", "8 moogle", "9 cinna"]
