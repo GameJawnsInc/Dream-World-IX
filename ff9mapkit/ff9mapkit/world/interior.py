@@ -1149,7 +1149,11 @@ def _perimeter_walk_in_gate(changed, rim_pts, poly, *, log=print):
 
     _w = _W()
     _w.verts, _w.tangents, _w.flat_index = _wv, _wt, _wf
+    _w.tris = [_wf[i:i + 3] for i in range(0, len(_wf), 3)]
     _wml = [("Terrain", _w)]
+    # ~49 samples per 0.5u rim station: the grid index (a pure accelerator, same first hit)
+    # turns each from a scan of every assembled tri into a scan of one bucket
+    _idx = P2.build_meshlist_index(_wml)
     RES = 0.05
     SPAN = 1.2
     NSAMP = int(2 * SPAN / RES) + 1
@@ -1172,7 +1176,8 @@ def _perimeter_walk_in_gate(changed, rim_pts, poly, *, log=print):
             prof = []
             for k in range(NSAMP):
                 d = SPAN - k * RES
-                hy, nm_, _, _tp = P2.place(_wml, sx + nxo * d, sz + nzo * d, sky=True)
+                hy, nm_, _, _tp = P2.place(_wml, sx + nxo * d, sz + nzo * d, sky=True,
+                                           index=_idx)
                 prof.append(hy if nm_ != "MISS" else None)
             for i0 in range(NSAMP):
                 if prof[i0] is None:

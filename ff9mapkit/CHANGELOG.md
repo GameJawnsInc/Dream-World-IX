@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-fuse` recipes can turn and size what they carry
+- A `[[forest]]` row now takes `spread` and `rot`, and a `[[mountain]]` row takes `rot` and `rock_height`: the same
+  handles as `world-forest --spread/--rot` and `world-mountain --rot/--rock-height`, under the same names. A row
+  without them carves exactly what it did before.
+- A row now hands the carve the same arguments the command does. A test checks this for every relief table by
+  running both down to the carve. A value past a proven ceiling (a forest wider than ×1.5) is refused in the same
+  words either way. The ceilings stay in the verb, not the recipe.
+- `donor` is optional on both rows (the commands' defaults: the (15,15) forest and Uaho). A row without one used to
+  stop the whole compose with a `KeyError`. A forest row also takes the donor as `"BX,BY"`, as the command does.
+
 ### Added — `world-mountain`: a desert mountain, and a warning when a mountain leaves its home ground
 - A new qualified donor, `world-mountain --donor 19,3 --ground desert`: a desert peak (139 rock triangles, about
   12u tall) for desert islands (`world-island --ground desert`). It carves cleanly at every angle tried, and in game

@@ -207,6 +207,15 @@ Each rung is useful on its own. One change per in-game test, as everywhere else.
    as named constants the handles can read (`FOREST_SPREAD_MAX`, `MTN_ROCK_HEIGHT_MAX`).
 5. **Pass the grid index into the walk-in gate** (`interior.py:1175`). It is a small, measurable speed-up.
 
+**Progress (2026-10-19):**
+- Habit 3, relief half: a `[[forest]]` row takes `spread`/`rot`, a `[[mountain]]` row `rot`/`rock_height`,
+  and `donor` is optional on both. `tests/test_world_compose.py` runs a row and the CLI down to the carve and
+  compares the bound arguments, one case per relief table. Each of three mutations that drop a handle turns it
+  red. Still missing: `[[sink]]`, which needs the disc-4 replay hook the CLI builds.
+- Habit 5: the walk-in gate builds the grid index once per gate. The A/B (same verdict, same bytes, time) is in
+  the commit that made the change.
+- Habits 1, 2 and 4: unchanged.
+
 ## Not recommended (and why)
 
 - **A freeform terrain brush:** see "The design call".

@@ -978,6 +978,40 @@ def test_carve_forest_spread_scales_the_canopy_in_plan_and_keeps_its_heights(mon
     assert max(p[1] for p in wide) == pytest.approx(3.2 + 1.0)                   # the plateau still 1u up
 
 
+def test_carve_forest_walk_in_gate_samples_through_the_grid_index(monkeypatch, tmp_path):
+    """The walk-in gate places ~49 samples per 0.5u rim station; each goes through placement's
+    grid index (studies/overworld-editor/PLAN.md habit 5; measured x54-x61 on the live Ring
+    island), and the index is a pure accelerator: the carve is byte-identical to the scan."""
+    from ff9mapkit.world import placement as P
+    _patch_donor(monkeypatch, _canopy_dome())
+    real_gate, real_place = IN._perimeter_walk_in_gate, P.place
+    in_gate, indexed = [False], []
+
+    def gate(*a, **k):
+        in_gate[0] = True
+        try:
+            return real_gate(*a, **k)
+        finally:
+            in_gate[0] = False
+
+    def place(ml, x, z, *a, **k):
+        if in_gate[0]:
+            indexed.append(k.get("index") is not None)
+        return real_place(ml, x, z, *a, **k)
+    monkeypatch.setattr(IN, "_perimeter_walk_in_gate", gate)
+    monkeypatch.setattr(P, "place", place)
+
+    def carve():
+        res = IN.carve_forest(IN.soup_from_blocks({(0, 0): _mains_grid()}), center=(26.0, -26.0),
+                              donor=(15, 15), game=tmp_path, spread=1.25, log=lambda *a: None)
+        return {b: M.ff9mesh_bytes(bm) for b, bm in res["changed"].items()}
+    fast = carve()
+    assert len(indexed) > 1000 and all(indexed)
+    indexed.clear()
+    monkeypatch.setattr(P, "build_meshlist_index", lambda ml: None)   # the old linear scan
+    assert carve() == fast and indexed and not any(indexed)
+
+
 def test_carve_forest_rot_turns_the_canopy_and_identity_is_byte_exact(monkeypatch, tmp_path):
     """--rot: 90 is the exact coordinate swap (dx, dz) -> (dz, -dx), any other angle the same turn by cos/sin;
     spread 1 + rot 0 (or 360) is the verbatim carry byte for byte."""

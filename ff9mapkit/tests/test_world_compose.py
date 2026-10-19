@@ -160,6 +160,86 @@ def test_backup_files_never_enter_the_manifest(monkeypatch, tmp_path):
     assert files == ["FF9_Data/WorldMap/Disc1/0_1/r2/Block[4][2] Terrain.ff9mesh"]
 
 
+# --- the recipe speaks the CLI's shape handles (studies/overworld-editor/PLAN.md, habit 3) ---
+#
+# A compose row and the CLI verb must hand the carve the SAME arguments: the recipe is the
+# editor's document, and "the CLI stays the byte oracle" holds only if a row can say whatever
+# the CLI can. Both callers run for real down to the carve; the spy binds what each passed to
+# the verb's own signature (defaults applied), so a caller that spells a default out and one
+# that leaves it implicit still compare equal, and any handle one side drops does not.
+
+_RELIEF = ("carve_forest", "carve_mountain", "build_hill")
+
+
+def _spy_relief(monkeypatch):
+    import inspect
+    from ff9mapkit.world import interior as IN
+    seen = []
+    monkeypatch.setattr(IN, "read_deployed_blocks",
+                        lambda mf, **k: seen.append(("read", mf, k)) or {})
+    monkeypatch.setattr(IN, "soup_from_blocks", lambda blocks: "SOUP")
+    for name in _RELIEF:
+        sig = inspect.signature(getattr(IN, name))
+
+        def spy(soup, _n=name, _sig=sig, **k):
+            bound = _sig.bind(soup, **k)
+            bound.apply_defaults()
+            seen.append((_n, {a: v for a, v in bound.arguments.items() if a != "log"}))
+            raise ValueError("spy: recorded")       # stop before either caller's report
+        monkeypatch.setattr(IN, name, spy)
+    return seen
+
+
+@pytest.mark.parametrize("argv,table,row", [
+    (["world-forest", "--center", "300,-500", "--donor", "3,12", "--spread", "1.25", "--rot", "30"],
+     "forest", {"center": [300, -500], "donor": "3,12", "spread": 1.25, "rot": 30}),
+    (["world-forest", "--center", "300,-500", "--donor", "19,8", "--rot", "90"],
+     "forest", {"center": [300, -500], "donor": [19, 8], "rot": 90}),
+    (["world-forest", "--near", "300,-500"],                       # every default, no donor key
+     "forest", {"near": [300, -500]}),
+    (["world-mountain", "--center", "300,-500", "--donor", "19,3", "--ground", "desert",
+      "--rot", "200", "--rock-height", "1.5"],
+     "mountain", {"center": [300, -500], "donor": "19,3", "ground": "desert", "rot": 200,
+                  "rock_height": 1.5}),
+    (["world-mountain", "--near", "300,-500", "--donor", "10,5-6", "--reach", "128"],
+     "mountain", {"near": [300, -500], "donor": "10,5-6", "reach": 128}),
+    (["world-mountain", "--near", "300,-500"],                     # --near scans the four turns
+     "mountain", {"near": [300, -500]}),
+    (["world-hill", "--center", "300,-500", "--height", "3", "--radius", "14"],
+     "hill", {"center": [300, -500], "height": 3, "radius": 14}),
+])
+def test_a_compose_row_carves_what_the_cli_carves(monkeypatch, tmp_path, argv, table, row):
+    from ff9mapkit import cli
+    _pin_game(monkeypatch, tmp_path)
+    seen = _spy_relief(monkeypatch)
+    assert cli.main([*argv, "--mod-folder", "MOD", "--dry-run"]) == 2   # the spy's refusal
+    via_cli = list(seen)
+    seen.clear()
+    out = FU.compose_layout("MOD", {table: [row]}, dry_run=True)
+    assert out["gates"][-1]["error"] == "spy: recorded"                # reached the carve
+    assert len(via_cli) == 2 and seen == via_cli                       # same read, same carve
+
+
+def test_a_compose_row_refuses_past_a_ceiling_as_the_cli_does(monkeypatch, tmp_path, capsys):
+    """The handles pass through unclamped: the verb owns the proven ceiling
+    (FOREST_SPREAD_MAX), so the recipe and the CLI refuse with the same words."""
+    from ff9mapkit import cli
+    from ff9mapkit.world import interior as IN
+    _pin_game(monkeypatch, tmp_path)
+    monkeypatch.setattr(IN, "read_deployed_blocks", lambda mf, **k: {})
+    monkeypatch.setattr(IN, "soup_from_blocks",
+                        lambda blocks: {"pos": [], "tris": [], "meta": [], "nrm": []})
+    too_wide = IN.FOREST_SPREAD_MAX + 0.1
+    assert cli.main(["world-forest", "--mod-folder", "MOD", "--near", "300,-500",
+                     "--spread", str(too_wide), "--dry-run"]) == 2
+    said = capsys.readouterr().err.strip()
+    out = FU.compose_layout("MOD", {"forest": [{"near": [300, -500], "spread": too_wide}]},
+                            dry_run=True)
+    assert "outside 1.0..1.5" in said and out["gates"][-1]["error"] == said
+    out = FU.compose_layout("MOD", {"hill": [{"near": [300, -500], "rot": 30}]}, dry_run=True)
+    assert "'rot'" in out["gates"][-1]["error"]                        # a hill has no angle
+
+
 # --- the Tweak protocol (rec 16, finding 3's cheap half) ---------------------------------
 
 def test_every_shipped_tweak_class_satisfies_the_protocol():
