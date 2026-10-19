@@ -4,7 +4,7 @@
 # an old fixed backup, which would silently revert every owner edit since (a hand-set [Netsync] SelfDress, a kit `coop`
 # write, a first-launch SessionCode). Usage: selftest_block.sh <outdir> <label>:<field>:<scenario>[:ENV=VAL,ENV=VAL] ...
 set -u
-WT=/c/gd/Dream-World-IX/.claude/worktrees/gallant-easley-04ab74
+WT=/c/gd/Dream-World-IX/.claude/worktrees/dreamy-allen-a2375f
 G="/c/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 BK=/c/gd/Dream-World-IX/backups
 # the s139-era fixed backup: a restore SOURCE only when the start snapshot cannot be taken AND the live INI is byte-identical

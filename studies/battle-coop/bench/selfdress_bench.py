@@ -6,7 +6,10 @@ no field.toml block can express the conductors the s140 legs need: RunAnimationE
 wait, a function inside the PLAYER's entry whose loop bound is B_FRAME (GetAnimDuration evaluates on gCur, the RUNNING
 object -- EventEngine.DoCalcOperationExt.cs:24-26 -- so field 2705's loop exercises s140's hook only from the player's
 own entry), a ladder jump in the player's own entry (SetJumpAnimation / RunJumpAnimation / RunLandAnimation act on the
-running object too), or an entry InitObject'd at run time. A prebuilt .eb cannot be committed either: every kit build embeds the
+running object too), an entry InitObject'd at run time, or s141's conductors (F8's AttachObject / DetachObject on the
+cup; F5's HideObject / ShowObject(250, 1): the kit emits no 0x39 / 0x3A at all -- audit 2.4 amendment 6). The caller is
+built for a seat STAGE (_selfdress_field.STAGE_CONDUCTORS; this checkout seats SEAT_STAGE, s141): a live s140 seat reads
+STALE in the preflight until `deploy` re-seats it. A prebuilt .eb cannot be committed either: every kit build embeds the
 install-derived blank field (docs/PROVENANCE.md; test_provenance_tripwire.py). So, as the photo-mode and sine-kit rung-0
 benches do, this script seats them with the kit's own primitives after the kit build -- eb.edit.add_function (T3 and J into the
 player entry, LATE_CC into the late entry), content.object.seat_entry (the caller code entry) and eb.edit.activate_block
@@ -195,6 +198,11 @@ def stock_forms(game: Path) -> dict:
         "404 RunJumpAnimation": (404, None, None, lambda b: b == O.run_jump_animation()),
         "404 RunLandAnimation": (404, None, None, lambda b: b == O.run_land_animation()),
         "404 WaitAnimation": (404, None, None, lambda b: b == O.wait_animation()),
+        # s141: F5's mesh ops (field 1403 Gargant_Loop, test2_387.txt:1516 / :1648) and F8's attach (field 1405,
+        # test2_389.txt:368) -- the same op forms, an immediate uid; the bench names uid 250 / the cup instead
+        "1403 HideObject(1, 1)": (1403, None, None, lambda b: b == O.encode(F.OP_MESH_HIDE, 1, F.F5_MESH)),
+        "1403 ShowObject(1, 1)": (1403, None, None, lambda b: b == O.encode(F.OP_MESH_SHOW, 1, F.F5_MESH)),
+        "1405 AttachObject(4, 13, 13)": (1405, None, None, lambda b: b == O.encode(F.OP_ATTACH, 4, 13, F.ATTACH_BONE)),
     }
     cache, out = {}, {}
     for lab, (fid, ent, tag, pred) in want.items():
@@ -256,6 +264,19 @@ def proof(eb: bytes, game: Path | None) -> list:
     L.append(f"  RunScript* sites naming tag {F.LATE_CC_TAG} on the late entry: {callers or 'none'}")
     L += ["== (2) the caller (code entry %d), every conductor" % F.CALLER_SID]
     L += _dis(eb, s.entry(F.CALLER_SID).func_by_tag(0))
+    L += ["== (6) s141's instant conductors in the caller: TRIG cleared, the one op, DONE set (no DisableMove)"]
+    cf = s.entry(F.CALLER_SID).func_by_tag(0)
+    code = list(D.iter_code(eb, cf.abs_start, cf.abs_end))
+    for key, op in (("f8a", F.OP_ATTACH), ("f8d", F.OP_DETACH), ("f5h", F.OP_MESH_HIDE), ("f5s", F.OP_MESH_SHOW)):
+        at = [n for n, i in enumerate(code) if i.op == op]
+        if len(at) != 1 or not 0 < at[0] < len(code) - 1:
+            L.append(f"  {key}: op 0x{op:02X} found at {at} (want exactly one, between its TRIG and DONE writes)")
+            continue
+        trio = code[at[0] - 1:at[0] + 2]
+        ok = (eb[trio[0].off:trio[0].end] == F.glob_set(F.TRIGGERS[key], 0)
+              and eb[trio[2].off:trio[2].end] == F.glob_set(F.DONES[key], 1))
+        L.append(f"  {key:4s} {' | '.join(eb[i.off:i.end].hex(' ') for i in trio):58s} TRIG {F.TRIGGERS[key]} -> 0, "
+                 f"{trio[1]}, DONE {F.DONES[key]} -> 1: {ok}")
     if game is not None:
         try:
             st = stock_forms(game)

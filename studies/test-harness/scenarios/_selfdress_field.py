@@ -1,6 +1,6 @@
 """THE s140 BENCH FIELD's contract -- field 30606 SELFDRESS (studies/battle-coop/bench/selfdress.field.toml), importable.
 
-R3 group 2's legs N / X / T (studies/battle-coop/R3-FIELD-MODEL-AUDIT.md 4.1 and 4.4; s141's F8 rides it too) run on a
+R3 group 2's legs N / X / T (studies/battle-coop/R3-FIELD-MODEL-AUDIT.md 4.1 and 4.4; s141's F5, F8 ride it too) run on a
 kit field whose .eb is the kit's build of the toml PLUS a seat step (studies/battle-coop/bench/selfdress_bench.py): the
 toml builds the player, the TWIN and the LATE entry with the kit's own blocks; the seat adds the CALLER (a code entry
 of conductors), the T3 function inside the PLAYER's entry, and DefinePlayerCharacter in a never-run function of the
@@ -27,11 +27,13 @@ THE ENTRIES (sid == uid: every InitObject / InitCode here passes uid 0, which is
                   EntryDefinesPlayer reads true while control never moves (audit 2.3 amendment 11).
     CUP_SID 4     a kit [[prop]] cup (GEO_ACC_F0_CUP, model 234): s141's F8 attach target.
     CALLER_SID 5  a seated code entry (type 0, one tag-0 loop, LOC Instance bytes), armed by InitCode right AFTER the
-                  player's InitObject. It polls the TRIG_* bits each tick and runs one conductor per trigger.
+                  player's InitObject. It polls the TRIG_* bits each tick and runs one conductor per trigger. Which
+                  conductors a seat carries is its STAGE (:data:`STAGE_CONDUCTORS`; a later stage only ADDS): the s140
+                  seat had no F5, and :func:`preflight` names an s140-seated .eb as STALE instead of judging F5 on it.
 
 THE FLAG PROTOCOL (gEventGlobal bits in the safe band, declared as [[flag]] rows in the toml so the kit's lint and
-allocator see them; nothing else in the repo uses 13200-13239). The harness writes bits with `flag <bit> <0|1>` and
-reads them with `watch`.
+allocator see them; nothing else in the repo uses 13200-13239; s140's bits are 13200-13223, s141's F5 adds 13224-13227).
+The harness writes bits with `flag <bit> <0|1>` and reads them with `watch`.
     1. Before warping in: clear READY. The caller's Init zeroes every IO_BITS bit (fresh per load), then sets READY.
     2. Set ONE TRIG_* bit. The caller clears it first, runs the conductor, then sets its DONE_* bit -- or WEDGED_T1 /
        WEDGED_T3 / WEDGED_J when the bounded wait times out (a red the bench can read without a softlock: X/T1/T3/J
@@ -73,6 +75,13 @@ install's own bytes, read-only):
         duration between the J_LAND and J_END publishes).
     F8  (s141) attach: AttachObject(CUP_SID, 250, 13) -- stock's `AttachObject( 4, 13, 13 )` Gargan_Flower on Zidane --;
         detach: DetachObject(CUP_SID).
+    F5  (s141) F5H: HideObject(250, F5_MESH) -- MESHHIDE 0x3A: arg1 the object (GetObj1: a uid, 250 = the control
+        alias), arg2 the mesh index (PosObj.geoMeshHide sets meshflags bit 1 << mesh) --; F5S: ShowObject(250, F5_MESH)
+        (MESHSHOW 0x39, the bit cleared) restores it. The op form is field 1403's Gargant_Loop, `HideObject( 1, 1 )` /
+        `ShowObject( 1, 1 )` (test2_387.txt:1516 / :1648: an immediate uid, mesh 1). Stock never mesh-ops a player body
+        (audit 2.4 amendment 6), so F5 is synthetic by design: s141 drops both ops on a dressed body (mesh_drops + 1,
+        player.meshflags stays 0); under `polish off` F5H sets meshflags 2 and F5S clears it again, so a later row
+        starts from a whole body either way. Neither holds DisableMove: each is one instant op, like F8.
 """
 from __future__ import annotations
 
@@ -124,6 +133,7 @@ ANIM_J_FRAMES = 8
 J_JUMP0, J_JUMP1 = 2, 6                  # field 404's SetJumpAnimation(10687, 2, 6) (test2_107.txt:1191)
 J_LIMIT = 120                            # ticks after RunScript: stock ends in ~3, an alias-timed landing in <= ~70
                                          # (never T1_LIMIT's 150: each bound's statement must be its own bytes)
+F5_MESH = 1                              # F5's mesh index: HideObject(250, 1) (audit 4.5); 1403's HideObject( 1, 1 )
 
 # ------------------------------------------------------------------------------------------------ the flags
 TWIN_GATE = 13200        # never set: the twin's InitObject requires it CLEAR (requires_flag_clear)
@@ -135,8 +145,11 @@ WEDGED_T1, WEDGED_T3 = 13215, 13216
 T3_LOOP, T3_END = 13217, 13218           # written by the PLAYER's T3 function (its phase), read by the caller
 TRIG_J, DONE_J, WEDGED_J = 13219, 13220, 13221
 J_LAND, J_END = 13222, 13223             # written by the PLAYER's J function: right before RunLandAnimation / after it
-TRIGGERS = {"x": TRIG_X, "t1": TRIG_T1, "t3": TRIG_T3, "n3": TRIG_N3, "f8a": TRIG_F8A, "f8d": TRIG_F8D, "j": TRIG_J}
-DONES = {"x": DONE_X, "t1": DONE_T1, "t3": DONE_T3, "n3": DONE_N3, "f8a": DONE_F8A, "f8d": DONE_F8D, "j": DONE_J}
+TRIG_F5H, TRIG_F5S, DONE_F5H, DONE_F5S = 13224, 13225, 13226, 13227   # s141's F5: HideObject / ShowObject(250, 1)
+TRIGGERS = {"x": TRIG_X, "t1": TRIG_T1, "t3": TRIG_T3, "n3": TRIG_N3, "f8a": TRIG_F8A, "f8d": TRIG_F8D, "j": TRIG_J,
+            "f5h": TRIG_F5H, "f5s": TRIG_F5S}
+DONES = {"x": DONE_X, "t1": DONE_T1, "t3": DONE_T3, "n3": DONE_N3, "f8a": DONE_F8A, "f8d": DONE_F8D, "j": DONE_J,
+         "f5h": DONE_F5H, "f5s": DONE_F5S}
 WEDGES = {"t1": WEDGED_T1, "t3": WEDGED_T3, "j": WEDGED_J}
 IO_BITS = tuple(TRIGGERS.values()) + tuple(DONES.values()) + tuple(WEDGES.values()) + (T3_LOOP, T3_END, J_LAND, J_END)
 #: the toml's [[flag]] table, name -> index (the kit's lint + allocator see every bench bit through it)
@@ -145,6 +158,12 @@ TOML_FLAGS = {"sd_twin_gate": TWIN_GATE, "sd_late_gate": LATE_GATE, "sd_ready": 
               **{f"sd_wedged_{k}": v for k, v in WEDGES.items()}, "sd_t3_loop": T3_LOOP, "sd_t3_end": T3_END,
               "sd_j_land": J_LAND, "sd_j_end": J_END}
 ALL_FLAGS = tuple(sorted(TOML_FLAGS.values()))
+#: the conductors each seat STAGE carries, in TRIGGERS order (a later stage only ADDS: the s140 seat is the s141 caller
+#: minus F5's two conductors and their four bits). :func:`caller_body` builds any stage; :func:`preflight` wants
+#: SEAT_STAGE and names an older stage's seat as STALE (a deploy to redo), never as a verdict on F5.
+STAGE_CONDUCTORS = {"s140": ("x", "t1", "t3", "n3", "f8a", "f8d", "j"),
+                    "s141": ("x", "t1", "t3", "n3", "f8a", "f8d", "j", "f5h", "f5s")}
+SEAT_STAGE = "s141"
 
 # ------------------------------------------------------------------------------------------------ opcodes
 OP_JMP, OP_JMP_IFNOT, OP_JMP_IF, OP_RET, OP_EXPR = 0x01, 0x02, 0x03, 0x04, 0x05
@@ -152,6 +171,7 @@ OP_INIT_CODE, OP_INIT_OBJECT = 0x07, 0x09
 OP_RUN_SCRIPT, OP_WAIT, OP_WALK, OP_INIT_WALK, OP_WALK_SPEED = 0x12, 0x22, 0x23, 0x25, 0x26
 OP_DEFINE_PLAYER, OP_DISABLE_MOVE, OP_ENABLE_MOVE, OP_SET_MODEL = 0x2C, 0x2D, 0x2E, 0x2F
 OP_STAND, OP_WALK_ANIM, OP_RUN_ANIM = 0x33, 0x34, 0x35
+OP_MESH_SHOW, OP_MESH_HIDE = 0x39, 0x3A  # ShowObject / HideObject (MESHSHOW / MESHHIDE): object uid, mesh index
 OP_ATTACH, OP_DETACH, OP_ANIM_LOOP, OP_RUN_ANIM_EX, OP_WAIT_ANIM_EX = 0x4C, 0x4D, 0x98, 0xBD, 0xBE
 OP_WAIT_ANIM, OP_SET_JUMP, OP_RUN_JUMP, OP_RUN_LAND = 0x41, 0x94, 0x9C, 0x9D
 CODE_ENTRY_TYPE = 0x00
@@ -268,15 +288,20 @@ def t3_body(stand: int, walk: int, run: int) -> bytes:
     ])
 
 
-def caller_body() -> bytes:
+def caller_body(stage: str = SEAT_STAGE) -> bytes:
     """The caller's one tag-0 loop: zero the bench bits, READY, then poll a trigger per tick and run its conductor.
-    Instance.Int16[0] = the bounded wait's count, Int16[2] = T3's total count, Byte[4] = N3's once-per-load latch."""
+    Instance.Int16[0] = the bounded wait's count, Int16[2] = T3's total count, Byte[4] = N3's once-per-load latch.
+    ``stage`` (:data:`STAGE_CONDUCTORS`) picks the conductors: the default is the seat this checkout deploys; "s140" is
+    the s140 seat byte for byte (no F5 polls, F5 bits or F5 block), which only the preflight's STALE row reads."""
     _kit()
     from ff9mapkit.eb import opcodes as O
     from ff9mapkit.eb.labelasm import JMP, JMP_IF, JMP_IFNOT, asm, label
-    B = [glob_set(b, 0) for b in IO_BITS] + [glob_set(READY, 1), label("top")]
+    keys = STAGE_CONDUCTORS[stage]
+    absent = {bit for key in TRIGGERS if key not in keys for bit in (TRIGGERS[key], DONES[key])}
+    B = [glob_set(b, 0) for b in IO_BITS if b not in absent] + [glob_set(READY, 1), label("top")]
     for key in TRIGGERS:
-        B += [glob_test(TRIGGERS[key]), (JMP_IF, f"do_{key}")]
+        if key in keys:
+            B += [glob_test(TRIGGERS[key]), (JMP_IF, f"do_{key}")]
     B += [O.wait(1), (JMP, "top")]
     # X -- field 554's Main_Loop form, on the control alias
     B += [label("do_x"), glob_set(TRIG_X, 0), O.DISABLE_MOVE,
@@ -313,8 +338,15 @@ def caller_body() -> bytes:
     # F8 (s141) -- the held-prop attach to the player's bone 13, and its detach
     B += [label("do_f8a"), glob_set(TRIG_F8A, 0), O.encode(OP_ATTACH, CUP_SID, CONTROL_UID, ATTACH_BONE),
           glob_set(DONE_F8A, 1), (JMP, "top"),
-          label("do_f8d"), glob_set(TRIG_F8D, 0), O.encode(OP_DETACH, CUP_SID), glob_set(DONE_F8D, 1), (JMP, "top"),
-          O.RETURN]
+          label("do_f8d"), glob_set(TRIG_F8D, 0), O.encode(OP_DETACH, CUP_SID), glob_set(DONE_F8D, 1), (JMP, "top")]
+    # F5 (s141) -- the synthetic mesh ops on the player: HideObject(250, 1), and ShowObject(250, 1) to restore
+    if "f5h" in keys:
+        B += [label("do_f5h"), glob_set(TRIG_F5H, 0), O.encode(OP_MESH_HIDE, CONTROL_UID, F5_MESH),
+              glob_set(DONE_F5H, 1), (JMP, "top")]
+    if "f5s" in keys:
+        B += [label("do_f5s"), glob_set(TRIG_F5S, 0), O.encode(OP_MESH_SHOW, CONTROL_UID, F5_MESH),
+              glob_set(DONE_F5S, 1), (JMP, "top")]
+    B += [O.RETURN]
     return asm(B)
 
 
@@ -420,7 +452,9 @@ def _expected_caller_ops() -> list:
             ("J: RunScript(2, 250, J_TAG)", O.run_script(SCRIPT_LEVEL, CONTROL_UID, J_TAG)),
             ("N3: InitObject(LATE_SID, 0)", O.init_object(LATE_SID, 0)),
             ("F8: AttachObject(CUP_SID, 250, 13)", O.encode(OP_ATTACH, CUP_SID, CONTROL_UID, ATTACH_BONE)),
-            ("F8: DetachObject(CUP_SID)", O.encode(OP_DETACH, CUP_SID))]
+            ("F8: DetachObject(CUP_SID)", O.encode(OP_DETACH, CUP_SID)),
+            (f"F5: HideObject(250, {F5_MESH})", O.encode(OP_MESH_HIDE, CONTROL_UID, F5_MESH)),
+            (f"F5: ShowObject(250, {F5_MESH})", O.encode(OP_MESH_SHOW, CONTROL_UID, F5_MESH))]
 
 
 #: the caller's ESCAPE PROTOCOL: every wedge and completion write, every bound, and the EnableMove before each DONE / WEDGED
@@ -484,7 +518,9 @@ def preflight(eb: bytes) -> str | None:
     SetStandAnimation(7922) ahead of it, and the WHOLE function is :func:`t3_body` of the player Init's own stand / walk /
     run ids byte for byte (the phase bits, the lane, the speeds, the restore setters); LATE GATE -- the late entry's load-time InitObject is the kit's guarded call
     (GlobBit[LATE_GATE] + JMP_IFNOT); J -- the player entry's J_TAG is field 404's ladder jump (:func:`_expected_j`);
-    CALLER -- every conductor instruction is present (:func:`_expected_caller_ops`); ESCAPE -- every WEDGED / DONE write,
+    CALLER -- the caller is not an OLDER stage's seat (:data:`STAGE_CONDUCTORS`: an s140 seat, which has no F5, reads as
+    STALE) and every conductor instruction is present (:func:`_expected_caller_ops`, F5's HideObject / ShowObject(250, 1)
+    among them); ESCAPE -- every WEDGED / DONE write,
     every bound and >= CALLER_ENABLE_MOVES EnableMoves (:func:`_expected_caller_escape`); and the caller's whole tag-0
     body is :func:`caller_body` byte for byte (the structure: which bit each poll tests, where each branch lands). The
     named rows come first so a broken deploy reads the specific reason; the whole-body rows catch everything else."""
@@ -555,6 +591,11 @@ def preflight(eb: bytes) -> str | None:
         if cal["type"] != CODE_ENTRY_TYPE or cal["funcs"] != [0] or cal["loc"] < CALLER_LOC:
             return (f"CALLER: entry {CALLER_SID} is type {cal['type']}, funcs {cal['funcs']}, loc {cal['loc']} (want a "
                     f"type-{CODE_ENTRY_TYPE} code entry, funcs [0], >= {CALLER_LOC} Instance bytes)")
+        older = [st for st in STAGE_CONDUCTORS if st != SEAT_STAGE and cal["body"] == caller_body(st)]
+        if older:
+            lack = [k for k in STAGE_CONDUCTORS[SEAT_STAGE] if k not in STAGE_CONDUCTORS[older[0]]]
+            return (f"CALLER: entry {CALLER_SID} is the {older[0]} seat byte for byte (no {', '.join(lack)} "
+                    f"conductors) -- a STALE deploy the {SEAT_STAGE} legs cannot read: re-seat with `{' '.join(DEPLOY)}`")
         raw = cal["raw"]
         for label, want in _expected_caller_ops():
             if want not in raw:
