@@ -178,9 +178,15 @@ def soup_from_blocks(blocks: dict) -> dict:
     deployed-and-read-back -- one code path). Fams classify from the BYTES (the hill
     study's proven derivation): topo 37 = forest, 58 = rock, other nonzero = topoN,
     topo 0 = ``main`` when every corner u sits in the mains atlas region else ``stamp``.
-    ``coast`` = the (x, z) of every topo-58 vert (the rim-clearance proxy)."""
+    ``coast`` = the (x, z) of every topo-58 vert (the rim-clearance proxy).
+
+    ``tan`` = every vertex's SOURCE tangent, all four floats: a kept tri re-emits it verbatim
+    (:func:`_assemble`), so a block the carve never touched writes back byte-identical and the
+    deploy's byte-compare skips it. The kit writes ``[idall, 0, 0, 1]``, but a carried stock part
+    need not -- the world-river island's Terrain stores tangent.w = 0 -- and rebuilding it made
+    every relief carve rewrite (and take ledger ownership of) its whole read window."""
     order = sorted(blocks)
-    pos, nrm, tris, meta, coast = [], [], [], [], []
+    pos, nrm, tan, tris, meta, coast = [], [], [], [], [], []
     lo, hi = G.FAM_REGION["main"][0], G.FAM_REGION["main"][2]
     for blk in order:
         bm = blocks[blk]
@@ -194,6 +200,7 @@ def soup_from_blocks(blocks: dict) -> dict:
             v = ps[k]
             pos.append([v[0] + BLOCK * bx, v[1], v[2] - BLOCK * (by + 1) + BLOCK])
             nrm.append(list(ns[k]))
+            tan.append(list(ts[k]))
         for tri in bm.tris:
             idall = float(ts[tri[0]][0])
             topo = X.decode_id(int(round(idall)))["topograph"]
@@ -210,7 +217,7 @@ def soup_from_blocks(blocks: dict) -> dict:
                 fam = "main" if all(lo - 0.02 <= us[i][0] <= hi + 0.02 for i in tri) else "stamp"
             tris.append([tri[0] + base, tri[1] + base, tri[2] + base])
             meta.append((blk, idall, fam, [(us[i][0], us[i][1]) for i in tri]))
-    return {"pos": pos, "nrm": nrm, "tris": tris, "meta": meta,
+    return {"pos": pos, "nrm": nrm, "tan": tan, "tris": tris, "meta": meta,
             "blocks": dict(blocks), "coast": coast}
 
 
@@ -1139,8 +1146,11 @@ def _world_edge_use(blocks) -> Counter:
 
 
 def _assemble(soup, drop, new_by_block):
-    """Re-emit per-block meshes: kept tris byte-exact from the soup, new tris appended."""
+    """Re-emit per-block meshes: kept tris byte-exact from the soup (position, uv, normal AND the
+    source tangent -- :func:`soup_from_blocks`), new tris appended with the kit's
+    ``[idall, 0, 0, 1]``."""
     gpos, gtris, gmeta, gnrm = soup["pos"], soup["tris"], soup["meta"], soup["nrm"]
+    gtan = soup["tan"]
     changed = {}
     for blk in sorted(soup["blocks"]):
         bx, by = blk
@@ -1160,7 +1170,7 @@ def _assemble(soup, drop, new_by_block):
             for vid, (u, v) in zip(tri, uvv):
                 w = gpos[vid]
                 emit([w[0] - BLOCK * bx, w[1], w[2] + BLOCK * (by + 1) - BLOCK],
-                     (u, v), gnrm[vid], [idall, 0.0, 0.0, 1.0])
+                     (u, v), gnrm[vid], gtan[vid])
             tris.append([flat[-3], flat[-2], flat[-1]])
         for corners, idall, fam in new_by_block.get(blk, []):
             for c in corners:
@@ -3294,20 +3304,21 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         bm0 = soup["blocks"][blk]
         pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
 
-        def emit(p3, u2, n3, idall):
+        def emit(p3, u2, n3, t4):
             pos.append([p3[0] - BLOCK * sbx, p3[1], p3[2] + BLOCK * (sby + 1) - BLOCK])
-            uv.append(list(u2)); nrm.append(list(n3)); tan.append([idall, 0.0, 0.0, 1.0])
+            uv.append(list(u2)); nrm.append(list(n3)); tan.append(list(t4))
             flat.append(len(pos) - 1)
 
         for tdx, tri in enumerate(gtris):
             if gblk[tdx] != blk or tdx in drop:
                 continue
-            for i in tri:
-                emit(gpos[i], guv[i], gnrm[i], gtan[i][0])
+            for i in tri:     # a KEPT tri re-emits its source tangent (soup_from_blocks); a patched mint hole is new
+                emit(gpos[i], guv[i], gnrm[i],
+                     gtan[i] if tdx < n_orig else [gtan[i][0], 0.0, 0.0, 1.0])
             tris.append([flat[-3], flat[-2], flat[-1]])
         for corners, idall, fam in new_by_block.get(blk, []):
             for p in corners:
-                emit(p[:3], (p[3], p[4]), (p[5], p[6], p[7]), idall)
+                emit(p[:3], (p[3], p[4]), (p[5], p[6], p[7]), [idall, 0.0, 0.0, 1.0])
             tris.append([flat[-3], flat[-2], flat[-1]])
         changed[blk] = X.BlockMesh(
             name=bm0.name, disc=bm0.disc, x=sbx, y=sby, lod=bm0.lod, vcount=len(pos),

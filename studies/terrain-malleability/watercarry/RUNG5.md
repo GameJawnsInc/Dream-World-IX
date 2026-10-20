@@ -250,11 +250,35 @@ river's exact positions, UVs, normals and IDALL; only tangent.w differs (the riv
 `_assemble` writes `[idall, 0, 0, 1]`). The worldmap shaders do not read tangents, so nothing renders differently,
 but any relief verb on the river island rewrites (and takes ledger ownership of) every block in its window, which by
 its ledger contract `world-river --remove` would then stop on as another command's bytes (R1; not run here). This
-predates the gate rung; keeping each kept tri's source tangent in `_assemble` would let untouched blocks converge
-byte for byte.
+predated the gate rung. Fixed in the next section: the six now converge byte for byte.
 
 Not done: the forest has not been deployed to the live install or seen in game. `world-hill`'s crack gate (once-edges
 within radius + 4 of the hill) is still absolute; it was not part of this measurement.
+
+## Untouched blocks converge: kept tris keep their source tangent (offline, 2026-10-20)
+
+`soup_from_blocks` now keeps every vertex's source tangent (`soup["tan"]`, all four floats), and `_assemble`
+re-emits a kept tri with it. `carve_mountain`'s own re-emit does the same for its kept tris; its patched mint holes,
+the carried rock and the zip keep the kit's `[idall, 0, 0, 1]`. `build_hill` already copied the source arrays and
+writes only blocks it displaced, so it needed nothing.
+
+- **The live install, read only.** An identity re-emit (no drop, no new tris) of every Terrain override in
+  `FF9CustomMap-world`: 253 of 253 are byte-identical to their files. With the old rebuild put back in the same
+  script, 139 of 253 are, and the other 114 differ in tangents alone. So the churn was not only the river's.
+- **Tests** (`test_world_interior.py`, "an untouched block CONVERGES"): a forest beside a deployed w = 0 neighbour
+  writes only its own block, and the neighbour's re-emit equals the deployed bytes; the break-it puts the old
+  rebuild back and the deploy writes the neighbour, whose bytes then differ from the w = 0 file in tangent.w alone;
+  `carve_mountain` keeps w = 0 on exactly the kept tris. Both behaviour tests fail on the pre-fix `interior.py`.
+  The island-E, July-Uaho and forest-rot identity nets ran (not skipped) and stayed byte-exact.
+- **`seam_forest.py`** (scratch outside the install), the `[[river]]` + `[[forest]] near = [49, -824]` recipe:
+  the forest step writes **2** Terrain files, down from 8: Block[0][12] and Block[0][13], the two that hold the
+  canopy (109 and 55 topo-37 tris). The six neighbours converge. Against the pre-fix run, those two files differ
+  in tangent.w alone (321 of 1950 and 210 of 963 verts: the river's kept tris now keep their 0.0), and the whole
+  fuse deploy differs from the plain `world-river` deploy in exactly those two files. Cases a, b and c snap,
+  gate and census as before: (36,-820) / (44,-824) / (36,-820), annulusOnce=0, walk-in worst 2.05, 43
+  inherited samples.
+
+Still not done: the forest has not been deployed to the live install or seen in game.
 
 ## Decisions for the owner
 

@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — relief commands no longer rewrite blocks they leave alone
+- `world-forest` and `world-mountain`, and their `[[forest]]` / `[[mountain]]` rows in a `world-fuse` recipe, read
+  every block around the spot and write each one back. On land that carries stock pieces, such as the `world-river`
+  island, they rewrote blocks they had not changed: the forest in the `[[river]]` + `[[forest]]` recipe wrote 8
+  Terrain files where 2 hold the forest.
+- The other 6 differed from the river's files in one value per vertex, a tangent component the game does not draw
+  with, which the commands rebuilt instead of copying. They now copy it, so a block the change leaves alone keeps
+  its exact bytes and is not written, and the deploy ledger keeps it under the step that wrote it. The recipe's
+  forest now writes only its 2 blocks. Checked offline only.
+- On islands minted by `world-island` the written bytes are the same as before.
+
 ### Fixed — a forest fits on the `world-river` island
 - `world-forest` could not place a forest anywhere on the river island at 512,128, and the `[[river]]` +
   `[[forest]]` recipe in `world-fuse` failed the same way. Both refusals were about the island, not the forest.

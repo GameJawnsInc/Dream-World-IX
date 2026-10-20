@@ -1980,6 +1980,94 @@ def test_carve_forest_annulus_gate_still_refuses_a_crack_the_carve_opens(monkeyp
     assert any("annulusOnce=3 " in s for s in lines)
 
 
+# ---- an untouched block CONVERGES: kept tris keep their source tangent (RUNG5.md "The gates measure the carve") --
+#
+# The world-river island's Terrain stores tangent.w = 0.0; the re-emit used to rebuild every kept tri's tangent
+# as the kit's [idall, 0, 0, 1], so a forest rewrote (and took ledger ownership of) every block in its read
+# window -- 6 of the [[river]] + [[forest]] recipe's 8 files differed from the river's bytes in tangent.w alone.
+
+def _w0(bm):
+    """``bm`` with every tangent.w = 0.0 -- the river island's carried Terrain bytes."""
+    import dataclasses
+    ca = dict(bm.chan_arrays)
+    ca[CH_TAN] = [[t[0], t[1], t[2], 0.0] for t in bm.chan_arrays[CH_TAN]]
+    return dataclasses.replace(bm, chan_arrays=ca)
+
+
+def _forest_beside_a_w0_neighbour(tmp_path, mod):
+    """Deploy two welded w=0 grass blocks, carve a forest in (0,0) only, deploy the carve. Returns
+    ``(res, written, files, pre)``: the carve, the paths deploy_changed wrote, ``{blk: deployed path}``
+    and ``{blk: its bytes before the deploy}``."""
+    root = tmp_path / mod / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r0"
+    root.mkdir(parents=True)
+    files = {}
+    for blk in ((0, 0), (1, 0)):
+        files[blk] = M.write_ff9mesh(_w0(_grid_block(*blk)), root / f"Block[{blk[0]}][0] Terrain.ff9mesh")
+    pre = {blk: p.read_bytes() for blk, p in files.items()}
+    blocks = IN.read_deployed_blocks(mod, near=(26.0, -26.0), reach=40.0, game=tmp_path)
+    res = IN.carve_forest(IN.soup_from_blocks(blocks), center=(26.0, -26.0), donor=(15, 15),
+                          game=tmp_path, log=lambda *a: None)
+    written = IN.deploy_changed(res["changed"], mod_folder=mod, game=tmp_path, skip_mirror=True,
+                                log=lambda *a: None)
+    return res, written, files, pre
+
+
+def test_carve_forest_leaves_an_untouched_w0_block_unwritten(monkeypatch, tmp_path):
+    """The carve re-emits its whole read window; the neighbour (1,0) it never touched re-emits
+    byte-identical to its deployed w=0 file, so deploy_changed's byte-compare skips it. In the carved
+    block the kept grass keeps w=0 too, and only the canopy + zip wear the kit's w=1."""
+    _patch_donor(monkeypatch, _canopy_donor())
+    res, written, files, pre = _forest_beside_a_w0_neighbour(tmp_path, "modx")
+    assert set(res["changed"]) == {(0, 0), (1, 0)}                      # the neighbour IS re-emitted
+    assert M.ff9mesh_bytes(res["changed"][(1, 0)]) == pre[(1, 0)]
+    assert [p.name for p in written] == ["Block[0][0] Terrain.ff9mesh"]
+    assert files[(1, 0)].read_bytes() == pre[(1, 0)]
+    bm = res["changed"][(0, 0)]
+    T = bm.chan_arrays[CH_TAN]
+    kept = [t for t in bm.tris if all(T[i][3] == 0.0 for i in t)]
+    new = [t for t in bm.tris if all(T[i][3] == 1.0 for i in t)]
+    assert len(kept) + len(new) == len(bm.tris)                         # no tri mixes the two
+    assert len(kept) == len(_grid_block(0, 0).tris) - res["report"]["dropped"]
+    assert {T[t[0]][0] for t in new} == {GRASS, FOREST}                 # the zip + the canopy
+
+
+def test_carve_forest_untouched_block_break_it_the_rebuilt_tangent_rewrites_it(monkeypatch, tmp_path):
+    """BREAK-IT: put the old re-emit back (every tangent rebuilt as [idall, 0, 0, 1]) -- the untouched
+    neighbour's bytes now differ in tangent.w alone, and the deploy writes it."""
+    import dataclasses
+    _patch_donor(monkeypatch, _canopy_donor())
+    real = IN._assemble
+
+    def rebuilt(soup, drop, new_by_block):
+        out = real(soup, drop, new_by_block)
+        for blk, bm in out.items():
+            ca = dict(bm.chan_arrays)
+            ca[CH_TAN] = [[t[0], 0.0, 0.0, 1.0] for t in bm.chan_arrays[CH_TAN]]
+            out[blk] = dataclasses.replace(bm, chan_arrays=ca)
+        return out
+    monkeypatch.setattr(IN, "_assemble", rebuilt)
+    res, written, files, pre = _forest_beside_a_w0_neighbour(tmp_path, "modx")
+    assert M.ff9mesh_bytes(res["changed"][(1, 0)]) != pre[(1, 0)]
+    assert sorted(p.name for p in written) == ["Block[0][0] Terrain.ff9mesh", "Block[1][0] Terrain.ff9mesh"]
+    # what landed on the untouched neighbour is its own grid with w=1: tangent.w is the whole diff
+    assert files[(1, 0)].read_bytes() == M.ff9mesh_bytes(_grid_block(1, 0)) != M.ff9mesh_bytes(_w0(_grid_block(1, 0)))
+
+
+def test_carve_mountain_kept_tris_keep_their_source_tangent(monkeypatch, tmp_path):
+    """carve_mountain's own re-emit: a kept grass tri carries its source tangent (w=0 here), the massif
+    and the zip the kit's [idall, 0, 0, 1]."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    res = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _w0(_mountain_bench())}), near=(26.0, -26.0),
+                            alcove=None, game=tmp_path, log=lambda *a: None)
+    (blk, bm), = res["changed"].items()
+    T = bm.chan_arrays[CH_TAN]
+    kept = [t for t in bm.tris if all(T[i][3] == 0.0 for i in t)]
+    new = [t for t in bm.tris if all(T[i][3] == 1.0 for i in t)]
+    assert len(kept) + len(new) == len(bm.tris)
+    assert len(kept) == len(_mountain_bench().tris) - res["report"]["dropped"]
+    assert len(new) == 4 + res["report"]["zip_tris"]
+
+
 # ---- the foot-course window (the spur-graft class, R4 take-5) --------------------------------
 
 
