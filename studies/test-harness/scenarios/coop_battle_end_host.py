@@ -36,7 +36,9 @@ WHAT IS PROVEN (outcomes: the parsed blocks, the trails, the live result screen,
   E  co-op OFF (after the reset: Enabled 0): a battle publishes host.end null throughout and logs no end-block line.
   G  (COOP_END_GAMEOVER=1, LAST, a throwaway save) a deliberate loss (guestslots 15: nobody commands): the host trail
      reports ui 2 (Game Over); whether it reaches ui 3 (the title) and whether peer.live stays up there is NOTED --
-     that settles design risk 4.
+     that settles design risk 4. [ff9mapkit netsync s143 re-key] "Nobody commands" is the POSITIONAL rule: from s143 the
+     leader guard hands the host's leader (Zidane, position 0) back to the host's HUD, so on an engine that publishes
+     `netsync.battle.host.guard` the leg also pulls `bench leaderguard off` (selftest role; released with the harness).
 NOT PROVEN HERE (stage 5-6 + two-machine): a guest acting on the block; the live-lane nonce gate on a real relay.
 
 CALIBRATION.
@@ -520,6 +522,9 @@ def _leg_g(g, led: cb.Ledger) -> None:
     g.note("G: a deliberate loss -- the Game Over trail (throwaway save)")
     ok, why = cb.try_ns(g, "selftest", 1)
     ok2, why2 = cb.try_ns(g, "guestslots", 15) if ok else (False, why)
+    if ok2 and cb.has(g.state, "netsync.battle.host.guard"):
+        # [ff9mapkit netsync s143] nobody commands = every slot the guest's: the leader guard's lever keeps it positional
+        ok2, why2 = cb.try_ns(g, "bench", "leaderguard", "off")
     if not ok2:
         led.check("S4-G1", False, f"not reached: {why2}")
         return

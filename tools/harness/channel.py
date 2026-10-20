@@ -2620,6 +2620,61 @@ class State:
                                                                       "WROTE (beside the row it decided on); None = no ghost "
                                                                       "or no renderer -- or an engine before s141.")
 
+    # ---- [ff9mapkit netsync s143] THE LEADER GUARD (owner decision 2026-10-19: the guest never commands the host's leader --
+    # GuestSlots stays positional, but a bit landing on the character the host walks as moves to the next member, wrapping,
+    # else drops). `netsync.battle.host.guard` (host's LAST key: the battle mask every host ownership lane reads, the field
+    # leader, the last latch's move, the battle-start line), `netsync.battle.peer.guard` (right after `peer.ready_mask`: the
+    # GUEST's "You: ..." line) and `netsync.dress.guard` (dress's LAST key: the last `auto` resolution at a host dress site).
+    # No new sub-verb: one `bench` named op, `leaderguard on|off` (the calibration lever; an older engine reads it as `bench 1`,
+    # so the driver probes `host.guard` first). The capability is `host.guard`'s PRESENCE (:attr:`coop_leader_guard`).
+    @property
+    def coop_leader_guard(self) -> bool | None:
+        """s143: the leader guard (``netsync.battle.host.guard``; the ``bench leaderguard`` op). False = an engine whose guest
+        commands whatever party POSITION GuestSlots names -- the host's own leader included (s141 and older: field 257's
+        [Blank, Zidane, Vivi, Steiner] hands a GuestSlots-2 guest Zidane for all of Plant Brain)."""
+        return self._nb_cap("host.guard", dict)
+
+    coop_guard = _nb_prop("host.guard", dict, "s143: the whole ``host.guard`` block, copied.")
+    coop_guard_leader = _nb_prop("host.guard.leader", int, "s143: the CharacterId of my own controlled field body (the field "
+                                                           "latch, held across battles); -1 = none known (the positional "
+                                                           "rule).")
+    coop_guard_raw = _nb_prop("host.guard.raw", int, "s143: GuestSlots now (0-15).")
+    coop_guard_effective = _nb_prop("host.guard.effective", int, "s143: the battle mask every host ownership lane reads NOW "
+                                                                 "(EffectiveGuestSlots): equal to `raw` outside my own battle "
+                                                                 "and before its players are organized.")
+    coop_guard_moved_from = _nb_prop("host.guard.moved_from", int, "s143: the LAST battle latch -- the btl index the leader's "
+                                                                   "bit left; -1 = none moved.")
+    coop_guard_moved_to = _nb_prop("host.guard.moved_to", int, "s143: ...the btl index it went to; -1 = none (with "
+                                                               "moved_from >= 0: the bit dropped, the guest spectates).")
+    coop_guard_off = _nb_prop("host.guard.off", bool, "s143: the `bench leaderguard off` lever as the engine reads it "
+                                                      "(selftest role only): True = the pre-s143 positional rule.")
+    coop_guard_line = _nb_prop("host.guard.line", str, "s143: the host's battle-start line this (or the last) own battle "
+                                                       "(\"Partner: Vivi (not Zidane)\"); '' = none yet.")
+    coop_guard_line_shown = _nb_prop("host.guard.line_shown", bool, "s143: the line reached the battle message window "
+                                                                    "(False = the log only: no guest lane, or no HUD).")
+    coop_guard_leader_model = _nb_prop("host.guard.leader_model", int, "s143: the genuine body model the leader was read off "
+                                                                       "(a self-dressed body's source); -1 = none yet.")
+    coop_guard_chars = _nb_prop("host.guard.chars", list, "s143: the last latch's units -- the CharacterId per btl index "
+                                                          "0-3 (-1 none, -2 unreadable).")
+    coop_guard_nonce = _nb_prop("host.guard.nonce", int, "s143: the own battle (nonce) the last latch belongs to; -1 = none.")
+    coop_peer_guard = _nb_prop("peer.guard", dict, "s143: the whole ``peer.guard`` block (the guest's line), copied.")
+    coop_peer_guard_nonce = _nb_prop("peer.guard.nonce", int, "s143: the host battle the guest's line belongs to; -1 = none.")
+    coop_peer_guard_mask = _nb_prop("peer.guard.mask", int, "s143: the header's guest mask the line read (the host's "
+                                                            "EFFECTIVE mask); -1 = none.")
+    coop_peer_guard_line = _nb_prop("peer.guard.line", str, "s143: the guest's line (\"You: Vivi\"); '' = none.")
+    coop_peer_guard_shown = _nb_prop("peer.guard.shown", bool, "s143: it reached a booted diorama's battle message window "
+                                                               "(the selftest loopback and a digit-panel guest log only).")
+    coop_dress_guard_block = _dress_prop("guard", dict, "s143: the whole ``dress.guard`` block, copied.")
+    coop_dress_guard_leader = _dress_prop("guard.leader", int, "s143: the leader the last `auto` dress resolution took; -1 = "
+                                                               "none known (or the lever) -- or no resolution yet.")
+    coop_dress_guard_raw = _dress_prop("guard.raw", int, "s143: its GuestSlots mask in, over the RAW party slots; -1 = none "
+                                                         "yet.")
+    coop_dress_guard_effective = _dress_prop("guard.effective", int, "s143: ...and out (what the s139 rule dressed by); -1.")
+    coop_dress_guard_moved_from = _dress_prop("guard.moved_from", int, "s143: the party slot the leader's bit left; -1 = "
+                                                                       "none.")
+    coop_dress_guard_moved_to = _dress_prop("guard.moved_to", int, "s143: the party slot it went to; -1 = none (with "
+                                                                   "moved_from >= 0: the guest spectates -- the moogle).")
+
     def unit_mot(self, slot: int) -> int | None:
         """[ff9mapkit netsync R3 s115] ``battle.units[].mot`` for btl ``slot``: the current clip as the unit's own motion
         index (a player's 17 = MP_ESCAPE, 4 = MP_DISABLE; -1 = none of its own). None = no such unit / before s115."""

@@ -1672,10 +1672,14 @@ def want_ghost(x, levers: dict, ghost_as, rules=None) -> dict | None:
     party = d.get("party") if isinstance(d, dict) else None
     if model is None or anim is None or not isinstance(party, list) or len(party) != 4:
         return None
+    # [ff9mapkit netsync s143] the site's leader guard (FieldGuardMask, `auto` only) with the leader the engine takes on THIS
+    # sample (cb.guard_leader: -1 before s143 / under the lever) -- an s139 / s140 stage's frozen rules know no guard
+    lead = cb.guard_leader(x) if rules is None or rules is BW else -1
+    kw = {"leader": lead} if lead >= 0 else {}
     return (rules or BW).selftest_dress(ghost_as=ghost_as or "", guest_slots=0, me_model=model, me_anim=anim, party=party,
                              role="selftest", selftest_role=True, bench_mask=int(levers["mask"]),
                              empty_mask=int(levers["empty"]), rule=None, wire=int(levers["wire"]),
-                             wire_anim=int(levers.get("wire_anim", -1)))
+                             wire_anim=int(levers.get("wire_anim", -1)), **kw)
 
 
 def _held_pick(samples: list, levers: dict, hold: int):

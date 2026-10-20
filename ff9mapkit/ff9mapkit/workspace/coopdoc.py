@@ -190,7 +190,9 @@ class CoopDoc(QWidget):
         slots_lbl = QLabel("In my battles, my friend commands party slot(s):")
         slots_lbl.setToolTip("Party positions 1-4 as the in-game menu lists them. None checked = "
                              "they just spectate. Their assist panel appears in-battle; commands "
-                             "are re-validated on this machine.")
+                             "are re-validated on this machine. Never the character you walk as: when "
+                             "the story seats your leader in one of these positions, your friend gets "
+                             "the next member instead (engine s143).")
         slots_row.addWidget(slots_lbl)
         self.cb_slots = []
         for i in range(4):

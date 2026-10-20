@@ -5,6 +5,7 @@
 # write, a first-launch SessionCode). Usage: selftest_block.sh <outdir> <label>:<field>:<scenario>[:ENV=VAL,ENV=VAL] ...
 set -u
 WT=/c/gd/Dream-World-IX/.claude/worktrees/dreamy-allen-a2375f
+WT="${SELFTEST_WT:-$WT}"   # [s143] a runner may point the block at its own checkout (cal143 / full143 export SELFTEST_WT)
 G="/c/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 BK=/c/gd/Dream-World-IX/backups
 # the s139-era fixed backup: a restore SOURCE only when the start snapshot cannot be taken AND the live INI is byte-identical

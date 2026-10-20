@@ -51,6 +51,14 @@ WHAT IS PROVEN (design 6.3):
 NOT PROVEN HERE (two-machine sitting A, boxes A8/A9): the laptop's real stock window driving a real host's gauges, the
 feel, box 14's 4.5 s takeover on the real link.
 
+[ff9mapkit netsync s143 re-key] THE LEADER GUARD changes this bench's PREMISE, never its claims: from s143 a guest bit that
+lands on the host's leader (COOPPARTY seats Zidane -- the kit player's body -- at position 0) moves on, else DROPS, so
+`guestslots 15` would leave Zidane's slot with the host and its window would open beside the loopback's. On an engine that
+publishes `netsync.battle.host.guard` W-P1 therefore also pulls `bench leaderguard off` (the s143 calibration lever: the
+pre-s143 positional rule, selftest role only) and wants host.guard.off true with every slot still the guest's
+(host.guard.raw 15); W-R wants its release line "leader guard back ON (released with the harness)" and host.guard.off false
+on the re-read with the role. An engine before s143 never gets the op (it would read `bench leaderguard` as `bench 1`).
+
 PRECONDITION. A non-turn-based install ([Battle] Speed != 2; the desktop runs 5). Under Speed 2 the stock any-open freeze
 holds at the root BY DESIGN (box A10), so W-A1 (and A4's root half) reads red there -- the run's notes print the Speed.
 
@@ -86,6 +94,8 @@ HarnessError = cb.HarnessError
 
 P113 = cb.R3_PROBES[113]                 # netsync.battle.host.wait: the capability probe (HarnessAgent's header, protocol 5)
 ALL_SLOTS = 0x0F                         # `guestslots 15`: every party slot is the loopback guest's
+P143 = "netsync.battle.host.guard"       # [ff9mapkit netsync s143] the leader guard (its lever keeps ALL_SLOTS positional)
+GUARD_REL = "leader guard back ON (released with the harness)"
 CTL_SHUT, CTL_LEGACY, CTL_ROOT, CTL_DEEP = 0, 1, 2, 3
 INTRO_S = 45.0
 READY_S = 60.0                           # the first guest slot's ATB fill
@@ -324,6 +334,7 @@ def _finish(g) -> None:
 
 class _Ctx:
     p113 = False
+    p143 = False             # [ff9mapkit netsync s143] the leader guard published: its lever was pulled at W-P1
     atb0 = None              # the save's cfg.atb before the bench override (the release must restore it)
     atb_set = False
 
@@ -381,15 +392,22 @@ def _levers(g, led: cb.Ledger, ctx: _Ctx, calibrate: bool) -> None:
     oka, whya = _bench(g, "cfg", "atb", "wait")
     ctx.atb_set = oka
     okl, whyl = _bench(g, "waitparity", 0) if calibrate else (True, "")
-    st = cb.poll(g, lambda s: cb.host(s).get("guest_slots") == ALL_SLOTS and _cfg(s).get("atb") == 1, 1.5,
-                 "guest_slots 15 and cfg.atb 1") or g.state
+    # [ff9mapkit netsync s143] the premise -- every slot the guest's -- is the positional rule: the guard's lever keeps it
+    ctx.p143 = cb.has(g.state, P143)
+    okp, whyp = cb.try_ns(g, "bench", "leaderguard", "off") if ctx.p143 else (True, "")
+    st = cb.poll(g, lambda s: cb.host(s).get("guest_slots") == ALL_SLOTS and _cfg(s).get("atb") == 1
+                 and (not ctx.p143 or (cb.host(s).get("guard") or {}).get("off") is True), 1.5,
+                 "guest_slots 15 and cfg.atb 1 (and, from s143, the leader guard's lever)") or g.state
     lines = cb.new(g, at)
     off = _w(st).get("parity_off")
+    gd = cb.host(st).get("guard") if isinstance(cb.host(st).get("guard"), dict) else {}
     good = okg and oka and cb.host(st).get("guest_slots") == ALL_SLOTS and _cfg(st).get("atb") == 1
     good = good and ((okl and off is True and cb.count(lines, LEVER_OFF) == 1) if calibrate else off is False)
-    led.check("W-P1", good, (whyg or whya or whyl) or f"guest_slots={cb.host(st).get('guest_slots')!r} cfg={_cfg(st)} "
-                                                      f"(the save's atb {ctx.atb0!r}) wait={_w(st)}; "
-                                                      f"{cb.grep(lines, 'bench cfg', 'Wait parity', 'GuestSlots')}")
+    good = good and (not ctx.p143 or (okp and gd.get("off") is True and gd.get("raw") == ALL_SLOTS))
+    led.check("W-P1", good, (whyg or whya or whyl or whyp) or f"guest_slots={cb.host(st).get('guest_slots')!r} "
+                                                              f"cfg={_cfg(st)} (the save's atb {ctx.atb0!r}) wait={_w(st)}; "
+                                                              f"s143 guard {'off=' + repr(gd.get('off')) if ctx.p143 else 'absent'}; "
+                                                              f"{cb.grep(lines, 'bench cfg', 'Wait parity', 'GuestSlots')}")
     if not okg:
         led.unreached(("W-A1",) + A_LEGS, f"`guestslots 15` refused -- {whyg}")
 
@@ -683,7 +701,7 @@ def _release(g, led: cb.Ledger, ctx: _Ctx) -> None:
     cb.release(g)
     st = g.state
     lines = cb.new(g, at)
-    missing = [n for n in (LEVER_REL, CTL_REL) if cb.count(lines, n) != 1]
+    missing = [n for n in (LEVER_REL, CTL_REL) + ((GUARD_REL,) if ctx.p143 else ()) if cb.count(lines, n) != 1]
     if ctx.atb_set and not any(ATB_REL in ln and RELEASED in ln for ln in lines):
         missing.append(ATB_REL + "... " + RELEASED)
     forced = (st.netsync or {}).get("forced")
@@ -691,7 +709,8 @@ def _release(g, led: cb.Ledger, ctx: _Ctx) -> None:
     # WITH the role (re-forced, which releases nothing) -- the release lines and this re-read are the real check (R3H-3)
     rr, rwhy = cb.reread_with_role(g) if ok1 else (None, "")
     good = (ok1 and ok2 and not missing and rr is not None and _w(rr).get("parity_off") is False
-            and (not ctx.atb_set or _cfg(rr).get("atb") == ctx.atb0) and forced is False)
+            and (not ctx.atb_set or _cfg(rr).get("atb") == ctx.atb0) and forced is False
+            and (not ctx.p143 or (cb.host(rr).get("guard") or {}).get("off") is False))   # [ff9mapkit netsync s143]
     led.check("W-R", good, (why1 or why2) or f"missing lines {missing}; forced after reset={forced!r}; re-read WITH the "
                                               f"role: " + (f"wait={_w(rr)} cfg.atb={_cfg(rr).get('atb')!r} (want "
                                                            f"{ctx.atb0!r})" if rr is not None else f"none ({rwhy})")

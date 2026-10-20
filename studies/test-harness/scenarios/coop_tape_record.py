@@ -55,9 +55,9 @@ five things a replay must find before coop_cut_hold's CAL leg can see its five l
   F5 END     the end block terminal, the result screen at Hide, the host back on 250 -> the end-leave
 Each leg's cut on THIS tape (or why the tape cannot carry it) is printed after them.
 
-CHECKS (REC-*): P0 the port free and the peer listening; P1 the host config applied live (the engine's own config line
-naming role=host and the bench code); P2 the host dialled the peer (both sides' lines); M the marker reads 0xA5 on the
-host before the tape starts; B a REAL own battle PUBLISHED (above); W the fight ran >= FIGHT_S s, was won, and the host is
+CHECKS (REC-*): SEAT (a seat run only) the party seat seated its party; P0 the port free and the peer listening; P1 the
+host config applied live (the engine's own config line naming role=host and the bench code); P2 the host dialled the peer
+(both sides' lines); M the marker reads 0xA5 on the host before the tape starts; B a REAL own battle PUBLISHED (above); W the fight ran >= FIGHT_S s, was won, and the host is
 back on 250 with control; T the tape closed cleanly and reads back with no torn tail; F1-F5 the five facts; INI (final)
 Memoria.ini restored byte-exact.
 
@@ -67,6 +67,21 @@ s117 DLL: NONE. Each check fails when its fact is missing (REC-B on a debug-figh
 mirror lane is off, P2 when a production bridge holds the port -- P0 then refuses before any edit). A tape recorded on
 s117 replays into s117 and s121 guests alike (the wire is unchanged), which is what lets one tape calibrate red on s117
 and judge green on s118-s121.
+
+THE SEAT VARIANT ([ff9mapkit netsync s143] COOP_TAPE_SEAT=30607 or 30608): after the COOPPARTY seed the host warps to that
+PARTY SEAT (studies/battle-coop/bench/plantbrain.field.toml -- field 257's [Blank, Zidane, Vivi, Steiner] -- or
+forestexit.field.toml -- field 261's [Garnet, Zidane, Vivi, Steiner]; its Main_Init rebuilds the party), then to field 250
+as always: GuestSlots 2 now lands on the host's LEADER (Zidane, party slot 1), so the tape is a REAL host's wire where the
+s143 leader guard moves something -- its section 8 must read Vivi (`coop_peer.py dress --ghost-as auto --guest-slots 2
+--leader 0`: 08 00 01; an s141 host ships Zidane, 62 00 00) and its type-1 header must offer Vivi's btl index (`coop_peer.py
+offer --want 4`; an s141 host offers 2). The seat tape is named `-seat<id>` and NEVER moves latest.json (the cut legs keep
+the COOPPARTY tape). The seats are NEW ids (their first deploy needs a relaunch -- cal143.example.sh). REC-SEAT FAILS CLOSED
+(review s143 rharness-1), before any Memoria.ini edit and before a tape exists: the warp refused (unregistered), never on
+the seat, or the RAW party (`netsync.dress.party`) not the seat's toml [party] folded over the party before it
+(coop_leader_guard.toml_party + battlewire.seat_after, read_oracle's arithmetic) -- a stale or wrong seat would otherwise
+record a `-seat` tape whose `offer --want 4` red looks exactly like the predicted s141 calibration red. Every run, seat or
+not, then warps to field 250 if it is not there (COOPPARTY unregistered leaves the host on the New-Game field: review s143
+rfield-1).
 
 THE HAND RECORDING (a world-map victory for coop_cut_hold's s120-world leg, which a field-250 tape cannot carry): with the
 desktop's [Netsync] set to the host values above by hand, run
@@ -108,6 +123,9 @@ PRE_S = pb.env_float("COOP_TAPE_PRE_S", 70.0)
 FIGHT_S = pb.env_float("COOP_TAPE_FIGHT_S", 40.0)
 POST_S = pb.env_float("COOP_TAPE_POST_S", 30.0)
 GUEST_SLOTS = pb.env_int("COOP_TAPE_GUEST_SLOTS", 2)
+#: [ff9mapkit netsync s143] the party seat warped to after the COOPPARTY seed (0 = none; see THE SEAT VARIANT)
+SEAT = pb.env_int("COOP_TAPE_SEAT", 0)
+SEATS = {0: "COOPPARTY", 30607: "COOPPBRAIN [Blank, Zidane, Vivi, Steiner]", 30608: "COOPFOREST [Garnet, Zidane, Vivi, Steiner]"}
 
 CATALOG = {
     "REC-P0": f"the bench port {PORT} is free and `coop_peer serve-guest` listens on it (no production bridge there)",
@@ -131,6 +149,17 @@ CATALOG = {
     "REC-F5": "F5 END: the end block terminal, the result screen at Hide, the host back on 250 (the replay's end-leave)",
     "REC-INI": "Memoria.ini restored byte-exact (sha256) after the run -- the install is shared",
 }
+#: [ff9mapkit netsync s143] a SEAT run's own check (review s143 rharness-1) -- in the ledger only when COOP_TAPE_SEAT is set
+SEAT_CATALOG = {
+    "REC-SEAT": "the party seat SEATED its party before any edit: the warp landed on the seat and the RAW party "
+                "(`netsync.dress.party`) == the seat toml's [party] over the party before it (coop_leader_guard.toml_party "
+                "+ battlewire.seat_after), a change -- else nothing is edited and no `-seat` tape is made",
+}
+
+
+def _catalog(seat: int) -> dict:
+    """The run's checks: CATALOG, plus REC-SEAT on a seat run."""
+    return {**CATALOG, **SEAT_CATALOG} if seat else dict(CATALOG)
 
 HOST_VALUES = {"Enabled": "1", "Role": "host", "RelayUrl": f"ws://127.0.0.1:{PORT}", "SessionCode": CODE,
                "GuestSlots": str(GUEST_SLOTS), "FollowHost": "0", "TargetField": "0", "StartHoldMs": "8000"}
@@ -151,13 +180,75 @@ def _run_dir(g) -> Path:
     return Path(getattr(g, "scenario_dir", None) or g.run_dir)
 
 
+def _host_setup(g, led: cb.Ledger, ctx: _Ctx) -> bool:
+    """New Game, the COOPPARTY seed, [the party seat], then field ``ctx.field`` -- ALWAYS: seed_party returns WITHOUT a warp
+    when COOPPARTY is unregistered or the registrations cannot be read, and a tape recorded off the bench field is unusable
+    (review s143 rfield-1). [ff9mapkit netsync s143] A seat that did not seat its party fails closed HERE (REC-SEAT), before
+    any Memoria.ini edit and before a tape exists (review s143 rharness-1). False = the run stops."""
+    g.newgame()
+    g.note(cb.seed_party(g, back_to=ctx.field))
+    if SEAT:
+        ok, why = _seat(g, SEAT)
+        led.check("REC-SEAT", ok, why)
+        if not ok:
+            led.close(f"the party seat {SEAT} did not seat its party -- nothing was edited, no `-seat` tape was made")
+            return False
+    if g.state.field_id != ctx.field:
+        g.warp(ctx.field)
+    return True
+
+
+def seat_party(seat: int, base) -> tuple:
+    """[ff9mapkit netsync s143] (the toml read only) The RAW party the seat's Main_Init leaves over ``base`` (the RAW party
+    before the warp): its [party] block through coop_leader_guard.toml_party (the kit's own content.party) folded by
+    battlewire.seat_after -- read_oracle's arithmetic. (party | None, how)."""
+    import coop_leader_guard as lg                     # beside this file (the scenario dir is on sys.path)
+    toml = lg.TOMLS.get(seat)
+    if toml is None:
+        return None, f"no seat toml for {seat}"
+    try:
+        (rm, add), _old = lg.toml_party(toml)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, ImportError) as err:
+        return None, f"{toml.name}: {type(err).__name__}: {str(err)[:160]}"
+    want = lg._bw().seat_after(base, rm, add)
+    if want is None:
+        return None, f"the RAW party before the seat (netsync.dress.party) is unreadable: {base!r}"
+    return want, f"{toml.name}: remove {list(rm)}, add {list(add)} over {list(base)}"
+
+
+def _seat(g, seat: int) -> tuple:
+    """[ff9mapkit netsync s143] Warp to the party seat (its Main_Init rebuilds the party: every RemoveParty, then the adds in
+    order) and judge it SEATED: (ok, detail). Red when the seat's party cannot be computed, the warp is refused (an
+    unregistered seat: a NEW id needs a relaunch after its first deploy), the host never stands on it, or the RAW party is
+    not the toml's (a stale deploy) or is unchanged by it."""
+    base = cb.path(g.state, "netsync.dress.party")
+    want, how = seat_party(seat, base)
+    if want is None:
+        return False, f"the seat's party cannot be computed ({how}) -- the seat was not entered"
+    try:
+        g.warp(seat)
+    except HarnessError as err:
+        return False, f"the warp to the party seat {seat} was refused ({str(err)[:240]})"
+    st = cb.poll(g, lambda s: s.field_id == seat and s.on_field, 30.0, f"the party seat {seat}")
+    if st is None:
+        return False, f"never on the party seat {seat} (field {g.state.field_id})"
+    st = cb.poll(g, lambda s: cb.path(s, "netsync.dress.party") == want, 5.0, f"the seat's party {want}")
+    g.wait_frames(45)                                  # the rest of the seat's Main_Init
+    got = cb.path(st or g.state, "netsync.dress.party")
+    changed = want != list(base)
+    ok = got == want and changed
+    return ok, (f"party seat {seat}: netsync.dress.party {got!r}, the seat's toml says {want} ({how})"
+                + ("" if changed else " -- the SAME as before the seat: nothing proves its Main_Init ran")
+                + (f" -- GuestSlots {GUEST_SLOTS} lands on the leader there" if ok else " -- STALE or wrong seat"))
+
+
 def _config_applied(lines, role: str) -> list:
     return pb.hits(lines, "config", pred=lambda m: m.group(1) == "True" and m.group(2) == role
                    and m.group(5) == f"ws://127.0.0.1:{PORT}" and m.group(6) == CODE)
 
 
 def run(g, field: int = FIELD):
-    led = cb.Ledger(g, CATALOG, finals=("REC-INI",))
+    led = cb.Ledger(g, _catalog(SEAT), finals=("REC-INI",))
     ctx = _Ctx(field)
     try:
         _run(g, led, ctx)
@@ -185,17 +276,18 @@ def _teardown(g, led: cb.Ledger, ctx: _Ctx) -> None:
 def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
     cb.provenance(g)
     g.note(f"R3 T2 tape record: host on field {ctx.field}, peer port {PORT}, pre {PRE_S:g} s / fight {FIGHT_S:g} s / "
-           f"post {POST_S:g} s, GuestSlots {GUEST_SLOTS}")
+           f"post {POST_S:g} s, GuestSlots {GUEST_SLOTS}, party seat {SEATS.get(SEAT, SEAT)}")
+    if SEAT not in SEATS:
+        led.close(f"COOP_TAPE_SEAT={SEAT} is not a party seat ({sorted(k for k in SEATS if k)}) -- nothing was edited")
+        return
     free, why = pb.port_free(PORT)
     if not free:
         led.check("REC-P0", False, why)
         led.close(f"the bench port is taken -- nothing was edited ({why[:160]})")
         return
     # 1. the host's game
-    g.newgame()
-    g.note(cb.seed_party(g, back_to=ctx.field))
-    if g.state.field_id != ctx.field:
-        g.warp(ctx.field)
+    if not _host_setup(g, led, ctx):
+        return
     try:
         g.no_encounters(True)
     except HarnessError as err:
@@ -231,7 +323,7 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     tdir = pb.tape_dir()
     tdir.mkdir(parents=True, exist_ok=True)
-    ctx.tape = tdir / f"{stamp}-host{ctx.field}-s{ctx.stage or 0}.f9tape"
+    ctx.tape = tdir / f"{stamp}-host{ctx.field}{f'-seat{SEAT}' if SEAT else ''}-s{ctx.stage or 0}.f9tape"
     rd = _run_dir(g)
     ctx.peer = pb.PeerProc("serve-guest", ["--port", PORT, "--report", "live", "--tap", ctx.tape, "--status", "5"],
                            log_path=rd / "coop_peer-serve-guest.log", out_path=rd / "coop_peer-serve-guest.out")
@@ -281,12 +373,14 @@ def _note_section8(g, ctx: _Ctx, cp) -> None:
     frame's own party (its section 1) and the host's [Netsync] GhostAs read READ-ONLY: what `py tools/harness/coop_peer.py
     dress <tape> --ghost-as <it> --guest-slots 2` prints. An s138-or-older host's tape reads "none"."""
     ghost_as = (cb.ini_value(g, "Netsync", "GhostAs") or "").strip()
+    lead = cb.guard_leader(g.state)                    # [ff9mapkit netsync s143] an s143 host's leader guard (-1 before)
     try:
-        ok, lines = cp.tape_dress_lines(ctx.tape, cp.frame_expect(ghost_as, GUEST_SLOTS))
+        ok, lines = cp.tape_dress_lines(ctx.tape, cp.frame_expect(ghost_as, GUEST_SLOTS, leader=lead))
     except Exception as err:                 # noqa: BLE001 -- a note only
         g.note(f"section 8: the tape's dress read raised {type(err).__name__}: {err}")
         return
-    g.note(f"SECTION 8 on {ctx.tape.name} (GhostAs {ghost_as!r}, GuestSlots {GUEST_SLOTS}): {'held' if ok else 'NOT held'}")
+    g.note(f"SECTION 8 on {ctx.tape.name} (GhostAs {ghost_as!r}, GuestSlots {GUEST_SLOTS}, leader {lead}): "
+           f"{'held' if ok else 'NOT held'}")
     for line in lines[1:]:
         g.note("  " + line)
 
@@ -406,7 +500,10 @@ def _facts(g, led: cb.Ledger, ctx: _Ctx) -> None:
     except Exception as err:                 # noqa: BLE001 -- a convenience copy only
         g.note(f"tape-info.txt not written: {err}")
     all_ok = all(facts[k]["ok"] for k in ("f1", "f2", "f3", "f4", "f5"))
-    if all_ok:
+    if all_ok and SEAT:
+        g.note(f"tape: {ctx.tape} ({size / 1e6:.1f} MB) -- a SEAT tape ({SEAT}): latest.json NOT moved (the cut legs keep "
+               f"the COOPPARTY tape)")
+    elif all_ok:
         ptr = ctx.tape.parent / "latest.json"
         ptr.write_text(json.dumps({"tape": str(ctx.tape), "stage": ctx.stage, "host_s118": ctx.host_s118,
                                    "recorded": header.get("started"), "field": ctx.field, "scene": SCENE,

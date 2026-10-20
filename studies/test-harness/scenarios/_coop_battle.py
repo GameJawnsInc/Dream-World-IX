@@ -145,6 +145,9 @@ R3_PROBES = {
     # [ff9mapkit netsync s139] the host dress rule and section 8 (the sub-verb `selfdress`) -- keyed on `netsync.dress.codec`
     # (appended after `party`; battlewire.DRESS_PROBES[139]). The driver's capability is `ghost.bench_mask` (s139's too)
     139: "netsync.dress.codec",
+    # [ff9mapkit netsync s143] the leader guard (the `bench leaderguard` op -- the s110 hazard again: an older agent reads it
+    # as `bench 1`) -- keyed on `netsync.battle.host.guard` (host's last key; s140 / s141 are told by battlewire.DRESS_PROBES)
+    143: "netsync.battle.host.guard",
 }
 
 
@@ -247,6 +250,18 @@ def path(x, dotted: str, default=None):
 def has(x, dotted: str) -> bool:
     sentinel = object()
     return path(x, dotted, sentinel) is not sentinel
+
+
+def guard_leader(x) -> int:
+    """[ff9mapkit netsync s143] The leader the engine's leader guard takes NOW (NetSyncBattle.LeaderForGuard) off the
+    published `netsync.battle.host.guard`: its `leader`, or -1 under the `bench leaderguard off` lever; -1 on an engine
+    before s143 (no guard: the positional rule). The s139-s141 dress benches thread it into their twins' expectations
+    (review s143 field-3: a bench mask that seats the leader is predicted as the guard moves it, never positionally)."""
+    g = path(x, "netsync.battle.host.guard")
+    if not isinstance(g, dict) or g.get("off") is True:
+        return -1
+    v = g.get("leader")
+    return int(v) if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else -1
 
 
 def nsb(x) -> dict:

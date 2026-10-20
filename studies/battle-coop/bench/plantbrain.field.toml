@@ -1,0 +1,38 @@
+# COOPPBRAIN -- the s143 leader-guard bench's PLANT BRAIN SEAT (studies/test-harness/scenarios/coop_leader_guard.py).
+#
+# WHY IT EXISTS. The owner's report: "at Plant Brain, due to Blank being added mid-fight, the host lost control of Zidane".
+# The cause was never Blank's appear: right before Battle(1, 303) the Evil Forest nest (field 257, test2_74.txt:268-284)
+# runs RemoveParty for all twelve characters, then AddParty Blank, Zidane, Vivi, Steiner -- B_PARTYADD seats each in the
+# FIRST EMPTY seat, so FF9.party reads [Blank, Zidane, Vivi, Steiner] (CharacterId [10, 0, 1, 3]) and the positional
+# [Netsync] GuestSlots = 2 hands the guest ZIDANE, the character the host walks as. This field rebuilds EXACTLY that party
+# the same way (the kit's [party] block prepends to Main_Init: every RemoveParty first, then each B_PARTYADD in order --
+# content.party.party_body), and its player is the kit's own Zidane (model 98: the host's LEADER). The bench warps here,
+# then to 30602 (LOCKT2: a warm battle return) and starts `battle 303 0` -- Plant Brain, its own script hiding Blank at
+# boot and bringing him in mid-fight with code 32. A second visit rebuilds the same party (every member removed, the four
+# re-added in order).
+#
+# Deploy (a NEW id: the first deploy registers it -- one game RELAUNCH). Re-read every mod folder's DictionaryPatch.txt
+# first; 30607 was free in all of them on 2026-10-19 (FF9CustomMap-msgs holds 30601-30606):
+#   py tools/deploy_field.py studies/battle-coop/bench/plantbrain.field.toml --id 30607 --mod-folder FF9CustomMap-msgs
+# Offline check:  py -m ff9mapkit lint ../studies/battle-coop/bench/plantbrain.field.toml   (from ff9mapkit/)
+# CAUTION: Memoria.ini [Hacks] AllCharactersAvailable >= 2 turns every RemoveParty into a no-op (EventEngine PARTYDELETE):
+# the seat cannot be built then -- the bench reads the ini (read-only) and refuses.
+
+[field]
+id = 30607
+name = "COOPPBRAIN"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+# Field 257's order: RemoveParty for all twelve (CharacterOldIndex 0-11), then AddParty 11 (Blank), 0, 1, 3.
+[party]
+remove = ["zidane", "vivi", "garnet", "steiner", "freya", "quina", "eiko", "amarant", "beatrix", "cinna", "marcus", "blank"]
+add = ["blank", "zidane", "vivi", "steiner"]

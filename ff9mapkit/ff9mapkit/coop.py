@@ -19,6 +19,8 @@ each is only written when its flag is given, so re-runs never clobber hand tunin
     --guest-slots 2        battle co-op: your friend commands YOUR party slot 2
                            (positions 1-4 as the party menu shows them; "2,3" = two
                            slots, "none" = spectate only)         -> GuestSlots (mask)
+                           -- never the character you walk as: a position the story
+                           gives your leader passes to the next member (engine s143)
     --guest-wait 30        cap a guest turn's gauge-freeze at 30s; 0 = no cap
                                                                   -> GuestWaitMs
     --ghost-as auto        visitor mode. HOST: what your guest appears as on BOTH
