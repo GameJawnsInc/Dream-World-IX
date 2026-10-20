@@ -155,6 +155,28 @@ def _recover_ring_edges(xz, tri_idx, nring):
     return (tri_idx, 0) if work is None else (work, flips)
 
 
+def _inset_ring(ring, d):
+    """A closed ``[(x, z), ...]`` ring's rim: each vertex moved ``d`` along its inward normal (the mean of its two
+    edges' inward normals), whichever way the ring winds."""
+    n = len(ring)
+    area2 = sum(ring[i][0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * ring[i][1] for i in range(n))
+    sgn = 1.0 if area2 > 0 else -1.0                     # > 0: counter-clockwise in (x, z), the inside on the left
+    out = []
+    for i in range(n):
+        (ax, az), (bx, bz), (cx, cz) = ring[i - 1], ring[i], ring[(i + 1) % n]
+        nx, nz = 0.0, 0.0
+        for (px, pz), (qx, qz) in (((ax, az), (bx, bz)), ((bx, bz), (cx, cz))):
+            L = math.hypot(qx - px, qz - pz)
+            if L > 0:
+                nx += sgn * -(qz - pz) / L               # the left normal (-dz, dx), flipped for a clockwise ring
+                nz += sgn * (qx - px) / L
+        L = math.hypot(nx, nz)
+        if L < 1e-12:
+            raise ValueError(f"outline vertex {i} at ({bx:.2f}, {bz:.2f}) folds back on itself")
+        out.append((bx + d * nx / L, bz + d * nz / L))
+    return out
+
+
 def _pip(px, pz, poly):
     inside = False
     n = len(poly)
@@ -228,7 +250,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                    corner_strength: float = 0.26, n_patches: int = 2, stamps=None,
                    mains_seed: int = 0xF91, stamp_seed: int = 0xF92, ground: str = "grass",
                    relief_amp: float = 0.0, relief_seed=None,
-                   beach=None, disc: int = 1, game=None) -> dict:
+                   beach=None, disc: int = 1, game=None,
+                   outline=None, rim_at=None, shore_origin: float = 0.0) -> dict:
     """Build a synthetic cliff landmass around WORLD ``center = (cx, cz)`` as per-block ``Terrain``
     meshes. ``lobes=1`` = the perturbed-circle outline; ``lobes>=2`` = the ASYMMETRIC multi-lobe union
     (:func:`mesh.multi_blob_outline` -- elongation, waists, natural corner creases; the shape gate in
@@ -247,7 +270,14 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     (the identity -- bit-frozen) or ``"desert"`` (topo-17 mains + the desert cliff-wall band; meadow
     stamps are grass vocabulary and are disabled). Returns
     ``{"blocks": {(bx, by): BlockMesh}, "outline", "seed", "report"}`` -- run :func:`verify_landmass`
-    (or let :func:`landmass` do it) before deploying."""
+    (or let :func:`landmass` do it) before deploying.
+
+    A CUSTOM OUTLINE (``world-river``, studies/terrain-malleability/watercarry/PLAN.md): ``outline`` is the coast
+    ring ``[(x, z), ...]`` at y 0 (either winding) in place of the blob; its rim insets ``rim_run`` along each
+    vertex's inward normal. ``rim_at = {index: (x, y, z)}`` fixes the crest above outline vertex ``index``
+    exactly (a join column: the kit's wall meets a stock lip there, so its crest is the stock crest, bit for bit).
+    ``shore_origin`` shifts the wall's arc-length origin, so the rock band's U lands a given value at a given
+    vertex. All three default to the blob mint, byte for byte."""
     from . import mesh as M
     from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
     gspec = G.GROUNDS[ground]
@@ -275,7 +305,14 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     cx, cz = center
     if seed is None:
         seed = float(int(cx * 7 + cz * 13) % 997)
-    if lobes >= 2:
+    if outline is not None:
+        if lobes != 1 or beach is not None:
+            raise ValueError("a custom outline mints its own ring: lobes and beach do not apply")
+        outline = [(float(x), float(z)) for x, z in outline]
+        if len(outline) < 3:
+            raise ValueError("a custom outline needs at least 3 points")
+        radii = None
+    elif lobes >= 2:
         outline, radii = M.multi_blob_outline(cx, cz, lobes=lobes, base_radius=base_radius, seed=seed,
                                               undulation=undulation)
     else:
@@ -296,11 +333,20 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         arc_interior = set(barc["idx"])
         bank_run = float(beach.get("bank_run", 7.0))
     rim = []
-    for i, ((ox, oz), r) in enumerate(zip(outline, radii)):
-        ux, uz = (ox - cx) / r, (oz - cz) / r
-        ins = bank_run if i in arc_interior else rim_run
-        rim.append((cx + ux * (r - ins), cz + uz * (r - ins)))
-    top = [(x, land_height, z) for (x, z) in rim]
+    if radii is None:                                    # a custom ring: inset along each vertex's inward normal
+        rim = _inset_ring(outline, rim_run)
+    else:
+        for i, ((ox, oz), r) in enumerate(zip(outline, radii)):
+            ux, uz = (ox - cx) / r, (oz - cz) / r
+            ins = bank_run if i in arc_interior else rim_run
+            rim.append((cx + ux * (r - ins), cz + uz * (r - ins)))
+    rim_y = {}                                           # THE JOIN CRESTS: fixed rim points, exact floats
+    for i, (x, y, z) in sorted((rim_at or {}).items()):
+        if not 0 <= i < nring:
+            raise ValueError(f"rim_at index {i} is not on the {nring}-point outline")
+        rim[i] = (float(x), float(z))
+        rim_y[i] = float(y)
+    top = [(x, rim_y.get(i, land_height), z) for i, (x, z) in enumerate(rim)]
     bch = None
     if barc is not None:
         bch = IB.build_beach(outline, radii, (cx, cz), barc, ground=ground,
@@ -435,7 +481,11 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     def _edge_dist(x, z):
         return math.sqrt(min((x - tx) ** 2 + (z - tz) ** 2 for (tx, _, tz) in top))
 
+    crest_y = {(round(top[i][0], 3), round(top[i][2], 3)): y for i, y in rim_y.items()}
+
     def fill_y(x, z):
+        if crest_y and (round(x, 3), round(z, 3)) in crest_y:
+            return crest_y[(round(x, 3), round(z, 3))]   # a join crest keeps its stock height
         if r_amp == 0.0:
             return land_height                           # flat interior; exact weld at the wall top
         if (round(x, 3), round(z, 3)) in rim_keys:
@@ -457,7 +507,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             d = (x - ox) ** 2 + (z - oz) ** 2
             if bd is None or d < bd:
                 bd, bi = d, i
-        return cum[bi]
+        return cum[bi] + shore_origin if shore_origin else cum[bi]
 
     idw = float(encode_id(topograph=CLIFF_TOPO))
     idg = float(encode_id(topograph=gspec["topo"]))
@@ -482,8 +532,11 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         span = max(ph) - min(ph)
         if off + span > strip_w:                         # window-translate: the wrap lands on a tri boundary
             off = max(0.0, strip_w - span)
+        # THE WALL V CORNER-ROLE LAW: the V row is the corner's ROLE -- a crest (any height above the sea) is the
+        # top row, a base the bottom -- so a join crest at a stock height still lands the language's row. Every
+        # blob wall corner sits at 0 or land_height, where role and height give the same float.
         return [(ru0 + min(off + (p - min(ph)), strip_w),
-                 rv0 + min(max(pt[1] / land_height, 0.0), 1.0) * (rv1 - rv0))
+                 rv0 + (1.0 if pt[1] > 0.0 else 0.0) * (rv1 - rv0))
                 for p, pt in zip(ph, pts3)]
 
     wall_skip = bch["wall_skip"] if bch is not None else ()
@@ -493,8 +546,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             continue                                     # the beach profile replaces the wall here
         o0 = (outline[i][0], 0.0, outline[i][1])
         o1 = (outline[j][0], 0.0, outline[j][1])
-        r0 = (rim[i][0], land_height, rim[i][1])
-        r1 = (rim[j][0], land_height, rim[j][1])
+        r0 = (rim[i][0], top[i][1], rim[i][1])
+        r1 = (rim[j][0], top[j][1], rim[j][1])
         # a beach TRANSITION segment mixes rim insets (1u wall -> the 7u bank); the
         # default diagonal can mint a near-vertical sliver, and the two arc ends
         # MIRROR -- pick the diagonal with the healthier worst lean (only ever
@@ -621,7 +674,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                                 chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
                                 flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
-    return {"blocks": blocks, "outline": outline, "rim": rim, "seed": seed, "center": (cx, cz),
+    return {"blocks": blocks, "outline": outline, "rim": rim, "rim_y": rim_y, "shore_origin": shore_origin,
+            "seed": seed, "center": (cx, cz),
             "was_land": was_land, "top": top, "placements": placements, "ring_edge_flips": ring_flips,
             "ground": ground, "beach": bch,
             # THE MINTED (quad,ori) FIELD -- the very per-4u-cell window assignment every mains tri

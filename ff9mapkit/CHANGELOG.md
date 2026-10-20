@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — islands can be minted to a given coastline (the second piece of `world-river`)
+- The island mint (`island.build_landmass`) can now take a coastline of your own instead of growing a random one.
+  It can also pin chosen cliff-top points exactly, and set where the cliff texture starts along the coast.
+- For the river carry, the kit draws a coastline round the river and its cove. The new island's cliffs meet the
+  stock cliffs at two points exactly: the same positions, and texture that lines up across the seam.
+- Islands minted the old way are unchanged, byte for byte; a test checks nine kinds of mint.
+
 ### Added — a river donor in the catalog: the first piece of `world-river`
 - The donor catalog has a new class, `river`, with one candidate: the lowland river at blocks (16,14)–(17,15), with
   its bridge, its beached cove and the island in the cove. `world-donors --class river` lists it.

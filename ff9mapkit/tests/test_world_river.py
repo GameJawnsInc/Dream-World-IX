@@ -6,6 +6,7 @@ worktree: a river with banks rising at a rock, a forest beside it, a beached cov
 the cove's mouth and an islet straddling the straight chord between them. One install-gated test pins cluster C."""
 from __future__ import annotations
 
+import math
 import warnings
 
 import numpy as np
@@ -42,17 +43,21 @@ DONOR = R.RiverDonor(name="synthetic", blocks="0,0", window=((0, 1), (0, 1)), un
                      joins=(("W", (12.0, 3.0, -52.0), (16.0, 0.0, -52.0)),
                             ("E", (84.0, 3.0, -52.0), (80.0, 0.0, -52.0))))
 ISLET = {(12, 11), (12, 12), (13, 11), (13, 12), (14, 11), (14, 12)}
+STOCK_V = {False: 0.92285, True: 0.89258}                   # base row, crest row (cluster C's columns)
 
 
-def grid_tris(rows):
+def grid_tris(rows, *, land_y=3.0, uv=False, shift=(0.0, 0.0)):
     """An ASCII map -> world tri dicts: each 4u cell two tris (the diagonal NW-SE); a vertex sits at y 0 when any
-    cell round it is wet, else at 3 (a lip cell spans crest to base)."""
+    cell round it is wet, else at ``land_y`` (a lip cell spans crest to base). ``uv`` gives every tri a wall-band UV
+    -- U growing east and south (so the band runs W home -> W -> cove -> E -> E home, as cluster C's does), V the
+    stock rows by corner role. ``shift`` moves the whole map off the 4u lattice (a real donor never sits on the
+    mint's interior grid; a lattice-aligned coast is a degenerate Delaunay)."""
     H, W = len(rows), len(rows[0])
     assert all(len(r) == W for r in rows)
 
     def y(r, c):
         cells = [rows[rr][cc] for rr in (r - 1, r) for cc in (c - 1, c) if 0 <= rr < H and 0 <= cc < W]
-        return 0.0 if any(ch in WET for ch in cells) else 3.0
+        return 0.0 if any(ch in WET for ch in cells) else land_y
     out = []
     for r in range(H):
         for c in range(W):
@@ -60,10 +65,13 @@ def grid_tris(rows):
             part = PART.get(ch, "terrain")
             topo = TOPO.get(ch, 0)
             idall = X.encode_id(topograph=topo)
-            v = {(dr, dc): (4.0 * (c + dc), y(r + dr, c + dc), -4.0 * (r + dr)) for dr in (0, 1) for dc in (0, 1)}
+            v = {(dr, dc): (4.0 * (c + dc) + shift[0], y(r + dr, c + dc), -4.0 * (r + dr) + shift[1])
+                 for dr in (0, 1) for dc in (0, 1)}
             for tri in ((v[0, 0], v[0, 1], v[1, 1]), (v[0, 0], v[1, 1], v[1, 0])):
                 P = np.array(tri, dtype=float)
-                out.append({"blk": (int(4 * c // 64), int(4 * r // 64)), "part": part, "P": P, "uv": None,
+                UV = (np.array([(0.77 + 0.002 * p[0] + 0.001 * p[2], STOCK_V[p[1] > 0]) for p in P]) if uv
+                      else None)
+                out.append({"blk": (int(4 * c // 64), int(4 * r // 64)), "part": part, "P": P, "uv": UV,
                             "nrm": None, "tan": None, "idall": idall, "topo": topo, "cell": (r, c)})
     return out
 
@@ -232,6 +240,148 @@ def test_no_river_in_the_unit_blocks_refuses():
         R.build_fragment(grid_tris(COVE), elsewhere)
 
 
+# ---- rung 1: the outline and the join columns ---------------------------------------------------------------------
+
+SHIFT = (0.37, 0.21)                                        # off the mint's 4u lattice, as a real donor is
+DONOR_UV = R.RiverDonor(name="synthetic-uv", blocks="0,0", window=DONOR.window, unit_blocks=DONOR.unit_blocks,
+                        joins=tuple((n, (c[0] + SHIFT[0], c[1], c[2] + SHIFT[1]), (b[0] + SHIFT[0], b[1], b[2] + SHIFT[1]))
+                                    for n, c, b in DONOR.joins))
+
+
+def _cove_uv():
+    return R.build_fragment(grid_tris(COVE, uv=True, shift=SHIFT), DONOR_UV)
+
+
+def _u_at(s, ru0, strip_w, dens):
+    return ru0 + (s * dens) % strip_w
+
+
+def test_outline_on_the_synthetic_cove():
+    """The kit arc from the first join round the land to the last: it leaves each join along the stock HOME coast,
+    holds the whole fragment, keeps the mint's grain, never crosses itself, and lands the U phase on both joins."""
+    f = _cove_uv()
+    ol = R.outline(f)
+    assert (ol.first, ol.last) == ("E", "W")                # the synthetic band runs W home -> W -> cove -> E -> E home
+    (ce, be), (cw, bw) = f.joins["E"], f.joins["W"]
+    assert ol.ring[0] == (be[0], be[2]) and ol.ring[ol.arc_end] == (bw[0], bw[2])   # the stock bases, exact
+    assert ol.rim_at == {0: ce, ol.arc_end: cw}             # the stock crests, exact
+    for n, i, j in (("E", 0, 1), ("W", ol.arc_end, ol.arc_end - 1)):   # each stub runs along its home coast
+        b, h = np.array(ol.ring[i]), np.array(f.join_side[n]["home"])[[0, 2]]
+        t, d = (h - b) / np.linalg.norm(h - b), (np.array(ol.ring[j]) - b) / np.linalg.norm(np.array(ol.ring[j]) - b)
+        assert float(t @ d) > 0.999999, n
+    ru0, strip_w, dens = R._wall_band()
+    s_w = ol.shore_origin + R._poly_len(ol.ring[:ol.arc_end + 1])
+    assert abs(_u_at(ol.shore_origin, ru0, strip_w, dens) - f.join_side["E"]["uv"]["base"][0]) < 1e-9
+    assert abs(_u_at(s_w, ru0, strip_w, dens) - f.join_side["W"]["uv"]["base"][0]) < 1e-9
+    rep = ol.report
+    assert rep["seg_max"] <= 8.0 and rep["arc_to_land_min"] > 0.0 and 0.0 < rep["phase_added"] < strip_w / dens
+    from ff9mapkit.world.island import _pip
+    assert all(_pip(*t["P"].mean(axis=0)[[0, 2]], ol.ring) for t in f.tris)   # the ring holds the whole fragment
+
+
+def test_outline_refuses_without_join_uvs():
+    with pytest.raises(R.RiverRefused, match="J2: the fragment carries no UVs"):
+        R.outline(R.build_fragment(grid_tris(COVE, shift=SHIFT), DONOR_UV))
+
+
+def test_outline_refuses_a_band_running_one_way_out_of_both_joins():
+    f = _cove_uv()
+    js = f.join_side["W"]
+    js["home_uv"] = (js["home_base_uv"][0] + 0.004, js["home_uv"][1])      # W's home coast now climbs like E's
+    with pytest.raises(R.RiverRefused, match="J2: the stock band runs the same way out of both joins"):
+        R.outline(f)
+
+
+def test_outline_wrap_guard_refuses_a_join_at_the_band_edge():
+    f = _cove_uv()
+    f.join_side["W"]["uv"]["base"] = (0.7005, f.join_side["W"]["uv"]["base"][1])   # 0.12u of phase before the wrap
+    with pytest.raises(R.RiverRefused, match="J2: a join's stock U sits within"):
+        R.outline(f)
+
+
+def hand_join(*, crest_in=1.0, last_seg=3.0, u=(0.82421875, 0.751953125), centre=(600.3, -500.2), radius=40.0):
+    """A kit-like ring by hand: an arc from E (-30 deg) round the north to W (210 deg), spaced ~6u with a last
+    segment of ``last_seg``, the U phase landed, closed by the straight chord. The 'stock' columns stand ``crest_in``
+    inland of each base at the kit's 3.2 -- a 72.6 deg cliff, the kit's own language. -> (Outline, joins)."""
+    c = np.array(centre)
+    a_e, a_w = math.radians(-30.0), math.radians(210.0)
+    a_l = a_w - 2.0 * math.asin(last_seg / (2.0 * radius))   # the second-last point: a chord of last_seg from W
+    n = int(math.ceil(radius * (a_l - a_e) / 6.0))
+    arc = [tuple(c + radius * np.array([math.cos(a), math.sin(a)])) for a in list(np.linspace(a_e, a_l, n + 1)) + [a_w]]
+    ru0, strip_w, dens = R._wall_band()
+    ph = {"E": u[0] - ru0, "W": u[1] - ru0}
+    arc, _added, _bump = R.land_phase(arc, ph_first=ph["E"], ph_last=ph["W"], density=dens,
+                                      period=strip_w / dens, outward=1.0)
+    e, w = np.array(arc[0]), np.array(arc[-1])
+    k = int(math.ceil(np.linalg.norm(e - w) / 6.0))
+    chord = [tuple(w + (e - w) * q / k) for q in range(1, k)]
+    joins = {}
+    for name, b in (("E", e), ("W", w)):
+        cr = b + crest_in * (c - b) / np.linalg.norm(c - b)
+        joins[name] = ((float(cr[0]), 3.2, float(cr[1])), (float(b[0]), 0.0, float(b[1])))
+    v = {"crest": 0.89258, "base": 0.92285}
+    targets = {nm: {role: (uu, v[role]) for role in v} for nm, uu in (("E", u[0]), ("W", u[1]))}
+    ol = R.Outline(ring=arc + chord, arc_end=len(arc) - 1, first="E", last="W",
+                   rim_at={0: joins["E"][0], len(arc) - 1: joins["W"][0]}, shore_origin=ph["E"] / dens,
+                   targets=targets)
+    return ol, joins
+
+
+def test_join_columns_land_exactly_on_a_hand_ring():
+    """J1-J4 green: the kit's wall holds both stock columns bit for bit, U within 1e-12, V the language rows."""
+    ol, joins = hand_join()
+    rep = R.join_gates(R.mint(ol), ol, joins)
+    for n in ("E", "W"):
+        assert rep[n]["tris"] >= 1 and rep[n]["du"] < 1e-12 and rep[n]["dv"] < 5e-4, rep
+        assert all(60.0 <= x <= 80.0 for x in rep[n]["slope"]), rep
+
+
+def test_j1_refuses_a_join_a_hundredth_off():
+    ol, joins = hand_join()
+    built = R.mint(ol)
+    (cx, cy, cz), base = joins["W"]
+    with pytest.raises(R.RiverRefused, match="J1: no kit wall tri on the arc side holds join W"):
+        R.join_gates(built, ol, {**joins, "W": ((cx + 0.01, cy, cz), base)})
+
+
+def test_j2_refuses_a_wrong_u_origin():
+    ol, joins = hand_join()
+    ol.shore_origin += 0.5
+    with pytest.raises(R.RiverRefused, match="J2: join E: the kit wall's U is 0.006250"):
+        R.join_gates(R.mint(ol), ol, joins)
+
+
+def test_j2_refuses_a_last_segment_across_the_band_wrap():
+    """Why THE WRAP GUARD exists: W's stock U sits 4.24u of arc past the band's wrap; a 6u last segment straddles it
+    and rock_uvs window-translates that tri, moving W's U to the strip's far edge."""
+    ol, joins = hand_join(last_seg=6.0)
+    with pytest.raises(R.RiverRefused, match="J2: join W"):
+        R.join_gates(R.mint(ol), ol, joins)
+
+
+def test_j3_refuses_a_v_row_off_the_stock():
+    ol, joins = hand_join()
+    ol.targets["W"]["crest"] = (ol.targets["W"]["crest"][0], 0.89058)
+    with pytest.raises(R.RiverRefused, match="J3: join W"):
+        R.join_gates(R.mint(ol), ol, joins)
+
+
+def test_j4_refuses_a_column_that_is_a_ramp():
+    """A stock 'lip' whose crest stands 2.5u inland is a 52 deg ramp, not a cliff: the kit wall meeting it leans off
+    the stock 60-80 deg (the synthetic cove's own 4u lip cells are ramps like this)."""
+    ol, joins = hand_join(crest_in=2.5)
+    with pytest.raises(R.RiverRefused, match="J4: join E"):
+        R.join_gates(R.mint(ol), ol, joins)
+
+
+def test_j2_catches_a_crest_nearer_another_coast_vertex():
+    """A crest 4u inland stands nearer the chord's first vertex than its own base, so the band's arc length at the
+    crest is that vertex's: J2 sees the U jump (it is the wall's nearest-vertex rule, island.shore_s)."""
+    ol, joins = hand_join(crest_in=4.0)
+    with pytest.raises(R.RiverRefused, match="J2: join E"):
+        R.join_gates(R.mint(ol), ol, joins)
+
+
 # ---- cluster C, on the user's install -----------------------------------------------------------------------------
 
 def _need_install() -> None:
@@ -259,3 +409,34 @@ def test_cluster_c_fragment_holds_the_whole_island():
     assert rep["F2"] == {"water_edges": 34} and rep["seaward_len"] == 146.03
     assert f.joins["W"][1] == (1040.0, 0.0, f.joins["W"][1][2]) and abs(f.joins["W"][1][2] + 1083.34) < 0.01
     assert rep["parts"]["object"] == 40 and rep["parts"]["stream"] == 90 and rep["parts"]["riverjoint"] == 11
+
+
+def test_cluster_c_outline_mints_with_both_joins_exact():
+    """Rung 1's acceptance on real data (PLAN.md): cluster C's kit arc leaves E north along its home coast and
+    arrives at W from the ESE; the custom-outline mint holds both stock columns bit for bit with the U landed, and
+    every geometry gate is clean bar the two seaward wall quads at the columns -- inside the fragment's footprint,
+    which rung 2's opening drops."""
+    _need_install()
+    from ff9mapkit.world import island as I
+    f = R.fragment(R.CLUSTER_C)
+    ol = R.outline(f)
+    rep = ol.report
+    assert (rep["first"], rep["last"], rep["arc_points"], rep["ring_points"]) == ("E", "W", 96, 129)
+    assert rep["seg_max"] <= 8.0 and rep["arc_to_land_min"] > 8.0 and rep["stub"] == {"E": 6.0, "W": 3.601}
+    built = R.mint(ol)
+    j = R.join_gates(built, ol, f.joins)
+    assert j["E"]["du"] < 1e-12 and j["W"]["du"] < 1e-12 and max(j["E"]["dv"], j["W"]["dv"]) < 5e-4
+    assert (j["E"]["slope"], j["W"]["slope"]) == ([78.21], [72.04])
+    v = I.verify_landmass(built)
+    assert (v["cracks"], v["open_edges"], v["holes"], v["down_facing"], v["grass_over_8u"]) == (0, 0, 0, 0, 0)
+    gpos, gtris = built["world"]["pos"], built["world"]["tris"]
+    steep = []
+    for tri in gtris:
+        a, b, c = (np.asarray(gpos[k]) for k in tri)
+        n = np.cross(b - a, c - a)
+        if n[1] / np.linalg.norm(n) <= 0.1:
+            steep.append({tuple(map(float, gpos[k])) for k in tri})
+    assert len(steep) == v["walk_filter_fails"] == 2
+    for name in ("E", "W"):                                    # each holds its join column: the seaward quad's tri
+        crest, base = (tuple(map(float, p)) for p in f.joins[name])
+        assert sum(1 for s in steep if {crest, base} <= s) == 1, name
