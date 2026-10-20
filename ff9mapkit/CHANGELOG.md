@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — a river donor in the catalog: the first piece of `world-river`
+- The donor catalog has a new class, `river`, with one candidate: the lowland river at blocks (16,14)–(17,15), with
+  its bridge, its beached cove and the island in the cove. `world-donors --class river` lists it.
+- The kit can now lift that river out of the stock map as one piece and check the cut. Nothing that must carry whole
+  (a forest, a rock, a building, a beach or an island) is cut in half, and the line across the cove's mouth runs
+  through deep water only, round the island rather than through it. Carrying the piece onto an island
+  (`world-river` itself) is still to come.
+
 ### Added — `world-render` sees rivers, streams and waterfalls; `--stock` draws what the game binds
 - The offline renderer now draws Stream, River, RiverJoint and Falls, with the textures the engine gives them.
 - `world-render --stock` fills every place without an override with what the game shows there. That means stock land

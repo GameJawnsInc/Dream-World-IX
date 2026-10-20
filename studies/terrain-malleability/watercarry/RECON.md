@@ -23,6 +23,7 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 | `mouth.py` | R1: the stock mouth -- what its sea edge welds to, the bands round it, the beach arcs it splits (-> out/mouth.json) |
 | `lips.py` | R1: the bay's two rocky lips against the kit island's lip, in the coast laws' terms (-> out/lips.json) |
 | `closure.py` | R1: candidate fragment boundaries, THE COMPONENT CLOSURE and THE MINIMAL FRAGMENT, each boundary classed (-> out/closure.json) |
+| `fragment_run.py` | PLAN rung 0: the kit's `world/river.py` fragment for cluster C, its F1/F2 gates and a plan (-> out/fragment.json, out/fragment_plan.png) |
 
 ## 1. What was already settled (July)
 

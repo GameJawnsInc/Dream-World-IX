@@ -1,7 +1,7 @@
 # `world-river`: carry a stock river onto a kit island -- the build plan
 
-**Status:** plan for the owner's sign-off (2026-10-19). Nothing is built. The evidence is in `RECON.md` (R0, R1 rounds
-1-4); this file is the build.
+**Status:** signed off as written, with the five recommended answers (2026-10-19). **Rung 0 is DONE** (offline,
+2026-10-20; see "Rung 0 result" below). The evidence is in `RECON.md` (R0, R1 rounds 1-4); this file is the build.
 
 ## What the verb does
 
@@ -149,7 +149,40 @@ built in from the start.
 | 4 | in game, one launch, the lab in and out by `lab_install.py` | registered: the river and stream animate; a walk at a bank stops as at home; the bridge carries the player across; the Blue Narciss sails the cove to the beach; walking the cliff top across both joins never drops; the owner's eye passes the bay | one session |
 | 5 | `--source-massif` and the `world-fuse [[river]]` row | the source meets a carried foot; recipe = CLI bytes | later |
 
-## Decisions for the owner
+## Rung 0 result (offline)
+
+`ff9mapkit/world/river.py`: `fragment(donor)` reads the window and calls `build_fragment(tris, donor)`, a pure function
+over tri dicts, which runs F1 and F2 and refuses with `RiverRefused(gate, where)`. The catalog row is `cluster-c`,
+class `river`, status `candidate` until rung 4. `fragment_run.py` prints the report and draws `out/fragment_plan.png`.
+
+| cluster C | |
+|---|---|
+| fragment | 1,535 tris: the unit 330, the cove 1,027, the coast 141, the island 85 |
+| the island | WHOLE (round 4's chord carried half of it) |
+| seaward boundary | 146.0u along 34 deep-water edges (the straight chord was 115.3u) |
+| boundary | lawn 650.1u, water 146.0u, join 6.6u, source 5.7u, nothing open |
+| F1 | green: 1 Object (the bridge), 3 beaches and 1 island, each whole |
+| F2 | green |
+
+What the build settled, beyond the plan:
+- **THE ISLAND TETHER.** Each island standing in the bay is joined to the mouth by a water corridor the boundary may
+  not touch, so the boundary must go round it on the sea side. Without it the cheapest path runs landward and
+  leaves the island home: a lawful but smaller fragment, a quiet wrong answer rather than a refusal. A test proves
+  the tether is what routes the boundary seaward.
+- **The boundary's vertices touch deep water only** (both join bases excepted). So no island's shallow ring can
+  straddle it, and F1 can never find an island cut by the seaward boundary.
+- **A leak is any cove edge with nothing across.** Open-sea blocks have no prefab and so no tris, so checking only
+  the window's frame would miss a leak into them.
+- **The sand row is taken as whole 4u cells.** One row of lone tris is a sawtooth against the zip.
+- **J0 checks a join's roles:** the base touches water and the crest does not. A wall cell's diagonal is a
+  crest-to-base wall edge too, so it is lawful.
+
+Tests (`tests/test_world_river.py`): a synthetic cove with an islet straddling the chord, and break-its for a cut
+forest, a half-cut islet, a lip cut off the columns, a mouth barred by shallows, a boundary through sea1, a leaking
+cove, the joins, and the tether. A mutation run took out F1, F2, the tether, the deep-vertex rule and the join stop
+in turn, and each one turned at least one test red. The install-gated test pins cluster C's numbers.
+
+## Decisions for the owner (answered: the recommendations, 2026-10-19)
 
 1. **The AREA bits on carried tris.** Recommendation: stamp the island's own area (consistent camera, encounters and
    place name) on every carried tri, except those the ground query skips (THE BANK SKIP LAW), and strip every EVENT

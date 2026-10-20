@@ -96,6 +96,17 @@ def test_donor_literals_pin_to_catalog_rows():
     proven = rows[_spec(TR.PROVEN_DONOR)]
     assert proven["class"] == "coast" and proven["status"] == "qualified"
 
+    # the river donors: world/river.py's frozen literals (window, unit blocks, both join columns)
+    from ff9mapkit.world import river as RV
+    for d in RV.RIVER_DONORS.values():
+        row = rows[d.blocks]
+        assert row["class"] == "river" and row["name"] == d.name, d.name
+        (bx0, bx1), (by0, by1) = d.window
+        assert row["window"] == f"{bx0}-{bx1},{by0}-{by1}"
+        assert [tuple(b) for b in row["unit_blocks"]] == list(d.unit_blocks)
+        joins = {n: list(c) + list(b) for n, c, b in d.joins}
+        assert row["join_w"] == joins["W"] and row["join_e"] == joins["E"]
+
     # the qualified massif rects: the four the interior topo-narrowing verified (interior.py's
     # MOUNTAIN_ROCK_TOPOS comment names them) and the desert peak (terrain study, mountaindonors/)
     for blocks in ("0,0", "10,5-6", "5-6,15-16", "12,16-17", "19,3"):
@@ -108,7 +119,7 @@ def test_catalog_rows_are_well_formed():
     assert rows, "empty donor catalog"
     for r in rows:
         assert r["status"] in ("qualified", "candidate", "disqualified"), r
-        assert r["class"] in ("massif", "canopy", "coast", "sea-plane"), r
+        assert r["class"] in ("massif", "canopy", "coast", "sea-plane", "river"), r
         assert r.get("aperture", "none") in ("none", "object", "ensemble"), r
         # every blocks spec parses as the CLI rect grammar and lands on the 24x20 grid
         from ff9mapkit.world.mesh import block_in_grid
@@ -118,6 +129,13 @@ def test_catalog_rows_are_well_formed():
         if r["class"] == "massif":
             from ff9mapkit.world.grassland import GROUNDS
             assert r.get("home_ground") in GROUNDS, r
+        # every river names its read window (holding its blocks and unit blocks) and both join columns
+        if r["class"] == "river":
+            window = set(cli._parse_block_rect(r["window"]))
+            assert set(cli._parse_block_rect(r["blocks"])) <= window, r
+            assert {tuple(b) for b in r["unit_blocks"]} <= window, r
+            for j in ("join_w", "join_e"):
+                assert len(r[j]) == 6 and r[j][1] > r[j][4], r          # crest x,y,z above base x,y,z
 
 
 # ---- THE HOME-GROUND WARNING (terrain study, mountaindonors/) -------------------------------------------------------
