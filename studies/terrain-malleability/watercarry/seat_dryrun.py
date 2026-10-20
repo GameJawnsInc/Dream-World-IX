@@ -38,6 +38,7 @@ import ensemble as E  # noqa: E402
 BENCH_C, BENCH_R, SEED = (1380.0, -150.0), 90.0, 42
 CLEAR = 2.5
 LAWN_Y = 3.2
+APRON = "--no-apron" not in sys.argv
 
 
 def unit():
@@ -50,7 +51,13 @@ def unit():
                 allt += tris_uv(*b, part)
     water = [t for t in allt if t["part"] in E.WATER and t["blk"] in E.UNIT_BLOCKS]
     keys = {IN.kk3(p) for t in water for p in t["P"]}
-    left = {id(t): t for t in allt if t["part"] == "terrain" and t["topo"] == 62 and t["blk"] in E.UNIT_BLOCKS}
+    # the banks (topo 62) AND the Terrain's own water tris (48/50/51: the channel markers -- one plugs the source end,
+    # IDALL 4044 at (17,14)), welded to the parts, transitively
+    left = {id(t): t for t in allt if t["part"] == "terrain" and t["topo"] in (62, 48, 50, 51)
+            and t["blk"] in E.UNIT_BLOCKS}
+    # ... and the river's CROSSING: the Object tris welded to it (at (16,14), a 40-tri bridge -- a walkable topo-52 deck
+    # on skipped 4078 sides); the transitive weld never reaches the separate 76-tri structure to its east
+    left.update({id(t): t for t in allt if t["part"] == "object" and t["blk"] in E.UNIT_BLOCKS})
     banks, changed = [], True
     while changed:
         changed = False
@@ -143,7 +150,10 @@ def main():
     built = build_landmass(center=BENCH_C, base_radius=BENCH_R, seed=SEED, lobes=1, n_patches=0, ground="grass")
     bench = []
     for (bx, by), bm in built["blocks"].items():
-        bench += [dict(t, Pw=t["P"]) for t in _bm_tris(bm, bx, by)]
+        bench += [dict(t, Pw=np.array(t["P"])) for t in _bm_tris(bm, bx, by)]
+    apron = {"applied": False}
+    if APRON:
+        apron = apply_apron(bench, U, cls, outer, c_float, shift)
     b_once = {e for e, n in Counter(e for t in bench for e in edge_keys(t["Pw"])).items() if n == 1}
     drop = [t for t in bench if any(IN.pip(p[0], p[2], poly) or IN.near_poly(p[0], p[2], poly, CLEAR) for p in t["Pw"])]
     did = {id(t) for t in drop}
@@ -176,7 +186,8 @@ def main():
         n = np.cross(b - a, c - a)
         nys.append(abs(float(n[1])) / (float(np.linalg.norm(n)) or 1.0))
     # census: seated vs donor at the same relative points
-    seated = [[t for t in asm], [t for t in U if t["part"] == "stream"], [t for t in U if t["part"] == "riverjoint"]]
+    seated = [[t for t in U if t["part"] == "object"], [t for t in asm], [t for t in U if t["part"] == "stream"],
+              [t for t in U if t["part"] == "riverjoint"]]
     for m in seated:
         for t in m:
             t.setdefault("P", t["Pw"])
@@ -203,18 +214,31 @@ def main():
     def near_cls(x, z):
         return min(cls_pts, key=lambda q: (q[0] - x) ** 2 + (q[1] - z) ** 2)[2]
     where = {"zip_rise_or_steep": Counter(), "new_once": Counter(), "introduced_miss": Counter()}
+    sea_mid = [(q[0], q[1]) for q in cls_pts if q[2] == "SEA"]
+
+    def to_mouth(x, z):
+        return round(min(math.hypot(x - a, z - b) for a, b in sea_mid), 1)
+    detail = {"zip_rise_or_steep": [], "new_once": [], "introduced_miss": []}
     for z_, ny in zip(zip_tris, nys):
         if max(q[1] for q in z_) - min(q[1] for q in z_) > 2.34 or ny < 0.5:
-            where["zip_rise_or_steep"][near_cls(sum(q[0] for q in z_) / 3, sum(q[2] for q in z_) / 3)] += 1
+            cxz = (sum(q[0] for q in z_) / 3, sum(q[2] for q in z_) / 3)
+            where["zip_rise_or_steep"][near_cls(*cxz)] += 1
+            detail["zip_rise_or_steep"].append(to_mouth(*cxz))
     for e in new_once:
         where["new_once"][near_cls((e[0][0] + e[1][0]) / 2, (e[0][2] + e[1][2]) / 2)] += 1
+        detail["new_once"].append(to_mouth((e[0][0] + e[1][0]) / 2, (e[0][2] + e[1][2]) / 2))
     for x in xs:
         for z in zs:
             if IN.pip(x + shift[0], z + shift[2], poly) and ground(seated, x + shift[0], z + shift[2]) is None                     and ground(donor, x, z) is not None:
                 where["introduced_miss"][near_cls(x + shift[0], z + shift[2])] += 1
+                detail["introduced_miss"].append(to_mouth(x + shift[0], z + shift[2]))
     skip_pairs = [(t["idall"], t["idall"]) for t in banks]
     sea_len = sum(math.dist(e[0], e[1]) for e, c in cls.items() if c == "SEA")
-    rep = {"unit": {"water_tris": len(water), "bank_tris": len(banks), "rings": len(rings),
+    if apron["applied"]:
+        apron["slope_max"] = apron_slope(kept)
+        apron["slope_ok"] = bool(apron["slope_max"] <= IN.MTN_APRON_SLOPE)
+    rep = {"apron": apron, "unit": {"water_tris": len(water), "bank_tris": sum(t["part"] == "terrain" for t in banks),
+                    "bridge_tris": sum(t["part"] == "object" for t in banks), "rings": len(rings),
                     "outer_ring_pts": len(outer), "shift": [round(float(v), 2) for v in shift]},
            "bench": {"center": BENCH_C, "radius": BENCH_R, "tris": len(bench)},
            "hole": {"dropped": len(drop), "dropped_topos": dict(drop_topos), "hole_rings": len(hole_rings)},
@@ -226,11 +250,76 @@ def main():
                      "skip_parity": P.skip_parity_gate(skip_pairs, label="ensemble")["flipped"],
                      "zip_rise_ok": bool(rise <= 2.34), "zip_chord_ok": bool(chord < 9.0)},
            "failures_by_nearest_boundary": {k: dict(v) for k, v in where.items()},
+           "failure_distance_to_mouth": {k: sorted(v) for k, v in detail.items()},
            "open_interface": {"mouth_SEA_len": round(sea_len, 1),
                               "status": "zipped to lawn here: a stump -- R1 needs a coast splice"}}
     print(json.dumps(rep, indent=1, default=float))
-    (HERE / "out" / "seat.json").write_text(json.dumps(rep, indent=1, default=float), encoding="utf-8")
-    plan(kept, U, zt, poly, HERE / "out" / "seat_plan.png")
+    (HERE / "out" / ("seat.json" if APRON else "seat_noapron.json")).write_text(json.dumps(rep, indent=1, default=float), encoding="utf-8")
+    plan(kept, U, zt, poly, HERE / "out" / ("seat_plan.png" if APRON else "seat_plan_noapron.png"))
+
+
+def apply_apron(bench, U, cls, outer, c_float, shift):
+    """world-mountain's APRON (``interior.carve_mountain``'s ``ground_lift``), ported: a pure-Y lift of the bench's
+    plain grass toward the ensemble's rim heights -- IDW over the rim nodes within ``MTN_GBLEND``, faded by
+    (1 - d/gblend)^2, dying before the coast band (dnp < 2.5 + 3) -- computed once per POSITION and applied to every
+    coincident entry (the weld-safe lift). Rim nodes: the LAWN and ROCK ring only. A mouth node is left out: on a
+    bench the mouth has no sea, and pulling the lawn down to sea level there would dig a bowl stock never shows."""
+    gblend = IN.MTN_GBLEND
+    d2s = {}                                                   # donor key -> seated key, vertex by vertex
+    for t in U:
+        for i in range(3):
+            d2s[IN.kk3(t["P"][i])] = IN.kk3(t["Pw"][i])
+    sea_v = {d2s[k] for e, c in cls.items() if c == "SEA" for k in e}
+    nodes = [(c_float[k][0], c_float[k][2], c_float[k][1]) for k in outer if k not in sea_v]
+    nonplain = np.array([[p[0], p[2]] for t in bench if t["topo"] != 0 for p in t["Pw"]] or [[1e9, 1e9]])
+    lift, done = {}, set()
+    for t in bench:
+        if t["topo"] != 0:
+            continue
+        for p in t["Pw"]:
+            k = IN.kk3(p)
+            if k in done:
+                continue
+            done.add(k)
+            wsum = hsum = 0.0
+            dmin2 = 1e18
+            for nx, nz, hy in nodes:
+                dd2 = (p[0] - nx) ** 2 + (p[2] - nz) ** 2
+                dmin2 = min(dmin2, dd2)
+                if dd2 > gblend * gblend:
+                    continue
+                w = 1.0 / (dd2 + 0.04)
+                wsum += w
+                hsum += w * hy
+            if wsum <= 0.0 or dmin2 >= gblend * gblend:
+                continue
+            W = (1.0 - math.sqrt(dmin2) / gblend) ** 2
+            dnp = float(np.sqrt(((nonplain - np.array([p[0], p[2]])) ** 2).sum(axis=1).min()))
+            pt = max(0.0, min(1.0, (dnp - 2.5) / 3.0))
+            lf = pt * W * (hsum / wsum - p[1])
+            if abs(lf) > 1e-6:
+                lift[k] = lf
+    for t in bench:                                            # by POSITION: every coincident entry moves together
+        for i in range(3):
+            k = IN.kk3(t["Pw"][i])
+            if k in lift:
+                t["Pw"][i] = t["Pw"][i] + np.array([0.0, lift[k], 0.0])
+                t["lifted"] = True
+    return {"applied": True, "nodes": len(nodes), "lifted_positions": len(lift),
+            "max_lift": round(max((abs(v) for v in lift.values()), default=0.0), 2)}
+
+
+def apron_slope(kept):
+    """The steepest KEPT lifted grass tri, in degrees (world-mountain's MTN_APRON_SLOPE gate)."""
+    slope = 0.0
+    for t in kept:
+        if not t.get("lifted"):
+            continue
+        a, b, c = t["Pw"]
+        n = np.cross(b - a, c - a)
+        ln = float(np.linalg.norm(n)) or 1.0
+        slope = max(slope, math.degrees(math.acos(max(-1.0, min(1.0, abs(float(n[1])) / ln)))))
+    return round(slope, 1)
 
 
 def _bm_tris(bm, bx, by):
@@ -258,7 +347,8 @@ def plan(kept, U, zt, poly, path):
     def xy(p):
         return ((p[0] - x0) * s + 2, (z1 - p[2]) * s + 2)
     for t, col in ([(t, (70, 120, 50)) for t in kept] + [(t, (110, 80, 50)) for t in U if t["part"] == "terrain"]
-                   + [(t, (60, 140, 220)) for t in U if t["part"] != "terrain"] + [(t, (230, 210, 60)) for t in zt]):
+                   + [(t, (60, 140, 220)) for t in U if t["part"] not in ("terrain", "object")]
+                   + [(t, (150, 150, 150)) for t in U if t["part"] == "object"] + [(t, (230, 210, 60)) for t in zt]):
         d.polygon([xy(p) for p in t["Pw"]], fill=col)
     d.line([xy((x, 0, z)) for x, z in poly + poly[:1]], fill=(220, 40, 40), width=1)
     im.save(path)

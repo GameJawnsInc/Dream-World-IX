@@ -65,7 +65,10 @@ def main():
             if part in bp.get(b, ()):
                 allt += tris(*b, part)
     water = [t for t in allt if t["part"] in WATER and t["blk"] in UNIT_BLOCKS]
-    banks = [t for t in allt if t["part"] == "terrain" and t["topo"] == 62 and t["blk"] in UNIT_BLOCKS]
+    # the banks AND the Terrain's own water tris (the channel markers; one plugs the source end), welded to the parts
+    banks = [t for t in allt if t["part"] == "terrain" and t["topo"] in (62, 48, 50, 51) and t["blk"] in UNIT_BLOCKS]
+    # ... and the river's crossing: Object tris welded to it (the 40-tri bridge at (16,14); never the separate structure)
+    banks += [t for t in allt if t["part"] == "object" and t["blk"] in UNIT_BLOCKS]
     # grow the bank set: bank tris that share a vertex with the unit, transitively
     keys = {kk3(p) for t in water for p in t["P"]}
     unit_banks, changed = [], True
@@ -97,7 +100,7 @@ def main():
             c = "OPEN"
         elif any(t["part"] in SEA for t in nb):
             c = "SEA"
-        elif any(t["part"] in ("terrain", "object") and t["topo"] in ROCKY for t in nb):
+        elif any(t["part"] == "terrain" and t["topo"] in ROCKY for t in nb):
             c = "ROCK"
         else:
             c = "LAWN"
