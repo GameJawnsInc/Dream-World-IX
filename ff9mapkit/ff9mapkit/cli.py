@@ -5470,7 +5470,9 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
                               near=None if exact else (wx, wz), donor=(dx, dy),
                               disc=args.disc, game=args.game, spread=args.spread, rot_deg=args.rot)
         IN.census_gate(res["changed"], disc=args.disc, game=args.game,
-                       probe=(res["center"], 37), baseline=blocks)
+                       probe=(res["center"], 37), baseline=blocks,
+                       stack=IN.read_deployed_stack(args.mod_folder, blocks, disc=args.disc, game=args.game,
+                                                    target_disc=args.target_disc))
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
                               game=args.game, skip_mirror=args.skip_mirror,
@@ -5509,7 +5511,9 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
         res = IN.build_hill(soup, center=(wx, wz) if exact else None,
                             near=None if exact else (wx, wz),
                             height=args.height, radius=args.radius)
-        IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks,
+                       stack=IN.read_deployed_stack(args.mod_folder, blocks, disc=args.disc, game=args.game,
+                                                    target_disc=args.target_disc))
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
                               game=args.game, skip_mirror=args.skip_mirror,
@@ -5603,7 +5607,9 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         # parts= (audit rec 11): census the REAL carried ensemble overrides, not hidden
         # blanks -- Object registers ahead of Terrain, so omitting it hid a defect class.
         IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks,
-                       parts=res.get("changed_parts"))
+                       parts=IN.census_parts(res),
+                       stack=IN.read_deployed_stack(args.mod_folder, blocks, disc=args.disc, game=args.game,
+                                                    target_disc=args.target_disc))
         if not args.dry_run:
             # both inner writers force-skip their own auto-mirror -- the CLI unions their
             # written paths and does ONE mirror pass for the whole carve, below.

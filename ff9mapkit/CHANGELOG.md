@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a forest fits on the `world-river` island
+- `world-forest` could not place a forest anywhere on the river island at 512,128, and the `[[river]]` +
+  `[[forest]]` recipe in `world-fuse` failed the same way. Both refusals were about the island, not the forest.
+- The ground check that `world-forest`, `world-mountain` and `world-hill` run before writing tested the land without
+  the river's own water pieces, so it reported the river channel as a place the player would fall through. It now
+  reads every piece the island has deployed, as the game loads them, and refuses only spots the change itself
+  leaves without ground. Spots the island already had are listed, not refused.
+- `world-forest`'s check for open seams around the new forest also counted a seam the island already had. It now
+  counts only seams the forest opens, as `world-mountain`'s check already did.
+- `world-forest --near 49,-824` on the river island now places the forest at (44,-824). Checked offline only, not
+  yet in game. Where these commands already worked, they write the same bytes as before.
+
 ### Fixed — `world-forest`, `world-mountain` and `world-hill` work across the world's seam
 - The three relief commands, and their `[[forest]]`, `[[mountain]]` and `[[hill]]` rows in a `world-fuse` recipe,
   refused any island within reach of the world's seam (the edge between columns 23 and 0, at x 0 / 1536). The
