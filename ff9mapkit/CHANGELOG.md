@@ -12,11 +12,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - `--dry-run` runs every check, including the check of the written files: it writes the island to a temporary
   folder outside the game, checks it there, prints the result and deletes the folder. A real run deploys exactly
   those checked files, with the deploy ledger and backups, and mirrors them to disc 4. On the proven placement the
-  132 files are byte for byte the ones the in-game test used.
+  132 files were byte for byte the ones the in-game test used, until the cliff-top fix below changed the kit
+  island's edge.
 - It refuses rather than overwrite, and names the check that failed: a placement off the 4u water grid or not a
   whole map block, a map cell another mod folder already overrides on disc 1 or disc 4, or a failed geometry or
   water check.
 - The river's source ends in open lawn, and the command warns and prints where.
+
+### Fixed — kit islands no longer show a streaked grass band along the top of their cliffs
+- A few grass triangles along every minted cliff's top edge stretched one line of the grass texture across
+  themselves, and in game they read as a streaked band along the lip. The islands already in the overworld folder
+  carried 23 of them; the river carry's island carried 12.
+- The kit now cuts the cliff's top edge where it crosses the grass grid and splits the edge grass along the same
+  lines, so every grass triangle shows its own square of the texture at full detail. This is how the original map
+  builds its cliff tops.
+- Only the edge changes: the rest of the island's grass and its meadow patches stay exactly as before, and
+  `world-forest` and `world-mountain` carve the same places the same way. A hill placed right at the edge clearance
+  can now be a hair too close; let `world-hill` find its spot (`--near`) instead of giving an exact one.
+- A new check, `lip_streaks`, counts any streaked triangle a mint makes. Islands already in the game keep their old
+  edge until they are minted again.
 
 ### Changed — the river carry also refuses map cells another mod already overrides
 - The river carry's cell check now reads the mod folder as well as the original map. If another deploy already
@@ -56,7 +70,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   It can also pin chosen cliff-top points exactly, and set where the cliff texture starts along the coast.
 - For the river carry, the kit draws a coastline round the river and its cove. The new island's cliffs meet the
   stock cliffs at two points exactly: the same positions, and texture that lines up across the seam.
-- Islands minted the old way are unchanged, byte for byte; a test checks nine kinds of mint.
+- Islands minted the old way were unchanged by this, byte for byte; a test checks nine kinds of mint (the
+  cliff-top fix above has since changed their edges).
 
 ### Added — a river donor in the catalog: the first piece of `world-river`
 - The donor catalog has a new class, `river`, with one candidate: the lowland river at blocks (16,14)–(17,15), with

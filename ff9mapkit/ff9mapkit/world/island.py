@@ -51,6 +51,17 @@ ROCK_DENSITY = 0.0125                                    # texels/u along the sh
 SEA_PLANE_SOURCE = (12, 0)                               # the game's only full-cell deep Sea4 plane
 DEFAULT_DONOR = (0, 0)                                   # Uaho: a Terrain-carrying donor for the s34 divert
 HIDDEN_PARTS = ("Object", "Sea1", "Sea2", "Sea3", "Sea5", "Beach1")
+#: THE CELL-CLIPPED LIP (the lip-streak fix): a crest vertex this near a 4u lattice line is moved ONTO it, and a cut
+#: this near a lattice corner onto the corner -- stock's crease sits on the lattice lines (1216 of 1540 disc-1 crest
+#: verts), and a vertex just off a line would leave a sliver cell piece the clip cannot map.
+LATTICE_SNAP = 0.15
+#: a JOIN segment's cuts (a crest edge ending at a stock-pinned column) sit this far landward along their own line,
+#: so the chain into the column is not plan-collinear: river's open zip fans round the column over these very crest
+#: points, and a collinear triple there is a plan-flat step it must route round -- it folded over the stock wall
+#: (cluster C's G4). The cut stays exactly on its lattice line.
+JOIN_CUT_DENT = 0.01
+#: the lip's own mains stream: a cell-lip mint's NEW lip cells draw from ``mains_seed`` plus this
+LIP_MAINS_SEED = 0x11F
 #: per-family beach reference blocks (language pins AND the beach block's divert
 #: donor -- both host Terrain+Sea1/2/4/5+Beach1 transforms, verified 2026-07-15)
 BEACH_PINS = {"grass": (7, 17), "desert": (20, 5)}
@@ -177,6 +188,105 @@ def _inset_ring(ring, d):
     return out
 
 
+def _lat_snap(c: float) -> float:
+    """``c`` moved onto its nearest 4u lattice line when within :data:`LATTICE_SNAP` of it, else unchanged."""
+    g = GRID * round(c / GRID)
+    return g if abs(c - g) < LATTICE_SNAP else c
+
+
+def _lat_cross(a, b, axis: int, g: float, other: int, snap: bool = True):
+    """Where the segment ``a``-``b`` meets the lattice line ``axis = g``: computed from the endpoints in a CANONICAL
+    order (both tris sharing the edge get the identical floats), the line's coordinate exact, and the ``other``
+    coordinate snapped onto a crossing line when the point is that near a lattice corner."""
+    if (a[0], a[-1]) > (b[0], b[-1]):                   # (x, z) of a 2D or a 3D point
+        a, b = b, a
+    t = (g - a[axis]) / (b[axis] - a[axis])
+    p = [a[k] + t * (b[k] - a[k]) for k in range(len(a))]
+    p[axis] = g
+    if snap:
+        p[other] = _lat_snap(p[other])
+    return tuple(p)
+
+
+def _lattice_cuts(a, b, corner: bool = True):
+    """THE CELL-CLIPPED LIP, the crest half: the points (in order from ``a``) where the XZ segment ``a -> b`` strictly
+    crosses a 4u lattice line, each exactly on its line (one near a lattice corner on the corner, unless ``corner`` is
+    False: then every cut stays ON the segment, collinear with its ends). The crest's ends
+    are already snapped (:func:`_lat_snap`), so a crest vertex is either on a line or clear of it, and the grass clip
+    (:func:`_cell_clip`) never has to split a crest edge."""
+    cuts, p = [], a
+    while True:
+        best = None
+        for axis in (0, 1):
+            lo, hi = sorted((p[axis], b[axis]))
+            for k in range(math.floor(lo / GRID), math.floor(hi / GRID) + 2):
+                g = GRID * k
+                if (p[axis] - g) * (b[axis] - g) < 0:
+                    t = (g - p[axis]) / (b[axis] - p[axis])
+                    if best is None or t < best[0]:
+                        best = (t, axis, g)
+        if best is None:
+            return cuts
+        _t, axis, g = best
+        x = _lat_cross(p, b, axis, g, 1 - axis, snap=corner)
+        cuts.append(x)
+        p = x
+
+
+def _plane_y(tri, x: float, z: float) -> float:
+    """The height of the plane through ``tri`` at plan point ``(x, z)``."""
+    (ax, ay, az), (bx, by, bz), (qx, qy, qz) = tri
+    d = (bz - qz) * (ax - qx) + (qx - bx) * (az - qz)
+    w0 = ((bz - qz) * (x - qx) + (qx - bx) * (z - qz)) / d
+    w1 = ((qz - az) * (x - qx) + (ax - qx) * (z - qz)) / d
+    return w0 * ay + w1 * by + (1.0 - w0 - w1) * qy
+
+
+def _cell_clip(tri):
+    """THE CELL-CLIPPED LIP, the grass half: a grass tri ``((x, y, z) x3)`` as ``[(cell, tri), ...]``, one piece per 4u
+    cell it covers. A tri inside one cell (the whole lattice interior) is returned untouched; a lip tri spanning a line
+    is cut on it (Sutherland-Hodgman, a vertex ON a line kept on both sides), so every piece wears its own cell's
+    mains map exactly, no corner clamped. Each cut on a side of the tri is computed from THAT SIDE's own two ends
+    (:func:`_lat_cross`, canonical order) -- never from an earlier cut -- so every piece of this tri and of the tri
+    across that side holds the identical floats there."""
+    xs = [p[0] for p in tri]
+    zs = [p[2] for p in tri]
+    ci = math.floor(sum(xs) / 3.0 / GRID)
+    cj = math.floor(sum(zs) / 3.0 / GRID)
+    if all(GRID * ci <= x <= GRID * (ci + 1) for x in xs) and all(GRID * cj <= z <= GRID * (cj + 1) for z in zs):
+        return [((ci, cj), tri)]
+    sides = ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0]))
+    out = []
+    for i in range(math.floor(min(xs) / GRID), math.floor(max(xs) / GRID) + 1):
+        for j in range(math.floor(min(zs) / GRID), math.floor(max(zs) / GRID) + 1):
+            poly = list(zip(tri, ({0, 2}, {0, 1}, {1, 2})))  # (point, the tri sides it lies on)
+            for axis, g, sgn in ((0, GRID * i, 1), (0, GRID * (i + 1), -1), (2, GRID * j, 1), (2, GRID * (j + 1), -1)):
+                nxt = []
+                for k in range(len(poly)):
+                    (a, sa_), (b, sb_) = poly[k], poly[(k + 1) % len(poly)]
+                    da, db = sgn * (a[axis] - g), sgn * (b[axis] - g)
+                    if da >= 0:
+                        nxt.append((a, sa_))
+                    if da * db < 0:
+                        side = sa_ & sb_                 # a stretch of a tri side, else of an earlier cut's line
+                        if side:
+                            q = _lat_cross(*sides[min(side)], axis, g, 2 - axis)
+                        else:                            # a lattice corner inside the tri: y off the tri's plane
+                            q = _lat_cross(a, b, axis, g, 2 - axis)
+                            q = (q[0], _plane_y(tri, q[0], q[2]), q[2])
+                        nxt.append((q, side))
+                poly = [q for k, q in enumerate(nxt) if q[0] != nxt[k - 1][0]] if len(nxt) > 1 else nxt
+                if len(poly) < 3:
+                    break
+            poly = [q for q, _s in poly]
+            for k in range(1, len(poly) - 1):
+                piece = (poly[0], poly[k], poly[k + 1])
+                if abs((piece[1][0] - piece[0][0]) * (piece[2][2] - piece[0][2])
+                       - (piece[2][0] - piece[0][0]) * (piece[1][2] - piece[0][2])) > 1e-9:
+                    out.append(((i, j), piece))
+    return out
+
+
 def _pip(px, pz, poly):
     inside = False
     n = len(poly)
@@ -251,7 +361,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                    mains_seed: int = 0xF91, stamp_seed: int = 0xF92, ground: str = "grass",
                    relief_amp: float = 0.0, relief_seed=None,
                    beach=None, disc: int = 1, game=None,
-                   outline=None, rim_at=None, shore_origin: float = 0.0) -> dict:
+                   outline=None, rim_at=None, shore_origin: float = 0.0, cell_lip: bool = True) -> dict:
     """Build a synthetic cliff landmass around WORLD ``center = (cx, cz)`` as per-block ``Terrain``
     meshes. ``lobes=1`` = the perturbed-circle outline; ``lobes>=2`` = the ASYMMETRIC multi-lobe union
     (:func:`mesh.multi_blob_outline` -- elongation, waists, natural corner creases; the shape gate in
@@ -277,7 +387,13 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     vertex's inward normal. ``rim_at = {index: (x, y, z)}`` fixes the crest above outline vertex ``index``
     exactly (a join column: the kit's wall meets a stock lip there, so its crest is the stock crest, bit for bit).
     ``shore_origin`` shifts the wall's arc-length origin, so the rock band's U lands a given value at a given
-    vertex. All three default to the blob mint, byte for byte."""
+    vertex. All three default to the blob mint, byte for byte.
+
+    THE CELL-CLIPPED LIP (``cell_lip=True``, the default; the lip-streak fix, see the comment at the crest cuts): the
+    crest is snapped onto and cut at the 4u lattice lines and the grass clipped per cell, so no lip tri wears a
+    collapsed mains map. ``cell_lip=False`` is the pre-fix mint byte for byte -- the input the July world-forest /
+    world-hill / world-mountain benches were proven on, which their identity nets rebuild. A beach mint always keeps
+    the old lip."""
     from . import mesh as M
     from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
     gspec = G.GROUNDS[ground]
@@ -346,6 +462,11 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             raise ValueError(f"rim_at index {i} is not on the {nring}-point outline")
         rim[i] = (float(x), float(z))
         rim_y[i] = float(y)
+    cell_lip = cell_lip and beach is None
+    top0 = [(x, rim_y.get(i, land_height), z) for i, (x, z) in enumerate(rim)]   # the pre-fix crest (see below)
+    for i in range(nring if cell_lip else 0):            # THE CELL-CLIPPED LIP: the crest onto the lattice lines it
+        if not {i, (i - 1) % nring, (i + 1) % nring} & set(rim_y):  # nearly sits on -- not a join crest (stock's own
+            rim[i] = (_lat_snap(rim[i][0]), _lat_snap(rim[i][1]))  # float) nor its neighbours (its wall quads)
     top = [(x, rim_y.get(i, land_height), z) for i, (x, z) in enumerate(rim)]
     bch = None
     if barc is not None:
@@ -357,131 +478,158 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                                              or BEACH_PINS[ground]),
                              disc=disc, game=game)
 
-    def was_land(px, pz):
-        return _pip(px, pz, rim)
+    # global shore arc-length (continuous across cells -> the rock band chains block to block)
+    cum = [0.0] * nring
+    for i in range(1, nring):
+        cum[i] = cum[i-1] + math.hypot(outline[i][0]-outline[i-1][0], outline[i][1]-outline[i-1][1])
+    perim = cum[-1] + math.hypot(outline[0][0]-outline[-1][0], outline[0][1]-outline[-1][1])
 
-    # grass interior: rim weld ring + a lattice-aligned interior grid
-    xs = [p[0] for p in top]
-    zs = [p[2] for p in top]
-    interior = []
-    gx = math.floor(min(xs) / GRID) * GRID
-    while gx <= max(xs):
-        gz = math.floor(min(zs) / GRID) * GRID
-        while gz <= max(zs):
-            if was_land(gx, gz) and all((gx-tx)**2 + (gz-tz)**2 > (GRID*0.4)**2 for (tx, _, tz) in top):
-                interior.append((gx, land_height, gz))
-            gz += GRID
-        gx += GRID
-    allpts = top + interior
-    xz = [(p[0], p[2]) for p in allpts]
-    tri_idx, ring_flips = _recover_ring_edges(xz, _delaunay(xz), nring)
-    keep = []
-    for (i, j, k) in tri_idx:
-        ccx = (xz[i][0] + xz[j][0] + xz[k][0]) / 3
-        ccz = (xz[i][1] + xz[j][1] + xz[k][1]) / 3
-        keep.append(was_land(ccx, ccz))
-    edge_tris = collections.defaultdict(list)
-    for t, (i, j, k) in enumerate(tri_idx):
-        for e in ((i, j), (j, k), (k, i)):
-            edge_tris[(min(e), max(e))].append(t)
-    outside, stack = set(), []
-    for t, (i, j, k) in enumerate(tri_idx):
-        if not keep[t] and any(len(edge_tris[(min(e), max(e))]) == 1 for e in ((i, j), (j, k), (k, i))):
-            outside.add(t)
-            stack.append(t)
-    while stack:                                         # enclosed pinholes (steep-wall XZ shadows) re-fill
-        t = stack.pop()
-        (i, j, k) = tri_idx[t]
-        for e in ((i, j), (j, k), (k, i)):
-            for t2 in edge_tris[(min(e), max(e))]:
-                if not keep[t2] and t2 not in outside:
-                    outside.add(t2)
-                    stack.append(t2)
-    for t in range(len(tri_idx)):
-        if not keep[t] and t not in outside:
-            keep[t] = True
-    fill = [(allpts[i], allpts[j], allpts[k]) for t, (i, j, k) in enumerate(tri_idx) if keep[t]]
+    # THE CELL-CLIPPED LIP (the lip-streak fix). A mains UV is its 4u cell's own map, CLAMPED to the cell's window,
+    # so a grass tri spanning two cells collapses: two corners clamp onto one edge and the tri wears a rank-1 stripe
+    # -- the streaked grass band along the lip of every kit cliff (the live islands carried 23 such tris, cluster C's
+    # mint 12). Stock never does it: its 2481 lip-grass tris on topo-58 crests (disc 1) hold the interior grass's
+    # own density, Jacobian aspect p50 2.00 / max 5.8, none collapsed, and its crease carries a vertex where it
+    # crosses a lattice line (1216 of its 1540 crest verts sit on one). So the kit cuts each crest edge where it
+    # crosses a lattice line (the grass Delaunay takes the cuts as ring vertices; the wall FANS to them with their
+    # own arc-length U, stock's refined-crease fan verts) and clips every grass tri at the cell lines (THE TILE-RECT
+    # CONTAINMENT LAW's per-cell clip, below): each piece then wears its own cell's map, nothing clamped. The outline
+    # and every base vertex stay. A BEACH mint (THE LADDER MINT, falsified in game and superseded) keeps the old lip
+    # whole: its berm welds to the arc's rim edges, so cutting them would split the berm too.
+    crest_cuts = {}
+    for i in range(nring if cell_lip else 0):
+        j = (i + 1) % nring
+        join = bool({i, j} & set(rim_y))
+        cuts = _lattice_cuts(rim[i], rim[j], corner=not join)
+        if join:
+            dented = []
+            for (x, z) in cuts:
+                on_x = x == GRID * round(x / GRID)       # on an x-line: slide along z, else along x
+                for sgn in (1.0, -1.0):
+                    q = (x, z + sgn * JOIN_CUT_DENT) if on_x else (x + sgn * JOIN_CUT_DENT, z)
+                    if _pip(q[0], q[1], rim):
+                        break
+                dented.append(q)
+            cuts = dented
+        if cuts:
+            (ax, az), (bx, bz) = rim[i], rim[j]
+            ya, yb = top[i][1], top[j][1]
+            seg2 = (bx - ax) ** 2 + (bz - az) ** 2
+            l_out = (perim if j == 0 else cum[j]) - cum[i]
+            crest_cuts[i] = []
+            for (x, z) in cuts:
+                t = ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / seg2
+                crest_cuts[i].append((t, (x, ya if ya == yb else ya + t * (yb - ya), z), cum[i] + t * l_out))
+    ring = []                                            # the crest chain: each rim vertex, then its edge's cuts
+    for i in range(nring):
+        ring.append(top[i])
+        ring.extend(p for _t, p, _s in crest_cuts.get(i, ()))
 
-    # THE BIG-MINT REFINEMENT (conditional, 2026-07-15): a large-radius interior Delaunay
-    # can leave a few grass tris with plan edges over the 8u on-grain gate (the
-    # horseshoe-scale r69+ mints). Split the longest such edge at its midpoint in BOTH
-    # owning tris (identical midpoint floats -> the weld holds) until none remain.
-    # STRICTLY a no-op on any mint that never trips it -- every frozen identity baseline
-    # (island E, the r31/r50/r52 benches) rebuilds bit-identically.
-    _kkm = lambda p: (round(p[0], 3), round(p[2], 3))  # noqa: E731
-    for _pass in range(64):
-        worst = None
-        for tri in fill:
-            for a, b in ((0, 1), (1, 2), (2, 0)):
-                d = math.hypot(tri[a][0] - tri[b][0], tri[a][2] - tri[b][2])
-                if d > 8.0 and (worst is None or d > worst[0]):
-                    worst = (d, tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))))
-        if worst is None:
-            break
-        owners = []
-        for fi, tri in enumerate(fill):
-            for a, b in ((0, 1), (1, 2), (2, 0)):
-                if tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))) == worst[1]:
-                    owners.append((fi, a, b))
-                    break
-        if len(owners) != 2:
-            raise ValueError(f"an over-8u grass edge has {len(owners)} owner(s) -- "
-                             f"change --seed/--radius")
-        (fi0, a0, b0) = owners[0]
-        pa, pb = fill[fi0][a0], fill[fi0][b0]
-        m = ((pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0, (pa[2] + pb[2]) / 2.0)
-        done = {fi for fi, _, _ in owners}
-        new_fill = [tri for fi, tri in enumerate(fill) if fi not in done]
-        for fi, a, b in owners:
-            tri = fill[fi]
-            c = [v for k2, v in enumerate(tri) if k2 not in (a, b)][0]
-            new_fill.append((tri[a], m, c))
-            new_fill.append((m, tri[b], c))
-        fill = new_fill
+    def grass_fill(ring_pts):
+        """The grass over a crest chain: a lattice interior inside it, the Delaunay with the chain's edges
+        recovered, the land kept, the big-mint refinement. -> ``(fill, ring_flips, was_land)``."""
+        poly = [(p[0], p[2]) for p in ring_pts]
 
-    cells_used = sorted({(math.floor((a[0]+b[0]+c[0])/3 / 4), math.floor((a[2]+b[2]+c[2])/3 / 4))
-                         for (a, b, c) in fill}
-                        | (set(bch["berm_cells"]) if bch is not None else set()))
-    cell_quad, cell_ori = G.assign_mains(cells_used, seed=mains_seed)
+        def was_land(px, pz):
+            return _pip(px, pz, poly)
 
-    if ground != "grass":
-        stamps = None                                    # meadow stamps are GRASS vocabulary
-    if stamps == "auto":
-        stamps = G.extract_stamps(disc, game=game)
+        # grass interior: rim weld ring + a lattice-aligned interior grid
+        xs = [p[0] for p in ring_pts]
+        zs = [p[2] for p in ring_pts]
+        interior = []
+        gx = math.floor(min(xs) / GRID) * GRID
+        while gx <= max(xs):
+            gz = math.floor(min(zs) / GRID) * GRID
+            while gz <= max(zs):
+                if was_land(gx, gz) and all((gx-tx)**2 + (gz-tz)**2 > (GRID*0.4)**2 for (tx, _, tz) in ring_pts):
+                    interior.append((gx, land_height, gz))
+                gz += GRID
+            gx += GRID
+        allpts = list(ring_pts) + interior
+        xz = [(p[0], p[2]) for p in allpts]
+        tri_idx, flips = _recover_ring_edges(xz, _delaunay(xz), len(ring_pts))
+        keep = []
+        for (i, j, k) in tri_idx:
+            ccx = (xz[i][0] + xz[j][0] + xz[k][0]) / 3
+            ccz = (xz[i][1] + xz[j][1] + xz[k][1]) / 3
+            keep.append(was_land(ccx, ccz))
+        edge_tris = collections.defaultdict(list)
+        for t, (i, j, k) in enumerate(tri_idx):
+            for e in ((i, j), (j, k), (k, i)):
+                edge_tris[(min(e), max(e))].append(t)
+        outside, stack = set(), []
+        for t, (i, j, k) in enumerate(tri_idx):
+            if not keep[t] and any(len(edge_tris[(min(e), max(e))]) == 1 for e in ((i, j), (j, k), (k, i))):
+                outside.add(t)
+                stack.append(t)
+        while stack:                                     # enclosed pinholes (steep-wall XZ shadows) re-fill
+            t = stack.pop()
+            (i, j, k) = tri_idx[t]
+            for e in ((i, j), (j, k), (k, i)):
+                for t2 in edge_tris[(min(e), max(e))]:
+                    if not keep[t2] and t2 not in outside:
+                        outside.add(t2)
+                        stack.append(t2)
+        for t in range(len(tri_idx)):
+            if not keep[t] and t not in outside:
+                keep[t] = True
+        fill = [(allpts[i], allpts[j], allpts[k]) for t, (i, j, k) in enumerate(tri_idx) if keep[t]]
 
-    def box_ok(box):
-        for (i, j) in box:
-            for (qx, qz) in ((4*i, 4*j), (4*i + 4, 4*j), (4*i, 4*j + 4), (4*i + 4, 4*j + 4)):
-                if any((qx - tx) ** 2 + (qz - tz) ** 2 < 0.25 for (tx, _, tz) in top):
-                    return False
-                if not was_land(qx, qz):
-                    return False
-        cs = set(box)
-        min_x = min(c[0] for c in box) * 4
-        max_x = max(c[0] for c in box) * 4 + 4
-        min_z = min(c[1] for c in box) * 4
-        max_z = max(c[1] for c in box) * 4 + 4
-        for (a, b, c) in fill:
-            inside_c = (math.floor((a[0]+b[0]+c[0])/3 / 4), math.floor((a[2]+b[2]+c[2])/3 / 4)) in cs
-            for p in (a, b, c):
-                p_in = min_x - 1e-6 <= p[0] <= max_x + 1e-6 and min_z - 1e-6 <= p[2] <= max_z + 1e-6
-                p_strict = min_x + 1e-6 < p[0] < max_x - 1e-6 and min_z + 1e-6 < p[2] < max_z - 1e-6
-                if (inside_c and not p_in) or (not inside_c and p_strict):
-                    return False
-        return True
+        # THE BIG-MINT REFINEMENT (conditional, 2026-07-15): a large-radius interior Delaunay
+        # can leave a few grass tris with plan edges over the 8u on-grain gate (the
+        # horseshoe-scale r69+ mints). Split the longest such edge at its midpoint in BOTH
+        # owning tris (identical midpoint floats -> the weld holds) until none remain.
+        # STRICTLY a no-op on any mint that never trips it -- every frozen identity baseline
+        # (island E, the r31/r50/r52 benches) rebuilds bit-identically.
+        _kkm = lambda p: (round(p[0], 3), round(p[2], 3))  # noqa: E731
+        for _pass in range(64):
+            worst = None
+            for tri in fill:
+                for a, b in ((0, 1), (1, 2), (2, 0)):
+                    d = math.hypot(tri[a][0] - tri[b][0], tri[a][2] - tri[b][2])
+                    if d > 8.0 and (worst is None or d > worst[0]):
+                        worst = (d, tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))))
+            if worst is None:
+                break
+            owners = []
+            for fi, tri in enumerate(fill):
+                for a, b in ((0, 1), (1, 2), (2, 0)):
+                    if tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))) == worst[1]:
+                        owners.append((fi, a, b))
+                        break
+            if len(owners) != 2:
+                raise ValueError(f"an over-8u grass edge has {len(owners)} owner(s) -- "
+                                 f"change --seed/--radius")
+            (fi0, a0, b0) = owners[0]
+            pa, pb = fill[fi0][a0], fill[fi0][b0]
+            m = ((pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0, (pa[2] + pb[2]) / 2.0)
+            done = {fi for fi, _, _ in owners}
+            new_fill = [tri for fi, tri in enumerate(fill) if fi not in done]
+            for fi, a, b in owners:
+                tri = fill[fi]
+                c = [v for k2, v in enumerate(tri) if k2 not in (a, b)][0]
+                new_fill.append((tri[a], m, c))
+                new_fill.append((m, tri[b], c))
+            fill = new_fill
+        return fill, flips, was_land
 
-    placements, stamped_cell = ([], {}) if not stamps else G.place_stamps(
-        cells_used, stamps, box_ok=box_ok, seed=stamp_seed, n_patches=n_patches)
+    fill, ring_flips, was_land = grass_fill(ring)
+    # THE LIP-ONLY CHANGE: the mains field and the meadow stamps are drawn over the PRE-FIX mint's cells (its fill
+    # over the uncut crest), so a cell-lip mint's interior is the pre-fix mint's byte for byte -- the same quadrants,
+    # the same stamps, every world-forest / world-hill / world-mountain site still lawful -- and only the lip's new
+    # cells draw (from their own seeded stream, against the interior's picks).
+    fill0, _flips0, was_land0 = grass_fill(top0) if cell_lip else (fill, ring_flips, was_land)
 
     # OPT-IN rolling relief (world-XZ value noise; default relief_amp=0 => flat => byte-identity).
     r_amp = relief_amp * gspec.get("relief_scale", 1.0)
     r_seed = int(cx * 7 + cz * 13) & 0xFFFFFFFF if relief_seed is None else int(relief_seed)
-    rim_keys = {(round(x, 3), round(z, 3)) for (x, z) in rim}
+    rim_keys = {(round(x, 3), round(z, 3)) for (x, _y, z) in ring}
 
     def _edge_dist(x, z):
-        return math.sqrt(min((x - tx) ** 2 + (z - tz) ** 2 for (tx, _, tz) in top))
+        return math.sqrt(min((x - tx) ** 2 + (z - tz) ** 2 for (tx, _, tz) in top0))
 
     crest_y = {(round(top[i][0], 3), round(top[i][2], 3)): y for i, y in rim_y.items()}
+    crest_y.update({(round(p[0], 3), round(p[2], 3)): p[1] for cuts in crest_cuts.values() for _t, p, _s in cuts
+                    if p[1] != land_height})          # a cut beside a join crest keeps its lerped height
 
     def fill_y(x, z):
         if crest_y and (round(x, 3), round(z, 3)) in crest_y:
@@ -495,11 +643,54 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             return land_height
         return land_height + w * G.relief(x, z, seed=r_seed, amp=r_amp)
 
-    # global shore arc-length (continuous across cells -> the rock band chains block to block)
-    cum = [0.0] * nring
-    for i in range(1, nring):
-        cum[i] = cum[i-1] + math.hypot(outline[i][0]-outline[i-1][0], outline[i][1]-outline[i-1][1])
-    perim = cum[-1] + math.hypot(outline[0][0]-outline[-1][0], outline[0][1]-outline[-1][1])
+    # THE CELL-CLIPPED LIP, the grass half: every grass tri as its per-cell pieces (an interior lattice tri is one
+    # piece, itself; a beach mint keeps every tri whole, as before).
+    pieces = []                                          # [(cell, ((x, y, z) x3))]
+    for (a, b, c) in fill:
+        tri = tuple((p[0], fill_y(p[0], p[2]), p[2]) for p in (a, b, c))
+        if cell_lip:
+            pieces.extend(_cell_clip(tri))
+        else:
+            pieces.append(((math.floor(sum(p[0] for p in tri) / 3.0 / GRID),
+                            math.floor(sum(p[2] for p in tri) / 3.0 / GRID)), tri))
+    cells_used = sorted({(math.floor((a[0]+b[0]+c[0])/3 / 4), math.floor((a[2]+b[2]+c[2])/3 / 4))
+                         for (a, b, c) in fill0}
+                        | (set(bch["berm_cells"]) if bch is not None else set()))
+    cell_quad, cell_ori = G.assign_mains(cells_used, seed=mains_seed)
+    lip_cells = sorted({cell for cell, _tri in pieces} - set(cells_used))
+    if lip_cells:
+        q2, o2 = G.assign_mains_seeded(lip_cells, cell_quad, cell_ori, seed=mains_seed + LIP_MAINS_SEED)
+        cell_quad.update(q2)
+        cell_ori.update(o2)
+
+    if ground != "grass":
+        stamps = None                                    # meadow stamps are GRASS vocabulary
+    if stamps == "auto":
+        stamps = G.extract_stamps(disc, game=game)
+
+    def box_ok(box):
+        for (i, j) in box:
+            for (qx, qz) in ((4*i, 4*j), (4*i + 4, 4*j), (4*i, 4*j + 4), (4*i + 4, 4*j + 4)):
+                if any((qx - tx) ** 2 + (qz - tz) ** 2 < 0.25 for (tx, _, tz) in top0):
+                    return False
+                if not was_land0(qx, qz):
+                    return False
+        cs = set(box)
+        min_x = min(c[0] for c in box) * 4
+        max_x = max(c[0] for c in box) * 4 + 4
+        min_z = min(c[1] for c in box) * 4
+        max_z = max(c[1] for c in box) * 4 + 4
+        for (a, b, c) in fill0:
+            inside_c = (math.floor((a[0]+b[0]+c[0])/3 / 4), math.floor((a[2]+b[2]+c[2])/3 / 4)) in cs
+            for p in (a, b, c):
+                p_in = min_x - 1e-6 <= p[0] <= max_x + 1e-6 and min_z - 1e-6 <= p[2] <= max_z + 1e-6
+                p_strict = min_x + 1e-6 < p[0] < max_x - 1e-6 and min_z + 1e-6 < p[2] < max_z - 1e-6
+                if (inside_c and not p_in) or (not inside_c and p_strict):
+                    return False
+        return True
+
+    placements, stamped_cell = ([], {}) if not stamps else G.place_stamps(
+        cells_used, stamps, box_ok=box_ok, seed=stamp_seed, n_patches=n_patches)
 
     def shore_s(x, z):
         bi, bd = 0, None
@@ -522,8 +713,11 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     rv0, rv1 = ROCK_V[0] + gspec["wall_dv"], ROCK_V[1] + gspec["wall_dv"]
     strip_w = ru1 - ru0
 
+    cut_s = {p: (sk + shore_origin if shore_origin else sk)  # a cut's own arc-length, not its nearest vertex's
+             for cuts in crest_cuts.values() for _t, p, sk in cuts}
+
     def rock_uvs(pts3):
-        s = [shore_s(p[0], p[2]) for p in pts3]
+        s = [cut_s[p] if p in cut_s else shore_s(p[0], p[2]) for p in pts3]
         ref = s[0]
         s = [ref + ((sk - ref + perim / 2.0) % perim) - perim / 2.0 for sk in s]
         ph = [sk * ROCK_DENSITY for sk in s]
@@ -567,20 +761,45 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             cand_a = (up(o0, o1, r0), up(r0, o1, r1))
             cand_b = (up(o0, o1, r1), up(o0, r1, r0))
             split = cand_a if _min_ny(cand_a) >= _min_ny(cand_b) else cand_b
+        elif i in crest_cuts:
+            # THE CREST FAN: the crest chain r0 -> cuts -> r1 over the one base edge; each sub-edge fans to the base
+            # vertex on its side of the segment's middle, and one tri spans the base at the switch. With no cut this
+            # is exactly the split below: (o0, o1, r0) + (r0, o1, r1).
+            # A corner-snapped cut can leave a short crest sub-edge lying along a lattice line, pointing at a base
+            # vertex; fanned to that vertex it stands near vertical (the engine's walk filter would drop it), so the
+            # switch moves to whichever place leans the fan's worst tri least, the middle rule winning a tie.
+            ts = [0.0] + [t for t, _p, _s in crest_cuts[i]] + [1.0]
+            chain = [r0] + [p for _t, p, _s in crest_cuts[i]] + [r1]
+
+            def _fan(h_):
+                return [up(o0, o1, chain[h_])] + [up(o0 if m < h_ else o1, chain[m], chain[m + 1])
+                                                  for m in range(len(chain) - 1)]
+
+            def _lean(tris_):
+                worst = 1.0
+                for (a_, b_, c_) in tris_:
+                    e1_ = [b_[q] - a_[q] for q in range(3)]
+                    e2_ = [c_[q] - a_[q] for q in range(3)]
+                    gn_ = [e1_[1]*e2_[2]-e1_[2]*e2_[1], e1_[2]*e2_[0]-e1_[0]*e2_[2], e1_[0]*e2_[1]-e1_[1]*e2_[0]]
+                    worst = min(worst, abs(gn_[1]) / (math.sqrt(sum(q*q for q in gn_)) or 1.0))
+                return worst
+            h_mid = next(m for m in range(len(chain) - 1) if ts[m] + ts[m + 1] >= 1.0)
+            # beside a JOIN column the fan is the stock-pinned quad's own split, subdivided (switch at r0: its cuts
+            # are collinear), so the J gates judge the very plane the old wall had
+            h = 0 if {i, j} & set(rim_y) else max(range(len(chain)),
+                                                   key=lambda h_: (round(_lean(_fan(h_)), 9), h_ == h_mid))
+            split = _fan(h)
         else:
             split = (up(o0, o1, r0), up(r0, o1, r1))
         for tri in split:
             uvs = rock_uvs(tri)
             parent.append((tuple((p[0], p[1], p[2], u, v) for p, (u, v) in zip(tri, uvs)), idw, "rock"))
 
-    for (a, b, c) in fill:                               # the grass (mains cells; stamped cells replaced below)
-        ccx = (a[0]+b[0]+c[0])/3
-        ccz = (a[2]+b[2]+c[2])/3
-        cell = (math.floor(ccx / 4), math.floor(ccz / 4))
+    for cell, tri in pieces:                             # the grass (mains cells; stamped cells replaced below)
         if cell in stamped_cell:
             continue
         quad, ori = cell_quad[cell], cell_ori[cell]
-        tri = up(*(( (p[0], fill_y(p[0], p[2]), p[2]) for p in (a, b, c) )))
+        tri = up(*tri)
         corners = tuple((p[0], p[1], p[2], *G.ground_uv(p[0], p[2], cell, quad, ori, ground))
                         for p in tri)
         parent.append((corners, idg, "main"))
@@ -675,6 +894,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                                 flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
     return {"blocks": blocks, "outline": outline, "rim": rim, "rim_y": rim_y, "shore_origin": shore_origin,
+            "crest_cuts": sum(len(c) for c in crest_cuts.values()),
             "seed": seed, "center": (cx, cz),
             "was_land": was_land, "top": top, "placements": placements, "ring_edge_flips": ring_flips,
             "ground": ground, "beach": bch,
@@ -685,6 +905,58 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             # reproduces <20% of lawful stock ground -- see texgates' calibration docstring).
             "mains_field": {cell: (cell_quad[cell], cell_ori[cell]) for cell in cell_quad},
             "world": {"pos": gpos, "tris": gtris, "meta": gmeta, "nrm": gnrm}}
+
+
+#: THE LIP-STREAK DETECTOR's thresholds: a flat (|normal.y| > 0.5), real (area > 0.05 u^2) Terrain tri whose in-plane
+#: 3D->UV Jacobian has a singular-value ratio over this is the streaked grass band (its map near rank 1). Stock's
+#: disc-1 lip grass peaks at 5.8 (p50 2.00, the atlas's own 2:1); the pre-fix kit lip reached 1e33.
+LIP_STREAK_RATIO = 20.0
+
+
+def uv_streak(pts, uvs, *, ratio: float = LIP_STREAK_RATIO, min_area: float = 0.05, min_ny: float = 0.5):
+    """THE LIP-STREAK DETECTOR on one tri: its singular-value ratio when it is flat, real and over ``ratio`` (inf when
+    the map is rank 1 outright), else ``None``. ``pts`` = three (x, y, z), ``uvs`` = three (u, v)."""
+    (ax, ay, az), (bx, by, bz), (qx, qy, qz) = pts
+    e1, e2 = (bx - ax, by - ay, bz - az), (qx - ax, qy - ay, qz - az)
+    n = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+    nl = math.sqrt(n[0] ** 2 + n[1] ** 2 + n[2] ** 2)
+    if nl / 2.0 <= min_area or abs(n[1]) / nl <= min_ny:
+        return None
+    l1 = math.sqrt(e1[0] ** 2 + e1[1] ** 2 + e1[2] ** 2)
+    t1 = tuple(c / l1 for c in e1)                       # an in-plane orthonormal frame (t1, t2)
+    t2 = (n[1] * t1[2] - n[2] * t1[1], n[2] * t1[0] - n[0] * t1[2], n[0] * t1[1] - n[1] * t1[0])
+    t2 = tuple(c / nl for c in t2)
+    dot = lambda a, b: a[0] * b[0] + a[1] * b[1] + a[2] * b[2]  # noqa: E731
+    e11, e12, e21, e22 = dot(e1, t1), dot(e2, t1), dot(e1, t2), dot(e2, t2)
+    det_e = e11 * e22 - e12 * e21
+    (u0, v0), (u1, v1), (u2, v2) = uvs
+    d11, d12, d21, d22 = u1 - u0, u2 - u0, v1 - v0, v2 - v0
+    j11 = (d11 * e22 - d12 * e21) / det_e                # J = D E^-1
+    j12 = (-d11 * e12 + d12 * e11) / det_e
+    j21 = (d21 * e22 - d22 * e21) / det_e
+    j22 = (-d21 * e12 + d22 * e11) / det_e
+    f2 = j11 ** 2 + j12 ** 2 + j21 ** 2 + j22 ** 2       # sigma1^2 + sigma2^2
+    dj = abs(j11 * j22 - j12 * j21)                      # sigma1 * sigma2
+    root = math.sqrt(max(f2 * f2 - 4.0 * dj * dj, 0.0))
+    s1, s2 = math.sqrt((f2 + root) / 2.0), math.sqrt(max((f2 - root) / 2.0, 0.0))
+    r = s1 / s2 if s2 > 0.0 else math.inf
+    return r if r > ratio else None
+
+
+def lip_streak_tris(built: dict, **kw) -> list:
+    """Every :func:`uv_streak` tri of a :func:`build_landmass` result, as ``[(ratio, area, (cx, cz), fam), ...]``."""
+    gpos, gtris, gmeta = built["world"]["pos"], built["world"]["tris"], built["world"]["meta"]
+    out = []
+    for tri, (_blk, _idall, fam, uvv) in zip(gtris, gmeta):
+        pts = [gpos[v] for v in tri]
+        r = uv_streak(pts, uvv, **kw)
+        if r is not None:
+            e1 = [pts[1][k] - pts[0][k] for k in range(3)]
+            e2 = [pts[2][k] - pts[0][k] for k in range(3)]
+            area = 0.5 * math.sqrt((e1[1] * e2[2] - e1[2] * e2[1]) ** 2 + (e1[2] * e2[0] - e1[0] * e2[2]) ** 2
+                                   + (e1[0] * e2[1] - e1[1] * e2[0]) ** 2)
+            out.append((r, area, (sum(p[0] for p in pts) / 3.0, sum(p[2] for p in pts) / 3.0), fam))
+    return out
 
 
 def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
@@ -706,7 +978,10 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
     gate. They follow :func:`~ff9mapkit.world.transplant.wang_carry_gate`'s policy: **WARN by
     default** (``ok`` stays True, ``warn`` surfaces the finding, ``clean`` is unaffected),
     ``enforce_texgates=True`` folds a failure into ``clean``, ``allow_texgates=True`` waives even
-    then. Purely read-only -- it mutates no byte of ``built`` and changes no output byte."""
+    then. Purely read-only -- it mutates no byte of ``built`` and changes no output byte.
+
+    ``lip_streaks`` counts :func:`lip_streak_tris` (THE LIP-STREAK DETECTOR, report-only: a cell-lip mint reads 0;
+    a ``cell_lip=False`` or beach mint can read more, and ``clean`` does not move for it)."""
     from .extract import decode_id
     gpos = built["world"]["pos"]
     gtris = built["world"]["tris"]
@@ -825,7 +1100,7 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2,
     report.update(cracks=cracks, down_facing=down, walk_filter_fails=steep, grass_over_8u=big,
                   uv_out_of_region=oob, holes=holes, holes_sampled=tot,
                   open_edges=len(open_bad), missing_faces=len(miss_faces),
-                  main_slope_p99=round(main_slope_p99, 2))
+                  main_slope_p99=round(main_slope_p99, 2), lip_streaks=len(lip_streak_tris(built)))
 
     # the coastline SHAPE gate: the generated outline must sit inside the measured FF9 language
     # (real disc-1 coasts: med turn 22 deg/8u, corner(45-80) 15%, acute(>=80) 7%)

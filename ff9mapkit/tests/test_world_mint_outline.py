@@ -1,10 +1,19 @@
-"""The custom-outline mint (``island.build_landmass(outline=, rim_at=, shore_origin=)``, world-river rung 1) and
-the identity net that keeps every blob mint byte-identical through it.
+"""The custom-outline mint (``island.build_landmass(outline=, rim_at=, shore_origin=)``, world-river rung 1), THE
+CELL-CLIPPED LIP (the lip-streak fix), and the identity nets that hold every blob mint byte for byte through both.
 
-THE IDENTITY NET: digests of ``build_landmass`` frozen from the code BEFORE the custom outline existed, over every
+THE IDENTITY NETS hash every block's tris and POS/NRM/UV/TAN channels as f64, plus the outline and the rim, over every
 path the blob mint takes -- one lobe, island E's three, two lobes, rolling relief, desert ground, the big-mint
-refinement, the seam wrap into column -1 and (install-gated) a beach mint. Each hashes every block's tris and
-POS/NRM/UV/TAN channels as f64, plus the outline and the rim. A miss means a blob mint changed."""
+refinement, the seam wrap into column -1 and (install-gated) a beach mint. A miss means a blob mint changed.
+
+* BLOB_MINTS' digests (LEGACY) -- frozen from the code BEFORE the custom outline existed; ``cell_lip=False`` must
+  still give them bit for bit (the pre-fix mint the July world-forest / world-hill / world-mountain benches were
+  proven on).
+* CELL_LIP_DIGESTS -- the default mint, RE-FROZEN when the cell-clipped lip landed. Why they moved: the streaked
+  grass band along every kit cliff lip (a lip tri spanning two 4u cells wore its centroid cell's CLAMPED mains map,
+  near rank 1). The crest is now snapped onto and cut at the lattice lines and the grass clipped per cell, so the lip
+  tris, the crest and the wall beside each cut changed; the interior (the mains field, the stamps, every tri over 6u
+  from the rim) did not -- ``test_cell_lip_changes_only_the_lip`` holds that.
+* The beach mint keeps the old lip by design (THE LADDER MINT is falsified and superseded): one digest."""
 from __future__ import annotations
 
 import hashlib
@@ -18,6 +27,7 @@ from ff9mapkit import config
 from ff9mapkit.world import island as I
 from ff9mapkit.world.extract import CH_NRM, CH_POS, CH_TAN, CH_UV
 
+#: the blob mints and their LEGACY (pre-fix, ``cell_lip=False``) digests
 BLOB_MINTS = {
     "r20-seed5": (dict(center=(224.0, -96.0), base_radius=20.0, seed=5.0),
                   "2f411c55b041f59a861d73589b86b2251728bcd50032fa5acfbd57b4dd143789"),
@@ -38,6 +48,24 @@ BLOB_MINTS = {
 }
 BEACH_MINT = (dict(center=(672.0, -608.0), base_radius=18.0, seed=9.0, beach={"bearing": (110.0, 160.0)}),
               "651c111fe957e448a6256c84ca2bc3780e39c7aef6c4b31a955168daa25436a4")
+#: the same blob mints, DEFAULT path (the cell-clipped lip) -- re-frozen with the lip-streak fix (module docstring)
+CELL_LIP_DIGESTS = {
+    "big-r69": "b8a7087e31f9735bae1c067ca5828ec0567b235f9f5c4e3e4edc88c7ed6075da",
+    "desert": "6a44c45f97632256ce7e944c4462e8303be030d82e6b26bbefa59636472dbb94",
+    "island-E": "5e366437fcfbe45ce0bc5c54a0906bf6ad8c312927f94fce98f9fd0778234101",
+    "lobes2": "12e46c9316c7c160420df98a0fafd2f5017c8faad6bc550a212c34a1009e6fad",
+    "r20-seed5": "4db6ca23431531613159bcbb2ea33bf8c0af4aa82af01c33de8e196a3f2087f4",
+    "relief": "7c4101aea57a7a6871a61c350334786f60299508ee21814f898030db04fc6f05",
+    "seam-wrap": "6b041356913b33fcf46300872189577762502b55df575330cba38130dd37916e",
+    "uaho-bench": "9cfd2ed2da4e2829e53d32b4529d63570559697de036c35e6da1e3d990041b30",
+}
+#: blob mints whose PRE-FIX lip streaks: the detector's count on ``cell_lip=False`` (found by a 60-mint sweep)
+STREAKY_MINTS = {
+    "r40-seed7": (dict(center=(672.0, -608.0), base_radius=40.0, seed=7.0, n_patches=0), 2),
+    "r40-seed1": (dict(center=(672.0, -608.0), base_radius=40.0, seed=1.0, n_patches=0), 1),
+    "r46-seed1": (dict(center=(672.0, -608.0), base_radius=46.0, seed=1.0, n_patches=0), 2),
+    "r18-seed42-lobes3": (dict(center=(672.0, -608.0), base_radius=18.0, seed=42.0, lobes=3, n_patches=0), 1),
+}
 
 
 def mint_digest(built) -> str:
@@ -54,9 +82,126 @@ def mint_digest(built) -> str:
 
 
 @pytest.mark.parametrize("name", sorted(BLOB_MINTS))
-def test_blob_mints_are_byte_identical(name):
+def test_legacy_blob_mints_are_byte_identical(name):
     kw, sha = BLOB_MINTS[name]
-    assert mint_digest(I.build_landmass(**kw)) == sha, f"the {name} blob mint moved"
+    assert mint_digest(I.build_landmass(**kw, cell_lip=False)) == sha, f"the {name} pre-fix (cell_lip=False) mint moved"
+
+
+@pytest.mark.parametrize("name", sorted(BLOB_MINTS))
+def test_blob_mints_are_byte_identical(name):
+    kw, _legacy = BLOB_MINTS[name]
+    assert mint_digest(I.build_landmass(**kw)) == CELL_LIP_DIGESTS[name], f"the {name} blob mint moved"
+
+
+# ---- THE LIP-STREAK DETECTOR + THE CELL-CLIPPED LIP ---------------------------------------------------------------
+
+def test_uv_streak_reads_the_jacobian_in_the_tris_own_plane():
+    """The instrument, calibrated: the mains map (4u -> one quadrant, 0.0605 u x 0.0303 v) reads its own 2:1; a map
+    with two corners clamped together reads rank 1; a tilted tri is judged in its own plane, not in plan; walls and
+    tiny tris are not judged."""
+    sq = [(0.0, 3.2, 0.0), (4.0, 3.2, 0.0), (0.0, 3.2, 4.0)]
+    mains = [(0.0, 0.0), (0.0605, 0.0), (0.0, 0.0303)]
+    assert I.uv_streak(sq, mains, ratio=0.0) == pytest.approx(0.0605 / 0.0303)
+    assert I.uv_streak(sq, mains) is None
+    assert I.uv_streak(sq, [(0.0, 0.0), (0.0605, 0.0), (0.0605, 1e-9)]) > 1e6
+    assert I.uv_streak(sq, [(0.0, 0.0), (0.0605, 0.0), (0.0605, 0.0)]) == math.inf
+    tilt = [(0.0, 0.0, 0.0), (4.0, 2.0, 0.0), (0.0, 0.0, 4.0)]          # its x edge is sqrt(20) long in its plane
+    assert I.uv_streak(tilt, [(0.0, 0.0), (math.sqrt(20.0), 0.0), (0.0, 4.0)], ratio=0.0) == pytest.approx(1.0)
+    assert I.uv_streak([(0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (0.0, 3.2, 1.0)], mains, ratio=0.0) is None   # a wall
+    assert I.uv_streak([(0.0, 3.2, 0.0), (0.3, 3.2, 0.0), (0.0, 3.2, 0.3)], mains, ratio=0.0) is None  # 0.045 u^2
+
+
+@pytest.mark.parametrize("name", sorted(STREAKY_MINTS))
+def test_the_cell_lip_mints_no_lip_streak(name):
+    """THE DETECTOR, red on the old mint and green on the new: these mints' lips wore streaked grass before the fix
+    (a lip tri spanning two cells, two corners clamped onto one edge); the cell-clipped lip mints none."""
+    kw, n_old = STREAKY_MINTS[name]
+    legacy = I.build_landmass(**kw, cell_lip=False)
+    old = I.lip_streak_tris(legacy)
+    assert len(old) == n_old and all(fam == "main" for *_x, fam in old)
+    assert I.verify_landmass(legacy)["lip_streaks"] == n_old
+    built = I.build_landmass(**kw)
+    assert I.lip_streak_tris(built) == []
+    rep, rep0 = I.verify_landmass(built), I.verify_landmass(legacy)
+    assert rep["lip_streaks"] == 0
+    assert (rep["cracks"], rep["open_edges"], rep["holes"], rep["down_facing"], rep["grass_over_8u"],
+            rep["missing_faces"]) == (0,) * 6, rep
+    assert rep["walk_filter_fails"] == rep0["walk_filter_fails"]   # the wider sweep's acute corners, as before
+
+
+@pytest.mark.parametrize("name", sorted(BLOB_MINTS))
+def test_every_frozen_blob_mint_is_streak_free_and_clean(name):
+    kw, _legacy = BLOB_MINTS[name]
+    built = I.build_landmass(**kw)
+    assert I.lip_streak_tris(built) == []
+    rep = I.verify_landmass(built)
+    assert (rep["cracks"], rep["open_edges"], rep["holes"], rep["down_facing"], rep["walk_filter_fails"],
+            rep["grass_over_8u"], rep["missing_faces"], rep["lip_streaks"]) == (0,) * 8 and rep["clean"], rep
+
+
+@pytest.mark.parametrize("name", ["island-E", "uaho-bench", "big-r69"])
+def test_cell_lip_changes_only_the_lip(name):
+    """THE LIP-ONLY CHANGE: against the pre-fix mint, the mains field holds on every pre-fix cell, the stamps land
+    where they did, and no tri more than 6u from the rim differs -- a re-mint keeps its interior, so every
+    world-forest / world-hill / world-mountain site stays lawful."""
+    kw, _legacy = BLOB_MINTS[name]
+    old, new = I.build_landmass(**kw, cell_lip=False), I.build_landmass(**kw)
+    assert all(new["mains_field"][c] == qo for c, qo in old["mains_field"].items())
+    assert new["placements"] == old["placements"]
+
+    def tris(b):
+        gpos, gtris, gmeta = b["world"]["pos"], b["world"]["tris"], b["world"]["meta"]
+        return {frozenset((tuple(gpos[v]), tuple(uv)) for v, uv in zip(t, m[3])) for t, m in zip(gtris, gmeta)}
+    rim = np.asarray(old["rim"])
+    gone = tris(old) - tris(new)
+    assert gone
+    far = [t for t in gone if min(float(np.hypot(rim[:, 0] - p[0], rim[:, 1] - p[2]).min()) for p, _uv in t) > 6.0]
+    assert far == []
+
+
+def test_lip_grass_wears_its_own_cells_map_exactly():
+    """THE CELL-CLIPPED LIP's mechanism: every grass tri lies inside ONE 4u cell and its UVs are that cell's minted
+    map, unclamped -- so every flat grass tri, the lip included, reads the mains map's own 2:1."""
+    from ff9mapkit.world import grassland as G
+    built = I.build_landmass(center=(672.0, -608.0), base_radius=40.0, seed=7.0, n_patches=0)
+    gpos, gtris, gmeta = built["world"]["pos"], built["world"]["tris"], built["world"]["meta"]
+    field = built["mains_field"]
+    judged = 0
+    for tri, (_blk, _idall, fam, uvv) in zip(gtris, gmeta):
+        if fam != "main":
+            continue
+        pts = [gpos[v] for v in tri]
+        cell = (math.floor(sum(p[0] for p in pts) / 12.0), math.floor(sum(p[2] for p in pts) / 12.0))
+        assert all(4 * cell[0] <= p[0] <= 4 * cell[0] + 4 and 4 * cell[1] <= p[2] <= 4 * cell[1] + 4 for p in pts), pts
+        assert all(abs(a - b) < 1e-12 for p, uv in zip(pts, uvv)
+                   for a, b in zip(G.ground_uv(p[0], p[2], cell, *field[cell]), uv))
+        r = I.uv_streak(pts, uvv, ratio=0.0)
+        if r is not None:
+            judged += 1
+            assert r == pytest.approx(0.0605 / 0.0303, abs=0.01), (pts, uvv)
+    assert judged > 100
+
+
+def test_the_crest_is_cut_on_the_lattice_and_the_wall_fans_to_it():
+    """The crest half: no crest edge strictly crosses a 4u lattice line (each cut sits exactly on one), and the rock
+    band welds to every cut as a crest corner, V on the language's top row."""
+    built = I.build_landmass(center=(672.0, -608.0), base_radius=40.0, seed=7.0, n_patches=0)
+    assert built["crest_cuts"] > 40
+    gpos, gtris, gmeta = built["world"]["pos"], built["world"]["tris"], built["world"]["meta"]
+    crest = {}
+    top_v = I.ROCK_V[0] + (I.ROCK_V[1] - I.ROCK_V[0])
+    for t, (_b, _i, fam, uvv) in zip(gtris, gmeta):
+        if fam == "rock":
+            for v, (_u, vv) in zip(t, uvv):
+                if gpos[v][1] in (0.0, 3.2):                   # a block-border clip point mid-face lerps its V
+                    assert vv == (top_v if gpos[v][1] > 0.0 else I.ROCK_V[0])
+            hi = [tuple(gpos[v]) for v in t if gpos[v][1] == 3.2]
+            for a, b in zip(hi, hi[1:]):                       # a crest edge of the band
+                for k in (0, 2):
+                    lo, up = sorted((a[k], b[k]))
+                    assert math.floor(lo / 4.0) == math.floor(up / 4.0) or up % 4.0 == 0.0, (a, b)
+            crest.update((p, None) for p in hi)
+    assert sum(1 for p in crest if p[0] % 4.0 == 0.0 or p[2] % 4.0 == 0.0) >= built["crest_cuts"]
 
 
 def test_beach_mint_is_byte_identical():
@@ -85,15 +230,25 @@ def wobbly_ring(cx=672.37, cz=-608.21, r=26.0, n=30, ccw=True):
 @pytest.mark.parametrize("ccw", [True, False])
 def test_custom_outline_mints_a_closed_wall(ccw):
     """Either winding: the ring is the coast verbatim, the rim insets INSIDE it, and every geometry gate is clean --
-    no crack, no open edge, no hole, nothing wound down, nothing the engine's walk filter drops."""
+    no crack, no open edge, no hole, nothing wound down, nothing the engine's walk filter drops, no lip streak. The
+    rim is the exact rim_run inset, bar THE CELL-CLIPPED LIP's snap: a crest coordinate within LATTICE_SNAP of a
+    lattice line sits on it (the pre-fix mint keeps the inset exactly)."""
     ring = wobbly_ring(ccw=ccw)
     built = I.build_landmass(center=(672.0, -608.0), outline=ring, n_patches=0)
     assert built["outline"] == ring
     assert all(I._pip(x, z, ring) for x, z in built["rim"])
-    assert all(abs(math.dist(o, r) - 1.0) < 1e-9 for o, r in zip(ring, built["rim"]))   # rim_run 1, exactly
+    legacy = I.build_landmass(center=(672.0, -608.0), outline=ring, n_patches=0, cell_lip=False)
+    assert all(abs(math.dist(o, r) - 1.0) < 1e-9 for o, r in zip(ring, legacy["rim"]))   # rim_run 1, exactly
+    snapped = 0
+    for (rx, rz), (ex, ez) in zip(built["rim"], legacy["rim"]):
+        for got, want in ((rx, ex), (rz, ez)):
+            if got != want:
+                assert got % 4.0 == 0.0 and abs(got - want) < I.LATTICE_SNAP, (got, want)
+                snapped += 1
+    assert 0 < snapped < len(ring)
     rep = I.verify_landmass(built)
     assert (rep["cracks"], rep["open_edges"], rep["holes"], rep["down_facing"], rep["walk_filter_fails"],
-            rep["grass_over_8u"], rep["missing_faces"]) == (0, 0, 0, 0, 0, 0, 0), rep
+            rep["grass_over_8u"], rep["missing_faces"], rep["lip_streaks"]) == (0, 0, 0, 0, 0, 0, 0, 0), rep
 
 
 def test_rim_at_pins_a_crest_exactly_and_the_grass_meets_it():
