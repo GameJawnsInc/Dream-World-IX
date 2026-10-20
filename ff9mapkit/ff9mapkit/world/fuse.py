@@ -371,7 +371,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             reach = max(96.0, radius + 10.0)
         else:
             _strict_keys(table, row, {"center", "near", "donor", "reach", "ground", "rot",
-                                      "rock_height"}
+                                      "rock_height", "spread"}
                          if table == "mountain" else {"center", "near", "donor", "reach",
                                                       "spread", "rot"})
             reach = float(row.get("reach", 96.0))
@@ -399,6 +399,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
                 print(note)
             res = IN.carve_mountain(soup, donor=donor, disc=disc, game=game,
                                     rock_height=float(row.get("rock_height", 1.0)),
+                                    spread=float(row.get("spread", 1.0)),
                                     rot_deg=rot, **loc, **extra)
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,
                            parts=res.get("changed_parts"))

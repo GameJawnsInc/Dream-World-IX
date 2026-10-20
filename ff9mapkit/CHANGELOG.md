@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-mountain --spread`: a carried mountain, wider
+- `world-mountain --spread S` (1.0–1.5) carries the massif S times wider in plan about its centre, heights kept: the
+  massif twin of `world-forest --spread`. The rock, its rim, the alcove plugs and any falls/river parts all move
+  together, so every weld holds; UVs are carried. With `--rock-height S` as well, the mountain scales whole.
+  `world-fuse`'s `[[mountain]]` takes `spread` too.
+- The rock-rigid gate measures the carry against the widened shape, so any deformation it does not declare is
+  still refused. A widened rim edge longer than the donor's longest is split along itself (renders the same), as
+  the forest's is, so the seam round the foot never gets coarser than the donor's.
+- Offline, 46 of 48 widened carves pass every gate (the five donors, four angles, ×1.25 / ×1.5, and the whole
+  scale). The horseshoe refuses two placements where its widened falls straddles a block border. In game: pending.
+
 ### Added — `world-fuse` recipes can turn and size what they carry
 - A `[[forest]]` row now takes `spread` and `rot`, and a `[[mountain]]` row takes `rot` and `rock_height`: the same
   handles as `world-forest --spread/--rot` and `world-mountain --rot/--rock-height`, under the same names. A row

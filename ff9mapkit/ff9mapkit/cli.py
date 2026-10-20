@@ -5594,7 +5594,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         res = IN.carve_mountain(soup, max_apron_lift=args.max_apron_lift,
                                 gblend=args.gblend if args.gblend is not None else IN.MTN_GBLEND,
                                 foot_course_rects=fc_rects, rock_height=args.rock_height,
-                                rot_deg=args.rot,
+                                rot_deg=args.rot, spread=args.spread,
                                 center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
                                 ground=args.ground, disc=args.disc, game=args.game)
@@ -5626,6 +5626,9 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         print(f"rock height x{rh['scale']:g}: {rh['free']} rock positions stretched about {rh['pinned']} "
               f"pinned (the rim never moves), tallest rise +{rh['rise_max']:.2f}u; the rigidity gate measured "
               f"the carry against the stretched shape.")
+    if r.get("spread", 1.0) != 1.0:
+        print(f"spread x{r['spread']:g}: the whole carry {r['spread']:g} times wider in plan, heights kept; the "
+              f"rigidity gate measured it against the widened shape.")
     ens = (f" + THE ENSEMBLE CARRY ({r['ensemble_tris']} falls/river/object tris riding "
            f"the same rigid map, Donor.txt -> {res['donor_ref']})") if r.get("ensemble_tris") else ""
     print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']:g}deg across "
@@ -10402,6 +10405,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "and zip are unchanged. In-game passed to x2.0 on Uaho (terrain study X1). Refused "
                           "for a massif with loose geometry on its face (the horseshoe's falls/river mouth) "
                           "and for a peak above stock's tallest terrain (42.68). Default 1.0 = the rigid carry.")
+    wmt.add_argument("--spread", type=float, default=1.0, metavar="S",
+                     help="carry the massif S times wider in plan (1.0-1.5) about its centre, heights kept: the "
+                          "rock, its rim, plugs and any falls/river parts move alike, UVs carried, and every gate "
+                          "judges the result. With --rock-height S as well it scales uniformly. Needs a bigger "
+                          "island: the footprint grows S squared. Default 1.0 = the rigid carry.")
     wmt.add_argument("--gblend", type=float, default=None, metavar="U",
                      help="ground-apron blend reach in units (default 12.0, the proven hill-at-scale "
                           "value): how far out from the rigid rim the grass apron spreads its rise. "
