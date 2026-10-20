@@ -2222,3 +2222,136 @@ def promote(stage, mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=Non
         raise RiverRefused("P0", f"{len(bad)} deployed file(s) differ from the audited stage, e.g. {bad[:3]}")
     return [dst for _, dst in pairs]
 
+
+# ---- taking a deploy back out: `world-river --remove` -------------------------------------------------------------
+#
+# B1 refuses ANY override on the target cells, this verb's own earlier deploy included, and it stays that way: a
+# redeploy is a REMOVAL followed by an ordinary run, which re-reads the whole stack on clean cells. The removal deletes
+# exactly the files the folder's ledger says this verb wrote at the placement's cells, on disc 1 and the disc-4 mirror,
+# all or nothing. (Not an --allow-overwrite: that would leave the verb a waiver past B1, could not take a river out,
+# and would orphan any cell an earlier kit's composition covered and this one does not.)
+
+#: the verb a ledger row must have run (its argv, :func:`mesh.ledger_verb`) for :func:`remove_deploy` to delete its bytes
+REMOVE_VERB = "world-river"
+
+
+def ledger_shift(argv):
+    """The whole-block shift a world-river ledger row's ``argv`` placed at (its last ``--at``), or ``None`` when the
+    argv does not say: ``--at auto``, or no ``--at`` that parses."""
+    toks = [str(t) for t in (argv or ())]
+    val = None
+    for i, tok in enumerate(toks):
+        if tok == "--at" and i + 1 < len(toks):
+            val = toks[i + 1]
+        elif tok.startswith("--at="):
+            val = tok[len("--at="):]
+    if val is None or val.strip().lower() == "auto":
+        return None
+    try:
+        dx, dz = (float(v) for v in val.split(","))
+        return block_shift((dx, dz))
+    except (ValueError, RiverRefused):
+        return None
+
+
+def _same_shift(a, b) -> bool:
+    from . import mesh as M_
+    return a[1] == b[1] and (a[0] - b[0]) % M_.GRID_COLS == 0            # the x-torus: 24 columns is no shift
+
+
+def _row_who(e) -> str:
+    argv = " ".join(str(t) for t in (e.get("argv") or ())) or "(argv unrecorded)"
+    if len(argv) > 100:                                  # elide the middle: a long absolute folder must not hide --at
+        argv = argv[:40] + " ... " + argv[-55:]
+    return f"`{argv}` at {e.get('utc')}"
+
+
+def deploy_ownership(cells, mod_folder: str, *, shift, discs=(1, 4), game=None, lod: str = "0_1") -> dict:
+    """THE OWNERSHIP READ (reads only): every override file in ``mod_folder`` on ``cells`` (wrapped labels) on each of
+    ``discs``, judged against the folder's deploy ledger. A file is THIS deploy's when
+      1. the LAST ledger row for its (disc, cell, part) records exactly its bytes now -- no hand edit, no later writer
+         and no removal since; and
+      2. some row for that target with those bytes ran :data:`REMOVE_VERB` at this placement: a row whose ``--at``
+         names another whole-block shift is another deploy. ``--at auto`` does not say, and B1 never lets two of this
+         verb's deploys share a cell in one folder.
+    A later re-copy of the same bytes by another writer (a ``world-mirror`` run) keeps them ours: the content is.
+    Returns ``{"owned": [{"path", "disc", "cell", "part", "sha256"}], "foreign": [(path, disc, why)]}``."""
+    import hashlib
+    from pathlib import Path
+    from .. import config
+    from . import mesh as M_
+    rows = defaultdict(list)
+    for e in M_.read_ledger(Path(config.find_game_path(game)) / mod_folder):
+        try:
+            rows[(int(e["write_disc"]), (int(e["cell"][0]), int(e["cell"][1])), str(e["part"]))].append(e)
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue                                        # a row of another shape never claims a file
+    owned, foreign = [], []
+    for d in discs:
+        for p in map(Path, M_.existing_overrides(cells, mod_folder, disc=d, lod=lod, game=game)):
+            m = _STAGED.fullmatch(p.name)
+            if not m:
+                foreign.append((p, d, "not a file this verb writes"))
+                continue
+            cell, part = (int(m[1]), int(m[2])), m[3]
+            sha = hashlib.sha256(p.read_bytes()).hexdigest()
+            rs = rows.get((d, cell, part), [])
+            if not rs:
+                foreign.append((p, d, "no ledger row: a pre-ledger deploy, a hand copy or a tool outside the write "
+                                      "seam"))
+                continue
+            last = rs[-1]
+            if last.get("sha256") != sha:
+                why = ("the ledger last REMOVED it; these bytes came back without a row" if last.get("op") == "remove"
+                       else "its bytes are not the last ledgered write: a hand edit, or a writer outside the seam")
+                foreign.append((p, d, f"{why} (last row: {_row_who(last)})"))
+                continue
+            mine = [r for r in rs if r.get("sha256") == sha and M_.ledger_verb(r.get("argv")) == REMOVE_VERB
+                    and (ledger_shift(r.get("argv")) is None or _same_shift(ledger_shift(r.get("argv")), shift))]
+            if not mine:
+                foreign.append((p, d, f"another deploy's: last written by {_row_who(last)}"))
+                continue
+            owned.append({"path": p, "disc": d, "cell": cell, "part": part, "sha256": sha})
+    return {"owned": owned, "foreign": foreign}
+
+
+def remove_deploy(cells, mod_folder: str, *, shift, discs=(1, 4), game=None, lod: str = "0_1",
+                  dry_run: bool = False) -> dict:
+    """THE REMOVAL: :func:`deploy_ownership`, then delete exactly the files it owns. ALL OR NOTHING: R1 names every
+    foreign file before the first delete, R0 refuses cells that hold nothing of ours. Per file it re-hashes first (a
+    concurrent session writing between the read and the delete stops it, R1, naming what was already removed --
+    re-run to finish, the rest are still ours), parks ``<name>.bak-<ts>`` beside it (:func:`mesh.park_backup`, a suffix
+    the occupancy read and the mirror never see), deletes it and appends a removal row to the ledger. Only
+    ``mod_folder`` is touched: the other stacked folders stay, and the next deploy's stack read still refuses them.
+    Returns ``{"removed": [rows], "backups": [paths]}`` (``removed`` = what would go, on ``dry_run``)."""
+    import hashlib
+    from pathlib import Path
+    from .. import config
+    from . import mesh as M_
+    own = deploy_ownership(cells, mod_folder, shift=shift, discs=discs, game=game, lod=lod)
+    if own["foreign"]:
+        raise RiverRefused("R1", f"{len(own['foreign'])} file(s) on the target cells are not this verb's deploy at this "
+                                 "placement, so nothing was removed: " + "; ".join(
+                                     f"Disc{d} {p.name}: {why}" for p, d, why in own["foreign"][:6])
+                           + (" ..." if len(own["foreign"]) > 6 else ""))
+    if not own["owned"]:
+        raise RiverRefused("R0", f"nothing to remove: {mod_folder} holds no override on these cells on disc(s) "
+                                 f"{list(discs)}")
+    if dry_run:
+        return {"removed": own["owned"], "backups": []}
+    mod_root = Path(config.find_game_path(game)) / mod_folder
+    removed, backups = [], []
+    for f in own["owned"]:
+        p = f["path"]
+        if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest() != f["sha256"]:
+            raise RiverRefused("R1", f"Disc{f['disc']} {p.name} changed after the ownership read (another session?): "
+                                     f"stopped after removing {len(removed)} of {len(own['owned'])} file(s). Re-run "
+                                     "--remove to take out the rest of this deploy.")
+        bak = M_.park_backup(p)
+        p.unlink()
+        M_.record_ledger_removal(mod_root, cell=f["cell"], part=f["part"], write_disc=f["disc"],
+                                 removed_sha256=f["sha256"], backup=bak)
+        removed.append(f)
+        backups.append(bak)
+    return {"removed": removed, "backups": backups}
+
