@@ -431,6 +431,28 @@ def coastal_assembly(M: _Mesh, cove, join_edges) -> set:
     return lips | sand
 
 
+def notch_closure(M: _Mesh, frag) -> set:
+    """THE NOTCH CLOSURE: a stock lattice-ground tri (grass or sand) that the fragment holds on two sides is carried
+    too, until none is left. Its three corners all sit on the land ring, so no zip strip can fill it -- every strip
+    tri has a corner on each side of the seam, and over a one-tri notch it folds across the fragment (rung 2, the
+    cove's NE corner: two squared sand cells meeting at a point). Carried, it is stock bytes, not authored ones."""
+    frag = set(frag)
+    added, grow = set(), True
+    while grow:
+        grow = False
+        cnt = defaultdict(int)
+        for e, i in _once_edges(M, frag).items():
+            for j in M.by_edge[e]:
+                if j not in frag and M.tris[j]["part"] == "terrain" and M.cls[j] in ("ground", "sand"):
+                    cnt[j] += 1
+        for j, n in cnt.items():
+            if n >= 2:
+                frag.add(j)
+                added.add(j)
+                grow = True
+    return added
+
+
 # ---- the gates ----------------------------------------------------------------------------------------------------
 
 def gate_f1(M: _Mesh, frag, *, islands, join_edges) -> dict:
@@ -540,6 +562,8 @@ def build_fragment(tris, donor: RiverDonor) -> Fragment:
     frag = unit | cove | coast
     for g in isl_in.values():
         frag |= g
+    notches = notch_closure(M, frag)
+    frag |= notches
 
     f1 = gate_f1(M, frag, islands=islands, join_edges=join_edges)
     f2 = gate_f2(M, frag, seaward=path, bases=(w_base, e_base))
@@ -563,7 +587,7 @@ def build_fragment(tris, donor: RiverDonor) -> Fragment:
         lengths[c] += math.dist(pts[0], pts[1])
     order = sorted(frag)
     report = {
-        "tris": len(frag), "unit": len(unit), "cove": len(cove), "coast": len(coast),
+        "tris": len(frag), "unit": len(unit), "cove": len(cove), "coast": len(coast), "notches": len(notches),
         "islands": [{"tris": len(g), "at": [round(c, 1) for c in M.centroid(g)]} for g in isl_in.values()],
         "tethered": tethered, "parts": dict(Counter(M.tris[i]["part"] for i in frag).most_common()),
         "seaward_len": round(path_len, 2), "seaward_verts": len(path),
@@ -1088,3 +1112,556 @@ def join_gates(built: dict, ol: Outline, joins: dict, *, tol_u: float = 1e-4, to
             raise RiverRefused("J4", f"join {name}: the kit wall beside the column leans {rep[name]['slope']} deg, "
                                f"outside the stock {slope[0]:g}-{slope[1]:g}", where)
     return rep
+
+
+# ==== rung 2: the composition, offline end to end (nothing writes) ================================================
+#
+# The fragment, translated onto open ocean, seated in the island minted round it:
+#   THE OPENING   every kit lawn tri over the fragment or within ``clear`` of its land ring drops, and every kit wall
+#                 tri on the seaward chain (inside the footprint); the arc's walls stay, join columns included;
+#   THE APRON     the kit lawn near the land ring is lifted (or lowered) toward the ring's own heights by POSITION --
+#                 world-mountain's ground lift, faded before the coast walls -- because a stock lowland is not level;
+#   THE OPEN ZIP  the hole's arc and the fragment's land ring are two chains from the E crest to the W crest (the
+#                 columns weld them at both ends), strip-triangulated by a minimal-chord DP, the kit side on its own
+#                 exact floats (THE EXACT-WELD LAW);
+#   THE STAMP     decision 1: carried ground (Terrain, Beach1, the bridge) takes the island's area, except the IDALLs
+#                 the ground query skips (THE BANK SKIP LAW); every event bit is stripped; the water parts keep their
+#                 stock areas (stock sea is area 0, as the island lane's is).
+# Then the gates (PLAN.md's table) and the binding plan, every failure with its location.
+
+COMPOSE_CLEAR = 2.5           # the opening's clearance round the land ring (world-mountain's MTN_CLEAR)
+DIVERT_PREFAB = (16, 15)      # the one stock prefab hosting every part the composition emits (PLAN.md step 7)
+ZIP_RISE = 2.34               # a zip tri's vertical span ceiling (the engine's climb step 2.34375)
+ZIP_NY_FLOOR = 0.5            # the per-tri slope floor (~60 deg)
+ZIP_MAX_EDGE = 9.0            # G2: a zip edge's plan length ceiling
+ZIP_SPLIT = 6.0               # the zip refinement splits interior edges longer than this (the kit's own grain)
+RIVER_GBLEND = 24.0           # the apron's reach: twice the mountain's, because a stock lowland falls 2-3u to its
+#                               beach behind the sand row, where a massif's foot meets a level bench
+PART_BUDGET = 5000            # C1: tris per walkable part per block (the cost law)
+GROUND_PARTS = ("terrain", "beach1", "object")
+PART_NAME = {"terrain": "Terrain", "object": "Object", "beach1": "Beach1", "stream": "Stream", "river": "River",
+             "riverjoint": "RiverJoint", "falls": "Falls", "sea1": "Sea1", "sea2": "Sea2", "sea3": "Sea3",
+             "sea4": "Sea4", "sea5": "Sea5"}
+
+
+@dataclass
+class Composition:
+    """The composed island, in world coordinates, before any write. ``tris`` are dicts (part, P, uv, nrm, tan,
+    idall, topo, src) -- ``src`` is ``stock`` (the fragment, verbatim bar the stamp), ``kit`` (the mint, kept) or
+    ``zip``. ``plan`` is the binding plan (per target block: emitted parts, blanks, the divert); ``report`` holds every
+    gate's verdict."""
+    offset: tuple
+    tris: list
+    outline: Outline
+    plan: dict
+    report: dict = field(default_factory=dict)
+
+
+def translate(frag: Fragment, offset) -> Fragment:
+    """The fragment moved by ``offset = (dx, dz)`` (multiples of 4u: the water's lattice). Every float stays exact."""
+    dx, dz = (float(v) for v in offset)
+    if dx % 4.0 or dz % 4.0:
+        raise RiverRefused("T0", f"a translation of ({dx:g}, {dz:g}) leaves the 4u water lattice")
+    T = np.array([dx, 0.0, dz])
+
+    def mv(p):
+        return (p[0] + dx, p[1], p[2] + dz)
+    tris = [dict(t, P=t["P"] + T) for t in frag.tris]
+    js = {n: dict(v, home=mv(v["home"])) for n, v in frag.join_side.items()}
+    return Fragment(donor=frag.donor, tris=tris,
+                    boundary={c: [(mv(a), mv(b)) for a, b in es] for c, es in frag.boundary.items()},
+                    joins={n: (mv(c), mv(b)) for n, (c, b) in frag.joins.items()},
+                    seaward=[mv(p) for p in frag.seaward], report=dict(frag.report), join_side=js)
+
+
+def translate_outline(ol: Outline, offset) -> Outline:
+    dx, dz = (float(v) for v in offset)
+    return Outline(ring=[(x + dx, z + dz) for x, z in ol.ring], arc_end=ol.arc_end, first=ol.first, last=ol.last,
+                   rim_at={i: (p[0] + dx, p[1], p[2] + dz) for i, p in ol.rim_at.items()},
+                   shore_origin=ol.shore_origin, targets=ol.targets, report=dict(ol.report))
+
+
+def _zip_dp_open(H, Rr, *, ny_floor: float = ZIP_NY_FLOOR):
+    """THE OPEN ZIP: the minimal-total-chord strip between two chains that share both ends (``H[0] == Rr[0]``,
+    ``H[-1] == Rr[-1]``) -- :func:`interior._zip_dp` without the wrap. A step whose tri would repeat a shared end is
+    free and emits nothing, so the strip may FAN round a shared end (a crest where the two chains leave in opposite
+    directions: one tri cannot span that 180 deg). A tri steeper than ``ny_floor`` costs
+    :data:`interior.ZIP_STEEP_PENALTY` more, so the strip routes round plan-flat slivers (an arc point on the line
+    of the other arc's edge: the 4u lattice and the block borders line both arcs up). A strip cannot fill a notch
+    of the land ring one tri deep (its three corners all on one arc) -- it folds there; :func:`notch_closure` carries
+    those tris with the fragment instead, and G4 catches any fold left. Returns point triples."""
+    from .interior import ZIP_STEEP_PENALTY
+
+    def d(p, q):
+        return math.hypot(p[0] - q[0], p[2] - q[2])
+
+    def tri_cost(a, b, c):
+        if a == b or b == c or a == c:
+            return 0.0, False
+        ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+        vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        ln = math.sqrt(nx * nx + ny * ny + nz * nz)
+        return (ZIP_STEEP_PENALTY if ln < 1e-12 or abs(ny) / ln < ny_floor else 0.0), True
+    NH, NR = len(H), len(Rr)
+    INF = float("inf")
+    cost = [[INF] * NR for _ in range(NH)]
+    back = [[None] * NR for _ in range(NH)]
+    cost[0][0] = 0.0
+    for i in range(NH):
+        for j in range(NR):
+            c0 = cost[i][j]
+            if c0 == INF:
+                continue
+            if i + 1 < NH:
+                pen, _ = tri_cost(H[i], H[i + 1], Rr[j])
+                nc = c0 + d(H[i + 1], Rr[j]) + pen
+                if nc < cost[i + 1][j]:
+                    cost[i + 1][j], back[i + 1][j] = nc, "h"
+            if j + 1 < NR:
+                pen, _ = tri_cost(H[i], Rr[j], Rr[j + 1])
+                nc = c0 + d(H[i], Rr[j + 1]) + pen
+                if nc < cost[i][j + 1]:
+                    cost[i][j + 1], back[i][j + 1] = nc, "r"
+    tris = []
+    i, j = NH - 1, NR - 1
+    while i > 0 or j > 0:
+        if back[i][j] == "h":
+            t = (H[i - 1], H[i], Rr[j])
+            i -= 1
+        else:
+            t = (H[i], Rr[j], Rr[j - 1])
+            j -= 1
+        if tri_cost(*t)[1]:
+            tris.append(t)
+    return tris[::-1]
+
+
+def _refine_zip(tris, *, max_edge: float, rise: float = ZIP_RISE):
+    """Split the zip's INTERIOR edges (two zip tris own them; an arc edge is shared with a kept or carried tri and
+    never splits -- that would mint a T-junction) at their exact midpoints, both owners at once, longest first,
+    until no interior edge that is the longest of a tri it bounds is longer than ``max_edge``, and none climbs more
+    than ``rise``. Returns ``(tris, splits)``."""
+    tris = [tuple(tuple(map(float, p)) for p in t) for t in tris]
+    splits = 0
+    for _ in range(4096):
+        own = defaultdict(list)
+        for ti, t in enumerate(tris):
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                own[_ek(kk3(t[a]), kk3(t[b]))].append((ti, a, b))
+        def plan_len(t, a, b):
+            return math.hypot(t[a][0] - t[b][0], t[a][2] - t[b][2])
+        longest = [max(plan_len(t, a, b) for a, b in ((0, 1), (1, 2), (2, 0))) for t in tris]
+        best = None
+        for e, ow in own.items():
+            if len(ow) != 2:
+                continue
+            ti, a, b = ow[0]
+            L = plan_len(tris[ti], a, b)
+            high = abs(tris[ti][a][1] - tris[ti][b][1]) > rise       # the edge's own climb: a split halves it
+            # LONGEST-EDGE BISECTION (Rivara): split for length only an edge that is the longest of a tri it bounds
+            # -- a tri on an arc edge longer than 2 x max_edge can never get both other edges under it, and
+            # splitting those forever would never end
+            long_ = L > max_edge and any(L >= longest[t_] - 1e-9 for t_, _, _ in ow)
+            if (long_ or high) and (best is None or L > best[0]) and L > 0.5:
+                best = (L, ow)
+        if best is None:
+            return tris, splits
+        _, ow = best
+        ti, a, b = ow[0]
+        pa, pb = tris[ti][a], tris[ti][b]
+        m = ((pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0, (pa[2] + pb[2]) / 2.0)
+        done = {t_ for t_, _, _ in ow}
+        new = [t for k, t in enumerate(tris) if k not in done]
+        for t_, a_, b_ in ow:
+            t = tris[t_]
+            c = [t[k] for k in range(3) if k not in (a_, b_)][0]
+            new += [(t[a_], m, c), (m, t[b_], c)]
+        tris = new
+        splits += 1
+    raise RiverRefused("G2", "the zip refinement did not converge")
+
+
+def _up(tri):
+    a, b, c = (np.asarray(p, dtype=float) for p in tri)
+    n = np.cross(b - a, c - a)
+    return tri if n[1] >= 0 else (tri[0], tri[2], tri[1])
+
+
+def _stamp_carried(t, area):
+    """Decision 1 on one carried tri -> its new IDALL."""
+    from .placement import ground_query_skips
+    idall = int(t["idall"])
+    if ground_query_skips(idall):
+        return idall                                     # THE BANK SKIP LAW: the area is the physics here
+    d = X.decode_id(idall)
+    keep_area = d["area"] if t["part"] not in GROUND_PARTS else area
+    return int(X.encode_id(0, keep_area, d["topograph"], d["flags"]))
+
+
+def _kit_tris(built, area):
+    gpos, gtris, gmeta, gnrm = (built["world"][k] for k in ("pos", "tris", "meta", "nrm"))
+    out = []
+    for tri, (blk, idall, fam, uvv) in zip(gtris, gmeta):
+        d = X.decode_id(int(round(idall)))
+        stamped = int(X.encode_id(0, area, d["topograph"], d["flags"]))
+        out.append({"part": "terrain", "P": np.asarray([gpos[v] for v in tri], dtype=float),
+                    "uv": np.asarray(uvv, dtype=float), "nrm": np.asarray([gnrm[v] for v in tri], dtype=float),
+                    "tan": None, "idall": stamped, "topo": d["topograph"], "fam": fam, "src": "kit"})
+    return out
+
+
+def _apron(kept, nodes, gblend):
+    """world-mountain's ground lift (``interior.carve_mountain``'s apron, ported in seat_dryrun.py): every kit LAWN
+    position within ``gblend`` of a land-ring node moves vertically toward the nodes' IDW height, faded by
+    (1 - d/gblend)^2 and dying within 2.5-5.5u of the kit's walls (the coast rim never moves). By POSITION, so
+    every coincident corner moves together (the weld holds). Returns ``{key: lift}``."""
+    if not nodes:
+        return {}
+    N = np.asarray(nodes, dtype=float)                   # (x, z, y)
+    walls = np.asarray([[p[0], p[2]] for t in kept if t["fam"] == "rock" for p in t["P"]] or [[1e9, 1e9]])
+    lift, done = {}, set()
+    for t in kept:
+        if t["fam"] != "main":
+            continue
+        for p in t["P"]:
+            k = kk3(p)
+            if k in done:
+                continue
+            done.add(k)
+            d2 = (N[:, 0] - p[0]) ** 2 + (N[:, 1] - p[2]) ** 2
+            if d2.min() >= gblend * gblend:
+                continue
+            m = d2 <= gblend * gblend
+            w = 1.0 / (d2[m] + 0.04)
+            target = float((w * N[m, 2]).sum() / w.sum())
+            W = (1.0 - math.sqrt(float(d2.min())) / gblend) ** 2
+            dnp = math.sqrt(float(((walls - np.array([p[0], p[2]])) ** 2).sum(axis=1).min()))
+            pt = max(0.0, min(1.0, (dnp - 2.5) / 3.0))
+            lf = pt * W * (target - p[1])
+            if abs(lf) > 1e-6:
+                lift[k] = lf
+    for t in kept:
+        for i in range(3):
+            k = kk3(t["P"][i])
+            if k in lift:
+                t["P"][i] = t["P"][i] + np.array([0.0, lift[k], 0.0])
+    return lift
+
+
+def _soup_once(tris):
+    seen = Counter()
+    for t in tris:
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            ka, kb = kk3(t["P"][a]), kk3(t["P"][b])
+            if ka != kb:
+                seen[_ek(ka, kb)] += 1
+    return {e for e, n in seen.items() if n == 1}
+
+
+class _PM:
+    """A world-frame part mesh in the shape :func:`placement.place` reads (verts, tangents, flat_index, tris)."""
+
+    def __init__(self, tris):
+        self.verts = [list(map(float, p)) for t in tris for p in t["P"]]
+        self.tangents = [[float(t["idall"]), 0.0, 0.0, 0.0] for t in tris for _ in range(3)]
+        self.flat_index = list(range(len(self.verts)))
+        self.tris = [[3 * i, 3 * i + 1, 3 * i + 2] for i in range(len(tris))]
+
+
+def _meshlist(tris):
+    from .placement import REGISTRATION_ORDER, build_meshlist_index
+    by = defaultdict(list)
+    for t in tris:
+        by[PART_NAME[t["part"]]].append(t)
+    ml = [(n, _PM(by[n])) for n in REGISTRATION_ORDER if by.get(n)]
+    return ml, build_meshlist_index(ml)
+
+
+def open_ocean_offsets(blocks, *, margin: int = 0, disc: int = 1, game=None, limit: int = 8):
+    """Whole-block translations that land every block of ``blocks`` -- and a ``margin``-block ring round them -- on
+    open ocean (no stock prefab: the divert binds only there), nearest first."""
+    from . import mesh as M_
+    taken = set(X.block_parts(disc=disc, game=game))
+    bx0, bx1 = min(b[0] for b in blocks), max(b[0] for b in blocks)
+    by0, by1 = min(b[1] for b in blocks), max(b[1] for b in blocks)
+    out = []
+    for dy in range(-by0 + margin, M_.GRID_ROWS - by1 - margin):
+        for dx in range(-M_.GRID_COLS + 1, M_.GRID_COLS):
+            cells = {(M_.wrap_block_col(x + dx), y + dy) for x in range(bx0 - margin, bx1 + margin + 1)
+                     for y in range(by0 - margin, by1 + margin + 1)}
+            if not cells & taken:
+                out.append((abs(dx) + abs(dy), dx, dy))
+    return [(dx, dy) for _, dx, dy in sorted(out)[:limit]]
+
+
+def compose(frag: Fragment, *, offset=(0.0, 0.0), window=None, ol: Outline | None = None, area: int | None = None,
+            apron: bool = True, clear: float = COMPOSE_CLEAR, gblend: float | None = None, mod_folder=None,
+            disc: int = 1, game=None, census_step: float = 1.0) -> Composition:
+    """Rung 2 end to end: the outline (donor frame) -> translate -> mint -> opening -> apron -> open zip -> stamp ->
+    gates -> binding plan. ``window`` = the donor window's stock tris (for the census against home; without it G4/G6
+    are skipped and say so). Raises :class:`RiverRefused` at the first structural failure; the gates' verdicts --
+    green or failing, each with locations -- are in ``report``. Nothing is written."""
+    from .terrain import minted_area
+    gblend = RIVER_GBLEND if gblend is None else gblend
+    stamp = minted_area(area)
+    A = stamp["area"]
+    ol = outline(frag) if ol is None else ol
+    tf, tol_ = translate(frag, offset), translate_outline(ol, offset)
+    built = mint(tol_)
+    jr = join_gates(built, tol_, tf.joins)                 # J1-J4 on the minted island
+
+    # THE OPENING
+    first, last = tol_.first, tol_.last
+    chain = land_chain(tf, first, last)
+    sea = list(tf.seaward) if first == "E" else list(reversed(tf.seaward))
+    poly = [(p[0], p[2]) for p in chain] + [(p[0], p[2]) for p in sea[1:-1]]
+    land_segs = [(a, b) for c in ("lawn", "source") for a, b in tf.boundary.get(c, ())]
+    LA = np.asarray([(a[0], a[2]) for a, _ in land_segs])
+    LB = np.asarray([(b[0], b[2]) for _, b in land_segs])
+    kit = _kit_tris(built, A)
+    from .island import _pip
+    P2 = np.asarray([[p[0], p[2]] for t in kit for p in t["P"]])
+    near = (_dist_to_segs(P2, LA, LB).min(axis=1) < clear).reshape(-1, 3)
+    polyA = np.asarray(poly, dtype=float)
+    cin = _pip_many(np.asarray([t["P"].mean(axis=0)[[0, 2]] for t in kit]), polyA)
+    kept, dropped = [], []
+    for t, nr, inside in zip(kit, near, cin):
+        if inside or (t["fam"] != "rock" and nr.any()):
+            dropped.append(t)
+        else:
+            kept.append(t)
+    bad = [t for t in dropped if t["fam"] not in ("main", "rock")]
+    if bad:
+        raise RiverRefused("O2", f"the opening reaches {len(bad)} kit tri(s) that are neither lawn nor wall",
+                           [tuple(t["P"].mean(axis=0)[[0, 2]]) for t in bad])
+    over = [t for t, inside in zip(kept, _pip_many(np.asarray([t["P"].mean(axis=0)[[0, 2]] for t in kept]), polyA))
+            if inside]
+    if over:
+        raise RiverRefused("O2", f"{len(over)} kept kit tri(s) still lie over the fragment",
+                           [tuple(t["P"].mean(axis=0)[[0, 2]]) for t in over])
+
+    # THE HOLE ARC: the kept kit's edges that a dropped tri used to share, less the two join columns -- read on the
+    # mint's own keys, BEFORE the apron moves any of them (a lifted key no longer matches its dropped neighbour)
+    k_cnt, k_float = Counter(), {}
+    for t in kept:
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            ka, kb = kk3(t["P"][a]), kk3(t["P"][b])
+            k_cnt[_ek(ka, kb)] += 1
+        for p in t["P"]:
+            k_float.setdefault(kk3(p), tuple(map(float, p)))
+    d_edges = set()
+    for t in dropped:
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            ka, kb = kk3(t["P"][a]), kk3(t["P"][b])
+            d_edges.add(_ek(ka, kb))
+    cols = {_ek(kk3(c), kk3(b)) for c, b in tf.joins.values()}
+    hole = [e for e, n in k_cnt.items() if n == 1 and e in d_edges and e not in cols]
+    adj = defaultdict(list)
+    for a, b in hole:
+        adj[a].append(b)
+        adj[b].append(a)
+    cf, cl = kk3(tf.joins[first][0]), kk3(tf.joins[last][0])
+    odd = [k for k, v in adj.items() if len(v) != 2 and k not in (cf, cl)]
+    if odd or len(adj.get(cf, ())) != 1 or len(adj.get(cl, ())) != 1:
+        raise RiverRefused("O3", "the opening's rim is not one arc from crest to crest",
+                           [(k[0], k[2]) for k in odd] or [(cf[0], cf[2]), (cl[0], cl[2])])
+    harc, prev = [cf], None
+    while harc[-1] != cl:
+        nxt = [k for k in adj[harc[-1]] if k != prev]
+        prev = harc[-1]
+        harc.append(nxt[0])
+
+    # THE APRON: the kit lawn near the land ring moves toward the ring's heights; the zip then welds to the moved
+    # lawn on its exact floats (a lifted position = the mint's float plus the one lift every coincident corner took)
+    nodes = [(p[0], p[2], p[1]) for p in chain[1:-1]]
+    lift = _apron(kept, nodes, gblend) if apron else {}
+    H = [(k_float[k][0], k_float[k][1] + lift[k], k_float[k][2]) if k in lift else k_float[k] for k in harc]
+    Rr = [tuple(map(float, p)) for p in chain[1:-1]]
+    if (H[0], H[-1]) != (Rr[0], Rr[-1]):
+        raise RiverRefused("J1", "the opening's arc and the land ring do not share both crests exactly",
+                           [(H[0][0], H[0][2]), (H[-1][0], H[-1][2])])
+    # THE REFINEMENT is margin, measured: unrefined, cluster C's longest zip chord is 8.95u, 0.05 under G2
+    zt, zip_splits = _refine_zip(_zip_dp_open(H, Rr), max_edge=ZIP_SPLIT)
+    zt = [_up(z) for z in zt]
+
+    # zip attributes: the island's grass at its area, mains UVs from the mint's own field, normals smoothed
+    from . import grassland as G
+    field_ = built["mains_field"]
+    ID_ZIP = int(X.encode_id(0, A, 0, 0))
+    zips = []
+    for z in zt:
+        P = np.asarray(z, dtype=float)
+        c = P.mean(axis=0)
+        cell = (math.floor(c[0] / 4.0), math.floor(c[2] / 4.0))
+        if cell in field_:
+            quad, ori = field_[cell]
+        else:                                            # a cell the mint never covered: the seeded policy
+            qd, od = G.assign_mains([cell], seed=0xF91)
+            quad, ori = qd[cell], od[cell]
+        uv = np.asarray([G.ground_uv(p[0], p[2], cell, quad, ori, "grass") for p in P], dtype=float)
+        zips.append({"part": "terrain", "P": P, "uv": uv, "nrm": None, "tan": None, "idall": ID_ZIP, "topo": 0,
+                     "fam": "zip", "src": "zip"})
+    stock = []
+    skip_pairs = []
+    for t in tf.tris:
+        new = _stamp_carried(t, A)
+        skip_pairs.append((t["idall"], new))
+        stock.append(dict(t, idall=new, src="stock"))
+    acc = defaultdict(lambda: np.zeros(3))
+    for t in kept + zips + [t for t in stock if t["part"] == "terrain"]:
+        a, b, c = t["P"]
+        n = np.cross(b - a, c - a)
+        n = n if n[1] >= 0 else -n
+        for p in t["P"]:
+            acc[kk3(p)] += n
+    for t in zips:
+        t["nrm"] = np.asarray([acc[kk3(p)] / (np.linalg.norm(acc[kk3(p)]) or 1.0) for p in t["P"]])
+    for t in kept:
+        if any(kk3(p) in lift for p in t["P"]):
+            t["nrm"] = np.asarray([acc[kk3(p)] / (np.linalg.norm(acc[kk3(p)]) or 1.0) for p in t["P"]])
+    tris = kept + zips + stock
+
+    # ---- THE GATES ----------------------------------------------------------------------------------------------
+    from .placement import skip_parity_gate
+    gates = {"J": jr}
+    # zip envelope + G2 grain
+    stock_edges = {_ek(kk3(t["P"][a]), kk3(t["P"][b])) for t in stock for a, b in ((0, 1), (1, 2), (2, 0))}
+    zbad, zmax, rise_max, ny_min, inherited_climb = [], 0.0, 0.0, 1.0, 0.0
+    for z in zips:
+        P = z["P"]
+        own = [(a, b) for a, b in ((0, 1), (1, 2), (2, 0)) if _ek(kk3(P[a]), kk3(P[b])) not in stock_edges]
+        rise = max((abs(float(P[a][1] - P[b][1])) for a, b in own), default=0.0)   # a carried edge's climb is stock's
+        inherited_climb = max(inherited_climb, float(P[:, 1].max() - P[:, 1].min()))
+        n = np.cross(P[1] - P[0], P[2] - P[0])
+        ny = abs(float(n[1])) / (float(np.linalg.norm(n)) or 1.0)
+        e = max(math.hypot(*(P[a] - P[b])[[0, 2]]) for a, b in ((0, 1), (1, 2), (2, 0)))
+        zmax, rise_max, ny_min = max(zmax, e), max(rise_max, rise), min(ny_min, ny)
+        if rise > ZIP_RISE or ny < ZIP_NY_FLOOR or e >= ZIP_MAX_EDGE:
+            zbad.append((tuple(round(float(v), 2) for v in P.mean(axis=0)[[0, 2]]), round(rise, 2), round(ny, 3),
+                         round(e, 2)))
+    gates["zip"] = {"tris": len(zips), "max_edge": round(zmax, 2), "max_rise": round(rise_max, 2),
+                    "max_rise_incl_stock_edges": round(inherited_climb, 2),
+                    "ny_min": round(ny_min, 3), "fails": len(zbad), "where": zbad[:12], "ok": not zbad}
+    # G1 crack: once-edges the parts did not already have, bar the arc's coast and the seaward boundary
+    # (the minted island was closed, so its own once-edges are exactly the coast's base edges)
+    once = _soup_once(tris)
+    bnd = {_ek(kk3(a), kk3(b)) for es in tf.boundary.values() for a, b in es}
+    inherited_open = _soup_once(tf.tris) - bnd             # the fragment's own internal once-edges
+    seam = {_ek(kk3(a), kk3(b)) for a, b in tf.boundary.get("water", ())}
+    coast = _soup_once(kit) & once
+    cracks = sorted(once - inherited_open - seam - coast)
+    gates["G1"] = {"cracks": len(cracks), "where": [tuple(round(v, 2) for v in _mid(e)) for e in cracks[:12]],
+                   "ok": not cracks, "coast_edges": len(coast), "seam_edges": len(seam & once),
+                   "inherited_open": len(inherited_open & once)}
+    # G3 weld audit: near-miss pairs the composition minted (the fragment's own are inherited)
+    from .mesh import near_miss_pairs
+    pairs = set(near_miss_pairs(p for t in tris for p in t["P"]))
+    inherited = set(near_miss_pairs(p for t in tf.tris for p in t["P"]))        # the fragment's own
+    inherited |= set(near_miss_pairs(built["world"]["pos"]))                     # the mint's own (border cuts)
+    minted = sorted(pairs - inherited)
+    gates["G3"] = {"near_miss": len(minted), "inherited": len(inherited & pairs),
+                   "where": [(round(a[0], 2), round(a[2], 2)) for a, _ in minted[:12]], "ok": not minted}
+    # G5 skip parity
+    sp = skip_parity_gate(skip_pairs, label="river")
+    gates["G5"] = {"flipped": sp["flipped"], "ok": sp["ok"], "skipped_carried": sum(
+        1 for a, _ in skip_pairs if int(a) in (4078, 4088, 2040))}
+    # G4 / G6 census against home at the same relative points; MISS 0 over the kit's own land
+    from .placement import place
+    ml, idx = _meshlist(tris)
+    dx, dz = float(offset[0]), float(offset[1])
+    fx = [p[0] for p in poly]
+    fz = [p[1] for p in poly]
+    if window is not None:
+        dml, didx = _meshlist(window)
+        stats, where = Counter(), defaultdict(list)
+        GX, GZ = np.meshgrid(np.arange(min(fx) + 0.25, max(fx), census_step),
+                             np.arange(min(fz) + 0.25, max(fz), census_step))
+        pts = np.stack([GX.ravel(), GZ.ravel()], 1)
+        pts = pts[np.concatenate([_pip_many(pts[k:k + 20000], polyA) for k in range(0, len(pts), 20000)])]
+        for x, z in pts:
+            gy, nm, _i, tp = place(ml, x, z, 0.0, sky=True, index=idx)
+            hy, hn, _j, hp = place(dml, x - dx, z - dz, 0.0, sky=True, index=didx)
+            if nm == "MISS" and hn != "MISS":
+                k = "introduced_miss"
+            elif (nm, tp) == (hn, hp):
+                k = "same"
+            elif hn == "MISS":
+                k = "home_miss"
+            else:
+                k = f"{hn}/{hp}->{nm}/{tp}"
+            stats[k] += 1
+            if k != "same" and len(where[k]) < 6:
+                where[k].append((round(float(x), 1), round(float(z), 1)))
+        # inside the footprint the composed island must ground EXACTLY as home does: a miss home never had is a
+        # stranding hole, and any other change is a kit or zip tri lying over the fragment (a stacked sheet)
+        gates["G4"] = {"points": sum(stats.values()), "by": dict(stats.most_common()), "where": dict(where),
+                       "ok": set(stats) <= {"same", "home_miss"}}
+        moved = {k: n for k, n in stats.items() if k != "same" and ("Stream" in k or "RiverJoint" in k)}
+        gates["G6"] = {"ok": not moved, "river_points_moved": moved, "where": {k: where[k] for k in moved}}
+    else:
+        gates["G4"] = gates["G6"] = {"ok": None, "why": "no donor window given: the census against home was skipped"}
+    rim = built["rim"]
+    rx, rz = [p[0] for p in rim], [p[1] for p in rim]
+    GX, GZ = np.meshgrid(np.arange(min(rx) + 0.37, max(rx), 2.0), np.arange(min(rz) + 0.37, max(rz), 2.0))
+    pts = np.stack([GX.ravel(), GZ.ravel()], 1)
+    pts = pts[_pip_many(pts, np.asarray(rim, dtype=float)) & ~_pip_many(pts, polyA)]
+    n_kit = len(pts)
+    miss = [(round(float(x), 1), round(float(z), 1)) for x, z in pts
+            if place(ml, x, z, 0.0, sky=True, index=idx)[1] == "MISS"]
+    gates["G4_kit"] = {"points": n_kit, "miss": len(miss), "where": miss[:12], "ok": not miss}
+
+    plan = binding_plan(tris, disc=disc, game=game, mod_folder=mod_folder)
+    gates["B1"], gates["C1"] = plan.pop("B1"), plan.pop("C1")
+    report = {"offset": [dx, dz], "area": {k: stamp[k] for k in ("area", "source")},
+              "opening": {"kit_tris": len(kit), "dropped": len(dropped), "dropped_fams": dict(Counter(
+                  t["fam"] for t in dropped)), "kept": len(kept)},
+              "apron": {"on": apron, "gblend": gblend, "lifted": len(lift), "max_up": round(max(lift.values(), default=0.0), 2),
+                        "max_down": round(min(lift.values(), default=0.0), 2)},
+              "zip": {"hole_arc": len(H), "land_arc": len(Rr), "tris": len(zips), "splits": zip_splits},
+              "tris": dict(Counter(t["src"] for t in tris)), "gates": gates,
+              "green": all(g.get("ok") is not False for k, g in gates.items() if isinstance(g, dict) and k != "J")}
+    return Composition(offset=(dx, dz), tris=tris, outline=tol_, plan=plan, report=report)
+
+
+def binding_plan(tris, *, disc: int = 1, game=None, mod_folder=None) -> dict:
+    """THE BINDING PLAN (PLAN.md step 7), computed, not written: each target block's parts after the 64u split,
+    the divert (every cell -> :data:`DIVERT_PREFAB`), the hidden blanks (every prefab part a cell does not carry --
+    its own would free-ride), and the gates B1 (every cell open ocean; the prefab hosts every emitted part) and C1
+    (the per-part budget). Sea4 is emitted everywhere: the island lane's cut sheet (rung 3) fills it."""
+    from . import mesh as M_
+    from .interior import split_borders8
+    per = defaultdict(Counter)
+    for part in sorted({t["part"] for t in tris}):
+        parents = []
+        for t in (t for t in tris if t["part"] == part):
+            uv = t["uv"] if t["uv"] is not None else np.zeros((3, 2))
+            nr = t["nrm"] if t["nrm"] is not None else np.tile([0.0, 1.0, 0.0], (3, 1))
+            parents.append((tuple((*t["P"][k], *uv[k], *nr[k]) for k in range(3)), t["idall"], part))
+        for blk, items in split_borders8(parents).items():
+            per[(M_.wrap_block_col(blk[0]), blk[1])][part] += len(items)
+    stock_parts = X.block_parts(disc=disc, game=game)
+    host = set(stock_parts.get(DIVERT_PREFAB, ()))
+    cells, b1, c1 = {}, [], []
+    for blk in sorted(per):
+        emitted = set(per[blk]) | {"sea4"}
+        if blk in stock_parts:
+            b1.append(f"{blk} has its own stock prefab ({len(stock_parts[blk])} parts): the divert cannot bind")
+        if not 0 <= blk[1] < M_.GRID_ROWS:
+            b1.append(f"{blk} is off the grid")
+        lacking = sorted(emitted - host)
+        if lacking:
+            b1.append(f"{blk} emits {lacking}, which the divert prefab {DIVERT_PREFAB} does not host")
+        for part, n in per[blk].items():
+            if n > PART_BUDGET:
+                c1.append(f"{blk} {PART_NAME[part]}: {n} tris")
+        cells[blk] = {"tris": {PART_NAME[p]: n for p, n in sorted(per[blk].items())},
+                      "blanks": sorted(PART_NAME[p] for p in host - emitted if p in PART_NAME),
+                      "divert": list(DIVERT_PREFAB)}
+    occupied = []
+    if mod_folder:
+        occupied = M_.existing_overrides(sorted(cells), mod_folder, disc=disc, game=game)
+    return {"cells": {f"{b[0]},{b[1]}": v for b, v in cells.items()}, "occupied": occupied,
+            "B1": {"ok": not b1, "fails": b1[:12], "cells": len(cells)},
+            "C1": {"ok": not c1, "fails": c1[:12], "max": max((n for c in per.values() for n in c.values()),
+                                                                default=0)}}

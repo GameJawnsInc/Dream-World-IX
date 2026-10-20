@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the river composed onto an island, checked end to end (the third piece of `world-river`)
+- The kit can now put the whole river carry together without writing anything: it places the river and its cove
+  on open ocean, grows the island round them, and opens a hole in the island where the river goes. It then seams
+  the island's grass to the river's banks and beaches, and plans which game files each map cell needs.
+- Every check passes on the lowland river. Inside the carried area, the composed island stands exactly as the
+  original map does at every one of 10,124 sampled points. It has no cracks, and every cell binds to a map piece
+  that carries all its parts.
+- The carried land takes the island's own map area (place name, camera and encounters). The steep stream banks the
+  game never stands on keep theirs, and stray event markers are removed.
+
 ### Added — islands can be minted to a given coastline (the second piece of `world-river`)
 - The island mint (`island.build_landmass`) can now take a coastline of your own instead of growing a random one.
   It can also pin chosen cliff-top points exactly, and set where the cliff texture starts along the coast.

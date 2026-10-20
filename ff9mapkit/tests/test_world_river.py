@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import warnings
+from collections import Counter
 
 import numpy as np
 import pytest
@@ -242,7 +243,8 @@ def test_no_river_in_the_unit_blocks_refuses():
 
 # ---- rung 1: the outline and the join columns ---------------------------------------------------------------------
 
-SHIFT = (0.37, 0.21)                                        # off the mint's 4u lattice, as a real donor is
+SHIFT = (0.375, 0.25)                                       # off the mint's 4u lattice, as a real donor is
+#                                                             (binary fractions: float sums stay exact, as stock's do)
 DONOR_UV = R.RiverDonor(name="synthetic-uv", blocks="0,0", window=DONOR.window, unit_blocks=DONOR.unit_blocks,
                         joins=tuple((n, (c[0] + SHIFT[0], c[1], c[2] + SHIFT[1]), (b[0] + SHIFT[0], b[1], b[2] + SHIFT[1]))
                                     for n, c, b in DONOR.joins))
@@ -382,6 +384,139 @@ def test_j2_catches_a_crest_nearer_another_coast_vertex():
         R.join_gates(R.mint(ol), ol, joins)
 
 
+# ---- rung 2: the composition's pieces ------------------------------------------------------------------------------
+
+def _plan_area(tris):
+    return sum(abs((b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2])) / 2 for a, b, c in tris)
+
+
+def _shoelace(pts):
+    return abs(sum(pts[i][0] * pts[(i + 1) % len(pts)][2] - pts[(i + 1) % len(pts)][0] * pts[i][2]
+                   for i in range(len(pts)))) / 2
+
+
+def test_open_zip_fans_round_a_crest_the_chains_leave_straight():
+    """Two chains share both ends and leave the start in opposite directions (a 180 deg crest, like the E column's):
+    one tri cannot span that, so the strip must fan -- no degenerate tri, and the tris tile the region exactly."""
+    S, E = (0.0, 3.0, 0.0), (14.0, 3.0, 4.0)
+    H = [S, (0.0, 3.0, 4.0), (4.0, 3.0, 8.0), (10.0, 3.0, 8.0), E]
+    Rr = [S, (0.0, 2.0, -4.0), (6.0, 2.0, -6.0), (12.0, 2.0, -4.0), E]
+    tris = R._zip_dp_open(H, Rr)
+    assert all(min(math.dist(a, b), math.dist(b, c), math.dist(a, c)) > 0 for a, b, c in tris)
+    assert all(_plan_area([t]) > 1e-6 for t in tris)
+    assert _plan_area(tris) == pytest.approx(_shoelace(H + Rr[::-1][1:-1]), abs=1e-9)
+
+
+def test_open_zip_routes_round_a_plan_flat_sliver():
+    """A land point on the line of a hole edge (the lattice lines both arcs up) makes a plan-flat tri the shortest
+    chord's choice; the steepness penalty routes round it."""
+    S, E = (0.0, 3.0, 0.0), (12.0, 3.0, 0.0)
+    H = [S, (4.0, 3.0, 0.0), (8.0, 3.0, 0.0), E]                      # the kit edge along z = 0
+    Rr = [S, (4.0, 1.0, -0.0001), (6.0, 1.0, -3.0), (8.0, 1.0, -0.0001), E]
+    nys = []
+    for a, b, c in (R._up(t) for t in R._zip_dp_open(H, Rr)):
+        n = np.cross(np.subtract(b, a), np.subtract(c, a))
+        nys.append(abs(n[1]) / np.linalg.norm(n))
+    assert min(nys) >= R.ZIP_NY_FLOOR, nys
+
+
+def test_refine_zip_splits_only_interior_edges():
+    """A zip across a wide gap (the E headland's case: the arcs ~12u apart, each spaced <= 8u like real arcs)."""
+    S, E = (0.0, 3.0, 0.0), (20.0, 3.0, 0.0)
+    H = [S, (4.0, 3.0, 6.0), (10.0, 3.0, 8.0), (16.0, 3.0, 6.0), E]
+    Rr = [S, (4.0, 0.5, -6.0), (10.0, 0.5, -7.0), (16.0, 0.5, -6.0), E]
+    tris, splits = R._refine_zip(R._zip_dp_open(H, Rr), max_edge=6.0)
+    assert splits > 0
+    own = Counter()
+    for t in tris:
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            own[R._ek(R.kk3(t[a]), R.kk3(t[b]))] += 1
+    rim = ({R._ek(R.kk3(a), R.kk3(b)) for a, b in zip(H, H[1:])}
+           | {R._ek(R.kk3(a), R.kk3(b)) for a, b in zip(Rr, Rr[1:])})
+    assert {e for e, n in own.items() if n == 1} == rim                 # the arcs untouched: no T-junction
+    inner = [e for e, n in own.items() if n == 2]
+    assert max(math.hypot(a[0] - b[0], a[2] - b[2]) for a, b in inner) <= 6.0
+    assert max(abs(a[1] - b[1]) for a, b in inner) <= R.ZIP_RISE
+    assert _plan_area(tris) == pytest.approx(_plan_area(R._zip_dp_open(H, Rr)), abs=1e-9)
+
+
+def test_notch_closure_carries_a_one_cell_gap():
+    """A grass cell wedged between the sand row, a bank and the beach is held by the fragment on two sides: the
+    notch closure carries it (both tris), so no zip strip has to fold over it."""
+    gap = [row if i != 3 else row[:9] + "G" + row[10:] for i, row in enumerate(COVE)]
+    f = R.build_fragment(grid_tris(gap), DONOR)
+    assert f.report["notches"] == 2 and (3, 9) in _cells(f)
+    assert R.build_fragment(grid_tris(COVE), DONOR).report["notches"] == 0
+
+
+def test_stamp_follows_decision_1():
+    from ff9mapkit.world.extract import decode_id, encode_id
+    A = 14
+    ground = {"part": "terrain", "idall": encode_id(event=3, area=5, topograph=31)}
+    skip = {"part": "terrain", "idall": 4078}
+    sea = {"part": "sea3", "idall": encode_id(event=2, area=0, topograph=55)}
+    river = {"part": "stream", "idall": encode_id(area=16, topograph=51)}
+    beach = {"part": "beach1", "idall": encode_id(area=19, topograph=30)}
+    d = decode_id(R._stamp_carried(ground, A))
+    assert (d["area"], d["event"], d["topograph"]) == (A, 0, 31)           # the island's area, the event stripped
+    assert R._stamp_carried(skip, A) == 4078                                # THE BANK SKIP LAW
+    d = decode_id(R._stamp_carried(sea, A))
+    assert (d["area"], d["event"], d["topograph"]) == (0, 0, 55)           # water keeps its area, loses its event
+    assert decode_id(R._stamp_carried(river, A))["area"] == 16
+    assert decode_id(R._stamp_carried(beach, A))["area"] == A
+
+
+def _blk_tri(bx, by, part):
+    x, z = 64.0 * bx + 10.37, -64.0 * by - 10.21
+    return {"part": part, "P": np.array([[x, 0.0, z], [x + 4, 0.0, z], [x, 0.0, z - 4]]), "uv": None, "nrm": None,
+            "idall": 0}
+
+
+def test_binding_plan_binds_open_ocean_to_the_prefab(monkeypatch):
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset(
+        {"terrain", "object", "stream", "riverjoint", "beach1", "sea1", "sea2", "sea3", "sea4", "sea5"})})
+    tris = [_blk_tri(2, 3, "terrain"), _blk_tri(2, 3, "stream"), _blk_tri(3, 3, "terrain"), _blk_tri(3, 3, "object")]
+    plan = R.binding_plan(tris)
+    assert plan["B1"]["ok"] and plan["C1"]["ok"] and plan["B1"]["cells"] == 2
+    assert plan["cells"]["2,3"]["divert"] == list(R.DIVERT_PREFAB)
+    assert "Object" in plan["cells"]["2,3"]["blanks"] and "Object" not in plan["cells"]["3,3"]["blanks"]
+    assert "Stream" in plan["cells"]["3,3"]["blanks"] and "Sea4" not in plan["cells"]["2,3"]["blanks"]
+
+
+def test_b1_refuses_a_cell_with_its_own_prefab_or_an_unhosted_part(monkeypatch):
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset({"terrain", "sea4"}),
+                                                          (3, 3): frozenset({"terrain"})})
+    plan = R.binding_plan([_blk_tri(2, 3, "terrain"), _blk_tri(2, 3, "stream"), _blk_tri(3, 3, "terrain")])
+    assert not plan["B1"]["ok"]
+    assert any("(3, 3) has its own stock prefab" in m for m in plan["B1"]["fails"])
+    assert any("(2, 3) emits ['stream']" in m for m in plan["B1"]["fails"])
+
+
+def test_c1_refuses_a_part_over_budget(monkeypatch):
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset({"terrain", "sea4"})})
+    monkeypatch.setattr(R, "PART_BUDGET", 1)
+    plan = R.binding_plan([_blk_tri(2, 3, "terrain"), _blk_tri(2, 3, "terrain")])
+    assert not plan["C1"]["ok"] and plan["C1"]["fails"] == ["(2, 3) Terrain: 2 tris"]
+
+
+def test_translate_keeps_the_lattice_and_the_floats():
+    f = R.build_fragment(grid_tris(COVE, shift=SHIFT), DONOR_UV)
+    with pytest.raises(R.RiverRefused, match=r"T0: a translation of \(2, 0\) leaves the 4u water lattice"):
+        R.translate(f, (2.0, 0.0))
+    g = R.translate(f, (64.0, -128.0))
+    assert g.joins["E"][1] == (f.joins["E"][1][0] + 64.0, 0.0, f.joins["E"][1][2] - 128.0)
+    assert all(np.array_equal(a["P"] - b["P"], np.tile([64.0, 0.0, -128.0], (3, 1))) for a, b in zip(g.tris, f.tris))
+
+
+def test_open_ocean_offsets_find_free_water(monkeypatch):
+    taken = {(x, y): frozenset({"terrain"}) for x in range(24) for y in range(20) if not (x >= 20 and y >= 15)}
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: taken)
+    blocks = [(0, 0), (1, 0), (1, 1)]
+    offs = R.open_ocean_offsets(blocks)
+    free = {(x, y) for x in range(20, 24) for y in range(15, 20)}
+    assert offs and all({((x + dx) % 24, y + dy) for x, y in blocks} <= free for dx, dy in offs)   # columns wrap
+
+
 # ---- cluster C, on the user's install -----------------------------------------------------------------------------
 
 def _need_install() -> None:
@@ -398,13 +533,13 @@ def _need_install() -> None:
 
 def test_cluster_c_fragment_holds_the_whole_island():
     """Rung 0's acceptance (PLAN.md): the island in cluster C's cove whole (85 tris, where the round-4 chord cut it
-    in half), F1 + F2 green, the boundary classed."""
+    in half), F1 + F2 green, the boundary classed; rung 2's notch closure carries 12 stock tris more."""
     _need_install()
     f = R.fragment(R.CLUSTER_C)
     rep = f.report
     assert rep["islands"] == [{"tris": 85, "at": [1087.5, -1054.8]}] and rep["tethered"] == 1
-    assert (rep["tris"], rep["unit"], rep["cove"], rep["coast"]) == (1535, 330, 1027, 141)
-    assert rep["boundary_len"] == {"lawn": 650.1, "water": 146.0, "join": 6.6, "source": 5.7}
+    assert (rep["tris"], rep["unit"], rep["cove"], rep["coast"], rep["notches"]) == (1547, 330, 1027, 141, 12)
+    assert rep["boundary_len"] == {"lawn": 607.4, "water": 146.0, "join": 6.6, "source": 5.7}
     assert rep["F1"] == {"forest": 0, "rock": 0, "object": 1, "building": 0, "beach": 3, "islands": 1}
     assert rep["F2"] == {"water_edges": 34} and rep["seaward_len"] == 146.03
     assert f.joins["W"][1] == (1040.0, 0.0, f.joins["W"][1][2]) and abs(f.joins["W"][1][2] + 1083.34) < 0.01
@@ -440,3 +575,61 @@ def test_cluster_c_outline_mints_with_both_joins_exact():
     for name in ("E", "W"):                                    # each holds its join column: the seaward quad's tri
         crest, base = (tuple(map(float, p)) for p in f.joins[name])
         assert sum(1 for s in steep if {crest, base} <= s) == 1, name
+
+
+
+@pytest.fixture(scope="module")
+def cluster_c():
+    _need_install()
+    win = R.read_window(R.CLUSTER_C)
+    f = R.build_fragment(win, R.CLUSTER_C)
+    return win, f, R.outline(f)
+
+
+def _red(comp):
+    return sorted(k for k, g in comp.report["gates"].items() if isinstance(g, dict) and g.get("ok") is False)
+
+
+def test_cluster_c_composes_green_on_open_ocean(cluster_c):
+    """Rung 2's acceptance (PLAN.md): cluster C composed onto the open ocean across the world's seam (the only
+    open water a 3 x 5-block footprint fits), every gate green: J1-J4, the zip envelope, G1-G6, B1, C1. Inside the
+    footprint the island grounds EXACTLY as home does at every sample."""
+    win, f, ol = cluster_c
+    assert R.open_ocean_offsets(sorted(R.mint(ol)["blocks"]))[0] == (8, 0)
+    comp = R.compose(f, offset=(512.0, 0.0), window=win, ol=ol)
+    rep, g = comp.report, comp.report["gates"]
+    assert rep["green"] and _red(comp) == []
+    assert rep["opening"] == {"kit_tris": 3310, "dropped": 1673, "dropped_fams": {"main": 1605, "rock": 68},
+                              "kept": 1637}
+    assert (g["zip"]["tris"], g["zip"]["max_edge"], g["zip"]["max_rise"]) == (442, 6.66, 1.39)
+    assert g["G4"]["by"] == {"same": 10124} and (g["G4_kit"]["points"], g["G4_kit"]["miss"]) == (3342, 0)
+    assert (g["G1"]["cracks"], g["G3"]["near_miss"], g["G5"]["flipped"]) == (0, 0, 0)
+    assert g["G5"]["skipped_carried"] == 201 and g["B1"]["cells"] == 12
+    cells = comp.plan["cells"]
+    assert cells["0,14"]["tris"]["Object"] == 40                         # the bridge, in its one cell
+    assert all("Object" in c["blanks"] for k, c in cells.items() if k != "0,14")
+    assert all(c["divert"] == [16, 15] for c in cells.values())
+
+
+def test_cluster_c_break_its(cluster_c, monkeypatch):
+    """Each defence, removed, turns its gate red on the real composition."""
+    win, f, ol = cluster_c
+    from ff9mapkit.world import extract as X
+    with monkeypatch.context() as mp:                                       # the notch closure -> G4 (a fold)
+        mp.setattr(R, "notch_closure", lambda M, frag: set())
+        f0 = R.build_fragment(win, R.CLUSTER_C)
+    assert _red(R.compose(f0, offset=(512.0, 0.0), window=win)) == ["G4"]
+
+    def old_strip(t, area):                                                 # the old dispatch strip -> G5
+        d = X.decode_id(int(t["idall"]))
+        return int(X.encode_id(0, area if t["part"] in R.GROUND_PARTS else d["area"], d["topograph"], d["flags"]))
+    with monkeypatch.context() as mp:
+        mp.setattr(R, "_stamp_carried", old_strip)
+        comp = R.compose(f, offset=(512.0, 0.0), window=win, ol=ol)
+    assert _red(comp) == ["G5"] and comp.report["gates"]["G5"]["flipped"] == 201
+    comp = R.compose(f, offset=(0.0, 0.0), window=win, ol=ol)              # the donor's own cells -> B1
+    assert _red(comp) == ["B1"] and "has its own stock prefab" in comp.report["gates"]["B1"]["fails"][0]
+    with monkeypatch.context() as mp:                                       # a zip tri lost -> G1 cracks
+        mp.setattr(R, "_refine_zip", lambda tris, max_edge, rise=R.ZIP_RISE: (list(tris)[1:], 0))
+        comp = R.compose(f, offset=(512.0, 0.0), window=win, ol=ol)
+    assert "G1" in _red(comp) and comp.report["gates"]["G1"]["cracks"] >= 2
