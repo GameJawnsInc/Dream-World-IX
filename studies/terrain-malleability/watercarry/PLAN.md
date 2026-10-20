@@ -1,7 +1,8 @@
 # `world-river`: carry a stock river onto a kit island -- the build plan
 
 **Status:** signed off as written, with the five recommended answers (2026-10-19). **Rung 0 is DONE** (offline,
-2026-10-20; see "Rung 0 result" below). **Rung 1 is DONE** (offline, 2026-10-20; "Rung 1 result"). The evidence is in
+2026-10-20; see "Rung 0 result" below). **Rung 1 is DONE** (offline, 2026-10-20; "Rung 1 result"). **Rung 2 is DONE** (offline, 2026-10-20;
+"Rung 2 result"): every gate green on cluster C. The evidence is in
 `RECON.md` (R0, R1 rounds 1-4); this file is the build.
 
 ## What the verb does
@@ -255,6 +256,91 @@ Tests:
   role; the origin moves U by the density.
 - Install-gated: cluster C end to end.
 - A mutation run (a non-zero default origin, height-based V, a fixed winding) turned tests red each time.
+
+## Rung 2 result (offline)
+
+`river.compose(fragment, offset=, window=)` runs the whole composition with nothing written:
+1. the outline in the donor frame;
+2. the translation (4u multiples; every float stays exact);
+3. the mint;
+4. the opening;
+5. the apron;
+6. the open zip;
+7. the area stamp;
+8. every gate and the binding plan.
+
+**The target.** Open ocean is scarce. A 3 x 5-block footprint fits only across the world's seam (columns 23, 0, 1,
+rows 13-17). `river.open_ocean_offsets` finds 8 such placements, all at block offset 8 or 9, and the dry run uses
+the first, (8, 0). It touches no deployed override.
+
+**The opening and the apron.**
+- **The opening:** 1,673 of the mint's 3,310 tris drop: 1,605 lawn and the 68 walls of the seaward chain. The arc's
+  walls, both join columns among them, all stay.
+- **The apron:** the kit lawn moves toward the land ring's own heights, by up to -1.47u and +0.33u over 593
+  positions. A stock lowland falls 2-3u to its beach behind the sand row, so the reach is 24u, twice the
+  mountain's.
+
+**THE OPEN ZIP.**
+- **The strip.** The hole's rim and the fragment's land ring are two chains, crest E to crest W, welded at both
+  columns. A minimal-chord strip joins them, on the kit's exact floats.
+- **The DP.** It may FAN round a shared end: at the E column the two chains leave in opposite directions, and one
+  tri cannot span 180 deg. It also routes round plan-flat slivers, where the 4u lattice and the block borders line
+  both chains up.
+- **The refinement.** Longest-edge bisection of the zip's interior edges (Rivara) brings every edge to 6.7u or
+  less and every climb to 1.4u or less. It is margin, measured: unrefined, the longest chord is 8.95u, 0.05u under
+  G2.
+- **The result:** 442 tris; flattest ny 0.947.
+
+**THE NOTCH CLOSURE (new in the fragment, rung 0's code).**
+- **What it does:** it carries any stock grass or sand tri that the fragment holds on two sides.
+- **Why:** such a notch has all three corners on the land ring, so no zip strip can fill it; the strip folds over
+  the fragment.
+- **Where it bit:** at the cove's NE corner, two squared sand cells meet at a point. The fold put 39 G4 samples on
+  zip grass over the carried sand and beach.
+- **Cost:** 12 tris on cluster C (the fragment is now 1,547). Carried, they are stock bytes, not authored ones.
+
+**THE STAMP (decision 1).**
+- Carried ground (Terrain, Beach1, the bridge) takes the island's area. That is `minted_area`, here 14
+  (SAFE_ROAD_AREA at open sea), the same as the island lane's land.
+- The 201 tris the ground query skips keep their IDALLs: the 177 banks and the bridge's 24 sides.
+- Every event bit is stripped.
+- **Read for the owner:** the water parts keep their stock areas. Stock sea is area 0, as the island lane's sea
+  is, and the river's water is area 0 on 88 of 90 tris. "Every carried tri" is read as every carried ground tri,
+  the tris the island lane stamps.
+
+**The gates, on cluster C at offset (8, 0): all green.**
+
+| gate | result |
+|---|---|
+| J1-J4 | as rung 1: columns exact, \|du\| <= 2e-15, \|dv\| 0.00042, 78.2 / 72.0 deg |
+| zip | 442 tris, max edge 6.66u, max climb 1.39u (1.5u counting carried edges), ny >= 0.947 |
+| G1 crack | 0. The once-edges are exactly the arc's coast (140) and the seaward seam (34) |
+| G3 weld | 0 minted. Inherited: the mint's own border cuts (also on island E: 7) and the fragment's |
+| G4 census | 10,124 samples in the footprint ground EXACTLY as home (mesh and topograph). Kit land: 3,342 samples, 0 MISS |
+| G5 skip parity | 0 flips over 201 skipped tris |
+| G6 water | no stream or river-joint sample moved |
+| B1 binding | 12 cells, all open ocean, all divert to (16,15); the bridge's Object in one cell, blank in 11 |
+| C1 budget | the largest part is 601 tris (budget 5,000) |
+
+G4 now fails on ANY change inside the footprint, not only an introduced miss: a kit or zip tri over the fragment is
+a stacked sheet. The earlier rule passed 39 of them.
+
+**Break-its on the real composition** (`test_cluster_c_break_its`):
+- notch closure off: G4 red;
+- the old dispatch strip: G5 red (201 flips, the plan's named break-it);
+- the donor's own cells: B1 red;
+- a zip tri lost: G1 red.
+
+A mutation run (skip kept, the G4 rule, the notch threshold, the fan) turned tests red each time.
+
+**Without the apron** every gate is still green, but the zip's steepest edge climbs 2.24u, 4% under the engine's
+2.34u step. With the mountain's 12u apron it climbs 1.77u; with the river's 24u, 1.39u.
+
+**Tried and removed:** a fold penalty in the DP (refuse a zip tri over the fragment). The notch closure made it
+unnecessary. Without the closure it made things worse, moving one bad sample to 39. It was authored surface with no
+case left to answer.
+
+Plans: `out/compose_plan.png`, `out/compose_{E,W,NE,mouth}.png`, from `compose_run.py`.
 
 ## Decisions for the owner (answered: the recommendations, 2026-10-19)
 
