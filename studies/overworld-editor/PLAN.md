@@ -214,7 +214,9 @@ Each rung is useful on its own. One change per in-game test, as everywhere else.
   red. Still missing: `[[sink]]`, which needs the disc-4 replay hook the CLI builds.
 - Habit 5: the walk-in gate builds the grid index once per gate. The A/B (same verdict, same bytes, time) is in
   the commit that made the change.
-- Habits 1, 2 and 4: unchanged.
+- Habits 1, 2 and 4: unchanged, except that the mountain gained the size handle the forest already had:
+  `world-mountain --spread` (ceiling `MTN_SPREAD_MAX` 1.5, owner-passed in game, round 20), in the
+  `[[mountain]]` row too. Centre, angle, width, height and donor are now handles on both carried shapes.
 
 ## Not recommended (and why)
 

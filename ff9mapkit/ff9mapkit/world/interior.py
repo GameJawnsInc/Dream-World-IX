@@ -134,8 +134,8 @@ MTN_FOOT_NY_FLOOR = 0.25         # foot-course tris are DELIBERATELY steep rock 
 MTN_ROCK_RIGID = 0.035           # THE ROCK-RIGID GATE: max carried-edge length drift
 #                                  (against the DECLARED shape: the donor, or its --rock-height /
 #                                  --spread map)
-MTN_SPREAD_MAX = 1.5             # --spread ceiling: the forest's in-game ceiling (X3), pending the
-#                                  mountain's own round (studies/terrain-malleability/mountainspread/)
+MTN_SPREAD_MAX = 1.5             # --spread ceiling: the owner passed Uaho widened x1.5, alone and scaled
+#                                  whole, in game (terrain study round 20, mountainspread/)
 MTN_ROCK_HEIGHT_MAX = 2.0        # --rock-height ceiling: the owner passed the Uaho rock stretched
 #                                  x2.0 in game ("2x honestly doesn't look bad", terrain study X1,
 #                                  RESULTS section 30); past it is untested
@@ -1928,7 +1928,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     SPREAD = float(spread)
     if not (math.isfinite(SPREAD) and 1.0 <= SPREAD <= MTN_SPREAD_MAX):
         raise ValueError(f"--spread {spread:g} is outside 1.0..{MTN_SPREAD_MAX:g} (x{MTN_SPREAD_MAX:g} is the "
-                         f"widest carry seen in game: the forest's, terrain study X3)")
+                         f"widest massif seen in game: terrain study round 20)")
 
     # THE DONOR-DISPATCH STRIP: a carried IDALL keeps its topograph + flags but drops the
     # donor's event/area bits -- those are DISPATCH CONTEXT (area feeds the overworld

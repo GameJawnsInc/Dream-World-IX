@@ -1049,8 +1049,8 @@ plugs wear the rock collar's own affine UV chart, gated against the atlas rock b
   shape. THE RIM GRAIN (the forest's law): a rim edge longer than the donor's longest is split along itself (a
   planar fan, renders the same), so the zip never bridges a coarser rim than the donor's. Offline: 46/48 widened
   carves over the five donors at four angles; the horseshoe refuses two placements where a widened falls part
-  straddles a block border (a census MISS). The footprint grows S², so mint a bigger island. Terrain study lane
-  `studies/terrain-malleability/mountainspread/`.
+  straddles a block border (a census MISS). The footprint grows S², so mint a bigger island. In game: Uaho at
+  ×1.25, ×1.5 and ×1.5 scaled whole, 57/57, owner-passed. Terrain study lane `studies/terrain-malleability/mountainspread/`.
 * **THE HOME-GROUND WARNING** — every massif donor stands on ONE ground family at home (its rim's feet): Uaho,
   comp20 and the horseshoe on grass, the crag and the desert peak (`--donor 19,3`) on desert. The donor catalog
   (`world/data/donors.toml`, `home_ground`) records it; `world-mountain` and `world-fuse`'s `[[mountain]]` warn

@@ -14,7 +14,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   still refused. A widened rim edge longer than the donor's longest is split along itself (renders the same), as
   the forest's is, so the seam round the foot never gets coarser than the donor's.
 - Offline, 46 of 48 widened carves pass every gate (the five donors, four angles, ×1.25 / ×1.5, and the whole
-  scale). The horseshoe refuses two placements where its widened falls straddles a block border. In game: pending.
+  scale). The horseshoe refuses two placements where its widened falls straddles a block border. In game, Uaho
+  ×1.25, ×1.5 and ×1.5 scaled whole passed every check (57/57), and the owner passed the look: all three read as
+  stock mountains.
 
 ### Added — `world-fuse` recipes can turn and size what they carry
 - A `[[forest]]` row now takes `spread` and `rot`, and a `[[mountain]]` row takes `rot` and `rock_height`: the same

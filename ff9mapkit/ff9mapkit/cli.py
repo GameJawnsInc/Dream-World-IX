@@ -10409,7 +10409,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="carry the massif S times wider in plan (1.0-1.5) about its centre, heights kept: the "
                           "rock, its rim, plugs and any falls/river parts move alike, UVs carried, and every gate "
                           "judges the result. With --rock-height S as well it scales uniformly. Needs a bigger "
-                          "island: the footprint grows S squared. Default 1.0 = the rigid carry.")
+                          "island: the footprint grows S squared. In-game passed to x1.5 on Uaho, alone and scaled whole "
+                          "(terrain study round 20). Default 1.0 = the rigid carry.")
     wmt.add_argument("--gblend", type=float, default=None, metavar="U",
                      help="ground-apron blend reach in units (default 12.0, the proven hill-at-scale "
                           "value): how far out from the rigid rim the grass apron spreads its rise. "

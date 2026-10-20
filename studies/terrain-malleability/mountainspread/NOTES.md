@@ -86,6 +86,17 @@ Re-run after both leak fixes: the same verdicts, and every widened carve now sea
 does (Uaho 12.05 and the desert peak 14.48 at every spread). The desert peak scaled whole reads 20.11, round 19's
 x1.5-tall variant C to the hundredth: the split adds nothing to the height map.
 
+## 4. In game (round 20, `../ingame/RESULTS.md` section 35)
+
+57/57 on one launch: every summit read its variant, 48/48 foot points read the built ground, and all 8 walks kept to
+the built ground and never stood on rock. The owner judged labelled panels from four sides. **Verdict: "B, C and D
+all read as stock mountains."** `MTN_SPREAD_MAX` stays 1.5.
+
+What it licenses: a plan scale of a carried massif up to x1.5 (Uaho, at the default world camera, four sides, no
+fog), alone or with a matching `--rock-height` (the whole mountain scaled). Untested in game: the other four donors
+(offline-clean on their own grounds), close camera angles, a widened falls (the horseshoe), and disc 4 (the mirror
+copies the written cells as for any carve).
+
 **Offline renders** (`world-render --around 1386,-104 --ground-y 3.2` over each lab variant, out/lab/render/):
 the overview reads as built (B and C wider and lower, D the same mountain scaled whole), no stray geometry, 0
 sky-coloured pixels in any close or top view. One white pixel at the rock foot in C and D: an alpha-0 texel
