@@ -322,8 +322,21 @@ the kit's r90 ring:
   | beach | 9.1u | back rows mid-bay |
   | rock | 5.7u | the source contact, 110-190u from the joins |
 
-  So the bay carry is lawful in TOPOLOGY. The few mid-bay coastal back-row edges are a set-definition tail, not a
-  component cut.
+  So the bay carry is lawful in TOPOLOGY, with one correction below.
+- **CORRECTION: the straight chord cuts the island.** Sampled every 0.5u, the 115.3u W-E chord crosses:
+
+  | from W | what it crosses |
+  |---|---|
+  | 0-40u | water: sea3, sea5, sea3 |
+  | 40-74u | the ISLAND: lip, grass, sand, beach |
+  | 74-78u | 4u of sea1, the island's shallows |
+  | 78-107u | water: sea3, sea4, sea5, sea3 |
+  | 107-115u | the E headland's tip: lip, grass, lip |
+
+  The minimal fragment's island flood was clipped to the bay side, so it carried HALF the island. The "mid-bay back
+  rows" (sand, beach, lip ~60u from both joins) are its other half: a component cut, not a tail. The fix is in the
+  plan: the seaward boundary is a polyline through mid and deep water only (sea3/sea5/sea4), routed seaward of the
+  island's whole shallow ring and reaching each join base from the water.
 
 *What R1 still needs: the composition, which is a kit-feature build, not a study script.*
 1. a mint that takes a custom outline: the kit arc from E round the land to W, closed by the chord;
