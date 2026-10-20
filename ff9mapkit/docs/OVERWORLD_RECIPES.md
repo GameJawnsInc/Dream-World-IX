@@ -105,9 +105,9 @@ apron = true          # the default; area = N as --area
 ```
 
 The row belongs to the first tier, with `[[island]]`, so a later `[[mountain]]`,
-`[[forest]]` or `[[hill]]` row reads the island it minted. Those relief verbs cannot
-yet read across the world's x seam, where the 512,128 island sits, so keep a relief
-row's `reach` on one side of it. A dry run deploys nothing, so a relief row aimed at
+`[[forest]]` or `[[hill]]` row reads the island it minted. The relief verbs read and
+write across the world's x seam (between columns 23 and 0), where the 512,128 island
+sits, so the default `reach` works there. A dry run deploys nothing, so a relief row aimed at
 the river island fails there and says why. A river row never builds over another
 deploy, `--allow-overwrite` or not. To re-run a recipe, take its river out first with
 `world-river --remove --at DX,DZ`: the ledger records that the rows came from
@@ -121,7 +121,9 @@ py -m ff9mapkit world-mountain --mod-folder FF9CustomMap-world --target-disc 9
 
 `world-forest` / `world-hill` follow the same shape. All three carve the DEPLOYED
 island (they read the override tree), gate on the placement census, and refuse
-rather than deploy a stranding.
+rather than deploy a stranding. An island across the world's seam (between columns
+23 and 0) reads whole, so a carve can stand on the seam. The printed centre is
+always inside the world (x 0..1535), ready to teleport to or copy into a recipe.
 
 ## Reshape stock ground (hills, craters, ridges)
 

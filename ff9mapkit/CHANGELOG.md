@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-forest`, `world-mountain` and `world-hill` work across the world's seam
+- The three relief commands, and their `[[forest]]`, `[[mountain]]` and `[[hill]]` rows in a `world-fuse` recipe,
+  refused any island within reach of the world's seam (the edge between columns 23 and 0, at x 0 / 1536). The
+  `world-river` island at 512,128 straddles it, so nothing could be built on that island.
+- They now read an island across the seam whole, in one piece, and write each block back to the file the game
+  loads (column 23, never a column -1 file the game would never read). This is the same approach `world-island`
+  has used since it learned to mint across the seam.
+- The centre and teleport point they print are always inside the world (x 0 to 1535), even when the carve stands
+  on the seam.
+- Away from the seam nothing changes: the same reads and the same written bytes.
+
 ### Added — a river in a `world-fuse` recipe
 - A `[[river]]` row (`donor`, `at`, `area`, `apron`) puts a stock river on a new island as part of a composed world.
   It runs the same steps as `world-river`, so it writes the same files: checked byte for byte at the in-game

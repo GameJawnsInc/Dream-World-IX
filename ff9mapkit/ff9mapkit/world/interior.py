@@ -39,6 +39,7 @@ forest_rehome.py`` + ``hill_at_scale.py`` + ``massif_carry.py`` -- the laws it e
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 import time
 from collections import Counter, defaultdict
@@ -228,7 +229,19 @@ def read_deployed_blocks(mod_folder: str, *, near, reach: float, disc: int = 1,
     namespace too: a synthetic world's island exists ONLY as its deployed overrides, and a Disc1
     read here would hand the carve real disc-1 land while the caller believes it is on a synthetic
     world. ``disc`` stays the STOCK read disc for the donor/census paths (``carve_*``,
-    ``census_gate``), which is why it is a separate parameter."""
+    ``census_gate``), which is why it is a separate parameter.
+
+    THE SEAM WRAP -- the world-island mint lane's shape (island.py, 2026-08-27), reused, not
+    re-invented. The window's columns are UNWRAPPED, anchored at ``near``: each one reads its
+    WRAPPED label's file (:func:`mesh.wrap_block_col` -- a ``Block[-1]``/``Block[24]`` file can
+    never exist, so the old linear probe read a seam-straddling island back PARTIAL), and the
+    returned key AND BlockMesh identity stay unwrapped. :func:`soup_from_blocks` therefore
+    rebuilds ONE contiguous world frame across x = 0/1536 and every carve/gate downstream runs
+    in it unchanged; the label wraps back exactly once, at the write seam (:func:`_wrap_label`
+    in :func:`deploy_changed` / :func:`deploy_mountain_parts` / :func:`census_gate`). A window
+    inside [0, 1536) has unwrapped == wrapped, so its read is byte-identical to before. A window
+    wider than the whole 24-column world would read one file under two keys (the same land
+    twice, 1536u apart) and refuses -- the island lane's wraps-onto-itself invariant."""
     from .. import config
     rtarget = disc if target_disc is None else int(target_disc)
     gp = Path(config.find_game_path(game))
@@ -236,19 +249,16 @@ def read_deployed_blocks(mod_folder: str, *, near, reach: float, disc: int = 1,
     wx, wz = near
     bx0, bx1 = int(math.floor((wx - reach) / BLOCK)), int(math.floor((wx + reach) / BLOCK))
     by0, by1 = int(math.floor(-(wz + reach) / BLOCK)), int(math.floor(-(wz - reach) / BLOCK))
-    if bx0 < 0 or bx1 > 23:
+    if bx1 - bx0 + 1 > M.GRID_COLS:
         raise ValueError(
-            f"the read window near ({wx:.0f},{wz:.0f}) reach {reach:.0f} crosses the world "
-            f"x-seam (x=0/1536): the interior verbs probe Block[{bx0}..{bx1}] paths linearly "
-            f"and rebuild world coordinates from labels*64, so a seam-straddling island would "
-            f"read back PARTIAL (the off-range files do not exist -- silently skipped) and "
-            f"then as two discontiguous clumps. Seam-aware interior relief is a follow-on "
-            f"rung (THE SEAM-WRAP arc, 2026-08-27 -- the world-island mint lane is wrap-aware; "
-            f"these verbs are not yet); reshape each side with a window inside one wrapped span.")
+            f"the read window near ({wx:.0f},{wz:.0f}) reach {reach:.0f} spans "
+            f"{bx1 - bx0 + 1} block columns -- more than the whole {M.GRID_COLS}-column world, "
+            f"so one wrapped file would read twice (the same land 1536u apart). Narrow --reach.")
     out = {}
     for bx in range(bx0, bx1 + 1):
+        wbx = M.wrap_block_col(bx)                       # the file the engine knows; the key stays bx
         for by in range(by0, by1 + 1):
-            p = root / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh"
+            p = root / f"r{by}" / f"Block[{wbx}][{by}] Terrain.ff9mesh"
             if p.exists():
                 out[(bx, by)] = M.blockmesh_from_ff9mesh(p, disc=rtarget, x=bx, y=by,
                                                          lod=lod, part="terrain")
@@ -256,6 +266,30 @@ def read_deployed_blocks(mod_folder: str, *, near, reach: float, disc: int = 1,
         raise ValueError(f"no deployed Terrain overrides near world ({wx:.0f},{wz:.0f}) "
                          f"in {mod_folder} -- these verbs reshape DEPLOYED kit islands only")
     return out
+
+
+def _wrap_label(bm, part: str):
+    """THE SEAM WRAP POINT for the interior writers: ``island.landmass``'s deploy-stage relabel,
+    verbatim. An unwrapped column (a seam-side key from :func:`read_deployed_blocks`) takes its
+    wrapped label; the bytes are untouched (a ``.ff9mesh`` carries no identity, and 24*64 = the
+    world width, so the block-local frame is the same). A column already in [0, 24) is returned
+    as-is -- every window off the seam deploys exactly what it did before."""
+    wbx = M.wrap_block_col(bm.x)
+    if wbx == bm.x:
+        return bm
+    return dataclasses.replace(bm, x=wbx, name=f"Block[{wbx}][{bm.y}] {part}")
+
+
+def _require_one_label_per_cell(keys, what: str) -> None:
+    """Exactly ONE mesh per wrapped cell (the engine invariant the island lane's wraps-onto-
+    itself gate guards): two unwrapped columns 24 apart would write one file twice."""
+    owner = {}
+    for bx, by in sorted(keys):
+        lab = (M.wrap_block_col(bx), by)
+        prev = owner.setdefault(lab, (bx, by))
+        if prev != (bx, by):
+            raise ValueError(f"{what}: unwrapped columns {prev[0]} and {bx} both land on wrapped "
+                             f"cell {lab} -- one Terrain mesh per cell is an engine invariant")
 
 
 # ---- shared geometry helpers ---------------------------------------------------------------
@@ -3832,19 +3866,24 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
     Object/Falls/River/RiverJoint from ``res["changed_parts"]``). They REPLACE the hidden
     blanks, so the census measures the deployed stack: Object registers AHEAD of Terrain,
     so a carried massif Object over the probe point now FAILS the probe instead of passing
-    by omission."""
+    by omission.
+
+    THE SEAM WRAP: ``changed`` keys may be unwrapped seam columns (:func:`read_deployed_blocks`);
+    the stack is censused under the WRAPPED label it deploys as (one label per block-local
+    census), while the probe's world->local step keeps the unwrapped key -- the soup's frame."""
     from . import placement as P
     from .island import _sea_plane, _cut_plane
     plane = _sea_plane(disc, game=game)
     for blk, bm in sorted(changed.items()):
         bx, by = blk
-        hid = lambda nm_: M.hidden_block_mesh(name=nm_, disc=disc, x=bx, y=by)  # noqa: E731
+        wbx = M.wrap_block_col(bx)
+        hid = lambda nm_: M.hidden_block_mesh(name=nm_, disc=disc, x=wbx, y=by)  # noqa: E731
         under = baseline.get(blk, bm) if baseline is not None else bm
-        by_name = {"Object": hid("Object"), "Terrain": bm, "Sea1": hid("Sea1"),
+        by_name = {"Object": hid("Object"), "Terrain": _wrap_label(bm, "Terrain"), "Sea1": hid("Sea1"),
                    "Sea2": hid("Sea2"), "Sea3": hid("Sea3"),
-                   "Sea4": _cut_plane(plane, bx, by, frozenset(), under),
+                   "Sea4": _cut_plane(plane, bx, by, frozenset(), under, label_x=wbx),
                    "Sea5": hid("Sea5")}
-        by_name.update((parts or {}).get(blk) or {})
+        by_name.update((p_, _wrap_label(m_, p_)) for p_, m_ in ((parts or {}).get(blk) or {}).items())
         meshlist = P.build_meshlist(by_name)
         cen = P.census(meshlist, frame="block_local")
         if cen["miss"]:
@@ -3888,6 +3927,10 @@ def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_
     rtarget = disc if target_disc is None else int(target_disc)   # THE READ/WRITE DISC SPLIT
     out = []
     span = [tuple(b) for b in res["report"]["blocks"]]
+    # THE SEAM WRAP: span keys are the soup's unwrapped columns; everything this writer names,
+    # probes or writes is the WRAPPED label (_wrap_label -- the island lane's deploy-stage relabel)
+    _require_one_label_per_cell(span, "deploy_mountain_parts")
+    wspan = [(M.wrap_block_col(bx), by) for bx, by in span]
     # THE MOD-OVERWRITE GATE, as a WARN ROW -- deliberately NOT a refusal. The interior verbs
     # reshape an ALREADY-DEPLOYED kit island (`read_deployed_blocks` refuses when the mod tree is
     # EMPTY), so occupancy at a span block is the normal case and a refusal would be a wall, not a
@@ -3895,26 +3938,25 @@ def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_
     # The hazard worth NAMING is narrower and real: this writer replaces every ENSEMBLE_PART with
     # carried content OR A HIDDEN BLANK, and it never reads those parts back, so a prior deploy's
     # Object (e.g. a `world-entrance` building) at a span block is erased without a word.
-    prior = M.existing_overrides(span, mod_folder, disc=rtarget, lod=lod, game=game,
+    prior = M.existing_overrides(wspan, mod_folder, disc=rtarget, lod=lod, game=game,
                                  parts=ENSEMBLE_PARTS)
     if prior:
         log(f"!! WARNING: {len(prior)} {'/'.join(ENSEMBLE_PARTS)} override(s) already deployed on "
             f"the span -- this deploy REPLACES each with carried content or a hidden blank "
             f"(a prior building/falls/river at these blocks is erased): {prior[:6]}")
-    for blk in span:
-        bx, by = blk
+    for blk, (wbx, by) in zip(span, wspan):
         for part in ENSEMBLE_PARTS:
             bmP = changed_parts.get(blk, {}).get(part)
             if bmP is None:
-                bmP = M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}", disc=rtarget,
-                                          x=bx, y=by, lod=lod)
-            p = M.deploy_override(bmP, mod_folder=mod_folder, game=game, lod=lod,
-                                  part=part, disc=rtarget)
+                bmP = M.hidden_block_mesh(name=f"Block[{wbx}][{by}] {part}", disc=rtarget,
+                                          x=wbx, y=by, lod=lod)
+            p = M.deploy_override(_wrap_label(bmP, part), mod_folder=mod_folder, game=game,
+                                  lod=lod, part=part, disc=rtarget)
             if len(bmP.tris):
                 log(f"deployed {part} -> {p} ({len(bmP.tris)} tris)")
             out.append(p)
         out.append(M.deploy_donor_sidecar(donor_ref[0], donor_ref[1], mod_folder=mod_folder,
-                                          disc=rtarget, x=bx, y=by, lod=lod, game=game))
+                                          disc=rtarget, x=wbx, y=by, lod=lod, game=game))
     log(f"Donor.txt -> {donor_ref} on {len(span)} span block(s) "
         f"(+ blanks for uncarried parts)")
     from . import discmirror as DM
@@ -3944,13 +3986,18 @@ def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
     # and writes the morphed bytes back -- so an occupancy gate would fire on 100% of legitimate runs
     # (and a warn row would be 100% vacuous). The byte-compare converge below is the real guard: a
     # block whose bytes do not change is not written at all.
+    # THE SEAM WRAP: keys may be the soup's unwrapped seam columns -- the compare reads, and the
+    # write lands at, the WRAPPED label (_wrap_label, the island lane's deploy-stage relabel).
+    _require_one_label_per_cell(changed, "deploy_changed")
     out = []
     with tempfile.TemporaryDirectory(prefix="ff9_interior_") as tmpdir:
         tmp = Path(tmpdir)
         for blk, bm in sorted(changed.items()):
             bx, by = blk
-            dep = root / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh"
-            new = M.write_ff9mesh(bm, tmp / f"fin_{bx}_{by}.ff9mesh").read_bytes()
+            wbx = M.wrap_block_col(bx)
+            dep = root / f"r{by}" / f"Block[{wbx}][{by}] Terrain.ff9mesh"
+            bm = _wrap_label(bm, "Terrain")
+            new = M.write_ff9mesh(bm, tmp / f"fin_{wbx}_{by}.ff9mesh").read_bytes()
             if dep.exists() and dep.read_bytes() == new:
                 continue
             # the backup now lives at THE one write seam (deploy_override, audit rec 6)

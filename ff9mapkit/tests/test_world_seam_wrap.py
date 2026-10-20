@@ -1,4 +1,6 @@
-"""THE SEAM-WRAP GAP closed (island.py, 2026-08-27) -- world-island can mint across the x-seam.
+"""THE SEAM-WRAP GAP closed (island.py, 2026-08-27) -- world-island can mint across the x-seam;
+the interior relief verbs (world-forest / world-mountain / world-hill) read and write across it
+too (interior.py, 2026-10-20) -- see the section at the bottom.
 
 The overworld is an x-torus: WMWorld.Wrap shifts the whole world in 64u steps mod 1536, block
 identity is only ever the wrapped InitialX in [0,24), and a Block[-1]/Block[24] override file is
@@ -213,9 +215,208 @@ def test_rimretile_refuses_a_seam_spanning_cell_set():
         RR.plan_rim({(23, 5): {}, (0, 5): {}})
 
 
-def test_interior_read_refuses_a_seam_window(tmp_path, monkeypatch):
-    from ff9mapkit import config
+# --------------------------------------------------------------------- the interior relief verbs
+# world-forest / world-mountain / world-hill (and their world-fuse rows) read a DEPLOYED island
+# through interior.read_deployed_blocks, so the same fix shape applies: unwrapped columns in the
+# soup, the wrapped label once, at the write seam. Until 2026-10-20 the read refused any window
+# that crossed x = 0/1536, so the live world-river island (cells 23/0/1) could not be dressed.
+#
+# THE FIXTURE: one island minted OFF the seam (columns 3-4), then moved whole RELIEF_SHIFT columns
+# west so it straddles x = 0. A BlockMesh is block-local, so the move changes no float -- every
+# world coordinate shifts by exactly -256u. The seam copy IS the off-seam island, which lets each
+# test compare the seam path against the plain one, byte for byte.
+
+RELIEF_MINT = dict(center=(256.0, -128.0), base_radius=46.0, seed=5.0)    # blocks (3|4, 1|2)
+RELIEF_SHIFT = 4                                                           # -> columns -1|0 = 23|0
+SEAM_NEAR = (RELIEF_MINT["center"][0] - 64.0 * RELIEF_SHIFT, RELIEF_MINT["center"][1])  # (0, -128)
+HILL = dict(height=3.5, radius=14.0)
+
+
+def _quiet(*a, **k):
+    pass
+
+
+@pytest.fixture(scope="module")
+def relief_island():
+    return I.build_landmass(**RELIEF_MINT)["blocks"]
+
+
+def _deploy_tree(game_root, folder, blocks, *, shift=0):
+    """Write ``blocks`` as deployed Terrain overrides, ``shift`` columns west, under their WRAPPED
+    labels -- what world-island leaves in a mod tree for a seam mint."""
+    root = game_root / folder / "FF9_Data" / "WorldMap" / "Disc1" / "0_1"
+    for (bx, by), bm in blocks.items():
+        wbx = M.wrap_block_col(bx - shift)
+        M.write_ff9mesh(bm, root / f"r{by}" / f"Block[{wbx}][{by}] Terrain.ff9mesh")
+
+
+def _plain_and_seam(tmp_path, relief_island):
+    """(plain read, seam read) of the one island: the off-seam deploy and the moved copy."""
     from ff9mapkit.world import interior as IN
-    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
-    with pytest.raises(ValueError, match="x-seam"):
-        IN.read_deployed_blocks("MOD", near=(8.0, -240.0), reach=96.0)
+    _deploy_tree(tmp_path, "PLAIN", relief_island)
+    _deploy_tree(tmp_path, "MOD", relief_island, shift=RELIEF_SHIFT)
+    plain = IN.read_deployed_blocks("PLAIN", near=RELIEF_MINT["center"], reach=96.0, game=tmp_path)
+    seam = IN.read_deployed_blocks("MOD", near=SEAM_NEAR, reach=96.0, game=tmp_path)
+    return plain, seam
+
+
+def _seam_soup_problems(soup, plain_soup) -> list:
+    """Why ``soup`` is NOT the plain island moved RELIEF_SHIFT columns west, whole, in one frame
+    (empty = it is). Positions must match the plain soup's shifted by exactly -256u (no tri
+    missing, none 1536u away), and no once-edge may lie on the seam line: the two sides of x = 0
+    weld there exactly as the plain island welds across x = 256."""
+    from collections import Counter
+    from ff9mapkit.world import interior as IN
+    probs = []
+    dx = 64.0 * RELIEF_SHIFT
+    want = sorted(IN.kk3((p[0] - dx, p[1], p[2])) for p in plain_soup["pos"])
+    got = sorted(IN.kk3(p) for p in soup["pos"])
+    if got != want:
+        probs.append(f"positions: {len(got)} read, {len(want)} expected")
+    xs = [p[0] for p in soup["pos"]]
+    if xs and max(xs) - min(xs) > 3 * 64.0:
+        probs.append(f"x extent {min(xs):.0f}..{max(xs):.0f}: two clumps")
+    eu = Counter()
+    for t in soup["tris"]:
+        ks = [IN.kk3(soup["pos"][i]) for i in t]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            eu[tuple(sorted((ks[a], ks[b])))] += 1
+    on_seam = [e for e, n in eu.items() if n == 1
+               and all(min(abs(p[0]), abs(p[0] - 1536.0)) < 1e-3 for p in e)]
+    if on_seam:
+        probs.append(f"{len(on_seam)} once-edges on the seam line")
+    return probs
+
+
+def test_interior_read_keeps_unwrapped_keys_and_reads_wrapped_files(tmp_path, relief_island):
+    """The window probes UNWRAPPED columns (-1 and 0) but each reads its WRAPPED label's file
+    (Block[23][y] -- a Block[-1] file cannot exist); key and BlockMesh identity stay unwrapped,
+    and the bytes are the deployed bytes."""
+    plain, seam = _plain_and_seam(tmp_path, relief_island)
+    assert sorted(seam) == sorted((bx - RELIEF_SHIFT, by) for bx, by in plain)
+    assert {bx for bx, _ in seam} == {-1, 0}
+    for (bx, by), bm in seam.items():
+        assert (bm.x, bm.y) == (bx, by), "identity must stay on the unwrapped key until the write"
+        assert M.ff9mesh_bytes(bm) == M.ff9mesh_bytes(plain[(bx + RELIEF_SHIFT, by)])
+
+
+def test_seam_soup_comes_back_whole_in_one_contiguous_frame(tmp_path, relief_island, monkeypatch):
+    """THE BREAK-IT. A soup straddling the seam must come back WHOLE and in ONE frame: the plain
+    island moved -256u, every position present, the two sides welded across x = 0. Both pre-fix
+    defects fail the same check -- so the check can fail."""
+    from ff9mapkit.world import interior as IN
+    plain, seam = _plain_and_seam(tmp_path, relief_island)
+    plain_soup = IN.soup_from_blocks(plain)
+    assert _seam_soup_problems(IN.soup_from_blocks(seam), plain_soup) == []
+
+    # broken 1: world coords from the WRAPPED labels (labels*64) -> two clumps 1536u apart
+    by_label = {(M.wrap_block_col(bx), by): bm for (bx, by), bm in seam.items()}
+    probs = _seam_soup_problems(IN.soup_from_blocks(by_label), plain_soup)
+    assert any("two clumps" in p for p in probs) and any("once-edges" in p for p in probs), probs
+
+    # broken 2: the old LINEAR probe (no wrap) -> Block[-1][y] does not exist -> read back PARTIAL
+    monkeypatch.setattr(M, "wrap_block_col", lambda bx: bx)
+    partial = IN.read_deployed_blocks("MOD", near=SEAM_NEAR, reach=96.0, game=tmp_path)
+    assert {bx for bx, _ in partial} == {0}
+    assert any("positions" in p for p in _seam_soup_problems(IN.soup_from_blocks(partial), plain_soup))
+
+
+def test_hill_across_the_seam_is_the_plain_hill_moved_and_writes_wrapped_labels(tmp_path, relief_island,
+                                                                                monkeypatch):
+    """The whole world-hill path on the seam: carve, census, deploy, read back. The carve is the
+    plain island's carve moved -256u, byte for byte per block (the hill reads only coordinate
+    DIFFERENCES, and the shift is exact); the deploy lands every block at its WRAPPED label; and
+    the re-read is the plain carve's deploy, moved."""
+    from ff9mapkit.world import interior as IN
+    from .test_world_island import _synth_plane as synth
+    plain, seam = _plain_and_seam(tmp_path, relief_island)
+    h_plain = IN.build_hill(IN.soup_from_blocks(plain), center=RELIEF_MINT["center"], **HILL, log=_quiet)
+    h_seam = IN.build_hill(IN.soup_from_blocks(seam), center=SEAM_NEAR, **HILL, log=_quiet)
+    assert {bx for bx, _ in h_seam["changed"]} == {-1, 0}, "the hill must span the seam"
+    assert sorted(h_seam["changed"]) == sorted((bx - RELIEF_SHIFT, by) for bx, by in h_plain["changed"])
+    assert h_seam["report"] == h_plain["report"]
+    for (bx, by), bm in h_plain["changed"].items():
+        assert M.ff9mesh_bytes(h_seam["changed"][(bx - RELIEF_SHIFT, by)]) == M.ff9mesh_bytes(bm), (bx, by)
+
+    monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: synth())
+    IN.census_gate(h_seam["changed"], baseline=seam, log=_quiet)
+
+    written = IN.deploy_changed(h_seam["changed"], mod_folder="MOD", game=tmp_path, skip_mirror=True,
+                                log=_quiet)
+    assert sorted(p.name for p in written) == sorted(
+        f"Block[{M.wrap_block_col(bx)}][{by}] Terrain.ff9mesh" for bx, by in h_seam["changed"])
+    assert not list((tmp_path / "MOD").rglob("Block[-*")), "a Block[-1] file is DEAD in game"
+    back = IN.read_deployed_blocks("MOD", near=SEAM_NEAR, reach=96.0, game=tmp_path)
+    for (bx, by), bm in h_plain["changed"].items():
+        assert M.ff9mesh_bytes(back[(bx - RELIEF_SHIFT, by)]) == M.ff9mesh_bytes(bm), (bx, by)
+    # and a second deploy of the same carve converges: nothing's bytes change, nothing is written
+    assert IN.deploy_changed(h_seam["changed"], mod_folder="MOD", game=tmp_path, skip_mirror=True,
+                             log=_quiet) == []
+
+
+def test_untouched_seam_read_assembles_back_to_the_deployed_bytes(tmp_path, relief_island):
+    """read -> soup -> re-emit with nothing dropped is the identity across the seam: the soup's
+    unwrapped frame round-trips every kept tri byte-exact into its wrapped file."""
+    from ff9mapkit.world import interior as IN
+    _, seam = _plain_and_seam(tmp_path, relief_island)
+    same = IN._assemble(IN.soup_from_blocks(seam), set(), {})
+    assert IN.deploy_changed(same, mod_folder="MOD", game=tmp_path, skip_mirror=True, log=_quiet) == []
+
+
+def test_mountain_parts_name_probe_and_write_wrapped_labels(tmp_path, monkeypatch):
+    """world-mountain's ensemble writer: the span keys are the soup's unwrapped columns; the
+    mod-overwrite probe, every carried or blank part, and the Donor.txt all carry the WRAPPED
+    label (an unwrapped one is a dead file, or a vacuous probe)."""
+    from pathlib import Path
+    from ff9mapkit.world import interior as IN
+    captured, probed = [], []
+    monkeypatch.setattr(M, "existing_overrides", lambda cells, *a, **k: probed.extend(cells) or [])
+    monkeypatch.setattr(M, "deploy_override",
+                        lambda bm, *, part, **k: captured.append((part, bm.name, bm.x, bm.y)) or Path("x"))
+    monkeypatch.setattr(M, "deploy_donor_sidecar",
+                        lambda dx, dy, *, x, y, **k: captured.append(("Donor", None, x, y)) or Path("x"))
+    obj = dataclasses.replace(_synth_plane(), x=-1, y=1, name="Block[-1][1] Object")
+    res = {"donor_ref": (12, 10), "report": {"blocks": [[-1, 1], [0, 1]]},
+           "changed_parts": {(-1, 1): {"Object": obj}}}
+    IN.deploy_mountain_parts(res, mod_folder="MOD", game=tmp_path, skip_mirror=True, log=_quiet)
+    assert probed == [(23, 1), (0, 1)]
+    assert sorted({(x, y) for _, _, x, y in captured}) == [(0, 1), (23, 1)]
+    for part, name, x, y in captured:
+        if name is not None:
+            assert name == f"Block[{x}][{y}] {part}", (part, name, x, y)
+    assert ("Object", "Block[23][1] Object", 23, 1) in captured        # the carried part, relabeled
+    assert len(captured) == 2 * (len(IN.ENSEMBLE_PARTS) + 1)
+
+
+def test_relief_writer_refuses_two_columns_on_one_wrapped_cell(tmp_path):
+    """One Terrain mesh per wrapped cell (the island lane's wraps-onto-itself invariant), at the
+    write seam: unwrapped -1 and 23 are the same file."""
+    from ff9mapkit.world import interior as IN
+    bm = _synth_plane()
+    with pytest.raises(ValueError, match="wrapped cell"):
+        IN.deploy_changed({(-1, 3): dataclasses.replace(bm, x=-1, y=3),
+                           (23, 3): dataclasses.replace(bm, x=23, y=3)},
+                          mod_folder="MOD", game=tmp_path, skip_mirror=True, log=_quiet)
+    assert not (tmp_path / "MOD").exists()
+
+
+def test_relief_read_refuses_a_window_wider_than_the_world(tmp_path):
+    from ff9mapkit.world import interior as IN
+    with pytest.raises(ValueError, match="whole 24-column world"):
+        IN.read_deployed_blocks("MOD", near=(8.0, -240.0), reach=800.0, game=tmp_path)
+
+
+def test_relief_cli_prints_the_wrapped_centre(monkeypatch, capsys):
+    """A seam carve's centre is in the soup's frame (x may be < 0); the line the operator teleports
+    by and copies into a recipe names the same place inside the world window."""
+    from ff9mapkit import cli
+    from ff9mapkit.world import interior as IN
+    monkeypatch.setattr(IN, "read_deployed_blocks", lambda *a, **k: {})
+    monkeypatch.setattr(IN, "soup_from_blocks", lambda blocks: object())
+    monkeypatch.setattr(IN, "census_gate", lambda *a, **k: None)
+    monkeypatch.setattr(IN, "build_hill", lambda soup, **kw: {
+        "center": (-6.0, -128.0), "changed": {},
+        "report": {"displaced_tris": 98, "worst_flank": 24.0, "peak_y": 6.7}})
+    args = cli.build_parser().parse_args(["world-hill", "--mod-folder", "m", "--near", "0,-128", "--dry-run"])
+    assert cli._cmd_world_hill(args) == 0
+    assert "a grass hill at world (1530,-128)" in capsys.readouterr().out
