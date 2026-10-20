@@ -544,6 +544,7 @@ def fresh_reset_gate(blocks, mod_folder: str, *, disc: int, lod: str = "0_1", ga
 #: share this install, and append-only single lines avoid the read-modify-write race.
 LEDGER_NAME = ".ff9world.jsonl"
 _DEPLOY_ARGV: list | None = None
+_LEDGER_PIPELINE: dict | None = None
 
 
 def set_deploy_argv(argv) -> None:
@@ -552,6 +553,32 @@ def set_deploy_argv(argv) -> None:
     parameter through all of them."""
     global _DEPLOY_ARGV
     _DEPLOY_ARGV = list(argv)
+
+
+class ledger_pipeline:
+    """``with ledger_pipeline("world-river", at=[dx, dz]):`` -- every ledger row written inside the block also carries
+    ``"pipeline": {"verb": ..., **fields}``, the verb whose pipeline wrote it, beside the process ``argv``. A verb run
+    INSIDE another (world-fuse's ``[[river]]`` row runs world-river's) is otherwise ledgered under the outer argv only,
+    and the inner verb's ownership read (``river.deploy_ownership``) cannot tell its own bytes. Nesting restores the
+    outer tag on exit."""
+
+    def __init__(self, verb: str, **fields):
+        self.tag = {"verb": str(verb), **fields}
+        self._prev = None
+
+    def __enter__(self):
+        global _LEDGER_PIPELINE
+        self._prev, _LEDGER_PIPELINE = _LEDGER_PIPELINE, self.tag
+        return self
+
+    def __exit__(self, *exc):
+        global _LEDGER_PIPELINE
+        _LEDGER_PIPELINE = self._prev
+        return False
+
+
+def _pipeline_field() -> dict:
+    return {"pipeline": dict(_LEDGER_PIPELINE)} if _LEDGER_PIPELINE else {}
 
 
 def _ledger_path(mod_root: Path) -> Path:
@@ -590,7 +617,7 @@ def _append_ledger(mod_root: Path, dest: Path, bm, part: str, write_disc: int) -
     entry = {"cell": [bm.x, bm.y], "part": part, "write_disc": write_disc,
              "read_disc": bm.disc, "sha256": hashlib.sha256(Path(dest).read_bytes()).hexdigest(),
              "kit": __version__, "utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-             "argv": _DEPLOY_ARGV}
+             "argv": _DEPLOY_ARGV, **_pipeline_field()}
     with open(_ledger_path(mod_root), "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry) + "\n")
 
@@ -620,7 +647,7 @@ def record_ledger_write(dest, *, cell, part: str, write_disc: int, read_disc=Non
              "read_disc": int(write_disc if read_disc is None else read_disc),
              "sha256": hashlib.sha256(dest.read_bytes()).hexdigest(),
              "kit": __version__, "utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-             "argv": _DEPLOY_ARGV, "via": "record_ledger_write"}
+             "argv": _DEPLOY_ARGV, "via": "record_ledger_write", **_pipeline_field()}
     with open(_ledger_path(Path(mod_root)), "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry) + "\n")
 
@@ -637,7 +664,7 @@ def record_ledger_removal(mod_root, *, cell, part: str, write_disc: int, removed
              "read_disc": int(write_disc), "sha256": None, "removed_sha256": removed_sha256,
              "backup": None if backup is None else Path(backup).name, "op": "remove",
              "kit": __version__, "utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-             "argv": _DEPLOY_ARGV, "via": "record_ledger_removal"}
+             "argv": _DEPLOY_ARGV, "via": "record_ledger_removal", **_pipeline_field()}
     with open(_ledger_path(Path(mod_root)), "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry) + "\n")
 

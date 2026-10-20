@@ -2223,6 +2223,104 @@ def promote(stage, mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=Non
     return [dst for _, dst in pairs]
 
 
+def red_gates(comp: Composition, stack: dict, mod_folder: str, donor: RiverDonor) -> list:
+    """The composition's red gates plus THE STACK READ, as ``(gate, message)`` in report order. B1 names this verb's
+    own earlier deploy (``--remove`` is the way out) apart from another's (none is offered)."""
+    red = [(k, "; ".join(map(str, g["fails"][:4])) if g.get("fails") else f"red at {str(g.get('where'))[:240]}")
+           for k, g in comp.report["gates"].items() if isinstance(g, dict) and g.get("ok") is False]
+    if stack:
+        more = {k: p for k, p in stack.items() if k != (str(mod_folder), donor.disc)}   # compose's B1 names that one
+        held = ": " + "; ".join(f"{fo} disc {d} ({len(p)} file(s))" for (fo, d), p in sorted(more.items()))
+        own = any(fo == str(mod_folder) for fo, _d in stack)                           # the target holds some of it
+        red.append(("B1", "the stack already overrides these cells -- re-site with --at (or --at auto), or take that "
+                          "deploy out first" + (" (this verb's own earlier one: `world-river --remove --at "
+                                                f"{comp.offset[0]:g},{comp.offset[1]:g}`)" if own else "")
+                    + (held if more else "")))
+    return red
+
+
+@dataclass
+class RiverDeploy:
+    """One :func:`deploy` run: everything the CLI reports from. ``red`` holds every refusing gate as
+    ``(gate, message)`` in report order (empty = it deployed, or would have); ``written`` the promoted disc-1 paths
+    (empty on a dry run or a refusal); ``mirror`` the disc-4 mirror's summary (``discmirror.auto_mirror``)."""
+    donor: RiverDonor
+    mod_folder: str
+    frag: Fragment
+    ol: Outline
+    comp: Composition
+    cells: list
+    stack: dict
+    skipped: list
+    rep: dict | None = None
+    fails: list = field(default_factory=list)
+    red: list = field(default_factory=list)
+    written: list = field(default_factory=list)
+    mirror: dict | None = None
+
+
+def deploy(mod_folder: str, *, donor: RiverDonor = None, offset=None, area=None, apron: bool = True,
+           dry_run: bool = False, skip_mirror: bool = False, game=None, on_planned=None,
+           on_gated=None) -> RiverDeploy:
+    """THE VERB'S PIPELINE, one function for `world-river` and world-fuse's ``[[river]]`` row (RUNG5.md 5b: a recipe
+    writes the CLI's bytes because both run this). Compose and gate (``offset=None`` is ``--at auto``); THE STACK
+    READ; stage the write OUTSIDE the install and audit it there (:func:`write_composition`, :func:`write_verdict`);
+    then, unless ``dry_run`` or any gate is red, :func:`promote` exactly the staged bytes and mirror disc 4 -- both
+    under a :class:`mesh.ledger_pipeline` tag naming this verb and the placement, so ``--remove`` owns the rows
+    whichever verb ran the pipeline.
+
+    A red gate does not raise: it lands in ``red`` so the caller can report every gate. Raises :class:`RiverRefused`
+    (T0/T1 before the first read, B1 when ``auto`` finds no free placement, P0 at the promotion) and the install's
+    ``ValueError`` / ``FileNotFoundError``. ``on_planned(d)`` runs once the composition and the stack read exist;
+    ``on_gated(d)`` once every gate has a verdict, before anything is promoted (the CLI prints from both)."""
+    import shutil
+    import tempfile
+    from pathlib import Path
+    from . import discmirror as DM
+    from . import mesh as M_
+    donor = donor or CLUSTER_C
+    discs = (donor.disc,) if skip_mirror else (donor.disc, 4)
+    if offset is not None:
+        block_shift(offset)                                   # T0 / T1 before the first read
+    win = read_window(donor, game=game)
+    frag = build_fragment(win, donor)
+    ol = outline(frag)
+    skipped = []
+    if offset is None:
+        offset, skipped = auto_offset(ol, mod_folder, discs=discs, game=game)
+    comp = compose(frag, offset=offset, window=win, ol=ol, area=area, apron=apron, mod_folder=mod_folder,
+                   disc=donor.disc, game=game)
+    cells = sorted(tuple(int(v) for v in k.split(",")) for k in comp.plan["cells"])
+    d = RiverDeploy(donor=donor, mod_folder=str(mod_folder), frag=frag, ol=ol, comp=comp, cells=cells,
+                    stack=stack_occupancy(cells, mod_folder, discs=discs, game=game), skipped=skipped)
+    if on_planned:
+        on_planned(d)
+    d.red = red_gates(comp, d.stack, mod_folder, donor)
+    stage_root = Path(tempfile.mkdtemp(prefix="ff9-world-river-"))
+    try:
+        if not d.red:
+            try:
+                d.rep = write_composition(comp, stage_root / "stage", window=win, donors=knit_donors(frag),
+                                          disc=donor.disc, game=game)
+            except RiverRefused as e:
+                d.red.append((e.gate, str(e)))
+            else:
+                d.fails = write_verdict(d.rep, comp, donor)
+                d.red += d.fails
+        if on_gated:
+            on_gated(d)
+        if d.red or dry_run:
+            return d
+        tag = M_.ledger_pipeline(REMOVE_VERB, at=[float(comp.offset[0]), float(comp.offset[1])], donor=donor.name)
+        with tag:
+            d.written = list(promote(stage_root / "stage", mod_folder, disc=donor.disc, game=game))
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
+    with tag:
+        d.mirror = DM.auto_mirror(d.written, mod_folder=mod_folder, skip_mirror=skip_mirror)
+    return d
+
+
 # ---- taking a deploy back out: `world-river --remove` -------------------------------------------------------------
 #
 # B1 refuses ANY override on the target cells, this verb's own earlier deploy included, and it stays that way: a
@@ -2252,6 +2350,20 @@ def ledger_shift(argv):
         return block_shift((dx, dz))
     except (ValueError, RiverRefused):
         return None
+
+
+def _row_verb_shift(row) -> tuple:
+    """``(verb, shift)`` a ledger row was written under: its ``pipeline`` tag when this verb's pipeline ran inside
+    another (world-fuse's ``[[river]]`` row: the argv names world-fuse and a recipe, the tag names world-river and the
+    placement; :class:`mesh.ledger_pipeline`), else its own argv. ``shift`` is ``None`` when the row does not say."""
+    from . import mesh as M_
+    tag = row.get("pipeline") or {}
+    if tag.get("verb"):
+        try:
+            return tag["verb"], (None if tag.get("at") is None else block_shift(tag["at"]))
+        except (ValueError, TypeError):
+            return tag["verb"], None
+    return M_.ledger_verb(row.get("argv")), ledger_shift(row.get("argv"))
 
 
 def _same_shift(a, b) -> bool:
@@ -2306,8 +2418,8 @@ def deploy_ownership(cells, mod_folder: str, *, shift, discs=(1, 4), game=None, 
                        else "its bytes are not the last ledgered write: a hand edit, or a writer outside the seam")
                 foreign.append((p, d, f"{why} (last row: {_row_who(last)})"))
                 continue
-            mine = [r for r in rs if r.get("sha256") == sha and M_.ledger_verb(r.get("argv")) == REMOVE_VERB
-                    and (ledger_shift(r.get("argv")) is None or _same_shift(ledger_shift(r.get("argv")), shift))]
+            mine = [r for r in rs if r.get("sha256") == sha and _row_verb_shift(r)[0] == REMOVE_VERB
+                    and (_row_verb_shift(r)[1] is None or _same_shift(_row_verb_shift(r)[1], shift))]
             if not mine:
                 foreign.append((p, d, f"another deploy's: last written by {_row_who(last)}"))
                 continue

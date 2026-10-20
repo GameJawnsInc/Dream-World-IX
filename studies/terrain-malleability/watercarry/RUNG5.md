@@ -118,6 +118,49 @@ network over 65 blocks, and the tower and the plateau's entrances stand 19-21u f
 no slice under about 6 blocks closes without a rock cut. If 5c finds one, a build plan follows for a separate
 sign-off. If not, the lawn source becomes v1's permanent answer, and the warning (5a) already says why.
 
+## 5a and 5b result (offline; signed off with the three recommended answers, 2026-10-20)
+
+**5a: done.** The warning names the escarpment the river was born at, says not to put a `world-mountain` there and
+why, and points nowhere else. The first version pointed to `world-forest`; 5b showed a canopy does not seat on this
+island either, so it now says to leave the lawn. CHANGELOG and `OVERWORLD_RECIPES.md` match, and
+`test_world_river.py` pins the text.
+
+**5b: done; two of its three accepts hold, and the third is localized.**
+- **One pipeline.** `river.deploy()` runs the whole verb (compose, the stack read, the staged audit, the promotion,
+  the mirror). The CLI prints round it through two callbacks, so its output and all 71 of its tests are unchanged.
+- **The `[[river]]` row** (`fuse.py`, first tier with `[[island]]`): keys donor / at / area / apron. `at = "auto"`
+  works on a dry run only, and the printed placement is for copying into the recipe. A river row never waives B1.
+- **A finding the plan missed: THE RECIPE COULD NOT BE REMOVED.**
+  - `--remove` owned a file only when the ledger row's argv ran `world-river` with that `--at`. A recipe's rows
+    carry world-fuse's argv, so every fused river file read as another verb's.
+  - Fix: `mesh.ledger_pipeline(verb, **fields)` tags every ledger row written inside it (the promotion and the
+    mirror both run inside one). `river._row_verb_shift` reads the tag first.
+  - Test: `test_world_river_remove_owns_a_river_world_fuse_wrote` (refused untagged, owned tagged).
+- **A dry-run hint.** On a dry run, a relief row that fails after an undeployed base step now says so by name.
+
+**The accepts, measured** (`rung5b_identity.py`, into scratch folders outside the install, the stack read narrowed to
+the target because the live river holds 512,128):
+
+| accept | result |
+|---|---|
+| a `[[river]]`-only recipe writes the CLI's bytes | **green:** 264 of 264 files byte-identical, 132 on Disc1 + 132 on Disc4 (both mirrored explicitly against stock) |
+| `world-river --remove` owns a fused river | **green:** 264 owned, 0 foreign; every ledger row tagged under world-fuse's argv |
+| a `[[forest]]` row on the river island passes | **red, localized:** see below |
+
+**Why the forest does not seat (not the plumbing):**
+- **The read works.** The forest row read the river island the base tier had just deployed.
+- **It cannot cross the world's x seam.** The relief verbs are not seam-aware, and the island at 512,128 straddles
+  x = 0. The default 96u reach crosses the seam and refuses, so the reach must stay on one side.
+- **It has nowhere lawful to stand.** The only lawful canopy placement on the narrow lawn is (36, -820), and it fails
+  the forest's annulus-crack gate by one edge (`annulusOnce=1`; every other gate is clean). Five exact centres
+  elsewhere are refused as not lawful plain lawn.
+
+Seam-aware relief is the open THE SEAM-WRAP rung of the interior verbs, and a wider island means the outline growth
+5c's recon weighs. Neither is 5b's work.
+
+**Also measured:** `--at auto` now finds no free placement on the owner's install. All 56 open-ocean candidates are
+held, (8,-2) by the live river itself.
+
 ## Decisions for the owner
 
 1. **Drop `--source-massif DONOR`** (a catalogued massif at the source) from the plan. Recommendation: yes. It is the
