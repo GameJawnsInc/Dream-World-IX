@@ -28,7 +28,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - It refuses rather than overwrite, and names the check that failed: a placement off the 4u water grid or not a
   whole map block, a map cell another mod folder already overrides on disc 1 or disc 4, or a failed geometry or
   water check.
-- The river's source ends in open lawn, and the command warns and prints where.
+- The river's source ends in open lawn, and the command warns and prints where. The warning used to suggest putting
+  a mountain there with `world-mountain`; it no longer does. A mountain the river was not born at is not how the
+  original map looks, and `world-mountain` cannot seat one that close to the banks anyway. The warning now suggests
+  `world-forest` to dress the lawn.
 
 ### Fixed — kit islands no longer show a streaked grass band along the top of their cliffs
 - A few grass triangles along every minted cliff's top edge stretched one line of the grass texture across

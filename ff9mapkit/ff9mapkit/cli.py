@@ -5812,9 +5812,13 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
         for gate, verdict, detail in _river_report(comp, stack, folder, rep, fails):
             print(f"    {gate:15s} {verdict:10s} {detail}")
         tx, tz = _river_source_point(frag, comp.offset)
+        # RUNG5.md: the old advice ("add a world-mountain at the source") was the not-born-here form, and it cannot seat
         print(f"  !! WARNING (decision 3): the river's SOURCE zips to lawn -- its banks close in open grass at world "
-              f"({tx:.0f}, {tz:.0f}). Every stock river rises in a mountain: add one with `world-mountain` at "
-              f"({tx:.0f}, {tz:.0f}) (a composed --source-massif is a later rung).")
+              f"({tx:.0f}, {tz:.0f}). Stock never ends a stream in lawn: every stock river rises at the foot it was "
+              f"born at, and this one's is the continental escarpment, which the kit cannot carry. Do not put a "
+              f"`world-mountain` there: a mountain the river was not born at is not stock's form, and the mountain's "
+              f"seat keeps its rock 6.5u off the banks, so it will not seat. Dress the lawn with `world-forest` "
+              f"instead.")
         if red:
             for gate, msg in red:
                 print(f"world-river refused -- {gate}: {msg.removeprefix(gate + ': ')}", file=sys.stderr)

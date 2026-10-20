@@ -858,7 +858,10 @@ def test_world_river_dry_run_reports_every_gate(tmp_path, monkeypatch, capsys):
         assert any(ln.startswith(f"    {row} ") and " green " in ln for ln in out.splitlines()), row
     assert "W1 knit         understood" in out and "THE CLIFF-CORNER BAND STEP at [(24, 14, 3, 14)]" in out
     assert "sea plan        warn" in out
-    assert "!! WARNING (decision 3): the river's SOURCE zips to lawn" in out and "`world-mountain` at (105, -788)" in out
+    assert "!! WARNING (decision 3): the river's SOURCE zips to lawn" in out and "world (105, -788)" in out
+    # RUNG5.md: the warning must not send the user to a not-born-here mountain that cannot seat
+    assert "Do not put a `world-mountain` there" in out and "`world-mountain` at" not in out
+    assert "Dress the lawn with `world-forest`" in out
     assert "would deploy 132 files into FF9CustomMap-world (+ the disc-4 mirror). Nothing written." in out
     assert [c[0] for c in calls] == ["read", "compose", "stage"]            # staged and audited, never promoted
     kw = calls[1][1]

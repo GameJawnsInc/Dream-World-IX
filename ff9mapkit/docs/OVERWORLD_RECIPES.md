@@ -85,7 +85,11 @@ what would go. Then run the ordinary command again to redeploy.
 
 v1 ships one river, `cluster-c`, the lowland river and its cove (`ff9mapkit
 world-donors --class river`). Its source ends in open lawn, and the verb warns and
-prints where: every stock river rises in a mountain. Afterwards refresh the big
+prints where. In the original map every river rises at the foot of the mountain or
+escarpment it was born at. This one was born at the continent's escarpment, which the
+kit cannot carry. Don't put a `world-mountain` at the source: it is not the original
+map's form, and it will not seat that close to the banks. `world-forest` can dress the
+lawn instead. Afterwards refresh the big
 map with `ff9mapkit world-minimap`. To look before the game does, deploy into an
 absolute scratch folder (`--mod-folder C:/path/to/scratch`) and render it with
 `world-render --mod-root` (below).
