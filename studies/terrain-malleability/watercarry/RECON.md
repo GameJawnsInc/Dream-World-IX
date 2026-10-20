@@ -21,6 +21,7 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 | `ensemble.py` | R1: cluster C's river ensemble (parts + welded banks) and its boundary classed LAWN / SEA / ROCK (-> out/ensemble.json) |
 | `seat_dryrun.py` | R1: the ensemble seated verbatim into a minted grass bench -- hole, the ported apron (`--no-apron` to compare), DP zip, gates, failures localized (-> out/seat.json, out/seat_plan.png) |
 | `mouth.py` | R1: the stock mouth -- what its sea edge welds to, the bands round it, the beach arcs it splits (-> out/mouth.json) |
+| `lips.py` | R1: the bay's two rocky lips against the kit island's lip, in the coast laws' terms (-> out/lips.json) |
 
 ## 1. What was already settled (July)
 
@@ -264,11 +265,45 @@ ensemble framing replaces it.
     kit coast means a cliff-to-cliff join at each lip, which the coast law index calls the hard case: independently
     authored cliffs never meet cleanly. That is R1's one remaining problem, now scoped.
 
+*Round 3 (offline): can the bay's lips meet the kit's lip? (`lips.py`)*
+
+The coast law index says independently authored cliffs never meet cleanly. The kit's cliff, though, is not independently
+authored: `island.py` mints it from the stock measurement. Measured per wall tri (topo 58) near each lip and round
+the kit's r90 ring:
+
+| measure | stock E lip (33 tris) | stock W lip (14) | kit ring (332) |
+|---|---|---|---|
+| crest height p10 / p50 / p90 | 1.72 / 2.79 / 3.55 | 2.42 / 3.42 / 3.75 | 3.2 flat |
+| base height | 0 | 0 | 0 |
+| run p50 (crest to foot) | 0.96u | 1.32u | 1.0u (`rim_run`) |
+| slope p50 | 72.8 deg | 70.9 deg | 72.7 deg |
+| crest v / base v | 0.893 / 0.923 | 0.893 / 0.923 | 0.893 / 0.923 |
+| u per unit of shore, p50 | 0.015 | 0.014 | 0.013 |
+| land on top | grass | grass | grass |
+| water at the foot | sea4 32, sea3 18, sea5 7, sea1 5, beach1 4, sea2 3 | sea3 21, sea1 4, beach1 1 | the cut Sea4 sheet only |
+
+- **The same wall language:** slope, the corner-role V rows, the U density, the base, the grass on top.
+- **Three things a join must solve:**
+  1. **Crest height.** The kit's crest is flat 3.2; the stock crest wanders. Join columns at the kit's height exist on
+     both lips: E at 19.5u past the beach end (crest 3.11, u 0.824) or 23.0u (3.07, u 0.947); W at 29.8u (3.29,
+     u 0.752) or 39.7u (3.01, u 0.762). Within 0.1 of 3.2, so a join there needs no crest blend beyond a snap.
+  2. **U phase.** The kit's U is one global arc length round the ring. Both joins must land on the stock u at their
+     columns (0.824 and 0.752, say), so the kit arc between them has to be resampled to that phase: THE COLUMN
+     QUANTIZATION LAW, which the coast morphs' FREE EQUAL-ARC RESAMPLE already solves (total columns, mod 4).
+  3. **The water.** The stock feet are fronted by the bay's ladder (sea3, sea1, beach); the kit's only by Sea4, and
+     sea3 may never touch sea4 (THE LATTICE ADJACENCY LAW). Water knits (THE FUSE LAW): the rim-retile family re-bands
+     a sea3 or sea5 crop seam. That is lawful machinery, not new.
+- **So the bay assembly** is about 200u of stock coast: the 157u bay plus ~20u (E) and ~30u (W) of cliff to the join
+  columns, both of which already match the kit's crest. It carries verbatim and joins the kit wall at two columns
+  where the profiles agree.
+
 *What R1 still needs.*
 1. **The mouth: the bay as one assembly.** Carry the ~157u bay (both beach arcs, their bands, the river mouth) with the
-   river ensemble, and join it to the kit island's coast at the two rocky lips. First rung: offline, measure whether
-   the kit's own island coast (`world-island`'s topo-58 lip) and the bay's lips share a profile that a lip-to-lip
-   weld can meet, before building anything.
+   river ensemble, and join it to the kit island's coast at the two rocky lips. The profile question is answered
+   (round 3: the same language, with join columns at the kit's height on both lips). Next rung, offline: a bay-carry
+   dry run. Mint the island with an opening between the two join columns, place the ~200u bay assembly verbatim, snap
+   the two join verts, resample the kit wall's U to both phases, re-band the water with the rim retile, then run every
+   coast gate (crack, grain, weld audit, census, Wang carry) plus the ensemble's own.
 2. **The source:** a `world-mountain` massif seated so its foot meets the source tip, where the channel-marker tri
    now closes the channel. Composition only.
 - **Accept (unchanged):**
