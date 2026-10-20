@@ -8,6 +8,9 @@
 # cave-floor box [x0, x1, z0, z1, y_min] in the donor block's world frame. `home_ground` (massifs
 # only): the ground family its rim stands on at home, measured from the stock bytes (terrain study,
 # mountaindonors/) -- world-mountain warns when --ground differs (world/donors.home_ground_note).
+# River rows (world-river, world/river.py) add `window` (the stock read, a rect spec), `unit_blocks`
+# (the blocks whose river parts seed the unit) and `join_w` / `join_e` (each join column's stock
+# crest x,y,z then base x,y,z, 2 dp -- where the kit's minted cliff meets the stock lip).
 #
 # The GEOMETRY modules keep their frozen literals (interior.MOUNTAIN_DONOR / UAHO_ALCOVE,
 # island.BEACH_PINS, transplant.PROVEN_DONOR, ...) -- the Uaho carry's bit-frozen acceptance
@@ -147,3 +150,16 @@ aperture = "none"
 status = "qualified"
 anatomy_study = "ff9mapkit/ff9mapkit/world/island.py _sea_plane"
 note = "The game's ONLY full-cell deep Sea4 plane (island.SEA_PLANE_SOURCE) -- every island lane's sea sheet is cut from it."
+
+[[donor]]
+name = "cluster-c"
+blocks = "16-17,14-15"
+class = "river"
+aperture = "none"
+window = "13-19,12-17"
+unit_blocks = [[16, 14], [16, 15], [17, 14]]
+join_w = [1039.77, 3.29, -1084.39, 1040.0, 0.0, -1083.34]
+join_e = [1140.46, 3.11, -1028.0, 1141.11, 0.0, -1028.0]
+status = "candidate"
+anatomy_study = "studies/terrain-malleability/watercarry/ (RECON.md R1; PLAN.md; fragment_run.py)"
+note = "The lowland river, its bridge, its beached cove and the island in it (world/river.py CLUSTER_C). Rung 0: the fragment gates F1 + F2 pass offline; in game it is unproven, so a candidate until the plan's rung 4."

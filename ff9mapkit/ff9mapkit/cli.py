@@ -10434,11 +10434,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     wdn = sub.add_parser("world-donors",
                          help="print the read-only qualified-donor catalog for the world carry verbs "
-                              "(world/data/donors.toml -- massif/canopy/coast/sea-plane donors, their "
+                              "(world/data/donors.toml -- massif/canopy/coast/sea-plane/river donors, their "
                               "aperture class + anatomy study + status). The table the --donor help "
                               "used to hardcode; a drift test pins it to the frozen module literals.")
     wdn.add_argument("--class", dest="klass", default=None,
-                     choices=("massif", "canopy", "coast", "sea-plane"),
+                     choices=("massif", "canopy", "coast", "sea-plane", "river"),
                      help="show only this donor class")
     wdn.set_defaults(func=_cmd_world_donors)
 
