@@ -510,9 +510,19 @@ Not in v1: any coastnav stamp on the kit coast (the verb prints the coupling not
 - The manifest (every path with its sha256, plus how to revert) and the pre-deploy ledger are in the MAIN repo's
   `backups/` (`world-river-deploy.20261020-103431.manifest.txt`).
 
-The owner's playtest passed it. One observation, left open: the two shallow-water triangles where the beach meets the
-river mouth "look a little weird". They lie inside the verbatim cove (G4: every sample exactly home), so they are
-presumably home's own look. They have not been compared with home side by side.
+The owner's playtest passed it. One observation: the two shallow-water triangles where the beach meets the river mouth
+"look a little weird".
+
+**CLOSED: they are home's own look.**
+- **The bytes** (`mouth_compare.py`, 24u round the mouth): all 130 water, beach and river tris (Sea1-3, Stream,
+  RiverJoint, Beach1) match home in position, UV, normal and tangent. The only difference is decision 1's area stamp
+  on the beach and the carried ground (5 or 16 changed to 14), and those areas fall outside every range the engine
+  reads for the camera, the weather or the area-12 lock.
+- **The two triangles:** a Sea1 tri at the W corner and a Sea2 tri at the E corner, each with a vertex lifted to y
+  0.535 where every other sea tri there lies flat at 0.
+- **The eye** (`mouth_session.py`, one launch, 11/11): live and home stills from the same relative spots (the deck,
+  the E beach, the W beach) show the same darker wedge at each corner. Only the water's animation phase differs.
+  Stills: `.harness-runs/20261020-131150-world-river-mouth/mouth-zoom.png`.
 
 ## Decisions for the owner (answered: the recommendations, 2026-10-19)
 
