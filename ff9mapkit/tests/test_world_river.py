@@ -496,6 +496,26 @@ def test_b1_refuses_a_cell_with_its_own_prefab_or_an_unhosted_part(monkeypatch):
     assert any("(2, 3) emits ['stream']" in m for m in plan["B1"]["fails"])
 
 
+def test_b1_refuses_a_cell_another_deploy_already_holds(monkeypatch):
+    """THE MOD-TREE OCCUPANCY READ: open ocean in the stock tree is not "free" -- a prior deploy in the target folder
+    would be shadowed cell by cell. Without a folder the read is skipped (the offline composition has no target)."""
+    from ff9mapkit.world import mesh as M
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset({"terrain", "sea4"})})
+    seen = {}
+
+    def held(cells, mod_folder, **kw):
+        seen["cells"], seen["folder"] = list(cells), mod_folder
+        return ["x/Block[3][3] Terrain.ff9mesh"] if (3, 3) in cells else []
+    monkeypatch.setattr(M, "existing_overrides", held)
+    tris = [_blk_tri(2, 3, "terrain"), _blk_tri(3, 3, "terrain")]
+    assert R.binding_plan(tris)["B1"]["ok"] and not seen                    # no folder: no read
+    plan = R.binding_plan(tris, mod_folder="FF9CustomMap-world")
+    assert seen == {"cells": [(2, 3), (3, 3)], "folder": "FF9CustomMap-world"}
+    assert not plan["B1"]["ok"] and plan["occupied"] == ["x/Block[3][3] Terrain.ff9mesh"]
+    assert any("1 override file(s) already deployed" in m and "Block[3][3] Terrain.ff9mesh" in m
+               for m in plan["B1"]["fails"])
+
+
 def test_c1_refuses_a_part_over_budget(monkeypatch):
     monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset({"terrain", "sea4"})})
     monkeypatch.setattr(R, "PART_BUDGET", 1)

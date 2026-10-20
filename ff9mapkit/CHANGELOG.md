@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the river carry also refuses map cells another mod already overrides
+- The river carry's cell check now reads the mod folder as well as the original map. If another deploy already
+  overrides a target cell, the check fails and names the files. Before, a cell counted as free whenever the original
+  map had open sea there.
+- The carry has now been tested in the game: the river, its bridge, the cove, the beach and the island are walkable
+  and sailable where the kit's own simulation said they would be.
+
 ### Added — `world-render --mod-root`: render a build that never went into the game
 - `world-render --mod-root DIR` reads overworld overrides from any folder laid out like a mod folder. The folder can
   be a scratch build outside the game, and `--stock` still fills in the real map around it.
