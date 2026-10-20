@@ -179,3 +179,94 @@ def test_cells_around_covers_the_target_block():
     assert all(0 <= bx <= 23 and 0 <= by <= 19 for bx, by in cells)
     tight = R.cells_around(32.0, -32.0, radius=1.0)
     assert tight == ((0, 0),)
+
+
+# ------------------------------------------------------------------ the effective prefab + stock mode
+# What the engine BINDS at a cell (WMWorld.cs:525-573): its own prefab, or an IsSea cell's Donor.txt divert, or the
+# SeaBlockPrefab. A carried river that is not an override free-rides from the donor prefab, so an eye that drew only
+# the deployed files could not see it (watercarry/RECON.md section 5, R0).
+
+def _blockmesh(x, y, part, height):
+    from ff9mapkit.world.extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    pos = [[1.0, height, -1.0], [7.0, height, -1.0], [4.0, height, -7.0]]
+    return BlockMesh(name=f"Block[{x}][{y}] {part}", disc=1, x=x, y=y, lod="0_1", vcount=3, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: [[0.0, 1.0, 0.0]] * 3, CH_UV: [[0.1, 0.1]] * 3,
+                                  CH_TAN: [[0.0, 0.0, 0.0, 1.0]] * 3},
+                     flat_index=[0, 1, 2], tris=[[0, 1, 2]], raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+@pytest.fixture
+def stock_world(monkeypatch, tmp_path):
+    """Three stock prefabs -- a stream block (5,5), the land donor (12,10), the sea prefab (12,0) -- each stock part
+    a triangle at height = 10*x + y, so a batch names the block it came from; overrides go under tmp/MOD."""
+    from ff9mapkit.world import extract as X
+    prefabs = {(5, 5): {"terrain", "stream"}, (12, 10): {"terrain"}, (12, 0): {"sea4", "sea4f"}}
+    monkeypatch.setattr(X, "block_parts", lambda disc=1, lod="0_1", game=None:
+                        {k: frozenset(v) for k, v in prefabs.items()})
+
+    def read_block(x, y, *, disc=1, lod="0_1", part="terrain", game=None):
+        if part not in prefabs.get((x, y), ()):
+            raise ValueError(f"block[{x}][{y}] {part} not found")
+        return _blockmesh(x, y, part, 10.0 * x + y)
+    monkeypatch.setattr(X, "read_block", read_block)
+
+    def deploy(bx, by, part, height=99.0, donor=None):
+        from ff9mapkit.world import mesh as M
+        d = tmp_path / "MOD" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / f"r{by}"
+        d.mkdir(parents=True, exist_ok=True)
+        M.write_ff9mesh(_blockmesh(bx, by, part, height), d / f"Block[{bx}][{by}] {part}.ff9mesh")
+        if donor is not None:
+            (d / f"Block[{bx}][{by}] Donor.txt").write_text(donor, encoding="utf-8")
+    return tmp_path, deploy
+
+
+def _site(game, cells, disc=1):
+    return R.RenderSite(cells=cells, disc=disc, mod_folder="MOD", game=game, water_texdir=game / "tex")
+
+
+def test_effective_prefab_follows_the_engine(stock_world):
+    game, deploy = stock_world
+    s = _site(game, ())
+    assert R.effective_prefab(s, 5, 5) == ((5, 5), "own prefab")
+    assert R.effective_prefab(s, 7, 7)[0] is None                       # open sea: the SeaBlockPrefab
+    deploy(7, 7, "Terrain", donor="5,5")
+    assert R.effective_prefab(s, 7, 7)[0] == (5, 5)                     # the divert
+    deploy(8, 8, "Terrain", donor="9,9")                                # a donor with no prefab
+    assert R.effective_prefab(s, 8, 8)[0] == (12, 10)
+    deploy(9, 9, "Terrain")                                             # no Donor.txt at all
+    assert R.effective_prefab(s, 9, 9)[0] == (12, 10)
+    deploy(5, 5, "Terrain", donor="12,10")                              # a stock block's Donor.txt is dead
+    assert R.effective_prefab(s, 5, 5) == ((5, 5), "own prefab")
+    s9 = _site(game, (), disc=9)                                        # Path D: every cell is IsSea
+    assert R.effective_prefab(s9, 5, 5)[0] is None                      # even where disc 1 has a prefab
+
+
+def test_stock_mode_draws_the_donors_free_riding_stream_at_the_target(stock_world):
+    game, deploy = stock_world
+    deploy(7, 7, "Terrain", height=3.2, donor="5,5")                    # a carried cell: Terrain override only
+    site = _site(game, ((7, 7), (8, 8)))
+    plain = R.load_batches(site)
+    assert [b[0] for b in plain] == ["Terrain"]                         # the deployed files only, as before
+    got = {b[0]: b[1] for b in R.load_batches(site, stock=True)}
+    assert sorted(got) == ["Sea4", "Stream", "Terrain"]
+    ox, oz = 7 * 64.0, -7 * 64.0
+    assert np.allclose(got["Terrain"][:, 1], 3.2)                       # the override (float32) wins over the prefab
+    assert got["Stream"][:, 1].tolist() == [55.0] * 3                   # the DONOR (5,5)'s stream ...
+    assert got["Stream"][0].tolist() == [ox + 1.0, 55.0, oz - 1.0]      # ... at the TARGET cell's origin
+    assert got["Sea4"][:, 1].tolist() == [120.0] * 3                    # (8,8) open sea: (12,0)'s sea4f
+
+
+def test_water_parts_take_their_engine_textures(tmp_path):
+    from PIL import Image
+    tex = tmp_path / "worldmap" / "textures"
+    (tmp_path / "worldmap" / "materials").mkdir(parents=True)
+    tex.mkdir(parents=True)
+    Image.new("RGBA", (4, 4), (10, 20, 30, 255)).save(tex / "11_128_0_0.png")                 # River, frame 0
+    Image.new("RGBA", (4, 4), (40, 50, 60, 255)).save(tmp_path / "worldmap" / "materials" / "11_64_192.png")
+    site = R.RenderSite(cells=(), game=tmp_path, water_texdir=tex)
+    cache: dict = {}
+    assert R.tex_for("River", site, cache)[0, 0].tolist() == [10, 20, 30, 255]
+    assert R.tex_for("Stream", site, cache)[0, 0].tolist() == [40, 50, 60, 255]
+    assert R.tex_for("Falls", site, cache) is None                      # absent -> magenta in the raster
+    assert {"Stream", "River", "RiverJoint", "Falls"} <= set(R.PARTS)

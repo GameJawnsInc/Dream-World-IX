@@ -6166,7 +6166,7 @@ def _cmd_world_render(args: argparse.Namespace) -> int:
             site = R.RenderSite(cells=R.cells_around(wx, wz, radius=args.radius),
                                 disc=args.disc if args.disc is not None else 9,
                                 mod_folder=args.mod_folder or "FF9CustomMap-world")
-            batches = R.load_batches(site)
+            batches = R.load_batches(site, stock=args.stock)
             if not batches:
                 print(f"no deployed .ff9mesh under {site.mod_folder} Disc{site.disc} near "
                       f"({wx:g},{wz:g}) -- nothing to render", file=sys.stderr)
@@ -6184,7 +6184,7 @@ def _cmd_world_render(args: argparse.Namespace) -> int:
             if args.disc is not None or args.mod_folder:
                 site = _dc.replace(site, disc=args.disc if args.disc is not None else site.disc,
                                    mod_folder=args.mod_folder or site.mod_folder)
-            batches = R.load_batches(site)
+            batches = R.load_batches(site, stock=args.stock)
             if not batches:
                 print(f"no deployed .ff9mesh under {site.mod_folder} Disc{site.disc} -- "
                       "nothing to render", file=sys.stderr)
@@ -10739,6 +10739,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "(default FF9CustomMap-world)")
     wrd.add_argument("--views", default=None,
                      help="comma-separated subset of view names to render (default: all)")
+    wrd.add_argument("--stock", action="store_true",
+                     help="draw what the ENGINE binds where no override file exists: stock land under the overrides, "
+                          "open sea round them, and a Donor.txt cell's free-riding donor parts (a carried river or "
+                          "falls that is not an override). Default: the deployed override files only")
     wrd.add_argument("--out", default="out/world_render", help="PNG output dir (default out/world_render)")
     wrd.add_argument("--diff", default=None, metavar="DIR",
                      help="pixel-diff each view against DIR/<view>.png from a prior run; REPORTED, "
