@@ -1093,16 +1093,12 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
     for a_ in range(len(ring_pts)):
         dd = np.sum((ring_pts - ring_pts[a_]) ** 2, axis=1)
         nm += int(((dd > 1e-9) & (dd < 0.0025)).sum())
-    eu = Counter()
-    for blk, bm in changed.items():
-        v_ = bm.chan_arrays[X.CH_POS]
-        bx, by = blk
-        for tri in bm.tris:
-            w = [(v_[i][0] + BLOCK * bx, v_[i][1], v_[i][2] - BLOCK * (by + 1) + BLOCK)
-                 for i in tri]
-            for a, b in ((0, 1), (1, 2), (2, 0)):
-                eu[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
-    inner_once = [e for e, n in eu.items() if n == 1
+    # the annulus-crack gate = BASELINE-SUBTRACTED against the PRISTINE island, as carve_mountain's
+    # once-edge gate is: an edge the island already holds open is its own, not a crack the carve
+    # opened (the river island's grass crest over its carried stock bank, RUNG5.md "The forest after
+    # the seam rung"). The carve must not ADD one; the same count over the same blocks before it.
+    once0 = {e for e, n in _world_edge_use(soup["blocks"]).items() if n == 1}
+    inner_once = [e for e, n in _world_edge_use(changed).items() if n == 1 and e not in once0
                   and near_poly((e[0][0] + e[1][0]) / 2, (e[0][2] + e[1][2]) / 2,
                                 poly, RING_BAND + 2.0)]
     log(f"gates: down={down} maxEdge={maxe:.1f} nearMiss={nm // 2} "
@@ -1124,6 +1120,22 @@ def carve_forest(soup, *, center=None, near=None, donor=FOREST_DONOR, disc: int 
                        "spread": spread,
                        "rot_deg": 0 if rot_deg is None else round(float(rot_deg) % 360.0, 6),
                        "hairlines": hairlines, "rim_splits": rim_splits}}
+
+
+def _world_edge_use(blocks) -> Counter:
+    """Edge use over ``{(bx, by): BlockMesh}`` in the world frame, keyed by :data:`kk3` -- an
+    internal block border counts 2, one tri from each side's mesh. One count for a carve's gate
+    and for the pristine baseline it subtracts, so the two can only differ where the carve did."""
+    eu = Counter()
+    for blk, bm in blocks.items():
+        v_ = bm.chan_arrays[X.CH_POS]
+        bx, by = blk
+        for tri in bm.tris:
+            w = [(v_[i][0] + BLOCK * bx, v_[i][1], v_[i][2] - BLOCK * (by + 1) + BLOCK)
+                 for i in tri]
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                eu[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
+    return eu
 
 
 def _assemble(soup, drop, new_by_block):
@@ -3847,7 +3859,7 @@ def _atlas_gate_mountain(new_parents, *, game=None, log=print):
 
 # ---- census + deploy ------------------------------------------------------------------------
 def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, baseline=None,
-                parts=None):
+                parts=None, stack=None):
     """Per changed block: the engine placement census (hidden aux parts + the CUT sea plane)
     must ground EVERYWHERE (MISS=0). ``probe = ((wx, wz), expected_topo)`` additionally
     grounds one world point.
@@ -3870,32 +3882,70 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
 
     THE SEAM WRAP: ``changed`` keys may be unwrapped seam columns (:func:`read_deployed_blocks`);
     the stack is censused under the WRAPPED label it deploys as (one label per block-local
-    census), while the probe's world->local step keeps the unwrapped key -- the soup's frame."""
+    census), while the probe's world->local step keeps the unwrapped key -- the soup's frame.
+
+    THE DEPLOYED STACK (the river island, RUNG5.md "The forest after the seam rung"): ``stack``
+    maps blk -> {part: BlockMesh} of every override the block already ships besides Terrain
+    (:func:`read_deployed_stack`). Given it, the census measures what the game loads -- the
+    deployed parts stand in for the hidden blanks and the re-cut sea (a river's Stream /
+    RiverJoint cover its channel) -- and it measures the CARVE, not the island: the same census
+    runs on the PRISTINE stack (the ``baseline`` Terrain under the same parts), and a MISS or
+    stacked sample the pristine stack already has is the island's own (``world-river``'s
+    home-miss subtraction, ``river.audit_written``): logged, not refused. A sample the carve
+    newly strands still refuses. ``parts`` keeps its meaning: a block it names ships exactly
+    those :data:`ENSEMBLE_PARTS` (carried content, else the blank ``deploy_mountain_parts``
+    writes -- :func:`census_parts`), so the deployed ones it replaces leave the edited stack."""
     from . import placement as P
-    from .island import _sea_plane, _cut_plane
-    plane = _sea_plane(disc, game=game)
+    if stack is not None and baseline is None:
+        raise ValueError("census_gate: stack= measures the carve against the pristine stack -- "
+                         "pass baseline= (the blocks as read before the carve)")
+    if stack is None:
+        from .island import _sea_plane, _cut_plane
+        plane = _sea_plane(disc, game=game)
+    home_miss = home_stacked = 0
     for blk, bm in sorted(changed.items()):
         bx, by = blk
         wbx = M.wrap_block_col(bx)
-        hid = lambda nm_: M.hidden_block_mesh(name=nm_, disc=disc, x=wbx, y=by)  # noqa: E731
-        under = baseline.get(blk, bm) if baseline is not None else bm
-        by_name = {"Object": hid("Object"), "Terrain": _wrap_label(bm, "Terrain"), "Sea1": hid("Sea1"),
-                   "Sea2": hid("Sea2"), "Sea3": hid("Sea3"),
-                   "Sea4": _cut_plane(plane, bx, by, frozenset(), under, label_x=wbx),
-                   "Sea5": hid("Sea5")}
-        by_name.update((p_, _wrap_label(m_, p_)) for p_, m_ in ((parts or {}).get(blk) or {}).items())
-        meshlist = P.build_meshlist(by_name)
-        cen = P.census(meshlist, frame="block_local")
-        if cen["miss"]:
-            raise ValueError(f"placement MISS in {blk}: {cen['miss'][:4]}")
-        if cen["stacked"]:
+        if stack is None:
+            hid = lambda nm_: M.hidden_block_mesh(name=nm_, disc=disc, x=wbx, y=by)  # noqa: E731
+            under = baseline.get(blk, bm) if baseline is not None else bm
+            by_name = {"Object": hid("Object"), "Terrain": _wrap_label(bm, "Terrain"), "Sea1": hid("Sea1"),
+                       "Sea2": hid("Sea2"), "Sea3": hid("Sea3"),
+                       "Sea4": _cut_plane(plane, bx, by, frozenset(), under, label_x=wbx),
+                       "Sea5": hid("Sea5")}
+            by_name.update((p_, _wrap_label(m_, p_)) for p_, m_ in ((parts or {}).get(blk) or {}).items())
+            meshlist = P.build_meshlist(by_name)
+            cen = P.census(meshlist, frame="block_local")
+            miss, stacked = cen["miss"], cen["stacked"]
+        else:
+            if blk not in baseline:
+                raise ValueError(f"census_gate: no baseline Terrain for {blk} -- the pristine stack "
+                                 f"is what the carve is measured against")
+            aux = {P.canonical_part(p_): _wrap_label(m_, P.canonical_part(p_))
+                   for p_, m_ in (stack.get(blk) or {}).items() if P.canonical_part(p_) != "Terrain"}
+            pristine = P.build_meshlist({**aux, "Terrain": _wrap_label(baseline[blk], "Terrain")})
+            if parts is not None and blk in parts:
+                aux = {p_: m_ for p_, m_ in aux.items() if p_ not in ENSEMBLE_PARTS}
+                aux.update((P.canonical_part(p_), _wrap_label(m_, P.canonical_part(p_)))
+                           for p_, m_ in (parts[blk] or {}).items())
+            meshlist = P.build_meshlist({**aux, "Terrain": _wrap_label(bm, "Terrain")})
+            cen = P.census(meshlist, frame="block_local")
+            cen0 = P.census(pristine, frame="block_local")
+            had_miss, had_stack = set(cen0["miss"]), {r["at"] for r in cen0["stacked"]}
+            miss = [m_ for m_ in cen["miss"] if m_ not in had_miss]
+            stacked = [r for r in cen["stacked"] if r["at"] not in had_stack]
+            home_miss += len(cen["miss"]) - len(miss)
+            home_stacked += len(cen["stacked"]) - len(stacked)
+        if miss:
+            raise ValueError(f"placement MISS in {blk}: {miss[:4]}")
+        if stacked:
             # the lawn-under-hill class (BENCH-WALK-SIM's playtest pin): a walkable sheet
             # UNDER a walkable sheet -- first-in-buffer wins, so the player grounds beneath
             # the surface. A carve must REMOVE the ground it covers, not leave it stacked.
-            worst = max(cen["stacked"], key=lambda r: r["gap"])
-            raise ValueError(f"stacked walkable sheets in {blk}: {len(cen['stacked'])} sample(s), "
+            worst = max(stacked, key=lambda r: r["gap"])
+            raise ValueError(f"stacked walkable sheets in {blk}: {len(stacked)} sample(s), "
                              f"worst at {worst['at']} gap {worst['gap']}u "
-                             f"({len(cen['inversions'])} shadowed)")
+                             f"({sum(1 for r in stacked if r['shadowed'])} shadowed)")
         if probe:
             (wx, wz), want_topo = probe
             lx, lz = wx - BLOCK * bx, wz + BLOCK * (by + 1) - BLOCK
@@ -3905,7 +3955,52 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
                 if nm_ != "Terrain" or topo != want_topo:
                     raise ValueError(f"probe grounded on {nm_} topo {topo}, "
                                      f"expected Terrain topo {want_topo}")
-    log("placement census: MISS=0 in changed blocks")
+    if stack is None:
+        log("placement census: MISS=0 in changed blocks")
+    else:
+        log(f"placement census (deployed stack): no new MISS in changed blocks"
+            + (f" ({home_miss} MISS / {home_stacked} stacked sample(s) the pristine stack already has: "
+               f"the island's own)" if home_miss or home_stacked else ""))
+
+
+def read_deployed_stack(mod_folder: str, blocks, *, disc: int = 1, lod: str = "0_1", game=None,
+                        target_disc: int | None = None) -> dict:
+    """blk -> {part: BlockMesh}: every override each of ``blocks`` already ships BESIDES its
+    Terrain -- what :func:`census_gate`'s ``stack=`` measures (an island's cut Sea4 and blanks,
+    a river island's Stream/River/RiverJoint/Beach/Sea parts). The read of
+    :func:`read_deployed_blocks`, same namespace (``target_disc``) and same seam wrap: the key
+    stays the unwrapped column, the file read is its wrapped label's. Only parts the engine
+    registers (:data:`placement.REGISTRATION_ORDER`) are read; a block with none maps to {}."""
+    from .. import config
+    from . import placement as P
+    if not blocks:
+        return {}
+    rtarget = disc if target_disc is None else int(target_disc)
+    root = Path(config.find_game_path(game)) / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{rtarget}" / lod
+    out = {}
+    for bx, by in sorted(blocks):
+        wbx = M.wrap_block_col(bx)
+        pre = f"Block[{wbx}][{by}] "
+        got = {}
+        for f in sorted((root / f"r{by}").glob(f"Block[[]{wbx}[]][[]{by}[]] *.ff9mesh")):
+            part = P.canonical_part(f.name[len(pre):-len(".ff9mesh")])
+            if part is None or part == "Terrain":
+                continue
+            got[part] = M.blockmesh_from_ff9mesh(f, disc=rtarget, x=bx, y=by, lod=lod, part=part.lower())
+        out[(bx, by)] = got
+    return out
+
+
+def census_parts(res) -> dict:
+    """``census_gate``'s ``parts=`` for a ``carve_mountain`` result: exactly the
+    :data:`ENSEMBLE_PARTS` :func:`deploy_mountain_parts` writes. With an ensemble divert
+    (``donor_ref``) it writes every part on EVERY span block -- carried content, else a blank --
+    so each span block maps to its carried parts, possibly none; without one it writes no aux
+    part and this is ``changed_parts`` as before."""
+    cp = res.get("changed_parts") or {}
+    if res.get("donor_ref") is None:
+        return cp
+    return {**{tuple(b): {} for b in res["report"]["blocks"]}, **cp}
 
 
 def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_1",

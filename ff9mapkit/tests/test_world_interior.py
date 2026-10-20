@@ -28,6 +28,7 @@ rest covers the hermetic machinery:
 from __future__ import annotations
 
 import math
+import re
 from collections import defaultdict
 
 import numpy as np
@@ -1773,6 +1774,210 @@ def test_census_gate_raises_on_stacked_walkable_sheets(monkeypatch):
     IN.census_gate({(0, 0): lawn}, baseline={(0, 0): lawn})
     with pytest.raises(ValueError, match="stacked walkable sheets"):
         IN.census_gate({(0, 0): stacked}, baseline={(0, 0): lawn})
+
+
+# ---- the gates measure the CARVE, not the island (RUNG5.md "The forest after the seam rung") --------
+#
+# On the world-river island both relief refusals were the island's own state: the census found
+# the river channel MISSing (it censused hidden blanks + a cut sea, while in game the river's
+# parts cover it, and stock-inherited misses remain even under the whole deployed stack), and
+# the forest's annulus gate counted an edge already open on the untouched island.
+
+def _cell_sheet(cells, *, y, idall, name, cell=4.0):
+    """Flat up-facing tris over the given 4u cells -- a deployed aux part (e.g. a River over
+    a channel the Terrain leaves open)."""
+    tris = []
+    for i, j in sorted(cells):
+        x0, x1 = i * cell, (i + 1) * cell
+        z0, z1 = -j * cell, -(j + 1) * cell
+        tris.append((((x0, y, z0), (x1, y, z0), (x0, y, z1)), idall, 0.5))
+        tris.append((((x1, y, z0), (x1, y, z1), (x0, y, z1)), idall, 0.5))
+    return _bm(tris, name=name)
+
+
+# the river island in miniature: the Terrain is open over a channel cell (6,6) its River covers
+# and over a cell (10,10) nothing covers (a stock-inherited miss the pristine stack already has)
+_CHANNEL, _INHERITED = (6, 6), (10, 10)
+
+
+def _river_island():
+    terrain = _grid_block_with_hole(0, 0, {_CHANNEL, _INHERITED})
+    river = _cell_sheet({_CHANNEL}, y=1.0, idall=SEA57, name="Block[0][0] River")
+    return terrain, {(0, 0): {"River": river}}
+
+
+def test_census_gate_stack_passes_the_islands_own_misses_and_refuses_the_carves(monkeypatch):
+    """``stack=``: the census reads the deployed parts and subtracts what the pristine stack
+    already misses (``world-river``'s home-miss shape). The island as it stands passes, and so
+    does a carve that strands nothing new; a carve that opens a new hole still refuses. The old
+    construction (hidden blanks + a re-cut sea, no stack) refuses the untouched island itself --
+    the RUNG5 measurement this fixes."""
+    from ff9mapkit.world import island as I
+    monkeypatch.setattr(I, "_sea_plane", lambda disc, game=None: _sea_grid_plane())
+    terrain, stack = _river_island()
+    base = {(0, 0): terrain}
+    with pytest.raises(ValueError, match="placement MISS"):        # the old gate: the island's own state
+        IN.census_gate({(0, 0): terrain}, baseline=base)
+    lines = []
+    IN.census_gate({(0, 0): terrain}, baseline=base, stack=stack, log=lines.append)
+    assert "the island's own" in lines[-1]
+    bump = _grid_block_with_hole(0, 0, {_CHANNEL, _INHERITED})      # a carve elsewhere: a raised cell
+    bump.chan_arrays[CH_POS][0][1] += 0.5
+    IN.census_gate({(0, 0): bump}, baseline=base, stack=stack, log=lambda *a: None)
+    # BREAK-IT: a hole the carve opens where the island grounded is NEW -> refuses
+    punched = _grid_block_with_hole(0, 0, {_CHANNEL, _INHERITED, (3, 3)})
+    with pytest.raises(ValueError, match="placement MISS"):
+        IN.census_gate({(0, 0): punched}, baseline=base, stack=stack, log=lambda *a: None)
+    # the stack really is read: the River grounds the channel's samples, so fewer are the island's own
+    def own(stack_):
+        got = []
+        IN.census_gate({(0, 0): terrain}, baseline=base, stack=stack_, log=got.append)
+        return int(re.search(r"\((\d+) MISS", got[-1])[1])
+    assert 0 < own(stack) < own({(0, 0): {}})
+    with pytest.raises(ValueError, match="pass baseline="):
+        IN.census_gate({(0, 0): terrain}, stack=stack)
+
+
+def test_census_gate_stack_keeps_the_ensemble_parts_semantics():
+    """``parts=`` under ``stack=``: a block it names ships exactly those ENSEMBLE_PARTS (carried,
+    else ``deploy_mountain_parts``' blank), so a deployed River the mountain deploy replaces leaves
+    the edited stack -- the channel it covered is a NEW miss. A block ``parts`` does not name keeps
+    its deployed parts, and a carried Object still shadows the probe."""
+    terrain, stack = _river_island()
+    base = {(0, 0): terrain}
+    q = dict(baseline=base, stack=stack, log=lambda *a: None)
+    IN.census_gate({(0, 0): terrain}, parts={}, **q)                  # no ensemble: the River stays
+    with pytest.raises(ValueError, match="placement MISS"):
+        IN.census_gate({(0, 0): terrain}, parts={(0, 0): {}}, **q)    # blanked by the ensemble deploy
+    IN.census_gate({(0, 0): terrain}, parts={(0, 0): {"River": stack[(0, 0)]["River"]}}, **q)
+    shadow = [(16.0, 6.0, -16.0), (28.0, 6.0, -16.0), (16.0, 6.0, -28.0)]
+    obj = _bm([(shadow, SEA57, 0.5)], name="Block[0][0] Object")
+    IN.census_gate({(0, 0): terrain}, probe=((20.0, -20.0), 0), parts={(0, 0): {"River": stack[(0, 0)]["River"]}},
+                   **q)
+    with pytest.raises(ValueError, match="probe grounded on Object"):
+        IN.census_gate({(0, 0): terrain}, probe=((20.0, -20.0), 0),
+                       parts={(0, 0): {"Object": obj, "River": stack[(0, 0)]["River"]}}, **q)
+
+
+def test_census_gate_stack_subtracts_only_the_stacked_sheets_the_island_has():
+    lawn = _grid_block(0, 0)
+    hill = ((16.0, 9.0, -16.0), (24.0, 9.0, -16.0), (16.0, 9.0, -24.0))
+    stacked = _grid_block(0, 0, extra=[(hill, GRASS, _MAIN_U)])
+    q = dict(stack={(0, 0): {}}, log=lambda *a: None)
+    with pytest.raises(ValueError, match="stacked walkable sheets"):   # BREAK-IT: the carve's own stack
+        IN.census_gate({(0, 0): stacked}, baseline={(0, 0): lawn}, **q)
+    IN.census_gate({(0, 0): stacked}, baseline={(0, 0): stacked}, **q)   # the island already had it
+
+
+def test_census_parts_names_every_span_block_the_ensemble_deploy_writes():
+    obj = _bm([], name="Block[1][1] Object")
+    assert IN.census_parts({"changed_parts": {}, "donor_ref": None, "report": {"blocks": [[1, 1]]}}) == {}
+    got = IN.census_parts({"changed_parts": {(1, 1): {"Object": obj}}, "donor_ref": (0, 0),
+                           "report": {"blocks": [[1, 1], [2, 1]]}})
+    assert got == {(1, 1): {"Object": obj}, (2, 1): {}}
+
+
+def test_read_deployed_stack_reads_every_registered_part_but_terrain(tmp_path):
+    """The aux overrides beside each block's Terrain, by WRAPPED label under the unwrapped key
+    (a seam column -1 reads Block[23]); Donor.txt, parked backups and unregistered names are not
+    walkmesh parts."""
+    r1 = tmp_path / "modx" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r1"
+    r1.mkdir(parents=True)
+    M.write_ff9mesh(_mains_grid(), r1 / "Block[23][1] Terrain.ff9mesh")
+    M.write_ff9mesh(_cell_sheet({(1, 1)}, y=1.0, idall=SEA57, name="r"), r1 / "Block[23][1] River.ff9mesh")
+    M.write_ff9mesh(_cell_sheet({(2, 2)}, y=0.0, idall=SEA57, name="s"), r1 / "Block[23][1] Sea4.ff9mesh")
+    M.write_ff9mesh(_cell_sheet({(2, 2)}, y=0.0, idall=SEA57, name="j"), r1 / "Block[23][1] RiverJoint.ff9mesh")
+    M.write_ff9mesh(_cell_sheet({(3, 3)}, y=0.0, idall=SEA57, name="x"), r1 / "Block[23][1] Lava.ff9mesh")
+    (r1 / "Block[23][1] Sea4.ff9mesh.bak-20261020").write_bytes(b"old")
+    (r1 / "Block[23][1] Donor.txt").write_text("0,0", encoding="utf-8")
+    M.write_ff9mesh(_mains_grid(), r1 / "Block[0][1] Terrain.ff9mesh")
+    out = IN.read_deployed_stack("modx", {(-1, 1): None, (0, 1): None}, game=tmp_path)
+    assert set(out) == {(-1, 1), (0, 1)}
+    assert sorted(out[(-1, 1)]) == ["River", "RiverJoint", "Sea4"] and out[(0, 1)] == {}
+    assert {(bm.x, bm.y) for bm in out[(-1, 1)].values()} == {(-1, 1)}
+    assert len(out[(-1, 1)]["River"].tris) == 2
+    assert IN.read_deployed_stack("modx", {}, game=None) == {}
+
+
+def test_relief_call_sites_census_the_deployed_stack(monkeypatch, tmp_path):
+    """A law in a docstring is a wish: every relief verb's census -- the three CLI verbs and the
+    three ``world-fuse`` rows -- is handed the block's deployed stack and the pristine baseline,
+    and the mountain the parts its deploy writes."""
+    from ff9mapkit import cli, config
+    from ff9mapkit.world import fuse as FU
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    r1 = tmp_path / "modx" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r1"
+    r1.mkdir(parents=True)
+    M.write_ff9mesh(_mains_grid(), r1 / "Block[1][1] Terrain.ff9mesh")
+    M.write_ff9mesh(_cell_sheet({(1, 1)}, y=1.0, idall=SEA57, name="r"), r1 / "Block[1][1] River.ff9mesh")
+    seen = []
+
+    def carve(soup, **k):
+        return {"changed": dict(soup["blocks"]), "center": (96.0, -96.0), "changed_parts": {},
+                "donor_ref": (0, 0), "report": {"blocks": [[1, 1]]}}
+
+    def gate(changed, **k):
+        seen.append(k)
+        raise ValueError("stop after the census")
+    for verb in ("carve_forest", "build_hill", "carve_mountain"):
+        monkeypatch.setattr(IN, verb, carve)
+    monkeypatch.setattr(IN, "census_gate", gate)
+    for verb in ("world-forest", "world-hill", "world-mountain"):
+        args = cli.build_parser().parse_args([verb, "--mod-folder", "modx", "--near", "96,-96", "--dry-run"])
+        assert args.func(args) == 2
+    for table in ("forest", "hill", "mountain"):
+        out = FU.compose_layout("modx", {table: [{"near": [96.0, -96.0]}]}, dry_run=True)
+        assert [g.get("error") for g in out["gates"] if not g["ok"]] == ["stop after the census"]
+    assert len(seen) == 6
+    for k in seen:
+        assert set(k["baseline"]) == {(1, 1)}
+        assert set(k["stack"]) == {(1, 1)} and sorted(k["stack"][(1, 1)]) == ["River"]
+    assert [k.get("parts") for k in seen] == [None, None, {(1, 1): {}}] * 2
+
+
+def _annulus_bench():
+    """A 52u mains grid whose own WEST BORDER is open (a once-edge the island holds) 10u off the
+    canopy outline at (20,-26): inside the annulus gate's 11u band, outside the 9u hole ring."""
+    return IN.soup_from_blocks({(0, 0): _mains_grid()})
+
+
+def test_carve_forest_annulus_gate_subtracts_the_islands_own_open_edges(monkeypatch, tmp_path):
+    """The annulus-crack gate is baseline-subtracted, as carve_mountain's is: the untouched
+    island's open border within 11u of the canopy (the river island's crest-over-bank edge at
+    (10.84,-829.54), RUNG5.md) is the island's, not the carve's -- the canopy seats."""
+    _patch_donor(monkeypatch, _canopy_donor())
+    soup = _annulus_bench()
+    outline = [(10.0, -16.0), (30.0, -16.0), (30.0, -36.0), (10.0, -36.0)]
+    own = [e for e, n in IN._world_edge_use(soup["blocks"]).items() if n == 1
+           and IN.near_poly((e[0][0] + e[1][0]) / 2, (e[0][2] + e[1][2]) / 2, outline, IN.RING_BAND + 2.0)]
+    assert len(own) == 7                    # the fixture really holds open edges in the band
+    lines = []
+    res = IN.carve_forest(soup, center=(20.0, -26.0), donor=(15, 15), game=tmp_path, log=lines.append)
+    assert res["center"] == (20.0, -26.0)
+    assert any("annulusOnce=0 " in s for s in lines)
+
+
+def test_carve_forest_annulus_gate_still_refuses_a_crack_the_carve_opens(monkeypatch, tmp_path):
+    """BREAK-IT: on the same bench, a kept grass tri knocked out of the re-emitted annulus (a crack
+    the carve introduced: its edges were shared on the pristine island) must still refuse."""
+    import dataclasses
+    _patch_donor(monkeypatch, _canopy_donor())
+    real = IN._assemble
+
+    def cracked(soup, drop, new_by_block):
+        out = real(soup, drop, new_by_block)
+        bm = out[(0, 0)]
+        P = bm.chan_arrays[CH_POS]
+        victim = next(t for t in bm.tris
+                      if 36.0 < sum(P[i][0] for i in t) / 3 < 40.0 and -28.0 < sum(P[i][2] for i in t) / 3 < -24.0)
+        out[(0, 0)] = dataclasses.replace(bm, tris=[t for t in bm.tris if t is not victim])
+        return out
+    monkeypatch.setattr(IN, "_assemble", cracked)
+    lines = []
+    with pytest.raises(ValueError, match="forest geometry gate failed"):
+        IN.carve_forest(_annulus_bench(), center=(20.0, -26.0), donor=(15, 15), game=tmp_path,
+                        log=lines.append)
+    assert any("annulusOnce=3 " in s for s in lines)
 
 
 # ---- the foot-course window (the spur-graft class, R4 take-5) --------------------------------

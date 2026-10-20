@@ -411,6 +411,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         rot = None if "rot" not in row else float(row["rot"])
         blocks = IN.read_deployed_blocks(mod_folder, near=pt, reach=reach, disc=disc,
                                          game=game, target_disc=target_disc)
+        stack = IN.read_deployed_stack(mod_folder, blocks, disc=disc, game=game, target_disc=target_disc)
         soup = IN.soup_from_blocks(blocks)
         if table == "forest":
             spec = row.get("donor", IN.FOREST_DONOR)
@@ -418,11 +419,11 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             res = IN.carve_forest(soup, donor=donor, disc=disc, game=game,
                                   spread=float(row.get("spread", 1.0)), rot_deg=rot, **loc)
             IN.census_gate(res["changed"], disc=disc, game=game,
-                           probe=(res["center"], 37), baseline=blocks)
+                           probe=(res["center"], 37), baseline=blocks, stack=stack)
         elif table == "hill":
             res = IN.build_hill(soup, height=float(row.get("height", 4.2)),
                                 radius=radius, **loc)
-            IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks)
+            IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks, stack=stack)
         else:                                                # mountain
             extra = {"ground": row["ground"]} if "ground" in row else {}
             donor = _parse_block_rect(row.get("donor", [IN.MOUNTAIN_DONOR]))
@@ -435,7 +436,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
                                     spread=float(row.get("spread", 1.0)),
                                     rot_deg=rot, **loc, **extra)
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,
-                           parts=res.get("changed_parts"))
+                           parts=IN.census_parts(res), stack=stack)
         if not dry_run:
             from . import discmirror as DM
             written = list(IN.deploy_changed(res["changed"], mod_folder=mod_folder,
