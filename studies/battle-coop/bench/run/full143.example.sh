@@ -95,7 +95,7 @@ NEWTAPE=$(ls -t "$DRESSDIR"/*.f9tape 2>/dev/null | head -1)
 echo "tape: $NEWTAPE"
 if [ -n "$NEWTAPE" ]; then
   PYTHONIOENCODING=utf-8 py tools/harness/coop_peer.py dress "$(cygpath -m "$NEWTAPE")" --ghost-as auto --guest-slots 2 --leader 0 > "$OUT/t/tape_dress.txt" 2>&1; echo "dress check exit $?"
-  tail -5 "$OUT/t/tape_dress.txt" | cut -c1-240
+  tail -n 5 "$OUT/t/tape_dress.txt" | cut -c1-240
 fi
 echo "######## STEP 6b: an s143 host tape on the PLANT BRAIN SEAT (its own dir) $(date +%T)"
 SEATDIR=/c/gd/Dream-World-IX/.harness-runs/coop-tapes/seat-s143
@@ -110,7 +110,7 @@ if [ -n "$SEATTAPE" ]; then
   PYTHONIOENCODING=utf-8 py tools/harness/coop_peer.py offer "$T" --want 2 > "$OUT/t/offer2.txt" 2>&1; echo "offer --want 2 exit $? (want 1)"
   PYTHONIOENCODING=utf-8 py tools/harness/coop_peer.py dress "$T" --ghost-as auto --guest-slots 2 --leader 0 > "$OUT/t/dress_leader.txt" 2>&1; echo "dress --leader 0 exit $? (want 0: 08 00 01, Vivi)"
   PYTHONIOENCODING=utf-8 py tools/harness/coop_peer.py dress "$T" --ghost-as auto --guest-slots 2 > "$OUT/t/dress_raw.txt" 2>&1; echo "dress (positional) exit $? (want 1)"
-  tail -3 "$OUT/t/offer4.txt" "$OUT/t/dress_leader.txt" | cut -c1-240
+  for f in "$OUT/t/offer4.txt" "$OUT/t/dress_leader.txt"; do tail -n 3 "$f"; done | cut -c1-240
 fi
 echo "INI after the recordings $(sha256sum "$G/Memoria.ini" | cut -c1-16)"
 echo "######## STEP 7: TAPE + BLOCK C $(date +%T)"

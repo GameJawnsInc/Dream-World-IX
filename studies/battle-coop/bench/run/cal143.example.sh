@@ -50,7 +50,7 @@ if [ "${DEPLOY:-}" = yes ]; then
     || { echo "STOP: the 30608 deploy failed -- see $OUT/c141/deploy30608.txt"; exit 1; }
   PYTHONIOENCODING=utf-8 py -X utf8 tools/deploy_field.py studies/battle-coop/bench/vivibody.field.toml --id 30609 --mod-folder FF9CustomMap-msgs > "$OUT/c141/deploy30609.txt" 2>&1 \
     || { echo "STOP: the 30609 deploy failed -- see $OUT/c141/deploy30609.txt"; exit 1; }
-  tail -2 "$OUT/c141/deploy30607.txt" "$OUT/c141/deploy30608.txt" "$OUT/c141/deploy30609.txt" | cut -c1-220
+  for f in "$OUT/c141/deploy30607.txt" "$OUT/c141/deploy30608.txt" "$OUT/c141/deploy30609.txt"; do tail -n 2 "$f"; done | cut -c1-220
   if [ -n "$NEW" ]; then
     echo "STOP: NEW id(s)$NEW registered by this deploy -- RELAUNCH the game (a new FieldScene registers at launch), then run this again WITHOUT DEPLOY"; exit 0
   fi
@@ -85,7 +85,7 @@ if [ -n "$SEATTAPE" ]; then
   PYTHONIOENCODING=utf-8 py tools/harness/coop_peer.py offer "$T" --want 2 > "$OUT/c141/offer2.txt" 2>&1; echo "offer --want 2 exit $? (want 0)"
   PYTHONIOENCODING=utf-8 py tools/harness/coop_peer.py dress "$T" --ghost-as auto --guest-slots 2 --leader 0 > "$OUT/c141/dress_leader.txt" 2>&1; echo "dress --leader 0 exit $? (want 1: s141 ships Zidane 62 00 00)"
   PYTHONIOENCODING=utf-8 py tools/harness/coop_peer.py dress "$T" --ghost-as auto --guest-slots 2 > "$OUT/c141/dress_raw.txt" 2>&1; echo "dress (positional) exit $? (want 0)"
-  tail -3 "$OUT/c141/offer2.txt" "$OUT/c141/dress_raw.txt" | cut -c1-240
+  for f in "$OUT/c141/offer2.txt" "$OUT/c141/dress_raw.txt"; do tail -n 3 "$f"; done | cut -c1-240
 fi
 echo "INI at end $(sha256sum "$G/Memoria.ini" | cut -c1-16)"
 echo "ALL DONE $(date +%T) -- outputs in $OUT/c141"

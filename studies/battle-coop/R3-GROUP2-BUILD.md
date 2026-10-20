@@ -15,6 +15,7 @@ stack replays by number:
 | s139 | s128 | the host's dress rule + wire section 8 | ★ deployed, solo-proven + real-wire duo |
 | s140 | s129 | the guest dresses itself (+ rig rows 9-12 for CharacterId 8-11) | ★ deployed, solo-proven + real-wire duo |
 | s141 | s130 | polish: footsteps, held props, the mesh-op drop, lighting | ★ deployed, solo-proven + real-wire duo |
+| s143 | -- | the guest never commands the host's leader (the Plant Brain fix) | ★ deployed, solo-proven + a seat tape |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -658,3 +659,29 @@ wear the client's leader). On the selftest role section 8 always ships the pin (
 section-8 half is a real host's (the seat tape: `coop_peer.py dress --leader 0` / `offer --want 4`). No solo bench reaches
 a world-map battle after a load, nor a real guest's "You:" line (on time or late): the selftest rows, the stand-in and the
 owner's two-PC playtest.
+
+**Calibrated on s141 first** (the live DLL `0293cb46ffa176f6`, 2026-10-20): the seats' preflight CLEAN (30607 [10, 0, 1,
+3] and 30608 [2, 0, 1, 3] -> effective 0x4, moved 1 -> 2; the 30609 body seat's leader Vivi), coop_leader_guard under
+COOP_CALIBRATE=1 red in exactly OLD_PREDICTED (S143-CAL green), and the s141 host tape on the Plant Brain seat SHOWS THE
+BUG on a real host's wire: the header offers the guest 0x2 (Zidane) and section 8 is `62 00 00` (Zidane) on all 4685
+frames (`offer --want 4` and `dress --leader 0` red, their positional twins green).
+
+**Deployed** 2026-10-20 (`build_memoria.py`, backup `20261020-034912`; Assembly-CSharp `be01339d49f6a87b`; owner
+pre-approved).
+
+**Proven on s143:**
+- coop_leader_guard **19/19** on its first in-game run, Plant Brain's own battle 303 included: the guard {leader 0, raw 2,
+  effective 0x4, moved 1 -> 2, chars [10, 0, 1, 3]}; across 743 live publishes the host's windows opened on Zidane (1)
+  and Steiner (3), NEVER on Vivi (2); a slot-1 `bcmd` refused ('not a guest slot'), a slot-2 one landed; Blank's appear
+  (bracketed: linked at the head) changed nothing in the guard, and his window was the host's; 'Partner: Vivi (not
+  Zidane)' read ON SCREEN off `battle.message`, the guest's 'You: Vivi' at mask 0x4; the field ghost Vivi; the forest-exit
+  seat, the Vivi-bodied leader and the COOPPARTY negative control.
+- Under `bench leaderguard off` exactly LEVER_PREDICTED red, behaviourally (the host loses Zidane again); S143-CAL green.
+- Block A at baseline (S9-C4L unreachable solo); coop_self_dress 65/65 and 54/54 with GhostAs blank; the duo G9 22/22;
+  a fresh host tape (section 8 `08 00 01` on 4833 frames); the Plant Brain seat tape on s143: the header offers **0x4**
+  and section 8 is **`08 00 01` (Vivi)** on all 4855 frames (the positional twins red); the tape legs; the T2 cut legs
+  (+78, +0, +78 ms).
+
+**Next:** the owner's two-PC playtest of the disc-1 Evil Forest (Plant Brain with GuestSlots 2: the guest commands Vivi,
+the host keeps Zidane, both lines show; then the forest exit); other party-order edge cases as the owner reports them.
+s142 (the selftest swirl-strand fix) is still queued.
