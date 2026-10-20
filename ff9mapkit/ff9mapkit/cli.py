@@ -5479,7 +5479,8 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     verb = "would deploy" if args.dry_run else "deployed"
-    cx, cz = res["center"]
+    from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
+    cx, cz = wrap_world_xz(*res["center"])
     r = res["report"]
     bits = ([f"spread x{r['spread']:g}"] if r["spread"] != 1.0 else []) + \
         ([f"rot {r['rot_deg']:g}deg"] if r["rot_deg"] else [])
@@ -5517,7 +5518,8 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     verb = "would deploy" if args.dry_run else "deployed"
-    cx, cz = res["center"]
+    from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
+    cx, cz = wrap_world_xz(*res["center"])
     r = res["report"]
     print(f"{verb} a grass hill at world ({cx:.0f},{cz:.0f}) (H {args.height}, R {args.radius}): "
           f"{r['displaced_tris']} tris displaced, worst flank {r['worst_flank']} deg "
@@ -5618,9 +5620,10 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     verb = "would deploy" if args.dry_run else "deployed"
-    cx, cz = res["center"]
+    from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
+    cx, cz = wrap_world_xz(*res["center"])
     r = res["report"]
-    tx, tz = r["teleport"]
+    tx, tz = wrap_world_xz(*r["teleport"])
     rh = r.get("rock_height")
     if rh:
         print(f"rock height x{rh['scale']:g}: {rh['free']} rock positions stretched about {rh['pinned']} "
