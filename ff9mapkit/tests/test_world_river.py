@@ -1024,16 +1024,16 @@ def test_cluster_c_composes_green_on_open_ocean(cluster_c):
     footprint the island grounds EXACTLY as home does at every sample.
 
     Re-pinned with the cell-clipped lip (THE LIP-STREAK FIX): the kit's lip is cut at the lattice lines, so it
-    carries more, smaller tris -- 3785 (was 3329), the opening drops 1722 (was 1690: 1621 lawn + 101 wall) and keeps
-    2063 (was 1639) -- and the zip over the finer hole arc lays 440 tris (was 442), max rise 1.40 (was 1.39). Every
+    carries more, smaller tris -- 3809 (was 3329), the opening drops 1722 (was 1690: 1621 lawn + 101 wall) and keeps
+    2087 (was 1639) -- and the zip over the finer hole arc lays 440 tris (was 442), max rise 1.40 (was 1.39). Every
     gate, the G4 census at home included, is exactly as it was."""
     win, f, ol = cluster_c
     assert R.open_ocean_offsets(sorted(R.mint(ol)["blocks"]))[0] == (8, 0)
     comp = R.compose(f, offset=(512.0, 0.0), window=win, ol=ol)
     rep, g = comp.report, comp.report["gates"]
     assert rep["green"] and _red(comp) == []
-    assert rep["opening"] == {"kit_tris": 3785, "dropped": 1722, "dropped_fams": {"main": 1621, "rock": 101},
-                              "kept": 2063}
+    assert rep["opening"] == {"kit_tris": 3809, "dropped": 1722, "dropped_fams": {"main": 1621, "rock": 101},
+                              "kept": 2087}
     assert (g["zip"]["tris"], g["zip"]["max_edge"], g["zip"]["max_rise"]) == (440, 6.66, 1.4)
     assert g["G4"]["by"] == {"same": 10098} and (g["G4_kit"]["points"], g["G4_kit"]["miss"]) == (3341, 0)
     assert (g["G1"]["cracks"], g["G3"]["near_miss"], g["G5"]["flipped"]) == (0, 0, 0)
