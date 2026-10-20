@@ -414,9 +414,11 @@ Tests:
 - Install-gated: cluster C written and audited.
 - A mutation run turned tests red each time: no diagonal cost, corner-only cut, no wrap, pooled variants.
 
-## Rung 4 result (in game)
+## Rung 4 result (in game) -- CLOSED, owner-passed
 
-**Every registered harness check passed; the owner's eye on the bay is the one check still open.** The lab is
+**Every registered check passed, the owner's eye on the bay included** ("the bay passes"). Cluster C's catalog row is
+now `qualified`. What v1 still lacks is the CLI verb: the command line at the top of this plan is not wired yet. The lab
+is
 `river.write_composition` verbatim, written by `lab_build.py` with the mist off. `lab_prep.py` predicts every height
 and stop from the engine's ground and movement rules over the lab files (the ray from y + 2.34375, the 8-angle slide,
 masks WALK and BOAT). `lab_install.py` put the lab first in FolderNames and restored Memoria.ini byte-exact after
@@ -446,7 +448,7 @@ camera sees only the banks: the river view's stills show a dry-looking gully and
 verbatim (G4: every sample exactly home), so home looks the same. The channel views (`channel_deck`, `source`) put the
 water in the near field.
 
-**Three things for the owner's eye** (stills in `.harness-runs/20261020-090223-world-river-foot/rung4-sheet.png` and
+**Three things put to the owner's eye, all passed with the bay** (stills in `.harness-runs/20261020-090223-world-river-foot/rung4-sheet.png` and
 `.harness-runs/20261020-090931-world-river-channel/rung4-channel.png`):
 1. **The bay** reads as stock: the beach, the shallows grading to deep, the island in the cove.
 2. **The source end** is the stream's banks closing in open lawn (decision 3). Rung 5's massif replaces it.

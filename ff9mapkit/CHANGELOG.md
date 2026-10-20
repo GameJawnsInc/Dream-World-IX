@@ -10,7 +10,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   overrides a target cell, the check fails and names the files. Before, a cell counted as free whenever the original
   map had open sea there.
 - The carry has now been tested in the game: the river, its bridge, the cove, the beach and the island are walkable
-  and sailable where the kit's own simulation said they would be.
+  and sailable where the kit's own simulation said they would be. The lowland river is now a `qualified` donor in
+  the catalog.
 
 ### Added — `world-render --mod-root`: render a build that never went into the game
 - `world-render --mod-root DIR` reads overworld overrides from any folder laid out like a mod folder. The folder can
