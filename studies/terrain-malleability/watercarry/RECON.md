@@ -27,6 +27,10 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 | `outline_run.py` | PLAN rung 1: cluster C's kit outline, its custom-outline mint and the J1-J4 join gates, with plans (-> out/outline.json, out/outline_plan.png, out/outline_join_{E,W}.png) |
 | `compose_run.py` | PLAN rung 2: cluster C composed onto open ocean, every gate and the binding plan, with plans (-> out/compose.json, out/compose_plan.png, out/compose_{E,W,NE,mouth}.png) |
 | `write_run.py` | PLAN rung 3: cluster C written to a scratch folder (out/river_mod), the knit, W1 + B1 on the bytes, then `world-render --stock` and four seam views (-> out/write.json, out/river_render/) |
+| `lab_build.py` | PLAN rung 4: cluster C composed at block offset (8,-2) (no live folder holds those cells), written as the lab folder with the mist off (-> out/lab/FF9CustomMap-lab, out/lab/build.json) |
+| `lab_prep.py` | PLAN rung 4: the engine's ground and movement rules over the lab files -- probe heights, the walk and boat stops, the view homes (-> out/lab/prep.json) |
+| `lab_install.py` | PLAN rung 4: `install` puts the lab first in FolderNames (Memoria.ini backed up); `uninstall RUN_DIR` restores the ini byte-exact and moves the lab out |
+| `lab_session.py` | PLAN rung 4, in game (`tools/play.py`): FOOT = probes, views, the bank/bridge/join walks; BOAT = the Blue Narciss across the seam into the cove. `RIVER_STAGES` / `RIVER_ITEMS` pick a subset |
 
 ## 1. What was already settled (July)
 

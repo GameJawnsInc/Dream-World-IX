@@ -414,6 +414,50 @@ Tests:
 - Install-gated: cluster C written and audited.
 - A mutation run turned tests red each time: no diagonal cost, corner-only cut, no wrap, pooled variants.
 
+## Rung 4 result (in game)
+
+**Every registered harness check passed; the owner's eye on the bay is the one check still open.** The lab is
+`river.write_composition` verbatim, written by `lab_build.py` with the mist off. `lab_prep.py` predicts every height
+and stop from the engine's ground and movement rules over the lab files (the ray from y + 2.34375, the 8-angle slide,
+masks WALK and BOAT). `lab_install.py` put the lab first in FolderNames and restored Memoria.ini byte-exact after
+each launch.
+
+**The placement moved.** Rung 2's offset (8, 0) is open ocean in the stock tree, but the live overworld folder already
+holds 54 files on those cells. **B1 now reads the mod tree too** (`binding_plan(mod_folder=)`, through
+`mesh.existing_overrides`): an occupied target cell is a B1 failure. The lab sits at (8, -2): cells (23,12-14),
+(0,11-15) and (1,11-14), across the world's seam, which no live folder touches. Every rung 3 gate held there.
+
+| check | game | simulation |
+|---|---|---|
+| R1 the kit lawn / the carried island / the bridge deck (Object topo 52) | y 3.199 / 2.863 / 4.090 | 3.200 / 2.865 / 4.093 |
+| R2 the bank walk at the stream | blocked at 12.86u, min y 3.05 | 13.1u |
+| R3 the bridge walk | across, 16.25u of 16.22, min y 3.09 | reached |
+| R5 the E join's cliff top | blocked at 17.17u, min y 2.84 (never drops) | 16.98u, min y 2.85 |
+| R5 the W join's cliff top | across, 18.80u, min y 3.23 | reached, 18.38u |
+| R4 the Blue Narciss from the kit's open sea | across the knit seam into the cove, stopped at 82.23u on the beach | 82.21u |
+
+**The water animates.** Pairs of stills 60 frames apart, mean pixel change by region; the grass is 0.00 in every view:
+- the sea and the cove: 2.3-3.4;
+- the stream: 12.6 under the bridge and 9.2 at the source end;
+- the river mouth: 16.6.
+
+**THE SUNKEN CHANNEL:** the stream's water sits at y 0.39, 2.8u under the lawn. From the lawn views, the low world
+camera sees only the banks: the river view's stills show a dry-looking gully and no motion there. The carry is
+verbatim (G4: every sample exactly home), so home looks the same. The channel views (`channel_deck`, `source`) put the
+water in the near field.
+
+**Three things for the owner's eye** (stills in `.harness-runs/20261020-090223-world-river-foot/rung4-sheet.png` and
+`.harness-runs/20261020-090931-world-river-channel/rung4-channel.png`):
+1. **The bay** reads as stock: the beach, the shallows grading to deep, the island in the cove.
+2. **The source end** is the stream's banks closing in open lawn (decision 3). Rung 5's massif replaces it.
+3. **A streaked grass band on the kit cliff's lip.** Flat lip tris whose texture mapping collapses to one direction
+   (v 0.77-0.82, the grass rows of the wall atlas). These are the kit mint's own: the kit islands already live in
+   FF9CustomMap-world carry 23 such tris, the lab island 12.
+
+The harness's own lesson, for the next overworld session: `world_face` measures the heading by WALKING about 30u. On
+a narrow headland the probe slides along the cliff and reads as a camera that will not turn (round 1 lost the foot
+stage that way). Face on the open lawn, then teleport to the start; the camera's yaw survives the teleport.
+
 ## Decisions for the owner (answered: the recommendations, 2026-10-19)
 
 1. **The AREA bits on carried tris.** Recommendation: stamp the island's own area (consistent camera, encounters and

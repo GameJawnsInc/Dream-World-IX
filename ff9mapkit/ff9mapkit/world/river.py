@@ -1667,7 +1667,9 @@ def binding_plan(tris, *, disc: int = 1, game=None, mod_folder=None) -> dict:
     """THE BINDING PLAN (PLAN.md step 7), computed, not written: each target block's parts after the 64u split,
     the divert (every cell -> :data:`DIVERT_PREFAB`), the hidden blanks (every prefab part a cell does not carry --
     its own would free-ride), and the gates B1 (every cell open ocean; the prefab hosts every emitted part) and C1
-    (the per-part budget). Sea4 is emitted everywhere: the island lane's cut sheet (rung 3) fills it."""
+    (the per-part budget). Sea4 is emitted everywhere: the island lane's cut sheet (rung 3) fills it. With
+    ``mod_folder``, B1 also refuses a target cell another deploy there already holds."""
+    from pathlib import Path
     from . import mesh as M_
     from .interior import split_borders8
     per = defaultdict(Counter)
@@ -1697,9 +1699,16 @@ def binding_plan(tris, *, disc: int = 1, game=None, mod_folder=None) -> dict:
         cells[blk] = {"tris": {PART_NAME[p]: n for p, n in sorted(per[blk].items())},
                       "blanks": sorted(PART_NAME[p] for p in host - emitted if p in PART_NAME),
                       "divert": list(DIVERT_PREFAB)}
+    # THE MOD-TREE OCCUPANCY READ: the stock tree says "open ocean", which is a different question from "free" -- a
+    # prior deploy in the target folder (rung 4: the live overworld folder holds 54 files on cluster C's first seam
+    # placement) would be shadowed cell by cell, its neighbours left rendering against ours
     occupied = []
     if mod_folder:
-        occupied = M_.existing_overrides(sorted(cells), mod_folder, disc=disc, game=game)
+        occupied = M_.existing_overrides(sorted((M_.wrap_block_col(b[0]), b[1]) for b in cells), mod_folder,
+                                         disc=disc, game=game)
+        if occupied:
+            b1.append(f"{len(occupied)} override file(s) already deployed on the target cells in {mod_folder}, "
+                      f"e.g. {[Path(p).name for p in occupied[:3]]}")
     return {"cells": {f"{b[0]},{b[1]}": v for b, v in cells.items()}, "occupied": occupied,
             "B1": {"ok": not b1, "fails": b1[:12], "cells": len(cells)},
             "C1": {"ok": not c1, "fails": c1[:12], "max": max((n for c in per.values() for n in c.values()),
