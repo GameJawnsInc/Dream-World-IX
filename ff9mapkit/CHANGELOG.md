@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — kit islands no longer show a streaked grass band along the top of their cliffs
+- A few grass triangles along every minted cliff's top edge stretched one line of the grass texture across
+  themselves, and in game they read as a streaked band along the lip. The islands already in the overworld folder
+  carried 23 of them; the river carry's island carried 12.
+- The kit now cuts the cliff's top edge where it crosses the grass grid and splits the edge grass along the same
+  lines, so every grass triangle shows its own square of the texture at full detail. This is how the original map
+  builds its cliff tops.
+- Only the edge changes: the rest of the island's grass and its meadow patches stay exactly as before, and
+  `world-forest` and `world-mountain` carve the same places the same way. A hill placed right at the edge clearance
+  can now be a hair too close; let `world-hill` find its spot (`--near`) instead of giving an exact one.
+- A new check, `lip_streaks`, counts any streaked triangle a mint makes. Islands already in the game keep their old
+  edge until they are minted again.
+
 ### Changed — the river carry also refuses map cells another mod already overrides
 - The river carry's cell check now reads the mod folder as well as the original map. If another deploy already
   overrides a target cell, the check fails and names the files. Before, a cell counted as free whenever the original
