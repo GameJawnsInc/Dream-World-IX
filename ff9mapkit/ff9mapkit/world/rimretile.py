@@ -542,12 +542,19 @@ def _sea5_deepsets(parts) -> dict:
 
 
 def rim_retile(mod_folder, cells_xy, donors, *, disc: int = 1, target_disc=None,
-               lod: str = "0_1", game=None, apply: bool = False, max_passes: int = 6):
+               lod: str = "0_1", game=None, apply: bool = False, max_passes: int = 6,
+               skip_mirror=False):
     """Re-tile a deployed island's cropped shallow rim. Returns a report dict.
 
     ``cells_xy`` are the DEPLOYED target cells; ``donors`` the blocks the island was carried
     from (the verbatim vocabulary). Iterates to a fixed point -- see the module docstring:
     one pass does not converge, because retiling changes the shade map the next pass reads.
+
+    An applied retile ends in :func:`~ff9mapkit.world.discmirror.auto_mirror` over the files it
+    wrote, like every other world-override writer: the carry it fixes was mirrored to Disc4, so
+    without this disc 4 kept the cropped seams (operators NOTES F6). ``skip_mirror`` opts out
+    (``True``) or defers to an orchestrator's single pass (``discmirror.DEFERRED``); the report's
+    ``mirror`` key is that call's summary.
     """
     from . import mesh as M
     from .. import config
@@ -620,4 +627,6 @@ def rim_retile(mod_folder, cells_xy, donors, *, disc: int = 1, target_disc=None,
             M.record_ledger_write(p, cell=(bx, by), part=part.capitalize(), write_disc=td)
             written.append(p)
     rep["written"] = [str(p) for p in written]
+    from . import discmirror as DM
+    rep["mirror"] = DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return rep

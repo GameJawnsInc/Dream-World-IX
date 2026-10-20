@@ -321,3 +321,93 @@ def test_unpaintable_is_SILENT_on_the_neck_stock_itself_ships(monkeypatch):
     _patch(monkeypatch, shade, water, {})
     assert RR.deepset(shade, water, [(0, 0)], 0, 0, 7, 7) == frozenset("EW")   # still a pinch
     assert RR.unpaintable_slivers({(0, 0): {}}) == []
+
+
+# --------------------------------------------------------------------------- THE DISC-4 MIRROR (operators F6)
+# world-rim-retile wrote the target disc only, so a carry that auto-mirrored to Disc4 kept its cropped seams
+# there. These run the REAL retile (plan, apply, gates, write) over a deployed cell under a tmp game root;
+# only the donor vocabulary is stubbed, and both discs read as open ocean for the mirror's cell gate.
+
+RIM_BLK = (20, 1)
+
+
+def _rim_cell():
+    """A deployed carry's sea, as the carry left it: Sea3 on every tile but (8, 8), which is Sea5 (so the
+    part exists for the retiled frame tiles to move into). Every frame tile faces the off-island ring."""
+    sea3 = [e for i in range(RR.G) for j in range(RR.G) if (i, j) != (8, 8) for e in _quad(i, j, topo=57)]
+    sea5 = _quad(8, 8, topo=57)
+    return {"Sea3": RR.build_part([e[1] for e in sea3], "Sea3", *RIM_BLK, 1),
+            "Sea5": RR.build_part([e[1] for e in sea5], "Sea5", *RIM_BLK, 1)}
+
+
+def _vocabulary(donors, **_k):
+    """One distinct harvested tile per wang key -- a corner map no frame tile already wears."""
+    keys = sorted({tuple(o) for opts in W.DEEPSET2TILE.values() for o in opts})
+    return {k: {(0, 0): (0.1 + n / 100, 0.2), (1, 0): (0.3 + n / 100, 0.2),
+                (1, 1): (0.3 + n / 100, 0.4), (0, 1): (0.1 + n / 100, 0.4)} for n, k in enumerate(keys)}
+
+
+@pytest.fixture
+def carried(tmp_path, monkeypatch):
+    """A tmp game root holding the cell on Disc1 and its byte-identical Disc4 mirror (what the carry's
+    auto-mirror wrote). Returns ``(disc1_dir, disc4_dir, pre_bytes)``."""
+    from ff9mapkit import config
+    from ff9mapkit.world import discmirror as DM, mesh as M
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    monkeypatch.setattr(DM, "_real_parts", lambda disc, lod="0_1", game=None: {})    # open ocean, both discs
+    monkeypatch.setattr(RR, "harvest_variants", _vocabulary)
+    wm = tmp_path / "MOD" / "FF9_Data" / "WorldMap"
+    d1, d4 = wm / "Disc1" / "0_1" / "r1", wm / "Disc4" / "0_1" / "r1"
+    pre = {}
+    for part, bm in _rim_cell().items():
+        name = f"Block[{RIM_BLK[0]}][{RIM_BLK[1]}] {part}.ff9mesh"
+        M.write_ff9mesh(bm, d1 / name)
+        d4.mkdir(parents=True, exist_ok=True)
+        (d4 / name).write_bytes((d1 / name).read_bytes())
+        pre[name] = (d1 / name).read_bytes()
+    return d1, d4, pre
+
+
+def _retile(**kw):
+    return RR.rim_retile("MOD", [RIM_BLK], [(7, 17)], **kw)
+
+
+def test_rim_retile_mirrors_the_retiled_cell_to_disc4(carried):
+    """THE BREAK-IT: before the wiring, Disc1 took the retile and Disc4 kept the carry's cropped rim."""
+    d1, d4, pre = carried
+    rep = _retile(apply=True)
+    assert not rep.get("refused"), rep
+    assert rep["quads"] and rep["written"]
+    for name in pre:
+        assert (d1 / name).read_bytes() != pre[name], f"{name}: the retile changed nothing -- the check is void"
+        assert (d4 / name).read_bytes() == (d1 / name).read_bytes(), f"{name}: Disc4 kept the cropped rim"
+    assert rep["mirror"] and sorted(p.name for p in rep["mirror"]["mirrored"]) == sorted(pre)
+    assert not list(d4.glob("*.prerim")), "the Disc1 backups are not overrides -- they must not mirror"
+
+
+def test_rim_retile_skip_mirror_leaves_disc4_alone(carried):
+    d1, d4, pre = carried
+    rep = _retile(apply=True, skip_mirror=True)
+    assert rep["written"] and rep["mirror"] is None
+    for name in pre:
+        assert (d1 / name).read_bytes() != pre[name]
+        assert (d4 / name).read_bytes() == pre[name]
+
+
+def test_rim_retile_dry_run_writes_nothing(carried):
+    d1, d4, pre = carried
+    rep = _retile(apply=False)
+    assert rep["dry_run"] and "written" not in rep and "mirror" not in rep
+    for name in pre:
+        assert (d1 / name).read_bytes() == pre[name] and (d4 / name).read_bytes() == pre[name]
+    assert sorted(p.name for p in d1.iterdir()) == sorted(pre) == sorted(p.name for p in d4.iterdir())
+
+
+def test_world_rim_retile_cli_threads_skip_mirror(monkeypatch):
+    from ff9mapkit import cli
+    seen = []
+    monkeypatch.setattr(RR, "rim_retile", lambda mf, cells, donors, **k: seen.append(k) or {"refused": "stub"})
+    for argv, want in ((["--skip-mirror"], True), ([], False)):
+        with pytest.raises(cli.ConfigError):
+            cli.main(["world-rim-retile", "--mod-folder", "MOD", "--cells", "20,1", "--donor", "7,17", *argv])
+        assert seen[-1]["skip_mirror"] is want

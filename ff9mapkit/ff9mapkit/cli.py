@@ -4818,7 +4818,7 @@ def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
     donors = [(dx + i, dy + j) for j in range(ny) for i in range(nx)]
     rep = RR.rim_retile(args.mod_folder, cells, donors, disc=args.disc,
                         target_disc=args.target_disc, game=args.game,
-                        apply=not args.dry_run)
+                        apply=not args.dry_run, skip_mirror=args.skip_mirror)
     if rep.get("refused"):
         raise ConfigError(f"rim-retile refused: {rep['refused']}")
     b, a = rep["before"], rep["after"]
@@ -4846,7 +4846,9 @@ def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
     if rep.get("dry_run"):
         print("  dry run -- nothing written")
     else:
-        print(f"  wrote {len(rep['written'])} file(s); .prerim backups kept")
+        td = args.disc if args.target_disc is None else args.target_disc
+        print(f"  wrote {len(rep['written'])} file(s); .prerim backups kept"
+              + (" (Disc1 only: after restoring them, re-run world-mirror so Disc4 follows)" if td == 1 else ""))
         _world_apply_note()
         _world_coupling_note()
     return 0
@@ -5329,7 +5331,8 @@ def _cmd_world_coastnav(args: argparse.Namespace) -> int:
         cells = [tuple(int(v) for v in c.split(",")) for c in args.cells.split(";") if c.strip()]
     try:
         s = CN.stamp(args.mod_folder, disc=args.disc, cells=cells, policy=args.policy,
-                     deploy=not args.dry_run, game=args.game, mirror_disc=args.mirror_disc)
+                     deploy=not args.dry_run, game=args.game, mirror_disc=args.mirror_disc,
+                     skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError, AssertionError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -10074,6 +10077,8 @@ def build_parser() -> argparse.ArgumentParser:
     wrr.add_argument("--target-disc", type=int, default=None,
                      help="the disc the island is DEPLOYED in (e.g. 9 for Path D)")
     wrr.add_argument("--dry-run", action="store_true")
+    wrr.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wrr.set_defaults(func=_cmd_world_rim_retile)
 
     wtp = sub.add_parser("world-transplant",
@@ -10525,7 +10530,11 @@ def build_parser() -> argparse.ArgumentParser:
                               "instead of sailing through it. Navigation only; geometry untouched.")
     wcn.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to stamp in")
     wcn.add_argument("--disc", type=int, default=1, help="the disc NAMESPACE to stamp (9 for a Path D synthetic world)")
-    wcn.add_argument("--mirror-disc", type=int, default=None, help="also write an identical copy to this disc (the real Disc1/Disc4 parity pair); omit for a synthetic namespace")
+    wcn.add_argument("--mirror-disc", type=int, default=None,
+                     help="LEGACY lockstep: also restamp an EXISTING copy on this disc in the same pass, refusing if "
+                          "the two copies already differ. Not needed for Disc4 -- a real stamp auto-mirrors there")
+    wcn.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wcn.add_argument("--cells", help="restrict to cells 'x,y;x,y' (default: every cell with a sea override)")
     wcn.add_argument("--policy", choices=("land-anywhere", "cliffs-refuse"), default="land-anywhere",
                      help="land-anywhere: every near-shore triangle is landable 53 (the Southern Ring's property). "

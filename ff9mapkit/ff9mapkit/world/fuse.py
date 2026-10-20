@@ -456,7 +456,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         cells = [tuple(int(v) for v in c) for c in row["cells"]] if "cells" in row else None
         return CN.stamp(mod_folder, disc=int(row.get("disc", rtarget)), cells=cells,
                         policy=row.get("policy", "land-anywhere"),
-                        deploy=not dry_run, game=game)
+                        deploy=not dry_run, game=game, skip_mirror=skip_mirror)
 
     def _rim_runner(row):
         from . import rimretile as RR
@@ -468,7 +468,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
                   else (int(size[0]), int(size[1])))
         donors = [(dx + i, dy + j) for j in range(ny) for i in range(nx)]
         rep = RR.rim_retile(mod_folder, cells, donors, disc=disc, target_disc=target_disc,
-                            game=game, apply=not dry_run)
+                            game=game, apply=not dry_run, skip_mirror=skip_mirror)
         if rep.get("refused"):
             raise ValueError(f"rim-retile refused: {rep['refused']}")
         return rep

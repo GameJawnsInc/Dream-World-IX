@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-rim-retile` and `world-coastnav` now copy their changes to disc 4
+- Every other world-override command copies what it writes to the disc-4 tree, so a custom island also exists on
+  disc 4. These two did not. `world-rim-retile` never copied, and `world-coastnav` copied only when given
+  `--mirror-disc`. Their `[[rim_retile]]` and `[[coastnav]]` rows in a `world-fuse` recipe never copied either.
+- So after an island carry, which does copy, a rim retile fixed the shallow-water seams on discs 1-3 only, and
+  disc 4 kept the seams. A coastnav restamp that stops boats at the cliffs did the same, so on disc 4 boats could
+  still sail through. Reproduced on a scratch folder: the retile left disc 4's Sea3 and Sea5 files behind, and the
+  stamp left all five Sea files behind.
+- Both commands now copy the files they wrote, the same way the other commands do: only those cells, and only where
+  the cell's stock ground is the same on both discs. `--skip-mirror` opts out, and a dry run writes nothing.
+  `--mirror-disc` still works but is no longer needed for disc 4. Run on a Path D world (disc 9), they still never
+  write a real disc. Checked offline only, not yet in game.
+
 ### Fixed — a hill fits beside the `world-river` island's bank
 - `world-hill`'s check for open seams counted every open seam within its radius + 4 units, including seams the
   island already had. On the river island at 512,128, where the grass edge meets the carried river bank, a hill
