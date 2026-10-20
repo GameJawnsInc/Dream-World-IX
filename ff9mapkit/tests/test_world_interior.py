@@ -869,6 +869,47 @@ def test_carve_mountain_spread_gate_still_catches_an_undeclared_widening(monkeyp
         _carve_pyramid(tmp_path, spread=1.5)
 
 
+BANK_SKIP = 4088.0                                       # topo 62 (stream bank) at area 15: the engine skips it
+
+
+def test_the_dispatch_strip_keeps_an_idall_the_ground_query_skips():
+    """THE BANK SKIP LAW (watercarry/RECON.md): the strip drops event + area bits -- except on an IDALL the engine's
+    ground query skips outright, where the area IS the physics (stripped, a skipped bank becomes ground)."""
+    from ff9mapkit.world import placement as P
+    assert P.ground_query_skips(4088.0) and P.ground_query_skips(2040) and P.ground_query_skips(4078.0)
+    assert not P.ground_query_skips(encode_id(topograph=62))
+    for raw in (4088.0, 2040.0, 4078.0):
+        assert IN._strip_dispatch(raw) == raw
+    assert IN._strip_dispatch(MASSIF_DONOR) == MASSIF                     # entrance + camera bits still go
+    gate = P.skip_parity_gate([(4088.0, 4088.0), (4088.0, float(encode_id(topograph=62))), (MASSIF_DONOR, MASSIF)],
+                              label="t")
+    assert gate["checked"] == 3 and gate["flipped"] == 1 and not gate["ok"]
+
+
+def _bank_pyramid_donor():
+    """The rock pyramid with ONE face a skipped stream-bank IDALL (carried with rock_topos=(49, 62)); the first
+    face stays rock, so the carry's peak probe grounds (a skipped tri is no ground: a MISS there is the engine's)."""
+    c00, c10, c11, c01, top = ((20.0, 0.0, -28.0), (28.0, 0.0, -28.0), (28.0, 0.0, -20.0), (20.0, 0.0, -20.0),
+                               (24.0, 4.0, -24.0))
+    ids = (MASSIF_DONOR, MASSIF_DONOR, MASSIF_DONOR, BANK_SKIP)
+    tris = [((a, b, top), i, _MAIN_U) for (a, b), i in zip(((c10, c00), (c11, c10), (c01, c11), (c00, c01)), ids)]
+    return _bm(tris, name="Block[0][0] Terrain", x=0, y=0)
+
+
+def test_carve_mountain_keeps_skipped_bank_idalls_and_the_gate_refuses_a_strip(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _bank_pyramid_donor())
+    res = _carve_pyramid(tmp_path, rock_topos=(49, 62))
+    bm = res["changed"][(0, 0)]
+    carried = [t4[0] for t4 in bm.chan_arrays[CH_TAN] if t4[0] == BANK_SKIP]
+    assert len(carried) == 3 and res["report"]["skip_parity"] == {"checked": 4, "flipped": 0}
+    assert sum(1 for t4 in bm.chan_arrays[CH_TAN] if t4[0] == MASSIF) == 3 * 3        # the rock still stripped
+    # break it: the old strip (area -> 0 on every tri) must be refused by the gate, by name
+    from ff9mapkit.world.extract import decode_id
+    monkeypatch.setattr(IN, "_strip_dispatch", lambda f: float(encode_id(topograph=decode_id(int(f))["topograph"])))
+    with pytest.raises(ValueError, match="ground-query visibility of 1 donor tri"):
+        _carve_pyramid(tmp_path, rock_topos=(49, 62))
+
+
 def test_cli_world_mountain_passes_rock_height_and_rot(monkeypatch, capsys):
     from ff9mapkit import cli
     seen = {}

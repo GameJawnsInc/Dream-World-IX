@@ -153,6 +153,22 @@ Cluster C's channel:
    banks must fail it on 177 triangles. The existing dispatch strip stays for event bits (entrances) and for any
    triangle the ground query reads normally.
 
+**R0 status: DONE (2026-10-19).**
+- **The eye.** `render.PARTS` has the four water parts, with their engine textures: River and RiverJoint flipbook frame
+  0, Falls and Stream materials at scroll offset 0. `world-render --stock` draws what the engine binds where no override
+  exists (`render.effective_prefab`: own prefab / Donor.txt divert / SeaBlockPrefab).
+  - Offline it shows the (19,11) twin falls and cluster C's river to its sea mouth.
+  - In game, read-only stills of both places show the same channels, banks, falls and forests (`still_session.py`,
+    runs `20261019-210537-water-stills` and `-d`; `out/r0_calibration_panel.png`). The game adds mist and lighting,
+    which are in the renderer's blind-spot list.
+- **The gate.**
+  - `interior._strip_dispatch` keeps any IDALL in `placement.IDALL_SKIP`.
+  - `placement.skip_parity_gate` refuses a carry that changes a tri's ground-query visibility; `carve_mountain` runs it
+    and reports `skip_parity`.
+  - On cluster C's real banks, the old strip flips 177 of 188 tris and the new one 0, as predicted. A hermetic break-it
+    restores the old strip and is refused by name.
+  - No existing donor changed a byte: the Uaho identity nets are green.
+
 **R1 -- the coastal river, verbatim (cluster C), on a bench of its own coast.**
 - **What:** the rect that holds the WHOLE system: the source's rock to the west, the channel, the sea mouth at (16,15).
   That is about 3x2 blocks. It is carried by the region transplant at rot 0 / shift 0, so the river, joint, banks and
