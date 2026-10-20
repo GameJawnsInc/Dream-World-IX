@@ -19,7 +19,8 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 | `anatomy.py` | For each water part, how it sits in its ground: hole, welds, height above the Terrain, bank topographs (-> out/anatomy.json) |
 | `still_session.py` | R0: read-only in-game stills of the stock river and falls (the renderer's calibration) |
 | `ensemble.py` | R1: cluster C's river ensemble (parts + welded banks) and its boundary classed LAWN / SEA / ROCK (-> out/ensemble.json) |
-| `seat_dryrun.py` | R1: the ensemble seated verbatim into a minted grass bench -- hole, DP zip, gates, failures localized (-> out/seat.json, out/seat_plan.png) |
+| `seat_dryrun.py` | R1: the ensemble seated verbatim into a minted grass bench -- hole, the ported apron (`--no-apron` to compare), DP zip, gates, failures localized (-> out/seat.json, out/seat_plan.png) |
+| `mouth.py` | R1: the stock mouth -- what its sea edge welds to, the bands round it, the beach arcs it splits (-> out/mouth.json) |
 
 ## 1. What was already settled (July)
 
@@ -225,20 +226,55 @@ ensemble framing replaces it.
   - **The mouth sits at sea level (0.17-0.71),** 3u under the lawn. The source's rock contact sits at lawn height
     (2.9-3.8) and zips cleanly.
 
-*What R1 still needs, in order.*
-1. **The apron.** `world-mountain`'s pure-Y lift of the kept grass toward the rim (`ground_lift`, the weld-safe lift),
-   applied to the ensemble's lawn ring. **Registered prediction:** the lawn-side failures go to 0 (zip rise <= 2.34, no
-   new once-edge, no introduced miss away from the mouth).
-2. **The mouth: a coast splice.** The unit's 20.6u sea edge must meet water. On the bench that means the island's coast
-   ring: the stock mouth assembly (the RiverJoint's sea bands and beach at (16,15)) slid into a minted coast as one
-   assembly (THE SLIDE-THE-ASSEMBLY LAW; beach ends are load-bearing welds). This is the one genuinely new mechanism and
-   THE DEFECT FOLLOWS THE AUTHORSHIP's likely home. It needs its own anatomy pass of the stock mouth first.
-3. **The source:** a `world-mountain` massif seated so its foot meets the source tip (stock: "every river rises in a
-   mountain"). Composition only; the rock contact already zips.
+*Round 2 (offline, 2026-10-19): the apron, the true unit, and the mouth.*
+- **The registered prediction FAILED as stated.** With `world-mountain`'s apron ported onto the lawn ring (367
+  positions lifted, max 0.86u, apron slope 4.4 deg), the lawn failures barely moved: steep zip tris 9 -> 7, cracks
+  3 -> 3, introduced misses 8 -> 8. The rim heights were not the cause. Localizing every failure by distance to the
+  mouth found two missing members of the ensemble:
+  - **The source's own water tri.** The unit had a second ring, a 3-point hole (7.4u, 1.3u^2) at the source,
+    (1127.4, -917.9). At home a single Terrain tri plugs it: IDALL 4044 (area 15, topo 51), one of the map's two
+    "channel markers". Leaving it out caused all 3 cracks and 3 of the misses.
+  - **The crossing.** Six ring edges at the bend weld to the Object, not to grass. The Object splits into a separate
+    76-tri structure (x 1079-1097, y 7.95-15.85, never welded to the river) and a 40-tri BRIDGE at (1028-1035,
+    -955..-960), welded to the channel by 24 verts. The bridge has a walkable topo-52 deck (IDALL 4050) on skipped 4078
+    sides. Leaving it out made the rim dip to 2.12 there, giving 4 steep zip tris and 5 misses.
+- **THE ENSEMBLE IS WIDER THAN THE PARTS.** A stock water feature's lawful unit is its parts, plus the carved banks,
+  plus the Terrain's own water tris that close it, plus the Object that crosses it. With all four, the seat is clean
+  on the lawn side:
+
+  | gate | result |
+  |---|---|
+  | rings | 1 |
+  | new once-edges | 0 |
+  | introduced census misses | 0 (360 seated = 360 donor) |
+  | skip parity | 0 flips (201 skipped IDALLs kept) |
+  | steepest zip ny | 0.726 |
+  | max chord | 8.25u |
+
+  Every one of the 20 remaining zip failures (rise to 3.09) sits within 4.9u of the mouth.
+- **The apron is not needed here.** The same full unit seated WITHOUT it (`--no-apron`) is equally clean on the
+  lawn side: 0 cracks, 0 introduced misses, steepest zip ny 0.701 against 0.726 with it, 21 mouth failures against
+  20. The lawn rim is level enough (p10-p90 2.32-3.63 on a 3.2 bench) that the lift buys nothing measurable. Leave
+  it out: it is authored surface, and THE DEFECT FOLLOWS THE AUTHORSHIP. Keep it for a bench that is not level.
+- **The mouth (`mouth.py`).**
+  - The unit's 20.6u sea edge welds to mid water: sea3 4, sea1 1, sea2 1. Within 6u: sea3 12, sea1 4, sea2 2, beach1 6.
+  - The river SPLITS a sandy shore (topo 31): two beach arcs each end about 2.4u from the mouth.
+  - Their far ends, 65u (W, 37 tris) and 92u (E, 50 tris) from the mouth, both weld to the rocky lip (topo 58).
+  - So the smallest CLOSED coastal assembly holding the mouth is the whole ~157u bay, lip to lip. Splicing it into a
+    kit coast means a cliff-to-cliff join at each lip, which the coast law index calls the hard case: independently
+    authored cliffs never meet cleanly. That is R1's one remaining problem, now scoped.
+
+*What R1 still needs.*
+1. **The mouth: the bay as one assembly.** Carry the ~157u bay (both beach arcs, their bands, the river mouth) with the
+   river ensemble, and join it to the kit island's coast at the two rocky lips. First rung: offline, measure whether
+   the kit's own island coast (`world-island`'s topo-58 lip) and the bay's lips share a profile that a lip-to-lip
+   weld can meet, before building anything.
+2. **The source:** a `world-mountain` massif seated so its foot meets the source tip, where the channel-marker tri
+   now closes the channel. Composition only.
 - **Accept (unchanged):**
   - offline: every gate, and R0's visibility gate on every bank;
-  - in game: the stream animates, its banks walk as stock (a walk at the bank stops as at home, a light-blue chocobo
-    crosses, a yellow one does not), the mouth reads as stock, and the owner's eye passes it.
+  - in game: the stream animates, its banks walk as stock, the bridge carries the player across, the mouth reads as
+    stock, and the owner's eye passes it.
 
 **R2 -- a falls in its mountain (cluster D, or a new massif donor).**
 - **What:** `world-mountain`'s ensemble carry with Stream added to `ENSEMBLE_PARTS` and `Donor.txt` -> (19,11).
